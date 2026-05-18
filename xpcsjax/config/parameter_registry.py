@@ -23,6 +23,7 @@ Addresses code review finding of 8x parameter name duplication.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
@@ -35,7 +36,7 @@ if TYPE_CHECKING:
 # T055: Module-level logger for parameter registry
 logger = get_logger(__name__)
 
-AnalysisMode = Literal["static", "static_isotropic", "laminar_flow"]
+AnalysisMode = Literal["static", "static_isotropic", "laminar_flow", "two_component"]
 
 
 @dataclass(frozen=True)
@@ -223,6 +224,145 @@ class ParameterRegistry:
             is_physical=True,
             is_flow=True,
         ),
+        # Heterodyne (two-component) parameters
+        # Reference component diffusion
+        "D0_ref": ParameterInfo(
+            name="D0_ref",
+            description="Reference diffusion prefactor",
+            default=1e4,
+            lower_bound=0.0,
+            upper_bound=1e6,
+            units="Å²/s",
+            is_physical=True,
+            log_space=True,
+        ),
+        "alpha_ref": ParameterInfo(
+            name="alpha_ref",
+            description="Reference transport exponent",
+            default=0.0,
+            lower_bound=-2.0,
+            upper_bound=2.0,
+            units="",
+            is_physical=True,
+        ),
+        "D_offset_ref": ParameterInfo(
+            name="D_offset_ref",
+            description="Reference diffusion offset",
+            default=0.0,
+            lower_bound=-1e4,
+            upper_bound=1e4,
+            units="Å²/s",
+            is_physical=True,
+        ),
+        # Sample component diffusion
+        "D0_sample": ParameterInfo(
+            name="D0_sample",
+            description="Sample diffusion prefactor",
+            default=1e4,
+            lower_bound=0.0,
+            upper_bound=1e6,
+            units="Å²/s",
+            is_physical=True,
+            log_space=True,
+        ),
+        "alpha_sample": ParameterInfo(
+            name="alpha_sample",
+            description="Sample transport exponent",
+            default=0.0,
+            lower_bound=-2.0,
+            upper_bound=2.0,
+            units="",
+            is_physical=True,
+        ),
+        "D_offset_sample": ParameterInfo(
+            name="D_offset_sample",
+            description="Sample diffusion offset",
+            default=0.0,
+            lower_bound=-1e4,
+            upper_bound=1e4,
+            units="Å²/s",
+            is_physical=True,
+        ),
+        # Velocity family (heterodyne flow)
+        "v0": ParameterInfo(
+            name="v0",
+            description="Velocity amplitude",
+            default=1e3,
+            lower_bound=0.0,
+            upper_bound=1e6,
+            units="nm/frame",
+            is_physical=True,
+            is_flow=True,
+            log_space=True,
+        ),
+        "v_beta": ParameterInfo(
+            name="v_beta",
+            description="Velocity time exponent (renamed from heterodyne docs' `beta`)",
+            default=1.0,
+            lower_bound=0.0,
+            upper_bound=2.0,
+            units="",
+            is_physical=True,
+            is_flow=True,
+        ),
+        "v_offset": ParameterInfo(
+            name="v_offset",
+            description="Velocity offset",
+            default=0.0,
+            lower_bound=-100.0,
+            upper_bound=100.0,
+            units="nm/frame",
+            is_physical=True,
+            is_flow=True,
+        ),
+        # Sample fraction polynomial coefficients
+        "f0": ParameterInfo(
+            name="f0",
+            description="Sample fraction coefficient 0",
+            default=0.5,
+            lower_bound=0.0,
+            upper_bound=1.0,
+            units="",
+            is_physical=True,
+        ),
+        "f1": ParameterInfo(
+            name="f1",
+            description="Sample fraction coefficient 1",
+            default=0.0,
+            lower_bound=-1.0,
+            upper_bound=1.0,
+            units="",
+            is_physical=True,
+        ),
+        "f2": ParameterInfo(
+            name="f2",
+            description="Sample fraction coefficient 2",
+            default=0.0,
+            lower_bound=-1.0,
+            upper_bound=1.0,
+            units="",
+            is_physical=True,
+        ),
+        "f3": ParameterInfo(
+            name="f3",
+            description="Sample fraction coefficient 3",
+            default=0.0,
+            lower_bound=-1.0,
+            upper_bound=1.0,
+            units="",
+            is_physical=True,
+        ),
+        # Heterodyne flow angle (radians; renamed from heterodyne docs' `phi0`
+        # to avoid collision with homodyne's phi0 which uses degrees)
+        "phi0_het": ParameterInfo(
+            name="phi0_het",
+            description="Flow angle (heterodyne; radians)",
+            default=0.0,
+            lower_bound=-math.pi,
+            upper_bound=math.pi,
+            units="radians",
+            is_physical=True,
+        ),
     }
 
     # Analysis mode definitions
@@ -237,6 +377,22 @@ class ParameterRegistry:
             "beta",
             "gamma_dot_t_offset",
             "phi0",
+        ],
+        "two_component": [
+            "D0_ref",
+            "alpha_ref",
+            "D_offset_ref",
+            "D0_sample",
+            "alpha_sample",
+            "D_offset_sample",
+            "v0",
+            "v_beta",
+            "v_offset",
+            "f0",
+            "f1",
+            "f2",
+            "f3",
+            "phi0_het",
         ],
     }
 
@@ -576,7 +732,14 @@ class ParameterRegistry:
         return result
 
     def _normalize_mode(self, mode: str) -> str:
-        """Normalize analysis mode string."""
+        """Normalize analysis mode string.
+
+        Accepts canonical names and a few synonyms:
+        - 'static' / containing 'static' → 'static'
+        - containing 'static' + 'isotropic' → 'static_isotropic'
+        - containing 'laminar' → 'laminar_flow'
+        - 'two_component' or 'heterodyne' (any case) → 'two_component'
+        """
         mode_lower = mode.lower()
         if "static" in mode_lower and "isotropic" in mode_lower:
             return "static_isotropic"
@@ -584,10 +747,12 @@ class ParameterRegistry:
             return "static"
         elif "laminar" in mode_lower:
             return "laminar_flow"
+        elif "two_component" in mode_lower or "two-component" in mode_lower or "heterodyne" in mode_lower:
+            return "two_component"
         else:
             raise ValueError(
                 f"Unknown analysis mode: {mode}. "
-                f"Expected 'static', 'static_isotropic', or 'laminar_flow'"
+                f"Expected 'static', 'static_isotropic', 'laminar_flow', or 'two_component'"
             )
 
 
