@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Consolidate the `homodyne` and `heterodyne` XPCS analysis packages into a single `xpcsjax` package whose v0.1 exposes a unified NLSQ-only fitting API for both physics models.
+**Goal:** Consolidate the `homodyne` and `heterodyne` XPCS analysis packages into a single `xpcsjax` package that exposes a unified NLSQ-only fitting API for both physics models. **CMC / Bayesian sampling is permanently out of scope** — xpcsjax is NLSQ-only by design.
 
 **Architecture:** Adopt homodyne's NLSQ engine verbatim (JAX-native trust-region reflective LM via `nlsq.CurveFit`; 5-layer anti-degeneracy controller; memory-aware strategy routing; CMA-ES escape). Two physics models live as peer classes — `HomodyneModel` (3/7 params w/ sinc-shear) and `HeterodyneModel` (14 params, two-component). Single `fit_nlsq(data, config)` entry; dispatch via `analysis_mode` enum. Anti-degeneracy Layer 5 (`ShearSensitivityWeighting`) gated by model lineage — active for `HomodyneModel` only.
 
@@ -20,10 +20,12 @@
 
 ## Before You Start
 
-1. Read the spec at `docs/superpowers/specs/2026-05-18-xpcsjax-nlsq-merge-design.md` end-to-end. Pay particular attention to §10 (NLSQ engine) and §10.3 (model-gated anti-degeneracy).
+1. Read the spec at `docs/superpowers/specs/2026-05-18-xpcsjax-nlsq-merge-design.md` end-to-end. Pay particular attention to §10 (NLSQ engine), §10.3 (model-gated anti-degeneracy), and §15 (permanent vs deferred exclusions).
 2. Confirm both source packages clone-locally and are clean: `cd /home/wei/Documents/GitHub/homodyne && git status` (expect clean), same for `heterodyne/`.
 3. **Hard rule from the spec:** never `import scipy.optimize.least_squares` in xpcsjax source. nlsq's `trf` is JAX-native and lives at `nlsq/core/trf.py`. Run `grep -rn "scipy.optimize.least_squares" xpcsjax/` after any port task — expect zero matches.
-4. **Phase 5 is a hard gate.** Do not start Phase 6 until Phase 5 characterization tests pass at `rtol=1e-10` for every homodyne config.
+4. **Hard rule on CMC:** xpcsjax is NLSQ-only by design. NumPyro, BlackJAX, ArviZ, and any CMC / MCMC / Bayesian-sampling machinery are **permanently** out of scope (not deferred — never coming). Any file or symbol in homodyne whose name or imports reference `numpyro`, `blackjax`, `arviz`, `cmc`, or `mcmc` must be dropped during the port. Run `grep -rn -i "numpyro\|blackjax\|arviz" xpcsjax/` after Phase 4 — expect zero matches.
+5. **Complete-mirror principle:** the plan lists specific files to copy in each task, but the mirror is meant to be **complete**, not a curated subset. If you find a sibling `.py` file in a homodyne directory that the plan doesn't explicitly list, port it too (with standard sed rewrite) — **unless** it's CMC-related (rule 4) or v0.2-deferred (`cli/`, `viz/`, `runtime/`, `post_install.py`, `uninstall_scripts.py`). At the end of each Phase, run `diff <(ls /home/wei/Documents/GitHub/homodyne/homodyne/<subpkg>/) <(ls xpcsjax/<subpkg>/)` to verify file-set parity (modulo the documented exclusions).
+6. **Phase 5 is a hard gate.** Do not start Phase 6 until Phase 5 characterization tests pass at `rtol=1e-10` for every homodyne config.
 
 ---
 
@@ -88,6 +90,13 @@ git commit -m "scaffold: create xpcsjax package directory tree"
 
 - [ ] **Step 1: Write `pyproject.toml`**
 
+> **Mirror policy:** every runtime dep below appears in `homodyne/pyproject.toml`
+> at the matching version pin. Deps homodyne uses but xpcsjax v0.1 doesn't need
+> (numpyro, blackjax, arviz, matplotlib, datashader, xarray, ipykernel, sphinx-*
+> docs deps) are deliberately omitted — they come back in v0.2 with CMC, viz,
+> and docs. Verify versions against homodyne if you change anything here:
+> `grep -E '^    "' /home/wei/Documents/GitHub/homodyne/pyproject.toml`.
+
 ```toml
 [project]
 name = "xpcsjax"
@@ -98,26 +107,36 @@ license = { file = "LICENSE" }
 requires-python = ">=3.12"
 authors = [{ name = "Wei Chen", email = "msdsoftmatter@gmail.com" }]
 dependencies = [
-    "jax",
-    "jaxlib",
-    "nlsq>=0.6.4",
-    "optimistix",
-    "optax",
-    "evosax",
-    "h5py",
-    "numpy",
-    "scipy",
-    "interpax",
-    "pyyaml",
+    # Core scientific computing (mirrored from homodyne/pyproject.toml)
+    "numpy>=2.3",
+    "scipy>=1.17",
+    # JAX ecosystem (CPU-only in v0.1; GPU support is v0.2+)
+    "jax>=0.8.2",
+    "jaxlib>=0.8.2",
+    "jaxopt>=0.8.3",            # L-BFGS warmup for HYBRID_STREAMING strategy
+    "interpax>=0.3.12",         # JIT-safe interpolation (per CLAUDE.md prohibition)
+    "nlsq>=0.6.10",             # JAX-native trf + CMA-ES + memory routing
+    "evosax>=0.2.0",            # CMA-ES JAX backend (BIPOP restart)
+    # Data handling
+    "h5py>=3.15,<4.0",
+    "pyyaml>=6.0.3",
+    # System utilities (homodyne's NLSQ engine depends on all three)
+    "psutil>=7.2",              # adaptive RAM detection in select_nlsq_strategy
+    "cloudpickle>=3.1",         # HYBRID_STREAMING worker-pool function transport
+    "tqdm>=4.67.1",             # progress bars used throughout homodyne
+    # ML utility (homodyne anti-degeneracy layer uses sklearn.mixture.GaussianMixture)
+    "scikit-learn>=1.6",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8",
-    "pytest-cov",
-    "hypothesis>=6",
-    "ruff",
-    "mypy",
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0",
+    "pytest-xdist>=3.8",
+    "hypothesis>=6",            # property tests (Task 33) — xpcsjax-specific addition
+    "ruff>=0.15.2",
+    "mypy>=1.19.1",
+    "types-pyyaml>=6.0.12.20250915",
 ]
 
 [build-system]
@@ -146,6 +165,17 @@ python_version = "3.12"
 strict = false
 ignore_missing_imports = true
 ```
+
+**Deps deliberately omitted:**
+
+| Dep | Status | Reason |
+|---|---|---|
+| numpyro, blackjax, arviz | **never** | CMC / Bayesian sampling is permanently out of scope (spec §15.1) |
+| matplotlib | v0.2+ | basic viz subsystem |
+| datashader, xarray | v0.2+ | large-c2 visualization |
+| ipykernel | v0.2+ | notebook-based examples |
+| sphinx, furo, myst-parser, sphinx-autodoc-typehints, sphinx-copybutton | v0.2+ | docs subsystem |
+| pre-commit | v0.2+ | dev-workflow hardening (optional convenience) |
 
 - [ ] **Step 2: Install with uv**
 
@@ -181,31 +211,48 @@ git commit -m "build: add pyproject.toml with JAX-first deps and uv lockfile"
 
 ---
 
-### Task 3: Lazy-import top-level `__init__.py`
+### Task 3: Mirror homodyne's `__init__.py` (env setup + lazy public API)
+
+> **Pattern:** Like other Phase 2–4 ports, this task mirrors the homodyne
+> source closely. The env-setup block is **verbatim from `homodyne/__init__.py`**
+> (load-bearing for JAX float64, XLA flags, NLSQ GPU-check suppression). The
+> lazy-exports dict is xpcsjax-specific because the public-API surface differs.
+> Lines tied to v0.2 subsystems (matplotlib backend, NumPyro warnings filter)
+> are deliberately omitted — re-add them when those subsystems land.
 
 **Files:**
 - Modify: `xpcsjax/__init__.py`
+- Test: `tests/test_lazy_imports.py`
 
-- [ ] **Step 1: Write the failing import test**
+- [ ] **Step 1: Confirm what homodyne sets in its `__init__.py`**
+
+```bash
+sed -n '40,110p' /home/wei/Documents/GitHub/homodyne/homodyne/__init__.py
+```
+
+You should see the env-setup block: `JAX_ENABLE_X64`, `XLA_FLAGS`, `NLSQ_SKIP_GPU_CHECK`, JAX logger suppression. Verify the exact strings match Step 3 below.
+
+- [ ] **Step 2: Write the failing import tests**
 
 Create `tests/test_lazy_imports.py`:
 
 ```python
-"""Verify top-level imports are lazy and minimal."""
+"""Verify top-level imports are lazy and that homodyne's env setup is mirrored."""
 import importlib
+import os
+import subprocess
 import sys
+import textwrap
 
 
 def test_top_level_import_does_not_load_jax():
-    """Importing xpcsjax must not eagerly load jax — CLI argument parsing should be instant."""
-    # Clean slate
+    """Importing xpcsjax must not eagerly load jax — CLI arg parsing stays instant."""
     for mod in list(sys.modules):
         if mod.startswith(("xpcsjax", "jax")):
             del sys.modules[mod]
 
     importlib.import_module("xpcsjax")
 
-    # nlsq must not have triggered jax import
     assert "jax" not in sys.modules, "jax loaded during `import xpcsjax` — lazy-import broken"
 
 
@@ -215,17 +262,56 @@ def test_public_exports():
     for name in ("load_xpcs_data", "fit_nlsq", "ConfigManager",
                  "HomodyneModel", "HeterodyneModel", "OptimizationResult"):
         assert hasattr(xpcsjax, name), f"missing public export: {name}"
+
+
+def test_env_setup_mirrors_homodyne():
+    """`import xpcsjax` must set the env vars homodyne sets at import time.
+
+    These are load-bearing for v0.1 NLSQ fits:
+    - JAX_ENABLE_X64=1 (parameters span 6+ orders of magnitude)
+    - XLA_FLAGS contains both default flags (parallel + constant-folding skip)
+    - NLSQ_SKIP_GPU_CHECK=1 (suppress GPU warnings on CPU-only systems)
+
+    Run in a subprocess so we don't depend on prior test order."""
+    code = textwrap.dedent("""
+        import os
+        # Wipe relevant env vars so we measure xpcsjax's effect alone
+        for var in ("JAX_ENABLE_X64", "XLA_FLAGS", "NLSQ_SKIP_GPU_CHECK"):
+            os.environ.pop(var, None)
+        import xpcsjax  # noqa: F401
+        import json, sys
+        sys.stdout.write(json.dumps({
+            "JAX_ENABLE_X64":      os.environ.get("JAX_ENABLE_X64"),
+            "XLA_FLAGS":           os.environ.get("XLA_FLAGS", ""),
+            "NLSQ_SKIP_GPU_CHECK": os.environ.get("NLSQ_SKIP_GPU_CHECK"),
+        }))
+    """)
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True, text=True, check=True,
+    )
+    import json
+    env = json.loads(result.stdout)
+
+    assert env["JAX_ENABLE_X64"] == "1", \
+        f"JAX_ENABLE_X64 not set by xpcsjax import (got {env['JAX_ENABLE_X64']!r})"
+    assert "--xla_disable_hlo_passes=constant_folding" in env["XLA_FLAGS"], \
+        f"XLA constant-folding skip not set (got {env['XLA_FLAGS']!r})"
+    assert "--xla_force_host_platform_device_count=4" in env["XLA_FLAGS"], \
+        f"XLA device count not set (got {env['XLA_FLAGS']!r})"
+    assert env["NLSQ_SKIP_GPU_CHECK"] == "1", \
+        f"NLSQ_SKIP_GPU_CHECK not set (got {env['NLSQ_SKIP_GPU_CHECK']!r})"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 3: Run tests to verify they fail**
 
 ```bash
 uv run pytest tests/test_lazy_imports.py -v
 ```
 
-Expected: FAIL — `test_public_exports` fails with `missing public export: load_xpcs_data`.
+Expected: `test_public_exports` and `test_env_setup_mirrors_homodyne` FAIL. Lazy-import test may PASS (if `xpcsjax/__init__.py` is empty, JAX isn't loaded).
 
-- [ ] **Step 3: Implement lazy `__init__.py`**
+- [ ] **Step 4: Implement `xpcsjax/__init__.py` mirroring homodyne**
 
 Write `xpcsjax/__init__.py`:
 
@@ -240,27 +326,79 @@ Public API (lazy-loaded — heavy deps like JAX import on first use):
     result = fit_nlsq(data, "config.yaml")
     print(result.parameters)
     result.save("output/")
+
+Env setup at import time is mirrored verbatim from homodyne/__init__.py.
 """
 from __future__ import annotations
 
+# ============================================================================
+# Standard library imports
+# ============================================================================
 import importlib
+import logging
+import os
 from typing import TYPE_CHECKING
 
+# ============================================================================
+# JAX CPU Device Configuration (MUST be set before JAX import)
+# ============================================================================
+# Mirrored verbatim from homodyne/__init__.py:
+#   - xla_force_host_platform_device_count=4: enables parallel evaluation paths
+#   - xla_disable_hlo_passes=constant_folding: prevents > 1 s slow-compilation
+#     warnings on HYBRID_STREAMING strategy (23M+ points) where data arrays
+#     are captured in JIT closures. Performance impact: minimal (< 5 ms/call).
+_DEFAULT_XLA_FLAGS = [
+    "--xla_force_host_platform_device_count=4",
+    "--xla_disable_hlo_passes=constant_folding",
+]
+
+# JAX must be in float64 for parameters spanning 6+ orders of magnitude.
+# This env var MUST be set BEFORE the first JAX import.
+os.environ.setdefault("JAX_ENABLE_X64", "1")
+
+if "XLA_FLAGS" not in os.environ:
+    os.environ["XLA_FLAGS"] = " ".join(_DEFAULT_XLA_FLAGS)
+else:
+    existing = os.environ["XLA_FLAGS"]
+    flags_to_add = []
+    for flag in _DEFAULT_XLA_FLAGS:
+        flag_name = flag.split("=")[0]
+        if flag_name not in existing:
+            flags_to_add.append(flag)
+    if flags_to_add:
+        os.environ["XLA_FLAGS"] += " " + " ".join(flags_to_add)
+
+# Suppress NLSQ GPU warnings (v0.1 CPU-only; GPU support is v0.2+)
+os.environ.setdefault("NLSQ_SKIP_GPU_CHECK", "1")
+
+# Suppress JAX backend logs (GPU fallback warnings on CPU-only systems)
+logging.getLogger("jax._src.xla_bridge").setLevel(logging.ERROR)
+logging.getLogger("jax._src.compiler").setLevel(logging.ERROR)
+
+# ============================================================================
+# Version
+# ============================================================================
 __version__ = "0.1.0.dev0"
 
+# ============================================================================
+# Lazy public API
+# ============================================================================
+# Submodules (xpcsjax.data, .core, .optimization, .config, .device) import
+# JAX, nlsq, h5py, and other heavy dependencies. Eager loading would add
+# 3–6 s to every `import xpcsjax`. The __getattr__ hook delays each import
+# until the attribute is first accessed.
 _LAZY_EXPORTS = {
     "load_xpcs_data": "xpcsjax.data",
     "fit_nlsq": "xpcsjax.optimization.nlsq",
     "ConfigManager": "xpcsjax.config",
-    "HomodyneModel": "xpcsjax.core.models",
-    "HeterodyneModel": "xpcsjax.core.heterodyne_model",
+    "HomodyneModel": "xpcsjax.core",
+    "HeterodyneModel": "xpcsjax.core",
     "OptimizationResult": "xpcsjax.io",
 }
 
 if TYPE_CHECKING:
     from xpcsjax.config import ConfigManager  # noqa: F401
-    from xpcsjax.core.heterodyne_model import HeterodyneModel  # noqa: F401
-    from xpcsjax.core.models import HomodyneModel  # noqa: F401
+    from xpcsjax.core import HeterodyneModel, HomodyneModel  # noqa: F401
     from xpcsjax.data import load_xpcs_data  # noqa: F401
     from xpcsjax.io import OptimizationResult  # noqa: F401
     from xpcsjax.optimization.nlsq import fit_nlsq  # noqa: F401
@@ -279,25 +417,37 @@ def __getattr__(name: str):  # noqa: D401
 __all__ = list(_LAZY_EXPORTS)
 ```
 
-- [ ] **Step 4: Run test to verify lazy-load assertion passes; public-exports test still fails**
+- [ ] **Step 5: Run tests to verify env-setup + lazy-load pass**
 
 ```bash
-uv run pytest tests/test_lazy_imports.py::test_top_level_import_does_not_load_jax -v
+uv run pytest tests/test_lazy_imports.py::test_top_level_import_does_not_load_jax \
+                tests/test_lazy_imports.py::test_env_setup_mirrors_homodyne -v
 ```
 
-Expected: PASS.
+Expected: both PASS.
 
 ```bash
 uv run pytest tests/test_lazy_imports.py::test_public_exports -v
 ```
 
-Expected: FAIL — `xpcsjax.data` does not yet exist. Leave it failing; later tasks add the modules.
+Expected: FAIL — `xpcsjax.data` etc. don't exist yet. Leave failing; later tasks add the modules.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Verify the env mirror against homodyne by diffing the env-setup blocks**
+
+```bash
+diff <(sed -n '/JAX CPU Device Configuration/,/Suppress JAX backend logs/p' \
+            /home/wei/Documents/GitHub/homodyne/homodyne/__init__.py) \
+     <(sed -n '/JAX CPU Device Configuration/,/Suppress JAX backend logs/p' \
+            /home/wei/Documents/GitHub/xpcsjax/xpcsjax/__init__.py) | head -40
+```
+
+Expected: the only diffs should be (a) the comments referencing homodyne version numbers (e.g., "v2.17.0+"), and (b) the v0.1-scope reason text in the comments. The actual `os.environ.setdefault(...)` lines should match verbatim.
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add xpcsjax/__init__.py tests/test_lazy_imports.py
-git commit -m "feat(api): lazy-import top-level public API"
+git commit -m "feat(api): mirror homodyne env setup + lazy-import public API"
 ```
 
 ---
@@ -464,16 +614,22 @@ grep -rn "homodyne" xpcsjax/data/
 
 Expected: empty output.
 
-- [ ] **Step 3: Write the `data/__init__.py` re-export**
+- [ ] **Step 3: Port `data/__init__.py` verbatim from homodyne**
 
-Replace `xpcsjax/data/__init__.py` with:
-
-```python
-"""xpcsjax.data — XPCS HDF5 loading + filtering + diagonal correction + caching."""
-from xpcsjax.data.xpcs_loader import load_xpcs_data
-
-__all__ = ["load_xpcs_data"]
+```bash
+cp /home/wei/Documents/GitHub/homodyne/homodyne/data/__init__.py \
+   /home/wei/Documents/GitHub/xpcsjax/xpcsjax/data/__init__.py
+sed -i 's/from homodyne\./from xpcsjax./g; s/import homodyne\./import xpcsjax./g' \
+   /home/wei/Documents/GitHub/xpcsjax/xpcsjax/data/__init__.py
 ```
+
+Then open the file and inspect for any CMC-related imports (search for `numpyro`, `blackjax`, `arviz`, `cmc`, `mcmc`). If present, remove those try-import blocks and any `__all__` entries that reference them. Verify:
+
+```bash
+grep -n -i "numpyro\|blackjax\|arviz" /home/wei/Documents/GitHub/xpcsjax/xpcsjax/data/__init__.py
+```
+
+Expected: empty. The full export surface (XPCSDataLoader, XPCSConfigurationError, XPCSDataFormatError, XPCSDependencyError, load_xpcs_config, load_xpcs_data, etc.) should otherwise remain — these are NLSQ-relevant.
 
 - [ ] **Step 4: Smoke import**
 
@@ -796,18 +952,43 @@ uv run python -c "from xpcsjax.config import ConfigManager; from xpcsjax.config.
 
 Expected: prints class.
 
-- [ ] **Step 6: Wire `config/__init__.py`**
+- [ ] **Step 6: Port the rest of `config/` verbatim from homodyne**
 
-Replace `xpcsjax/config/__init__.py` with:
+The plan's Steps 1–5 ported `manager.py`, `parameter_registry.py`, and `parameter_manager.py`. Homodyne's `config/` has additional siblings (`parameter_space.py`, `physics_validators.py`, `types.py`, `parameter_names.py`) that may be transitively imported by the modules we already ported. Per the complete-mirror principle (Before You Start §5), port them too:
 
-```python
-"""xpcsjax.config — configuration management for both physics models."""
-from xpcsjax.config.manager import ConfigManager
-from xpcsjax.config.parameter_manager import ParameterManager
-from xpcsjax.config.parameter_registry import REGISTRY
-
-__all__ = ["ConfigManager", "ParameterManager", "REGISTRY"]
+```bash
+cd /home/wei/Documents/GitHub/xpcsjax
+for f in $(ls /home/wei/Documents/GitHub/homodyne/homodyne/config/*.py | grep -v __init__); do
+    base=$(basename "$f")
+    test -f xpcsjax/config/$base || cp "$f" xpcsjax/config/$base
+done
+find xpcsjax/config -maxdepth 1 -name "*.py" -exec \
+    sed -i 's/from homodyne\./from xpcsjax./g; s/import homodyne\./import xpcsjax./g' {} \;
 ```
+
+Then port `config/__init__.py` verbatim:
+
+```bash
+cp /home/wei/Documents/GitHub/homodyne/homodyne/config/__init__.py xpcsjax/config/__init__.py
+sed -i 's/from homodyne\./from xpcsjax./g; s/import homodyne\./import xpcsjax./g' xpcsjax/config/__init__.py
+```
+
+Inspect for CMC residue:
+
+```bash
+grep -n -i "numpyro\|blackjax\|arviz" xpcsjax/config/__init__.py xpcsjax/config/*.py
+```
+
+Expected: empty. If any match appears, remove the offending imports and any `__all__` entries that reference them.
+
+Verify file-set parity:
+
+```bash
+diff <(ls /home/wei/Documents/GitHub/homodyne/homodyne/config/ | sort) \
+     <(ls /home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/ | sort)
+```
+
+Expected: identical file lists (no extras, no missing).
 
 - [ ] **Step 7: Commit**
 
@@ -1315,22 +1496,37 @@ grep -n "^def fit_nlsq\|^def fit_nlsq_jax" /home/wei/Documents/GitHub/xpcsjax/xp
 
 The function is typically called `fit_nlsq_jax`. xpcsjax exposes it as `fit_nlsq`.
 
-- [ ] **Step 2: Write the wrapper**
+- [ ] **Step 2a: Port `optimization/nlsq/__init__.py` verbatim from homodyne**
 
-Append to `xpcsjax/optimization/nlsq/__init__.py`:
+Homodyne's `optimization/nlsq/__init__.py` re-exports a large NLSQ symbol surface (MultiStartConfig, MultiStartResult, NLSQResult, NLSQWrapper, OptimizationResult, StratificationDiagnostics, StratifiedResidualFunction, StratifiedResidualFunctionJIT, create_angle_stratified_*, create_stratified_residual_function, fit_nlsq_jax, etc.). Port verbatim:
+
+```bash
+cp /home/wei/Documents/GitHub/homodyne/homodyne/optimization/nlsq/__init__.py \
+   /home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/__init__.py
+sed -i 's/from homodyne\./from xpcsjax./g; s/import homodyne\./import xpcsjax./g' \
+   /home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/__init__.py
+```
+
+Verify no CMC residue:
+
+```bash
+grep -n -i "numpyro\|blackjax\|arviz\|cmc\|mcmc" \
+    /home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/__init__.py
+```
+
+Expected: empty. If matches appear, remove the offending lines.
+
+- [ ] **Step 2b: Append the `fit_nlsq` single-entry wrapper**
+
+Append to the end of `xpcsjax/optimization/nlsq/__init__.py` (after the verbatim re-exports):
 
 ```python
-"""xpcsjax.optimization.nlsq — JAX-native NLSQ fitting engine."""
-from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING
 
-from xpcsjax.optimization.nlsq.core import fit_nlsq_jax
-
-if TYPE_CHECKING:
-    from xpcsjax.config import ConfigManager
-    from xpcsjax.io import OptimizationResult
+# ============================================================================
+# xpcsjax v0.1 single-entry public wrapper
+# ============================================================================
+from pathlib import Path as _Path
 
 
 def fit_nlsq(data, config):
@@ -1341,22 +1537,52 @@ def fit_nlsq(data, config):
     data : dict
         XPCS data dict returned by ``xpcsjax.data.load_xpcs_data``.
     config : str | Path | ConfigManager
-        Either a path to a YAML config file or a pre-built ConfigManager.
+        Path to a YAML config file or a pre-built ConfigManager.
 
     Returns
     -------
     OptimizationResult
         Fit parameters, covariance, diagnostics, and metadata.
     """
-    if isinstance(config, (str, Path)):
+    if isinstance(config, (str, _Path)):
         from xpcsjax.config import ConfigManager
-
         config = ConfigManager(str(config))
     return fit_nlsq_jax(data, config)
 
 
-__all__ = ["fit_nlsq"]
+# Ensure fit_nlsq joins whatever __all__ the verbatim port already defined
+try:
+    __all__  # type: ignore[name-defined]
+except NameError:
+    __all__ = []
+if "fit_nlsq" not in __all__:
+    __all__.append("fit_nlsq")
 ```
+
+- [ ] **Step 2c: Port `optimization/__init__.py` verbatim**
+
+Homodyne's `optimization/__init__.py` re-exports NLSQ symbols at the package level. Port verbatim, then trim any CMC try-import blocks:
+
+```bash
+cp /home/wei/Documents/GitHub/homodyne/homodyne/optimization/__init__.py \
+   /home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/__init__.py
+sed -i 's/from homodyne\./from xpcsjax./g; s/import homodyne\./import xpcsjax./g' \
+   /home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/__init__.py
+```
+
+Open the file and remove:
+- Any `from xpcsjax.optimization import cmc` line or try-except block importing CMC symbols
+- Any references to CMC in the module docstring (rewrite the docstring to say "JAX-native NLSQ only — CMC permanently out of scope")
+- Any `__all__` entries that reference CMC symbols
+
+Verify:
+
+```bash
+grep -n -i "numpyro\|blackjax\|arviz\|cmc\|mcmc" \
+    /home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/__init__.py
+```
+
+Expected: empty.
 
 - [ ] **Step 3: Write the public-API test**
 
@@ -2952,13 +3178,18 @@ xpcsjax v0.1 consolidates the NLSQ fitting pipelines from the standalone
 - Homodyne NLSQ behavior is bit-equivalent (rtol=1e-10).
 - Heterodyne parameter bounds are verbatim from the heterodyne docs.
 
-## What is NOT in v0.1
+## What xpcsjax does NOT support — and never will
 
-- CMC (Bayesian) fitting — coming in v0.2.
-- Visualization, CLI, datashader — coming in v0.2.
-- Heterodyne's soft-L1 loss and separate anti-degeneracy controller — these
+- **CMC / Bayesian sampling (NumPyro, BlackJAX, ArviZ).** xpcsjax is NLSQ-only
+  by design. Users needing Bayesian XPCS analysis should continue to use the
+  source `homodyne` or `heterodyne` packages.
+- **Heterodyne's soft-L1 loss and separate anti-degeneracy controller** — these
   did not port; identifiability is handled via homodyne's 4-of-5 anti-degeneracy
   layers, narrow LHS multistart, and disciplined initial guesses.
+
+## What is NOT in v0.1 (deferred to v0.2+)
+
+- Visualization, CLI, datashader.
 
 ## Worked example — heterodyne fit
 
@@ -3037,11 +3268,16 @@ in the config to select the physics model.
 - Memory-aware strategy routing (STANDARD / OUT_OF_CORE / HYBRID_STREAMING).
 - CMA-ES escape for multi-scale parameter problems.
 
-## What's coming in v0.2
+## What's coming in v0.2+
 
-- CMC (Bayesian) fitting via NumPyro.
-- Visualization (matplotlib + pyqtgraph).
+- Visualization (matplotlib + pyqtgraph + datashader).
 - CLI (`xpcsjax fit ...`).
+
+## What xpcsjax will NEVER add
+
+- CMC / Bayesian sampling (NumPyro, BlackJAX, ArviZ). xpcsjax is NLSQ-only
+  by design. For posterior sampling, use the source `homodyne` or
+  `heterodyne` packages.
 
 ## See also
 

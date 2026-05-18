@@ -10,7 +10,7 @@ scope: NLSQ-only foundation (v0.1)
 
 ## 1. Summary
 
-Consolidate the `homodyne` and `heterodyne` XPCS analysis packages into a unified `xpcsjax` package. v0.1 covers data loading, diagonal correction, NLSQ fitting, minimal config, and result schema. CMC (Bayesian), visualization, CLI, device-config subsystems are explicitly deferred to later phases.
+Consolidate the `homodyne` and `heterodyne` XPCS analysis packages into a unified `xpcsjax` package. v0.1 covers data loading, diagonal correction, NLSQ fitting, minimal config, and result schema. **CMC (Bayesian sampling via NumPyro, BlackJAX, ArviZ) is permanently out of scope for xpcsjax** — the package is NLSQ-only by design. Visualization and CLI are deferred to later phases (v0.2+).
 
 xpcsjax adopts homodyne's NLSQ engine **verbatim** — same memory-aware strategy routing, same 5-layer anti-degeneracy controller, same CMA-ES escape, same per-angle chi-squared loss, same result schema. The two physics models (homodyne and heterodyne) live as **peer classes** sharing the engine; only the residual function differs. Dispatch is config-driven through a single `analysis_mode` enum and a single `fit_nlsq` entry point.
 
@@ -23,10 +23,11 @@ xpcsjax adopts homodyne's NLSQ engine **verbatim** — same memory-aware strateg
 
 ## 3. Non-goals
 
+- **CMC / Bayesian sampling.** NumPyro, BlackJAX, ArviZ, and all related machinery are **permanently** out of scope. xpcsjax is an NLSQ-only package. Users needing Bayesian XPCS analysis should continue to use the source `homodyne` or `heterodyne` packages.
 - Porting heterodyne's separately-developed anti-degeneracy controller. Homodyne's controller covers the relevant cases.
 - Porting heterodyne's soft-L1 robust loss. Chi-squared is sufficient with the inherited anti-degeneracy machinery.
 - Maintaining backwards-compatible imports from `homodyne.*` or `heterodyne.*`. xpcsjax replaces both.
-- CMC, visualization, CLI, datashader, NetworkDynamics — all v0.2+ scope.
+- Visualization, CLI, datashader, NetworkDynamics — v0.2+ scope (returnable when the relevant subsystem lands).
 
 ## 4. Architectural decisions
 
@@ -370,15 +371,23 @@ Layer-4 tests run as part of Phase 4 and are a *prerequisite* to the Phase 5 cha
 | R5 | `nlsq` library version drift between source packages | Med | Low | Pin to homodyne's exact `nlsq` version in Phase 1 |
 | R6 | Layer 5 (`ShearSensitivityWeighting`) disable for `two_component` regresses homodyne `laminar_flow` | Low | High | Layer 1 characterization tests include laminar_flow configs explicitly |
 
-## 15. Out of scope for v0.1 (v0.2+ backlog)
+## 15. Out of scope
 
-- CMC (NumPyro Bayesian sampler, ArviZ diagnostics, parallel chain MCMC)
-- Visualization (matplotlib + pyqtgraph, datashader, MCMC diagnostic plots)
+### 15.1 Permanently excluded from xpcsjax
+
+These subsystems will never be added — users needing them should continue using the source `homodyne` or `heterodyne` packages directly.
+
+- **CMC / Bayesian sampling** — NumPyro, BlackJAX, ArviZ, MCMC diagnostic plotting, parallel chain MCMC, posterior summaries.
+- **soft-L1 robust loss** — heterodyne's alternative loss. xpcsjax uses chi-squared, period.
+- **Heterodyne's separately-developed anti-degeneracy controller** — superseded by homodyne's 5-layer controller (4 layers active for `two_component`). If golden-value tests show this is insufficient, the path forward is to refine homodyne's layers, not port a parallel controller.
+
+### 15.2 v0.2+ backlog (returnable when the relevant subsystem lands)
+
+- Visualization (matplotlib, datashader for c2 heatmaps, NLSQ diagnostic plots)
 - CLI (single binary with subcommands `fit`, `plot`, `convert`)
 - PyQt6 desktop UI
 - NetworkDynamics, advanced HPC scheduling
-- Heterodyne's separately-developed anti-degeneracy controller (added if heterodyne golden-value tests fail >5%)
-- soft-L1 robust loss as an opt-in alternative to chi-squared
+- Shell-completion installer (homodyne's `runtime/`, `post_install.py`, `uninstall_scripts.py`)
 
 ---
 
