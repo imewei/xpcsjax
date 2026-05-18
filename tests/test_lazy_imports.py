@@ -1,19 +1,29 @@
 """Verify top-level imports are lazy and that homodyne's env setup is mirrored."""
-import importlib
 import subprocess
 import sys
 import textwrap
 
 
 def test_top_level_import_does_not_load_jax():
-    """Importing xpcsjax must not eagerly load jax — CLI arg parsing stays instant."""
-    for mod in list(sys.modules):
-        if mod.startswith(("xpcsjax", "jax")):
-            del sys.modules[mod]
+    """Importing xpcsjax must not eagerly load jax — CLI arg parsing stays instant.
 
-    importlib.import_module("xpcsjax")
-
-    assert "jax" not in sys.modules, "jax loaded during `import xpcsjax` — lazy-import broken"
+    Run in a subprocess: monkey-patching `sys.modules` to remove jax in-process
+    corrupts XLA bootstrapping state and SIGABRTs the next test that imports jax.
+    """
+    code = textwrap.dedent(
+        """
+        import sys
+        import xpcsjax  # noqa: F401
+        sys.stdout.write("jax" if "jax" in sys.modules else "no-jax")
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True, text=True, check=True,
+    )
+    assert result.stdout == "no-jax", (
+        f"jax loaded during `import xpcsjax` — lazy-import broken (stdout={result.stdout!r})"
+    )
 
 
 def test_public_exports():
