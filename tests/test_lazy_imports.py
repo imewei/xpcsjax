@@ -1,6 +1,5 @@
 """Verify top-level imports are lazy and that homodyne's env setup is mirrored."""
 import importlib
-import os
 import subprocess
 import sys
 import textwrap

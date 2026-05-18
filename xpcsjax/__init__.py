@@ -19,7 +19,6 @@ from __future__ import annotations
 import importlib
 import logging
 import os
-from typing import TYPE_CHECKING
 
 # ============================================================================
 # JAX CPU Device Configuration (MUST be set before JAX import)
@@ -74,12 +73,11 @@ _LAZY_EXPORTS = {
     "OptimizationResult": "xpcsjax.io",
 }
 
-if TYPE_CHECKING:
-    from xpcsjax.config import ConfigManager  # noqa: F401
-    from xpcsjax.core import HeterodyneModel, HomodyneModel  # noqa: F401
-    from xpcsjax.data import load_xpcs_data  # noqa: F401
-    from xpcsjax.io import OptimizationResult  # noqa: F401
-    from xpcsjax.optimization.nlsq import fit_nlsq  # noqa: F401
+# Note: a `TYPE_CHECKING` block listing the lazy-exported symbols belongs
+# here for IDE auto-complete, but the target submodules don't export those
+# symbols yet (they're populated in Tasks 6, 11, 15, 19, 20, 28). Reinstate
+# the block in a later cleanup task once every submodule's __init__.py
+# exposes its public symbol.
 
 
 def __getattr__(name: str):  # noqa: D401
@@ -92,4 +90,17 @@ def __getattr__(name: str):  # noqa: D401
     raise AttributeError(f"module 'xpcsjax' has no attribute {name!r}")
 
 
-__all__ = list(_LAZY_EXPORTS)
+# Literal __all__ for Pyright's reportUnsupportedDunderAll; kept in sync
+# with _LAZY_EXPORTS by the runtime assertion below.
+__all__ = [
+    "load_xpcs_data",
+    "fit_nlsq",
+    "ConfigManager",
+    "HomodyneModel",
+    "HeterodyneModel",
+    "OptimizationResult",
+]
+
+assert set(__all__) == set(_LAZY_EXPORTS), (
+    "xpcsjax public API mismatch between __all__ and _LAZY_EXPORTS"
+)
