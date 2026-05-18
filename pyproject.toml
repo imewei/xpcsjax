@@ -1,0 +1,66 @@
+[project]
+name = "xpcsjax"
+version = "0.1.0.dev0"
+description = "Unified JAX-native XPCS NLSQ fitting (homodyne + heterodyne)"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+authors = [{ name = "Wei Chen", email = "msdsoftmatter@gmail.com" }]
+dependencies = [
+    # Core scientific computing (mirrored from homodyne/pyproject.toml)
+    "numpy>=2.3",
+    "scipy>=1.17",
+    # JAX ecosystem (CPU-only in v0.1; GPU support is v0.2+)
+    "jax>=0.8.2",
+    "jaxlib>=0.8.2",
+    "jaxopt>=0.8.3",            # L-BFGS warmup for HYBRID_STREAMING strategy
+    "interpax>=0.3.12",         # JIT-safe interpolation (per CLAUDE.md prohibition)
+    "nlsq>=0.6.10",             # JAX-native trf + CMA-ES + memory routing
+    "evosax>=0.2.0",            # CMA-ES JAX backend (BIPOP restart)
+    # Data handling
+    "h5py>=3.15,<4.0",
+    "pyyaml>=6.0.3",
+    # System utilities (homodyne's NLSQ engine depends on all three)
+    "psutil>=7.2",              # adaptive RAM detection in select_nlsq_strategy
+    "cloudpickle>=3.1",         # HYBRID_STREAMING worker-pool function transport (homodyne dep)
+    "tqdm>=4.67.1",             # progress bars used throughout homodyne
+    # ML utility (homodyne anti-degeneracy layer uses sklearn.mixture.GaussianMixture)
+    "scikit-learn>=1.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0",
+    "pytest-xdist>=3.8",
+    "hypothesis>=6",            # property tests (Task 33) — xpcsjax-specific addition
+    "ruff>=0.15.2",
+    "mypy>=1.19.1",
+    "types-pyyaml>=6.0.12.20250915",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["xpcsjax"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+env = [
+    "JAX_ENABLE_X64=1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = false
+ignore_missing_imports = true
