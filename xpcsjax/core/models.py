@@ -597,7 +597,82 @@ def create_model(analysis_mode: str) -> CombinedModel:
 
 def get_available_models() -> list[str]:
     """Get list of available analysis modes."""
-    return ["static", "laminar_flow", "static_isotropic", "static_anisotropic"]
+    return [
+        "static",
+        "laminar_flow",
+        "static_isotropic",
+        "static_anisotropic",
+        "two_component",
+    ]
+
+
+def make_model(config_or_manager: Any) -> PhysicsModelBase:
+    """Construct the appropriate physics model from a config or ConfigManager.
+
+    Dispatches based on the ``analysis_mode`` field:
+
+    - ``"two_component"`` / ``"heterodyne"`` → :class:`HeterodyneModel`
+      (xpcsjax.core.heterodyne_model)
+    - ``"static"`` / ``"static_isotropic"`` / ``"static_anisotropic"`` /
+      ``"laminar_flow"`` → :class:`CombinedModel` via :func:`create_model`
+
+    Parameters
+    ----------
+    config_or_manager : ConfigManager or dict
+        Either a :class:`~xpcsjax.config.ConfigManager` instance (with a
+        ``.config`` dict attribute) or a raw config dict.
+
+    Returns
+    -------
+    PhysicsModelBase
+        A model instance whose ``analysis_mode`` matches the config.
+
+    Raises
+    ------
+    ValueError
+        If the resolved ``analysis_mode`` is not recognized.
+
+    Examples
+    --------
+    >>> cfg = ConfigManager("config.yaml")  # analysis_mode: two_component
+    >>> model = make_model(cfg)
+    >>> isinstance(model, HeterodyneModel)
+    True
+    """
+    # Accept both ConfigManager (has .config) and raw dict
+    if hasattr(config_or_manager, "config") and config_or_manager.config is not None:
+        cfg = config_or_manager.config
+    elif isinstance(config_or_manager, dict):
+        cfg = config_or_manager
+    else:
+        raise ValueError(
+            "make_model expects a ConfigManager or dict, got "
+            f"{type(config_or_manager).__name__}"
+        )
+
+    raw_mode = cfg.get("analysis_mode", "static")
+    if not isinstance(raw_mode, str):
+        raise ValueError(
+            f"analysis_mode must be a string, got {type(raw_mode).__name__}"
+        )
+    mode_lower = raw_mode.lower()
+
+    # Heterodyne / two-component dispatch
+    if (
+        "two_component" in mode_lower
+        or "two-component" in mode_lower
+        or "heterodyne" in mode_lower
+    ):
+        # Local import to avoid circular dependency (heterodyne_model imports
+        # PhysicsModelBase from this module).
+        from xpcsjax.core.heterodyne_model import HeterodyneModel
+
+        logger.info("make_model: dispatching to HeterodyneModel (mode=%s)", raw_mode)
+        return HeterodyneModel()
+
+    # Homodyne path — delegate to existing create_model factory
+    logger.info("make_model: dispatching to CombinedModel (mode=%s)", raw_mode)
+    return create_model(mode_lower)
 
 
 # Export main classes and functions
@@ -608,4 +683,5 @@ __all__ = [
     "CombinedModel",
     "create_model",
     "get_available_models",
+    "make_model",
 ]

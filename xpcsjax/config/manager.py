@@ -293,10 +293,25 @@ class ConfigManager:
         if self._cached_param_manager is None:
             from xpcsjax.config.parameter_manager import ParameterManager
 
-            # Determine analysis mode
-            analysis_mode = "laminar_flow"
-            if self.is_static_mode_enabled():
+            # Determine analysis mode (Task 28: include two_component branch).
+            # Order: explicit two_component → static (via is_static_mode_enabled)
+            # → laminar_flow fallback.
+            raw_mode = ""
+            if self.config:
+                cfg_mode = self.config.get("analysis_mode", "")
+                if isinstance(cfg_mode, str):
+                    raw_mode = cfg_mode.lower()
+
+            if (
+                "two_component" in raw_mode
+                or "two-component" in raw_mode
+                or "heterodyne" in raw_mode
+            ):
+                analysis_mode = "two_component"
+            elif self.is_static_mode_enabled():
                 analysis_mode = "static"
+            else:
+                analysis_mode = "laminar_flow"
 
             # Create and cache ParameterManager
             self._cached_param_manager = ParameterManager(self.config, analysis_mode)
@@ -1050,7 +1065,13 @@ class ConfigManager:
                 logger.warning(f"Missing recommended section: {section}")
 
         # Validate analysis_mode value
-        valid_modes = ["static", "laminar_flow"]
+        # Mirrors AnalysisMode Literal in xpcsjax.config.parameter_registry
+        valid_modes = [
+            "static",
+            "static_isotropic",
+            "laminar_flow",
+            "two_component",
+        ]
         mode = self.config.get("analysis_mode", "")
         if mode and mode not in valid_modes:
             logger.warning(
@@ -1168,11 +1189,14 @@ class ConfigManager:
     def _normalize_analysis_mode(self) -> None:
         """Normalize analysis_mode to canonical lowercase form.
 
-        Handles case-insensitive input and legacy mode names:
+        Handles case-insensitive input and legacy mode names. Consistent with
+        :func:`xpcsjax.config.parameter_registry.ParameterRegistry._normalize_mode`:
+
         - "STATIC", "Static" → "static"
         - "LAMINAR_FLOW", "Laminar_Flow" → "laminar_flow"
         - "static_isotropic" → "static" (legacy alias)
         - "static_anisotropic" → "static" (legacy alias)
+        - "HETERODYNE", "Heterodyne", "two-component" → "two_component"
         """
         if self.config is None or "analysis_mode" not in self.config:
             return
@@ -1187,6 +1211,13 @@ class ConfigManager:
         # Handle legacy aliases
         if normalized_mode in ("static_isotropic", "static_anisotropic"):
             normalized_mode = "static"
+        # Heterodyne / two-component synonyms (Task 28)
+        elif (
+            "two_component" in normalized_mode
+            or "two-component" in normalized_mode
+            or "heterodyne" in normalized_mode
+        ):
+            normalized_mode = "two_component"
 
         if normalized_mode != original_mode:
             self.config["analysis_mode"] = normalized_mode

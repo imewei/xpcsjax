@@ -37,14 +37,8 @@ def test_public_exports_phase4():
         assert hasattr(xpcsjax, name), f"missing public export: {name}"
 
 
-import pytest
-
-
-@pytest.mark.xfail(
-    reason="HeterodyneModel lands in Phase 6 (Task 27). Should pass once that task completes.",
-    strict=True,
-)
 def test_heterodyne_model_exported():
+    """HeterodyneModel is a public lazy export as of Phase 6 (Task 27 + Task 28)."""
     import xpcsjax
     assert hasattr(xpcsjax, "HeterodyneModel"), "missing public export: HeterodyneModel"
 
