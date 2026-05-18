@@ -1206,7 +1206,7 @@ class XPCSDataLoader:
         """Apply diagonal correction to correlation matrix.
 
         .. deprecated:: 2.16.0
-            Use :func:`homodyne.core.diagonal_correction.apply_diagonal_correction`
+            Use :func:`xpcsjax.core.diagonal_correction.apply_diagonal_correction`
             instead. This method is kept for backward compatibility only.
 
         Based on pyXPCSViewer's correct_diagonal_c2 function.
@@ -1248,7 +1248,7 @@ class XPCSDataLoader:
         """Apply diagonal correction to all matrices in batch.
 
         .. deprecated:: 2.16.0
-            Use :func:`homodyne.core.diagonal_correction.apply_diagonal_correction_batch`
+            Use :func:`xpcsjax.core.diagonal_correction.apply_diagonal_correction_batch`
             instead. This method is kept for backward compatibility only.
 
         Performance Optimization (Spec 006 - FR-006):
