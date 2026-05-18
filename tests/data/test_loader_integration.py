@@ -33,8 +33,8 @@ def test_load_static_fixture():
     # c2 shape: (n_q, n_phi, N, N) — must be 4-D float64
     assert c2.ndim == 4
     assert c2.dtype == np.float64
-    # Diagonal correction was applied: diagonal entries are not the raw autocorr peak
-    n_q, n_phi, N, _ = c2.shape
+    # Diagonal correction was applied: square last two axes
+    N = c2.shape[2]
     assert N == c2.shape[3]
     # Verify time arrays are monotonic
     assert np.all(np.diff(data["t1"]) > 0)
