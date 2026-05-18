@@ -143,13 +143,14 @@ class PriorDistribution:
             if self.alpha <= 0 or self.beta <= 0:
                 raise ValueError("BetaScaled concentration parameters must be positive")
 
-    def to_numpyro_kwargs(self) -> dict[str, Any]:
-        """Convert to NumPyro distribution kwargs.
+    def to_distribution_kwargs(self) -> dict[str, Any]:
+        """Convert to generic distribution constructor kwargs.
 
         Returns
         -------
         dict
-            Keyword arguments for NumPyro distribution constructors
+            Keyword arguments for distribution constructors (loc/scale/low/high/
+            concentration1/concentration0 conventions; consumer-agnostic).
         """
         if self.dist_type == "Normal":
             return {"loc": self.mu, "scale": self.sigma}
@@ -825,7 +826,7 @@ class ParameterSpace:
     ) -> float:
         """Clamp parameter value to strictly inside bounds (open interval).
 
-        NumPyro's TruncatedNormal transform requires values strictly inside (min, max)
+        TruncatedNormal transforms require values strictly inside (min, max)
         - not equal to the boundaries. This method ensures values are at least epsilon
         away from both bounds.
 

@@ -290,7 +290,7 @@ def verify_samples_dict(samples_dict: dict, analysis_mode: AnalysisMode) -> None
             f"Expected: {expected}\n"
             f"Available: {available}\n\n"
             f"This indicates a parameter name mismatch between model "
-            f"definition and sample extraction. Check that NumPyro model "
+            f"definition and sample extraction. Check that the sampler model "
             f"uses the same parameter names as defined in parameter_names.py"
         )
 
