@@ -119,7 +119,7 @@ class ParameterInfo:
 
     def clip_value(self, value: float) -> float:
         """Clip value to bounds (upstream heterodyne API)."""
-        return float(np.clip(value, self.lower_bound, self.upper_bound))
+        return min(max(value, self.lower_bound), self.upper_bound)
 
 
 class ParameterRegistry:
