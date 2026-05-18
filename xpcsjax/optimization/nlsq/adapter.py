@@ -188,6 +188,121 @@ def _make_cache_key(
 
 
 # =============================================================================
+# Task 30: heterodyne (two_component) routing helper
+# =============================================================================
+def _get_or_create_heterodyne_model(
+    phi_angles: np.ndarray,
+    q: float,
+    t: np.ndarray,
+    dt: float,
+    per_angle_scaling: bool = True,
+    enable_jit: bool = True,
+) -> tuple[Any, Callable[[np.ndarray, Any], np.ndarray], bool]:
+    """Construct a :class:`HeterodyneModel` + ``model_func`` for NLSQ curve_fit.
+
+    Separate path from the homodyne :func:`get_or_create_model` so the existing
+    per-angle scaling expansion / lineage gating machinery is unaffected. The
+    returned ``model_func`` follows the per-angle convention used by
+    heterodyne's ``NLSQAdapter.fit_jax``: a dummy ``xdata`` of shape
+    ``(N*N,)`` and parameter vector ``[contrast, offset, *physics_14]`` (or
+    ``[*physics_14]`` when ``per_angle_scaling=False``) — it returns the
+    flattened predicted c2 matrix.
+
+    Notes
+    -----
+    - Single-angle only. Multi-angle heterodyne fits go through the source
+      heterodyne CLI (see scripts/extract_heterodyne_baseline.py).
+    - Time grid is fixed at construction (curve_fit closure); ``xdata`` is
+      a dummy index array; the model evaluates ``compute_c2_heterodyne(t, ...)``
+      with the stored ``t`` regardless.
+
+    Parameters
+    ----------
+    phi_angles : np.ndarray
+        1-element array with the phi angle (degrees) for this fit.
+    q : float
+        Scattering wavevector magnitude.
+    t : np.ndarray
+        1-D time array (frames or seconds — must be consistent with ``dt``).
+    dt : float
+        Time step.
+    per_angle_scaling : bool
+        If True, ``model_func`` consumes a leading ``(contrast, offset)`` pair
+        from ``*params`` before the 14 physics parameters.
+    enable_jit : bool
+        Forwarded as a hint; the underlying kernel is already JAX-compiled.
+
+    Returns
+    -------
+    tuple
+        ``(model, model_func, cache_hit)``. ``cache_hit`` is always ``False``
+        (heterodyne path is uncached for now; small fixture size makes this
+        cheap).
+    """
+    from xpcsjax.core.heterodyne_jax_backend import compute_c2_heterodyne
+    from xpcsjax.core.heterodyne_model import HeterodyneModel
+
+    if len(phi_angles) != 1:
+        raise ValueError(
+            "Heterodyne routing in NLSQAdapter currently supports single-angle "
+            f"fits only; got {len(phi_angles)} phi angles. For multi-angle "
+            "heterodyne fits use the source heterodyne CLI / fit_nlsq_multi_phi."
+        )
+
+    if q <= 0:
+        raise ValueError(f"q must be positive, got {q}")
+
+    model = HeterodyneModel()
+
+    import jax.numpy as jnp
+
+    phi_scalar = float(phi_angles[0])
+    t_jax = jnp.asarray(t, dtype=jnp.float64)
+    q_val = float(q)
+    dt_val = float(dt)
+
+    def model_func(xdata: np.ndarray, *params: float) -> np.ndarray:  # noqa: ARG001
+        """Evaluate c2 model at the configured phi angle.
+
+        ``xdata`` is ignored — the heterodyne kernel evaluates on the closed-over
+        ``t`` grid. Parameter layout:
+
+        - ``per_angle_scaling=True``:  ``[contrast, offset, *physics_14]``
+        - ``per_angle_scaling=False``: ``[*physics_14]``
+        """
+        params_jax = jnp.stack(params)
+        n_params_val = len(params)
+
+        if per_angle_scaling and n_params_val >= 16:
+            contrast = params_jax[0]
+            offset = params_jax[1]
+            physics = params_jax[2:16]
+        else:
+            contrast = jnp.float64(1.0)
+            offset = jnp.float64(0.0)
+            physics = params_jax[:14]
+
+        c2_pred = compute_c2_heterodyne(
+            params=physics,
+            t=t_jax,
+            q=q_val,
+            dt=dt_val,
+            phi_angle=phi_scalar,
+            contrast=contrast,
+            offset=offset,
+        )
+        # Return as JAX array so NLSQ can trace through curve_fit's JIT. The
+        # NLSQ runtime converts to numpy for the final result after tracing.
+        return c2_pred.ravel()
+
+    if enable_jit:
+        # The kernel is already JAX-compiled; the closure dispatches through it.
+        logger.debug("Heterodyne model_func uses pre-JIT-compiled kernel")
+
+    return model, model_func, False
+
+
+# =============================================================================
 # T007: get_or_create_model() function per contracts/model-caching.md
 # =============================================================================
 def get_or_create_model(
@@ -197,6 +312,8 @@ def get_or_create_model(
     per_angle_scaling: bool = True,
     config: dict[str, Any] | None = None,
     enable_jit: bool = True,
+    t: np.ndarray | None = None,
+    dt: float | None = None,
 ) -> tuple[Any, Callable[[np.ndarray, Any], np.ndarray], bool]:
     """Get cached model or create new one.
 
@@ -206,17 +323,27 @@ def get_or_create_model(
     Uses CombinedModel (not HomodyneModel) for simpler initialization.
     The model function closure captures the model and experimental setup.
 
+    For ``analysis_mode='two_component'`` (heterodyne) the call is routed to
+    :func:`_get_or_create_heterodyne_model` — see that function's docstring
+    for the parameter-layout convention and the ``t``/``dt`` requirement.
+
     Args:
-        analysis_mode: 'static_isotropic' or 'laminar_flow'
-        phi_angles: Unique phi angles in radians
+        analysis_mode: 'static_isotropic', 'static', 'laminar_flow', or
+            'two_component'
+        phi_angles: Unique phi angles in radians (homodyne) or degrees
+            (heterodyne — convention matches the source heterodyne kernel)
         q: Scattering wavevector magnitude
         per_angle_scaling: Whether per-angle contrast/offset is used
         config: Optional config dict for model initialization
         enable_jit: Whether to JIT-compile the model function
+        t: Time array (required when ``analysis_mode='two_component'``;
+            ignored for homodyne modes which read ``t1``/``t2`` from the data
+            dict at fit time).
+        dt: Time step (required when ``analysis_mode='two_component'``).
 
     Returns:
         Tuple of (model, model_func, cache_hit) where:
-            - model: CombinedModel instance (cached or newly created)
+            - model: CombinedModel or HeterodyneModel instance
             - model_func: Prediction function (JIT-compiled if enable_jit=True)
             - cache_hit: True if model was retrieved from cache
 
@@ -234,11 +361,29 @@ def get_or_create_model(
     """
     global _cache_stats
 
+    # Heterodyne route (Task 30): two_component does not share scaling /
+    # caching plumbing with homodyne — dispatch before homodyne validation.
+    if analysis_mode == "two_component" or analysis_mode == "heterodyne":
+        if t is None or dt is None:
+            raise ValueError(
+                "Heterodyne (two_component) routing requires `t` and `dt`; "
+                "got t=%r, dt=%r" % (t, dt)
+            )
+        return _get_or_create_heterodyne_model(
+            phi_angles=phi_angles,
+            q=q,
+            t=t,
+            dt=dt,
+            per_angle_scaling=per_angle_scaling,
+            enable_jit=enable_jit,
+        )
+
     # Validate inputs
     if analysis_mode not in {"static_isotropic", "static", "laminar_flow"}:
         raise ValueError(
             f"Invalid analysis_mode: '{analysis_mode}'. "
-            f"Expected 'static_isotropic', 'static', or 'laminar_flow'"
+            f"Expected 'static_isotropic', 'static', 'laminar_flow', "
+            f"or 'two_component'"
         )
     if len(phi_angles) == 0:
         raise ValueError("phi_angles cannot be empty")

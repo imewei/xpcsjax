@@ -1,0 +1,97 @@
+{
+  "config_path": "/home/wei/Documents/Projects/data/C044/heterodyne_config.yaml",
+  "label": "two_component_c044",
+  "analysis_mode": "two_component",
+  "parameter_names": [
+    "D0_ref",
+    "alpha_ref",
+    "D_offset_ref",
+    "D0_sample",
+    "alpha_sample",
+    "D_offset_sample",
+    "v0",
+    "beta",
+    "v_offset",
+    "f0",
+    "f1",
+    "f2",
+    "f3",
+    "phi0"
+  ],
+  "parameters": [
+    5111.926405638892,
+    -0.25636772666816565,
+    -1395.7174527631494,
+    1388.4086196129813,
+    -1.9999999999999998,
+    13.567725171700983,
+    459.52714737281536,
+    -0.41291490905674433,
+    -61.5269412357128,
+    0.03258930366346133,
+    -0.7299834351368174,
+    0.6262308857406114,
+    0.8303855608730608,
+    -2.1521299412689614
+  ],
+  "uncertainties": [
+    72.54663080909569,
+    0.03067024208354648,
+    242.14091225848222,
+    188.45809463611428,
+    0.012240723331472251,
+    1.7870279251037342,
+    0.40655960320994866,
+    0.0008932086464969061,
+    0.24396772671534778,
+    0.001943539266278897,
+    0.03101756010267074,
+    4.623550144562983e-05,
+    0.009181633347349411,
+    0.02433806166341429
+  ],
+  "chi_squared": 7131.311074205684,
+  "reduced_chi_squared": 0.8607011746986162,
+  "convergence_status": "converged",
+  "n_iterations": 100,
+  "n_function_evals": 372,
+  "wall_time_seconds": 159.3170162739989,
+  "convergence_reason": "`ftol` termination condition is satisfied.",
+  "metadata": {
+    "aggregate": true,
+    "n_angles": 3,
+    "phi_angles": [
+      -5.793084144592285,
+      4.878349781036377,
+      90.0093002319336
+    ],
+    "per_angle": [
+      {
+        "phi_angle": -5.793084144592285,
+        "success": true,
+        "message": "`ftol` termination condition is satisfied.",
+        "final_cost": 1142.6962505865104,
+        "reduced_chi_squared": 0.7393688889279223
+      },
+      {
+        "phi_angle": 4.878349781036377,
+        "success": true,
+        "message": "`ftol` termination condition is satisfied.",
+        "final_cost": 1373.0154630137063,
+        "reduced_chi_squared": 0.9064540731910872
+      },
+      {
+        "phi_angle": 90.0093002319336,
+        "success": true,
+        "message": "`ftol` termination condition is satisfied.",
+        "final_cost": 1049.9438235026253,
+        "reduced_chi_squared": 0.936280561976839
+      }
+    ]
+  },
+  "source": {
+    "generator": "heterodyne CLI (heterodyne --config <yaml> --method nlsq)",
+    "params_path": "/home/wei/Documents/Projects/data/C044/heterodyne_results/output/nlsq_parameters.json",
+    "metadata_path": "/home/wei/Documents/Projects/data/C044/heterodyne_results/output/nlsq_metadata.json"
+  }
+}
