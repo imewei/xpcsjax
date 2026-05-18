@@ -39,7 +39,7 @@ xpcsjax adopts homodyne's NLSQ engine **verbatim** — same memory-aware strateg
 | D5 | Strict mirror layout + v0.1 dead-code trim |
 | D6 | Heterodyne parameter bounds verbatim from heterodyne docs (symmetric ref/sample bounds) |
 | D7 | Anti-degeneracy controller gated by model: Homodyne→5 layers, Heterodyne→4 (no ShearSensitivityWeighting) |
-| D8 | Trust-region LM is scipy `trf` via `nlsq.CurveFit`, JAX for Jacobian only |
+| D8 | Trust-region LM is **JAX-native** via `nlsq.CurveFit` (`nlsq/core/trf.py`, `trf_jit.py`); end-to-end on-device, GPU/TPU-capable; **never use `scipy.optimize.least_squares`** |
 
 ## 5. Package layout
 
@@ -93,12 +93,13 @@ xpcsjax/
 | Package | Pin | Purpose |
 |---|---|---|
 | Python | ≥ 3.12 | per CLAUDE.md |
-| `jax`, `jaxlib` | latest | float64 mandatory at import time |
-| `nlsq` | ≥ 0.6.4 | CurveFit wrapper around scipy `trf` |
+| `jax`, `jaxlib` | latest | float64 mandatory at import time; backs nlsq's on-device LM step |
+| `nlsq` | ≥ 0.6.4 | JAX-native trust-region reflective solver; CurveFit entry point |
 | `optimistix`, `optax` | latest | compatibility with homodyne shims |
-| `evosax` | latest | CMA-ES backend (transitive via `nlsq` CMAESOptimizer) |
+| `evosax` | latest | CMA-ES backend (transitive via `nlsq.CMAESOptimizer`) |
 | `h5py` | latest | XPCS HDF5 I/O |
-| `numpy`, `scipy` | latest | finite-diff Jacobian fallback, `trf` solver |
+| `numpy` | latest | host-side array utilities (data loader, result serialization) |
+| `scipy` | latest | **not** used for the LM step; available only for non-hot-path utilities (covariance post-processing, statistical tests in result diagnostics) |
 | `interpax` | latest | JIT-safe interpolation (per CLAUDE.md prohibition) |
 | `pyyaml` | latest | config files |
 | `pytest`, `hypothesis` | dev | testing |
@@ -208,11 +209,13 @@ The flagged `parameter_registry.py` / `parameter_manager.py` inconsistency on co
 
 **Verbatim port from `homodyne/optimization/nlsq/`.** The engine doesn't depend on physics; it consumes `PhysicsModelBase.compute_residual` and parameter bounds.
 
-### 10.1 Solver substrate
+### 10.1 Solver substrate — JAX-native end-to-end
 
-- `nlsq.CurveFit` wraps `scipy.optimize.least_squares(method='trf')` — trust-region reflective LM.
-- **Not JAX-native.** JAX is used to compute the Jacobian (`jax.jacfwd(model.compute_residual)`, JIT-compiled, vmap-vectorized).
-- NumPy finite-difference Jacobian as fallback (central / Richardson / adaptive step).
+- `nlsq.CurveFit` uses nlsq's **JAX-native** trust-region reflective LM solver, implemented in `nlsq/core/trf.py` and JIT-compiled in `nlsq/core/trf_jit.py`. nlsq's own description: "JAX-accelerated nonlinear least squares curve fitting … GPU/TPU acceleration via JAX … Drop-in replacement for `scipy.optimize.curve_fit`."
+- **The entire LM loop — residual, Jacobian, trust-region step, parameter update — stays on device.** No per-iteration Host↔Device transfers. GPU/TPU-capable end-to-end (CPU fallback automatic on non-Linux platforms via `NLSQ_FORCE_CPU`).
+- **Never use `scipy.optimize.least_squares`.** xpcsjax does not import scipy's trust-region solver. The CLAUDE.md "JAX-first, minimize Host↔Device transfers" principle is enforced at the engine layer.
+- Jacobian: `jax.jacfwd(model.compute_residual)`, JIT-compiled, vmap-vectorized. nlsq computes it internally when the residual function is JAX-compatible.
+- **Finite-difference Jacobian fallback** (via nlsq's own `common_scipy.py` numerical utilities — these are JAX-ported scipy reference routines, not calls to scipy at runtime) is available for non-JAX residuals but is not used by xpcsjax models.
 
 ### 10.2 Memory-aware strategy routing
 
@@ -250,7 +253,7 @@ Gating is by `model.analysis_mode`:
 
 ### 10.5 Bounds + parameter transforms
 
-- Bounds enforced natively by scipy `trf` (`bounds=(lo, hi)`).
+- Bounds enforced natively by nlsq's JAX trf solver (`bounds=(lo, hi)`).
 - Log transforms applied at the **model boundary**: engine sees flat transformed parameter vector; `model.compute_residual` un-transforms before computing physics.
 - `ParameterManager` reads transform table from registry.
 
