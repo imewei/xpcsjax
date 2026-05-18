@@ -70,7 +70,7 @@ _LAZY_EXPORTS = {
     "ConfigManager": "xpcsjax.config",
     "HomodyneModel": "xpcsjax.core",
     "HeterodyneModel": "xpcsjax.core",
-    "OptimizationResult": "xpcsjax.io",
+    "OptimizationResult": "xpcsjax.optimization.nlsq.results",
 }
 
 # Note: a `TYPE_CHECKING` block listing the lazy-exported symbols belongs
