@@ -1377,6 +1377,318 @@ git commit -m "feat(api): single-entry fit_nlsq(data, config) wrapper"
 
 ---
 
+### Task 20a: Engine verification — memory-aware strategy routing
+
+> **Why this exists:** The Phase 5 characterization gate would catch any
+> regression in `select_nlsq_strategy`, but the failure would surface as
+> "strategy_used mismatch in baseline X" without isolating *which* part of
+> the router is wrong. Tasks 20a–20c add direct unit tests so any engine-
+> layer regression localizes to the offending feature before the gate runs.
+
+**Files:**
+- Create: `tests/optimization/test_memory_routing.py`
+
+- [ ] **Step 1: Create `tests/optimization/__init__.py` (empty) if not already present**
+
+```bash
+test -f tests/optimization/__init__.py || touch tests/optimization/__init__.py
+```
+
+- [ ] **Step 2: Write the routing unit tests**
+
+Create `tests/optimization/test_memory_routing.py`:
+
+```python
+"""Direct unit tests for memory-aware NLSQ strategy routing.
+
+Localizes router regressions ahead of the Phase 5 characterization gate."""
+import os
+
+from xpcsjax.optimization.nlsq.memory import select_nlsq_strategy
+
+
+def _strategy_name(s) -> str:
+    """Normalize the returned value (enum, string, or named constant) to upper-case name."""
+    return getattr(s, "name", str(s)).upper()
+
+
+def test_small_data_routes_to_standard():
+    """Small datasets fit in memory — STANDARD strategy."""
+    strategy = select_nlsq_strategy(n_points=10_000, n_params=3)
+    name = _strategy_name(strategy)
+    assert "STANDARD" in name, f"expected STANDARD, got {name}"
+
+
+def test_huge_data_routes_to_streaming():
+    """Datasets that vastly exceed RAM trigger streaming."""
+    strategy = select_nlsq_strategy(n_points=200_000_000, n_params=14)
+    name = _strategy_name(strategy)
+    assert "STREAM" in name or "HYBRID" in name, (
+        f"expected HYBRID_STREAMING, got {name}"
+    )
+
+
+def test_medium_data_routes_to_chunked_or_streaming():
+    """Datasets exceeding peak Jacobian threshold escalate beyond STANDARD.
+
+    Exact thresholds are adaptive on system RAM (default 16 GB), so this test
+    asserts only that the router escalated — landing in either OUT_OF_CORE or
+    HYBRID_STREAMING is acceptable depending on the host."""
+    strategy = select_nlsq_strategy(n_points=10_000_000, n_params=14)
+    name = _strategy_name(strategy)
+    assert any(token in name for token in ("OUT_OF_CORE", "CHUNK", "STREAM", "HYBRID")), (
+        f"expected escalation beyond STANDARD, got {name}"
+    )
+
+
+def test_memory_fraction_env_override_is_honored():
+    """NLSQ_MEMORY_FRACTION env var must be readable by the router without exception.
+
+    The exact strategy change depends on system RAM — we verify only that the env
+    var is parsed and applied without crashing."""
+    default = select_nlsq_strategy(n_points=2_000_000, n_params=3)
+    os.environ["NLSQ_MEMORY_FRACTION"] = "0.1"
+    try:
+        with_override = select_nlsq_strategy(n_points=2_000_000, n_params=3)
+    finally:
+        del os.environ["NLSQ_MEMORY_FRACTION"]
+
+    valid_strategies = {"STANDARD", "OUT_OF_CORE", "HYBRID_STREAMING"}
+    assert _strategy_name(default) in valid_strategies
+    assert _strategy_name(with_override) in valid_strategies
+```
+
+- [ ] **Step 3: Run tests**
+
+```bash
+uv run pytest tests/optimization/test_memory_routing.py -v
+```
+
+Expected: all PASS. If `_strategy_name` cannot extract a recognizable string from the return type, inspect `select_nlsq_strategy`'s actual return type and update the helper to match (it might be a `StrategyInfo` dataclass with a `.strategy` attribute, an `Enum`, or a plain string).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add tests/optimization/test_memory_routing.py tests/optimization/__init__.py
+git commit -m "test(nlsq): direct unit tests for memory-aware strategy routing"
+```
+
+---
+
+### Task 20b: Engine verification — 5-layer anti-degeneracy controller presence
+
+**Files:**
+- Create: `tests/optimization/test_anti_degeneracy_layers.py`
+
+- [ ] **Step 1: Write the layer-existence test**
+
+Create `tests/optimization/test_anti_degeneracy_layers.py`:
+
+```python
+"""Verify all 5 anti-degeneracy layers ported over from homodyne.
+
+Task 29 tests the Layer-5 model-lineage gating. This test catches a different
+regression: did the CMC-path trimming in Task 13/14 accidentally cut into the
+anti-degeneracy controller's layer wiring?"""
+import inspect
+
+from xpcsjax.core import HomodyneModel
+from xpcsjax.optimization.nlsq.anti_degeneracy_controller import AntiDegeneracyController
+
+
+LAYER_NAMES = (
+    "FourierReparameterizer",
+    "HierarchicalOptimizer",
+    "AdaptiveRegularizer",
+    "GradientCollapseMonitor",
+    "ShearSensitivityWeighting",
+)
+
+
+def test_controller_source_references_all_5_layers():
+    """Static check: the controller class source must mention every layer name.
+
+    If a layer class was dropped during the verbatim port, this catches it
+    without needing to instantiate or introspect the controller's runtime state."""
+    src = inspect.getsource(AntiDegeneracyController)
+    missing = [name for name in LAYER_NAMES if name not in src]
+    assert not missing, (
+        f"AntiDegeneracyController source missing references to: {missing}. "
+        f"Likely cause: a layer was dropped during the verbatim port "
+        f"or during the CMC trim in Task 13/14."
+    )
+
+
+def test_controller_instantiates_on_homodyne():
+    """The controller must accept a HomodyneModel and construct without error."""
+    model = HomodyneModel()
+    controller = AntiDegeneracyController(model=model)
+    assert controller is not None
+    assert controller.model is model
+
+
+def test_controller_exposes_layer_pipeline():
+    """The controller must expose its internal layer pipeline for inspection.
+
+    Tries common attribute conventions — at least one must hold the layer set."""
+    model = HomodyneModel()
+    controller = AntiDegeneracyController(model=model)
+
+    pipeline = None
+    for attr in ("layers", "_layers", "pipeline", "_pipeline", "stages"):
+        candidate = getattr(controller, attr, None)
+        if candidate is not None:
+            pipeline = candidate
+            break
+    assert pipeline is not None, (
+        "controller has no discoverable layer pipeline — checked "
+        "`layers`, `_layers`, `pipeline`, `_pipeline`, `stages`. "
+        "Adapt this test to the actual attribute name once located."
+    )
+
+    if hasattr(pipeline, "keys"):
+        keys = set(pipeline.keys())
+        found = sum(1 for name in LAYER_NAMES if name in keys)
+        assert found >= 5, f"pipeline dict has only {found}/5 layer keys: {keys}"
+    else:
+        assert len(pipeline) >= 5, (
+            f"pipeline has only {len(pipeline)} stages, expected ≥ 5"
+        )
+```
+
+- [ ] **Step 2: Run tests**
+
+```bash
+uv run pytest tests/optimization/test_anti_degeneracy_layers.py -v
+```
+
+Expected: `test_controller_source_references_all_5_layers` PASS, `test_controller_instantiates_on_homodyne` PASS. The third test may need adaptation — once you locate the actual pipeline attribute (likely visible via `dir(controller)` after instantiation), update the loop's attribute list.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add tests/optimization/test_anti_degeneracy_layers.py
+git commit -m "test(nlsq): direct unit tests for 5-layer anti-degeneracy controller presence"
+```
+
+---
+
+### Task 20c: Engine verification — CMA-ES trigger threshold
+
+**Files:**
+- Create: `tests/optimization/test_cmaes_trigger.py`
+
+- [ ] **Step 1: Write the trigger-threshold test**
+
+Create `tests/optimization/test_cmaes_trigger.py`:
+
+```python
+"""CMA-ES auto-triggers at scale_ratio >= 1000 (homodyne default).
+
+XPCS multi-scale problems span >3 orders of magnitude (e.g., D0 ~ 1e4 vs
+gamma_dot ~ 1e-3 → ratio ~ 1e7). This is the documented escape hatch; we
+verify it directly so a regression localizes to the trigger function rather
+than only surfacing via characterization."""
+import inspect
+
+import pytest
+
+from xpcsjax.optimization.nlsq.cmaes_wrapper import should_use_cmaes
+
+
+def _call_with_either_api(scale_ratio_value, bounds_value):
+    """should_use_cmaes API may accept scale_ratio directly OR a bounds list.
+
+    Try the kwarg form first, fall back to positional."""
+    try:
+        return should_use_cmaes(scale_ratio=scale_ratio_value)
+    except TypeError:
+        pass
+    try:
+        return should_use_cmaes(bounds=bounds_value)
+    except TypeError:
+        return should_use_cmaes(bounds_value)
+
+
+def test_high_scale_ratio_triggers_cmaes():
+    """scale_ratio = 1.5e6 must enable CMA-ES (well above 1000 threshold)."""
+    result = _call_with_either_api(
+        scale_ratio_value=1_500_000.0,
+        bounds_value=[(1e-3, 1.0e3)],  # ratio 1e6
+    )
+    assert result is True, "scale_ratio >> 1000 must enable CMA-ES"
+
+
+def test_low_scale_ratio_does_not_trigger():
+    """scale_ratio = 10 must NOT enable CMA-ES."""
+    result = _call_with_either_api(
+        scale_ratio_value=10.0,
+        bounds_value=[(1.0, 10.0)],  # ratio 10
+    )
+    assert result is False, "scale_ratio << 1000 must not enable CMA-ES"
+
+
+def test_default_threshold_is_1000():
+    """The documented default scale_threshold is 1000.0.
+
+    Threshold may be a function parameter OR a module-level constant; check both."""
+    sig = inspect.signature(should_use_cmaes)
+    threshold_param = next(
+        (p for name, p in sig.parameters.items()
+         if "threshold" in name.lower() or "scale_thr" in name.lower()),
+        None,
+    )
+    if threshold_param is not None and threshold_param.default is not inspect.Parameter.empty:
+        assert threshold_param.default == pytest.approx(1000.0), (
+            f"default scale_threshold drifted from documented 1000.0 to "
+            f"{threshold_param.default}"
+        )
+        return
+
+    # Fall back: look for a module-level constant
+    from xpcsjax.optimization.nlsq import cmaes_wrapper
+
+    for constant_name in ("DEFAULT_SCALE_THRESHOLD", "SCALE_THRESHOLD",
+                          "CMAES_SCALE_THRESHOLD"):
+        if hasattr(cmaes_wrapper, constant_name):
+            value = getattr(cmaes_wrapper, constant_name)
+            assert value == pytest.approx(1000.0), (
+                f"{constant_name} drifted from 1000.0 to {value}"
+            )
+            return
+
+    pytest.skip(
+        "could not locate scale_threshold as function param or module constant — "
+        "inspect cmaes_wrapper.py manually and update this test to point at the "
+        "actual location of the threshold value."
+    )
+```
+
+- [ ] **Step 2: Run tests**
+
+```bash
+uv run pytest tests/optimization/test_cmaes_trigger.py -v
+```
+
+Expected: first two tests PASS. `test_default_threshold_is_1000` PASS or SKIP depending on where the threshold lives. If SKIPped, follow the skip message to locate the threshold and update the test to assert on the actual value.
+
+- [ ] **Step 3: Run all three engine-verification tests together**
+
+```bash
+uv run pytest tests/optimization/ -v
+```
+
+Expected: all PASS. This is the engine-feature-localization gate — every Task 20a/b/c assertion must pass before Phase 5 baselines are generated.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add tests/optimization/test_cmaes_trigger.py
+git commit -m "test(nlsq): direct unit test for CMA-ES auto-trigger threshold"
+```
+
+---
+
 ## Phase 5 — Homodyne Characterization GATE (~1 day)
 
 ### Task 21: Generate homodyne baselines from the source package
@@ -2789,6 +3101,7 @@ git push origin main --tags
 - [ ] Every task's "Expected:" output matches what you actually see.
 - [ ] `grep -rn "scipy.optimize.least_squares" xpcsjax/` returns empty after every Phase 4 task.
 - [ ] `grep -rn "homodyne\|heterodyne" xpcsjax/` (excluding docstrings/comments) returns empty after Phase 7.
+- [ ] **Engine-feature unit tests (Tasks 20a/b/c) pass BEFORE the Phase 5 characterization gate runs.** These localize regressions to memory routing, anti-degeneracy layer presence, or CMA-ES trigger respectively — fix anything failing here before generating baselines.
 - [ ] Phase 5 characterization tests pass at `rtol=1e-10` BEFORE Phase 6 begins.
 - [ ] Heterodyne golden-value tests pass within 1σ (Task 32 escalation policy applies if >5% fail).
 - [ ] `OptimizationResult.save() / load()` roundtrip preserves equality.

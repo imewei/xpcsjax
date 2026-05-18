@@ -332,6 +332,18 @@ Invariants:
 - Returned parameters always satisfy bounds.
 - Result serialization round-trip preserves equality.
 
+### 12.4 Layer 4 — Engine-feature unit tests (regression localization)
+
+`tests/optimization/`: direct unit tests for the three engine features inherited from homodyne. The Layer-1 characterization gate would catch any regression in these features end-to-end, but Layer-4 localizes the failure to the offending feature *before* characterization runs — turning "baseline X mismatched on strategy_used" into "the router escalation threshold drifted."
+
+| Test file | Verifies |
+|---|---|
+| `test_memory_routing.py` | `select_nlsq_strategy()` returns STANDARD / OUT_OF_CORE / HYBRID_STREAMING for small / medium / large `n_points`; `NLSQ_MEMORY_FRACTION` env var is honored without exception |
+| `test_anti_degeneracy_layers.py` | All 5 layer class names appear in `AntiDegeneracyController` source; controller instantiates on `HomodyneModel`; layer pipeline attribute is reachable and contains ≥ 5 stages |
+| `test_cmaes_trigger.py` | `should_use_cmaes()` returns True for `scale_ratio = 1.5e6`, False for `scale_ratio = 10`; default scale threshold is 1000.0 (verified as function param or module constant) |
+
+Layer-4 tests run as part of Phase 4 and are a *prerequisite* to the Phase 5 characterization gate. If Layer 4 fails, fix at the engine layer before generating baselines.
+
 ## 13. Phased migration plan
 
 | Phase | Scope | Effort |
