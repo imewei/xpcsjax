@@ -60,6 +60,16 @@ target-version = "py312"
 select = ["E", "F", "W", "I", "B", "UP", "N"]
 ignore = ["E501"]
 
+[tool.bandit]
+# Mirrors homodyne and heterodyne. Skips rationale:
+#   B101 — asserts are used for invariants in physics / NLSQ hot paths
+#   B110 — try/except/pass common in I/O fallback shims
+#   B403 — serialization import required for HYBRID_STREAMING worker pool
+#   B404 — subprocess used in scripts/ for baseline generation
+#   B603 — subprocess calls are controlled, no untrusted input
+exclude_dirs = ["tests", "docs", "build", "dist"]
+skips = ["B101", "B110", "B403", "B404", "B603"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = false

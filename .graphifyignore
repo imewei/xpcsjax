@@ -1,0 +1,23 @@
+# .graphifyignore
+node_modules/
+dist/
+*.generated.py
+
+# only index src/, ignore everything else
+*
+!xpcsjax/
+!xpcsjax/**
+!docs/
+!docs/**
+docs/_build/
+docs/_build/**
+docs/source/_build/
+docs/source/_build/**
+docs/_autosummary/
+docs/_autosummary/**
+docs/superpowers/
+docs/superpowers/**
+!tests
+!tests/**
+!scripts
+!scripts/**

@@ -1,0 +1,124 @@
+# Pre-commit hooks for xpcsjax
+# Install:      uv run pre-commit install
+# Run manually: uv run pre-commit run --all-files
+#
+# Derived from homodyne/.pre-commit-config.yaml. Divergences:
+#   - Python pinned to 3.12 (xpcsjax requires-python = ">=3.12")
+#   - mypy additional_dependencies tuned for xpcsjax: arviz dropped
+#     (Bayesian/CMC is permanently out of scope), evosax/interpax/jaxopt
+#     added (xpcsjax-specific deps).
+#   - results exclusion changed to xpcsjax_results/.
+
+repos:
+  # Basic file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+        exclude: ^(graphify-out/|tests/characterization/fixtures/)
+      - id: debug-statements
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # Python linting and formatting (ruff replaces flake8, isort, black)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.5
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  # Security scanning
+  # Note: requires a [tool.bandit] section in pyproject.toml to be configured;
+  # without one, bandit falls back to defaults (still functional).
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.9.4
+    hooks:
+      - id: bandit
+        args: [-c, pyproject.toml]
+        additional_dependencies: ["bandit[toml]"]
+        exclude: ^tests/
+
+  # Type checking
+  # Pre-commit runs mypy in an isolated venv (does NOT see uv.lock), so every
+  # third-party type stub or import-resolvable package used by xpcsjax/ must
+  # be listed here explicitly, or mypy will report missing-import errors.
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.19.1
+    hooks:
+      - id: mypy
+        args: [--config-file=pyproject.toml]
+        additional_dependencies:
+          - types-psutil>=7.2
+          - types-requests>=2.31
+          - types-Pygments>=2.16
+          - types-colorama>=0.4
+          - types-decorator>=5.1
+          - types-setuptools>=68.0
+          - types-pyyaml>=6.0
+          - numpy>=2.3
+          - jax>=0.8.2
+          - jaxopt>=0.8.3
+          - interpax>=0.3.12
+          - nlsq>=0.6.10
+          - evosax>=0.2.0
+          - scikit-learn>=1.6
+        exclude: ^(tests/|docs/)
+
+  # Markdown formatting
+  - repo: https://github.com/executablebooks/mdformat
+    rev: 1.0.0
+    hooks:
+      - id: mdformat
+        args: [--wrap=88]
+        exclude: ^(README\.md|docs/superpowers/.*\.md)$
+
+  # YAML/JSON formatting
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v4.0.0-alpha.8
+    hooks:
+      - id: prettier
+        types_or: [yaml, json]
+        args: [--write, --tab-width=2]
+
+  # Jupyter notebook linting
+  - repo: https://github.com/nbQA-dev/nbQA
+    rev: 1.9.1
+    hooks:
+      - id: nbqa-ruff
+        args: [--ignore=E402, --ignore=B905]
+        additional_dependencies: [ruff>=0.15.5]
+
+default_language_version:
+  python: python3.12
+
+exclude: |
+  (?x)^(
+      \.eggs/|
+      \.git/|
+      \.mypy_cache/|
+      \.pytest_cache/|
+      \.ruff_cache/|
+      \.tox/|
+      \.venv/|
+      _build/|
+      build/|
+      dist/|
+      venv/|
+      .*\.egg-info/|
+      xpcsjax_results/|
+      \.benchmarks/|
+      bandit_report\.json|
+      coverage\.xml|
+      htmlcov/
+  )$
