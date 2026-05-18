@@ -57,6 +57,20 @@ from xpcsjax.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+# Task 29: Layer-gating by analysis_mode (model lineage).
+# Map: layer class-name -> set of analysis_modes where it is ACTIVE.
+# A layer NOT listed here is active for all modes (default-active).
+# ShearSensitivityWeighting is homodyne-specific (laminar_flow has the shear rate
+# in its kernel; static / static_isotropic still belong to the homodyne family and
+# previously ran with this layer wired in). For heterodyne (two_component) there is
+# no shear rate to weight, so Layer 5 short-circuits.
+_LAYER_GATES: dict[str, frozenset[str]] = {
+    "ShearSensitivityWeighting": frozenset({
+        "static", "static_isotropic", "laminar_flow",
+    }),
+}
+
+
 @dataclass
 class AntiDegeneracyConfig:
     """Configuration for the Anti-Degeneracy Defense System.
@@ -242,6 +256,11 @@ class AntiDegeneracyController:
     shear_weighter: ShearSensitivityWeighting | None = None  # Layer 5
     mapper: ParameterIndexMapper | None = None  # T018: Centralized index mapping
     per_angle_mode_actual: str = "disabled"
+    # Task 29: model-lineage gating for anti-degeneracy layers.
+    # None = backward-compatible "all layers active" behavior used by the
+    # homodyne characterization gate at rtol=1e-10. When set (e.g. by
+    # HeterodyneModel passing "two_component"), Layer 5 is short-circuited.
+    analysis_mode: str | None = None
     # Fixed per-angle quantile estimates for constant mode (v2.17.0+)
     _fixed_contrast_per_angle: np.ndarray | None = field(default=None, repr=False)
     _fixed_offset_per_angle: np.ndarray | None = field(default=None, repr=False)
@@ -465,7 +484,15 @@ class AntiDegeneracyController:
             logger.info("=" * 60)
 
         # Layer 5: Shear-Sensitivity Weighting
-        if config.shear_weighting_enable and self.n_phi >= 3:
+        # Task 29: gate by model lineage. Heterodyne (two_component) has no
+        # shear rate to weight, so this layer short-circuits to a no-op
+        # (shear_weighter stays None and the existing `if self.shear_weighter
+        # is None` guards in get_shear_weights / update_shear_phi0 take over).
+        if (
+            config.shear_weighting_enable
+            and self.n_phi >= 3
+            and self.is_layer_active("ShearSensitivityWeighting")
+        ):
             sw_config = ShearWeightingConfig(
                 enable=True,
                 min_weight=config.shear_weighting_min_weight,
@@ -543,6 +570,50 @@ class AntiDegeneracyController:
     def use_shear_weighting(self) -> bool:
         """Check if shear-sensitivity weighting is active."""
         return self.shear_weighter is not None
+
+    @staticmethod
+    def _normalize_mode(mode: str) -> str:
+        """Normalize analysis-mode synonyms consistent with parameter_registry.
+
+        - ``heterodyne`` is a synonym for ``two_component``.
+        - hyphens are converted to underscores; case is lowered.
+        """
+        m = mode.lower().replace("-", "_")
+        if m == "heterodyne":
+            return "two_component"
+        return m
+
+    def is_layer_active(self, layer_name: str) -> bool:
+        """Return whether a named anti-degeneracy layer is active for this
+        controller's ``analysis_mode``.
+
+        Task 29 — model-lineage gating of the 5-layer defense system.
+
+        Backward-compatible: if ``analysis_mode`` was not provided at
+        construction, all layers are active (preserves the homodyne
+        characterization gate's rtol=1e-10 behavior).
+
+        Parameters
+        ----------
+        layer_name : str
+            Class name of the layer to query, e.g.
+            ``"ShearSensitivityWeighting"``, ``"FourierReparameterizer"``,
+            ``"HierarchicalOptimizer"``, ``"AdaptiveRegularizer"``,
+            ``"GradientCollapseMonitor"``.
+
+        Returns
+        -------
+        bool
+            ``True`` if the layer is active for the current ``analysis_mode``.
+        """
+        if self.analysis_mode is None:
+            return True
+        mode = self._normalize_mode(self.analysis_mode)
+        gates = _LAYER_GATES.get(layer_name)
+        if gates is None:
+            # Not in gate dict -> default active for every mode.
+            return True
+        return mode in gates
 
     @property
     def n_per_angle_params(self) -> int:
