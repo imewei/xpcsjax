@@ -20,7 +20,7 @@ from xpcsjax.core.heterodyne_jax_backend import (
     compute_multi_angle_residuals,
     compute_residuals,
 )
-from xpcsjax.optimization.nlsq.config import NLSQConfig
+from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
 from xpcsjax.utils.logging import get_logger
 
@@ -34,7 +34,14 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 try:
-    from xpcsjax.optimization.nlsq.adapter import NLSQAdapter, NLSQWrapper
+    # The heterodyne-shaped NLSQAdapter / NLSQWrapper expect the upstream
+    # contract (parameter_names + residual_fn). xpcsjax's own NLSQAdapter
+    # (in adapter.py) is shaped differently. Use the ported heterodyne
+    # adapter module so the orchestrator gets the contract it expects.
+    from xpcsjax.optimization.nlsq.heterodyne_adapter import (
+        NLSQAdapter,
+        NLSQWrapper,
+    )
 
     HAS_ADAPTERS = True
     HAS_WRAPPER = True
@@ -43,9 +50,14 @@ except ImportError:
     HAS_WRAPPER = False
 
 try:
+    from xpcsjax.optimization.nlsq.multistart import MultiStartConfig
+
+    # xpcsjax does not expose a single ``MultiStartOptimizer`` symbol — the
+    # multi-start orchestration lives in ``run_multistart_nlsq``. Bind that
+    # function under the upstream name so the orchestrator's optional
+    # multi-start path keeps the same import contract.
     from xpcsjax.optimization.nlsq.multistart import (
-        MultiStartConfig,
-        MultiStartOptimizer,
+        run_multistart_nlsq as MultiStartOptimizer,
     )
 
     HAS_MULTISTART = True

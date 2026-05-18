@@ -482,19 +482,107 @@ def fit_nlsq(data, config):
     Parameters
     ----------
     data : dict
-        XPCS data dict returned by ``xpcsjax.data.load_xpcs_data``.
+        XPCS data dict returned by ``xpcsjax.data.load_xpcs_data`` (homodyne)
+        or a heterodyne-style dict with keys ``c2_exp`` / ``c2`` and
+        ``phi_angles_list`` / ``phi_angles`` (heterodyne).
     config : str | Path | ConfigManager
         Path to a YAML config file or a pre-built ConfigManager.
 
     Returns
     -------
-    OptimizationResult
-        Fit parameters, covariance, diagnostics, and metadata.
+    OptimizationResult | list[NLSQResult]
+        Homodyne path returns ``OptimizationResult``. Heterodyne path returns
+        ``list[NLSQResult]`` — one per phi angle from the joint multi-angle
+        fit.
     """
     if isinstance(config, (str, _Path)):
         from xpcsjax.config import ConfigManager
         config = ConfigManager(str(config))
+
+    mode = ""
+    if hasattr(config, "config") and config.config:
+        mode = config.config.get("analysis_mode", "")
+        if not mode:
+            opt = config.config.get("optimization", {})
+            if isinstance(opt, dict):
+                nlsq_sect = opt.get("nlsq", {})
+                if isinstance(nlsq_sect, dict):
+                    mode = nlsq_sect.get("analysis_mode", "")
+    mode = str(mode).lower().replace("-", "_")
+    if mode in ("two_component", "heterodyne"):
+        return _fit_nlsq_heterodyne(data, config)
+
+    # Homodyne path — unchanged.
     return fit_nlsq_jax(data, config)
+
+
+def _fit_nlsq_heterodyne(data, config):
+    """Dispatch the heterodyne multi-phi fit through the ported orchestration.
+
+    The xpcsjax homodyne loader does not produce a heterodyne-style data dict
+    (the source heterodyne cache uses ``c2`` / ``phi`` keys), so this helper
+    accepts both layouts:
+
+    - ``c2_exp`` / ``c2``: experimental 3-D stack ``(n_phi, N, N)`` or
+      single-angle ``(N, N)``.
+    - ``phi_angles_list`` / ``phi_angles`` / ``phi``: 1-D array of detector
+      angles (degrees).
+
+    All other physics inputs (``t, q, dt``) are sourced from the
+    :class:`HeterodyneModel` constructed from the YAML config.
+    """
+    import numpy as _np
+
+    from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
+    from xpcsjax.optimization.nlsq.heterodyne_config import (
+        NLSQConfig as _HeterodyneNLSQConfig,
+    )
+    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
+
+    # Raw YAML dict for HeterodyneModel.from_config and NLSQConfig.from_dict
+    yaml_dict = config.config if hasattr(config, "config") else dict(config)
+
+    model = HeterodyneModel.from_config(yaml_dict)
+    nlsq_cfg = _HeterodyneNLSQConfig.from_dict(yaml_dict)
+
+    # Extract c2 + phi from data dict, accepting either heterodyne or
+    # xpcsjax-loader key names.
+    if "c2_exp" in data:
+        c2 = _np.asarray(data["c2_exp"])
+    elif "c2" in data:
+        c2 = _np.asarray(data["c2"])
+    else:
+        raise KeyError(
+            "heterodyne dispatch requires 'c2_exp' or 'c2' in the data dict; "
+            f"got keys {list(data)}"
+        )
+
+    if "phi_angles_list" in data:
+        phi = _np.asarray(data["phi_angles_list"], dtype=_np.float64)
+    elif "phi_angles" in data:
+        phi = _np.asarray(data["phi_angles"], dtype=_np.float64)
+    elif "phi" in data:
+        phi = _np.asarray(data["phi"], dtype=_np.float64)
+    else:
+        raise KeyError(
+            "heterodyne dispatch requires 'phi_angles_list', 'phi_angles', "
+            f"or 'phi' in the data dict; got keys {list(data)}"
+        )
+
+    # Optional weights for weighted least squares.
+    weights = data.get("weights")
+    if weights is not None:
+        weights = _np.asarray(weights)
+
+    # Sync the model's internal time axis with the data shape (the source
+    # heterodyne pipeline drops the leading time point, shrinking N by 1).
+    n_data = c2.shape[-1]
+    n_model = int(model.t.shape[0])
+    if n_data != n_model:
+        # Build a numpy view of the trimmed time axis and re-attach.
+        model.sync_time_axis(_np.arange(n_data, dtype=_np.float64))
+
+    return fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
 
 
 # Ensure fit_nlsq joins whatever __all__ the verbatim port already defined
