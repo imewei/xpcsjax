@@ -86,6 +86,40 @@ class ParameterInfo:
     is_physical: bool = False
     is_flow: bool = False
     log_space: bool = False
+    # Upstream-heterodyne compatibility fields (set by the registry data tables
+    # for parameters that came from the heterodyne ParameterInfo schema). The
+    # defaults match upstream behavior so xpcsjax-native parameters still work.
+    vary_default: bool = True
+    group: str = ""
+
+    # ------------------------------------------------------------------
+    # Upstream-heterodyne alias surface — the ported heterodyne config
+    # modules (parameter_space.py, parameter_manager.py) read ``min_bound``,
+    # ``max_bound`` and ``unit`` on ParameterInfo. Expose them as read-only
+    # aliases so we don't have to dual-name every entry in the registry.
+    # ------------------------------------------------------------------
+    @property
+    def min_bound(self) -> float:
+        """Alias for ``lower_bound`` (upstream heterodyne API)."""
+        return self.lower_bound
+
+    @property
+    def max_bound(self) -> float:
+        """Alias for ``upper_bound`` (upstream heterodyne API)."""
+        return self.upper_bound
+
+    @property
+    def unit(self) -> str:
+        """Alias for ``units`` (upstream heterodyne API uses singular)."""
+        return self.units
+
+    def validate_value(self, value: float) -> bool:
+        """Check if value is within bounds (upstream heterodyne API)."""
+        return self.lower_bound <= value <= self.upper_bound
+
+    def clip_value(self, value: float) -> float:
+        """Clip value to bounds (upstream heterodyne API)."""
+        return float(np.clip(value, self.lower_bound, self.upper_bound))
 
 
 class ParameterRegistry:
@@ -456,6 +490,26 @@ class ParameterRegistry:
             )
         return self._PARAMETERS[base_name]
 
+    # ------------------------------------------------------------------
+    # Mapping protocol — compatibility with upstream heterodyne config
+    # modules ported into xpcsjax (parameter_space, parameter_manager).
+    # ------------------------------------------------------------------
+    def __getitem__(self, name: str) -> ParameterInfo:
+        """Alias for :meth:`get_param_info` so the registry behaves like a mapping."""
+        return self.get_param_info(name)
+
+    def __iter__(self):
+        """Iterate over registered parameter names (canonical order)."""
+        return iter(self._PARAMETERS)
+
+    def __len__(self) -> int:
+        """Number of registered parameters."""
+        return len(self._PARAMETERS)
+
+    def __contains__(self, name: str) -> bool:
+        """Membership test by parameter name (exact match only)."""
+        return name in self._PARAMETERS
+
     def get_param_names(
         self,
         analysis_mode: AnalysisMode,
@@ -765,6 +819,25 @@ def get_registry() -> ParameterRegistry:
         Singleton registry instance (guaranteed by ParameterRegistry.__new__)
     """
     return ParameterRegistry()
+
+
+# Module-level singleton alias for compatibility with upstream heterodyne
+# config modules ported into xpcsjax (parameter_space, parameter_manager).
+# ``ParameterRegistry.__new__`` makes this idempotent — every call returns the
+# same instance.
+DEFAULT_REGISTRY: ParameterRegistry = ParameterRegistry()
+
+
+# Re-export the SCALING_PARAMS proxy from ``heterodyne_scaling_utils`` so the
+# ported heterodyne orchestrator (``heterodyne_core``) can import it from the
+# same module path the upstream code expects. Lazy import to avoid a circular
+# import at module load.
+def __getattr__(name: str):  # pragma: no cover - thin import shim
+    if name == "SCALING_PARAMS":
+        from xpcsjax.core.heterodyne_scaling_utils import SCALING_PARAMS
+
+        return SCALING_PARAMS
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # Convenience functions that delegate to the singleton
