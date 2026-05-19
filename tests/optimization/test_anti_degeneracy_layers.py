@@ -9,7 +9,6 @@ from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
     AntiDegeneracyController,
 )
 
-
 LAYER_NAMES = (
     "FourierReparameterizer",
     "HierarchicalOptimizer",

@@ -35,7 +35,6 @@ from xpcsjax.core.heterodyne_physics_utils import (
     trapezoid_cumsum,
 )
 
-
 EvalStrategy = Literal["meshgrid"]
 
 

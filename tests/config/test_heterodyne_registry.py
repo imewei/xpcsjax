@@ -10,8 +10,7 @@ import math
 
 import pytest
 
-from xpcsjax.config.parameter_registry import get_registry, get_param_names
-
+from xpcsjax.config.parameter_registry import get_param_names, get_registry
 
 EXPECTED_HETERODYNE = {
     "D0_ref":          {"default": 1e4,  "bounds": (0.0,  1e6),     "log_space": True},

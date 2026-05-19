@@ -57,7 +57,7 @@ try:
     # function under the upstream name so the orchestrator's optional
     # multi-start path keeps the same import contract.
     from xpcsjax.optimization.nlsq.multistart import (
-        run_multistart_nlsq as MultiStartOptimizer,
+        run_multistart_nlsq as MultiStartOptimizer,  # noqa: N812 - upstream API contract
     )
 
     HAS_MULTISTART = True

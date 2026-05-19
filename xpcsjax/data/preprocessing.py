@@ -73,7 +73,7 @@ except ImportError:
 
 # Scipy for advanced algorithms
 try:
-    from scipy import ndimage, signal, stats
+    from scipy import signal, stats
     from scipy.ndimage import gaussian_filter, median_filter
 
     HAS_SCIPY = True

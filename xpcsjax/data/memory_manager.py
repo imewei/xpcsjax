@@ -50,7 +50,6 @@ except ImportError:
 try:
     import jax
     import jax.numpy as jnp
-    from jax import device_get, device_put
 
     HAS_JAX = True
 except ImportError:
@@ -1013,7 +1012,7 @@ class AdvancedMemoryManager:
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
+    def __exit__(self, exc_type, _exc_val, _exc_tb) -> None:  # type: ignore[no-untyped-def]
         """Context manager exit."""
         self.shutdown()
 

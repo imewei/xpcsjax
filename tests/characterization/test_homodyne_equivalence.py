@@ -20,7 +20,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-
 BASELINES_DIR = Path(__file__).parent / "fixtures" / "baselines"
 
 # Map baseline label → original config absolute path (lives outside the repo).

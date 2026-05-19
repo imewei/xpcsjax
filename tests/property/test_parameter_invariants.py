@@ -15,7 +15,6 @@ from xpcsjax.config.parameter_registry import (
     get_registry,
 )
 
-
 KNOWN_MODES: tuple[AnalysisMode, ...] = (
     "static",
     "static_isotropic",

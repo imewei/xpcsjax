@@ -111,9 +111,6 @@ except ImportError:
 # NLSQWrapper import for legacy implementation
 try:
     from xpcsjax.optimization.nlsq.wrapper import NLSQWrapper
-    from xpcsjax.optimization.nlsq.wrapper import (
-        OptimizationResult as WrapperOptimizationResult,
-    )
 
     HAS_NLSQ_WRAPPER = True
 except ImportError:
@@ -1706,13 +1703,13 @@ def fit_nlsq_cmaes(
                     f"[CMA-ES] Scale ratio < {nlsq_config.cmaes_scale_threshold}, "
                     "falling back to multi-start optimization"
                 )
-                result = fit_nlsq_multistart(
+                ms_result = fit_nlsq_multistart(
                     data=data,
                     config=config,
                     initial_params=initial_params,
                     per_angle_scaling=per_angle_scaling,
                 )
-                return result.to_optimization_result()
+                return ms_result.to_optimization_result()
             else:
                 logger.info(
                     f"[CMA-ES] Scale ratio < {nlsq_config.cmaes_scale_threshold}, "
@@ -1823,6 +1820,7 @@ def fit_nlsq_cmaes(
                     n_physical=n_physical,
                     per_angle_scaling=per_angle_scaling,
                     is_laminar_flow=is_laminar_flow,
+                    analysis_mode=analysis_mode,
                 )
 
                 if ad_controller.is_enabled and ad_controller.use_constant:

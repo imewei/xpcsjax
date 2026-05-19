@@ -29,8 +29,6 @@ from xpcsjax.utils.logging import get_logger, log_phase
 
 # Check if NLSQ MemoryManager is available (v0.4+)
 try:
-    from nlsq.caching import get_memory_manager as _nlsq_get_memory_manager
-
     _NLSQ_MEMORY_MANAGER_AVAILABLE = True
 except ImportError:
     _nlsq_get_memory_manager = None

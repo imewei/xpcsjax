@@ -160,6 +160,7 @@ def fit_with_stratified_least_squares(
     target_chunk_size: int = 100_000,
     anti_degeneracy_config: dict | None = None,
     nlsq_config_dict: dict | None = None,
+    analysis_mode: str | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     """Fit using NLSQ's least_squares() with stratified residual function.
 
@@ -205,6 +206,7 @@ def fit_with_stratified_least_squares(
             n_physical=n_physical,
             per_angle_scaling=per_angle_scaling,
             is_laminar_flow=is_laminar_flow,
+            analysis_mode=analysis_mode,
         )
 
         if ad_controller.is_enabled:

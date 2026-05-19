@@ -366,8 +366,8 @@ def get_or_create_model(
     if analysis_mode == "two_component" or analysis_mode == "heterodyne":
         if t is None or dt is None:
             raise ValueError(
-                "Heterodyne (two_component) routing requires `t` and `dt`; "
-                "got t=%r, dt=%r" % (t, dt)
+                f"Heterodyne (two_component) routing requires `t` and `dt`; "
+                f"got t={t!r}, dt={dt!r}"
             )
         return _get_or_create_heterodyne_model(
             phi_angles=phi_angles,

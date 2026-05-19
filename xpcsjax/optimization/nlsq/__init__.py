@@ -473,7 +473,7 @@ __all__ = [
 # ============================================================================
 # xpcsjax v0.1 single-entry public wrapper
 # ============================================================================
-from pathlib import Path as _Path
+from pathlib import Path as _Path  # noqa: E402 - public API section is below the verbatim port
 
 
 def fit_nlsq(data, config):
@@ -543,7 +543,22 @@ def _fit_nlsq_heterodyne(data, config):
     yaml_dict = config.config if hasattr(config, "config") else dict(config)
 
     model = HeterodyneModel.from_config(yaml_dict)
-    nlsq_cfg = _HeterodyneNLSQConfig.from_dict(yaml_dict)
+
+    # NLSQConfig.from_dict expects a flat NLSQ section (max_iterations,
+    # enable_cmaes, recovery, …). Production YAMLs nest it under
+    # ``optimization.nlsq``; without unwrapping, every nested setting is
+    # silently dropped and the solver runs with defaults.
+    opt_block = yaml_dict.get("optimization", {}) if isinstance(yaml_dict, dict) else {}
+    nested_nlsq = opt_block.get("nlsq") if isinstance(opt_block, dict) else None
+    if isinstance(nested_nlsq, dict) and nested_nlsq:
+        nlsq_dict = dict(nested_nlsq)
+        top_mode = yaml_dict.get("analysis_mode") if isinstance(yaml_dict, dict) else None
+        if top_mode is not None and "analysis_mode" not in nlsq_dict:
+            nlsq_dict["analysis_mode"] = top_mode
+    else:
+        nlsq_dict = yaml_dict
+
+    nlsq_cfg = _HeterodyneNLSQConfig.from_dict(nlsq_dict)
 
     # Extract c2 + phi from data dict, accepting either heterodyne or
     # xpcsjax-loader key names.
@@ -587,7 +602,7 @@ def _fit_nlsq_heterodyne(data, config):
 
 # Ensure fit_nlsq joins whatever __all__ the verbatim port already defined
 try:
-    __all__  # type: ignore[name-defined]
+    __all__  # type: ignore[name-defined]  # noqa: B018 - existence probe for __all__
 except NameError:
     __all__ = []
 if "fit_nlsq" not in __all__:

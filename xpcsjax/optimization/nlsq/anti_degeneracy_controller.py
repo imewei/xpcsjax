@@ -275,6 +275,7 @@ class AntiDegeneracyController:
         n_physical: int,
         per_angle_scaling: bool = True,
         is_laminar_flow: bool = True,
+        analysis_mode: str | None = None,
     ) -> AntiDegeneracyController:
         """Create controller from configuration dictionary.
 
@@ -292,11 +293,13 @@ class AntiDegeneracyController:
             Whether per-angle scaling is enabled.
         is_laminar_flow : bool
             Whether this is laminar_flow mode.
-
-        Returns
-        -------
-        AntiDegeneracyController
-            Initialized controller with all components.
+        analysis_mode : str | None
+            Model lineage ("static", "static_isotropic", "laminar_flow",
+            "two_component"). Threaded into the controller so Task 29's
+            ``_LAYER_GATES`` can short-circuit homodyne-only layers
+            (currently Layer 5) for heterodyne fits. ``None`` preserves
+            backward-compatible "all layers active" behavior used by the
+            homodyne characterization gate.
         """
         config = AntiDegeneracyConfig.from_dict(config_dict)
 
@@ -305,6 +308,7 @@ class AntiDegeneracyController:
             n_phi=n_phi,
             n_physical=n_physical,
             phi_angles=phi_angles,
+            analysis_mode=analysis_mode,
         )
 
         # Only initialize if enabled and appropriate mode

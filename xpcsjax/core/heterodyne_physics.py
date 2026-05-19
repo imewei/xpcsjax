@@ -39,7 +39,7 @@ class PhysicsConstants:
     """
 
     # Boltzmann constant (J/K)
-    k_B: ClassVar[float] = 1.380649e-23
+    k_B: ClassVar[float] = 1.380649e-23  # noqa: N815 - SI symbol, mixedCase intentional
 
     # Planck constant (J·s)
     h: ClassVar[float] = 6.62607015e-34

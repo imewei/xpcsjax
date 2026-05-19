@@ -71,7 +71,7 @@ except ImportError:
 F = TypeVar("F", bound=Callable[..., Any])
 try:
     import jax.numpy as jnp
-    from jax import device_get, device_put, jit, vmap
+    from jax import jit, vmap
 
     from xpcsjax.core.jax_backend import jax_available
 
@@ -1485,7 +1485,7 @@ class PerformanceEngine:
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    def __exit__(self, exc_type: Any, _exc_val: Any, _exc_tb: Any) -> None:
         """Context manager exit."""
         self.shutdown()
 

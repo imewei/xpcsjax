@@ -22,7 +22,6 @@ Version History:
 
 """
 
-from typing import Literal
 
 # =============================================================================
 # PARAMETER NAME CONSTANTS
@@ -68,7 +67,12 @@ PARAMETER_DESCRIPTIONS = {
 # UTILITY FUNCTIONS
 # =============================================================================
 
-AnalysisMode = Literal["static", "static_isotropic", "laminar_flow"]
+# Re-export the canonical AnalysisMode literal (defined in parameter_registry)
+# so the type hints in this module's function signatures stay in sync with the
+# full set of supported modes — previously this duplicate was missing
+# ``two_component`` and silently filtered heterodyne values out of any guard
+# that imported it.
+from xpcsjax.config.parameter_registry import AnalysisMode as AnalysisMode  # noqa: E402
 
 
 def get_parameter_names(analysis_mode: AnalysisMode) -> list[str]:
