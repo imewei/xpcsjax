@@ -1,7 +1,7 @@
 """Data preparation for NLSQ fitting.
 
 Converts correlation matrices and weights into the flat arrays that
-scipy.optimize.least_squares expects, and constructs appropriate
+nlsq.CurveFit (JAX-native trust-region) expects, and constructs appropriate
 weight arrays from data statistics.
 """
 
@@ -141,7 +141,7 @@ def prepare_fit_data(
     """Prepare correlation data and weights for least-squares fitting.
 
     Flattens data and weights into 1D arrays suitable for
-    scipy.optimize.least_squares, optionally using only the
+    nlsq.CurveFit (JAX-native trust-region), optionally using only the
     upper triangle of the symmetric matrix.
 
     Args:

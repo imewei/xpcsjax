@@ -2866,8 +2866,8 @@ class NLSQWrapper(NLSQAdapterBase):
 
         # Get device info
         device_info = {
-            "type": "CPU",  # Sequential uses scipy.optimize.least_squares (CPU only)
-            "backend": "scipy.optimize.least_squares",
+            "type": "CPU",  # Sequential strategy runs on CPU via nlsq.CurveFit
+            "backend": "nlsq.CurveFit",
             "strategy": "sequential_per_angle",
         }
 

@@ -29,7 +29,7 @@ def build_result_from_scipy(
     wall_time: float | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> NLSQResult:
-    """Construct NLSQResult from scipy.optimize.least_squares output.
+    """Construct NLSQResult from nlsq.CurveFit (JAX-native trust-region) output.
 
     Args:
         opt_result: Raw scipy OptimizeResult

@@ -109,47 +109,10 @@ class PriorDistribution:
             },
         )
 
-    def to_numpyro(self, name: str) -> Any:
-        """Convert to NumPyro distribution.
-
-        Args:
-            name: Parameter name for the distribution
-
-        Returns:
-            NumPyro distribution object
-        """
-        import numpyro.distributions as dist
-
-        if self.prior_type == PriorType.UNIFORM:
-            return dist.Uniform(self.params["low"], self.params["high"])
-        elif self.prior_type == PriorType.NORMAL:
-            return dist.Normal(self.params["loc"], self.params["scale"])
-        elif self.prior_type == PriorType.TRUNCATED_NORMAL:
-            return dist.TruncatedNormal(
-                loc=self.params["loc"],
-                scale=self.params["scale"],
-                low=self.params["low"],
-                high=self.params["high"],
-            )
-        elif self.prior_type == PriorType.LOGNORMAL:
-            return dist.LogNormal(self.params["loc"], self.params["scale"])
-        elif self.prior_type == PriorType.HALFNORMAL:
-            return dist.HalfNormal(self.params["scale"])
-        elif self.prior_type == PriorType.EXPONENTIAL:
-            return dist.Exponential(self.params.get("rate", 1.0))
-        elif self.prior_type == PriorType.BETA_SCALED:
-            low = self.params["low"]
-            high = self.params["high"]
-            conc1 = self.params["concentration1"]
-            conc2 = self.params["concentration2"]
-            # Affine-transformed Beta: X = low + (high - low) * Beta(conc1, conc2)
-            base = dist.Beta(conc1, conc2)
-            return dist.TransformedDistribution(
-                base,
-                dist.transforms.AffineTransform(loc=low, scale=high - low),
-            )
-        else:
-            raise ValueError(f"Unknown prior type: {self.prior_type}")
+    # NOTE: The upstream heterodyne `to_numpyro()` method (which converted
+    # PriorDistribution → NumPyro distribution objects) is intentionally
+    # omitted in xpcsjax. CMC / Bayesian sampling is permanently out of
+    # scope (spec §15.1). PriorDistribution is retained as metadata only.
 
 
 @dataclass

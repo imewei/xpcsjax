@@ -217,7 +217,7 @@ class SequentialConfig(TypedDict, total=False):
     Strategy:
     ---------
     1. Split data by phi angle
-    2. Optimize each angle independently using scipy.optimize.least_squares
+    2. Optimize each angle independently via nlsq.CurveFit (JAX-native trust-region)
     3. Combine results using weighted averaging (inverse variance weighting)
 
     Use Cases:
