@@ -1,6 +1,6 @@
 [project]
 name = "xpcsjax"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Unified JAX-native XPCS NLSQ fitting (homodyne + heterodyne)"
 readme = "README.md"
 license = { file = "LICENSE" }
