@@ -25,7 +25,14 @@ from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
 from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    # The runtime object the fitter receives is the stateful dataclass in
+    # ``heterodyne_model_stateful`` (which exposes ``.t``, ``.q``, ``.dt``,
+    # ``.scaling``, ``.param_manager``, ``.set_params``). The bare wrapper in
+    # ``heterodyne_model`` is a PhysicsModelBase adapter without those fields,
+    # so typing against it produced ~10 spurious "no attribute" mypy errors.
+    from xpcsjax.core.heterodyne_model_stateful import (
+        HeterodyneModel as HeterodyneModel,
+    )
 
 logger = get_logger(__name__)
 
@@ -33,6 +40,13 @@ logger = get_logger(__name__)
 # Optional imports — gated for graceful degradation
 # ---------------------------------------------------------------------------
 
+# NOTE: every optional import below binds the imported names to ``None`` in
+# the ImportError branch. Without this, Pyright cannot reason through the
+# ``if HAS_X: X(...)`` runtime gates and emits ~10 "X is possibly unbound"
+# warnings per call site. With explicit ``None`` bindings the type becomes
+# ``T | None`` and narrows correctly. Call sites still gate on the ``HAS_X``
+# flag; the explicit ``is not None`` check at hot-path sites is belt-and-
+# suspenders for readers, not a runtime necessity.
 try:
     # The heterodyne-shaped NLSQAdapter / NLSQWrapper expect the upstream
     # contract (parameter_names + residual_fn). xpcsjax's own NLSQAdapter
@@ -46,23 +60,20 @@ try:
     HAS_ADAPTERS = True
     HAS_WRAPPER = True
 except ImportError:
+    NLSQAdapter = None  # type: ignore[assignment,misc]
+    NLSQWrapper = None  # type: ignore[assignment,misc]
     HAS_ADAPTERS = False
     HAS_WRAPPER = False
 
-try:
-    from xpcsjax.optimization.nlsq.multistart import MultiStartConfig
-
-    # xpcsjax does not expose a single ``MultiStartOptimizer`` symbol — the
-    # multi-start orchestration lives in ``run_multistart_nlsq``. Bind that
-    # function under the upstream name so the orchestrator's optional
-    # multi-start path keeps the same import contract.
-    from xpcsjax.optimization.nlsq.multistart import (
-        run_multistart_nlsq as MultiStartOptimizer,  # noqa: N812 - upstream API contract
-    )
-
-    HAS_MULTISTART = True
-except ImportError:
-    HAS_MULTISTART = False
+# Multi-start orchestration is intentionally NOT imported here: the v0.1
+# ``_fit_multistart`` function raises NotImplementedError unconditionally (see
+# its docstring for why — the upstream homodyne port called a class-style
+# ``MultiStartOptimizer.fit(...)`` API that ``xpcsjax.optimization.nlsq.multistart``
+# does not expose). Keep ``HAS_MULTISTART`` as a const ``False`` so the
+# existing ``if HAS_MULTISTART: _fit_multistart(...)`` dispatch falls through
+# to the warning + local-fit path instead of hitting NotImplementedError
+# during normal smoke runs.
+HAS_MULTISTART = False
 
 try:
     from xpcsjax.optimization.nlsq.cmaes_wrapper import (
@@ -72,13 +83,23 @@ try:
 
     HAS_CMAES = CMAES_AVAILABLE
 except ImportError:
+    fit_with_cmaes = None  # type: ignore[assignment,misc]
     HAS_CMAES = False
 
 try:
-    from xpcsjax.optimization.nlsq.memory import NLSQStrategy, select_nlsq_strategy
+    # Heterodyne uses its own memory module (``STANDARD/LARGE/STREAMING`` enum
+    # vocabulary). The homodyne ``memory.py`` uses
+    # ``STANDARD/OUT_OF_CORE/HYBRID_STREAMING`` — importing from there left
+    # ``NLSQStrategy.LARGE`` undefined at runtime in the heterodyne hot path.
+    from xpcsjax.optimization.nlsq.heterodyne_memory import (
+        NLSQStrategy,
+        select_nlsq_strategy,
+    )
 
     HAS_MEMORY = True
 except ImportError:
+    NLSQStrategy = None  # type: ignore[assignment,misc]
+    select_nlsq_strategy = None  # type: ignore[assignment,misc]
     HAS_MEMORY = False
 
 # Export availability flag for tests
@@ -201,6 +222,11 @@ def fit_nlsq_multi_phi(
     # ------------------------------------------------------------------
     use_constant = False
     use_joint = False
+    # Pre-initialize so the ``if use_joint:`` branch below sees a bound name
+    # even when the optional fourier_reparam import fails. ``use_joint`` is
+    # only flipped True inside the try block where ``fourier`` is reassigned,
+    # so this initial None is never actually consumed at runtime.
+    fourier: Any = None
     if config is not None and len(phi_angles) > 1:
         if getattr(config, "enable_cmaes", False) and HAS_CMAES:
             logger.info("CMA-ES enabled, delegating to joint multi-angle CMA-ES")
@@ -251,6 +277,12 @@ def fit_nlsq_multi_phi(
             )
 
     if use_joint:
+        # Invariant: ``use_joint`` is only set to True inside the
+        # ``if config is not None and len(phi_angles) > 1`` block above
+        # (line 225), so config is guaranteed non-None here. mypy can't see
+        # the implicit invariant — assert it for the type checker and as a
+        # belt-and-suspenders runtime check.
+        assert config is not None, "use_joint=True only when config is non-None"
         return _fit_joint_multi_phi(
             model,
             c2_data,
@@ -465,7 +497,10 @@ def _fit_joint_constant_multi_phi(
     )
 
     joint_result: NLSQResult | None = None
-    if HAS_ADAPTERS:
+    # Narrow via ``is not None`` instead of the HAS_X flag so Pyright sees
+    # NLSQAdapter as bound. HAS_ADAPTERS is True iff NLSQAdapter was imported,
+    # so the two predicates are equivalent at runtime.
+    if NLSQAdapter is not None:
         try:
             joint_adapter = NLSQAdapter(parameter_names=joint_param_names)
             joint_result = joint_adapter.fit(
@@ -485,7 +520,7 @@ def _fit_joint_constant_multi_phi(
             )
             joint_result = None
 
-    if joint_result is None and HAS_WRAPPER:
+    if joint_result is None and NLSQWrapper is not None:
         joint_wrapper = NLSQWrapper(parameter_names=joint_param_names)
         joint_result = joint_wrapper.fit(
             residual_fn=joint_residual_fn,
@@ -592,353 +627,40 @@ def _fit_joint_constant_multi_phi(
 
 
 def _fit_joint_cmaes_multi_phi(
-    model: HeterodyneModel,
-    c2_data: np.ndarray,
-    phi_angles: np.ndarray,
-    config: NLSQConfig,
-    weights: np.ndarray | None,
+    model: HeterodyneModel,  # noqa: ARG001
+    c2_data: np.ndarray,  # noqa: ARG001
+    phi_angles: np.ndarray,  # noqa: ARG001
+    config: NLSQConfig,  # noqa: ARG001
+    weights: np.ndarray | None,  # noqa: ARG001
 ) -> list[NLSQResult]:
-    """Joint multi-angle CMA-ES with NLSQ warm-start and auto-skip.
+    """Joint multi-angle CMA-ES with NLSQ warm-start — not wired in v0.1.
 
-    This mirrors homodyne's CMA-ES procedure at the orchestration level:
-    first run the joint NLSQ path, optionally skip global search when the
-    warm-start is already good, otherwise run CMA-ES and keep the lower-cost
-    result.
+    The previous port called ``fit_with_cmaes`` with a homemade keyword API
+    (``objective_fn=, residual_fn=, parameter_names=, n_data=, anti_degeneracy=,
+    config=CMAESConfig(...)``). Both the keyword set and ``CMAESConfig`` are
+    gone from the current ``cmaes_wrapper``: the convenience entry accepts
+    ``(model_func, xdata, ydata, p0, bounds, sigma, config: CMAESWrapperConfig)``
+    and the result type exposes ``chi_squared`` rather than ``final_cost``,
+    ``uncertainties``, ``n_iterations``, etc. that the old joint-fit code
+    consumed directly. Rewriting this whole 340-line function against the
+    new contract is Phase 6 work (it also needs to thread Fourier-reparam
+    anti-degeneracy scaling through the wrapper's ``model_func`` closure).
+
+    Until that lands, the **per-angle** ``_fit_cmaes`` path
+    (single ``phi_angle``) is the supported global-search route for
+    heterodyne. ``fit_nlsq_multi_phi`` should leave this branch unreached
+    in v0.1 — if you hit this NotImplementedError, set
+    ``optimization.nlsq.cmaes.joint_multi_phi: false`` (or unset it) in your
+    heterodyne config and run per-angle.
     """
-    from xpcsjax.config.parameter_registry import SCALING_PARAMS
-    from xpcsjax.optimization.nlsq.cmaes_wrapper import CMAESConfig
-
-    use_constant = _use_constant_scaling_mode(config, len(phi_angles))
-    fourier = (
-        None
-        if use_constant
-        else _build_fourier_reparameterizer(
-            phi_angles,
-            config,
-        )
+    raise NotImplementedError(
+        "Joint multi-angle CMA-ES for heterodyne is not wired in v0.1. Use the "
+        "per-angle CMA-ES path (default) by leaving "
+        "`optimization.nlsq.cmaes.joint_multi_phi` unset, or disable CMA-ES "
+        "globally. Tracked for Phase 6: needs rewrite against "
+        "cmaes_wrapper.fit_with_cmaes's positional signature + Fourier-reparam "
+        "scaling integration."
     )
-
-    logger.info("=" * 60)
-    logger.info("CMA-ES GLOBAL OPTIMIZATION")
-    logger.info("=" * 60)
-    logger.info("Analysis mode: %s", config.analysis_mode)
-    logger.info(
-        "Anti-degeneracy scaling mode: %s%s",
-        "constant averaged" if use_constant else "fourier/independent",
-        f" ({config.per_angle_mode})",
-    )
-
-    if use_constant:
-        warmstart_results = _fit_joint_constant_multi_phi(
-            model=model,
-            c2_data=c2_data,
-            phi_angles=phi_angles,
-            config=config,
-            weights=weights,
-        )
-    else:
-        warmstart_results = _fit_joint_multi_phi(
-            model=model,
-            c2_data=c2_data,
-            phi_angles=phi_angles,
-            config=config,
-            weights=weights,
-            fourier=fourier,
-        )
-
-    first = warmstart_results[0]
-    warmstart_cost = (
-        float(first.final_cost) if first.final_cost is not None else float("inf")
-    )
-    warmstart_reduced_chi2 = (
-        float(first.reduced_chi_squared)
-        if first.reduced_chi_squared is not None
-        else float("inf")
-    )
-
-    logger.info(
-        "[CMA-ES] NLSQ warm-start succeeded: cost=%.4e, reduced chi2=%.4f",
-        warmstart_cost,
-        warmstart_reduced_chi2,
-    )
-
-    auto_skip = bool(getattr(config, "cmaes_warmstart_auto_skip", True))
-    skip_threshold = float(getattr(config, "cmaes_warmstart_skip_threshold", 5.0))
-    if auto_skip and warmstart_reduced_chi2 < skip_threshold:
-        logger.info(
-            "[CMA-ES] Auto-skip: NLSQ warm-start reduced chi2=%.4f < threshold=%.1f. "
-            "Skipping CMA-ES global search.",
-            warmstart_reduced_chi2,
-            skip_threshold,
-        )
-        for result in warmstart_results:
-            result.metadata["optimizer"] = "joint_cmaes_warmstart_auto_skip"
-            result.metadata["cmaes_skipped"] = True
-            result.metadata["warmstart_reduced_chi2"] = warmstart_reduced_chi2
-        return warmstart_results
-
-    param_manager = model.param_manager
-    varying_names = list(param_manager.varying_names)
-    n_physics_varying = param_manager.n_varying
-    n_phi = len(phi_angles)
-
-    physics_lower, physics_upper = param_manager.get_bounds()
-    if use_constant:
-        contrast_bounds = (
-            SCALING_PARAMS["contrast"].min_bound,
-            SCALING_PARAMS["contrast"].max_bound,
-        )
-        offset_bounds = (
-            SCALING_PARAMS["offset"].min_bound,
-            SCALING_PARAMS["offset"].max_bound,
-        )
-        scaling_lower = np.array(
-            [contrast_bounds[0], offset_bounds[0]],
-            dtype=np.float64,
-        )
-        scaling_upper = np.array(
-            [contrast_bounds[1], offset_bounds[1]],
-            dtype=np.float64,
-        )
-        scaling_initial = np.array(
-            [
-                float(first.metadata.get("contrast", 0.3)),
-                float(first.metadata.get("offset", 1.0)),
-            ],
-            dtype=np.float64,
-        )
-        scaling_names = ["contrast", "offset"]
-    else:
-        assert fourier is not None
-        contrast_initial = np.array(
-            [
-                float(result.metadata.get("contrast", 0.3))
-                for result in warmstart_results
-            ],
-            dtype=np.float64,
-        )
-        offset_initial = np.array(
-            [float(result.metadata.get("offset", 1.0)) for result in warmstart_results],
-            dtype=np.float64,
-        )
-        scaling_initial = fourier.per_angle_to_fourier(
-            contrast_initial,
-            offset_initial,
-        )
-        scaling_lower, scaling_upper = fourier.get_bounds()
-        scaling_names = fourier.get_coefficient_labels()
-
-    bounds = (
-        np.concatenate([physics_lower, scaling_lower]),
-        np.concatenate([physics_upper, scaling_upper]),
-    )
-    initial_params = np.concatenate(
-        [np.asarray(first.parameters, dtype=np.float64), scaling_initial]
-    )
-    parameter_names = [*varying_names, *scaling_names]
-
-    c2_data_batch = jnp.asarray(c2_data, dtype=jnp.float64)
-    weights_batch = (
-        jnp.asarray(weights, dtype=jnp.float64)
-        if weights is not None
-        else jnp.ones_like(c2_data_batch)
-    )
-    if weights_batch.ndim == 2:
-        weights_batch = jnp.broadcast_to(weights_batch, c2_data_batch.shape)
-
-    t = model.t
-    q = model.q
-    dt = model.dt
-    phi_angles_jax = jnp.asarray(phi_angles, dtype=jnp.float64)
-    fixed_values_jax = jnp.asarray(param_manager.get_full_values(), dtype=jnp.float64)
-    varying_indices_jax = jnp.array(param_manager.varying_indices, dtype=jnp.int32)
-
-    # NOTE: must return a JAX array. NLSQ's masked_residual_func JIT-traces this
-    # closure; np.asarray() on a traced result raises TracerArrayConversionError.
-    def residual_fn(x: np.ndarray) -> Any:  # type: ignore[return-value]
-        physics_varying = x[:n_physics_varying]
-        full_jax = fixed_values_jax.at[varying_indices_jax].set(
-            jnp.asarray(physics_varying, dtype=jnp.float64)
-        )
-        scaling_params = x[n_physics_varying:]
-        if use_constant:
-            contrast = scaling_params[0]
-            offset = scaling_params[1]
-            contrasts_jax = jnp.full((n_phi,), contrast, dtype=jnp.float64)
-            offsets_jax = jnp.full((n_phi,), offset, dtype=jnp.float64)
-        else:
-            assert fourier is not None
-            contrast_arr, offset_arr = fourier.fourier_to_per_angle(scaling_params)
-            contrasts_jax = jnp.asarray(contrast_arr, dtype=jnp.float64)
-            offsets_jax = jnp.asarray(offset_arr, dtype=jnp.float64)
-        return compute_multi_angle_residuals(
-            full_jax,
-            t,
-            q,
-            dt,
-            phi_angles_jax,
-            c2_data_batch,
-            weights_batch,
-            contrasts_jax,
-            offsets_jax,
-        )
-
-    def objective_fn(x: np.ndarray) -> float:
-        residuals = residual_fn(x)
-        return float(0.5 * np.sum(residuals**2))
-
-    logger.info("[CMA-ES] Phase 2: Running CMA-ES global optimization...")
-    n_time = int(c2_data_batch.shape[-1])
-    n_off_diagonal_data = int(n_phi * n_time * (n_time - 1))
-    restart_strategy = getattr(config, "cmaes_restart_strategy", "bipop")
-    max_restarts = getattr(config, "cmaes_max_restarts", 9)
-    # Warmstart is always active in this path: BIPOP large-population restarts
-    # are incoherent with a tight initial sigma derived from the NLSQ solution.
-    if restart_strategy == "bipop":
-        restart_strategy = "none"
-        max_restarts = 0
-        logger.debug(
-            "[CMA-ES] Warm-start active: overriding restart_strategy='bipop' -> 'none' "
-            "(BIPOP large-population restarts are incoherent with small sigma_warmstart)"
-        )
-    cmaes_result = fit_with_cmaes(
-        objective_fn=objective_fn,
-        initial_params=initial_params,
-        bounds=bounds,
-        parameter_names=parameter_names,
-        config=CMAESConfig(
-            sigma0=config.cmaes_sigma0,
-            popsize=config.cmaes_population_size,
-            maxiter=config.cmaes_max_iterations,
-            tolx=config.cmaes_tolx,
-            tolfun=config.cmaes_tolfun,
-            diagonal_filtering=getattr(config, "cmaes_diagonal_filtering", "none"),
-            restart_strategy=restart_strategy,
-            max_restarts=max_restarts,
-        ),
-        residual_fn=residual_fn,
-        n_data=n_off_diagonal_data,
-        anti_degeneracy=getattr(config, "cmaes_anti_degeneracy", False),
-    )
-
-    cmaes_cost = (
-        float(cmaes_result.final_cost)
-        if cmaes_result.final_cost is not None
-        else float("inf")
-    )
-    if warmstart_cost <= cmaes_cost:
-        logger.info(
-            "[CMA-ES] NLSQ warm-start result is better: NLSQ cost=%.4e < CMA-ES cost=%.4e. "
-            "Using NLSQ solution.",
-            warmstart_cost,
-            cmaes_cost,
-        )
-        for result in warmstart_results:
-            result.metadata["optimizer"] = "joint_cmaes_warmstart"
-            result.metadata["cmaes_cost"] = cmaes_cost
-            result.metadata["nlsq_warmstart_cost"] = warmstart_cost
-        return warmstart_results
-
-    logger.info(
-        "[CMA-ES] CMA-ES result is better: CMA-ES cost=%.4e <= NLSQ cost=%.4e",
-        cmaes_cost,
-        warmstart_cost,
-    )
-    fitted = np.asarray(cmaes_result.parameters, dtype=np.float64)
-    fitted_physics = fitted[:n_physics_varying]
-    fitted_scaling = fitted[n_physics_varying:]
-    if use_constant:
-        fitted_contrast = np.full(n_phi, float(fitted_scaling[0]), dtype=np.float64)
-        fitted_offset = np.full(n_phi, float(fitted_scaling[1]), dtype=np.float64)
-    else:
-        assert fourier is not None
-        fitted_contrast, fitted_offset = fourier.fourier_to_per_angle(fitted_scaling)
-    full_fitted = param_manager.expand_varying_to_full(fitted_physics)
-    model.set_params(full_fitted)
-    if hasattr(model, "scaling"):
-        model.scaling.contrast[:] = fitted_contrast
-        model.scaling.offset[:] = fitted_offset
-
-    results: list[NLSQResult] = []
-    for i, phi in enumerate(phi_angles):
-        contrast_i = float(fitted_contrast[i])
-        offset_i = float(fitted_offset[i])
-        fitted_c2 = compute_c2_heterodyne(
-            jnp.asarray(full_fitted),
-            t,
-            q,
-            dt,
-            float(phi),
-            contrast=contrast_i,
-            offset=offset_i,
-        )
-        residuals = np.asarray(
-            compute_residuals(
-                jnp.asarray(full_fitted),
-                t,
-                q,
-                dt,
-                float(phi),
-                c2_data_batch[i],
-                weights_batch[i],
-                contrast=contrast_i,
-                offset=offset_i,
-            )
-        )
-        metadata = {
-            "phi_angle": float(phi),
-            "contrast": contrast_i,
-            "offset": offset_i,
-            "optimizer": "joint_cmaes",
-            "n_angles_joint": n_phi,
-            "cmaes_cost": cmaes_cost,
-            "nlsq_warmstart_cost": warmstart_cost,
-        }
-        if use_constant:
-            metadata["anti_degeneracy_mode"] = "constant_averaged"
-        else:
-            assert fourier is not None
-            metadata.update(
-                {
-                    "anti_degeneracy_mode": fourier.config.mode,
-                    "fourier_mode": fourier.config.mode,
-                    "fourier_order": fourier.order,
-                    "fourier_coeffs": fitted_scaling.tolist(),
-                    "fourier_n_coeffs": fourier.n_coeffs,
-                    "fourier_reduction": fourier.get_diagnostics()["reduction_ratio"],
-                }
-            )
-        results.append(
-            NLSQResult(
-                parameters=fitted_physics.copy(),
-                parameter_names=varying_names,
-                uncertainties=(
-                    cmaes_result.uncertainties[:n_physics_varying].copy()
-                    if cmaes_result.uncertainties is not None
-                    else None
-                ),
-                covariance=(
-                    cmaes_result.covariance[
-                        :n_physics_varying, :n_physics_varying
-                    ].copy()
-                    if cmaes_result.covariance is not None
-                    else None
-                ),
-                residuals=residuals,
-                final_cost=cmaes_result.final_cost,
-                reduced_chi_squared=cmaes_result.reduced_chi_squared,
-                success=bool(cmaes_result.success),
-                message=str(cmaes_result.message),
-                n_iterations=cmaes_result.n_iterations,
-                n_function_evals=cmaes_result.n_function_evals,
-                convergence_reason=cmaes_result.convergence_reason,
-                fitted_correlation=np.asarray(fitted_c2),
-                wall_time_seconds=cmaes_result.wall_time_seconds,
-                metadata=metadata,
-            )
-        )
-
-    return results
 
 
 def _use_constant_scaling_mode(config: NLSQConfig, n_phi: int) -> bool:
@@ -1097,7 +819,7 @@ def _fit_joint_multi_phi(
         f"fourier_{i}" for i in range(len(fourier_initial))
     ]
 
-    if HAS_ADAPTERS:
+    if NLSQAdapter is not None:  # ``HAS_ADAPTERS`` equivalent; narrows for Pyright
         try:
             joint_adapter = NLSQAdapter(parameter_names=joint_param_names)
             joint_result = joint_adapter.fit(
@@ -1116,7 +838,7 @@ def _fit_joint_multi_phi(
             )
             joint_result = None
 
-    if joint_result is None and HAS_WRAPPER:
+    if joint_result is None and NLSQWrapper is not None:
         joint_wrapper = NLSQWrapper(parameter_names=joint_param_names)
         joint_result = joint_wrapper.fit(
             residual_fn=joint_residual_fn,
@@ -1274,17 +996,37 @@ def _fit_cmaes(
 ) -> NLSQResult:
     """Run CMA-ES global optimization with NLSQ warm-start and two-phase comparison.
 
-    Implements fixes #1, #5, #6, #7 from homodyne parity:
+    Phase structure (mirrors the homodyne CMA-ES path):
 
-    - **Phase 1 (Fix #1)**: Run local NLSQ refinement to get a warm-start point.
-    - **Phase 2**: Run CMA-ES using the NLSQ result as initial guess.
-    - **Phase 3 (Fix #7)**: Compare NLSQ vs CMA-ES by reduced chi-squared,
-      keep the better result.
-    - **Fix #5**: Classify result quality as good/marginal/poor.
-    - **Fix #6**: Optionally apply anti-degeneracy penalty weights.
+    - **Phase 1**: Local NLSQ refinement to get a warm-start point.
+    - **Phase 2**: CMA-ES global search using the NLSQ result as initial guess.
+      Calls :func:`xpcsjax.optimization.nlsq.cmaes_wrapper.fit_with_cmaes`
+      with its real positional signature
+      ``(model_func, xdata, ydata, p0, bounds, sigma, config)``. The previous
+      port called it with a homemade keyword API
+      (``objective_fn=, residual_fn=, n_data=, anti_degeneracy=``) that no
+      longer exists; mypy flagged it and the smoke tests never reached the
+      branch. Fixed here so v0.1 actually delivers on the "CMA-ES global
+      search for multi-scale problems" claim for heterodyne.
+    - **Phase 3**: Compare NLSQ vs CMA-ES by least-squares cost, keep the
+      better result. ``CMAESResult`` exposes ``chi_squared`` (sum of squared
+      residuals); we halve it to compare against NLSQ's
+      ``final_cost = 0.5 * SSR`` convention.
     """
-    from xpcsjax.optimization.nlsq.cmaes_wrapper import CMAESConfig
-    from xpcsjax.optimization.nlsq.validation.fit_quality import classify_fit_quality
+    from xpcsjax.optimization.nlsq.cmaes_wrapper import CMAESWrapperConfig
+
+    # NOTE: ``xpcsjax.optimization.nlsq.validation.fit_quality`` was referenced
+    # by the original homodyne port but never landed in xpcsjax. Inline the
+    # classifier here — the bands match homodyne's classify_fit_quality v2.18
+    # so downstream consumers see the same quality labels.
+    def classify_fit_quality(reduced_chi2: float | None) -> str:
+        if reduced_chi2 is None or not np.isfinite(reduced_chi2):
+            return "unknown"
+        if reduced_chi2 < 2.0:
+            return "good"
+        if reduced_chi2 < 10.0:
+            return "marginal"
+        return "poor"
 
     param_manager = model.param_manager
 
@@ -1297,32 +1039,10 @@ def _fit_cmaes(
         jnp.asarray(weights, dtype=jnp.float64) if weights is not None else None
     )
     t, q, dt = model.t, model.q, model.dt
-    n_data = c2_jax.size
     contrast_val, offset_val = model.scaling.get_for_angle(0)
 
-    def objective_fn(varying_params: np.ndarray) -> float:
-        full_params = np.array(param_manager.get_full_values())
-        for i, idx in enumerate(param_manager.varying_indices):
-            full_params[idx] = varying_params[i]
-        residuals = compute_residuals(
-            jnp.asarray(full_params),
-            t,
-            q,
-            dt,
-            phi_angle,
-            c2_jax,
-            weights_jax,
-            contrast_val,
-            offset_val,
-        )
-        return float(0.5 * jnp.sum(residuals**2))
-
-    residual_fn = _make_numpy_residual_fn(
-        model, c2_data, phi_angle, weights, contrast_val, offset_val
-    )
-
     # ------------------------------------------------------------------
-    # Phase 1 (Fix #1): NLSQ warm-start
+    # Phase 1: NLSQ warm-start
     # ------------------------------------------------------------------
     nlsq_result: NLSQResult | None = None
     cmaes_x0 = initial_varying
@@ -1362,30 +1082,76 @@ def _fit_cmaes(
     # ------------------------------------------------------------------
     # Phase 2: CMA-ES global optimization
     # ------------------------------------------------------------------
-    logger.info("CMA-ES Phase 2: global search (warm-started)")
-
-    cmaes_config = CMAESConfig(
-        sigma0=config.cmaes_sigma0,
-        popsize=config.cmaes_population_size,
-        maxiter=config.cmaes_max_iterations,
-        tolx=config.cmaes_tolx,
-        tolfun=config.cmaes_tolfun,
-        diagonal_filtering=getattr(config, "cmaes_diagonal_filtering", "none"),
+    # Build the ``model_func(xdata, *params) -> ydata_flat`` closure that
+    # fit_with_cmaes requires. xdata is a dummy index array — the heterodyne
+    # kernel pulls t/q/dt/phi/contrast/offset from closure, not from xdata.
+    #
+    # IMPORTANT (tracer-safety): CMA-ES wraps this closure in
+    # ``normalized_model_func`` (cmaes_wrapper.py:967) which passes JAX
+    # *tracers* for ``varying_params`` when JIT-tracing the parameter
+    # normalization. Mixing numpy assignment (``full[idx] = tracer``) with
+    # tracer values raises ``ValueError: setting an array element with a
+    # sequence``. Use pure-JAX scatter (``.at[].set()``) instead so the
+    # closure JIT-traces cleanly.
+    full_template_jax = jnp.asarray(
+        param_manager.get_full_values(), dtype=jnp.float64
+    )
+    varying_indices_jax = jnp.asarray(
+        list(param_manager.varying_indices), dtype=jnp.int32
     )
 
+    def model_func(_xdata: np.ndarray, *varying_params: Any) -> Any:
+        varying_jax = jnp.stack(varying_params).astype(jnp.float64)
+        full_jax = full_template_jax.at[varying_indices_jax].set(varying_jax)
+        c2_pred = compute_c2_heterodyne(
+            full_jax, t, q, dt, phi_angle, contrast_val, offset_val
+        )
+        return c2_pred.flatten()
+
+    ydata = np.asarray(c2_jax).flatten().astype(np.float64)
+    xdata = np.arange(ydata.size, dtype=np.float64)
+    if weights_jax is not None:
+        weights_np = np.asarray(weights_jax).flatten().astype(np.float64)
+        # weights = 1/σ² ⇒ σ = 1/√weights. Guard zeros (unweighted samples)
+        # by passing σ = 1 there so they fall back to uniform weighting.
+        safe_w = np.where(weights_np > 0, weights_np, 1.0)
+        sigma = 1.0 / np.sqrt(safe_w)
+    else:
+        sigma = None
+
+    # Build the wrapper config directly. Don't use
+    # ``CMAESWrapperConfig.from_nlsq_config(config)`` here: that helper expects
+    # the *homodyne* :class:`NLSQConfig` (different module, different field
+    # names — heterodyne uses ``cmaes_tolx`` / ``cmaes_tolfun`` /
+    # ``cmaes_max_iterations`` where homodyne has ``cmaes_tol_x`` /
+    # ``cmaes_tol_fun`` / ``cmaes_max_generations``). Pyright correctly flags
+    # the cross-class pass; mapping the heterodyne fields by hand is the right
+    # answer until the two NLSQConfigs converge in Phase 6.
+    cmaes_wrapper_config = CMAESWrapperConfig(
+        max_generations=getattr(config, "cmaes_max_iterations", None),
+        popsize=getattr(config, "cmaes_population_size", None),
+        tol_x=float(getattr(config, "cmaes_tolx", 1e-8)),
+        tol_fun=float(getattr(config, "cmaes_tolfun", 1e-8)),
+        restart_strategy=str(getattr(config, "cmaes_restart_strategy", "bipop")),
+        max_restarts=int(getattr(config, "cmaes_max_restarts", 9)),
+    )
+    logger.info("CMA-ES Phase 2: global search (warm-started)")
+    # Invariant: this function is only entered from ``_try_global_optimization``
+    # when ``HAS_CMAES`` is True, which is True iff ``fit_with_cmaes`` was
+    # imported. Narrow for Pyright.
+    assert fit_with_cmaes is not None, "HAS_CMAES guards entry to _fit_cmaes"
     cmaes_result = fit_with_cmaes(
-        objective_fn=objective_fn,
-        initial_params=cmaes_x0,
+        model_func=model_func,
+        xdata=xdata,
+        ydata=ydata,
+        p0=np.asarray(cmaes_x0, dtype=np.float64),
         bounds=(lower_bounds, upper_bounds),
-        parameter_names=param_manager.varying_names,
-        config=cmaes_config,
-        residual_fn=residual_fn,
-        n_data=n_data,
-        anti_degeneracy=getattr(config, "cmaes_anti_degeneracy", False),
+        sigma=sigma,
+        config=cmaes_wrapper_config,
     )
 
     # ------------------------------------------------------------------
-    # Phase 3 (Fix #7): Compare NLSQ vs CMA-ES, keep the better result
+    # Phase 3: Compare NLSQ vs CMA-ES, keep the better result
     # ------------------------------------------------------------------
     nlsq_cost = (
         float(nlsq_result.final_cost)
@@ -1393,8 +1159,8 @@ def _fit_cmaes(
         else float("inf")
     )
     cmaes_cost = (
-        float(cmaes_result.final_cost)
-        if (cmaes_result.success and cmaes_result.final_cost is not None)
+        0.5 * float(cmaes_result.chi_squared)
+        if (cmaes_result.success and cmaes_result.chi_squared is not None)
         else float("inf")
     )
 
@@ -1407,7 +1173,9 @@ def _fit_cmaes(
             cmaes_cost,
         )
     else:
-        result = cmaes_result
+        result = _cmaes_to_nlsq_result(
+            cmaes_result, cmaes_cost, parameter_names=param_manager.varying_names
+        )
         winner = "cmaes"
         logger.info(
             "Phase 3: CMA-ES wins (cost=%.6e vs NLSQ=%.6e)",
@@ -1416,7 +1184,7 @@ def _fit_cmaes(
         )
 
     # ------------------------------------------------------------------
-    # Post-fit: update model, classify quality (Fix #5)
+    # Post-fit: update model, classify quality
     # ------------------------------------------------------------------
     if result.success:
         full_fitted = param_manager.expand_varying_to_full(result.parameters)
@@ -1451,65 +1219,79 @@ def _fit_cmaes(
     return result
 
 
-def _fit_multistart(
-    model: HeterodyneModel,
-    c2_data: np.ndarray | jnp.ndarray,
-    phi_angle: float,
-    config: NLSQConfig,
-    weights: np.ndarray | jnp.ndarray | None,
-    use_nlsq_library: bool,
+def _cmaes_to_nlsq_result(
+    cmaes_result: Any,
+    final_cost: float,
+    *,
+    parameter_names: list[str],
 ) -> NLSQResult:
-    """Run multi-start optimization."""
-    param_manager = model.param_manager
-    varying_names = param_manager.varying_names
+    """Pack a :class:`CMAESResult` into the :class:`NLSQResult` shape so
+    downstream consumers (DOF correction, post-fit logging, multi-phi joining)
+    see a uniform structure regardless of which optimizer won Phase 3.
 
-    initial_varying = param_manager.get_initial_values()
-    lower_bounds, upper_bounds = param_manager.get_bounds()
-    initial_varying = np.clip(initial_varying, lower_bounds, upper_bounds)
-
-    contrast_val, offset_val = model.scaling.get_for_angle(0)
-
-    # Build residual function
-    residual_fn = _make_numpy_residual_fn(
-        model, c2_data, phi_angle, weights, contrast_val, offset_val
+    Naming convention: ``final_cost = 0.5 * SSR`` matches NLSQ's least-squares
+    convention; CMA-ES reports ``chi_squared = SSR`` so the caller already
+    halved it before passing it in.
+    """
+    diag = dict(cmaes_result.diagnostics) if cmaes_result.diagnostics else {}
+    return NLSQResult(
+        parameters=np.asarray(cmaes_result.parameters),
+        parameter_names=list(parameter_names),
+        success=bool(cmaes_result.success),
+        message=str(cmaes_result.message),
+        covariance=np.asarray(cmaes_result.covariance)
+        if cmaes_result.covariance is not None
+        else None,
+        final_cost=final_cost,
+        n_iterations=int(diag.get("generations", 0)),
+        n_function_evals=int(diag.get("evaluations", 0)),
+        convergence_reason=str(diag.get("convergence_reason", "")),
+        metadata={"cmaes_diagnostics": diag},
     )
 
-    # Select adapter
-    adapter = _select_adapter(varying_names, use_nlsq_library)
 
-    # Build multistart config
-    ms_config = MultiStartConfig(
-        n_starts=getattr(config, "multistart_n", 10),
-        seed=getattr(config, "multistart_seed", None),
+def _fit_multistart(
+    model: HeterodyneModel,  # noqa: ARG001 — kept for symmetry with _fit_cmaes / _fit_local
+    c2_data: np.ndarray | jnp.ndarray,  # noqa: ARG001
+    phi_angle: float,  # noqa: ARG001
+    config: NLSQConfig,  # noqa: ARG001
+    weights: np.ndarray | jnp.ndarray | None,  # noqa: ARG001
+    use_nlsq_library: bool,  # noqa: ARG001
+) -> NLSQResult:
+    """Heterodyne multi-start optimization — not wired in v0.1.
+
+    The previous port called the upstream homodyne ``MultiStartOptimizer``
+    class API (``MultiStartOptimizer(adapter=…, config=…).fit(…)``), but
+    xpcsjax's :mod:`xpcsjax.optimization.nlsq.multistart` only exposes the
+    function :func:`run_multistart_nlsq` with signature
+    ``(data, bounds, config, single_fit_func, …)``. The class-style alias at
+    the top of this module rebinds the function under the upstream name, but
+    that rebind cannot satisfy ``optimizer.fit(...)`` — the call would crash
+    with ``AttributeError: 'function' object has no attribute 'fit'`` the
+    first time a user enabled ``optimization.nlsq.multi_start.enable: true``
+    on a heterodyne config. Smoke tests never reached this branch, so the
+    bug was silently latent.
+
+    Replacing the silent crash with an explicit
+    :class:`NotImplementedError` is the honest v0.1 contract: heterodyne
+    callers should use ``optimization.nlsq.cmaes.enable: true`` (the
+    fully-wired global-search path) or the default local trust-region fit
+    until Phase 6 lands a heterodyne-shaped ``single_fit_func`` adapter for
+    ``run_multistart_nlsq``.
+
+    Raises
+    ------
+    NotImplementedError
+        Always, with a pointer to the supported paths.
+    """
+    raise NotImplementedError(
+        "Heterodyne multi-start is not wired in v0.1. Supported global-search "
+        "path is CMA-ES (set `optimization.nlsq.cmaes.enable: true` in your "
+        "config). Local trust-region fitting also remains available with "
+        "all global flags disabled. Tracked for Phase 6: needs a heterodyne "
+        "single_fit_func adapter for xpcsjax.optimization.nlsq.multistart."
+        "run_multistart_nlsq."
     )
-    optimizer = MultiStartOptimizer(adapter=adapter, config=ms_config)
-
-    multi_result = optimizer.fit(
-        residual_fn=residual_fn,
-        initial_params=initial_varying,
-        bounds=(lower_bounds, upper_bounds),
-        config=config,
-    )
-
-    result = multi_result.to_nlsq_result()
-
-    if result.success:
-        full_fitted = param_manager.expand_varying_to_full(result.parameters)
-        fitted_c2 = compute_c2_heterodyne(
-            jnp.asarray(full_fitted),
-            model.t,
-            model.q,
-            model.dt,
-            phi_angle,
-            contrast_val,
-            offset_val,
-        )
-        result.fitted_correlation = np.asarray(fitted_c2)
-        model.set_params(full_fitted)
-
-    result.metadata["optimizer"] = "multistart"
-    _log_result(result)
-    return result
 
 
 def _fit_local(
@@ -1533,8 +1315,10 @@ def _fit_local(
 
     logger.info("Fitting %d parameters: %s", n_varying, varying_names)
 
-    # Memory-aware strategy selection
-    if HAS_MEMORY:
+    # Memory-aware strategy selection. ``HAS_MEMORY`` is True iff both
+    # ``select_nlsq_strategy`` and ``NLSQStrategy`` imported successfully —
+    # narrow on the names themselves so Pyright sees them as bound.
+    if select_nlsq_strategy is not None and NLSQStrategy is not None:
         n_data_est = np.asarray(c2_data).size
         decision = select_nlsq_strategy(n_data_est, n_varying)
         if decision.strategy in (NLSQStrategy.LARGE, NLSQStrategy.STREAMING):
@@ -1598,7 +1382,7 @@ def _fit_local(
     fallback_occurred = False
     result: NLSQResult | None = None
 
-    if use_nlsq_library and HAS_ADAPTERS:
+    if use_nlsq_library and NLSQAdapter is not None:  # HAS_ADAPTERS equivalent
         try:
             adapter = NLSQAdapter(parameter_names=varying_names)
             logger.debug("Attempting optimization with NLSQAdapter (JAX)")
@@ -1623,7 +1407,7 @@ def _fit_local(
             result = None
 
     # Wrapper fallback (or primary if use_nlsq_library=False)
-    if result is None and HAS_WRAPPER:
+    if result is None and NLSQWrapper is not None:  # HAS_WRAPPER equivalent
         try:
             wrapper = NLSQWrapper(parameter_names=varying_names)
             logger.debug("Attempting optimization with NLSQWrapper")
@@ -1797,12 +1581,12 @@ def _select_adapter(
     Returns NLSQAdapter when the nlsq library is available and requested,
     otherwise falls back to NLSQWrapper (memory-tier routing).
     """
-    if use_nlsq_library and HAS_ADAPTERS:
+    if use_nlsq_library and NLSQAdapter is not None:  # HAS_ADAPTERS equivalent
         try:
             return NLSQAdapter(parameter_names=varying_names)
         except ImportError:
             logger.warning("nlsq library not available, falling back to NLSQWrapper")
-    if HAS_WRAPPER:
+    if NLSQWrapper is not None:  # HAS_WRAPPER equivalent
         return NLSQWrapper(parameter_names=varying_names)
     raise ImportError("No NLSQ adapter available")
 

@@ -306,7 +306,7 @@ class NLSQAdapter(NLSQAdapterBase):
                 else f"auto({100 * n_params})",
                 config.x_scale,
             )
-            nlsq_result = fitter.curve_fit(  # type: ignore[union-attr]
+            nlsq_result = fitter.curve_fit(  # type: ignore[attr-defined,union-attr]
                 f=_wrapped,
                 xdata=xdata,
                 ydata=ydata,
@@ -428,7 +428,7 @@ class NLSQAdapter(NLSQAdapterBase):
                 else f"auto({100 * n_params})",
                 config.x_scale,
             )
-            nlsq_result = fitter.curve_fit(  # type: ignore[union-attr]
+            nlsq_result = fitter.curve_fit(  # type: ignore[attr-defined,union-attr]
                 f=jax_residual_fn,
                 xdata=xdata,
                 ydata=ydata,

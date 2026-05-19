@@ -388,13 +388,22 @@ class CMAESWrapperConfig:
 
         effective_sigma = sigma_override if sigma_override is not None else self.sigma
 
+        # ``restart_strategy`` is Literal['none','bipop'] in NLSQ's API but
+        # comes from a free-text config field. The validator in this class's
+        # __post_init__ checks the value against {'none','bipop'} so the
+        # cast is safe; mypy can't see the runtime guard.
+        from typing import Literal, cast
+
+        restart_strategy_literal = cast(
+            Literal["none", "bipop"], self.restart_strategy
+        )
         return CMAESConfig(
             popsize=popsize,
             max_generations=max_gen,
             sigma=effective_sigma,
             tol_fun=self.tol_fun,
             tol_x=self.tol_x,
-            restart_strategy=self.restart_strategy,
+            restart_strategy=restart_strategy_literal,
             max_restarts=self.max_restarts,
             population_batch_size=self.population_batch_size,
             data_chunk_size=self.data_chunk_size,
