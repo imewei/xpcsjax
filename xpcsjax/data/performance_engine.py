@@ -782,14 +782,68 @@ class MultiLevelCache:
     def _load_from_disk(self, file_path: Path) -> Any:
         """Load and decompress item from disk.
 
-        Security: Uses pickle.loads() for deserialization. This is safe because
-        the cache files are created exclusively by this class's _save_to_disk()
-        method, stored in application-controlled directories, and never accept
-        user-supplied pickle data. External input enters only as HDF5/NumPy arrays
-        at I/O boundaries, not as serialized objects.
+        Security model: deserialization is unsafe on attacker-controlled
+        input. We mitigate with three defense-in-depth invariants enforced
+        BEFORE the cache item is decoded, so a compromised cache directory
+        cannot escalate to arbitrary code execution:
+
+        1. **Path containment** — the resolved path must live under
+           ``self._cache_base_path``. Stops symlink escapes and
+           ``../../../etc/passwd``-style traversal if the key derivation
+           ever started letting user input flow through ``key``.
+        2. **Ownership** — on POSIX, the file must be owned by the
+           current uid. A malicious co-tenant, or an artifact dropped
+           by another user with the same path, fails the gate.
+           (Windows: skipped — POSIX ownership semantics don't apply;
+           rely on path containment + mode check.)
+        3. **Mode** — the file must not be group- or world-writable
+           (``0o077`` bits clear). Matches the 0o600 mode
+           ``_save_to_disk`` writes; rejecting weaker modes catches
+           tampering after creation.
+
+        External input still enters only as HDF5 / NumPy arrays at I/O
+        boundaries (those are guarded by ``allow_pickle=False`` in
+        ``xpcs_loader.py``). This loader is for the internal compute
+        cache only.
         """
+        # ------------------------------------------------------------------
+        # Defense-in-depth gates (run before deserialization)
+        # ------------------------------------------------------------------
+        resolved = file_path.resolve()
+        cache_root = self._cache_base_path.resolve()
         try:
-            with open(file_path, "rb") as f:
+            resolved.relative_to(cache_root)
+        except ValueError as exc:
+            raise OSError(
+                f"refusing to load {file_path}: resolves to {resolved}, "
+                f"outside cache root {cache_root}. Possible symlink escape."
+            ) from exc
+
+        try:
+            st = resolved.stat()
+        except OSError as exc:
+            raise OSError(f"cache file {resolved} missing or unreadable") from exc
+
+        # POSIX ownership check (no-op on Windows where ``getuid`` is missing).
+        if hasattr(os, "getuid"):
+            current_uid = os.getuid()
+            if st.st_uid != current_uid:
+                raise OSError(
+                    f"refusing to load {resolved}: owned by uid {st.st_uid}, "
+                    f"current uid is {current_uid}. Possible cache poisoning."
+                )
+
+        # Mode check — group/world must have no permissions. ``_save_to_disk``
+        # writes 0o600; if the mode drifted, refuse to load.
+        permissive_bits = st.st_mode & 0o077
+        if permissive_bits:
+            raise OSError(
+                f"refusing to load {resolved}: mode={st.st_mode:#o} grants "
+                f"group/world access ({permissive_bits:#o}). Possible tamper."
+            )
+
+        try:
+            with open(resolved, "rb") as f:
                 data = f.read()
 
             # Decompress if zstd available, otherwise data is already uncompressed
