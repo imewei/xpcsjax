@@ -120,8 +120,14 @@ except ImportError:
         return decorator
 
     @contextmanager
-    def log_phase(name: str, **kwargs: Any) -> Iterator[Any]:
-        """Fallback log_phase for environments without v2 logging."""
+    def log_phase(name: str, **kwargs: Any) -> Iterator[Any]:  # type: ignore[misc]
+        """Fallback log_phase for environments without v2 logging.
+
+        The real ``log_phase`` takes ``(name, logger, level, track_memory,
+        threshold)`` — this fallback only needs the name; ``**kwargs`` swallows
+        the rest. ``# type: ignore[misc]`` acknowledges the signature delta
+        with the try-branch import.
+        """
         yield type("PhaseContext", (), {"duration": 0.0, "memory_peak_gb": None})()
 
 

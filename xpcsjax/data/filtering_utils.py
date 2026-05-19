@@ -39,10 +39,15 @@ except ImportError:
 
     HAS_V2_LOGGING = False
 
-    def get_logger(name: str) -> logging.Logger:
+    # Fallback shims for environments without the v2 logging stack. The real
+    # ``get_logger``/``log_performance`` accept broader signatures (optional
+    # context kwarg, decorator parameterization); these fallbacks intentionally
+    # narrow to the subset module-level callers need. ``# type: ignore[misc]``
+    # acknowledges the signature delta with the try-branch import.
+    def get_logger(name: str) -> logging.Logger:  # type: ignore[misc]
         return logging.getLogger(name)
 
-    def log_performance(*args: Any, **kwargs: Any) -> Any:
+    def log_performance(*args: Any, **kwargs: Any) -> Any:  # type: ignore[misc]
         def decorator(func: Any) -> Any:
             return func
 

@@ -39,6 +39,8 @@ Example Usage:
     >>> dict_keys(['wavevector_q_list', 'phi_angles_list', 't1', 't2', 'c2_exp'])
 """
 
+from typing import Any
+
 # Handle imports with graceful fallback for missing dependencies
 try:
     from xpcsjax.data.xpcs_loader import (
@@ -56,24 +58,29 @@ except ImportError as e:
     HAS_XPCS_LOADER = False
     _loader_error = str(e)
 
-    # Create placeholder classes for graceful degradation
-    class XPCSDataLoader:
-        def __init__(self, *args, **kwargs):
+    # Create placeholder classes for graceful degradation. mypy correctly
+    # flags ``no-redef`` because these names also bind in the ``try`` branch
+    # above — the conditional pattern is idiomatic for optional dependencies
+    # and the placeholder signatures intentionally accept ``*args, **kwargs``
+    # so all real call sites raise the same ImportError. The ``no-redef`` /
+    # ``misc`` (signature mismatch) ignores acknowledge that contract.
+    class XPCSDataLoader:  # type: ignore[no-redef]
+        def __init__(self, *args, **kwargs):  # noqa: ARG002
             raise ImportError(f"XPCS loader not available: {_loader_error}")
 
-    class XPCSDataFormatError(Exception):
+    class XPCSDataFormatError(Exception):  # type: ignore[no-redef]
         pass
 
-    class XPCSDependencyError(Exception):
+    class XPCSDependencyError(Exception):  # type: ignore[no-redef]
         pass
 
-    class XPCSConfigurationError(Exception):
+    class XPCSConfigurationError(Exception):  # type: ignore[no-redef]
         pass
 
-    def load_xpcs_data(*args, **kwargs):
+    def load_xpcs_data(*args, **kwargs):  # type: ignore[no-redef]  # noqa: ARG001
         raise ImportError(f"XPCS loader not available: {_loader_error}")
 
-    def load_xpcs_config(*args, **kwargs):
+    def load_xpcs_config(*args, **kwargs):  # type: ignore[no-redef,misc]  # noqa: ARG001
         raise ImportError(f"XPCS loader not available: {_loader_error}")
 
 
@@ -168,7 +175,10 @@ def get_data_module_info() -> dict:
     Returns:
         Dictionary with feature availability and version info
     """
-    info = {
+    # Annotated ``dict[str, Any]`` because the value types intentionally mix
+    # ``str`` (version), ``list[str]`` (features, formats), and optionally
+    # ``str | None`` (loader_error). Narrower hints rot when the dict grows.
+    info: dict[str, Any] = {
         "version": __version__,
         "features": __features__.copy(),
         "xpcs_formats_supported": ["APS_old", "APS-U"] if HAS_XPCS_LOADER else [],

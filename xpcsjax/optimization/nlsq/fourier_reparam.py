@@ -365,6 +365,13 @@ class FourierReparameterizer:
             # Independent mode: just concatenate
             return np.concatenate([contrast, offset])
 
+        # Invariant: ``use_fourier=True`` implies the basis matrix was built
+        # in ``__init__``. mypy can't see the invariant through ``Optional``
+        # — narrow with an explicit assert that doubles as a runtime guard.
+        assert self._basis_matrix is not None, (
+            "use_fourier=True requires _basis_matrix to be initialized"
+        )
+
         # Least squares: B @ coeffs = values
         # coeffs = (B^T B)^{-1} B^T values = lstsq solution
         # Performance Optimization (Spec 001 - FR-009, T047): Use precomputed rcond
@@ -472,14 +479,16 @@ class FourierReparameterizer:
         np.ndarray
             Initial Fourier coefficients.
         """
-        # Handle scalar inputs
+        # Handle scalar inputs. ``np.isscalar`` doesn't narrow ``Any`` to a
+        # SupportsFloat in mypy's stubs (it just returns ``bool``); coerce
+        # via ``np.asarray(...).item()`` which always yields a Python scalar.
         if np.isscalar(contrast_init):
-            contrast = np.full(self.n_phi, float(contrast_init))
+            contrast = np.full(self.n_phi, float(np.asarray(contrast_init).item()))
         else:
             contrast = np.asarray(contrast_init)
 
         if np.isscalar(offset_init):
-            offset = np.full(self.n_phi, float(offset_init))
+            offset = np.full(self.n_phi, float(np.asarray(offset_init).item()))
         else:
             offset = np.asarray(offset_init)
 
@@ -545,6 +554,12 @@ class FourierReparameterizer:
         if not self.use_fourier:
             # Independent mode: return as-is
             return per_angle_values.copy()
+
+        # Invariant: see per_angle_to_fourier above — use_fourier=True
+        # guarantees _basis_matrix was built.
+        assert self._basis_matrix is not None, (
+            "use_fourier=True requires _basis_matrix to be initialized"
+        )
 
         # Least squares fit
         # Performance Optimization (Spec 001 - FR-009, T047): Use precomputed rcond

@@ -17,7 +17,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -219,7 +219,11 @@ def create_progress_callback(
         max_nfev = config.max_nfev
         description = config.description
 
-    callbacks = []
+    # Heterogeneous callback list: holds ProgressBar (when nlsq is available)
+    # and HomodyneIterationLogger (when verbose>=1). They share the NLSQ
+    # callback duck-type — annotate as ``list[Any]`` rather than introducing
+    # a Protocol that exists only to satisfy mypy.
+    callbacks: list[Any] = []
     iteration_logger = None
 
     # Create progress bar callback
@@ -426,8 +430,13 @@ class MultiStartProgressTracker:
         exc_type: type[BaseException] | None,
         _exc_val: BaseException | None,
         _exc_tb: Any,
-    ) -> bool:
-        """Context manager exit."""
+    ) -> Literal[False]:
+        """Context manager exit.
+
+        Returns ``Literal[False]`` so any exception raised inside the ``with``
+        block propagates. mypy's ``[exit-return]`` check requires this exact
+        type when the body always returns False.
+        """
         self.close()
         return False
 
@@ -479,8 +488,11 @@ def create_streaming_progress_callback(
         except ImportError:
             pass
 
-    # State tracking
-    state = {
+    # State tracking. Annotated ``dict[str, Any]`` because the closure mixes
+    # float (best_loss, start_time), int (last_epoch), and list[float]
+    # (epoch_losses) — no single TypedDict captures the heterogeneous shape
+    # without forcing every read site through a cast.
+    state: dict[str, Any] = {
         "start_time": time.perf_counter(),
         "last_epoch": -1,
         "best_loss": float("inf"),

@@ -478,7 +478,12 @@ class ParameterSpace:
                             space.bounds[param_name],
                         )
 
-        space._config_dict: dict[str, Any] = config  # type: ignore[attr-defined]
+        # Stash the original config dict on the instance so callers can
+        # round-trip back to YAML. mypy doesn't allow a type annotation on a
+        # non-self assignment (the ``space._config_dict: ...`` form is
+        # reserved for ``self.<attr>``), so drop the inline annotation and
+        # keep the existing attr-defined ignore.
+        space._config_dict = config  # type: ignore[attr-defined]
         return space
 
 

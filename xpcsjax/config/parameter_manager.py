@@ -10,7 +10,7 @@ the new architecture.
 """
 
 import re
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -37,8 +37,13 @@ try:
 except ImportError:
     HAS_PHYSICS_VALIDATORS = False
 
-    # Fallback severity class if module not available
-    class ConstraintSeverity:
+    # Fallback severity class if module not available. The real class is
+    # imported from ``xpcsjax.config.physics_validators`` in the try branch
+    # above; mypy correctly flags the conditional redefinition as a name
+    # collision. The shapes are intentionally identical (both expose ``ERROR``)
+    # so callers don't need to branch — the type: ignore acknowledges the
+    # well-defined fallback contract.
+    class ConstraintSeverity:  # type: ignore[no-redef]
         """Severity levels for physics constraint violations."""
 
         ERROR = "error"
@@ -79,11 +84,16 @@ class ParameterManager:
         analysis_mode: str = "laminar_flow",
     ):
         """Initialize ParameterManager."""
-        self.config_dict: dict[str, Any] = config_dict or {}
+        # ``HomodyneConfig`` is a TypedDict, which mypy doesn't auto-collapse
+        # to ``dict[str, Any]`` even though the runtime shape is identical.
+        # Cast explicitly so the rest of this class sees a uniform dict.
+        self.config_dict: dict[str, Any] = dict(config_dict) if config_dict else {}
         self.analysis_mode = analysis_mode
 
-        # Performance caching for repeated queries
-        self._bounds_cache: dict[str, list[BoundDict]] = {}
+        # Performance caching for repeated queries.
+        # ``cache_key = tuple(sorted(parameter_names))`` — tuple-keyed so a
+        # given parameter set hashes uniformly regardless of input order.
+        self._bounds_cache: dict[tuple[str, ...], list[BoundDict]] = {}
         self._active_params_cache: list[str] | None = None
         self._cache_enabled: bool = True
 
@@ -144,12 +154,14 @@ class ParameterManager:
             if not isinstance(bound_dict, dict):
                 continue
 
-            param_name = bound_dict.get("name")
-            if not param_name:
+            raw_name = bound_dict.get("name")
+            if not raw_name or not isinstance(raw_name, str):
                 continue
 
-            # Apply name mapping
-            param_name = self._param_name_mapping.get(param_name, param_name)
+            # Apply name mapping. ``.get`` returns Any from a dict[str, Any]
+            # mapping; narrow back to str so the BoundDict indexing below
+            # type-checks cleanly.
+            param_name: str = self._param_name_mapping.get(raw_name, raw_name)
 
             # Convert min/max to floats (handles YAML string parsing like "1e5")
             if "min" in bound_dict:
@@ -157,14 +169,18 @@ class ParameterManager:
             if "max" in bound_dict:
                 bound_dict["max"] = float(bound_dict["max"])
 
-            # Update default bounds with config values
+            # Update default bounds with config values. ``bound_dict`` is
+            # typed ``dict[Any, Any]`` because it came from a YAML parse;
+            # cast to the BoundDict TypedDict shape so mypy can match the
+            # _default_bounds entries.
+            bound_typed = cast(BoundDict, bound_dict)
             if param_name in self._default_bounds:
-                self._default_bounds[param_name].update(bound_dict)
+                self._default_bounds[param_name].update(bound_typed)
                 # Ensure name is canonical after mapping
                 self._default_bounds[param_name]["name"] = param_name
             else:
                 # New parameter not in defaults
-                self._default_bounds[param_name] = bound_dict
+                self._default_bounds[param_name] = bound_typed
 
         logger.debug(f"Loaded bounds from config for {len(config_bounds)} parameters")
 
@@ -456,18 +472,22 @@ class ParameterManager:
             # Check for explicit active_parameters list
             active_params_config = initial_params.get("active_parameters")
             if active_params_config and isinstance(active_params_config, list):
-                # Apply name mapping
+                # Apply name mapping. ``.get(name, name)`` returns the mapped
+                # name when present, the original ``name`` otherwise — never
+                # None. mypy can't see the fallback guarantee through
+                # ``dict.get``'s typing, so coerce to str explicitly.
                 active_params = [
-                    self._param_name_mapping.get(name, name)
+                    str(self._param_name_mapping.get(name, name))
                     for name in active_params_config
                 ]
             else:
                 # Fall back to parameter_names from initial_parameters
                 param_names = initial_params.get("parameter_names")
                 if param_names and isinstance(param_names, list):
-                    # Apply name mapping
+                    # Apply name mapping (see comment above on the str() coerce).
                     active_params = [
-                        self._param_name_mapping.get(name, name) for name in param_names
+                        str(self._param_name_mapping.get(name, name))
+                        for name in param_names
                     ]
                 else:
                     # Ultimate fallback to mode defaults

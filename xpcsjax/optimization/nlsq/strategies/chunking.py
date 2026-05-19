@@ -749,7 +749,15 @@ def create_angle_stratified_data(
     )  # Track position in each angle
 
     for chunk_idx in range(n_chunks):
-        chunk_parts = {"phi": [], "t1": [], "t2": [], "g2_exp": []}
+        # Each value is a list of ndarray slices that get concatenated below.
+        # Explicit annotation: mypy can't infer the inner type from the empty
+        # ``[]`` literals because the appends happen across loop iterations.
+        chunk_parts: dict[str, list[np.ndarray]] = {
+            "phi": [],
+            "t1": [],
+            "t2": [],
+            "g2_exp": [],
+        }
 
         for angle in stats.unique_angles:
             group = angle_groups[angle]
@@ -783,8 +791,14 @@ def create_angle_stratified_data(
     t2_stratified = np.concatenate([chunk["t2"] for chunk in stratified_chunks])
     g2_stratified = np.concatenate([chunk["g2_exp"] for chunk in stratified_chunks])
 
-    # Store chunk sizes for correct re-chunking
-    chunk_sizes = [chunk["size"] for chunk in stratified_chunks]
+    # Store chunk sizes for correct re-chunking. The ``stratified_chunks``
+    # dicts mix ndarray and int values, so mypy widens lookups to ``object``;
+    # cast to int (we know "size" is the ``sum(len(...))`` int written above).
+    from typing import cast as _cast
+
+    chunk_sizes: list[int] = [
+        _cast(int, chunk["size"]) for chunk in stratified_chunks
+    ]
 
     # T039: Log chunking operation timing
     _duration = _time.perf_counter() - _start_time

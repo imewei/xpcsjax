@@ -116,6 +116,10 @@ class ParameterIndexMapper:
         if self.use_constant:
             return 1
         if self.use_fourier:
+            # Invariant: ``use_fourier`` is derived from
+            # ``self.fourier is not None and self.fourier.use_fourier`` (see
+            # the ``use_fourier`` property). Narrow for mypy.
+            assert self.fourier is not None
             return self.fourier.n_coeffs_per_param
         return self.n_phi
 
@@ -140,6 +144,7 @@ class ParameterIndexMapper:
         if self.use_constant:
             return 2  # One contrast + one offset
         if self.use_fourier:
+            assert self.fourier is not None  # use_fourier invariant — see above
             return self.fourier.n_coeffs
         return 2 * self.n_phi
 

@@ -64,7 +64,12 @@ except ImportError:
 
     HAS_V2_LOGGING = False
 
-    def get_logger(name: str) -> logging.Logger:
+    # Fallback shim. The real ``xpcsjax.utils.logging.get_logger`` has a
+    # broader contract (optional name, optional context, may return a
+    # LoggerAdapter); this fallback only needs to feed module-level ``logger``
+    # and never sees the context kwarg. ``# type: ignore[misc]`` acknowledges
+    # the signature delta with the try-branch import.
+    def get_logger(name: str) -> logging.Logger:  # type: ignore[misc]
         return logging.getLogger(name)
 
 
@@ -170,8 +175,11 @@ def validate_xpcs_data(
         _validate_array_shapes(data, report)
 
         if validation_level == "full":
-            # Comprehensive validation
-            _validate_physics_parameters(data, config, report)
+            # Comprehensive validation. Physics validation expects a config
+            # dict — pass an empty one if the caller didn't supply config,
+            # so downstream "missing key" checks treat it as "no constraints
+            # to enforce" rather than crashing on a None deref.
+            _validate_physics_parameters(data, config or {}, report)
             _validate_correlation_matrices(data, report)
             _validate_statistical_properties(data, report)
             _compute_data_statistics(data, report)
@@ -709,7 +717,10 @@ def validate_xpcs_data_incremental(
     start_time = time.time()
 
     if validation_level == "incremental" and previous_report:
-        report = _perform_incremental_validation(data, config, previous_report)
+        # Pass an empty dict when no config supplied — incremental validation
+        # only reads the keys it specifically needs, treating missing keys as
+        # "no constraint" rather than tripping on a None deref.
+        report = _perform_incremental_validation(data, config or {}, previous_report)
     else:
         # Use existing validation function
         report = validate_xpcs_data(data, config, validation_level)

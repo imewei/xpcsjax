@@ -315,6 +315,7 @@ def _select_jacobian_sample(subset: AngleSubset, sample_size: int) -> dict[str, 
             "indices": slice(None),
         }
 
+    idx: slice | np.ndarray
     if size == subset.n_points:
         idx = slice(None)
         scale = 1.0
@@ -574,7 +575,11 @@ def optimize_single_angle(
         )
 
         # Define residual function for this angle (JAX-compatible)
-        def residuals(params: np.ndarray) -> np.ndarray:
+        # Returns jax.Array (jnp.ndarray) because the NLSQ engine JIT-traces
+        # this closure; ``np.asarray()`` on the trace would raise
+        # TracerArrayConversionError. The return type is intentionally
+        # the JAX flavor, not numpy.
+        def residuals(params: np.ndarray) -> jnp.ndarray:
             return jnp.asarray(
                 residual_func(params, subset.phi, subset.t1, subset.t2, subset.g2_exp)
             )
@@ -834,7 +839,7 @@ def optimize_per_angle_sequential(
     t1: np.ndarray,
     t2: np.ndarray,
     g2_exp: np.ndarray,
-    residual_func: callable,
+    residual_func: Callable[..., Any],
     initial_params: np.ndarray,
     bounds: tuple[np.ndarray, np.ndarray],
     weighting: str = "inverse_variance",

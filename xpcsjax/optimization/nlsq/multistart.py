@@ -163,9 +163,15 @@ class MultiStartConfig:
         elimination_fraction = 1.0 - self.screen_keep_fraction
         elimination_rounds = 3 if self.use_screening else 0
 
+        # ``sampler`` is a Literal['lhs','sobol','halton'] in NLSQ's API but
+        # comes from a free-text config field here. Validation upstream
+        # guarantees it's one of the three; cast to keep mypy quiet without
+        # adding a redundant runtime ``assert sampler in {...}``.
+        from typing import Literal, cast
+
         return GlobalOptimizationConfig(
             n_starts=self.n_starts,
-            sampler=sampler,
+            sampler=cast(Literal["lhs", "sobol", "halton"], sampler),
             elimination_rounds=elimination_rounds,
             elimination_fraction=elimination_fraction,
         )
@@ -417,8 +423,10 @@ def check_zero_volume_bounds(bounds: NDArray[np.float64]) -> bool:
     upper = bounds[:, 1]
     widths = upper - lower
 
-    # Zero volume if all widths are effectively zero
-    return np.all(np.abs(widths) < 1e-15)
+    # Zero volume if all widths are effectively zero.
+    # ``np.all`` returns ``np.bool_`` rather than Python ``bool``; coerce so
+    # callers using the result in a Python boolean context type-check.
+    return bool(np.all(np.abs(widths) < 1e-15))
 
 
 def validate_n_starts_for_lhs(

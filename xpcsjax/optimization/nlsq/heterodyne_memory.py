@@ -1,4 +1,11 @@
-"""Memory-aware strategy selection for NLSQ optimization.
+"""Memory-aware strategy selection for NLSQ optimization (**heterodyne** flavor).
+
+This module mirrors :mod:`xpcsjax.optimization.nlsq.memory` (the homodyne flavor)
+but uses heterodyne-shaped naming — ``STANDARD``, ``LARGE``, ``STREAMING`` —
+because the two-component residual layout has a different memory footprint
+than homodyne's. Do not collapse the two modules together: the strategy names
+are load-bearing in callers (``wrapper.py`` imports homodyne names;
+``heterodyne_core.py`` imports the names from this module).
 
 Estimates peak memory usage from Jacobian size and selects between
 standard (in-memory), large (chunked J^T J), and streaming (L-BFGS

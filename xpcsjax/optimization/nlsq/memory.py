@@ -1,5 +1,13 @@
 """Memory Management and Unified Strategy Selection for NLSQ Optimization.
 
+This module is the **homodyne** memory model: strategy names ``STANDARD``,
+``OUT_OF_CORE``, ``HYBRID_STREAMING`` follow homodyne's v2.13.0 vocabulary.
+The heterodyne counterpart lives in :mod:`xpcsjax.optimization.nlsq.heterodyne_memory`
+and uses ``STANDARD``, ``LARGE``, ``STREAMING`` (different naming because the
+heterodyne residual layout has a different memory footprint). The two modules
+are intentionally separate — do not unify them without coordinating Phase 6's
+heterodyne tolerance work.
+
 Provides adaptive memory threshold detection and unified memory-based strategy
 selection for NLSQ optimization (v2.13.0+).
 

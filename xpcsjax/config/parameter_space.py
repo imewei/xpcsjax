@@ -314,11 +314,15 @@ class ParameterSpace:
                 continue
 
             param_name = bound_entry.get("name")
-            if not param_name:
+            if not param_name or not isinstance(param_name, str):
                 continue
 
-            # Apply name mapping
-            canonical_name = PARAMETER_NAME_MAPPING.get(param_name, param_name)
+            # Apply name mapping. ``.get(name, name)`` returns the mapped str
+            # or falls back to the original ``name`` — never None. Coerce so
+            # mypy doesn't lose the str invariant through ``dict[str, str].get``.
+            canonical_name: str = str(
+                PARAMETER_NAME_MAPPING.get(param_name, param_name)
+            )
             config_bounds_lookup[canonical_name] = bound_entry
 
         # Load bounds and priors for each parameter
