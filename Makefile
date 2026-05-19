@@ -495,7 +495,7 @@ clean-test:
 		-exec rm -rf {} + 2>/dev/null || true
 	rm -rf .coverage coverage.xml .coverage.* test-results.xml
 	rm -rf xpcsjax_results/ .xpcsjax_cache/ tmp/ .ultra-think/
-	rm -f .research-log.jsonl.tmp
+	rm -f .research-log.jsonl.tmp .research-log.jsonl pyrightconfig.json
 
 clean-cache:
 	@echo "$(BOLD)$(BLUE)Removing additional caches...$(RESET)"
