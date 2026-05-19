@@ -8,6 +8,7 @@
         test-core test-optimization test-heterodyne test-characterization test-property \
         test-nlsq test-quick \
         format lint type-check check quality quick pre-commit install-hooks \
+        security perf-baseline perf-compare \
         benchmark profile-nlsq \
         clean clean-all clean-pyc clean-build clean-test clean-cache clean-venv \
         build release run-example ci ci-full watch stats verify-nlsq \
@@ -339,6 +340,33 @@ quality: format lint type-check
 
 quick: format test-smoke
 	@echo "$(BOLD)$(GREEN)✓ Quick iteration complete!$(RESET)"
+
+# bandit policy lives in [tool.bandit] of pyproject.toml — running with -c
+# picks up the project's B101/B110/B403/B404/B603 skip list. Without -c, every
+# type-narrowing assert in the hot paths trips B101.
+security:
+	@echo "$(BOLD)$(BLUE)Running SAST (bandit) + dependency CVE scan (pip-audit)...$(RESET)"
+	@$(RUN_CMD) pip install --quiet bandit pip-audit 2>/dev/null || true
+	@$(RUN_CMD) bandit -c pyproject.toml -r $(SRC_DIR) -q
+	@$(RUN_CMD) pip-audit --skip-editable
+	@echo "$(BOLD)$(GREEN)✓ Security scan clean!$(RESET)"
+
+# Perf-regression suite. Opt-in via env var so dev smoke stays fast. Saves a
+# baseline JSON to .benchmarks/ for cross-run comparison.
+#   make perf-baseline      → pin current wall-clocks as the baseline
+#   make perf-compare       → run and fail on >25% mean regression
+perf-baseline:
+	@echo "$(BOLD)$(BLUE)Running performance regression suite (baseline)...$(RESET)"
+	@XPCSJAX_RUN_BENCHMARKS=1 $(RUN_CMD) $(PYTEST) tests/benchmarks/ \
+		--benchmark-save=baseline --timeout=300 -v
+	@echo "$(BOLD)$(GREEN)✓ Baseline pinned in .benchmarks/$(RESET)"
+
+perf-compare:
+	@echo "$(BOLD)$(BLUE)Running performance regression suite (compare to baseline)...$(RESET)"
+	@XPCSJAX_RUN_BENCHMARKS=1 $(RUN_CMD) $(PYTEST) tests/benchmarks/ \
+		--benchmark-compare=baseline --benchmark-compare-fail=mean:25% \
+		--timeout=300 -v
+	@echo "$(BOLD)$(GREEN)✓ Within 25% of baseline$(RESET)"
 
 pre-commit:
 	@echo "$(BOLD)$(BLUE)Running pre-commit hooks...$(RESET)"
