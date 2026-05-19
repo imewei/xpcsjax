@@ -205,49 +205,6 @@ def calculate_shear_rate(
 
 
 @jit
-def calculate_shear_rate_cmc(
-    time_array: jnp.ndarray,
-    gamma_dot_0: float,
-    beta: float,
-    gamma_dot_offset: float,
-) -> jnp.ndarray:
-    """Calculate time-dependent shear rate for CMC (element-wise) computations.
-
-    This variant includes an additional safety check for consecutive zeros
-    in CMC element-wise data where dt could be zero.
-
-    Args:
-        time_array: Array of time points
-        gamma_dot_0: Shear rate amplitude
-        beta: Shear rate exponent
-        gamma_dot_offset: Baseline shear rate offset
-
-    Returns:
-        γ̇(t) evaluated at each time point
-    """
-    # Infer dt from time grid.
-    # Avoid Python `if shape[0] > 1` which causes JIT recompilation per unique
-    # array length. For n==1, index 0 is used twice → dt=0, but the jnp.where
-    # guard below keeps it safe with a 1e-8 floor.
-    # CRITICAL FIX: Ensure dt > 0 to prevent 0^(negative beta) = infinity
-    # CMC element-wise data can have consecutive zeros: t[0]=0, t[1]=0 → dt=0
-    # This causes NaN when beta < 0 in gamma_t = gamma_dot_0 * (time_safe**beta)
-    dt_raw = jnp.abs(
-        time_array[jnp.minimum(1, time_array.shape[0] - 1)] - time_array[0]
-    )
-    dt = jnp.where(dt_raw > 1e-8, dt_raw, 1e-8)
-
-    # Replace near-zero values with dt/2 floor, matching calculate_diffusion_coefficient.
-    # Floor = 1e-8 matches the non-CMC shear variant and the diffusion function.
-    epsilon = jnp.where(dt * 0.5 > 1e-8, dt * 0.5, 1e-8)
-    time_safe = jnp.where(time_array > epsilon, time_array, epsilon)
-
-    gamma_t = gamma_dot_0 * (time_safe**beta) + gamma_dot_offset
-    # Ensure positive values — use jnp.where (not jnp.maximum) to preserve gradients.
-    return jnp.where(gamma_t > 1e-10, gamma_t, 1e-10)
-
-
-@jit
 def create_time_integral_matrix(
     time_dependent_array: jnp.ndarray,
 ) -> jnp.ndarray:

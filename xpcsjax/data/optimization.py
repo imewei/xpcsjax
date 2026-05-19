@@ -144,14 +144,14 @@ class DatasetOptimizer:
         dataset_info: DatasetInfo,
         method: str = "nlsq",
     ) -> ProcessingStrategy:
-        """Get optimized processing strategy for specific method.
+        """Get optimized processing strategy for the NLSQ method.
 
         Args:
             dataset_info: Dataset analysis results
-            method: "nlsq" for trust-region optimization, "cmc" for Consensus Monte Carlo
+            method: ``"nlsq"`` (xpcsjax v0.1 is NLSQ-only).
 
         Returns:
-            ProcessingStrategy optimized for the method and dataset
+            ProcessingStrategy optimized for the dataset.
         """
         cache_key = hash((dataset_info.size, method, self.memory_limit_mb))
 
@@ -162,30 +162,13 @@ class DatasetOptimizer:
         chunk_size = dataset_info.recommended_chunk_size
         batch_size = dataset_info.recommended_batch_size
 
-        # Method-specific adjustments
-        if method.lower() == "nlsq":
-            # NLSQ can handle larger batches efficiently
-            batch_size = min(batch_size * 2, chunk_size)
-            jax_config = {
-                "xla_python_client_mem_fraction": "0.8",
-                "jax_enable_x64": "true",  # Float64 mandatory for NLSQ (params span 6+ orders)
-                "jax_platforms": "cpu",
-            }
-        elif method.lower() == "cmc":
-            # CMC needs more conservative memory usage
-            batch_size = max(batch_size // 2, 50)
-            chunk_size = max(chunk_size // 2, 1000)
-            jax_config = {
-                "xla_python_client_mem_fraction": "0.7",
-                "jax_enable_x64": "true",  # CMC benefits from float64
-                "jax_platforms": "cpu",
-            }
-        else:
-            jax_config = {
-                "xla_python_client_mem_fraction": "0.8",
-                "jax_enable_x64": "true",  # Float64 mandatory (params span 6+ orders)
-                "jax_platforms": "cpu",
-            }
+        # NLSQ-only: larger batches than the conservative default.
+        batch_size = min(batch_size * 2, chunk_size)
+        jax_config = {
+            "xla_python_client_mem_fraction": "0.8",
+            "jax_enable_x64": "true",  # Float64 mandatory (params span 6+ orders)
+            "jax_platforms": "cpu",
+        }
 
         # Determine parallel workers based on dataset size
         if dataset_info.category == "small":
@@ -326,63 +309,6 @@ class DatasetOptimizer:
         return optimization_config
 
     @log_performance()
-    def optimize_for_cmc(
-        self,
-        data: np.ndarray,
-        sigma: np.ndarray,
-        t1: np.ndarray,
-        t2: np.ndarray,
-        phi: np.ndarray,
-        **kwargs: Any,
-    ) -> dict[str, Any]:
-        """Optimize data processing specifically for CMC (Consensus Monte Carlo).
-
-        Args:
-            data, sigma, t1, t2, phi: Input arrays
-            **kwargs: Additional optimization parameters
-
-        Returns:
-            Dictionary with optimized processing configuration
-        """
-        dataset_info = self.analyze_dataset(data, sigma)
-        strategy = self.get_processing_strategy(dataset_info, "cmc")
-
-        # Apply JAX configuration
-        if JAX_AVAILABLE:
-            for key, value in strategy.jax_config.items():
-                import os
-
-                # NOTE: These env vars are only effective before JAX's first import.
-                # If JAX is already imported, use jax.config.update() instead.
-                os.environ[key.upper()] = value
-                logger.debug(
-                    "Set JAX env var %s=%s (may be ignored if JAX already imported)",
-                    key.upper(),
-                    value,
-                )
-
-        optimization_config = {
-            "dataset_info": dataset_info,
-            "strategy": strategy,
-            "chunked_iterator": None,
-            "preprocessing_time": 0.0,
-        }
-
-        # Setup chunked processing for medium and large datasets
-        if dataset_info.category in ["medium", "large"]:
-            start_time = time.time()
-            optimization_config["chunked_iterator"] = self.create_chunked_iterator(
-                data,
-                sigma,
-                t1,
-                t2,
-                phi,
-                strategy.chunk_size,
-            )
-            optimization_config["preprocessing_time"] = time.time() - start_time
-
-        return optimization_config
-
     def estimate_processing_time(
         self,
         dataset_info: DatasetInfo,
@@ -470,7 +396,7 @@ def optimize_for_method(
 
     Args:
         data, sigma, t1, t2, phi: Input arrays
-        method: "nlsq" or "cmc"
+        method: ``"nlsq"`` (xpcsjax v0.1 is NLSQ-only; see CLAUDE.md).
         **kwargs: Additional optimization parameters
 
     Returns:
@@ -478,12 +404,12 @@ def optimize_for_method(
     """
     optimizer = create_dataset_optimizer(**kwargs)
 
-    if method.lower() == "nlsq":
-        return optimizer.optimize_for_nlsq(data, sigma, t1, t2, phi)
-    elif method.lower() == "cmc":
-        return optimizer.optimize_for_cmc(data, sigma, t1, t2, phi)
-    else:
-        raise ValueError(f"Unknown method: {method}. Use 'nlsq' or 'cmc'.")
+    if method.lower() != "nlsq":
+        raise ValueError(
+            f"Unknown method: {method}. xpcsjax v0.1 is NLSQ-only; "
+            "Bayesian sampling methods (CMC/MCMC) are permanently out of scope."
+        )
+    return optimizer.optimize_for_nlsq(data, sigma, t1, t2, phi)
 
 
 class AdvancedDatasetOptimizer:
@@ -622,25 +548,21 @@ class AdvancedDatasetOptimizer:
         """
         start_time = time.time()
 
-        # Get basic optimization as foundation
-        if method.lower() == "nlsq":
-            basic_config = self.base_optimizer.optimize_for_nlsq(
-                data,
-                sigma,
-                t1,
-                t2,
-                phi,
-                **kwargs,
+        # Get basic optimization as foundation. xpcsjax v0.1 is NLSQ-only;
+        # any non-nlsq method (CMC / MCMC) is rejected at this boundary.
+        if method.lower() != "nlsq":
+            raise ValueError(
+                f"Unknown method: {method}. xpcsjax v0.1 is NLSQ-only; "
+                "Bayesian sampling methods (CMC/MCMC) are permanently out of scope."
             )
-        else:
-            basic_config = self.base_optimizer.optimize_for_cmc(
-                data,
-                sigma,
-                t1,
-                t2,
-                phi,
-                **kwargs,
-            )
+        basic_config = self.base_optimizer.optimize_for_nlsq(
+            data,
+            sigma,
+            t1,
+            t2,
+            phi,
+            **kwargs,
+        )
 
         # Enhance with advanced features
         advanced_config = basic_config.copy()
@@ -909,7 +831,7 @@ class AdvancedDatasetOptimizer:
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    def __exit__(self, exc_type: Any, _exc_val: Any, _exc_tb: Any) -> None:
         """Context manager exit."""
         self.cleanup()
 

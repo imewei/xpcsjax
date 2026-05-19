@@ -149,7 +149,6 @@ from xpcsjax.optimization.nlsq.strategies.hybrid_streaming import (
     estimate_memory_for_stratified_ls,
     fit_with_hybrid_streaming_optimizer,
     fit_with_stratified_hybrid_streaming,
-    fit_with_streaming_optimizer_deprecated,
     fit_with_streaming_optimizer_stratified_deprecated,
     should_use_streaming,
 )
@@ -1267,6 +1266,7 @@ class NLSQWrapper(NLSQAdapterBase):
                     target_chunk_size=target_chunk_size,
                     anti_degeneracy_config=anti_degeneracy_config,
                     nlsq_config_dict=nlsq_config_dict,
+                    analysis_mode=analysis_mode,
                 )
 
                 # Compute final residuals for result creation
@@ -3335,27 +3335,6 @@ class NLSQWrapper(NLSQAdapterBase):
                 f"(improved from {prev_best:.6e})"
             )
 
-    def _fit_with_streaming_optimizer(
-        self,
-        residual_fn: Any,
-        xdata: np.ndarray,
-        ydata: np.ndarray,
-        initial_params: np.ndarray,
-        bounds: tuple[np.ndarray, np.ndarray] | None,
-        logger: Any,
-        checkpoint_config: dict | None = None,
-    ) -> tuple[np.ndarray, np.ndarray, dict]:
-        """Deprecated: raises RuntimeError."""
-        return fit_with_streaming_optimizer_deprecated(
-            residual_fn=residual_fn,
-            xdata=xdata,
-            ydata=ydata,
-            initial_params=initial_params,
-            bounds=bounds,
-            logger=logger,
-            checkpoint_config=checkpoint_config,
-        )
-
     def _fit_with_hybrid_streaming_optimizer(
         self,
         residual_fn: Any,
@@ -3397,6 +3376,7 @@ class NLSQWrapper(NLSQAdapterBase):
         target_chunk_size: int = 100_000,
         anti_degeneracy_config: dict | None = None,
         nlsq_config_dict: dict | None = None,
+        analysis_mode: str | None = None,
     ) -> tuple[np.ndarray, np.ndarray, dict]:
         """Fit using NLSQ's least_squares() with stratified residual function."""
         return fit_with_stratified_least_squares(
@@ -3409,6 +3389,7 @@ class NLSQWrapper(NLSQAdapterBase):
             target_chunk_size=target_chunk_size,
             anti_degeneracy_config=anti_degeneracy_config,
             nlsq_config_dict=nlsq_config_dict,
+            analysis_mode=analysis_mode,
         )
 
     def _fit_with_streaming_optimizer(
