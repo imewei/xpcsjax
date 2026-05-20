@@ -52,14 +52,12 @@ logger = get_logger(__name__)
 
 def _create_residual_function(
     data: Any,
-    config: Any,
     analysis_mode: str,
 ) -> tuple[Callable, list[str]]:
     """Create residual function for gradient computation.
 
     Args:
         data: Data object with phi, t1, t2, g2, q, L, dt attributes
-        config: Configuration object
         analysis_mode: "static_isotropic" or "laminar_flow"
 
     Returns:
@@ -136,13 +134,14 @@ def compute_gradient_norms(
     Returns:
         Dictionary mapping parameter names to gradient norms
     """
-    residual_fn, param_names = _create_residual_function(data, config, analysis_mode)
+    del config  # accepted for API symmetry with the public callers
+    residual_fn, param_names = _create_residual_function(data, analysis_mode)
 
     param_array = jnp.array([float(parameters[name]) for name in param_names])
 
-    def sse_fn(params: jnp.ndarray) -> float:
+    def sse_fn(params: jnp.ndarray) -> jnp.ndarray:
         residuals = residual_fn(params)
-        return float(jnp.sum(residuals**2))
+        return jnp.sum(residuals**2)
 
     grad_fn = jax.grad(sse_fn)
     gradients = grad_fn(param_array)
