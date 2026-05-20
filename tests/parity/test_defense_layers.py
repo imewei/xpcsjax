@@ -162,6 +162,79 @@ def test_l3_adaptive_regularization_activates_for_heterodyne() -> None:
     )
 
 
+def test_l3_adaptive_regularization_actually_penalizes() -> None:
+    """`config.regularization_mode='adaptive'` actually adds penalty rows to the residual.
+
+    Verifies behaviorally that regularization is in the solver loop, not just
+    diagnostic-only. The wired AdaptiveRegularizer appends `n_groups` penalty
+    rows (one per parameter group — contrast group, offset group) whose
+    sum-of-squares equals ``lambda * sum_g(CV_g^2)``.
+    """
+    pytest.importorskip("xpcsjax.core.heterodyne_model_stateful")
+    from tests.optimization.test_heterodyne_return_shape import (  # type: ignore[import-untyped]
+        _build_minimal_heterodyne_model_for_fourier,
+        _build_synthetic_c2_stack_for_fourier,
+    )
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
+
+    model = _build_minimal_heterodyne_model_for_fourier()
+    n_phi = 6
+    c2 = _build_synthetic_c2_stack_for_fourier(n_phi=n_phi, n_t=16, model=model)
+    phi = np.linspace(0, 150, n_phi)
+
+    # Baseline: no regularization
+    config_baseline = NLSQConfig(
+        per_angle_mode="fourier",
+        fourier_order=2,
+        regularization_mode="none",
+        max_nfev=60,
+    )
+    baseline = fit_nlsq_multi_phi(model, c2, phi, config_baseline, weights=None)
+
+    # Regularized — re-build model since fit mutates it
+    model_reg = _build_minimal_heterodyne_model_for_fourier()
+    config_reg = NLSQConfig(
+        per_angle_mode="fourier",
+        fourier_order=2,
+        regularization_mode="adaptive",
+        group_variance_lambda=0.01,
+        max_nfev=60,
+    )
+    reg = fit_nlsq_multi_phi(model_reg, c2, phi, config_reg, weights=None)
+
+    diag = reg.nlsq_diagnostics or {}
+    assert diag.get("regularization_active") is True
+    # Behavioral evidence — penalty rows in solver:
+    assert "regularization_penalty_count" in diag, (
+        "L3 must record how many penalty rows were appended"
+    )
+    assert diag["regularization_penalty_count"] > 0, (
+        f"penalty count must be positive, got {diag['regularization_penalty_count']}"
+    )
+    # SSR conservation still holds for the *data* residual (excluding penalty rows):
+    assert "regularization_data_residual_ssr" in diag, (
+        "L3 must report the data-only SSR (excluding penalty contribution)"
+    )
+    # Data-only SSR must match chi_squared (the SSR conservation invariant: the
+    # OptimizationResult chi_squared is the DATA-only SSR, not the total).
+    data_ssr = float(diag["regularization_data_residual_ssr"])
+    assert np.isclose(data_ssr, reg.chi_squared, rtol=1e-9), (
+        f"data-only SSR ({data_ssr}) must equal chi_squared ({reg.chi_squared}) — "
+        "SSR conservation requires chi_squared to exclude the penalty contribution"
+    )
+    # The data-only SSR with regularization should not be wildly better than baseline.
+    # (Regularization trades data fit for parameter smoothness; with small lambda
+    # the trade-off should be modest.)
+    assert reg.chi_squared >= baseline.chi_squared * 0.5, (
+        "regularized fit should not be dramatically better (would indicate a bug)"
+    )
+    # The scope must now flag full integration, not the MVP placeholder.
+    assert diag.get("regularization_scope") == "full_residual_augmentation", (
+        f"L3 scope must be 'full_residual_augmentation', got {diag.get('regularization_scope')!r}"
+    )
+
+
 def test_l4_gradient_monitor_activates_for_heterodyne() -> None:
     """`config.enable_gradient_monitoring=True` installs the collapse callback."""
     pytest.importorskip("xpcsjax.core.heterodyne_model_stateful")

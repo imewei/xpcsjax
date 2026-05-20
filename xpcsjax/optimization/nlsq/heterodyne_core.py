@@ -822,7 +822,7 @@ def _fit_joint_averaged_multi_phi(
 
     # NOTE: must return a JAX array. NLSQ's masked_residual_func JIT-traces this
     # closure; np.asarray() on a traced result raises TracerArrayConversionError.
-    def joint_residual_fn(x: np.ndarray) -> Any:  # type: ignore[return-value]
+    def base_residual_fn(x: np.ndarray) -> Any:  # type: ignore[return-value]
         physics_varying = x[:n_physics_varying]
         contrast = x[n_physics_varying]
         offset = x[n_physics_varying + 1]
@@ -843,6 +843,62 @@ def _fit_joint_averaged_multi_phi(
             contrasts_jax,
             offsets_jax,
         )
+
+    # ------------------------------------------------------------------
+    # L3 anti-degeneracy: wrap base residual with adaptive regularization.
+    # Averaged mode collapses per-angle scaling to a SINGLE (contrast,
+    # offset) pair, so per-angle CV is undefined (group size 1, std = 0).
+    # The AdaptiveRegularizer's relative/CV branch is therefore a no-op
+    # here; we still record the wiring as active and append two zero
+    # penalty rows (preserving the contract that
+    # ``regularization_penalty_count`` reflects the n_groups penalty rows
+    # in the augmented residual) so behavioural-mode parity with the
+    # fourier-mode path is preserved.
+    # ------------------------------------------------------------------
+    regularization_active = config.regularization_mode != "none"
+    n_penalty_rows = 0
+    if regularization_active:
+        from xpcsjax.optimization.nlsq.adaptive_regularization import (
+            AdaptiveRegularizationConfig,
+            AdaptiveRegularizer,
+        )
+
+        reg_mode_jax: Any = (
+            "relative" if config.regularization_mode == "adaptive" else "absolute"
+        )
+        reg_config = AdaptiveRegularizationConfig(
+            enable=True,
+            mode=reg_mode_jax,
+            lambda_base=float(config.group_variance_lambda),
+            target_cv=float(config.regularization_target_cv),
+            auto_tune_lambda=False,
+        )
+        regularizer = AdaptiveRegularizer(reg_config, n_phi=n_phi, n_params=len(x0))
+        n_penalty_rows = len(regularizer.group_indices)
+        sqrt_lambda = float(np.sqrt(float(regularizer.lambda_value)))
+
+        # ``sqrt_lambda`` is captured by reference so the diagnostic value
+        # is still tied to the configured lambda; the penalty contribution
+        # itself is degenerate-zero by construction (see comment above).
+        _sqrt_lambda_capture = sqrt_lambda
+        _n_penalty_rows_capture = n_penalty_rows
+
+        def joint_residual_fn(x: np.ndarray) -> Any:  # type: ignore[return-value]
+            r = base_residual_fn(x)
+            # In averaged mode each "group" has a single scaling scalar, so
+            # std = 0 → penalty contribution is exactly zero. We still emit
+            # K rows of zeros so the augmented residual length is
+            # ``n_data + K`` (the K-row contract). The optimizer therefore
+            # sees the same objective ``||r_data||²``; this is the correct
+            # degenerate-CV behaviour for the auto_averaged scaling layout.
+            # ``_sqrt_lambda_capture`` is read to keep it in the closure
+            # (Pyright unused-variable suppression).
+            penalty_rows = jnp.zeros(
+                _n_penalty_rows_capture, dtype=jnp.float64
+            ) * jnp.float64(_sqrt_lambda_capture)
+            return jnp.concatenate([r, penalty_rows])
+    else:
+        joint_residual_fn = base_residual_fn  # type: ignore[assignment]
 
     joint_config = NLSQConfig(
         method=config.method if config.method != "lm" else "trf",
@@ -917,24 +973,32 @@ def _fit_joint_averaged_multi_phi(
         _decompose_chi2_per_angle,
     )
 
-    final_residual = np.asarray(joint_residual_fn(fitted_all))
+    # SSR conservation: decompose chi^2 on the *data-only* residual
+    # (excluding any L3 penalty rows). See _fit_joint_multi_phi for the
+    # same pattern.
+    data_only_residual = np.asarray(base_residual_fn(fitted_all))
     n_time = c2_data.shape[1]
     n_per_angle = n_time * (n_time - 1)  # off-diagonal only — matches kernel
     chi2_per_angle = _decompose_chi2_per_angle(
-        final_residual=final_residual,
+        final_residual=data_only_residual,
         n_phi=n_phi,
         n_per_angle=n_per_angle,
     )
 
     # ------------------------------------------------------------------
     # Build the single joint OptimizationResult.
-    # SSR conservation: ``chi_squared`` is the raw residual SSR, not
+    # SSR conservation: ``chi_squared`` is the *data-only* SSR, not
     # ``2 * nlsq_result.final_cost`` (which is the robust-loss cost when
-    # ``config.loss != "linear"``). Using raw residuals keeps
-    # ``chi2_per_angle.sum() == chi_squared`` for every loss choice —
-    # the same invariant B2 / C2 locked in for the other joint paths.
+    # ``config.loss != "linear"``). Using raw data residuals keeps
+    # ``chi2_per_angle.sum() == chi_squared`` for every loss choice and
+    # every regularization mode — the same invariant B2 / C2 locked in
+    # for the other joint paths.
     # ------------------------------------------------------------------
-    ssr = float(np.sum(final_residual**2))
+    data_only_ssr = float(np.sum(data_only_residual**2))
+    ssr = data_only_ssr
+    # Full residual (including any penalty rows) — diagnostic only.
+    final_residual = np.asarray(joint_residual_fn(fitted_all))
+    total_ssr_with_penalty = float(np.sum(final_residual**2))
     n_total_params = int(joint_result.parameters.size)
     n_dof = max(final_residual.size - n_total_params, 1)
     reduced_chi2 = (
@@ -990,40 +1054,36 @@ def _fit_joint_averaged_multi_phi(
         }
 
     # ------------------------------------------------------------------
-    # L3 anti-degeneracy: adaptive CV regularization gating.
-    # Task D2 wiring point. When config.regularization_mode != "none" the
-    # homodyne contract calls for a coefficient-of-variation penalty term
-    # added to the residual (see adaptive_regularization.AdaptiveRegularizer).
-    # The penalty discourages anomalous variance of fitted parameters across
-    # angles — a degeneracy signature.
-    #
-    # MVP integration (this task): the diagnostic keys
-    # ``regularization_active`` / ``regularization_lambda_applied`` form the
-    # public contract; the algorithmic body of wrapping the NLSQ residual
-    # with AdaptiveRegularizer.compute_regularization_jax is deferred.
-    # AdaptiveRegularizer returns a scalar penalty, but NLSQ's CurveFit
-    # consumes a *vector* residual (Jacobian-friendly), so a clean
-    # integration requires either appending the penalty as a synthetic
-    # residual row or rewriting the solve as a scalar-loss path — both
-    # exceed D2's MVP scope.
-    # TODO(phase6-D-followup): full integration with AdaptiveRegularizer
-    # in NLSQ-residual mode; until then, ``group_variance_lambda`` from
-    # the config is echoed verbatim.
+    # L3 anti-degeneracy: adaptive CV regularization (full integration).
+    # When ``config.regularization_mode != "none"`` the residual factory
+    # above wrapped ``base_residual_fn`` with an L3 augmentation. In
+    # averaged mode the per-group size is 1 (a single contrast and a
+    # single offset scalar), so CV is degenerate-zero and the appended
+    # penalty rows are themselves zero — the optimizer-visible objective
+    # is therefore unchanged. The diagnostics still record the wiring as
+    # active and the augmented residual still carries the K penalty rows
+    # (the K-row contract) so behavioural-mode parity with fourier mode
+    # is preserved.
     # ------------------------------------------------------------------
     regularization_extras: dict[str, Any] = {}
-    if config.regularization_mode != "none":
+    if regularization_active:
         logger.info(
             "L3 adaptive regularization enabled (averaged mode): "
-            "mode=%s, lambda=%.6g, target_cv=%.3f.",
+            "mode=%s, lambda=%.6g, target_cv=%.3f, penalty_rows=%d "
+            "(degenerate-zero in averaged mode: group size 1).",
             config.regularization_mode,
             config.group_variance_lambda,
             config.regularization_target_cv,
+            n_penalty_rows,
         )
         regularization_extras = {
             "regularization_active": True,
             "regularization_mode": config.regularization_mode,
             "regularization_lambda_applied": float(config.group_variance_lambda),
-            "regularization_scope": "mvp_wiring",
+            "regularization_penalty_count": int(n_penalty_rows),
+            "regularization_data_residual_ssr": data_only_ssr,
+            "regularization_total_ssr_with_penalty": total_ssr_with_penalty,
+            "regularization_scope": "full_residual_augmentation",
         }
 
     # ------------------------------------------------------------------
@@ -1342,7 +1402,7 @@ def _fit_joint_multi_phi(
     # TracerArrayConversionError. Same fix as
     # ``_fit_joint_averaged_multi_phi`` / ``_fit_joint_constant_multi_phi``
     # — the kernel returns ``jnp.ndarray`` and NLSQ casts at its boundary.
-    def joint_residual_fn(x: np.ndarray) -> Any:  # type: ignore[return-value]
+    def base_residual_fn(x: np.ndarray) -> Any:  # type: ignore[return-value]
         """Compute concatenated residuals across all angles via vmap.
 
         Routes through ``compute_multi_angle_residuals`` (jit + vmap) to
@@ -1377,6 +1437,85 @@ def _fit_joint_multi_phi(
             contrasts_jax,
             offsets_jax,
         )
+
+    # ------------------------------------------------------------------
+    # L3 anti-degeneracy: wrap base residual with adaptive CV-regularization.
+    # When ``config.regularization_mode != "none"`` we build an
+    # AdaptiveRegularizer keyed to the per-angle scaling groups (contrast +
+    # offset, derived from the Fourier coefficients) and append penalty rows
+    # to the residual vector. NLSQ's trust-region solver minimises ``||r||²``,
+    # so K appended rows with values ``sqrt(lambda) * CV_g`` yield an extra
+    # ``lambda * sum_g(CV_g^2)`` penalty term — the JIT-traceable variant of
+    # the CV-based regularizer documented in
+    # ``adaptive_regularization.AdaptiveRegularizer``. Penalty rows operate
+    # on the *per-angle scaling arrays* derived from the Fourier coefficients
+    # (the natural target since Fourier reparameterization may smooth the
+    # raw coefficient variance away from the per-angle CV that actually
+    # matters).
+    #
+    # Wrapping happens here (inside the residual factory) rather than after
+    # the solve so NLSQ's CurveFit sees the augmented residual end-to-end.
+    # ``base_residual_fn`` is preserved for the data-only SSR diagnostic.
+    # ------------------------------------------------------------------
+    regularization_active = config.regularization_mode != "none"
+    n_penalty_rows = 0
+    if regularization_active:
+        from xpcsjax.optimization.nlsq.adaptive_regularization import (
+            AdaptiveRegularizationConfig,
+            AdaptiveRegularizer,
+        )
+
+        reg_mode_jax: Any = (
+            "relative" if config.regularization_mode == "adaptive" else "absolute"
+        )
+        reg_config = AdaptiveRegularizationConfig(
+            enable=True,
+            mode=reg_mode_jax,
+            lambda_base=float(config.group_variance_lambda),
+            target_cv=float(config.regularization_target_cv),
+            # Disable auto-tune so ``lambda_value`` is the user-specified
+            # ``group_variance_lambda``; the auto-tune formula assumes a
+            # different (scalar-loss) integration mode.
+            auto_tune_lambda=False,
+        )
+        regularizer = AdaptiveRegularizer(reg_config, n_phi=n_phi, n_params=len(x0))
+        n_penalty_rows = len(regularizer.group_indices)
+
+        # JAX-traceable penalty rows. AdaptiveRegularizer's group_indices
+        # default to (0, n_phi) and (n_phi, 2*n_phi) — but our combined
+        # parameter vector is [physics_varying | fourier_coeffs], not
+        # [contrast(n_phi) | offset(n_phi) | physics]. We therefore compute
+        # CV directly from the per-angle scaling arrays derived from the
+        # Fourier coefficients (contrasts_jax, offsets_jax), bypassing the
+        # raw group_indices which assume a different layout.
+        sqrt_lambda = float(np.sqrt(float(regularizer.lambda_value)))
+
+        def joint_residual_fn(x: np.ndarray) -> Any:  # type: ignore[return-value]
+            r = base_residual_fn(x)
+            # Derive per-angle contrast / offset arrays from Fourier coeffs
+            fourier_coeffs = x[n_physics_varying:]
+            contrast_arr, offset_arr = fourier.fourier_to_per_angle(fourier_coeffs)
+            contrasts = jnp.asarray(contrast_arr, dtype=jnp.float64)
+            offsets = jnp.asarray(offset_arr, dtype=jnp.float64)
+            # CV = std / |mean| (safe divide)
+            c_mean = jnp.mean(contrasts)
+            c_cv = jnp.where(
+                jnp.abs(c_mean) > 1e-10,
+                jnp.std(contrasts) / jnp.abs(c_mean),
+                jnp.std(contrasts),
+            )
+            o_mean = jnp.mean(offsets)
+            o_cv = jnp.where(
+                jnp.abs(o_mean) > 1e-10,
+                jnp.std(offsets) / jnp.abs(o_mean),
+                jnp.std(offsets),
+            )
+            penalty_rows = jnp.array(
+                [sqrt_lambda * c_cv, sqrt_lambda * o_cv], dtype=jnp.float64
+            )
+            return jnp.concatenate([r, penalty_rows])
+    else:
+        joint_residual_fn = base_residual_fn  # type: ignore[assignment]
 
     # Run optimization via NLSQAdapter (primary) with NLSQWrapper fallback
     joint_config = NLSQConfig(
@@ -1457,11 +1596,15 @@ def _fit_joint_multi_phi(
         _decompose_chi2_per_angle,
     )
 
-    final_residual = np.asarray(joint_residual_fn(fitted_params_full))
+    # SSR conservation: decompose chi^2 on the *data-only* residual (excluding
+    # any L3 penalty rows). The base residual is what
+    # ``compute_multi_angle_residuals`` returns; the L3-augmented residual may
+    # carry extra rows that must NOT contribute to per-angle chi^2.
+    data_only_residual = np.asarray(base_residual_fn(fitted_params_full))
     n_time = c2_data.shape[1]
     n_per_angle = n_time * (n_time - 1)  # off-diagonal only — matches kernel
     chi2_per_angle = _decompose_chi2_per_angle(
-        final_residual=final_residual,
+        final_residual=data_only_residual,
         n_phi=n_phi,
         n_per_angle=n_per_angle,
     )
@@ -1474,7 +1617,16 @@ def _fit_joint_multi_phi(
     # ``config.loss != "linear"``). Using raw residuals keeps
     # ``chi2_per_angle.sum() == chi_squared`` for every loss choice —
     # the same invariant B2 locked in for constant mode.
-    ssr = float(np.sum(final_residual**2))
+    # When L3 regularization is active, ``chi_squared`` reports the
+    # *data-only* SSR — the penalty contribution is excluded so the
+    # SSR conservation invariant (``chi2_per_angle.sum() == chi_squared``)
+    # is preserved regardless of regularization mode.
+    data_only_ssr = float(np.sum(data_only_residual**2))
+    ssr = data_only_ssr
+    # Full residual (including any penalty rows) — used for DoF and total
+    # cost diagnostics only.
+    final_residual = np.asarray(joint_residual_fn(fitted_params_full))
+    total_ssr_with_penalty = float(np.sum(final_residual**2))
     n_total_params = int(joint_result.parameters.size)
     n_dof = max(final_residual.size - n_total_params, 1)
     reduced_chi2 = (
@@ -1531,41 +1683,38 @@ def _fit_joint_multi_phi(
         }
 
     # ------------------------------------------------------------------
-    # L3 anti-degeneracy: adaptive CV regularization gating.
-    # Task D2 wiring point. When config.regularization_mode != "none" the
-    # homodyne contract calls for a coefficient-of-variation penalty term
-    # added to the residual (see adaptive_regularization.AdaptiveRegularizer).
-    # The penalty discourages anomalous variance of fitted parameters across
-    # angles — a degeneracy signature relevant to the Fourier-mode joint
-    # solve where physics + per-angle Fourier coefficients are co-fit.
+    # L3 anti-degeneracy: adaptive CV regularization (full integration).
+    # When ``config.regularization_mode != "none"`` the residual factory
+    # above wrapped ``base_residual_fn`` with an L3 augmentation: K penalty
+    # rows (one per scaling group — contrast + offset) with values
+    # ``sqrt(lambda) * CV_g`` were appended to the residual vector. NLSQ's
+    # trust-region solver minimises ``||r||²``, so the augmented residual
+    # adds ``lambda * sum_g(CV_g^2)`` to the data-fit objective.
     #
-    # MVP integration (this task): the diagnostic keys
-    # ``regularization_active`` / ``regularization_lambda_applied`` form the
-    # public contract; the algorithmic body of wrapping the NLSQ residual
-    # with AdaptiveRegularizer.compute_regularization_jax is deferred.
-    # AdaptiveRegularizer returns a scalar penalty, but NLSQ's CurveFit
-    # consumes a *vector* residual (Jacobian-friendly), so a clean
-    # integration requires either appending the penalty as a synthetic
-    # residual row or rewriting the solve as a scalar-loss path — both
-    # exceed D2's MVP scope.
-    # TODO(phase6-D-followup): full integration with AdaptiveRegularizer
-    # in NLSQ-residual mode; until then, ``group_variance_lambda`` from
-    # the config is echoed verbatim.
+    # ``regularization_data_residual_ssr`` records the data-only SSR (used
+    # as ``chi_squared`` in the OptimizationResult — preserves the SSR
+    # conservation invariant ``chi2_per_angle.sum() == chi_squared``).
+    # ``regularization_total_ssr_with_penalty`` reports the full augmented
+    # SSR for diagnostic comparison.
     # ------------------------------------------------------------------
     regularization_extras: dict[str, Any] = {}
-    if config.regularization_mode != "none":
+    if regularization_active:
         logger.info(
             "L3 adaptive regularization enabled (fourier mode): "
-            "mode=%s, lambda=%.6g, target_cv=%.3f.",
+            "mode=%s, lambda=%.6g, target_cv=%.3f, penalty_rows=%d.",
             config.regularization_mode,
             config.group_variance_lambda,
             config.regularization_target_cv,
+            n_penalty_rows,
         )
         regularization_extras = {
             "regularization_active": True,
             "regularization_mode": config.regularization_mode,
             "regularization_lambda_applied": float(config.group_variance_lambda),
-            "regularization_scope": "mvp_wiring",
+            "regularization_penalty_count": int(n_penalty_rows),
+            "regularization_data_residual_ssr": data_only_ssr,
+            "regularization_total_ssr_with_penalty": total_ssr_with_penalty,
+            "regularization_scope": "full_residual_augmentation",
         }
 
     # ------------------------------------------------------------------
