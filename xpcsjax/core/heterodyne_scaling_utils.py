@@ -524,3 +524,131 @@ def compute_averaged_scaling(
     )
 
     return contrast_avg, offset_avg, contrast_per_angle, offset_per_angle
+
+
+def estimate_per_angle_scaling_from_quantile(
+    c2_data: np.ndarray,
+    t1: np.ndarray,
+    t2: np.ndarray,
+    phi_indices: np.ndarray,
+    n_phi: int,
+    quantile: float = 0.95,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Estimate per-angle contrast β(φ_k) and offset ō(φ_k) from the data.
+
+    Mirrors homodyne's anti-degeneracy estimator using a dual lag-region
+    quantile approach. A naive diagonal-only formula
+
+        β̂(φ_k) = q_{0.95}[c2(φ_k, t_i, t_i)] - 1
+        ō̂(φ_k) = q_{0.05}[c2(φ_k, t_i, t_i)]
+
+    cannot recover the offset because the diagonal samples all satisfy
+    ``c2(t, t) = offset + contrast`` (decay = 1), so both quantiles
+    collapse to ``offset + contrast``. We therefore generalize to:
+
+        small-lag (|t1 - t2| in bottom ~20%): high-quantile gives
+            ceiling ≈ offset + contrast
+        large-lag (|t1 - t2| in top    ~20%): low-quantile  gives
+            floor   ≈ offset (after decay)
+
+    yielding ``offset = q_low(large-lag)`` and
+    ``contrast = q_high(small-lag) - offset``. This delegates to the
+    existing :func:`estimate_contrast_offset_from_quantiles` for each
+    phi index.
+
+    Used by the heterodyne ``constant`` per-angle mode to freeze β(φ_k)
+    and ō(φ_k) before the NLSQ trust-region solve runs (Task B1 of the
+    Phase 6 heterodyne ↔ homodyne mode parity plan).
+
+    Parameters
+    ----------
+    c2_data : np.ndarray
+        Correlation stack, shape ``(n_phi, n_t, n_t)`` or flattened of equal
+        length to ``t1``, ``t2``, ``phi_indices``.
+    t1, t2 : np.ndarray
+        Two-time grids, same shape as ``c2_data``.
+    phi_indices : np.ndarray
+        Integer phi index for each entry, same shape as ``c2_data``.
+    n_phi : int
+        Expected number of phi angles. Validated against ``phi_indices`` so
+        callers cannot silently get a shorter output array when one or more
+        angles are missing from the pooled data.
+    quantile : float, default 0.95
+        Upper value-quantile for ceiling estimation; the lower value-quantile
+        ``1 - quantile`` is used for the floor. The lag-region thresholds
+        (bottom 20% / top 20%) are fixed at the homodyne defaults.
+
+    Returns
+    -------
+    contrast_hat : np.ndarray
+        Shape ``(n_phi,)``, estimate of β(φ_k), dtype float64.
+    offset_hat : np.ndarray
+        Shape ``(n_phi,)``, estimate of ō(φ_k), dtype float64.
+
+    Raises
+    ------
+    ValueError
+        - If ``n_phi <= 0``.
+        - If ``phi_indices`` contains a value ``>= n_phi`` (out-of-range).
+        - If any phi index in ``[0, n_phi)`` has no samples in
+          ``phi_indices`` (an angle is missing from the pooled data).
+        - If any phi index has fewer than 100 finite samples — below the
+          threshold used by the underlying dual-region helper for reliable
+          quantile estimation (see
+          :func:`estimate_contrast_offset_from_quantiles`).
+    """
+    if n_phi <= 0:
+        raise ValueError(f"n_phi must be positive, got {n_phi}")
+
+    c2_flat = np.asarray(c2_data).ravel()
+    t1_flat = np.asarray(t1).ravel()
+    t2_flat = np.asarray(t2).ravel()
+    phi_flat = np.asarray(phi_indices).ravel().astype(np.intp)
+    if int(phi_flat.max()) >= n_phi:
+        raise ValueError(
+            f"phi_indices contains values >= n_phi={n_phi}; "
+            f"max index = {int(phi_flat.max())}"
+        )
+    delta_t_flat = np.abs(t1_flat - t2_flat)
+
+    # Wide bounds: the wrapper exposes a bounds-free signature per the
+    # Task B1 spec. Downstream callers that need clipping to physical
+    # bounds (e.g. the constant-mode fit assembler) clip the returned
+    # estimates themselves.
+    wide_contrast_bounds = (-np.inf, np.inf)
+    wide_offset_bounds = (-np.inf, np.inf)
+
+    contrast_hat = np.empty(n_phi, dtype=np.float64)
+    offset_hat = np.empty(n_phi, dtype=np.float64)
+
+    for k in range(n_phi):
+        cell = phi_flat == k
+        if not cell.any():
+            raise ValueError(
+                f"no samples for phi index {k} — phi_indices does not "
+                f"cover the full [0, n_phi={n_phi}) range"
+            )
+        c2_angle = c2_flat[cell]
+        delta_t_angle = delta_t_flat[cell]
+        # Guard against the underlying helper's ``len(c2) < 100`` fallback:
+        # with our wide ±inf bounds it would otherwise return NaN
+        # (midpoint of unbounded interval) rather than failing loudly.
+        n_finite = int(np.isfinite(c2_angle).sum())
+        if n_finite < 100:
+            raise ValueError(
+                f"phi index {k}: only {n_finite} finite samples (need "
+                f">=100 for reliable quantile estimation); check the "
+                f"input grid or use the averaged-scaling path instead"
+            )
+        c_est, o_est = estimate_contrast_offset_from_quantiles(
+            c2_angle,
+            delta_t_angle,
+            contrast_bounds=wide_contrast_bounds,
+            offset_bounds=wide_offset_bounds,
+            value_quantile_low=1.0 - quantile,
+            value_quantile_high=quantile,
+        )
+        contrast_hat[k] = c_est
+        offset_hat[k] = o_est
+
+    return contrast_hat, offset_hat
