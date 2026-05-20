@@ -38,6 +38,14 @@ dev = [
     "mypy>=1.19.1",
     "types-pyyaml>=6.0.12.20250915",
 ]
+docs = [
+    "sphinx>=8.0",
+    "furo>=2024.8.6",
+    "sphinx-copybutton>=0.5.2",
+    "sphinx-autodoc-typehints>=2.5",
+    "sphinx-design>=0.6",
+    "myst-parser>=4.0",
+]
 
 [build-system]
 requires = ["hatchling"]
