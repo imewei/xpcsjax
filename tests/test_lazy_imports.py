@@ -29,8 +29,9 @@ def test_top_level_import_does_not_load_jax():
 def test_public_exports_phase4():
     """v0.1 public API symbols importable as of Phase 4 (Task 20).
 
-    `HeterodyneModel` is tested separately and is expected to fail until Phase 6
-    ports the heterodyne physics model. Keep these in sync as new symbols land."""
+    `HeterodyneModel` is a public lazy export as of Phase 6 (asserted in
+    ``test_heterodyne_model_exported`` below). Keep these in sync as new
+    symbols land."""
     import xpcsjax
     for name in ("load_xpcs_data", "fit_nlsq", "ConfigManager",
                  "HomodyneModel", "OptimizationResult"):
