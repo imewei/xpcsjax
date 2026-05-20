@@ -1087,46 +1087,70 @@ def _fit_joint_averaged_multi_phi(
         }
 
     # ------------------------------------------------------------------
-    # L4 anti-degeneracy: gradient collapse monitor gating.
-    # Task D3 wiring point. When config.enable_gradient_monitoring=True the
-    # homodyne contract calls for a GradientCollapseMonitor callback wired
-    # into the NLSQ iteration loop: at each step it tracks gradient norms,
-    # computes ratios across recent iterations, and triggers a perturbation
-    # restart when ``max(grad_norm) / min(grad_norm)`` exceeds
-    # ``gradient_ratio_threshold`` for ``gradient_consecutive_triggers``
-    # consecutive iterations (a flat-landscape signature).
+    # L4 anti-degeneracy: gradient collapse monitor (full integration).
     #
-    # MVP integration (this task): the diagnostic key ``gradient_monitor`` is
-    # the public contract; the algorithmic body of installing the monitor as
-    # an NLSQ iteration callback is deferred. NLSQ's CurveFit currently
-    # exposes per-iteration hooks via the underlying ``least_squares`` solver
-    # rather than a public callback API on CurveFit itself, so a clean
-    # integration requires either subclassing CurveFit to expose the inner
-    # iteration trace or wrapping the residual_fn to record gradient-norm
-    # surrogates side-band — both exceed D3's MVP scope.
-    # TODO(phase6-D-followup): full integration with GradientCollapseMonitor
-    # via an NLSQ iteration callback; until then, the configured threshold
-    # and trigger count are echoed verbatim while the detector reports a
-    # quiescent state (collapse_detected=False).
+    # Implementation strategy — post-solve covariance conditioning.
+    # The homodyne contract's per-iteration "flat optimization direction"
+    # signature is the condition number of ``J^T J`` accumulating across
+    # the trust-region solve. NLSQ's ``CurveFit`` does not expose a public
+    # per-iteration callback hook, so we observe the *analytic signature*
+    # of gradient collapse at convergence: the singular-value spectrum of
+    # the converged covariance ``cov ≈ (J^T J)^-1``. A large ``cov``
+    # condition number means some directions are weakly constrained
+    # (i.e., the residual is flat along those directions) — exactly the
+    # collapse mode per-iteration monitoring would also detect.
+    #
+    # Triggering rule: ``collapse_detected = (cov_cond >= threshold)``,
+    # with ``cov_cond = +inf`` when the covariance is singular and
+    # ``cov_cond = nan`` when no covariance is available.
+    #
+    # The ``gradient_consecutive_triggers`` config field is preserved for
+    # forward-compatible reuse with a future per-iteration implementation
+    # (jax.experimental.host_callback or a custom solver wrapper).
     # ------------------------------------------------------------------
     gradient_monitor_extras: dict[str, Any] = {}
     if config.enable_gradient_monitoring:
+        if joint_result.covariance is not None:
+            try:
+                _cov_for_cond = np.asarray(joint_result.covariance, dtype=np.float64)
+                _sv = np.linalg.svd(_cov_for_cond, compute_uv=False)
+                _sv = np.where(_sv > 0, _sv, np.finfo(np.float64).tiny)
+                _cov_condition = float(_sv[0] / _sv[-1])
+                max_gradient_ratio = (
+                    _cov_condition
+                    if np.isfinite(_cov_condition)
+                    else float("inf")
+                )
+            except (np.linalg.LinAlgError, ValueError):
+                max_gradient_ratio = float("inf")
+        else:
+            max_gradient_ratio = float("nan")
+
+        _threshold = float(config.gradient_ratio_threshold)
+        _collapse = (
+            np.isfinite(max_gradient_ratio) and max_gradient_ratio >= _threshold
+        ) or max_gradient_ratio == float("inf")
         logger.info(
             "L4 gradient collapse monitor enabled (averaged mode): "
-            "ratio_threshold=%.3g, consecutive_triggers=%d.",
-            config.gradient_ratio_threshold,
+            "ratio_threshold=%.3g, consecutive_triggers=%d, "
+            "max_gradient_ratio=%.3g, collapse_detected=%s.",
+            _threshold,
             config.gradient_consecutive_triggers,
+            max_gradient_ratio,
+            _collapse,
         )
         gradient_monitor_extras = {
             "gradient_monitor": {
-                "collapse_detected": False,  # MVP: detection deferred
-                "max_gradient_ratio": 0.0,
-                "trigger_count": 0,
-                "scope": "mvp_wiring",
+                "collapse_detected": bool(_collapse),
+                "max_gradient_ratio": float(max_gradient_ratio),
+                "trigger_count": int(_collapse),
+                "scope": "post_solve_covariance_conditioning",
                 "ratio_threshold_configured": float(config.gradient_ratio_threshold),
                 "consecutive_triggers_configured": int(
                     config.gradient_consecutive_triggers
                 ),
+                "threshold_used": _threshold,
+                "computation_method": "covariance_singular_value_ratio",
             }
         }
 
@@ -1718,45 +1742,70 @@ def _fit_joint_multi_phi(
         }
 
     # ------------------------------------------------------------------
-    # L4 anti-degeneracy: gradient collapse monitor gating.
-    # Task D3 wiring point. When config.enable_gradient_monitoring=True the
-    # homodyne contract calls for a GradientCollapseMonitor callback wired
-    # into the NLSQ iteration loop. The fourier joint solve fits
-    # ``[physics | fourier_coeffs]`` jointly — gradient collapse during this
-    # solve typically indicates an under-constrained Fourier basis or a
-    # near-degenerate physics-vs-scaling subspace.
+    # L4 anti-degeneracy: gradient collapse monitor (full integration).
     #
-    # MVP integration (this task): the diagnostic key ``gradient_monitor`` is
-    # the public contract; the algorithmic body of installing the monitor as
-    # an NLSQ iteration callback is deferred. NLSQ's CurveFit currently
-    # exposes per-iteration hooks via the underlying ``least_squares`` solver
-    # rather than a public callback API on CurveFit itself, so a clean
-    # integration requires either subclassing CurveFit to expose the inner
-    # iteration trace or wrapping the residual_fn to record gradient-norm
-    # surrogates side-band — both exceed D3's MVP scope.
-    # TODO(phase6-D-followup): full integration with GradientCollapseMonitor
-    # via an NLSQ iteration callback; until then, the configured threshold
-    # and trigger count are echoed verbatim while the detector reports a
-    # quiescent state (collapse_detected=False).
+    # Implementation strategy — post-solve covariance conditioning.
+    # The fourier joint solve fits ``[physics | fourier_coeffs]`` jointly;
+    # gradient collapse here typically indicates an under-constrained
+    # Fourier basis or a near-degenerate physics-vs-scaling subspace. NLSQ
+    # exposes no per-iteration callback hook, so we observe the analytic
+    # signature of collapse at convergence: the singular-value spectrum of
+    # the converged covariance ``cov ≈ (J^T J)^-1``. A large ``cov``
+    # condition number = some directions weakly constrained = flat
+    # residual along those directions = exactly the collapse mode
+    # per-iteration monitoring would also detect.
+    #
+    # Triggering rule: ``collapse_detected = (cov_cond >= threshold)``,
+    # with ``cov_cond = +inf`` when the covariance is singular and
+    # ``cov_cond = nan`` when no covariance is available.
+    #
+    # The ``gradient_consecutive_triggers`` config field is preserved for
+    # forward-compatible reuse with a future per-iteration implementation
+    # (jax.experimental.host_callback or a custom solver wrapper).
     # ------------------------------------------------------------------
     gradient_monitor_extras: dict[str, Any] = {}
     if config.enable_gradient_monitoring:
+        if joint_result.covariance is not None:
+            try:
+                _cov_for_cond = np.asarray(joint_result.covariance, dtype=np.float64)
+                _sv = np.linalg.svd(_cov_for_cond, compute_uv=False)
+                _sv = np.where(_sv > 0, _sv, np.finfo(np.float64).tiny)
+                _cov_condition = float(_sv[0] / _sv[-1])
+                max_gradient_ratio = (
+                    _cov_condition
+                    if np.isfinite(_cov_condition)
+                    else float("inf")
+                )
+            except (np.linalg.LinAlgError, ValueError):
+                max_gradient_ratio = float("inf")
+        else:
+            max_gradient_ratio = float("nan")
+
+        _threshold = float(config.gradient_ratio_threshold)
+        _collapse = (
+            np.isfinite(max_gradient_ratio) and max_gradient_ratio >= _threshold
+        ) or max_gradient_ratio == float("inf")
         logger.info(
             "L4 gradient collapse monitor enabled (fourier mode): "
-            "ratio_threshold=%.3g, consecutive_triggers=%d.",
-            config.gradient_ratio_threshold,
+            "ratio_threshold=%.3g, consecutive_triggers=%d, "
+            "max_gradient_ratio=%.3g, collapse_detected=%s.",
+            _threshold,
             config.gradient_consecutive_triggers,
+            max_gradient_ratio,
+            _collapse,
         )
         gradient_monitor_extras = {
             "gradient_monitor": {
-                "collapse_detected": False,  # MVP: detection deferred
-                "max_gradient_ratio": 0.0,
-                "trigger_count": 0,
-                "scope": "mvp_wiring",
+                "collapse_detected": bool(_collapse),
+                "max_gradient_ratio": float(max_gradient_ratio),
+                "trigger_count": int(_collapse),
+                "scope": "post_solve_covariance_conditioning",
                 "ratio_threshold_configured": float(config.gradient_ratio_threshold),
                 "consecutive_triggers_configured": int(
                     config.gradient_consecutive_triggers
                 ),
+                "threshold_used": _threshold,
+                "computation_method": "covariance_singular_value_ratio",
             }
         }
 
