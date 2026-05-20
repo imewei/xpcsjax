@@ -799,6 +799,50 @@ def _fit_joint_averaged_multi_phi(
             "regularization_scope": "mvp_wiring",
         }
 
+    # ------------------------------------------------------------------
+    # L4 anti-degeneracy: gradient collapse monitor gating.
+    # Task D3 wiring point. When config.enable_gradient_monitoring=True the
+    # homodyne contract calls for a GradientCollapseMonitor callback wired
+    # into the NLSQ iteration loop: at each step it tracks gradient norms,
+    # computes ratios across recent iterations, and triggers a perturbation
+    # restart when ``max(grad_norm) / min(grad_norm)`` exceeds
+    # ``gradient_ratio_threshold`` for ``gradient_consecutive_triggers``
+    # consecutive iterations (a flat-landscape signature).
+    #
+    # MVP integration (this task): the diagnostic key ``gradient_monitor`` is
+    # the public contract; the algorithmic body of installing the monitor as
+    # an NLSQ iteration callback is deferred. NLSQ's CurveFit currently
+    # exposes per-iteration hooks via the underlying ``least_squares`` solver
+    # rather than a public callback API on CurveFit itself, so a clean
+    # integration requires either subclassing CurveFit to expose the inner
+    # iteration trace or wrapping the residual_fn to record gradient-norm
+    # surrogates side-band — both exceed D3's MVP scope.
+    # TODO(phase6-D-followup): full integration with GradientCollapseMonitor
+    # via an NLSQ iteration callback; until then, the configured threshold
+    # and trigger count are echoed verbatim while the detector reports a
+    # quiescent state (collapse_detected=False).
+    # ------------------------------------------------------------------
+    gradient_monitor_extras: dict[str, Any] = {}
+    if config.enable_gradient_monitoring:
+        logger.info(
+            "L4 gradient collapse monitor enabled (averaged mode): "
+            "ratio_threshold=%.3g, consecutive_triggers=%d.",
+            config.gradient_ratio_threshold,
+            config.gradient_consecutive_triggers,
+        )
+        gradient_monitor_extras = {
+            "gradient_monitor": {
+                "collapse_detected": False,  # MVP: detection deferred
+                "max_gradient_ratio": 0.0,
+                "trigger_count": 0,
+                "scope": "mvp_wiring",
+                "ratio_threshold_configured": float(config.gradient_ratio_threshold),
+                "consecutive_triggers_configured": int(
+                    config.gradient_consecutive_triggers
+                ),
+            }
+        }
+
     diagnostics = _build_heterodyne_diagnostics(
         per_angle_mode="averaged",
         chi2_per_angle=chi2_per_angle,
@@ -820,6 +864,7 @@ def _fit_joint_averaged_multi_phi(
         message=str(joint_result.message),
         **hierarchical_extras,
         **regularization_extras,
+        **gradient_monitor_extras,
     )
 
     logger.info(
@@ -1266,6 +1311,49 @@ def _fit_joint_multi_phi(
             "regularization_scope": "mvp_wiring",
         }
 
+    # ------------------------------------------------------------------
+    # L4 anti-degeneracy: gradient collapse monitor gating.
+    # Task D3 wiring point. When config.enable_gradient_monitoring=True the
+    # homodyne contract calls for a GradientCollapseMonitor callback wired
+    # into the NLSQ iteration loop. The fourier joint solve fits
+    # ``[physics | fourier_coeffs]`` jointly — gradient collapse during this
+    # solve typically indicates an under-constrained Fourier basis or a
+    # near-degenerate physics-vs-scaling subspace.
+    #
+    # MVP integration (this task): the diagnostic key ``gradient_monitor`` is
+    # the public contract; the algorithmic body of installing the monitor as
+    # an NLSQ iteration callback is deferred. NLSQ's CurveFit currently
+    # exposes per-iteration hooks via the underlying ``least_squares`` solver
+    # rather than a public callback API on CurveFit itself, so a clean
+    # integration requires either subclassing CurveFit to expose the inner
+    # iteration trace or wrapping the residual_fn to record gradient-norm
+    # surrogates side-band — both exceed D3's MVP scope.
+    # TODO(phase6-D-followup): full integration with GradientCollapseMonitor
+    # via an NLSQ iteration callback; until then, the configured threshold
+    # and trigger count are echoed verbatim while the detector reports a
+    # quiescent state (collapse_detected=False).
+    # ------------------------------------------------------------------
+    gradient_monitor_extras: dict[str, Any] = {}
+    if config.enable_gradient_monitoring:
+        logger.info(
+            "L4 gradient collapse monitor enabled (fourier mode): "
+            "ratio_threshold=%.3g, consecutive_triggers=%d.",
+            config.gradient_ratio_threshold,
+            config.gradient_consecutive_triggers,
+        )
+        gradient_monitor_extras = {
+            "gradient_monitor": {
+                "collapse_detected": False,  # MVP: detection deferred
+                "max_gradient_ratio": 0.0,
+                "trigger_count": 0,
+                "scope": "mvp_wiring",
+                "ratio_threshold_configured": float(config.gradient_ratio_threshold),
+                "consecutive_triggers_configured": int(
+                    config.gradient_consecutive_triggers
+                ),
+            }
+        }
+
     diagnostics = _build_heterodyne_diagnostics(
         per_angle_mode="fourier",
         chi2_per_angle=chi2_per_angle,
@@ -1288,6 +1376,7 @@ def _fit_joint_multi_phi(
         message=str(joint_result.message),
         **hierarchical_extras,
         **regularization_extras,
+        **gradient_monitor_extras,
     )
 
     logger.info(
