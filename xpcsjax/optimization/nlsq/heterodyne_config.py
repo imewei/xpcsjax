@@ -326,7 +326,7 @@ class NLSQConfig:
     # Fourier reparameterization for per-angle scaling
     # ------------------------------------------------------------------
 
-    per_angle_mode: Literal["independent", "fourier", "auto"] = "auto"
+    per_angle_mode: Literal["individual", "fourier", "auto", "constant"] = "auto"
     fourier_order: int = 2
     fourier_auto_threshold: int = 6
 
@@ -511,7 +511,7 @@ class NLSQConfig:
                 f"must be one of {sorted(_VALID_ANALYSIS_MODES)}"
             )
 
-        valid_per_angle_modes = ("independent", "fourier", "auto")
+        valid_per_angle_modes = ("individual", "fourier", "auto", "constant")
         if self.per_angle_mode not in valid_per_angle_modes:
             errors.append(
                 f"per_angle_mode={self.per_angle_mode!r} is not valid; "
