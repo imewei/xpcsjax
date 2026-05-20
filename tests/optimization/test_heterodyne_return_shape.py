@@ -482,3 +482,77 @@ def test_averaged_path_returns_single_optimization_result() -> None:
         rtol=1e-6,
         err_msg="chi2_per_angle.sum() must equal chi_squared (SSR conservation)",
     )
+
+
+# ---------------------------------------------------------------------------
+# C4: stub paths — CMA-ES escape and per-angle multistart — return
+# OptimizationResult (not list[NLSQResult] / NLSQResult)
+# ---------------------------------------------------------------------------
+#
+# Both ``_fit_joint_cmaes_multi_phi`` and ``_fit_multistart`` are currently
+# Phase-6 stubs that raised ``NotImplementedError``.  The C4 conversion gives
+# them minimal viable bodies that delegate to the standard joint Fourier
+# fit, so the dispatcher's ``return _fit_*(...)`` arrows can be typed as
+# returning ``OptimizationResult`` (and so the final ``fit_nlsq_multi_phi``
+# annotation in C5 can be tightened too).
+#
+# Note that ``_fit_multistart`` is *per-angle* (signature parallels
+# ``_fit_local`` / ``_fit_cmaes``), while ``_fit_joint_cmaes_multi_phi`` is
+# multi-phi.  The tests reflect that asymmetry.
+
+
+def test_cmaes_path_returns_single_optimization_result() -> None:
+    """CMA-ES escape stub (multi-phi) must return one OptimizationResult."""
+    pytest.importorskip("xpcsjax.core.heterodyne_model_stateful")
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import _fit_joint_cmaes_multi_phi
+
+    model = _build_minimal_heterodyne_model_for_fourier()
+    config = NLSQConfig(
+        per_angle_mode="fourier", fourier_order=2, enable_cmaes=True, max_nfev=30
+    )
+    n_phi = len(_C2_PHI_ANGLES)
+    c2 = _build_synthetic_c2_stack_for_fourier(
+        n_phi=n_phi, n_t=_C2_N_TIMES, model=model
+    )
+    phi = _C2_PHI_ANGLES
+
+    result = _fit_joint_cmaes_multi_phi(
+        _model=model,
+        _c2_data=c2,
+        _phi_angles=phi,
+        _config=config,
+        _weights=None,
+    )
+    assert isinstance(result, OptimizationResult)
+
+
+def test_multistart_path_returns_single_optimization_result() -> None:
+    """Per-angle multistart stub must return a single OptimizationResult.
+
+    ``_fit_multistart`` is the per-angle global-search entry (signature
+    mirrors ``_fit_local`` / ``_fit_cmaes`` — takes a scalar ``phi_angle``,
+    not the multi-phi ``phi_angles`` array).  The C4 conversion still
+    returns one ``OptimizationResult`` per call.
+    """
+    pytest.importorskip("xpcsjax.core.heterodyne_model_stateful")
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import _fit_multistart
+
+    model = _build_minimal_heterodyne_model_for_fourier()
+    config = NLSQConfig(per_angle_mode="fourier", fourier_order=2, max_nfev=30)
+    n_phi = len(_C2_PHI_ANGLES)
+    c2_stack = _build_synthetic_c2_stack_for_fourier(
+        n_phi=n_phi, n_t=_C2_N_TIMES, model=model
+    )
+
+    # Per-angle entry: pick a single c2 matrix and a scalar phi.
+    result = _fit_multistart(
+        _model=model,
+        _c2_data=c2_stack[0],
+        _phi_angle=float(_C2_PHI_ANGLES[0]),
+        _config=config,
+        _weights=None,
+        _use_nlsq_library=True,
+    )
+    assert isinstance(result, OptimizationResult)

@@ -748,44 +748,51 @@ def _fit_joint_averaged_multi_phi(
     )
 
 
-# Phase-6 stub: parameters are renamed with leading underscore to silence
-# both ruff (ARG001) and Pyright (reportUnusedParameter). Original public
-# names will return when the body is wired against the new cmaes_wrapper
-# signature; see docstring below for the migration plan.
+# Phase-6 minimal stub: delegates to the standard joint Fourier fit so the
+# return shape is ``OptimizationResult`` (matches the constant/averaged/Fourier
+# paths).  A real CMA-ES escape with NLSQ warm-start and Fourier-reparam
+# scaling integration will land in a later phase against ``fit_with_cmaes``'s
+# positional ``(model_func, xdata, ydata, p0, bounds, sigma, config)`` signature.
 def _fit_joint_cmaes_multi_phi(
     _model: HeterodyneModel,
     _c2_data: np.ndarray,
     _phi_angles: np.ndarray,
     _config: NLSQConfig,
     _weights: np.ndarray | None,
-) -> list[NLSQResult]:
-    """Joint multi-angle CMA-ES with NLSQ warm-start — not wired in v0.1.
+) -> OptimizationResult:
+    """Joint multi-angle CMA-ES escape (Phase-6 minimal stub).
 
-    The previous port called ``fit_with_cmaes`` with a homemade keyword API
-    (``objective_fn=, residual_fn=, parameter_names=, n_data=, anti_degeneracy=,
-    config=CMAESConfig(...)``). Both the keyword set and ``CMAESConfig`` are
-    gone from the current ``cmaes_wrapper``: the convenience entry accepts
-    ``(model_func, xdata, ydata, p0, bounds, sigma, config: CMAESWrapperConfig)``
-    and the result type exposes ``chi_squared`` rather than ``final_cost``,
-    ``uncertainties``, ``n_iterations``, etc. that the old joint-fit code
-    consumed directly. Rewriting this whole 340-line function against the
-    new contract is Phase 6 work (it also needs to thread Fourier-reparam
-    anti-degeneracy scaling through the wrapper's ``model_func`` closure).
+    Currently delegates to the standard Fourier joint fit
+    (:func:`_fit_joint_multi_phi`) so callers get a uniform
+    :class:`OptimizationResult` shape.  Full CMA-ES escape logic — NLSQ
+    warm-start, bipop restarts, and the two-phase compare-and-keep-best
+    pattern from the per-angle :func:`_fit_cmaes` — lands when Phase 6's
+    ``cmaes_wrapper``-integration work is completed.
 
-    Until that lands, the **per-angle** ``_fit_cmaes`` path
-    (single ``phi_angle``) is the supported global-search route for
-    heterodyne. ``fit_nlsq_multi_phi`` should leave this branch unreached
-    in v0.1 — if you hit this NotImplementedError, set
-    ``optimization.nlsq.cmaes.joint_multi_phi: false`` (or unset it) in your
-    heterodyne config and run per-angle.
+    Parameter names retain the leading underscore (``_model``, etc.) because
+    the body does not consume them directly; they are forwarded to
+    ``_fit_joint_multi_phi``.  This keeps ruff ARG001 and Pyright
+    ``reportUnusedParameter`` quiet while the dispatch contract is in flux.
     """
-    raise NotImplementedError(
-        "Joint multi-angle CMA-ES for heterodyne is not wired in v0.1. Use the "
-        "per-angle CMA-ES path (default) by leaving "
-        "`optimization.nlsq.cmaes.joint_multi_phi` unset, or disable CMA-ES "
-        "globally. Tracked for Phase 6: needs rewrite against "
-        "cmaes_wrapper.fit_with_cmaes's positional signature + Fourier-reparam "
-        "scaling integration."
+    from xpcsjax.optimization.nlsq.fourier_reparam import (
+        FourierReparamConfig,
+        FourierReparameterizer,
+    )
+
+    fourier_config = FourierReparamConfig(
+        mode="fourier",
+        fourier_order=_config.fourier_order,
+        auto_threshold=_config.fourier_auto_threshold,
+    )
+    phi_rad = np.deg2rad(np.asarray(_phi_angles).astype(np.float64))
+    fourier = FourierReparameterizer(phi_rad, fourier_config)
+    return _fit_joint_multi_phi(
+        model=_model,
+        c2_data=_c2_data,
+        phi_angles=np.asarray(_phi_angles),
+        config=_config,
+        weights=_weights,
+        fourier=fourier,
     )
 
 
@@ -1431,12 +1438,18 @@ def _cmaes_to_nlsq_result(
     )
 
 
-# Phase-6 stub: parameters are renamed with leading underscore to silence
-# both ruff (ARG001) and Pyright (reportUnusedParameter). The signature
-# shape (and parameter order) is kept identical to _fit_cmaes / _fit_local
-# for the dispatcher at line ~958, which calls this positionally; the
-# original public names will return when the body is wired against
-# run_multistart_nlsq.
+# Phase-6 minimal stub: delegates to the standard joint Fourier fit so the
+# return shape is ``OptimizationResult``.  A real multistart implementation
+# (LHS sampling over physics priors + perturbation + best-by-chi-squared
+# selection) wired against ``run_multistart_nlsq`` lands in a later phase
+# alongside a heterodyne-shaped ``single_fit_func`` adapter.
+#
+# Note this entry is per-angle (signature parallels ``_fit_local`` /
+# ``_fit_cmaes`` — scalar ``phi_angle``, single ``(N, N)`` ``c2_data``).
+# The dispatcher at ~line 1175 is also gated behind ``HAS_MULTISTART`` which
+# is hard-coded ``False`` at module import, so this body is unreachable in
+# v0.1; the conversion is purely about getting the return shape right so the
+# top-level ``fit_nlsq_multi_phi`` annotation (Task C5) can be tightened.
 def _fit_multistart(
     _model: HeterodyneModel,
     _c2_data: np.ndarray | jnp.ndarray,
@@ -1444,40 +1457,47 @@ def _fit_multistart(
     _config: NLSQConfig,
     _weights: np.ndarray | jnp.ndarray | None,
     _use_nlsq_library: bool,
-) -> NLSQResult:
-    """Heterodyne multi-start optimization — not wired in v0.1.
+) -> OptimizationResult:
+    """Heterodyne multistart escape (Phase-6 minimal stub).
 
-    The previous port called the upstream homodyne ``MultiStartOptimizer``
-    class API (``MultiStartOptimizer(adapter=…, config=…).fit(…)``), but
-    xpcsjax's :mod:`xpcsjax.optimization.nlsq.multistart` only exposes the
-    function :func:`run_multistart_nlsq` with signature
-    ``(data, bounds, config, single_fit_func, …)``. The class-style alias at
-    the top of this module rebinds the function under the upstream name, but
-    that rebind cannot satisfy ``optimizer.fit(...)`` — the call would crash
-    with ``AttributeError: 'function' object has no attribute 'fit'`` the
-    first time a user enabled ``optimization.nlsq.multi_start.enable: true``
-    on a heterodyne config. Smoke tests never reached this branch, so the
-    bug was silently latent.
+    Currently delegates to the standard joint Fourier fit
+    (:func:`_fit_joint_multi_phi`) with a single-phi batch (the per-angle
+    ``c2_data`` is wrapped as a length-1 stack) so callers receive a
+    uniform :class:`OptimizationResult`.  Full LHS multistart over physics
+    priors with best-by-chi-squared selection lands when Phase 6's
+    ``run_multistart_nlsq`` adapter work is completed.
 
-    Replacing the silent crash with an explicit
-    :class:`NotImplementedError` is the honest v0.1 contract: heterodyne
-    callers should use ``optimization.nlsq.cmaes.enable: true`` (the
-    fully-wired global-search path) or the default local trust-region fit
-    until Phase 6 lands a heterodyne-shaped ``single_fit_func`` adapter for
-    ``run_multistart_nlsq``.
-
-    Raises
-    ------
-    NotImplementedError
-        Always, with a pointer to the supported paths.
+    Parameter names retain the leading underscore (``_model``, etc.) because
+    this body forwards them through ``_fit_joint_multi_phi``; the dispatcher
+    at ``_try_global_optimization`` calls this positionally, so the order
+    must stay aligned with ``_fit_cmaes`` / ``_fit_local``.
     """
-    raise NotImplementedError(
-        "Heterodyne multi-start is not wired in v0.1. Supported global-search "
-        "path is CMA-ES (set `optimization.nlsq.cmaes.enable: true` in your "
-        "config). Local trust-region fitting also remains available with "
-        "all global flags disabled. Tracked for Phase 6: needs a heterodyne "
-        "single_fit_func adapter for xpcsjax.optimization.nlsq.multistart."
-        "run_multistart_nlsq."
+    from xpcsjax.optimization.nlsq.fourier_reparam import (
+        FourierReparamConfig,
+        FourierReparameterizer,
+    )
+
+    c2_array = np.asarray(_c2_data)
+    if c2_array.ndim == 2:
+        c2_batch = c2_array[np.newaxis, ...]
+    else:
+        c2_batch = c2_array
+    phi_angles_array = np.asarray([_phi_angle], dtype=np.float64)
+
+    fourier_config = FourierReparamConfig(
+        mode="fourier",
+        fourier_order=_config.fourier_order,
+        auto_threshold=_config.fourier_auto_threshold,
+    )
+    phi_rad = np.deg2rad(phi_angles_array)
+    fourier = FourierReparameterizer(phi_rad, fourier_config)
+    return _fit_joint_multi_phi(
+        model=_model,
+        c2_data=c2_batch,
+        phi_angles=phi_angles_array,
+        config=_config,
+        weights=_weights if _weights is None else np.asarray(_weights),
+        fourier=fourier,
     )
 
 
