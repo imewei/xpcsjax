@@ -221,7 +221,6 @@ def fit_nlsq_multi_phi(
     # ------------------------------------------------------------------
     # Determine whether to use homodyne-style joint multi-angle fitting.
     # ------------------------------------------------------------------
-    use_averaged = False
     use_joint = False
     # Pre-initialize so the ``if use_joint:`` branch below sees a bound name
     # even when the optional fourier_reparam import fails. ``use_joint`` is
@@ -239,17 +238,40 @@ def fit_nlsq_multi_phi(
                 _weights=weights,
             )
 
-        constant_threshold = max(
-            int(getattr(config, "constant_scaling_threshold", 3)), 1
+        # Resolve ``auto`` / explicit modes to a canonical dispatch token.
+        # The resolver returns one of: "constant", "averaged", "fourier",
+        # "individual". Keeping the table explicit makes the threshold
+        # semantics testable in isolation — see
+        # tests/optimization/test_heterodyne_modes.py.
+        effective_mode = _resolve_effective_mode(config, len(phi_angles))
+        logger.info(
+            "Per-angle dispatch: requested=%s, n_phi=%d, constant_threshold=%d, "
+            "fourier_threshold=%d, effective=%s",
+            config.per_angle_mode,
+            len(phi_angles),
+            config.constant_scaling_threshold,
+            config.fourier_auto_threshold,
+            effective_mode,
         )
-        use_averaged = _should_use_averaged_scaling(config, len(phi_angles))
-        if use_averaged:
-            logger.info(
-                "Constant averaged scaling selected: mode=%s, n_phi=%d, threshold=%d",
-                config.per_angle_mode,
-                len(phi_angles),
-                constant_threshold,
+
+        if effective_mode == "constant":
+            # Lazy import: keeps the heterodyne_constant_mode module out of
+            # heterodyne_core's namespace so ``hasattr(heterodyne_core,
+            # '_fit_joint_constant_multi_phi')`` stays False (the Sub-PR A3
+            # contract — the function lives in its own module, not here).
+            from xpcsjax.optimization.nlsq.heterodyne_constant_mode import (
+                _fit_joint_constant_multi_phi,
             )
+
+            return _fit_joint_constant_multi_phi(
+                model=model,
+                c2_data=c2_data,
+                phi_angles=phi_angles,
+                config=config,
+                weights=weights,
+            )
+
+        if effective_mode == "averaged":
             return _fit_joint_averaged_multi_phi(
                 model=model,
                 c2_data=c2_data,
@@ -258,31 +280,34 @@ def fit_nlsq_multi_phi(
                 weights=weights,
             )
 
-        try:
-            from xpcsjax.optimization.nlsq.fourier_reparam import (
-                FourierReparamConfig,
-                FourierReparameterizer,
-            )
+        if effective_mode == "fourier":
+            try:
+                from xpcsjax.optimization.nlsq.fourier_reparam import (
+                    FourierReparamConfig,
+                    FourierReparameterizer,
+                )
 
-            fourier_config = FourierReparamConfig(
-                mode=config.per_angle_mode,
-                fourier_order=config.fourier_order,
-                auto_threshold=config.fourier_auto_threshold,
-            )
-            phi_rad = np.deg2rad(phi_angles.astype(np.float64))
-            fourier = FourierReparameterizer(phi_rad, fourier_config)
-            use_joint = True
-        except ImportError:
-            logger.warning(
-                "fourier_reparam not available, falling back to sequential fits"
-            )
+                fourier_config = FourierReparamConfig(
+                    mode=config.per_angle_mode,
+                    fourier_order=config.fourier_order,
+                    auto_threshold=config.fourier_auto_threshold,
+                )
+                phi_rad = np.deg2rad(phi_angles.astype(np.float64))
+                fourier = FourierReparameterizer(phi_rad, fourier_config)
+                use_joint = True
+            except ImportError:
+                logger.warning(
+                    "fourier_reparam not available, falling back to sequential fits"
+                )
+
+        # effective_mode == "individual" falls through to sequential per-angle.
 
     if use_joint:
         # Invariant: ``use_joint`` is only set to True inside the
-        # ``if config is not None and len(phi_angles) > 1`` block above
-        # (line 225), so config is guaranteed non-None here. mypy can't see
-        # the implicit invariant — assert it for the type checker and as a
-        # belt-and-suspenders runtime check.
+        # ``if config is not None and len(phi_angles) > 1`` block above,
+        # so config is guaranteed non-None here. mypy can't see the implicit
+        # invariant — assert it for the type checker and as a belt-and-
+        # suspenders runtime check.
         assert config is not None, "use_joint=True only when config is non-None"
         return _fit_joint_multi_phi(
             model,
@@ -673,18 +698,44 @@ def _fit_joint_cmaes_multi_phi(
     )
 
 
-def _should_use_averaged_scaling(config: NLSQConfig, n_phi: int) -> bool:
-    """Decide whether to use averaged scaling (homodyne `auto` semantics).
+def _resolve_effective_mode(config: NLSQConfig, n_phi: int) -> str:
+    """Map ``config.per_angle_mode`` + ``n_phi`` to a canonical dispatch token.
 
-    Returns True when:
-      - per_angle_mode is 'auto' and n_phi >= constant_scaling_threshold
+    Returns one of:
 
-    The literal 'constant' mode is dispatched separately (see Sub-PR B);
-    this helper covers only the auto-averaging branch.
+    * ``"constant"`` — frozen per-angle (β, ō) from diagonal-quantile estimator;
+      optimizer dimension is ``n_physics_varying`` only.
+    * ``"averaged"`` — one (β̄, ō̄) pair optimized jointly with physics. This
+      is the homodyne ``auto``-averaged anti-degeneracy path.
+    * ``"fourier"`` — Fourier-basis reparameterization of per-angle scaling
+      (smooth angular variation).
+    * ``"individual"`` — sequential per-angle fits with warm-start chaining.
+
+    ``auto`` threshold semantics match homodyne::
+
+        n_phi <  constant_scaling_threshold (3) -> "constant"
+        n_phi <  fourier_auto_threshold     (6) -> "averaged"
+        n_phi >= fourier_auto_threshold     (6) -> "fourier"
+
+    Explicit modes (``"constant"``, ``"fourier"``, ``"individual"``) pass
+    through unchanged. The legacy alias ``"independent"`` is already rewritten
+    to ``"individual"`` by :meth:`NLSQConfig.__post_init__`.
     """
-    if config.per_angle_mode == "auto":
-        return n_phi >= config.constant_scaling_threshold
-    return False
+    requested = config.per_angle_mode
+    if requested == "constant":
+        return "constant"
+    if requested == "fourier":
+        return "fourier"
+    if requested == "individual":
+        return "individual"
+    # requested == "auto" — route by n_phi
+    constant_threshold = max(int(config.constant_scaling_threshold), 1)
+    fourier_threshold = max(int(config.fourier_auto_threshold), 1)
+    if n_phi < constant_threshold:
+        return "constant"
+    if n_phi < fourier_threshold:
+        return "averaged"
+    return "fourier"
 
 
 def _fit_joint_multi_phi(
