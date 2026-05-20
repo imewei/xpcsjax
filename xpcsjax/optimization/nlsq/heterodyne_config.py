@@ -326,7 +326,9 @@ class NLSQConfig:
     # Fourier reparameterization for per-angle scaling
     # ------------------------------------------------------------------
 
-    per_angle_mode: Literal["individual", "fourier", "auto", "constant"] = "auto"
+    per_angle_mode: Literal[
+        "individual", "fourier", "auto", "constant", "independent"
+    ] = "auto"
     fourier_order: int = 2
     fourier_auto_threshold: int = 6
 
@@ -429,6 +431,22 @@ class NLSQConfig:
 
     def __post_init__(self) -> None:
         """Validate invariants that must hold immediately after construction."""
+        # Deprecation alias: 'independent' → 'individual' (homodyne's canonical
+        # vocabulary). Emit a DeprecationWarning and normalize so downstream
+        # code only ever sees 'individual'. Removed in xpcsjax v0.2.
+        # TODO(v0.2): remove deprecation alias
+        if self.per_angle_mode == "independent":
+            import warnings
+
+            warnings.warn(
+                "per_angle_mode='independent' is deprecated; use 'individual' "
+                "(matches homodyne's canonical name). 'independent' will be "
+                "removed in xpcsjax v0.2.",
+                DeprecationWarning,
+                stacklevel=3,  # user -> synthesized __init__ -> __post_init__ -> warnings.warn
+            )
+            self.per_angle_mode = "individual"
+
         if self.max_iterations < 1:
             raise ValueError("max_iterations must be >= 1")
         if self.tolerance <= 0:
@@ -511,11 +529,22 @@ class NLSQConfig:
                 f"must be one of {sorted(_VALID_ANALYSIS_MODES)}"
             )
 
-        valid_per_angle_modes = ("individual", "fourier", "auto", "constant")
+        valid_per_angle_modes = (
+            "individual",
+            "fourier",
+            "auto",
+            "constant",
+            "independent",
+        )
+        # Note: 'independent' is a deprecated alias for 'individual'; it is
+        # normalized in __post_init__ and should not appear here at runtime.
+        # We include it in the accepted tuple to keep validate() robust against
+        # callers that construct an NLSQConfig and then mutate per_angle_mode.
         if self.per_angle_mode not in valid_per_angle_modes:
+            user_facing_modes = ("individual", "fourier", "auto", "constant")
             errors.append(
                 f"per_angle_mode={self.per_angle_mode!r} is not valid; "
-                f"must be one of {valid_per_angle_modes}"
+                f"must be one of {user_facing_modes}"
             )
         if self.fourier_order < 1:
             errors.append(f"fourier_order={self.fourier_order} must be >= 1")
