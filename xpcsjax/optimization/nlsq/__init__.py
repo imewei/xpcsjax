@@ -476,7 +476,7 @@ __all__ = [
 from pathlib import Path as _Path  # noqa: E402 - public API section is below the verbatim port
 
 
-def fit_nlsq(data, config) -> "OptimizationResult | list":
+def fit_nlsq(data, config) -> "OptimizationResult":
     """Single-entry NLSQ fit for both physics models.
 
     Parameters
@@ -490,19 +490,19 @@ def fit_nlsq(data, config) -> "OptimizationResult | list":
 
     Returns
     -------
-    OptimizationResult | list
+    OptimizationResult
         Homodyne path returns ``OptimizationResult``.
 
-        Heterodyne path returns ``OptimizationResult`` for ``per_angle_mode``
-        values ``"constant"``, ``"fourier"``, ``"auto"`` (joint fits with all
-        per-angle data in ``result.nlsq_diagnostics``).
-
-        Heterodyne path returns a list of per-angle fit records for
-        ``per_angle_mode`` ``"individual"`` (legacy shape; will unify to
-        ``OptimizationResult`` in a follow-up). The list element type is
-        intentionally unconstrained here because ``NLSQResult`` is defined in
-        two unrelated submodules (``nlsq.core`` and ``nlsq.heterodyne_results``)
-        and the individual-mode path returns the heterodyne flavor.
+        Heterodyne path returns ``OptimizationResult`` for every
+        ``per_angle_mode`` (``"constant"``, ``"averaged"``, ``"fourier"``,
+        ``"individual"``, ``"auto"``). Mode-specific per-angle data
+        (``chi2_per_angle``, ``parameter_names``,
+        ``contrast_per_angle`` / ``offset_per_angle``, etc.) lives under
+        ``result.nlsq_diagnostics``. The ``individual`` mode additionally
+        carries ``covariance_structure="block_diagonal_sequential"`` to
+        signal that off-diagonal covariance entries are zero **by
+        construction** (sequential per-angle fits with held-fixed
+        scaling) rather than by fit.
 
         See :mod:`xpcsjax.optimization.nlsq.heterodyne_views` for post-hoc
         per-angle reconstruction helpers (``reconstruct_per_angle_scaling``,

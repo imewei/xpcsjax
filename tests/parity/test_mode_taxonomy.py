@@ -12,12 +12,13 @@ Parameter Count Summary table:
 * ``individual`` : ``n_physics + 2 * n_phi``           (free per-angle scaling)
 * ``fourier``    : ``n_physics + 2 * (2K + 1)``        (truncated basis)
 
-The ``individual`` parametrization is currently ``xfail``-marked because
-that dispatch branch still returns ``list[NLSQResult]`` rather than a
-single :class:`OptimizationResult` — aggregation into the joint result
-shape is tracked as Phase-6 follow-up C5b (see
-``tests/optimization/test_heterodyne_return_shape.py::
-test_fit_nlsq_multi_phi_top_level_returns_optimization_result``).
+All three parametrizations now pass — the ``individual`` mode aggregates
+the sequential per-angle ``NLSQResult``s into a single
+:class:`OptimizationResult` via :func:`_aggregate_individual_results`
+(Phase-6 follow-up C5b). Off-diagonal covariance entries between the
+physics block and the per-angle scaling tail are zero by construction;
+the diagnostic key ``covariance_structure="block_diagonal_sequential"``
+flags this.
 """
 from __future__ import annotations
 
@@ -41,19 +42,7 @@ from xpcsjax.optimization.nlsq.results import OptimizationResult
     "mode,scaling_dim_for",
     [
         ("constant", lambda n_phys, n_phi, K: 0),
-        pytest.param(
-            "individual",
-            lambda n_phys, n_phi, K: 2 * n_phi,
-            marks=pytest.mark.xfail(
-                reason=(
-                    "individual mode falls through to the sequential per-angle "
-                    "warm-start chain which still returns list[NLSQResult]. "
-                    "Aggregating that into a single OptimizationResult is "
-                    "tracked as Phase-6 follow-up C5b."
-                ),
-                strict=True,
-            ),
-        ),
+        ("individual", lambda n_phys, n_phi, K: 2 * n_phi),
         ("fourier", lambda n_phys, n_phi, K: 2 * (2 * K + 1)),
     ],
 )

@@ -90,7 +90,6 @@ def test_heterodyne_smoke_fit_recovers_truth(tmp_path):
     from xpcsjax.config import ConfigManager
     from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
     from xpcsjax.optimization.nlsq import fit_nlsq
-    from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
     from xpcsjax.optimization.nlsq.results import OptimizationResult
 
     cfg_path = _write_config(tmp_path)
@@ -109,59 +108,38 @@ def test_heterodyne_smoke_fit_recovers_truth(tmp_path):
     results = fit_nlsq(data, cfg)
 
     # ---- Pipeline contract ----------------------------------------------
-    # After Phase-6 C2-C6, ``fit_nlsq_multi_phi`` returns
-    # :class:`OptimizationResult` for the joint paths (constant / averaged /
-    # fourier / CMA-ES). Only the legacy sequential ``individual`` mode still
-    # returns ``list[NLSQResult]``. This smoke test uses n_phi=2 + auto
-    # → constant, so we expect a single ``OptimizationResult``; the list
-    # branch is kept for the transition window until C5b unifies individual
-    # mode too.
-    # TODO(C5b): drop the ``list`` branch when individual mode aggregates
-    # into a single OptimizationResult.
-    if isinstance(results, list):
-        # Legacy individual-mode path: still returns list[NLSQResult].
-        assert len(results) == len(_PHI_ANGLES), (
-            f"expected {len(_PHI_ANGLES)} per-angle results, got {len(results)}"
-        )
-        for r in results:
-            assert isinstance(r, NLSQResult)
-            params = np.asarray(r.parameters, dtype=np.float64)
-            assert np.all(np.isfinite(params)), (
-                f"NaN/Inf in fitted parameters: {params}"
-            )
-        first_names = list(results[0].parameter_names)
-        first_params = np.asarray(results[0].parameters, dtype=np.float64)
-    else:
-        # Unified joint-fit path: single OptimizationResult. ``parameter_names``
-        # for the physics block lives in nlsq_diagnostics; per-angle chi^2
-        # lives there too (SSR conservation locked in by B2/C2/C3).
-        assert isinstance(results, OptimizationResult), (
-            f"expected OptimizationResult or list[NLSQResult], got {type(results)}"
-        )
-        diag = results.nlsq_diagnostics or {}
-        assert "parameter_names" in diag, (
-            "OptimizationResult.nlsq_diagnostics must carry parameter_names "
-            "for joint heterodyne fits"
-        )
-        assert "chi2_per_angle" in diag, (
-            "OptimizationResult must carry chi2_per_angle in nlsq_diagnostics"
-        )
-        assert np.asarray(diag["chi2_per_angle"]).shape == (len(_PHI_ANGLES),), (
-            f"chi2_per_angle shape mismatch: "
-            f"{np.asarray(diag['chi2_per_angle']).shape} "
-            f"vs expected ({len(_PHI_ANGLES)},)"
-        )
-        # The optimizer parameter vector for constant mode is just the
-        # physics-varying block (per-angle scaling is frozen / fixed). Slice
-        # to ``len(parameter_names)`` so we don't accidentally pick up any
-        # mode-specific tail (Fourier coefficients in fourier mode, etc.).
-        first_names = list(diag["parameter_names"])
-        first_params = np.asarray(results.parameters, dtype=np.float64)[
-            : len(first_names)
-        ]
-        assert np.all(np.isfinite(first_params)), (
-            f"NaN/Inf in fitted parameters: {first_params}"
-        )
+    # After Phase-6 C2-C6 + C5b, ``fit_nlsq_multi_phi`` returns a single
+    # :class:`OptimizationResult` for every dispatch mode (constant /
+    # averaged / fourier / CMA-ES / individual). ``parameter_names`` for
+    # the physics block lives in ``nlsq_diagnostics``; per-angle chi^2
+    # lives there too (SSR conservation locked in by B2/C2/C3).
+    assert isinstance(results, OptimizationResult), (
+        f"expected OptimizationResult, got {type(results)}"
+    )
+    diag = results.nlsq_diagnostics or {}
+    assert "parameter_names" in diag, (
+        "OptimizationResult.nlsq_diagnostics must carry parameter_names "
+        "for joint heterodyne fits"
+    )
+    assert "chi2_per_angle" in diag, (
+        "OptimizationResult must carry chi2_per_angle in nlsq_diagnostics"
+    )
+    assert np.asarray(diag["chi2_per_angle"]).shape == (len(_PHI_ANGLES),), (
+        f"chi2_per_angle shape mismatch: "
+        f"{np.asarray(diag['chi2_per_angle']).shape} "
+        f"vs expected ({len(_PHI_ANGLES)},)"
+    )
+    # The optimizer parameter vector for constant mode is just the
+    # physics-varying block (per-angle scaling is frozen / fixed). Slice
+    # to ``len(parameter_names)`` so we don't accidentally pick up any
+    # mode-specific tail (Fourier coefficients in fourier mode, etc.).
+    first_names = list(diag["parameter_names"])
+    first_params = np.asarray(results.parameters, dtype=np.float64)[
+        : len(first_names)
+    ]
+    assert np.all(np.isfinite(first_params)), (
+        f"NaN/Inf in fitted parameters: {first_params}"
+    )
 
     # ---- Recovery envelope ----------------------------------------------
     # Heterodyne's 14-parameter model has well-documented internal degeneracies

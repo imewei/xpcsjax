@@ -561,15 +561,15 @@ def test_multistart_path_returns_single_optimization_result() -> None:
 
 
 # ---------------------------------------------------------------------------
-# C5: top-level contract — fit_nlsq_multi_phi returns OptimizationResult
+# C5/C5b: top-level contract — fit_nlsq_multi_phi returns OptimizationResult
 # across all dispatched modes plus the three auto-routing windows.
 # ---------------------------------------------------------------------------
 #
 # Each parametrization exercises a single dispatch branch:
 #
 # * ``"constant"``   → :func:`_fit_joint_constant_multi_phi`
-# * ``"individual"`` → sequential per-angle path (still returns
-#   ``list[NLSQResult]``; tracked as Phase-6 follow-up C5b — xfailed below)
+# * ``"individual"`` → sequential per-angle path, aggregated into one
+#   ``OptimizationResult`` via :func:`_aggregate_individual_results` (C5b).
 # * ``"fourier"``    → :func:`_fit_joint_multi_phi`
 # * ``"auto"``       → routed by ``n_phi`` to constant / averaged / fourier
 #
@@ -582,20 +582,7 @@ def test_multistart_path_returns_single_optimization_result() -> None:
     "mode,n_phi,fourier_order",
     [
         ("constant", 2, None),
-        pytest.param(
-            "individual",
-            4,
-            None,
-            marks=pytest.mark.xfail(
-                reason=(
-                    "individual mode falls through to the sequential per-angle "
-                    "warm-start chain which still returns list[NLSQResult]. "
-                    "Aggregating that into a single OptimizationResult is "
-                    "tracked as Phase-6 follow-up C5b."
-                ),
-                strict=True,
-            ),
-        ),
+        ("individual", 4, None),
         ("fourier", 6, 2),
         ("auto", 2, None),  # n_phi < constant_scaling_threshold (3) → constant
         ("auto", 4, None),  # constant_threshold <= n_phi < fourier_threshold → averaged
@@ -647,14 +634,14 @@ def test_fit_nlsq_multi_phi_top_level_returns_optimization_result(
 def test_no_list_indexed_consumers_remain() -> None:
     """rg-style audit: no ``fit_nlsq_multi_phi(...)[i]`` patterns remain in source.
 
-    After C7, every consumer of ``fit_nlsq_multi_phi`` treats the result as
-    an :class:`OptimizationResult` (or handles both shapes during the C5b
-    transition). A regression that adds direct ``[i]`` indexing would be
-    caught here.
+    After C7 + C5b, every consumer of ``fit_nlsq_multi_phi`` treats the
+    result as an :class:`OptimizationResult`. A regression that adds
+    direct ``[i]`` indexing would be caught here.
 
     The check only scans ``xpcsjax/`` (production source); test files are
-    exempt because their migration pattern may legitimately do shape checks
-    (e.g. ``isinstance(result, list)`` branch + ``results[0]`` inside it).
+    exempt because their pre-C5b shape-probing patterns are kept for
+    archaeological reference (and are no-ops now that the list branch is
+    unreachable).
     """
     import subprocess
 

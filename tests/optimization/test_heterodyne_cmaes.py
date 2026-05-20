@@ -122,7 +122,7 @@ def test_heterodyne_per_angle_cmaes_fits_without_signature_drift(tmp_path: Path)
     from xpcsjax.config import ConfigManager
     from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
     from xpcsjax.optimization.nlsq import fit_nlsq
-    from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
 
     cfg_path = tmp_path / "cmaes_smoke.yaml"
     cfg_path.write_text(yaml.safe_dump(_cmaes_smoke_config_dict()))
@@ -147,29 +147,47 @@ def test_heterodyne_per_angle_cmaes_fits_without_signature_drift(tmp_path: Path)
     results = fit_nlsq(data, cfg)
 
     # ---- Pipeline contract -----------------------------------------------
-    assert isinstance(results, list), f"expected list[NLSQResult], got {type(results)}"
-    assert len(results) == len(_PHI_ANGLES)
-    for r in results:
-        assert isinstance(r, NLSQResult), f"expected NLSQResult, got {type(r)}"
-        params = np.asarray(r.parameters, dtype=np.float64)
-        assert np.all(np.isfinite(params)), f"NaN/Inf in fitted parameters: {params}"
-        assert r.message, "result must carry a non-empty status message"
+    # Post-C5b: every heterodyne dispatch returns a single
+    # ``OptimizationResult``. Per-angle ``NLSQResult.metadata`` survives in
+    # ``nlsq_diagnostics["per_angle_metadata"]`` for routing audits.
+    assert isinstance(results, OptimizationResult), (
+        f"expected OptimizationResult, got {type(results)}"
+    )
+    diag = results.nlsq_diagnostics or {}
+    assert diag.get("per_angle_mode") == "individual", (
+        f"expected per_angle_mode='individual' (CMA-ES individual path); "
+        f"got {diag.get('per_angle_mode')!r}"
+    )
+    per_angle_metadata = diag.get("per_angle_metadata")
+    assert isinstance(per_angle_metadata, list), (
+        "expected per_angle_metadata list in nlsq_diagnostics"
+    )
+    assert len(per_angle_metadata) == len(_PHI_ANGLES), (
+        f"expected {len(_PHI_ANGLES)} per-angle metadata entries, "
+        f"got {len(per_angle_metadata)}"
+    )
+    params = np.asarray(results.parameters, dtype=np.float64)
+    assert np.all(np.isfinite(params)), f"NaN/Inf in fitted parameters: {params}"
+    per_angle_messages = diag.get("per_angle_messages") or []
+    assert all(per_angle_messages), (
+        "every per-angle fit must carry a non-empty status message"
+    )
 
     # ---- CMA-ES path was actually taken ---------------------------------
     # ``_fit_cmaes`` writes ``metadata["optimizer"] = "cmaes"`` and
     # ``metadata["cmaes_winner"] in {"nlsq", "cmaes"}``. If the per-angle
     # CMA-ES branch isn't reached (e.g., because someone re-introduced
     # auto-skip with a permissive threshold), these would be missing.
-    first = results[0]
-    if "optimizer" not in first.metadata:
+    first_meta = per_angle_metadata[0]
+    if "optimizer" not in first_meta:
         # Some heterodyne dispatch variants nest metadata under the joint
         # CMA-ES key — be tolerant rather than over-pinning the shape.
-        assert "cmaes" in str(first.metadata).lower(), (
+        assert "cmaes" in str(first_meta).lower(), (
             f"expected CMA-ES marker somewhere in metadata; got keys "
-            f"{list(first.metadata)}"
+            f"{list(first_meta)}"
         )
     else:
-        assert first.metadata["optimizer"] in {"cmaes", "joint_cmaes_warmstart"}, (
+        assert first_meta["optimizer"] in {"cmaes", "joint_cmaes_warmstart"}, (
             f"expected CMA-ES optimizer label in metadata, got "
-            f"{first.metadata['optimizer']!r}"
+            f"{first_meta['optimizer']!r}"
         )

@@ -215,18 +215,184 @@ def fit_nlsq_jax(
     return _fit_local(model, c2_data, phi_angle, config, weights, use_nlsq_library)
 
 
+def _aggregate_individual_results(
+    per_angle_results: list[NLSQResult],
+    model: HeterodyneModel,
+    phi_angles: np.ndarray,
+    c2_data: np.ndarray,
+    wall_time: float,
+) -> OptimizationResult:
+    """Aggregate sequential per-angle ``NLSQResult``s into one ``OptimizationResult``.
+
+    Each per-angle :class:`NLSQResult` carries only the ``n_physics``
+    varying-physics parameters (see :func:`_fit_local`: per-angle
+    contrast/offset are held fixed at the values
+    ``model.scaling.get_for_angle(i)`` during the local fit). The
+    aggregator packs the joint parameter vector as
+
+    ``[physics_mean | contrast_0..contrast_{n_phi-1} | offset_0..offset_{n_phi-1}]``
+
+    matching the ``n_physics + 2 * n_phi`` parameter-dim contract from
+    the homodyne anti-degeneracy taxonomy
+    (``tests/parity/test_mode_taxonomy.py``).
+
+    The covariance matrix is **block-diagonal by construction**:
+
+    - The leading ``n_physics × n_physics`` block holds the mean of the
+      per-angle physics covariance sub-blocks (each per-angle fit ran
+      independently, so the mean is the natural pooled estimate).
+    - The trailing ``2 * n_phi`` scaling rows/columns carry zero variance
+      because contrast/offset were held fixed during each per-angle fit.
+    - All physics-vs-scaling and angle-vs-angle off-diagonals are exactly
+      zero (no joint fit, no cross-correlation information available).
+
+    Downstream consumers should read
+    ``nlsq_diagnostics["covariance_structure"] == "block_diagonal_sequential"``
+    to detect this case and avoid mistaking constructed zeros for
+    fitted-zero correlations.
+
+    Convergence status maps as follows:
+
+    - All per-angle fits successful → ``"converged"`` / ``quality_flag="good"``
+    - Mixed success/failure → ``"partial"`` / ``quality_flag="marginal"``
+    """
+    n_phi = len(per_angle_results)
+    if n_phi == 0:
+        raise ValueError(
+            "_aggregate_individual_results: at least one per-angle result required"
+        )
+
+    n_physics = int(model.param_manager.n_varying)
+    varying_names = list(model.param_manager.varying_names)
+    total_dim = n_physics + 2 * n_phi
+
+    # ------------------------------------------------------------------
+    # Parameters: mean physics across angles + per-angle scaling tail
+    # ------------------------------------------------------------------
+    physics_per_angle = np.stack(
+        [np.asarray(r.parameters, dtype=np.float64)[:n_physics] for r in per_angle_results]
+    )
+    physics_mean = physics_per_angle.mean(axis=0)
+    contrast_per_angle = np.asarray(
+        [float(model.scaling.contrast[i]) for i in range(n_phi)], dtype=np.float64
+    )
+    offset_per_angle = np.asarray(
+        [float(model.scaling.offset[i]) for i in range(n_phi)], dtype=np.float64
+    )
+    aggregated_params = np.concatenate(
+        [physics_mean, contrast_per_angle, offset_per_angle]
+    )
+
+    # ------------------------------------------------------------------
+    # Block-diagonal covariance: mean of per-angle physics blocks; zeros
+    # for the scaling tail (fixed during the per-angle fit).
+    # ------------------------------------------------------------------
+    covariance = np.zeros((total_dim, total_dim), dtype=np.float64)
+    physics_cov_blocks: list[np.ndarray] = []
+    for r in per_angle_results:
+        if r.covariance is None:
+            continue
+        cov_arr = np.asarray(r.covariance, dtype=np.float64)
+        if cov_arr.shape == (n_physics, n_physics):
+            physics_cov_blocks.append(cov_arr)
+        elif cov_arr.shape[0] >= n_physics:
+            physics_cov_blocks.append(cov_arr[:n_physics, :n_physics])
+    if physics_cov_blocks:
+        covariance[:n_physics, :n_physics] = np.mean(physics_cov_blocks, axis=0)
+    uncertainties = np.sqrt(np.clip(np.diag(covariance), 0.0, None))
+
+    # ------------------------------------------------------------------
+    # SSR + iteration aggregation
+    # ------------------------------------------------------------------
+    chi2_per_angle = np.asarray(
+        [float(r.final_cost if r.final_cost is not None else 0.0) for r in per_angle_results],
+        dtype=np.float64,
+    )
+    ssr = float(chi2_per_angle.sum())
+    n_function_evals = int(sum(int(r.n_function_evals or 0) for r in per_angle_results))
+    n_iterations_total = int(sum(int(r.n_iterations or 0) for r in per_angle_results))
+
+    c2_arr = np.asarray(c2_data)
+    if c2_arr.ndim == 3:
+        n_data_total = int(c2_arr.shape[0] * c2_arr.shape[1] * c2_arr.shape[2])
+    else:
+        n_data_total = int(c2_arr.size)
+    dof = max(n_data_total - total_dim, 1)
+    reduced_chi2 = ssr / dof
+
+    # ------------------------------------------------------------------
+    # Convergence + quality
+    # ------------------------------------------------------------------
+    n_success = int(sum(bool(r.success) for r in per_angle_results))
+    all_converged = n_success == n_phi
+    convergence_status = "converged" if all_converged else "partial"
+    quality_flag = classify_fit_quality(reduced_chi2=reduced_chi2)
+    if not all_converged and quality_flag == "good":
+        # Mixed-success aggregate should not advertise good quality even
+        # when reduced_chi2 happens to land in the green band.
+        quality_flag = "marginal"
+
+    # Per-angle metadata (optimizer markers, CMA-ES winner labels, etc.)
+    # is preserved so downstream consumers can audit which solver actually
+    # ran per angle without keeping the raw NLSQResult list around.
+    per_angle_metadata = [dict(r.metadata) for r in per_angle_results]
+    per_angle_messages = [str(r.message) for r in per_angle_results]
+    per_angle_success = np.asarray(
+        [bool(r.success) for r in per_angle_results], dtype=bool
+    )
+
+    diagnostics = _build_heterodyne_diagnostics(
+        per_angle_mode="individual",
+        chi2_per_angle=chi2_per_angle,
+        scaling_source="fixed_per_angle",
+        fourier_basis_dim=None,
+        covariance_structure="block_diagonal_sequential",
+        parameter_names=varying_names,
+        phi_angles=np.asarray(phi_angles, dtype=np.float64),
+        contrast_per_angle=contrast_per_angle,
+        offset_per_angle=offset_per_angle,
+        physics_per_angle=physics_per_angle,
+        n_phi_total=n_phi,
+        n_phi_success=n_success,
+        physics_aggregation="mean",
+        n_function_evals=n_function_evals,
+        n_iterations=n_iterations_total,
+        wall_time_seconds=float(wall_time),
+        per_angle_metadata=per_angle_metadata,
+        per_angle_messages=per_angle_messages,
+        per_angle_success=per_angle_success,
+    )
+
+    return OptimizationResult(
+        parameters=aggregated_params,
+        uncertainties=uncertainties,
+        covariance=covariance,
+        chi_squared=ssr,
+        reduced_chi_squared=reduced_chi2,
+        convergence_status=convergence_status,
+        iterations=n_iterations_total,
+        execution_time=float(wall_time),
+        device_info={"backend": "cpu", "adapter": "sequential_per_angle"},
+        recovery_actions=[],
+        quality_flag=quality_flag,
+        streaming_diagnostics=None,
+        stratification_diagnostics=None,
+        nlsq_diagnostics=diagnostics,
+    )
+
+
 def fit_nlsq_multi_phi(
     model: HeterodyneModel,
     c2_data: np.ndarray,
     phi_angles: list[float] | np.ndarray,
     config: NLSQConfig | None = None,
     weights: np.ndarray | None = None,
-) -> OptimizationResult | list[NLSQResult]:
+) -> OptimizationResult:
     """Fit heterodyne model to multi-phi correlation data.
 
     Dispatches to a joint-fit path when ``config`` is supplied and
     ``len(phi_angles) > 1``; otherwise falls through to the sequential
-    per-angle chain. The joint-fit branches return a single
+    per-angle chain. **Every dispatch branch returns a single**
     :class:`OptimizationResult` with per-angle data living in
     ``result.nlsq_diagnostics`` (see
     :mod:`xpcsjax.optimization.nlsq.heterodyne_views` for the post-hoc
@@ -245,13 +411,16 @@ def fit_nlsq_multi_phi(
     - ``enable_cmaes=True`` → :func:`_fit_joint_cmaes_multi_phi`
       → :class:`OptimizationResult`
     - ``"individual"`` (and ``config is None`` / single-angle fallbacks)
-      → sequential per-angle warm-start chain → ``list[NLSQResult]``
+      → sequential per-angle warm-start chain, aggregated into one
+      :class:`OptimizationResult` via :func:`_aggregate_individual_results`.
 
-    The ``"individual"`` sequential branch is the only remaining
-    ``list[NLSQResult]`` runtime path; aggregating it into a single
-    :class:`OptimizationResult` is tracked as a Phase-6 follow-up (Task
-    C5b — see the xfail in
-    ``tests/optimization/test_heterodyne_return_shape.py``).
+    The aggregated ``individual``-mode result uses a **block-diagonal**
+    covariance matrix: off-diagonal blocks between physics and the
+    per-angle scaling tail (and between distinct angles) are zero **by
+    construction**, not by fit. The diagnostic key
+    ``covariance_structure="block_diagonal_sequential"`` flags this so
+    downstream consumers do not mistake the zeros for fit-derived
+    correlation estimates.
 
     Parameters
     ----------
@@ -269,10 +438,12 @@ def fit_nlsq_multi_phi(
 
     Returns
     -------
-    OptimizationResult | list[NLSQResult]
-        Single joint-fit result for the dispatch branches; a list of
-        per-angle :class:`NLSQResult` for the sequential ``"individual"``
-        / no-config / single-angle fallback.
+    OptimizationResult
+        Joint-fit result (constant / averaged / fourier / CMA-ES paths)
+        or sequential-aggregate result (individual / no-config /
+        single-angle fallback). All branches share the unified shape;
+        callers may dispatch on ``result.nlsq_diagnostics["per_angle_mode"]``
+        for mode-specific post-processing.
     """
     phi_angles = np.asarray(phi_angles)
 
@@ -401,7 +572,8 @@ def fit_nlsq_multi_phi(
     # ------------------------------------------------------------------
     # Sequential per-angle fitting (warm-start chain)
     # ------------------------------------------------------------------
-    results = []
+    t_seq_start = time.perf_counter()
+    per_angle_results: list[NLSQResult] = []
     for i, phi in enumerate(phi_angles):
         if i > 0:
             logger.info(
@@ -425,9 +597,15 @@ def fit_nlsq_multi_phi(
             weights=weights_i,
         )
         result.metadata["phi_angle"] = float(phi)
-        results.append(result)
+        per_angle_results.append(result)
 
-    return results
+    return _aggregate_individual_results(
+        per_angle_results=per_angle_results,
+        model=model,
+        phi_angles=phi_angles,
+        c2_data=c2_data,
+        wall_time=time.perf_counter() - t_seq_start,
+    )
 
 
 def _compute_per_angle_chi2(
