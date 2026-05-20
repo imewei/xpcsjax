@@ -221,6 +221,7 @@ def _aggregate_individual_results(
     phi_angles: np.ndarray,
     c2_data: np.ndarray,
     wall_time: float,
+    config: NLSQConfig | None = None,
 ) -> OptimizationResult:
     """Aggregate sequential per-angle ``NLSQResult``s into one ``OptimizationResult``.
 
@@ -341,6 +342,20 @@ def _aggregate_individual_results(
         [bool(r.success) for r in per_angle_results], dtype=bool
     )
 
+    # L2 hierarchical: no-op for individual mode. Each per-angle fit
+    # already runs with scaling held fixed at the model's pre-computed
+    # value (the per-angle equivalent of stage 1); a second joint refine
+    # across angles is precisely what individual mode declines to do, so
+    # there is no stage 2. We surface the flag in diagnostics so callers
+    # can confirm the request was observed.
+    hierarchical_extras: dict[str, Any] = {}
+    if config is not None and config.enable_hierarchical:
+        hierarchical_extras = {
+            "hierarchical_stages": 1,
+            "hierarchical_active": False,
+            "hierarchical_scope": "individual_mode_no_stage2",
+        }
+
     diagnostics = _build_heterodyne_diagnostics(
         per_angle_mode="individual",
         chi2_per_angle=chi2_per_angle,
@@ -361,6 +376,7 @@ def _aggregate_individual_results(
         per_angle_metadata=per_angle_metadata,
         per_angle_messages=per_angle_messages,
         per_angle_success=per_angle_success,
+        **hierarchical_extras,
     )
 
     return OptimizationResult(
@@ -605,6 +621,7 @@ def fit_nlsq_multi_phi(
         phi_angles=phi_angles,
         c2_data=c2_data,
         wall_time=time.perf_counter() - t_seq_start,
+        config=config,
     )
 
 
@@ -698,6 +715,45 @@ def _fit_joint_averaged_multi_phi(
     physics_initial = np.asarray(param_manager.get_initial_values(), dtype=np.float64)
     physics_lower, physics_upper = param_manager.get_bounds()
     physics_initial = np.clip(physics_initial, physics_lower, physics_upper)
+
+    # ------------------------------------------------------------------
+    # L2 hierarchical two-stage: Stage 1 — physics-only solve with
+    # quantile-fixed scaling (delegates to the constant-mode solver).
+    # When `config.enable_hierarchical` is True we run the constant-mode
+    # solver first to converge the physics block with scaling frozen,
+    # then warm-start the joint solve below by overriding `physics_initial`
+    # with the converged physics vector. See L2 docs in `_fit_joint_multi_phi`.
+    # ------------------------------------------------------------------
+    hierarchical_stage1_chi2: float | None = None
+    if config.enable_hierarchical:
+        logger.info(
+            "L2 hierarchical (averaged mode) — Stage 1: physics-only solve "
+            "with quantile-fixed scaling"
+        )
+        # Lazy import keeps the module out of heterodyne_core's namespace
+        # except when explicitly used (consistent with the dispatch table).
+        from xpcsjax.optimization.nlsq.heterodyne_constant_mode import (
+            _fit_joint_constant_multi_phi,
+        )
+
+        stage1_result = _fit_joint_constant_multi_phi(
+            model=model,
+            c2_data=c2_data,
+            phi_angles=phi_angles,
+            config=config,
+            weights=weights,
+        )
+        stage1_physics = np.asarray(stage1_result.parameters, dtype=np.float64)
+        hierarchical_stage1_chi2 = float(stage1_result.chi_squared)
+        # Override the initial physics vector for stage 2 (joint refine).
+        # Clip to bounds defensively — stage 1 should already respect them,
+        # but a constant-mode bound contraction is possible if config differs.
+        physics_initial = np.clip(stage1_physics, physics_lower, physics_upper)
+        logger.info(
+            "L2 hierarchical (averaged mode) — Stage 1 done: chi2=%.6f, "
+            "warm-starting stage 2 joint refine",
+            hierarchical_stage1_chi2,
+        )
 
     t = model.t
     q = model.q
@@ -905,39 +961,32 @@ def _fit_joint_averaged_multi_phi(
     quality_flag = "good" if joint_result.success else "marginal"
 
     # ------------------------------------------------------------------
-    # L2 anti-degeneracy: hierarchical two-stage solve gating.
-    # Task D1 wiring point. When config.enable_hierarchical=True the homodyne
-    # contract calls for a two-stage solve (Stage 1: freeze [contrast, offset]
-    # at the quantile-averaged estimate, optimize physics only; Stage 2:
-    # unfreeze and refine jointly with stage-1 warm start). The averaged path
-    # already does Stage 1 implicitly via ``compute_averaged_scaling`` (the
-    # quantile estimator) and then optimizes physics + 2 scaling DoF jointly —
-    # making this the natural home for L2 in averaged mode.
+    # L2 anti-degeneracy: hierarchical two-stage solve.
     #
-    # MVP integration (this task): the diagnostic key ``hierarchical_stages``
-    # is the public contract; the algorithmic body of an explicit
-    # freeze-then-unfreeze NLSQ pass is deferred. ``hierarchical.py`` exposes
-    # ``HierarchicalOptimizer`` which takes a scalar loss + grad pair (jaxopt
-    # LBFGSB), but the heterodyne joint solve runs through NLSQ's CurveFit
-    # (vector residual + trust region). Bridging the two cleanly requires
-    # either wrapping the residual_fn as a scalar loss (loses Jacobian) or
-    # rewriting the two stages in NLSQ-residual terms with a parameter freeze
-    # mask — both exceed D1's scope.
-    # TODO(phase6-D-followup): full integration with HierarchicalOptimizer
-    # in NLSQ-residual mode; until then, the single joint solve already
-    # benefits from the quantile-pre-estimated warm start that L2 prescribes.
+    # Stage 1 (physics-only with quantile-fixed scaling) ran above —
+    # before the joint solve — when `config.enable_hierarchical` was True,
+    # producing `hierarchical_stage1_chi2` and a warm-started
+    # `physics_initial`. Stage 2 is the joint refine the surrounding code
+    # already executed (scaling unfrozen, jointly fit with physics).
+    #
+    # SSR conservation invariant (`chi2_per_angle.sum() == chi_squared`)
+    # still holds for stage 2 because the joint solve uses the canonical
+    # multi-angle residual decomposition.
     # ------------------------------------------------------------------
     hierarchical_extras: dict[str, Any] = {}
-    if config.enable_hierarchical:
+    if config.enable_hierarchical and hierarchical_stage1_chi2 is not None:
         logger.info(
-            "L2 hierarchical optimization enabled (averaged mode): "
-            "stage-1 quantile pre-estimate completed, stage-2 joint refine "
-            "delegated to standard NLSQ joint solve."
+            "L2 hierarchical (averaged mode) — Stage 2 done: chi2=%.6f "
+            "(stage1=%.6f)",
+            ssr,
+            hierarchical_stage1_chi2,
         )
         hierarchical_extras = {
             "hierarchical_stages": 2,
             "hierarchical_active": True,
-            "hierarchical_scope": "mvp_wiring",
+            "hierarchical_scope": "full_two_stage",
+            "hierarchical_stage1_chi2": hierarchical_stage1_chi2,
+            "hierarchical_stage2_chi2": float(ssr),
         }
 
     # ------------------------------------------------------------------
@@ -1204,6 +1253,42 @@ def _fit_joint_multi_phi(
     physics_lower, physics_upper = param_manager.get_bounds()
     physics_initial = np.clip(physics_initial, physics_lower, physics_upper)
 
+    # ------------------------------------------------------------------
+    # L2 hierarchical two-stage: Stage 1 — physics-only solve with
+    # quantile-fixed scaling (delegates to the constant-mode solver).
+    # When `config.enable_hierarchical` is True we run the constant-mode
+    # solver first to converge the physics block with scaling frozen,
+    # then warm-start the joint Fourier solve below by overriding
+    # `physics_initial` with the converged physics vector. The Fourier
+    # coefficients keep their deterministic initial values from
+    # `fourier.get_initial_coefficients`.
+    # ------------------------------------------------------------------
+    hierarchical_stage1_chi2: float | None = None
+    if config.enable_hierarchical:
+        logger.info(
+            "L2 hierarchical (fourier mode) — Stage 1: physics-only solve "
+            "with quantile-fixed scaling"
+        )
+        from xpcsjax.optimization.nlsq.heterodyne_constant_mode import (
+            _fit_joint_constant_multi_phi,
+        )
+
+        stage1_result = _fit_joint_constant_multi_phi(
+            model=model,
+            c2_data=c2_data,
+            phi_angles=phi_angles,
+            config=config,
+            weights=weights,
+        )
+        stage1_physics = np.asarray(stage1_result.parameters, dtype=np.float64)
+        hierarchical_stage1_chi2 = float(stage1_result.chi_squared)
+        physics_initial = np.clip(stage1_physics, physics_lower, physics_upper)
+        logger.info(
+            "L2 hierarchical (fourier mode) — Stage 1 done: chi2=%.6f, "
+            "warm-starting stage 2 joint refine",
+            hierarchical_stage1_chi2,
+        )
+
     # Fourier coefficient initial values and bounds
     scaling = model.scaling
     contrast_init = float(scaling.contrast[0]) if len(scaling.contrast) > 0 else 0.5
@@ -1416,39 +1501,33 @@ def _fit_joint_multi_phi(
     quality_flag = "good" if joint_result.success else "marginal"
 
     # ------------------------------------------------------------------
-    # L2 anti-degeneracy: hierarchical two-stage solve gating.
-    # Task D1 wiring point. When config.enable_hierarchical=True the homodyne
-    # contract calls for a two-stage solve (Stage 1: freeze Fourier scaling
-    # coefficients at their initial values, optimize physics only; Stage 2:
-    # unfreeze the Fourier coefficients and refine jointly using stage-1 as
-    # warm start). The Fourier joint path already runs a single solve over the
-    # ``[physics | fourier_coeffs]`` vector — this is the natural home for L2
-    # gating in fourier mode.
+    # L2 anti-degeneracy: hierarchical two-stage solve.
     #
-    # MVP integration (this task): the diagnostic key ``hierarchical_stages``
-    # is the public contract; the algorithmic body of an explicit
-    # freeze-then-unfreeze NLSQ pass is deferred. ``hierarchical.py`` exposes
-    # ``HierarchicalOptimizer`` which takes a scalar loss + grad pair (jaxopt
-    # LBFGSB), but the heterodyne joint solve runs through NLSQ's CurveFit
-    # (vector residual + trust region). Bridging the two cleanly requires
-    # either wrapping the residual_fn as a scalar loss (loses Jacobian) or
-    # rewriting the two stages in NLSQ-residual terms with a parameter freeze
-    # mask — both exceed D1's scope.
-    # TODO(phase6-D-followup): full integration with HierarchicalOptimizer
-    # in NLSQ-residual mode; until then, the single joint solve already
-    # benefits from the deterministic Fourier-coefficient warm start.
+    # Stage 1 (physics-only with quantile-fixed scaling) ran above — before
+    # the joint Fourier solve — when `config.enable_hierarchical` was True,
+    # producing `hierarchical_stage1_chi2` and a warm-started
+    # `physics_initial`. Stage 2 is the joint refine the surrounding code
+    # already executed (Fourier coefficients unfrozen, jointly fit with
+    # physics over `[physics | fourier_coeffs]`).
+    #
+    # The SSR conservation invariant (`chi2_per_angle.sum() == chi_squared`)
+    # still holds for stage 2 because the joint solve uses the canonical
+    # multi-angle residual decomposition.
     # ------------------------------------------------------------------
     hierarchical_extras: dict[str, Any] = {}
-    if config.enable_hierarchical:
+    if config.enable_hierarchical and hierarchical_stage1_chi2 is not None:
         logger.info(
-            "L2 hierarchical optimization enabled (fourier mode): "
-            "stage-1 deterministic warm start completed, stage-2 joint refine "
-            "delegated to standard NLSQ joint solve."
+            "L2 hierarchical (fourier mode) — Stage 2 done: chi2=%.6f "
+            "(stage1=%.6f)",
+            ssr,
+            hierarchical_stage1_chi2,
         )
         hierarchical_extras = {
             "hierarchical_stages": 2,
             "hierarchical_active": True,
-            "hierarchical_scope": "mvp_wiring",
+            "hierarchical_scope": "full_two_stage",
+            "hierarchical_stage1_chi2": hierarchical_stage1_chi2,
+            "hierarchical_stage2_chi2": float(ssr),
         }
 
     # ------------------------------------------------------------------

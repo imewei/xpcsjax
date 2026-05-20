@@ -43,6 +43,94 @@ def test_l2_hierarchical_activates_for_heterodyne() -> None:
     )
 
 
+def test_l2_hierarchical_two_stage_actually_runs() -> None:
+    """`enable_hierarchical=True` runs constant-mode physics-only THEN joint refine.
+
+    Strengthens :func:`test_l2_hierarchical_activates_for_heterodyne` by
+    asserting behavioural evidence — both stages must record a chi^2 in
+    diagnostics, and the joint stage-2 refine must not be worse than the
+    physics-only stage-1 result (modulo a tiny floating-point slack).
+    """
+    pytest.importorskip("xpcsjax.core.heterodyne_model_stateful")
+    from tests.optimization.test_heterodyne_return_shape import (  # type: ignore[import-untyped]
+        _build_minimal_heterodyne_model_for_fourier,
+        _build_synthetic_c2_stack_for_fourier,
+    )
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
+
+    model = _build_minimal_heterodyne_model_for_fourier()
+    config = NLSQConfig(
+        per_angle_mode="fourier",
+        fourier_order=2,
+        enable_hierarchical=True,
+        max_nfev=60,  # generous so both stages have budget
+    )
+    n_phi = 6
+    c2 = _build_synthetic_c2_stack_for_fourier(n_phi=n_phi, n_t=16, model=model)
+    phi = np.linspace(0, 150, n_phi)
+
+    result = fit_nlsq_multi_phi(model, c2, phi, config, weights=None)
+    diag = result.nlsq_diagnostics or {}
+
+    assert diag.get("hierarchical_stages") == 2
+    # Evidence that two real stages ran, not just a diagnostic stub:
+    assert "hierarchical_stage1_chi2" in diag, "stage 1 chi2 must be recorded"
+    assert "hierarchical_stage2_chi2" in diag, "stage 2 chi2 must be recorded"
+    # Stage 2 should not be worse than stage 1 (joint refine should
+    # monotonically improve fit modulo a small floating-point slack).
+    assert diag["hierarchical_stage2_chi2"] <= diag["hierarchical_stage1_chi2"] * 1.01, (
+        f"stage 2 chi2 ({diag['hierarchical_stage2_chi2']:.4f}) should not exceed "
+        f"stage 1 chi2 ({diag['hierarchical_stage1_chi2']:.4f}) — joint refine should improve"
+    )
+    assert diag.get("hierarchical_scope") == "full_two_stage"
+
+
+def test_l2_hierarchical_two_stage_averaged_mode() -> None:
+    """L2 two-stage hierarchical also runs in averaged mode.
+
+    Note: averaged mode's stage 1 uses *per-angle quantile* scaling
+    (`(n_phi,)` independent contrast/offset values), while stage 2
+    constrains scaling to a single averaged `(contrast, offset)` pair —
+    so the two chi^2 values are computed against subtly different
+    objectives and need not satisfy `stage2 <= stage1` (a tighter
+    scaling DoF in stage 1 can fit residual noise that stage 2's single
+    pair cannot). We assert both stages recorded their chi^2 and the
+    scope is the full two-stage label — not a strict monotonicity claim.
+    """
+    pytest.importorskip("xpcsjax.core.heterodyne_model_stateful")
+    from tests.optimization.test_heterodyne_return_shape import (  # type: ignore[import-untyped]
+        _build_minimal_heterodyne_model_for_fourier,
+        _build_synthetic_c2_stack_for_fourier,
+    )
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
+
+    model = _build_minimal_heterodyne_model_for_fourier()
+    config = NLSQConfig(
+        per_angle_mode="averaged",
+        enable_hierarchical=True,
+        max_nfev=60,
+    )
+    n_phi = 4  # below fourier_auto_threshold so averaged is a stable pick
+    c2 = _build_synthetic_c2_stack_for_fourier(n_phi=n_phi, n_t=16, model=model)
+    phi = np.linspace(0, 150, n_phi)
+
+    result = fit_nlsq_multi_phi(model, c2, phi, config, weights=None)
+    diag = result.nlsq_diagnostics or {}
+
+    assert diag.get("hierarchical_stages") == 2
+    assert "hierarchical_stage1_chi2" in diag
+    assert "hierarchical_stage2_chi2" in diag
+    # Both stages must report finite, non-negative chi^2 — the
+    # full-two-stage scope marker is what proves both stages ran.
+    assert float(diag["hierarchical_stage1_chi2"]) >= 0.0
+    assert float(diag["hierarchical_stage2_chi2"]) >= 0.0
+    assert np.isfinite(float(diag["hierarchical_stage1_chi2"]))
+    assert np.isfinite(float(diag["hierarchical_stage2_chi2"]))
+    assert diag.get("hierarchical_scope") == "full_two_stage"
+
+
 def test_l3_adaptive_regularization_activates_for_heterodyne() -> None:
     """`config.regularization_mode='adaptive'` wraps the residual."""
     pytest.importorskip("xpcsjax.core.heterodyne_model_stateful")

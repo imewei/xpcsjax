@@ -343,6 +343,16 @@ def _fit_joint_constant_multi_phi(
         "message": str(nlsq_result.message),
     }
 
+    # L2 hierarchical: no-op for constant mode. The whole solve IS the
+    # "stage 1" of the two-stage pattern (physics-only with quantile-fixed
+    # scaling); there is no stage 2 because scaling is permanently frozen.
+    # Record the flag-handling so downstream consumers can confirm the
+    # config-side request was observed.
+    if config.enable_hierarchical:
+        diagnostics["hierarchical_stages"] = 1
+        diagnostics["hierarchical_active"] = False
+        diagnostics["hierarchical_scope"] = "constant_mode_no_stage2"
+
     return OptimizationResult(
         parameters=fitted_physics,
         uncertainties=uncertainties,
