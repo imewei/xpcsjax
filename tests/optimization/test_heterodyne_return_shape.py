@@ -636,3 +636,35 @@ def test_fit_nlsq_multi_phi_top_level_returns_optimization_result(
     np.testing.assert_allclose(
         diag["chi2_per_angle"].sum(), result.chi_squared, rtol=1e-6
     )
+
+
+# ---------------------------------------------------------------------------
+# C7: source-level audit — no direct ``fit_nlsq_multi_phi(...)[i]`` patterns
+# remain in production source.
+# ---------------------------------------------------------------------------
+
+
+def test_no_list_indexed_consumers_remain() -> None:
+    """rg-style audit: no ``fit_nlsq_multi_phi(...)[i]`` patterns remain in source.
+
+    After C7, every consumer of ``fit_nlsq_multi_phi`` treats the result as
+    an :class:`OptimizationResult` (or handles both shapes during the C5b
+    transition). A regression that adds direct ``[i]`` indexing would be
+    caught here.
+
+    The check only scans ``xpcsjax/`` (production source); test files are
+    exempt because their migration pattern may legitimately do shape checks
+    (e.g. ``isinstance(result, list)`` branch + ``results[0]`` inside it).
+    """
+    import subprocess
+
+    proc = subprocess.run(
+        ["rg", "-n", r"fit_nlsq_multi_phi\([^)]*\)\s*\[", "xpcsjax/"],
+        capture_output=True,
+        text=True,
+    )
+    # rg exit code 1 means no matches found — that is what we want.
+    assert proc.returncode == 1, (
+        f"found direct list-indexed consumers of fit_nlsq_multi_phi:\n"
+        f"{proc.stdout}"
+    )

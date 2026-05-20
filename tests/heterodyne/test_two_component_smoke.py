@@ -91,6 +91,7 @@ def test_heterodyne_smoke_fit_recovers_truth(tmp_path):
     from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
     from xpcsjax.optimization.nlsq import fit_nlsq
     from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
 
     cfg_path = _write_config(tmp_path)
     cfg = ConfigManager(str(cfg_path))
@@ -108,33 +109,87 @@ def test_heterodyne_smoke_fit_recovers_truth(tmp_path):
     results = fit_nlsq(data, cfg)
 
     # ---- Pipeline contract ----------------------------------------------
-    assert isinstance(results, list), f"expected list[NLSQResult], got {type(results)}"
-    assert len(results) == len(_PHI_ANGLES), (
-        f"expected {len(_PHI_ANGLES)} per-angle results, got {len(results)}"
-    )
-    for r in results:
-        assert isinstance(r, NLSQResult)
-        params = np.asarray(r.parameters, dtype=np.float64)
-        assert np.all(np.isfinite(params)), f"NaN/Inf in fitted parameters: {params}"
+    # After Phase-6 C2-C6, ``fit_nlsq_multi_phi`` returns
+    # :class:`OptimizationResult` for the joint paths (constant / averaged /
+    # fourier / CMA-ES). Only the legacy sequential ``individual`` mode still
+    # returns ``list[NLSQResult]``. This smoke test uses n_phi=2 + auto
+    # → constant, so we expect a single ``OptimizationResult``; the list
+    # branch is kept for the transition window until C5b unifies individual
+    # mode too.
+    # TODO(C5b): drop the ``list`` branch when individual mode aggregates
+    # into a single OptimizationResult.
+    if isinstance(results, list):
+        # Legacy individual-mode path: still returns list[NLSQResult].
+        assert len(results) == len(_PHI_ANGLES), (
+            f"expected {len(_PHI_ANGLES)} per-angle results, got {len(results)}"
+        )
+        for r in results:
+            assert isinstance(r, NLSQResult)
+            params = np.asarray(r.parameters, dtype=np.float64)
+            assert np.all(np.isfinite(params)), (
+                f"NaN/Inf in fitted parameters: {params}"
+            )
+        first_names = list(results[0].parameter_names)
+        first_params = np.asarray(results[0].parameters, dtype=np.float64)
+    else:
+        # Unified joint-fit path: single OptimizationResult. ``parameter_names``
+        # for the physics block lives in nlsq_diagnostics; per-angle chi^2
+        # lives there too (SSR conservation locked in by B2/C2/C3).
+        assert isinstance(results, OptimizationResult), (
+            f"expected OptimizationResult or list[NLSQResult], got {type(results)}"
+        )
+        diag = results.nlsq_diagnostics or {}
+        assert "parameter_names" in diag, (
+            "OptimizationResult.nlsq_diagnostics must carry parameter_names "
+            "for joint heterodyne fits"
+        )
+        assert "chi2_per_angle" in diag, (
+            "OptimizationResult must carry chi2_per_angle in nlsq_diagnostics"
+        )
+        assert np.asarray(diag["chi2_per_angle"]).shape == (len(_PHI_ANGLES),), (
+            f"chi2_per_angle shape mismatch: "
+            f"{np.asarray(diag['chi2_per_angle']).shape} "
+            f"vs expected ({len(_PHI_ANGLES)},)"
+        )
+        # The optimizer parameter vector for constant mode is just the
+        # physics-varying block (per-angle scaling is frozen / fixed). Slice
+        # to ``len(parameter_names)`` so we don't accidentally pick up any
+        # mode-specific tail (Fourier coefficients in fourier mode, etc.).
+        first_names = list(diag["parameter_names"])
+        first_params = np.asarray(results.parameters, dtype=np.float64)[
+            : len(first_names)
+        ]
+        assert np.all(np.isfinite(first_params)), (
+            f"NaN/Inf in fitted parameters: {first_params}"
+        )
 
     # ---- Recovery envelope ----------------------------------------------
     # Heterodyne's 14-parameter model has well-documented internal degeneracies
     # (see real-data test for the f0/f1/f2 invariant). For the smoke gate we
     # only assert the well-conditioned parameters land near the truth. The
     # tight golden-value check belongs in Phase 7's real-data test, not here.
-    first = results[0]
-    first_names = list(first.parameter_names)
-    first_params = np.asarray(first.parameters, dtype=np.float64)
     name_to_idx = {n: i for i, n in enumerate(first_names)}
 
-    tight_params = ["D0_ref", "alpha_ref", "D0_sample", "alpha_sample"]
+    # ``D0_ref`` is intentionally excluded: with the registry-default truth
+    # value of ``alpha_ref ≈ 0`` the time-power-law ``t^alpha_ref ≈ 1``, so
+    # ``J_r(t) = D0_ref * t^alpha_ref + D_offset_ref`` collapses to
+    # ``D0_ref + D_offset_ref`` — a perfectly degenerate offset trade-off.
+    # The real-data parity test (``test_two_component_real_data``) catches
+    # ``D0_ref`` drift on the C044 fit where ``alpha_ref`` is well away from
+    # zero and the parameter is identifiable. Same reason ``D_offset_ref``
+    # is not in this list either.
+    tight_params = ["alpha_ref", "D0_sample", "alpha_sample"]
     for p in tight_params:
         if p not in name_to_idx:
             pytest.fail(f"smoke fit lost parameter {p!r}; have {first_names}")
         recovered = first_params[name_to_idx[p]]
         truth = truth_params[truth_names.index(p)]
-        # Loose envelope: 50% on absolute scale OR rtol=0.5 — whichever wider.
-        # We are testing pipeline integrity, not solver quality.
-        assert np.isclose(recovered, truth, rtol=0.5, atol=abs(truth) * 0.5 + 1e-6), (
+        # Loose envelope: rtol=0.5 OR atol=0.1 — whichever wider. The atol
+        # floor matters because several truth defaults are near zero
+        # (e.g. ``alpha_ref ≈ 0``) which would otherwise collapse
+        # ``rtol * abs(truth)`` to zero and make the assertion sub-1e-6
+        # strict. We are testing pipeline integrity, not solver quality.
+        tol = max(abs(truth) * 0.5, 0.1)
+        assert np.isclose(recovered, truth, rtol=0.5, atol=tol), (
             f"smoke fit drifted on {p}: truth={truth:.4g} recovered={recovered:.4g}"
         )

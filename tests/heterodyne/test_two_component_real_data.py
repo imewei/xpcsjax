@@ -86,6 +86,7 @@ def test_heterodyne_multi_angle_matches_source(baseline):
 
     from xpcsjax.optimization.nlsq import fit_nlsq
     from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
 
     # ------------------------------------------------------------------
     # Build the heterodyne-style data dict directly from the cache.
@@ -116,29 +117,60 @@ def test_heterodyne_multi_angle_matches_source(baseline):
         f"n_angles={len(phi)} c2.shape={c2.shape}"
     )
 
-    # fit_nlsq_multi_phi returns list[NLSQResult] (joint physics, per-angle scaling)
-    assert isinstance(results, list), f"expected list, got {type(results)}"
-    assert len(results) == len(phi), (
-        f"expected {len(phi)} per-angle results, got {len(results)}"
-    )
-    for r in results:
-        assert isinstance(r, NLSQResult)
-        assert np.all(np.isfinite(np.asarray(r.parameters))), (
-            f"NaN/Inf in parameters: {r.parameters}"
+    # After Phase-6 C2-C6, ``fit_nlsq_multi_phi`` returns
+    # :class:`OptimizationResult` for the joint paths (constant / averaged /
+    # fourier / CMA-ES). With n_phi=3 + the C044 config's ``auto`` dispatch
+    # (constant_threshold=3, fourier_threshold=6) the resolver selects the
+    # averaged branch → single OptimizationResult. The ``list[NLSQResult]``
+    # branch is retained for the legacy ``individual`` sequential mode until
+    # C5b unifies it.
+    # TODO(C5b): drop the ``list`` branch when individual mode aggregates
+    # into a single OptimizationResult.
+    if isinstance(results, list):
+        # Legacy individual-mode path: list[NLSQResult].
+        assert len(results) == len(phi), (
+            f"expected {len(phi)} per-angle results, got {len(results)}"
+        )
+        for r in results:
+            assert isinstance(r, NLSQResult)
+            assert np.all(np.isfinite(np.asarray(r.parameters))), (
+                f"NaN/Inf in parameters: {r.parameters}"
+            )
+        first = results[0]
+        first_params = np.asarray(first.parameters, dtype=np.float64)
+        first_names = list(first.parameter_names)
+    else:
+        # Unified joint-fit path: single OptimizationResult with
+        # ``parameter_names`` in ``nlsq_diagnostics`` (physics-varying block).
+        assert isinstance(results, OptimizationResult), (
+            f"expected OptimizationResult or list[NLSQResult], got {type(results)}"
+        )
+        diag = results.nlsq_diagnostics or {}
+        assert "parameter_names" in diag, (
+            "OptimizationResult.nlsq_diagnostics must carry parameter_names "
+            "for joint heterodyne fits"
+        )
+        first_names = list(diag["parameter_names"])
+        # The optimizer parameter vector is
+        # ``[physics_varying | per-angle scaling tail]``. Slice the physics
+        # block out so the baseline-parity comparison below sees the same
+        # layout that the source heterodyne CLI produces (14 physics params).
+        first_params = np.asarray(results.parameters, dtype=np.float64)[
+            : len(first_names)
+        ]
+        assert np.all(np.isfinite(first_params)), (
+            f"NaN/Inf in parameters: {first_params}"
         )
 
     # ------------------------------------------------------------------
     # Compare to the source baseline. The baseline pins 14 physics params
-    # in canonical order. Each NLSQResult's parameter vector has its own
-    # layout (physics_varying + scaling) — extract the 14 physics params.
+    # in canonical order. The fit result's parameter vector has its own
+    # layout (physics_varying + scaling) — we extracted the 14 physics
+    # params into ``first_params`` above.
     # ------------------------------------------------------------------
     expected = np.asarray(baseline["parameters"], dtype=np.float64)
     expected_names = list(baseline["parameter_names"])
     assert expected.shape == (14,) and len(expected_names) == 14
-
-    first = results[0]
-    first_params = np.asarray(first.parameters, dtype=np.float64)
-    first_names = list(first.parameter_names)
     print(f"[heterodyne multi-angle] result0 names={first_names}")
     print(f"[heterodyne multi-angle] result0 params={first_params}")
     print(f"[heterodyne multi-angle] baseline names={expected_names}")
