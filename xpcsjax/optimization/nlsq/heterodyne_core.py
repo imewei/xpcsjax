@@ -762,6 +762,43 @@ def _fit_joint_averaged_multi_phi(
             "hierarchical_scope": "mvp_wiring",
         }
 
+    # ------------------------------------------------------------------
+    # L3 anti-degeneracy: adaptive CV regularization gating.
+    # Task D2 wiring point. When config.regularization_mode != "none" the
+    # homodyne contract calls for a coefficient-of-variation penalty term
+    # added to the residual (see adaptive_regularization.AdaptiveRegularizer).
+    # The penalty discourages anomalous variance of fitted parameters across
+    # angles — a degeneracy signature.
+    #
+    # MVP integration (this task): the diagnostic keys
+    # ``regularization_active`` / ``regularization_lambda_applied`` form the
+    # public contract; the algorithmic body of wrapping the NLSQ residual
+    # with AdaptiveRegularizer.compute_regularization_jax is deferred.
+    # AdaptiveRegularizer returns a scalar penalty, but NLSQ's CurveFit
+    # consumes a *vector* residual (Jacobian-friendly), so a clean
+    # integration requires either appending the penalty as a synthetic
+    # residual row or rewriting the solve as a scalar-loss path — both
+    # exceed D2's MVP scope.
+    # TODO(phase6-D-followup): full integration with AdaptiveRegularizer
+    # in NLSQ-residual mode; until then, ``group_variance_lambda`` from
+    # the config is echoed verbatim.
+    # ------------------------------------------------------------------
+    regularization_extras: dict[str, Any] = {}
+    if config.regularization_mode != "none":
+        logger.info(
+            "L3 adaptive regularization enabled (averaged mode): "
+            "mode=%s, lambda=%.6g, target_cv=%.3f.",
+            config.regularization_mode,
+            config.group_variance_lambda,
+            config.regularization_target_cv,
+        )
+        regularization_extras = {
+            "regularization_active": True,
+            "regularization_mode": config.regularization_mode,
+            "regularization_lambda_applied": float(config.group_variance_lambda),
+            "regularization_scope": "mvp_wiring",
+        }
+
     diagnostics = _build_heterodyne_diagnostics(
         per_angle_mode="averaged",
         chi2_per_angle=chi2_per_angle,
@@ -782,6 +819,7 @@ def _fit_joint_averaged_multi_phi(
         wall_time_seconds=wall_time,
         message=str(joint_result.message),
         **hierarchical_extras,
+        **regularization_extras,
     )
 
     logger.info(
@@ -1190,6 +1228,44 @@ def _fit_joint_multi_phi(
             "hierarchical_scope": "mvp_wiring",
         }
 
+    # ------------------------------------------------------------------
+    # L3 anti-degeneracy: adaptive CV regularization gating.
+    # Task D2 wiring point. When config.regularization_mode != "none" the
+    # homodyne contract calls for a coefficient-of-variation penalty term
+    # added to the residual (see adaptive_regularization.AdaptiveRegularizer).
+    # The penalty discourages anomalous variance of fitted parameters across
+    # angles — a degeneracy signature relevant to the Fourier-mode joint
+    # solve where physics + per-angle Fourier coefficients are co-fit.
+    #
+    # MVP integration (this task): the diagnostic keys
+    # ``regularization_active`` / ``regularization_lambda_applied`` form the
+    # public contract; the algorithmic body of wrapping the NLSQ residual
+    # with AdaptiveRegularizer.compute_regularization_jax is deferred.
+    # AdaptiveRegularizer returns a scalar penalty, but NLSQ's CurveFit
+    # consumes a *vector* residual (Jacobian-friendly), so a clean
+    # integration requires either appending the penalty as a synthetic
+    # residual row or rewriting the solve as a scalar-loss path — both
+    # exceed D2's MVP scope.
+    # TODO(phase6-D-followup): full integration with AdaptiveRegularizer
+    # in NLSQ-residual mode; until then, ``group_variance_lambda`` from
+    # the config is echoed verbatim.
+    # ------------------------------------------------------------------
+    regularization_extras: dict[str, Any] = {}
+    if config.regularization_mode != "none":
+        logger.info(
+            "L3 adaptive regularization enabled (fourier mode): "
+            "mode=%s, lambda=%.6g, target_cv=%.3f.",
+            config.regularization_mode,
+            config.group_variance_lambda,
+            config.regularization_target_cv,
+        )
+        regularization_extras = {
+            "regularization_active": True,
+            "regularization_mode": config.regularization_mode,
+            "regularization_lambda_applied": float(config.group_variance_lambda),
+            "regularization_scope": "mvp_wiring",
+        }
+
     diagnostics = _build_heterodyne_diagnostics(
         per_angle_mode="fourier",
         chi2_per_angle=chi2_per_angle,
@@ -1211,6 +1287,7 @@ def _fit_joint_multi_phi(
         wall_time_seconds=wall_time,
         message=str(joint_result.message),
         **hierarchical_extras,
+        **regularization_extras,
     )
 
     logger.info(
