@@ -221,31 +221,58 @@ def fit_nlsq_multi_phi(
     phi_angles: list[float] | np.ndarray,
     config: NLSQConfig | None = None,
     weights: np.ndarray | None = None,
-) -> list[NLSQResult]:
-    """Fit model to correlation data at multiple phi angles.
+) -> OptimizationResult | list[NLSQResult]:
+    """Fit heterodyne model to multi-phi correlation data.
 
-    Two modes of operation controlled by ``config.per_angle_mode``:
+    Dispatches to a joint-fit path when ``config`` is supplied and
+    ``len(phi_angles) > 1``; otherwise falls through to the sequential
+    per-angle chain. The joint-fit branches return a single
+    :class:`OptimizationResult` with per-angle data living in
+    ``result.nlsq_diagnostics`` (see
+    :mod:`xpcsjax.optimization.nlsq.heterodyne_views` for the post-hoc
+    reconstruction helpers ``reconstruct_per_angle_scaling`` and
+    ``per_angle_chi2``).
 
-    - **Joint fit** (``"fourier"``, ``"independent"``, or ``"auto"``
-      with multiple angles) -- All angles are fit simultaneously in a
-      single optimization.  In ``"fourier"`` mode, the optimizer vector is
-      ``[physics_varying | fourier_contrast_coeffs | fourier_offset_coeffs]``,
-      where the Fourier basis constrains smooth angular variation.
-      In ``"independent"`` mode, each angle has its own contrast/offset
-      (``2*n_phi`` scaling parameters), all optimized jointly.
+    Dispatch table (driven by ``config.per_angle_mode`` after
+    ``auto``-resolution by :func:`_resolve_effective_mode`):
 
-    - **Sequential mode** (single angle or fallback) -- Angles are fit one
-      at a time with warm-starting.
+    - ``"constant"`` → :func:`_fit_joint_constant_multi_phi`
+      → :class:`OptimizationResult`
+    - ``"averaged"`` → :func:`_fit_joint_averaged_multi_phi`
+      → :class:`OptimizationResult`
+    - ``"fourier"`` → :func:`_fit_joint_multi_phi`
+      → :class:`OptimizationResult`
+    - ``enable_cmaes=True`` → :func:`_fit_joint_cmaes_multi_phi`
+      → :class:`OptimizationResult`
+    - ``"individual"`` (and ``config is None`` / single-angle fallbacks)
+      → sequential per-angle warm-start chain → ``list[NLSQResult]``
 
-    Args:
-        model: HeterodyneModel instance.
-        c2_data: Correlation data, shape ``(n_phi, N, N)`` or ``(N, N)``.
-        phi_angles: Array of phi angles (degrees).
-        config: NLSQ configuration.
-        weights: Optional weights, shape ``(n_phi, N, N)`` or ``(N, N)``.
+    The ``"individual"`` sequential branch is the only remaining
+    ``list[NLSQResult]`` runtime path; aggregating it into a single
+    :class:`OptimizationResult` is tracked as a Phase-6 follow-up (Task
+    C5b — see the xfail in
+    ``tests/optimization/test_heterodyne_return_shape.py``).
 
-    Returns:
-        List of :class:`NLSQResult`, one per angle.
+    Parameters
+    ----------
+    model : HeterodyneModel
+        HeterodyneModel instance with parameters configured.
+    c2_data : np.ndarray
+        Correlation data, shape ``(n_phi, N, N)`` or ``(N, N)``.
+    phi_angles : list[float] | np.ndarray
+        Array of phi angles (degrees).
+    config : NLSQConfig | None
+        NLSQ configuration. When ``None`` the sequential per-angle
+        fallback runs.
+    weights : np.ndarray | None
+        Optional weights, shape ``(n_phi, N, N)`` or ``(N, N)``.
+
+    Returns
+    -------
+    OptimizationResult | list[NLSQResult]
+        Single joint-fit result for the dispatch branches; a list of
+        per-angle :class:`NLSQResult` for the sequential ``"individual"``
+        / no-config / single-angle fallback.
     """
     phi_angles = np.asarray(phi_angles)
 
@@ -1157,6 +1184,23 @@ def _try_global_optimization(
 
     Returns the result if a global method was selected, or ``None`` to
     fall through to local optimization.
+
+    Notes
+    -----
+    The annotation stays ``NLSQResult | None`` because this is the
+    per-angle global-search entry called from :func:`fit_nlsq_jax`
+    (which also returns ``NLSQResult``). The C-series return-shape
+    alignment converted the multi-phi joint paths only; the per-angle
+    chain is still NLSQResult-shaped.
+
+    ``_fit_multistart`` was converted to return :class:`OptimizationResult`
+    in C4 (forward-looking, since the eventual multistart wiring will
+    aggregate multi-phi results), but the runtime branch is unreachable:
+    ``HAS_MULTISTART`` is hard-coded ``False`` at module import. The
+    ``# type: ignore[return-value]`` below documents that dead-code
+    typing gap; it will go away once the per-angle path itself is
+    migrated to :class:`OptimizationResult` (tracked alongside the
+    ``individual``-mode aggregation as a Phase-6 follow-up).
     """
     # CMA-ES has highest priority
     if getattr(config, "enable_cmaes", False):
@@ -1168,11 +1212,14 @@ def _try_global_optimization(
             "Install with: uv add cma. Falling back."
         )
 
-    # Multi-start is second priority
+    # Multi-start is second priority. HAS_MULTISTART is hard-coded False
+    # at module import (see top-of-file note), so this branch is
+    # unreachable at runtime; the type: ignore documents the
+    # OptimizationResult-vs-NLSQResult gap for dead code.
     if getattr(config, "multistart", False):
         if HAS_MULTISTART:
             logger.info("Multi-start enabled, delegating to multi-start optimizer")
-            return _fit_multistart(
+            return _fit_multistart(  # type: ignore[return-value]
                 model,
                 c2_data,
                 phi_angle,

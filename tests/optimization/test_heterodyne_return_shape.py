@@ -3,6 +3,8 @@
 """
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pytest
 
@@ -556,3 +558,81 @@ def test_multistart_path_returns_single_optimization_result() -> None:
         _use_nlsq_library=True,
     )
     assert isinstance(result, OptimizationResult)
+
+
+# ---------------------------------------------------------------------------
+# C5: top-level contract — fit_nlsq_multi_phi returns OptimizationResult
+# across all dispatched modes plus the three auto-routing windows.
+# ---------------------------------------------------------------------------
+#
+# Each parametrization exercises a single dispatch branch:
+#
+# * ``"constant"``   → :func:`_fit_joint_constant_multi_phi`
+# * ``"individual"`` → sequential per-angle path (still returns
+#   ``list[NLSQResult]``; tracked as Phase-6 follow-up C5b — xfailed below)
+# * ``"fourier"``    → :func:`_fit_joint_multi_phi`
+# * ``"auto"``       → routed by ``n_phi`` to constant / averaged / fourier
+#
+# The fourier auto window uses ``n_phi=6`` (the fixture's full angle set,
+# matching ``fourier_auto_threshold``); using ``n_phi=8`` would exceed the
+# fixture's 6-angle ``_C2_PHI_ANGLES`` array.
+
+
+@pytest.mark.parametrize(
+    "mode,n_phi,fourier_order",
+    [
+        ("constant", 2, None),
+        pytest.param(
+            "individual",
+            4,
+            None,
+            marks=pytest.mark.xfail(
+                reason=(
+                    "individual mode falls through to the sequential per-angle "
+                    "warm-start chain which still returns list[NLSQResult]. "
+                    "Aggregating that into a single OptimizationResult is "
+                    "tracked as Phase-6 follow-up C5b."
+                ),
+                strict=True,
+            ),
+        ),
+        ("fourier", 6, 2),
+        ("auto", 2, None),  # n_phi < constant_scaling_threshold (3) → constant
+        ("auto", 4, None),  # constant_threshold <= n_phi < fourier_threshold → averaged
+        ("auto", 6, None),  # n_phi >= fourier_auto_threshold (6) → fourier
+    ],
+)
+def test_fit_nlsq_multi_phi_top_level_returns_optimization_result(
+    mode: str, n_phi: int, fourier_order: int | None
+) -> None:
+    """The public entry point returns one OptimizationResult in all modes.
+
+    SSR conservation (``chi2_per_angle.sum() == chi_squared``) — the
+    invariant locked in by B2's constant-mode result and reasserted by
+    C2's Fourier and C3's averaged tests — is checked uniformly across
+    every dispatched branch here.
+    """
+    pytest.importorskip("xpcsjax.core.heterodyne_model_stateful")
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
+
+    model = _build_minimal_heterodyne_model_for_fourier()
+    kwargs: dict[str, Any] = {"per_angle_mode": mode, "max_nfev": 30}
+    if fourier_order is not None:
+        kwargs["fourier_order"] = fourier_order
+    config = NLSQConfig(**kwargs)
+    c2 = _build_synthetic_c2_stack_for_fourier(
+        n_phi=n_phi, n_t=_C2_N_TIMES, model=model
+    )
+    phi = _C2_PHI_ANGLES[:n_phi]
+
+    result = fit_nlsq_multi_phi(model, c2, phi, config, weights=None)
+    assert isinstance(result, OptimizationResult)
+    assert result.nlsq_diagnostics is not None
+    diag = result.nlsq_diagnostics
+    assert "chi2_per_angle" in diag
+    assert diag["chi2_per_angle"].shape == (n_phi,)
+    # SSR conservation across all modes
+    np.testing.assert_allclose(
+        diag["chi2_per_angle"].sum(), result.chi_squared, rtol=1e-6
+    )
