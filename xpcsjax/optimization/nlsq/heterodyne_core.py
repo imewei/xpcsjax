@@ -22,6 +22,7 @@ from xpcsjax.core.heterodyne_jax_backend import (
 )
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
+from xpcsjax.optimization.nlsq.results import OptimizationResult
 from xpcsjax.optimization.nlsq.validation import classify_fit_quality
 from xpcsjax.utils.logging import get_logger
 
@@ -105,6 +106,45 @@ except ImportError:
 
 # Export availability flag for tests
 NLSQ_AVAILABLE = HAS_ADAPTERS
+
+
+# ---------------------------------------------------------------------------
+# Shared diagnostics helper (used by every joint multi-phi path that returns
+# an OptimizationResult — currently the Fourier path here and the constant
+# path in heterodyne_constant_mode.py via re-import)
+# ---------------------------------------------------------------------------
+
+
+def _build_heterodyne_diagnostics(
+    per_angle_mode: str,
+    chi2_per_angle: np.ndarray,
+    scaling_source: str,
+    fourier_basis_dim: int | None,
+    **extras: Any,
+) -> dict[str, Any]:
+    """Build the standard heterodyne ``nlsq_diagnostics`` dict.
+
+    Centralises the five canonical keys every heterodyne-side
+    :class:`OptimizationResult` carries so the Fourier-mode joint path here
+    and the constant-mode joint path in :mod:`heterodyne_constant_mode` stay
+    in lockstep. Extra mode-specific keys (e.g. ``contrast_per_angle_fixed``
+    in constant mode, ``fourier_coeffs`` in Fourier mode) are passed through
+    ``**extras``.
+
+    The ``"not_applicable_heterodyne"`` shear-weighting marker is Task D4's
+    L5 N/A semantic: heterodyne does not use the homodyne shear-weighting
+    layer, but the OptimizationResult schema may carry the key in other
+    modes, so we make the absence explicit rather than omitting the key.
+    """
+    base: dict[str, Any] = {
+        "per_angle_mode": per_angle_mode,
+        "chi2_per_angle": chi2_per_angle,
+        "scaling_source": scaling_source,
+        "fourier_basis_dim": fourier_basis_dim,
+        "shear_weighting": "not_applicable_heterodyne",
+    }
+    base.update(extras)
+    return base
 
 
 # ---------------------------------------------------------------------------
@@ -287,8 +327,21 @@ def fit_nlsq_multi_phi(
                     FourierReparameterizer,
                 )
 
+                # NOTE: ``FourierReparamConfig.mode`` is typed as
+                # ``Literal["independent", "fourier", "auto"]`` — a narrower
+                # vocabulary than heterodyne's ``per_angle_mode``
+                # (``"individual" | "fourier" | "auto" | "constant" |
+                # "independent"``). We reach this branch only when the
+                # resolver returned ``"fourier"``, so passing the literal
+                # ``"fourier"`` is correct and silences the Pyright
+                # incompatibility flagged since A1. The
+                # ``FourierReparameterizer`` re-runs the auto/feasibility
+                # check via ``_determine_mode`` and falls back to
+                # ``independent`` internally if ``n_phi`` is too small for
+                # the requested order — so we do not lose the auto-fallback
+                # behaviour by pinning the string here.
                 fourier_config = FourierReparamConfig(
-                    mode=config.per_angle_mode,
+                    mode="fourier",
                     fourier_order=config.fourier_order,
                     auto_threshold=config.fourier_auto_threshold,
                 )
@@ -745,7 +798,7 @@ def _fit_joint_multi_phi(
     config: NLSQConfig,
     weights: np.ndarray | None,
     fourier: Any,
-) -> list[NLSQResult]:
+) -> OptimizationResult:
     """Joint multi-angle fit with Fourier-parameterized scaling.
 
     The optimizer parameter vector is:
@@ -756,6 +809,18 @@ def _fit_joint_multi_phi(
 
     This is the heterodyne equivalent of homodyne's AntiDegeneracyController
     joint-fit path.
+
+    Returns
+    -------
+    OptimizationResult
+        One result for the entire joint solve.  ``parameters`` has the
+        full ``physics_varying + 2*(2K+1)`` layout (K = ``config.fourier_order``).
+        Per-angle diagnostics — ``chi2_per_angle``, ``fourier_basis_dim``,
+        ``per_angle_mode='fourier'``, ``scaling_source='fitted'``,
+        ``shear_weighting='not_applicable_heterodyne'`` — live in
+        ``nlsq_diagnostics``.  Mirrors the contract of
+        :func:`xpcsjax.optimization.nlsq.heterodyne_constant_mode._fit_joint_constant_multi_phi`
+        (Sub-PR B2).
     """
     t_start = time.perf_counter()
 
@@ -817,7 +882,12 @@ def _fit_joint_multi_phi(
     fixed_values_jax = jnp.asarray(param_manager.get_full_values(), dtype=jnp.float64)
     varying_indices_jax = jnp.array(param_manager.varying_indices, dtype=jnp.int32)
 
-    def joint_residual_fn(x: np.ndarray) -> np.ndarray:
+    # NOTE: must return a JAX array. NLSQ's masked_residual_func JIT-traces
+    # this closure; calling ``np.asarray`` on a traced result raises
+    # TracerArrayConversionError. Same fix as
+    # ``_fit_joint_averaged_multi_phi`` / ``_fit_joint_constant_multi_phi``
+    # — the kernel returns ``jnp.ndarray`` and NLSQ casts at its boundary.
+    def joint_residual_fn(x: np.ndarray) -> Any:  # type: ignore[return-value]
         """Compute concatenated residuals across all angles via vmap.
 
         Routes through ``compute_multi_angle_residuals`` (jit + vmap) to
@@ -841,18 +911,16 @@ def _fit_joint_multi_phi(
         offsets_jax = jnp.asarray(offset_arr, dtype=jnp.float64)  # (n_phi,)
 
         # Single batched vmap call — eliminates n_phi serial dispatches
-        return np.asarray(
-            compute_multi_angle_residuals(
-                full_jax,
-                t,
-                q,
-                dt,
-                phi_angles_jax,
-                c2_data_batch,
-                weights_batch,
-                contrasts_jax,
-                offsets_jax,
-            )
+        return compute_multi_angle_residuals(
+            full_jax,
+            t,
+            q,
+            dt,
+            phi_angles_jax,
+            c2_data_batch,
+            weights_batch,
+            contrasts_jax,
+            offsets_jax,
         )
 
     # Run optimization via NLSQAdapter (primary) with NLSQWrapper fallback
@@ -920,61 +988,84 @@ def _fit_joint_multi_phi(
 
     wall_time = time.perf_counter() - t_start
 
-    # Build per-angle NLSQResult objects
-    results: list[NLSQResult] = []
-    for i in range(n_phi):
-        # Compute fitted correlation for this angle
-        fitted_c2 = compute_c2_heterodyne(
-            jnp.asarray(full_fitted),
-            t,
-            q,
-            dt,
-            float(phi_angles[i]),
-            contrast=float(fitted_contrast[i]),
-            offset=float(fitted_offset[i]),
-        )
+    # ------------------------------------------------------------------
+    # Decompose per-angle chi^2 from the final residual.
+    # ``compute_multi_angle_residuals`` returns an angle-major flat layout
+    # (n_phi, n_per_angle) — n_per_angle = n_time * (n_time - 1) because the
+    # kernel excludes the diagonal. Re-import the helper from the constant-
+    # mode module to keep one canonical implementation.
+    # TODO(C3): consolidate _decompose_chi2_per_angle when the averaged path
+    # also returns OptimizationResult, so all three joint paths share the
+    # same helper without crossing module boundaries.
+    # ------------------------------------------------------------------
+    from xpcsjax.optimization.nlsq.heterodyne_constant_mode import (
+        _decompose_chi2_per_angle,
+    )
 
-        _residuals_i = np.asarray(
-            compute_residuals(
-                jnp.asarray(full_fitted),
-                t,
-                q,
-                dt,
-                float(phi_angles[i]),
-                c2_data_list[i],
-                weights_list[i],
-                contrast=float(fitted_contrast[i]),
-                offset=float(fitted_offset[i]),
-            )
-        )
-        _per_cost_i, _per_chi2_i = _compute_per_angle_chi2(
-            _residuals_i, np.asarray(c2_data_list[i]), n_physics_varying
-        )
-        result = NLSQResult(
-            parameters=fitted_physics.copy(),
-            parameter_names=list(varying_names),
-            residuals=_residuals_i,
-            final_cost=_per_cost_i,
-            reduced_chi_squared=_per_chi2_i,
-            success=bool(joint_result.success),
-            message=str(joint_result.message),
-            n_function_evals=int(joint_result.n_function_evals or 0),
-            fitted_correlation=np.asarray(fitted_c2),
-            metadata={
-                "phi_angle": float(phi_angles[i]),
-                "contrast": float(fitted_contrast[i]),
-                "offset": float(fitted_offset[i]),
-                "optimizer": "joint_fourier",
-                "fourier_mode": fourier.config.mode,
-                "fourier_order": fourier.order,
-                "fourier_coeffs": fitted_fourier.tolist(),
-                "fourier_n_coeffs": fourier.n_coeffs,
-                "fourier_reduction": fourier.get_diagnostics()["reduction_ratio"],
-                "n_angles_joint": n_phi,
-                "wall_time_total": wall_time,
-            },
-        )
-        results.append(result)
+    final_residual = np.asarray(joint_residual_fn(fitted_params_full))
+    n_time = c2_data.shape[1]
+    n_per_angle = n_time * (n_time - 1)  # off-diagonal only — matches kernel
+    chi2_per_angle = _decompose_chi2_per_angle(
+        final_residual=final_residual,
+        n_phi=n_phi,
+        n_per_angle=n_per_angle,
+    )
+
+    # ------------------------------------------------------------------
+    # Build the single joint OptimizationResult.
+    # ------------------------------------------------------------------
+    # SSR conservation: ``chi_squared`` is the raw residual SSR, not
+    # ``2 * nlsq_result.final_cost`` (which is the robust-loss cost when
+    # ``config.loss != "linear"``). Using raw residuals keeps
+    # ``chi2_per_angle.sum() == chi_squared`` for every loss choice —
+    # the same invariant B2 locked in for constant mode.
+    ssr = float(np.sum(final_residual**2))
+    n_total_params = int(joint_result.parameters.size)
+    n_dof = max(final_residual.size - n_total_params, 1)
+    reduced_chi2 = (
+        float(joint_result.reduced_chi_squared)
+        if joint_result.reduced_chi_squared is not None
+        else ssr / n_dof
+    )
+
+    # NaN-fill uncertainties/covariance when the NLSQ adapter could not
+    # produce them (e.g. singular Jacobian after a non-converged solve) —
+    # matches B2's contract so consumers see a uniform array shape.
+    uncertainties = (
+        np.asarray(joint_result.uncertainties, dtype=np.float64)
+        if joint_result.uncertainties is not None
+        else np.full(n_total_params, np.nan, dtype=np.float64)
+    )
+    covariance = (
+        np.asarray(joint_result.covariance, dtype=np.float64)
+        if joint_result.covariance is not None
+        else np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
+    )
+
+    convergence_status = "converged" if joint_result.success else "failed"
+    quality_flag = "good" if joint_result.success else "marginal"
+
+    diagnostics = _build_heterodyne_diagnostics(
+        per_angle_mode="fourier",
+        chi2_per_angle=chi2_per_angle,
+        scaling_source="fitted",
+        fourier_basis_dim=fourier.n_coeffs_per_param,
+        parameter_names=joint_param_names,
+        fourier_mode=fourier.config.mode,
+        fourier_order=fourier.order,
+        fourier_coeffs=fitted_fourier.tolist(),
+        fourier_n_coeffs=fourier.n_coeffs,
+        fourier_reduction=fourier.get_diagnostics()["reduction_ratio"],
+        contrast_per_angle_fitted=np.asarray(fitted_contrast, dtype=np.float64),
+        offset_per_angle_fitted=np.asarray(fitted_offset, dtype=np.float64),
+        phi_angles=np.asarray(phi_angles, dtype=np.float64),
+        n_angles_joint=n_phi,
+        convergence_reason=joint_result.convergence_reason,
+        n_function_evals=int(joint_result.n_function_evals or 0),
+        n_iterations=int(joint_result.n_iterations or 0),
+        wall_time_seconds=wall_time,
+        message=str(joint_result.message),
+    )
 
     logger.info(
         "Joint multi-angle fit complete: success=%s, cost=%.6f, "
@@ -986,7 +1077,22 @@ def _fit_joint_multi_phi(
         n_phi,
     )
 
-    return results
+    return OptimizationResult(
+        parameters=np.asarray(fitted_params_full, dtype=np.float64),
+        uncertainties=uncertainties,
+        covariance=covariance,
+        chi_squared=ssr,
+        reduced_chi_squared=reduced_chi2,
+        convergence_status=convergence_status,
+        iterations=int(joint_result.n_iterations or 0),
+        execution_time=wall_time,
+        device_info={"backend": "cpu", "adapter": "nlsq.CurveFit"},
+        recovery_actions=[],
+        quality_flag=quality_flag,
+        streaming_diagnostics=None,
+        stratification_diagnostics=None,
+        nlsq_diagnostics=diagnostics,
+    )
 
 
 # ---------------------------------------------------------------------------

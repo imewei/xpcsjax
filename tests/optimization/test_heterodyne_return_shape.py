@@ -282,3 +282,144 @@ def test_per_angle_chi2_raises_when_missing() -> None:
     )
     with pytest.raises(ValueError, match="chi2_per_angle"):
         per_angle_chi2(result)
+
+
+# ---------------------------------------------------------------------------
+# C2: integration test — Fourier-mode joint fit returns one OptimizationResult
+# ---------------------------------------------------------------------------
+#
+# Self-contained heterodyne config sufficient for HeterodyneModel.from_config.
+# Pattern mirrors test_heterodyne_constant_mode.py's B2 helpers — tiny problem
+# size, registry-default physics, no external fixtures. ``n_phi=6`` is the
+# minimum to keep ``auto`` dispatch in the Fourier window (>= fourier_auto_
+# threshold of 6), but the explicit ``per_angle_mode="fourier"`` setting makes
+# the dispatch deterministic regardless of threshold defaults.
+_C2_N_TIMES = 16
+_C2_DT = 1.0
+_C2_Q = 0.0054
+_C2_PHI_ANGLES = np.linspace(0.0, 150.0, 6, dtype=np.float64)
+_C2_NOISE_SIGMA = 5e-4
+
+
+def _c2_config_dict() -> dict:
+    return {
+        "analysis_mode": "two_component",
+        "analyzer_parameters": {
+            "dt": _C2_DT,
+            "start_frame": 1,
+            "end_frame": _C2_N_TIMES,
+            "scattering": {"wavevector_q": _C2_Q},
+        },
+        "scaling": {
+            "n_angles": len(_C2_PHI_ANGLES),
+            "mode": "constant",
+            "initial_contrast": 0.3,
+            "initial_offset": 1.0,
+        },
+        "optimization": {
+            "nlsq": {
+                "analysis_mode": "two_component",
+                "max_iterations": 30,
+                "enable_cmaes": False,
+            },
+        },
+    }
+
+
+def _build_minimal_heterodyne_model_for_fourier():
+    """Build a minimal HeterodyneModel via the same config path the smoke tests use.
+
+    Pattern mirrors ``_build_minimal_heterodyne_model`` in
+    ``test_heterodyne_constant_mode.py`` — duplicated here (rather than imported)
+    to keep this test file self-contained; the constant-mode helper uses a
+    different ``n_phi`` and time window.
+    """
+    import tempfile
+    from pathlib import Path
+
+    import yaml
+
+    from xpcsjax.config import ConfigManager
+    from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        cfg_path = Path(tmp_dir) / "c2_fourier.yaml"
+        cfg_path.write_text(yaml.safe_dump(_c2_config_dict()))
+        cfg = ConfigManager(str(cfg_path))
+        assert cfg.config is not None, "ConfigManager.config must not be None"
+        return HeterodyneModel.from_config(cfg.config)
+
+
+def _build_synthetic_c2_stack_for_fourier(
+    n_phi: int, n_t: int, model
+) -> np.ndarray:
+    """Forward-evaluate the model at each phi to build a (n_phi, N, N) stack."""
+    assert model.n_times == n_t, (
+        f"model.n_times={model.n_times} does not match requested n_t={n_t}"
+    )
+    rng = np.random.default_rng(seed=20260520)
+    c2_stack = np.empty((n_phi, n_t, n_t), dtype=np.float64)
+    for i, phi in enumerate(_C2_PHI_ANGLES[:n_phi]):
+        c2 = np.asarray(model.compute_correlation(phi_angle=float(phi), angle_idx=i))
+        c2_stack[i] = c2 + rng.normal(0.0, _C2_NOISE_SIGMA, size=c2.shape)
+    return c2_stack
+
+
+def test_fourier_mode_returns_single_optimization_result() -> None:
+    """``per_angle_mode='fourier'`` returns one OptimizationResult.
+
+    The optimizer parameter vector is
+    ``[physics_varying | fourier_contrast_coeffs | fourier_offset_coeffs]``
+    where each Fourier block has ``2K+1`` coefficients (K = fourier_order).
+    Per-angle chi^2 lands in ``nlsq_diagnostics['chi2_per_angle']``, and
+    SSR conservation (``chi2_per_angle.sum() == chi_squared``) must hold
+    — same invariant as B2's constant-mode result.
+    """
+    pytest.importorskip("xpcsjax.core.heterodyne_model_stateful")
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
+
+    model = _build_minimal_heterodyne_model_for_fourier()
+    K = 2
+    config = NLSQConfig(
+        per_angle_mode="fourier", fourier_order=K, max_nfev=30
+    )
+    n_phi = len(_C2_PHI_ANGLES)
+    c2 = _build_synthetic_c2_stack_for_fourier(
+        n_phi=n_phi, n_t=_C2_N_TIMES, model=model
+    )
+    phi = _C2_PHI_ANGLES
+
+    result = fit_nlsq_multi_phi(model, c2, phi, config, weights=None)
+
+    assert isinstance(result, OptimizationResult), (
+        f"expected OptimizationResult, got {type(result).__name__}"
+    )
+
+    # Parameter vector layout: physics_varying + 2*(2K+1) Fourier coeffs
+    # (contrast block + offset block).
+    expected_dim = model.param_manager.n_varying + 2 * (2 * K + 1)
+    assert result.parameters.shape == (expected_dim,), (
+        f"Fourier mode parameter vector should be physics + 2*(2K+1) coeffs; "
+        f"got {result.parameters.shape}"
+    )
+
+    assert result.nlsq_diagnostics is not None
+    diag = result.nlsq_diagnostics
+    assert diag["per_angle_mode"] == "fourier"
+    # fourier_basis_dim is the per-block coefficient count (2K+1), matching
+    # B2's per_angle_mode='constant' convention where it is None and the
+    # post-hoc heterodyne_views helpers consume this key.
+    assert diag["fourier_basis_dim"] == 2 * K + 1
+    assert diag["scaling_source"] == "fitted"
+    assert diag["shear_weighting"] == "not_applicable_heterodyne"
+    assert "chi2_per_angle" in diag
+    assert diag["chi2_per_angle"].shape == (n_phi,)
+
+    # SSR conservation (locked in by B2 — same convention applies here).
+    np.testing.assert_allclose(
+        diag["chi2_per_angle"].sum(),
+        result.chi_squared,
+        rtol=1e-6,
+        err_msg="chi2_per_angle.sum() must equal chi_squared (SSR conservation)",
+    )
