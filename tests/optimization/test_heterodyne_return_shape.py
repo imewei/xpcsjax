@@ -423,3 +423,62 @@ def test_fourier_mode_returns_single_optimization_result() -> None:
         rtol=1e-6,
         err_msg="chi2_per_angle.sum() must equal chi_squared (SSR conservation)",
     )
+
+
+# ---------------------------------------------------------------------------
+# C3: integration test — averaged-mode joint fit returns one OptimizationResult
+# ---------------------------------------------------------------------------
+#
+# Reuses the C2 fixture builders. The averaged path is taken when
+# ``per_angle_mode='auto'`` and ``constant_threshold <= n_phi < fourier_threshold``.
+# Optimizer parameter vector is ``[physics_varying | avg_contrast | avg_offset]``
+# (2 scaling parameters, not 2*(2K+1) Fourier coefficients).
+
+
+def test_averaged_path_returns_single_optimization_result() -> None:
+    """`per_angle_mode='auto'` with constant_threshold <= n_phi < fourier_threshold returns OptimizationResult."""
+    pytest.importorskip("xpcsjax.core.heterodyne_model_stateful")
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
+
+    model = _build_minimal_heterodyne_model_for_fourier()
+    config = NLSQConfig(
+        per_angle_mode="auto",
+        constant_scaling_threshold=3,
+        fourier_auto_threshold=6,
+        max_nfev=30,
+    )
+    n_phi = 4  # in the averaged window (3 <= n_phi < 6)
+    c2 = _build_synthetic_c2_stack_for_fourier(
+        n_phi=n_phi, n_t=_C2_N_TIMES, model=model
+    )
+    phi = _C2_PHI_ANGLES[:n_phi]
+
+    result = fit_nlsq_multi_phi(model, c2, phi, config, weights=None)
+
+    assert isinstance(result, OptimizationResult), (
+        f"expected OptimizationResult, got {type(result).__name__}"
+    )
+    n_physics = model.param_manager.n_varying
+    # Averaged path: physics + 2 scaling parameters
+    assert result.parameters.shape == (n_physics + 2,), (
+        f"averaged mode adds 2 scaling params; got {result.parameters.shape}"
+    )
+    diag = result.nlsq_diagnostics
+    assert diag is not None
+    assert diag["per_angle_mode"] == "averaged"
+    assert diag["scaling_source"] == "averaged_then_fitted"
+    assert diag["fourier_basis_dim"] is None
+    assert diag["shear_weighting"] == "not_applicable_heterodyne"
+    assert "chi2_per_angle" in diag
+    assert diag["chi2_per_angle"].shape == (n_phi,)
+    # Extras specific to averaged mode
+    assert "averaged_contrast" in diag
+    assert "averaged_offset" in diag
+    # SSR conservation (B2's regression lock)
+    np.testing.assert_allclose(
+        diag["chi2_per_angle"].sum(),
+        result.chi_squared,
+        rtol=1e-6,
+        err_msg="chi2_per_angle.sum() must equal chi_squared (SSR conservation)",
+    )

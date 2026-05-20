@@ -453,7 +453,7 @@ def _fit_joint_averaged_multi_phi(
     phi_angles: np.ndarray,
     config: NLSQConfig,
     weights: np.ndarray | None,
-) -> list[NLSQResult]:
+) -> OptimizationResult:
     """Joint multi-angle fit with averaged contrast/offset scaling.
 
     Implements homodyne's `auto`-averaged anti-degeneracy path:
@@ -465,6 +465,20 @@ def _fit_joint_averaged_multi_phi(
     mode. True `constant` mode (quantile estimates pre-fit and frozen) is
     implemented by `fit_joint_constant_multi_phi` (Sub-PR B), defined in
     `heterodyne_constant_mode.py`.
+
+    Returns
+    -------
+    OptimizationResult
+        One result for the entire joint solve. ``parameters`` has the
+        ``physics_varying + [avg_contrast, avg_offset]`` layout (2 scaling
+        params). Per-angle diagnostics — ``chi2_per_angle``,
+        ``per_angle_mode='averaged'``, ``scaling_source='averaged_then_fitted'``,
+        ``fourier_basis_dim=None``, ``shear_weighting='not_applicable_heterodyne'``
+        — live in ``nlsq_diagnostics``, alongside the ``averaged_contrast`` /
+        ``averaged_offset`` scalar extras. Mirrors the contract of
+        :func:`_fit_joint_multi_phi` (Sub-PR C2) and
+        :func:`xpcsjax.optimization.nlsq.heterodyne_constant_mode._fit_joint_constant_multi_phi`
+        (Sub-PR B2).
     """
     from xpcsjax.config.parameter_registry import SCALING_PARAMS
     from xpcsjax.core.heterodyne_scaling_utils import compute_averaged_scaling
@@ -631,71 +645,80 @@ def _fit_joint_averaged_multi_phi(
 
     wall_time = time.perf_counter() - t_start
 
-    results: list[NLSQResult] = []
-    for i, phi in enumerate(phi_angles):
-        fitted_c2 = compute_c2_heterodyne(
-            jnp.asarray(full_fitted),
-            t,
-            q,
-            dt,
-            float(phi),
-            contrast=fitted_contrast,
-            offset=fitted_offset,
-        )
-        residuals = np.asarray(
-            compute_residuals(
-                jnp.asarray(full_fitted),
-                t,
-                q,
-                dt,
-                float(phi),
-                c2_data_batch[i],
-                weights_batch[i],
-                contrast=fitted_contrast,
-                offset=fitted_offset,
-            )
-        )
-        per_angle_cost, per_angle_chi2 = _compute_per_angle_chi2(
-            residuals, np.asarray(c2_data_batch[i]), n_physics_varying
-        )
+    # ------------------------------------------------------------------
+    # Decompose per-angle chi^2 from the final residual.
+    # ``compute_multi_angle_residuals`` returns an angle-major flat layout
+    # (n_phi, n_per_angle) — n_per_angle = n_time * (n_time - 1) because the
+    # kernel excludes the diagonal. Re-use the canonical helper from
+    # heterodyne_constant_mode (same import the Fourier-mode joint path uses).
+    # ------------------------------------------------------------------
+    from xpcsjax.optimization.nlsq.heterodyne_constant_mode import (
+        _decompose_chi2_per_angle,
+    )
 
-        result = NLSQResult(
-            parameters=fitted_physics.copy(),
-            parameter_names=varying_names,
-            uncertainties=(
-                joint_result.uncertainties[:n_physics_varying].copy()
-                if joint_result.uncertainties is not None
-                else None
-            ),
-            covariance=(
-                joint_result.covariance[:n_physics_varying, :n_physics_varying].copy()
-                if joint_result.covariance is not None
-                else None
-            ),
-            residuals=residuals,
-            final_cost=per_angle_cost,
-            reduced_chi_squared=per_angle_chi2,
-            success=bool(joint_result.success),
-            message=str(joint_result.message),
-            n_iterations=joint_result.n_iterations,
-            n_function_evals=joint_result.n_function_evals,
-            convergence_reason=joint_result.convergence_reason,
-            fitted_correlation=np.asarray(fitted_c2),
-            wall_time_seconds=joint_result.wall_time_seconds,
-            metadata={
-                "phi_angle": float(phi),
-                "contrast": fitted_contrast,
-                "offset": fitted_offset,
-                "contrast_initial_quantile": float(contrast_per_angle[i]),
-                "offset_initial_quantile": float(offset_per_angle[i]),
-                "contrast_initial_average": avg_contrast,
-                "offset_initial_average": avg_offset,
-                "optimizer": "joint_auto_averaged",
-                "n_angles_joint": n_phi,
-                "wall_time_total": wall_time,
-            },
-        )
-        results.append(result)
+    final_residual = np.asarray(joint_residual_fn(fitted_all))
+    n_time = c2_data.shape[1]
+    n_per_angle = n_time * (n_time - 1)  # off-diagonal only — matches kernel
+    chi2_per_angle = _decompose_chi2_per_angle(
+        final_residual=final_residual,
+        n_phi=n_phi,
+        n_per_angle=n_per_angle,
+    )
+
+    # ------------------------------------------------------------------
+    # Build the single joint OptimizationResult.
+    # SSR conservation: ``chi_squared`` is the raw residual SSR, not
+    # ``2 * nlsq_result.final_cost`` (which is the robust-loss cost when
+    # ``config.loss != "linear"``). Using raw residuals keeps
+    # ``chi2_per_angle.sum() == chi_squared`` for every loss choice —
+    # the same invariant B2 / C2 locked in for the other joint paths.
+    # ------------------------------------------------------------------
+    ssr = float(np.sum(final_residual**2))
+    n_total_params = int(joint_result.parameters.size)
+    n_dof = max(final_residual.size - n_total_params, 1)
+    reduced_chi2 = (
+        float(joint_result.reduced_chi_squared)
+        if joint_result.reduced_chi_squared is not None
+        else ssr / n_dof
+    )
+
+    # NaN-fill uncertainties / covariance when the NLSQ adapter could not
+    # produce them (e.g. singular Jacobian after a non-converged solve) —
+    # matches B2 / C2's contract so consumers see a uniform array shape.
+    uncertainties = (
+        np.asarray(joint_result.uncertainties, dtype=np.float64)
+        if joint_result.uncertainties is not None
+        else np.full(n_total_params, np.nan, dtype=np.float64)
+    )
+    covariance = (
+        np.asarray(joint_result.covariance, dtype=np.float64)
+        if joint_result.covariance is not None
+        else np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
+    )
+
+    convergence_status = "converged" if joint_result.success else "failed"
+    quality_flag = "good" if joint_result.success else "marginal"
+
+    diagnostics = _build_heterodyne_diagnostics(
+        per_angle_mode="averaged",
+        chi2_per_angle=chi2_per_angle,
+        scaling_source="averaged_then_fitted",
+        fourier_basis_dim=None,
+        averaged_contrast=fitted_contrast,
+        averaged_offset=fitted_offset,
+        parameter_names=joint_param_names,
+        contrast_per_angle_quantile=np.asarray(contrast_per_angle, dtype=np.float64),
+        offset_per_angle_quantile=np.asarray(offset_per_angle, dtype=np.float64),
+        contrast_initial_average=float(avg_contrast),
+        offset_initial_average=float(avg_offset),
+        phi_angles=np.asarray(phi_angles, dtype=np.float64),
+        n_angles_joint=n_phi,
+        convergence_reason=joint_result.convergence_reason,
+        n_function_evals=int(joint_result.n_function_evals or 0),
+        n_iterations=int(joint_result.n_iterations or 0),
+        wall_time_seconds=wall_time,
+        message=str(joint_result.message),
+    )
 
     logger.info(
         "Joint auto averaged fit complete: success=%s, cost=%.6f, "
@@ -707,7 +730,22 @@ def _fit_joint_averaged_multi_phi(
         n_phi,
     )
 
-    return results
+    return OptimizationResult(
+        parameters=np.asarray(fitted_all, dtype=np.float64),
+        uncertainties=uncertainties,
+        covariance=covariance,
+        chi_squared=ssr,
+        reduced_chi_squared=reduced_chi2,
+        convergence_status=convergence_status,
+        iterations=int(joint_result.n_iterations or 0),
+        execution_time=wall_time,
+        device_info={"backend": "cpu", "adapter": "nlsq.CurveFit"},
+        recovery_actions=[],
+        quality_flag=quality_flag,
+        streaming_diagnostics=None,
+        stratification_diagnostics=None,
+        nlsq_diagnostics=diagnostics,
+    )
 
 
 # Phase-6 stub: parameters are renamed with leading underscore to silence
