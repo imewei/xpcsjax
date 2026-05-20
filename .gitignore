@@ -180,11 +180,11 @@ agent-os/
 
 # AI assistant project memos
 # ----------------------------------------------------------------------------
-# DIVERGENCE from homodyne / heterodyne: those projects treat CLAUDE.md,
-# AGENTS.md, GEMINI.md as local-only AI scratch and gitignore them. xpcsjax
-# treats them as **checked-in project artifacts** — CLAUDE.md is the
-# onboarding contract for new sessions, generated via `/init`. If you want to
-# flip the policy, uncomment the four lines below.
+# Treated as local-only AI scratch — same policy as homodyne / heterodyne.
+# Each developer maintains their own onboarding notes for their AI assistant
+# of choice; nothing about these files is load-bearing for the project's
+# build, tests, or distribution. To flip the policy and check one of these
+# in (e.g. as a shared onboarding contract), remove the corresponding line.
 AGENTS.md
 CLAUDE.md
 GEMINI.md
