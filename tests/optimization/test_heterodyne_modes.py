@@ -25,3 +25,16 @@ def test_independent_deprecation_alias() -> None:
         f"DeprecationWarning fired at {records[0].filename}:{records[0].lineno} — "
         "expected to point at user call site (stacklevel issue?)"
     )
+
+
+def test_averaged_function_renamed() -> None:
+    """The averaged-scaling joint solver uses the corrected name."""
+    from xpcsjax.optimization.nlsq import heterodyne_core
+
+    assert hasattr(heterodyne_core, "_fit_joint_averaged_multi_phi"), (
+        "expected renamed function"
+    )
+    assert not hasattr(heterodyne_core, "_fit_joint_constant_multi_phi"), (
+        "old mislabeled name must be removed — "
+        "true 'constant' mode lands in Sub-PR B with its own dedicated function"
+    )

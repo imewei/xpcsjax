@@ -221,7 +221,7 @@ def fit_nlsq_multi_phi(
     # ------------------------------------------------------------------
     # Determine whether to use homodyne-style joint multi-angle fitting.
     # ------------------------------------------------------------------
-    use_constant = False
+    use_averaged = False
     use_joint = False
     # Pre-initialize so the ``if use_joint:`` branch below sees a bound name
     # even when the optional fourier_reparam import fails. ``use_joint`` is
@@ -242,15 +242,15 @@ def fit_nlsq_multi_phi(
         constant_threshold = max(
             int(getattr(config, "constant_scaling_threshold", 3)), 1
         )
-        use_constant = _use_constant_scaling_mode(config, len(phi_angles))
-        if use_constant:
+        use_averaged = _should_use_averaged_scaling(config, len(phi_angles))
+        if use_averaged:
             logger.info(
                 "Constant averaged scaling selected: mode=%s, n_phi=%d, threshold=%d",
                 config.per_angle_mode,
                 len(phi_angles),
                 constant_threshold,
             )
-            return _fit_joint_constant_multi_phi(
+            return _fit_joint_averaged_multi_phi(
                 model=model,
                 c2_data=c2_data,
                 phi_angles=phi_angles,
@@ -369,7 +369,7 @@ def _compute_per_angle_chi2(
     return per_angle_cost, reduced_chi2
 
 
-def _fit_joint_constant_multi_phi(
+def _fit_joint_averaged_multi_phi(
     model: HeterodyneModel,
     c2_data: np.ndarray,
     phi_angles: np.ndarray,
@@ -378,10 +378,15 @@ def _fit_joint_constant_multi_phi(
 ) -> list[NLSQResult]:
     """Joint multi-angle fit with averaged contrast/offset scaling.
 
-    This is the heterodyne analogue of homodyne's auto-averaged
-    anti-degeneracy path: per-angle quantile estimates are computed first,
-    averaged to one contrast and one offset, and those two scaling parameters
-    are optimized jointly with the physical model parameters.
+    Implements homodyne's `auto`-averaged anti-degeneracy path:
+    per-angle quantile estimates are computed first, averaged to one contrast
+    and one offset, and those two scaling parameters are optimized jointly
+    with the physical model parameters.
+
+    NOTE: despite the legacy filename overlap, this is NOT homodyne's `constant`
+    mode. True `constant` mode (quantile estimates pre-fit and frozen) is
+    implemented by `fit_joint_constant_multi_phi` (Sub-PR B), defined in
+    `heterodyne_constant_mode.py`.
     """
     from xpcsjax.config.parameter_registry import SCALING_PARAMS
     from xpcsjax.core.heterodyne_scaling_utils import compute_averaged_scaling
@@ -668,12 +673,18 @@ def _fit_joint_cmaes_multi_phi(
     )
 
 
-def _use_constant_scaling_mode(config: NLSQConfig, n_phi: int) -> bool:
-    """Return whether joint multi-angle scaling should be constant averaged."""
-    constant_threshold = max(int(getattr(config, "constant_scaling_threshold", 3)), 1)
-    return config.per_angle_mode == "constant" or (
-        config.per_angle_mode == "auto" and n_phi >= constant_threshold
-    )
+def _should_use_averaged_scaling(config: NLSQConfig, n_phi: int) -> bool:
+    """Decide whether to use averaged scaling (homodyne `auto` semantics).
+
+    Returns True when:
+      - per_angle_mode is 'auto' and n_phi >= constant_scaling_threshold
+
+    The literal 'constant' mode is dispatched separately (see Sub-PR B);
+    this helper covers only the auto-averaging branch.
+    """
+    if config.per_angle_mode == "auto":
+        return n_phi >= config.constant_scaling_threshold
+    return False
 
 
 def _fit_joint_multi_phi(
