@@ -22,6 +22,7 @@ from xpcsjax.core.heterodyne_jax_backend import (
 )
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
+from xpcsjax.optimization.nlsq.validation import classify_fit_quality
 from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -231,11 +232,11 @@ def fit_nlsq_multi_phi(
         if getattr(config, "enable_cmaes", False) and HAS_CMAES:
             logger.info("CMA-ES enabled, delegating to joint multi-angle CMA-ES")
             return _fit_joint_cmaes_multi_phi(
-                model=model,
-                c2_data=c2_data,
-                phi_angles=phi_angles,
-                config=config,
-                weights=weights,
+                _model=model,
+                _c2_data=c2_data,
+                _phi_angles=phi_angles,
+                _config=config,
+                _weights=weights,
             )
 
         constant_threshold = max(
@@ -626,12 +627,16 @@ def _fit_joint_constant_multi_phi(
     return results
 
 
+# Phase-6 stub: parameters are renamed with leading underscore to silence
+# both ruff (ARG001) and Pyright (reportUnusedParameter). Original public
+# names will return when the body is wired against the new cmaes_wrapper
+# signature; see docstring below for the migration plan.
 def _fit_joint_cmaes_multi_phi(
-    model: HeterodyneModel,  # noqa: ARG001
-    c2_data: np.ndarray,  # noqa: ARG001
-    phi_angles: np.ndarray,  # noqa: ARG001
-    config: NLSQConfig,  # noqa: ARG001
-    weights: np.ndarray | None,  # noqa: ARG001
+    _model: HeterodyneModel,
+    _c2_data: np.ndarray,
+    _phi_angles: np.ndarray,
+    _config: NLSQConfig,
+    _weights: np.ndarray | None,
 ) -> list[NLSQResult]:
     """Joint multi-angle CMA-ES with NLSQ warm-start — not wired in v0.1.
 
@@ -668,23 +673,6 @@ def _use_constant_scaling_mode(config: NLSQConfig, n_phi: int) -> bool:
     constant_threshold = max(int(getattr(config, "constant_scaling_threshold", 3)), 1)
     return config.per_angle_mode == "constant" or (
         config.per_angle_mode == "auto" and n_phi >= constant_threshold
-    )
-
-
-def _build_fourier_reparameterizer(phi_angles: np.ndarray, config: NLSQConfig) -> Any:
-    """Build the Fourier/independent reparameterizer for fallback paths."""
-    from xpcsjax.optimization.nlsq.fourier_reparam import (
-        FourierReparamConfig,
-        FourierReparameterizer,
-    )
-
-    return FourierReparameterizer(
-        np.deg2rad(phi_angles.astype(np.float64)),
-        FourierReparamConfig(
-            mode=config.per_angle_mode,
-            fourier_order=config.fourier_order,
-            auto_threshold=config.fourier_auto_threshold,
-        ),
     )
 
 
@@ -1015,19 +1003,6 @@ def _fit_cmaes(
     """
     from xpcsjax.optimization.nlsq.cmaes_wrapper import CMAESWrapperConfig
 
-    # NOTE: ``xpcsjax.optimization.nlsq.validation.fit_quality`` was referenced
-    # by the original homodyne port but never landed in xpcsjax. Inline the
-    # classifier here — the bands match homodyne's classify_fit_quality v2.18
-    # so downstream consumers see the same quality labels.
-    def classify_fit_quality(reduced_chi2: float | None) -> str:
-        if reduced_chi2 is None or not np.isfinite(reduced_chi2):
-            return "unknown"
-        if reduced_chi2 < 2.0:
-            return "good"
-        if reduced_chi2 < 10.0:
-            return "marginal"
-        return "poor"
-
     param_manager = model.param_manager
 
     initial_varying = param_manager.get_initial_values()
@@ -1100,7 +1075,7 @@ def _fit_cmaes(
         list(param_manager.varying_indices), dtype=jnp.int32
     )
 
-    def model_func(_xdata: np.ndarray, *varying_params: Any) -> Any:
+    def model_func(_: np.ndarray, *varying_params: Any) -> Any:
         varying_jax = jnp.stack(varying_params).astype(jnp.float64)
         full_jax = full_template_jax.at[varying_indices_jax].set(varying_jax)
         c2_pred = compute_c2_heterodyne(
@@ -1250,13 +1225,19 @@ def _cmaes_to_nlsq_result(
     )
 
 
+# Phase-6 stub: parameters are renamed with leading underscore to silence
+# both ruff (ARG001) and Pyright (reportUnusedParameter). The signature
+# shape (and parameter order) is kept identical to _fit_cmaes / _fit_local
+# for the dispatcher at line ~958, which calls this positionally; the
+# original public names will return when the body is wired against
+# run_multistart_nlsq.
 def _fit_multistart(
-    model: HeterodyneModel,  # noqa: ARG001 — kept for symmetry with _fit_cmaes / _fit_local
-    c2_data: np.ndarray | jnp.ndarray,  # noqa: ARG001
-    phi_angle: float,  # noqa: ARG001
-    config: NLSQConfig,  # noqa: ARG001
-    weights: np.ndarray | jnp.ndarray | None,  # noqa: ARG001
-    use_nlsq_library: bool,  # noqa: ARG001
+    _model: HeterodyneModel,
+    _c2_data: np.ndarray | jnp.ndarray,
+    _phi_angle: float,
+    _config: NLSQConfig,
+    _weights: np.ndarray | jnp.ndarray | None,
+    _use_nlsq_library: bool,
 ) -> NLSQResult:
     """Heterodyne multi-start optimization — not wired in v0.1.
 
@@ -1355,7 +1336,7 @@ def _fit_local(
     contrast_val, offset_val = model.scaling.get_for_angle(0)
 
     # Build residual functions
-    def jax_residual_fn(x: jnp.ndarray, *varying_params: float) -> jnp.ndarray:
+    def jax_residual_fn(_x: jnp.ndarray, *varying_params: float) -> jnp.ndarray:
         """Pure JAX residual function for nlsq tracing."""
         varying_array = jnp.array(varying_params, dtype=jnp.float64)
         full_params = fixed_values.at[varying_indices].set(varying_array)
@@ -1570,25 +1551,6 @@ def _make_numpy_residual_fn(
         return np.asarray(residuals)
 
     return residual_fn
-
-
-def _select_adapter(
-    varying_names: list[str],
-    use_nlsq_library: bool,
-) -> Any:
-    """Select the appropriate adapter backend.
-
-    Returns NLSQAdapter when the nlsq library is available and requested,
-    otherwise falls back to NLSQWrapper (memory-tier routing).
-    """
-    if use_nlsq_library and NLSQAdapter is not None:  # HAS_ADAPTERS equivalent
-        try:
-            return NLSQAdapter(parameter_names=varying_names)
-        except ImportError:
-            logger.warning("nlsq library not available, falling back to NLSQWrapper")
-    if NLSQWrapper is not None:  # HAS_WRAPPER equivalent
-        return NLSQWrapper(parameter_names=varying_names)
-    raise ImportError("No NLSQ adapter available")
 
 
 def _log_result(result: NLSQResult) -> None:

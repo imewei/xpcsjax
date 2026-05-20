@@ -274,7 +274,7 @@ class NLSQValidationConfig(TypedDict, total=False):
     """NLSQ fit quality validation configuration.
 
     Configuration for validating NLSQ optimization results.
-    Used by validation/fit_quality.py to classify fit quality.
+    Used by xpcsjax.optimization.nlsq.validation to classify fit quality.
 
     Attributes
     ----------
