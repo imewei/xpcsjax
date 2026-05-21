@@ -14,6 +14,7 @@ from xpcsjax.viz.nlsq_plots import (
     _unpack_result_params,
     plot_nlsq_fit,
     plot_residual_map,
+    plot_simulated_data,
 )
 
 
@@ -284,6 +285,33 @@ def test_plot_residual_map_save_path_writes_png(
     d = synthetic_single_angle_data
     save_path = tmp_path / "residuals.png"
     plot_residual_map(d["c2_exp"], d["c2_exp"] * 0.95, t=d["t"], save_path=save_path)
+    assert save_path.exists()
+    with open(save_path, "rb") as f:
+        assert f.read(4) == b"\x89PNG"
+
+
+def test_plot_simulated_data_single_image_axis(synthetic_single_angle_data) -> None:
+    d = synthetic_single_angle_data
+    fig = plot_simulated_data(
+        d["c2_exp"],
+        t=d["t"],
+        phi_deg=45.0,
+        contrast=0.2,
+        offset=1.0,
+        analysis_mode="static_isotropic",
+    )
+    image_axes = [ax for ax in fig.axes if ax.images]
+    assert len(image_axes) == 1
+    plt.close(fig)
+
+
+def test_plot_simulated_data_save_path_writes_png(
+    synthetic_single_angle_data,
+    tmp_path: Path,
+) -> None:
+    d = synthetic_single_angle_data
+    save_path = tmp_path / "sim.png"
+    plot_simulated_data(d["c2_exp"], t=d["t"], save_path=save_path)
     assert save_path.exists()
     with open(save_path, "rb") as f:
         assert f.read(4) == b"\x89PNG"

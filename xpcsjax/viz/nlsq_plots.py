@@ -420,3 +420,106 @@ def plot_residual_map(
     if save_path is not None:
         _save_fig(fig, save_path)
     return fig
+
+
+def plot_simulated_data(
+    c2_sim: np.ndarray,
+    t: np.ndarray | None = None,
+    phi_deg: float | None = None,
+    contrast: float | None = None,
+    offset: float | None = None,
+    analysis_mode: str | None = None,
+    save_path: Path | str | None = None,
+    figsize: tuple[float, float] = (8, 7),
+) -> Figure:
+    """Single-panel theoretical/fitted c2 heatmap with inline stats annotation.
+
+    Used by the orchestrator to render fitted-only simulations (no comparison
+    to experimental data). Annotates mean, range, and optional fit metadata
+    (analysis_mode, contrast, offset).
+
+    Parameters
+    ----------
+    c2_sim
+        Theoretical or fitted c2 surface, shape ``(n_t1, n_t2)``.
+    t
+        Optional time axis.
+    phi_deg
+        Optional phi angle for title.
+    contrast, offset, analysis_mode
+        Optional metadata annotations rendered in a corner box.
+    save_path
+        If provided, saved and closed; else returned.
+    figsize
+        Matplotlib figsize in inches.
+
+    Returns
+    -------
+    Figure
+        The matplotlib Figure (open if save_path is None, closed otherwise).
+    """
+    fig, ax = plt.subplots(figsize=figsize)
+    n_t1, _ = c2_sim.shape
+    t_arr = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
+    extent = (float(t_arr[0]), float(t_arr[-1]), float(t_arr[0]), float(t_arr[-1]))
+
+    vmin, vmax = _resolve_color_limits(c2_sim, percentile_min=1.0, percentile_max=99.0)
+    vmin = max(1.0, vmin)
+    vmax = min(1.6, vmax) if vmax > 1.0 else vmax
+
+    im = ax.imshow(
+        c2_sim.T,
+        origin="lower",
+        extent=extent,
+        aspect="equal",
+        cmap="jet",
+        interpolation="bilinear",
+        vmin=vmin,
+        vmax=vmax,
+    )
+    title = "Simulated C₂(t₁, t₂)"
+    if phi_deg is not None:
+        title = f"{title} at φ={phi_deg:.1f}°"
+    ax.set_title(title, fontsize=13, fontweight="bold")
+    ax.set_xlabel("t₁ (s)" if t is not None else "t₁ Index", fontsize=11)
+    ax.set_ylabel("t₂ (s)" if t is not None else "t₂ Index", fontsize=11)
+    cbar = plt.colorbar(im, ax=ax, label="C₂", shrink=0.9)
+    cbar.ax.tick_params(labelsize=9)
+
+    finite = c2_sim[np.isfinite(c2_sim)]
+    if finite.size > 0:
+        mean_v = float(np.nanmean(c2_sim))
+        min_v = float(np.nanmin(c2_sim))
+        max_v = float(np.nanmax(c2_sim))
+        ax.text(
+            0.02,
+            0.98,
+            f"Mean: {mean_v:.4f}\nRange: [{min_v:.4f}, {max_v:.4f}]",
+            transform=ax.transAxes,
+            fontsize=9,
+            verticalalignment="top",
+            bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.8},
+        )
+
+    meta_lines = []
+    if analysis_mode is not None:
+        meta_lines.append(f"Mode: {analysis_mode}")
+    if contrast is not None:
+        meta_lines.append(f"Contrast: {contrast:.3f}")
+    if offset is not None:
+        meta_lines.append(f"Offset: {offset:.3f}")
+    if meta_lines:
+        ax.text(
+            0.02,
+            0.02,
+            "\n".join(meta_lines),
+            transform=ax.transAxes,
+            fontsize=8,
+            verticalalignment="bottom",
+            bbox={"boxstyle": "round", "facecolor": "lightgreen", "alpha": 0.7},
+        )
+
+    fig.tight_layout()
+    if save_path is not None:
+        _save_fig(fig, save_path)
+    return fig

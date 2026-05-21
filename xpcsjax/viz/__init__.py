@@ -19,11 +19,12 @@ from typing import Any
 _LAZY_EXPORTS: dict[str, str] = {
     "plot_nlsq_fit": "xpcsjax.viz.nlsq_plots",
     "plot_residual_map": "xpcsjax.viz.nlsq_plots",
+    "plot_simulated_data": "xpcsjax.viz.nlsq_plots",
 }
 
 # Literal list — Pyright reportUnsupportedDunderAll requires this stays a literal.
 # Later tasks append symbol names here as they're implemented.
-__all__: list[str] = ["plot_nlsq_fit", "plot_residual_map"]
+__all__: list[str] = ["plot_nlsq_fit", "plot_residual_map", "plot_simulated_data"]
 
 
 def __getattr__(name: str) -> Any:
