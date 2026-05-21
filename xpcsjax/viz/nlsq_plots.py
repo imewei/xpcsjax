@@ -7,7 +7,7 @@ tasks (Task 2 onward).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -56,3 +56,56 @@ def _save_fig(fig: Figure, save_path: Path | str | None, dpi: int = 150) -> None
     fig.savefig(p, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
     logger.info("Figure saved: %s", p)
+
+
+def _unpack_result_params(
+    model: Any,
+    result: Any,
+    config: dict[str, Any],
+) -> tuple[float, float, np.ndarray, list[str]]:
+    """Extract ``(contrast, offset, physical_params, names)`` per model type.
+
+    HomodyneModel
+        ``result.parameters[0]`` is contrast, ``[1]`` is offset, ``[2:]`` are the
+        physical params. ``parameter_names`` excludes contrast/offset.
+
+    HeterodyneModel
+        ``contrast`` and ``offset`` are named slots inside the 14-element registry
+        vector. ``physical_params`` is the full 14-element vector (the
+        ``compute_g1`` API consumes the whole vector). ``parameter_names`` is the
+        full 14-element registry-ordered name list.
+    """
+    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.homodyne_model import HomodyneModel
+
+    if isinstance(model, HomodyneModel):
+        params = np.asarray(result.parameters, dtype=float)
+        if params.size < 3:
+            raise ValueError(
+                f"HomodyneModel needs >=3 params (contrast, offset, physical...); got {params.size}"
+            )
+        names = list(
+            getattr(
+                model,
+                "parameter_names",
+                getattr(
+                    getattr(model, "model", None), "parameter_names", ["D0", "alpha", "D_offset"]
+                ),
+            )
+        )
+        return float(params[0]), float(params[1]), params[2:].copy(), names
+
+    if isinstance(model, HeterodyneModel):
+        params = np.asarray(result.parameters, dtype=float)
+        names = list(model.parameter_names)
+        if "contrast" in names and "offset" in names:
+            c = float(params[names.index("contrast")])
+            o = float(params[names.index("offset")])
+        else:
+            c, o = float(params[0]), float(params[1])
+        return c, o, params.copy(), names
+
+    raise TypeError(
+        f"Unsupported model type: {type(model).__name__}. "
+        f"Expected HomodyneModel or HeterodyneModel."
+    )

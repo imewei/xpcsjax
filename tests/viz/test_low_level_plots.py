@@ -5,8 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
+import pytest
 
-from xpcsjax.viz.nlsq_plots import _save_fig
+from xpcsjax.viz.nlsq_plots import _save_fig, _unpack_result_params
 
 
 def test_save_fig_with_none_is_noop() -> None:
@@ -32,3 +34,46 @@ def test_save_fig_creates_parent_dirs(tmp_path: Path) -> None:
     save_path = tmp_path / "nested" / "dir" / "test.png"
     _save_fig(fig, save_path)
     assert save_path.exists()
+
+
+def test_unpack_homodyne(
+    homodyne_model, converged_homodyne_result, minimal_homodyne_config
+) -> None:
+    contrast, offset, physical_params, param_names = _unpack_result_params(
+        homodyne_model, converged_homodyne_result, minimal_homodyne_config
+    )
+    assert contrast == pytest.approx(0.2)
+    assert offset == pytest.approx(1.0)
+    assert physical_params.shape == (3,)
+    np.testing.assert_array_almost_equal(physical_params, [100.0, -0.5, 0.0])
+    assert len(param_names) == 3
+
+
+def test_unpack_heterodyne_keeps_full_vector(heterodyne_model) -> None:
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+
+    result = OptimizationResult(
+        parameters=np.arange(14, dtype=float) * 0.1,
+        uncertainties=np.ones(14) * 0.01,
+        covariance=np.eye(14),
+        chi_squared=1.0,
+        reduced_chi_squared=0.9,
+        convergence_status="converged",
+        iterations=10,
+        execution_time=1.0,
+        device_info={"platform": "cpu"},
+    )
+    config = {"analyzer_parameters": {"dt": 0.1}}
+    contrast, offset, physical_params, param_names = _unpack_result_params(
+        heterodyne_model, result, config
+    )
+    assert physical_params.shape == (14,)
+    assert len(param_names) == 14
+
+
+def test_unpack_unsupported_model_raises() -> None:
+    class FakeModel:
+        pass
+
+    with pytest.raises(TypeError, match="Unsupported model type"):
+        _unpack_result_params(FakeModel(), None, {})  # type: ignore[arg-type]

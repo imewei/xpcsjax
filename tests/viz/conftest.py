@@ -42,15 +42,14 @@ def synthetic_multi_angle_data() -> dict[str, Any]:
         tau = 2.0 + 0.5 * np.sin(np.deg2rad(phi))
         c2_exp[i] = 1.0 + 0.2 * np.exp(-np.abs(t1g - t2g) / tau)
         c2_exp[i] += rng.normal(scale=0.01, size=(n, n))
-    return {"c2_exp": c2_exp, "phi_angles_list": phi_angles,
-            "t1": t, "t2": t, "dt": dt}
+    return {"c2_exp": c2_exp, "phi_angles_list": phi_angles, "t1": t, "t2": t, "dt": dt}
 
 
 @pytest.fixture
 def minimal_homodyne_config() -> dict[str, Any]:
     return {
         "analyzer_parameters": {
-            "dt": 0.1, "start_frame": 1, "end_frame": 64,
+            "temporal": {"dt": 0.1, "start_frame": 1, "end_frame": 64},
             "scattering": {"wavevector_q": 0.0054},
             "geometry": {"stator_rotor_gap": 2_000_000.0},
         },
@@ -65,18 +64,21 @@ def minimal_homodyne_config() -> dict[str, Any]:
 @pytest.fixture
 def homodyne_model(minimal_homodyne_config):
     from xpcsjax.core.homodyne_model import HomodyneModel
+
     return HomodyneModel(minimal_homodyne_config)
 
 
 @pytest.fixture
 def heterodyne_model():
     from xpcsjax.core.heterodyne_model import HeterodyneModel
+
     return HeterodyneModel()
 
 
 @pytest.fixture
 def converged_homodyne_result():
     from xpcsjax.optimization.nlsq.results import OptimizationResult
+
     n_params = 5
     return OptimizationResult(
         parameters=np.array([0.2, 1.0, 100.0, -0.5, 0.0]),
