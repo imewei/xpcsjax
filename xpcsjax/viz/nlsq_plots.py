@@ -296,3 +296,127 @@ def plot_nlsq_fit(
         _save_fig(fig, save_path)
 
     return fig
+
+
+def plot_residual_map(
+    c2_exp: np.ndarray,
+    c2_fit: np.ndarray,
+    t: np.ndarray | None = None,
+    phi_deg: float | None = None,
+    save_path: Path | str | None = None,
+    figsize: tuple[float, float] = (10, 10),
+) -> Figure:
+    """Four-panel residual diagnostic.
+
+    Layout (2x2):
+        [0,0] Residual Map (RdBu_r heatmap)
+        [0,1] Residual Distribution (histogram + Normal overlay)
+        [1,0] Diagonal Residuals (line trace along t1 = t2)
+        [1,1] Residuals vs Fitted (scatter)
+
+    Parameters
+    ----------
+    c2_exp, c2_fit
+        Experimental and fitted correlation surfaces, shape ``(n_t1, n_t2)``.
+    t
+        Optional time axis. Falls back to index axis when None.
+    phi_deg
+        Optional phi for super-title.
+    save_path
+        If provided, saved and closed; else returned.
+    figsize
+        Matplotlib figsize in inches.
+
+    Returns
+    -------
+    Figure
+        The matplotlib Figure (open if save_path is None, closed otherwise).
+    """
+    fig, axes = plt.subplots(2, 2, figsize=figsize)
+
+    if c2_exp.size == 0 or c2_fit.size == 0:
+        fig.suptitle("No data available")
+        if save_path is not None:
+            _save_fig(fig, save_path)
+        return fig
+
+    residuals = c2_exp - c2_fit
+    n_t = residuals.shape[0]
+    t_arr = np.asarray(t) if t is not None else np.arange(n_t, dtype=float)
+    extent = (float(t_arr[0]), float(t_arr[-1]), float(t_arr[0]), float(t_arr[-1]))
+
+    # [0,0] Residual Map
+    finite_r = residuals[np.isfinite(residuals)]
+    vmax = float(np.nanpercentile(np.abs(finite_r), 99)) if finite_r.size > 0 else 1.0
+    if vmax == 0.0 or not np.isfinite(vmax):
+        vmax = 1.0
+    im = axes[0, 0].imshow(
+        residuals,
+        origin="lower",
+        extent=extent,
+        aspect="auto",
+        cmap="RdBu_r",
+        vmin=-vmax,
+        vmax=vmax,
+    )
+    axes[0, 0].set_title("Residual Map")
+    axes[0, 0].set_xlabel("t₂")
+    axes[0, 0].set_ylabel("t₁")
+    plt.colorbar(im, ax=axes[0, 0])
+
+    # [0,1] Histogram + Normal overlay
+    flat_finite = residuals.ravel()[np.isfinite(residuals.ravel())]
+    if flat_finite.size > 0:
+        axes[0, 1].hist(flat_finite, bins=50, density=True, alpha=0.7)
+    else:
+        axes[0, 1].text(
+            0.5,
+            0.5,
+            "No finite residuals",
+            ha="center",
+            va="center",
+            transform=axes[0, 1].transAxes,
+        )
+    axes[0, 1].set_xlabel("Residual Value")
+    axes[0, 1].set_ylabel("Density")
+    axes[0, 1].set_title("Residual Distribution")
+    mu = float(np.nanmean(residuals)) if flat_finite.size > 0 else 0.0
+    sigma = float(np.nanstd(residuals)) if flat_finite.size > 0 else 0.0
+    if np.isfinite(sigma) and sigma > 0:
+        x = np.linspace(mu - 4 * sigma, mu + 4 * sigma, 200)
+        pdf = np.exp(-((x - mu) ** 2) / (2 * sigma**2)) / (sigma * np.sqrt(2 * np.pi))
+        axes[0, 1].plot(
+            x,
+            pdf,
+            "r-",
+            lw=2,
+            label=f"Normal(μ={mu:.2e}, σ={sigma:.2e})",
+        )
+        axes[0, 1].legend()
+
+    # [1,0] Diagonal residuals
+    diag = np.diag(residuals)
+    axes[1, 0].plot(t_arr, diag, "b-", lw=1)
+    axes[1, 0].axhline(0, color="k", linestyle="--", alpha=0.5)
+    axes[1, 0].set_xlabel("Time")
+    axes[1, 0].set_ylabel("Residual")
+    axes[1, 0].set_title("Diagonal Residuals")
+
+    # [1,1] Residuals vs Fitted
+    axes[1, 1].scatter(c2_fit.ravel(), residuals.ravel(), alpha=0.1, s=1)
+    axes[1, 1].axhline(0, color="r", linestyle="--")
+    axes[1, 1].set_xlabel("Fitted Value")
+    axes[1, 1].set_ylabel("Residual")
+    axes[1, 1].set_title("Residuals vs Fitted")
+
+    if phi_deg is not None:
+        fig.suptitle(
+            f"NLSQ Residual Diagnostics  (φ={phi_deg:.1f}°)",
+            fontsize=12,
+            fontweight="bold",
+        )
+
+    fig.tight_layout()
+    if save_path is not None:
+        _save_fig(fig, save_path)
+    return fig

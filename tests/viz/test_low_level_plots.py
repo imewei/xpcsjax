@@ -13,6 +13,7 @@ from xpcsjax.viz.nlsq_plots import (
     _save_fig,
     _unpack_result_params,
     plot_nlsq_fit,
+    plot_residual_map,
 )
 
 
@@ -247,3 +248,42 @@ def test_plot_nlsq_fit_accepts_t_none(synthetic_single_angle_data) -> None:
     fig = plot_nlsq_fit(d["c2_exp"], d["c2_exp"] * 0.95, t=None)
     assert len(fig.axes) >= 3
     plt.close(fig)
+
+
+def test_plot_residual_map_four_main_axes(synthetic_single_angle_data) -> None:
+    d = synthetic_single_angle_data
+    fig = plot_residual_map(d["c2_exp"], d["c2_exp"] * 0.95, t=d["t"], phi_deg=45.0)
+    assert len(fig.axes) >= 4
+    plt.close(fig)
+
+
+def test_plot_residual_map_histogram_normal_overlay(
+    synthetic_single_angle_data,
+) -> None:
+    d = synthetic_single_angle_data
+    fig = plot_residual_map(d["c2_exp"], d["c2_exp"] * 0.95, t=d["t"])
+    hist_axes = [ax for ax in fig.axes if "Distribution" in ax.get_title()]
+    assert len(hist_axes) == 1
+    legend = hist_axes[0].get_legend()
+    assert legend is not None
+    label = legend.get_texts()[0].get_text()
+    assert "Normal" in label and "μ" in label and "σ" in label
+    plt.close(fig)
+
+
+def test_plot_residual_map_all_nan_residuals(synthetic_single_angle_data) -> None:
+    d = synthetic_single_angle_data
+    exp_nan = np.full_like(d["c2_exp"], np.nan)
+    fig = plot_residual_map(exp_nan, exp_nan, t=d["t"])
+    plt.close(fig)
+
+
+def test_plot_residual_map_save_path_writes_png(
+    synthetic_single_angle_data, tmp_path: Path
+) -> None:
+    d = synthetic_single_angle_data
+    save_path = tmp_path / "residuals.png"
+    plot_residual_map(d["c2_exp"], d["c2_exp"] * 0.95, t=d["t"], save_path=save_path)
+    assert save_path.exists()
+    with open(save_path, "rb") as f:
+        assert f.read(4) == b"\x89PNG"
