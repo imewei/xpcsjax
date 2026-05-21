@@ -315,3 +315,49 @@ def test_plot_simulated_data_save_path_writes_png(
     assert save_path.exists()
     with open(save_path, "rb") as f:
         assert f.read(4) == b"\x89PNG"
+
+
+@pytest.mark.mpl_image_compare(
+    baseline_dir="baseline",
+    filename="plot_nlsq_fit_baseline.png",
+    tolerance=0.5,
+    style="default",
+)
+def test_plot_nlsq_fit_snapshot(synthetic_single_angle_data):
+    d = synthetic_single_angle_data
+    return plot_nlsq_fit(
+        d["c2_exp"],
+        d["c2_exp"] * 0.95,
+        t=d["t"],
+        phi_deg=45.0,
+        reduced_chi_squared=0.906,
+    )
+
+
+@pytest.mark.mpl_image_compare(
+    baseline_dir="baseline",
+    filename="plot_residual_map_baseline.png",
+    tolerance=0.5,
+    style="default",
+)
+def test_plot_residual_map_snapshot(synthetic_single_angle_data):
+    d = synthetic_single_angle_data
+    return plot_residual_map(d["c2_exp"], d["c2_exp"] * 0.95, t=d["t"], phi_deg=45.0)
+
+
+@pytest.mark.mpl_image_compare(
+    baseline_dir="baseline",
+    filename="plot_simulated_data_baseline.png",
+    tolerance=0.5,
+    style="default",
+)
+def test_plot_simulated_data_snapshot(synthetic_single_angle_data):
+    d = synthetic_single_angle_data
+    return plot_simulated_data(
+        d["c2_exp"],
+        t=d["t"],
+        phi_deg=45.0,
+        contrast=0.2,
+        offset=1.0,
+        analysis_mode="static_isotropic",
+    )
