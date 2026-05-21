@@ -44,9 +44,7 @@ def _resolve_color_limits(
     return vmin, vmax
 
 
-def _save_fig(
-    fig: Figure, save_path: Path | str | None, dpi: int = 150,
-) -> None:
+def _save_fig(fig: Figure, save_path: Path | str | None, dpi: int = 150) -> None:
     """Save figure to disk and close. No-op when ``save_path`` is None.
 
     Creates parent directories as needed. Logs the saved path at INFO level.
