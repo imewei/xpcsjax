@@ -1,10 +1,7 @@
-"""Diagnostic statistics for NLSQ visualization in xpcsjax.
+"""Diagonal-overlay diagnostic helpers.
 
-Placeholder module. Public symbols are populated in subsequent tasks of the
-NLSQ visualization implementation plan.
+Symbols defined here are wired into ``xpcsjax.viz``'s lazy export map by
+Task 15.
 """
 
-__all__ = [
-    "DiagonalOverlayResult",
-    "compute_diagonal_overlay_stats",
-]
+from __future__ import annotations

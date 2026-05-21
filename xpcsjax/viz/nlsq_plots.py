@@ -1,12 +1,7 @@
-"""NLSQ fit plotting utilities for xpcsjax.
+"""NLSQ fit visualization and artifact serialization.
 
-Placeholder module. Public symbols are populated in subsequent tasks of the
-NLSQ visualization implementation plan.
+Symbols defined here are wired into ``xpcsjax.viz``'s lazy export map by later
+tasks (Task 2 onward).
 """
 
-__all__ = [
-    "plot_nlsq_fit",
-    "plot_residual_map",
-    "plot_simulated_data",
-    "generate_nlsq_plots",
-]
+from __future__ import annotations
