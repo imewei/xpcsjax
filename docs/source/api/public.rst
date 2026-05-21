@@ -1,7 +1,7 @@
 Public API
 ==========
 
-The six symbols exposed on the top-level :mod:`xpcsjax` namespace. All six
+The seven symbols exposed on the top-level :mod:`xpcsjax` namespace. All seven
 are lazy-loaded: the package's ``__getattr__`` only resolves a name on first
 access, which keeps the JAX import out of the path until you actually need
 it.
@@ -36,6 +36,9 @@ Summary
    * - :class:`xpcsjax.optimization.nlsq.results.OptimizationResult`
      - dataclass
      - :mod:`xpcsjax.optimization.nlsq.results`
+   * - :func:`xpcsjax.viz.nlsq_plots.generate_nlsq_plots`
+     - function
+     - :mod:`xpcsjax.viz`
 
 The mapping above is the verbatim ``_LAZY_EXPORTS`` table in
 ``xpcsjax/__init__.py``. Adding a public symbol means (a) adding to
@@ -54,3 +57,7 @@ Detailed documentation lives at the canonical module paths:
   :class:`xpcsjax.core.HeterodyneModel`.
 * :doc:`results` for :class:`xpcsjax.optimization.nlsq.results.OptimizationResult`
   and the related result dataclasses.
+* :doc:`viz` for :func:`xpcsjax.viz.nlsq_plots.generate_nlsq_plots`, the three
+  low-level plot functions, :class:`xpcsjax.viz.diagnostics.DiagonalOverlayResult`,
+  :func:`xpcsjax.viz.diagnostics.compute_diagonal_overlay_stats`, and the optional
+  Datashader backend.

@@ -76,14 +76,14 @@ Where to go next
       :link: api/index
       :link-type: doc
 
-      The six lazy public symbols, plus the submodule surface that backs
+      The seven lazy public symbols, plus the submodule surface that backs
       them. Auto-generated from the live source.
 
 
 Public API at a glance
 ----------------------
 
-The package exposes six symbols, all lazy-loaded via a module-level
+The package exposes seven symbols, all lazy-loaded via a module-level
 ``__getattr__``:
 
 .. list-table::
@@ -108,6 +108,10 @@ The package exposes six symbols, all lazy-loaded via a module-level
    * - :class:`xpcsjax.optimization.nlsq.results.OptimizationResult`
      - Dataclass holding fitted parameters, covariance, χ², diagnostics, and
        quality flags.
+   * - :func:`xpcsjax.viz.nlsq_plots.generate_nlsq_plots`
+     - Generate diagnostic plots and serialize NPZ + JSON artifacts for every
+       φ angle after fitting. Supports homodyne and heterodyne (individual
+       per-angle mode). Optional Datashader fast path + parallel rendering.
 
 See :doc:`api/public` for the full public surface and :doc:`api/index` for
 the per-submodule autodoc reference.

@@ -2,7 +2,7 @@ API reference
 =============
 
 Reference for every public symbol xpcsjax ships, grouped by submodule. The
-top-level page :doc:`public` walks through the six lazy-loaded names exposed
+top-level page :doc:`public` walks through the seven lazy-loaded names exposed
 on :mod:`xpcsjax` itself; the per-submodule pages document the underlying
 implementation surface.
 
@@ -15,3 +15,4 @@ implementation surface.
    core
    optimization
    results
+   viz
