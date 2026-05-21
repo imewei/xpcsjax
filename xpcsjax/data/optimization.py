@@ -318,7 +318,7 @@ class DatasetOptimizer:
 
         Args:
             dataset_info: Dataset analysis results
-            method: Processing method ("nlsq" or "cmc")
+            method: Processing method ("nlsq")
 
         Returns:
             Dictionary with time estimates
@@ -326,8 +326,6 @@ class DatasetOptimizer:
         # Base processing rates (points per second) based on empirical measurements
         if method.lower() == "nlsq":
             base_rate = 100000 if JAX_AVAILABLE else 20000  # NLSQ fast with JAX
-        elif method.lower() == "cmc":
-            base_rate = 5000 if JAX_AVAILABLE else 500  # CMC+JAX vs numpy fallback
         else:
             base_rate = 1000
 
@@ -540,7 +538,7 @@ class AdvancedDatasetOptimizer:
         Args:
             data, sigma, t1, t2, phi: Input arrays
             hdf_path: Optional path to HDF5 file for memory-mapped access
-            method: Processing method ("nlsq" or "cmc")
+            method: Processing method ("nlsq")
             **kwargs: Additional optimization parameters
 
         Returns:
@@ -711,14 +709,6 @@ class AdvancedDatasetOptimizer:
                     "cpu_memory_optimization": JAX_AVAILABLE,
                 },
             )
-        elif method.lower() == "cmc":
-            chunking_config.update(
-                {
-                    "chunk_overlap": 0.05,  # 5% overlap for CMC
-                    "conservative_sizing": True,
-                    "chain_continuity_preservation": True,
-                },
-            )
 
         # Add performance-based adaptations
         if len(self._optimization_history) > 5:
@@ -752,10 +742,7 @@ class AdvancedDatasetOptimizer:
 
             # Predict next operation based on common patterns
             if method == "nlsq" and dataset_size > 1000000:
-                # NLSQ on large datasets often followed by CMC refinement
-                logger.debug(
-                    "Scheduling background optimization for potential CMC follow-up",
-                )
+                pass  # reserved for future background scheduling
 
         except Exception as e:
             logger.warning(f"Background optimization scheduling failed: {e}")
@@ -866,7 +853,7 @@ def optimize_for_method_advanced(
 
     Args:
         data, sigma, t1, t2, phi: Input arrays
-        method: "nlsq" or "cmc"
+        method: "nlsq"
         hdf_path: Optional HDF5 file path for memory-mapped access
         config: Advanced optimization configuration
         **kwargs: Additional optimization parameters
