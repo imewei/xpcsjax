@@ -1,4 +1,12 @@
 {
+  "/home/wei/Documents/GitHub/xpcsjax/docs/_build/html/_static/scripts/furo.js": {
+    "mtime": 1778215553.1038508,
+    "hash": "8115f36b8bd7402803751e8cd4055891"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/docs/_build/html/_static/scripts/furo-extensions.js": {
+    "mtime": 1778215553.0198512,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/conf.py": {
     "mtime": 1779238835.630476,
     "hash": "a47163357542b306fb3219c8515c186e"
@@ -699,6 +707,10 @@
     "mtime": 1779153883.8237872,
     "hash": "ab8f74bd18de1ee6808fe00164f66635"
   },
+  "/home/wei/Documents/GitHub/xpcsjax/docs/_build/html/_static/scripts/furo.js.LICENSE.txt": {
+    "mtime": 1778215553.1038508,
+    "hash": "7bbc9f9fc90fbe3bd69de1b43bc8a6be"
+  },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/quickstart.rst": {
     "mtime": 1779237474.1044652,
     "hash": "9fb7b88732159771c0d36da3bb8c12a9"
@@ -708,12 +720,12 @@
     "hash": "ec09dfe680aa4587e5b40e64577e9695"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/changelog.rst": {
-    "mtime": 1779237474.1034653,
-    "hash": "e62c65b0e05374427c297254556c3d5f"
+    "mtime": 1779401452.7276726,
+    "hash": "53968dcfea8a5879d8fc315bf23bf27a"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/index.rst": {
-    "mtime": 1779237474.1044652,
-    "hash": "7ec546e17a3bb8ef5be0278d5b5fb387"
+    "mtime": 1779401434.9947476,
+    "hash": "0183883c5e39210b8914dc9bc18f431d"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/development/porting_notes.rst": {
     "mtime": 1779237474.0954652,
@@ -823,6 +835,10 @@
     "mtime": 1779237474.1004653,
     "hash": "e9e2003a52c5e6c55e0c8ec58576046f"
   },
+  "/home/wei/Documents/GitHub/xpcsjax/docs/source/api/viz.rst": {
+    "mtime": 1779401479.4355612,
+    "hash": "2cd5891a490aabd58f74d33ca113f552"
+  },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/api/data.rst": {
     "mtime": 1779237474.1004653,
     "hash": "9245dbb348a7df47f5ae39c15770b6b2"
@@ -836,12 +852,12 @@
     "hash": "9c470214cd4fbe361b419a88bdeeaa8d"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/api/public.rst": {
-    "mtime": 1779237491.1265345,
-    "hash": "4e3b20dab279a0ecdb08126047d4fd11"
+    "mtime": 1779401415.764808,
+    "hash": "688d3fdbbe5f0665a8a8d4e1ae67509c"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/api/index.rst": {
-    "mtime": 1779238252.4387121,
-    "hash": "1f7c3b22a1f8484bc362f477e6d95a54"
+    "mtime": 1779401398.944854,
+    "hash": "6d5eb9ae7973793482e4df2bed8314c5"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/examples/heterodyne_multiangle.rst": {
     "mtime": 1779237474.1004653,
