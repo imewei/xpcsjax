@@ -7,6 +7,7 @@ tasks (Task 2 onward).
 from __future__ import annotations
 
 import io
+import json
 import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -14,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import matplotlib.pyplot as plt
 import numpy as np
 
+from xpcsjax.io.json_utils import json_serializer
 from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -587,3 +589,102 @@ def _write_npz_compressed(
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)
         raise
+
+
+def _save_fit_artifacts(
+    *,
+    c2_exp: np.ndarray,
+    c2_fitted: np.ndarray,
+    residuals: np.ndarray,
+    phi_angles: np.ndarray,
+    t1: np.ndarray,
+    t2: np.ndarray,
+    q: float,
+    L: float,
+    dt: float,
+    params: np.ndarray,
+    uncertainties: np.ndarray,
+    parameter_names: list[str],
+    contrast: float,
+    offset: float,
+    reduced_chi_squared: float,
+    convergence_status: str,
+    iterations: int,
+    execution_time: float,
+    analysis_mode: str,
+    output_dir: Path,
+    compression: Literal["lzma", "deflate", "none"] = "lzma",
+) -> None:
+    """Serialize fitted artifacts: NPZ (numerical) + JSON (metadata + strings).
+
+    LZMA OSError/MemoryError automatically falls back to DEFLATE-9 with a
+    logged warning. JSON is written atomically (tmp + rename) to mirror the
+    NPZ guarantee that mid-write failures leave no stale files.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    npz_path = output_dir / "c2_fitted_data.npz"
+    json_path = output_dir / "simulation_config_fitted.json"
+
+    arrays = {
+        "c2_exp": c2_exp,
+        "c2_fitted": c2_fitted,
+        "residuals": residuals,
+        "phi_angles": phi_angles,
+        "t1": t1,
+        "t2": t2,
+        "q": np.float64(q),
+        "params": params,
+        "contrast": np.float64(contrast),
+        "offset": np.float64(offset),
+        "reduced_chi_squared": np.float64(reduced_chi_squared),
+    }
+
+    try:
+        _write_npz_compressed(npz_path, arrays, compression=compression)
+    except (OSError, MemoryError) as e:
+        if compression == "lzma":
+            logger.warning("LZMA compression failed (%s); falling back to DEFLATE-9", e)
+            _write_npz_compressed(npz_path, arrays, compression="deflate")
+        else:
+            raise
+
+    meta = {
+        "fit": {
+            "parameters": {
+                "values": [float(v) for v in np.asarray(params).ravel()],
+                "uncertainties": [float(v) for v in np.asarray(uncertainties).ravel()],
+                "names": list(parameter_names),
+            },
+            "contrast": float(contrast),
+            "offset": float(offset),
+            "reduced_chi_squared": float(reduced_chi_squared),
+            "convergence_status": str(convergence_status),
+            "iterations": int(iterations),
+            "execution_time": float(execution_time),
+        },
+        "physics": {
+            "q_value_angstrom_inv": float(q),
+            "stator_rotor_gap_angstrom": float(L),
+            "dt": float(dt),
+            "analysis_mode": str(analysis_mode),
+        },
+        "data": {
+            "n_phi": int(phi_angles.shape[0]),
+            "n_t1": int(t1.shape[0]),
+            "n_t2": int(t2.shape[0]),
+            "phi_angles_deg": [float(p) for p in np.asarray(phi_angles).ravel()],
+        },
+    }
+
+    tmp_json = json_path.with_suffix(json_path.suffix + ".tmp")
+    try:
+        with open(tmp_json, "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2, default=json_serializer)
+        tmp_json.replace(json_path)
+    except BaseException:
+        if tmp_json.exists():
+            tmp_json.unlink(missing_ok=True)
+        raise
+
+    logger.info("Wrote fit artifacts to %s", output_dir)
