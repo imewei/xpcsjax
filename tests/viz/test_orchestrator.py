@@ -135,3 +135,147 @@ def test_orchestrator_heterodyne_raises_notimplemented(
             config=config,
             output_dir=tmp_path,
         )
+
+
+def test_unknown_plot_family_raises(
+    tmp_path,
+    homodyne_model,
+    converged_homodyne_result,
+    synthetic_multi_angle_data,
+    minimal_homodyne_config,
+):
+    with pytest.raises(ValueError, match="Unknown plot families"):
+        generate_nlsq_plots(
+            model=homodyne_model,
+            result=converged_homodyne_result,
+            data=synthetic_multi_angle_data,
+            config=minimal_homodyne_config,
+            output_dir=tmp_path,
+            plots=("comparison", "bogus"),
+        )
+
+
+def test_invalid_compression_raises(
+    tmp_path,
+    homodyne_model,
+    converged_homodyne_result,
+    synthetic_multi_angle_data,
+    minimal_homodyne_config,
+):
+    with pytest.raises(ValueError, match="compression"):
+        generate_nlsq_plots(
+            model=homodyne_model,
+            result=converged_homodyne_result,
+            data=synthetic_multi_angle_data,
+            config=minimal_homodyne_config,
+            output_dir=tmp_path,
+            compression="brotli",  # type: ignore[arg-type]
+        )
+
+
+def test_missing_c2_exp_raises(
+    tmp_path,
+    homodyne_model,
+    converged_homodyne_result,
+    synthetic_multi_angle_data,
+    minimal_homodyne_config,
+):
+    bad_data = {k: v for k, v in synthetic_multi_angle_data.items() if k != "c2_exp"}
+    with pytest.raises(ValueError, match="c2_exp"):
+        generate_nlsq_plots(
+            model=homodyne_model,
+            result=converged_homodyne_result,
+            data=bad_data,
+            config=minimal_homodyne_config,
+            output_dir=tmp_path,
+        )
+
+
+def test_c2_exp_shape_mismatch_raises(
+    tmp_path,
+    homodyne_model,
+    converged_homodyne_result,
+    synthetic_multi_angle_data,
+    minimal_homodyne_config,
+):
+    bad_data = dict(synthetic_multi_angle_data)
+    bad_data["c2_exp"] = bad_data["c2_exp"][:, :10, :10]
+    with pytest.raises(ValueError, match="c2_exp.shape"):
+        generate_nlsq_plots(
+            model=homodyne_model,
+            result=converged_homodyne_result,
+            data=bad_data,
+            config=minimal_homodyne_config,
+            output_dir=tmp_path,
+        )
+
+
+def test_missing_q_raises(
+    tmp_path,
+    homodyne_model,
+    converged_homodyne_result,
+    synthetic_multi_angle_data,
+):
+    bad_config = {"analyzer_parameters": {"dt": 0.1}}
+    with pytest.raises(ValueError, match="wavevector_q"):
+        generate_nlsq_plots(
+            model=homodyne_model,
+            result=converged_homodyne_result,
+            data=synthetic_multi_angle_data,
+            config=bad_config,
+            output_dir=tmp_path,
+        )
+
+
+def test_unsupported_model_raises(
+    tmp_path,
+    converged_homodyne_result,
+    synthetic_multi_angle_data,
+    minimal_homodyne_config,
+):
+    class FakeModel:
+        pass
+
+    with pytest.raises(TypeError, match="Unsupported model type"):
+        generate_nlsq_plots(
+            model=FakeModel(),  # type: ignore[arg-type]
+            result=converged_homodyne_result,
+            data=synthetic_multi_angle_data,
+            config=minimal_homodyne_config,
+            output_dir=tmp_path,
+        )
+
+
+def test_orchestrator_fail_soft_on_bad_angle(
+    tmp_path,
+    homodyne_model,
+    converged_homodyne_result,
+    synthetic_multi_angle_data,
+    minimal_homodyne_config,
+    monkeypatch,
+):
+    """One angle's compute failure leaves NaN; others render; NPZ still written."""
+    from xpcsjax.viz import nlsq_plots as mod
+
+    call_count = {"n": 0}
+    real = mod._evaluate_c2_per_angle
+
+    def flaky(model, result, data, config, phi_deg):
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            raise RuntimeError("simulated compute failure")
+        return real(model, result, data, config, phi_deg)
+
+    monkeypatch.setattr(mod, "_evaluate_c2_per_angle", flaky)
+
+    generate_nlsq_plots(
+        model=homodyne_model,
+        result=converged_homodyne_result,
+        data=synthetic_multi_angle_data,
+        config=minimal_homodyne_config,
+        output_dir=tmp_path,
+    )
+    loaded = np.load(tmp_path / "simulated_data" / "c2_fitted_data.npz")
+    assert np.all(np.isnan(loaded["c2_fitted"][1]))
+    for i in [0, 2, 3]:
+        assert np.all(np.isfinite(loaded["c2_fitted"][i]))
