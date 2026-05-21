@@ -380,3 +380,15 @@ def test_use_datashader_without_install_falls_back(
     assert any("viz-fast" in r.message for r in caplog.records)
     for phi in synthetic_multi_angle_data["phi_angles_list"]:
         assert (tmp_path / f"c2_heatmaps_phi_{phi:.1f}deg.png").exists()
+
+
+def test_homodyne_model_no_legacy_plot_methods():
+    """plot_simulated_data and _generate_heatmap_plots were removed in favor of xpcsjax.viz."""
+    from xpcsjax.core.homodyne_model import HomodyneModel
+
+    assert not hasattr(HomodyneModel, "plot_simulated_data"), (
+        "HomodyneModel.plot_simulated_data was removed — use xpcsjax.viz.plot_simulated_data instead"
+    )
+    assert not hasattr(HomodyneModel, "_generate_heatmap_plots"), (
+        "HomodyneModel._generate_heatmap_plots was removed — use xpcsjax.viz.generate_nlsq_plots instead"
+    )

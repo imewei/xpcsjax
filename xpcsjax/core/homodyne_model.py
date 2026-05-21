@@ -26,11 +26,10 @@ Usage Example
 >>> phi_angles = np.array([0, 30, 45, 60, 90])
 >>> c2 = model.compute_c2(params, phi_angles)
 >>>
->>> # Or use convenience method
->>> model.plot_simulated_data(params, phi_angles, output_dir="./results")
+>>> # For plotting, use the viz module:
+>>> from xpcsjax.viz import plot_simulated_data
+>>> plot_simulated_data(c2, phi_angles, output_dir="./results")
 """
-
-from pathlib import Path
 
 import numpy as np
 
@@ -86,10 +85,6 @@ class HomodyneModel:
 
     >>> model = HomodyneModel(config)
     >>> c2 = model.compute_c2(params, phi_angles)
-
-    With plotting:
-
-    >>> model.plot_simulated_data(params, phi_angles, output_dir="./results")
 
     Access configuration:
 
@@ -270,155 +265,6 @@ class HomodyneModel:
         c2 = self.compute_c2(params, np.array([phi]), contrast, offset)
         result: np.ndarray = c2[0]
         return result
-
-    def plot_simulated_data(
-        self,
-        params: np.ndarray,
-        phi_angles: np.ndarray,
-        output_dir: str = "./simulated_data",
-        contrast: float = 0.5,
-        offset: float = 1.0,
-        generate_plots: bool = True,
-    ) -> tuple[np.ndarray, Path]:
-        """Generate and optionally plot simulated C2 data.
-
-        This convenience method:
-        1. Computes C2 using stored configuration
-        2. Optionally generates heatmap plots for each angle
-        3. Saves data to NumPy file
-        4. Returns both data and output path
-
-        Parameters
-        ----------
-        params : np.ndarray
-            Physical parameters
-        phi_angles : np.ndarray
-            Scattering angles [degrees]
-        output_dir : str, default="./simulated_data"
-            Output directory for plots and data
-        contrast : float, default=0.5
-            Contrast parameter
-        offset : float, default=1.0
-            Baseline offset
-        generate_plots : bool, default=True
-            Whether to generate heatmap plots
-
-        Returns
-        -------
-        tuple of (np.ndarray, Path)
-            (c2_data, output_path)
-            - c2_data: Computed correlation matrices
-            - output_path: Path to saved data file
-
-        Examples
-        --------
-        >>> model = HomodyneModel(config)
-        >>> c2_data, output_path = model.plot_simulated_data(
-        ...     params, phi_angles, output_dir="./results"
-        ... )
-        >>> print(f"Data saved to: {output_path}")
-        """
-        # Create output directory
-        output_path = Path(output_dir)
-        output_path.mkdir(parents=True, exist_ok=True)
-
-        # Compute C2
-        logger.info(f"Computing C2 for {len(phi_angles)} angles...")
-        c2_data = self.compute_c2(params, phi_angles, contrast, offset)
-
-        # Save data
-        data_file = output_path / "c2_simulated_data.npz"
-        np.savez_compressed(
-            data_file,
-            c2_data=c2_data,
-            phi_angles=phi_angles,
-            time_array=np.array(self.time_array),
-            params=params,
-            contrast=contrast,
-            offset=offset,
-            dt=self.dt,
-            **{f"pf_{k}": v for k, v in self.physics_factors.to_dict().items()},
-        )
-        logger.info(f"Saved data to: {data_file}")
-
-        # Generate plots if requested
-        if generate_plots:
-            try:
-                self._generate_heatmap_plots(
-                    c2_data,
-                    phi_angles,
-                    output_path,
-                    contrast,
-                    offset,
-                )
-            except Exception as e:
-                logger.warning(f"Failed to generate plots: {e}")
-                logger.warning("Data was saved successfully, continuing...")
-
-        return c2_data, data_file
-
-    def _generate_heatmap_plots(
-        self,
-        c2_data: np.ndarray,
-        phi_angles: np.ndarray,
-        output_dir: Path,
-        contrast: float,
-        offset: float,
-    ) -> None:
-        """Generate heatmap plots for C2 data."""
-        try:
-            import matplotlib.pyplot as plt
-        except ImportError:
-            logger.warning("matplotlib not available, skipping plots")
-            return
-
-        logger.info(f"Generating heatmap plots for {len(phi_angles)} angles...")
-
-        for i, phi in enumerate(phi_angles):
-            c2_matrix = c2_data[i]
-
-            # Create figure
-            fig, ax = plt.subplots(figsize=(8, 6))
-
-            # Create heatmap with fixed color scale [1.0, 1.5]
-            im = ax.imshow(
-                c2_matrix,
-                aspect="equal",
-                origin="lower",
-                extent=(
-                    float(self.time_array[0]),
-                    float(self.time_array[-1]),
-                    float(self.time_array[0]),
-                    float(self.time_array[-1]),
-                ),
-                cmap="jet",
-                vmin=1.0,
-                vmax=1.5,
-            )
-
-            # Add colorbar
-            cbar = plt.colorbar(im, ax=ax)
-            cbar.set_label("C₂(t₁, t₂)", fontsize=12)
-
-            # Set labels and title
-            ax.set_xlabel("t₁ (s)", fontsize=12)
-            ax.set_ylabel("t₂ (s)", fontsize=12)
-            ax.set_title(
-                f"Simulated C₂ Correlation Function (φ = {phi:.1f}°)\n"
-                f"contrast={contrast}, offset={offset}",
-                fontsize=14,
-            )
-
-            # Save plot
-            filename = f"c2_simulated_phi_{phi:.1f}deg.png"
-            filepath = output_dir / filename
-            plt.tight_layout()
-            plt.savefig(filepath, dpi=300, bbox_inches="tight")
-            plt.close(fig)
-
-            logger.debug(f"  Saved: {filename}")
-
-        logger.info(f"Generated {len(phi_angles)} heatmap plots")
 
     def _extract_config(self, config: dict) -> None:
         """Extract and validate configuration parameters."""
