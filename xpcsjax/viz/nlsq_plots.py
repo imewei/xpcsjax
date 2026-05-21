@@ -10,6 +10,7 @@ import io
 import json
 import multiprocessing
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -539,7 +540,7 @@ _COMPRESSION_MAP = {
 
 def _write_npz_compressed(
     path: Path,
-    arrays: dict[str, np.ndarray],
+    arrays: Mapping[str, np.ndarray | np.floating | np.integer],
     *,
     compression: Literal["lzma", "deflate", "none"] = "lzma",
 ) -> None:
@@ -627,7 +628,7 @@ def _save_fit_artifacts(
     npz_path = output_dir / "c2_fitted_data.npz"
     json_path = output_dir / "simulation_config_fitted.json"
 
-    arrays = {
+    arrays: dict[str, np.ndarray | np.floating | np.integer] = {
         "c2_exp": c2_exp,
         "c2_fitted": c2_fitted,
         "residuals": residuals,
