@@ -345,3 +345,38 @@ def test_parallel_fallback_on_pool_failure(
     )
     for phi in synthetic_multi_angle_data["phi_angles_list"]:
         assert (tmp_path / f"c2_heatmaps_phi_{phi:.1f}deg.png").exists()
+
+
+def test_use_datashader_without_install_falls_back(
+    tmp_path,
+    homodyne_model,
+    converged_homodyne_result,
+    synthetic_multi_angle_data,
+    minimal_homodyne_config,
+    monkeypatch,
+    caplog,
+):
+    """If datashader is missing, orchestrator warns and uses matplotlib."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "xpcsjax.viz.datashader_backend":
+            raise ImportError("simulated missing datashader")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    with caplog.at_level("WARNING", logger="xpcsjax.viz.nlsq_plots"):
+        generate_nlsq_plots(
+            model=homodyne_model,
+            result=converged_homodyne_result,
+            data=synthetic_multi_angle_data,
+            config=minimal_homodyne_config,
+            output_dir=tmp_path,
+            use_datashader=True,
+        )
+    assert any("viz-fast" in r.message for r in caplog.records)
+    for phi in synthetic_multi_angle_data["phi_angles_list"]:
+        assert (tmp_path / f"c2_heatmaps_phi_{phi:.1f}deg.png").exists()
