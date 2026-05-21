@@ -84,25 +84,41 @@ def _unpack_result_params(
             raise ValueError(
                 f"HomodyneModel needs >=3 params (contrast, offset, physical...); got {params.size}"
             )
-        names = list(
-            getattr(
-                model,
-                "parameter_names",
-                getattr(
-                    getattr(model, "model", None), "parameter_names", ["D0", "alpha", "D_offset"]
-                ),
+        # Resolve names from either the wrapper or its inner CombinedModel; no
+        # hardcoded fallback — if upstream refactors so neither attribute exists,
+        # the AttributeError surfaces the real bug instead of silently lying.
+        names_obj = getattr(model, "parameter_names", None)
+        if names_obj is None:
+            inner = getattr(model, "model", None)
+            names_obj = getattr(inner, "parameter_names", None)
+        if names_obj is None:
+            raise AttributeError(
+                "HomodyneModel exposes no parameter_names (neither directly "
+                "nor via .model). xpcsjax viz cannot label physical parameters."
             )
-        )
-        return float(params[0]), float(params[1]), params[2:].copy(), names
+        full_names = list(names_obj)
+        physical_params = params[2:].copy()
+        # Slice names to match the actual physical-param count. In static mode
+        # the inner CombinedModel has 3 names and physical_params is length 3;
+        # in laminar_flow it has 7 names and physical_params is length 7 — so
+        # the slice is a no-op in valid cases. The slice guards against a
+        # length mismatch silently corrupting downstream labels.
+        names = full_names[: physical_params.size]
+        return float(params[0]), float(params[1]), physical_params, names
 
     if isinstance(model, HeterodyneModel):
         params = np.asarray(result.parameters, dtype=float)
         names = list(model.parameter_names)
+        if params.size != len(names):
+            raise ValueError(f"HeterodyneModel expects {len(names)} params; got {params.size}")
         if "contrast" in names and "offset" in names:
             c = float(params[names.index("contrast")])
             o = float(params[names.index("offset")])
         else:
-            c, o = float(params[0]), float(params[1])
+            raise ValueError(
+                "HeterodyneModel parameter_names registry is missing required "
+                "'contrast' and/or 'offset' slots."
+            )
         return c, o, params.copy(), names
 
     raise TypeError(
