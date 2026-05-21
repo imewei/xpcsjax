@@ -15,4 +15,5 @@ chapter scoped to one stage of the pipeline.
    heterodyne_workflow
    nlsq_fitting
    interpreting_results
+   visualization
    troubleshooting

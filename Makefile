@@ -6,7 +6,7 @@
         test test-smoke test-fast test-ci test-ci-full test-coverage test-coverage-parallel \
         test-parallel test-all-parallel test-parallel-fast \
         test-core test-optimization test-heterodyne test-characterization test-property \
-        test-nlsq test-quick \
+        test-viz test-nlsq test-quick \
         format lint type-check check quality quick pre-commit install-hooks \
         security perf-baseline perf-compare \
         benchmark profile-nlsq \
@@ -111,6 +111,7 @@ help:
 	@echo "  $(CYAN)test-heterodyne$(RESET)        Run heterodyne tests only"
 	@echo "  $(CYAN)test-characterization$(RESET)  Run characterization (homodyne-equivalence) tests"
 	@echo "  $(CYAN)test-property$(RESET)          Run property-based tests (Hypothesis)"
+	@echo "  $(CYAN)test-viz$(RESET)               Run viz tests with pytest-mpl snapshot comparison"
 	@echo "  $(CYAN)test-nlsq$(RESET)              Alias for test-optimization"
 	@echo "  $(CYAN)test-quick$(RESET)             Quick tests with minimal output"
 	@echo ""
@@ -306,6 +307,10 @@ test-characterization:
 test-property:
 	@echo "$(BOLD)$(BLUE)Running property-based tests (Hypothesis)...$(RESET)"
 	$(RUN_CMD) $(PYTEST) $(TEST_DIR)/property -v --tb=short
+
+test-viz:
+	@echo "$(BOLD)$(BLUE)Running viz module tests (pytest-mpl snapshot comparison)...$(RESET)"
+	$(RUN_CMD) $(PYTEST) $(TEST_DIR)/viz -v --mpl
 
 test-nlsq: test-optimization
 
