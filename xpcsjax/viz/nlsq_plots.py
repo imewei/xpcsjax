@@ -688,3 +688,230 @@ def _save_fit_artifacts(
         raise
 
     logger.info("Wrote fit artifacts to %s", output_dir)
+
+
+def generate_nlsq_plots(
+    model: Any,
+    result: Any,
+    data: dict[str, Any],
+    config: Any,
+    output_dir: Path | str,
+    *,
+    use_datashader: bool = False,
+    parallel: bool = False,
+    plots: tuple[str, ...] = ("comparison", "residuals", "simulated"),
+    compression: Literal["lzma", "deflate", "none"] = "lzma",
+) -> None:
+    """Generate NLSQ fit plots and serialize fitted artifacts.
+
+    For each phi angle: recompute the fitted c2 surface via model dispatch,
+    write PNG files for the selected plot families, then dump NPZ + JSON
+    artifacts under ``output_dir/simulated_data/``.
+
+    Parameters
+    ----------
+    model
+        Currently only ``HomodyneModel`` is supported. ``HeterodyneModel``
+        raises ``NotImplementedError`` — see Spec Amendment 3 (heterodyne
+        c2 reconstruction needs ``heterodyne_scaling_utils`` integration
+        that's pending).
+    result
+        ``OptimizationResult`` from ``fit_nlsq``.
+    data
+        Dict with keys: ``c2_exp`` (n_phi, n_t1, n_t2), ``phi_angles_list``,
+        ``t1``, ``t2``.
+    config
+        ``ConfigManager`` instance or dict. Must contain
+        ``analyzer_parameters.scattering.wavevector_q``,
+        ``analyzer_parameters.geometry.stator_rotor_gap``,
+        ``analyzer_parameters.dt``, and ``analysis_mode``.
+    output_dir
+        Directory to write into. Created if missing. ``simulated_data/``
+        subdirectory is also created.
+    use_datashader
+        If True and datashader is installed, use the fast preview backend
+        (currently logs a warning and falls back to matplotlib — datashader
+        integration lands in Task 16).
+    parallel
+        If True, render angles in a ``multiprocessing.Pool(spawn)`` — wired
+        in Task 14. Defaults to False (sequential).
+    plots
+        Subset of ``{"comparison", "residuals", "simulated"}``.
+    compression
+        NPZ compression: ``"lzma"`` (default, best ratio), ``"deflate"``,
+        or ``"none"``.
+
+    Raises
+    ------
+    ValueError
+        Unknown plot family, invalid compression, missing required data key,
+        shape mismatch, or missing physics keys in config.
+    TypeError
+        Unsupported model type (not HomodyneModel or HeterodyneModel).
+    NotImplementedError
+        HeterodyneModel is currently deferred (Spec Amendment 3).
+    """
+    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.homodyne_model import HomodyneModel
+
+    # Fail-fast on heterodyne — per code review recommendation, isinstance
+    # check upstream is cleaner than catching NotImplementedError from
+    # _evaluate_c2_per_angle.
+    if isinstance(model, HeterodyneModel):
+        raise NotImplementedError(
+            "generate_nlsq_plots does not yet support HeterodyneModel — "
+            "heterodyne c2 reconstruction needs heterodyne_scaling_utils "
+            "integration (Spec Amendment 3). Use the homodyne path for now."
+        )
+    if not isinstance(model, HomodyneModel):
+        raise TypeError(
+            f"Unsupported model type: {type(model).__name__}. "
+            f"Expected HomodyneModel or HeterodyneModel."
+        )
+
+    # Resolve config to a plain dict
+    config_dict = config.config if hasattr(config, "config") else config
+
+    # Validation
+    valid = {"comparison", "residuals", "simulated"}
+    unknown = set(plots) - valid
+    if unknown:
+        raise ValueError(f"Unknown plot families: {sorted(unknown)}. Valid: {sorted(valid)}")
+    if compression not in {"lzma", "deflate", "none"}:
+        raise ValueError(f"compression must be 'lzma', 'deflate', or 'none'; got {compression!r}")
+
+    for key in ("c2_exp", "phi_angles_list", "t1", "t2"):
+        if key not in data:
+            raise ValueError(f"data dict missing required key: {key!r}")
+
+    c2_exp = np.asarray(data["c2_exp"])
+    phi_angles = np.asarray(data["phi_angles_list"], dtype=float)
+    t1 = np.asarray(data["t1"], dtype=float)
+    t2 = np.asarray(data["t2"], dtype=float)
+    expected_shape = (phi_angles.size, t1.size, t2.size)
+    if c2_exp.shape != expected_shape:
+        raise ValueError(
+            f"c2_exp.shape {c2_exp.shape} does not match (n_phi, n_t1, n_t2) {expected_shape}"
+        )
+
+    ap = config_dict.get("analyzer_parameters", {})
+    q = ap.get("scattering", {}).get("wavevector_q")
+    L = ap.get("geometry", {}).get("stator_rotor_gap")
+    dt = ap.get("dt")
+    if dt is None:
+        # Fall back to temporal.dt — homodyne configs nest it there.
+        dt = ap.get("temporal", {}).get("dt")
+    if q is None or L is None or dt is None:
+        raise ValueError(
+            "config.analyzer_parameters must contain scattering.wavevector_q, "
+            "geometry.stator_rotor_gap, and dt (or temporal.dt)"
+        )
+    analysis_mode = config_dict.get("analysis_mode", "unknown")
+
+    # Output dirs
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    sim_dir = output_dir / "simulated_data"
+    sim_dir.mkdir(parents=True, exist_ok=True)
+
+    # Per-model param unpacking (homodyne only at this point)
+    contrast, offset, physical_params, parameter_names = _unpack_result_params(
+        model, result, config_dict
+    )
+
+    # Pre-allocate fitted surface with NaN sentinel
+    c2_fitted = np.full_like(c2_exp, np.nan, dtype=float)
+    n_phi = phi_angles.size
+
+    logger.info(
+        "Generating NLSQ plots: %d angles, parallel=%s, datashader=%s, plots=%s",
+        n_phi,
+        parallel,
+        use_datashader,
+        plots,
+    )
+
+    # Datashader fallback (real integration lands in Task 16)
+    if use_datashader:
+        try:
+            import xpcsjax.viz.datashader_backend  # noqa: F401
+        except ImportError:
+            logger.warning(
+                "use_datashader=True but datashader is not installed. "
+                "Install with: pip install 'xpcsjax[viz-fast]'. "
+                "Falling back to matplotlib."
+            )
+
+    # Per-angle compute + render (sequential; parallel added in Task 14)
+    chi2_red = float(result.reduced_chi_squared)
+    for i, phi_deg in enumerate(phi_angles):
+        phi_deg_f = float(phi_deg)
+        try:
+            c2_fit_i = _evaluate_c2_per_angle(model, result, data, config_dict, phi_deg_f)
+            c2_fitted[i] = c2_fit_i
+        except Exception:
+            logger.exception(
+                "Angle %d (phi=%.1f) compute failed; leaving NaN in c2_fitted",
+                i,
+                phi_deg_f,
+            )
+            continue
+
+        if "comparison" in plots:
+            plot_nlsq_fit(
+                c2_exp[i],
+                c2_fit_i,
+                t=t1,
+                phi_deg=phi_deg_f,
+                reduced_chi_squared=chi2_red,
+                save_path=output_dir / f"c2_heatmaps_phi_{phi_deg_f:.1f}deg.png",
+            )
+        if "residuals" in plots:
+            plot_residual_map(
+                c2_exp[i],
+                c2_fit_i,
+                t=t1,
+                phi_deg=phi_deg_f,
+                save_path=output_dir / f"residuals_phi_{phi_deg_f:.1f}deg.png",
+            )
+        if "simulated" in plots:
+            plot_simulated_data(
+                c2_fit_i,
+                t=t1,
+                phi_deg=phi_deg_f,
+                contrast=contrast,
+                offset=offset,
+                analysis_mode=analysis_mode,
+                save_path=sim_dir / f"simulated_c2_fitted_phi_{phi_deg_f:.1f}deg.png",
+            )
+
+    residuals = c2_exp - c2_fitted
+
+    # Slice uncertainties to match physical_params length for homodyne
+    phys_unc = np.asarray(result.uncertainties, dtype=float)[2:]
+
+    _save_fit_artifacts(
+        c2_exp=c2_exp,
+        c2_fitted=c2_fitted,
+        residuals=residuals,
+        phi_angles=phi_angles,
+        t1=t1,
+        t2=t2,
+        q=float(q),
+        L=float(L),
+        dt=float(dt),
+        params=np.asarray(physical_params, dtype=float),
+        uncertainties=phys_unc,
+        parameter_names=list(parameter_names),
+        contrast=float(contrast),
+        offset=float(offset),
+        reduced_chi_squared=chi2_red,
+        convergence_status=str(result.convergence_status),
+        iterations=int(result.iterations),
+        execution_time=float(result.execution_time),
+        analysis_mode=str(analysis_mode),
+        output_dir=sim_dir,
+        compression=compression,
+    )
+
+    logger.info("NLSQ plot generation complete: %s", output_dir)
