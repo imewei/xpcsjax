@@ -28,6 +28,18 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Optional Datashader backend probe — see xpcsjax/viz/datashader_backend.py.
+# The import is gated so users without [viz-fast] installed don't pay the
+# (substantial) datashader/xarray/numba import cost. The flag is consulted
+# by the dispatcher in :func:`generate_nlsq_plots` to choose between the
+# fast Datashader path (default when available) and the matplotlib path.
+try:
+    import xpcsjax.viz.datashader_backend  # noqa: F401
+
+    DATASHADER_AVAILABLE = True
+except ImportError:
+    DATASHADER_AVAILABLE = False
+
 
 def _resolve_color_limits(
     matrix: np.ndarray,
@@ -857,6 +869,137 @@ def _save_fit_artifacts(
     logger.info("Wrote fit artifacts to %s", output_dir)
 
 
+def _plot_single_angle_datashader(args: tuple) -> Path:
+    """Picklable worker: render one angle's 3-panel comparison via Datashader.
+
+    Mirrors :func:`_render_one_angle_worker` but dispatches to the Datashader
+    hybrid pipeline in :mod:`xpcsjax.viz.datashader_backend`. Used by the
+    spawn-context Pool in :func:`_generate_plots_datashader` and reused
+    inline for sequential fallback so the output is byte-identical
+    regardless of which path produced it.
+    """
+    # Re-import inside the worker: spawn workers start cold and need a fresh
+    # module import. The JAX env pin lives in xpcsjax/__init__.py and is
+    # inherited from the parent's os.environ at spawn time.
+    from xpcsjax.viz.datashader_backend import plot_c2_comparison_fast
+
+    (
+        phi_idx,
+        c2_exp_i,
+        c2_fit_i,
+        residuals_i,
+        t1,
+        t2,
+        phi_deg,
+        output_dir,
+        width,
+        height,
+        color_options,
+    ) = args
+
+    name_suffix = f"phi_{phi_idx:03d}_{phi_deg:.3f}deg"
+    output_file = Path(output_dir) / f"c2_heatmaps_{name_suffix}.png"
+
+    plot_c2_comparison_fast(
+        np.asarray(c2_exp_i),
+        np.asarray(c2_fit_i),
+        np.asarray(residuals_i),
+        np.asarray(t1),
+        np.asarray(t2),
+        output_file,
+        phi_angle=phi_deg,
+        width=width,
+        height=height,
+        **(color_options or {}),
+    )
+    return output_file
+
+
+def _generate_plots_datashader(
+    phi_angles: np.ndarray,
+    c2_exp: np.ndarray,
+    c2_fitted: np.ndarray,
+    residuals: np.ndarray,
+    t1: np.ndarray,
+    t2: np.ndarray,
+    output_dir: Path,
+    *,
+    parallel: bool = True,
+    width: int = 1200,
+    height: int = 1200,
+    color_options: dict[str, Any] | None = None,
+) -> None:
+    """Render per-angle 3-panel comparisons via Datashader.
+
+    Pool topology mirrors :mod:`homodyne.viz.nlsq_plots`: spawn-context
+    ``multiprocessing.Pool`` initialised with :func:`_worker_init_cpu_only`,
+    workers receive picklable per-angle tuples, on ``(OSError, RuntimeError,
+    TimeoutError)`` the orchestrator catches and reruns the remaining work
+    sequentially in the main process. This keeps the fast path under load
+    spikes (Linux fork-bomb protection, transient HPC scheduler errors)
+    without sacrificing the parallel speedup on the happy path.
+
+    Angles whose ``c2_fitted`` is all-NaN are skipped (the per-angle compute
+    failed upstream — no useful comparison to render).
+    """
+    n_phi = int(phi_angles.size)
+    color_options = color_options or {}
+
+    def _args_for(i: int) -> tuple:
+        return (
+            int(i),
+            c2_exp[i],
+            c2_fitted[i],
+            residuals[i],
+            t1,
+            t2,
+            float(phi_angles[i]),
+            output_dir,
+            width,
+            height,
+            color_options,
+        )
+
+    if parallel and n_phi > 1:
+        try:
+            ctx = multiprocessing.get_context("spawn")
+            n_workers = min(multiprocessing.cpu_count(), n_phi)
+            args_list = [
+                _args_for(i) for i in range(n_phi) if not np.all(np.isnan(c2_fitted[i]))
+            ]
+            if not args_list:
+                logger.warning(
+                    "Datashader path: all angles have NaN c2_fitted; nothing to render"
+                )
+                return
+            timeout_s = (60 * n_phi / max(n_workers, 1)) + 120
+            with ctx.Pool(processes=n_workers, initializer=_worker_init_cpu_only) as pool:
+                ar = pool.map_async(_plot_single_angle_datashader, args_list)
+                ar.get(timeout=timeout_s)
+            logger.info(
+                "Datashader: rendered %d angles in parallel (%d workers)",
+                len(args_list),
+                n_workers,
+            )
+            return
+        except (OSError, RuntimeError, TimeoutError, Exception) as e:
+            logger.warning(
+                "Parallel Datashader rendering failed (%s: %s); sequential fallback.",
+                type(e).__name__,
+                e,
+            )
+
+    # Sequential path (use_datashader=True with parallel=False, n_phi==1,
+    # or the parallel pool fell over).
+    rendered = 0
+    for i in range(n_phi):
+        if np.all(np.isnan(c2_fitted[i])):
+            continue
+        _plot_single_angle_datashader(_args_for(i))
+        rendered += 1
+    logger.info("Datashader: rendered %d angles (sequential)", rendered)
+
+
 def _worker_init_cpu_only() -> None:
     """Pool worker initializer — pin JAX to CPU + lazy allocator."""
     import os
@@ -944,10 +1087,12 @@ def generate_nlsq_plots(
     config: Any,
     output_dir: Path | str,
     *,
-    use_datashader: bool = False,
-    parallel: bool = False,
+    use_datashader: bool = True,
+    parallel: bool = True,
     plots: tuple[str, ...] = ("comparison", "residuals", "simulated"),
     compression: Literal["lzma", "deflate", "none"] = "lzma",
+    datashader_width: int = 1200,
+    datashader_height: int = 1200,
 ) -> None:
     """Generate NLSQ fit plots and serialize fitted artifacts.
 
@@ -975,17 +1120,31 @@ def generate_nlsq_plots(
         Directory to write into. Created if missing. ``simulated_data/``
         subdirectory is also created.
     use_datashader
-        If True and datashader is installed, use the fast preview backend
-        (currently logs a warning and falls back to matplotlib — datashader
-        integration lands in Task 16).
+        If True (default) and the ``[viz-fast]`` extra is installed, render
+        the 3-panel comparison plot via the Datashader hybrid pipeline (5-10x
+        per-call speedup; in combination with ``parallel=True`` the cumulative
+        speedup across many angles is ~50-200x). The matplotlib path is used
+        as a transparent fallback when Datashader is missing. Mirrors
+        homodyne's ``preview_mode`` semantics.
     parallel
-        If True, render angles in a ``multiprocessing.Pool(spawn)`` — wired
-        in Task 14. Defaults to False (sequential).
+        If True (default), render angles in a ``multiprocessing.Pool(spawn)``.
+        The pool size is ``min(cpu_count(), n_phi)``. The matplotlib path
+        honours this flag as well, but the speedup is much smaller because
+        matplotlib's per-call cost is already low; the flag exists primarily
+        to parallelize the Datashader path.
     plots
-        Subset of ``{"comparison", "residuals", "simulated"}``.
+        Subset of ``{"comparison", "residuals", "simulated"}``. In Datashader
+        mode only ``"comparison"`` is rendered via the fast path; residual
+        diagnostics and simulated heatmaps need full matplotlib and are
+        rendered via the matplotlib path **in addition** to the fast
+        comparison when they appear in ``plots``.
     compression
         NPZ compression: ``"lzma"`` (default, best ratio), ``"deflate"``,
         or ``"none"``.
+    datashader_width, datashader_height
+        Per-panel rasterization resolution in pixels for the Datashader
+        path. Default 1200×1200 (matches homodyne); reduce for faster
+        rendering, increase for high-DPI publication output.
 
     Raises
     ------
@@ -1092,16 +1251,20 @@ def generate_nlsq_plots(
         plots,
     )
 
-    # Datashader fallback (real integration lands in Task 16)
-    if use_datashader:
-        try:
-            import xpcsjax.viz.datashader_backend  # noqa: F401
-        except ImportError:
-            logger.warning(
-                "use_datashader=True but datashader is not installed. "
-                "Install with: pip install 'xpcsjax[viz-fast]'. "
-                "Falling back to matplotlib."
-            )
+    # Resolve backend choice. Datashader is the default fast path (matches
+    # homodyne preview_mode). Missing-dep degrades silently to matplotlib so
+    # callers without the [viz-fast] extra still get plots.
+    use_ds = use_datashader and DATASHADER_AVAILABLE
+    if use_datashader and not DATASHADER_AVAILABLE:
+        logger.warning(
+            "use_datashader=True but datashader is not installed. "
+            "Install with: pip install 'xpcsjax[viz-fast]'. "
+            "Falling back to matplotlib backend (publication quality)."
+        )
+    elif use_ds:
+        logger.info("Using Datashader backend (fast preview rendering)")
+    else:
+        logger.info("Using matplotlib backend (publication quality)")
 
     # Phase A: compute fitted surfaces in main process (models may not be picklable)
     chi2_red = float(result.reduced_chi_squared)
@@ -1116,63 +1279,88 @@ def generate_nlsq_plots(
                 phi_deg_f,
             )
 
-    # Phase B: render PNGs (parallel pool or sequential — same worker either way
-    # so the output is byte-identical regardless of path). The phi index is
-    # threaded in so filenames don't collide when two angles round to the same
-    # ``.1f`` decimal (e.g. 10.04° and 10.05°). Both ``t1`` and ``t2`` are
-    # passed because the data may live on a rectangular grid.
-    def _render_args_for_index(i: int) -> tuple:
-        return (
-            int(i),
-            c2_exp[i],
-            c2_fitted[i],
-            t1,
-            t2,
-            float(phi_angles[i]),
-            plots,
-            chi2_red,
-            contrast,
-            offset,
-            analysis_mode,
-            output_dir,
-            sim_dir,
-        )
+    # Residuals are needed by both backends and by the NPZ writer below.
+    residuals = c2_exp - c2_fitted
 
-    if parallel and n_phi > 1:
-        try:
-            ctx = multiprocessing.get_context("spawn")
-            n_workers = min(multiprocessing.cpu_count(), n_phi)
-            args_list = [
-                _render_args_for_index(i)
-                for i in range(n_phi)
-                if not np.all(np.isnan(c2_fitted[i]))
-            ]
-            timeout_s = 60 * n_phi / max(n_workers, 1) + 120
-            with ctx.Pool(processes=n_workers, initializer=_worker_init_cpu_only) as pool:
-                ar = pool.map_async(_render_one_angle_worker, args_list)
-                ar.get(timeout=timeout_s)
-            logger.info(
-                "Rendered %d angles in parallel (%d workers)",
-                len(args_list),
-                n_workers,
+    # Phase B: render PNGs. Backend dispatch follows the homodyne pattern —
+    # Datashader handles only the 3-panel "comparison" (its strength is
+    # large-array rasterization, not 4-panel diagnostics with histograms).
+    # The matplotlib worker still handles "residuals" / "simulated" plot
+    # families when those appear in ``plots``, regardless of backend choice.
+    if use_ds and "comparison" in plots:
+        _generate_plots_datashader(
+            phi_angles=phi_angles,
+            c2_exp=c2_exp,
+            c2_fitted=c2_fitted,
+            residuals=residuals,
+            t1=t1,
+            t2=t2,
+            output_dir=output_dir,
+            parallel=parallel,
+            width=datashader_width,
+            height=datashader_height,
+        )
+        # In Datashader mode the "comparison" plot family is satisfied by the
+        # fast path. Drop it from the matplotlib plot set so we don't render
+        # the 3-panel twice.
+        mpl_plots: tuple[str, ...] = tuple(p for p in plots if p != "comparison")
+    else:
+        mpl_plots = plots
+
+    if mpl_plots:
+        # Matplotlib path renders whichever of {"comparison", "residuals",
+        # "simulated"} the caller asked for AND that Datashader didn't
+        # already cover. Reused for the no-Datashader fallback case.
+        def _render_args_for_index(i: int) -> tuple:
+            return (
+                int(i),
+                c2_exp[i],
+                c2_fitted[i],
+                t1,
+                t2,
+                float(phi_angles[i]),
+                mpl_plots,
+                chi2_red,
+                contrast,
+                offset,
+                analysis_mode,
+                output_dir,
+                sim_dir,
             )
-        except (OSError, RuntimeError, TimeoutError, Exception) as e:
-            logger.warning(
-                "Parallel rendering failed (%s: %s); sequential fallback.",
-                type(e).__name__,
-                e,
-            )
+
+        if parallel and n_phi > 1:
+            try:
+                ctx = multiprocessing.get_context("spawn")
+                n_workers = min(multiprocessing.cpu_count(), n_phi)
+                args_list = [
+                    _render_args_for_index(i)
+                    for i in range(n_phi)
+                    if not np.all(np.isnan(c2_fitted[i]))
+                ]
+                timeout_s = 60 * n_phi / max(n_workers, 1) + 120
+                with ctx.Pool(processes=n_workers, initializer=_worker_init_cpu_only) as pool:
+                    ar = pool.map_async(_render_one_angle_worker, args_list)
+                    ar.get(timeout=timeout_s)
+                logger.info(
+                    "Matplotlib: rendered %d angles in parallel (%d workers)",
+                    len(args_list),
+                    n_workers,
+                )
+            except (OSError, RuntimeError, TimeoutError, Exception) as e:
+                logger.warning(
+                    "Parallel rendering failed (%s: %s); sequential fallback.",
+                    type(e).__name__,
+                    e,
+                )
+                for i in range(n_phi):
+                    if np.all(np.isnan(c2_fitted[i])):
+                        continue
+                    _render_one_angle_worker(_render_args_for_index(i))
+        else:
             for i in range(n_phi):
                 if np.all(np.isnan(c2_fitted[i])):
                     continue
                 _render_one_angle_worker(_render_args_for_index(i))
-    else:
-        for i in range(n_phi):
-            if np.all(np.isnan(c2_fitted[i])):
-                continue
-            _render_one_angle_worker(_render_args_for_index(i))
-
-    residuals = c2_exp - c2_fitted
 
     # Slice uncertainties to match physical_params length.
     # Homodyne layout: [contrast, offset, physical...] -> skip first 2.

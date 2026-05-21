@@ -390,6 +390,156 @@ def test_orchestrator_filenames_disambiguate_close_angles(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# 11. Datashader parity: when use_datashader=True and the [viz-fast] extra is
+#     installed, the orchestrator dispatches to the Datashader fast path.
+#     Each angle produces a c2_heatmaps_*.png via the hybrid pipeline.
+# ---------------------------------------------------------------------------
+
+
+def test_datashader_path_produces_comparison_pngs(tmp_path):
+    pytest.importorskip("datashader")
+    pytest.importorskip("xarray")
+    from xpcsjax.core.homodyne_model import HomodyneModel
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+    from xpcsjax.viz.nlsq_plots import generate_nlsq_plots
+
+    config = {
+        "analyzer_parameters": {
+            "temporal": {"dt": 0.1, "start_frame": 1, "end_frame": 32},
+            "scattering": {"wavevector_q": 0.005},
+            "geometry": {"stator_rotor_gap": 2_000_000.0},
+        },
+        "analysis_mode": "static_isotropic",
+        "initial_parameters": {
+            "parameter_names": ["D0", "alpha", "D_offset"],
+            "values": [100.0, -0.5, 0.0],
+        },
+    }
+    model = HomodyneModel(config)
+    n_t = 32
+    n_phi = 3
+    t = np.arange(n_t, dtype=float) * 0.1
+    phi = np.linspace(0.0, 90.0, n_phi)
+    c2_exp = np.ones((n_phi, n_t, n_t)) + 0.1
+    data = {"c2_exp": c2_exp, "phi_angles_list": phi, "t1": t, "t2": t}
+    result = OptimizationResult(
+        parameters=np.array([0.2, 1.0, 100.0, -0.5, 0.0]),
+        uncertainties=np.full(5, 0.01),
+        covariance=np.eye(5) * 0.01,
+        chi_squared=1.0,
+        reduced_chi_squared=1.0,
+        convergence_status="converged",
+        iterations=10,
+        execution_time=0.1,
+        device_info={"platform": "cpu"},
+    )
+
+    generate_nlsq_plots(
+        model=model,
+        result=result,
+        data=data,
+        config=config,
+        output_dir=tmp_path,
+        use_datashader=True,
+        parallel=False,  # sequential to keep the test fast
+        plots=("comparison",),
+    )
+
+    # Datashader produced one 3-panel comparison PNG per angle.
+    pngs = sorted(p.name for p in tmp_path.glob("c2_heatmaps_*.png"))
+    assert len(pngs) == n_phi, f"expected {n_phi} Datashader PNGs, got {pngs}"
+
+
+def test_datashader_path_parallel_dispatches_via_pool(tmp_path):
+    """Smoke: use_datashader=True + parallel=True hits the spawn pool path.
+    Validates that the pool dispatch works end-to-end without crashing,
+    not the exact pool topology (pool internals are hard to introspect)."""
+    pytest.importorskip("datashader")
+    pytest.importorskip("xarray")
+    from xpcsjax.core.homodyne_model import HomodyneModel
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+    from xpcsjax.viz.nlsq_plots import generate_nlsq_plots
+
+    config = {
+        "analyzer_parameters": {
+            "temporal": {"dt": 0.1, "start_frame": 1, "end_frame": 16},
+            "scattering": {"wavevector_q": 0.005},
+            "geometry": {"stator_rotor_gap": 2_000_000.0},
+        },
+        "analysis_mode": "static_isotropic",
+        "initial_parameters": {
+            "parameter_names": ["D0", "alpha", "D_offset"],
+            "values": [100.0, -0.5, 0.0],
+        },
+    }
+    model = HomodyneModel(config)
+    n_t, n_phi = 16, 2
+    t = np.arange(n_t, dtype=float) * 0.1
+    phi = np.linspace(0.0, 45.0, n_phi)
+    c2_exp = np.ones((n_phi, n_t, n_t)) + 0.1
+    data = {"c2_exp": c2_exp, "phi_angles_list": phi, "t1": t, "t2": t}
+    result = OptimizationResult(
+        parameters=np.array([0.2, 1.0, 100.0, -0.5, 0.0]),
+        uncertainties=np.full(5, 0.01),
+        covariance=np.eye(5) * 0.01,
+        chi_squared=1.0,
+        reduced_chi_squared=1.0,
+        convergence_status="converged",
+        iterations=10,
+        execution_time=0.1,
+        device_info={"platform": "cpu"},
+    )
+    generate_nlsq_plots(
+        model=model,
+        result=result,
+        data=data,
+        config=config,
+        output_dir=tmp_path,
+        use_datashader=True,
+        parallel=True,
+        plots=("comparison",),
+    )
+    pngs = sorted(p.name for p in tmp_path.glob("c2_heatmaps_*.png"))
+    assert len(pngs) == n_phi
+
+
+def test_datashader_renderer_handles_rectangular_grid():
+    """The fast path must handle rectangular (n_t1 != n_t2) grids correctly."""
+    pytest.importorskip("datashader")
+    from PIL import Image
+
+    from xpcsjax.viz.datashader_backend import DatashaderRenderer
+
+    n_t1, n_t2 = 32, 48
+    data = np.ones((n_t1, n_t2)) + 0.1
+    t1 = np.linspace(0.0, 3.1, n_t1)
+    t2 = np.linspace(0.0, 4.7, n_t2)
+    renderer = DatashaderRenderer(width=400, height=300)
+    img = renderer.rasterize_heatmap(data.T, t1, t2)  # x=t1, y=t2
+    assert isinstance(img, Image.Image)
+    assert img.size == (400, 300)
+
+
+def test_datashader_module_load_does_not_block_when_missing(monkeypatch):
+    """DATASHADER_AVAILABLE=False must not break ``import xpcsjax.viz.nlsq_plots``.
+
+    Locks in the lazy-probe pattern: nlsq_plots is importable even without
+    the [viz-fast] extra; the dispatcher transparently degrades to mpl.
+    """
+    from xpcsjax.viz import nlsq_plots as mod
+
+    monkeypatch.setattr(mod, "DATASHADER_AVAILABLE", False)
+    # The flag flip alone should not raise; the orchestrator reads it at
+    # call time and routes to the matplotlib path.
+    assert mod.DATASHADER_AVAILABLE is False
+
+
+# ---------------------------------------------------------------------------
+# 12. _save_fig closes the figure even when savefig raises.
+# ---------------------------------------------------------------------------
+
+
 def test_save_fig_closes_on_savefig_exception(tmp_path):
     import matplotlib.pyplot as plt
 

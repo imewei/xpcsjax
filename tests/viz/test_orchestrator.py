@@ -347,17 +347,16 @@ def test_use_datashader_without_install_falls_back(
     monkeypatch,
     caplog,
 ):
-    """If datashader is missing, orchestrator warns and uses matplotlib."""
-    import builtins
+    """If datashader is missing, orchestrator warns and uses matplotlib.
 
-    real_import = builtins.__import__
+    The orchestrator checks the module-level ``DATASHADER_AVAILABLE`` flag
+    (set once at import time). To simulate "datashader not installed" we
+    flip the flag directly — patching ``builtins.__import__`` would fire
+    too late because the probe import already ran during module load.
+    """
+    from xpcsjax.viz import nlsq_plots as mod
 
-    def fake_import(name, *args, **kwargs):
-        if name == "xpcsjax.viz.datashader_backend":
-            raise ImportError("simulated missing datashader")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", fake_import)
+    monkeypatch.setattr(mod, "DATASHADER_AVAILABLE", False)
 
     with caplog.at_level("WARNING", logger="xpcsjax.viz.nlsq_plots"):
         generate_nlsq_plots(
@@ -367,6 +366,7 @@ def test_use_datashader_without_install_falls_back(
             config=minimal_homodyne_config,
             output_dir=tmp_path,
             use_datashader=True,
+            parallel=False,  # sequential matplotlib fallback
         )
     assert any("viz-fast" in r.message for r in caplog.records)
     for i, phi in enumerate(synthetic_multi_angle_data["phi_angles_list"]):

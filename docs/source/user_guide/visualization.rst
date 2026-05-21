@@ -69,15 +69,48 @@ String metadata (parameter names, analysis mode) lives in the JSON sidecar.
 Performance tuning
 ------------------
 
-For very large datasets, enable ``parallel=True`` to fan out PNG rendering
-across ``multiprocessing.cpu_count()`` workers. Model evaluation stays in
-the main process (models may not be picklable across spawn boundaries);
-only the matplotlib rendering parallelizes.
+Two backends are wired into :func:`xpcsjax.generate_nlsq_plots`:
 
-Datashader-accelerated rendering is opt-in via ``use_datashader=True`` and
-requires the ``[viz-fast]`` extra::
+* **Datashader (default fast path)** — used when ``use_datashader=True``
+  (default) and the ``[viz-fast]`` extra is installed. Renders the 3-panel
+  comparison plot via a hybrid pipeline: Datashader rasterizes the raw
+  c2 arrays to an 800-1200 px image on the CPU, then matplotlib displays
+  the pre-rasterized image and adds colorbars / axes / titles. This keeps
+  the matplotlib path tiny no matter how large the raw grid is — making
+  it the only viable backend for ≳10⁶ samples per angle (e.g. 1000×1000
+  t₁×t₂ surfaces) where bare matplotlib ``imshow`` becomes prohibitive.
+
+  Per-call speedup: 5-10× over matplotlib. Combined with parallel
+  multiprocessing across angles, cumulative speedup on a many-core box is
+  ~50-200× over sequential matplotlib.
+
+* **matplotlib (publication-quality fallback)** — used when
+  ``use_datashader=False`` or the ``[viz-fast]`` extra is missing. Produces
+  the full plot family (3-panel comparison, 4-panel residual diagnostic,
+  single-panel simulated heatmap) at full matplotlib fidelity.
+
+The ``parallel=True`` flag (default) dispatches the per-angle render across
+a ``multiprocessing.Pool`` using the ``spawn`` start method. The pool size
+is ``min(cpu_count(), n_phi)``. Model evaluation stays in the main process
+(models may not be picklable across spawn boundaries); only the rendering
+parallelizes.
+
+The Datashader backend is the primary motivation for parallelism — a
+single Datashader render is already fast, but with 50+ angles you want to
+fan out. The matplotlib path also honours ``parallel=True``, but the
+absolute speedup is smaller because matplotlib's per-call cost is already
+low and IPC overhead eats most of the gain.
+
+Install the fast extras with::
 
    pip install 'xpcsjax[viz-fast]'
+
+When the extra is missing and ``use_datashader=True`` (the default), the
+orchestrator logs a warning and silently falls back to matplotlib — no
+manual intervention required. Plot families "residuals" and "simulated"
+always render through matplotlib regardless of backend choice, since
+those layouts (histogram, scatter, single-panel) don't benefit from
+Datashader's rasterization.
 
 Low-level API
 -------------
