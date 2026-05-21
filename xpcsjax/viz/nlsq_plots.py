@@ -6,8 +6,10 @@ tasks (Task 2 onward).
 
 from __future__ import annotations
 
+import io
+import zipfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -523,3 +525,65 @@ def plot_simulated_data(
     if save_path is not None:
         _save_fig(fig, save_path)
     return fig
+
+
+_COMPRESSION_MAP = {
+    "lzma": zipfile.ZIP_LZMA,
+    "deflate": zipfile.ZIP_DEFLATED,
+    "none": zipfile.ZIP_STORED,
+}
+
+
+def _write_npz_compressed(
+    path: Path,
+    arrays: dict[str, np.ndarray],
+    *,
+    compression: Literal["lzma", "deflate", "none"] = "lzma",
+) -> None:
+    """Write numerical arrays to .npz with configurable compression.
+
+    Atomic rename: writes to ``path.tmp`` then renames. Cleans up the temp file
+    on any failure.
+
+    Compression options:
+    - ``"lzma"``: best ratio, slow encode (~5-10x DEFLATE).
+    - ``"deflate"``: level 9, fast and reasonable ratio.
+    - ``"none"``: store only, no compression.
+
+    ``np.load`` reads any of these transparently because the .npz container
+    is just a zipfile of .npy entries; the compression method is per-entry.
+
+    Note: arrays must be numerical only (no object-dtype). String metadata
+    belongs in the JSON sidecar -- see Task 10.
+    """
+    if compression not in _COMPRESSION_MAP:
+        raise ValueError(f"compression must be one of {set(_COMPRESSION_MAP)}; got {compression!r}")
+    method = _COMPRESSION_MAP[compression]
+    compresslevel = 9 if compression == "deflate" else None
+
+    path = Path(path)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+
+    try:
+        with zipfile.ZipFile(
+            tmp_path,
+            mode="w",
+            compression=method,
+            compresslevel=compresslevel,
+            allowZip64=True,
+        ) as zf:
+            for name, arr in arrays.items():
+                arr_np = np.asarray(arr)
+                if arr_np.dtype == object:
+                    raise TypeError(
+                        f"array {name!r} has object dtype; NPZ requires numerical "
+                        "arrays only (string metadata belongs in the JSON sidecar)"
+                    )
+                buf = io.BytesIO()
+                np.lib.format.write_array(buf, arr_np)
+                zf.writestr(f"{name}.npy", buf.getvalue())
+        tmp_path.replace(path)
+    except BaseException:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+        raise
