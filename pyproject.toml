@@ -32,6 +32,7 @@ dependencies = [
 dev = [
     "pytest>=9.0.2",
     "pytest-cov>=7.0",
+    "pytest-mpl>=0.17",
     "pytest-xdist>=3.8",
     "hypothesis>=6",            # property tests (Task 33) — xpcsjax-specific addition
     "ruff>=0.15.2",
@@ -45,6 +46,11 @@ docs = [
     "sphinx-autodoc-typehints>=2.5",
     "sphinx-design>=0.6",
     "myst-parser>=4.0",
+]
+viz-fast = [
+    "datashader>=0.16",
+    "xarray>=2024.0",
+    "colorcet>=3.1",
 ]
 
 [build-system]
