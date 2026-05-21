@@ -6,7 +6,18 @@ tasks (Task 2 onward).
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import matplotlib.pyplot as plt
 import numpy as np
+
+from xpcsjax.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
+
+logger = get_logger(__name__)
 
 
 def _resolve_color_limits(
@@ -31,3 +42,19 @@ def _resolve_color_limits(
     if vmin >= vmax:
         vmax = vmin + 1.0
     return vmin, vmax
+
+
+def _save_fig(
+    fig: Figure, save_path: Path | str | None, dpi: int = 150,
+) -> None:
+    """Save figure to disk and close. No-op when ``save_path`` is None.
+
+    Creates parent directories as needed. Logs the saved path at INFO level.
+    """
+    if save_path is None:
+        return
+    p = Path(save_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(p, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+    logger.info("Figure saved: %s", p)

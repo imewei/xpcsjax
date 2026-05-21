@@ -1,0 +1,34 @@
+"""Unit tests for low-level plot functions and helpers."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+
+from xpcsjax.viz.nlsq_plots import _save_fig
+
+
+def test_save_fig_with_none_is_noop() -> None:
+    fig, _ = plt.subplots()
+    _save_fig(fig, None)
+    assert plt.fignum_exists(fig.number)
+    plt.close(fig)
+
+
+def test_save_fig_writes_and_closes(tmp_path: Path) -> None:
+    fig, _ = plt.subplots()
+    save_path = tmp_path / "test.png"
+    n = fig.number
+    _save_fig(fig, save_path)
+    assert save_path.exists()
+    with open(save_path, "rb") as f:
+        assert f.read(4) == b"\x89PNG"
+    assert not plt.fignum_exists(n)
+
+
+def test_save_fig_creates_parent_dirs(tmp_path: Path) -> None:
+    fig, _ = plt.subplots()
+    save_path = tmp_path / "nested" / "dir" / "test.png"
+    _save_fig(fig, save_path)
+    assert save_path.exists()
