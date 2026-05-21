@@ -8,7 +8,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from xpcsjax.viz.nlsq_plots import _evaluate_c2_per_angle, _save_fig, _unpack_result_params
+from xpcsjax.viz.nlsq_plots import (
+    _evaluate_c2_per_angle,
+    _save_fig,
+    _unpack_result_params,
+    plot_nlsq_fit,
+)
 
 
 def test_save_fig_with_none_is_noop() -> None:
@@ -188,3 +193,57 @@ def test_evaluate_unsupported_raises() -> None:
 
     with pytest.raises(TypeError, match="Unsupported model type"):
         _evaluate_c2_per_angle(FakeModel(), None, {}, {}, phi_deg=0.0)  # type: ignore[arg-type]
+
+
+def test_plot_nlsq_fit_three_image_axes(synthetic_single_angle_data) -> None:
+    d = synthetic_single_angle_data
+    fig = plot_nlsq_fit(
+        d["c2_exp"], d["c2_exp"] * 0.95, t=d["t"], phi_deg=45.0, reduced_chi_squared=0.906
+    )
+    image_axes = [ax for ax in fig.axes if ax.images]
+    assert len(image_axes) == 3
+    plt.close(fig)
+
+
+def test_plot_nlsq_fit_suptitle_chi_squared(synthetic_single_angle_data) -> None:
+    d = synthetic_single_angle_data
+    fig = plot_nlsq_fit(d["c2_exp"], d["c2_exp"] * 0.95, t=d["t"], reduced_chi_squared=0.906)
+    suptitle = fig._suptitle.get_text() if fig._suptitle else ""
+    assert "0.906" in suptitle
+    plt.close(fig)
+
+
+def test_plot_nlsq_fit_shared_color_scale(synthetic_single_angle_data) -> None:
+    d = synthetic_single_angle_data
+    fig = plot_nlsq_fit(d["c2_exp"], d["c2_exp"] * 1.05, t=d["t"])
+    image_axes = [ax for ax in fig.axes if ax.images]
+    assert image_axes[0].images[0].norm.vmin == image_axes[1].images[0].norm.vmin
+    assert image_axes[0].images[0].norm.vmax == image_axes[1].images[0].norm.vmax
+    plt.close(fig)
+
+
+def test_plot_nlsq_fit_residual_cmap_is_rdbu(synthetic_single_angle_data) -> None:
+    d = synthetic_single_angle_data
+    fig = plot_nlsq_fit(d["c2_exp"], d["c2_exp"] * 0.95, t=d["t"])
+    image_axes = [ax for ax in fig.axes if ax.images]
+    assert image_axes[2].images[0].get_cmap().name in {"RdBu_r", "RdBu"}
+    plt.close(fig)
+
+
+def test_plot_nlsq_fit_save_path_writes_png(
+    synthetic_single_angle_data,
+    tmp_path: Path,
+) -> None:
+    d = synthetic_single_angle_data
+    save_path = tmp_path / "fit.png"
+    plot_nlsq_fit(d["c2_exp"], d["c2_exp"] * 0.95, t=d["t"], save_path=save_path)
+    assert save_path.exists()
+    with open(save_path, "rb") as f:
+        assert f.read(4) == b"\x89PNG"
+
+
+def test_plot_nlsq_fit_accepts_t_none(synthetic_single_angle_data) -> None:
+    d = synthetic_single_angle_data
+    fig = plot_nlsq_fit(d["c2_exp"], d["c2_exp"] * 0.95, t=None)
+    assert len(fig.axes) >= 3
+    plt.close(fig)

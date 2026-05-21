@@ -16,11 +16,13 @@ import importlib
 from typing import Any
 
 # Map public symbol → submodule that defines it. Each later task appends here.
-_LAZY_EXPORTS: dict[str, str] = {}
+_LAZY_EXPORTS: dict[str, str] = {
+    "plot_nlsq_fit": "xpcsjax.viz.nlsq_plots",
+}
 
 # Literal list — Pyright reportUnsupportedDunderAll requires this stays a literal.
 # Later tasks append symbol names here as they're implemented.
-__all__: list[str] = []
+__all__: list[str] = ["plot_nlsq_fit"]
 
 
 def __getattr__(name: str) -> Any:

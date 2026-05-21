@@ -174,3 +174,125 @@ def _evaluate_c2_per_angle(
         f"Unsupported model type: {type(model).__name__}. "
         f"Expected HomodyneModel or HeterodyneModel."
     )
+
+
+def plot_nlsq_fit(
+    c2_exp: np.ndarray,
+    c2_fit: np.ndarray,
+    t: np.ndarray | None = None,
+    phi_deg: float | None = None,
+    reduced_chi_squared: float | None = None,
+    save_path: Path | str | None = None,
+    figsize: tuple[float, float] = (15, 5),
+) -> Figure:
+    """Three-panel NLSQ fit comparison: Experimental | Fitted | Residuals.
+
+    Exp + Fit panels share a color scale clamped to ``[max(1.0, data_min),
+    min(1.5, data_max)]`` over the **union** of both arrays so amplitude
+    mismatch is visually obvious. The residual panel uses ``RdBu_r`` with
+    symmetric ``±99th-percentile-of-|residual|`` limits.
+
+    Parameters
+    ----------
+    c2_exp, c2_fit
+        Experimental and fitted correlation surfaces, shape ``(n_t1, n_t2)``.
+    t
+        Optional time axis (seconds). If ``None``, uses index axes ``[0, n_t1-1]``.
+    phi_deg
+        Optional phi angle for per-panel titles.
+    reduced_chi_squared
+        If provided, appears in the super-title as ``χ²_red = {val:.3f}``.
+    save_path
+        If provided, the figure is saved and closed. Otherwise the live Figure is
+        returned.
+    figsize
+        Matplotlib figsize in inches.
+
+    Returns
+    -------
+    Figure
+        The matplotlib Figure (open if ``save_path`` is None, closed otherwise).
+    """
+    fig, axes = plt.subplots(1, 3, figsize=figsize)
+
+    if c2_exp.size == 0 or c2_fit.size == 0:
+        fig.suptitle("No data available")
+        if save_path is not None:
+            _save_fig(fig, save_path)
+        return fig
+
+    n_t1, _ = c2_exp.shape
+    t_arr = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
+    extent = (float(t_arr[0]), float(t_arr[-1]), float(t_arr[0]), float(t_arr[-1]))
+
+    combined = np.concatenate([c2_exp.ravel(), c2_fit.ravel()])
+    finite = combined[np.isfinite(combined)]
+    data_min = float(np.nanmin(finite)) if finite.size > 0 else 1.0
+    data_max = float(np.nanmax(finite)) if finite.size > 0 else 1.5
+    vmin_shared = max(1.0, data_min)
+    vmax_shared = min(1.5, data_max)
+    if vmin_shared >= vmax_shared:
+        vmax_shared = vmin_shared + 0.5
+
+    phi_str = f" (φ={phi_deg:.1f}°)" if phi_deg is not None else ""
+
+    im0 = axes[0].imshow(
+        c2_exp,
+        origin="lower",
+        extent=extent,
+        aspect="auto",
+        cmap="jet",
+        vmin=vmin_shared,
+        vmax=vmax_shared,
+    )
+    axes[0].set_title(f"Experimental Data{phi_str}")
+    axes[0].set_xlabel("t₂")
+    axes[0].set_ylabel("t₁")
+    plt.colorbar(im0, ax=axes[0], label="c₂")
+
+    im1 = axes[1].imshow(
+        c2_fit,
+        origin="lower",
+        extent=extent,
+        aspect="auto",
+        cmap="jet",
+        vmin=vmin_shared,
+        vmax=vmax_shared,
+    )
+    axes[1].set_title(f"Fitted Model{phi_str}")
+    axes[1].set_xlabel("t₂")
+    axes[1].set_ylabel("t₁")
+    plt.colorbar(im1, ax=axes[1], label="c₂")
+
+    residual = c2_exp - c2_fit
+    finite_r = residual[np.isfinite(residual)]
+    vmax_r = float(np.nanpercentile(np.abs(finite_r), 99)) if finite_r.size > 0 else 1.0
+    if vmax_r == 0.0 or not np.isfinite(vmax_r):
+        vmax_r = 1.0
+    im2 = axes[2].imshow(
+        residual,
+        origin="lower",
+        extent=extent,
+        aspect="auto",
+        cmap="RdBu_r",
+        vmin=-vmax_r,
+        vmax=vmax_r,
+    )
+    axes[2].set_title(f"Residuals{phi_str}")
+    axes[2].set_xlabel("t₂")
+    axes[2].set_ylabel("t₁")
+    plt.colorbar(im2, ax=axes[2], label="Residual")
+
+    if reduced_chi_squared is not None:
+        fig.suptitle(
+            f"NLSQ Fit Results  χ²_red = {reduced_chi_squared:.3f}",
+            fontsize=12,
+            fontweight="bold",
+        )
+
+    fig.tight_layout()
+
+    if save_path is not None:
+        _save_fig(fig, save_path)
+
+    return fig
