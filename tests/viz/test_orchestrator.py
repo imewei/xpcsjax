@@ -12,8 +12,9 @@ import pytest
 from xpcsjax.viz.nlsq_plots import generate_nlsq_plots
 
 
-def _phi_filename(phi: float, prefix: str = "c2_heatmaps") -> str:
-    return f"{prefix}_phi_{phi:.1f}deg.png"
+def _phi_filename(phi_idx: int, phi: float, prefix: str = "c2_heatmaps") -> str:
+    # Filename format includes the angle index so .1f-equal angles can't collide.
+    return f"{prefix}_phi_{phi_idx:03d}_{phi:.3f}deg.png"
 
 
 def test_orchestrator_writes_all_files_homodyne(
@@ -30,10 +31,12 @@ def test_orchestrator_writes_all_files_homodyne(
         config=minimal_homodyne_config,
         output_dir=tmp_path,
     )
-    for phi in synthetic_multi_angle_data["phi_angles_list"]:
-        assert (tmp_path / _phi_filename(phi, "c2_heatmaps")).exists()
-        assert (tmp_path / _phi_filename(phi, "residuals")).exists()
-        assert (tmp_path / "simulated_data" / f"simulated_c2_fitted_phi_{phi:.1f}deg.png").exists()
+    for i, phi in enumerate(synthetic_multi_angle_data["phi_angles_list"]):
+        assert (tmp_path / _phi_filename(i, phi, "c2_heatmaps")).exists()
+        assert (tmp_path / _phi_filename(i, phi, "residuals")).exists()
+        assert (
+            tmp_path / "simulated_data" / _phi_filename(i, phi, "simulated_c2_fitted")
+        ).exists()
     assert (tmp_path / "simulated_data" / "c2_fitted_data.npz").exists()
     assert (tmp_path / "simulated_data" / "simulation_config_fitted.json").exists()
 
@@ -76,9 +79,9 @@ def test_orchestrator_plots_filter(
         output_dir=tmp_path,
         plots=("comparison",),
     )
-    for phi in synthetic_multi_angle_data["phi_angles_list"]:
-        assert (tmp_path / _phi_filename(phi, "c2_heatmaps")).exists()
-        assert not (tmp_path / _phi_filename(phi, "residuals")).exists()
+    for i, phi in enumerate(synthetic_multi_angle_data["phi_angles_list"]):
+        assert (tmp_path / _phi_filename(i, phi, "c2_heatmaps")).exists()
+        assert not (tmp_path / _phi_filename(i, phi, "residuals")).exists()
 
 
 def test_orchestrator_closes_all_figures(
@@ -121,9 +124,9 @@ def test_orchestrator_heterodyne_writes_all_files(
         config=config,
         output_dir=tmp_path,
     )
-    for phi in synthetic_multi_angle_data["phi_angles_list"]:
-        assert (tmp_path / f"c2_heatmaps_phi_{phi:.1f}deg.png").exists()
-        assert (tmp_path / f"residuals_phi_{phi:.1f}deg.png").exists()
+    for i, phi in enumerate(synthetic_multi_angle_data["phi_angles_list"]):
+        assert (tmp_path / _phi_filename(i, phi, "c2_heatmaps")).exists()
+        assert (tmp_path / _phi_filename(i, phi, "residuals")).exists()
     assert (tmp_path / "simulated_data" / "c2_fitted_data.npz").exists()
     assert (tmp_path / "simulated_data" / "simulation_config_fitted.json").exists()
 
@@ -301,9 +304,9 @@ def test_parallel_produces_identical_pngs_to_sequential(
         output_dir=par_dir,
         parallel=True,
     )
-    for phi in synthetic_multi_angle_data["phi_angles_list"]:
-        s = seq_dir / f"c2_heatmaps_phi_{phi:.1f}deg.png"
-        p = par_dir / f"c2_heatmaps_phi_{phi:.1f}deg.png"
+    for i, phi in enumerate(synthetic_multi_angle_data["phi_angles_list"]):
+        s = seq_dir / _phi_filename(i, phi, "c2_heatmaps")
+        p = par_dir / _phi_filename(i, phi, "c2_heatmaps")
         assert s.exists() and p.exists()
         assert _png_sha256(s) == _png_sha256(p)
 
@@ -331,8 +334,8 @@ def test_parallel_fallback_on_pool_failure(
         output_dir=tmp_path,
         parallel=True,
     )
-    for phi in synthetic_multi_angle_data["phi_angles_list"]:
-        assert (tmp_path / f"c2_heatmaps_phi_{phi:.1f}deg.png").exists()
+    for i, phi in enumerate(synthetic_multi_angle_data["phi_angles_list"]):
+        assert (tmp_path / _phi_filename(i, phi, "c2_heatmaps")).exists()
 
 
 def test_use_datashader_without_install_falls_back(
@@ -366,8 +369,8 @@ def test_use_datashader_without_install_falls_back(
             use_datashader=True,
         )
     assert any("viz-fast" in r.message for r in caplog.records)
-    for phi in synthetic_multi_angle_data["phi_angles_list"]:
-        assert (tmp_path / f"c2_heatmaps_phi_{phi:.1f}deg.png").exists()
+    for i, phi in enumerate(synthetic_multi_angle_data["phi_angles_list"]):
+        assert (tmp_path / _phi_filename(i, phi, "c2_heatmaps")).exists()
 
 
 def test_homodyne_model_no_legacy_plot_methods():

@@ -96,8 +96,21 @@ pass ``save_path=Path(...)`` to save and close.
 Model support
 -------------
 
-Currently homodyne-only. ``HeterodyneModel`` raises ``NotImplementedError``
-at the orchestrator entry point — heterodyne c2 reconstruction needs
-per-angle scaling from ``heterodyne_scaling_utils`` (formulas depend on
-analysis mode: constant / auto / fourier / individual), and that
-integration is pending.
+Both :class:`xpcsjax.HomodyneModel` and :class:`xpcsjax.HeterodyneModel`
+are supported, with one caveat: heterodyne plotting in v0.1 requires the
+``individual`` per-angle scaling layout
+
+.. code-block:: text
+
+   result.parameters = [c_0..n_phi-1, o_0..n_phi-1, physical_0..13]
+
+The orchestrator validates this upfront before any rendering starts.
+Heterodyne results from the ``constant``, ``fourier``, or ``auto`` scaling
+modes will raise :class:`NotImplementedError` with a clear message naming
+the parameter-count mismatch. Full mode parity (``constant`` /
+``fourier``) is scheduled for v0.2; in the meantime, refit with
+``per_angle_mode="individual"`` if you need plotting, or pin the upstream
+``heterodyne`` package for non-individual workflows.
+
+The 4-layer anti-degeneracy contract for heterodyne fitting is unaffected
+by this restriction — see :doc:`../theory/heterodyne_anti_degeneracy`.

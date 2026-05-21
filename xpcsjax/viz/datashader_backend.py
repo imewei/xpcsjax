@@ -49,8 +49,11 @@ def plot_c2_comparison_fast(
     combined = np.concatenate(
         [c2_exp[np.isfinite(c2_exp)].ravel(), c2_fit[np.isfinite(c2_fit)].ravel()]
     )
-    data_min = float(np.nanpercentile(combined, percentile_min))
-    data_max = float(np.nanpercentile(combined, percentile_max))
+    if combined.size > 0:
+        data_min = float(np.nanpercentile(combined, percentile_min))
+        data_max = float(np.nanpercentile(combined, percentile_max))
+    else:
+        data_min, data_max = 1.0, 1.5
     vmin_shared = max(1.0, data_min)
     vmax_shared = min(1.5, data_max)
     if vmin_shared >= vmax_shared:

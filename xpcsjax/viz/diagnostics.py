@@ -54,6 +54,12 @@ def compute_diagonal_overlay_stats(
     phi_index
         Which angle to slice. Raises ``IndexError`` if out of bounds.
     """
+    if c2_exp.ndim != 3:
+        raise ValueError(f"c2_exp must be 3-D (n_phi, n_t1, n_t2); got shape {c2_exp.shape}")
+    if c2_fit.shape != c2_exp.shape:
+        raise ValueError(
+            f"c2_fit.shape {c2_fit.shape} must equal c2_exp.shape {c2_exp.shape}"
+        )
     if phi_index < 0 or phi_index >= c2_exp.shape[0]:
         raise IndexError(
             f"phi_index={phi_index} out of bounds for c2_exp with {c2_exp.shape[0]} angles"

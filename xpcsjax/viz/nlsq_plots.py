@@ -9,6 +9,8 @@ from __future__ import annotations
 import io
 import json
 import multiprocessing
+import os
+import tempfile
 import zipfile
 from collections.abc import Mapping
 from pathlib import Path
@@ -54,14 +56,18 @@ def _resolve_color_limits(
 def _save_fig(fig: Figure, save_path: Path | str | None, dpi: int = 150) -> None:
     """Save figure to disk and close. No-op when ``save_path`` is None.
 
-    Creates parent directories as needed. Logs the saved path at INFO level.
+    Creates parent directories as needed. The figure is closed even if
+    ``savefig`` raises, so renderer/filesystem errors don't leak Figure
+    handles. Logs the saved path at INFO level.
     """
     if save_path is None:
         return
     p = Path(save_path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(p, dpi=dpi, bbox_inches="tight")
-    plt.close(fig)
+    try:
+        fig.savefig(p, dpi=dpi, bbox_inches="tight")
+    finally:
+        plt.close(fig)
     logger.info("Figure saved: %s", p)
 
 
@@ -119,7 +125,14 @@ def _unpack_result_params(
         n_physical = len(physical_names)
         n_total = params.size
         # Per-angle layout: [c_0..N-1, o_0..N-1, physical_0..n_physical-1]
-        # Require 2*n_phi + n_physical params; infer n_phi from the residual.
+        # Require 2*n_phi + n_physical params; the residual (n_total - n_physical)
+        # must be even *and* the orchestrator's upfront layout validator must
+        # have already confirmed individual-mode shape — see
+        # ``_assert_heterodyne_individual_layout``. We tolerate the no-scaling
+        # case (n_total == n_physical) by returning zero scalars so the
+        # downstream simulated-data annotation panel still renders; the real
+        # heterodyne per-angle evaluation path uses
+        # ``_unpack_heterodyne_scaling`` which fails loudly for that case.
         residual = n_total - n_physical
         if residual < 0 or residual % 2 != 0:
             raise ValueError(
@@ -147,15 +160,29 @@ def _unpack_result_params(
 def _unpack_heterodyne_scaling(
     model: Any,
     result: Any,
+    n_phi_expected: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     """Extract heterodyne per-angle scaling + physical params from a result.
+
+    Only the ``individual`` per-angle scaling layout
+    ``[c_0..N-1, o_0..N-1, physical_0..M-1]`` is supported by v0.1 viz.
+    The caller must supply ``n_phi_expected`` (from ``data["phi_angles_list"]``)
+    so the layout can be disambiguated from the ``fourier`` mode, which has
+    ``2*(2K+1)`` extra slots that would otherwise be misread as ``2*n_phi``.
 
     Returns
     -------
     (contrasts, offsets, physical_params, n_phi)
-        contrasts, offsets: shape (n_phi,)
+        contrasts, offsets: shape (n_phi_expected,)
         physical_params:    shape (n_physical=14,)
-        n_phi:              number of angles inferred from layout
+        n_phi:              equals ``n_phi_expected``
+
+    Raises
+    ------
+    NotImplementedError
+        Result layout does not match ``individual`` mode (likely ``constant``,
+        ``fourier``, or ``auto`` resolved to one of those). Those modes are
+        out of scope for v0.1 viz.
     """
     from xpcsjax.core.heterodyne_model import HeterodyneModel
 
@@ -166,17 +193,27 @@ def _unpack_heterodyne_scaling(
     params = np.asarray(result.parameters, dtype=float)
     n_physical = len(model.parameter_names)
     n_total = params.size
-    residual = n_total - n_physical
-    if residual < 0 or residual % 2 != 0:
-        raise ValueError(
-            f"HeterodyneModel expects 2*n_phi + {n_physical} params "
-            f"(per-angle layout); got {n_total}."
+    individual_total = n_physical + 2 * n_phi_expected
+    if n_total != individual_total:
+        if n_total == n_physical:
+            raise NotImplementedError(
+                f"Heterodyne 'constant' scaling mode is not yet supported by xpcsjax "
+                f"viz. v0.1 supports per-angle 'individual' mode only — got "
+                f"{n_physical} physical params with no per-angle (contrast, offset) "
+                f"pairs in result.parameters. Use the upstream heterodyne package or "
+                f"wait for v0.2 for full mode parity."
+            )
+        raise NotImplementedError(
+            f"Heterodyne result has {n_total} parameters but xpcsjax viz expects "
+            f"{individual_total} (individual mode: {n_physical} physics + "
+            f"2*{n_phi_expected} per-angle scaling). Other scaling modes "
+            "('fourier', 'auto' resolved to non-individual) are not yet supported "
+            "by v0.1 viz."
         )
-    n_phi = residual // 2
-    contrasts = params[:n_phi].copy()
-    offsets = params[n_phi : 2 * n_phi].copy()
-    physical_params = params[2 * n_phi :].copy()
-    return contrasts, offsets, physical_params, n_phi
+    contrasts = params[:n_phi_expected].copy()
+    offsets = params[n_phi_expected : 2 * n_phi_expected].copy()
+    physical_params = params[2 * n_phi_expected :].copy()
+    return contrasts, offsets, physical_params, n_phi_expected
 
 
 def _evaluate_c2_per_angle(
@@ -212,7 +249,6 @@ def _evaluate_c2_per_angle(
         return np.asarray(c2)
 
     if isinstance(model, HeterodyneModel):
-        contrasts, offsets, physical_params, n_phi = _unpack_heterodyne_scaling(model, result)
         # Locate phi_deg's index in data["phi_angles_list"] to pick the
         # right per-angle contrast/offset. Tolerance is loose since phi
         # angles are user-provided floats; exact match expected.
@@ -224,8 +260,10 @@ def _evaluate_c2_per_angle(
                 f"(values: {phi_array.tolist()})"
             )
         i = int(matches[0])
-        if i >= n_phi:
-            raise ValueError(f"phi index {i} out of bounds for {n_phi} per-angle scaling params")
+        n_phi_expected = int(phi_array.size)
+        contrasts, offsets, physical_params, _ = _unpack_heterodyne_scaling(
+            model, result, n_phi_expected=n_phi_expected
+        )
 
         ap = config.get("analyzer_parameters", {})
         q = float(ap.get("scattering", {}).get("wavevector_q"))
@@ -262,7 +300,9 @@ def plot_nlsq_fit(
     reduced_chi_squared: float | None = None,
     save_path: Path | str | None = None,
     figsize: tuple[float, float] = (15, 5),
-) -> Figure:
+    *,
+    t2: np.ndarray | None = None,
+) -> Figure | None:
     """Three-panel NLSQ fit comparison: Experimental | Fitted | Residuals.
 
     Exp + Fit panels share a color scale clamped to ``[max(1.0, data_min),
@@ -275,21 +315,27 @@ def plot_nlsq_fit(
     c2_exp, c2_fit
         Experimental and fitted correlation surfaces, shape ``(n_t1, n_t2)``.
     t
-        Optional time axis (seconds). If ``None``, uses index axes ``[0, n_t1-1]``.
+        Optional time axis (seconds) — used as the y-axis (t₁). If ``t2``
+        is also ``None``, the same vector is used for both axes (square
+        assumption). If ``None``, uses index axes.
+    t2
+        Optional x-axis (t₂). When supplied with ``t``, lets rectangular
+        grids (n_t1 ≠ n_t2) render with the correct horizontal extent.
     phi_deg
         Optional phi angle for per-panel titles.
     reduced_chi_squared
         If provided, appears in the super-title as ``χ²_red = {val:.3f}``.
     save_path
-        If provided, the figure is saved and closed. Otherwise the live Figure is
-        returned.
+        If provided, the figure is saved and closed; the function returns
+        ``None``. Otherwise the live Figure is returned.
     figsize
         Matplotlib figsize in inches.
 
     Returns
     -------
-    Figure
-        The matplotlib Figure (open if ``save_path`` is None, closed otherwise).
+    Figure or None
+        The matplotlib Figure when ``save_path`` is ``None``; ``None`` when
+        the figure was saved (and is therefore closed).
     """
     fig, axes = plt.subplots(1, 3, figsize=figsize)
 
@@ -297,11 +343,13 @@ def plot_nlsq_fit(
         fig.suptitle("No data available")
         if save_path is not None:
             _save_fig(fig, save_path)
+            return None
         return fig
 
-    n_t1, _ = c2_exp.shape
-    t_arr = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
-    extent = (float(t_arr[0]), float(t_arr[-1]), float(t_arr[0]), float(t_arr[-1]))
+    n_t1, n_t2 = c2_exp.shape
+    t_y = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
+    t_x = np.asarray(t2) if t2 is not None else (t_y if t is not None else np.arange(n_t2, dtype=float))
+    extent = (float(t_x[0]), float(t_x[-1]), float(t_y[0]), float(t_y[-1]))
 
     combined = np.concatenate([c2_exp.ravel(), c2_fit.ravel()])
     finite = combined[np.isfinite(combined)]
@@ -372,6 +420,7 @@ def plot_nlsq_fit(
 
     if save_path is not None:
         _save_fig(fig, save_path)
+        return None
 
     return fig
 
@@ -383,7 +432,9 @@ def plot_residual_map(
     phi_deg: float | None = None,
     save_path: Path | str | None = None,
     figsize: tuple[float, float] = (10, 10),
-) -> Figure:
+    *,
+    t2: np.ndarray | None = None,
+) -> Figure | None:
     """Four-panel residual diagnostic.
 
     Layout (2x2):
@@ -397,18 +448,23 @@ def plot_residual_map(
     c2_exp, c2_fit
         Experimental and fitted correlation surfaces, shape ``(n_t1, n_t2)``.
     t
-        Optional time axis. Falls back to index axis when None.
+        Optional time axis (y / t₁). Falls back to index axis when None.
+    t2
+        Optional x-axis (t₂). When supplied with ``t``, lets rectangular
+        grids (n_t1 ≠ n_t2) render with the correct horizontal extent.
     phi_deg
         Optional phi for super-title.
     save_path
-        If provided, saved and closed; else returned.
+        If provided, saved and closed; the function returns ``None``.
+        Otherwise the live Figure is returned.
     figsize
         Matplotlib figsize in inches.
 
     Returns
     -------
-    Figure
-        The matplotlib Figure (open if save_path is None, closed otherwise).
+    Figure or None
+        The matplotlib Figure when ``save_path`` is ``None``; ``None`` when
+        the figure was saved (and is therefore closed).
     """
     fig, axes = plt.subplots(2, 2, figsize=figsize)
 
@@ -416,12 +472,14 @@ def plot_residual_map(
         fig.suptitle("No data available")
         if save_path is not None:
             _save_fig(fig, save_path)
+            return None
         return fig
 
     residuals = c2_exp - c2_fit
-    n_t = residuals.shape[0]
-    t_arr = np.asarray(t) if t is not None else np.arange(n_t, dtype=float)
-    extent = (float(t_arr[0]), float(t_arr[-1]), float(t_arr[0]), float(t_arr[-1]))
+    n_t1, n_t2 = residuals.shape
+    t_y = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
+    t_x = np.asarray(t2) if t2 is not None else (t_y if t is not None else np.arange(n_t2, dtype=float))
+    extent = (float(t_x[0]), float(t_x[-1]), float(t_y[0]), float(t_y[-1]))
 
     # [0,0] Residual Map
     finite_r = residuals[np.isfinite(residuals)]
@@ -472,9 +530,9 @@ def plot_residual_map(
         )
         axes[0, 1].legend()
 
-    # [1,0] Diagonal residuals
+    # [1,0] Diagonal residuals — length is min(n_t1, n_t2); plot against t_y truncated.
     diag = np.diag(residuals)
-    axes[1, 0].plot(t_arr, diag, "b-", lw=1)
+    axes[1, 0].plot(t_y[: diag.size], diag, "b-", lw=1)
     axes[1, 0].axhline(0, color="k", linestyle="--", alpha=0.5)
     axes[1, 0].set_xlabel("Time")
     axes[1, 0].set_ylabel("Residual")
@@ -497,6 +555,7 @@ def plot_residual_map(
     fig.tight_layout()
     if save_path is not None:
         _save_fig(fig, save_path)
+        return None
     return fig
 
 
@@ -509,7 +568,9 @@ def plot_simulated_data(
     analysis_mode: str | None = None,
     save_path: Path | str | None = None,
     figsize: tuple[float, float] = (8, 7),
-) -> Figure:
+    *,
+    t2: np.ndarray | None = None,
+) -> Figure | None:
     """Single-panel theoretical/fitted c2 heatmap with inline stats annotation.
 
     Used by the orchestrator to render fitted-only simulations (no comparison
@@ -521,25 +582,41 @@ def plot_simulated_data(
     c2_sim
         Theoretical or fitted c2 surface, shape ``(n_t1, n_t2)``.
     t
-        Optional time axis.
+        Optional time axis (y / t₁).
+    t2
+        Optional x-axis (t₂). When supplied with ``t``, lets rectangular
+        grids (n_t1 ≠ n_t2) render with the correct horizontal extent.
     phi_deg
         Optional phi angle for title.
     contrast, offset, analysis_mode
         Optional metadata annotations rendered in a corner box.
     save_path
-        If provided, saved and closed; else returned.
+        If provided, saved and closed; the function returns ``None``.
+        Otherwise the live Figure is returned.
     figsize
         Matplotlib figsize in inches.
 
     Returns
     -------
-    Figure
-        The matplotlib Figure (open if save_path is None, closed otherwise).
+    Figure or None
+        The matplotlib Figure when ``save_path`` is ``None``; ``None`` when
+        the figure was saved (and is therefore closed).
     """
     fig, ax = plt.subplots(figsize=figsize)
-    n_t1, _ = c2_sim.shape
-    t_arr = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
-    extent = (float(t_arr[0]), float(t_arr[-1]), float(t_arr[0]), float(t_arr[-1]))
+
+    # Empty-input fallback — mirrors plot_nlsq_fit / plot_residual_map.
+    if c2_sim.size == 0:
+        fig.suptitle("No data available")
+        if save_path is not None:
+            _save_fig(fig, save_path)
+            return None
+        return fig
+
+    n_t1, n_t2 = c2_sim.shape
+    t1_vec = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
+    t2_vec = np.asarray(t2) if t2 is not None else (t1_vec if t is not None else np.arange(n_t2, dtype=float))
+    # c2_sim is transposed below (ax.imshow(c2_sim.T)); display x → t₁, y → t₂.
+    extent = (float(t1_vec[0]), float(t1_vec[-1]), float(t2_vec[0]), float(t2_vec[-1]))
 
     vmin, vmax = _resolve_color_limits(c2_sim, percentile_min=1.0, percentile_max=99.0)
     vmin = max(1.0, vmin)
@@ -600,6 +677,7 @@ def plot_simulated_data(
     fig.tight_layout()
     if save_path is not None:
         _save_fig(fig, save_path)
+        return None
     return fig
 
 
@@ -618,8 +696,11 @@ def _write_npz_compressed(
 ) -> None:
     """Write numerical arrays to .npz with configurable compression.
 
-    Atomic rename: writes to ``path.tmp`` then renames. Cleans up the temp file
-    on any failure.
+    Atomic rename: writes to a unique temp file via :func:`tempfile.mkstemp`
+    in the same directory as ``path`` (so the rename is on the same
+    filesystem), then renames over ``path``. The unique temp name lets
+    concurrent calls targeting the same output coexist without clobbering
+    each other's in-progress writes. Cleans up the temp file on any failure.
 
     Compression options:
     - ``"lzma"``: best ratio, slow encode (~5-10x DEFLATE).
@@ -638,7 +719,15 @@ def _write_npz_compressed(
     compresslevel = 9 if compression == "deflate" else None
 
     path = Path(path)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Unique temp file in the same directory — concurrent writers don't collide.
+    fd, tmp_str = tempfile.mkstemp(
+        prefix=path.name + ".",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    os.close(fd)
+    tmp_path = Path(tmp_str)
 
     try:
         with zipfile.ZipFile(
@@ -650,7 +739,11 @@ def _write_npz_compressed(
         ) as zf:
             for name, arr in arrays.items():
                 arr_np = np.asarray(arr)
-                if arr_np.dtype == object:
+                # Reject both plain ``object`` dtypes and structured dtypes that
+                # contain object fields — ``np.lib.format.write_array`` will
+                # otherwise fall back to a non-portable serializer, which the
+                # ``allow_pickle=False`` reader path cannot load.
+                if arr_np.dtype == object or getattr(arr_np.dtype, "hasobject", False):
                     raise TypeError(
                         f"array {name!r} has object dtype; NPZ requires numerical "
                         "arrays only (string metadata belongs in the JSON sidecar)"
@@ -658,7 +751,7 @@ def _write_npz_compressed(
                 buf = io.BytesIO()
                 np.lib.format.write_array(buf, arr_np)
                 zf.writestr(f"{name}.npy", buf.getvalue())
-        tmp_path.replace(path)
+        os.replace(tmp_path, path)
     except BaseException:
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)
@@ -780,11 +873,12 @@ def _render_one_angle_worker(args: tuple) -> None:
     Used in both the parallel path (executed in a Pool worker process) and
     the sequential / fallback path (executed in the main process) — so output
     is byte-identical regardless of which path produced it.
+
+    The JAX CPU pin lives in ``xpcsjax/__init__.py`` (env exported to spawn
+    workers via the parent's ``os.environ``); per-worker re-assignment here
+    would be too late because ``import jax.numpy`` at the top of this module
+    has already run by the time the worker reaches this function.
     """
-    import os
-
-    os.environ["JAX_PLATFORMS"] = "cpu"
-
     from xpcsjax.viz.nlsq_plots import (
         plot_nlsq_fit,
         plot_residual_map,
@@ -792,9 +886,11 @@ def _render_one_angle_worker(args: tuple) -> None:
     )
 
     (
+        phi_idx,
         c2_exp_i,
         c2_fit_i,
         t1,
+        t2,
         phi_deg,
         plots,
         chi2_red,
@@ -805,32 +901,39 @@ def _render_one_angle_worker(args: tuple) -> None:
         sim_dir,
     ) = args
 
+    # Filename includes the angle index so that .1f-equal angles
+    # (e.g. 10.04° and 10.05°) don't collide under parallel rendering.
+    name_suffix = f"phi_{phi_idx:03d}_{phi_deg:.3f}deg"
+
     if "comparison" in plots:
         plot_nlsq_fit(
             c2_exp_i,
             c2_fit_i,
             t=t1,
+            t2=t2,
             phi_deg=phi_deg,
             reduced_chi_squared=chi2_red,
-            save_path=Path(output_dir) / f"c2_heatmaps_phi_{phi_deg:.1f}deg.png",
+            save_path=Path(output_dir) / f"c2_heatmaps_{name_suffix}.png",
         )
     if "residuals" in plots:
         plot_residual_map(
             c2_exp_i,
             c2_fit_i,
             t=t1,
+            t2=t2,
             phi_deg=phi_deg,
-            save_path=Path(output_dir) / f"residuals_phi_{phi_deg:.1f}deg.png",
+            save_path=Path(output_dir) / f"residuals_{name_suffix}.png",
         )
     if "simulated" in plots:
         plot_simulated_data(
             c2_fit_i,
             t=t1,
+            t2=t2,
             phi_deg=phi_deg,
             contrast=contrast,
             offset=offset,
             analysis_mode=analysis_mode,
-            save_path=Path(sim_dir) / f"simulated_c2_fitted_phi_{phi_deg:.1f}deg.png",
+            save_path=Path(sim_dir) / f"simulated_c2_fitted_{name_suffix}.png",
         )
 
 
@@ -946,6 +1049,32 @@ def generate_nlsq_plots(
     sim_dir = output_dir / "simulated_data"
     sim_dir.mkdir(parents=True, exist_ok=True)
 
+    # Heterodyne: validate the per-angle scaling layout upfront. Without this,
+    # non-individual modes (constant/fourier/auto) would either silently produce
+    # all-NaN artifacts (the per-angle compute loop catches Exception and
+    # leaves NaN) or mis-infer n_phi from a residual that happens to be even.
+    if isinstance(model, HeterodyneModel):
+        n_phi_expected = int(phi_angles.size)
+        n_physical = len(model.parameter_names)
+        n_total = int(np.asarray(result.parameters).size)
+        individual_total = n_physical + 2 * n_phi_expected
+        if n_total != individual_total:
+            if n_total == n_physical:
+                raise NotImplementedError(
+                    f"Heterodyne 'constant' scaling mode is not yet supported by "
+                    f"xpcsjax viz (got {n_physical} physical params with no "
+                    f"per-angle scaling pairs). v0.1 supports per-angle "
+                    f"'individual' mode only. Use the upstream heterodyne "
+                    f"package or wait for v0.2 for full mode parity."
+                )
+            raise NotImplementedError(
+                f"Heterodyne result has {n_total} parameters but xpcsjax viz "
+                f"expects {individual_total} (individual mode: {n_physical} "
+                f"physics + 2*{n_phi_expected} per-angle scaling). Other scaling "
+                f"modes ('fourier', 'auto' resolved to non-individual) are not "
+                f"yet supported by v0.1 viz."
+            )
+
     # Per-model param unpacking (model-type dispatched inside helper).
     contrast, offset, physical_params, parameter_names = _unpack_result_params(
         model, result, config_dict
@@ -988,12 +1117,17 @@ def generate_nlsq_plots(
             )
 
     # Phase B: render PNGs (parallel pool or sequential — same worker either way
-    # so the output is byte-identical regardless of path).
+    # so the output is byte-identical regardless of path). The phi index is
+    # threaded in so filenames don't collide when two angles round to the same
+    # ``.1f`` decimal (e.g. 10.04° and 10.05°). Both ``t1`` and ``t2`` are
+    # passed because the data may live on a rectangular grid.
     def _render_args_for_index(i: int) -> tuple:
         return (
+            int(i),
             c2_exp[i],
             c2_fitted[i],
             t1,
+            t2,
             float(phi_angles[i]),
             plots,
             chi2_red,
