@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from xpcsjax.viz.nlsq_plots import _save_fig, _unpack_result_params
+from xpcsjax.viz.nlsq_plots import _evaluate_c2_per_angle, _save_fig, _unpack_result_params
 
 
 def test_save_fig_with_none_is_noop() -> None:
@@ -121,3 +121,70 @@ def test_unpack_heterodyne_size_mismatch_raises(heterodyne_model) -> None:
     config = {"analyzer_parameters": {"dt": 0.1}}
     with pytest.raises(ValueError, match="expects 14 params"):
         _unpack_result_params(heterodyne_model, bad, config)
+
+
+def test_evaluate_homodyne_2d_finite(
+    homodyne_model,
+    converged_homodyne_result,
+    synthetic_multi_angle_data,
+    minimal_homodyne_config,
+) -> None:
+    data = synthetic_multi_angle_data
+    c2 = _evaluate_c2_per_angle(
+        homodyne_model,
+        converged_homodyne_result,
+        data,
+        minimal_homodyne_config,
+        phi_deg=45.0,
+    )
+    assert c2.ndim == 2
+    assert c2.shape == (data["t1"].size, data["t2"].size)
+    assert np.all(np.isfinite(c2))
+
+
+def test_evaluate_heterodyne_currently_raises_notimplemented(
+    heterodyne_model,
+    synthetic_multi_angle_data,
+) -> None:
+    """Heterodyne c2 reconstruction needs per-angle scaling from
+    heterodyne_scaling_utils (formulas vary by analysis mode). Out of scope
+    for Task 5. Helper raises NotImplementedError until a follow-up task
+    wires up the scaling.
+    """
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+
+    n = heterodyne_model.get_default_parameters().shape[0]
+    result = OptimizationResult(
+        parameters=np.asarray(heterodyne_model.get_default_parameters()),
+        uncertainties=np.ones(n) * 0.01,
+        covariance=np.eye(n),
+        chi_squared=1.0,
+        reduced_chi_squared=0.9,
+        convergence_status="converged",
+        iterations=1,
+        execution_time=0.1,
+        device_info={"platform": "cpu"},
+    )
+    config = {
+        "analyzer_parameters": {
+            "dt": 0.1,
+            "scattering": {"wavevector_q": 0.0054},
+            "geometry": {"stator_rotor_gap": 2_000_000.0},
+        }
+    }
+    with pytest.raises(NotImplementedError, match="heterodyne"):
+        _evaluate_c2_per_angle(
+            heterodyne_model,
+            result,
+            synthetic_multi_angle_data,
+            config,
+            phi_deg=45.0,
+        )
+
+
+def test_evaluate_unsupported_raises() -> None:
+    class FakeModel:
+        pass
+
+    with pytest.raises(TypeError, match="Unsupported model type"):
+        _evaluate_c2_per_angle(FakeModel(), None, {}, {}, phi_deg=0.0)  # type: ignore[arg-type]

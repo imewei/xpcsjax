@@ -125,3 +125,52 @@ def _unpack_result_params(
         f"Unsupported model type: {type(model).__name__}. "
         f"Expected HomodyneModel or HeterodyneModel."
     )
+
+
+def _evaluate_c2_per_angle(
+    model: Any,
+    result: Any,
+    data: dict[str, Any],
+    config: dict[str, Any],
+    phi_deg: float,
+) -> np.ndarray:
+    """Compute fitted c2 surface at one phi angle.
+
+    Dispatches on model type:
+
+    HomodyneModel
+        Uses ``_unpack_result_params`` to extract contrast/offset/physical_params,
+        then calls ``model.compute_c2_single_angle(physical_params, phi, contrast,
+        offset)`` which uses the model's stored t-grid/q/L/dt state.
+
+    HeterodyneModel
+        Not yet wired up. ``HeterodyneModel.compute_g1`` returns g1² (range
+        [0, 1]), not a fittable c2 surface. The real c2 reconstruction needs
+        per-angle contrast/offset from
+        ``xpcsjax.optimization.nlsq.heterodyne_scaling_utils`` whose formulas
+        vary by analysis mode (constant/auto/fourier/individual). Out of scope
+        for Task 5; raises ``NotImplementedError`` until a follow-up task
+        wires it up. See plan spec amendment 3.
+    """
+    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.homodyne_model import HomodyneModel
+
+    if isinstance(model, HomodyneModel):
+        contrast, offset, physical_params, _ = _unpack_result_params(model, result, config)
+        c2 = model.compute_c2_single_angle(physical_params, phi_deg, contrast, offset)
+        return np.asarray(c2)
+
+    if isinstance(model, HeterodyneModel):
+        raise NotImplementedError(
+            "Heterodyne c2 reconstruction in viz is not yet wired up. "
+            "HeterodyneModel.compute_g1 returns g1² (range [0, 1]), not a "
+            "fittable c2 surface — the real c2 needs per-angle contrast/offset "
+            "from xpcsjax.optimization.nlsq.heterodyne_scaling_utils, with "
+            "formulas that vary by analysis mode (constant/auto/fourier/individual). "
+            "See plan spec amendment 3."
+        )
+
+    raise TypeError(
+        f"Unsupported model type: {type(model).__name__}. "
+        f"Expected HomodyneModel or HeterodyneModel."
+    )
