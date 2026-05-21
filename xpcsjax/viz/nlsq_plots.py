@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import json
+import multiprocessing
 import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -690,6 +691,76 @@ def _save_fit_artifacts(
     logger.info("Wrote fit artifacts to %s", output_dir)
 
 
+def _worker_init_cpu_only() -> None:
+    """Pool worker initializer — pin JAX to CPU + lazy allocator."""
+    import os
+
+    os.environ["JAX_PLATFORMS"] = "cpu"
+    os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+    os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
+
+
+def _render_one_angle_worker(args: tuple) -> None:
+    """Picklable worker: receives arrays + paths, writes PNGs.
+
+    Re-imports plot funcs inside the worker (spawn-context starts cold).
+    Used in both the parallel path (executed in a Pool worker process) and
+    the sequential / fallback path (executed in the main process) — so output
+    is byte-identical regardless of which path produced it.
+    """
+    import os
+
+    os.environ["JAX_PLATFORMS"] = "cpu"
+
+    from xpcsjax.viz.nlsq_plots import (
+        plot_nlsq_fit,
+        plot_residual_map,
+        plot_simulated_data,
+    )
+
+    (
+        c2_exp_i,
+        c2_fit_i,
+        t1,
+        phi_deg,
+        plots,
+        chi2_red,
+        contrast,
+        offset,
+        analysis_mode,
+        output_dir,
+        sim_dir,
+    ) = args
+
+    if "comparison" in plots:
+        plot_nlsq_fit(
+            c2_exp_i,
+            c2_fit_i,
+            t=t1,
+            phi_deg=phi_deg,
+            reduced_chi_squared=chi2_red,
+            save_path=Path(output_dir) / f"c2_heatmaps_phi_{phi_deg:.1f}deg.png",
+        )
+    if "residuals" in plots:
+        plot_residual_map(
+            c2_exp_i,
+            c2_fit_i,
+            t=t1,
+            phi_deg=phi_deg,
+            save_path=Path(output_dir) / f"residuals_phi_{phi_deg:.1f}deg.png",
+        )
+    if "simulated" in plots:
+        plot_simulated_data(
+            c2_fit_i,
+            t=t1,
+            phi_deg=phi_deg,
+            contrast=contrast,
+            offset=offset,
+            analysis_mode=analysis_mode,
+            save_path=Path(sim_dir) / f"simulated_c2_fitted_phi_{phi_deg:.1f}deg.png",
+        )
+
+
 def generate_nlsq_plots(
     model: Any,
     result: Any,
@@ -842,48 +913,69 @@ def generate_nlsq_plots(
                 "Falling back to matplotlib."
             )
 
-    # Per-angle compute + render (sequential; parallel added in Task 14)
+    # Phase A: compute fitted surfaces in main process (models may not be picklable)
     chi2_red = float(result.reduced_chi_squared)
     for i, phi_deg in enumerate(phi_angles):
         phi_deg_f = float(phi_deg)
         try:
-            c2_fit_i = _evaluate_c2_per_angle(model, result, data, config_dict, phi_deg_f)
-            c2_fitted[i] = c2_fit_i
+            c2_fitted[i] = _evaluate_c2_per_angle(model, result, data, config_dict, phi_deg_f)
         except Exception:
             logger.exception(
                 "Angle %d (phi=%.1f) compute failed; leaving NaN in c2_fitted",
                 i,
                 phi_deg_f,
             )
-            continue
 
-        if "comparison" in plots:
-            plot_nlsq_fit(
-                c2_exp[i],
-                c2_fit_i,
-                t=t1,
-                phi_deg=phi_deg_f,
-                reduced_chi_squared=chi2_red,
-                save_path=output_dir / f"c2_heatmaps_phi_{phi_deg_f:.1f}deg.png",
+    # Phase B: render PNGs (parallel pool or sequential — same worker either way
+    # so the output is byte-identical regardless of path).
+    def _render_args_for_index(i: int) -> tuple:
+        return (
+            c2_exp[i],
+            c2_fitted[i],
+            t1,
+            float(phi_angles[i]),
+            plots,
+            chi2_red,
+            contrast,
+            offset,
+            analysis_mode,
+            output_dir,
+            sim_dir,
+        )
+
+    if parallel and n_phi > 1:
+        try:
+            ctx = multiprocessing.get_context("spawn")
+            n_workers = min(multiprocessing.cpu_count(), n_phi)
+            args_list = [
+                _render_args_for_index(i)
+                for i in range(n_phi)
+                if not np.all(np.isnan(c2_fitted[i]))
+            ]
+            timeout_s = 60 * n_phi / max(n_workers, 1) + 120
+            with ctx.Pool(processes=n_workers, initializer=_worker_init_cpu_only) as pool:
+                ar = pool.map_async(_render_one_angle_worker, args_list)
+                ar.get(timeout=timeout_s)
+            logger.info(
+                "Rendered %d angles in parallel (%d workers)",
+                len(args_list),
+                n_workers,
             )
-        if "residuals" in plots:
-            plot_residual_map(
-                c2_exp[i],
-                c2_fit_i,
-                t=t1,
-                phi_deg=phi_deg_f,
-                save_path=output_dir / f"residuals_phi_{phi_deg_f:.1f}deg.png",
+        except (OSError, RuntimeError, TimeoutError, Exception) as e:
+            logger.warning(
+                "Parallel rendering failed (%s: %s); sequential fallback.",
+                type(e).__name__,
+                e,
             )
-        if "simulated" in plots:
-            plot_simulated_data(
-                c2_fit_i,
-                t=t1,
-                phi_deg=phi_deg_f,
-                contrast=contrast,
-                offset=offset,
-                analysis_mode=analysis_mode,
-                save_path=sim_dir / f"simulated_c2_fitted_phi_{phi_deg_f:.1f}deg.png",
-            )
+            for i in range(n_phi):
+                if np.all(np.isnan(c2_fitted[i])):
+                    continue
+                _render_one_angle_worker(_render_args_for_index(i))
+    else:
+        for i in range(n_phi):
+            if np.all(np.isnan(c2_fitted[i])):
+                continue
+            _render_one_angle_worker(_render_args_for_index(i))
 
     residuals = c2_exp - c2_fitted
 

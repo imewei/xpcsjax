@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
@@ -279,3 +282,66 @@ def test_orchestrator_fail_soft_on_bad_angle(
     assert np.all(np.isnan(loaded["c2_fitted"][1]))
     for i in [0, 2, 3]:
         assert np.all(np.isfinite(loaded["c2_fitted"][i]))
+
+
+def _png_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_parallel_produces_identical_pngs_to_sequential(
+    tmp_path,
+    homodyne_model,
+    converged_homodyne_result,
+    synthetic_multi_angle_data,
+    minimal_homodyne_config,
+):
+    seq_dir = tmp_path / "seq"
+    par_dir = tmp_path / "par"
+    generate_nlsq_plots(
+        model=homodyne_model,
+        result=converged_homodyne_result,
+        data=synthetic_multi_angle_data,
+        config=minimal_homodyne_config,
+        output_dir=seq_dir,
+        parallel=False,
+    )
+    generate_nlsq_plots(
+        model=homodyne_model,
+        result=converged_homodyne_result,
+        data=synthetic_multi_angle_data,
+        config=minimal_homodyne_config,
+        output_dir=par_dir,
+        parallel=True,
+    )
+    for phi in synthetic_multi_angle_data["phi_angles_list"]:
+        s = seq_dir / f"c2_heatmaps_phi_{phi:.1f}deg.png"
+        p = par_dir / f"c2_heatmaps_phi_{phi:.1f}deg.png"
+        assert s.exists() and p.exists()
+        assert _png_sha256(s) == _png_sha256(p)
+
+
+def test_parallel_fallback_on_pool_failure(
+    tmp_path,
+    homodyne_model,
+    converged_homodyne_result,
+    synthetic_multi_angle_data,
+    minimal_homodyne_config,
+    monkeypatch,
+):
+    import multiprocessing
+
+    def broken_get_context(method=None):
+        raise OSError("simulated spawn failure")
+
+    monkeypatch.setattr(multiprocessing, "get_context", broken_get_context)
+
+    generate_nlsq_plots(
+        model=homodyne_model,
+        result=converged_homodyne_result,
+        data=synthetic_multi_angle_data,
+        config=minimal_homodyne_config,
+        output_dir=tmp_path,
+        parallel=True,
+    )
+    for phi in synthetic_multi_angle_data["phi_angles_list"]:
+        assert (tmp_path / f"c2_heatmaps_phi_{phi:.1f}deg.png").exists()
