@@ -56,28 +56,21 @@ def test_unpack_homodyne(
     assert len(param_names) == 3
 
 
-def test_unpack_heterodyne_keeps_full_vector(heterodyne_model) -> None:
-    """Heterodyne registry has 14 names without 'contrast'/'offset' slots, so
-    the strict contract introduced in Task 4 raises rather than silently
-    falling back to params[0]/[1]. This regression-guards that strict path
-    instead of the previous quietly-wrong behavior.
-    """
-    from xpcsjax.optimization.nlsq.results import OptimizationResult
-
-    result = OptimizationResult(
-        parameters=np.arange(14, dtype=float) * 0.1,
-        uncertainties=np.ones(14) * 0.01,
-        covariance=np.eye(14),
-        chi_squared=1.0,
-        reduced_chi_squared=0.9,
-        convergence_status="converged",
-        iterations=10,
-        execution_time=1.0,
-        device_info={"platform": "cpu"},
-    )
+def test_unpack_heterodyne_per_angle_layout(
+    heterodyne_model,
+    converged_heterodyne_result,
+) -> None:
+    """Per-angle layout: [c_0..N-1, o_0..N-1, 14 physical]."""
     config = {"analyzer_parameters": {"dt": 0.1}}
-    with pytest.raises(ValueError, match="'contrast' and/or 'offset'"):
-        _unpack_result_params(heterodyne_model, result, config)
+    contrast, offset, physical_params, names = _unpack_result_params(
+        heterodyne_model, converged_heterodyne_result, config
+    )
+    # Returns mean contrast/offset across angles (~0.2/~1.0 from fixture)
+    assert contrast == pytest.approx(0.2)
+    assert offset == pytest.approx(1.0)
+    # Physical params: 14 registry-ordered values
+    assert physical_params.shape == (14,)
+    assert len(names) == 14
 
 
 def test_unpack_unsupported_model_raises() -> None:
@@ -115,7 +108,7 @@ def test_unpack_heterodyne_size_mismatch_raises(heterodyne_model) -> None:
     from xpcsjax.optimization.nlsq.results import OptimizationResult
 
     bad = OptimizationResult(
-        parameters=np.arange(5, dtype=float),  # 5 params, heterodyne expects 14
+        parameters=np.arange(5, dtype=float),  # 5 - 14 = -9, definitely < 0
         uncertainties=np.ones(5),
         covariance=np.eye(5),
         chi_squared=1.0,
@@ -126,7 +119,7 @@ def test_unpack_heterodyne_size_mismatch_raises(heterodyne_model) -> None:
         device_info={},
     )
     config = {"analyzer_parameters": {"dt": 0.1}}
-    with pytest.raises(ValueError, match="expects 14 params"):
+    with pytest.raises(ValueError, match=r"per-angle layout"):
         _unpack_result_params(heterodyne_model, bad, config)
 
 
@@ -149,44 +142,36 @@ def test_evaluate_homodyne_2d_finite(
     assert np.all(np.isfinite(c2))
 
 
-def test_evaluate_heterodyne_currently_raises_notimplemented(
+def test_evaluate_heterodyne_returns_2d_finite(
     heterodyne_model,
+    converged_heterodyne_result,
     synthetic_multi_angle_data,
 ) -> None:
-    """Heterodyne c2 reconstruction needs per-angle scaling from
-    heterodyne_scaling_utils (formulas vary by analysis mode). Out of scope
-    for Task 5. Helper raises NotImplementedError until a follow-up task
-    wires up the scaling.
-    """
-    from xpcsjax.optimization.nlsq.results import OptimizationResult
-
-    n = heterodyne_model.get_default_parameters().shape[0]
-    result = OptimizationResult(
-        parameters=np.asarray(heterodyne_model.get_default_parameters()),
-        uncertainties=np.ones(n) * 0.01,
-        covariance=np.eye(n),
-        chi_squared=1.0,
-        reduced_chi_squared=0.9,
-        convergence_status="converged",
-        iterations=1,
-        execution_time=0.1,
-        device_info={"platform": "cpu"},
-    )
+    """Heterodyne path returns a real c2 surface in the expected [1.0, 1.5] range."""
     config = {
         "analyzer_parameters": {
             "dt": 0.1,
             "scattering": {"wavevector_q": 0.0054},
             "geometry": {"stator_rotor_gap": 2_000_000.0},
-        }
+        },
+        "analysis_mode": "heterodyne",
     }
-    with pytest.raises(NotImplementedError, match="heterodyne"):
-        _evaluate_c2_per_angle(
-            heterodyne_model,
-            result,
-            synthetic_multi_angle_data,
-            config,
-            phi_deg=45.0,
-        )
+    c2 = _evaluate_c2_per_angle(
+        heterodyne_model,
+        converged_heterodyne_result,
+        synthetic_multi_angle_data,
+        config,
+        phi_deg=45.0,
+    )
+    assert c2.ndim == 2
+    assert c2.shape == (
+        synthetic_multi_angle_data["t1"].size,
+        synthetic_multi_angle_data["t2"].size,
+    )
+    assert np.all(np.isfinite(c2))
+    # c2 = offset + contrast * g1². With offset=1.0, contrast=0.2, g1² in [0,1],
+    # c2 should be in [1.0, 1.2].
+    assert 0.95 < float(np.nanmean(c2)) < 1.25
 
 
 def test_evaluate_unsupported_raises() -> None:

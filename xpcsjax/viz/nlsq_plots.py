@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -114,23 +115,68 @@ def _unpack_result_params(
 
     if isinstance(model, HeterodyneModel):
         params = np.asarray(result.parameters, dtype=float)
-        names = list(model.parameter_names)
-        if params.size != len(names):
-            raise ValueError(f"HeterodyneModel expects {len(names)} params; got {params.size}")
-        if "contrast" in names and "offset" in names:
-            c = float(params[names.index("contrast")])
-            o = float(params[names.index("offset")])
-        else:
+        physical_names = list(model.parameter_names)  # 14 names
+        n_physical = len(physical_names)
+        n_total = params.size
+        # Per-angle layout: [c_0..N-1, o_0..N-1, physical_0..n_physical-1]
+        # Require 2*n_phi + n_physical params; infer n_phi from the residual.
+        residual = n_total - n_physical
+        if residual < 0 or residual % 2 != 0:
             raise ValueError(
-                "HeterodyneModel parameter_names registry is missing required "
-                "'contrast' and/or 'offset' slots."
+                f"HeterodyneModel expects 2*n_phi + {n_physical} params "
+                f"(per-angle layout); got {n_total}. The residual "
+                f"{residual} is not divisible by 2."
             )
-        return c, o, params.copy(), names
+        n_phi = residual // 2
+        contrasts = params[:n_phi]
+        offsets = params[n_phi : 2 * n_phi]
+        physical_params = params[2 * n_phi :].copy()
+        # For the homodyne-shaped (scalar contrast, offset) return contract,
+        # use the per-angle means as scalar summaries. Per-angle arrays are
+        # extracted by callers that need them (see _evaluate_c2_per_angle).
+        contrast_scalar = float(contrasts.mean()) if n_phi > 0 else 0.0
+        offset_scalar = float(offsets.mean()) if n_phi > 0 else 0.0
+        return contrast_scalar, offset_scalar, physical_params, physical_names
 
     raise TypeError(
         f"Unsupported model type: {type(model).__name__}. "
         f"Expected HomodyneModel or HeterodyneModel."
     )
+
+
+def _unpack_heterodyne_scaling(
+    model: Any,
+    result: Any,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+    """Extract heterodyne per-angle scaling + physical params from a result.
+
+    Returns
+    -------
+    (contrasts, offsets, physical_params, n_phi)
+        contrasts, offsets: shape (n_phi,)
+        physical_params:    shape (n_physical=14,)
+        n_phi:              number of angles inferred from layout
+    """
+    from xpcsjax.core.heterodyne_model import HeterodyneModel
+
+    if not isinstance(model, HeterodyneModel):
+        raise TypeError(
+            f"_unpack_heterodyne_scaling expects HeterodyneModel; got {type(model).__name__}"
+        )
+    params = np.asarray(result.parameters, dtype=float)
+    n_physical = len(model.parameter_names)
+    n_total = params.size
+    residual = n_total - n_physical
+    if residual < 0 or residual % 2 != 0:
+        raise ValueError(
+            f"HeterodyneModel expects 2*n_phi + {n_physical} params "
+            f"(per-angle layout); got {n_total}."
+        )
+    n_phi = residual // 2
+    contrasts = params[:n_phi].copy()
+    offsets = params[n_phi : 2 * n_phi].copy()
+    physical_params = params[2 * n_phi :].copy()
+    return contrasts, offsets, physical_params, n_phi
 
 
 def _evaluate_c2_per_angle(
@@ -150,13 +196,12 @@ def _evaluate_c2_per_angle(
         offset)`` which uses the model's stored t-grid/q/L/dt state.
 
     HeterodyneModel
-        Not yet wired up. ``HeterodyneModel.compute_g1`` returns g1² (range
-        [0, 1]), not a fittable c2 surface. The real c2 reconstruction needs
-        per-angle contrast/offset from
-        ``xpcsjax.optimization.nlsq.heterodyne_scaling_utils`` whose formulas
-        vary by analysis mode (constant/auto/fourier/individual). Out of scope
-        for Task 5; raises ``NotImplementedError`` until a follow-up task
-        wires it up. See plan spec amendment 3.
+        Reads per-angle ``contrasts[i]`` / ``offsets[i]`` from the per-angle
+        fit-time layout in ``result.parameters`` (via
+        ``_unpack_heterodyne_scaling``), evaluates ``model.compute_g1`` to get
+        the normalized g1² surface (range [0, 1]) for the matching angle, and
+        applies ``c2 = offset[i] + contrast[i] * g1_sq``. Resolves Spec
+        Amendment 3.
     """
     from xpcsjax.core.heterodyne_model import HeterodyneModel
     from xpcsjax.core.homodyne_model import HomodyneModel
@@ -167,14 +212,41 @@ def _evaluate_c2_per_angle(
         return np.asarray(c2)
 
     if isinstance(model, HeterodyneModel):
-        raise NotImplementedError(
-            "Heterodyne c2 reconstruction in viz is not yet wired up. "
-            "HeterodyneModel.compute_g1 returns g1² (range [0, 1]), not a "
-            "fittable c2 surface — the real c2 needs per-angle contrast/offset "
-            "from xpcsjax.optimization.nlsq.heterodyne_scaling_utils, with "
-            "formulas that vary by analysis mode (constant/auto/fourier/individual). "
-            "See plan spec amendment 3."
+        contrasts, offsets, physical_params, n_phi = _unpack_heterodyne_scaling(model, result)
+        # Locate phi_deg's index in data["phi_angles_list"] to pick the
+        # right per-angle contrast/offset. Tolerance is loose since phi
+        # angles are user-provided floats; exact match expected.
+        phi_array = np.asarray(data["phi_angles_list"], dtype=float)
+        matches = np.where(np.isclose(phi_array, phi_deg, atol=1e-6))[0]
+        if matches.size == 0:
+            raise ValueError(
+                f"phi_deg={phi_deg!r} not found in data['phi_angles_list'] "
+                f"(values: {phi_array.tolist()})"
+            )
+        i = int(matches[0])
+        if i >= n_phi:
+            raise ValueError(f"phi index {i} out of bounds for {n_phi} per-angle scaling params")
+
+        ap = config.get("analyzer_parameters", {})
+        q = float(ap.get("scattering", {}).get("wavevector_q"))
+        L = float(ap.get("geometry", {}).get("stator_rotor_gap"))
+        dt = float(ap.get("dt") or ap.get("temporal", {}).get("dt"))
+        t1 = jnp.asarray(data["t1"], dtype=jnp.float64)
+        t2 = jnp.asarray(data["t2"], dtype=jnp.float64)
+
+        g1_sq = model.compute_g1(
+            jnp.asarray(physical_params, dtype=jnp.float64),
+            t1,
+            t2,
+            jnp.asarray([phi_deg], dtype=jnp.float64),
+            q,
+            L,
+            dt,
         )
+        # compute_g1 returns shape (1, n_t1, n_t2) for length-1 phi; drop axis.
+        g1_sq_arr = np.asarray(g1_sq[0])
+        c2 = float(offsets[i]) + float(contrasts[i]) * g1_sq_arr
+        return c2
 
     raise TypeError(
         f"Unsupported model type: {type(model).__name__}. "
@@ -783,10 +855,9 @@ def generate_nlsq_plots(
     Parameters
     ----------
     model
-        Currently only ``HomodyneModel`` is supported. ``HeterodyneModel``
-        raises ``NotImplementedError`` — see Spec Amendment 3 (heterodyne
-        c2 reconstruction needs ``heterodyne_scaling_utils`` integration
-        that's pending).
+        ``HomodyneModel`` or ``HeterodyneModel``. Heterodyne reads per-angle
+        contrast/offset directly from ``result.parameters`` using the
+        per-angle fit-time layout (Spec Amendment 3 resolution).
     result
         ``OptimizationResult`` from ``fit_nlsq``.
     data
@@ -820,22 +891,11 @@ def generate_nlsq_plots(
         shape mismatch, or missing physics keys in config.
     TypeError
         Unsupported model type (not HomodyneModel or HeterodyneModel).
-    NotImplementedError
-        HeterodyneModel is currently deferred (Spec Amendment 3).
     """
     from xpcsjax.core.heterodyne_model import HeterodyneModel
     from xpcsjax.core.homodyne_model import HomodyneModel
 
-    # Fail-fast on heterodyne — per code review recommendation, isinstance
-    # check upstream is cleaner than catching NotImplementedError from
-    # _evaluate_c2_per_angle.
-    if isinstance(model, HeterodyneModel):
-        raise NotImplementedError(
-            "generate_nlsq_plots does not yet support HeterodyneModel — "
-            "heterodyne c2 reconstruction needs heterodyne_scaling_utils "
-            "integration (Spec Amendment 3). Use the homodyne path for now."
-        )
-    if not isinstance(model, HomodyneModel):
+    if not isinstance(model, (HomodyneModel, HeterodyneModel)):
         raise TypeError(
             f"Unsupported model type: {type(model).__name__}. "
             f"Expected HomodyneModel or HeterodyneModel."
@@ -886,7 +946,7 @@ def generate_nlsq_plots(
     sim_dir = output_dir / "simulated_data"
     sim_dir.mkdir(parents=True, exist_ok=True)
 
-    # Per-model param unpacking (homodyne only at this point)
+    # Per-model param unpacking (model-type dispatched inside helper).
     contrast, offset, physical_params, parameter_names = _unpack_result_params(
         model, result, config_dict
     )
@@ -980,8 +1040,15 @@ def generate_nlsq_plots(
 
     residuals = c2_exp - c2_fitted
 
-    # Slice uncertainties to match physical_params length for homodyne
-    phys_unc = np.asarray(result.uncertainties, dtype=float)[2:]
+    # Slice uncertainties to match physical_params length.
+    # Homodyne layout: [contrast, offset, physical...] -> skip first 2.
+    # Heterodyne layout: [c_0..N-1, o_0..N-1, physical...] -> skip first 2*n_phi.
+    n_phi_local = phi_angles.size
+    if isinstance(model, HeterodyneModel):
+        skip = 2 * n_phi_local
+    else:
+        skip = 2
+    phys_unc = np.asarray(result.uncertainties, dtype=float)[skip:]
 
     _save_fit_artifacts(
         c2_exp=c2_exp,

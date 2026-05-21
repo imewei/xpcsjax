@@ -91,3 +91,37 @@ def converged_homodyne_result():
         execution_time=1.234,
         device_info={"platform": "cpu"},
     )
+
+
+@pytest.fixture
+def converged_heterodyne_result(synthetic_multi_angle_data):
+    """Synthetic heterodyne OptimizationResult with per-angle scaling layout.
+
+    Heterodyne fit-time parameter layout:
+        [contrast_0..n_phi-1, offset_0..n_phi-1, physical_0..13]
+    Total: 2 * n_phi + 14 entries.
+
+    Uses sensible default contrasts (~0.2 each) and offsets (~1.0 each) per
+    angle, with HeterodyneModel default physical params.
+    """
+    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+
+    n_phi = synthetic_multi_angle_data["phi_angles_list"].size
+    het = HeterodyneModel()
+    physical = np.asarray(het.get_default_parameters(), dtype=float)
+    contrasts = np.full(n_phi, 0.2, dtype=float)
+    offsets = np.full(n_phi, 1.0, dtype=float)
+    parameters = np.concatenate([contrasts, offsets, physical])
+    n_params = parameters.size
+    return OptimizationResult(
+        parameters=parameters,
+        uncertainties=np.ones(n_params) * 0.01,
+        covariance=np.eye(n_params) * 0.01,
+        chi_squared=2.5,
+        reduced_chi_squared=0.912,
+        convergence_status="converged",
+        iterations=37,
+        execution_time=1.4,
+        device_info={"platform": "cpu"},
+    )

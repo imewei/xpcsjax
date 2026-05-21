@@ -99,29 +99,13 @@ def test_orchestrator_closes_all_figures(
     assert len(plt.get_fignums()) == starting
 
 
-def test_orchestrator_heterodyne_raises_notimplemented(
+def test_orchestrator_heterodyne_writes_all_files(
     tmp_path,
     heterodyne_model,
+    converged_heterodyne_result,
     synthetic_multi_angle_data,
 ):
-    """Per Spec Amendment 3: heterodyne deferred. Orchestrator raises early
-    via isinstance check, BEFORE attempting per-angle compute. Cleaner than
-    catching NotImplementedError from _evaluate_c2_per_angle.
-    """
-    from xpcsjax.optimization.nlsq.results import OptimizationResult
-
-    n = heterodyne_model.get_default_parameters().shape[0]
-    result = OptimizationResult(
-        parameters=np.asarray(heterodyne_model.get_default_parameters()),
-        uncertainties=np.ones(n) * 0.01,
-        covariance=np.eye(n),
-        chi_squared=1.0,
-        reduced_chi_squared=0.9,
-        convergence_status="converged",
-        iterations=1,
-        execution_time=0.1,
-        device_info={"platform": "cpu"},
-    )
+    """Heterodyne now produces plots + NPZ + JSON via per-angle scaling reconstruction."""
     config = {
         "analyzer_parameters": {
             "dt": 0.1,
@@ -130,14 +114,18 @@ def test_orchestrator_heterodyne_raises_notimplemented(
         },
         "analysis_mode": "heterodyne",
     }
-    with pytest.raises(NotImplementedError, match="heterodyne"):
-        generate_nlsq_plots(
-            model=heterodyne_model,
-            result=result,
-            data=synthetic_multi_angle_data,
-            config=config,
-            output_dir=tmp_path,
-        )
+    generate_nlsq_plots(
+        model=heterodyne_model,
+        result=converged_heterodyne_result,
+        data=synthetic_multi_angle_data,
+        config=config,
+        output_dir=tmp_path,
+    )
+    for phi in synthetic_multi_angle_data["phi_angles_list"]:
+        assert (tmp_path / f"c2_heatmaps_phi_{phi:.1f}deg.png").exists()
+        assert (tmp_path / f"residuals_phi_{phi:.1f}deg.png").exists()
+    assert (tmp_path / "simulated_data" / "c2_fitted_data.npz").exists()
+    assert (tmp_path / "simulated_data" / "simulation_config_fitted.json").exists()
 
 
 def test_unknown_plot_family_raises(
