@@ -32,6 +32,7 @@ dependencies = [
 dev = [
     "pytest>=9.0.2",
     "pytest-cov>=7.0",
+    "pytest-env>=1.1",          # inject JAX_ENABLE_X64=1 via [tool.pytest.ini_options] env
     "pytest-mpl>=0.17",
     "pytest-xdist>=3.8",
     "hypothesis>=6",            # property tests (Task 33) — xpcsjax-specific addition
@@ -64,6 +65,12 @@ packages = ["xpcsjax"]
 testpaths = ["tests"]
 env = [
     "JAX_ENABLE_X64=1",
+]
+filterwarnings = [
+    # jaxopt is no longer maintained; it emits a DeprecationWarning at import
+    # time that would fail collection under -W error. Suppress until LBFGSB
+    # in hierarchical.py is migrated to an alternative (tracked as v0.2 work).
+    "ignore::DeprecationWarning:jaxopt",
 ]
 
 [tool.coverage.run]

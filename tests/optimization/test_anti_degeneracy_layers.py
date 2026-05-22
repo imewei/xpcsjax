@@ -1,9 +1,10 @@
 """Verify all 5 anti-degeneracy layers ported over from homodyne.
 
 Task 29 tests the Layer-5 model-lineage gating. This test catches a different
-regression: did the CMC-trim in Tasks 13/14 accidentally cut into the
+regression: did the dead-code removal refactoring accidentally cut into the
 anti-degeneracy controller's layer wiring?"""
 import inspect
+from typing import Any
 
 from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
     AntiDegeneracyController,
@@ -28,7 +29,7 @@ def test_controller_source_references_all_5_layers():
     assert not missing, (
         f"AntiDegeneracyController source missing references to: {missing}. "
         f"Likely cause: a layer was dropped during the verbatim port "
-        f"or during the CMC trim in Tasks 13/14."
+        f"or during dead-code removal refactoring."
     )
 
 
@@ -52,7 +53,7 @@ def test_module_exports_all_5_layer_classes():
     for module_path in candidate_modules:
         try:
             mod = importlib.import_module(module_path)
-        except Exception:
+        except ImportError:
             continue
         for layer_name in LAYER_NAMES:
             if hasattr(mod, layer_name) and layer_name not in found:
@@ -78,7 +79,7 @@ def test_controller_instantiates_with_minimal_config():
     arg_names = [p.name for p in params if p.default is inspect.Parameter.empty]
 
     # Build a minimal stub for each required arg
-    stub_values: dict[str, object] = {}
+    stub_values: dict[str, Any] = {}
     n_phi_test, n_physical_test = 3, 7
     phi_angles_test = np.array([0.0, 30.0, 60.0])
     for name in arg_names:

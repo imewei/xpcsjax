@@ -46,13 +46,20 @@ Why It Works
 from __future__ import annotations
 
 import time
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
 import jax.numpy as jnp
 import numpy as np
-from jaxopt import LBFGSB
+
+# jaxopt emits a DeprecationWarning at import time (it is no longer maintained).
+# Suppress it at the callsite so -W error::DeprecationWarning in CI doesn't
+# block collection. Tracked for migration in v0.2.
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", DeprecationWarning)
+    from jaxopt import LBFGSB
 
 from xpcsjax.optimization.nlsq.config import safe_float, safe_int
 from xpcsjax.optimization.nlsq.fourier_reparam import FourierReparameterizer

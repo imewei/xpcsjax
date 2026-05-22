@@ -294,7 +294,6 @@ from xpcsjax.optimization.nlsq.strategies.residual import (  # noqa: E402
 from xpcsjax.optimization.nlsq.strategies.residual_jit import (  # noqa: E402
     StratifiedResidualFunctionJIT,
 )
-
 from xpcsjax.optimization.nlsq.strategies.sequential import (  # noqa: E402
     JAC_SAMPLE_SIZE,
     optimize_per_angle_sequential,
