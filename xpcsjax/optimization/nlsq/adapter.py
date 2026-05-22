@@ -35,7 +35,7 @@ This module provides a modern adapter layer between homodyne's optimization API
 and the NLSQ package's CurveFit class, leveraging:
 - CurveFit class for JIT compilation caching
 - Model instance caching (WeakValueDictionary) for multi-start speedup
-- WorkflowSelector for automatic strategy selection
+- xpcsjax's own memory-aware strategy selection
 - Built-in stability and recovery systems
 - Runtime fallback to NLSQWrapper on failure
 
@@ -82,13 +82,6 @@ except ImportError:
     CurveFit = None  # type: ignore[assignment, misc]
     NLSQ_CURVEFIT_AVAILABLE = False
 
-
-# Workflow selection (REMOVED in NLSQ v0.6.0)
-# Use homodyne's select_nlsq_strategy() from memory.py instead
-WorkflowSelector = None
-WorkflowTier = None
-OptimizationGoal = None
-NLSQ_WORKFLOW_AVAILABLE = False  # Deprecated
 
 try:
     from nlsq.streaming import HybridStreamingConfig
@@ -622,8 +615,8 @@ class AdapterConfig:
 class NLSQAdapter(NLSQAdapterBase):
     """Adapter for NLSQ package using CurveFit class.
 
-    Uses NLSQ's CurveFit for JIT caching and WorkflowSelector
-    for automatic strategy selection. This is the modern integration
+    Uses NLSQ's CurveFit for JIT compilation caching and xpcsjax's own
+    memory-aware strategy selection. This is the modern integration
     path for NLSQ v0.4+ with improved performance and reliability.
 
     Usage:
@@ -632,7 +625,6 @@ class NLSQAdapter(NLSQAdapterBase):
 
     Compared to NLSQWrapper:
         - Uses CurveFit class for JIT compilation caching
-        - Leverages WorkflowSelector for auto strategy selection
         - Delegates recovery to NLSQ's built-in systems
         - Simpler codebase with less custom logic
 
@@ -666,10 +658,6 @@ class NLSQAdapter(NLSQAdapterBase):
             enable_recovery=self.config.enable_recovery,
             enable_stability=self.config.enable_stability,
         )
-
-        # Note: WorkflowSelector was removed in NLSQ v0.6.0
-        # Homodyne uses its own select_nlsq_strategy() for memory-aware selection
-        # NLSQ_WORKFLOW_AVAILABLE is always False
 
         logger.debug(
             "NLSQAdapter initialized: cache=%s, recovery=%s, stability=%s, goal=%s",
@@ -739,9 +727,7 @@ class NLSQAdapter(NLSQAdapterBase):
         Returns:
             Dict with internal strategy info (not passed to NLSQ)
         """
-        # Use homodyne's strategy selection (NLSQ_WORKFLOW_AVAILABLE is always False
-        # since WorkflowSelector was removed in NLSQ v0.6.0)
-        # These are homodyne-internal strategy names for logging/diagnostics
+        # These are xpcsjax-internal strategy names for logging/diagnostics
         if n_points > 10_000_000:
             strategy = "hybrid_streaming"  # Maps to NLSQ's streaming mode
         elif n_points > 1_000_000:
@@ -1257,11 +1243,6 @@ class NLSQAdapter(NLSQAdapterBase):
     def is_available(self) -> bool:
         """Check if NLSQ CurveFit is available."""
         return NLSQ_CURVEFIT_AVAILABLE
-
-    @property
-    def workflow_available(self) -> bool:
-        """Check if NLSQ WorkflowSelector is available."""
-        return NLSQ_WORKFLOW_AVAILABLE
 
 
 def get_adapter(config: AdapterConfig | None = None) -> NLSQAdapter:
