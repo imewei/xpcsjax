@@ -5,7 +5,7 @@ Provides configuration management, parameter handling, and physics validation.
 Modules:
 - manager.py: Main ConfigManager class for loading YAML/JSON configs
 - parameter_registry.py: Parameter registration and defaults
-- parameter_space.py: Parameter space and prior distribution handling
+- parameter_space.py: Parameter space and bounds handling
 - parameter_manager.py: Parameter validation and management
 - physics_validators.py: Physics-based constraint validation (v2.7+)
 - types.py: TypedDict definitions for type safety
@@ -23,7 +23,7 @@ from xpcsjax.config.parameter_registry import (
     get_param_names,
     get_registry,
 )
-from xpcsjax.config.parameter_space import ParameterSpace, PriorDistribution
+from xpcsjax.config.parameter_space import ParameterSpace
 
 # Physics validators (v2.7+)
 from xpcsjax.config.physics_validators import (
@@ -60,7 +60,6 @@ __all__ = [
     "get_defaults",
     # Parameter space
     "ParameterSpace",
-    "PriorDistribution",
     # Physics validators (v2.7+)
     "ConstraintRule",
     "ConstraintSeverity",
