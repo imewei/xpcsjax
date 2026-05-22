@@ -1,11 +1,9 @@
-"""Minimal Configuration Management for Homodyne
-===================================================
+"""Configuration Management for xpcsjax
+========================================
 
-Simplified configuration system with preserved API compatibility.
-Provides essential YAML/JSON loading with the same interface as the original
-ConfigManager while removing complex features not needed for core functionality.
-
-Note: GPU support removed in v2.3.0 - CPU-only execution.
+Simplified configuration system for the xpcsjax NLSQ-only analysis package.
+Provides YAML/JSON loading with a stable interface for parameter management,
+analysis mode dispatch, and bounds configuration.
 """
 
 import json
@@ -90,6 +88,14 @@ class ConfigManager:
         # Normalize schema for backward compatibility
         self._normalize_schema()
 
+        # Validate config for config_override path (load_config() path validates
+        # inside load_config; override path skipped it, so validate here).
+        if config_override is not None:
+            import os
+
+            if os.environ.get("XPCSJAX_VALIDATE_CONFIG", "true").lower() == "true":
+                self._validate_config()
+
     def load_config(self) -> None:
         """Load and parse YAML/JSON configuration file.
 
@@ -145,7 +151,7 @@ class ConfigManager:
             # Optional validation (can be disabled via environment variable)
             import os
 
-            if os.environ.get("HOMODYNE_VALIDATE_CONFIG", "true").lower() == "true":
+            if os.environ.get("XPCSJAX_VALIDATE_CONFIG", "true").lower() == "true":
                 self._validate_config()
 
         except json.JSONDecodeError as e:
@@ -180,8 +186,8 @@ class ConfigManager:
         logger.debug("Applying default configuration values (fallback)")
         return {
             "metadata": {
-                "config_version": "2.18.0",
-                "description": "Default minimal configuration (CPU-only)",
+                "config_version": "0.1.0",
+                "description": "Default minimal configuration",
             },
             "analysis_mode": "static",
             "analyzer_parameters": {
@@ -250,6 +256,10 @@ class ConfigManager:
 
         # Set the value
         config_ref[keys[-1]] = value
+
+        # Invalidate cached ParameterManager — config mutations may change
+        # analysis_mode, parameter_space.bounds, or active_parameters.
+        self._cached_param_manager = None
 
     def is_static_mode_enabled(self) -> bool:
         """Check if static analysis mode is enabled."""
@@ -771,18 +781,24 @@ class ConfigManager:
             if section not in self.config:
                 logger.warning(f"Missing recommended section: {section}")
 
-        # Validate analysis_mode value
-        # Mirrors AnalysisMode Literal in xpcsjax.config.parameter_registry
+        # Validate analysis_mode value against post-normalization canonical set.
+        # _normalize_analysis_mode() runs before this in the config_override path
+        # and after in the load_config() path, so accept both raw and canonical
+        # strings here to avoid false warnings in either path.
         valid_modes = [
             "static",
-            "static_isotropic",
+            "static_isotropic",  # accepted raw; _normalize rewrites to "static"
             "laminar_flow",
             "two_component",
+            "heterodyne",  # accepted raw; _normalize rewrites to "two_component"
+            "two-component",  # accepted raw; _normalize rewrites to "two_component"
         ]
         mode = self.config.get("analysis_mode", "")
         if mode and mode not in valid_modes:
             logger.warning(
-                f"Unknown analysis_mode: '{mode}'. Valid modes: {valid_modes}",
+                "Unknown analysis_mode: '%s'. Valid modes: %s",
+                mode,
+                ["static", "laminar_flow", "two_component"],
             )
 
         # T051: Log key configuration values at INFO level

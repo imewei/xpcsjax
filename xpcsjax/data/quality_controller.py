@@ -1030,8 +1030,13 @@ class DataQualityController:
                 modified = self._repair_negative_correlations(data, repairs_applied)
                 data_modified = data_modified or modified
 
-            # Repair scaling issues
-            if self.quality_config.repair_scaling_issues:
+            # Repair scaling issues — aggressive mode only.
+            # The heuristic (mean > 100 → ÷100) would silently corrupt raw-count
+            # matrices where values > 100 are physically valid.
+            if (
+                self.quality_config.repair_scaling_issues
+                and self.quality_config.auto_repair == "aggressive"
+            ):
                 modified = self._repair_scaling_issues(data, repairs_applied)
                 data_modified = data_modified or modified
 
@@ -1089,6 +1094,10 @@ class DataQualityController:
                                         replacement_value = np.median(finite_values)
                                         matrix[~np.isfinite(matrix)] = replacement_value
                                         data_modified = True
+                            # Write repaired array back; np.asarray() of a list/JAX
+                            # array creates a detached copy, so the loop above mutated
+                            # `arr` only — we must propagate it back to `data`.
+                            data[key] = arr
                         else:
                             # For other arrays, use median replacement
                             finite_values = arr[np.isfinite(arr)]

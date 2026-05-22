@@ -632,7 +632,7 @@ def test_fit_nlsq_multi_phi_top_level_returns_optimization_result(
 
 
 def test_no_list_indexed_consumers_remain() -> None:
-    """rg-style audit: no ``fit_nlsq_multi_phi(...)[i]`` patterns remain in source.
+    """Audit: no ``fit_nlsq_multi_phi(...)[i]`` patterns remain in source.
 
     After C7 + C5b, every consumer of ``fit_nlsq_multi_phi`` treats the
     result as an :class:`OptimizationResult`. A regression that adds
@@ -643,15 +643,24 @@ def test_no_list_indexed_consumers_remain() -> None:
     archaeological reference (and are no-ops now that the list branch is
     unreachable).
     """
-    import subprocess
+    import re
+    from pathlib import Path
 
-    proc = subprocess.run(
-        ["rg", "-n", r"fit_nlsq_multi_phi\([^)]*\)\s*\[", "xpcsjax/"],
-        capture_output=True,
-        text=True,
-    )
-    # rg exit code 1 means no matches found — that is what we want.
-    assert proc.returncode == 1, (
+    pattern = re.compile(r"fit_nlsq_multi_phi\([^)]*\)\s*\[")
+    matches = []
+
+    src_dir = Path(__file__).parent.parent.parent / "xpcsjax"
+    for path in src_dir.rglob("*.py"):
+        try:
+            content = path.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        for line_num, line in enumerate(content.splitlines(), start=1):
+            if pattern.search(line):
+                matches.append(f"{path.relative_to(src_dir.parent)}:{line_num}: {line.strip()}")
+
+    assert not matches, (
         f"found direct list-indexed consumers of fit_nlsq_multi_phi:\n"
-        f"{proc.stdout}"
+        + "\n".join(matches)
     )
+

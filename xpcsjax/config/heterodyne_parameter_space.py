@@ -21,6 +21,11 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# The heterodyne model uses "phi0" internally (angle in *radians*), but the
+# registry entry "phi0" is the homodyne flow angle in *degrees* with bounds
+# [-10, 10].  Use "phi0_het" ([-π, π], radians) for the bounds default.
+_REGISTRY_ALIAS: dict[str, str] = {"phi0": "phi0_het"}
+
 
 @dataclass
 class ParameterSpace:
@@ -36,7 +41,8 @@ class ParameterSpace:
     def __post_init__(self) -> None:
         """Initialize with defaults from registry."""
         for name in ALL_PARAM_NAMES_WITH_SCALING:
-            info = DEFAULT_REGISTRY[name]
+            registry_name = _REGISTRY_ALIAS.get(name, name)
+            info = DEFAULT_REGISTRY[registry_name]
             if name not in self.values:
                 self.values[name] = info.default
             if name not in self.vary:

@@ -1,5 +1,5 @@
-"""Type Definitions for Homodyne Configuration System
-==================================================
+"""Type Definitions for xpcsjax Configuration System
+=====================================================
 
 TypedDict definitions for configuration structures and parameter management.
 Provides type safety and IDE autocomplete for configuration dictionaries.
@@ -61,12 +61,9 @@ class ParameterSpaceConfig(TypedDict, total=False):
     ----------
     bounds : list[BoundDict]
         Parameter bounds specifications
-    priors : list[dict], optional
-        Prior distributions for Bayesian methods
     """
 
     bounds: list[BoundDict]
-    priors: list[dict[str, Any]]
 
 
 class ExperimentalDataConfig(TypedDict, total=False):

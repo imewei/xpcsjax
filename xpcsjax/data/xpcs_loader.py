@@ -908,6 +908,10 @@ class XPCSDataLoader:
 
             # Load correlation data from exchange/C2T_all
             c2t_group = f["exchange/C2T_all"]
+            # APS old format: keys are in HDF5 creation order, which IS the correct
+            # positional order matching dqlist/dphilist indices. Do NOT sort — integer
+            # keys like "1","2","10" sort lexicographically wrong. The APS-U path uses
+            # sorted() because it has zero-padded keys (c2_00001, c2_00002, …).
             c2_keys = list(c2t_group.keys())
             if not c2_keys:
                 raise ValueError(

@@ -431,8 +431,13 @@ class PreprocessingPipeline:
             # Calculate final metrics
             provenance.total_duration = time.time() - start_time
 
-            # Success if pipeline is empty (nothing to fail) or at least some stages completed
-            success = (len(stage_results) == 0) or any(stage_results.values())
+            # Pipeline fails if VALIDATE_OUTPUT ran and failed (data integrity gate).
+            # Otherwise succeeds if at least one stage ran, or the pipeline was empty.
+            validate_stage_result = stage_results.get(PreprocessingStage.VALIDATE_OUTPUT)
+            if validate_stage_result is not None and not validate_stage_result:
+                success = False
+            else:
+                success = (len(stage_results) == 0) or any(stage_results.values())
 
             logger.info(
                 f"Preprocessing pipeline completed in {provenance.total_duration:.2f}s",
@@ -545,7 +550,7 @@ class PreprocessingPipeline:
         logger.debug(f"Applying enhanced diagonal correction: {method}")
 
         corrected_data = {
-            k: (np.array(v) if isinstance(v, np.ndarray) else copy.deepcopy(v))
+            k: (np.array(v) if hasattr(v, "shape") else copy.deepcopy(v))
             for k, v in data.items()
         }
 
@@ -730,12 +735,10 @@ class PreprocessingPipeline:
 
         # Deep-copy non-ndarray values (lists, dicts, etc.) so that downstream
         # mutations of e.g. "filters_applied" lists do not corrupt the original dict.
+        # hasattr(v, 'shape') catches both numpy and JAX arrays; deepcopy of a JAX
+        # array returns the same immutable object, so subsequent item-assignment fails.
         normalized_data = {
-            k: (
-                np.array(v, copy=True)
-                if isinstance(v, np.ndarray)
-                else copy.deepcopy(v)
-            )
+            k: (np.array(v) if hasattr(v, "shape") else copy.deepcopy(v))
             for k, v in data.items()
         }
 
@@ -840,10 +843,8 @@ class PreprocessingPipeline:
         c2_exp = data["c2_exp"]
         logger.debug(f"Applying noise reduction: {method.value}")
 
-        # Deep-copy non-ndarray values (lists, dicts, etc.) so that downstream
-        # mutations of e.g. "filters_applied" lists do not corrupt the original dict.
         denoised_data = {
-            k: (np.array(v) if isinstance(v, np.ndarray) else copy.deepcopy(v))
+            k: (np.array(v) if hasattr(v, "shape") else copy.deepcopy(v))
             for k, v in data.items()
         }
 
@@ -933,7 +934,7 @@ class PreprocessingPipeline:
         logger.debug("Standardizing data format")
 
         standardized_data = {
-            k: (np.array(v) if isinstance(v, np.ndarray) else copy.deepcopy(v))
+            k: (np.array(v) if hasattr(v, "shape") else copy.deepcopy(v))
             for k, v in data.items()
         }
 
@@ -997,11 +998,13 @@ class PreprocessingPipeline:
             if key not in data:
                 raise PreprocessingError(f"Missing required data key: {key}")
 
-        # Check for non-finite values
+        # Check for non-finite values (convert to ndarray first: np.isfinite on a
+        # list-of-2D-arrays raises ValueError or produces an object array).
         for key in required_keys:
             values = data[key]
-            if isinstance(values, (np.ndarray, list)):
-                if np.any(~np.isfinite(values)):
+            if isinstance(values, (np.ndarray, list)) or hasattr(values, "shape"):
+                arr = np.asarray(values)
+                if np.any(~np.isfinite(arr)):
                     raise PreprocessingError(f"Non-finite values found in {key}")
 
         # Physics-based validation

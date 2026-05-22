@@ -187,10 +187,11 @@ class ParameterSpace:
                             f"Using registry bounds for '{param_name}': [{min_val}, {max_val}]"
                         )
                     except KeyError:
-                        min_val, max_val = 0.0, 1.0
-                        logger.warning(
-                            f"No bounds found for '{param_name}', using [0.0, 1.0]"
-                        )
+                        raise KeyError(
+                            f"Parameter '{param_name}' is not registered in "
+                            f"ParameterRegistry. Register it in "
+                            f"xpcsjax/config/parameter_registry.py before use."
+                        ) from None
 
             bounds_dict[param_name] = (min_val, max_val)
 

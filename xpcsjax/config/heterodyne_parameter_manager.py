@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -16,21 +16,13 @@ from xpcsjax.config.heterodyne_parameter_names import (
 )
 from xpcsjax.config.heterodyne_parameter_space import ParameterSpace
 from xpcsjax.config.heterodyne_physics_validators import ValidationResult, validate_parameters
+from xpcsjax.config.types import BoundDict
 from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
     import jax.numpy as jnp
 
 logger = get_logger(__name__)
-
-
-class BoundDict(TypedDict):
-    """Bound specification for a single parameter."""
-
-    name: str
-    min: float
-    max: float
-    type: str
 
 
 @dataclass
@@ -50,7 +42,7 @@ class ParameterManager:
     space: ParameterSpace = field(default_factory=ParameterSpace)
 
     # Performance caching — populated lazily via __post_init__
-    _bounds_cache: dict[frozenset[str], list[BoundDict]] = field(
+    _bounds_cache: dict[tuple[str, ...], list[BoundDict]] = field(
         default_factory=dict, init=False, repr=False
     )
     _active_params_cache: list[str] | None = field(default=None, init=False, repr=False)
@@ -363,7 +355,8 @@ class ParameterManager:
         if parameter_names is None:
             parameter_names = list(ALL_PARAM_NAMES_WITH_SCALING)
 
-        cache_key = frozenset(parameter_names)
+        # Preserve order: bounds list is order-sensitive.
+        cache_key = tuple(parameter_names)
 
         if self._cache_enabled and cache_key in self._bounds_cache:
             logger.debug(
@@ -387,11 +380,10 @@ class ParameterManager:
                     BoundDict(name=name, min=lo, max=hi, type="TruncatedNormal")
                 )
             else:
-                logger.warning(
-                    "Unknown parameter '%s', using default bounds [0.0, 1.0]", name
-                )
-                bounds_list.append(
-                    BoundDict(name=name, min=0.0, max=1.0, type="TruncatedNormal")
+                raise KeyError(
+                    f"Unknown parameter '{name}': not in ParameterRegistry "
+                    f"and not a recognized heterodyne parameter. "
+                    f"Valid names: {list(ALL_PARAM_NAMES_WITH_SCALING)}"
                 )
 
         if self._cache_enabled:

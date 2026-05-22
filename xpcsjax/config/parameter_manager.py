@@ -1,12 +1,8 @@
-"""Parameter Manager for Homodyne
+"""Parameter Manager for xpcsjax
 ==================================
 
 Centralized parameter management system for handling parameter bounds,
-active parameters, and validation.
-
-This module restores parameter management functionality that was removed
-during the September 2025 refactoring while maintaining compatibility with
-the new architecture.
+active parameters, and validation for the xpcsjax NLSQ analysis pipeline.
 """
 
 import re
@@ -389,8 +385,9 @@ class ParameterManager:
             # Get all parameters for current mode
             parameter_names = self.get_all_parameter_names()
 
-        # Create cache key (use tuple for hashability)
-        cache_key = tuple(sorted(parameter_names))
+        # Create cache key — preserve order: bounds list is order-sensitive, so
+        # (["D0", "alpha"]) and (["alpha", "D0"]) must cache separately.
+        cache_key = tuple(parameter_names)
 
         # Check cache first (if caching enabled)
         if self._cache_enabled and cache_key in self._bounds_cache:
@@ -520,10 +517,14 @@ class ParameterManager:
         >>> pm.get_all_parameter_names()
         ['contrast', 'offset', 'D0', 'alpha', 'D_offset', 'gamma_dot_t0', 'beta', ...]
         """
-        # Always include scaling parameters first (use constant from types)
+        # Scaling parameters first (canonical order), then physical parameters.
+        # De-duplicate: if user config lists scaling params in active_parameters,
+        # don't emit them twice.
+        scaling_set = set(SCALING_PARAM_NAMES)
         all_params = SCALING_PARAM_NAMES.copy()
-        # Add physical parameters
-        all_params.extend(self.get_active_parameters())
+        for p in self.get_active_parameters():
+            if p not in scaling_set:
+                all_params.append(p)
         return all_params
 
     def get_effective_parameter_count(self) -> int:

@@ -380,8 +380,23 @@ if HAS_JAX:
         return optimization_indices, filtered_angles
 
 else:
-    # Fallback to numpy version if JAX is not available
-    filter_phi_angles_jax = None
+    # JAX not available — provide a numpy-backed fallback that matches the
+    # signature so callers don't crash with "NoneType is not callable".
+    def filter_phi_angles_jax(  # type: ignore[no-redef]
+        phi_angles: list[float] | np.ndarray,
+        target_ranges: list[tuple[float, float]],
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """NumPy fallback for filter_phi_angles_jax (JAX not available)."""
+        phi_arr = np.asarray(phi_angles)
+        mask = np.zeros(len(phi_arr), dtype=bool)
+        for min_angle, max_angle in target_ranges:
+            if min_angle > max_angle:
+                range_mask = (phi_arr >= min_angle) | (phi_arr <= max_angle)
+            else:
+                range_mask = (phi_arr >= min_angle) & (phi_arr <= max_angle)
+            mask |= range_mask
+        indices = np.where(mask)[0]
+        return indices, phi_arr[mask]
 
 
 __all__ = [
