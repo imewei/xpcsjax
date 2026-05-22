@@ -104,10 +104,8 @@ def get_default_bounds_array() -> tuple[np.ndarray, np.ndarray]:
     Returns:
         (lower_bounds, upper_bounds) each of shape (14,)
     """
-    from xpcsjax.core.heterodyne_models import ALL_PARAM_NAMES
-
-    lower = np.array([PARAMETER_BOUNDS[name][0] for name in ALL_PARAM_NAMES])
-    upper = np.array([PARAMETER_BOUNDS[name][1] for name in ALL_PARAM_NAMES])
+    lower = np.array([v[0] for v in PARAMETER_BOUNDS.values()])
+    upper = np.array([v[1] for v in PARAMETER_BOUNDS.values()])
     return lower, upper
 
 

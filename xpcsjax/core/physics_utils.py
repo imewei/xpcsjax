@@ -256,16 +256,13 @@ def create_time_integral_matrix(
         [jnp.array([0.0], dtype=time_dependent_array.dtype), cumsum_trap]
     )
 
-    # Step 2: Create difference matrix exploiting symmetry.
+    # Step 2: Create the pairwise integral matrix.
     #
     # The full matrix is: matrix[i,j] = smooth_abs(cumsum[i] - cumsum[j])
     # Because cumsum is monotonically non-decreasing (inputs >= 0 always):
     #   - lower triangle (i >= j): diff[i,j] = cumsum[i] - cumsum[j] >= 0
     #   - upper triangle (i < j):  diff[i,j] = -(diff[j,i])
     #   - diagonal: diff[i,i] = 0 exactly
-    #
-    # Strategy: compute only the lower triangle, apply smooth-abs there, mirror.
-    # This halves sqrt evaluations and avoids a full N×N temporary for diff.
     #
     # CRITICAL: Use smooth approximation of abs() for gradient stability.
     # jnp.abs() has undefined gradient at x=0, causing NaN in backpropagation.
@@ -274,10 +271,13 @@ def create_time_integral_matrix(
     epsilon = 1e-12
 
     # Compute full signed-difference matrix and apply smooth-abs directly.
-    # This avoids the sqrt(epsilon) bias that the tril-then-mirror approach
-    # introduced on upper-triangle zeros.
+    # Then force the exact diagonal back to zero: the integral over a
+    # zero-duration interval is mathematically zero, while the off-diagonal
+    # entries retain the smooth absolute value used for stable gradients.
     diff = cumsum[:, None] - cumsum[None, :]  # Shape: (n, n), symmetric
     matrix = jnp.sqrt(diff**2 + epsilon)  # Shape: (n, n), smooth |diff|
+    diagonal = jnp.eye(cumsum.shape[0], dtype=bool)
+    matrix = jnp.where(diagonal, jnp.zeros((), dtype=matrix.dtype), matrix)
 
     return matrix
 

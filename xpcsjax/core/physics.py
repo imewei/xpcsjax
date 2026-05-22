@@ -63,7 +63,7 @@ class PhysicsConstants:
     # X-ray wavelengths (Angstroms)
     WAVELENGTH_CU_KA = 1.54  # Copper K-alpha
     WAVELENGTH_8KEV = 1.55  # ~8 keV synchrotron
-    WAVELENGTH_12KEV = 1.03  # ~12 keV synchrotron
+    WAVELENGTH_12KEV = 1.0332  # ~12 keV synchrotron (λ = hc/E = 12398.4/12000 Å)
     WAVELENGTH_15KEV = 0.83  # ~15 keV synchrotron
 
     # Typical q-ranges (inverse Angstroms)
@@ -358,7 +358,7 @@ def get_default_parameters(model_type: str) -> np.ndarray:
             [
                 PhysicsConstants.SHEAR_RATE_TYPICAL,  # gamma_dot_t0 = 1 s⁻¹
                 0.0,  # beta = 0 (constant shear)
-                PhysicsConstants.SHEAR_OFFSET_MIN,  # gamma_dot_t_offset = 0.01
+                PhysicsConstants.SHEAR_OFFSET_MIN,  # gamma_dot_t_offset (lower bound = -0.1)
                 0.0,  # phi0 = 0 degrees
             ],
         ),
@@ -371,7 +371,7 @@ def get_default_parameters(model_type: str) -> np.ndarray:
                 # Shear defaults
                 PhysicsConstants.SHEAR_RATE_TYPICAL,  # gamma_dot_t0 = 1 s⁻¹
                 0.0,  # beta = 0
-                PhysicsConstants.SHEAR_OFFSET_MIN,  # gamma_dot_t_offset = 0.01
+                PhysicsConstants.SHEAR_OFFSET_MIN,  # gamma_dot_t_offset (lower bound = -0.1)
                 0.0,  # phi0 = 0 degrees
             ],
         ),

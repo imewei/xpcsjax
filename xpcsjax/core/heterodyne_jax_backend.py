@@ -18,7 +18,6 @@ v0, beta, v_offset, f0, f1, f2, f3, phi0.
 
 from __future__ import annotations
 
-from functools import partial
 from typing import TYPE_CHECKING
 
 import jax
@@ -37,66 +36,6 @@ from xpcsjax.core.heterodyne_physics_utils import (
 if TYPE_CHECKING:
     pass
 
-
-@partial(jax.jit, static_argnames=("n_times",))
-def compute_transport_jit(
-    t: jnp.ndarray,
-    D0: float,
-    alpha: float,
-    offset: float,
-    n_times: int,
-) -> jnp.ndarray:
-    """JIT-compiled pointwise transport coefficient computation.
-
-    J(t) = D0 * t^alpha + offset
-
-    .. deprecated::
-        Pointwise approximation — not used in production correlation.
-        Production code uses compute_transport_integral_matrix for the
-        integral formulation (PNAS Eq. S-95). Retained for test
-        compatibility and 1D visualization helpers.
-
-    Args:
-        t: Time array
-        D0: Transport prefactor
-        alpha: Transport exponent
-        offset: Constant offset
-        n_times: Number of time points (static for JIT)
-
-    Returns:
-        Transport coefficient array
-    """
-    # Use jnp.where instead of jnp.maximum to preserve gradients at the t=0
-    # floor (jnp.maximum zeros the gradient when t < 1e-10).
-    t_safe = jnp.where(t > 1e-10, t, 1e-10)
-    t_power = jnp.power(t_safe, alpha)
-    t_power = jnp.where(t > 0, t_power, 0.0)
-    return D0 * t_power + offset
-
-
-@jax.jit
-def compute_g1_transport(
-    J: jnp.ndarray,
-    q: float,
-) -> jnp.ndarray:
-    """JIT-compiled pointwise g1 correlation from transport coefficient.
-
-    g1(t) = exp(-q² * J(t))
-
-    .. deprecated::
-        Pointwise approximation — not used in production correlation.
-        Production code uses the integral formulation via
-        compute_transport_integral_matrix. Retained for test
-        compatibility and 1D visualization helpers.
-
-    Args:
-        J: Transport coefficient array
-        q: Scattering wavevector
-
-    Returns:
-        g1 correlation array
-    """
-    return jnp.exp(-q * q * J)
 
 
 @jax.jit

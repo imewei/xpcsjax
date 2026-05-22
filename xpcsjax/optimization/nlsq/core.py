@@ -801,11 +801,26 @@ def _normalize_data_to_object(data: Any, config: Any, logger: Any) -> Any:
 
 
 def _validate_data(data: dict[str, Any]) -> None:
-    """Validate experimental data structure."""
-    required_keys = ["wavevector_q_list", "phi_angles_list", "t1", "t2", "c2_exp"]
-    for key in required_keys:
+    """Validate experimental data structure (CLI or Direct format).
+
+    CLI format uses ``wavevector_q_list``/``phi_angles_list``/``c2_exp``.
+    Direct format uses ``q``/``phi``/``g2``. Both are accepted.
+    """
+    has_q = "wavevector_q_list" in data or "q" in data
+    has_phi = "phi_angles_list" in data or "phi" in data
+    has_c2 = "c2_exp" in data or "g2" in data
+    missing: list[str] = []
+    if not has_q:
+        missing.append("wavevector_q_list or q")
+    if not has_phi:
+        missing.append("phi_angles_list or phi")
+    if not has_c2:
+        missing.append("c2_exp or g2")
+    for key in ("t1", "t2"):
         if key not in data:
-            raise ValueError(f"Missing required data key: {key}")
+            missing.append(key)
+    if missing:
+        raise ValueError(f"Missing required data key(s): {missing}")
 
     if data["c2_exp"].shape[0] == 0:
         raise ValueError("Empty experimental data")

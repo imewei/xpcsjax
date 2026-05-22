@@ -88,6 +88,8 @@ from collections import OrderedDict
 from functools import partial, wraps
 from typing import Any, cast
 
+import numpy as np
+
 from xpcsjax.core.physics_utils import (
     PI,
     safe_sinc,
@@ -118,7 +120,7 @@ _fallback_stats = {
 }
 
 # Meshgrid cache for repeated computations with same time arrays
-# Key: (t1_hash, t2_hash) where hash = (len, first_val, last_val)
+# Key: (t1_hash, t2_hash) where hash includes shape, dtype, and content digest
 # Value: (t1_grid, t2_grid) JAX arrays
 # Performance Optimization (Spec 001 - FR-002): LRU eviction for better cache utilization
 _meshgrid_cache: OrderedDict[tuple, tuple] = OrderedDict()
@@ -137,9 +139,18 @@ _cache_stats: dict[str, int] = {
 # Define exception types for array hash key computation
 # JAX raises ConcretizationTypeError when accessing traced values inside JIT
 if JAX_AVAILABLE:
-    _ARRAY_HASH_EXCEPTIONS: tuple[type[Exception], ...] = (
+    _jax_tracer_exceptions: list[type[Exception]] = [
         TypeError,
         jax.errors.ConcretizationTypeError,  # type: ignore[attr-defined,unused-ignore]
+        jax.errors.TracerArrayConversionError,  # type: ignore[attr-defined,unused-ignore]
+    ]
+    # UnexpectedTracerError is raised by np.asarray() on traced values in
+    # newer JAX versions — add it when available.
+    _unexpected = getattr(jax.errors, "UnexpectedTracerError", None)
+    if _unexpected is not None:
+        _jax_tracer_exceptions.append(_unexpected)
+    _ARRAY_HASH_EXCEPTIONS: tuple[type[Exception], ...] = tuple(  # type: ignore[no-redef,unused-ignore]
+        _jax_tracer_exceptions
     )
 else:
     _ARRAY_HASH_EXCEPTIONS: tuple[type[Exception], ...] = (TypeError,)  # type: ignore[no-redef,unused-ignore]
@@ -148,20 +159,28 @@ else:
 def _get_array_hash_key(arr: "jnp.ndarray") -> tuple | None:
     """Create a hashable key from array properties.
 
-    Uses (length, first_value, last_value, dtype_str) as a proxy for array identity.
-    This avoids computing full array hashes while providing reasonable uniqueness.
+    Uses (length, quartile samples, dtype_str) to detect both endpoint
+    differences and interior spacing differences (e.g. non-uniform grids).
+    Sampling quartile points keeps the cost to ≤3 element accesses while
+    making same-endpoint / different-interior collisions astronomically rare.
 
     Returns None if the array is a traced abstract value (inside JIT context).
+    ``float(arr[i])`` raises ConcretizationTypeError on traced arrays, which
+    is caught by ``_ARRAY_HASH_EXCEPTIONS``.  ``np.asarray`` is deliberately
+    avoided here because it raises ``UnexpectedTracerError`` which is a
+    side-effect rather than a clean value-access error.
     """
     try:
-        if arr.size == 0:
-            return (arr.shape, arr.dtype, 0, 0.0, 0.0, 0.0)
-        if arr.ndim == 0:
-            return (1, float(arr), float(arr), str(arr.dtype))
-        n = len(arr)
-        return (n, float(arr[0]), float(arr[arr.shape[0] - 1]), str(arr.dtype))
+        n = int(arr.shape[0])
+        if n <= 4:
+            # Short arrays: include every element to guarantee uniqueness
+            interior: tuple = tuple(float(arr[i]) for i in range(1, n - 1))
+        else:
+            # Sample quartile points to distinguish non-uniform spacing
+            interior = (float(arr[n // 4]), float(arr[n // 2]), float(arr[3 * n // 4]))
+        return (n, float(arr[0]), interior, float(arr[n - 1]), str(arr.dtype))
     except _ARRAY_HASH_EXCEPTIONS:
-        # Inside JIT tracing - can't access concrete values
+        # Inside JIT tracing — concrete values unavailable
         return None
 
 
@@ -1160,7 +1179,10 @@ def compute_chi_squared(
         Chi-squared value
     """
     theory = compute_g2_scaled(params, t1, t2, phi, q, L, contrast, offset, dt)
-    residuals = (data - theory) / sigma  # sigma validated > 0 upstream
+    # Guard against zero sigma: replace with inf so residual becomes 0 for masked pixels
+    # (finite / inf = 0, so zero-sigma points contribute nothing to chi-squared).
+    safe_sigma = jnp.where(sigma > 0, sigma, jnp.inf)
+    residuals = (data - theory) / safe_sigma
     return jnp.sum(residuals**2)
 
 

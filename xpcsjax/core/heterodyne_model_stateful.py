@@ -162,10 +162,17 @@ class HeterodyneModel:
 
     @property
     def n_times(self) -> int:
-        """Number of time points."""
-        if self._factors is None:
-            raise ValueError("Physics factors not initialized")
-        return self._factors.n_times
+        """Number of time points.
+
+        Reads from the live ``_t`` array rather than the (potentially stale)
+        ``_factors.n_times`` so that the count stays correct after
+        ``sync_time_axis`` modifies ``_t``.
+        """
+        if self._t is None:
+            if self._factors is None:
+                raise ValueError("Physics factors not initialized")
+            return self._factors.n_times
+        return int(len(self._t))
 
     def sync_time_axis(self, t: np.ndarray) -> None:
         """Trim model time axis to match post-exclusion data length.

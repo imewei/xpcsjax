@@ -283,7 +283,7 @@ def validate_fit_quality(
             params_arr = np.asarray(params, dtype=np.float64)
             uncert_arr = np.asarray(uncertainties, dtype=np.float64)
             if params_arr.shape == uncert_arr.shape and len(params_arr) > 0:
-                finite_mask = np.isfinite(uncert_arr) & (uncert_arr > 0)
+                finite_mask = np.isfinite(uncert_arr) & (uncert_arr > 0) & np.isfinite(params_arr)
                 if np.any(finite_mask):
                     significance = (
                         np.abs(params_arr[finite_mask]) / uncert_arr[finite_mask]

@@ -139,9 +139,10 @@ class HeterodyneModel(PhysicsModelBase):
             t = t1_arr.reshape(-1)
 
         if dt is None:
-            # Infer from spacing; fall back to 1.0 if degenerate.
-            dt_val = jnp.where(t.shape[0] > 1, t[1] - t[0], jnp.float64(1.0))
-            dt_float = float(dt_val) if not isinstance(dt_val, jax.Array) else dt_val
+            # t is a concrete array here (compute_g1 is not JIT-compiled).
+            # Use plain Python/numpy arithmetic to get a Python float — avoids
+            # creating a JAX 0-d array that forces JIT retracing on every new t.
+            dt_float = float(t[1] - t[0]) if len(t) > 1 else 1.0
         else:
             dt_float = float(dt)
 

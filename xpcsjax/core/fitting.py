@@ -70,11 +70,11 @@ logger = get_logger(__name__)
 
 @dataclass
 class ParameterSpace:
-    """Parameter space definition with bounds and priors.
+    """Parameter space definition with bounds for NLSQ optimization.
 
-    Implements specified parameter ranges and prior distributions
-    for both scaling and physical parameters.
-    Supports configuration-based bound override when config_manager is provided.
+    Implements specified parameter ranges for both scaling and physical
+    parameters. Supports configuration-based bound override when
+    config_manager is provided.
     """
 
     # Scaling parameters (always present)
@@ -83,8 +83,6 @@ class ParameterSpace:
     # - offset: Deviation from baseline=1.0, range [0.5, 1.5] allows ±50% variation
     contrast_bounds: tuple[float, float] = (0.0, 1.0)  # Physical contrast range
     offset_bounds: tuple[float, float] = (0.5, 1.5)
-    contrast_prior: tuple[float, float] = (0.5, 0.25)  # (mu, sigma)
-    offset_prior: tuple[float, float] = (1.0, 0.25)  # (mu, sigma)
 
     # Physical parameter bounds (mode-dependent)
     D0_bounds: tuple[float, float] = (100.0, 100000.0)
@@ -96,15 +94,6 @@ class ParameterSpace:
     beta_bounds: tuple[float, float] = (-2.0, 2.0)
     gamma_dot_t_offset_bounds: tuple[float, float] = (-0.1, 0.1)
     phi0_bounds: tuple[float, float] = (-10.0, 10.0)  # degrees
-
-    # Prior means (mu) and standard deviations (sigma)
-    D0_prior: tuple[float, float] = (1000.0, 1000.0)
-    alpha_prior: tuple[float, float] = (0.5, 0.5)
-    D_offset_prior: tuple[float, float] = (10.0, 200.0)
-    gamma_dot_t0_prior: tuple[float, float] = (0.01, 0.1)
-    beta_prior: tuple[float, float] = (0.0, 0.5)
-    gamma_dot_t_offset_prior: tuple[float, float] = (0.0, 0.02)
-    phi0_prior: tuple[float, float] = (0.0, 5.0)
 
     # Data ranges
     fitted_range: tuple[float, float] = (0.0, 2.0)
@@ -202,25 +191,6 @@ class ParameterSpace:
             return default
         return bounds
 
-    def get_param_priors(self, analysis_mode: str) -> list[tuple[float, float]]:
-        """Get parameter priors based on analysis mode."""
-        priors = [
-            self.D0_prior,
-            self.alpha_prior,
-            self.D_offset_prior,
-        ]
-
-        if analysis_mode == "laminar_flow":
-            priors.extend(
-                [
-                    self.gamma_dot_t0_prior,
-                    self.beta_prior,
-                    self.gamma_dot_t_offset_prior,
-                    self.phi0_prior,
-                ],
-            )
-
-        return priors
 
 
 class DatasetSize:
@@ -432,7 +402,6 @@ class UnifiedHomodyneEngine:
 
         # Get mode-specific parameter configuration
         self.param_bounds = self.parameter_space.get_param_bounds(analysis_mode)
-        self.param_priors = self.parameter_space.get_param_priors(analysis_mode)
 
         logger.info(f"Unified homodyne engine initialized for {analysis_mode}")
         logger.info(f"Parameter count: {len(self.param_bounds)} physical + 2 scaling")
@@ -631,14 +600,9 @@ class UnifiedHomodyneEngine:
             "analysis_mode": self.analysis_mode,
             "parameter_count": len(self.param_bounds),
             "physical_bounds": self.param_bounds,
-            "physical_priors": self.param_priors,
             "scaling_bounds": {
                 "contrast": self.parameter_space.contrast_bounds,
                 "offset": self.parameter_space.offset_bounds,
-            },
-            "scaling_priors": {
-                "contrast": self.parameter_space.contrast_prior,
-                "offset": self.parameter_space.offset_prior,
             },
             "data_ranges": {
                 "fitted": self.parameter_space.fitted_range,

@@ -657,11 +657,16 @@ def make_model(config_or_manager: Any) -> PhysicsModelBase:
         )
     mode_lower = raw_mode.lower()
 
-    # Heterodyne / two-component dispatch
+    # Heterodyne / two-component dispatch.
+    # "static_ref" and "static_both" are valid heterodyne analysis modes
+    # (declared in NLSQConfig._VALID_ANALYSIS_MODES) that use HeterodyneModel
+    # with a reduced parameter set — do not fall through to create_model which
+    # only knows about homodyne modes and would raise ValueError.
     if (
         "two_component" in mode_lower
         or "two-component" in mode_lower
         or "heterodyne" in mode_lower
+        or mode_lower in ("static_ref", "static_both")
     ):
         # Local import to avoid circular dependency (heterodyne_model imports
         # PhysicsModelBase from this module).

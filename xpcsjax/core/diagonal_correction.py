@@ -100,7 +100,7 @@ def apply_diagonal_correction(
         method: Correction method.
             - "basic": Adjacent off-diagonal interpolation (default, fastest)
             - "statistical": Robust estimators with configurable window
-            - "interpolation": Linear/cubic interpolation
+            - "interpolation": Linear interpolation
         backend: Array backend.
             - "auto": Detect from input type (default)
             - "numpy": Force NumPy operations
@@ -115,7 +115,7 @@ def apply_diagonal_correction(
 
             For "interpolation":
 
-            - interpolation_method (str): "linear" or "cubic". Default: "linear"
+            - interpolation_method (str): "linear" (only supported option). Default: "linear"
 
     Returns:
         Corrected correlation matrix with same shape and backend as input.
@@ -339,6 +339,9 @@ def _diagonal_correction_batch_numpy(
     c2_corrected = np.empty_like(c2_np)
 
     if method == "basic":
+        if size <= 1:
+            return c2_np.copy()
+
         # Optimized batch processing for basic method
         # Pre-compute normalization and index arrays (reused for all matrices)
         norm = np.ones(size)
@@ -467,32 +470,42 @@ def _interpolation_correction_numpy(
 ) -> np.ndarray:
     """Interpolation-based diagonal correction.
 
-    Uses neighboring off-diagonal values for linear or cubic interpolation.
+    Uses neighboring off-diagonal values for linear interpolation.
     """
     c2_corrected = c2_mat.copy()
     size = c2_mat.shape[0]
+
+    if size <= 1:
+        return c2_corrected
 
     interp_method = config.get("interpolation_method", "linear")
 
     for i in range(size):
         if 0 < i < size - 1:
-            # Use neighboring off-diagonal values
-            y_points = [c2_mat[i - 1, i], c2_mat[i + 1, i]]
+            # Use symmetrized adjacent off-diagonal values on both sides of
+            # the diagonal. This matches the basic correction's side-band
+            # interpretation while keeping the interpolation method explicit.
+            left = 0.5 * (c2_mat[i - 1, i] + c2_mat[i, i - 1])
+            right = 0.5 * (c2_mat[i + 1, i] + c2_mat[i, i + 1])
+            y_points = [left, right]
 
             if interp_method == "linear":
                 c2_corrected[i, i] = np.nanmean(y_points)
             elif interp_method == "cubic":
                 raise NotImplementedError(
-                    "Cubic diagonal correction is not yet implemented. Use method='linear'."
+                    "Cubic diagonal correction is not yet implemented. "
+                    "Use interpolation_method='linear' (the only supported option)."
                 )
             else:
                 c2_corrected[i, i] = np.nanmean(y_points)
         elif i == 0:
             # Edge case: use next off-diagonal value
-            c2_corrected[i, i] = c2_mat[0, 1]
+            c2_corrected[i, i] = 0.5 * (c2_mat[0, 1] + c2_mat[1, 0])
         elif i == size - 1:
             # Edge case: use previous off-diagonal value
-            c2_corrected[i, i] = c2_mat[size - 2, size - 1]
+            c2_corrected[i, i] = 0.5 * (
+                c2_mat[size - 2, size - 1] + c2_mat[size - 1, size - 2]
+            )
 
     return c2_corrected
 
