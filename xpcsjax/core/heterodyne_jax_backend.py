@@ -123,8 +123,7 @@ def compute_fraction_jit(
     """
     # ``safe_exp`` + ``smooth_clip`` preserve gradient at the [0, 1] boundary
     # so NLSQ Jacobian descent does not stall when f(t) saturates (CLAUDE.md
-    # rule #7 — gradient-safe floors).  Mirrors physics_cmc.py to keep the
-    # element-wise and meshgrid paths bit-equivalent.
+    # rule #7 — gradient-safe floors).
     fraction = f0 * safe_exp(f1 * (t - f2)) + f3
     return smooth_clip(fraction, 0.0, 1.0)
 

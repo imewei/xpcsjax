@@ -211,7 +211,7 @@ class SingleStartResult:
     wall_time : float
         Execution time in seconds.
     hessian : NDArray[np.float64] | None
-        Hessian matrix at solution (for CMC initialization).
+        Hessian matrix at solution.
     covariance : NDArray[np.float64] | None
         Parameter covariance matrix.
     jacobian : NDArray[np.float64] | None

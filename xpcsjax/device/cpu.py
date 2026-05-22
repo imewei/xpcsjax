@@ -291,8 +291,7 @@ def _configure_jax_cpu(
         # orders of magnitude) rules out consumer GPUs: RTX 4090 delivers
         # ~1.3 TFLOPS float64 (1:64 ratio) vs ~0.5-1.0 TFLOPS on a 20-core
         # CPU -- a 1.3-2.6x advantage erased by PCIe round-trips forced by
-        # the NLSQ C extension (~70ms/iteration) and CMC's spawn-based
-        # multiprocessing (incompatible CUDA contexts, CPU-only XLA flags).
+        # the NLSQ C extension (~70ms/iteration) and CPU-only XLA flags.
         # Viable only with datacenter GPUs (A100/H100, 1:2 float64 ratio)
         # and a jaxopt-based optimizer rewrite.
         os.environ["JAX_PLATFORMS"] = "cpu"

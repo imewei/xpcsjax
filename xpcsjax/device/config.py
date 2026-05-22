@@ -1,23 +1,8 @@
-"""Hardware detection and configuration helpers for CMC.
-=======================================================
+"""Hardware detection and configuration helpers for xpcsjax NLSQ optimization.
 
-This module now only detects hardware characteristics to size shards and
-recommend the execution backend for Consensus Monte Carlo (CMC). Method
-selection is handled upstream and CMC is always used for MCMC paths.
-
-Usage
------
-    from xpcsjax.device.config import detect_hardware
-
-    hw_config = detect_hardware()
-    print(f"Platform: {hw_config.platform}")
-    print(f"Recommended backend: {hw_config.recommended_backend}")
-
-Integration
------------
-- CMC coordinator reads :class:`HardwareConfig` for backend selection and
-  shard sizing.
-- No method-selection logic remains here; CMC is the only MCMC path.
+Detects hardware capabilities (CPU core count, available memory, JAX availability)
+and exposes them via :class:`HardwareConfig`. Used for NLSQ thread and memory
+budget decisions.
 """
 
 import multiprocessing
@@ -39,10 +24,10 @@ logger = get_logger(__name__)
 
 @dataclass(frozen=True)
 class HardwareConfig:
-    """Hardware configuration for CMC optimization.
+    """Hardware configuration for NLSQ optimization.
 
     This dataclass encapsulates all detected hardware information needed
-    for intelligent CMC decision-making and backend selection.
+    for NLSQ thread and memory budget decisions.
 
     Attributes
     ----------
@@ -61,7 +46,7 @@ class HardwareConfig:
     cluster_type : {'pbs', 'slurm', 'standalone', None}
         Detected cluster scheduler type
     recommended_backend : str
-        Recommended CMC backend based on hardware
+        Recommended execution backend based on hardware
         Options: 'pjit', 'multiprocessing', 'pbs', 'slurm'
     max_parallel_shards : int
         Maximum number of shards that can run in parallel
@@ -91,10 +76,10 @@ class HardwareConfig:
 
 
 def detect_hardware() -> HardwareConfig:
-    """Auto-detect hardware configuration for CMC optimization.
+    """Auto-detect hardware configuration for NLSQ optimization.
 
     This function performs comprehensive hardware detection to inform
-    intelligent CMC strategy selection and backend choice.
+    NLSQ thread and memory budget decisions.
 
     Detection Logic
     ---------------
@@ -113,7 +98,7 @@ def detect_hardware() -> HardwareConfig:
     Returns
     -------
     HardwareConfig
-        Comprehensive hardware configuration for CMC
+        Comprehensive hardware configuration for NLSQ
 
     Examples
     --------
@@ -136,7 +121,7 @@ def detect_hardware() -> HardwareConfig:
     - CPU core count excludes hyperthreading for accurate parallelism
     - v2.3.0+ is CPU-only; JAX will always report platform='cpu'
     """
-    logger.info("Detecting hardware configuration for CMC...")
+    logger.info("Detecting hardware configuration...")
 
     # Step 1: Detect JAX devices
     # Use the actual active backend, not just first device in list

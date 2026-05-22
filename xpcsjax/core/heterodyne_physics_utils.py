@@ -4,8 +4,7 @@ All functions are designed to be compatible with both NumPy and JAX
 arrays, avoiding NaN/Inf from edge cases (division by zero,
 overflow in exp, negative bases in power).
 
-Shared utilities used by both the NLSQ meshgrid path and the CMC
-element-wise path:
+Shared utilities used by the NLSQ meshgrid path:
 - ``trapezoid_cumsum``: O(dt²) cumulative integral
 - ``create_time_integral_matrix``: N×N from cumsum (NLSQ only)
 - ``smooth_abs``: gradient-safe ``|x|`` for NUTS
@@ -158,7 +157,7 @@ def symmetrize(matrix: jnp.ndarray | np.ndarray) -> jnp.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Shared integral and rate primitives (used by both NLSQ and CMC paths)
+# Shared integral and rate primitives (used by the NLSQ path)
 # ---------------------------------------------------------------------------
 
 
@@ -263,8 +262,7 @@ def compute_transport_rate(
 ) -> jnp.ndarray:
     """Transport rate function J(t) = D0·t^α + offset.
 
-    Shared by both NLSQ and CMC paths — the rate function is the same,
-    only the integral evaluation strategy differs.
+    Used by the NLSQ path for integral evaluation.
 
     Args:
         t: Time array, shape (N,).

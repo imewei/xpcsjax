@@ -208,7 +208,7 @@ def apply_angle_filtering_for_optimization(
 
     This function filters phi angles and corresponding C2 data based on the
     phi_filtering configuration before passing data to optimization methods
-    (NLSQ or MCMC). It creates a filtered copy of the data dictionary while
+    (NLSQ). It creates a filtered copy of the data dictionary while
     preserving all other keys unchanged.
 
     Parameters

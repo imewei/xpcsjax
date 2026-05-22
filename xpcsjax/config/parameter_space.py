@@ -1,11 +1,9 @@
-"""Parameter Space Configuration for MCMC/CMC
-============================================
+"""Parameter Space Configuration for NLSQ
+==========================================
 
-Defines the ParameterSpace class for loading parameter bounds and prior
-distributions from YAML configuration files. This enables config-driven
-MCMC initialization without hardcoded priors.
-
-This module is part of the v2.1.0 MCMC simplification implementation.
+Defines the ParameterSpace class for loading parameter bounds from YAML
+configuration files. This enables config-driven NLSQ initialization
+without hardcoded bounds.
 """
 
 from dataclasses import dataclass, field
@@ -187,8 +185,8 @@ class ParameterSpace:
     """Parameter space definition with bounds and prior distributions.
 
     This class encapsulates all information needed to define the parameter
-    space for MCMC/CMC optimization, including parameter bounds and prior
-    distributions loaded from configuration files.
+    space for NLSQ optimization, including parameter bounds
+    loaded from configuration files.
 
     Attributes
     ----------
@@ -326,7 +324,7 @@ class ParameterSpace:
             config_bounds_lookup[canonical_name] = bound_entry
 
         # Load bounds and priors for each parameter
-        # Also include contrast and offset (scaling parameters) for MCMC per-angle initialization
+        # Also load bounds for contrast and offset scaling parameters
         params_to_load = list(parameter_names) + ["contrast", "offset"]
 
         for param_name in params_to_load:

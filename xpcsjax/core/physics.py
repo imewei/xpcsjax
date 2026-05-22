@@ -100,7 +100,7 @@ class PhysicsConstants:
     MIN_POSITIVE = 1e-100  # Minimum positive value
 
     # Physical parameter bounds
-    # NOTE: These are reference values. The PRIMARY bounds used by NLSQ/CMC
+    # NOTE: These are reference values. The PRIMARY bounds used by NLSQ
     # are defined in xpcsjax.core.fitting.ParameterSpace
     ALPHA_MIN = -2.0  # Minimum diffusion exponent (tighter for numerical stability)
     ALPHA_MAX = 2.0  # Maximum diffusion exponent
@@ -441,7 +441,7 @@ def estimate_correlation_time(D0: float, alpha: float, q: float) -> float:
         Estimated correlation time (seconds)
     """
     # P2-R6-02: Use epsilon tolerance instead of exact float equality.
-    # NLSQ/MCMC parameters are rarely exactly 0.0; alpha=1e-15 from an
+    # NLSQ parameters are rarely exactly 0.0; alpha=1e-15 from an
     # optimiser would incorrectly take the anomalous branch.
     if abs(alpha) < 1e-12:
         # Normal diffusion

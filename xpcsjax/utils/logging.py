@@ -1,8 +1,8 @@
 """Structured logging utilities for the xpcsjax package.
 
-Provides a lightweight but flexible logging system that matches the CMC
-reimplementation requirements: contextual log prefixes, configurable console
-and rotating file handlers, and helpers for performance monitoring.
+Provides a lightweight but flexible logging system: contextual log prefixes,
+configurable console and rotating file handlers, and helpers for performance
+monitoring.
 """
 
 from __future__ import annotations
@@ -341,7 +341,7 @@ class AnalysisSummaryLogger:
         """T054: Set configuration summary for logging.
 
         Args:
-            optimizer: Optimizer used (e.g., "nlsq", "cmc").
+            optimizer: Optimizer used (e.g., "nlsq").
             n_params: Number of parameters being optimized.
             n_data_points: Total number of data points.
             n_phi_angles: Number of phi angles.

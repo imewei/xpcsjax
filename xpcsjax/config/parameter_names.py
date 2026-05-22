@@ -2,7 +2,7 @@
 ====================================================
 
 Centralized parameter name definitions to ensure consistency across
-MCMC model definitions, sample extraction, and result processing.
+model definitions and result processing.
 
 This module defines the canonical parameter names and ordering for
 both analysis modes (static_isotropic and laminar_flow).
@@ -261,15 +261,15 @@ def get_parameter_description(param_name: str) -> str:
 
 
 def verify_samples_dict(samples_dict: dict, analysis_mode: AnalysisMode) -> None:
-    """Verify samples dictionary contains all expected parameters.
+    """Verify parameter dictionary contains all expected parameters.
 
-    This function should be called after MCMC sampling to ensure the
-    samples dictionary has all required parameter names before extraction.
+    This function validates that a parameter dictionary has all required
+    parameter names for the given analysis mode.
 
     Parameters
     ----------
     samples_dict : dict
-        Dictionary of MCMC samples (parameter_name -> samples array)
+        Dictionary of parameter values (parameter_name -> values array)
     analysis_mode : str
         Analysis mode: 'static_isotropic' or 'laminar_flow'
 
@@ -289,7 +289,7 @@ def verify_samples_dict(samples_dict: dict, analysis_mode: AnalysisMode) -> None
     if missing:
         available = list(samples_dict.keys())
         raise KeyError(
-            f"Missing parameters in MCMC samples for {analysis_mode}:\n"
+            f"Missing parameters in parameter dictionary for {analysis_mode}:\n"
             f"Missing: {missing}\n"
             f"Expected: {expected}\n"
             f"Available: {available}\n\n"

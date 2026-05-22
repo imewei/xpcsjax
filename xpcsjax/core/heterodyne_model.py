@@ -13,7 +13,7 @@ Task 26).
 
 Notes
 -----
-- Strict CMC: no NumPyro / Blackjax / ArviZ imports.
+- NLSQ-only: no NumPyro / Blackjax / ArviZ imports.
 - Complete-mirror: kernels are local under ``xpcsjax.core``; no imports from
   the upstream ``homodyne`` / ``heterodyne`` packages.
 """

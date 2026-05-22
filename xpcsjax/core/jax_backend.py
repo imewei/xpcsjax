@@ -431,9 +431,9 @@ def _compute_g1_diffusion_core(
     D0, alpha, D_offset = params[0], params[1], params[2]
 
     # P0-2: Dispatch element-wise mode based on dimensionality only (not size threshold).
-    # 1D t1 = element-wise CMC/paired data; 2D t1 = meshgrid (NLSQ matrix mode).
+    # 1D t1 = element-wise paired data; 2D t1 = meshgrid (NLSQ matrix mode).
     # The old `safe_len(t1) > 2000` heuristic caused small shards (<= 2000 pts)
-    # to fall into matrix mode, producing wrong shapes for CMC models.
+    # to fall into matrix mode, producing wrong shapes.
     is_elementwise = t1.ndim == 1
 
     if is_elementwise:
@@ -444,7 +444,7 @@ def _compute_g1_diffusion_core(
         # P0-1: Use caller-provided time_grid instead of fixed 10001-point grid.
         # The old hardcoded MAX_GRID_SIZE=10001 truncated integrals for datasets
         # with t_max > 10000*dt, silently biasing g1 values.
-        # CMC callers always provide time_grid via model_kwargs.
+        # Element-wise callers always provide time_grid via model_kwargs.
         # NLSQ callers use matrix mode (t1.ndim==2), so this branch is not reached.
         if time_grid is not None:
             time_grid_used = time_grid
@@ -566,7 +566,7 @@ def _compute_g1_shear_core(
     if params.shape[0] < 7:
         # Return ones matching input dimensionality (g1_shear = 1)
         if t1.ndim == 1:
-            # Element-wise mode (flat arrays from CMC shards or heatmap generation):
+            # Element-wise mode (flat arrays for heatmap generation):
             # return 1D ones to match g1_diff shape in _compute_g1_total_core
             return jnp.ones_like(t1)
         else:
@@ -748,7 +748,7 @@ def _compute_g1_total_core(
     # CRITICAL FIX (Nov 2025): Handle element-wise vs matrix mode
     # Element-wise mode: both g1_diff and g1_shear are 1D (shape (n,))
     # Matrix mode: g1_diff is 2D (n_times, n_times), g1_shear is 3D (n_phi, n_times, n_times)
-    # Note: element-wise branch only valid for single-angle (P=1). Multi-angle CMC uses physics_cmc.py.
+    # Note: element-wise branch only valid for single-angle (P=1).
     is_elementwise = g1_diff.ndim == 1 and g1_shear.ndim == 1
 
     if is_elementwise:
@@ -1106,8 +1106,8 @@ def compute_g2_scaled_with_factors(
     """
     # Handle 1D time arrays by creating meshgrids.
     # This function is only called from the NLSQ path (HomodyneModel), which
-    # always passes 2D grids. CMC uses physics_cmc.py directly. The 1D branch
-    # is a safety net for external callers passing 1D time vectors.
+    # always passes 2D grids. The 1D branch is a safety net for external
+    # callers passing 1D time vectors.
     if t1.ndim == 1 and t2.ndim == 1:
         t1, t2 = jnp.meshgrid(t1, t2, indexing="ij")
 

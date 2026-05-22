@@ -4,15 +4,9 @@ Centralized parameter registry that eliminates 8x duplication of parameter
 definitions across the codebase. Provides:
 - Parameter metadata (names, types, bounds, defaults, descriptions)
 - Per-angle parameter expansion
-- Prior information for MCMC
 - Validation utilities
 
 This module consolidates parameter information that was previously duplicated in:
-- result.py (MCMCResult.get_param_names)
-- mcmc_plots.py (8 functions with hardcoded param names)
-- coordinator.py (CMC parameter expansion)
-- priors.py (MCMC prior bounds)
-- core.py (MCMC model sampling)
 - backends/multiprocessing.py (worker validation)
 - data_prep.py (data preprocessing)
 - several test fixtures
@@ -54,9 +48,9 @@ class ParameterInfo:
     default : float
         Default value for initialization
     lower_bound : float
-        Lower bound for optimization/MCMC
+        Lower bound for optimization
     upper_bound : float
-        Upper bound for optimization/MCMC
+        Upper bound for optimization
     prior_mean : float | None
         Prior mean for Bayesian inference (None for uniform prior)
     prior_std : float | None

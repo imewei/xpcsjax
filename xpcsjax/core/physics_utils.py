@@ -2,12 +2,12 @@
 ================================================
 
 This module provides common utility functions and physics helpers used by
-both NLSQ (meshgrid) and CMC (element-wise) computational backends.
+the NLSQ (meshgrid) computational backend.
 
 These functions were consolidated from:
 - jax_backend.py
 - physics_nlsq.py
-- physics_cmc.py
+- physics_nlsq.py
 
 to eliminate code duplication and ensure consistent behavior across backends.
 
@@ -290,7 +290,7 @@ def trapezoid_cumsum(values: jnp.ndarray) -> jnp.ndarray:
     smooth absolute value to that difference when mapping each (t1, t2) pair,
     keeping gradients well-behaved at zero-length intervals.
 
-    This is used by the CMC element-wise computations.
+    This is used by the element-wise computation path.
 
     Args:
         values: 1D array of values to integrate

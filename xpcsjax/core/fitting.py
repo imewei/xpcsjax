@@ -6,7 +6,7 @@ This is the central fitting engine that implements:
 
 c2_fitted = c2_theory * contrast + offset
 
-Where both VI+JAX and MCMC+JAX minimize: Exp - Fitted
+Where the NLSQ optimizer minimizes: Exp - Fitted
 
 Key Features:
 - Pure least squares implementation (no outlier handling)
@@ -246,7 +246,7 @@ class FitResult:
     """Results from unified homodyne model fitting.
 
     Contains both physical and scaling parameters with
-    comprehensive fit statistics for VI+JAX or MCMC+JAX.
+    comprehensive fit statistics for NLSQ.
     """
 
     # Optimized parameters
@@ -412,7 +412,7 @@ class UnifiedHomodyneEngine:
 
     Implements the scaled optimization approach where physical parameters
     are separated from experimental scaling parameters using pure least
-    squares (no outlier handling - VI/MCMC handle uncertainty).
+    squares (no outlier handling).
     """
 
     def __init__(
@@ -450,7 +450,7 @@ class UnifiedHomodyneEngine:
         """Estimate contrast and offset using pure least squares.
 
         Uses JAX-accelerated least squares (no outlier handling).
-        Both VI and MCMC will handle uncertainty through likelihood.
+        Uses JAX-accelerated least squares.
 
         Args:
             data: Experimental correlation data
@@ -518,7 +518,7 @@ class UnifiedHomodyneEngine:
     ) -> float:
         """Compute negative log-likelihood for unified homodyne model.
 
-        This is the core likelihood function used by both VI+JAX and MCMC+JAX.
+        This is the core likelihood function used by the NLSQ engine.
         Assumes Gaussian measurement noise with known uncertainties (sigma).
         The return value is the negative log-likelihood:
 
@@ -586,7 +586,7 @@ class UnifiedHomodyneEngine:
             logger.info("  - Full JAX acceleration without chunking")
         elif category == DatasetSize.MEDIUM:
             logger.info("Medium dataset optimization:")
-            logger.info("  - Efficient batching with VI+JAX/MCMC+JAX")
+            logger.info("  - Efficient batching with JAX acceleration")
             logger.info("  - Balanced iteration counts and memory usage")
             logger.info("  - Moderate chunking for memory efficiency")
         else:

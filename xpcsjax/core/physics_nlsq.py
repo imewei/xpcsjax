@@ -9,12 +9,6 @@ Key Design Principles:
 - Meshgrid computations for 2D correlation matrices
 - No element-wise modes, no dispatchers
 - Direct JIT-compiled functions only
-- Completely independent from CMC physics
-
-Architecture Fix (Nov 2025):
-- Separated from element-wise CMC computations
-- Prevents NLSQ from including CMC-specific code
-- Clear separation of concerns
 
 Physical Model:
 g₂(φ,t₁,t₂) = offset + contrast × [g₁(φ,t₁,t₂)]²
@@ -367,7 +361,7 @@ def _compute_g2_scaled_meshgrid(
 # PUBLIC API FUNCTIONS (NLSQ ONLY)
 # =============================================================================
 # Note: apply_diagonal_correction is imported from physics_utils.py
-# to eliminate code duplication between NLSQ and CMC backends.
+# to eliminate code duplication across backends.
 
 
 def compute_g2_scaled(

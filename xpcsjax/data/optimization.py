@@ -3,14 +3,14 @@
 
 Memory-efficient data processing strategies for different dataset sizes.
 Implements chunked processing, progressive loading, and batch optimization
-for NLSQ and CMC optimization methods.
+for NLSQ optimization.
 
 Key Features:
 - Size-aware processing strategies (<1M, 1-10M, >20M points)
 - Memory-efficient chunked processing for large datasets
 - Progressive loading with intelligent caching
 - JAX-optimized batch processing
-- Integration with NLSQ and CMC pipelines
+- Integration with NLSQ pipelines
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ logger = get_logger(__name__)
 
 
 class DatasetOptimizer:
-    """Dataset size-aware optimization for NLSQ and CMC.
+    """Dataset size-aware optimization for NLSQ.
 
     Provides memory-efficient processing strategies based on dataset size:
     - Small (<1M): In-memory processing with full JAX acceleration
