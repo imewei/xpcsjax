@@ -50,16 +50,6 @@ except ImportError:
     curve_fit = None  # type: ignore[assignment]
     NLSQ_CURVEFIT_AVAILABLE = False
 
-# NLSQ 0.6.3+ Workflow System Changes:
-# - WorkflowSelector was removed in NLSQ v0.6.0
-# - NLSQ now uses 3-preset workflows: "auto", "auto_global", "hpc"
-# - xpcsjax uses its own select_nlsq_strategy() for memory-aware selection
-# - OptimizationGoal still exists in NLSQ 0.6.4 (nlsq.core.workflow)
-WorkflowSelector = None  # Removed in NLSQ v0.6.0
-WorkflowTier = None  # Removed in NLSQ v0.6.0
-NLSQDatasetSizeTier = None  # Removed in NLSQ v0.6.0
-NLSQ_WORKFLOW_AVAILABLE = False  # WorkflowSelector removed in NLSQ v0.6.0
-
 # OptimizationGoal is still available in NLSQ 0.6.4 (FAST, ROBUST, QUALITY, etc.)
 try:
     from nlsq.core.workflow import OptimizationGoal
@@ -305,8 +295,6 @@ from xpcsjax.optimization.nlsq.strategies.residual_jit import (  # noqa: E402
     StratifiedResidualFunctionJIT,
 )
 
-# NOTE: DatasetSizeStrategy, OptimizationStrategy, estimate_memory_requirements
-# removed from public API in v2.12.0. Use NLSQ's WorkflowSelector instead.
 from xpcsjax.optimization.nlsq.strategies.sequential import (  # noqa: E402
     JAC_SAMPLE_SIZE,
     optimize_per_angle_sequential,
@@ -319,13 +307,6 @@ __all__ = [
     "CurveFit",
     "curve_fit",
     "NLSQ_CURVEFIT_AVAILABLE",
-    # Workflow selection (DEPRECATED in NLSQ v0.6.0)
-    # WorkflowSelector, WorkflowTier, NLSQDatasetSizeTier were removed
-    # Use xpcsjax's select_nlsq_strategy() from memory.py instead
-    "WorkflowSelector",  # None - removed in NLSQ v0.6.0
-    "WorkflowTier",  # None - removed in NLSQ v0.6.0
-    "NLSQDatasetSizeTier",  # None - removed in NLSQ v0.6.0
-    "NLSQ_WORKFLOW_AVAILABLE",  # False - WorkflowSelector removed
     # OptimizationGoal (still available in NLSQ 0.6.4)
     "OptimizationGoal",  # FAST, ROBUST, GLOBAL, MEMORY_EFFICIENT, QUALITY
     "NLSQ_GOAL_AVAILABLE",
@@ -420,8 +401,6 @@ __all__ = [
     # Sequential
     "JAC_SAMPLE_SIZE",
     "optimize_per_angle_sequential",
-    # NOTE: DatasetSizeStrategy, OptimizationStrategy, estimate_memory_requirements
-    # removed from public API in v2.12.0. Use NLSQ's WorkflowSelector instead.
     # Data Preparation (new in Dec 2025)
     "PreparedData",
     "ExpandedParameters",
