@@ -1,4 +1,5 @@
 """Tests for true `constant` mode in heterodyne (quantile-frozen scaling)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,9 +23,7 @@ def _make_synthetic_c2(n_phi: int = 3, n_t: int = 32, seed: int = 0) -> dict:
     # corners and the dual-region offset estimate cannot reach the true value.
     D = 10.0
     decay = np.exp(-D * np.abs(t1 - t2))
-    c2 = np.stack(
-        [true_offset[i] + true_contrast[i] * decay for i in range(n_phi)], axis=0
-    )
+    c2 = np.stack([true_offset[i] + true_contrast[i] * decay for i in range(n_phi)], axis=0)
     c2 += 0.005 * rng.standard_normal(c2.shape)
     return {
         "c2": c2,
@@ -65,9 +64,7 @@ def test_quantile_estimator_raises_on_empty_phi_cell() -> None:
     data = _make_synthetic_c2(n_phi=2)
     # phi_indices claims n_phi=2 but the array assigns all samples to index 0
     bad_phi_indices = np.zeros_like(data["phi_indices"])
-    with pytest.raises(
-        ValueError, match=r"no samples for phi index 1|only.*finite samples"
-    ):
+    with pytest.raises(ValueError, match=r"no samples for phi index 1|only.*finite samples"):
         estimate_per_angle_scaling_from_quantile(
             c2_data=data["c2"],
             t1=data["t1"],
@@ -90,9 +87,7 @@ def test_quantile_estimator_diagonal_only_fails_to_recover_offset() -> None:
     rng = np.random.default_rng(0)
     t = np.linspace(0.0, 1.0, n_t)
     # All samples are at t1 = t2 = same point → no off-diagonal coverage
-    c2_diag = np.stack(
-        [0.45 + 1.0 + 0.005 * rng.standard_normal(n_t) for _ in range(n_phi)]
-    )
+    c2_diag = np.stack([0.45 + 1.0 + 0.005 * rng.standard_normal(n_t) for _ in range(n_phi)])
     t1 = np.broadcast_to(t, c2_diag.shape).copy()
     t2 = t1.copy()
     phi_indices = np.repeat(np.arange(n_phi), n_t).reshape(c2_diag.shape)
@@ -195,9 +190,7 @@ def _build_synthetic_c2_stack(n_phi: int, n_t: int, model) -> np.ndarray:  # noq
     accepted for caller readability (matches the reviewer's snippet) and
     asserted-equal so a mismatch surfaces immediately.
     """
-    assert model.n_times == n_t, (
-        f"model.n_times={model.n_times} does not match requested n_t={n_t}"
-    )
+    assert model.n_times == n_t, f"model.n_times={model.n_times} does not match requested n_t={n_t}"
     rng = np.random.default_rng(seed=20260520)
     c2_stack = np.empty((n_phi, n_t, n_t), dtype=np.float64)
     for i, phi in enumerate(_B2_PHI_ANGLES[:n_phi]):
@@ -280,12 +273,26 @@ def test_constant_mode_fit_optimizes_only_physics() -> None:
 
 
 def test_constant_mode_recovers_synthetic_truth() -> None:
-    """End-to-end: converging constant-mode fit recovers synthetic ground truth.
+    """End-to-end: constant-mode fit converges to the noise-limited optimum.
 
-    This is the slow test (max_nfev=200, ~15-30s). It complements the fast
-    structural test and catches bugs where shape is correct but values are
-    wrong — specifically, drift in either the quantile estimator or the
-    physics-only residual closure.
+    Slow test (max_nfev=200*n_phi=600, ~10-15s).  Complements the fast
+    structural test by exercising three observable contracts:
+
+    1. Frozen per-angle scaling matches the quantile-estimator truth
+       (rtol=0.15 on contrast, 0.05 on offset).
+    2. Final chi^2 reaches within 10x of the noise floor n_residuals*sigma^2
+       ~ 4.1e-4 — catches drift in the physics residual closure that a
+       loose ceiling (e.g. chi^2 < 1.0) would miss.
+    3. The OptimizationResult shape and diagnostic schema remain stable.
+
+    Note: literal physics-parameter recovery is NOT asserted here. With
+    registry-default alpha_ref / alpha_sample ~ 0 the 14-parameter
+    heterodyne transport model has degenerate (D0, D_offset) directions —
+    different parameter triples produce the same J_r(t), J_s(t) and
+    therefore the same forward correlation — so a `result.parameters
+    approx truth` check would false-positive against mathematically
+    equivalent optima.  Forward-model recovery via chi^2 is the
+    well-posed surrogate.
     """
     from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
     from xpcsjax.optimization.nlsq.heterodyne_constant_mode import (
@@ -332,3 +339,69 @@ def test_constant_mode_recovers_synthetic_truth() -> None:
         rtol=0.05,
         err_msg="quantile-estimated offset deviates from synthetic ground truth",
     )
+    # Forward-model recovery (the only ground-truth check that is well-posed
+    # for the registry default parameters): the heterodyne 14-parameter
+    # transport model has degenerate (D0, D_offset) combinations whenever
+    # alpha_ref/alpha_sample sit near zero (the defaults), so a literal
+    # `result.parameters ≈ truth` assertion would produce false positives
+    # against mathematically-equivalent (but numerically distant) optima.
+    # Instead we require chi^2 to approach the noise-limited floor —
+    # n_residuals * sigma^2 ~ 1656 * (5e-4)^2 ~ 4.1e-4 — which IS unique
+    # at the joint optimum and catches a residual-closure bug that an
+    # over-loose `< 1.0` ceiling would miss.  Margin of 10x tracks the
+    # max_nfev=200*n_phi=600 budget under which the solver does not fully
+    # converge; raising max_nfev tightens this without changing the
+    # contract.
+    noise_floor_ssr = _B2_NOISE_SIGMA**2 * (n_phi * _B2_N_TIMES * (_B2_N_TIMES - 1))
+    assert result.chi_squared < 10.0 * noise_floor_ssr, (
+        f"converged chi_squared must approach noise floor "
+        f"~{noise_floor_ssr:.2e}; got {result.chi_squared:.2e} "
+        f"(>{10.0 * noise_floor_ssr:.2e})"
+    )
+
+
+def test_individual_aggregate_converts_final_cost_to_ssr() -> None:
+    """Sequential aggregate reports result-level chi_squared as SSR, not 0.5*SSR."""
+    from xpcsjax.optimization.nlsq.heterodyne_core import _aggregate_individual_results
+    from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
+
+    class _ParamManager:
+        n_varying = 1
+        varying_names = ["D0_ref"]
+
+    class _Scaling:
+        contrast = np.array([0.3, 0.4], dtype=np.float64)
+        offset = np.array([1.0, 1.0], dtype=np.float64)
+
+    class _Model:
+        param_manager = _ParamManager()
+        scaling = _Scaling()
+
+    per_angle = [
+        NLSQResult(
+            parameters=np.array([1.0]),
+            parameter_names=["D0_ref"],
+            success=True,
+            message="ok",
+            final_cost=0.5,
+        ),
+        NLSQResult(
+            parameters=np.array([3.0]),
+            parameter_names=["D0_ref"],
+            success=True,
+            message="ok",
+            final_cost=2.0,
+        ),
+    ]
+    c2_data = np.ones((2, 3, 3), dtype=np.float64)
+
+    result = _aggregate_individual_results(
+        per_angle_results=per_angle,
+        model=_Model(),
+        phi_angles=np.array([0.0, 30.0]),
+        c2_data=c2_data,
+        wall_time=0.0,
+    )
+
+    np.testing.assert_allclose(result.nlsq_diagnostics["chi2_per_angle"], [1.0, 4.0])
+    assert result.chi_squared == pytest.approx(5.0)

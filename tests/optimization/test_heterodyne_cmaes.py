@@ -22,6 +22,7 @@ asserts:
 The fit quality envelope is intentionally loose — this is the architectural
 sibling of ``test_two_component_smoke``, not a precision test.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -134,9 +135,7 @@ def test_heterodyne_per_angle_cmaes_fits_without_signature_drift(tmp_path: Path)
     rng = np.random.default_rng(seed=20260519)
     c2_stack = np.empty((len(_PHI_ANGLES), _N_TIMES, _N_TIMES), dtype=np.float64)
     for i, phi in enumerate(_PHI_ANGLES):
-        c2 = np.asarray(
-            truth_model.compute_correlation(phi_angle=float(phi), angle_idx=i)
-        )
+        c2 = np.asarray(truth_model.compute_correlation(phi_angle=float(phi), angle_idx=i))
         c2_stack[i] = c2 + rng.normal(0.0, _NOISE_SIGMA, size=c2.shape)
 
     data = {"c2": c2_stack, "phi": _PHI_ANGLES}
@@ -163,15 +162,12 @@ def test_heterodyne_per_angle_cmaes_fits_without_signature_drift(tmp_path: Path)
         "expected per_angle_metadata list in nlsq_diagnostics"
     )
     assert len(per_angle_metadata) == len(_PHI_ANGLES), (
-        f"expected {len(_PHI_ANGLES)} per-angle metadata entries, "
-        f"got {len(per_angle_metadata)}"
+        f"expected {len(_PHI_ANGLES)} per-angle metadata entries, got {len(per_angle_metadata)}"
     )
     params = np.asarray(results.parameters, dtype=np.float64)
     assert np.all(np.isfinite(params)), f"NaN/Inf in fitted parameters: {params}"
     per_angle_messages = diag.get("per_angle_messages") or []
-    assert all(per_angle_messages), (
-        "every per-angle fit must carry a non-empty status message"
-    )
+    assert all(per_angle_messages), "every per-angle fit must carry a non-empty status message"
 
     # ---- CMA-ES path was actually taken ---------------------------------
     # ``_fit_cmaes`` writes ``metadata["optimizer"] = "cmaes"`` and
@@ -183,11 +179,40 @@ def test_heterodyne_per_angle_cmaes_fits_without_signature_drift(tmp_path: Path)
         # Some heterodyne dispatch variants nest metadata under the joint
         # CMA-ES key — be tolerant rather than over-pinning the shape.
         assert "cmaes" in str(first_meta).lower(), (
-            f"expected CMA-ES marker somewhere in metadata; got keys "
-            f"{list(first_meta)}"
+            f"expected CMA-ES marker somewhere in metadata; got keys {list(first_meta)}"
         )
     else:
         assert first_meta["optimizer"] in {"cmaes", "joint_cmaes_warmstart"}, (
-            f"expected CMA-ES optimizer label in metadata, got "
-            f"{first_meta['optimizer']!r}"
+            f"expected CMA-ES optimizer label in metadata, got {first_meta['optimizer']!r}"
+        )
+    # ---- Fit quality contract -------------------------------------------
+    # Audit second-opinion gap: the original test only verified that
+    # CMA-ES labels appeared in metadata; it never asserted that the fit
+    # actually produced a finite cost.  A regression that left CMA-ES
+    # running but produced a NaN/Inf chi_squared or jumped to a
+    # pathological local min would have passed the label check.
+    #
+    # Per this file's docstring ("the fit quality envelope is intentionally
+    # loose — this is the architectural sibling of test_two_component_smoke,
+    # not a precision test"), we deliberately don't pin a noise-floor-tight
+    # bound: CMA-ES is global-search and converges to ~O(0.1-0.5) chi^2 on
+    # this tiny budget, well above the n_residuals*sigma^2 ~ 6e-3 noise
+    # floor that NLSQ reaches.  The 5.0 ceiling is generous enough that
+    # CMA-ES's stochastic spread stays inside it while still catching
+    # an order-of-magnitude regression (e.g., divergence to chi^2 > 50).
+    assert np.isfinite(results.chi_squared), (
+        f"CMA-ES path must return finite chi_squared; got {results.chi_squared!r}"
+    )
+    assert results.chi_squared < 5.0, (
+        f"CMA-ES chi_squared must remain bounded on the smoke fixture; "
+        f"got {results.chi_squared:.2e} — investigate a stochastic-search "
+        f"regression or fixture corruption."
+    )
+    # cmaes_winner is the Phase-3 comparison verdict — must be one of the
+    # known values, present in metadata even if "optimizer" key is absent
+    # under nested-dispatch variants.
+    winner = first_meta.get("cmaes_winner")
+    if winner is not None:
+        assert winner in {"nlsq", "cmaes"}, (
+            f"cmaes_winner must be 'nlsq' or 'cmaes'; got {winner!r}"
         )
