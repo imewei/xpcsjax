@@ -66,11 +66,15 @@ def compute_diagonal_overlay_stats(
         )
     raw_diag = np.diag(c2_exp[phi_index])
     fitted_diag = np.diag(c2_fit[phi_index])
+    # ddof=1 matches the docstring claim of "sample variance" (N-1 denominator).
+    # Guard against n<2 to avoid division-by-zero; return NaN for degenerate inputs.
+    n_raw = int(np.isfinite(raw_diag).sum())
+    n_fit = int(np.isfinite(fitted_diag).sum())
     return DiagonalOverlayResult(
         phi_index=phi_index,
         raw_diagonal=raw_diag,
         fitted_diagonal=fitted_diag,
-        raw_variance=float(np.nanvar(raw_diag)),
-        fitted_variance=float(np.nanvar(fitted_diag)),
+        raw_variance=float(np.nanvar(raw_diag, ddof=1)) if n_raw > 1 else float("nan"),
+        fitted_variance=float(np.nanvar(fitted_diag, ddof=1)) if n_fit > 1 else float("nan"),
         fitted_rmse=float(np.sqrt(np.nanmean((fitted_diag - raw_diag) ** 2))),
     )

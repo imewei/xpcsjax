@@ -75,9 +75,12 @@ class PrefetchLoader(Iterator[R]):
             if self._thread.is_alive():
                 self._exhausted = True
                 self._thread = None
-                raise RuntimeError(
+                timeout_err = RuntimeError(
                     "Prefetch thread did not complete within 120s timeout"
                 )
+                # Store so any future (invalid) call also surfaces the error
+                self._error = timeout_err
+                raise timeout_err
             self._thread = None
 
         if self._error is not None:
@@ -87,10 +90,11 @@ class PrefetchLoader(Iterator[R]):
             raise StopIteration
 
         result = self._prefetched
+        assert result is not None, "_has_prefetched is True but _prefetched is None"
         self._has_prefetched = False
         self._prefetched = None
         self._start_prefetch()
-        return result  # type: ignore[return-value]
+        return result
 
 
 class AsyncWriter:
@@ -110,6 +114,8 @@ class AsyncWriter:
 
     def submit_npz(self, path: Path, data: dict[str, np.ndarray]) -> None:
         """Write NPZ file in background."""
+        if self._shutdown:
+            raise RuntimeError("AsyncWriter is shut down; cannot submit new writes")
 
         def _write() -> None:
             try:
@@ -124,6 +130,8 @@ class AsyncWriter:
 
     def submit_json(self, path: Path, data: dict[str, Any]) -> None:
         """Write JSON file in background."""
+        if self._shutdown:
+            raise RuntimeError("AsyncWriter is shut down; cannot submit new writes")
 
         def _write() -> None:
             try:
@@ -138,6 +146,8 @@ class AsyncWriter:
 
     def submit_task(self, fn: Callable[..., None], *args: Any, **kwargs: Any) -> None:
         """Submit an arbitrary callable for background execution."""
+        if self._shutdown:
+            raise RuntimeError("AsyncWriter is shut down; cannot submit new writes")
         future = self._executor.submit(fn, *args, **kwargs)
         with self._lock:
             self._futures.append(future)
@@ -146,27 +156,32 @@ class AsyncWriter:
         """Wait for all pending writes. Returns list of errors.
 
         TimeoutError is not treated as a failure — the write is still
-        in progress and will complete during shutdown().
+        in progress and will complete during shutdown(). Timed-out futures
+        are kept in the tracking list so their eventual errors are not lost.
         """
         with self._lock:
             pending = list(self._futures)
         errors: list[Exception] = []
+        completed: list[Future[None]] = []
         for future in pending:
             try:
                 future.result(timeout=timeout)
+                completed.append(future)
             except TimeoutError:
                 logger.info(
                     "Background write still in progress after %.0fs "
                     "(will complete during shutdown)",
                     timeout,
                 )
+                # Do NOT mark as completed — keep in _futures so shutdown() sees it
             except Exception as e:
                 logger.warning("Background write failed (%s): %s", type(e).__name__, e)
                 logger.debug("Background write traceback:", exc_info=True)
                 errors.append(e)
-        # Remove only the futures we waited on; concurrent submits are preserved
+                completed.append(future)
+        # Remove only futures that finished (succeeded or errored); keep timed-out ones
         with self._lock:
-            for f in pending:
+            for f in completed:
                 try:
                     self._futures.remove(f)
                 except ValueError:
@@ -178,8 +193,23 @@ class AsyncWriter:
         if self._shutdown:
             return
         self._shutdown = True
-        self.wait_all()
+        errors = self.wait_all(timeout=300.0)
+        if errors:
+            logger.error(
+                "AsyncWriter.shutdown: %d background write(s) failed", len(errors)
+            )
         self._executor.shutdown(wait=True)
+
+    def __del__(self) -> None:
+        if not getattr(self, "_shutdown", True):
+            import warnings
+
+            warnings.warn(
+                "AsyncWriter garbage-collected without shutdown(); "
+                "background writes may be lost",
+                ResourceWarning,
+                stacklevel=2,
+            )
 
     @staticmethod
     def _write_npz(path: Path, data: dict[str, np.ndarray]) -> None:

@@ -29,16 +29,23 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 # Optional Datashader backend probe — see xpcsjax/viz/datashader_backend.py.
-# The import is gated so users without [viz-fast] installed don't pay the
-# (substantial) datashader/xarray/numba import cost. The flag is consulted
-# by the dispatcher in :func:`generate_nlsq_plots` to choose between the
-# fast Datashader path (default when available) and the matplotlib path.
-try:
-    import xpcsjax.viz.datashader_backend  # noqa: F401
+# Use find_spec to verify the optional deps are present before importing, so
+# that a genuine bug inside datashader_backend (SyntaxError, AttributeError,
+# etc.) propagates instead of being silently swallowed as a missing-dep flag.
+import importlib.util as _importlib_util
 
-    DATASHADER_AVAILABLE = True
-except ImportError:
-    DATASHADER_AVAILABLE = False
+DATASHADER_AVAILABLE = False
+if (
+    _importlib_util.find_spec("datashader") is not None
+    and _importlib_util.find_spec("xarray") is not None
+):
+    try:
+        import xpcsjax.viz.datashader_backend  # noqa: F401
+
+        DATASHADER_AVAILABLE = True
+    except ImportError:
+        # Optional deps declared missing by the backend's own guard — expected.
+        DATASHADER_AVAILABLE = False
 
 
 def _resolve_color_limits(
@@ -278,9 +285,23 @@ def _evaluate_c2_per_angle(
         )
 
         ap = config.get("analyzer_parameters", {})
-        q = float(ap.get("scattering", {}).get("wavevector_q"))
-        L = float(ap.get("geometry", {}).get("stator_rotor_gap"))
-        dt = float(ap.get("dt") or ap.get("temporal", {}).get("dt"))
+        q_raw = ap.get("scattering", {}).get("wavevector_q")
+        if q_raw is None:
+            raise ValueError("Missing analyzer_parameters.scattering.wavevector_q")
+        q = float(q_raw)
+        L_raw = ap.get("geometry", {}).get("stator_rotor_gap")
+        if L_raw is None:
+            raise ValueError("Missing analyzer_parameters.geometry.stator_rotor_gap")
+        L = float(L_raw)
+        # Use explicit None-check so dt=0 is not treated as falsy.
+        dt_raw = ap.get("dt")
+        if dt_raw is None:
+            dt_raw = ap.get("temporal", {}).get("dt")
+        if dt_raw is None:
+            raise ValueError(
+                "Missing analyzer_parameters: 'dt' or 'temporal.dt' is required"
+            )
+        dt = float(dt_raw)
         t1 = jnp.asarray(data["t1"], dtype=jnp.float64)
         t2 = jnp.asarray(data["t2"], dtype=jnp.float64)
 
@@ -627,15 +648,17 @@ def plot_simulated_data(
     n_t1, n_t2 = c2_sim.shape
     t1_vec = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
     t2_vec = np.asarray(t2) if t2 is not None else (t1_vec if t is not None else np.arange(n_t2, dtype=float))
-    # c2_sim is transposed below (ax.imshow(c2_sim.T)); display x → t₁, y → t₂.
-    extent = (float(t1_vec[0]), float(t1_vec[-1]), float(t2_vec[0]), float(t2_vec[-1]))
+    # No transpose — rows=y=t1, cols=x=t2, consistent with plot_nlsq_fit and
+    # plot_residual_map. The previous .T + swapped extent was inconsistent with
+    # those functions on non-square grids (n_t1 ≠ n_t2).
+    extent = (float(t2_vec[0]), float(t2_vec[-1]), float(t1_vec[0]), float(t1_vec[-1]))
 
     vmin, vmax = _resolve_color_limits(c2_sim, percentile_min=1.0, percentile_max=99.0)
     vmin = max(1.0, vmin)
     vmax = min(1.6, vmax) if vmax > 1.0 else vmax
 
     im = ax.imshow(
-        c2_sim.T,
+        c2_sim,
         origin="lower",
         extent=extent,
         aspect="equal",
@@ -648,8 +671,8 @@ def plot_simulated_data(
     if phi_deg is not None:
         title = f"{title} at φ={phi_deg:.1f}°"
     ax.set_title(title, fontsize=13, fontweight="bold")
-    ax.set_xlabel("t₁ (s)" if t is not None else "t₁ Index", fontsize=11)
-    ax.set_ylabel("t₂ (s)" if t is not None else "t₂ Index", fontsize=11)
+    ax.set_xlabel("t₂ (s)" if t is not None else "t₂ Index", fontsize=11)
+    ax.set_ylabel("t₁ (s)" if t is not None else "t₁ Index", fontsize=11)
     cbar = plt.colorbar(im, ax=ax, label="C₂", shrink=0.9)
     cbar.ax.tick_params(labelsize=9)
 
@@ -982,12 +1005,13 @@ def _generate_plots_datashader(
                 n_workers,
             )
             return
-        except (OSError, RuntimeError, TimeoutError, Exception) as e:
+        except Exception as e:
             logger.warning(
                 "Parallel Datashader rendering failed (%s: %s); sequential fallback.",
                 type(e).__name__,
                 e,
             )
+            logger.debug("Pool failure traceback:", exc_info=True)
 
     # Sequential path (use_datashader=True with parallel=False, n_phi==1,
     # or the parallel pool fell over).
@@ -1346,12 +1370,13 @@ def generate_nlsq_plots(
                     len(args_list),
                     n_workers,
                 )
-            except (OSError, RuntimeError, TimeoutError, Exception) as e:
+            except Exception as e:
                 logger.warning(
                     "Parallel rendering failed (%s: %s); sequential fallback.",
                     type(e).__name__,
                     e,
                 )
+                logger.debug("Pool failure traceback:", exc_info=True)
                 for i in range(n_phi):
                     if np.all(np.isnan(c2_fitted[i])):
                         continue

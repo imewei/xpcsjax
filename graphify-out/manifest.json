@@ -280,20 +280,20 @@
     "hash": "ebb14ba33602d889fa33cfeb0a642304"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/utils/logging.py": {
-    "mtime": 1779408439.6897213,
-    "hash": "b9c10d99e0809a3726206d49ee5d4ba2"
+    "mtime": 1779485883.107632,
+    "hash": "af1bb0ddc671e41c9918fe2bfdb067ea"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/utils/__init__.py": {
     "mtime": 1779131468.7172408,
     "hash": "61e4242be6817c3e127db2de591ad113"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/utils/async_io.py": {
-    "mtime": 1779131468.7382407,
-    "hash": "b7faf7221685ab0e9b4bc606c63b135a"
+    "mtime": 1779485770.4860134,
+    "hash": "622e1c2204d70c4fdf0174e0634f697c"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/utils/path_validation.py": {
-    "mtime": 1779131468.7382407,
-    "hash": "fdf6b9d051291f1ba623cc38f2d7c6fe"
+    "mtime": 1779485912.8742855,
+    "hash": "72820331aa0aeb8114c47b892838221f"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/exceptions.py": {
     "mtime": 1779134428.7828107,
@@ -708,16 +708,16 @@
     "hash": "f367f8f90d3e4b54be37dbd09e99bcc8"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/viz/datashader_backend.py": {
-    "mtime": 1779393335.9267712,
-    "hash": "7e48fb70261f3184bbf12790271491a4"
+    "mtime": 1779487951.5988362,
+    "hash": "619f84235e52eb988f26cc1c2768703f"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/viz/nlsq_plots.py": {
-    "mtime": 1779393646.506582,
-    "hash": "36e0c930e1a4f302c92c52008f5baafd"
+    "mtime": 1779488067.2712429,
+    "hash": "97b0002e2366a7dfbf112e685cc5de20"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/viz/diagnostics.py": {
-    "mtime": 1779384821.4501514,
-    "hash": "d5638675bb5e57636100fb72c95ad288"
+    "mtime": 1779488075.8192756,
+    "hash": "75d7d074abe24300d9418bc36eeb28fd"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/viz/__init__.py": {
     "mtime": 1779341263.1525385,

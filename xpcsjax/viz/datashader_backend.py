@@ -35,7 +35,7 @@ try:
     from PIL import Image
 except ImportError as e:
     raise ImportError(
-        "Datashader backend requires datashader, xarray, colorcet, and Pillow. "
+        "Datashader backend requires datashader, xarray, and Pillow. "
         "Install with: pip install 'xpcsjax[viz-fast]'"
     ) from e
 
@@ -58,7 +58,7 @@ class DatashaderRenderer:
     >>> img.save("output.png")  # direct PIL save
     """
 
-    def __init__(self, width: int = 800, height: int = 800):
+    def __init__(self, width: int = 800, height: int = 800) -> None:
         self.width = width
         self.height = height
 
@@ -116,8 +116,10 @@ class DatashaderRenderer:
             y_range=(float(y_finite.min()), float(y_finite.max())),
         )
 
-        # canvas.raster() resamples the gridded data to canvas resolution.
-        agg = canvas.raster(xr_data)
+        # canvas.quadmesh() resamples gridded data to canvas resolution.
+        # canvas.raster() was removed in Datashader ≥ 0.15; quadmesh() is the
+        # supported API for regularly-spaced xr.DataArray inputs.
+        agg = canvas.quadmesh(xr_data, x="x", y="y", agg=ds.mean("intensity"))
         cmap_obj = self._get_colormap(cmap)
 
         if vmin is None or vmax is None:
@@ -188,13 +190,17 @@ def plot_c2_heatmap_fast(
 
     renderer = DatashaderRenderer(width=width, height=height)
 
+    # Use only finite values for adaptive percentile limits so that all-NaN
+    # arrays don't produce NaN color limits (nanpercentile returns NaN on all-NaN
+    # input, which bypasses the 1.0/1.5 defaults because auto_v* is not None).
+    c2_finite = c2_data[np.isfinite(c2_data)]
     auto_vmin = vmin
     auto_vmax = vmax
-    if adaptive and c2_data.size > 0:
+    if adaptive and c2_finite.size > 0:
         if vmin is None:
-            auto_vmin = float(np.nanpercentile(c2_data, percentile_min))
+            auto_vmin = float(np.percentile(c2_finite, percentile_min))
         if vmax is None:
-            auto_vmax = float(np.nanpercentile(c2_data, percentile_max))
+            auto_vmax = float(np.percentile(c2_finite, percentile_max))
     vmin_use = auto_vmin if auto_vmin is not None else 1.0
     vmax_use = auto_vmax if auto_vmax is not None else 1.5
 
@@ -207,24 +213,24 @@ def plot_c2_heatmap_fast(
     img_array = np.flipud(img_array)
 
     fig, ax = plt.subplots(figsize=(8, 7), dpi=100)
-    extent = (float(t1[0]), float(t1[-1]), float(t2[0]), float(t2[-1]))
-    ax.imshow(img_array, extent=extent, origin="lower", aspect="equal")
-    ax.set_xlabel("t₁ (s)", fontsize=11)
-    ax.set_ylabel("t₂ (s)", fontsize=11)
-
-    if phi_angle is not None:
-        title = f"{title} at φ={phi_angle:.1f}°" if title else f"φ={phi_angle:.1f}°"
-    ax.set_title(title, fontsize=13, fontweight="bold")
-
-    norm = Normalize(vmin=vmin_use, vmax=vmax_use)
-    sm = ScalarMappable(cmap=matplotlib.colormaps.get_cmap(cmap), norm=norm)
-    sm.set_array([])
-    cbar = plt.colorbar(sm, ax=ax, label="g₂(t₁,t₂)", shrink=0.9)
-    cbar.ax.tick_params(labelsize=9)
-
-    plt.tight_layout()
     try:
-        plt.savefig(output_path, dpi=150, bbox_inches="tight")
+        extent = (float(t1[0]), float(t1[-1]), float(t2[0]), float(t2[-1]))
+        ax.imshow(img_array, extent=extent, origin="lower", aspect="equal")
+        ax.set_xlabel("t₁ (s)", fontsize=11)
+        ax.set_ylabel("t₂ (s)", fontsize=11)
+
+        if phi_angle is not None:
+            title = f"{title} at φ={phi_angle:.1f}°" if title else f"φ={phi_angle:.1f}°"
+        ax.set_title(title, fontsize=13, fontweight="bold")
+
+        norm = Normalize(vmin=vmin_use, vmax=vmax_use)
+        sm = ScalarMappable(cmap=matplotlib.colormaps.get_cmap(cmap), norm=norm)
+        sm.set_array([])
+        cbar = fig.colorbar(sm, ax=ax, label="g₂(t₁,t₂)", shrink=0.9)
+        cbar.ax.tick_params(labelsize=9)
+
+        fig.tight_layout()
+        fig.savefig(output_path, dpi=150, bbox_inches="tight")
     finally:
         plt.close(fig)
     logger.debug("Saved Datashader plot: %s", output_path)
@@ -271,17 +277,20 @@ def plot_c2_comparison_fast(
 
     renderer = DatashaderRenderer(width=width, height=height)
 
+    # Shared color limits from combined finite values — prevents NaN limits when
+    # one or both arrays are all-NaN (nanpercentile on all-NaN returns NaN, which
+    # bypasses the 1.0/1.5 defaults because the variable is no longer None).
+    combined_finite = np.concatenate([
+        c2_exp[np.isfinite(c2_exp)],
+        c2_fit[np.isfinite(c2_fit)],
+    ])
     vmin_shared = vmin
     vmax_shared = vmax
-    if adaptive and c2_exp.size > 0 and c2_fit.size > 0:
+    if adaptive and combined_finite.size > 0:
         if vmin_shared is None:
-            vmin_exp = float(np.nanpercentile(c2_exp, percentile_min))
-            vmin_fit = float(np.nanpercentile(c2_fit, percentile_min))
-            vmin_shared = min(vmin_exp, vmin_fit)
+            vmin_shared = float(np.percentile(combined_finite, percentile_min))
         if vmax_shared is None:
-            vmax_exp = float(np.nanpercentile(c2_exp, percentile_max))
-            vmax_fit = float(np.nanpercentile(c2_fit, percentile_max))
-            vmax_shared = max(vmax_exp, vmax_fit)
+            vmax_shared = float(np.percentile(combined_finite, percentile_max))
     vmin_shared = 1.0 if vmin_shared is None else vmin_shared
     vmax_shared = 1.5 if vmax_shared is None else vmax_shared
 
@@ -292,14 +301,19 @@ def plot_c2_comparison_fast(
         c2_fit.T, t1, t2, cmap="jet", vmin=vmin_shared, vmax=vmax_shared
     )
 
+    # Residual colormap: symmetric ±99th-percentile of |residuals| so that
+    # RdBu_r midpoint (white) always maps to zero — consistent with the
+    # matplotlib path in plot_nlsq_fit. The original code used data_min/data_max
+    # (asymmetric) AND discarded finite_r in favour of nanmin(residuals) which
+    # could include inf values.
     finite_r = residuals[np.isfinite(residuals)] if residuals.size > 0 else residuals
     if finite_r.size > 0:
-        res_min = float(np.nanmin(residuals))
-        res_max = float(np.nanmax(residuals))
+        vmax_r = float(np.percentile(np.abs(finite_r), 99))
+        if vmax_r == 0.0 or not np.isfinite(vmax_r):
+            vmax_r = 1.0
     else:
-        res_min, res_max = 0.0, 1.0
-    if res_min == res_max:
-        res_max = res_min + 1e-10
+        vmax_r = 1.0
+    res_min, res_max = -vmax_r, vmax_r
     img_res = renderer.rasterize_heatmap(
         residuals.T, t1, t2, cmap="RdBu_r", vmin=res_min, vmax=res_max
     )
@@ -309,37 +323,37 @@ def plot_c2_comparison_fast(
     img_res_arr = np.flipud(np.array(img_res))
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-    extent = (float(t1[0]), float(t1[-1]), float(t2[0]), float(t2[-1]))
-
-    axes[0].imshow(img_exp_arr, extent=extent, origin="lower", aspect="equal")
-    axes[0].set_title(f"Experimental C₂ (φ={phi_angle:.1f}°)", fontsize=12)
-    axes[0].set_xlabel("t₁ (s)", fontsize=10)
-    axes[0].set_ylabel("t₂ (s)", fontsize=10)
-    norm_shared = Normalize(vmin=vmin_shared, vmax=vmax_shared)
-    sm_exp = ScalarMappable(cmap=matplotlib.colormaps.get_cmap("jet"), norm=norm_shared)
-    sm_exp.set_array([])
-    plt.colorbar(sm_exp, ax=axes[0], label="C₂(t₁,t₂)").ax.tick_params(labelsize=8)
-
-    axes[1].imshow(img_fit_arr, extent=extent, origin="lower", aspect="equal")
-    axes[1].set_title(f"Fitted C₂ (φ={phi_angle:.1f}°)", fontsize=12)
-    axes[1].set_xlabel("t₁ (s)", fontsize=10)
-    axes[1].set_ylabel("t₂ (s)", fontsize=10)
-    sm_fit = ScalarMappable(cmap=matplotlib.colormaps.get_cmap("jet"), norm=norm_shared)
-    sm_fit.set_array([])
-    plt.colorbar(sm_fit, ax=axes[1], label="C₂(t₁,t₂)").ax.tick_params(labelsize=8)
-
-    axes[2].imshow(img_res_arr, extent=extent, origin="lower", aspect="equal")
-    axes[2].set_title(f"Residuals (φ={phi_angle:.1f}°)", fontsize=12)
-    axes[2].set_xlabel("t₁ (s)", fontsize=10)
-    axes[2].set_ylabel("t₂ (s)", fontsize=10)
-    norm_res = Normalize(vmin=res_min, vmax=res_max)
-    sm_res = ScalarMappable(cmap=matplotlib.colormaps.get_cmap("RdBu_r"), norm=norm_res)
-    sm_res.set_array([])
-    plt.colorbar(sm_res, ax=axes[2], label="ΔC₂").ax.tick_params(labelsize=8)
-
-    plt.tight_layout()
     try:
-        plt.savefig(output_path, dpi=150, bbox_inches="tight")
+        extent = (float(t1[0]), float(t1[-1]), float(t2[0]), float(t2[-1]))
+
+        axes[0].imshow(img_exp_arr, extent=extent, origin="lower", aspect="equal")
+        axes[0].set_title(f"Experimental C₂ (φ={phi_angle:.1f}°)", fontsize=12)
+        axes[0].set_xlabel("t₁ (s)", fontsize=10)
+        axes[0].set_ylabel("t₂ (s)", fontsize=10)
+        norm_shared = Normalize(vmin=vmin_shared, vmax=vmax_shared)
+        sm_exp = ScalarMappable(cmap=matplotlib.colormaps.get_cmap("jet"), norm=norm_shared)
+        sm_exp.set_array([])
+        fig.colorbar(sm_exp, ax=axes[0], label="C₂(t₁,t₂)").ax.tick_params(labelsize=8)
+
+        axes[1].imshow(img_fit_arr, extent=extent, origin="lower", aspect="equal")
+        axes[1].set_title(f"Fitted C₂ (φ={phi_angle:.1f}°)", fontsize=12)
+        axes[1].set_xlabel("t₁ (s)", fontsize=10)
+        axes[1].set_ylabel("t₂ (s)", fontsize=10)
+        sm_fit = ScalarMappable(cmap=matplotlib.colormaps.get_cmap("jet"), norm=norm_shared)
+        sm_fit.set_array([])
+        fig.colorbar(sm_fit, ax=axes[1], label="C₂(t₁,t₂)").ax.tick_params(labelsize=8)
+
+        axes[2].imshow(img_res_arr, extent=extent, origin="lower", aspect="equal")
+        axes[2].set_title(f"Residuals (φ={phi_angle:.1f}°)", fontsize=12)
+        axes[2].set_xlabel("t₁ (s)", fontsize=10)
+        axes[2].set_ylabel("t₂ (s)", fontsize=10)
+        norm_res = Normalize(vmin=res_min, vmax=res_max)
+        sm_res = ScalarMappable(cmap=matplotlib.colormaps.get_cmap("RdBu_r"), norm=norm_res)
+        sm_res.set_array([])
+        fig.colorbar(sm_res, ax=axes[2], label="ΔC₂").ax.tick_params(labelsize=8)
+
+        fig.tight_layout()
+        fig.savefig(output_path, dpi=150, bbox_inches="tight")
     finally:
         plt.close(fig)
     logger.debug("Saved Datashader 3-panel plot: %s", output_path)

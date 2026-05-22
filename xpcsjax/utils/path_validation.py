@@ -60,9 +60,7 @@ def validate_save_path(
     Raises
     ------
     PathValidationError
-        If path validation fails due to security concerns.
-    ValueError
-        If path has invalid extension or parent doesn't exist.
+        If path validation fails (security concerns, bad extension, missing parent).
 
     Examples
     --------
@@ -131,11 +129,18 @@ def validate_save_path(
                 f"{_sanitize_log_path(str(base_dir))}"
             ) from e
 
+    # Reject paths with no filename component (e.g., root "/" or bare directory paths)
+    if not resolved_path.name:
+        raise PathValidationError(
+            f"Path resolves to a root or directory-only path "
+            f"(no filename): {_sanitize_log_path(path_str)}"
+        )
+
     # Check extension
     if allowed_extensions is not None:
         suffix = resolved_path.suffix.lower()
         if suffix not in allowed_extensions:
-            raise ValueError(
+            raise PathValidationError(
                 f"Invalid file extension '{suffix}'. "
                 f"Allowed: {', '.join(allowed_extensions)}"
             )
@@ -144,11 +149,11 @@ def validate_save_path(
     if require_parent_exists:
         parent = resolved_path.parent
         if not parent.exists():
-            raise ValueError(
+            raise PathValidationError(
                 f"Parent directory does not exist: {_sanitize_log_path(str(parent))}"
             )
         if not parent.is_dir():
-            raise ValueError(
+            raise PathValidationError(
                 f"Parent path is not a directory: {_sanitize_log_path(str(parent))}"
             )
 
@@ -179,9 +184,7 @@ def validate_plot_save_path(
     Raises
     ------
     PathValidationError
-        If path validation fails.
-    ValueError
-        If extension is not a valid image format.
+        If path validation fails or extension is not a valid image format.
 
     Examples
     --------
@@ -256,8 +259,8 @@ def get_safe_output_dir(
     ------
     PathValidationError
         If the path is invalid or unsafe.
-    PermissionError
-        If directory cannot be created due to permissions.
+    OSError
+        If directory cannot be created (permission denied, disk full, etc.).
     """
     if output_dir is None:
         output_dir = Path.cwd() / default_subdir
@@ -283,10 +286,10 @@ def get_safe_output_dir(
         try:
             resolved.mkdir(parents=True, exist_ok=True)
             logger.debug(
-                f"Created output directory: {_sanitize_log_path(str(resolved))}"
+                "Created output directory: %s", _sanitize_log_path(str(resolved))
             )
         except OSError as e:
-            raise PermissionError(
+            raise OSError(
                 f"Cannot create output directory: {_sanitize_log_path(str(resolved))}"
             ) from e
 

@@ -160,7 +160,8 @@ class LogConfiguration:
             console_format=self.console_format,
             console_colors=self.console_colors,
             file_path=file_path,
-            file_level=self.file_level if self.file_enabled else False,
+            file_level=self.file_level if self.file_enabled else None,
+            file_format=self.file_format,
             max_size_mb=self.file_rotation_mb,
             backup_count=self.file_backup_count,
             module_levels=merged_overrides,
@@ -453,9 +454,13 @@ class AnalysisSummaryLogger:
 
             def _json_safe(value: Any) -> Any:
                 """Minimal fallback when io module unavailable."""
-                if isinstance(value, float):
-                    import math
+                import math
 
+                if isinstance(value, dict):
+                    return {k: _json_safe(v) for k, v in value.items()}
+                if isinstance(value, list):
+                    return [_json_safe(v) for v in value]
+                if isinstance(value, float):
                     if math.isnan(value):
                         return None
                     if math.isinf(value):
@@ -532,6 +537,7 @@ class MinimalLogger:
         console_colors: bool = False,
         file_path: str | Path | None = None,
         file_level: str | int | None = None,
+        file_format: str = "detailed",
         max_size_mb: int = 10,
         backup_count: int = 5,
         module_levels: Mapping[str, str | int] | None = None,
@@ -550,6 +556,7 @@ class MinimalLogger:
                 console_colors=console_colors,
                 file_path=file_path,
                 file_level=file_level,
+                file_format=file_format,
                 max_size_mb=max_size_mb,
                 backup_count=backup_count,
                 module_levels=module_levels,
@@ -565,6 +572,7 @@ class MinimalLogger:
         console_colors: bool = False,
         file_path: str | Path | None = None,
         file_level: str | int | None = None,
+        file_format: str = "detailed",
         max_size_mb: int = 10,
         backup_count: int = 5,
         module_levels: Mapping[str, str | int] | None = None,
@@ -577,24 +585,26 @@ class MinimalLogger:
             self._clear_managed_handlers(root_logger)
 
         root_level_candidates = [_resolve_level(level)]
-        if console_level is not False:
+        if console_level is not None:
             root_level_candidates.append(_resolve_level(console_level))
-        if file_level is not False:
+        if file_level is not None:
             root_level_candidates.append(_resolve_level(file_level))
         root_level = min(lvl for lvl in root_level_candidates if lvl is not None)
         root_logger.setLevel(root_level)
 
-        # Console handler
+        # Console handler — only reuse an existing managed handler to avoid duplicating
+        # output when called multiple times (e.g., configure_from_dict with force=True).
         console_handler: logging.Handler | None = None
         for handler in root_logger.handlers:
-            if isinstance(handler, logging.StreamHandler) and not isinstance(
-                handler,
-                logging.FileHandler,
+            if (
+                isinstance(handler, logging.StreamHandler)
+                and not isinstance(handler, logging.FileHandler)
+                and getattr(handler, "_xpcsjax_managed", False)
             ):
                 console_handler = handler
                 break
 
-        if console_level is not False:
+        if console_level is not None:
             if console_handler is None:
                 console_handler = logging.StreamHandler()
                 console_handler._xpcsjax_managed = True  # type: ignore[attr-defined]
@@ -611,10 +621,11 @@ class MinimalLogger:
             try:
                 file_path.parent.mkdir(parents=True, exist_ok=True)
             except OSError as e:
-                logger = logging.getLogger(self._root_logger_name)
-                logger.warning(
-                    f"Cannot create log directory {file_path.parent}: {e}. "
-                    "File logging disabled."
+                warn_logger = logging.getLogger(self._root_logger_name)
+                warn_logger.warning(
+                    "Cannot create log directory %s: %s. File logging disabled.",
+                    file_path.parent,
+                    e,
                 )
                 file_path = None  # Skip file handler, continue with console-only
             if file_path is not None:
@@ -631,11 +642,13 @@ class MinimalLogger:
                     file_handler = logging.FileHandler(file_path)
                 file_handler._xpcsjax_managed = True  # type: ignore[attr-defined]
                 file_handler.setLevel(_resolve_level(file_level) or root_level)
+                file_fmt = (
+                    DEFAULT_FORMAT_SIMPLE
+                    if file_format == "simple"
+                    else DEFAULT_FORMAT_DETAILED
+                )
                 file_handler.setFormatter(
-                    logging.Formatter(
-                        DEFAULT_FORMAT_DETAILED,
-                        datefmt="%Y-%m-%d %H:%M:%S",
-                    )
+                    logging.Formatter(file_fmt, datefmt="%Y-%m-%d %H:%M:%S")
                 )
                 root_logger.addHandler(file_handler)
 
@@ -683,7 +696,7 @@ class MinimalLogger:
 
         console_enabled = console_cfg.get("enabled", True)
         console_level: str | int | None = (
-            console_cfg.get("level", level) if console_enabled else False
+            console_cfg.get("level", level) if console_enabled else None
         )
         if console_enabled:
             if quiet:
@@ -703,7 +716,7 @@ class MinimalLogger:
             filename = file_cfg.get("filename", "xpcsjax_analysis.log")
             run_suffix = run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
             if "{run_id}" in filename:
-                filename = filename.format(run_id=run_suffix)
+                filename = filename.replace("{run_id}", run_suffix)
             else:
                 stem = Path(filename).stem or "xpcsjax_analysis"
                 suffix = Path(filename).suffix or ".log"
@@ -717,6 +730,7 @@ class MinimalLogger:
             console_colors=bool(console_cfg.get("colors", False)),
             file_path=file_path,
             file_level=file_cfg.get("level", "DEBUG"),
+            file_format=file_cfg.get("format", "detailed"),
             max_size_mb=int(file_cfg.get("max_size_mb", 10)),
             backup_count=int(file_cfg.get("backup_count", 5)),
             module_levels=logging_config.get("modules"),
@@ -864,7 +878,7 @@ def log_phase(
     level: int = logging.INFO,
     track_memory: bool = False,
     threshold_s: float = 0.0,
-) -> Generator[PhaseContext]:
+) -> Generator[PhaseContext, None, None]:
     """Context manager for phase-level timing with optional memory tracking.
 
     Args:
@@ -894,7 +908,7 @@ def log_phase(
 
     # Log phase start (only if no threshold or threshold is 0)
     if threshold_s <= 0:
-        resolved_logger.log(level, f"Phase '{name}' started")
+        resolved_logger.log(level, "Phase '%s' started", name)
 
     start_time = time.perf_counter()
 
@@ -914,10 +928,21 @@ def log_phase(
 
         # Log phase completion if duration exceeds threshold
         if context.duration >= threshold_s:
-            msg_parts = [f"Phase '{name}' completed in {context.duration:.2f}s"]
             if context.memory_peak_gb is not None:
-                msg_parts.append(f"(peak memory: {context.memory_peak_gb:.1f} GB)")
-            resolved_logger.log(level, " ".join(msg_parts))
+                resolved_logger.log(
+                    level,
+                    "Phase '%s' completed in %.2fs (peak memory: %.1f GB)",
+                    name,
+                    context.duration,
+                    context.memory_peak_gb,
+                )
+            else:
+                resolved_logger.log(
+                    level,
+                    "Phase '%s' completed in %.2fs",
+                    name,
+                    context.duration,
+                )
 
 
 def log_exception(
@@ -1012,11 +1037,11 @@ def log_calls(
             assert resolved_logger is not None  # For type narrowing
 
             # Guard: skip all formatting if log level is not enabled
+            func_name = f"{func.__module__}.{func.__qualname__}"
             log_enabled = resolved_logger.isEnabledFor(level)
 
             # Log function entry
             if log_enabled:
-                func_name = f"{func.__module__}.{func.__qualname__}"
                 if include_args:
                     args_str = ", ".join([repr(arg) for arg in args])
                     kwargs_str = ", ".join(
@@ -1042,13 +1067,8 @@ def log_calls(
                 return result
 
             except Exception as e:
-                exc_func_name = (
-                    func_name
-                    if log_enabled
-                    else f"{func.__module__}.{func.__qualname__}"
-                )
                 resolved_logger.log(
-                    logging.ERROR, "Exception in %s: %s", exc_func_name, e
+                    logging.ERROR, "Exception in %s: %s", func_name, e
                 )
                 raise
 
@@ -1089,7 +1109,9 @@ def log_performance(
                 if duration >= threshold:
                     resolved_logger.log(
                         level,
-                        f"Performance: {func_name} completed in {duration:.3f}s",
+                        "Performance: %s completed in %.3fs",
+                        func_name,
+                        duration,
                     )
 
                 return result
@@ -1098,7 +1120,10 @@ def log_performance(
                 duration = time.perf_counter() - start_time
                 resolved_logger.log(
                     logging.ERROR,
-                    f"Performance: {func_name} failed after {duration:.3f}s: {e}",
+                    "Performance: %s failed after %.3fs: %s",
+                    func_name,
+                    duration,
+                    e,
                 )
                 raise
 
@@ -1112,7 +1137,7 @@ def log_operation(
     operation_name: str,
     logger: LoggerType | None = None,
     level: int = logging.INFO,
-) -> Generator[LoggerType]:
+) -> Generator[LoggerType, None, None]:
     """Context manager for logging operations.
 
     Args:
@@ -1122,20 +1147,23 @@ def log_operation(
     """
     resolved_logger = get_logger() if logger is None else logger
 
-    resolved_logger.log(level, f"Starting operation: {operation_name}")
+    resolved_logger.log(level, "Starting operation: %s", operation_name)
     start_time = time.perf_counter()
 
     try:
         yield resolved_logger
         duration = time.perf_counter() - start_time
         resolved_logger.log(
-            level, f"Completed operation: {operation_name} in {duration:.3f}s"
+            level, "Completed operation: %s in %.3fs", operation_name, duration
         )
     except Exception as e:
         duration = time.perf_counter() - start_time
         resolved_logger.log(
             logging.ERROR,
-            f"Failed operation: {operation_name} after {duration:.3f}s: {e}",
+            "Failed operation: %s after %.3fs: %s",
+            operation_name,
+            duration,
+            e,
         )
         raise
 
