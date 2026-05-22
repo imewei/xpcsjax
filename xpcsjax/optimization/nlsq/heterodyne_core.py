@@ -161,6 +161,7 @@ def fit_nlsq_jax(
     use_nlsq_library: bool = True,
     *,
     _skip_global_selection: bool = False,
+    angle_idx: int = 0,
 ) -> NLSQResult:
     """Fit heterodyne model to correlation data using NLSQ.
 
@@ -182,6 +183,7 @@ def fit_nlsq_jax(
         weights: Optional weights (1/sigma²) for weighted least squares.
         use_nlsq_library: Whether to prefer nlsq library over scipy.
         _skip_global_selection: Internal flag — skip CMA-ES / multi-start check.
+        angle_idx: Per-angle scaling index for the fixed contrast/offset values.
 
     Returns:
         NLSQResult with fitted parameters and diagnostics.
@@ -205,6 +207,7 @@ def fit_nlsq_jax(
             config,
             weights,
             use_nlsq_library,
+            angle_idx,
         )
         if global_result is not None:
             return global_result
@@ -212,7 +215,7 @@ def fit_nlsq_jax(
     # ------------------------------------------------------------------
     # Local optimization
     # ------------------------------------------------------------------
-    return _fit_local(model, c2_data, phi_angle, config, weights, use_nlsq_library)
+    return _fit_local(model, c2_data, phi_angle, config, weights, use_nlsq_library, angle_idx)
 
 
 def _aggregate_individual_results(
@@ -222,6 +225,7 @@ def _aggregate_individual_results(
     c2_data: np.ndarray,
     wall_time: float,
     config: NLSQConfig | None = None,
+    weights: np.ndarray | None = None,
 ) -> OptimizationResult:
     """Aggregate sequential per-angle ``NLSQResult``s into one ``OptimizationResult``.
 
@@ -259,9 +263,7 @@ def _aggregate_individual_results(
     """
     n_phi = len(per_angle_results)
     if n_phi == 0:
-        raise ValueError(
-            "_aggregate_individual_results: at least one per-angle result required"
-        )
+        raise ValueError("_aggregate_individual_results: at least one per-angle result required")
 
     n_physics = int(model.param_manager.n_varying)
     varying_names = list(model.param_manager.varying_names)
@@ -280,9 +282,7 @@ def _aggregate_individual_results(
     offset_per_angle = np.asarray(
         [float(model.scaling.offset[i]) for i in range(n_phi)], dtype=np.float64
     )
-    aggregated_params = np.concatenate(
-        [physics_mean, contrast_per_angle, offset_per_angle]
-    )
+    aggregated_params = np.concatenate([physics_mean, contrast_per_angle, offset_per_angle])
 
     # ------------------------------------------------------------------
     # Block-diagonal covariance: mean of per-angle physics blocks; zeros
@@ -305,10 +305,26 @@ def _aggregate_individual_results(
     # ------------------------------------------------------------------
     # SSR + iteration aggregation
     # ------------------------------------------------------------------
-    chi2_per_angle = np.asarray(
-        [float(r.final_cost if r.final_cost is not None else 0.0) for r in per_angle_results],
-        dtype=np.float64,
-    )
+    chi2_values: list[float] = []
+    for i, r in enumerate(per_angle_results):
+        if r.fitted_correlation is not None:
+            residual = np.asarray(r.fitted_correlation, dtype=np.float64) - np.asarray(
+                c2_data[i], dtype=np.float64
+            )
+            if weights is not None:
+                w_i = weights[i] if weights.ndim == 3 else weights
+                residual = residual * np.sqrt(np.asarray(w_i, dtype=np.float64))
+            n_matrix = residual.shape[0]
+            off_diag = ~np.eye(n_matrix, dtype=bool)
+            # OptimizationResult.chi_squared is defined as data residual SSR.
+            chi2_values.append(float(np.sum(residual[off_diag] ** 2)))
+        elif r.final_cost is not None:
+            # NLSQResult.final_cost follows least-squares convention:
+            # final_cost = 0.5 * SSR. Convert back to SSR for result-level chi2.
+            chi2_values.append(2.0 * float(r.final_cost))
+        else:
+            chi2_values.append(0.0)
+    chi2_per_angle = np.asarray(chi2_values, dtype=np.float64)
     ssr = float(chi2_per_angle.sum())
     n_function_evals = int(sum(int(r.n_function_evals or 0) for r in per_angle_results))
     n_iterations_total = int(sum(int(r.n_iterations or 0) for r in per_angle_results))
@@ -338,9 +354,7 @@ def _aggregate_individual_results(
     # ran per angle without keeping the raw NLSQResult list around.
     per_angle_metadata = [dict(r.metadata) for r in per_angle_results]
     per_angle_messages = [str(r.message) for r in per_angle_results]
-    per_angle_success = np.asarray(
-        [bool(r.success) for r in per_angle_results], dtype=bool
-    )
+    per_angle_success = np.asarray([bool(r.success) for r in per_angle_results], dtype=bool)
 
     # L2 hierarchical: no-op for individual mode. Each per-angle fit
     # already runs with scaling held fixed at the model's pre-computed
@@ -563,9 +577,7 @@ def fit_nlsq_multi_phi(
                 fourier = FourierReparameterizer(phi_rad, fourier_config)
                 use_joint = True
             except ImportError:
-                logger.warning(
-                    "fourier_reparam not available, falling back to sequential fits"
-                )
+                logger.warning("fourier_reparam not available, falling back to sequential fits")
 
         # effective_mode == "individual" falls through to sequential per-angle.
 
@@ -611,6 +623,7 @@ def fit_nlsq_multi_phi(
             phi_angle=float(phi),
             config=config,
             weights=weights_i,
+            angle_idx=i,
         )
         result.metadata["phi_angle"] = float(phi)
         per_angle_results.append(result)
@@ -622,6 +635,7 @@ def fit_nlsq_multi_phi(
         c2_data=c2_data,
         wall_time=time.perf_counter() - t_seq_start,
         config=config,
+        weights=weights,
     )
 
 
@@ -783,17 +797,15 @@ def _fit_joint_averaged_multi_phi(
     logger.info("=" * 60)
     logger.info("AUTO AVERAGED SCALING: Computing per-angle scaling from quantiles")
     logger.info("=" * 60)
-    avg_contrast, avg_offset, contrast_per_angle, offset_per_angle = (
-        compute_averaged_scaling(
-            c2_data=np.concatenate(c2_flat),
-            t1=np.concatenate(t1_flat),
-            t2=np.concatenate(t2_flat),
-            phi_indices=np.concatenate(phi_indices),
-            n_phi=n_phi,
-            contrast_bounds=contrast_bounds,
-            offset_bounds=offset_bounds,
-            log=logger,
-        )
+    avg_contrast, avg_offset, contrast_per_angle, offset_per_angle = compute_averaged_scaling(
+        c2_data=np.concatenate(c2_flat),
+        t1=np.concatenate(t1_flat),
+        t2=np.concatenate(t2_flat),
+        phi_indices=np.concatenate(phi_indices),
+        n_phi=n_phi,
+        contrast_bounds=contrast_bounds,
+        offset_bounds=offset_bounds,
+        log=logger,
     )
 
     x0 = np.concatenate([physics_initial, [avg_contrast, avg_offset]])
@@ -863,9 +875,7 @@ def _fit_joint_averaged_multi_phi(
             AdaptiveRegularizer,
         )
 
-        reg_mode_jax: Any = (
-            "relative" if config.regularization_mode == "adaptive" else "absolute"
-        )
+        reg_mode_jax: Any = "relative" if config.regularization_mode == "adaptive" else "absolute"
         reg_config = AdaptiveRegularizationConfig(
             enable=True,
             mode=reg_mode_jax,
@@ -893,13 +903,17 @@ def _fit_joint_averaged_multi_phi(
             # degenerate-CV behaviour for the auto_averaged scaling layout.
             # ``_sqrt_lambda_capture`` is read to keep it in the closure
             # (Pyright unused-variable suppression).
-            penalty_rows = jnp.zeros(
-                _n_penalty_rows_capture, dtype=jnp.float64
-            ) * jnp.float64(_sqrt_lambda_capture)
+            penalty_rows = jnp.zeros(_n_penalty_rows_capture, dtype=jnp.float64) * jnp.float64(
+                _sqrt_lambda_capture
+            )
             return jnp.concatenate([r, penalty_rows])
     else:
         joint_residual_fn = base_residual_fn  # type: ignore[assignment]
 
+    # max_nfev is multiplied by n_phi here because the joint solve packs
+    # all angles into a single residual vector; the per-angle budget
+    # documented on NLSQConfig.max_nfev is preserved by scaling the
+    # combined cap. See NLSQConfig.max_nfev docstring for the contract.
     joint_config = NLSQConfig(
         method=config.method if config.method != "lm" else "trf",
         ftol=config.ftol,
@@ -925,9 +939,7 @@ def _fit_joint_averaged_multi_phi(
                 config=joint_config,
             )
             if not joint_result.success:
-                raise RuntimeError(
-                    f"Joint adapter returned success=False: {joint_result.message}"
-                )
+                raise RuntimeError(f"Joint adapter returned success=False: {joint_result.message}")
         except (ValueError, RuntimeError, TypeError) as adapter_exc:
             logger.warning(
                 "Joint auto averaged NLSQAdapter failed, falling back to NLSQWrapper: %s",
@@ -945,9 +957,7 @@ def _fit_joint_averaged_multi_phi(
         )
 
     if joint_result is None:
-        raise ImportError(
-            "No NLSQ backend available for joint auto averaged multi-angle fit."
-        )
+        raise ImportError("No NLSQ backend available for joint auto averaged multi-angle fit.")
 
     fitted_all = np.asarray(joint_result.parameters, dtype=np.float64)
     fitted_physics = fitted_all[:n_physics_varying]
@@ -1040,8 +1050,7 @@ def _fit_joint_averaged_multi_phi(
     hierarchical_extras: dict[str, Any] = {}
     if config.enable_hierarchical and hierarchical_stage1_chi2 is not None:
         logger.info(
-            "L2 hierarchical (averaged mode) — Stage 2 done: chi2=%.6f "
-            "(stage1=%.6f)",
+            "L2 hierarchical (averaged mode) — Stage 2 done: chi2=%.6f (stage1=%.6f)",
             ssr,
             hierarchical_stage1_chi2,
         )
@@ -1116,11 +1125,7 @@ def _fit_joint_averaged_multi_phi(
                 _sv = np.linalg.svd(_cov_for_cond, compute_uv=False)
                 _sv = np.where(_sv > 0, _sv, np.finfo(np.float64).tiny)
                 _cov_condition = float(_sv[0] / _sv[-1])
-                max_gradient_ratio = (
-                    _cov_condition
-                    if np.isfinite(_cov_condition)
-                    else float("inf")
-                )
+                max_gradient_ratio = _cov_condition if np.isfinite(_cov_condition) else float("inf")
             except (np.linalg.LinAlgError, ValueError):
                 max_gradient_ratio = float("inf")
         else:
@@ -1146,9 +1151,7 @@ def _fit_joint_averaged_multi_phi(
                 "trigger_count": int(_collapse),
                 "scope": "post_solve_covariance_conditioning",
                 "ratio_threshold_configured": float(config.gradient_ratio_threshold),
-                "consecutive_triggers_configured": int(
-                    config.gradient_consecutive_triggers
-                ),
+                "consecutive_triggers_configured": int(config.gradient_consecutive_triggers),
                 "threshold_used": _threshold,
                 "computation_method": "covariance_singular_value_ratio",
             }
@@ -1489,9 +1492,7 @@ def _fit_joint_multi_phi(
             AdaptiveRegularizer,
         )
 
-        reg_mode_jax: Any = (
-            "relative" if config.regularization_mode == "adaptive" else "absolute"
-        )
+        reg_mode_jax: Any = "relative" if config.regularization_mode == "adaptive" else "absolute"
         reg_config = AdaptiveRegularizationConfig(
             enable=True,
             mode=reg_mode_jax,
@@ -1513,14 +1514,21 @@ def _fit_joint_multi_phi(
         # Fourier coefficients (contrasts_jax, offsets_jax), bypassing the
         # raw group_indices which assume a different layout.
         sqrt_lambda = float(np.sqrt(float(regularizer.lambda_value)))
+        # Precompute the Fourier basis as a JAX array so the closure below is
+        # JIT-traceable: fourier.fourier_to_per_angle calls np.asarray() which
+        # raises TracerArrayConversionError when called on a traced value inside
+        # NLSQAdapter's JIT-compiled residual path.
+        _fourier_basis_jax = jnp.asarray(fourier._basis_matrix, dtype=jnp.float64)
+        _fourier_n_half = fourier.n_coeffs_per_param
 
         def joint_residual_fn(x: np.ndarray) -> Any:  # type: ignore[return-value]
             r = base_residual_fn(x)
-            # Derive per-angle contrast / offset arrays from Fourier coeffs
-            fourier_coeffs = x[n_physics_varying:]
-            contrast_arr, offset_arr = fourier.fourier_to_per_angle(fourier_coeffs)
-            contrasts = jnp.asarray(contrast_arr, dtype=jnp.float64)
-            offsets = jnp.asarray(offset_arr, dtype=jnp.float64)
+            # Derive per-angle contrast / offset via JAX matmul (JIT-safe).
+            # fourier.fourier_to_per_angle is NOT called here because it calls
+            # np.asarray() internally, which crashes inside a JIT-traced closure.
+            fourier_coeffs_jax = jnp.asarray(x[n_physics_varying:], dtype=jnp.float64)
+            contrasts = _fourier_basis_jax @ fourier_coeffs_jax[:_fourier_n_half]
+            offsets = _fourier_basis_jax @ fourier_coeffs_jax[_fourier_n_half:]
             # CV = std / |mean| (safe divide)
             c_mean = jnp.mean(contrasts)
             c_cv = jnp.where(
@@ -1534,14 +1542,16 @@ def _fit_joint_multi_phi(
                 jnp.std(offsets) / jnp.abs(o_mean),
                 jnp.std(offsets),
             )
-            penalty_rows = jnp.array(
-                [sqrt_lambda * c_cv, sqrt_lambda * o_cv], dtype=jnp.float64
-            )
+            penalty_rows = jnp.array([sqrt_lambda * c_cv, sqrt_lambda * o_cv], dtype=jnp.float64)
             return jnp.concatenate([r, penalty_rows])
     else:
         joint_residual_fn = base_residual_fn  # type: ignore[assignment]
 
-    # Run optimization via NLSQAdapter (primary) with NLSQWrapper fallback
+    # Run optimization via NLSQAdapter (primary) with NLSQWrapper fallback.
+    # max_nfev is multiplied by n_phi here because the Fourier joint solve
+    # packs all angles into a single residual vector; the per-angle budget
+    # documented on NLSQConfig.max_nfev is preserved by scaling the
+    # combined cap. See NLSQConfig.max_nfev docstring for the contract.
     joint_config = NLSQConfig(
         method=config.method if config.method != "lm" else "trf",
         ftol=config.ftol,
@@ -1551,9 +1561,7 @@ def _fit_joint_multi_phi(
     )
 
     joint_result: NLSQResult | None = None
-    joint_param_names = list(varying_names) + [
-        f"fourier_{i}" for i in range(len(fourier_initial))
-    ]
+    joint_param_names = list(varying_names) + [f"fourier_{i}" for i in range(len(fourier_initial))]
 
     if NLSQAdapter is not None:  # ``HAS_ADAPTERS`` equivalent; narrows for Pyright
         try:
@@ -1565,13 +1573,9 @@ def _fit_joint_multi_phi(
                 config=joint_config,
             )
             if not joint_result.success:
-                raise RuntimeError(
-                    f"Joint adapter returned success=False: {joint_result.message}"
-                )
+                raise RuntimeError(f"Joint adapter returned success=False: {joint_result.message}")
         except (ValueError, RuntimeError, TypeError) as adapter_exc:
-            logger.warning(
-                "Joint NLSQAdapter failed, falling back to NLSQWrapper: %s", adapter_exc
-            )
+            logger.warning("Joint NLSQAdapter failed, falling back to NLSQWrapper: %s", adapter_exc)
             joint_result = None
 
     if joint_result is None and NLSQWrapper is not None:
@@ -1693,8 +1697,7 @@ def _fit_joint_multi_phi(
     hierarchical_extras: dict[str, Any] = {}
     if config.enable_hierarchical and hierarchical_stage1_chi2 is not None:
         logger.info(
-            "L2 hierarchical (fourier mode) — Stage 2 done: chi2=%.6f "
-            "(stage1=%.6f)",
+            "L2 hierarchical (fourier mode) — Stage 2 done: chi2=%.6f (stage1=%.6f)",
             ssr,
             hierarchical_stage1_chi2,
         )
@@ -1771,11 +1774,7 @@ def _fit_joint_multi_phi(
                 _sv = np.linalg.svd(_cov_for_cond, compute_uv=False)
                 _sv = np.where(_sv > 0, _sv, np.finfo(np.float64).tiny)
                 _cov_condition = float(_sv[0] / _sv[-1])
-                max_gradient_ratio = (
-                    _cov_condition
-                    if np.isfinite(_cov_condition)
-                    else float("inf")
-                )
+                max_gradient_ratio = _cov_condition if np.isfinite(_cov_condition) else float("inf")
             except (np.linalg.LinAlgError, ValueError):
                 max_gradient_ratio = float("inf")
         else:
@@ -1801,9 +1800,7 @@ def _fit_joint_multi_phi(
                 "trigger_count": int(_collapse),
                 "scope": "post_solve_covariance_conditioning",
                 "ratio_threshold_configured": float(config.gradient_ratio_threshold),
-                "consecutive_triggers_configured": int(
-                    config.gradient_consecutive_triggers
-                ),
+                "consecutive_triggers_configured": int(config.gradient_consecutive_triggers),
                 "threshold_used": _threshold,
                 "computation_method": "covariance_singular_value_ratio",
             }
@@ -1874,6 +1871,7 @@ def _try_global_optimization(
     config: NLSQConfig,
     weights: np.ndarray | jnp.ndarray | None,
     use_nlsq_library: bool,
+    angle_idx: int = 0,
 ) -> NLSQResult | None:
     """Attempt CMA-ES or multi-start if configured.
 
@@ -1901,7 +1899,7 @@ def _try_global_optimization(
     if getattr(config, "enable_cmaes", False):
         if HAS_CMAES:
             logger.info("CMA-ES enabled, delegating to fit_with_cmaes")
-            return _fit_cmaes(model, c2_data, phi_angle, config, weights)
+            return _fit_cmaes(model, c2_data, phi_angle, config, weights, angle_idx)
         logger.warning(
             "CMA-ES enabled in config but not available (cma not installed). "
             "Install with: uv add cma. Falling back."
@@ -1936,6 +1934,7 @@ def _fit_cmaes(
     phi_angle: float,
     config: NLSQConfig,
     weights: np.ndarray | jnp.ndarray | None,
+    angle_idx: int = 0,
 ) -> NLSQResult:
     """Run CMA-ES global optimization with NLSQ warm-start and two-phase comparison.
 
@@ -1965,11 +1964,9 @@ def _fit_cmaes(
     initial_varying = np.clip(initial_varying, lower_bounds, upper_bounds)
 
     c2_jax = jnp.asarray(c2_data, dtype=jnp.float64)
-    weights_jax = (
-        jnp.asarray(weights, dtype=jnp.float64) if weights is not None else None
-    )
+    weights_jax = jnp.asarray(weights, dtype=jnp.float64) if weights is not None else None
     t, q, dt = model.t, model.q, model.dt
-    contrast_val, offset_val = model.scaling.get_for_angle(0)
+    contrast_val, offset_val = model.scaling.get_for_angle(angle_idx)
 
     # ------------------------------------------------------------------
     # Phase 1: NLSQ warm-start
@@ -1986,6 +1983,7 @@ def _fit_cmaes(
             config,
             weights,
             use_nlsq_library=config.use_nlsq_library,
+            angle_idx=angle_idx,
         )
         if nlsq_result.success:
             cmaes_x0 = nlsq_result.parameters.copy()
@@ -2023,19 +2021,13 @@ def _fit_cmaes(
     # tracer values raises ``ValueError: setting an array element with a
     # sequence``. Use pure-JAX scatter (``.at[].set()``) instead so the
     # closure JIT-traces cleanly.
-    full_template_jax = jnp.asarray(
-        param_manager.get_full_values(), dtype=jnp.float64
-    )
-    varying_indices_jax = jnp.asarray(
-        list(param_manager.varying_indices), dtype=jnp.int32
-    )
+    full_template_jax = jnp.asarray(param_manager.get_full_values(), dtype=jnp.float64)
+    varying_indices_jax = jnp.asarray(list(param_manager.varying_indices), dtype=jnp.int32)
 
     def model_func(_: np.ndarray, *varying_params: Any) -> Any:
         varying_jax = jnp.stack(varying_params).astype(jnp.float64)
         full_jax = full_template_jax.at[varying_indices_jax].set(varying_jax)
-        c2_pred = compute_c2_heterodyne(
-            full_jax, t, q, dt, phi_angle, contrast_val, offset_val
-        )
+        c2_pred = compute_c2_heterodyne(full_jax, t, q, dt, phi_angle, contrast_val, offset_val)
         return c2_pred.flatten()
 
     ydata = np.asarray(c2_jax).flatten().astype(np.float64)
@@ -2088,11 +2080,32 @@ def _fit_cmaes(
         if (nlsq_result and nlsq_result.success and nlsq_result.final_cost is not None)
         else float("inf")
     )
-    cmaes_cost = (
-        0.5 * float(cmaes_result.chi_squared)
-        if (cmaes_result.success and cmaes_result.chi_squared is not None)
-        else float("inf")
-    )
+    # Recompute CMA-ES cost using off-diagonal residuals so the comparison
+    # is on the same footing as nlsq_cost (= 0.5 * off-diagonal SSR).
+    # cmaes_result.chi_squared uses the full NxN matrix fed to fit_with_cmaes
+    # (including diagonal), which inflates the cost relative to NLSQ and
+    # would always make CMA-ES appear worse, defeating Phase 3's purpose.
+    if cmaes_result.success and cmaes_result.parameters is not None:
+        try:
+            _cmaes_full = param_manager.expand_varying_to_full(
+                np.asarray(cmaes_result.parameters, dtype=np.float64)
+            )
+            _off_diag_res = compute_residuals(
+                jnp.asarray(_cmaes_full, dtype=jnp.float64),
+                t,
+                q,
+                dt,
+                phi_angle,
+                c2_jax,
+                weights_jax,
+                contrast_val,
+                offset_val,
+            )
+            cmaes_cost = 0.5 * float(jnp.sum(_off_diag_res**2))
+        except Exception:
+            cmaes_cost = float("inf")
+    else:
+        cmaes_cost = float("inf")
 
     if nlsq_cost <= cmaes_cost and nlsq_result is not None and nlsq_result.success:
         result = nlsq_result
@@ -2250,6 +2263,7 @@ def _fit_local(
     config: NLSQConfig,
     weights: np.ndarray | jnp.ndarray | None,
     use_nlsq_library: bool,
+    angle_idx: int = 0,
 ) -> NLSQResult:
     """Run local (single-start) optimization with adapter/wrapper fallback.
 
@@ -2285,9 +2299,7 @@ def _fit_local(
 
     # Convert data to JAX arrays
     c2_jax = jnp.asarray(c2_data, dtype=jnp.float64)
-    weights_jax = (
-        jnp.asarray(weights, dtype=jnp.float64) if weights is not None else None
-    )
+    weights_jax = jnp.asarray(weights, dtype=jnp.float64) if weights is not None else None
 
     if weights_jax is not None and weights_jax.shape != c2_jax.shape:
         raise ValueError(
@@ -2301,7 +2313,7 @@ def _fit_local(
     t, q, dt = model.t, model.q, model.dt
 
     # Per-angle scaling — fixed during local optimization (constant mode parity)
-    contrast_val, offset_val = model.scaling.get_for_angle(0)
+    contrast_val, offset_val = model.scaling.get_for_angle(angle_idx)
 
     # Build residual functions
     def jax_residual_fn(_x: jnp.ndarray, *varying_params: float) -> jnp.ndarray:
@@ -2456,8 +2468,7 @@ def _fit_local(
             result.reduced_chi_squared = chi2_corrected
         else:
             logger.warning(
-                "chi2 noise estimate near-zero (σ²=%.2e); "
-                "reporting uncorrected MSE chi2",
+                "chi2 noise estimate near-zero (σ²=%.2e); reporting uncorrected MSE chi2",
                 sigma2_noise,
             )
 
@@ -2491,9 +2502,7 @@ def _make_numpy_residual_fn(
     """
     param_manager = model.param_manager
     c2_jax = jnp.asarray(c2_data, dtype=jnp.float64)
-    weights_jax = (
-        jnp.asarray(weights, dtype=jnp.float64) if weights is not None else None
-    )
+    weights_jax = jnp.asarray(weights, dtype=jnp.float64) if weights is not None else None
     t, q, dt = model.t, model.q, model.dt
 
     # Pre-capture as JAX device arrays — allocated once, reused every call.

@@ -19,6 +19,7 @@ The function returned by this module returns an
 result type — *not* the heterodyne ``NLSQResult`` produced elsewhere), per the
 Phase 6 Sub-PR B contract.
 """
+
 from __future__ import annotations
 
 import time
@@ -123,9 +124,7 @@ def _fit_joint_constant_multi_phi(
     varying_names = list(param_manager.varying_names)
     n_physics = int(param_manager.n_varying)
 
-    physics_initial = np.asarray(
-        param_manager.get_initial_values(), dtype=np.float64
-    )
+    physics_initial = np.asarray(param_manager.get_initial_values(), dtype=np.float64)
     physics_lower, physics_upper = param_manager.get_bounds()
     physics_lower = np.asarray(physics_lower, dtype=np.float64)
     physics_upper = np.asarray(physics_upper, dtype=np.float64)
@@ -160,9 +159,9 @@ def _fit_joint_constant_multi_phi(
     contrast_fixed = np.clip(
         contrast_fixed, contrast_info.min_bound, contrast_info.max_bound
     ).astype(np.float64)
-    offset_fixed = np.clip(
-        offset_fixed, offset_info.min_bound, offset_info.max_bound
-    ).astype(np.float64)
+    offset_fixed = np.clip(offset_fixed, offset_info.min_bound, offset_info.max_bound).astype(
+        np.float64
+    )
     logger.info(
         "Frozen per-angle scaling: contrast=%s, offset=%s",
         np.array2string(contrast_fixed, precision=4),
@@ -187,12 +186,8 @@ def _fit_joint_constant_multi_phi(
     phi_angles_jax = jnp.asarray(phi_angles_np, dtype=jnp.float64)
     contrast_jax = jnp.asarray(contrast_fixed, dtype=jnp.float64)
     offset_jax = jnp.asarray(offset_fixed, dtype=jnp.float64)
-    fixed_values_jax = jnp.asarray(
-        param_manager.get_full_values(), dtype=jnp.float64
-    )
-    varying_indices_jax = jnp.array(
-        list(param_manager.varying_indices), dtype=jnp.int32
-    )
+    fixed_values_jax = jnp.asarray(param_manager.get_full_values(), dtype=jnp.float64)
+    varying_indices_jax = jnp.array(list(param_manager.varying_indices), dtype=jnp.int32)
 
     # Physics-only residual; scaling enters by closure (frozen).
     #
@@ -218,6 +213,10 @@ def _fit_joint_constant_multi_phi(
 
     # ------------------------------------------------------------------
     # 4. Build a solver config compatible with the NLSQ adapter.
+    # max_nfev is multiplied by n_phi here because the joint solve packs
+    # all angles into a single residual vector; the per-angle budget
+    # documented on NLSQConfig.max_nfev is preserved by scaling the
+    # combined cap. See NLSQConfig.max_nfev docstring for the contract.
     # ------------------------------------------------------------------
     joint_config = NLSQConfig(
         method=config.method if config.method != "lm" else "trf",
@@ -245,8 +244,7 @@ def _fit_joint_constant_multi_phi(
             )
             if not nlsq_result.success:
                 raise RuntimeError(
-                    f"Constant-mode adapter returned success=False: "
-                    f"{nlsq_result.message}"
+                    f"Constant-mode adapter returned success=False: {nlsq_result.message}"
                 )
         except (ValueError, RuntimeError, TypeError) as adapter_exc:
             logger.warning(
@@ -265,9 +263,7 @@ def _fit_joint_constant_multi_phi(
         )
 
     if nlsq_result is None:  # pragma: no cover — guarded at function entry
-        raise ImportError(
-            "No NLSQ backend produced a result for _fit_joint_constant_multi_phi."
-        )
+        raise ImportError("No NLSQ backend produced a result for _fit_joint_constant_multi_phi.")
 
     # ------------------------------------------------------------------
     # 6. Update model state with fitted physics + frozen scaling.

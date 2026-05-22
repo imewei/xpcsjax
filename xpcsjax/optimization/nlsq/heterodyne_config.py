@@ -77,12 +77,8 @@ def safe_int(value: Any, default: int) -> int:
 # ---------------------------------------------------------------------------
 
 _VALID_WORKFLOWS: frozenset[str] = frozenset({"auto", "auto_global", "hpc"})
-_VALID_GOALS: frozenset[str] = frozenset(
-    {"fast", "robust", "quality", "memory_efficient"}
-)
-_VALID_ANALYSIS_MODES: frozenset[str] = frozenset(
-    {"static_ref", "static_both", "two_component"}
-)
+_VALID_GOALS: frozenset[str] = frozenset({"fast", "robust", "quality", "memory_efficient"})
+_VALID_ANALYSIS_MODES: frozenset[str] = frozenset({"static_ref", "static_both", "two_component"})
 _VALID_NLSQ_STABILITY: frozenset[str] = frozenset({"auto", "check", "off"})
 
 
@@ -208,7 +204,21 @@ class NLSQConfig:
         loss: Robust loss function kernel.
         diff_step: Finite-difference step size.  ``None`` selects the
             solver default.
-        max_nfev: Hard cap on function evaluations.  ``None`` is unlimited.
+        max_nfev: Per-angle cap on function evaluations passed to the
+            underlying solver.  ``None`` is unlimited.
+
+            .. important::
+               For the multi-angle joint-fit paths
+               (``_fit_joint_constant_multi_phi`` in
+               ``heterodyne_constant_mode.py``, ``_fit_joint_averaged_multi_phi``
+               and ``_fit_joint_multi_phi`` in ``heterodyne_core.py``) the
+               effective solver budget is ``max_nfev * n_phi`` — those paths
+               run a single combined least-squares problem whose residual
+               vector concatenates all angles, so the per-call cap is scaled
+               by ``n_phi`` to give each angle the same iteration budget it
+               would have under independent fits.  Single-angle paths
+               (``_fit_local``, ``_fit_multistart``) pass ``max_nfev``
+               through unchanged.
         chunk_size: Number of q-points per processing chunk.  ``None`` means
             auto-select based on available memory.
 
@@ -326,9 +336,7 @@ class NLSQConfig:
     # Fourier reparameterization for per-angle scaling
     # ------------------------------------------------------------------
 
-    per_angle_mode: Literal[
-        "individual", "fourier", "auto", "constant", "independent"
-    ] = "auto"
+    per_angle_mode: Literal["individual", "fourier", "auto", "constant", "independent"] = "auto"
     fourier_order: int = 2
     fourier_auto_threshold: int = 6
 
@@ -487,6 +495,12 @@ class NLSQConfig:
             raise ValueError("screen_keep_fraction must be in (0, 1]")
         if self.refine_top_k < 1:
             raise ValueError("refine_top_k must be >= 1")
+        if self.constant_scaling_threshold >= self.fourier_auto_threshold:
+            raise ValueError(
+                f"constant_scaling_threshold ({self.constant_scaling_threshold}) must be "
+                f"< fourier_auto_threshold ({self.fourier_auto_threshold}): "
+                f"the auto-dispatch 'averaged' range would be empty or inverted"
+            )
 
     # ------------------------------------------------------------------
     # Validation
@@ -510,18 +524,13 @@ class NLSQConfig:
             )
 
         if self.goal not in _VALID_GOALS:
-            errors.append(
-                f"goal={self.goal!r} is not valid; "
-                f"must be one of {sorted(_VALID_GOALS)}"
-            )
+            errors.append(f"goal={self.goal!r} is not valid; must be one of {sorted(_VALID_GOALS)}")
 
         if self.tolerance <= 0:
             errors.append(f"tolerance={self.tolerance} must be > 0")
 
         if self.streaming_chunk_size <= 0:
-            errors.append(
-                f"streaming_chunk_size={self.streaming_chunk_size} must be > 0"
-            )
+            errors.append(f"streaming_chunk_size={self.streaming_chunk_size} must be > 0")
 
         if self.analysis_mode not in _VALID_ANALYSIS_MODES:
             errors.append(
@@ -549,8 +558,12 @@ class NLSQConfig:
         if self.fourier_order < 1:
             errors.append(f"fourier_order={self.fourier_order} must be >= 1")
         if self.fourier_auto_threshold < 1:
+            errors.append(f"fourier_auto_threshold={self.fourier_auto_threshold} must be >= 1")
+        if self.constant_scaling_threshold >= self.fourier_auto_threshold:
             errors.append(
-                f"fourier_auto_threshold={self.fourier_auto_threshold} must be >= 1"
+                f"constant_scaling_threshold={self.constant_scaling_threshold} must be "
+                f"< fourier_auto_threshold={self.fourier_auto_threshold}: "
+                f"the auto-dispatch 'averaged' range would be empty or inverted"
             )
 
         valid_regularization_modes = ("none", "tikhonov", "adaptive")
@@ -581,13 +594,25 @@ class NLSQConfig:
             )
 
         if not (0 < self.nlsq_memory_fraction <= 1):
-            errors.append(
-                f"nlsq_memory_fraction={self.nlsq_memory_fraction} must be in (0, 1]"
-            )
+            errors.append(f"nlsq_memory_fraction={self.nlsq_memory_fraction} must be in (0, 1]")
 
         if self.nlsq_memory_fallback_gb <= 0:
+            errors.append(f"nlsq_memory_fallback_gb={self.nlsq_memory_fallback_gb} must be > 0")
+
+        # Fields validated in __post_init__ that may be mutated after construction
+        if self.max_iterations < 1:
+            errors.append(f"max_iterations={self.max_iterations} must be >= 1")
+        if self.multistart_n < 1:
+            errors.append(f"multistart_n={self.multistart_n} must be >= 1")
+        if self.max_recovery_attempts < 0:
+            errors.append(f"max_recovery_attempts={self.max_recovery_attempts} must be >= 0")
+        if self.loss_scale <= 0:
+            errors.append(f"loss_scale={self.loss_scale} must be > 0")
+        if self.cmaes_sigma0 <= 0:
+            errors.append(f"cmaes_sigma0={self.cmaes_sigma0} must be > 0")
+        if self.gradient_consecutive_triggers < 1:
             errors.append(
-                f"nlsq_memory_fallback_gb={self.nlsq_memory_fallback_gb} must be > 0"
+                f"gradient_consecutive_triggers={self.gradient_consecutive_triggers} must be >= 1"
             )
 
         # Advisory warnings — not errors, but worth surfacing at validate() time
@@ -747,9 +772,7 @@ class NLSQConfig:
 
             hierarchical = raw_anti_degeneracy.get("hierarchical")
             if isinstance(hierarchical, dict):
-                _set_from_nested(
-                    "enable_hierarchical", hierarchical.get("enable", _SENTINEL)
-                )
+                _set_from_nested("enable_hierarchical", hierarchical.get("enable", _SENTINEL))
                 _set_from_nested(
                     "hierarchical_max_outer_iterations",
                     hierarchical.get("max_outer_iterations", _SENTINEL),
@@ -771,12 +794,8 @@ class NLSQConfig:
 
             regularization = raw_anti_degeneracy.get("regularization")
             if isinstance(regularization, dict):
-                _set_from_nested(
-                    "regularization_mode", regularization.get("mode", _SENTINEL)
-                )
-                _set_from_nested(
-                    "group_variance_lambda", regularization.get("lambda", _SENTINEL)
-                )
+                _set_from_nested("regularization_mode", regularization.get("mode", _SENTINEL))
+                _set_from_nested("group_variance_lambda", regularization.get("lambda", _SENTINEL))
                 _set_from_nested(
                     "regularization_target_cv",
                     regularization.get("target_cv", _SENTINEL),
@@ -810,8 +829,7 @@ class NLSQConfig:
                 )
         elif raw_anti_degeneracy is not None:
             logger.warning(
-                "NLSQConfig.from_dict: 'anti_degeneracy' must be a dict, got %r — "
-                "ignoring",
+                "NLSQConfig.from_dict: 'anti_degeneracy' must be a dict, got %r — ignoring",
                 type(raw_anti_degeneracy).__name__,
             )
 
@@ -833,9 +851,7 @@ class NLSQConfig:
                 "cmaes_population_size",
                 raw_cmaes.get("popsize", raw_cmaes.get("population_size", _SENTINEL)),
             )
-            _set_from_nested(
-                "cmaes_tolx", raw_cmaes.get("tol_x", raw_cmaes.get("tolx", _SENTINEL))
-            )
+            _set_from_nested("cmaes_tolx", raw_cmaes.get("tol_x", raw_cmaes.get("tolx", _SENTINEL)))
             _set_from_nested(
                 "cmaes_tolfun",
                 raw_cmaes.get("tol_fun", raw_cmaes.get("tolfun", _SENTINEL)),
@@ -874,9 +890,7 @@ class NLSQConfig:
         all_known = set(known_scalar_fields) | nested_keys
         for key in normalized_config:
             if key not in all_known:
-                logger.warning(
-                    "NLSQConfig.from_dict: unrecognised key %r — ignoring", key
-                )
+                logger.warning("NLSQConfig.from_dict: unrecognised key %r — ignoring", key)
 
         kwargs: dict[str, Any] = {}
 
@@ -907,9 +921,7 @@ class NLSQConfig:
         # --- Parse x_scale_map -------------------------------------------
         raw_scale_map = normalized_config.get("x_scale_map")
         if isinstance(raw_scale_map, dict):
-            kwargs["x_scale_map"] = {
-                str(k): safe_float(v, 1.0) for k, v in raw_scale_map.items()
-            }
+            kwargs["x_scale_map"] = {str(k): safe_float(v, 1.0) for k, v in raw_scale_map.items()}
         elif raw_scale_map is not None:
             logger.warning(
                 "NLSQConfig.from_dict: x_scale_map must be a dict, got %r — ignoring",
@@ -923,9 +935,7 @@ class NLSQConfig:
                 max_retries=safe_int(
                     raw_recovery.get("max_retries"), HybridRecoveryConfig.max_retries
                 ),
-                lr_decay=safe_float(
-                    raw_recovery.get("lr_decay"), HybridRecoveryConfig.lr_decay
-                ),
+                lr_decay=safe_float(raw_recovery.get("lr_decay"), HybridRecoveryConfig.lr_decay),
                 lambda_growth=safe_float(
                     raw_recovery.get("lambda_growth"),
                     HybridRecoveryConfig.lambda_growth,
