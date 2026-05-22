@@ -47,9 +47,6 @@ try:
         optimize_per_angle_sequential,
         should_use_stratification,
     )
-    # NOTE: DatasetSizeStrategy, OptimizationStrategy, estimate_memory_requirements
-    # removed from public API in v2.12.0. Use NLSQ's WorkflowSelector instead.
-
     NLSQ_AVAILABLE = True
 except ImportError as e:
     _logger.warning("Could not import NLSQ optimization: %s", e)
@@ -97,8 +94,6 @@ __all__ = [
     "StratifiedResidualFunctionJIT",
     "create_stratified_residual_function",
     "optimize_per_angle_sequential",
-    # NOTE: DatasetSizeStrategy, OptimizationStrategy, estimate_memory_requirements
-    # removed from public API in v2.12.0. Use NLSQ's WorkflowSelector instead.
     # Status information
     "OPTIMIZATION_STATUS",
     "NLSQ_AVAILABLE",

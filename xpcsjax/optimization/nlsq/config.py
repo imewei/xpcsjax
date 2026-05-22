@@ -1216,7 +1216,6 @@ class NLSQConfig:
         NLSQ 0.6.3+ Changes:
         - Simplified to 3 workflows: "auto", "auto_global", "hpc"
         - Old presets ("streaming", "standard") were removed
-        - WorkflowSelector was removed; use MemoryBudgetSelector instead
         - Homodyne uses its own select_nlsq_strategy() for memory selection
 
         The 'goal' parameter can be passed to NLSQ's fit() API but homodyne

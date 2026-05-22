@@ -6,9 +6,6 @@ This subpackage contains strategy implementations for NLSQ optimization:
 - residual_jit.py: JIT-compiled version of stratified residual
 - sequential.py: Sequential per-angle optimization
 - executors.py: Strategy pattern executors for optimization algorithms
-
-NOTE: selection.py (DatasetSizeStrategy, OptimizationStrategy, estimate_memory_requirements)
-removed in v2.12.0. Use NLSQ's WorkflowSelector instead.
 """
 
 from xpcsjax.optimization.nlsq.strategies.chunking import (
@@ -65,6 +62,4 @@ __all__ = [
     "LargeDatasetExecutor",
     "StreamingExecutor",
     "get_executor",
-    # NOTE: DatasetSizeStrategy, OptimizationStrategy, estimate_memory_requirements
-    # removed in v2.12.0. Use NLSQ's WorkflowSelector instead.
 ]
