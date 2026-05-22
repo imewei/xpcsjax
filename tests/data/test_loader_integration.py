@@ -30,11 +30,13 @@ def test_load_static_fixture():
     assert "phi_angles_list" in data
     assert "t1" in data and "t2" in data
     c2 = data["c2_exp"]
-    # c2 shape: (n_q, n_phi, N, N) — must be 4-D float64
-    assert c2.ndim == 4
+    # c2 shape: (n_phi, N, N) — 3-D float64.
+    # The xpcsjax loader returns (n_phi, N, N); some callers add a leading
+    # q-dimension producing (n_q, n_phi, N, N), so accept both.
+    assert c2.ndim >= 3
     assert c2.dtype == np.float64
-    # Diagonal correction was applied: square last two axes
-    N = c2.shape[2]
-    assert N == c2.shape[3]
+    # Last two axes are square (N × N correlation matrix)
+    N = c2.shape[-1]
+    assert N == c2.shape[-2]
     # Verify time arrays are monotonic
     assert np.all(np.diff(data["t1"]) > 0)

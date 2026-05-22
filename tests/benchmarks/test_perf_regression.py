@@ -20,10 +20,6 @@ closes that gap with three ``pytest-benchmark`` micro-benchmarks:
    Catches regressions in JIT warmup, model_func tracing, and NLSQAdapter
    dispatch.
 
-Gating:
-    Set ``XPCSJAX_RUN_BENCHMARKS=1`` to run. Skipped by default — these are
-    release-gate timing checks, not part of the dev smoke flow.
-
 Output:
     Pytest-benchmark writes per-run JSON to ``.benchmarks/``. Use::
 
@@ -39,19 +35,9 @@ Output:
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import numpy as np
-import pytest
-
-_BENCH_GATE = os.environ.get("XPCSJAX_RUN_BENCHMARKS") == "1"
-_SKIP_REASON = (
-    "Performance regression suite is opt-in; set XPCSJAX_RUN_BENCHMARKS=1. "
-    "These benchmarks should not run on every dev smoke pass."
-)
-
-pytestmark = pytest.mark.skipif(not _BENCH_GATE, reason=_SKIP_REASON)
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +134,7 @@ def test_perf_heterodyne_per_angle_local_fit(benchmark, tmp_path: Path) -> None:
     from xpcsjax.config import ConfigManager
     from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
     from xpcsjax.optimization.nlsq import fit_nlsq
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
 
     cfg_path = tmp_path / "perf_smoke.yaml"
     cfg_path.write_text(yaml.safe_dump(_het_smoke_config_dict()))
@@ -159,7 +146,8 @@ def test_perf_heterodyne_per_angle_local_fit(benchmark, tmp_path: Path) -> None:
     data = {"c2": c2[np.newaxis, :, :], "phi": np.array([_HET_PHI])}
 
     # pytest-benchmark calls the fn under timing; assertions go after.
-    results = benchmark(fit_nlsq, data, cfg)
-    assert isinstance(results, list)
-    assert len(results) == 1
-    assert np.all(np.isfinite(np.asarray(results[0].parameters, dtype=np.float64)))
+    # fit_nlsq returns a single OptimizationResult (not a list) — per-angle
+    # data lives in result.nlsq_diagnostics for all dispatch modes.
+    result = benchmark(fit_nlsq, data, cfg)
+    assert isinstance(result, OptimizationResult), f"expected OptimizationResult, got {type(result)}"
+    assert np.all(np.isfinite(np.asarray(result.parameters, dtype=np.float64)))

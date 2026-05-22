@@ -2514,7 +2514,10 @@ def _make_numpy_residual_fn(
     def residual_fn(varying_params: np.ndarray) -> np.ndarray:
         varying_jax = jnp.asarray(varying_params, dtype=jnp.float64)
         full_params = fixed_values.at[varying_indices].set(varying_jax)
-        residuals = compute_residuals(
+        # Return JAX array directly — np.asarray() on the result here would
+        # trigger TracerArrayConversionError when NLSQWrapper's @jit traces
+        # this function with traced parameter scalars.
+        return compute_residuals(  # type: ignore[return-value]
             full_params,
             t,
             q,
@@ -2525,7 +2528,6 @@ def _make_numpy_residual_fn(
             contrast,
             offset,
         )
-        return np.asarray(residuals)
 
     return residual_fn
 

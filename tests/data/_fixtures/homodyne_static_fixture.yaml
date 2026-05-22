@@ -1,0 +1,18 @@
+# Fixture config for test_load_static_fixture.
+# Points to the pre-computed NPZ cache from the Simon dataset (100 Pa, q=0.0237).
+# Machine-specific: only present on Wei's dev machine. The loader test skips
+# when this file is absent (tests/data/test_loader_integration.py).
+#
+# Load path: XPCSDataLoader detects the .npz extension in data_file_name and
+# reads it directly via _load_from_cache (bypasses the HDF5 path).
+
+experimental_data:
+  data_folder_path: /home/wei/Documents/Projects/data/Simon
+  data_file_name: cached_c2_100pa_q0.0237_frames_401_1000.npz
+
+analyzer_parameters:
+  dt: 0.5
+  start_frame: 401
+  end_frame: 1000
+  scattering:
+    wavevector_q: 0.0237
