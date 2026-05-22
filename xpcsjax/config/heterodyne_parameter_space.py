@@ -1,10 +1,9 @@
-"""Parameter space definition with prior distributions for Bayesian inference."""
+"""Parameter space definition with bounds for heterodyne NLSQ optimization."""
 
 from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -23,98 +22,6 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-class PriorType(Enum):
-    """Available prior distribution types."""
-
-    UNIFORM = "uniform"
-    NORMAL = "normal"
-    TRUNCATED_NORMAL = "truncated_normal"
-    LOGNORMAL = "lognormal"
-    HALFNORMAL = "halfnormal"
-    EXPONENTIAL = "exponential"
-    BETA_SCALED = "beta_scaled"
-
-
-@dataclass
-class PriorDistribution:
-    """Prior distribution specification for a parameter."""
-
-    prior_type: PriorType
-    params: dict[str, float] = field(default_factory=dict)
-
-    @classmethod
-    def uniform(cls, low: float, high: float) -> PriorDistribution:
-        """Create uniform prior."""
-        return cls(PriorType.UNIFORM, {"low": low, "high": high})
-
-    @classmethod
-    def normal(cls, loc: float, scale: float) -> PriorDistribution:
-        """Create normal (Gaussian) prior."""
-        return cls(PriorType.NORMAL, {"loc": loc, "scale": scale})
-
-    @classmethod
-    def lognormal(cls, loc: float, scale: float) -> PriorDistribution:
-        """Create log-normal prior (for positive parameters)."""
-        return cls(PriorType.LOGNORMAL, {"loc": loc, "scale": scale})
-
-    @classmethod
-    def halfnormal(cls, scale: float) -> PriorDistribution:
-        """Create half-normal prior (for positive parameters)."""
-        return cls(PriorType.HALFNORMAL, {"scale": scale})
-
-    @classmethod
-    def truncated_normal(
-        cls,
-        loc: float,
-        scale: float,
-        low: float,
-        high: float,
-    ) -> PriorDistribution:
-        """Create truncated normal prior (bounded Gaussian)."""
-        return cls(
-            PriorType.TRUNCATED_NORMAL,
-            {"loc": loc, "scale": scale, "low": low, "high": high},
-        )
-
-    @classmethod
-    def beta_scaled(
-        cls,
-        low: float,
-        high: float,
-        concentration1: float,
-        concentration2: float,
-    ) -> PriorDistribution:
-        """Create a Beta prior scaled to [low, high].
-
-        The distribution is Beta(concentration1, concentration2) affine-transformed
-        to the interval [low, high]. This is useful for bounded parameters where
-        you want to express a prior belief about the shape within the bounds.
-
-        Args:
-            low: Lower bound of the support.
-            high: Upper bound of the support.
-            concentration1: First concentration parameter (alpha > 0).
-            concentration2: Second concentration parameter (beta > 0).
-
-        Returns:
-            PriorDistribution with BETA_SCALED type.
-        """
-        return cls(
-            PriorType.BETA_SCALED,
-            {
-                "low": low,
-                "high": high,
-                "concentration1": concentration1,
-                "concentration2": concentration2,
-            },
-        )
-
-    # NOTE: The upstream heterodyne `to_numpyro()` method (which converted
-    # PriorDistribution → NumPyro distribution objects) is intentionally
-    # omitted in xpcsjax. CMC / Bayesian sampling is permanently out of
-    # scope (spec §15.1). PriorDistribution is retained as metadata only.
-
-
 @dataclass
 class ParameterSpace:
     """Complete parameter space for heterodyne model optimization.
@@ -125,7 +32,6 @@ class ParameterSpace:
     values: dict[str, float] = field(default_factory=dict)
     vary: dict[str, bool] = field(default_factory=dict)
     bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
-    priors: dict[str, PriorDistribution] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Initialize with defaults from registry."""
@@ -137,8 +43,6 @@ class ParameterSpace:
                 self.vary[name] = info.vary_default
             if name not in self.bounds:
                 self.bounds[name] = (info.min_bound, info.max_bound)
-            if name not in self.priors:
-                self.priors[name] = _default_prior(name, info)
 
     @property
     def n_total(self) -> int:
@@ -278,43 +182,6 @@ class ParameterSpace:
 
         return errors
 
-    def convert_to_beta_priors(self) -> None:
-        """Convert all TruncatedNormal priors to BetaScaled priors.
-
-        For each parameter whose prior is TRUNCATED_NORMAL, this method
-        computes equivalent Beta concentration parameters via the method
-        of moments and replaces the prior in-place with a BETA_SCALED
-        distribution over the same bounds.
-
-        Parameters with other prior types are left unchanged.
-        """
-        for name, prior in self.priors.items():
-            if prior.prior_type != PriorType.TRUNCATED_NORMAL:
-                continue
-
-            loc = prior.params["loc"]
-            scale = prior.params["scale"]
-            low, high = self.bounds[name]
-
-            conc1, conc2 = _compute_beta_concentrations(loc, scale, low, high)
-            self.priors[name] = PriorDistribution.beta_scaled(
-                low,
-                high,
-                conc1,
-                conc2,
-            )
-            logger.debug(
-                "Converted %s prior: TruncatedNormal(loc=%.4g, scale=%.4g) "
-                "-> BetaScaled(conc1=%.4g, conc2=%.4g) on [%.4g, %.4g]",
-                name,
-                loc,
-                scale,
-                conc1,
-                conc2,
-                low,
-                high,
-            )
-
     def with_single_angle_stabilization(self) -> ParameterSpace:
         """Return a new ParameterSpace with tightened bounds for single-angle analysis.
 
@@ -328,7 +195,6 @@ class ParameterSpace:
             values=deepcopy(self.values),
             vary=deepcopy(self.vary),
             bounds=deepcopy(self.bounds),
-            priors=deepcopy(self.priors),
         )
 
         # Tighten contrast bounds
@@ -468,15 +334,6 @@ class ParameterSpace:
                                 new_vary,
                             )
                         space.vary[param_name] = new_vary
-                    if "prior" in pconfig:
-                        prior_type_str = pconfig["prior"]
-                        prior_params = pconfig.get("prior_params", {})
-                        space.priors[param_name] = _build_prior(
-                            param_name,
-                            prior_type_str,
-                            prior_params,
-                            space.bounds[param_name],
-                        )
 
         # Stash the original config dict on the instance so callers can
         # round-trip back to YAML. mypy doesn't allow a type annotation on a
@@ -552,183 +409,6 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
             "initial_parameters: active_parameters set %d params to vary",
             len(active_names),
         )
-
-
-# Default TruncatedNormal prior specifications: (loc, scale)
-# All parameters use TruncatedNormal priors truncated to their registry bounds.
-# IMPORTANT: must stay in sync with parameter_registry.py prior_mean/prior_std
-# (CLAUDE.md rule #9 — dual prior system).  See tests/unit/test_prior_sanity.py
-# for the contract test that enforces this.
-_DEFAULT_PRIOR_SPECS: dict[str, tuple[float, float]] = {
-    "D0_ref": (1e4, 1e4),  # widened from 5e3 → 1e4 (see registry comment)
-    "alpha_ref": (0.0, 1.0),
-    "D_offset_ref": (0.0, 1e3),
-    "D0_sample": (1e4, 1e4),  # widened from 5e3 → 1e4 (see registry comment)
-    "alpha_sample": (0.0, 1.0),
-    "D_offset_sample": (0.0, 1e3),
-    "v0": (1e3, 1000.0),  # widened from 500 → 1000 (see registry comment)
-    "beta": (0.0, 1.0),
-    "v_offset": (0.0, 25.0),
-    "f0": (0.5, 0.25),
-    "f1": (0.0, 5.0),
-    "f2": (0.0, 1e3),
-    "f3": (0.0, 0.5),
-    "phi0": (0.0, 5.0),
-    "contrast": (0.5, 0.25),
-    "offset": (1.0, 0.25),
-}
-
-
-def _compute_beta_concentrations(
-    mean: float,
-    std: float,
-    low: float,
-    high: float,
-) -> tuple[float, float]:
-    """Compute Beta concentration parameters from desired mean and std on [low, high].
-
-    Uses the method of moments to find (alpha, beta) such that a
-    Beta(alpha, beta) distribution scaled to [low, high] has the
-    specified mean and standard deviation.
-
-    The standard Beta(alpha, beta) on [0, 1] has:
-        mu_01 = alpha / (alpha + beta)
-        var_01 = alpha * beta / ((alpha + beta)^2 * (alpha + beta + 1))
-
-    We map the desired mean/std from [low, high] to [0, 1]:
-        mu_01 = (mean - low) / (high - low)
-        var_01 = (std / (high - low))^2
-
-    Then solve for alpha, beta via method of moments:
-        alpha = mu_01 * ((mu_01 * (1 - mu_01)) / var_01 - 1)
-        beta = (1 - mu_01) * ((mu_01 * (1 - mu_01)) / var_01 - 1)
-
-    Args:
-        mean: Desired mean on [low, high].
-        std: Desired standard deviation on [low, high].
-        low: Lower bound.
-        high: Upper bound.
-
-    Returns:
-        Tuple (concentration1, concentration2) both > 0.
-
-    Raises:
-        ValueError: If the mean is outside [low, high] or std is too large
-            for a valid Beta distribution.
-    """
-    if high <= low:
-        raise ValueError(f"high ({high}) must be > low ({low})")
-    if not (low <= mean <= high):
-        raise ValueError(f"mean ({mean}) must be in [{low}, {high}]")
-
-    range_width = high - low
-    mu_01 = (mean - low) / range_width
-    var_01 = (std / range_width) ** 2
-
-    # Variance of Beta on [0,1] must be < mu*(1-mu)
-    max_var = mu_01 * (1.0 - mu_01)
-    if var_01 >= max_var:
-        raise ValueError(
-            f"std={std} is too large for Beta on [{low}, {high}] with mean={mean}. "
-            f"Max std ~ {(max_var**0.5) * range_width:.4e}"
-        )
-
-    # Method of moments
-    common = mu_01 * (1.0 - mu_01) / var_01 - 1.0
-    alpha = mu_01 * common
-    beta_param = (1.0 - mu_01) * common
-
-    # Floor to avoid degenerate distributions
-    alpha = max(alpha, 0.01)
-    beta_param = max(beta_param, 0.01)
-
-    return alpha, beta_param
-
-
-def _default_prior(
-    name: str,
-    info: Any,
-) -> PriorDistribution:
-    """Build the default TruncatedNormal prior for a parameter.
-
-    Args:
-        name: Parameter name.
-        info: ParameterInfo from the registry.
-
-    Returns:
-        TruncatedNormal prior distribution.
-    """
-    if name in _DEFAULT_PRIOR_SPECS:
-        loc, scale = _DEFAULT_PRIOR_SPECS[name]
-        return PriorDistribution.truncated_normal(
-            loc=loc,
-            scale=scale,
-            low=info.min_bound,
-            high=info.max_bound,
-        )
-    # Fallback for any unspecified parameter
-    return PriorDistribution.uniform(info.min_bound, info.max_bound)
-
-
-def _build_prior(
-    name: str,
-    prior_type_str: str,
-    prior_params: dict[str, float],
-    bounds: tuple[float, float],
-) -> PriorDistribution:
-    """Build a PriorDistribution from config strings.
-
-    Args:
-        name: Parameter name (for error messages)
-        prior_type_str: One of "uniform", "normal", "lognormal",
-            "halfnormal", "exponential"
-        prior_params: Distribution-specific parameters
-            (e.g. {"loc": 0, "scale": 1} for normal)
-        bounds: (low, high) bounds, used as fallback for uniform
-
-    Returns:
-        Configured PriorDistribution
-    """
-    try:
-        prior_type = PriorType(prior_type_str)
-    except ValueError:
-        valid = [pt.value for pt in PriorType]
-        raise ValueError(
-            f"Unknown prior type '{prior_type_str}' for parameter '{name}'. "
-            f"Valid types: {valid}"
-        ) from None
-
-    if prior_type == PriorType.UNIFORM:
-        low = prior_params.get("low", bounds[0])
-        high = prior_params.get("high", bounds[1])
-        return PriorDistribution.uniform(low, high)
-    elif prior_type == PriorType.NORMAL:
-        loc = prior_params.get("loc", (bounds[0] + bounds[1]) / 2)
-        scale = prior_params.get("scale", (bounds[1] - bounds[0]) / 4)
-        return PriorDistribution.normal(loc, scale)
-    elif prior_type == PriorType.TRUNCATED_NORMAL:
-        loc = prior_params.get("loc", (bounds[0] + bounds[1]) / 2)
-        scale = prior_params.get("scale", (bounds[1] - bounds[0]) / 4)
-        low = prior_params.get("low", bounds[0])
-        high = prior_params.get("high", bounds[1])
-        return PriorDistribution.truncated_normal(loc, scale, low, high)
-    elif prior_type == PriorType.LOGNORMAL:
-        loc = prior_params.get("loc", 0.0)
-        scale = prior_params.get("scale", 1.0)
-        return PriorDistribution.lognormal(loc, scale)
-    elif prior_type == PriorType.HALFNORMAL:
-        scale = prior_params.get("scale", 1.0)
-        return PriorDistribution.halfnormal(scale)
-    elif prior_type == PriorType.EXPONENTIAL:
-        return PriorDistribution(PriorType.EXPONENTIAL, prior_params)
-    elif prior_type == PriorType.BETA_SCALED:
-        low = prior_params.get("low", bounds[0])
-        high = prior_params.get("high", bounds[1])
-        conc1 = prior_params.get("concentration1", 2.0)
-        conc2 = prior_params.get("concentration2", 2.0)
-        return PriorDistribution.beta_scaled(low, high, conc1, conc2)
-    else:
-        raise ValueError(f"Unhandled prior type: {prior_type}")
 
 
 def clamp_to_open_interval(
