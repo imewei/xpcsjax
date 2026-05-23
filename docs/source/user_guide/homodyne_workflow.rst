@@ -11,9 +11,9 @@ directly for evaluating the model at known parameters.
 The two-function path
 ---------------------
 
-For any of the homodyne analysis modes (``static``,
-``static_isotropic``, ``static_anisotropic``, ``laminar_flow``), the
-canonical script is exactly two calls:
+For any of the homodyne analysis modes (``static_isotropic``,
+``static_anisotropic``, ``laminar_flow``), the canonical script is
+exactly two calls:
 
 .. code-block:: python
 

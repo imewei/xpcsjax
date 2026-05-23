@@ -177,23 +177,20 @@ xpcsjax exposes the following analysis modes through
    * - Mode
      - Model class
      - Physical regime
-   * - ``static``
-     - HomodyneModel
-     - Quiescent sample, single isotropic decay across angles.
    * - ``static_isotropic``
      - HomodyneModel
-     - Static sample, :math:`g_1` averaged over :math:`\phi`.
+     - Equilibrium sample, :math:`g_1` averaged over :math:`\phi`.
    * - ``static_anisotropic``
      - HomodyneModel
-     - Static sample, angle-resolved :math:`g_1`.
+     - Equilibrium sample, angle-resolved :math:`g_1`.
    * - ``laminar_flow``
      - HomodyneModel
      - Sheared suspension; adds the sinc\ :sup:`2` modulation from gap
        integration.
    * - ``two_component``
      - HeterodyneModel
-     - Mixed-population sample (e.g. flowing band + static band); 14 physics
-       parameters plus 2 per-angle scaling parameters.
+     - Mixed-population sample (e.g. flowing band + non-flowing band); 14
+       physics parameters plus 2 per-angle scaling parameters.
 
 The per-mode parameter sets and kernel equations are derived in
 :doc:`homodyne_model` and :doc:`heterodyne_model`.

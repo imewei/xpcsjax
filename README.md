@@ -34,9 +34,10 @@ The YAML config's `analysis_mode` field picks the physics:
 
 | `analysis_mode` | Model | Parameters |
 |---|---|---|
-| `static` / `static_isotropic` | Homodyne static diffusion | 3 |
+| `static_isotropic` | Homodyne equilibrium diffusion, angle-collapsed | 3 |
+| `static_anisotropic` | Same physics; angle-resolved data prep | 3 |
 | `laminar_flow` | Homodyne diffusion + sinc-shear | 7 |
-| `two_component` / `heterodyne` | Heterodyne two-component (reference + sample + velocity + mixing) | 14 |
+| `two_component` (or `heterodyne`) | Heterodyne two-component (reference + sample + velocity + mixing) | 14 |
 
 For heterodyne (`two_component`) fits, `fit_nlsq` returns a `list[NLSQResult]`
 (one per phi angle, jointly fit). For homodyne modes, it returns a single

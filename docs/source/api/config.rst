@@ -40,10 +40,6 @@ Parameter registry and space
 
 
 
-.. autoclass:: xpcsjax.config.parameter_space.PriorDistribution
-
-
-
 .. autoclass:: xpcsjax.config.parameter_registry.ParameterInfo
 
 

@@ -5,14 +5,21 @@ Analysis modes
 
 
 The ``analysis_mode`` top-level key in the YAML configuration selects
-which physics model xpcsjax fits. There are six supported modes,
+which physics model xpcsjax fits. There are four canonical modes,
 grouped into two families:
 
-* **Homodyne family.** ``static``, ``static_isotropic``,
-  ``static_anisotropic``, ``laminar_flow``. Backed by
-  :class:`xpcsjax.core.HomodyneModel`.
-* **Heterodyne family.** ``two_component``, ``heterodyne``. Backed by
-  the two-component stateful heterodyne model.
+* **Homodyne family.** ``static_anisotropic``, ``static_isotropic``,
+  ``laminar_flow``. Backed by :class:`xpcsjax.core.HomodyneModel`.
+* **Heterodyne family.** ``two_component`` (with ``heterodyne`` accepted
+  as a case-insensitive synonym). Backed by the two-component stateful
+  heterodyne model.
+
+.. note::
+
+   The bare value ``"static"`` is **not accepted** — it was ambiguous
+   between the isotropic and anisotropic variants. Configs must
+   specify one explicitly. See
+   :doc:`/development/porting_notes` for the migration path.
 
 The choice of mode determines the active parameter count, the
 parameter names, the physics kernel used to compute the model
@@ -30,23 +37,20 @@ The decision usually falls out of the experiment:
 
    * - Experimental scenario
      - Recommended mode
-   * - Static sample, no anisotropy
+   * - Equilibrium sample, no angular structure
      - ``static_isotropic``
-   * - Static sample with directional structure
+   * - Equilibrium sample with directional structure
      - ``static_anisotropic``
-   * - Static sample, full anisotropic + offset model
-     - ``static``
    * - Sample under laminar shear flow
      - ``laminar_flow``
    * - Two-component (e.g. fluctuating + drifting) dynamics
-     - ``two_component``
-   * - Heterodyne reference-beam geometry
-     - ``heterodyne``
+     - ``two_component`` (or ``heterodyne``)
 
-Static (3 parameters)
----------------------
+Static family (3 parameters each)
+---------------------------------
 
-The most general static homodyne fit. Three active parameters:
+The two equilibrium-sample modes share the same physics kernel and the
+same three active parameters:
 
 .. list-table::
    :header-rows: 1
@@ -63,29 +67,31 @@ The most general static homodyne fit. Three active parameters:
      - Additive offset on the diffusion term, absorbing background
        structure.
 
-Use ``static`` when the data does not fit cleanly into the isotropic
-or anisotropic specialisations and you want the full three-parameter
-model.
+They differ only in **data preparation**, not in the kernel.
 
-Static isotropic (3 parameters)
--------------------------------
+Static isotropic
+~~~~~~~~~~~~~~~~
 
-Same three parameters as ``static``, but with the constraint that the
-fit is performed against the angularly-averaged correlation. The
-parameter registry, bounds, and initial-values format are identical to
-``static`` — what differs is the data preparation step, which collapses
-the phi axis before the residual is computed.
+Collapses the phi axis before the residual is computed, fitting against
+the angularly-averaged correlation. This is the default mode for
+textbook diffusive XPCS analyses where the sample has no directional
+structure.
 
-This is the default mode for textbook diffusive XPCS analyses.
+Static anisotropic
+~~~~~~~~~~~~~~~~~~
 
-Static anisotropic (variant of 3)
----------------------------------
-
-Same three-parameter family, but anisotropic. The fit subsets the
-phi-angle list according to ``target_angle_ranges`` from the
-configuration, then performs a stratified fit that retains angular
+Subsets the phi-angle list according to ``target_angle_ranges`` from
+the configuration, then performs a stratified fit that retains angular
 resolution. Use this mode when the sample shows directional structure
 in :math:`g_2(q, \phi, t)` that an isotropic fit would average away.
+
+.. note::
+
+   Pre-rename, a bare ``"static"`` value was treated as a third static
+   mode and silently collapsed to one of these two downstream. It has
+   been removed; if you have an old config, replace
+   ``analysis_mode: static`` with either ``static_anisotropic`` (the
+   safer default — preserves angle resolution) or ``static_isotropic``.
 
 Laminar flow (7 parameters)
 ---------------------------
@@ -110,10 +116,10 @@ dominated by directions where shear is degenerate.
 Two-component and heterodyne (14 physics + 2 scaling)
 -----------------------------------------------------
 
-The two-component model (``analysis_mode: two_component``) and the
-heterodyne model (``analysis_mode: heterodyne``) share the same
-physics kernel; ``heterodyne`` is provided as an alias for callers
-that already think in those terms. Both expose fourteen physics
+The two-component model (``analysis_mode: two_component``) is the
+canonical name; ``heterodyne`` (case-insensitive) and ``two-component``
+are accepted synonyms that the config loader normalises to
+``two_component`` at load time. Both expose fourteen physics
 parameters and two scaling parameters (typically ``contrast`` and
 ``offset``).
 
@@ -149,12 +155,9 @@ Parameter inventory matrix
    * - Mode
      - Param count
      - Active parameter family
-   * - ``static``
-     - 3
-     - ``D0``, ``alpha``, ``D_offset``
    * - ``static_isotropic``
      - 3
-     - same family; isotropic data prep
+     - ``D0``, ``alpha``, ``D_offset``; isotropic data prep
    * - ``static_anisotropic``
      - 3
      - same family; anisotropic data prep + ``target_angle_ranges``
@@ -164,9 +167,6 @@ Parameter inventory matrix
    * - ``two_component``
      - 14 + 2
      - two diffusion families + coupling + per-angle scaling
-   * - ``heterodyne``
-     - 14 + 2
-     - alias of ``two_component``
 
 The authoritative active-parameter ordering for any given mode is the
 ``list[str]`` returned by

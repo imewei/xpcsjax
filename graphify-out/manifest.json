@@ -592,8 +592,8 @@
     "hash": "4beb1412111eb4df35ff3ff0c1c74e7a"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/manager.py": {
-    "mtime": 1779559896.2599955,
-    "hash": "2ff89bb7f1016461c2a0e6d83c44b58d"
+    "mtime": 1779560545.0909796,
+    "hash": "2f18037844106c6abd3f4809ede881c7"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/parameter_space.py": {
     "mtime": 1779559896.2609954,
@@ -724,8 +724,8 @@
     "hash": "3d4a6efa7310f45f90821d02a8a2e8be"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/MIGRATION.md": {
-    "mtime": 1779153883.8237872,
-    "hash": "ab8f74bd18de1ee6808fe00164f66635"
+    "mtime": 1779560476.4484909,
+    "hash": "1e60647cbfb1f2428488256ddf03d356"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/_build/html/_static/scripts/furo.js.LICENSE.txt": {
     "mtime": 1778215553.1038508,
@@ -740,8 +740,8 @@
     "hash": "ec09dfe680aa4587e5b40e64577e9695"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/changelog.rst": {
-    "mtime": 1779401452.7276726,
-    "hash": "53968dcfea8a5879d8fc315bf23bf27a"
+    "mtime": 1779560492.9521098,
+    "hash": "f20920a2a3e6976765a47e215294263f"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/index.rst": {
     "mtime": 1779401434.9947476,
@@ -800,8 +800,8 @@
     "hash": "8da7c96e66f1e50ada0693cfe8dbe391"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/user_guide/homodyne_workflow.rst": {
-    "mtime": 1779237545.634737,
-    "hash": "77cc659e270d0df67e4efa7660e1abdf"
+    "mtime": 1779560441.8316927,
+    "hash": "4cea32e0e0e36563955f663d3c49b340"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/user_guide/data_loading.rst": {
     "mtime": 1779237474.0984652,
@@ -832,8 +832,8 @@
     "hash": "c762ccbc551c6e1f9db7e924a3793b29"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/user_guide/analysis_modes.rst": {
-    "mtime": 1779237545.635737,
-    "hash": "90c66f35c433e892f9a3166297891e3e"
+    "mtime": 1779560414.5939932,
+    "hash": "f5eca8d87f8429580194f1b1b77e95ae"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/user_guide/index.rst": {
     "mtime": 1779341783.9617105,
@@ -852,8 +852,8 @@
     "hash": "2b2ef7e84a756a57824c5eb18c323ab2"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/api/config.rst": {
-    "mtime": 1779237474.1004653,
-    "hash": "e9e2003a52c5e6c55e0c8ec58576046f"
+    "mtime": 1779560644.6868455,
+    "hash": "9874ebd40872990060e7db3ae0345af6"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/api/viz.rst": {
     "mtime": 1779401479.4355612,
@@ -924,8 +924,8 @@
     "hash": "a8c5f35608d8e5a49aa4e06606c334bd"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/theory/xpcs_basics.rst": {
-    "mtime": 1779237474.1064653,
-    "hash": "f2b6588ac704b20a6fb5ecb6eacff670"
+    "mtime": 1779560430.0585284,
+    "hash": "082a8629b6c604f00b83297bea4b370a"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/theory/heterodyne_anti_degeneracy.rst": {
     "mtime": 1779298922.2669196,

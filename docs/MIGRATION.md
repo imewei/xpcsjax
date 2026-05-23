@@ -22,11 +22,19 @@ The YAML config's `analysis_mode` field picks the physics model:
 
 | `analysis_mode` | Physics | Param count |
 |---|---|---|
-| `static` | Homodyne static diffusion (D₀, α, D_offset) | 3 |
-| `static_isotropic` | Same as static (legacy synonym) | 3 |
+| `static_isotropic` | Homodyne equilibrium diffusion (D₀, α, D_offset), angle-collapsed | 3 |
+| `static_anisotropic` | Same physics; angle-resolved data prep | 3 |
 | `laminar_flow` | Homodyne diffusion + sinc-shear (D, γ̇, φ₀) | 7 |
 | `two_component` | Heterodyne reference + sample + velocity + mixing | 14 |
-| `heterodyne` | Synonym for `two_component` | 14 |
+| `heterodyne` | Accepted synonym for `two_component` (normalized at load) | 14 |
+
+> **Breaking (vs. pre-rename xpcsjax and vs. the upstream `homodyne`
+> package):** the bare value `analysis_mode: static` is no longer
+> accepted. It was ambiguous between `static_isotropic` and
+> `static_anisotropic` and silently collapsed downstream. Configs
+> that previously used `analysis_mode: static` must now specify
+> the variant explicitly. The recommended default for legacy `static`
+> configs is `static_anisotropic` (preserves angle resolution).
 
 ---
 

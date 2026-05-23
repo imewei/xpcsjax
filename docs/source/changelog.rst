@@ -5,6 +5,26 @@ The authoritative changelog lives in the top-level ``CHANGELOG.md`` of the
 repository. This page surfaces the major user-facing milestones for the
 current release line.
 
+Unreleased
+----------
+
+**Breaking change — ``analysis_mode`` taxonomy.** The bare value
+``analysis_mode: static`` is no longer accepted. It was ambiguous
+between ``static_isotropic`` (angle-collapsed) and ``static_anisotropic``
+(angle-resolved) and silently collapsed downstream. The canonical set
+is now exactly four modes:
+
+* ``static_isotropic``
+* ``static_anisotropic``
+* ``laminar_flow``
+* ``two_component`` (with ``heterodyne`` accepted as a case-insensitive
+  synonym, normalised to ``two_component`` at config load time)
+
+Old configs using ``analysis_mode: static`` must be migrated. The
+recommended drop-in default is ``static_anisotropic`` (preserves
+angular resolution). See :doc:`/user_guide/analysis_modes` for the
+full description of each mode and the data-preparation distinction.
+
 v0.1.0 — initial consolidated release
 -------------------------------------
 

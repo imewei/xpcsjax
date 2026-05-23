@@ -939,6 +939,18 @@ class ConfigManager:
         original_mode = mode
         normalized_mode = mode.lower()
 
+        # Reject the legacy bare "static" value loudly at config-load time
+        # rather than letting it fall through to a deeper ValueError at first
+        # model dispatch. It was ambiguous between static_isotropic and
+        # static_anisotropic and silently collapsed downstream pre-rename.
+        if normalized_mode == "static":
+            raise ValueError(
+                "analysis_mode='static' is ambiguous and no longer accepted. "
+                "Use 'static_anisotropic' (angle-resolved; recommended drop-in "
+                "for legacy 'static' configs) or 'static_isotropic' "
+                "(angle-collapsed) explicitly."
+            )
+
         # Heterodyne / two-component synonyms (Task 28)
         if (
             "two_component" in normalized_mode
