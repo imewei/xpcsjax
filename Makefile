@@ -10,6 +10,7 @@
         format lint type-check check quality quick pre-commit install-hooks \
         security perf-baseline perf-compare \
         benchmark profile-nlsq \
+        docs docs-clean \
         clean clean-all clean-pyc clean-build clean-test clean-cache clean-venv \
         build release run-example ci ci-full watch stats verify-nlsq \
         verify verify-fast
@@ -135,6 +136,10 @@ help:
 	@echo "$(BOLD)$(GREEN)BUILD & RELEASE$(RESET)"
 	@echo "  $(CYAN)build$(RESET)            Build distribution packages"
 	@echo "  $(CYAN)release$(RESET)          Prepare for release (test + quality + build)"
+	@echo ""
+	@echo "$(BOLD)$(GREEN)DOCUMENTATION$(RESET)"
+	@echo "  $(CYAN)docs$(RESET)             Build Sphinx HTML docs (strict; -W treats warnings as errors)"
+	@echo "  $(CYAN)docs-clean$(RESET)       Remove generated HTML output (docs/_build/)"
 	@echo ""
 	@echo "$(BOLD)$(GREEN)CLEANUP$(RESET)"
 	@echo "  $(CYAN)clean$(RESET)            Remove build artifacts and caches (preserves venv, .claude)"
@@ -432,6 +437,22 @@ profile-nlsq:
 	$(RUN_CMD) $(PYTHON) -c "from xpcsjax.optimization import fit_nlsq; print('✓ fit_nlsq importable, ready for profiling')"
 
 # ===================
+# Documentation targets
+# ===================
+# `make docs` runs Sphinx with -W so warnings (dangling autodoc refs,
+# broken cross-references, malformed RST) fail the build. This is the
+# canonical local equivalent of the docs-gate in CI.
+docs: docs-clean
+	@echo "$(BOLD)$(BLUE)Building Sphinx HTML docs (strict; -W)...$(RESET)"
+	$(RUN_CMD) sphinx-build -W --keep-going $(DOCS_DIR)/source $(DOCS_DIR)/_build/html
+	@echo "$(BOLD)$(GREEN)✓ Docs built (zero warnings) in $(DOCS_DIR)/_build/html/$(RESET)"
+
+docs-clean:
+	@echo "$(BOLD)$(BLUE)Removing generated docs output...$(RESET)"
+	@rm -rf $(DOCS_DIR)/_build
+	@echo "$(BOLD)$(GREEN)✓ docs/_build cleaned.$(RESET)"
+
+# ===================
 # Cleanup targets
 # ===================
 clean-build:
@@ -591,7 +612,7 @@ run-example:
 ci: clean test lint
 	@echo "$(BOLD)$(GREEN)✓ CI checks passed!$(RESET)"
 
-ci-full: clean install test-ci-full quality
+ci-full: clean install test-ci-full quality docs
 	@echo "$(BOLD)$(GREEN)✓ Full CI checks passed!$(RESET)"
 
 # ===================
