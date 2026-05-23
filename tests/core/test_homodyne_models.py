@@ -58,7 +58,7 @@ def test_combined_model_param_count() -> None:
 
 def test_combined_model_static_mode_param_count() -> None:
     """Static analysis mode collapses to the 3 diffusion parameters."""
-    model = CombinedModel(analysis_mode="static")
+    model = CombinedModel(analysis_mode="static_anisotropic")
     assert len(model.parameter_names) == 3
     assert set(model.parameter_names) == {"D0", "alpha", "D_offset"}
 

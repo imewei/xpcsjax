@@ -29,7 +29,7 @@ class ParameterSpace:
     Attributes
     ----------
     model_type : str
-        Model type: 'static' or 'laminar_flow'
+        Model type: 'static_anisotropic', 'static_isotropic', or 'laminar_flow'
     parameter_names : list[str]
         Canonical parameter names (after name mapping)
     bounds : dict[str, tuple[float, float]]
@@ -42,7 +42,7 @@ class ParameterSpace:
     >>> # From config dict
     >>> config = {
     ...     'parameter_space': {
-    ...         'model': 'static',
+    ...         'model': 'static_anisotropic',
     ...         'bounds': [
     ...             {'name': 'D0', 'min': 100.0, 'max': 1e5},
     ...             {'name': 'alpha', 'min': -2.0, 'max': 2.0}
@@ -76,8 +76,8 @@ class ParameterSpace:
         config_dict : dict
             Configuration dictionary (typically loaded from YAML)
         analysis_mode : str, optional
-            Analysis mode ('static' or 'laminar_flow'). Auto-detected from
-            config if not provided.
+            Analysis mode ('static_anisotropic', 'static_isotropic', or
+            'laminar_flow'). Auto-detected from config if not provided.
 
         Returns
         -------
@@ -91,10 +91,10 @@ class ParameterSpace:
 
         Examples
         --------
-        >>> config = {'parameter_space': {'model': 'static', 'bounds': [...]}}
+        >>> config = {'parameter_space': {'model': 'static_anisotropic', 'bounds': [...]}}
         >>> param_space = ParameterSpace.from_config(config)
         >>> param_space.model_type
-        'static'
+        'static_anisotropic'
 
         Notes
         -----
@@ -228,7 +228,7 @@ class ParameterSpace:
         Parameters
         ----------
         analysis_mode : str
-            Analysis mode: 'static' or 'laminar_flow'
+            Analysis mode: 'static_anisotropic', 'static_isotropic', or 'laminar_flow'
 
         Returns
         -------
@@ -237,7 +237,7 @@ class ParameterSpace:
 
         Examples
         --------
-        >>> param_space = ParameterSpace.from_defaults('static')
+        >>> param_space = ParameterSpace.from_defaults('static_anisotropic')
         >>> param_space.parameter_names
         ['D0', 'alpha', 'D_offset']
         """
@@ -314,7 +314,7 @@ class ParameterSpace:
 
         Examples
         --------
-        >>> param_space = ParameterSpace.from_defaults('static')
+        >>> param_space = ParameterSpace.from_defaults('static_anisotropic')
         >>> lower, upper = param_space.get_bounds_array()
         >>> lower.shape
         (3,)
@@ -344,7 +344,7 @@ class ParameterSpace:
 
         Examples
         --------
-        >>> param_space = ParameterSpace.from_defaults('static')
+        >>> param_space = ParameterSpace.from_defaults('static_anisotropic')
         >>> values = {'D0': 1000.0, 'alpha': -1.2, 'D_offset': 0.0}
         >>> is_valid, violations = param_space.validate_values(values)
         >>> is_valid
@@ -455,7 +455,7 @@ class ParameterSpace:
 
         Examples
         --------
-        >>> param_space = ParameterSpace.from_defaults('static')
+        >>> param_space = ParameterSpace.from_defaults('static_anisotropic')
         >>> # If offset bounds are [0.5, 1.5] and value equals 0.5 (boundary violation)
         >>> clamped = param_space.clamp_to_open_interval('offset', 0.5)
         >>> # Returns 0.500001 (0.5 + 1e-6), strictly inside bounds

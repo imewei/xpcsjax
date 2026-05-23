@@ -93,7 +93,7 @@ def build_per_parameter_x_scale(
     physical_param_names : list[str]
         List of physical parameter names.
     analysis_mode : str
-        Analysis mode ("static" or "laminar_flow").
+        Analysis mode ("static_anisotropic", "static_isotropic", or "laminar_flow").
     override_map : dict[str, float]
         User overrides for parameter scales.
 

@@ -482,7 +482,7 @@ class NLSQWrapper(NLSQAdapterBase):
         """
         normalized_mode = analysis_mode.lower()
 
-        if normalized_mode in {"static", "static_isotropic"}:
+        if normalized_mode in {"static_anisotropic", "static_isotropic"}:
             return ["D0", "alpha", "D_offset"]
         elif normalized_mode == "laminar_flow":
             return [
@@ -497,7 +497,7 @@ class NLSQWrapper(NLSQAdapterBase):
         else:
             raise ValueError(
                 f"Unknown analysis_mode: '{analysis_mode}'. "
-                f"Expected 'static_isotropic'/'static' or 'laminar_flow'"
+                f"Expected 'static_anisotropic', 'static_isotropic', or 'laminar_flow'"
             )
 
     @staticmethod

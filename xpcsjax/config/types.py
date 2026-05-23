@@ -327,7 +327,7 @@ class HomodyneConfig(TypedDict, total=False):
     config_version : str
         Configuration file version
     analysis_mode : str
-        Analysis mode ("static", "laminar_flow")
+        Analysis mode ("static_anisotropic", "static_isotropic", "laminar_flow", "two_component")
     experimental_data : ExperimentalDataConfig
         Experimental data specification
     parameter_space : ParameterSpaceConfig

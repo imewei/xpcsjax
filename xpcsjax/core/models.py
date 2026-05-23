@@ -289,11 +289,11 @@ class CombinedModel(
         """Initialize combined model.
 
         Args:
-            analysis_mode: "static" or "laminar_flow"
+            analysis_mode: "static_anisotropic", "static_isotropic", or "laminar_flow"
         """
         self.analysis_mode = analysis_mode
 
-        if analysis_mode in ("static", "static_isotropic", "static_anisotropic"):
+        if analysis_mode in ("static_isotropic", "static_anisotropic"):
             # Static mode: only diffusion parameters
             parameter_names = ["D0", "alpha", "D_offset"]
             name = "static_diffusion"
@@ -580,12 +580,12 @@ def create_model(analysis_mode: str) -> CombinedModel:
     """Factory function to create appropriate model for analysis mode.
 
     Args:
-        analysis_mode: "static" or "laminar_flow"
+        analysis_mode: "static_anisotropic", "static_isotropic", or "laminar_flow"
 
     Returns:
         Configured CombinedModel instance
     """
-    valid_modes = ["static", "laminar_flow", "static_isotropic", "static_anisotropic"]
+    valid_modes = ["static_anisotropic", "static_isotropic", "laminar_flow"]
     if analysis_mode not in valid_modes:
         raise ValueError(
             f"Invalid analysis mode '{analysis_mode}'. Must be one of {valid_modes}",
@@ -598,10 +598,9 @@ def create_model(analysis_mode: str) -> CombinedModel:
 def get_available_models() -> list[str]:
     """Get list of available analysis modes."""
     return [
-        "static",
-        "laminar_flow",
-        "static_isotropic",
         "static_anisotropic",
+        "static_isotropic",
+        "laminar_flow",
         "two_component",
     ]
 
@@ -613,7 +612,7 @@ def make_model(config_or_manager: Any) -> PhysicsModelBase:
 
     - ``"two_component"`` / ``"heterodyne"`` → :class:`HeterodyneModel`
       (xpcsjax.core.heterodyne_model)
-    - ``"static"`` / ``"static_isotropic"`` / ``"static_anisotropic"`` /
+    - ``"static_anisotropic"`` / ``"static_isotropic"`` /
       ``"laminar_flow"`` → :class:`CombinedModel` via :func:`create_model`
 
     Parameters
@@ -650,7 +649,7 @@ def make_model(config_or_manager: Any) -> PhysicsModelBase:
             f"{type(config_or_manager).__name__}"
         )
 
-    raw_mode = cfg.get("analysis_mode", "static")
+    raw_mode = cfg.get("analysis_mode", "static_anisotropic")
     if not isinstance(raw_mode, str):
         raise ValueError(
             f"analysis_mode must be a string, got {type(raw_mode).__name__}"

@@ -189,7 +189,7 @@ class ConfigManager:
                 "config_version": "0.1.0",
                 "description": "Default minimal configuration",
             },
-            "analysis_mode": "static",
+            "analysis_mode": "static_anisotropic",
             "analyzer_parameters": {
                 "dt": 0.1,
                 "start_frame": 1,
@@ -332,7 +332,12 @@ class ConfigManager:
             ):
                 analysis_mode = "two_component"
             elif self.is_static_mode_enabled():
-                analysis_mode = "static"
+                # Preserve isotropic/anisotropic distinction if specified;
+                # otherwise default to the angular-resolved variant.
+                if "isotropic" in raw_mode:
+                    analysis_mode = "static_isotropic"
+                else:
+                    analysis_mode = "static_anisotropic"
             else:
                 analysis_mode = "laminar_flow"
 
@@ -786,8 +791,8 @@ class ConfigManager:
         # and after in the load_config() path, so accept both raw and canonical
         # strings here to avoid false warnings in either path.
         valid_modes = [
-            "static",
-            "static_isotropic",  # accepted raw; _normalize rewrites to "static"
+            "static_anisotropic",
+            "static_isotropic",
             "laminar_flow",
             "two_component",
             "heterodyne",  # accepted raw; _normalize rewrites to "two_component"
@@ -798,7 +803,7 @@ class ConfigManager:
             logger.warning(
                 "Unknown analysis_mode: '%s'. Valid modes: %s",
                 mode,
-                ["static", "laminar_flow", "two_component"],
+                ["static_anisotropic", "static_isotropic", "laminar_flow", "two_component"],
             )
 
         # T051: Log key configuration values at INFO level
@@ -886,7 +891,7 @@ class ConfigManager:
             )
 
         # Warn about disabled anti-degeneracy for laminar_flow
-        mode = self.config.get("analysis_mode", "static")
+        mode = self.config.get("analysis_mode", "static_anisotropic")
         anti_deg = nlsq_config.get("anti_degeneracy", {})
         if mode == "laminar_flow":
             hierarchical = anti_deg.get("hierarchical", {})
@@ -912,14 +917,17 @@ class ConfigManager:
     def _normalize_analysis_mode(self) -> None:
         """Normalize analysis_mode to canonical lowercase form.
 
-        Handles case-insensitive input and legacy mode names. Consistent with
+        Handles case-insensitive input and synonyms. Consistent with
         :func:`xpcsjax.config.parameter_registry.ParameterRegistry._normalize_mode`:
 
-        - "STATIC", "Static" → "static"
+        - "STATIC_ANISOTROPIC", "Static_Anisotropic" → "static_anisotropic"
+        - "STATIC_ISOTROPIC", "Static_Isotropic" → "static_isotropic"
         - "LAMINAR_FLOW", "Laminar_Flow" → "laminar_flow"
-        - "static_isotropic" → "static" (legacy alias)
-        - "static_anisotropic" → "static" (legacy alias)
         - "HETERODYNE", "Heterodyne", "two-component" → "two_component"
+
+        Bare "static" is intentionally not accepted: it is ambiguous between
+        ``static_isotropic`` and ``static_anisotropic`` and must be made
+        explicit at the config layer.
         """
         if self.config is None or "analysis_mode" not in self.config:
             return
@@ -931,11 +939,8 @@ class ConfigManager:
         original_mode = mode
         normalized_mode = mode.lower()
 
-        # Handle legacy aliases
-        if normalized_mode in ("static_isotropic", "static_anisotropic"):
-            normalized_mode = "static"
         # Heterodyne / two-component synonyms (Task 28)
-        elif (
+        if (
             "two_component" in normalized_mode
             or "two-component" in normalized_mode
             or "heterodyne" in normalized_mode

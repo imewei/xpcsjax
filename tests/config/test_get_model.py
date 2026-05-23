@@ -60,15 +60,15 @@ def test_heterodyne_synonym_dispatches_to_heterodyne(tmp_path):
 
 
 def test_static_does_not_dispatch_to_heterodyne(tmp_path):
-    """analysis_mode: static must NOT produce a HeterodyneModel (sanity)."""
+    """analysis_mode: static_anisotropic must NOT produce a HeterodyneModel (sanity)."""
     from xpcsjax.config import ConfigManager
     from xpcsjax.core.heterodyne_model import HeterodyneModel
 
-    cfg = ConfigManager(_write_config(tmp_path, "static"))
+    cfg = ConfigManager(_write_config(tmp_path, "static_anisotropic"))
     model = cfg.get_model()
 
     assert not isinstance(model, HeterodyneModel), (
-        f"expected non-heterodyne model for analysis_mode='static', "
+        f"expected non-heterodyne model for analysis_mode='static_anisotropic', "
         f"got {type(model).__name__}"
     )
 
@@ -95,7 +95,7 @@ def test_make_model_accepts_dict():
     model = make_model({"analysis_mode": "two_component"})
     assert isinstance(model, HeterodyneModel)
 
-    model = make_model({"analysis_mode": "static"})
+    model = make_model({"analysis_mode": "static_anisotropic"})
     assert not isinstance(model, HeterodyneModel)
 
 

@@ -117,7 +117,7 @@ def get_physical_param_names(analysis_mode: AnalysisMode) -> list[str]:
     Parameters
     ----------
     analysis_mode : str
-        Analysis mode: 'static_isotropic', 'static', or 'laminar_flow'
+        Analysis mode: 'static_anisotropic', 'static_isotropic', or 'laminar_flow'
 
     Returns
     -------
@@ -126,7 +126,7 @@ def get_physical_param_names(analysis_mode: AnalysisMode) -> list[str]:
 
     Examples
     --------
-    >>> get_physical_param_names('static')
+    >>> get_physical_param_names('static_anisotropic')
     ['D0', 'alpha', 'D_offset']
 
     >>> get_physical_param_names('laminar_flow')
@@ -139,7 +139,7 @@ def get_physical_param_names(analysis_mode: AnalysisMode) -> list[str]:
     else:
         raise ValueError(
             f"Unknown analysis mode: {analysis_mode}. "
-            f"Expected 'static', 'static_isotropic', or 'laminar_flow'"
+            f"Expected 'static_anisotropic', 'static_isotropic', or 'laminar_flow'"
         )
 
 

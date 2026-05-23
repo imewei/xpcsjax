@@ -259,15 +259,15 @@ class TestMakeModelDispatch:
             make_model({"analysis_mode": 42})
 
     def test_static_mode_returns_diffusion_or_combined(self) -> None:
-        """'static' mode falls through to the homodyne path."""
+        """'static_anisotropic' mode falls through to the homodyne path."""
         from xpcsjax.core.models import PhysicsModelBase
 
-        model = make_model({"analysis_mode": "static"})
+        model = make_model({"analysis_mode": "static_anisotropic"})
         assert isinstance(model, PhysicsModelBase)
         assert not isinstance(model, HeterodyneModel)
 
     def test_missing_mode_defaults_to_static(self) -> None:
-        """Missing analysis_mode key must default to 'static' without error."""
+        """Missing analysis_mode key must default to 'static_anisotropic' without error."""
         from xpcsjax.core.models import PhysicsModelBase
 
         model = make_model({})

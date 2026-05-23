@@ -321,8 +321,8 @@ def get_or_create_model(
     for the parameter-layout convention and the ``t``/``dt`` requirement.
 
     Args:
-        analysis_mode: 'static_isotropic', 'static', 'laminar_flow', or
-            'two_component'
+        analysis_mode: 'static_anisotropic', 'static_isotropic', 'laminar_flow',
+            or 'two_component'
         phi_angles: Unique phi angles in radians (homodyne) or degrees
             (heterodyne — convention matches the source heterodyne kernel)
         q: Scattering wavevector magnitude
@@ -372,10 +372,10 @@ def get_or_create_model(
         )
 
     # Validate inputs
-    if analysis_mode not in {"static_isotropic", "static", "laminar_flow"}:
+    if analysis_mode not in {"static_anisotropic", "static_isotropic", "laminar_flow"}:
         raise ValueError(
             f"Invalid analysis_mode: '{analysis_mode}'. "
-            f"Expected 'static_isotropic', 'static', 'laminar_flow', "
+            f"Expected 'static_anisotropic', 'static_isotropic', 'laminar_flow', "
             f"or 'two_component'"
         )
     if len(phi_angles) == 0:
@@ -383,8 +383,7 @@ def get_or_create_model(
     if q <= 0:
         raise ValueError(f"q must be positive, got {q}")
 
-    # Normalize analysis_mode
-    normalized_mode = "static_isotropic" if analysis_mode == "static" else analysis_mode
+    normalized_mode = analysis_mode
 
     # Create cache key
     cache_key = _make_cache_key(normalized_mode, phi_angles, q, per_angle_scaling)
@@ -417,8 +416,11 @@ def get_or_create_model(
 
     start_time = time.time()
 
-    # Use CombinedModel which has simpler init (just analysis_mode)
-    model_mode = "static" if "static" in normalized_mode else "laminar_flow"
+    # Use CombinedModel which has simpler init (just analysis_mode).
+    # Preserve isotropic/anisotropic distinction for the model; the physics
+    # parameter count is identical so the rest of the closure only cares
+    # whether this is a static-family mode or laminar_flow.
+    model_mode = normalized_mode if "static" in normalized_mode else "laminar_flow"
     model = CombinedModel(analysis_mode=model_mode)
 
     # Store experimental parameters for model function closure
@@ -464,7 +466,7 @@ def get_or_create_model(
         n_params_val = len(params)  # Use Python len on tuple, not traced array
 
         # Extract per-angle scaling parameters if present
-        n_physical = 3 if model_mode == "static" else 7
+        n_physical = 3 if "static" in model_mode else 7
         if per_angle_scaling and n_params_val >= n_physical + 2 * n_phi:
             contrast_vals = params_array[:n_phi]
             offset_vals = params_array[n_phi : 2 * n_phi]
@@ -672,7 +674,7 @@ class NLSQAdapter(NLSQAdapterBase):
         """Get physical parameter names for a given analysis mode."""
         normalized_mode = analysis_mode.lower()
 
-        if normalized_mode in {"static", "static_isotropic"}:
+        if normalized_mode in {"static_anisotropic", "static_isotropic"}:
             return ["D0", "alpha", "D_offset"]
         elif normalized_mode == "laminar_flow":
             return [
@@ -687,7 +689,7 @@ class NLSQAdapter(NLSQAdapterBase):
         else:
             raise ValueError(
                 f"Unknown analysis_mode: '{analysis_mode}'. "
-                f"Expected 'static_isotropic'/'static' or 'laminar_flow'"
+                f"Expected 'static_anisotropic', 'static_isotropic', or 'laminar_flow'"
             )
 
     @staticmethod
@@ -756,7 +758,7 @@ class NLSQAdapter(NLSQAdapterBase):
         Args:
             data: XPCS experimental data
             config: Configuration manager
-            analysis_mode: 'static_isotropic' or 'laminar_flow'
+            analysis_mode: 'static_anisotropic', 'static_isotropic', or 'laminar_flow'
             per_angle_scaling: Whether per-angle contrast/offset is used
             n_phi: Number of phi angles
 
@@ -807,10 +809,8 @@ class NLSQAdapter(NLSQAdapterBase):
             from xpcsjax.core.models import CombinedModel
 
             # Use same logic as get_or_create_model for consistency
-            normalized_mode = (
-                "static_isotropic" if analysis_mode == "static" else analysis_mode
-            )
-            model_mode = "static" if "static" in normalized_mode else "laminar_flow"
+            normalized_mode = analysis_mode
+            model_mode = normalized_mode if "static" in normalized_mode else "laminar_flow"
             model = CombinedModel(analysis_mode=model_mode)
 
             # Store experimental parameters for closure
@@ -822,7 +822,7 @@ class NLSQAdapter(NLSQAdapterBase):
                 n_params = len(params_array)
 
                 # Extract per-angle scaling parameters if present
-                n_physical = 3 if model_mode == "static" else 7
+                n_physical = 3 if "static" in model_mode else 7
                 if per_angle_scaling and n_params >= n_physical + 2 * n_phi:
                     contrast_vals = params_array[:n_phi]
                     offset_vals = params_array[n_phi : 2 * n_phi]
@@ -1079,7 +1079,7 @@ class NLSQAdapter(NLSQAdapterBase):
             config: Configuration manager with optimization settings
             initial_params: Initial parameter guess (required)
             bounds: Parameter bounds as (lower, upper) tuple
-            analysis_mode: 'static_isotropic' or 'laminar_flow'
+            analysis_mode: 'static_anisotropic', 'static_isotropic', or 'laminar_flow'
             per_angle_scaling: Must be True (per-angle is physically correct)
             diagnostics_enabled: Enable extended diagnostics
             shear_transforms: Shear parameter transformations

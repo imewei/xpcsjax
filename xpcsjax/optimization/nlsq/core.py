@@ -1129,7 +1129,7 @@ def _get_param_names(analysis_mode: str) -> list[str]:
     Parameters
     ----------
     analysis_mode : str
-        Analysis mode (e.g., 'static', 'laminar_flow')
+        Analysis mode (e.g., 'static_anisotropic', 'static_isotropic', 'laminar_flow')
 
     Returns
     -------
@@ -1161,7 +1161,7 @@ def _get_physical_param_names(analysis_mode: str) -> list[str]:
     Parameters
     ----------
     analysis_mode : str
-        Analysis mode (e.g., 'static', 'laminar_flow')
+        Analysis mode (e.g., 'static_anisotropic', 'static_isotropic', 'laminar_flow')
 
     Returns
     -------
@@ -1328,7 +1328,7 @@ class _SingleFitWorker:
     per_angle_scaling : bool
         Whether to use per-angle contrast/offset scaling.
     analysis_mode : str
-        Analysis mode ("laminar_flow" or "static").
+        Analysis mode ("laminar_flow", "static_anisotropic", or "static_isotropic").
     """
 
     def __init__(

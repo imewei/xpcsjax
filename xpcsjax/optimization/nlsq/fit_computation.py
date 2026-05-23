@@ -195,38 +195,42 @@ def normalize_analysis_mode(
         n_angles: Number of angles
 
     Returns:
-        Normalized mode: 'static' or 'laminar_flow'
+        Normalized mode: 'static_anisotropic', 'static_isotropic', or 'laminar_flow'
     """
     if mode:
         mode_lower = mode.lower()
-        if mode_lower in {"static", "static_isotropic"}:
-            return "static"
+        if mode_lower == "static_isotropic":
+            return "static_isotropic"
+        if mode_lower == "static_anisotropic":
+            return "static_anisotropic"
         if mode_lower == "laminar_flow":
             return "laminar_flow"
 
-    # Infer from parameter counts (legacy scalar vs per-angle layout)
+    # Infer from parameter counts (legacy scalar vs per-angle layout).
+    # The 3-physical-param signature is shared by static_isotropic and
+    # static_anisotropic; we cannot distinguish them from parameter count
+    # alone, so we return the angle-resolved variant as the default.
     candidates = {
-        "static": 3,
+        "static_anisotropic": 3,
         "laminar_flow": 7,
     }
     for candidate_mode, n_phys in candidates.items():
         if n_params in {n_phys + 2, 2 * n_angles + n_phys}:
             return candidate_mode
 
-    # Default to static for backward compatibility
     logger.debug(
-        "Unable to infer analysis_mode from params=%s angles=%s; defaulting to static",
+        "Unable to infer analysis_mode from params=%s angles=%s; defaulting to static_anisotropic",
         n_params,
         n_angles,
     )
-    return "static"
+    return "static_anisotropic"
 
 
 def get_physical_param_count(analysis_mode: str) -> int:
     """Get number of physical parameters for analysis mode.
 
     Args:
-        analysis_mode: 'static' or 'laminar_flow'
+        analysis_mode: 'static_anisotropic', 'static_isotropic', or 'laminar_flow'
 
     Returns:
         Number of physical parameters
@@ -234,13 +238,14 @@ def get_physical_param_count(analysis_mode: str) -> int:
     Raises:
         ValueError: If mode is unknown
     """
-    if analysis_mode == "static":
+    if analysis_mode in ("static_anisotropic", "static_isotropic"):
         return 3  # D0, alpha, D_offset
     elif analysis_mode == "laminar_flow":
         return 7  # D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0
     else:
         raise ValueError(
-            f"Unknown analysis_mode: '{analysis_mode}'. Expected 'static' or 'laminar_flow'"
+            f"Unknown analysis_mode: '{analysis_mode}'. "
+            "Expected 'static_anisotropic', 'static_isotropic', or 'laminar_flow'"
         )
 
 
@@ -256,7 +261,7 @@ def extract_parameters_from_result(
     Args:
         parameters: Full parameter array from optimization
         n_angles: Number of phi angles
-        analysis_mode: 'static' or 'laminar_flow'
+        analysis_mode: 'static_anisotropic', 'static_isotropic', or 'laminar_flow'
 
     Returns:
         Tuple of (contrasts, offsets, physical_params, scalar_expansion_used)

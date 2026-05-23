@@ -25,7 +25,7 @@ def _make_controller(analysis_mode: str | None = None):
     )
 
 
-@pytest.mark.parametrize("homodyne_mode", ["static", "static_isotropic", "laminar_flow"])
+@pytest.mark.parametrize("homodyne_mode", ["static_anisotropic", "static_isotropic", "laminar_flow"])
 def test_shear_layer_active_for_homodyne(homodyne_mode):
     """Layer 5 is active for every homodyne analysis_mode."""
     controller = _make_controller(analysis_mode=homodyne_mode)

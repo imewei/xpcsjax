@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 # T055: Module-level logger for parameter registry
 logger = get_logger(__name__)
 
-AnalysisMode = Literal["static", "static_isotropic", "laminar_flow", "two_component"]
+AnalysisMode = Literal["static_anisotropic", "static_isotropic", "laminar_flow", "two_component"]
 
 
 @dataclass(frozen=True)
@@ -125,10 +125,10 @@ class ParameterRegistry:
     Examples
     --------
     >>> registry = ParameterRegistry()
-    >>> registry.get_param_names("static")
+    >>> registry.get_param_names("static_anisotropic")
     ['D0', 'alpha', 'D_offset']
 
-    >>> registry.get_all_param_names("static", n_angles=3, include_scaling=True)
+    >>> registry.get_all_param_names("static_anisotropic", n_angles=3, include_scaling=True)
     ['contrast_0', 'contrast_1', 'contrast_2',
      'offset_0', 'offset_1', 'offset_2',
      'D0', 'alpha', 'D_offset']
@@ -395,7 +395,7 @@ class ParameterRegistry:
 
     # Analysis mode definitions
     _MODE_PARAMS: dict[str, list[str]] = {
-        "static": ["D0", "alpha", "D_offset"],
+        "static_anisotropic": ["D0", "alpha", "D_offset"],
         "static_isotropic": ["D0", "alpha", "D_offset"],
         "laminar_flow": [
             "D0",
@@ -513,7 +513,7 @@ class ParameterRegistry:
         Parameters
         ----------
         analysis_mode : str
-            Analysis mode: 'static', 'static_isotropic', or 'laminar_flow'
+            Analysis mode: 'static_anisotropic', 'static_isotropic', or 'laminar_flow'
 
         Returns
         -------
@@ -783,8 +783,8 @@ class ParameterRegistry:
         """Normalize analysis mode string.
 
         Accepts canonical names and a few synonyms:
-        - 'static' / containing 'static' → 'static'
         - containing 'static' + 'isotropic' → 'static_isotropic'
+        - containing 'static' (incl. 'static_anisotropic') → 'static_anisotropic'
         - containing 'laminar' → 'laminar_flow'
         - 'two_component' or 'heterodyne' (any case) → 'two_component'
         """
@@ -792,7 +792,7 @@ class ParameterRegistry:
         if "static" in mode_lower and "isotropic" in mode_lower:
             return "static_isotropic"
         elif "static" in mode_lower:
-            return "static"
+            return "static_anisotropic"
         elif "laminar" in mode_lower:
             return "laminar_flow"
         elif "two_component" in mode_lower or "two-component" in mode_lower or "heterodyne" in mode_lower:
@@ -800,7 +800,7 @@ class ParameterRegistry:
         else:
             raise ValueError(
                 f"Unknown analysis mode: {mode}. "
-                f"Expected 'static', 'static_isotropic', 'laminar_flow', or 'two_component'"
+                f"Expected 'static_anisotropic', 'static_isotropic', 'laminar_flow', or 'two_component'"
             )
 
 

@@ -11,7 +11,7 @@ import re
 from xpcsjax.config.parameter_manager import ParameterManager
 from xpcsjax.config.parameter_registry import get_bounds, get_param_names
 
-ANALYSIS_MODES = ("static", "static_isotropic", "laminar_flow")
+ANALYSIS_MODES = ("static_anisotropic", "static_isotropic", "laminar_flow")
 
 
 def test_no_inline_bound_constants_in_manager() -> None:

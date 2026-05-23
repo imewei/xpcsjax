@@ -77,7 +77,7 @@ class HomodyneModel:
     stator_rotor_gap : float
         Sample-detector distance [Å]
     analysis_mode : str
-        Analysis mode ("static", "laminar_flow")
+        Analysis mode ("static_anisotropic", "static_isotropic", "laminar_flow")
 
     Examples
     --------

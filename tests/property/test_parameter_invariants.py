@@ -16,7 +16,7 @@ from xpcsjax.config.parameter_registry import (
 )
 
 KNOWN_MODES: tuple[AnalysisMode, ...] = (
-    "static",
+    "static_anisotropic",
     "static_isotropic",
     "laminar_flow",
     "two_component",
@@ -96,7 +96,7 @@ def test_heterodyne_synonyms_all_normalize(synonym: str):
     assert len(names) == 14, f"synonym {synonym!r} resolved to {len(names)} params"
 
 
-@given(st.sampled_from(["static", "static_isotropic", "laminar_flow"]))
+@given(st.sampled_from(["static_anisotropic", "static_isotropic", "laminar_flow"]))
 @settings(max_examples=10)
 def test_homodyne_modes_have_expected_param_counts(mode: str):
     """Static modes: 3 params. Laminar: 7 params."""

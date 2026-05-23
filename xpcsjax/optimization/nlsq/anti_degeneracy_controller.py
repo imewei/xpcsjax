@@ -61,12 +61,12 @@ logger = get_logger(__name__)
 # Map: layer class-name -> set of analysis_modes where it is ACTIVE.
 # A layer NOT listed here is active for all modes (default-active).
 # ShearSensitivityWeighting is homodyne-specific (laminar_flow has the shear rate
-# in its kernel; static / static_isotropic still belong to the homodyne family and
-# previously ran with this layer wired in). For heterodyne (two_component) there is
-# no shear rate to weight, so Layer 5 short-circuits.
+# in its kernel; static_anisotropic / static_isotropic still belong to the homodyne
+# family and previously ran with this layer wired in). For heterodyne
+# (two_component) there is no shear rate to weight, so Layer 5 short-circuits.
 _LAYER_GATES: dict[str, frozenset[str]] = {
     "ShearSensitivityWeighting": frozenset({
-        "static", "static_isotropic", "laminar_flow",
+        "static_anisotropic", "static_isotropic", "laminar_flow",
     }),
 }
 
@@ -294,7 +294,7 @@ class AntiDegeneracyController:
         is_laminar_flow : bool
             Whether this is laminar_flow mode.
         analysis_mode : str | None
-            Model lineage ("static", "static_isotropic", "laminar_flow",
+            Model lineage ("static_anisotropic", "static_isotropic", "laminar_flow",
             "two_component"). Threaded into the controller so Task 29's
             ``_LAYER_GATES`` can short-circuit homodyne-only layers
             (currently Layer 5) for heterodyne fits. ``None`` preserves

@@ -65,7 +65,7 @@ class ParameterManager:
     config_dict : dict, optional
         Configuration dictionary. If None, uses hardcoded defaults.
     analysis_mode : str, optional
-        Analysis mode ('static', 'laminar_flow'). Auto-detected from config if not provided.
+        Analysis mode ('static_anisotropic', 'static_isotropic', 'laminar_flow'). Auto-detected from config if not provided.
 
     Examples
     --------
@@ -541,7 +541,7 @@ class ParameterManager:
 
         Examples
         --------
-        >>> pm = ParameterManager(config_dict, "static")
+        >>> pm = ParameterManager(config_dict, "static_anisotropic")
         >>> pm.get_effective_parameter_count()
         3
         """

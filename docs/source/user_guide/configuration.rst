@@ -58,11 +58,11 @@ Top-level keys
 ~~~~~~~~~~~~~~
 
 ``analysis_mode``
-    String selecting the physics model. One of ``"static"``,
-    ``"static_isotropic"``, ``"static_anisotropic"``, ``"laminar_flow"``,
-    ``"two_component"``, ``"heterodyne"``. Drives all dispatch in
-    :func:`xpcsjax.optimization.nlsq.fit_nlsq` and decides which parameter registry is
-    used.
+    String selecting the physics model. One of ``"static_anisotropic"``,
+    ``"static_isotropic"``, ``"laminar_flow"``, ``"two_component"``
+    (or its synonym ``"heterodyne"``). Drives all dispatch in
+    :func:`xpcsjax.optimization.nlsq.fit_nlsq` and decides which parameter
+    registry is used.
 
 ``experimental_data``
     Beamline-shaped block describing the source HDF5 file and any
