@@ -10,13 +10,22 @@
 #   D(t) = D0 · t^alpha + D_offset
 #   c2(t1, t2) = offset + contrast · |g1|^2     [single (contrast, offset) pair]
 #
-# The only difference from static_anisotropic is in scaling treatment:
-#   - anisotropic: per-angle (contrast_i, offset_i) — 3 + 2·N_phi parameters
-#   - isotropic:   one (contrast, offset) shared across angles — 3 + 2 params
-# Choose isotropic when the angular variation is negligible (single q-ring,
-# or pre-validated isotropic sample).
+# WHEN TO USE STATIC_ISOTROPIC vs STATIC_ANISOTROPIC:
+# ┌────────────────────────────────────────────────────┬──────────────────────┐
+# │ Situation                                          │ Pick                 │
+# ├────────────────────────────────────────────────────┼──────────────────────┤
+# │ Sample known isotropic, single q-ring, single phi  │ static_isotropic     │
+# │ Multiple phi angles but contrast varies negligibly │ static_isotropic     │
+# │ Detector geometry imposes per-angle contrast       │ static_anisotropic   │
+# │ Sample has preferred orientation                   │ static_anisotropic   │
+# │ Not sure                                           │ static_anisotropic   │
+# └────────────────────────────────────────────────────┴──────────────────────┘
+# Total parameter count:
+#   anisotropic: 3 physical + 2·N_phi scaling
+#   isotropic:   3 physical + 2 (one shared) scaling
 #
 # Scope: xpcsjax is NLSQ-only. Bayesian sampling is permanently out of scope.
+# For Bayesian XPCS analysis, use the upstream `homodyne` package.
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -171,25 +180,45 @@ parameter_space:
 # -----------------------------------------------------------------------------
 # OPTIMIZATION (NLSQ-only)
 # -----------------------------------------------------------------------------
+# Strategy selection is AUTOMATIC based on dataset size + available memory:
+#   < 1M points     → STANDARD          (direct curve_fit)
+#   1M–10M          → LARGE             (optimized curve_fit_large)
+#   10M–100M        → CHUNKED           (memory-bounded chunks)
+#   > 100M          → HYBRID_STREAMING  (checkpoint/resume, fault tolerant)
+#
+# Loss function selection guide:
+#   "linear"    Clean, well-characterized data    (fastest)
+#   "soft_l1"   Typical XPCS data                 (RECOMMENDED default) ⭐
+#   "huber"     Few outliers                      (quadratic + linear hybrid)
+#   "cauchy"    Severe outlier contamination      (heavy-tail robust)
+#   "arctan"    Extreme outliers                  (bounded, very robust)
+#
+# For static_isotropic, parameters are well-scaled (3 params spanning
+# ~10⁰–10³), so x_scale="jac" (automatic) is sufficient. See the static
+# anisotropic / laminar_flow templates for x_scale_map diagnostic guidance.
 optimization:
   method: "nlsq"
 
   nlsq:
-    workflow: "auto"
-    goal: "quality"
+    workflow: "auto"              # informational only — xpcsjax routes itself
+    goal: "quality"               # "quality" | "robust" | "fast" | "memory_efficient"
 
-    memory_fraction: 0.75
-    # memory_threshold_gb: 48.0
+    # Memory routing — adaptive percentage (preferred) OR fixed GB threshold
+    memory_fraction: 0.75         # use 75% of available RAM
+    # memory_threshold_gb: 48.0   # OR explicit threshold
 
+    # Convergence — default 1e-8 is right for production
     max_iterations: 10000
-    tolerance: 1.0e-8
+    tolerance: 1.0e-8             # ftol
     xtol: 1.0e-8
     gtol: 1.0e-8
     trust_region_scale: 1.0
     verbose: false
 
+    # soft_l1 is the recommended default for XPCS data — see table above
     loss: "soft_l1"
 
+    # Parameter scaling — "jac" is fine for 3 well-scaled params
     x_scale: "jac"
     x_scale_map: null
 
@@ -204,15 +233,26 @@ optimization:
       check_gradients: true
       log_jacobian_norms: false
 
-    # Isotropic = one (contrast, offset) — anti-degeneracy still applies
-    # at low cost. per_angle_mode="constant" forces a single shared pair.
+    # -----------------------------------------------------------------------
+    # ANTI-DEGENERACY — isotropic mode
+    # -----------------------------------------------------------------------
+    # The whole point of isotropic mode is "one (contrast, offset) shared
+    # across angles" — so per_angle_mode is hard-pinned to "constant" with
+    # threshold=1, which forces the constant-per-angle path to engage for
+    # any n_phi >= 1. Other modes ("auto", "fourier", "individual") would
+    # silently re-introduce per-angle scaling and defeat the purpose.
+    #
+    # Parameter count (isotropic, any n_phi):
+    #   constant:  3 params  (3 physical only — scaling FROZEN per-angle)
+    #
+    # Hierarchical / shear_weighting are not applicable here (no shear).
     anti_degeneracy:
       enable: true
 
-      per_angle_mode: "constant"  # one shared (contrast, offset) — true isotropic
-      constant_scaling_threshold: 1
-      fourier_order: 2
-      fourier_auto_threshold: 6
+      per_angle_mode: "constant"           # FIXED for isotropic — do not change
+      constant_scaling_threshold: 1        # engage constant scaling immediately
+      fourier_order: 2                     # unused in constant mode
+      fourier_auto_threshold: 6            # unused in constant mode
 
       hierarchical:
         enable: false
@@ -236,6 +276,14 @@ optimization:
         consecutive_triggers: 5
         response: "warn"
 
+    # -----------------------------------------------------------------------
+    # CMA-ES — not recommended for isotropic
+    # -----------------------------------------------------------------------
+    # The 3-param isotropic problem is unimodal in practice and well-scaled.
+    # CMA-ES adds population-based exploration overhead with little benefit
+    # for a 3-D parameter space. Toggle on only if the fit is reproducibly
+    # stuck on a bad local minimum (rare for static isotropic).
+    # REQUIRES: pip install "nlsq[evosax]"
     cmaes:
       enable: false
       preset: "cmaes"
@@ -261,6 +309,13 @@ optimization:
       refinement_max_nfev: 500
       refinement_loss: "linear"
 
+    # -----------------------------------------------------------------------
+    # MULTI-START — usually unnecessary for isotropic
+    # -----------------------------------------------------------------------
+    # The 3-D parameter space is simple enough that a single well-chosen
+    # initial point usually suffices. Enable multi_start with n_starts=5–10
+    # only if you want LHS exploration to confirm uniqueness of the minimum.
+    # DISABLE when cmaes.enable=true — they're redundant.
     multi_start:
       enable: false
       n_starts: 5                 # fewer starts — minimal param space
@@ -273,6 +328,15 @@ optimization:
       refinement_ftol: 1.0e-12
       degeneracy_threshold: 0.1
 
+    # -----------------------------------------------------------------------
+    # HYBRID STREAMING — auto-activates for >10M points
+    # -----------------------------------------------------------------------
+    # Four-phase pipeline: normalize → L-BFGS warmup → streaming Gauss-Newton
+    # → denormalize. Memory bounded at ~2 GB regardless of dataset size,
+    # ~10× fewer iterations than direct LM.
+    # The 4-layer warmup defense (below) prevents L-BFGS divergence on
+    # warm-starts from good initial guesses. Leave the defaults — they
+    # have been tuned against real datasets.
     hybrid_streaming:
       enable: true
       normalize: true
@@ -291,6 +355,11 @@ optimization:
       verbose: 1
       log_frequency: 1
 
+      # 4-layer warmup defense (NLSQ 0.3.6+) — keep all 4 enabled.
+      # L1: skip warmup if loss is already small (well-chosen warm-start)
+      # L2: scale learning rate by initial loss quality
+      # L3: abort if cost increases > 5% during warmup
+      # L4: clip per-iteration step to fraction of normalized range
       enable_warm_start_detection: true
       warm_start_threshold: 0.01
       enable_adaptive_warmup_lr: true

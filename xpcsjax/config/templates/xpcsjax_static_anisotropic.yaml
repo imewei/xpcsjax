@@ -122,9 +122,25 @@ phi_filtering:
 # -----------------------------------------------------------------------------
 # INITIAL PARAMETERS
 # -----------------------------------------------------------------------------
-# values: null  →  use mid-bounds from parameter_space (recommended)
-# values: [..]  →  list of 3 floats matching parameter_names order
-# per_angle_scaling.contrast / .offset: null → quantile-based init per angle
+# Three knobs control how the optimizer starts:
+#   values:        starting point for the 3 physical parameters
+#                  null = use mid-bounds from parameter_space (safe default)
+#                  list = explicit starting point matching parameter_names order
+#   per_angle_scaling: starting (contrast, offset) per angle
+#                  null = quantile-based init from data (safe default)
+#                  list = explicit per-angle values, length = number of phi angles
+#   active_parameters: subset of the 3 to optimize; the rest are frozen
+#                  null = optimize all listed in parameter_names
+#                  list = e.g. ["D0", "alpha"] to fit only D0/alpha and freeze D_offset
+#   fixed_parameters: explicit value overrides for frozen params
+#                  null = use values from `values` for any frozen params
+#                  dict = e.g. {"D_offset": 0.0} forces D_offset to zero
+#
+# Physical guidance for initial values:
+#   D0     ~ 1000 Å²/s     (sub-µm colloids in water; widen for larger/smaller systems)
+#   alpha  ~ -1.2          (subdiffusion is common in equilibrium static samples)
+#            0.5           (mild superdiffusion under shear — use laminar_flow for that)
+#   D_offset ~ 0           (small baseline; large nonzero values are rare and suspicious)
 initial_parameters:
   parameter_names:
     - D0
@@ -132,11 +148,11 @@ initial_parameters:
     - D_offset
 
   values: null
-  # Example: [1000.0, 0.5, 10.0]
+  # Example: [1000.0, -1.2, 0.0]    # Typical equilibrium subdiffusion start
 
   per_angle_scaling:
-    contrast: null   # null = quantile init, or [0.05, 0.06] for 2 angles
-    offset:   null   # null = quantile init, or [1.0, 0.99] for 2 angles
+    contrast: null   # null = quantile init from data, or [0.05, 0.06] for 2 angles
+    offset:   null   # null = quantile init from data, or [1.0, 0.99] for 2 angles
 
   units:
     - "Å²/s"
@@ -190,24 +206,54 @@ parameter_space:
 # -----------------------------------------------------------------------------
 # OPTIMIZATION (NLSQ-only)
 # -----------------------------------------------------------------------------
-# Strategy is selected automatically by xpcsjax.optimization.nlsq.select_nlsq_strategy
-# based on memory budget and dataset size:
-#   < 1M points  → STANDARD       (direct curve_fit)
-#   1M–10M       → LARGE          (optimized curve_fit_large)
-#   10M–100M     → CHUNKED        (memory-bounded chunks)
-#   > 100M       → HYBRID_STREAMING (checkpoint/resume, fault tolerant)
+# Strategy selection is AUTOMATIC — xpcsjax.optimization.nlsq.select_nlsq_strategy
+# picks the right routine based on dataset size AND available memory.
+#
+# STRATEGY SELECTION TABLE:
+# ┌────────────────┬────────────────────┬─────────────────────────────────────┐
+# │ Dataset Size   │ Strategy           │ Description                         │
+# ├────────────────┼────────────────────┼─────────────────────────────────────┤
+# │ < 1M points    │ STANDARD           │ Direct nlsq.CurveFit                │
+# │ 1M–10M points  │ LARGE              │ Optimized curve_fit_large           │
+# │ 10M–100M pts   │ CHUNKED            │ Progress bar, memory-bounded chunks │
+# │ > 100M points  │ HYBRID_STREAMING   │ Checkpoint/resume, fault tolerant   │
+# └────────────────┴────────────────────┴─────────────────────────────────────┘
+#
+# Memory override: If estimated Jacobian memory > memory_threshold, the
+# selector escalates to streaming regardless of dataset size.
+# Estimate: J memory ≈ (n_points × n_params × 8 bytes) × 6.5 overhead factor.
+#
+# xpcsjax always uses nlsq.CurveFit directly (NOT NLSQ's higher-level fit()
+# or MemoryBudgetSelector). NLSQ's WorkflowSelector was removed in v0.6.0.
 optimization:
   method: "nlsq"
 
   nlsq:
-    workflow: "auto"
+    workflow: "auto"              # informational only — xpcsjax routes itself
     goal: "quality"               # "quality" | "robust" | "fast" | "memory_efficient"
+                                  # quality: strictest tolerances (default for production)
+                                  # robust:  balanced quality + convergence
+                                  # fast:    relaxed tolerances, faster on noisy data
+                                  # memory_efficient: low-RAM environments
 
-    # Memory routing — choose one:
+    # -----------------------------------------------------------------------
+    # MEMORY ROUTING — choose ONE
+    # -----------------------------------------------------------------------
+    # Adaptive:  memory_fraction (use a percentage of available RAM)
+    # Fixed:     memory_threshold_gb (use an explicit GB threshold)
+    # Override via env: NLSQ_MEMORY_FRACTION=0.5 forces 50% on any run.
     memory_fraction: 0.75         # use 75% of available RAM
-    # memory_threshold_gb: 48.0   # OR an explicit threshold
+    # memory_threshold_gb: 48.0   # OR fixed 48 GB threshold
 
-    # Convergence
+    # -----------------------------------------------------------------------
+    # CONVERGENCE — all must be > 0
+    # -----------------------------------------------------------------------
+    # max_iterations: bump to 20k–30k if you see "did not converge" warnings
+    # tolerance / ftol: function-value tolerance (relative change in cost)
+    # xtol: parameter-value tolerance (relative change in x)
+    # gtol: gradient norm tolerance (when partial derivatives are ~0)
+    # Default 1e-8 is right for production. Tighten to 1e-12 for paper-grade
+    # results; loosen to 1e-4 only for exploration (impacts accuracy).
     max_iterations: 10000
     tolerance: 1.0e-8             # ftol
     xtol: 1.0e-8
@@ -215,10 +261,35 @@ optimization:
     trust_region_scale: 1.0
     verbose: false
 
-    # Loss function — soft_l1 is the recommended default for XPCS data
+    # -----------------------------------------------------------------------
+    # LOSS FUNCTION
+    # -----------------------------------------------------------------------
+    # Controls how outliers affect the fit (all JIT-compiled in JAX).
+    #
+    # SELECTION GUIDE:
+    # ┌──────────────────────────────┬───────────────┬────────────────────────┐
+    # │ Data Quality                 │ Recommended   │ Rationale              │
+    # ├──────────────────────────────┼───────────────┼────────────────────────┤
+    # │ Clean, well-characterized    │ "linear"      │ Fastest; optimal MLE   │
+    # │ Typical XPCS data            │ "soft_l1"  ⭐ │ Smooth L1 approximation│
+    # │ Few outliers/artifacts       │ "huber"       │ Quadratic+linear hybrid│
+    # │ Severe contamination         │ "cauchy"      │ Heavy-tail robust      │
+    # │ Extreme outliers             │ "arctan"      │ Bounded, very robust   │
+    # └──────────────────────────────┴───────────────┴────────────────────────┘
+    # soft_l1 ρ(z) = 2(√(1+z) − 1) is the recommended default for XPCS.
     loss: "soft_l1"               # "linear" | "huber" | "soft_l1" | "cauchy" | "arctan"
 
-    # Parameter scaling — null = automatic Jacobian-based ("jac")
+    # -----------------------------------------------------------------------
+    # PARAMETER SCALING (x_scale_map)
+    # -----------------------------------------------------------------------
+    # Fixes gradient imbalance when parameters span orders of magnitude.
+    # SYMPTOM:    Early convergence, certain params don't move.
+    # DIAGNOSIS:  python scripts/diagnose_gradients.py --results-dir ./xpcsjax_results
+    # FIX:        Paste diagnose_gradients.py output below as x_scale_map.
+    #
+    # For static modes the 3 parameters are well-scaled (all ~10⁰–10³ in
+    # magnitude), so "jac" (Jacobian-based automatic) is usually fine.
+    # Laminar_flow / two_component routinely need an explicit map.
     x_scale: "jac"
     x_scale_map: null
 
@@ -234,43 +305,97 @@ optimization:
       log_jacobian_norms: false
 
     # -----------------------------------------------------------------------
-    # ANTI-DEGENERACY — for static modes the structural degeneracy is mild
-    # (no shear cancellation), so the default 4-layer defense is sufficient.
-    # L5 shear-weighting is laminar_flow-only and has no effect here.
+    # ANTI-DEGENERACY DEFENSE SYSTEM
     # -----------------------------------------------------------------------
+    # Comprehensive solution for structural degeneracy when per-angle scaling
+    # is fit jointly with physical parameters.
+    #
+    # ROOT CAUSES ADDRESSED:
+    #   1. Structural Degeneracy: per-angle (contrast, offset) can absorb
+    #      physical-parameter signals if naively fit jointly (worse with N_phi)
+    #   2. Gradient Cancellation: only in laminar_flow — shear gradient
+    #      changes sign across angles (handled by L5, off for static)
+    #   3. Ineffective Regularization: previously λ was too weak (now CV-based)
+    #
+    # PER-ANGLE MODE — controls how (contrast, offset) varies with angle:
+    #   "auto"        Quantile-init averaged then OPTIMIZED jointly  →  3 + 2 params
+    #                 Auto-selected when n_phi >= constant_scaling_threshold.
+    #   "constant"    Per-angle (β, o) FROZEN from quantile estimate →  3 params
+    #                 (physical-only optimization)
+    #   "fourier"     (β, o) as truncated Fourier series             →  3 + 2·(2K+1)
+    #   "individual"  Independent per-angle (β_k, o_k), optimized    →  3 + 2·n_phi
+    #                 Prone to absorption for many angles — use with caution.
+    #
+    # PARAMETER COUNT EXAMPLES (static, n_phi=10, fourier_order=2):
+    #   constant:    3 params (β, o frozen per-angle from quantile)
+    #   auto:        5 params (3 physical + 2 averaged scaling)
+    #   fourier:    13 params (3 physical + 10 Fourier coeffs)
+    #   individual: 23 params (3 physical + 20 per-angle scaling)
+    #
+    # For static_anisotropic the default 4-layer defense is sufficient.
+    # L5 shear-weighting is laminar_flow-only and has no block here.
     anti_degeneracy:
       enable: true
 
-      per_angle_mode: "auto"      # "auto" | "constant" | "fourier" | "individual"
-      constant_scaling_threshold: 3
-      fourier_order: 2
-      fourier_auto_threshold: 6
+      per_angle_mode: "auto"               # "auto" | "constant" | "fourier" | "individual"
+      constant_scaling_threshold: 3        # use averaged constant scaling when n_phi >= this
+      fourier_order: 2                     # number of Fourier harmonics K
+      fourier_auto_threshold: 6            # min angles before fourier mode considered
 
+      # ---- L2 hierarchical (alternates physical/per-angle solves) ----
+      # Not needed for static (no shear), but harmless if enabled.
       hierarchical:
-        enable: false             # not needed for static (no shear)
+        enable: false                      # not needed for static — no shear
         max_outer_iterations: 5
         outer_tolerance: 1.0e-6
         physical_max_iterations: 100
         per_angle_max_iterations: 50
 
+      # ---- L3 adaptive regularization (CV-based) ----
+      # Off by default — static fits rarely need extra regularization.
+      # Enable if you see (contrast_i, offset_i) absorbing the diffusion signal.
       regularization:
         enable: false
-        mode: "relative"
-        lambda: 1.0
-        target_cv: 0.10
-        target_contribution: 0.10
-        max_cv: 0.20
+        mode: "relative"                   # "absolute" | "relative" | "auto"
+        lambda: 1.0                        # base regularization strength
+        target_cv: 0.10                    # target 10% CV across angles
+        target_contribution: 0.10          # target 10% of MSE contribution
+        max_cv: 0.20                       # ceiling on per-angle CV
         auto_tune_lambda: true
 
+      # ---- L4 gradient-collapse detection ----
+      # Monitors ratio |∇_physical| / |∇_scaling| — trips when scaling
+      # absorbs the gradient signal. For static, "warn" is enough.
       gradient_monitoring:
         enable: true
-        ratio_threshold: 0.01
-        consecutive_triggers: 5
-        response: "warn"          # "warn" | "hierarchical" | "reset" | "abort"
+        ratio_threshold: 0.01              # trigger if |∇_phys| / |∇_scaling| < 0.01
+        consecutive_triggers: 5            # must trip N times in a row
+        response: "warn"                   # "warn" | "hierarchical" | "reset" | "abort"
 
     # -----------------------------------------------------------------------
-    # CMA-ES — disabled by default (static parameters are well-scaled)
+    # CMA-ES GLOBAL OPTIMIZATION
     # -----------------------------------------------------------------------
+    # Covariance Matrix Adaptation Evolution Strategy — population-based
+    # global optimizer that adapts a covariance matrix to parameter scales.
+    #
+    # WHEN TO USE:
+    #   - Parameters spanning vastly different scales (scale_ratio > 1e3–1e6)
+    #     → Static modes rarely need this (params all ~10⁰–10³)
+    #     → Laminar_flow / two_component routinely DO need it
+    #   - When multi-start finds inconsistent local minima
+    #   - When NLSQ alone gets stuck on a poor basin of attraction
+    #   - Auto-engaged when auto_select=true and scale_ratio > scale_threshold
+    #
+    # TWO-PHASE ARCHITECTURE:
+    #   Phase 1: CMA-ES Global Search
+    #     Population evolves with BIPOP restarts and covariance adaptation
+    #   Phase 2: NLSQ-TRF Refinement (refine_with_nlsq: true)
+    #     Local polish from CMA-ES best with tighter tolerances (1e-10)
+    #
+    # REQUIRES: pip install "nlsq[evosax]"
+    #
+    # For static_anisotropic, leave disabled — gain is small for 3 well-scaled
+    # parameters. Toggle on only if your fit is reproducibly stuck.
     cmaes:
       enable: false
       preset: "cmaes"
@@ -297,8 +422,28 @@ optimization:
       refinement_loss: "linear"
 
     # -----------------------------------------------------------------------
-    # MULTI-START — useful for static modes when LHS exploration is desired
+    # MULTI-START OPTIMIZATION
     # -----------------------------------------------------------------------
+    # Explores parameter space from N starting points using Latin Hypercube
+    # Sampling (LHS) to find the global optimum and surface degeneracy.
+    #
+    # STRATEGY: FULL only (no subsampling per project requirements —
+    # numerical precision takes priority over speed).
+    #
+    # WORKFLOW:
+    #   1. Generate N_starts LHS points within the parameter bounds
+    #   2. (Optional) Screen — pre-filter poor starting points, keep top fraction
+    #   3. Refine — full NLSQ from each surviving start
+    #   4. (Optional) Tightly refine the top K solutions
+    #   5. Report best solution + flag near-degenerate minima (within
+    #      degeneracy_threshold * 100% of the best chi²)
+    #
+    # EXECUTION MODE (auto-selected):
+    #   < 500K points  →  Parallel (ProcessPoolExecutor, n_workers=0 means auto)
+    #   ≥ 500K points  →  Sequential (avoids pickling overhead on big arrays)
+    #
+    # NOTE: DISABLE multi_start when cmaes.enable=true — CMA-ES provides
+    # better global search through covariance adaptation.
     multi_start:
       enable: false
       n_starts: 10
@@ -314,46 +459,94 @@ optimization:
     # -----------------------------------------------------------------------
     # HYBRID STREAMING — auto-activates for >10M points
     # -----------------------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # HYBRID STREAMING OPTIMIZER
+    # -----------------------------------------------------------------------
+    # Four-phase optimizer for large datasets (>10M points):
+    #   Phase 0: Parameter normalization setup (handles different scales)
+    #   Phase 1: L-BFGS warmup with adaptive switching (gets close, fast)
+    #   Phase 2: Streaming Gauss-Newton (quadratic convergence, memory-bounded)
+    #   Phase 3: Denormalization + covariance transform back to original scale
+    #
+    # MEMORY: Bounded at ~2 GB regardless of dataset size — streams J^T J
+    # in chunks instead of materializing the full Jacobian.
+    # EXPECTED ITERATION COUNT: ~10× fewer than direct LM (110 vs 1000+).
+    #
+    # NORMALIZATION STRATEGIES:
+    #   "auto"   — let the solver pick based on problem characteristics
+    #   "bounds" — normalize to [0,1] using parameter_space bounds
+    #   "p0"     — normalize relative to the initial guess
+    #   "none"   — no normalization (only for already-balanced problems)
     hybrid_streaming:
       enable: true
       normalize: true
-      normalization_strategy: "auto"   # "auto" | "bounds" | "p0" | "none"
-      warmup_iterations: 200
-      max_warmup_iterations: 500
-      warmup_learning_rate: 0.001
-      gauss_newton_max_iterations: 100
+      normalization_strategy: "auto"        # "auto" | "bounds" | "p0" | "none"
+      warmup_iterations: 200                # L-BFGS iterations before switch check
+      max_warmup_iterations: 500            # force switch to Gauss-Newton after this
+      warmup_learning_rate: 0.001           # L-BFGS line search scale
+      gauss_newton_max_iterations: 100      # max Gauss-Newton iterations
       gauss_newton_tol: 1.0e-8
-      chunk_size: 10000
+      chunk_size: 10000                     # points per streaming J^T J chunk
       trust_region_initial: 1.0
-      regularization_factor: 1.0e-10
+      regularization_factor: 1.0e-10        # Tikhonov regularization for J^T J
       enable_checkpoints: true
       checkpoint_frequency: 100
-      validate_numerics: true
+      validate_numerics: true               # NaN/Inf detection
       verbose: 1
       log_frequency: 1
 
-      # 4-layer warmup-defense (NLSQ 0.3.6+)
+      # -------------------------------------------------------------------
+      # 4-LAYER WARMUP DEFENSE (NLSQ 0.3.6+)
+      # -------------------------------------------------------------------
+      # Prevents L-BFGS warmup from DIVERGING when starting from a good
+      # initial guess (e.g. warm-start from a previous fit). All layers
+      # are ENABLED BY DEFAULT — together they make warm-starts safe.
+      #
+      # Layer 1: Warm Start Detection
+      #   Skip warmup entirely if already at a good solution.
       enable_warm_start_detection: true
-      warm_start_threshold: 0.01
+      warm_start_threshold: 0.01            # skip warmup if loss/variance < this
+      # Layer 2: Adaptive Learning Rate
+      #   Scale LR based on initial loss quality so good starts step gently.
       enable_adaptive_warmup_lr: true
-      warmup_lr_refinement: 1.0e-6
-      warmup_lr_careful: 1.0e-5
+      warmup_lr_refinement: 1.0e-6          # LR for very good starts (rel_loss < 0.1)
+      warmup_lr_careful:    1.0e-5          # LR for moderate starts (rel_loss < 1.0)
+      # Layer 3: Cost-Increase Guard
+      #   Abort warmup if cost increases significantly (warmup is hurting).
       enable_cost_guard: true
-      cost_increase_tolerance: 0.05
+      cost_increase_tolerance: 0.05         # abort if loss rises > 5%
+      # Layer 4: Step Clipping
+      #   Limit max parameter change per iteration (fraction of normalized range).
       enable_step_clipping: true
-      max_warmup_step_size: 0.1
+      max_warmup_step_size: 0.1             # max step (fraction of normalized range)
 
+    # -----------------------------------------------------------------------
+    # FIT QUALITY VALIDATION
+    # -----------------------------------------------------------------------
+    # Post-optimization quality checks with configurable thresholds.
+    # Emits WARNINGS only — never raises. Use the log output to triage:
+    #   * reduced χ² > threshold     → fit quality is poor (model? noise?)
+    #   * bounds_hit                  → a parameter pinned at min/max
+    #                                    (often means bounds are too tight)
+    #   * max_restarts hit            → CMA-ES did not converge
+    #   * convergence_failure         → optimizer aborted before tolerance reached
     quality_validation:
       enable: true
-      reduced_chi_squared_threshold: 10.0
+      reduced_chi_squared_threshold: 10.0   # warn if χ²_red > 10
       warn_on_max_restarts: true
       warn_on_bounds_hit: true
       warn_on_convergence_failure: true
-      bounds_tolerance: 1.0e-9
+      bounds_tolerance: 1.0e-9              # distance from bound that counts as "at bounds"
 
   # ---------------------------------------------------------------------------
-  # STREAMING (>100M points) — checkpoint / resume
+  # STREAMING (>100M points) — checkpoint / resume / fault tolerance
   # ---------------------------------------------------------------------------
+  # Auto-activates when dataset exceeds the streaming threshold. Maintains
+  # constant memory footprint with mid-run checkpoint/resume. If a batch
+  # fails (e.g. transient NaN), it is retried up to max_retries_per_batch
+  # times; the overall fit fails only if the success rate falls below
+  # min_success_rate. checkpoint_dir is local to the run; clean it between
+  # unrelated experiments.
   streaming:
     enable_checkpoints: true
     checkpoint_dir: "./checkpoints"
@@ -367,8 +560,19 @@ optimization:
     adaptive_batching: true
 
   # ---------------------------------------------------------------------------
-  # STRATIFICATION (angle-stratified chunking)
+  # STRATIFICATION — angle-stratified chunking (v2.2+)
   # ---------------------------------------------------------------------------
+  # Fixes per-angle scaling compatibility with NLSQ's chunking on large
+  # datasets. Without stratification, arbitrary chunks may exclude certain
+  # phi angles entirely → zero gradients for those per-angle parameters →
+  # silent optimization failure (0 iterations, unchanged params).
+  #
+  # Stratification REORGANIZES data so every chunk contains ALL phi angles,
+  # making the gradient well-defined everywhere. Overhead is ~1% (0.15s for
+  # 3M points). Set enabled="auto" and forget it.
+  #
+  # max_imbalance_ratio: if max(angle_count) / min(angle_count) exceeds this,
+  # stratification gives up and falls back to sequential per-angle solves.
   stratification:
     enabled: "auto"           # "auto" | true | false
     target_chunk_size: 100000
@@ -380,8 +584,21 @@ optimization:
     log_diagnostics: false
 
   # ---------------------------------------------------------------------------
-  # SEQUENTIAL — fallback for extreme angle imbalance
+  # SEQUENTIAL — per-angle optimization fallback (v2.2+)
   # ---------------------------------------------------------------------------
+  # Used when stratification cannot be applied (e.g. extreme angle imbalance
+  # exceeding stratification.max_imbalance_ratio). Strategy:
+  #   1. Split data by phi angle
+  #   2. Optimize each angle INDEPENDENTLY via nlsq.CurveFit (JAX-native)
+  #   3. Combine results with weighted averaging
+  #
+  # WEIGHTING OPTIONS:
+  #   "inverse_variance": w_i = 1/σ²_i  — optimal statistical weighting (default)
+  #   "uniform":          w_i = 1       — equal weight per angle (not recommended)
+  #   "n_points":         w_i = N_i     — weight by points per angle
+  #
+  # The overall fit fails if fewer than min_success_rate (default 0.5)
+  # of angles converge.
   sequential:
     min_success_rate: 0.5
     weighting: "inverse_variance"  # "inverse_variance" | "uniform" | "n_points"
@@ -409,9 +626,15 @@ optimization:
 # -----------------------------------------------------------------------------
 # NOISE ESTIMATION — disabled by default (Bayesian sub-tooling)
 # -----------------------------------------------------------------------------
-# When enabled, this runs the upstream Adam/NumPyro noise estimator. xpcsjax
-# itself does not ship a Bayesian sampler; leave disabled unless you have the
-# `homodyne` package installed and want to estimate per-angle noise variance.
+# When enabled, this runs an Adam-based noise variance estimator with a small
+# NumPyro posterior pass. xpcsjax itself does not ship a Bayesian sampler in
+# v0.1 — leave disabled unless you have the upstream `homodyne` package
+# installed and want estimated per-angle noise variance to weight the fit.
+# For most users, the default uniform weights are fine.
+#
+# MODELS:
+#   "per_angle"  — estimate σ_i for each angle independently
+#   "global"     — one σ shared across all angles (use for isotropic data)
 noise_estimation:
   enabled: false
   model: "per_angle"           # "per_angle" | "global"

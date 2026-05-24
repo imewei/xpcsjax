@@ -145,6 +145,17 @@ initial_parameters:
 
   values: null
   # Example: [1000.0, 0.5, 10.0, 0.01, 0.0, 0.0, 0.0]
+  #          [   D0 , α  ,   D₀ , γ̇₀  , β , γ̇off , φ₀]
+  #
+  # Physical guidance for laminar-flow initial values:
+  #   D0           ~ 1000 Å²/s     (sub-µm colloids in viscous fluid)
+  #   alpha        ~ 0.5           (mild superdiffusion under shear is common)
+  #   D_offset     ~ 10            (small Brownian baseline)
+  #   gamma_dot_t0 ~ 0.01 s⁻¹      (start near expected shear rate)
+  #   beta         ~ 0.0           (steady shear; ~0.5 for accelerating flow)
+  #   gamma_dot_t_offset ~ 0.0     (rarely nonzero)
+  #   phi0         ~ 0.0 degrees   (assume flow aligned with detector axis;
+  #                                  widen bounds if misalignment suspected)
 
   per_angle_scaling:
     contrast: null
@@ -161,8 +172,12 @@ initial_parameters:
 
   active_parameters: null
   fixed_parameters: null
-  # Common simplification: freeze the shear offsets if your experiment is
-  # near steady-state — {"gamma_dot_t_offset": 0.0, "beta": 0.0}
+  # Common simplification: freeze the shear time-dependence parameters for
+  # near-steady-state experiments — this cuts the problem from 7-D to 5-D
+  # and is much more stable:
+  #   fixed_parameters: {"gamma_dot_t_offset": 0.0, "beta": 0.0}
+  # Then the shear becomes γ̇(t) = γ̇₀ (constant), which is the textbook
+  # steady-state Couette assumption.
 
 # -----------------------------------------------------------------------------
 # PARAMETER SPACE — bounds match the xpcsjax registry
@@ -226,41 +241,81 @@ parameter_space:
       unit: "degrees"
 
 # -----------------------------------------------------------------------------
-# OPTIMIZATION (NLSQ-only)
+# OPTIMIZATION (NLSQ-only) — laminar_flow tuning
 # -----------------------------------------------------------------------------
+# Strategy selection is AUTOMATIC based on dataset size:
+#   < 1M  → STANDARD          1M–10M  → LARGE
+#   10M–100M  → CHUNKED       > 100M  → HYBRID_STREAMING
+#
+# Loss-function selection guide:
+#   "linear"    Clean, well-characterized data        (fastest)
+#   "soft_l1"   Typical XPCS data                     (RECOMMENDED default) ⭐
+#   "huber"     Few outliers                          (quadratic+linear hybrid)
+#   "cauchy"    Severe outlier contamination          (heavy-tail robust)
+#
+# LAMINAR-FLOW-SPECIFIC NOTES:
+#   * The shear-induced sinc² envelope along cos(phi−phi0) is HIGH-FREQUENCY
+#     in t1+t2 space. soft_l1 is a safer choice than linear because the
+#     envelope edges are sensitive to outliers.
+#   * Goal "robust" trades a small amount of precision for far better
+#     convergence on noisy or partially-saturated data — consider it for
+#     real-rheo-XPCS data where contrast is low.
+#   * For high-shear-rate / fast-oscillation data, you may need to bump
+#     max_iterations to 20k–30k.
 optimization:
   method: "nlsq"
 
   nlsq:
-    workflow: "auto"
-    goal: "quality"
+    workflow: "auto"              # informational only — xpcsjax routes itself
+    goal: "quality"               # "quality" | "robust" | "fast" | "memory_efficient"
 
+    # Memory routing — adaptive percentage (preferred) OR fixed GB threshold
     memory_fraction: 0.75
     # memory_threshold_gb: 48.0
 
+    # Convergence — bump max_iterations to 20k–30k for high-shear data
     max_iterations: 10000
-    tolerance: 1.0e-8
+    tolerance: 1.0e-8             # ftol
     xtol: 1.0e-8
     gtol: 1.0e-8
     trust_region_scale: 1.0
     verbose: false
 
+    # soft_l1 is recommended for the noisy envelope edges of shear-induced
+    # oscillations — see selection guide above
     loss: "soft_l1"
 
     # ----------------------------------------------------------------------
-    # PARAMETER SCALING — laminar flow needs careful x_scale_map
-    # The shear gradient can be 1000–10,000× larger than the diffusion
-    # gradient, which makes "jac" scaling premature-converge. If you see
-    # flat shear params after a fit, compute dataset-specific values via
-    # scripts/diagnose_gradients.py and paste them under x_scale_map.
+    # PARAMETER SCALING — LAMINAR FLOW SPECIFIC (the #1 user pitfall)
     # ----------------------------------------------------------------------
+    # Laminar-flow Jacobian columns can span 10+ orders of magnitude:
+    #   ∂χ²/∂D0           ~ 10⁰
+    #   ∂χ²/∂gamma_dot_t0 ~ 10⁻⁶   ← 6 orders smaller!
+    # With x_scale="jac" (automatic), the trust-region step is dominated
+    # by the largest gradient — and the shear params barely move. The
+    # fit then "converges" with flat shear params and bogus chi².
+    #
+    # SYMPTOM checklist (you need x_scale_map if you see ANY of these):
+    #   * gamma_dot_t0 stays at its initial value after a fit
+    #   * No oscillations visible in the predicted c2 surface
+    #   * Reduced chi² is much worse than expected
+    #   * Multi-start finds very different shear params from different seeds
+    #
+    # DIAGNOSIS RECIPE:
+    #   1. Run an initial NLSQ fit with x_scale="jac" and x_scale_map=null
+    #   2. python scripts/diagnose_gradients.py --results-dir ./xpcsjax_results
+    #   3. Paste the script's output into the x_scale_map block below
+    #   4. Re-run NLSQ. Shear params should now respond.
+    #
+    # Values shown below are an EXAMPLE from the C020 dataset (Nov 2025).
+    # Always compute dataset-specific values — bounds matter.
     x_scale: "jac"
     x_scale_map: null
-    # x_scale_map:
+    # x_scale_map:                  # uncomment + replace with diagnose output
     #   D0: 1.20
     #   alpha: 7.61e-4
     #   D_offset: 1.13
-    #   gamma_dot_t0: 3.71e-6
+    #   gamma_dot_t0: 3.71e-6       # ~6 orders smaller than D0 — see why?
     #   beta: 3.14e-4
     #   gamma_dot_t_offset: 9.30e-8
     #   phi0: 0.739
@@ -277,55 +332,126 @@ optimization:
       log_jacobian_norms: false
 
     # ----------------------------------------------------------------------
-    # ANTI-DEGENERACY — full 5-layer stack is recommended for laminar_flow
-    # L2 hierarchical: alternates physical/per-angle solves to prevent
-    #                  per-angle scaling from absorbing the shear signal.
-    # L5 shear_weighting: weights residuals by |cos(phi0−phi)| to prevent
-    #                     gradient cancellation across angles.
-    # CRITICAL: shear_weighting requires hierarchical.enable=true.
+    # ANTI-DEGENERACY DEFENSE SYSTEM — full 5-layer stack for laminar_flow
     # ----------------------------------------------------------------------
+    # Laminar_flow hits THREE root causes that the defense stack addresses:
+    #   1. Gradient Cancellation: the shear gradient ∂χ²/∂γ̇₀ flips sign
+    #      across phi angles. Without weighting, contributions from
+    #      different angles cancel and the optimizer cannot find γ̇₀.
+    #   2. Structural Degeneracy: per-angle (contrast, offset) can absorb
+    #      the shear oscillation signal if naively fit jointly. Worse
+    #      with more phi angles.
+    #   3. Scale Imbalance: D0 / γ̇₀ scale ratio is often > 1e6 (handled
+    #      above by x_scale_map; the rest is handled by the layers below).
+    #
+    # 5-LAYER DEFENSE (all engaged by default for laminar_flow):
+    #   L1: Fourier reparameterization (rarely needed; off by default)
+    #   L2: Hierarchical alternating optimization (REQUIRED for L5)
+    #   L3: Adaptive CV-based regularization (off; enable if L2+L5 insufficient)
+    #   L4: Gradient-collapse detection + auto-recovery
+    #   L5: Shear-sensitivity weighting — weight residuals by |cos(phi0−phi)|
+    #
+    # CRITICAL: L5 (shear_weighting) REQUIRES L2 (hierarchical.enable=true).
+    # Without hierarchical, shear_weighting has no effect.
+    #
+    # PER-ANGLE MODE — controls how (contrast, offset) varies with angle:
+    #   "auto"        Quantile-init averaged + jointly optimized   →  7 + 2 = 9 params
+    #                 (auto-selects when n_phi >= constant_scaling_threshold)
+    #   "constant"    Per-angle (β, o) FROZEN from quantile        →  7 params
+    #   "fourier"     (β, o) as truncated Fourier series           →  7 + 2·(2K+1)
+    #   "individual"  Independent per-angle (β_k, o_k), optimized  →  7 + 2·n_phi
+    #                 (prone to absorption; avoid for many angles)
+    #
+    # Parameter count examples (laminar_flow, n_phi=23, fourier_order=2):
+    #   constant:    7 params  (physical only)
+    #   auto:        9 params  (7 + 2 averaged scaling)
+    #   fourier:    17 params  (7 + 10 Fourier coeffs)
+    #   individual: 53 params  (7 + 46 per-angle scaling)
     anti_degeneracy:
       enable: true
 
-      per_angle_mode: "auto"           # auto → "constant" when n_phi >= threshold
+      per_angle_mode: "auto"               # auto → "constant" when n_phi >= threshold
       constant_scaling_threshold: 3
-      fourier_order: 2
-      fourier_auto_threshold: 6
+      fourier_order: 2                     # used only when per_angle_mode="fourier"
+      fourier_auto_threshold: 6            # min angles for fourier mode
 
+      # ---- L2 Hierarchical Optimization (REQUIRED for L5 shear_weighting) ----
+      # Alternates between (a) physical-params solve with scaling frozen,
+      # and (b) per-angle scaling solve with physics frozen. Breaks the
+      # absorption coupling and lets L5 weighting take effect.
       hierarchical:
-        enable: true                   # REQUIRED for shear_weighting (L5)
+        enable: true                       # CRITICAL: must be true for L5
         max_outer_iterations: 5
         outer_tolerance: 1.0e-6
         physical_max_iterations: 100
         per_angle_max_iterations: 50
 
+      # ---- L3 Adaptive Regularization (CV-based) ----
+      # Off by default — enable only if L2+L5 are insufficient. The
+      # "relative" mode scales lambda by data variance so it is invariant
+      # to data magnitude; auto-tune adjusts lambda during the solve.
       regularization:
         enable: false
-        mode: "relative"               # "absolute" | "relative" | "auto"
+        mode: "relative"                   # "absolute" | "relative" | "auto"
         lambda: 1.0
         target_cv: 0.10
         target_contribution: 0.10
         max_cv: 0.20
         auto_tune_lambda: true
 
+      # ---- L4 Gradient-Collapse Detection ----
+      # Monitors |∇_physical| / |∇_scaling|. If it falls below threshold for
+      # N consecutive iterations, the response action fires.
+      # For laminar_flow, response="hierarchical" auto-switches to the L2
+      # alternating solver, which usually recovers the fit.
       gradient_monitoring:
         enable: true
         ratio_threshold: 0.01
         consecutive_triggers: 5
-        response: "hierarchical"       # auto-switch to hierarchical solve on collapse
+        response: "hierarchical"           # "warn" | "hierarchical" | "reset" | "abort"
 
+      # ---- L5 Shear-Sensitivity Weighting (laminar_flow only) ----
+      # Weights residuals by w_i = max(|cos(phi0 − phi_i)|^alpha, min_weight)
+      # so that angles ALIGNED with the flow (where shear info lives) get
+      # more weight, and PERPENDICULAR angles (no shear signal) get the
+      # floor min_weight. This kills the gradient-cancellation problem.
+      #
+      # alpha=1.0 is linear |cos| weighting. Use 2.0 to up-weight more
+      # aggressively; rarely needed.
+      # min_weight=0.3 keeps perpendicular angles contributing to the
+      # diffusion fit (otherwise D0/alpha lose signal).
+      # update_frequency=50 re-computes weights using the current phi0
+      # estimate every 50 L-BFGS iterations.
       shear_weighting:
-        enable: true                   # L5 — laminar_flow only
-        alpha: 1.0                     # 1.0 = linear |cos| weighting
-        min_weight: 0.3
+        enable: true                       # L5 — laminar_flow ONLY
+        alpha: 1.0                         # 1.0 = linear |cos| weighting
+        min_weight: 0.3                    # floor for perpendicular angles
         update_frequency: 50
-        normalize: true
+        normalize: true                    # so mean weight = 1.0
 
     # ----------------------------------------------------------------------
-    # CMA-ES — strongly recommended when scale_ratio > scale_threshold
-    # Laminar flow has D0 ~ 1e3 vs gamma_dot_t0 ~ 1e-3, so scale_ratio
-    # often exceeds 1e6 and auto_select trips. Leave it enabled.
+    # CMA-ES GLOBAL OPTIMIZATION — strongly relevant for laminar_flow
     # ----------------------------------------------------------------------
+    # WHEN TO USE CMA-ES FOR LAMINAR_FLOW:
+    #   Laminar flow has D0 ~ 1e3 vs gamma_dot_t0 ~ 1e-3, so the natural
+    #   parameter scale_ratio is ~1e6 — well above scale_threshold=1000.
+    #   With auto_select=true, CMA-ES will engage automatically when needed.
+    #   Toggle enable: true if:
+    #     * Multi-start finds inconsistent local minima
+    #     * NLSQ alone keeps converging to clearly-wrong parameters
+    #     * You suspect the basin of attraction is multimodal
+    #
+    # TWO-PHASE ARCHITECTURE:
+    #   Phase 1: CMA-ES Global Search — population-based, with BIPOP restarts
+    #   Phase 2: NLSQ-TRF Refinement   — local polish from CMA-ES best
+    #                                     (refine_with_nlsq: true)
+    #
+    # PRESETS:
+    #   "cmaes-fast"    50 gen   — quick exploration
+    #   "cmaes"         100 gen  — balanced
+    #   "cmaes-global"  200 gen  — thorough (RECOMMENDED for laminar_flow)
+    #
+    # REQUIRES: pip install "nlsq[evosax]"
     cmaes:
       enable: false                    # toggle on when multi-start finds inconsistent minima
       preset: "cmaes-global"
@@ -351,7 +477,21 @@ optimization:
       refinement_max_nfev: 500
       refinement_loss: "linear"
 
-    # Multi-start is DISABLED when CMA-ES is enabled (they're redundant).
+    # ----------------------------------------------------------------------
+    # MULTI-START OPTIMIZATION
+    # ----------------------------------------------------------------------
+    # LHS-based exploration of the parameter space. Use INSTEAD OF CMA-ES,
+    # not in addition — multi-start and CMA-ES address the same problem
+    # (global search) with different mechanisms, and enabling both wastes
+    # compute. Pick one:
+    #   * CMA-ES for high scale-ratio problems (laminar_flow default)
+    #   * multi_start for moderate scale-ratio problems where you want
+    #     explicit degeneracy detection (the degeneracy_threshold flag
+    #     surfaces nearby competing minima)
+    #
+    # EXECUTION MODE (auto-selected):
+    #   < 500K points  → Parallel (ProcessPoolExecutor)
+    #   ≥ 500K points  → Sequential (avoids pickling overhead)
     multi_start:
       enable: false
       n_starts: 10
@@ -364,10 +504,19 @@ optimization:
       refinement_ftol: 1.0e-12
       degeneracy_threshold: 0.1
 
+    # ----------------------------------------------------------------------
+    # HYBRID STREAMING — large-dataset (>10M points) four-phase optimizer
+    # ----------------------------------------------------------------------
+    # Phase 0: Parameter normalization (handles wide scale ratios like D0/γ̇₀)
+    # Phase 1: L-BFGS warmup with adaptive switching
+    # Phase 2: Streaming Gauss-Newton (quadratic convergence, ~2 GB memory cap)
+    # Phase 3: Denormalize + covariance transform back to original scale
+    # Expected ~10× fewer iterations than direct LM for laminar_flow.
+    # The 4-layer warmup defense below keeps warm-starts from diverging.
     hybrid_streaming:
       enable: true
       normalize: true
-      normalization_strategy: "auto"
+      normalization_strategy: "auto"        # "auto" | "bounds" | "p0" | "none"
       warmup_iterations: 200
       max_warmup_iterations: 500
       warmup_learning_rate: 0.001
@@ -382,6 +531,13 @@ optimization:
       verbose: 1
       log_frequency: 1
 
+      # 4-layer warmup defense (NLSQ 0.3.6+) — keep all 4 enabled.
+      # Particularly important for laminar_flow where bad shear-param
+      # warm-starts can derail L-BFGS catastrophically.
+      # L1: skip warmup if loss already small
+      # L2: scale LR by initial loss quality
+      # L3: abort if cost rises > 5%
+      # L4: clip per-iteration step to fraction of normalized range
       enable_warm_start_detection: true
       warm_start_threshold: 0.01
       enable_adaptive_warmup_lr: true

@@ -169,6 +169,54 @@ initial_parameters:
   # Example (registry defaults):
   # [10000.0, 0.0, 0.0, 10000.0, 0.0, 0.0, 1000.0, 1.0, 0.0,
   #  0.5, 0.0, 0.0, 0.0, 0.0]
+  #
+  # ┌─────────────── PHYSICS BY PARAMETER GROUP ───────────────────────────┐
+  #
+  # REFERENCE TRANSPORT — J_r(t) = D0_ref · t^alpha_ref + D_offset_ref
+  #   Models the *reference* beam scatterer dynamics (typically a known
+  #   colloidal standard or a stationary scattering medium).
+  #     g1_r(t) = exp(−q² · J_r(t))
+  #   For a TRULY STATIC reference: fix all three to zero
+  #     fixed_parameters: {"D0_ref": 0.0, "alpha_ref": 0.0, "D_offset_ref": 0.0}
+  #
+  # SAMPLE TRANSPORT — J_s(t) = D0_sample · t^alpha_sample + D_offset_sample
+  #   Models the *sample* (the unknown system under study). These are the
+  #   primary scientific parameters of interest.
+  #     g1_s(t) = exp(−q² · J_s(t))
+  #   alpha interpretation (same for ref/sample):
+  #     α = 1   normal Brownian diffusion, MSD ∝ t
+  #     α < 1   subdiffusion (crowding, jamming, glassy)
+  #     α > 1   superdiffusion (active transport, convection)
+  #     α = 0   J(t) = D0 (constant, no time dependence)
+  #
+  # VELOCITY FIELD — v(t) = v0 · t^v_beta + v_offset
+  #   Relative velocity between reference and sample beams. Enters the
+  #   cross-term as a phase factor:
+  #     exp(i · q · cos(phi − phi0_het) · ∫ v(t') dt')
+  #   For CONSTANT VELOCITY (most common case): set v_beta=0, then
+  #     v(t) = v0 + v_offset
+  #   For flow reversal: v_offset can be negative.
+  #   ⚠  NAMING: xpcsjax uses `v_beta` (NOT `beta`) to disambiguate from
+  #              the homodyne shear `beta`. Don't try to use `beta` here.
+  #
+  # SAMPLE FRACTION — f_s(t) = clip(f0·exp(f1·(t−f2)) + f3, 0, 1)
+  #   Time-dependent relative scattering power of sample vs reference.
+  #     f_r(t) = 1 − f_s(t)
+  #   For CONSTANT FRACTION (most common): set f1=f2=f3=0, then f_s(t) = f0
+  #     fixed_parameters: {"f1": 0.0, "f2": 0.0, "f3": 0.0}
+  #   Use the time-dependent form for drying, sedimentation, or flow
+  #   displacement experiments where the sample fraction evolves.
+  #   ⚠  In xpcsjax all four fraction params are dimensionless and bounded
+  #      to [-1, 1] (registry choice). The upstream heterodyne template uses
+  #      different unit conventions; xpcsjax registry is authoritative here.
+  #
+  # FLOW ANGLE — phi0_het (RADIANS)
+  #   Angle between q-vector and flow direction, in cross-term phase factor.
+  #   ⚠  NAMING: xpcsjax uses `phi0_het` (RADIANS, [-π, π]). NOT `phi0`,
+  #              which is the homodyne convention (degrees, [-10°, 10°]).
+  #   For well-aligned experiments, phi0_het ≈ 0. Widen bounds in the
+  #   parameter_space block if you suspect significant misalignment.
+  # └──────────────────────────────────────────────────────────────────────┘
 
   per_angle_scaling:
     contrast: null
@@ -310,11 +358,27 @@ parameter_space:
       unit: "radians"
 
 # -----------------------------------------------------------------------------
-# OPTIMIZATION (NLSQ-only)
+# OPTIMIZATION (NLSQ-only) — two_component tuning
 # -----------------------------------------------------------------------------
-# Heterodyne is the highest-dimensional case xpcsjax supports. Scale ratios
-# routinely exceed 1e7 (D0 ~ 1e4 vs f0 ~ 0.1), so CMA-ES auto-selection
-# is typically a win. Multi-start is correspondingly disabled.
+# Two-component (heterodyne) is the highest-dimensional case xpcsjax supports
+# (14 physical params + 2·N_phi scaling). The natural scale ratio across
+# parameters is large (D0 ~ 1e4 vs f0 ~ 1e-1, ratio ~1e5+), so:
+#   * CMA-ES auto-engagement is the norm — leave auto_select on
+#   * Multi-start is disabled (would be redundant with CMA-ES)
+#   * x_scale_map is dataset-specific and worth computing
+#
+# Strategy selection (AUTOMATIC):
+#   < 1M  → STANDARD          1M–10M  → LARGE
+#   10M–100M → CHUNKED        > 100M  → HYBRID_STREAMING
+#
+# Loss function:
+#   "linear"   Clean data                          (fastest)
+#   "soft_l1"  Typical XPCS data                   (RECOMMENDED) ⭐
+#   "huber"    Few outliers                        (hybrid)
+#   "cauchy"   Severe outlier contamination        (heavy-tail robust)
+#
+# Convergence: bump max_iterations to 20k–30k for very wide bounds or when
+# CMA-ES is doing the heavy lifting (Phase 1 can take many iterations).
 optimization:
   method: "nlsq"
 
@@ -333,6 +397,13 @@ optimization:
 
     loss: "soft_l1"
 
+    # ----------------------------------------------------------------------
+    # PARAMETER SCALING — STRONGLY recommended to compute x_scale_map for
+    # heterodyne. With 14 parameters spanning ~1e5 in scale, "jac" often
+    # leaves several params under-optimized. Run after a first NLSQ fit:
+    #   python scripts/diagnose_gradients.py --results-dir ./xpcsjax_results
+    # Then paste the output below as x_scale_map.
+    # ----------------------------------------------------------------------
     x_scale: "jac"
     x_scale_map: null
     # Two-component scale_map is dataset-specific — use diagnose_gradients.py.
@@ -349,14 +420,34 @@ optimization:
       log_jacobian_norms: false
 
     # ----------------------------------------------------------------------
-    # ANTI-DEGENERACY — heterodyne-specific tuning
-    # The per_angle_mode block controls how (contrast, offset) varies with
-    # angle. Parameter counts (n_phi=10, fourier_order=2):
-    #   constant:    14 params
-    #   auto:        16 params  (14 + 2 averaged scaling)
-    #   fourier:     24 params  (14 + 10 Fourier coeffs)
-    #   individual:  34 params  (14 + 20 per-angle scaling)
+    # ANTI-DEGENERACY DEFENSE SYSTEM — 4-LAYER (heterodyne)
     # ----------------------------------------------------------------------
+    # Heterodyne uses a 4-layer defense (L1–L4). L5 shear-weighting from
+    # the homodyne stack is intentionally OMITTED — see the explanation
+    # in docs/source/theory/heterodyne_anti_degeneracy.rst:
+    #   In heterodyne, the cross-term oscillation comes from v(t), NOT
+    #   from a shear-rate γ̇·cos(phi−phi0). The angular pattern that L5
+    #   weights against (gradient sign-flip from shear) does not appear
+    #   in the same form in the heterodyne residual structure.
+    # If you need to deeply suppress per-angle scaling absorption beyond
+    # L1–L4, enable L3 adaptive regularization below.
+    #
+    # PER-ANGLE MODE — controls how (contrast, offset) varies with angle:
+    #   "constant"    per-angle (β, o) FROZEN from quantile estimate  →  14
+    #                 (optimizer fits the 14 physics only)
+    #   "auto"        quantile (β, o) averaged + jointly optimized    →  16
+    #                 (auto-selects when n_phi >= constant_scaling_threshold)
+    #   "fourier"     (β, o) as truncated Fourier series              →  14 + 2·(2K+1)
+    #   "individual"  independent per-angle (β_k, o_k), optimized     →  14 + 2·n_phi
+    #
+    # Parameter count examples (n_phi=10, fourier_order=2):
+    #   constant:    14 params (β, o frozen per-angle)
+    #   auto:        16 params (14 + 2 averaged scaling)
+    #   fourier:     24 params (14 + 10 Fourier coeffs)
+    #   individual:  34 params (14 + 20 per-angle scaling — prone to absorption)
+    #
+    # DEPRECATION: "independent" is a deprecated alias for "individual" and
+    # will be removed in heterodyne v1.0; xpcsjax follows the same convention.
     anti_degeneracy:
       enable: true
 
@@ -365,6 +456,9 @@ optimization:
       fourier_order: 2
       fourier_auto_threshold: 6
 
+      # ---- L2 Hierarchical (alternating physical / per-angle solves) ----
+      # Recommended for heterodyne — the 14-D physics block benefits from
+      # being optimized with scaling frozen, then scaling alone, alternating.
       hierarchical:
         enable: true                    # recommended for heterodyne
         max_outer_iterations: 5
@@ -372,28 +466,55 @@ optimization:
         physical_max_iterations: 100
         per_angle_max_iterations: 50
 
+      # ---- L3 Adaptive Regularization ----
+      # Off by default. Enable if per-angle scaling is absorbing the
+      # cross-term oscillations and L2 alone cannot recover them.
       regularization:
         enable: false
-        mode: "relative"
+        mode: "relative"                # "absolute" | "relative" | "auto"
         lambda: 1.0
         target_cv: 0.10
         target_contribution: 0.10
         max_cv: 0.20
         auto_tune_lambda: true
 
+      # ---- L4 Gradient-Collapse Detection ----
+      # For heterodyne, response="hierarchical" auto-switches to the L2
+      # alternating solver on gradient collapse (most common recovery).
       gradient_monitoring:
         enable: true
         ratio_threshold: 0.01
         consecutive_triggers: 5
-        response: "hierarchical"
+        response: "hierarchical"        # "warn" | "hierarchical" | "reset" | "abort"
 
       # NOTE: L5 shear_weighting is HOMODYNE-ONLY by design.
-      # See docs/source/theory/heterodyne_anti_degeneracy.rst. Heterodyne
-      # uses the 4-layer defense (L1–L4); no shear-weighting block here.
+      # See docs/source/theory/heterodyne_anti_degeneracy.rst.
 
     # ----------------------------------------------------------------------
-    # CMA-ES — recommended for first exploration of heterodyne parameter space
+    # CMA-ES GLOBAL OPTIMIZATION — strongly recommended for heterodyne
     # ----------------------------------------------------------------------
+    # The 14-D heterodyne parameter space is the canonical "use CMA-ES"
+    # case in xpcsjax:
+    #   * scale_ratio is routinely 1e5–1e7 (D0_ref vs f0)
+    #   * Multiple local minima exist (degenerate fits between reference
+    #     transport, sample transport, and velocity contributions)
+    #   * NLSQ alone often converges to a poor basin without good warm-start
+    #
+    # WHEN TO ENABLE:
+    #   * First exploration of a new dataset
+    #   * NLSQ converges but the fit quality is suspiciously bad
+    #   * You want to confirm uniqueness of the converged minimum
+    #
+    # TWO-PHASE ARCHITECTURE:
+    #   Phase 1: CMA-ES Global Search (BIPOP restarts, covariance adaptation)
+    #   Phase 2: NLSQ-TRF Refinement (tighter tolerances, refine_with_nlsq)
+    #
+    # PRESETS:
+    #   "cmaes-fast"    50 gen  — quick exploration only
+    #   "cmaes"         100 gen — balanced
+    #   "cmaes-global"  200 gen — thorough (RECOMMENDED for 14-D heterodyne)
+    #
+    # REQUIRES: pip install "nlsq[evosax]"
     cmaes:
       enable: false                     # toggle on when NLSQ alone finds inconsistent minima
       preset: "cmaes-global"
@@ -419,6 +540,14 @@ optimization:
       refinement_max_nfev: 500
       refinement_loss: "linear"
 
+    # ----------------------------------------------------------------------
+    # MULTI-START OPTIMIZATION
+    # ----------------------------------------------------------------------
+    # Disable when CMA-ES is enabled (they're redundant). For 14-D
+    # heterodyne, CMA-ES dominates this approach — use multi_start ONLY if
+    # you have a specific reason to avoid CMA-ES (e.g. evosax not installed).
+    # When using multi_start standalone for heterodyne, bump n_starts to
+    # 15–30 to cover the higher-dimensional parameter space.
     multi_start:
       enable: false                     # disabled when CMA-ES is enabled
       n_starts: 15
@@ -431,6 +560,16 @@ optimization:
       refinement_ftol: 1.0e-12
       degeneracy_threshold: 0.1
 
+    # ----------------------------------------------------------------------
+    # HYBRID STREAMING — large-dataset four-phase optimizer
+    # ----------------------------------------------------------------------
+    # Phase 0: Parameter normalization (essential for heterodyne — handles
+    #          the 5+ order scale span across D0/v0/f0 parameters)
+    # Phase 1: L-BFGS warmup (with 4-layer defense against warm-start divergence)
+    # Phase 2: Streaming Gauss-Newton (~2 GB memory cap)
+    # Phase 3: Denormalize + covariance transform
+    # For 14-D heterodyne, normalization is the critical piece — without
+    # it, L-BFGS struggles with the scale imbalance. Leave normalize=true.
     hybrid_streaming:
       enable: true
       normalize: true
@@ -449,6 +588,13 @@ optimization:
       verbose: 1
       log_frequency: 1
 
+      # 4-layer warmup defense (NLSQ 0.3.6+) — keep all 4 enabled.
+      # ESPECIALLY important for 14-D heterodyne where bad warm-starts
+      # can send L-BFGS exploring nonsensical regions of parameter space.
+      # L1: skip warmup if loss already small
+      # L2: scale LR by initial loss quality
+      # L3: abort if cost rises > 5%
+      # L4: clip per-iteration step to fraction of normalized range
       enable_warm_start_detection: true
       warm_start_threshold: 0.01
       enable_adaptive_warmup_lr: true
