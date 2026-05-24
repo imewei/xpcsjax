@@ -1,0 +1,651 @@
+# =============================================================================
+# xpcsjax — TWO-COMPONENT (HETERODYNE) TEMPLATE
+# =============================================================================
+# Fourteen-parameter heterodyne model. Use this template when the scattering
+# signal is a mixture of a reference beam (known scatterer) and a sample
+# beam (unknown scatterer), with a relative velocity between them. This is
+# the standard model for heterodyne XPCS, microfluidic two-phase flow, and
+# experiments with a stationary reference target.
+#
+# Physics model:
+#   g1_r(t)   = exp(−q² · [D0_ref·t^alpha_ref + D_offset_ref])     [reference]
+#   g1_s(t)   = exp(−q² · [D0_sample·t^alpha_sample + D_offset_sample])
+#   v(t)      = v0 · t^v_beta + v_offset                            [flow]
+#   f_s(t)    = clip(f0·exp(f1·(t−f2)) + f3, 0, 1)                  [sample fraction]
+#   c2 has reference + sample + cross terms, modulated by phi0_het.
+#
+# Parameters (14 physical + 2N scaling for N phi angles):
+#   Reference transport (3):  D0_ref, alpha_ref, D_offset_ref
+#   Sample transport (3):     D0_sample, alpha_sample, D_offset_sample
+#   Velocity (3):             v0, v_beta, v_offset
+#   Fraction (4):             f0, f1, f2, f3
+#   Flow angle (1):           phi0_het              [RADIANS, [−π, π]]
+#   Per-angle scaling (2N):   contrast_i, offset_i
+#
+# Critical naming notes (xpcsjax registry IS the source of truth):
+#   * `v_beta` — NOT `beta`. The xpcsjax registry renames the heterodyne
+#     velocity exponent to `v_beta` to disambiguate from the homodyne shear
+#     `beta`. Upstream heterodyne docs call it `beta`; do not use that name
+#     here — `xpcsjax.config.parameter_registry._MODE_PARAMS["two_component"]`
+#     requires `v_beta`.
+#   * `phi0_het` — NOT `phi0`. Heterodyne phi0_het is in RADIANS over [−π, π],
+#     distinct from the homodyne `phi0` (degrees, [−10°, 10°]).
+#
+# Per-angle modes (from anti_degeneracy.per_angle_mode):
+#   constant:   per-angle (β, o) frozen from quantile — 14 physics only
+#   auto:       quantile (β, o) averaged then optimized jointly — 16 params
+#   fourier:    (β, o) as truncated Fourier series — 14 + 2·(2K+1)
+#   individual: independent per-angle (β_k, o_k) — 14 + 2·N_phi
+#
+# Scope: xpcsjax is NLSQ-only. Bayesian sampling is permanently out of scope.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# METADATA
+# -----------------------------------------------------------------------------
+metadata:
+  config_version: "0.1.0"
+  description: "xpcsjax two-component (heterodyne) — 14-param reference+sample+velocity+fraction"
+  parameter_count: 14
+  physics_model: "heterodyne: g1_ref + g1_sample + cross-term with v(t), f_s(t), phi0_het"
+  template_type: "production_ready"
+  complexity: "advanced"
+  generated_at: null
+  generated_by: null
+
+# -----------------------------------------------------------------------------
+# ANALYSIS MODE
+# -----------------------------------------------------------------------------
+# Canonical: "two_component". The synonyms "heterodyne" and "two-component"
+# are normalized to "two_component" by ConfigManager._normalize_analysis_mode().
+analysis_mode: "two_component"
+
+# -----------------------------------------------------------------------------
+# ANALYZER PARAMETERS
+# -----------------------------------------------------------------------------
+analyzer_parameters:
+  dt: 0.1
+  start_frame: 1
+  end_frame: 1000
+  frame_step: 1
+  time_unit: "seconds"
+
+  scattering:
+    wavevector_q: 0.0237                # Wave-vector magnitude [Å⁻¹]
+
+  geometry:
+    stator_rotor_gap: 2000000           # Cross-term path length [Å]
+
+# -----------------------------------------------------------------------------
+# ANALYSIS SETTINGS
+# -----------------------------------------------------------------------------
+analysis_settings:
+  model_description:
+    type: "two_component"
+    parameters:
+      - "D0_ref"
+      - "alpha_ref"
+      - "D_offset_ref"
+      - "D0_sample"
+      - "alpha_sample"
+      - "D_offset_sample"
+      - "v0"
+      - "v_beta"          # NOT "beta"
+      - "v_offset"
+      - "f0"
+      - "f1"
+      - "f2"
+      - "f3"
+      - "phi0_het"        # NOT "phi0"
+    physics: "Heterodyne: g1_ref + g1_sample + cross-term modulated by v(t), f_s(t), phi0_het"
+    per_angle_scaling: true
+
+# -----------------------------------------------------------------------------
+# EXPERIMENTAL DATA
+# -----------------------------------------------------------------------------
+experimental_data:
+  file_path: null
+  data_folder_path: "./data/"
+  data_file_name: "sample_heterodyne.hdf"
+  phi_angles_path: "./data/"
+  phi_angles_file: "phi_list.txt"
+
+  cache_directory: "./cache"
+  use_caching: true
+  cache_filename_template: "cached_c2_frames_${start_frame}_${end_frame}.npz"
+  cache_compression: true
+
+  data_type: "APS_old"
+  file_format: "hdf5"
+  exchange_key: "exchange"
+
+# -----------------------------------------------------------------------------
+# PHI FILTERING
+# -----------------------------------------------------------------------------
+# Heterodyne benefits from broad phi coverage so the cross-term modulation
+# can be resolved across angles. Defaults pick parallel + perpendicular.
+phi_filtering:
+  enabled: true
+  target_ranges:
+    - min_angle: -10.0
+      max_angle:  10.0
+      description: "Parallel to flow (sees full cross-term)"
+    - min_angle:  85.0
+      max_angle:  95.0
+      description: "Perpendicular (sees only diffusion contributions)"
+  fallback_to_all_angles: true
+  algorithm: "range_based"
+  tolerance: 3.0
+
+  quality_control:
+    min_angles_required: 2
+    max_angle_spread: 36.0
+    validate_coverage: true
+    require_orthogonal_angles: false
+
+# -----------------------------------------------------------------------------
+# INITIAL PARAMETERS
+# -----------------------------------------------------------------------------
+# parameter_names MUST match xpcsjax.config.parameter_registry._MODE_PARAMS
+# for "two_component" — note `v_beta` (not `beta`) and `phi0_het` (not `phi0`).
+initial_parameters:
+  parameter_names:
+    - D0_ref
+    - alpha_ref
+    - D_offset_ref
+    - D0_sample
+    - alpha_sample
+    - D_offset_sample
+    - v0
+    - v_beta
+    - v_offset
+    - f0
+    - f1
+    - f2
+    - f3
+    - phi0_het
+
+  values: null
+  # Example (registry defaults):
+  # [10000.0, 0.0, 0.0, 10000.0, 0.0, 0.0, 1000.0, 1.0, 0.0,
+  #  0.5, 0.0, 0.0, 0.0, 0.0]
+
+  per_angle_scaling:
+    contrast: null
+    offset:   null
+
+  units:
+    - "Å²/s"
+    - "dimensionless"
+    - "Å²/s"
+    - "Å²/s"
+    - "dimensionless"
+    - "Å²/s"
+    - "Å/s"           # velocity prefactor
+    - "dimensionless" # v_beta — velocity time exponent
+    - "Å/s"
+    - "dimensionless"
+    - "dimensionless"
+    - "dimensionless"
+    - "dimensionless"
+    - "radians"       # phi0_het uses radians, NOT degrees
+
+  active_parameters: null
+  # Frequent simplification (constant-velocity, constant-fraction):
+  # fixed_parameters: {"v_beta": 0.0, "v_offset": 0.0, "f1": 0.0, "f2": 0.0, "f3": 0.0}
+  fixed_parameters: null
+
+# -----------------------------------------------------------------------------
+# PARAMETER SPACE — bounds match the xpcsjax registry (NOT upstream heterodyne)
+# -----------------------------------------------------------------------------
+# IMPORTANT: These bounds come from xpcsjax.config.parameter_registry._PARAMETERS.
+# Several differ from the upstream heterodyne template — examples:
+#   * v0 upper:        xpcsjax 1e6           vs upstream 1e4
+#   * f1 bounds:       xpcsjax [-1, 1] (dim) vs upstream [-10, 10] s⁻¹
+#   * f2 bounds:       xpcsjax [-1, 1] (dim) vs upstream [-1e4, 1e4] s
+#   * phi0_het bounds: xpcsjax [-π, π] rad   vs upstream [-10, 10] deg (phi0)
+# The xpcsjax registry is authoritative — the upstream YAML is a reference,
+# not a constraint.
+parameter_space:
+  bounds:
+    - name: contrast
+      min: 0.0
+      max: 1.0
+      type: TruncatedNormal
+      unit: "dimensionless"
+
+    - name: offset
+      min: 0.5
+      max: 1.5
+      type: TruncatedNormal
+      unit: "dimensionless"
+
+    # ----- Reference transport (3) -----
+    - name: D0_ref
+      min: 0.0
+      max: 1.0e6
+      type: TruncatedNormal
+      unit: "Å²/s"
+
+    - name: alpha_ref
+      min: -2.0
+      max:  2.0
+      type: TruncatedNormal
+      unit: "dimensionless"
+
+    - name: D_offset_ref
+      min: -1.0e4
+      max:  1.0e4
+      type: TruncatedNormal
+      unit: "Å²/s"
+
+    # ----- Sample transport (3) -----
+    - name: D0_sample
+      min: 0.0
+      max: 1.0e6
+      type: TruncatedNormal
+      unit: "Å²/s"
+
+    - name: alpha_sample
+      min: -2.0
+      max:  2.0
+      type: TruncatedNormal
+      unit: "dimensionless"
+
+    - name: D_offset_sample
+      min: -1.0e4
+      max:  1.0e4
+      type: TruncatedNormal
+      unit: "Å²/s"
+
+    # ----- Velocity (3) -----
+    - name: v0
+      min: 0.0
+      max: 1.0e6
+      type: TruncatedNormal
+      unit: "Å/s"
+
+    - name: v_beta
+      min: 0.0
+      max: 2.0
+      type: TruncatedNormal
+      unit: "dimensionless"
+
+    - name: v_offset
+      min: -100.0
+      max:  100.0
+      type: TruncatedNormal
+      unit: "Å/s"
+
+    # ----- Fraction (4) -----
+    - name: f0
+      min: 0.0
+      max: 1.0
+      type: TruncatedNormal
+      unit: "dimensionless"
+
+    - name: f1
+      min: -1.0
+      max:  1.0
+      type: TruncatedNormal
+      unit: "dimensionless"
+
+    - name: f2
+      min: -1.0
+      max:  1.0
+      type: TruncatedNormal
+      unit: "dimensionless"
+
+    - name: f3
+      min: -1.0
+      max:  1.0
+      type: TruncatedNormal
+      unit: "dimensionless"
+
+    # ----- Flow angle (heterodyne convention: RADIANS) -----
+    - name: phi0_het
+      min: -3.141592653589793   # −π
+      max:  3.141592653589793   # +π
+      type: TruncatedNormal
+      unit: "radians"
+
+# -----------------------------------------------------------------------------
+# OPTIMIZATION (NLSQ-only)
+# -----------------------------------------------------------------------------
+# Heterodyne is the highest-dimensional case xpcsjax supports. Scale ratios
+# routinely exceed 1e7 (D0 ~ 1e4 vs f0 ~ 0.1), so CMA-ES auto-selection
+# is typically a win. Multi-start is correspondingly disabled.
+optimization:
+  method: "nlsq"
+
+  nlsq:
+    workflow: "auto"
+    goal: "quality"
+
+    memory_fraction: 0.75
+
+    max_iterations: 10000
+    tolerance: 1.0e-8
+    xtol: 1.0e-8
+    gtol: 1.0e-8
+    trust_region_scale: 1.0
+    verbose: false
+
+    loss: "soft_l1"
+
+    x_scale: "jac"
+    x_scale_map: null
+    # Two-component scale_map is dataset-specific — use diagnose_gradients.py.
+
+    progress:
+      enable: true
+      verbose: 1
+      log_interval: 10
+
+    diagnostics:
+      enabled: false
+      sample_size: 2048
+      check_gradients: true
+      log_jacobian_norms: false
+
+    # ----------------------------------------------------------------------
+    # ANTI-DEGENERACY — heterodyne-specific tuning
+    # The per_angle_mode block controls how (contrast, offset) varies with
+    # angle. Parameter counts (n_phi=10, fourier_order=2):
+    #   constant:    14 params
+    #   auto:        16 params  (14 + 2 averaged scaling)
+    #   fourier:     24 params  (14 + 10 Fourier coeffs)
+    #   individual:  34 params  (14 + 20 per-angle scaling)
+    # ----------------------------------------------------------------------
+    anti_degeneracy:
+      enable: true
+
+      per_angle_mode: "auto"
+      constant_scaling_threshold: 3
+      fourier_order: 2
+      fourier_auto_threshold: 6
+
+      hierarchical:
+        enable: true                    # recommended for heterodyne
+        max_outer_iterations: 5
+        outer_tolerance: 1.0e-6
+        physical_max_iterations: 100
+        per_angle_max_iterations: 50
+
+      regularization:
+        enable: false
+        mode: "relative"
+        lambda: 1.0
+        target_cv: 0.10
+        target_contribution: 0.10
+        max_cv: 0.20
+        auto_tune_lambda: true
+
+      gradient_monitoring:
+        enable: true
+        ratio_threshold: 0.01
+        consecutive_triggers: 5
+        response: "hierarchical"
+
+      # NOTE: L5 shear_weighting is HOMODYNE-ONLY by design.
+      # See docs/source/theory/heterodyne_anti_degeneracy.rst. Heterodyne
+      # uses the 4-layer defense (L1–L4); no shear-weighting block here.
+
+    # ----------------------------------------------------------------------
+    # CMA-ES — recommended for first exploration of heterodyne parameter space
+    # ----------------------------------------------------------------------
+    cmaes:
+      enable: false                     # toggle on when NLSQ alone finds inconsistent minima
+      preset: "cmaes-global"
+      max_generations: null
+      sigma: 0.5
+      sigma_warmstart: 0.05
+      warmstart_auto_skip: true
+      warmstart_skip_threshold: 5.0
+      popsize: null
+      tol_fun: 1.0e-8
+      tol_x: 1.0e-8
+      restart_strategy: "bipop"
+      max_restarts: 10
+      memory_limit_gb: 8.0
+      auto_select: true                 # 14-D parameter space → likely engages
+      scale_threshold: 1000.0
+      normalize: true
+      normalization_epsilon: 1.0e-12
+      refine_with_nlsq: true
+      refinement_ftol: 1.0e-10
+      refinement_xtol: 1.0e-10
+      refinement_gtol: 1.0e-10
+      refinement_max_nfev: 500
+      refinement_loss: "linear"
+
+    multi_start:
+      enable: false                     # disabled when CMA-ES is enabled
+      n_starts: 15
+      seed: 42
+      sampling_strategy: "latin_hypercube"
+      n_workers: 0
+      use_screening: true
+      screen_keep_fraction: 0.5
+      refine_top_k: 3
+      refinement_ftol: 1.0e-12
+      degeneracy_threshold: 0.1
+
+    hybrid_streaming:
+      enable: true
+      normalize: true
+      normalization_strategy: "auto"
+      warmup_iterations: 200
+      max_warmup_iterations: 500
+      warmup_learning_rate: 0.001
+      gauss_newton_max_iterations: 100
+      gauss_newton_tol: 1.0e-8
+      chunk_size: 10000
+      trust_region_initial: 1.0
+      regularization_factor: 1.0e-10
+      enable_checkpoints: true
+      checkpoint_frequency: 100
+      validate_numerics: true
+      verbose: 1
+      log_frequency: 1
+
+      enable_warm_start_detection: true
+      warm_start_threshold: 0.01
+      enable_adaptive_warmup_lr: true
+      warmup_lr_refinement: 1.0e-6
+      warmup_lr_careful: 1.0e-5
+      enable_cost_guard: true
+      cost_increase_tolerance: 0.05
+      enable_step_clipping: true
+      max_warmup_step_size: 0.1
+
+    quality_validation:
+      enable: true
+      reduced_chi_squared_threshold: 10.0
+      warn_on_max_restarts: true
+      warn_on_bounds_hit: true
+      warn_on_convergence_failure: true
+      bounds_tolerance: 1.0e-9
+
+  streaming:
+    enable_checkpoints: true
+    checkpoint_dir: "./checkpoints"
+    checkpoint_frequency: 10
+    resume_from_checkpoint: true
+    keep_last_checkpoints: 3
+    enable_fault_tolerance: true
+    max_retries_per_batch: 2
+    min_success_rate: 0.5
+    batch_size: null
+    adaptive_batching: true
+
+  stratification:
+    enabled: "auto"
+    target_chunk_size: 100000
+    max_imbalance_ratio: 5.0
+    force_sequential_fallback: false
+    check_memory_safety: true
+    use_index_based: false
+    collect_diagnostics: false
+    log_diagnostics: false
+
+  sequential:
+    min_success_rate: 0.5
+    weighting: "inverse_variance"
+
+  recovery:
+    enable: true
+    max_attempts: 3
+    lr_decay: 0.5
+    lambda_growth: 2.0
+    trust_decay: 0.5
+    log_retries: true
+
+  angle_filtering:
+    enabled: false
+    target_angle_ranges: []
+
+# -----------------------------------------------------------------------------
+# NOISE ESTIMATION — Bayesian sub-tooling, disabled by default
+# -----------------------------------------------------------------------------
+noise_estimation:
+  enabled: false
+  model: "per_angle"
+
+# -----------------------------------------------------------------------------
+# PERFORMANCE
+# -----------------------------------------------------------------------------
+performance:
+  strategy_override: null
+  memory_limit_gb: null
+  enable_progress: true
+
+  memory_optimization:
+    enabled: true
+    max_memory_usage_gb: 8.0           # heterodyne tends to need more headroom
+    chunk_size: 8000
+    enable_caching: true
+    cache_strategy: "adaptive"
+
+  computation:
+    enable_jit: true
+    cpu_threads: "auto"
+    vectorization_level: "high"
+
+# -----------------------------------------------------------------------------
+# LOGGING
+# -----------------------------------------------------------------------------
+logging:
+  enabled: true
+  level: "INFO"
+
+  console:
+    enabled: true
+    level: "INFO"
+    format: "detailed"
+    colors: true
+    show_progress: true
+
+  file:
+    enabled: false
+    level: "DEBUG"
+    path: "./logs/"
+    filename: "xpcsjax_two_component.log"
+    max_size_mb: 10
+    backup_count: 5
+
+  modules:
+    "xpcsjax.data.phi_filtering": "INFO"
+    "xpcsjax.data.xpcs_loader": "INFO"
+    "xpcsjax.optimization.nlsq": "INFO"
+    "xpcsjax.core.heterodyne_model": "INFO"
+    "jax._src": "WARNING"
+
+# -----------------------------------------------------------------------------
+# QUALITY CONTROL
+# -----------------------------------------------------------------------------
+quality_control:
+  enabled: true
+
+  angle_quality:
+    validate_angle_coverage: true
+    min_angles_per_range: 1
+    check_angle_distribution: true
+
+  multi_angle_validation:
+    check_correlation_consistency: true
+    validate_angle_dependencies: true
+    detect_anomalous_angles: true
+
+# -----------------------------------------------------------------------------
+# PLOTTING
+# -----------------------------------------------------------------------------
+plotting:
+  save_plots: true
+  show_plots: false
+  format: "png"
+  dpi: 300
+  style: "publication"
+
+  preview_mode: false
+  fit_surface: "solver"
+
+  color_scale:
+    mode: "legacy"
+    pin_legacy_range: true
+    percentile_min: 1.0
+    percentile_max: 99.0
+    fixed_min: 1.0
+    fixed_max: 1.5
+
+  datashader:
+    canvas_width: 1200
+    canvas_height: 1200
+
+  matplotlib:
+    interpolation: "bilinear"
+    use_tight_layout: true
+    savefig_kwargs:
+      bbox_inches: "tight"
+      pad_inches: 0.1
+
+  correlation_function: true
+  fit_quality: true
+  residual_analysis: true
+  angle_coverage: true
+  angle_correlation: true
+
+# -----------------------------------------------------------------------------
+# OUTPUT
+# -----------------------------------------------------------------------------
+output:
+  directory: "./results"
+  base_directory: "./xpcsjax_results/"
+
+  formats:
+    hdf5: true
+    json: true
+    csv: true
+    yaml: true
+    npz: true
+
+  create_subdirs: true
+  timestamp_dirs: false
+
+  compress_hdf5: true
+  compression_level: 6
+  include_diagnostics: true
+
+# -----------------------------------------------------------------------------
+# VALIDATION
+# -----------------------------------------------------------------------------
+validation:
+  strict_mode: false
+  check_file_existence: true
+  validate_parameter_ranges: true
+  check_mode_compatibility: true
+
+  angle_validation:
+    require_multiple_angles: true
+    min_angle_count: 2
+    validate_angle_ranges: true

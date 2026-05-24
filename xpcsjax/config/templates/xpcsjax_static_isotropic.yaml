@@ -1,0 +1,492 @@
+# =============================================================================
+# xpcsjax — STATIC ISOTROPIC TEMPLATE
+# =============================================================================
+# Three-parameter anomalous-diffusion model with a single, angle-averaged
+# scaling pair. Use this template when the sample is isotropic (no preferred
+# orientation) so that g2(t1, t2; phi) is independent of phi, AND you do not
+# need per-angle contrast/offset to capture detector anisotropy.
+#
+# Physics model — identical to static_anisotropic:
+#   D(t) = D0 · t^alpha + D_offset
+#   c2(t1, t2) = offset + contrast · |g1|^2     [single (contrast, offset) pair]
+#
+# The only difference from static_anisotropic is in scaling treatment:
+#   - anisotropic: per-angle (contrast_i, offset_i) — 3 + 2·N_phi parameters
+#   - isotropic:   one (contrast, offset) shared across angles — 3 + 2 params
+# Choose isotropic when the angular variation is negligible (single q-ring,
+# or pre-validated isotropic sample).
+#
+# Scope: xpcsjax is NLSQ-only. Bayesian sampling is permanently out of scope.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# METADATA
+# -----------------------------------------------------------------------------
+metadata:
+  config_version: "0.1.0"
+  description: "xpcsjax static isotropic — 3-param diffusion with angle-averaged scaling"
+  parameter_count: 3
+  physics_model: "D(t) = D0 · t^alpha + D_offset"
+  template_type: "production_ready"
+  complexity: "minimal"
+  generated_at: null
+  generated_by: null
+
+# -----------------------------------------------------------------------------
+# ANALYSIS MODE
+# -----------------------------------------------------------------------------
+# Canonical: "static_isotropic". "isotropic" is normalized by the
+# manager to this canonical form.
+analysis_mode: "static_isotropic"
+
+# -----------------------------------------------------------------------------
+# ANALYZER PARAMETERS
+# -----------------------------------------------------------------------------
+analyzer_parameters:
+  dt: 0.1
+  start_frame: 1
+  end_frame: 1000
+  frame_step: 1
+  time_unit: "seconds"
+
+  scattering:
+    wavevector_q: 0.0237        # Wave-vector magnitude [Å⁻¹]
+
+  geometry:
+    stator_rotor_gap: 2000000   # Gap [Å]; unused in static, kept for symmetry
+
+# -----------------------------------------------------------------------------
+# ANALYSIS SETTINGS
+# -----------------------------------------------------------------------------
+analysis_settings:
+  model_description:
+    type: "static_isotropic"
+    parameters: ["D0", "alpha", "D_offset"]
+    physics: "Anomalous diffusion D(t) = D0·t^alpha + D_offset (angle-independent)"
+    per_angle_scaling: false
+
+# -----------------------------------------------------------------------------
+# EXPERIMENTAL DATA
+# -----------------------------------------------------------------------------
+experimental_data:
+  file_path: null
+  data_folder_path: "./data/"
+  data_file_name: "sample.hdf"
+  phi_angles_path: "./data/"
+  phi_angles_file: "phi_list.txt"
+
+  cache_directory: "./cache"
+  use_caching: true
+  cache_filename_template: "cached_c2_frames_${start_frame}_${end_frame}.npz"
+  cache_compression: true
+
+  data_type: "APS_old"
+  file_format: "hdf5"
+  exchange_key: "exchange"
+
+# -----------------------------------------------------------------------------
+# PHI FILTERING
+# -----------------------------------------------------------------------------
+# Isotropic mode is happy with a single representative angle. Either point at
+# a chosen ring or let fallback_to_all_angles average over what's available.
+phi_filtering:
+  enabled: true
+  target_ranges:
+    - min_angle: -10.0
+      max_angle:  10.0
+      description: "Representative angle for isotropic sample"
+  fallback_to_all_angles: true
+  algorithm: "range_based"
+  tolerance: 5.0
+
+  quality_control:
+    min_angles_required: 1
+    max_angle_spread: 90.0       # generous — isotropic accepts any spread
+    validate_coverage: false
+    require_orthogonal_angles: false
+
+# -----------------------------------------------------------------------------
+# INITIAL PARAMETERS
+# -----------------------------------------------------------------------------
+# per_angle_scaling holds *scalar* contrast/offset for isotropic mode
+# (broadcast to all selected angles).
+initial_parameters:
+  parameter_names:
+    - D0
+    - alpha
+    - D_offset
+
+  values: null
+  # Example: [1000.0, -1.2, 0.0]   (subdiffusion is common in equilibrium)
+
+  per_angle_scaling:
+    contrast: null   # null = quantile init, or a single float (broadcast)
+    offset:   null   # null = quantile init, or a single float (broadcast)
+
+  units:
+    - "Å²/s"
+    - "dimensionless"
+    - "Å²/s"
+
+  active_parameters: null
+  fixed_parameters: null
+
+# -----------------------------------------------------------------------------
+# PARAMETER SPACE — bounds match the xpcsjax registry
+# -----------------------------------------------------------------------------
+parameter_space:
+  model: "static_isotropic"
+
+  bounds:
+    - name: contrast
+      min: 0.0
+      max: 1.0
+      type: TruncatedNormal
+      unit: "dimensionless"
+
+    - name: offset
+      min: 0.5
+      max: 1.5
+      type: TruncatedNormal
+      unit: "dimensionless"
+
+    - name: D0
+      min: 100.0
+      max: 100000.0
+      type: TruncatedNormal
+      unit: "Å²/s"
+
+    - name: alpha
+      min: -2.0
+      max:  2.0
+      type: TruncatedNormal
+      unit: "dimensionless"
+
+    - name: D_offset
+      min: -100000.0
+      max:  100000.0
+      type: TruncatedNormal
+      unit: "Å²/s"
+
+# -----------------------------------------------------------------------------
+# OPTIMIZATION (NLSQ-only)
+# -----------------------------------------------------------------------------
+optimization:
+  method: "nlsq"
+
+  nlsq:
+    workflow: "auto"
+    goal: "quality"
+
+    memory_fraction: 0.75
+    # memory_threshold_gb: 48.0
+
+    max_iterations: 10000
+    tolerance: 1.0e-8
+    xtol: 1.0e-8
+    gtol: 1.0e-8
+    trust_region_scale: 1.0
+    verbose: false
+
+    loss: "soft_l1"
+
+    x_scale: "jac"
+    x_scale_map: null
+
+    progress:
+      enable: true
+      verbose: 1
+      log_interval: 10
+
+    diagnostics:
+      enabled: false
+      sample_size: 2048
+      check_gradients: true
+      log_jacobian_norms: false
+
+    # Isotropic = one (contrast, offset) — anti-degeneracy still applies
+    # at low cost. per_angle_mode="constant" forces a single shared pair.
+    anti_degeneracy:
+      enable: true
+
+      per_angle_mode: "constant"  # one shared (contrast, offset) — true isotropic
+      constant_scaling_threshold: 1
+      fourier_order: 2
+      fourier_auto_threshold: 6
+
+      hierarchical:
+        enable: false
+        max_outer_iterations: 5
+        outer_tolerance: 1.0e-6
+        physical_max_iterations: 100
+        per_angle_max_iterations: 50
+
+      regularization:
+        enable: false
+        mode: "relative"
+        lambda: 1.0
+        target_cv: 0.10
+        target_contribution: 0.10
+        max_cv: 0.20
+        auto_tune_lambda: true
+
+      gradient_monitoring:
+        enable: true
+        ratio_threshold: 0.01
+        consecutive_triggers: 5
+        response: "warn"
+
+    cmaes:
+      enable: false
+      preset: "cmaes"
+      max_generations: null
+      sigma: 0.5
+      sigma_warmstart: 0.05
+      warmstart_auto_skip: true
+      warmstart_skip_threshold: 5.0
+      popsize: null
+      tol_fun: 1.0e-8
+      tol_x: 1.0e-8
+      restart_strategy: "bipop"
+      max_restarts: 5
+      memory_limit_gb: 8.0
+      auto_select: true
+      scale_threshold: 1000.0
+      normalize: true
+      normalization_epsilon: 1.0e-12
+      refine_with_nlsq: true
+      refinement_ftol: 1.0e-10
+      refinement_xtol: 1.0e-10
+      refinement_gtol: 1.0e-10
+      refinement_max_nfev: 500
+      refinement_loss: "linear"
+
+    multi_start:
+      enable: false
+      n_starts: 5                 # fewer starts — minimal param space
+      seed: 42
+      sampling_strategy: "latin_hypercube"
+      n_workers: 0
+      use_screening: true
+      screen_keep_fraction: 0.5
+      refine_top_k: 3
+      refinement_ftol: 1.0e-12
+      degeneracy_threshold: 0.1
+
+    hybrid_streaming:
+      enable: true
+      normalize: true
+      normalization_strategy: "auto"
+      warmup_iterations: 200
+      max_warmup_iterations: 500
+      warmup_learning_rate: 0.001
+      gauss_newton_max_iterations: 100
+      gauss_newton_tol: 1.0e-8
+      chunk_size: 10000
+      trust_region_initial: 1.0
+      regularization_factor: 1.0e-10
+      enable_checkpoints: true
+      checkpoint_frequency: 100
+      validate_numerics: true
+      verbose: 1
+      log_frequency: 1
+
+      enable_warm_start_detection: true
+      warm_start_threshold: 0.01
+      enable_adaptive_warmup_lr: true
+      warmup_lr_refinement: 1.0e-6
+      warmup_lr_careful: 1.0e-5
+      enable_cost_guard: true
+      cost_increase_tolerance: 0.05
+      enable_step_clipping: true
+      max_warmup_step_size: 0.1
+
+    quality_validation:
+      enable: true
+      reduced_chi_squared_threshold: 10.0
+      warn_on_max_restarts: true
+      warn_on_bounds_hit: true
+      warn_on_convergence_failure: true
+      bounds_tolerance: 1.0e-9
+
+  streaming:
+    enable_checkpoints: true
+    checkpoint_dir: "./checkpoints"
+    checkpoint_frequency: 10
+    resume_from_checkpoint: true
+    keep_last_checkpoints: 3
+    enable_fault_tolerance: true
+    max_retries_per_batch: 2
+    min_success_rate: 0.5
+    batch_size: null
+    adaptive_batching: true
+
+  stratification:
+    enabled: "auto"
+    target_chunk_size: 100000
+    max_imbalance_ratio: 5.0
+    force_sequential_fallback: false
+    check_memory_safety: true
+    use_index_based: false
+    collect_diagnostics: false
+    log_diagnostics: false
+
+  sequential:
+    min_success_rate: 0.5
+    weighting: "inverse_variance"
+
+  recovery:
+    enable: true
+    max_attempts: 3
+    lr_decay: 0.5
+    lambda_growth: 2.0
+    trust_decay: 0.5
+    log_retries: true
+
+  angle_filtering:
+    enabled: false
+    target_angle_ranges: []
+
+# -----------------------------------------------------------------------------
+# NOISE ESTIMATION — Bayesian sub-tooling, disabled by default
+# -----------------------------------------------------------------------------
+noise_estimation:
+  enabled: false
+  model: "global"               # isotropic → "global" is the natural choice
+
+# -----------------------------------------------------------------------------
+# PERFORMANCE
+# -----------------------------------------------------------------------------
+performance:
+  strategy_override: null
+  memory_limit_gb: null
+  enable_progress: true
+
+  memory_optimization:
+    enabled: true
+    max_memory_usage_gb: 6.0
+    chunk_size: 8000
+    enable_caching: true
+    cache_strategy: "adaptive"
+
+  computation:
+    enable_jit: true
+    cpu_threads: "auto"
+    vectorization_level: "high"
+
+# -----------------------------------------------------------------------------
+# LOGGING
+# -----------------------------------------------------------------------------
+logging:
+  enabled: true
+  level: "INFO"
+
+  console:
+    enabled: true
+    level: "INFO"
+    format: "detailed"
+    colors: true
+    show_progress: true
+
+  file:
+    enabled: false
+    level: "DEBUG"
+    path: "./logs/"
+    filename: "xpcsjax_static_isotropic.log"
+    max_size_mb: 10
+    backup_count: 5
+
+  modules:
+    "xpcsjax.data.phi_filtering": "INFO"
+    "xpcsjax.data.xpcs_loader": "INFO"
+    "xpcsjax.optimization.nlsq": "INFO"
+    "jax._src": "WARNING"
+
+# -----------------------------------------------------------------------------
+# QUALITY CONTROL
+# -----------------------------------------------------------------------------
+quality_control:
+  enabled: false
+
+  angle_quality:
+    validate_angle_coverage: false   # isotropic doesn't depend on coverage
+    min_angles_per_range: 1
+    check_angle_distribution: false
+
+  multi_angle_validation:
+    check_correlation_consistency: false
+    validate_angle_dependencies: false
+    detect_anomalous_angles: true
+
+# -----------------------------------------------------------------------------
+# PLOTTING
+# -----------------------------------------------------------------------------
+plotting:
+  save_plots: true
+  show_plots: false
+  format: "png"
+  dpi: 300
+  style: "publication"
+
+  preview_mode: false
+  fit_surface: "solver"
+
+  color_scale:
+    mode: "legacy"
+    pin_legacy_range: true
+    percentile_min: 1.0
+    percentile_max: 99.0
+    fixed_min: 1.0
+    fixed_max: 1.5
+
+  datashader:
+    canvas_width: 1200
+    canvas_height: 1200
+
+  matplotlib:
+    interpolation: "bilinear"
+    use_tight_layout: true
+    savefig_kwargs:
+      bbox_inches: "tight"
+      pad_inches: 0.1
+
+  correlation_function: true
+  fit_quality: true
+  residual_analysis: true
+  angle_coverage: false          # not meaningful for isotropic
+  angle_correlation: false
+
+# -----------------------------------------------------------------------------
+# OUTPUT
+# -----------------------------------------------------------------------------
+output:
+  directory: "./results"
+  base_directory: "./xpcsjax_results/"
+
+  formats:
+    hdf5: true
+    json: true
+    csv: true
+    yaml: true
+    npz: true
+
+  create_subdirs: true
+  timestamp_dirs: false
+
+  compress_hdf5: true
+  compression_level: 6
+  include_diagnostics: true
+
+# -----------------------------------------------------------------------------
+# VALIDATION
+# -----------------------------------------------------------------------------
+validation:
+  strict_mode: false
+  check_file_existence: true
+  validate_parameter_ranges: true
+  check_mode_compatibility: true
+
+  angle_validation:
+    require_multiple_angles: false
+    min_angle_count: 1
+    validate_angle_ranges: false

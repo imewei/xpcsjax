@@ -1,0 +1,583 @@
+# =============================================================================
+# xpcsjax — LAMINAR FLOW TEMPLATE
+# =============================================================================
+# Seven-parameter homodyne model: 3 diffusion + 4 shear-flow parameters.
+# Use this template when the sample is under laminar shear (e.g. rheo-XPCS,
+# Couette flow, microfluidic channel) and the c2 surface shows the
+# characteristic shear-induced oscillations along the velocity direction.
+#
+# Physics model:
+#   D(t)  = D0 · t^alpha + D_offset                               [diffusion]
+#   γ̇(t) = γ̇₀ · t^beta + γ̇_offset                                [shear rate]
+#   sinc² envelope along cos(phi − phi0) modulates |g1|²          [shear coupling]
+#
+# Parameters (7 physical + 2N scaling for N phi angles):
+#   D0, alpha, D_offset                — anomalous diffusion
+#   gamma_dot_t0, beta, gamma_dot_t_offset  — shear-rate evolution
+#   phi0                               — flow direction angle [degrees]
+#   contrast_i, offset_i               — per-angle speckle scaling
+#
+# CRITICAL: Laminar flow benefits strongly from L2 hierarchical and
+# L5 shear-weighting in the anti-degeneracy controller. Defaults below
+# enable both. Disable only if you understand the trade-off.
+#
+# Scope: xpcsjax is NLSQ-only. Bayesian sampling is permanently out of scope.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# METADATA
+# -----------------------------------------------------------------------------
+metadata:
+  config_version: "0.1.0"
+  description: "xpcsjax laminar flow — 7-param diffusion + shear with per-angle scaling"
+  parameter_count: 7
+  physics_model: "D(t)=D0·t^alpha+D_offset; γ̇(t)=γ̇₀·t^beta+γ̇_offset; shear coupling via cos(φ−φ0)"
+  template_type: "production_ready"
+  complexity: "full"
+  generated_at: null
+  generated_by: null
+
+# -----------------------------------------------------------------------------
+# ANALYSIS MODE
+# -----------------------------------------------------------------------------
+analysis_mode: "laminar_flow"
+
+# -----------------------------------------------------------------------------
+# ANALYZER PARAMETERS
+# -----------------------------------------------------------------------------
+# geometry.stator_rotor_gap is the physical Couette gap and IS used in
+# laminar flow — the loader passes it through to NLSQ for path-length
+# normalization. Set it to the actual gap of your rheometer cell.
+analyzer_parameters:
+  dt: 0.1
+  start_frame: 1
+  end_frame: 1000
+  frame_step: 1
+  time_unit: "seconds"
+
+  scattering:
+    wavevector_q: 0.0237          # Wave-vector magnitude [Å⁻¹]
+
+  geometry:
+    stator_rotor_gap: 2000000     # Couette gap [Å] — 200 μm typical
+                                  # MUST be physically realistic for laminar_flow
+
+# -----------------------------------------------------------------------------
+# ANALYSIS SETTINGS
+# -----------------------------------------------------------------------------
+analysis_settings:
+  model_description:
+    type: "laminar_flow"
+    parameters:
+      - "D0"
+      - "alpha"
+      - "D_offset"
+      - "gamma_dot_t0"
+      - "beta"
+      - "gamma_dot_t_offset"
+      - "phi0"
+    physics: "Anomalous diffusion + laminar shear (γ̇·cos(φ−φ0) coupling)"
+    per_angle_scaling: true
+
+# -----------------------------------------------------------------------------
+# EXPERIMENTAL DATA
+# -----------------------------------------------------------------------------
+experimental_data:
+  file_path: null
+  data_folder_path: "./data/"
+  data_file_name: "sample_flow.hdf"
+  phi_angles_path: "./data/"
+  phi_angles_file: "phi_list.txt"
+
+  cache_directory: "./cache"
+  use_caching: true
+  cache_filename_template: "cached_c2_frames_${start_frame}_${end_frame}.npz"
+  cache_compression: true
+
+  data_type: "APS_old"
+  file_format: "hdf5"
+  exchange_key: "exchange"
+
+# -----------------------------------------------------------------------------
+# PHI FILTERING
+# -----------------------------------------------------------------------------
+# Laminar flow REQUIRES angles spanning both parallel and perpendicular
+# directions so the shear coupling cos(phi−phi0) can be resolved.
+# require_orthogonal_angles is therefore set to true.
+phi_filtering:
+  enabled: true
+  target_ranges:
+    - min_angle: -10.0
+      max_angle:  10.0
+      description: "Parallel to flow (sees full shear coupling)"
+    - min_angle:  85.0
+      max_angle:  95.0
+      description: "Perpendicular to flow (diffusion-only)"
+    # Uncomment for stronger coverage of the shear oscillation:
+    # - min_angle: -95.0
+    #   max_angle: -85.0
+    #   description: "Perpendicular (opposite side)"
+    # - min_angle: 170.0
+    #   max_angle: -170.0
+    #   description: "Antiparallel"
+  fallback_to_all_angles: true
+  algorithm: "range_based"
+  tolerance: 3.0
+
+  quality_control:
+    min_angles_required: 2          # need ≥2 for flow direction recovery
+    max_angle_spread: 36.0
+    validate_coverage: true
+    require_orthogonal_angles: true # CRITICAL for laminar_flow
+
+# -----------------------------------------------------------------------------
+# INITIAL PARAMETERS
+# -----------------------------------------------------------------------------
+initial_parameters:
+  parameter_names:
+    - D0
+    - alpha
+    - D_offset
+    - gamma_dot_t0
+    - beta
+    - gamma_dot_t_offset
+    - phi0
+
+  values: null
+  # Example: [1000.0, 0.5, 10.0, 0.01, 0.0, 0.0, 0.0]
+
+  per_angle_scaling:
+    contrast: null
+    offset:   null
+
+  units:
+    - "Å²/s"
+    - "dimensionless"
+    - "Å²/s"
+    - "s⁻¹"
+    - "dimensionless"
+    - "s⁻¹"
+    - "degrees"
+
+  active_parameters: null
+  fixed_parameters: null
+  # Common simplification: freeze the shear offsets if your experiment is
+  # near steady-state — {"gamma_dot_t_offset": 0.0, "beta": 0.0}
+
+# -----------------------------------------------------------------------------
+# PARAMETER SPACE — bounds match the xpcsjax registry
+# -----------------------------------------------------------------------------
+parameter_space:
+  model: "laminar_flow"
+
+  bounds:
+    - name: contrast
+      min: 0.0
+      max: 1.0
+      type: TruncatedNormal
+      unit: "dimensionless"
+
+    - name: offset
+      min: 0.5
+      max: 1.5
+      type: TruncatedNormal
+      unit: "dimensionless"
+
+    - name: D0
+      min: 100.0
+      max: 100000.0
+      type: TruncatedNormal
+      unit: "Å²/s"
+
+    - name: alpha
+      min: -2.0
+      max:  2.0
+      type: TruncatedNormal
+      unit: "dimensionless"
+
+    - name: D_offset
+      min: -100000.0
+      max:  100000.0
+      type: TruncatedNormal
+      unit: "Å²/s"
+
+    - name: gamma_dot_t0
+      min: 1.0e-6
+      max: 0.5
+      type: TruncatedNormal
+      unit: "s⁻¹"
+
+    - name: beta
+      min: -2.0
+      max:  2.0
+      type: TruncatedNormal
+      unit: "dimensionless"
+
+    - name: gamma_dot_t_offset
+      min: -0.1
+      max:  0.1
+      type: TruncatedNormal
+      unit: "s⁻¹"
+
+    - name: phi0
+      min: -10.0           # tight bounds for stable convergence
+      max:  10.0
+      type: TruncatedNormal
+      unit: "degrees"
+
+# -----------------------------------------------------------------------------
+# OPTIMIZATION (NLSQ-only)
+# -----------------------------------------------------------------------------
+optimization:
+  method: "nlsq"
+
+  nlsq:
+    workflow: "auto"
+    goal: "quality"
+
+    memory_fraction: 0.75
+    # memory_threshold_gb: 48.0
+
+    max_iterations: 10000
+    tolerance: 1.0e-8
+    xtol: 1.0e-8
+    gtol: 1.0e-8
+    trust_region_scale: 1.0
+    verbose: false
+
+    loss: "soft_l1"
+
+    # ----------------------------------------------------------------------
+    # PARAMETER SCALING — laminar flow needs careful x_scale_map
+    # The shear gradient can be 1000–10,000× larger than the diffusion
+    # gradient, which makes "jac" scaling premature-converge. If you see
+    # flat shear params after a fit, compute dataset-specific values via
+    # scripts/diagnose_gradients.py and paste them under x_scale_map.
+    # ----------------------------------------------------------------------
+    x_scale: "jac"
+    x_scale_map: null
+    # x_scale_map:
+    #   D0: 1.20
+    #   alpha: 7.61e-4
+    #   D_offset: 1.13
+    #   gamma_dot_t0: 3.71e-6
+    #   beta: 3.14e-4
+    #   gamma_dot_t_offset: 9.30e-8
+    #   phi0: 0.739
+
+    progress:
+      enable: true
+      verbose: 1
+      log_interval: 10
+
+    diagnostics:
+      enabled: false
+      sample_size: 2048
+      check_gradients: true
+      log_jacobian_norms: false
+
+    # ----------------------------------------------------------------------
+    # ANTI-DEGENERACY — full 5-layer stack is recommended for laminar_flow
+    # L2 hierarchical: alternates physical/per-angle solves to prevent
+    #                  per-angle scaling from absorbing the shear signal.
+    # L5 shear_weighting: weights residuals by |cos(phi0−phi)| to prevent
+    #                     gradient cancellation across angles.
+    # CRITICAL: shear_weighting requires hierarchical.enable=true.
+    # ----------------------------------------------------------------------
+    anti_degeneracy:
+      enable: true
+
+      per_angle_mode: "auto"           # auto → "constant" when n_phi >= threshold
+      constant_scaling_threshold: 3
+      fourier_order: 2
+      fourier_auto_threshold: 6
+
+      hierarchical:
+        enable: true                   # REQUIRED for shear_weighting (L5)
+        max_outer_iterations: 5
+        outer_tolerance: 1.0e-6
+        physical_max_iterations: 100
+        per_angle_max_iterations: 50
+
+      regularization:
+        enable: false
+        mode: "relative"               # "absolute" | "relative" | "auto"
+        lambda: 1.0
+        target_cv: 0.10
+        target_contribution: 0.10
+        max_cv: 0.20
+        auto_tune_lambda: true
+
+      gradient_monitoring:
+        enable: true
+        ratio_threshold: 0.01
+        consecutive_triggers: 5
+        response: "hierarchical"       # auto-switch to hierarchical solve on collapse
+
+      shear_weighting:
+        enable: true                   # L5 — laminar_flow only
+        alpha: 1.0                     # 1.0 = linear |cos| weighting
+        min_weight: 0.3
+        update_frequency: 50
+        normalize: true
+
+    # ----------------------------------------------------------------------
+    # CMA-ES — strongly recommended when scale_ratio > scale_threshold
+    # Laminar flow has D0 ~ 1e3 vs gamma_dot_t0 ~ 1e-3, so scale_ratio
+    # often exceeds 1e6 and auto_select trips. Leave it enabled.
+    # ----------------------------------------------------------------------
+    cmaes:
+      enable: false                    # toggle on when multi-start finds inconsistent minima
+      preset: "cmaes-global"
+      max_generations: null            # null = adaptive based on scale_ratio
+      sigma: 0.5
+      sigma_warmstart: 0.05
+      warmstart_auto_skip: true
+      warmstart_skip_threshold: 5.0
+      popsize: null
+      tol_fun: 1.0e-8
+      tol_x: 1.0e-8
+      restart_strategy: "bipop"
+      max_restarts: 10
+      memory_limit_gb: 8.0
+      auto_select: true                # auto-engages on large scale_ratio
+      scale_threshold: 1000.0
+      normalize: true
+      normalization_epsilon: 1.0e-12
+      refine_with_nlsq: true
+      refinement_ftol: 1.0e-10
+      refinement_xtol: 1.0e-10
+      refinement_gtol: 1.0e-10
+      refinement_max_nfev: 500
+      refinement_loss: "linear"
+
+    # Multi-start is DISABLED when CMA-ES is enabled (they're redundant).
+    multi_start:
+      enable: false
+      n_starts: 10
+      seed: 42
+      sampling_strategy: "latin_hypercube"
+      n_workers: 0
+      use_screening: true
+      screen_keep_fraction: 0.5
+      refine_top_k: 3
+      refinement_ftol: 1.0e-12
+      degeneracy_threshold: 0.1
+
+    hybrid_streaming:
+      enable: true
+      normalize: true
+      normalization_strategy: "auto"
+      warmup_iterations: 200
+      max_warmup_iterations: 500
+      warmup_learning_rate: 0.001
+      gauss_newton_max_iterations: 100
+      gauss_newton_tol: 1.0e-8
+      chunk_size: 10000
+      trust_region_initial: 1.0
+      regularization_factor: 1.0e-10
+      enable_checkpoints: true
+      checkpoint_frequency: 100
+      validate_numerics: true
+      verbose: 1
+      log_frequency: 1
+
+      enable_warm_start_detection: true
+      warm_start_threshold: 0.01
+      enable_adaptive_warmup_lr: true
+      warmup_lr_refinement: 1.0e-6
+      warmup_lr_careful: 1.0e-5
+      enable_cost_guard: true
+      cost_increase_tolerance: 0.05
+      enable_step_clipping: true
+      max_warmup_step_size: 0.1
+
+    quality_validation:
+      enable: true
+      reduced_chi_squared_threshold: 10.0
+      warn_on_max_restarts: true
+      warn_on_bounds_hit: true
+      warn_on_convergence_failure: true
+      bounds_tolerance: 1.0e-9
+
+  streaming:
+    enable_checkpoints: true
+    checkpoint_dir: "./checkpoints"
+    checkpoint_frequency: 10
+    resume_from_checkpoint: true
+    keep_last_checkpoints: 3
+    enable_fault_tolerance: true
+    max_retries_per_batch: 2
+    min_success_rate: 0.5
+    batch_size: null
+    adaptive_batching: true
+
+  stratification:
+    enabled: "auto"
+    target_chunk_size: 100000
+    max_imbalance_ratio: 5.0
+    force_sequential_fallback: false
+    check_memory_safety: true
+    use_index_based: false
+    collect_diagnostics: false
+    log_diagnostics: false
+
+  sequential:
+    min_success_rate: 0.5
+    weighting: "inverse_variance"
+
+  recovery:
+    enable: true
+    max_attempts: 3
+    lr_decay: 0.5
+    lambda_growth: 2.0
+    trust_decay: 0.5
+    log_retries: true
+
+  angle_filtering:
+    enabled: false
+    target_angle_ranges: []
+
+# -----------------------------------------------------------------------------
+# NOISE ESTIMATION — Bayesian sub-tooling, disabled by default
+# -----------------------------------------------------------------------------
+noise_estimation:
+  enabled: false
+  model: "per_angle"
+
+# -----------------------------------------------------------------------------
+# PERFORMANCE
+# -----------------------------------------------------------------------------
+performance:
+  strategy_override: null
+  memory_limit_gb: null
+  enable_progress: true
+
+  memory_optimization:
+    enabled: true
+    max_memory_usage_gb: 6.0
+    chunk_size: 8000
+    enable_caching: true
+    cache_strategy: "adaptive"
+
+  computation:
+    enable_jit: true
+    cpu_threads: "auto"
+    vectorization_level: "high"
+
+# -----------------------------------------------------------------------------
+# LOGGING
+# -----------------------------------------------------------------------------
+logging:
+  enabled: true
+  level: "INFO"
+
+  console:
+    enabled: true
+    level: "INFO"
+    format: "detailed"
+    colors: true
+    show_progress: true
+
+  file:
+    enabled: false
+    level: "DEBUG"
+    path: "./logs/"
+    filename: "xpcsjax_laminar_flow.log"
+    max_size_mb: 10
+    backup_count: 5
+
+  modules:
+    "xpcsjax.data.phi_filtering": "INFO"
+    "xpcsjax.data.xpcs_loader": "INFO"
+    "xpcsjax.optimization.nlsq": "INFO"
+    "jax._src": "WARNING"
+
+# -----------------------------------------------------------------------------
+# QUALITY CONTROL
+# -----------------------------------------------------------------------------
+quality_control:
+  enabled: true                   # recommended for laminar flow
+
+  angle_quality:
+    validate_angle_coverage: true
+    min_angles_per_range: 1
+    check_angle_distribution: true
+
+  multi_angle_validation:
+    check_correlation_consistency: true
+    validate_angle_dependencies: true   # essential for shear coupling
+    detect_anomalous_angles: true
+
+# -----------------------------------------------------------------------------
+# PLOTTING
+# -----------------------------------------------------------------------------
+plotting:
+  save_plots: true
+  show_plots: false
+  format: "png"
+  dpi: 300
+  style: "publication"
+
+  preview_mode: false
+  fit_surface: "solver"
+
+  color_scale:
+    mode: "legacy"
+    pin_legacy_range: true
+    percentile_min: 1.0
+    percentile_max: 99.0
+    fixed_min: 1.0
+    fixed_max: 1.5
+
+  datashader:
+    canvas_width: 1200
+    canvas_height: 1200
+
+  matplotlib:
+    interpolation: "bilinear"
+    use_tight_layout: true
+    savefig_kwargs:
+      bbox_inches: "tight"
+      pad_inches: 0.1
+
+  correlation_function: true
+  fit_quality: true
+  residual_analysis: true
+  angle_coverage: true
+  angle_correlation: true         # shows the cos(phi−phi0) shear modulation
+
+# -----------------------------------------------------------------------------
+# OUTPUT
+# -----------------------------------------------------------------------------
+output:
+  directory: "./results"
+  base_directory: "./xpcsjax_results/"
+
+  formats:
+    hdf5: true
+    json: true
+    csv: true
+    yaml: true
+    npz: true
+
+  create_subdirs: true
+  timestamp_dirs: false
+
+  compress_hdf5: true
+  compression_level: 6
+  include_diagnostics: true
+
+# -----------------------------------------------------------------------------
+# VALIDATION
+# -----------------------------------------------------------------------------
+validation:
+  strict_mode: false
+  check_file_existence: true
+  validate_parameter_ranges: true
+  check_mode_compatibility: true
+
+  angle_validation:
+    require_multiple_angles: true   # laminar flow REQUIRES ≥ 2 angles
+    min_angle_count: 2
+    validate_angle_ranges: true

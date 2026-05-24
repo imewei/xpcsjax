@@ -939,6 +939,22 @@
     "mtime": 1779465009.537003,
     "hash": "c8a27eb7925329069222f00034e301fa"
   },
+  "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/templates/xpcsjax_static_isotropic.yaml": {
+    "mtime": 1779571399.6118562,
+    "hash": "75ccce0847c5213aad47f3b977a48840"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/templates/xpcsjax_laminar_flow.yaml": {
+    "mtime": 1779571484.7991617,
+    "hash": "57c5af76cfc9d2402f8123fc32fe066f"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/templates/xpcsjax_two_component.yaml": {
+    "mtime": 1779571590.1704884,
+    "hash": "f5a97029559bea6c8b3b65374223a8af"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/templates/xpcsjax_static_anisotropic.yaml": {
+    "mtime": 1779571326.7145603,
+    "hash": "9e1e9bdfcb2456e7e4c038168be632f6"
+  },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/theory/citations.rst": {
     "mtime": 1779237286.5874834,
     "hash": "7dee08cb212682ac3b26471ba491d0c2"
