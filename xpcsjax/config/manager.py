@@ -334,7 +334,7 @@ class ConfigManager:
             elif self.is_static_mode_enabled():
                 # Preserve isotropic/anisotropic distinction if specified;
                 # otherwise default to the angular-resolved variant.
-                if "isotropic" in raw_mode:
+                if "isotropic" in raw_mode and "anisotropic" not in raw_mode:
                     analysis_mode = "static_isotropic"
                 else:
                     analysis_mode = "static_anisotropic"

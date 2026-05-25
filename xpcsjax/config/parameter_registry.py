@@ -789,7 +789,9 @@ class ParameterRegistry:
         - 'two_component' or 'heterodyne' (any case) → 'two_component'
         """
         mode_lower = mode.lower()
-        if "static" in mode_lower and "isotropic" in mode_lower:
+        if "static" in mode_lower and "anisotropic" in mode_lower:
+            return "static_anisotropic"
+        elif "static" in mode_lower and "isotropic" in mode_lower:
             return "static_isotropic"
         elif "static" in mode_lower:
             return "static_anisotropic"

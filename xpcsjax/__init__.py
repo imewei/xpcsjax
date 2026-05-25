@@ -83,11 +83,18 @@ _LAZY_EXPORTS = {
     "OptimizationResult": "xpcsjax.optimization.nlsq.results",
 }
 
-# Note: a `TYPE_CHECKING` block listing the lazy-exported symbols belongs
-# here for IDE auto-complete, but the target submodules don't export those
-# symbols yet (they're populated in Tasks 6, 11, 15, 19, 20, 28). Reinstate
-# the block in a later cleanup task once every submodule's __init__.py
-# exposes its public symbol.
+# TYPE_CHECKING block for IDE / Pyright static visibility. All submodules
+# below now export their public symbol, so the original deferral comment
+# (Tasks 6/11/15/19/20/28) is resolved.
+from typing import TYPE_CHECKING as _TYPE_CHECKING
+
+if _TYPE_CHECKING:
+    from xpcsjax.config import ConfigManager
+    from xpcsjax.core import HeterodyneModel, HomodyneModel
+    from xpcsjax.data import load_xpcs_data
+    from xpcsjax.optimization.nlsq import fit_nlsq
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+    from xpcsjax.viz import generate_nlsq_plots
 
 
 def __getattr__(name: str):  # noqa: D401

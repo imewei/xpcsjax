@@ -219,6 +219,9 @@ CMAES_AVAILABLE = _is_cmaes_available()
 
 # Skip L-M refinement when CMA-ES chi2 exceeds this multiple of the
 # warm-start chi2 — the comparison in core.py will discard it anyway.
+# 10× chosen empirically: large enough that L-M local refinement cannot
+# recover the gap (trust-region step is bounded), small enough to catch
+# near-degenerate CMA-ES runs before they waste L-M budget.
 _REFINEMENT_SKIP_CHI2_RATIO = 10.0
 
 
@@ -527,7 +530,7 @@ class CMAESWrapper:
     def should_use_cmaes(
         self,
         bounds: tuple[np.ndarray, np.ndarray],
-        scale_threshold: float = 1000.0,
+        scale_threshold: float = 1000.0,  # XPCS: Γ (~1e-6–1e0 s) vs β (~0.1–1.0) → scale ratios routinely exceed 1e3
     ) -> bool:
         """Determine if CMA-ES should be used based on scale ratio.
 

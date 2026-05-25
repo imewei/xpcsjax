@@ -78,6 +78,8 @@ class MultiStartConfig:
     """
 
     enable: bool = False
+    # 10 satisfies LHS coverage heuristic (n_starts ≥ n_params) for typical XPCS physics fits
+    # (4–8 physics params). Raise for fourier/individual heterodyne modes with large n_phi.
     n_starts: int = 10
     seed: int = 42
     sampling_strategy: str = "latin_hypercube"
