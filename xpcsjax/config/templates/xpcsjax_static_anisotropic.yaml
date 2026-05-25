@@ -42,25 +42,47 @@ metadata:
 analysis_mode: "static_anisotropic"
 
 # -----------------------------------------------------------------------------
-# ANALYZER PARAMETERS
+# ANALYZER PARAMETERS — describe the experimental run
 # -----------------------------------------------------------------------------
 # Required: dt, start_frame, end_frame. Optional: frame_step, time_unit.
 # scattering.wavevector_q and geometry.stator_rotor_gap are read by
-# xpcsjax.optimization.nlsq.core.
+# xpcsjax.optimization.nlsq.core for time-axis construction and length-
+# scale-dependent quantities (q²·D appears in g1).
 analyzer_parameters:
-  dt: 0.1                # Time step between frames [seconds]
-  start_frame: 1         # First frame to analyze (1-indexed)
-  end_frame: 1000        # Last frame, inclusive
-  frame_step: 1
-  time_unit: "seconds"
+  dt: 0.1                # Time step between frames [seconds]. MUST be > 0.
+                         # Get this from the detector framing — typically the
+                         # inverse of the acquisition rate. Common XPCS values
+                         # range 1e-4 to 1.0 seconds. Wrong dt → wrong D0.
+
+  start_frame: 1         # First frame to analyze, 1-INDEXED. MUST be >= 1.
+                         # Use a value > 1 to skip beam-on transients
+                         # (typically the first 20-50 frames in synchrotron data).
+
+  end_frame: 1000        # Last frame, INCLUSIVE. MUST be > start_frame and > 0.
+                         # ⚠ end_frame: -1 is REJECTED in v0.1 — the sentinel
+                         # value is no longer interpreted as "all frames".
+                         # Pre-resolve it from the actual frame count.
+
+  frame_step: 1          # Stride between frames. Use 2-10 to subsample for
+                         # exploration; always use 1 for production fits.
+                         # Subsampling is logged when frame_step > 1.
+
+  time_unit: "seconds"   # "seconds" (default) | other strings are informational
+                         # only — internal computations always assume SI seconds.
 
   scattering:
-    wavevector_q: 0.0237 # Wave-vector magnitude [Å⁻¹]
+    wavevector_q: 0.0237 # Wave-vector magnitude [Å⁻¹]. MUST be > 0.
+                         # Derived from detector geometry as q = 4π/λ · sin(θ/2)
+                         # where θ is the scattering angle. Typical XPCS q range:
+                         # 1e-4 to 1e-1 Å⁻¹ (probes ~10 nm to ~10 µm length scales).
+                         # Wrong q → wrong D0 (q² scaling).
 
   geometry:
-    stator_rotor_gap: 2000000  # Gap [Å]; not used in static modes, but
-                               # required by the loader for symmetry with
+    stator_rotor_gap: 2000000  # Couette gap [Å]. Not used in static modes,
+                               # but required by the loader for symmetry with
                                # laminar_flow / two_component configs.
+                               # Set to a physical value (here 200 µm = 2×10⁶ Å)
+                               # even for static — it does not affect the fit.
 
 # -----------------------------------------------------------------------------
 # ANALYSIS SETTINGS
@@ -73,51 +95,125 @@ analysis_settings:
     per_angle_scaling: true
 
 # -----------------------------------------------------------------------------
-# EXPERIMENTAL DATA
+# EXPERIMENTAL DATA — where to find the c2 data and the phi-angle list
 # -----------------------------------------------------------------------------
 # Two equivalent formats are supported:
-#   (a) Modern:   file_path: "/abs/or/relative/to/data.h5"
-#   (b) Legacy:   data_folder_path + data_file_name (auto-normalized to file_path)
-# Set ONE of them; the loader is happy with either.
+#   (a) Modern:   file_path: "/abs/or/relative/path/to/data.h5"
+#   (b) Legacy:   data_folder_path + data_file_name
+#                  (auto-normalized to file_path on load)
+# Set ONE of them; the loader is happy with either. Mixing (setting both)
+# is allowed — file_path wins after _normalize_experimental_data().
 experimental_data:
-  file_path: null                    # e.g. "/data/xpcs_sample_001.h5"
-  data_folder_path: "./data/"
-  data_file_name: "sample.hdf"
-  phi_angles_path: "./data/"
-  phi_angles_file: "phi_list.txt"
+  file_path: null                    # Modern format: full path to data file.
+                                     # null = use legacy format below.
+                                     # Example: "/data/xpcs_sample_001.h5"
 
-  cache_directory: "./cache"
-  use_caching: true
+  data_folder_path: "./data/"        # Legacy format: directory containing the
+                                     # data file. Combined with data_file_name
+                                     # via _normalize_experimental_data().
+
+  data_file_name: "sample.hdf"       # Legacy format: data file basename.
+                                     # Loader detects format from extension:
+                                     # .h5/.hdf/.hdf5/.nexus → HDF5 path
+                                     # .npz                  → cache-direct path
+
+  phi_angles_path: "./data/"         # Directory holding the phi-angles list.
+                                     # Combined with phi_angles_file to build
+                                     # phi_angles_full_path during normalization.
+
+  phi_angles_file: "phi_list.txt"    # Plain-text phi-angles file (one float
+                                     # per line, in DEGREES). For APS HDF5
+                                     # files, the loader can also read phi
+                                     # angles from an internal dataset.
+
+  cache_directory: "./cache"         # Where to write/read npz caches of the
+                                     # processed c2 array (avoids re-reading
+                                     # HDF5 on every fit). MUST be writeable.
+
+  use_caching: true                  # true = read/write npz cache (recommended)
+                                     # false = always reread HDF5 (slower).
+
   cache_filename_template: "cached_c2_frames_${start_frame}_${end_frame}.npz"
-  cache_compression: true
+                                     # Supports ${start_frame}/${end_frame}
+                                     # substitution at load time. The template
+                                     # also gets the wavevector_q baked in.
 
-  data_type: "APS_old"               # "APS_old" | "APS_new" | "custom"
-  file_format: "hdf5"                # "hdf5" | "nexus" | "npz"
-  exchange_key: "exchange"           # HDF5 group key for APS-style files
+  cache_compression: true            # true = gzip the cache file (smaller,
+                                     # slightly slower). false = uncompressed.
+
+  # ⚠ The three fields below (data_type, file_format, exchange_key) are
+  # INFORMATIONAL ONLY in xpcsjax v0.1 — they are NOT consulted by the loader.
+  # Kept for compatibility with upstream homodyne/heterodyne configs so old
+  # configs continue to load without "unknown key" warnings.
+  data_type: "aps_old"               # NOT CONSULTED. xpcsjax auto-detects from HDF5
+                                     # structure via xpcs_loader._detect_format(),
+                                     # which returns one of:
+                                     #   "aps_old"  — APS legacy (xpcs/dqlist
+                                     #                + exchange/C2T_all keys)
+                                     #   "aps_u"    — APS-U new (xpcs/qmap/...
+                                     #                + xpcs/twotime/correlation_map)
+                                     #   "unknown"  — unrecognized (raises error)
+
+  file_format: "hdf5"                # NOT CONSULTED. The loader routes by FILE
+                                     # EXTENSION of data_file_name:
+                                     #   .npz                  → cache-direct path
+                                     #   .h5/.hdf/.hdf5/.nexus → HDF5 path (then
+                                     #                            auto-detects format)
+
+  exchange_key: "exchange"           # NOT CONSULTED. The APS old-format reader
+                                     # hardcodes the "exchange/C2T_all" group;
+                                     # this config value is ignored.
 
 # -----------------------------------------------------------------------------
 # PHI FILTERING — angle subset selection
 # -----------------------------------------------------------------------------
 # For anisotropic static analysis you typically want a moderate spread of
 # angles so the per-angle scaling can resolve the angular contrast variation.
+# The filter is applied AFTER loading and BEFORE the optimizer is invoked.
 phi_filtering:
-  enabled: true
-  target_ranges:
+  enabled: true                          # true = filter angles per target_ranges
+                                         # false = pass all angles through
+
+  target_ranges:                         # list of {min_angle, max_angle, description}
+                                         # in DEGREES. Angles inside any range
+                                         # (with `tolerance` slack) are kept.
+                                         # Empty list = keep none (fallback may apply).
     - min_angle: -10.0
       max_angle:  10.0
-      description: "Primary axis"
+      description: "Primary axis"        # description is informational only
+
     - min_angle:  85.0
       max_angle:  95.0
       description: "Perpendicular"
-  fallback_to_all_angles: true
-  algorithm: "range_based"
-  tolerance: 3.0  # degrees
+
+  fallback_to_all_angles: true           # true = if filter yields zero angles,
+                                         #        fall back to using all angles
+                                         # false = raise an error (strict mode)
+
+  algorithm: "range_based"               # "range_based" is the only currently
+                                         # supported algorithm in v0.1.
+
+  tolerance: 3.0                         # Slack [degrees] applied to range edges.
+                                         # Angles within `tolerance` of a range
+                                         # boundary are still kept. 0 = strict edges.
 
   quality_control:
-    min_angles_required: 1
-    max_angle_spread: 36.0
-    validate_coverage: true
-    require_orthogonal_angles: false   # not required for static
+    min_angles_required: 1               # Minimum angles after filtering.
+                                         # Set to 2+ for laminar_flow; 1 is fine
+                                         # for static (even one angle gives a
+                                         # well-posed problem in static mode).
+
+    max_angle_spread: 36.0               # Max angular spread WITHIN each target
+                                         # range [degrees]. Prevents accidentally
+                                         # over-broad windows. Set higher (e.g. 90)
+                                         # for exploratory configs.
+
+    validate_coverage: true              # true = log a warning if any target_range
+                                         # has no data angles inside it.
+
+    require_orthogonal_angles: false     # true = require near-orthogonal pairs
+                                         # (essential for laminar_flow flow-angle
+                                         # recovery; off for static).
 
 # -----------------------------------------------------------------------------
 # INITIAL PARAMETERS
@@ -165,43 +261,75 @@ initial_parameters:
 # -----------------------------------------------------------------------------
 # PARAMETER SPACE — bounds (must align with the xpcsjax registry)
 # -----------------------------------------------------------------------------
-# Bounds below mirror xpcsjax.config.parameter_registry._PARAMETERS.
-# Tighten per dataset if you have physical reason; widen with care.
-# NLSQ uses min/max as box constraints — `type:` is informational only here
-# (it is meaningful for the upstream Bayesian path, not for xpcsjax NLSQ).
+# Bounds below mirror xpcsjax.config.parameter_registry._PARAMETERS exactly
+# (verified by tests). NLSQ uses min/max as BOX CONSTRAINTS — the trust-region
+# solver projects onto the box at each step.
+#
+# Per-bound fields:
+#   name  : parameter identifier (must match registry / parameter_names)
+#   min   : lower box bound (must be <= max)
+#   max   : upper box bound (must be > min)
+#   type  : "TruncatedNormal" is the only value xpcsjax uses currently;
+#           informational only in the NLSQ path (meaningful for Bayesian
+#           which is out of scope here).
+#   unit  : informational only; emitted in result reports for context.
+#
+# Tightening bounds → faster convergence, fewer local minima, lower risk
+#                     of unphysical fits. Tighten when you have physical
+#                     prior knowledge.
+# Widening bounds  → more exploration, more risk of spurious minima. Widen
+#                    only when bounds_hit warnings show the optimizer is
+#                    pinned at a bound.
 parameter_space:
   model: "static_anisotropic"
 
   bounds:
     - name: contrast
-      min: 0.0
-      max: 1.0
+      min: 0.0                # physical lower bound (no contrast = no signal)
+      max: 1.0                # physical upper bound (fully coherent illumination)
       type: TruncatedNormal
       unit: "dimensionless"
+      # Tighten to [0.01, 0.3] if you have a coherent-fraction estimate.
+      # Typical XPCS β values: 0.01-0.2; > 0.3 is unusual.
 
     - name: offset
-      min: 0.5
-      max: 1.5
+      min: 0.5                # baseline of normalized c2; should be ~1.0 ideally
+      max: 1.5                # > 1.5 suggests normalization issue
       type: TruncatedNormal
       unit: "dimensionless"
+      # Tighten to [0.95, 1.05] if your normalization is well-validated.
+      # Wide bounds catch normalization drift but slow the fit.
 
     - name: D0
-      min: 100.0
-      max: 100000.0
+      min: 100.0              # ~100 nm particles in water at 25°C → D ~ 4 Å²/s
+                              # 100 Å²/s is the conservative lower bound
+      max: 100000.0           # ~10 nm particles → D ~ 4×10⁴ Å²/s
       type: TruncatedNormal
       unit: "Å²/s"
+      # Tighten to [500, 5000] if you know particle size to within 2×.
+      # WIDEN with care — D0 spans orders of magnitude and wide bounds
+      # interact badly with x_scale="jac". Use x_scale_map if you widen.
 
     - name: alpha
-      min: -2.0
-      max:  2.0
+      min: -2.0               # strong subdiffusion (jammed, gels, glasses)
+      max:  2.0               # strong superdiffusion (active, ballistic)
       type: TruncatedNormal
       unit: "dimensionless"
+      # α =  1   normal Brownian diffusion (Stokes-Einstein)
+      # α <  1   subdiffusion (crowded environments)
+      # α >  1   superdiffusion (active transport, convection)
+      # Tighten to [-1.5, 1.5] for typical XPCS samples; rare cases hit
+      # the [-2, 2] bound (often a sign of model mis-specification).
 
     - name: D_offset
-      min: -100000.0
-      max:  100000.0
+      min: -100000.0          # negative values rare; usually indicates
+                              # arrested dynamics or model issue
+      max:  100000.0          # symmetric for safety
       type: TruncatedNormal
       unit: "Å²/s"
+      # Most fits converge to D_offset ≈ 0. Tighten to [-1000, 1000] if
+      # your samples are well-behaved. Setting fixed_parameters: {"D_offset": 0.0}
+      # is a common simplification when you have no reason to model offset.
 
 # -----------------------------------------------------------------------------
 # OPTIMIZATION (NLSQ-only)
@@ -293,16 +421,33 @@ optimization:
     x_scale: "jac"
     x_scale_map: null
 
+    # -----------------------------------------------------------------------
+    # PROGRESS REPORTING
+    # -----------------------------------------------------------------------
     progress:
-      enable: true
-      verbose: 1                  # 0=quiet | 1=milestones | 2=detailed
-      log_interval: 10
+      enable: true                # true = show tqdm progress bar during fitting
+                                  # false = silent (useful in headless CI)
+      verbose: 1                  # 0 = silent (no log lines)
+                                  # 1 = milestones only (start, end, restarts)
+                                  # 2 = detailed (one line per iteration)
+      log_interval: 10            # log every N iterations (only with verbose >= 2)
 
+    # -----------------------------------------------------------------------
+    # DIAGNOSTICS — gradient sanity checks and Jacobian inspection
+    # -----------------------------------------------------------------------
+    # OFF by default — these add measurable overhead. Enable when:
+    #   * Investigating "stuck" parameters (use check_gradients)
+    #   * Building an x_scale_map (use log_jacobian_norms)
+    #   * Debugging suspect fits in detail
     diagnostics:
-      enabled: false
-      sample_size: 2048
-      check_gradients: true
-      log_jacobian_norms: false
+      enabled: false              # true = compute diagnostics during fitting
+                                  # (Jacobian column norms, gradient checks)
+      sample_size: 2048           # # of points to sample for gradient check.
+                                  # Larger = more accurate, slower. CONSTRAINT: > 0
+      check_gradients: true       # true = verify analytic gradients numerically
+                                  # via central differences on `sample_size` points
+      log_jacobian_norms: false   # true = log per-iteration column-wise Jacobian
+                                  # norms (useful input to diagnose_gradients.py)
 
     # -----------------------------------------------------------------------
     # ANTI-DEGENERACY DEFENSE SYSTEM
@@ -397,29 +542,76 @@ optimization:
     # For static_anisotropic, leave disabled — gain is small for 3 well-scaled
     # parameters. Toggle on only if your fit is reproducibly stuck.
     cmaes:
-      enable: false
-      preset: "cmaes"
-      max_generations: null
-      sigma: 0.5
-      sigma_warmstart: 0.05
-      warmstart_auto_skip: true
-      warmstart_skip_threshold: 5.0
-      popsize: null
-      tol_fun: 1.0e-8
-      tol_x: 1.0e-8
-      restart_strategy: "bipop"
-      max_restarts: 5
-      memory_limit_gb: 8.0
-      auto_select: true
-      scale_threshold: 1000.0
-      normalize: true
-      normalization_epsilon: 1.0e-12
-      refine_with_nlsq: true
-      refinement_ftol: 1.0e-10
+      enable: false                       # master switch — leave off for static
+                                          # unless multi-start finds inconsistent
+                                          # minima. REQUIRES: nlsq[evosax].
+      preset: "cmaes"                     # presets bundle generations + popsize:
+                                          # "cmaes-fast"   ( 50 gen, quick scan)
+                                          # "cmaes"        (100 gen, balanced)
+                                          # "cmaes-global" (200 gen, thorough)
+
+      # ---- Global search settings ----
+      max_generations: null               # null = use the preset's value
+                                          # int  = override (e.g. 300 for very
+                                          #        rough landscapes)
+                                          # CONSTRAINT: null or > 0
+      sigma: 0.5                          # Initial step size, FRACTION of the
+                                          # parameter bound range. 0.5 = half the
+                                          # range. Larger = more exploration.
+                                          # CONSTRAINT: (0, 1]
+      sigma_warmstart: 0.05               # Reduced sigma when warm-started from
+                                          # a previous NLSQ fit (refinement mode).
+                                          # CONSTRAINT: (0, 1]
+      warmstart_auto_skip: true           # true = skip CMA-ES entirely if the
+                                          # NLSQ warm-start already gave a good fit
+      warmstart_skip_threshold: 5.0       # Skip CMA-ES if warm-start reduced χ²
+                                          # is below this. CONSTRAINT: > 0
+      popsize: null                       # null = adaptive sizing based on
+                                          # scale_ratio (recommended)
+                                          # int  = fixed population (e.g. 50, 100)
+
+      # ---- Convergence ----
+      tol_fun: 1.0e-8                     # function-value tolerance. CONSTRAINT: > 0
+      tol_x: 1.0e-8                       # parameter-value tolerance. CONSTRAINT: > 0
+
+      # ---- Restart strategy ----
+      restart_strategy: "bipop"           # "none"  — single CMA-ES run
+                                          # "bipop" — BIPOP-CMA-ES alternates
+                                          #           large/small populations on
+                                          #           restart (best for global)
+      max_restarts: 5                     # Maximum BIPOP restarts. Fewer = less
+                                          # wasted compute if stuck. CONSTRAINT: >= 0
+
+      # ---- Memory ----
+      memory_limit_gb: 8.0                # Hard cap for CMA-ES auto-configuration.
+                                          # Used to size population_batch_size and
+                                          # data_chunk_size. CONSTRAINT: > 0
+
+      # ---- Auto-selection criteria ----
+      auto_select: true                   # true = engage CMA-ES automatically
+                                          # when scale_ratio > scale_threshold
+      scale_threshold: 1000.0             # Auto-engagement threshold on the
+                                          # parameter scale ratio. 1000 = engage
+                                          # when params span 1000× in magnitude.
+                                          # CONSTRAINT: > 0
+
+      # ---- Normalization ----
+      normalize: true                     # true = normalize params to [0,1] using
+                                          # bounds (improves scale handling)
+      normalization_epsilon: 1.0e-12      # Avoid div-by-zero for tiny bound ranges
+
+      # ---- Post-CMA-ES NLSQ-TRF refinement (Phase 2) ----
+      refine_with_nlsq: true              # true = refine CMA-ES best with NLSQ
+                                          # Levenberg-Marquardt (recommended)
+      refinement_ftol: 1.0e-10            # tighter than main NLSQ for precision
       refinement_xtol: 1.0e-10
       refinement_gtol: 1.0e-10
-      refinement_max_nfev: 500
-      refinement_loss: "linear"
+      refinement_max_nfev: 500            # Max function evals for refinement.
+                                          # CONSTRAINT: > 0
+      refinement_loss: "linear"           # "linear" | "soft_l1" | "huber"
+                                          # | "cauchy" | "arctan". Linear is
+                                          # the standard choice for refinement;
+                                          # use robust losses if data has outliers.
 
     # -----------------------------------------------------------------------
     # MULTI-START OPTIMIZATION
@@ -445,16 +637,54 @@ optimization:
     # NOTE: DISABLE multi_start when cmaes.enable=true — CMA-ES provides
     # better global search through covariance adaptation.
     multi_start:
-      enable: false
-      n_starts: 10
-      seed: 42
-      sampling_strategy: "latin_hypercube"
-      n_workers: 0
-      use_screening: true
-      screen_keep_fraction: 0.5
-      refine_top_k: 3
-      refinement_ftol: 1.0e-12
-      degeneracy_threshold: 0.1
+      enable: false                       # master switch. Toggle on for explicit
+                                          # global search with LHS exploration.
+                                          # DISABLE when cmaes.enable=true.
+
+      n_starts: 10                        # # of LHS starting points. CONSTRAINT: > 0
+                                          # Typical:
+                                          #   3-D  (static) — 5 to 10 starts
+                                          #   7-D  (laminar) — 10 to 20 starts
+                                          #   14-D (heterodyne) — 15 to 50 starts
+                                          # Doubling n_starts ≈ doubles compute.
+
+      seed: 42                            # Random seed for reproducibility.
+                                          # CHANGE this between runs if you want
+                                          # to confirm the result isn't seed-dependent.
+
+      sampling_strategy: "latin_hypercube"  # "latin_hypercube" (RECOMMENDED — stratified
+                                            #                    coverage of parameter box)
+                                            # "random"         — uniform random sampling
+                                            #                    (worse coverage; rarely useful)
+
+      n_workers: 0                        # Parallel workers.
+                                          # 0    = auto (uses os.cpu_count())
+                                          # 1    = sequential (debugging)
+                                          # >1   = explicit worker count
+                                          # CONSTRAINT: >= 0
+                                          # Note: auto-switches to sequential for
+                                          # datasets >500k points (pickling overhead).
+
+      use_screening: true                 # true = run a cheap screening pass to
+                                          # filter out clearly-bad starts before
+                                          # the expensive refinement pass
+
+      screen_keep_fraction: 0.5           # Fraction of screened starts to keep
+                                          # for full refinement. CONSTRAINT: (0, 1]
+                                          # Lower = more aggressive filtering, faster.
+
+      refine_top_k: 3                     # Refine the top K solutions with tighter
+                                          # tolerance after screening. CONSTRAINT: >= 0
+                                          # Higher K = more confidence in best solution,
+                                          # but more compute.
+
+      refinement_ftol: 1.0e-12            # tighter tolerance for top-K refinement.
+                                          # CONSTRAINT: > 0
+
+      degeneracy_threshold: 0.1           # Flag near-degenerate minima: any start
+                                          # whose χ² is within (1 + threshold) × χ²_best
+                                          # is reported as degenerate. CONSTRAINT: (0, 1)
+                                          # 0.1 = 10% — generous; lower for stricter check.
 
     # -----------------------------------------------------------------------
     # HYBRID STREAMING — auto-activates for >10M points
@@ -478,22 +708,55 @@ optimization:
     #   "p0"     — normalize relative to the initial guess
     #   "none"   — no normalization (only for already-balanced problems)
     hybrid_streaming:
-      enable: true
-      normalize: true
-      normalization_strategy: "auto"        # "auto" | "bounds" | "p0" | "none"
-      warmup_iterations: 200                # L-BFGS iterations before switch check
-      max_warmup_iterations: 500            # force switch to Gauss-Newton after this
-      warmup_learning_rate: 0.001           # L-BFGS line search scale
-      gauss_newton_max_iterations: 100      # max Gauss-Newton iterations
-      gauss_newton_tol: 1.0e-8
-      chunk_size: 10000                     # points per streaming J^T J chunk
-      trust_region_initial: 1.0
-      regularization_factor: 1.0e-10        # Tikhonov regularization for J^T J
-      enable_checkpoints: true
-      checkpoint_frequency: 100
-      validate_numerics: true               # NaN/Inf detection
-      verbose: 1
-      log_frequency: 1
+      enable: true                          # true = use hybrid optimizer when
+                                            # selected. Auto-fires for >10M points.
+
+      normalize: true                       # true = parameter normalization (Phase 0)
+                                            # ESSENTIAL for problems with mixed scales.
+      normalization_strategy: "auto"        # "auto"   — solver picks based on problem
+                                            # "bounds" — normalize to [0,1] using bounds
+                                            # "p0"     — normalize relative to initial guess
+                                            # "none"   — no normalization (only for
+                                            #            already-balanced problems)
+
+      # ---- Phase 1: L-BFGS warmup ----
+      warmup_iterations: 200                # L-BFGS iterations before switching to
+                                            # Gauss-Newton if convergence is good.
+                                            # CONSTRAINT: > 0
+      max_warmup_iterations: 500            # FORCE switch to Gauss-Newton after this
+                                            # many warmup iters even if not converged.
+                                            # CONSTRAINT: > 0
+      warmup_learning_rate: 0.001           # L-BFGS line search scale.
+                                            # CONSTRAINT: > 0
+                                            # Layered with 4-defense (below); leave default.
+
+      # ---- Phase 2: Gauss-Newton refinement ----
+      gauss_newton_max_iterations: 100      # Max Gauss-Newton iterations.
+                                            # CONSTRAINT: > 0
+      gauss_newton_tol: 1.0e-8              # GN convergence tolerance (relative change
+                                            # in cost). CONSTRAINT: > 0
+
+      # ---- Streaming settings ----
+      chunk_size: 10000                     # Points per streaming J^T J chunk.
+                                            # CONSTRAINT: > 0
+                                            # Larger = fewer chunks, more memory per chunk.
+                                            # 10000 is a safe default; tune to 1000-50000
+                                            # based on RAM headroom.
+      trust_region_initial: 1.0             # Initial trust-region radius.
+      regularization_factor: 1.0e-10        # Tikhonov regularization for J^T J inversion.
+                                            # Prevents singular-matrix errors on
+                                            # ill-conditioned data. Increase to 1e-8 if
+                                            # you see "singular matrix" warnings.
+
+      # ---- Checkpointing ----
+      enable_checkpoints: true              # true = save mid-run checkpoints
+      checkpoint_frequency: 100             # Save every N iterations
+      validate_numerics: true               # true = check for NaN/Inf after each step
+                                            # (small overhead, large benefit)
+
+      # ---- Verbosity ----
+      verbose: 1                            # 0 = silent | 1 = progress | 2 = debug
+      log_frequency: 1                      # log every N iterations (with verbose >= 1)
 
       # -------------------------------------------------------------------
       # 4-LAYER WARMUP DEFENSE (NLSQ 0.3.6+)
@@ -548,16 +811,28 @@ optimization:
   # min_success_rate. checkpoint_dir is local to the run; clean it between
   # unrelated experiments.
   streaming:
-    enable_checkpoints: true
-    checkpoint_dir: "./checkpoints"
-    checkpoint_frequency: 10
-    resume_from_checkpoint: true
-    keep_last_checkpoints: 3
-    enable_fault_tolerance: true
-    max_retries_per_batch: 2
-    min_success_rate: 0.5
-    batch_size: null
-    adaptive_batching: true
+    enable_checkpoints: true               # true = save mid-run checkpoints
+    checkpoint_dir: "./checkpoints"        # directory for .pkl checkpoints
+                                           # MUST be writeable; relative to CWD.
+    checkpoint_frequency: 10               # save every N BATCHES (not iterations).
+                                           # Smaller = more I/O, finer resume granularity.
+    resume_from_checkpoint: true           # true = auto-detect and resume from
+                                           # latest checkpoint in checkpoint_dir.
+                                           # Set false to force a fresh start.
+    keep_last_checkpoints: 3               # number of recent checkpoints to retain
+                                           # (older ones are deleted to save disk)
+    enable_fault_tolerance: true           # true = retry failed batches up to
+                                           # max_retries_per_batch times
+    max_retries_per_batch: 2               # max retry attempts per failed batch.
+                                           # CONSTRAINT: >= 0
+                                           # Set to 0 to fail immediately on any error.
+    min_success_rate: 0.5                  # Overall fit fails if success_rate
+                                           # falls below this. CONSTRAINT: [0, 1]
+                                           # 0.5 = require at least half the batches OK.
+    batch_size: null                       # null = auto-detect from memory
+                                           # int  = explicit batch size in points
+    adaptive_batching: true                # true = dynamically adjust batch_size
+                                           # based on observed memory usage
 
   # ---------------------------------------------------------------------------
   # STRATIFICATION — angle-stratified chunking (v2.2+)
@@ -574,14 +849,30 @@ optimization:
   # max_imbalance_ratio: if max(angle_count) / min(angle_count) exceeds this,
   # stratification gives up and falls back to sequential per-angle solves.
   stratification:
-    enabled: "auto"           # "auto" | true | false
-    target_chunk_size: 100000
-    max_imbalance_ratio: 5.0
-    force_sequential_fallback: false
-    check_memory_safety: true
-    use_index_based: false
-    collect_diagnostics: false
-    log_diagnostics: false
+    enabled: "auto"                        # "auto"  — engage when per_angle_scaling=True
+                                           #            AND n_points >= 100k (RECOMMENDED)
+                                           # true    — always stratify
+                                           # false   — never stratify (use raw chunks)
+    target_chunk_size: 100000              # target points per stratified chunk.
+                                           # CONSTRAINT: > 0
+                                           # Should match NLSQ's internal chunk_size
+                                           # for best results. 100k is the standard.
+    max_imbalance_ratio: 5.0               # max ratio max(angle_count)/min(angle_count)
+                                           # before stratification gives up and falls
+                                           # back to sequential. CONSTRAINT: > 0
+                                           # 5 = quite permissive; 2-3 is stricter.
+    force_sequential_fallback: false       # true = skip stratification entirely and
+                                           # go straight to sequential per-angle solves.
+                                           # Useful for debugging.
+    check_memory_safety: true              # true = warn if peak memory > 70% of available
+                                           # (stratification doubles peak memory transiently)
+    use_index_based: false                 # true = zero-copy stratification (only ~1%
+                                           # memory overhead) instead of full reorder.
+                                           # Set true for very large datasets.
+    collect_diagnostics: false             # true = collect timing + balance + coverage
+                                           # diagnostics (~0.01s overhead)
+    log_diagnostics: false                 # true = log diagnostic report
+                                           # (requires collect_diagnostics: true)
 
   # ---------------------------------------------------------------------------
   # SEQUENTIAL — per-angle optimization fallback (v2.2+)
@@ -606,22 +897,33 @@ optimization:
   # ---------------------------------------------------------------------------
   # RECOVERY — automatic retry with progressively conservative settings
   # ---------------------------------------------------------------------------
+  # When an optimization attempt fails (NaN, non-convergence, numerical
+  # singularity), the recovery system retries with more conservative settings.
   recovery:
-    enable: true
-    max_attempts: 3
-    lr_decay: 0.5
-    lambda_growth: 2.0
-    trust_decay: 0.5
-    log_retries: true
+    enable: true                           # true = automatic retry on failure
+    max_attempts: 3                        # # of recovery attempts before giving up.
+                                           # CONSTRAINT: >= 0
+                                           # 0 = no recovery (fail on first error).
+    lr_decay: 0.5                          # learning-rate multiplier per retry
+                                           # (0.5 = halve LR on each retry)
+    lambda_growth: 2.0                     # regularization multiplier per retry
+                                           # (2.0 = double regularization each retry)
+    trust_decay: 0.5                       # trust-region multiplier per retry
+                                           # (0.5 = halve trust region each retry)
+    log_retries: true                      # true = log each retry attempt
 
   # ---------------------------------------------------------------------------
   # ANGLE FILTERING — secondary filter applied at the optimizer layer
-  # (phi_filtering at the top level is the primary filter; this is an
-  # opt-in restriction that further narrows the angles passed to NLSQ)
   # ---------------------------------------------------------------------------
+  # NOT the same as the top-level phi_filtering block!
+  # phi_filtering (top-level) runs at LOAD time and selects what data is
+  # ever in the NLSQ input. optimization.angle_filtering runs INSIDE the
+  # optimizer and is an opt-in further restriction passed to nlsq.CurveFit.
+  # Usually leave this off — top-level phi_filtering is enough.
   angle_filtering:
-    enabled: false
-    target_angle_ranges: []
+    enabled: false                         # true = apply additional restriction
+    target_angle_ranges: []                # list of {min_angle, max_angle} ranges
+                                           # (DEGREES). Empty = no restriction.
 
 # -----------------------------------------------------------------------------
 # NOISE ESTIMATION — disabled by default (Bayesian sub-tooling)
@@ -643,49 +945,92 @@ noise_estimation:
 # PERFORMANCE — CPU-only (v0.1 has no GPU path; NLSQ_SKIP_GPU_CHECK=1 is set)
 # -----------------------------------------------------------------------------
 performance:
-  strategy_override: null      # null | "standard" | "large" | "chunked" | "streaming"
-  memory_limit_gb: null        # null = auto-detect
-  enable_progress: true
+  strategy_override: null      # Force a specific NLSQ strategy (defeats the
+                               # auto-selection — use only for debugging):
+                               # null        — auto-select (RECOMMENDED)
+                               # "standard"  — small datasets (<1M points)
+                               # "large"     — 1M-10M points
+                               # "chunked"   — 10M-100M points
+                               # "streaming" — >100M points
+
+  memory_limit_gb: null        # Hard memory ceiling for xpcsjax.
+                               # null = auto-detect from system (RECOMMENDED)
+                               # float = explicit GB cap (e.g. 16.0)
+
+  enable_progress: true        # true = show progress bars in all xpcsjax operations
+                               # false = silent (CI / headless)
 
   memory_optimization:
-    enabled: true
-    max_memory_usage_gb: 6.0
-    chunk_size: 8000
-    enable_caching: true
-    cache_strategy: "adaptive"  # "adaptive" | "aggressive" | "conservative"
+    enabled: true              # true = use memory-efficient code paths where
+                               # available (slightly slower, much less RAM)
+    max_memory_usage_gb: 6.0   # soft target for memory usage; the system will
+                               # try to keep peak usage under this.
+                               # CONSTRAINT: > 0
+    chunk_size: 8000           # default chunk size for memory-aware ops.
+                               # CONSTRAINT: > 0
+                               # Distinct from nlsq.hybrid_streaming.chunk_size
+                               # (which is the streaming J^T J chunk).
+    enable_caching: true       # true = cache intermediate arrays (model evals,
+                               # angle masks) for re-use. Costs RAM, saves CPU.
+    cache_strategy: "adaptive" # "adaptive"     — adjust cache based on RAM pressure
+                               # "aggressive"   — cache everything (max speed,
+                               #                  most RAM)
+                               # "conservative" — minimal caching (min RAM)
 
   computation:
-    enable_jit: true            # JAX JIT — keep on
-    cpu_threads: "auto"
-    vectorization_level: "high"
+    enable_jit: true           # true = JAX JIT compile hot paths (RECOMMENDED).
+                               # false = pure-Python interpreter (debugging only)
+    cpu_threads: "auto"        # "auto"      — use os.cpu_count()
+                               # int (e.g. 8) — explicit thread count
+                               # Set to 1 for deterministic single-threaded runs.
+    vectorization_level: "high"  # "low"    — minimal vmap usage
+                                 # "medium" — moderate vectorization
+                                 # "high"   — maximum vectorization (RECOMMENDED)
 
 # -----------------------------------------------------------------------------
-# LOGGING
+# LOGGING — Python logging configuration for the run
 # -----------------------------------------------------------------------------
 logging:
-  enabled: true
-  level: "INFO"                 # "DEBUG" | "INFO" | "WARNING" | "ERROR"
+  enabled: true                          # true = configure logging
+                                         # false = leave Python defaults alone
+  level: "INFO"                          # Root logger level (everything below
+                                         # this level is filtered):
+                                         # "DEBUG"   — verbose (every step)
+                                         # "INFO"    — milestones (RECOMMENDED)
+                                         # "WARNING" — only warnings / errors
+                                         # "ERROR"   — errors only
 
   console:
-    enabled: true
-    level: "INFO"
-    format: "detailed"          # "simple" | "detailed"
-    colors: true
-    show_progress: true
+    enabled: true                        # true = log to stderr
+    level: "INFO"                        # console-specific level (can be
+                                         # less verbose than root level)
+    format: "detailed"                   # "simple"   — "LEVEL: message"
+                                         # "detailed" — "TIMESTAMP NAME LEVEL: message"
+    colors: true                         # true = colorize log levels in terminal
+                                         # (uses colorama; off automatically if
+                                         # stderr is not a tty)
+    show_progress: true                  # true = render tqdm bars in console
 
   file:
-    enabled: false
-    level: "DEBUG"
-    path: "./logs/"
+    enabled: false                       # true = also log to file
+    level: "DEBUG"                       # file-specific level. Common pattern:
+                                         # console=INFO + file=DEBUG so the file
+                                         # captures the verbose record for later
+                                         # debugging while console stays clean.
+    path: "./logs/"                      # log directory (created if missing)
     filename: "xpcsjax_static_anisotropic.log"
-    max_size_mb: 10
-    backup_count: 5
+    max_size_mb: 10                      # max log file size before rotation
+                                         # CONSTRAINT: > 0
+    backup_count: 5                      # # of rotated backups to keep
+                                         # CONSTRAINT: >= 0
 
-  modules:
+  modules:                               # Per-module log-level overrides.
+                                         # Use to selectively suppress noisy
+                                         # modules or get extra detail for one:
     "xpcsjax.data.phi_filtering": "INFO"
-    "xpcsjax.data.xpcs_loader": "INFO"
-    "xpcsjax.optimization.nlsq": "INFO"
-    "jax._src": "WARNING"
+    "xpcsjax.data.xpcs_loader":   "INFO"
+    "xpcsjax.optimization.nlsq":  "INFO"
+    "jax._src":                   "WARNING"    # suppress JAX internal chatter
 
 # -----------------------------------------------------------------------------
 # QUALITY CONTROL
@@ -704,74 +1049,118 @@ quality_control:
     detect_anomalous_angles: true
 
 # -----------------------------------------------------------------------------
-# PLOTTING
+# PLOTTING — visualization output (xpcsjax.viz)
 # -----------------------------------------------------------------------------
 plotting:
-  save_plots: true
-  show_plots: false
-  format: "png"                 # "png" | "pdf" | "svg"
-  dpi: 300
-  style: "publication"
+  save_plots: true               # true = write plots to output.directory
+  show_plots: false              # true = open interactive matplotlib windows
+                                 # (set false in headless / CI runs)
+  format: "png"                  # "png" — raster (RECOMMENDED for diagnostics)
+                                 # "pdf" — vector (RECOMMENDED for publication)
+                                 # "svg" — vector (editable in Inkscape/Illustrator)
+  dpi: 300                       # output resolution. CONSTRAINT: > 0
+                                 # 150 — draft  | 300 — publication  | 600+ — print
+  style: "publication"           # "publication" — Nature/Science-grade defaults
+                                 # "draft"       — quick-look defaults
+                                 # (uses xpcsjax.viz style sheets)
 
-  preview_mode: false           # false = matplotlib | true = datashader
-  fit_surface: "solver"         # "solver" | "posthoc"
+  preview_mode: false            # false = matplotlib (slower, exact, 2D c2 < 5GB)
+                                 # true  = datashader (fast for huge c2 arrays;
+                                 #         see xpcsjax.viz.datashader_backend)
+  fit_surface: "solver"          # "solver"  — render fit surface from the
+                                 #             optimizer's stored params
+                                 # "posthoc" — re-evaluate the model on a fresh
+                                 #             grid post-fit (slower, more accurate
+                                 #             for very dense displays)
 
   color_scale:
-    mode: "legacy"              # "legacy" | "adaptive"
-    pin_legacy_range: true
-    percentile_min: 1.0
-    percentile_max: 99.0
-    fixed_min: 1.0
-    fixed_max: 1.5
+    mode: "legacy"               # "legacy"   — fixed range (fixed_min/fixed_max)
+                                 #              compatible with homodyne output
+                                 # "adaptive" — data-driven range from percentiles
+                                 #              (percentile_min/percentile_max)
+    pin_legacy_range: true       # true = clamp colorscale to fixed range
+                                 # (use when comparing fits across datasets)
+    percentile_min: 1.0          # adaptive-mode lower bound (data percentile)
+                                 # CONSTRAINT: [0, 100], < percentile_max
+    percentile_max: 99.0         # adaptive-mode upper bound (data percentile)
+                                 # CONSTRAINT: [0, 100], > percentile_min
+    fixed_min: 1.0               # legacy-mode lower bound (c2 value)
+    fixed_max: 1.5               # legacy-mode upper bound (c2 value)
 
-  datashader:
-    canvas_width: 1200
-    canvas_height: 1200
+  datashader:                    # Only used when preview_mode: true
+    canvas_width: 1200           # output image width in pixels. CONSTRAINT: > 0
+    canvas_height: 1200          # output image height in pixels. CONSTRAINT: > 0
 
-  matplotlib:
-    interpolation: "bilinear"   # "none" | "bilinear" | "bicubic"
-    use_tight_layout: true
-    savefig_kwargs:
+  matplotlib:                    # Only used when preview_mode: false
+    interpolation: "bilinear"    # "none"     — sharp pixels (nearest neighbor)
+                                 # "bilinear" — smooth interpolation (RECOMMENDED)
+                                 # "bicubic"  — smoothest interpolation (slowest)
+    use_tight_layout: true       # true = matplotlib tight_layout (RECOMMENDED)
+    savefig_kwargs:              # passed directly to plt.savefig()
       bbox_inches: "tight"
       pad_inches: 0.1
 
-  correlation_function: true
-  fit_quality: true
-  residual_analysis: true
-  angle_coverage: true
-  angle_correlation: false      # static modes — angles are independent
+  # ---- Plot types to generate ----
+  correlation_function: true     # true = c2(t1, t2) heatmap (per angle)
+  fit_quality: true              # true = data-vs-fit overlay + residuals
+  residual_analysis: true        # true = residual histograms + QQ plots
+  angle_coverage: true           # true = polar plot showing which angles were used
+  angle_correlation: false       # true = c2 vs phi (oscillation diagnostic)
+                                 # OFF for static (angles are independent — no
+                                 # oscillation expected; this plot is for laminar_flow
+                                 # and two_component).
 
 # -----------------------------------------------------------------------------
-# OUTPUT
+# OUTPUT — where to write results
 # -----------------------------------------------------------------------------
 output:
-  directory: "./results"
-  base_directory: "./xpcsjax_results/"
+  directory: "./results"                # results subdirectory under base_directory
+                                        # (used by xpcsjax.viz and result writers)
+  base_directory: "./xpcsjax_results/"  # top-level results directory.
+                                        # Created if missing. Absolute path also OK.
 
-  formats:
-    hdf5: true
-    json: true
-    csv: true
-    yaml: true
-    npz: true
+  formats:                              # which result formats to write
+                                        # (you can enable multiple)
+    hdf5: true                          # .h5 — best for large arrays + metadata
+    json: true                          # .json — human-readable summary
+    csv: true                           # .csv — plain text, for spreadsheets
+    yaml: true                          # .yaml — config + result snapshot
+    npz: true                           # .npz — numpy archive for re-loading
 
-  create_subdirs: true          # creates nlsq/, characterization/
-  timestamp_dirs: false
+  create_subdirs: true                  # true = create per-method subdirectories
+                                        # (./results/nlsq/, ./results/characterization/)
+                                        # false = flat output
 
-  compress_hdf5: true
-  compression_level: 6
-  include_diagnostics: true
+  timestamp_dirs: false                 # true = append timestamp to output dirs
+                                        # (./results/nlsq_20260523_143022/)
+                                        # Useful for repeated runs without overwrite.
+
+  compress_hdf5: true                   # true = gzip-compress HDF5 datasets
+  compression_level: 6                  # gzip level: 0-9 (higher = smaller, slower)
+                                        # 0 = no compression | 6 = balanced | 9 = max
+  include_diagnostics: true             # true = include diagnostic blocks in output
+                                        # (gradient norms, iteration history, etc.)
 
 # -----------------------------------------------------------------------------
-# VALIDATION
+# VALIDATION — pre-run config sanity checks
 # -----------------------------------------------------------------------------
 validation:
-  strict_mode: false            # true = raise on warnings
-  check_file_existence: true
-  validate_parameter_ranges: true
-  check_mode_compatibility: true
+  strict_mode: false                  # false = log warnings, continue (RECOMMENDED)
+                                      # true  = raise on first warning (CI-safe)
+  check_file_existence: true          # true = verify file_path / phi_angles_file
+                                      # exist before starting; fail with a clear
+                                      # error instead of mid-run IO error
+  validate_parameter_ranges: true     # true = check that initial values fall within
+                                      # the configured bounds before starting
+  check_mode_compatibility: true      # true = warn if mode-specific config keys
+                                      # are mismatched (e.g. shear_weighting
+                                      # enabled in a static config)
 
   angle_validation:
-    require_multiple_angles: false  # static_anisotropic accepts a single angle
-    min_angle_count: 1
-    validate_angle_ranges: true
+    require_multiple_angles: false    # true = require >= min_angle_count phi angles.
+                                      # false for static_anisotropic — single angle
+                                      # is well-posed (no flow direction to recover).
+    min_angle_count: 1                # minimum angles required when
+                                      # require_multiple_angles=true. CONSTRAINT: >= 1
+    validate_angle_ranges: true       # true = sanity-check that phi values are
+                                      # in a reasonable range (no wraparound errors)

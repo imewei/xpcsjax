@@ -49,18 +49,28 @@ analysis_mode: "laminar_flow"
 # laminar flow — the loader passes it through to NLSQ for path-length
 # normalization. Set it to the actual gap of your rheometer cell.
 analyzer_parameters:
-  dt: 0.1
-  start_frame: 1
-  end_frame: 1000
-  frame_step: 1
-  time_unit: "seconds"
+  dt: 0.1                         # Time step [seconds]. MUST be > 0.
+                                  # For rheo-XPCS, dt is often shorter than
+                                  # static (10⁻³–10⁻¹ s) to resolve shear-induced
+                                  # oscillations. Wrong dt → wrong γ̇₀ AND D0.
+  start_frame: 1                  # First frame, 1-INDEXED. MUST be >= 1.
+                                  # Skip the shear-startup transient (typically
+                                  # first 50-200 frames in Couette experiments).
+  end_frame: 1000                 # Last frame, INCLUSIVE. MUST be > start_frame and > 0.
+                                  # ⚠ -1 sentinel REJECTED — resolve absolute first.
+  frame_step: 1                   # 1 = use all (RECOMMENDED). >1 = subsample.
+  time_unit: "seconds"            # "seconds" — internal math assumes SI seconds.
 
   scattering:
-    wavevector_q: 0.0237          # Wave-vector magnitude [Å⁻¹]
+    wavevector_q: 0.0237          # Wave-vector magnitude [Å⁻¹]. MUST be > 0.
+                                  # q = 4π/λ · sin(θ/2). Wrong q → wrong D0 AND γ̇₀.
 
   geometry:
-    stator_rotor_gap: 2000000     # Couette gap [Å] — 200 μm typical
-                                  # MUST be physically realistic for laminar_flow
+    stator_rotor_gap: 2000000     # Couette gap [Å] — 200 μm = 2×10⁶ Å typical.
+                                  # ⚠ MUST be physically accurate for laminar_flow.
+                                  # The loader passes this to NLSQ for path-length
+                                  # normalization in the shear coupling term.
+                                  # Wrong gap → wrong shear-rate fit.
 
 # -----------------------------------------------------------------------------
 # ANALYSIS SETTINGS
@@ -80,39 +90,52 @@ analysis_settings:
     per_angle_scaling: true
 
 # -----------------------------------------------------------------------------
-# EXPERIMENTAL DATA
+# EXPERIMENTAL DATA — where to find the c2 data and the phi-angle list
 # -----------------------------------------------------------------------------
 experimental_data:
-  file_path: null
-  data_folder_path: "./data/"
-  data_file_name: "sample_flow.hdf"
-  phi_angles_path: "./data/"
-  phi_angles_file: "phi_list.txt"
+  file_path: null                    # Modern: full path to data file (null = legacy)
+  data_folder_path: "./data/"        # Legacy: directory containing data file
+  data_file_name: "sample_flow.hdf"  # Legacy: file basename.
+                                     # Extension drives loader:
+                                     # .h5/.hdf/.hdf5/.nexus → HDF5 | .npz → cache
+  phi_angles_path: "./data/"         # Directory of phi-angles file
+  phi_angles_file: "phi_list.txt"    # Plain text, one phi per line, DEGREES.
+                                     # For laminar_flow you need ≥ 2 angles
+                                     # (parallel + perpendicular to flow).
 
-  cache_directory: "./cache"
-  use_caching: true
+  cache_directory: "./cache"         # Where to read/write npz caches. MUST be writeable.
+  use_caching: true                  # true = use cache (RECOMMENDED).
   cache_filename_template: "cached_c2_frames_${start_frame}_${end_frame}.npz"
-  cache_compression: true
+                                     # supports ${start_frame}/${end_frame} substitution
+  cache_compression: true            # true = gzip cache (smaller).
 
-  data_type: "APS_old"
-  file_format: "hdf5"
-  exchange_key: "exchange"
+  # ⚠ data_type / file_format / exchange_key below are
+  # INFORMATIONAL ONLY — NOT CONSULTED by the loader in xpcsjax v0.1.
+  # See the static_anisotropic template for the full explanation.
+  data_type: "aps_old"               # NOT CONSULTED. Auto-detected as "aps_old"
+                                     # | "aps_u" | "unknown" from HDF5 structure.
+  file_format: "hdf5"                # NOT CONSULTED. Loader routes by FILE EXTENSION:
+                                     # .npz → cache | .h5/.hdf/.hdf5/.nexus → HDF5
+  exchange_key: "exchange"           # NOT CONSULTED. APS-old reader hardcodes
+                                     # "exchange/C2T_all"; this value is ignored.
 
 # -----------------------------------------------------------------------------
-# PHI FILTERING
+# PHI FILTERING — angle subset selection
 # -----------------------------------------------------------------------------
 # Laminar flow REQUIRES angles spanning both parallel and perpendicular
 # directions so the shear coupling cos(phi−phi0) can be resolved.
 # require_orthogonal_angles is therefore set to true.
 phi_filtering:
-  enabled: true
-  target_ranges:
+  enabled: true                          # true = apply filter; false = use all
+  target_ranges:                         # DEGREES; pick parallel + perpendicular
+                                         # so the cos(phi−phi0) modulation is sampled
+                                         # on both ends of its range.
     - min_angle: -10.0
       max_angle:  10.0
       description: "Parallel to flow (sees full shear coupling)"
     - min_angle:  85.0
       max_angle:  95.0
-      description: "Perpendicular to flow (diffusion-only)"
+      description: "Perpendicular to flow (diffusion-only — pins D0/alpha)"
     # Uncomment for stronger coverage of the shear oscillation:
     # - min_angle: -95.0
     #   max_angle: -85.0
@@ -120,15 +143,20 @@ phi_filtering:
     # - min_angle: 170.0
     #   max_angle: -170.0
     #   description: "Antiparallel"
-  fallback_to_all_angles: true
-  algorithm: "range_based"
-  tolerance: 3.0
+  fallback_to_all_angles: true           # true = use all if filter empties
+  algorithm: "range_based"               # only "range_based" supported in v0.1
+  tolerance: 3.0                         # slack [degrees] around range edges
 
   quality_control:
-    min_angles_required: 2          # need ≥2 for flow direction recovery
-    max_angle_spread: 36.0
-    validate_coverage: true
-    require_orthogonal_angles: true # CRITICAL for laminar_flow
+    min_angles_required: 2               # ≥2 needed for flow-direction recovery.
+                                         # CONSTRAINT: >= 1
+                                         # Set to 4+ for densely-sampled rheo-XPCS.
+    max_angle_spread: 36.0               # max angular spread within each range.
+                                         # CONSTRAINT: > 0
+    validate_coverage: true              # true = warn if any range has no angles
+    require_orthogonal_angles: true      # ⚠ CRITICAL for laminar_flow.
+                                         # Without near-orthogonal angles, phi0
+                                         # is poorly identified and L5 weights collapse.
 
 # -----------------------------------------------------------------------------
 # INITIAL PARAMETERS
@@ -182,63 +210,91 @@ initial_parameters:
 # -----------------------------------------------------------------------------
 # PARAMETER SPACE — bounds match the xpcsjax registry
 # -----------------------------------------------------------------------------
+# NLSQ uses min/max as BOX CONSTRAINTS. `type:` is "TruncatedNormal"
+# (informational for the NLSQ path). `unit:` is informational only.
+#
+# LAMINAR_FLOW BOUNDS DRIVE TWO OUTCOMES:
+#   1. Convergence stability — tight bounds keep the optimizer in the
+#      physical region; wide bounds let it wander.
+#   2. CMA-ES auto-engagement — the scale_ratio (D0/γ̇₀ ~ 10⁵–10⁶) is what
+#      makes auto_select fire. The bounds determine that ratio.
 parameter_space:
   model: "laminar_flow"
 
   bounds:
     - name: contrast
-      min: 0.0
-      max: 1.0
+      min: 0.0                # physical lower bound
+      max: 1.0                # physical upper bound (fully coherent)
       type: TruncatedNormal
       unit: "dimensionless"
+      # Tighten to [0.01, 0.3] if you have a coherent-fraction estimate.
 
     - name: offset
-      min: 0.5
+      min: 0.5                # baseline of normalized c2 (ideally 1.0)
       max: 1.5
       type: TruncatedNormal
       unit: "dimensionless"
+      # Tighten to [0.95, 1.05] if normalization is validated.
 
     - name: D0
-      min: 100.0
-      max: 100000.0
+      min: 100.0              # ~µm particles in viscous fluid
+      max: 100000.0           # ~10 nm particles
       type: TruncatedNormal
       unit: "Å²/s"
+      # Tighten if particle size known to within 2×. WIDE bounds + flow
+      # interact badly without x_scale_map.
 
     - name: alpha
-      min: -2.0
-      max:  2.0
+      min: -2.0               # subdiffusion (jammed under shear)
+      max:  2.0               # superdiffusion (convection-enhanced, common under shear)
       type: TruncatedNormal
       unit: "dimensionless"
+      # Under shear, α ≈ 0.5 is typical (mild superdiffusion).
 
     - name: D_offset
       min: -100000.0
       max:  100000.0
       type: TruncatedNormal
       unit: "Å²/s"
+      # Tighten to [-1000, 1000] if you have no reason to model offset.
+      # Common simplification: fixed_parameters: {"D_offset": 0.0}.
 
     - name: gamma_dot_t0
-      min: 1.0e-6
-      max: 0.5
+      min: 1.0e-6             # near-zero shear (slow Couette)
+      max: 0.5                # fast shear (s⁻¹). 0.5 s⁻¹ is fast for XPCS.
       type: TruncatedNormal
       unit: "s⁻¹"
+      # Tighten to within an order of magnitude of expected Couette shear.
+      # For a 200 µm gap at 1 mm/s rotor speed: γ̇ ≈ 5 s⁻¹ (exceeds default!).
+      # WIDEN max if your rheometer can apply higher rates.
 
     - name: beta
-      min: -2.0
-      max:  2.0
+      min: -2.0               # decelerating shear
+      max:  2.0               # accelerating shear
       type: TruncatedNormal
       unit: "dimensionless"
+      # β =  0   steady shear (RECOMMENDED starting point + common simplification)
+      # β >  0   accelerating (startup flow, thickening)
+      # β <  0   decelerating (relaxation, thinning)
+      # For steady-state experiments: fix β=0 via fixed_parameters.
 
     - name: gamma_dot_t_offset
-      min: -0.1
+      min: -0.1               # tight bounds: gamma_dot_t_offset is usually 0
       max:  0.1
       type: TruncatedNormal
       unit: "s⁻¹"
+      # Most experiments converge to ≈ 0. Common simplification:
+      # fixed_parameters: {"gamma_dot_t_offset": 0.0}
 
     - name: phi0
-      min: -10.0           # tight bounds for stable convergence
-      max:  10.0
+      min: -10.0              # ⚠ TIGHT bounds for stable convergence
+      max:  10.0              # phi0 is sensitive — wide bounds slow the fit
       type: TruncatedNormal
       unit: "degrees"
+      # Default [-10, 10] assumes near-aligned flow direction.
+      # WIDEN to [-90, 90] only if you suspect large misalignment AND
+      # have very dense angular sampling. Wide phi0 bounds + sparse angles
+      # = degenerate fit.
 
 # -----------------------------------------------------------------------------
 # OPTIMIZATION (NLSQ-only) — laminar_flow tuning
@@ -321,15 +377,20 @@ optimization:
     #   phi0: 0.739
 
     progress:
-      enable: true
-      verbose: 1
-      log_interval: 10
+      enable: true                # true = tqdm progress bar; false = silent
+      verbose: 1                  # 0 = silent | 1 = milestones (default) | 2 = per-iter
+      log_interval: 10            # log every N iters (with verbose >= 2)
 
+    # ----------------------------------------------------------------------
+    # DIAGNOSTICS — turn ON for laminar_flow when investigating flat shear
+    # params. log_jacobian_norms is the input to diagnose_gradients.py.
+    # ----------------------------------------------------------------------
     diagnostics:
-      enabled: false
-      sample_size: 2048
-      check_gradients: true
-      log_jacobian_norms: false
+      enabled: false              # true = compute diagnostics (small overhead)
+      sample_size: 2048           # # of points for gradient check. CONSTRAINT: > 0
+      check_gradients: true       # true = numerical vs analytic gradient comparison
+      log_jacobian_norms: false   # true = log column-wise Jacobian norms per iter
+                                  # (essential when building x_scale_map)
 
     # ----------------------------------------------------------------------
     # ANTI-DEGENERACY DEFENSE SYSTEM — full 5-layer stack for laminar_flow
@@ -453,29 +514,45 @@ optimization:
     #
     # REQUIRES: pip install "nlsq[evosax]"
     cmaes:
-      enable: false                    # toggle on when multi-start finds inconsistent minima
-      preset: "cmaes-global"
-      max_generations: null            # null = adaptive based on scale_ratio
-      sigma: 0.5
-      sigma_warmstart: 0.05
-      warmstart_auto_skip: true
-      warmstart_skip_threshold: 5.0
-      popsize: null
-      tol_fun: 1.0e-8
-      tol_x: 1.0e-8
-      restart_strategy: "bipop"
-      max_restarts: 10
-      memory_limit_gb: 8.0
-      auto_select: true                # auto-engages on large scale_ratio
-      scale_threshold: 1000.0
-      normalize: true
-      normalization_epsilon: 1.0e-12
-      refine_with_nlsq: true
-      refinement_ftol: 1.0e-10
+      enable: false                       # toggle on when multi-start finds inconsistent
+                                          # minima. REQUIRES: pip install "nlsq[evosax]"
+      preset: "cmaes-global"              # "cmaes-fast" (50 gen) | "cmaes" (100 gen)
+                                          # | "cmaes-global" (200 gen, RECOMMENDED for flow)
+      max_generations: null               # null = adaptive (recommended for laminar_flow,
+                                          # which has natural scale_ratio > 1e6)
+      sigma: 0.5                          # initial step (fraction of bound range)
+                                          # CONSTRAINT: (0, 1]
+                                          # Larger = more exploration. 0.5 = half range.
+      sigma_warmstart: 0.05               # reduced sigma when warm-started from NLSQ.
+                                          # CONSTRAINT: (0, 1]
+      warmstart_auto_skip: true           # true = skip CMA-ES if warm-start already good
+      warmstart_skip_threshold: 5.0       # skip if warm-start reduced χ² < this
+                                          # CONSTRAINT: > 0
+      popsize: null                       # null = adaptive sizing (200+ for scale_ratio>1e6)
+                                          # int = fixed population
+      tol_fun: 1.0e-8                     # function tolerance. CONSTRAINT: > 0
+      tol_x: 1.0e-8                       # parameter tolerance. CONSTRAINT: > 0
+      restart_strategy: "bipop"           # "none" | "bipop" (BIPOP-CMA-ES; RECOMMENDED)
+      max_restarts: 10                    # max BIPOP restarts. CONSTRAINT: >= 0
+                                          # Higher than static (10 vs 5) because laminar_flow
+                                          # landscape has more local minima.
+      memory_limit_gb: 8.0                # memory cap for auto-sizing. CONSTRAINT: > 0
+      auto_select: true                   # ⚠ For laminar_flow, auto-engagement is
+                                          # the norm — D0/γ̇₀ scale_ratio ~ 1e6
+                                          # routinely trips this.
+      scale_threshold: 1000.0             # engagement threshold on scale_ratio.
+                                          # CONSTRAINT: > 0
+      normalize: true                     # true = bounds-based [0,1] normalization
+                                          # (ESSENTIAL for flow — keeps CMA-ES from being
+                                          # dominated by the D0 scale)
+      normalization_epsilon: 1.0e-12      # div-by-zero guard for tiny bound ranges
+      refine_with_nlsq: true              # Phase 2: NLSQ-TRF local polish (RECOMMENDED)
+      refinement_ftol: 1.0e-10            # tighter than main NLSQ. CONSTRAINT: > 0
       refinement_xtol: 1.0e-10
       refinement_gtol: 1.0e-10
-      refinement_max_nfev: 500
-      refinement_loss: "linear"
+      refinement_max_nfev: 500            # max func-evals for refinement. CONSTRAINT: > 0
+      refinement_loss: "linear"           # "linear" (default) | "soft_l1" | "huber"
+                                          # | "cauchy" | "arctan"
 
     # ----------------------------------------------------------------------
     # MULTI-START OPTIMIZATION
@@ -493,16 +570,25 @@ optimization:
     #   < 500K points  → Parallel (ProcessPoolExecutor)
     #   ≥ 500K points  → Sequential (avoids pickling overhead)
     multi_start:
-      enable: false
-      n_starts: 10
-      seed: 42
-      sampling_strategy: "latin_hypercube"
-      n_workers: 0
-      use_screening: true
-      screen_keep_fraction: 0.5
-      refine_top_k: 3
-      refinement_ftol: 1.0e-12
-      degeneracy_threshold: 0.1
+      enable: false                       # OFF when cmaes.enable=true. Use multi_start
+                                          # standalone only if you have a reason to avoid
+                                          # CMA-ES (e.g. evosax not installed).
+      n_starts: 10                        # # of LHS starts. CONSTRAINT: > 0
+                                          # 7-D laminar_flow: 10-20 starts is reasonable.
+                                          # Doubling n_starts ≈ doubles compute time.
+      seed: 42                            # PRNG seed. CHANGE between runs to confirm
+                                          # the result isn't seed-dependent.
+      sampling_strategy: "latin_hypercube"  # "latin_hypercube" (RECOMMENDED) | "random"
+      n_workers: 0                        # 0 = auto | 1 = sequential | >1 explicit.
+                                          # CONSTRAINT: >= 0. Auto-switches to sequential
+                                          # for datasets > 500k points.
+      use_screening: true                 # true = cheap filter pass before refinement
+      screen_keep_fraction: 0.5           # fraction of starts to refine.
+                                          # CONSTRAINT: (0, 1]
+      refine_top_k: 3                     # tightly-refine top K. CONSTRAINT: >= 0
+      refinement_ftol: 1.0e-12            # tighter than main NLSQ. CONSTRAINT: > 0
+      degeneracy_threshold: 0.1           # flag starts within (1+threshold)·χ²_best
+                                          # CONSTRAINT: (0, 1). 0.1 = 10% threshold.
 
     # ----------------------------------------------------------------------
     # HYBRID STREAMING — large-dataset (>10M points) four-phase optimizer
@@ -514,22 +600,31 @@ optimization:
     # Expected ~10× fewer iterations than direct LM for laminar_flow.
     # The 4-layer warmup defense below keeps warm-starts from diverging.
     hybrid_streaming:
-      enable: true
-      normalize: true
-      normalization_strategy: "auto"        # "auto" | "bounds" | "p0" | "none"
-      warmup_iterations: 200
-      max_warmup_iterations: 500
-      warmup_learning_rate: 0.001
-      gauss_newton_max_iterations: 100
-      gauss_newton_tol: 1.0e-8
-      chunk_size: 10000
-      trust_region_initial: 1.0
-      regularization_factor: 1.0e-10
-      enable_checkpoints: true
-      checkpoint_frequency: 100
-      validate_numerics: true
-      verbose: 1
-      log_frequency: 1
+      enable: true                           # auto-fires for >10M points
+      normalize: true                        # Phase 0 — ESSENTIAL for laminar_flow's
+                                             # wide scale ratio (D0/γ̇₀ ~ 10⁶)
+      normalization_strategy: "auto"         # "auto" — solver picks (RECOMMENDED)
+                                             # "bounds" — normalize to [0,1] from bounds
+                                             # "p0"     — normalize relative to p0
+                                             # "none"   — no normalization (NOT recommended
+                                             #            for laminar_flow)
+      warmup_iterations: 200                 # L-BFGS iters before switch check. CONSTRAINT: > 0
+      max_warmup_iterations: 500             # force-switch to GN after this. CONSTRAINT: > 0
+      warmup_learning_rate: 0.001            # L-BFGS line search scale. CONSTRAINT: > 0
+      # ---- Phase 2: Gauss-Newton refinement ----
+      gauss_newton_max_iterations: 100       # CONSTRAINT: > 0
+      gauss_newton_tol: 1.0e-8               # CONSTRAINT: > 0
+      # ---- Streaming settings ----
+      chunk_size: 10000                      # points per J^T J chunk. CONSTRAINT: > 0
+                                             # Tune to 1000-50000 based on RAM headroom.
+      trust_region_initial: 1.0              # initial trust-region radius
+      regularization_factor: 1.0e-10         # Tikhonov reg for J^T J.
+                                             # Bump to 1e-8 if "singular matrix" warnings.
+      enable_checkpoints: true               # true = save mid-run checkpoints
+      checkpoint_frequency: 100              # save every N iters
+      validate_numerics: true                # true = NaN/Inf detection per step
+      verbose: 1                             # 0 = silent | 1 = progress | 2 = debug
+      log_frequency: 1                       # log every N iters
 
       # 4-layer warmup defense (NLSQ 0.3.6+) — keep all 4 enabled.
       # Particularly important for laminar_flow where bad shear-param
@@ -548,51 +643,71 @@ optimization:
       enable_step_clipping: true
       max_warmup_step_size: 0.1
 
+    # Post-fit quality checks; emit warnings only, never raise.
     quality_validation:
       enable: true
-      reduced_chi_squared_threshold: 10.0
-      warn_on_max_restarts: true
-      warn_on_bounds_hit: true
-      warn_on_convergence_failure: true
-      bounds_tolerance: 1.0e-9
+      reduced_chi_squared_threshold: 10.0   # warn if χ²_red > 10.
+                                            # For laminar_flow with shear oscillations,
+                                            # χ²_red can be larger than for static.
+      warn_on_max_restarts: true            # warn if CMA-ES hit max_restarts
+      warn_on_bounds_hit: true              # warn if a param pinned at bounds
+                                            # (common offender for laminar_flow: phi0
+                                            # pinned at ±10° → widen the bounds)
+      warn_on_convergence_failure: true     # warn if optimizer didn't converge
+      bounds_tolerance: 1.0e-9              # distance from bound that counts as "at"
 
+  # Streaming checkpoint/resume — auto-engages for >100M points.
   streaming:
-    enable_checkpoints: true
-    checkpoint_dir: "./checkpoints"
-    checkpoint_frequency: 10
-    resume_from_checkpoint: true
-    keep_last_checkpoints: 3
-    enable_fault_tolerance: true
-    max_retries_per_batch: 2
-    min_success_rate: 0.5
-    batch_size: null
-    adaptive_batching: true
+    enable_checkpoints: true                # true = save mid-run checkpoints
+    checkpoint_dir: "./checkpoints"         # MUST be writeable
+    checkpoint_frequency: 10                # save every N BATCHES
+    resume_from_checkpoint: true            # true = auto-resume from latest
+    keep_last_checkpoints: 3                # # of recent checkpoints to retain
+    enable_fault_tolerance: true            # true = retry failed batches
+    max_retries_per_batch: 2                # max retries per batch. CONSTRAINT: >= 0
+    min_success_rate: 0.5                   # fit fails if rate < this. CONSTRAINT: [0, 1]
+    batch_size: null                        # null = auto-from-memory | int = explicit
+    adaptive_batching: true                 # true = dynamically size batches
 
+  # Angle-stratified chunking — essential for laminar_flow with per-angle scaling.
   stratification:
-    enabled: "auto"
-    target_chunk_size: 100000
-    max_imbalance_ratio: 5.0
-    force_sequential_fallback: false
-    check_memory_safety: true
-    use_index_based: false
-    collect_diagnostics: false
-    log_diagnostics: false
+    enabled: "auto"                         # "auto" (RECOMMENDED) | true | false.
+                                            # For laminar_flow with per-angle scaling
+                                            # AND > 100k points, auto definitely
+                                            # engages — this is the right default.
+    target_chunk_size: 100000               # target points per chunk. CONSTRAINT: > 0
+    max_imbalance_ratio: 5.0                # fall back to sequential above this.
+                                            # CONSTRAINT: > 0. 5 = permissive; lower
+                                            # for stricter balance requirements.
+    force_sequential_fallback: false        # true = skip stratification entirely
+    check_memory_safety: true               # true = warn if peak > 70% of RAM
+    use_index_based: false                  # true = zero-copy (~1% mem overhead).
+                                            # Set true for very large datasets.
+    collect_diagnostics: false              # true = collect balance + coverage stats
+    log_diagnostics: false                  # requires collect_diagnostics=true
 
+  # Sequential per-angle solves — fallback when stratification cannot apply.
   sequential:
-    min_success_rate: 0.5
-    weighting: "inverse_variance"
+    min_success_rate: 0.5                   # fit fails if rate < this. CONSTRAINT: [0, 1]
+    weighting: "inverse_variance"           # "inverse_variance" — optimal (RECOMMENDED)
+                                            # "uniform"          — equal weights
+                                            # "n_points"         — weight by # points
 
+  # Automatic retry with progressively conservative settings.
   recovery:
-    enable: true
-    max_attempts: 3
-    lr_decay: 0.5
-    lambda_growth: 2.0
-    trust_decay: 0.5
-    log_retries: true
+    enable: true                            # true = retry on failure
+    max_attempts: 3                         # # of retries. CONSTRAINT: >= 0
+                                            # 0 = no recovery (fail on first error)
+    lr_decay: 0.5                           # halve LR on each retry
+    lambda_growth: 2.0                      # double regularization on each retry
+    trust_decay: 0.5                        # halve trust region on each retry
+    log_retries: true                       # log each retry attempt
 
+  # Optimizer-layer angle filter (distinct from top-level phi_filtering).
+  # Usually leave off; top-level phi_filtering is the primary filter.
   angle_filtering:
-    enabled: false
-    target_angle_ranges: []
+    enabled: false                          # true = restrict angles in NLSQ further
+    target_angle_ranges: []                 # list of {min_angle, max_angle} dicts
 
 # -----------------------------------------------------------------------------
 # NOISE ESTIMATION — Bayesian sub-tooling, disabled by default
@@ -605,49 +720,51 @@ noise_estimation:
 # PERFORMANCE
 # -----------------------------------------------------------------------------
 performance:
-  strategy_override: null
-  memory_limit_gb: null
-  enable_progress: true
+  strategy_override: null      # null = auto-select (RECOMMENDED)
+                               # Force: "standard" | "large" | "chunked" | "streaming"
+  memory_limit_gb: null        # null = auto-detect; float = explicit GB cap
+  enable_progress: true        # true = progress bars in xpcsjax ops
 
   memory_optimization:
-    enabled: true
-    max_memory_usage_gb: 6.0
-    chunk_size: 8000
-    enable_caching: true
-    cache_strategy: "adaptive"
+    enabled: true              # true = memory-efficient code paths
+    max_memory_usage_gb: 6.0   # soft target. CONSTRAINT: > 0
+    chunk_size: 8000           # default mem-aware chunk. CONSTRAINT: > 0
+    enable_caching: true       # cache intermediate arrays for re-use
+    cache_strategy: "adaptive" # "adaptive" (RECOMMENDED) | "aggressive" | "conservative"
 
   computation:
-    enable_jit: true
-    cpu_threads: "auto"
-    vectorization_level: "high"
+    enable_jit: true           # true = JAX JIT (RECOMMENDED). false = interpreter (debug)
+    cpu_threads: "auto"        # "auto" = os.cpu_count() | int = explicit | 1 = single-threaded
+    vectorization_level: "high"  # "low" | "medium" | "high" (RECOMMENDED)
 
 # -----------------------------------------------------------------------------
 # LOGGING
 # -----------------------------------------------------------------------------
 logging:
-  enabled: true
-  level: "INFO"
+  enabled: true                          # true = configure logging
+  level: "INFO"                          # "DEBUG" | "INFO" | "WARNING" | "ERROR"
+                                         # Root level — filters everything below
 
   console:
-    enabled: true
-    level: "INFO"
-    format: "detailed"
-    colors: true
-    show_progress: true
+    enabled: true                        # true = log to stderr
+    level: "INFO"                        # console-specific level
+    format: "detailed"                   # "simple" | "detailed"
+    colors: true                         # true = colorize levels (off if no tty)
+    show_progress: true                  # true = render tqdm bars
 
   file:
-    enabled: false
-    level: "DEBUG"
-    path: "./logs/"
+    enabled: true                       # true = also log to rotating file
+    level: "DEBUG"                       # capture verbose record for debugging
+    path: "./logs/"                      # log directory (created if missing)
     filename: "xpcsjax_laminar_flow.log"
-    max_size_mb: 10
-    backup_count: 5
+    max_size_mb: 10                      # rotate at this size. CONSTRAINT: > 0
+    backup_count: 5                      # # of backups to keep. CONSTRAINT: >= 0
 
-  modules:
+  modules:                               # per-module level overrides
     "xpcsjax.data.phi_filtering": "INFO"
-    "xpcsjax.data.xpcs_loader": "INFO"
-    "xpcsjax.optimization.nlsq": "INFO"
-    "jax._src": "WARNING"
+    "xpcsjax.data.xpcs_loader":   "INFO"
+    "xpcsjax.optimization.nlsq":  "INFO"
+    "jax._src":                   "WARNING"
 
 # -----------------------------------------------------------------------------
 # QUALITY CONTROL
@@ -669,71 +786,79 @@ quality_control:
 # PLOTTING
 # -----------------------------------------------------------------------------
 plotting:
-  save_plots: true
-  show_plots: false
-  format: "png"
-  dpi: 300
-  style: "publication"
+  save_plots: true               # true = write plots to output.directory
+  show_plots: false              # true = open interactive windows (off in CI)
+  format: "png"                  # "png" (raster) | "pdf" (vector) | "svg" (editable)
+  dpi: 300                       # 150 draft | 300 publication | 600 print. CONSTRAINT: > 0
+  style: "publication"           # "publication" | "draft"
 
-  preview_mode: false
-  fit_surface: "solver"
+  preview_mode: true             # false = matplotlib (default)
+                                 # true  = datashader (for huge c2 arrays)
+  fit_surface: "solver"          # "solver" | "posthoc"
 
   color_scale:
-    mode: "legacy"
-    pin_legacy_range: true
-    percentile_min: 1.0
-    percentile_max: 99.0
-    fixed_min: 1.0
-    fixed_max: 1.5
+    mode: "legacy"               # "legacy" (fixed) | "adaptive" (percentile)
+    pin_legacy_range: true       # true = clamp to fixed range across runs
+    percentile_min: 1.0          # adaptive lower percentile. CONSTRAINT: [0, 100]
+    percentile_max: 99.0         # adaptive upper percentile. CONSTRAINT: [0, 100]
+    fixed_min: 1.0               # legacy lower (c2 value)
+    fixed_max: 1.5               # legacy upper (c2 value)
 
-  datashader:
-    canvas_width: 1200
-    canvas_height: 1200
+  datashader:                    # only used when preview_mode: true
+    canvas_width: 1200           # pixels. CONSTRAINT: > 0
+    canvas_height: 1200          # pixels. CONSTRAINT: > 0
 
-  matplotlib:
-    interpolation: "bilinear"
-    use_tight_layout: true
-    savefig_kwargs:
+  matplotlib:                    # only used when preview_mode: false
+    interpolation: "bilinear"    # "none" | "bilinear" (default) | "bicubic"
+    use_tight_layout: true       # true = matplotlib tight_layout
+    savefig_kwargs:              # passed to plt.savefig()
       bbox_inches: "tight"
       pad_inches: 0.1
 
-  correlation_function: true
-  fit_quality: true
-  residual_analysis: true
-  angle_coverage: true
-  angle_correlation: true         # shows the cos(phi−phi0) shear modulation
+  # ---- Plot types to generate ----
+  correlation_function: true     # c2(t1, t2) heatmap (per angle)
+  fit_quality: true              # data-vs-fit overlay + residuals
+  residual_analysis: true        # residual histograms + QQ plots
+  angle_coverage: true           # polar plot of which angles were used
+  angle_correlation: true        # ⭐ ESSENTIAL for laminar_flow — shows the
+                                 # cos(phi−phi0) shear modulation across angles.
+                                 # If this plot is flat, your shear fit is bad.
 
 # -----------------------------------------------------------------------------
-# OUTPUT
+# OUTPUT — where to write results
 # -----------------------------------------------------------------------------
 output:
-  directory: "./results"
-  base_directory: "./xpcsjax_results/"
+  directory: "./results"                # results subdir under base_directory
+  base_directory: "./xpcsjax_results/"  # top-level results directory
 
-  formats:
-    hdf5: true
-    json: true
-    csv: true
-    yaml: true
-    npz: true
+  formats:                              # enable multiple as needed
+    hdf5: true                          # .h5  — large arrays + metadata
+    json: true                          # .json — human-readable summary
+    csv: true                           # .csv — spreadsheet-ready
+    yaml: true                          # .yaml — config + result snapshot
+    npz: true                           # .npz — numpy archive
 
-  create_subdirs: true
-  timestamp_dirs: false
+  create_subdirs: true                  # true = per-method subdirs (./nlsq/...)
+  timestamp_dirs: false                 # true = append timestamp to dirs
 
-  compress_hdf5: true
-  compression_level: 6
-  include_diagnostics: true
+  compress_hdf5: true                   # gzip HDF5 datasets
+  compression_level: 6                  # 0-9 (0 none | 6 balanced | 9 max)
+  include_diagnostics: true             # include diagnostic blocks in output
 
 # -----------------------------------------------------------------------------
-# VALIDATION
+# VALIDATION — pre-run config sanity checks
 # -----------------------------------------------------------------------------
 validation:
-  strict_mode: false
-  check_file_existence: true
-  validate_parameter_ranges: true
-  check_mode_compatibility: true
+  strict_mode: false                  # false = log warnings (RECOMMENDED)
+                                      # true  = raise on first warning (CI-safe)
+  check_file_existence: true          # true = verify files exist before starting
+  validate_parameter_ranges: true     # true = check initial values within bounds
+  check_mode_compatibility: true      # true = warn on mode/config mismatches
 
   angle_validation:
-    require_multiple_angles: true   # laminar flow REQUIRES ≥ 2 angles
-    min_angle_count: 2
-    validate_angle_ranges: true
+    require_multiple_angles: true     # ⚠ laminar_flow REQUIRES ≥ 2 angles
+    min_angle_count: 2                # required when require_multiple_angles=true
+                                      # CONSTRAINT: >= 1
+                                      # Set 4+ for densely-sampled rheo-XPCS.
+    validate_angle_ranges: true       # true = sanity-check phi values are in
+                                      # reasonable range (no wraparound errors)

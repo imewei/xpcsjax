@@ -64,17 +64,28 @@ analysis_mode: "two_component"
 # ANALYZER PARAMETERS
 # -----------------------------------------------------------------------------
 analyzer_parameters:
-  dt: 0.1
-  start_frame: 1
-  end_frame: 1000
-  frame_step: 1
-  time_unit: "seconds"
+  dt: 0.1                               # Time step [seconds]. MUST be > 0.
+                                        # For heterodyne, dt must resolve the
+                                        # cross-term oscillation period. Wrong dt
+                                        # → wrong D0_ref, D0_sample, AND v0.
+  start_frame: 1                        # First frame, 1-INDEXED. MUST be >= 1.
+                                        # Skip beam-on transients.
+  end_frame: 1000                       # Last frame, INCLUSIVE. MUST be > start_frame.
+                                        # ⚠ -1 sentinel REJECTED — resolve absolute first.
+  frame_step: 1                         # 1 = use all (RECOMMENDED for heterodyne).
+                                        # >1 = subsample for exploration.
+  time_unit: "seconds"                  # "seconds" — internal math assumes SI.
 
   scattering:
-    wavevector_q: 0.0237                # Wave-vector magnitude [Å⁻¹]
+    wavevector_q: 0.0237                # Wave-vector magnitude [Å⁻¹]. MUST be > 0.
+                                        # q = 4π/λ · sin(θ/2). Wrong q → wrong D0
+                                        # for both reference AND sample components.
 
   geometry:
-    stator_rotor_gap: 2000000           # Cross-term path length [Å]
+    stator_rotor_gap: 2000000           # Cross-term path length [Å].
+                                        # For heterodyne, this enters the cross-term
+                                        # phase factor integration. Set physically
+                                        # accurately (here 200 µm = 2×10⁶ Å).
 
 # -----------------------------------------------------------------------------
 # ANALYSIS SETTINGS
@@ -104,20 +115,31 @@ analysis_settings:
 # EXPERIMENTAL DATA
 # -----------------------------------------------------------------------------
 experimental_data:
-  file_path: null
-  data_folder_path: "./data/"
-  data_file_name: "sample_heterodyne.hdf"
-  phi_angles_path: "./data/"
-  phi_angles_file: "phi_list.txt"
+  file_path: null                    # Modern: full path to data file (null = legacy)
+  data_folder_path: "./data/"        # Legacy: directory containing data file
+  data_file_name: "sample_heterodyne.hdf"  # Legacy: file basename.
+                                     # Extension drives loader path:
+                                     # .h5/.hdf/.hdf5/.nexus → HDF5 | .npz → cache
+  phi_angles_path: "./data/"         # Directory of phi-angles file
+  phi_angles_file: "phi_list.txt"    # Plain text, one phi per line, DEGREES.
+                                     # Note: the in-file phi list is in DEGREES;
+                                     # the heterodyne fit converts to RADIANS
+                                     # internally for phi0_het comparison.
 
-  cache_directory: "./cache"
-  use_caching: true
+  cache_directory: "./cache"         # Where to read/write npz caches. MUST be writeable.
+  use_caching: true                  # true = use cache (RECOMMENDED).
   cache_filename_template: "cached_c2_frames_${start_frame}_${end_frame}.npz"
-  cache_compression: true
+  cache_compression: true            # true = gzip cache (smaller).
 
-  data_type: "APS_old"
-  file_format: "hdf5"
-  exchange_key: "exchange"
+  # ⚠ data_type / file_format / exchange_key below are
+  # INFORMATIONAL ONLY — NOT CONSULTED by the loader in xpcsjax v0.1.
+  # See the static_anisotropic template for the full explanation.
+  data_type: "aps_old"               # NOT CONSULTED. Auto-detected as "aps_old"
+                                     # | "aps_u" | "unknown" from HDF5 structure.
+  file_format: "hdf5"                # NOT CONSULTED. Loader routes by FILE EXTENSION:
+                                     # .npz → cache | .h5/.hdf/.hdf5/.nexus → HDF5
+  exchange_key: "exchange"           # NOT CONSULTED. APS-old reader hardcodes
+                                     # "exchange/C2T_all"; this value is ignored.
 
 # -----------------------------------------------------------------------------
 # PHI FILTERING
@@ -125,23 +147,29 @@ experimental_data:
 # Heterodyne benefits from broad phi coverage so the cross-term modulation
 # can be resolved across angles. Defaults pick parallel + perpendicular.
 phi_filtering:
-  enabled: true
-  target_ranges:
+  enabled: true                          # true = apply filter; false = pass all
+  target_ranges:                         # DEGREES; broad coverage helps the
+                                         # cross-term cos(phi−phi0_het) sampling.
     - min_angle: -10.0
       max_angle:  10.0
       description: "Parallel to flow (sees full cross-term)"
     - min_angle:  85.0
       max_angle:  95.0
       description: "Perpendicular (sees only diffusion contributions)"
-  fallback_to_all_angles: true
-  algorithm: "range_based"
-  tolerance: 3.0
+  fallback_to_all_angles: true           # true = use all angles if filter empties
+  algorithm: "range_based"               # only "range_based" supported in v0.1
+  tolerance: 3.0                         # slack [degrees] around range edges
 
   quality_control:
-    min_angles_required: 2
-    max_angle_spread: 36.0
-    validate_coverage: true
-    require_orthogonal_angles: false
+    min_angles_required: 2               # ≥2 for heterodyne — cross-term needs
+                                         # both phi0-aligned and orthogonal angles.
+                                         # CONSTRAINT: >= 1
+    max_angle_spread: 36.0               # max spread within each range. CONSTRAINT: > 0
+    validate_coverage: true              # true = warn if any range has no angles
+    require_orthogonal_angles: false     # NOT required for heterodyne (the cross-term
+                                         # is a phase factor, not a sign-flip like
+                                         # the homodyne shear gradient — orthogonality
+                                         # helps but isn't critical).
 
 # -----------------------------------------------------------------------------
 # INITIAL PARAMETERS
@@ -255,107 +283,151 @@ initial_parameters:
 # The xpcsjax registry is authoritative — the upstream YAML is a reference,
 # not a constraint.
 parameter_space:
+  model: "two_component"          # informational — mirrors analysis_mode
   bounds:
     - name: contrast
-      min: 0.0
-      max: 1.0
+      min: 0.0                # physical lower bound (no contrast → no signal)
+      max: 1.0                # physical upper bound (fully coherent)
       type: TruncatedNormal
       unit: "dimensionless"
+      # Tighten to [0.01, 0.3] if you have a coherent-fraction estimate.
 
     - name: offset
-      min: 0.5
-      max: 1.5
+      min: 0.5                # baseline ~1.0 for ideal normalization
+      max: 1.5                # >1.5 suggests normalization issue
       type: TruncatedNormal
       unit: "dimensionless"
+      # Tighten to [0.95, 1.05] if normalization is well-validated.
 
-    # ----- Reference transport (3) -----
+    # ----- Reference transport (3) — J_r(t) = D0_ref · t^alpha_ref + D_offset_ref -----
     - name: D0_ref
-      min: 0.0
-      max: 1.0e6
+      min: 0.0                # physical floor (static reference: D0_ref = 0)
+      max: 1000000.0          # wide upper for unknown reference dynamics
       type: TruncatedNormal
       unit: "Å²/s"
+      # For a TRULY STATIC reference: fix to 0 via fixed_parameters.
+      # For a known colloidal-standard reference: tighten to ±2× the
+      # expected D from Stokes-Einstein.
 
     - name: alpha_ref
-      min: -2.0
-      max:  2.0
+      min: -2.0               # strong subdiffusion
+      max:  2.0               # strong superdiffusion
       type: TruncatedNormal
       unit: "dimensionless"
+      # α = 1   normal Brownian diffusion
+      # α < 1   subdiffusion (crowded, glassy)
+      # α > 1   superdiffusion (active, ballistic)
+      # α = 0   constant J(t) = D0_ref (no time dependence)
 
     - name: D_offset_ref
-      min: -1.0e4
-      max:  1.0e4
+      min: -10000.0           # negative rare; usually indicates arrested dynamics
+      max:  10000.0           # symmetric for safety
       type: TruncatedNormal
       unit: "Å²/s"
+      # Most heterodyne fits give D_offset_ref ≈ 0. Common simplification:
+      # fixed_parameters: {"D_offset_ref": 0.0}
 
-    # ----- Sample transport (3) -----
+    # ----- Sample transport (3) — J_s(t) = D0_sample · t^alpha_sample + D_offset_sample -----
     - name: D0_sample
-      min: 0.0
-      max: 1.0e6
+      min: 0.0                # physical floor
+      max: 1000000.0          # wide upper for unknown sample dynamics
       type: TruncatedNormal
       unit: "Å²/s"
+      # PRIMARY scientific parameter. Tighten to ±2× expected from
+      # particle size if known.
 
     - name: alpha_sample
       min: -2.0
       max:  2.0
       type: TruncatedNormal
       unit: "dimensionless"
+      # Same interpretation as alpha_ref. PRIMARY scientific parameter.
 
     - name: D_offset_sample
-      min: -1.0e4
-      max:  1.0e4
+      min: -10000.0
+      max:  10000.0
       type: TruncatedNormal
       unit: "Å²/s"
+      # Most fits give D_offset_sample ≈ 0. Tighten or freeze if you have
+      # no reason to model it.
 
-    # ----- Velocity (3) -----
-    - name: v0
-      min: 0.0
-      max: 1.0e6
+    # ----- Velocity (3) — v(t) = v0 · t^v_beta + v_offset -----
+    - name: v0                # ⚠ NAMING: v0 is the velocity amplitude.
+      min: 0.0                # physical floor
+      max: 1000000.0          # wide upper covers typical XPCS flow rates
       type: TruncatedNormal
       unit: "Å/s"
+      # Convert from other units: µm/s × 1e4 = Å/s; nm/s × 10 = Å/s.
+      # Typical XPCS velocities: 10–10000 Å/s. Tighten if you know flow rate.
 
-    - name: v_beta
-      min: 0.0
-      max: 2.0
+    - name: v_beta            # ⚠ NAMING TRAP: this is v_beta (NOT `beta`).
+                              # `beta` is the homodyne SHEAR exponent.
+      min: 0.0                # decelerating to zero velocity
+      max: 2.0                # accelerating up to 2nd-order time dependence
       type: TruncatedNormal
       unit: "dimensionless"
+      # v_beta = 0   CONSTANT velocity v(t) = v0 + v_offset (MOST COMMON)
+      # v_beta = 1   linear-in-t velocity (startup flow)
+      # v_beta > 1   accelerating (thickening, shear-thickening fluids)
+      # Common simplification for steady flow:
+      # fixed_parameters: {"v_beta": 0.0}
 
     - name: v_offset
-      min: -100.0
+      min: -100.0             # allow flow reversal
       max:  100.0
       type: TruncatedNormal
       unit: "Å/s"
+      # Most fits give v_offset ≈ 0. Use to model flow direction reversal
+      # (e.g., oscillatory rheology).
 
-    # ----- Fraction (4) -----
-    - name: f0
-      min: 0.0
-      max: 1.0
+    # ----- Fraction (4) — f_s(t) = clip(f0 · exp(f1·(t−f2)) + f3, 0, 1) -----
+    - name: f0                # AMPLITUDE of the sample fraction
+      min: 0.0                # 0 = pure reference beam
+      max: 1.0                # 1 = pure sample beam
       type: TruncatedNormal
       unit: "dimensionless"
+      # f0 = 0.5  equal reference/sample (typical starting point)
+      # f0 → 0    reference-dominated (weak sample scattering)
+      # f0 → 1    sample-dominated (weak reference)
 
-    - name: f1
+    - name: f1                # EXPONENTIAL RATE of fraction evolution
+      min: -1.0               # decreasing fraction (sample fading)
+      max:  1.0               # increasing fraction (sample growing)
+      type: TruncatedNormal
+      unit: "dimensionless"
+      # f1 = 0    CONSTANT fraction (most common simplification)
+      # f1 > 0    sample fraction grows exponentially
+      # f1 < 0    sample fraction decays exponentially
+      # Common simplification: fixed_parameters: {"f1": 0.0}
+
+    - name: f2                # TIME SHIFT for the exponential onset
       min: -1.0
       max:  1.0
       type: TruncatedNormal
       unit: "dimensionless"
+      # Often set to mid-experiment time if you model time-varying fraction.
+      # Common simplification: fixed_parameters: {"f2": 0.0}
 
-    - name: f2
+    - name: f3                # BASELINE offset of the fraction
       min: -1.0
       max:  1.0
       type: TruncatedNormal
       unit: "dimensionless"
+      # Most fits give f3 ≈ 0. Common simplification:
+      # fixed_parameters: {"f3": 0.0}
 
-    - name: f3
-      min: -1.0
-      max:  1.0
-      type: TruncatedNormal
-      unit: "dimensionless"
-
-    # ----- Flow angle (heterodyne convention: RADIANS) -----
-    - name: phi0_het
-      min: -3.141592653589793   # −π
-      max:  3.141592653589793   # +π
+    # ----- Flow angle (heterodyne convention: RADIANS, NOT degrees) -----
+    - name: phi0_het          # ⚠ NAMING TRAP: phi0_het (NOT phi0).
+                              # phi0 is the homodyne flow angle in DEGREES.
+                              # phi0_het is the heterodyne flow angle in RADIANS.
+      min: -3.141592653589793   # −π radians
+      max:  3.141592653589793   # +π radians
       type: TruncatedNormal
       unit: "radians"
+      # phi0_het = 0  flow aligned with detector primary axis (RECOMMENDED start)
+      # Tighten to [-π/4, π/4] (≈ [-0.79, 0.79]) if alignment is well-known.
+      # Note: the in-file phi-angles list is still in DEGREES; only phi0_het
+      # internally uses radians.
 
 # -----------------------------------------------------------------------------
 # OPTIMIZATION (NLSQ-only) — two_component tuning
@@ -409,15 +481,21 @@ optimization:
     # Two-component scale_map is dataset-specific — use diagnose_gradients.py.
 
     progress:
-      enable: true
-      verbose: 1
-      log_interval: 10
+      enable: true                # true = tqdm progress bar; false = silent
+      verbose: 1                  # 0 = silent | 1 = milestones | 2 = per-iter
+      log_interval: 10            # log every N iters (with verbose >= 2)
 
+    # ----------------------------------------------------------------------
+    # DIAGNOSTICS — STRONGLY recommended for first heterodyne fits.
+    # The 14-D parameter space has many local minima; gradient checks
+    # surface issues early.
+    # ----------------------------------------------------------------------
     diagnostics:
-      enabled: false
-      sample_size: 2048
-      check_gradients: true
-      log_jacobian_norms: false
+      enabled: false              # toggle on for first 14-D fits
+      sample_size: 2048           # # points for gradient check. CONSTRAINT: > 0
+      check_gradients: true       # true = numerical vs analytic gradient comparison
+      log_jacobian_norms: false   # true = log column-wise J norms (input to
+                                  # diagnose_gradients.py for x_scale_map)
 
     # ----------------------------------------------------------------------
     # ANTI-DEGENERACY DEFENSE SYSTEM — 4-LAYER (heterodyne)
@@ -516,29 +594,43 @@ optimization:
     #
     # REQUIRES: pip install "nlsq[evosax]"
     cmaes:
-      enable: false                     # toggle on when NLSQ alone finds inconsistent minima
-      preset: "cmaes-global"
-      max_generations: null
-      sigma: 0.5
-      sigma_warmstart: 0.05
-      warmstart_auto_skip: true
-      warmstart_skip_threshold: 5.0
-      popsize: null
-      tol_fun: 1.0e-8
-      tol_x: 1.0e-8
-      restart_strategy: "bipop"
-      max_restarts: 10
-      memory_limit_gb: 8.0
-      auto_select: true                 # 14-D parameter space → likely engages
-      scale_threshold: 1000.0
-      normalize: true
-      normalization_epsilon: 1.0e-12
-      refine_with_nlsq: true
-      refinement_ftol: 1.0e-10
+      enable: false                       # toggle on when NLSQ alone finds
+                                          # inconsistent minima (likely for 14-D
+                                          # heterodyne). REQUIRES: nlsq[evosax]
+      preset: "cmaes-global"              # "cmaes-fast" (50 gen) | "cmaes" (100 gen)
+                                          # | "cmaes-global" (200 gen, RECOMMENDED for 14-D)
+      max_generations: null               # null = adaptive (RECOMMENDED for heterodyne;
+                                          # 14-D needs many generations)
+      sigma: 0.5                          # initial step (fraction of bound range).
+                                          # CONSTRAINT: (0, 1]
+                                          # 0.5 = half range; larger = more exploration.
+      sigma_warmstart: 0.05               # reduced sigma when warm-started from NLSQ.
+                                          # CONSTRAINT: (0, 1]
+      warmstart_auto_skip: true           # true = skip CMA-ES if warm-start good
+      warmstart_skip_threshold: 5.0       # skip if warm-start red. χ² < this.
+                                          # CONSTRAINT: > 0
+      popsize: null                       # null = adaptive (RECOMMENDED for 14-D;
+                                          # gives 200+ for scale_ratio > 1e6)
+      tol_fun: 1.0e-8                     # function-value tolerance. CONSTRAINT: > 0
+      tol_x: 1.0e-8                       # parameter tolerance. CONSTRAINT: > 0
+      restart_strategy: "bipop"           # "none" | "bipop" (BIPOP-CMA-ES; RECOMMENDED
+                                          # for 14-D — alternates large/small populations)
+      max_restarts: 10                    # max BIPOP restarts. CONSTRAINT: >= 0
+                                          # 14-D often needs more restarts than 3-D static.
+      memory_limit_gb: 8.0                # cap for auto-sizing. CONSTRAINT: > 0
+      auto_select: true                   # ⚠ For 14-D heterodyne, auto-engagement is
+                                          # the NORM — scale_ratio routinely > 1e5.
+      scale_threshold: 1000.0             # engagement threshold. CONSTRAINT: > 0
+      normalize: true                     # ESSENTIAL for heterodyne — keeps CMA-ES
+                                          # from being dominated by the D0 scale.
+      normalization_epsilon: 1.0e-12      # div-by-zero guard
+      refine_with_nlsq: true              # Phase 2: NLSQ-TRF local polish (RECOMMENDED)
+      refinement_ftol: 1.0e-10            # tighter than main NLSQ. CONSTRAINT: > 0
       refinement_xtol: 1.0e-10
       refinement_gtol: 1.0e-10
-      refinement_max_nfev: 500
-      refinement_loss: "linear"
+      refinement_max_nfev: 500            # max func-evals for refinement. CONSTRAINT: > 0
+      refinement_loss: "linear"           # "linear" (default) | "soft_l1" | "huber"
+                                          # | "cauchy" | "arctan"
 
     # ----------------------------------------------------------------------
     # MULTI-START OPTIMIZATION
@@ -549,16 +641,26 @@ optimization:
     # When using multi_start standalone for heterodyne, bump n_starts to
     # 15–30 to cover the higher-dimensional parameter space.
     multi_start:
-      enable: false                     # disabled when CMA-ES is enabled
-      n_starts: 15
-      seed: 42
-      sampling_strategy: "latin_hypercube"
-      n_workers: 0
-      use_screening: true
-      screen_keep_fraction: 0.5
-      refine_top_k: 3
-      refinement_ftol: 1.0e-12
-      degeneracy_threshold: 0.1
+      enable: false                       # OFF when cmaes.enable=true.
+                                          # Use standalone only if you have a reason
+                                          # to avoid CMA-ES (e.g., evosax not installed).
+      n_starts: 15                        # # of LHS starts. CONSTRAINT: > 0.
+                                          # 14-D heterodyne needs 15-50 starts to
+                                          # adequately sample the parameter box.
+                                          # Doubling n_starts ≈ doubles compute.
+      seed: 42                            # PRNG seed. CHANGE between runs to confirm
+                                          # the result isn't seed-dependent.
+      sampling_strategy: "latin_hypercube"  # "latin_hypercube" (RECOMMENDED) | "random"
+      n_workers: 0                        # 0 = auto | 1 = sequential | >1 explicit.
+                                          # CONSTRAINT: >= 0
+      use_screening: true                 # true = cheap filter pass before refinement
+      screen_keep_fraction: 0.5           # fraction of starts to refine.
+                                          # CONSTRAINT: (0, 1]
+      refine_top_k: 3                     # tightly-refine top K. CONSTRAINT: >= 0
+      refinement_ftol: 1.0e-12            # tighter than main NLSQ. CONSTRAINT: > 0
+      degeneracy_threshold: 0.1           # flag starts within (1+threshold)·χ²_best
+                                          # CONSTRAINT: (0, 1). For heterodyne,
+                                          # degenerate fits are common — keep this on.
 
     # ----------------------------------------------------------------------
     # HYBRID STREAMING — large-dataset four-phase optimizer
@@ -571,22 +673,33 @@ optimization:
     # For 14-D heterodyne, normalization is the critical piece — without
     # it, L-BFGS struggles with the scale imbalance. Leave normalize=true.
     hybrid_streaming:
-      enable: true
-      normalize: true
-      normalization_strategy: "auto"
-      warmup_iterations: 200
-      max_warmup_iterations: 500
-      warmup_learning_rate: 0.001
-      gauss_newton_max_iterations: 100
-      gauss_newton_tol: 1.0e-8
-      chunk_size: 10000
-      trust_region_initial: 1.0
-      regularization_factor: 1.0e-10
-      enable_checkpoints: true
-      checkpoint_frequency: 100
-      validate_numerics: true
-      verbose: 1
-      log_frequency: 1
+      enable: true                           # auto-fires for >10M points
+      normalize: true                        # Phase 0 — ESSENTIAL for heterodyne
+                                             # (handles the 5+ order scale span across
+                                             # D0_ref / D0_sample / v0 / f0)
+      normalization_strategy: "auto"         # "auto" (RECOMMENDED) | "bounds" | "p0" | "none"
+      # ---- Phase 1: L-BFGS warmup ----
+      warmup_iterations: 200                 # L-BFGS iters before switch check. CONSTRAINT: > 0
+      max_warmup_iterations: 500             # force-switch to GN after this. CONSTRAINT: > 0
+      warmup_learning_rate: 0.001            # L-BFGS line search scale. CONSTRAINT: > 0
+      # ---- Phase 2: Gauss-Newton refinement ----
+      gauss_newton_max_iterations: 100       # CONSTRAINT: > 0
+      gauss_newton_tol: 1.0e-8               # CONSTRAINT: > 0
+      # ---- Streaming settings ----
+      chunk_size: 10000                      # points per J^T J chunk. CONSTRAINT: > 0
+                                             # Tune to 1000-50000 based on RAM headroom.
+                                             # 14-D heterodyne benefits from larger
+                                             # chunks (better gradient estimates).
+      trust_region_initial: 1.0              # initial trust-region radius
+      regularization_factor: 1.0e-10         # Tikhonov reg for J^T J.
+                                             # 14-D matrices benefit from slightly
+                                             # higher reg — bump to 1e-9 if you see
+                                             # "singular matrix" warnings.
+      enable_checkpoints: true               # true = save mid-run checkpoints
+      checkpoint_frequency: 100              # save every N iters
+      validate_numerics: true                # true = NaN/Inf detection per step
+      verbose: 1                             # 0 = silent | 1 = progress | 2 = debug
+      log_frequency: 1                       # log every N iters
 
       # 4-layer warmup defense (NLSQ 0.3.6+) — keep all 4 enabled.
       # ESPECIALLY important for 14-D heterodyne where bad warm-starts
@@ -605,51 +718,66 @@ optimization:
       enable_step_clipping: true
       max_warmup_step_size: 0.1
 
+    # Post-fit quality checks; emit warnings only, never raise.
     quality_validation:
       enable: true
-      reduced_chi_squared_threshold: 10.0
-      warn_on_max_restarts: true
-      warn_on_bounds_hit: true
-      warn_on_convergence_failure: true
-      bounds_tolerance: 1.0e-9
+      reduced_chi_squared_threshold: 10.0   # warn if χ²_red > 10. For 14-D
+                                            # heterodyne with many local minima,
+                                            # large χ² often means CMA-ES is needed.
+      warn_on_max_restarts: true            # warn if CMA-ES hit max_restarts
+      warn_on_bounds_hit: true              # warn if a param pinned at bounds.
+                                            # Common heterodyne offenders:
+                                            #   * phi0_het at ±π (widen bounds)
+                                            #   * D0_ref/sample at upper (sample is
+                                            #     fitting wrong mode — try other priors)
+      warn_on_convergence_failure: true     # warn if optimizer didn't converge
+      bounds_tolerance: 1.0e-9              # distance to bound that counts as "at"
 
+  # Streaming checkpoint/resume — auto-engages for >100M points.
   streaming:
-    enable_checkpoints: true
-    checkpoint_dir: "./checkpoints"
-    checkpoint_frequency: 10
-    resume_from_checkpoint: true
-    keep_last_checkpoints: 3
-    enable_fault_tolerance: true
-    max_retries_per_batch: 2
-    min_success_rate: 0.5
-    batch_size: null
-    adaptive_batching: true
+    enable_checkpoints: true                # mid-run checkpoints
+    checkpoint_dir: "./checkpoints"         # MUST be writeable
+    checkpoint_frequency: 10                # save every N BATCHES
+    resume_from_checkpoint: true            # true = auto-resume from latest
+    keep_last_checkpoints: 3                # # of recent checkpoints to retain
+    enable_fault_tolerance: true            # true = retry failed batches
+    max_retries_per_batch: 2                # max retries per batch. CONSTRAINT: >= 0
+    min_success_rate: 0.5                   # fit fails if rate < this. CONSTRAINT: [0, 1]
+    batch_size: null                        # null = auto from memory | int = explicit
+    adaptive_batching: true                 # dynamically size batches
 
+  # Angle-stratified chunking — essential for heterodyne with per-angle scaling.
   stratification:
-    enabled: "auto"
-    target_chunk_size: 100000
-    max_imbalance_ratio: 5.0
-    force_sequential_fallback: false
-    check_memory_safety: true
-    use_index_based: false
-    collect_diagnostics: false
-    log_diagnostics: false
+    enabled: "auto"                         # "auto" (RECOMMENDED) | true | false
+    target_chunk_size: 100000               # target points per chunk. CONSTRAINT: > 0
+    max_imbalance_ratio: 5.0                # fall back to sequential above this.
+                                            # CONSTRAINT: > 0
+    force_sequential_fallback: false        # true = skip stratification entirely
+    check_memory_safety: true               # true = warn if peak > 70% of RAM
+    use_index_based: false                  # true = zero-copy (~1% mem overhead)
+    collect_diagnostics: false              # true = collect balance + coverage stats
+    log_diagnostics: false                  # requires collect_diagnostics=true
 
+  # Sequential per-angle solves — fallback when stratification cannot apply.
   sequential:
-    min_success_rate: 0.5
-    weighting: "inverse_variance"
+    min_success_rate: 0.5                   # fit fails if rate < this. CONSTRAINT: [0, 1]
+    weighting: "inverse_variance"           # "inverse_variance" (RECOMMENDED)
+                                            # "uniform" | "n_points"
 
+  # Automatic retry with progressively conservative settings.
   recovery:
-    enable: true
-    max_attempts: 3
-    lr_decay: 0.5
-    lambda_growth: 2.0
-    trust_decay: 0.5
+    enable: true                            # true = retry on failure
+    max_attempts: 3                         # # of retries. CONSTRAINT: >= 0
+    lr_decay: 0.5                           # halve LR on each retry
+    lambda_growth: 2.0                      # double regularization on each retry
+    trust_decay: 0.5                        # halve trust region on each retry
     log_retries: true
 
+  # Optimizer-layer angle filter (distinct from top-level phi_filtering).
+  # Usually leave off; top-level phi_filtering is the primary filter.
   angle_filtering:
-    enabled: false
-    target_angle_ranges: []
+    enabled: false                          # true = restrict angles further in NLSQ
+    target_angle_ranges: []                 # list of {min_angle, max_angle} dicts
 
 # -----------------------------------------------------------------------------
 # NOISE ESTIMATION — Bayesian sub-tooling, disabled by default
@@ -662,50 +790,54 @@ noise_estimation:
 # PERFORMANCE
 # -----------------------------------------------------------------------------
 performance:
-  strategy_override: null
-  memory_limit_gb: null
-  enable_progress: true
+  strategy_override: null      # null = auto-select (RECOMMENDED)
+                               # "standard" | "large" | "chunked" | "streaming"
+  memory_limit_gb: null        # null = auto-detect; float = explicit GB cap
+  enable_progress: true        # true = progress bars in xpcsjax ops
 
   memory_optimization:
-    enabled: true
-    max_memory_usage_gb: 8.0           # heterodyne tends to need more headroom
-    chunk_size: 8000
-    enable_caching: true
-    cache_strategy: "adaptive"
+    enabled: true              # true = memory-efficient code paths
+    max_memory_usage_gb: 8.0   # 14-D heterodyne needs more headroom than static
+                               # (Jacobian columns × 14 parameters).
+                               # CONSTRAINT: > 0
+    chunk_size: 8000           # default mem-aware chunk. CONSTRAINT: > 0
+    enable_caching: true       # cache intermediate arrays for re-use
+    cache_strategy: "adaptive" # "adaptive" (RECOMMENDED) | "aggressive" | "conservative"
 
   computation:
-    enable_jit: true
-    cpu_threads: "auto"
-    vectorization_level: "high"
+    enable_jit: true           # true = JAX JIT (RECOMMENDED). false = interpreter (debug)
+    cpu_threads: "auto"        # "auto" = os.cpu_count() | int = explicit | 1 = single-threaded
+    vectorization_level: "high"  # "low" | "medium" | "high" (RECOMMENDED)
 
 # -----------------------------------------------------------------------------
 # LOGGING
 # -----------------------------------------------------------------------------
 logging:
-  enabled: true
-  level: "INFO"
+  enabled: true                          # true = configure logging
+  level: "INFO"                          # "DEBUG" | "INFO" | "WARNING" | "ERROR"
+                                         # Root level — filters everything below
 
   console:
-    enabled: true
-    level: "INFO"
-    format: "detailed"
-    colors: true
-    show_progress: true
+    enabled: true                        # true = log to stderr
+    level: "INFO"                        # console-specific level
+    format: "detailed"                   # "simple" | "detailed"
+    colors: true                         # true = colorize levels (off if no tty)
+    show_progress: true                  # true = render tqdm bars
 
   file:
-    enabled: false
-    level: "DEBUG"
-    path: "./logs/"
+    enabled: false                       # true = also log to rotating file
+    level: "DEBUG"                       # capture verbose record for debugging
+    path: "./logs/"                      # log directory (created if missing)
     filename: "xpcsjax_two_component.log"
-    max_size_mb: 10
-    backup_count: 5
+    max_size_mb: 10                      # rotate at this size. CONSTRAINT: > 0
+    backup_count: 5                      # # of backups. CONSTRAINT: >= 0
 
-  modules:
-    "xpcsjax.data.phi_filtering": "INFO"
-    "xpcsjax.data.xpcs_loader": "INFO"
-    "xpcsjax.optimization.nlsq": "INFO"
-    "xpcsjax.core.heterodyne_model": "INFO"
-    "jax._src": "WARNING"
+  modules:                               # per-module level overrides
+    "xpcsjax.data.phi_filtering":     "INFO"
+    "xpcsjax.data.xpcs_loader":       "INFO"
+    "xpcsjax.optimization.nlsq":      "INFO"
+    "xpcsjax.core.heterodyne_model":  "INFO"
+    "jax._src":                       "WARNING"
 
 # -----------------------------------------------------------------------------
 # QUALITY CONTROL
@@ -727,71 +859,77 @@ quality_control:
 # PLOTTING
 # -----------------------------------------------------------------------------
 plotting:
-  save_plots: true
-  show_plots: false
-  format: "png"
-  dpi: 300
-  style: "publication"
+  save_plots: true               # true = write plots to output.directory
+  show_plots: false              # true = open interactive windows (off in CI)
+  format: "png"                  # "png" (raster) | "pdf" (vector) | "svg" (editable)
+  dpi: 300                       # 150 draft | 300 publication | 600 print. CONSTRAINT: > 0
+  style: "publication"           # "publication" | "draft"
 
-  preview_mode: false
-  fit_surface: "solver"
+  preview_mode: true             # false = matplotlib | true = datashader
+  fit_surface: "solver"          # "solver" | "posthoc"
 
   color_scale:
-    mode: "legacy"
+    mode: "legacy"               # "legacy" (fixed) | "adaptive" (percentile)
     pin_legacy_range: true
-    percentile_min: 1.0
-    percentile_max: 99.0
-    fixed_min: 1.0
-    fixed_max: 1.5
+    percentile_min: 1.0          # adaptive lower percentile. CONSTRAINT: [0, 100]
+    percentile_max: 99.0         # adaptive upper percentile. CONSTRAINT: [0, 100]
+    fixed_min: 1.0               # legacy lower (c2 value)
+    fixed_max: 1.5               # legacy upper (c2 value)
 
-  datashader:
-    canvas_width: 1200
-    canvas_height: 1200
+  datashader:                    # only used when preview_mode: true
+    canvas_width: 1200           # pixels. CONSTRAINT: > 0
+    canvas_height: 1200          # pixels. CONSTRAINT: > 0
 
-  matplotlib:
-    interpolation: "bilinear"
+  matplotlib:                    # only used when preview_mode: false
+    interpolation: "bilinear"    # "none" | "bilinear" (default) | "bicubic"
     use_tight_layout: true
-    savefig_kwargs:
+    savefig_kwargs:              # passed to plt.savefig()
       bbox_inches: "tight"
       pad_inches: 0.1
 
-  correlation_function: true
-  fit_quality: true
-  residual_analysis: true
-  angle_coverage: true
-  angle_correlation: true
+  # ---- Plot types to generate ----
+  correlation_function: true     # c2(t1, t2) heatmap (per angle)
+  fit_quality: true              # data-vs-fit overlay + residuals
+  residual_analysis: true        # residual histograms + QQ plots
+  angle_coverage: true           # polar plot of which angles were used
+  angle_correlation: true        # ⭐ ESSENTIAL for heterodyne — shows the
+                                 # cos(phi−phi0_het) cross-term modulation.
+                                 # If flat, your phi0_het fit is bad.
 
 # -----------------------------------------------------------------------------
-# OUTPUT
+# OUTPUT — where to write results
 # -----------------------------------------------------------------------------
 output:
-  directory: "./results"
-  base_directory: "./xpcsjax_results/"
+  directory: "./results"                # results subdir under base_directory
+  base_directory: "./xpcsjax_results/"  # top-level results directory
 
-  formats:
-    hdf5: true
-    json: true
-    csv: true
-    yaml: true
-    npz: true
+  formats:                              # enable multiple as needed
+    hdf5: true                          # .h5  — large arrays + metadata
+    json: true                          # .json — human-readable summary
+    csv: true                           # .csv — spreadsheet-ready
+    yaml: true                          # .yaml — config + result snapshot
+    npz: true                           # .npz — numpy archive
 
-  create_subdirs: true
-  timestamp_dirs: false
+  create_subdirs: true                  # true = per-method subdirs
+  timestamp_dirs: false                 # true = append timestamp to dirs
 
-  compress_hdf5: true
-  compression_level: 6
-  include_diagnostics: true
+  compress_hdf5: true                   # gzip HDF5 datasets
+  compression_level: 6                  # 0-9 (0 none | 6 balanced | 9 max)
+  include_diagnostics: true             # include diagnostic blocks in output
 
 # -----------------------------------------------------------------------------
-# VALIDATION
+# VALIDATION — pre-run config sanity checks
 # -----------------------------------------------------------------------------
 validation:
-  strict_mode: false
-  check_file_existence: true
-  validate_parameter_ranges: true
-  check_mode_compatibility: true
+  strict_mode: false                  # false = log warnings (RECOMMENDED)
+                                      # true  = raise on first warning (CI-safe)
+  check_file_existence: true          # true = verify files exist before starting
+  validate_parameter_ranges: true     # true = check initial values within bounds
+  check_mode_compatibility: true      # true = warn on mode-specific config mismatches
 
   angle_validation:
-    require_multiple_angles: true
-    min_angle_count: 2
-    validate_angle_ranges: true
+    require_multiple_angles: true     # ⚠ heterodyne REQUIRES ≥ 2 angles
+    min_angle_count: 2                # required when require_multiple_angles=true
+                                      # CONSTRAINT: >= 1
+    validate_angle_ranges: true       # true = sanity-check phi values are in
+                                      # reasonable range (no wraparound errors)

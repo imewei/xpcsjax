@@ -49,20 +49,28 @@ metadata:
 analysis_mode: "static_isotropic"
 
 # -----------------------------------------------------------------------------
-# ANALYZER PARAMETERS
+# ANALYZER PARAMETERS — describe the experimental run
 # -----------------------------------------------------------------------------
 analyzer_parameters:
-  dt: 0.1
-  start_frame: 1
-  end_frame: 1000
-  frame_step: 1
-  time_unit: "seconds"
+  dt: 0.1                       # Time step between frames [seconds]. MUST be > 0.
+                                # Wrong dt → wrong D0 (D0 scales with dt).
+  start_frame: 1                # First frame to analyze, 1-INDEXED. MUST be >= 1.
+                                # Use > 1 to skip beam-on transients.
+  end_frame: 1000               # Last frame, INCLUSIVE. MUST be > start_frame and > 0.
+                                # ⚠ -1 sentinel is REJECTED; resolve to absolute first.
+  frame_step: 1                 # Stride between frames. 1 = use all (RECOMMENDED).
+                                # >1 = subsample for exploration (logged when active).
+  time_unit: "seconds"          # "seconds" (default) — internal math assumes SI.
 
   scattering:
-    wavevector_q: 0.0237        # Wave-vector magnitude [Å⁻¹]
+    wavevector_q: 0.0237        # Wave-vector magnitude [Å⁻¹]. MUST be > 0.
+                                # q = 4π/λ · sin(θ/2). Wrong q → wrong D0 (q² scaling).
 
   geometry:
-    stator_rotor_gap: 2000000   # Gap [Å]; unused in static, kept for symmetry
+    stator_rotor_gap: 2000000   # Couette gap [Å]. UNUSED in static; required by
+                                # loader for cross-mode symmetry. Set realistically
+                                # (here 200 µm) so config remains valid if you
+                                # later switch to laminar_flow.
 
 # -----------------------------------------------------------------------------
 # ANALYSIS SETTINGS
@@ -75,44 +83,62 @@ analysis_settings:
     per_angle_scaling: false
 
 # -----------------------------------------------------------------------------
-# EXPERIMENTAL DATA
+# EXPERIMENTAL DATA — where to find the c2 data and the phi-angle list
 # -----------------------------------------------------------------------------
+# Two equivalent formats:
+#   Modern: file_path  |  Legacy: data_folder_path + data_file_name
 experimental_data:
-  file_path: null
-  data_folder_path: "./data/"
-  data_file_name: "sample.hdf"
-  phi_angles_path: "./data/"
-  phi_angles_file: "phi_list.txt"
+  file_path: null                    # Modern: full path to data file.
+                                     # null = use legacy fields below.
+  data_folder_path: "./data/"        # Legacy: directory containing data file.
+  data_file_name: "sample.hdf"       # Legacy: file basename.
+                                     # Extension drives loader path:
+                                     # .h5/.hdf/.hdf5/.nexus → HDF5 reader
+                                     # .npz                  → cache-direct
+  phi_angles_path: "./data/"         # Directory of phi-angles file.
+  phi_angles_file: "phi_list.txt"    # Plain-text phi angles, one per line, DEGREES.
 
-  cache_directory: "./cache"
-  use_caching: true
+  cache_directory: "./cache"         # Where to read/write npz caches. MUST be writeable.
+  use_caching: true                  # true = use cache (RECOMMENDED for repeated fits).
   cache_filename_template: "cached_c2_frames_${start_frame}_${end_frame}.npz"
-  cache_compression: true
+                                     # supports ${start_frame}/${end_frame} substitution
+  cache_compression: true            # true = gzip cache (smaller, slightly slower).
 
-  data_type: "APS_old"
-  file_format: "hdf5"
-  exchange_key: "exchange"
+  # ⚠ data_type / file_format / exchange_key below are
+  # INFORMATIONAL ONLY — NOT CONSULTED by the loader in xpcsjax v0.1.
+  # See the static_anisotropic template for the full explanation.
+  data_type: "aps_old"               # NOT CONSULTED. Auto-detected by loader as
+                                     # "aps_old" | "aps_u" | "unknown" from HDF5 structure.
+  file_format: "hdf5"                # NOT CONSULTED. Loader routes by FILE EXTENSION:
+                                     # .npz → cache | .h5/.hdf/.hdf5/.nexus → HDF5
+  exchange_key: "exchange"           # NOT CONSULTED. APS-old reader hardcodes
+                                     # "exchange/C2T_all"; this value is ignored.
 
 # -----------------------------------------------------------------------------
-# PHI FILTERING
+# PHI FILTERING — angle subset selection
 # -----------------------------------------------------------------------------
-# Isotropic mode is happy with a single representative angle. Either point at
-# a chosen ring or let fallback_to_all_angles average over what's available.
+# Isotropic mode treats c2 as angle-independent, so you can either pin to
+# one representative angle or use all available (the shared scaling is
+# averaged either way).
 phi_filtering:
-  enabled: true
-  target_ranges:
+  enabled: true                          # true = filter angles per target_ranges
+                                         # false = pass all angles through
+  target_ranges:                         # DEGREES; angles inside any range
+                                         # (with `tolerance` slack) are kept.
     - min_angle: -10.0
       max_angle:  10.0
       description: "Representative angle for isotropic sample"
-  fallback_to_all_angles: true
-  algorithm: "range_based"
-  tolerance: 5.0
+  fallback_to_all_angles: true           # true = use all angles if filter empties
+  algorithm: "range_based"               # only "range_based" is supported in v0.1
+  tolerance: 5.0                         # slack [degrees] around target_range edges.
+                                         # Wider here than anisotropic (default 3.0)
+                                         # because we don't need precise angle picks.
 
   quality_control:
-    min_angles_required: 1
-    max_angle_spread: 90.0       # generous — isotropic accepts any spread
-    validate_coverage: false
-    require_orthogonal_angles: false
+    min_angles_required: 1               # static_isotropic accepts any n_phi >= 1
+    max_angle_spread: 90.0               # generous — isotropic ignores phi anyway
+    validate_coverage: false             # off — isotropic doesn't care about coverage
+    require_orthogonal_angles: false     # off — orthogonality only matters for flow
 
 # -----------------------------------------------------------------------------
 # INITIAL PARAMETERS
@@ -143,39 +169,48 @@ initial_parameters:
 # -----------------------------------------------------------------------------
 # PARAMETER SPACE — bounds match the xpcsjax registry
 # -----------------------------------------------------------------------------
+# NLSQ uses min/max as BOX CONSTRAINTS. `type:` is "TruncatedNormal"
+# (informational for the NLSQ path; meaningful in Bayesian which is out of
+# scope). `unit:` is informational only, emitted in result reports.
 parameter_space:
   model: "static_isotropic"
 
   bounds:
     - name: contrast
-      min: 0.0
-      max: 1.0
+      min: 0.0                # physical lower bound (no contrast → no signal)
+      max: 1.0                # physical upper bound (fully coherent)
       type: TruncatedNormal
       unit: "dimensionless"
+      # Tighten to [0.01, 0.3] if you have a coherence-fraction estimate.
 
     - name: offset
-      min: 0.5
-      max: 1.5
+      min: 0.5                # baseline should be ~1.0; <0.5 is rare
+      max: 1.5                # >1.5 suggests normalization issue
       type: TruncatedNormal
       unit: "dimensionless"
+      # Tighten to [0.95, 1.05] if normalization is validated.
 
     - name: D0
-      min: 100.0
-      max: 100000.0
+      min: 100.0              # ~µm particles, slow Brownian
+      max: 100000.0           # ~10 nm particles, fast Brownian
       type: TruncatedNormal
       unit: "Å²/s"
+      # Tighten to [500, 5000] if particle size known to within 2×.
 
     - name: alpha
-      min: -2.0
-      max:  2.0
+      min: -2.0               # strong subdiffusion (jammed, glassy)
+      max:  2.0               # strong superdiffusion (active, ballistic)
       type: TruncatedNormal
       unit: "dimensionless"
+      # α=1 normal | α<1 sub | α>1 super | α=0 constant J(t)=D0
 
     - name: D_offset
-      min: -100000.0
-      max:  100000.0
+      min: -100000.0          # negative rare; usually indicates arrested dynamics
+      max:  100000.0          # symmetric for safety
       type: TruncatedNormal
       unit: "Å²/s"
+      # Most fits give D_offset ≈ 0; tighten to [-1000, 1000] for well-behaved
+      # samples or freeze via fixed_parameters: {"D_offset": 0.0}.
 
 # -----------------------------------------------------------------------------
 # OPTIMIZATION (NLSQ-only)
@@ -223,15 +258,17 @@ optimization:
     x_scale_map: null
 
     progress:
-      enable: true
-      verbose: 1
-      log_interval: 10
+      enable: true                # true = tqdm progress bar; false = silent
+      verbose: 1                  # 0 = silent | 1 = milestones (default) | 2 = per-iter
+      log_interval: 10            # log every N iterations (with verbose >= 2)
 
+    # Diagnostics OFF by default — turn on when investigating "stuck" parameters
+    # or building an x_scale_map (see static_anisotropic template for the recipe).
     diagnostics:
-      enabled: false
-      sample_size: 2048
-      check_gradients: true
-      log_jacobian_norms: false
+      enabled: false              # true = compute diagnostics during fitting
+      sample_size: 2048           # # of points for gradient check. CONSTRAINT: > 0
+      check_gradients: true       # true = numerical-vs-analytic gradient check
+      log_jacobian_norms: false   # true = log per-iteration column-wise J norms
 
     # -----------------------------------------------------------------------
     # ANTI-DEGENERACY — isotropic mode
@@ -285,29 +322,35 @@ optimization:
     # stuck on a bad local minimum (rare for static isotropic).
     # REQUIRES: pip install "nlsq[evosax]"
     cmaes:
-      enable: false
-      preset: "cmaes"
-      max_generations: null
-      sigma: 0.5
-      sigma_warmstart: 0.05
-      warmstart_auto_skip: true
-      warmstart_skip_threshold: 5.0
-      popsize: null
-      tol_fun: 1.0e-8
-      tol_x: 1.0e-8
-      restart_strategy: "bipop"
-      max_restarts: 5
-      memory_limit_gb: 8.0
-      auto_select: true
-      scale_threshold: 1000.0
-      normalize: true
-      normalization_epsilon: 1.0e-12
-      refine_with_nlsq: true
-      refinement_ftol: 1.0e-10
+      enable: false                     # off by default — 3-D isotropic doesn't
+                                        # need CMA-ES. REQUIRES: nlsq[evosax].
+      preset: "cmaes"                   # "cmaes-fast" (50 gen) | "cmaes" (100 gen)
+                                        # | "cmaes-global" (200 gen)
+      max_generations: null             # null = use preset's value; int = override
+      sigma: 0.5                        # initial step (fraction of bound range).
+                                        # CONSTRAINT: (0, 1]
+      sigma_warmstart: 0.05             # reduced sigma when warm-started
+      warmstart_auto_skip: true         # true = skip CMA-ES if warm-start is good
+      warmstart_skip_threshold: 5.0     # skip if warm-start red. χ² < this
+      popsize: null                     # null = adaptive (recommended); int = fixed
+      tol_fun: 1.0e-8                   # function-value tolerance. CONSTRAINT: > 0
+      tol_x: 1.0e-8                     # parameter tolerance. CONSTRAINT: > 0
+      restart_strategy: "bipop"         # "none" | "bipop" (BIPOP-CMA-ES;
+                                        # alternates large/small populations on restart)
+      max_restarts: 5                   # max BIPOP restarts. CONSTRAINT: >= 0
+      memory_limit_gb: 8.0              # memory cap for auto-sizing. CONSTRAINT: > 0
+      auto_select: true                 # true = engage when scale_ratio > scale_threshold
+      scale_threshold: 1000.0           # engagement threshold on scale ratio.
+                                        # CONSTRAINT: > 0
+      normalize: true                   # true = bounds-based [0,1] normalization
+      normalization_epsilon: 1.0e-12    # div-by-zero guard for tiny bound ranges
+      refine_with_nlsq: true            # Phase 2: NLSQ-TRF local polish
+      refinement_ftol: 1.0e-10          # tighter than main NLSQ
       refinement_xtol: 1.0e-10
       refinement_gtol: 1.0e-10
-      refinement_max_nfev: 500
-      refinement_loss: "linear"
+      refinement_max_nfev: 500          # max func-evals for refinement. CONSTRAINT: > 0
+      refinement_loss: "linear"         # "linear" | "soft_l1" | "huber" |
+                                        # "cauchy" | "arctan"
 
     # -----------------------------------------------------------------------
     # MULTI-START — usually unnecessary for isotropic
@@ -317,16 +360,22 @@ optimization:
     # only if you want LHS exploration to confirm uniqueness of the minimum.
     # DISABLE when cmaes.enable=true — they're redundant.
     multi_start:
-      enable: false
-      n_starts: 5                 # fewer starts — minimal param space
-      seed: 42
-      sampling_strategy: "latin_hypercube"
-      n_workers: 0
-      use_screening: true
-      screen_keep_fraction: 0.5
-      refine_top_k: 3
-      refinement_ftol: 1.0e-12
-      degeneracy_threshold: 0.1
+      enable: false                       # off by default. Toggle on for LHS scan;
+                                          # disable when cmaes.enable=true.
+      n_starts: 5                         # # of LHS starts. CONSTRAINT: > 0
+                                          # 3-D isotropic — 5-10 is plenty.
+      seed: 42                            # PRNG seed. CHANGE between runs to
+                                          # confirm result isn't seed-dependent.
+      sampling_strategy: "latin_hypercube"  # "latin_hypercube" (recommended) | "random"
+      n_workers: 0                        # 0 = auto (os.cpu_count())
+                                          # 1 = sequential | >1 = explicit. CONSTRAINT: >= 0
+      use_screening: true                 # true = cheap pre-filter pass before refinement
+      screen_keep_fraction: 0.5           # fraction of screened starts to refine.
+                                          # CONSTRAINT: (0, 1]
+      refine_top_k: 3                     # tightly-refine top K. CONSTRAINT: >= 0
+      refinement_ftol: 1.0e-12            # tighter than main NLSQ. CONSTRAINT: > 0
+      degeneracy_threshold: 0.1           # flag starts within (1+threshold)·χ²_best
+                                          # as degenerate. CONSTRAINT: (0, 1)
 
     # -----------------------------------------------------------------------
     # HYBRID STREAMING — auto-activates for >10M points
@@ -338,22 +387,28 @@ optimization:
     # warm-starts from good initial guesses. Leave the defaults — they
     # have been tuned against real datasets.
     hybrid_streaming:
-      enable: true
-      normalize: true
-      normalization_strategy: "auto"
-      warmup_iterations: 200
-      max_warmup_iterations: 500
-      warmup_learning_rate: 0.001
-      gauss_newton_max_iterations: 100
-      gauss_newton_tol: 1.0e-8
-      chunk_size: 10000
-      trust_region_initial: 1.0
-      regularization_factor: 1.0e-10
-      enable_checkpoints: true
-      checkpoint_frequency: 100
-      validate_numerics: true
-      verbose: 1
-      log_frequency: 1
+      enable: true                           # auto-fires for >10M points
+      normalize: true                        # Phase 0 — ESSENTIAL for mixed scales
+      normalization_strategy: "auto"         # "auto" | "bounds" | "p0" | "none"
+      # ---- Phase 1: L-BFGS warmup ----
+      warmup_iterations: 200                 # warmup iters before switch check. CONSTRAINT: > 0
+      max_warmup_iterations: 500             # force-switch to GN after this. CONSTRAINT: > 0
+      warmup_learning_rate: 0.001            # L-BFGS line search scale. CONSTRAINT: > 0
+      # ---- Phase 2: Gauss-Newton refinement ----
+      gauss_newton_max_iterations: 100       # CONSTRAINT: > 0
+      gauss_newton_tol: 1.0e-8               # CONSTRAINT: > 0
+      # ---- Streaming settings ----
+      chunk_size: 10000                      # points per J^T J chunk. CONSTRAINT: > 0
+                                             # Tune to 1000-50000 based on RAM headroom.
+      trust_region_initial: 1.0              # initial trust-region radius
+      regularization_factor: 1.0e-10         # Tikhonov reg for J^T J inversion.
+                                             # Bump to 1e-8 if "singular matrix" warnings.
+      # ---- Checkpointing ----
+      enable_checkpoints: true               # true = save mid-run checkpoints
+      checkpoint_frequency: 100              # save every N iters
+      validate_numerics: true                # true = NaN/Inf detection per step
+      verbose: 1                             # 0 = silent | 1 = progress | 2 = debug
+      log_frequency: 1                       # log every N iters
 
       # 4-layer warmup defense (NLSQ 0.3.6+) — keep all 4 enabled.
       # L1: skip warmup if loss is already small (well-chosen warm-start)
@@ -370,51 +425,63 @@ optimization:
       enable_step_clipping: true
       max_warmup_step_size: 0.1
 
+    # Post-fit quality checks; emit warnings only, never raise.
     quality_validation:
       enable: true
-      reduced_chi_squared_threshold: 10.0
-      warn_on_max_restarts: true
-      warn_on_bounds_hit: true
-      warn_on_convergence_failure: true
-      bounds_tolerance: 1.0e-9
+      reduced_chi_squared_threshold: 10.0   # warn if χ²_red > 10
+      warn_on_max_restarts: true            # warn if CMA-ES hit max_restarts
+      warn_on_bounds_hit: true              # warn if a param pinned at bounds
+      warn_on_convergence_failure: true     # warn if optimizer didn't converge
+      bounds_tolerance: 1.0e-9              # distance to bound that counts as "at"
 
+  # Streaming checkpoint/resume — auto-engages for >100M points.
   streaming:
-    enable_checkpoints: true
-    checkpoint_dir: "./checkpoints"
-    checkpoint_frequency: 10
-    resume_from_checkpoint: true
-    keep_last_checkpoints: 3
-    enable_fault_tolerance: true
-    max_retries_per_batch: 2
-    min_success_rate: 0.5
-    batch_size: null
-    adaptive_batching: true
+    enable_checkpoints: true                # mid-run checkpoints
+    checkpoint_dir: "./checkpoints"         # MUST be writeable
+    checkpoint_frequency: 10                # save every N BATCHES
+    resume_from_checkpoint: true            # true = auto-resume from latest
+    keep_last_checkpoints: 3                # # of recent checkpoints to retain
+    enable_fault_tolerance: true            # true = retry failed batches
+    max_retries_per_batch: 2                # max retries per batch. CONSTRAINT: >= 0
+    min_success_rate: 0.5                   # overall fit fails if rate < this.
+                                            # CONSTRAINT: [0, 1]
+    batch_size: null                        # null = auto from memory; int = explicit
+    adaptive_batching: true                 # true = dynamically size batches
 
+  # Angle-stratified chunking — fixes per-angle scaling on large datasets.
   stratification:
-    enabled: "auto"
-    target_chunk_size: 100000
-    max_imbalance_ratio: 5.0
-    force_sequential_fallback: false
-    check_memory_safety: true
-    use_index_based: false
-    collect_diagnostics: false
-    log_diagnostics: false
+    enabled: "auto"                         # "auto" (RECOMMENDED) | true | false
+    target_chunk_size: 100000               # target points per chunk. CONSTRAINT: > 0
+    max_imbalance_ratio: 5.0                # fall back to sequential above this.
+                                            # CONSTRAINT: > 0
+    force_sequential_fallback: false        # true = skip stratification entirely
+    check_memory_safety: true               # true = warn if peak > 70% of RAM
+    use_index_based: false                  # true = zero-copy mode (~1% overhead)
+    collect_diagnostics: false              # true = collect timing + balance stats
+    log_diagnostics: false                  # requires collect_diagnostics=true
 
+  # Sequential per-angle solves — fallback when stratification fails.
   sequential:
-    min_success_rate: 0.5
-    weighting: "inverse_variance"
+    min_success_rate: 0.5                   # fit fails if angle success < this
+                                            # CONSTRAINT: [0, 1]
+    weighting: "inverse_variance"           # "inverse_variance" — optimal (default)
+                                            # "uniform"          — equal weights
+                                            # "n_points"         — weight by #points
 
+  # Recovery: retry with progressively conservative settings on failure.
   recovery:
     enable: true
-    max_attempts: 3
-    lr_decay: 0.5
-    lambda_growth: 2.0
-    trust_decay: 0.5
+    max_attempts: 3                         # # of retry attempts. CONSTRAINT: >= 0
+    lr_decay: 0.5                           # halve LR on each retry
+    lambda_growth: 2.0                      # double regularization on each retry
+    trust_decay: 0.5                        # halve trust region on each retry
     log_retries: true
 
+  # Optimizer-layer angle filter — distinct from top-level phi_filtering.
+  # Usually leave off; top-level phi_filtering is the primary filter.
   angle_filtering:
     enabled: false
-    target_angle_ranges: []
+    target_angle_ranges: []                 # list of {min_angle, max_angle} dicts
 
 # -----------------------------------------------------------------------------
 # NOISE ESTIMATION — Bayesian sub-tooling, disabled by default
@@ -424,52 +491,63 @@ noise_estimation:
   model: "global"               # isotropic → "global" is the natural choice
 
 # -----------------------------------------------------------------------------
-# PERFORMANCE
+# PERFORMANCE — CPU-only (v0.1 has no GPU; NLSQ_SKIP_GPU_CHECK=1 is set)
 # -----------------------------------------------------------------------------
 performance:
-  strategy_override: null
-  memory_limit_gb: null
-  enable_progress: true
+  strategy_override: null      # null = auto-select (RECOMMENDED)
+                               # "standard"  — small  (<1M points)
+                               # "large"     — 1M-10M
+                               # "chunked"   — 10M-100M
+                               # "streaming" — >100M
+  memory_limit_gb: null        # null = auto-detect from system
+                               # float = explicit GB cap (e.g. 16.0)
+  enable_progress: true        # true = progress bars everywhere
 
   memory_optimization:
-    enabled: true
-    max_memory_usage_gb: 6.0
-    chunk_size: 8000
-    enable_caching: true
-    cache_strategy: "adaptive"
+    enabled: true              # true = memory-efficient code paths
+    max_memory_usage_gb: 6.0   # soft target. CONSTRAINT: > 0
+    chunk_size: 8000           # default mem-aware chunk size. CONSTRAINT: > 0
+    enable_caching: true       # cache intermediate arrays for re-use
+    cache_strategy: "adaptive" # "adaptive" — adjust by RAM pressure (RECOMMENDED)
+                               # "aggressive" — cache everything (max speed/RAM)
+                               # "conservative" — minimal caching (min RAM)
 
   computation:
-    enable_jit: true
-    cpu_threads: "auto"
-    vectorization_level: "high"
+    enable_jit: true           # true = JAX JIT compile (RECOMMENDED).
+                               # false = interpreter (debugging only)
+    cpu_threads: "auto"        # "auto" = os.cpu_count() | int = explicit
+                               # 1 = deterministic single-threaded
+    vectorization_level: "high"  # "low" | "medium" | "high" (RECOMMENDED)
 
 # -----------------------------------------------------------------------------
 # LOGGING
 # -----------------------------------------------------------------------------
 logging:
-  enabled: true
-  level: "INFO"
+  enabled: true                # true = configure logging; false = Python defaults
+  level: "INFO"                # "DEBUG" | "INFO" | "WARNING" | "ERROR"
+                               # Root logger level (filters everything below)
 
   console:
-    enabled: true
-    level: "INFO"
-    format: "detailed"
-    colors: true
-    show_progress: true
+    enabled: true              # true = log to stderr
+    level: "INFO"              # console-specific level (can be more restrictive)
+    format: "detailed"         # "simple"   — "LEVEL: message"
+                               # "detailed" — "TIMESTAMP NAME LEVEL: message"
+    colors: true               # true = colorize levels (off automatically if no tty)
+    show_progress: true        # true = render tqdm bars in console
 
   file:
-    enabled: false
-    level: "DEBUG"
-    path: "./logs/"
+    enabled: false             # true = also log to rotating file
+    level: "DEBUG"             # file-specific level (DEBUG to capture everything)
+    path: "./logs/"            # log directory (created if missing)
     filename: "xpcsjax_static_isotropic.log"
-    max_size_mb: 10
-    backup_count: 5
+    max_size_mb: 10            # rotate when file exceeds this. CONSTRAINT: > 0
+    backup_count: 5            # # of rotated backups. CONSTRAINT: >= 0
 
-  modules:
+  modules:                     # per-module level overrides
     "xpcsjax.data.phi_filtering": "INFO"
-    "xpcsjax.data.xpcs_loader": "INFO"
-    "xpcsjax.optimization.nlsq": "INFO"
-    "jax._src": "WARNING"
+    "xpcsjax.data.xpcs_loader":   "INFO"
+    "xpcsjax.optimization.nlsq":  "INFO"
+    "jax._src":                   "WARNING"    # suppress JAX internal chatter
 
 # -----------------------------------------------------------------------------
 # QUALITY CONTROL
@@ -488,74 +566,80 @@ quality_control:
     detect_anomalous_angles: true
 
 # -----------------------------------------------------------------------------
-# PLOTTING
+# PLOTTING — visualization output (xpcsjax.viz)
 # -----------------------------------------------------------------------------
 plotting:
-  save_plots: true
-  show_plots: false
-  format: "png"
-  dpi: 300
-  style: "publication"
+  save_plots: true               # true = write plots to output.directory
+  show_plots: false              # true = open interactive windows (off in CI)
+  format: "png"                  # "png" (raster) | "pdf" (vector) | "svg" (editable)
+  dpi: 300                       # 150 draft | 300 publication | 600 print. CONSTRAINT: > 0
+  style: "publication"           # "publication" | "draft"
 
-  preview_mode: false
-  fit_surface: "solver"
+  preview_mode: false            # false = matplotlib (default)
+                                 # true  = datashader (for huge c2 arrays)
+  fit_surface: "solver"          # "solver"  — use optimizer's params (faster)
+                                 # "posthoc" — re-evaluate on fresh grid (more accurate)
 
   color_scale:
-    mode: "legacy"
-    pin_legacy_range: true
-    percentile_min: 1.0
-    percentile_max: 99.0
-    fixed_min: 1.0
-    fixed_max: 1.5
+    mode: "legacy"               # "legacy"   — fixed range (fixed_min/max)
+                                 # "adaptive" — data percentile (percentile_min/max)
+    pin_legacy_range: true       # true = clamp to fixed range across datasets
+    percentile_min: 1.0          # adaptive lower [0, 100]. CONSTRAINT: < max
+    percentile_max: 99.0         # adaptive upper [0, 100]. CONSTRAINT: > min
+    fixed_min: 1.0               # legacy lower (c2 value)
+    fixed_max: 1.5               # legacy upper (c2 value)
 
-  datashader:
-    canvas_width: 1200
-    canvas_height: 1200
+  datashader:                    # only used when preview_mode: true
+    canvas_width: 1200           # pixels. CONSTRAINT: > 0
+    canvas_height: 1200          # pixels. CONSTRAINT: > 0
 
-  matplotlib:
-    interpolation: "bilinear"
-    use_tight_layout: true
-    savefig_kwargs:
+  matplotlib:                    # only used when preview_mode: false
+    interpolation: "bilinear"    # "none" (sharp) | "bilinear" (default) | "bicubic"
+    use_tight_layout: true       # true = tight_layout (RECOMMENDED)
+    savefig_kwargs:              # passed directly to plt.savefig()
       bbox_inches: "tight"
       pad_inches: 0.1
 
-  correlation_function: true
-  fit_quality: true
-  residual_analysis: true
-  angle_coverage: false          # not meaningful for isotropic
-  angle_correlation: false
+  # ---- Plot types to generate ----
+  correlation_function: true     # c2(t1, t2) heatmap (per angle)
+  fit_quality: true              # data-vs-fit overlay + residuals
+  residual_analysis: true        # residual histograms + QQ plots
+  angle_coverage: false          # off — isotropic doesn't depend on coverage
+  angle_correlation: false       # off — isotropic has no angular structure
 
 # -----------------------------------------------------------------------------
-# OUTPUT
+# OUTPUT — where to write results
 # -----------------------------------------------------------------------------
 output:
-  directory: "./results"
-  base_directory: "./xpcsjax_results/"
+  directory: "./results"                # results subdir under base_directory
+  base_directory: "./xpcsjax_results/"  # top-level results directory; created if missing
 
-  formats:
-    hdf5: true
-    json: true
-    csv: true
-    yaml: true
-    npz: true
+  formats:                              # enable multiple as needed
+    hdf5: true                          # .h5  — best for large arrays + metadata
+    json: true                          # .json — human-readable summary
+    csv: true                           # .csv — plain text, spreadsheet-ready
+    yaml: true                          # .yaml — config + result snapshot
+    npz: true                           # .npz — numpy archive for re-loading
 
-  create_subdirs: true
-  timestamp_dirs: false
+  create_subdirs: true                  # true = per-method subdirectories
+  timestamp_dirs: false                 # true = append timestamp to result dirs
 
-  compress_hdf5: true
-  compression_level: 6
-  include_diagnostics: true
+  compress_hdf5: true                   # gzip HDF5 datasets
+  compression_level: 6                  # 0-9 (0 none | 6 balanced | 9 max)
+  include_diagnostics: true             # include diagnostic blocks in output
 
 # -----------------------------------------------------------------------------
-# VALIDATION
+# VALIDATION — pre-run config sanity checks
 # -----------------------------------------------------------------------------
 validation:
-  strict_mode: false
-  check_file_existence: true
-  validate_parameter_ranges: true
-  check_mode_compatibility: true
+  strict_mode: false                  # false = log warnings (RECOMMENDED)
+                                      # true  = raise on first warning (CI-safe)
+  check_file_existence: true          # true = verify files exist before starting
+  validate_parameter_ranges: true     # true = check initial values fall within bounds
+  check_mode_compatibility: true      # true = warn on mode-specific config mismatches
 
   angle_validation:
-    require_multiple_angles: false
-    min_angle_count: 1
-    validate_angle_ranges: false
+    require_multiple_angles: false    # false for isotropic — single angle works
+    min_angle_count: 1                # required when require_multiple_angles=true
+                                      # CONSTRAINT: >= 1
+    validate_angle_ranges: false      # false — isotropic ignores phi structure
