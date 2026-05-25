@@ -16,3 +16,5 @@ implementation surface.
    optimization
    results
    viz
+   cli
+   runtime

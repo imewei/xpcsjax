@@ -16,4 +16,5 @@ chapter scoped to one stage of the pipeline.
    nlsq_fitting
    interpreting_results
    visualization
+   cli
    troubleshooting
