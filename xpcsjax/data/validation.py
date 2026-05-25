@@ -192,8 +192,11 @@ def validate_xpcs_data(
             f"{len(report.warnings)} warnings, quality_score={report.quality_score:.2f}",
         )
 
-    except Exception as e:
-        logger.error(f"Validation failed with exception: {e}")
+    except (ValueError, TypeError, KeyError) as e:
+        # Narrow catch: data-shape/format errors become a graceful report, but
+        # programming errors (AttributeError, AssertionError, ...) propagate
+        # rather than being silently masked as a passing validation.
+        logger.error(f"Validation failed with data error: {e}")
         report.add_issue(
             ValidationIssue(
                 severity="error",
@@ -979,9 +982,18 @@ def _compute_data_hash(data: dict[str, Any]) -> str:
                 # produce stable finite fingerprints for NaN-containing arrays.
                 _first = arr.flat[0] if np.isfinite(arr.flat[0]) else 0.0
                 _last = arr.flat[-1] if np.isfinite(arr.flat[-1]) else 0.0
+                # Content-sensitive checksum over up to 64 evenly-spaced elements.
+                # Without it, two distinct datasets sharing shape + summary stats
+                # (sum/std/first/last) collide to the same cache key, and the second
+                # dataset silently receives the first's cached validation report.
+                n_sample = int(min(arr.size, 64))
+                sample_idx = np.linspace(0, arr.size - 1, n_sample).astype(np.int64)
+                sample = np.nan_to_num(arr.flat[sample_idx].astype(np.float64))
+                sample_checksum = hashlib.sha256(sample.tobytes()).hexdigest()[:16]
                 fingerprint = (
-                    f"{key}:{arr.shape}:{np.nansum(arr):.15g}:"
-                    f"{np.nanstd(arr):.15g}:{float(_first):.15g}:{float(_last):.15g}"
+                    f"{key}:{arr.shape}:{arr.dtype}:{np.nansum(arr):.15g}:"
+                    f"{np.nanstd(arr):.15g}:{float(_first):.15g}:"
+                    f"{float(_last):.15g}:{sample_checksum}"
                 )
                 hash_data.append(fingerprint)
             else:

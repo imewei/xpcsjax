@@ -26,7 +26,7 @@ from xpcsjax.core.jax_backend import (
 from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
-    pass
+    from xpcsjax.config.parameter_registry import AnalysisMode
 
 logger = get_logger(__name__)
 
@@ -35,7 +35,7 @@ class _PhysicsModelProtocol(Protocol):
     """Protocol defining the interface expected by mixins."""
 
     name: str
-    analysis_mode: str
+    analysis_mode: AnalysisMode
     n_params: int
     parameter_names: list[str]
 
@@ -68,7 +68,7 @@ class GradientCapabilityMixin:
     performance warnings.
 
     Requires the class to have:
-    - analysis_mode: str attribute
+    - analysis_mode: AnalysisMode attribute
     """
 
     def get_gradient_function(self) -> Callable:
@@ -183,7 +183,7 @@ class BenchmarkingMixin:
     performance and validating gradient accuracy.
 
     Requires the class to have:
-    - analysis_mode: str attribute
+    - analysis_mode: AnalysisMode attribute
     - get_default_parameters(): method returning jnp.ndarray
     - compute_g2(): method for g2 computation
     - supports_gradients(): method returning bool
@@ -423,7 +423,7 @@ class OptimizationRecommendationMixin:
 
     Requires the class to have:
     - name: str attribute
-    - analysis_mode: str attribute
+    - analysis_mode: AnalysisMode attribute
     - n_params: int attribute
     - parameter_names: list[str] attribute
     - get_parameter_bounds(): method

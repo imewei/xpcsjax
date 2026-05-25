@@ -18,6 +18,7 @@ import jax
 import numpy as np
 from nlsq import LeastSquares
 
+from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
     AntiDegeneracyController,
 )
@@ -160,7 +161,7 @@ def fit_with_stratified_least_squares(
     target_chunk_size: int = 100_000,
     anti_degeneracy_config: dict | None = None,
     nlsq_config_dict: dict | None = None,
-    analysis_mode: str | None = None,
+    analysis_mode: AnalysisMode | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     """Fit using NLSQ's least_squares() with stratified residual function.
 

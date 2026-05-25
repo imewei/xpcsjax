@@ -214,6 +214,16 @@ class AdaptiveRegularizer:
         if not self.config.enable:
             return 0.0
 
+        # Guard against NaN/inf params from a failed solver step: a non-finite
+        # regularization term would be added to the loss and silently mask
+        # divergence (or be reported as a converged-but-NaN result).
+        if not np.all(np.isfinite(params)):
+            logger.warning(
+                "compute_regularization received non-finite params; "
+                "returning 0.0 regularization."
+            )
+            return 0.0
+
         total_reg = 0.0
         self._last_cv_values = {}
 

@@ -18,7 +18,6 @@ import pytest
 from xpcsjax.core.heterodyne_model import HeterodyneModel
 from xpcsjax.core.models import make_model
 
-
 # ---------------------------------------------------------------------------
 # T2: HeterodyneModel.compute_g1 — multi-phi vmap path
 # ---------------------------------------------------------------------------

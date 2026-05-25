@@ -44,6 +44,13 @@ def build_parameter_labels(
     if per_angle_scaling:
         labels.extend([f"contrast[{i}]" for i in range(n_phi)])
         labels.extend([f"offset[{i}]" for i in range(n_phi)])
+    else:
+        # Scalar scaling: contrast + offset are always fit (c2 = contrast*g1^2 +
+        # offset), so the parameter vector includes them even without per-angle
+        # scaling. Emitting them keeps labels aligned with the vector, which
+        # always begins with the scaling pair (see
+        # ParameterManager.get_all_parameter_names).
+        labels.extend(["contrast", "offset"])
     labels.extend(physical_param_names)
     return labels
 
@@ -77,9 +84,9 @@ def classify_parameter_status(
 
     statuses: list[str] = []
     for value, lo, hi in zip(values, lower, upper, strict=False):
-        if np.isclose(value, lo, atol=atol * (1.0 + abs(lo))):
+        if np.isclose(value, lo, atol=atol * (1.0 + abs(lo)), rtol=0.0):
             statuses.append("at_lower_bound")
-        elif np.isclose(value, hi, atol=atol * (1.0 + abs(hi))):
+        elif np.isclose(value, hi, atol=atol * (1.0 + abs(hi)), rtol=0.0):
             statuses.append("at_upper_bound")
         else:
             statuses.append("active")

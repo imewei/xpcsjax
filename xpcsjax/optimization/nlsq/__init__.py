@@ -452,9 +452,16 @@ __all__ = [
 # xpcsjax v0.1 single-entry public wrapper
 # ============================================================================
 from pathlib import Path as _Path  # noqa: E402 - public API section is below the verbatim port
+from typing import TYPE_CHECKING, Any  # noqa: E402
+
+if TYPE_CHECKING:
+    from xpcsjax.config import ConfigManager
 
 
-def fit_nlsq(data, config) -> "OptimizationResult":
+def fit_nlsq(
+    data: dict[str, Any],
+    config: "ConfigManager | str | _Path",
+) -> "OptimizationResult":
     """Single-entry NLSQ fit for both physics models.
 
     Parameters
@@ -507,7 +514,10 @@ def fit_nlsq(data, config) -> "OptimizationResult":
     return fit_nlsq_jax(data, config)
 
 
-def _fit_nlsq_heterodyne(data, config):
+def _fit_nlsq_heterodyne(
+    data: dict[str, Any],
+    config: "ConfigManager | str | _Path",
+) -> "OptimizationResult":
     """Dispatch the heterodyne multi-phi fit through the ported orchestration.
 
     The xpcsjax homodyne loader does not produce a heterodyne-style data dict

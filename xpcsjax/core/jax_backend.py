@@ -88,8 +88,6 @@ from collections import OrderedDict
 from functools import partial, wraps
 from typing import Any, cast
 
-import numpy as np
-
 from xpcsjax.core.physics_utils import (
     PI,
     safe_sinc,
@@ -990,15 +988,16 @@ def compute_g1_total(
     t1, t2 = get_cached_meshgrid(t1, t2)
 
     # Compute physics factors using configuration dt.
-    # P2-R6-03: Warn when dt is not provided — physics factors are dt-dependent.
-    # Fallback 0.001s = APS-U standard XPCS frame rate (1 kHz), but callers
-    # should always supply dt explicitly for reproducible results.
+    # P2-R6-03: dt is REQUIRED — physics factors (sinc prefactor, q^2*dt) are
+    # dt-dependent and there is no safe default frame rate across beamlines.
+    # Raising here (on a Python-level None, before tracing) rather than silently
+    # substituting a value prevents physically wrong fits from passing unnoticed.
     if dt is None:
-        logger.warning(
-            "compute_g1_total: dt not provided; falling back to 0.001 s (1 kHz). "
-            "Pass dt explicitly for correct physics factors."
+        raise ValueError(
+            "compute_g1_total: dt must be provided explicitly (seconds). "
+            "Physics factors are dt-dependent; there is no safe default frame rate."
         )
-    dt_value = dt if dt is not None else 0.001
+    dt_value = dt
     wavevector_q_squared_half_dt = 0.5 * (q**2) * dt_value
     sinc_prefactor = 0.5 / PI * q * L * dt_value
 
@@ -1061,15 +1060,15 @@ def compute_g2_scaled(
         t1, t2 = jnp.meshgrid(t1, t2, indexing="ij")
 
     # Compute physics factors using configuration dt.
-    # P2-R6-03: Warn when dt is not provided — physics factors are dt-dependent.
-    # Fallback 0.001s = APS-U standard XPCS frame rate (1 kHz), but callers
-    # should always supply dt explicitly for reproducible results.
+    # P2-R6-03: dt is REQUIRED — physics factors are dt-dependent and there is no
+    # safe default frame rate. Raise (on a Python-level None, before tracing) rather
+    # than silently substituting a value that yields physically wrong fits.
     if dt is None:
-        logger.warning(
-            "compute_g2_scaled: dt not provided; falling back to 0.001 s (1 kHz). "
-            "Pass dt explicitly for correct physics factors."
+        raise ValueError(
+            "compute_g2_scaled: dt must be provided explicitly (seconds). "
+            "Physics factors are dt-dependent; there is no safe default frame rate."
         )
-    dt_value = dt if dt is not None else 0.001
+    dt_value = dt
     wavevector_q_squared_half_dt = 0.5 * (q**2) * dt_value
     sinc_prefactor = 0.5 / PI * q * L * dt_value
 
@@ -1234,8 +1233,15 @@ def vectorized_g2_computation(
         offset: Baseline offset
         dt: Time step from configuration [seconds]. MUST be provided for correct physics.
     """
-    # Ensure dt is a float
-    dt_value = dt if dt is not None else 0.001
+    # dt is REQUIRED for correct physics factors; there is no safe default frame
+    # rate. Raise on a Python-level None before vmap tracing rather than silently
+    # substituting a value that yields physically wrong batch results.
+    if dt is None:
+        raise ValueError(
+            "dt must be provided explicitly (seconds) for batch g2/chi-squared "
+            "computation; physics factors are dt-dependent."
+        )
+    dt_value = dt
 
     if not JAX_AVAILABLE:
         logger.warning("JAX not available - using slower numpy fallback")
@@ -1280,8 +1286,15 @@ def batch_chi_squared(
         offset: Baseline offset
         dt: Time step from configuration [seconds]. MUST be provided for correct physics.
     """
-    # Ensure dt is a float
-    dt_value = dt if dt is not None else 0.001
+    # dt is REQUIRED for correct physics factors; there is no safe default frame
+    # rate. Raise on a Python-level None before vmap tracing rather than silently
+    # substituting a value that yields physically wrong batch results.
+    if dt is None:
+        raise ValueError(
+            "dt must be provided explicitly (seconds) for batch g2/chi-squared "
+            "computation; physics factors are dt-dependent."
+        )
+    dt_value = dt
 
     if not JAX_AVAILABLE:
         logger.warning("JAX not available - using slower numpy fallback")

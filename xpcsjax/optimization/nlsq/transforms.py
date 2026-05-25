@@ -12,6 +12,8 @@ from typing import Any
 
 import numpy as np
 
+from xpcsjax.config.parameter_registry import AnalysisMode
+
 # Parameter name aliases for backwards compatibility
 PARAMETER_NAME_ALIASES = {
     # Legacy names -> canonical names
@@ -79,7 +81,7 @@ def build_per_parameter_x_scale(
     per_angle_scaling: bool,
     n_angles: int,
     physical_param_names: list[str],
-    analysis_mode: str,
+    analysis_mode: AnalysisMode,
     override_map: dict[str, float],
 ) -> np.ndarray | None:
     """Build per-parameter scale array for optimization.

@@ -26,6 +26,8 @@ from xpcsjax.utils.logging import get_logger
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
+    from xpcsjax.config.parameter_registry import AnalysisMode
+
 logger = get_logger(__name__)
 
 # Optional Datashader backend probe — see xpcsjax/viz/datashader_backend.py.
@@ -598,7 +600,7 @@ def plot_simulated_data(
     phi_deg: float | None = None,
     contrast: float | None = None,
     offset: float | None = None,
-    analysis_mode: str | None = None,
+    analysis_mode: AnalysisMode | None = None,
     save_path: Path | str | None = None,
     figsize: tuple[float, float] = (8, 7),
     *,
@@ -813,7 +815,7 @@ def _save_fit_artifacts(
     convergence_status: str,
     iterations: int,
     execution_time: float,
-    analysis_mode: str,
+    analysis_mode: AnalysisMode,
     output_dir: Path,
     compression: Literal["lzma", "deflate", "none"] = "lzma",
 ) -> None:

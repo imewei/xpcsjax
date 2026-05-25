@@ -55,6 +55,34 @@ def test_memory_fraction_clamped_to_valid_range():
     assert name in {"STANDARD", "OUT_OF_CORE", "HYBRID_STREAMING"}
 
 
+def test_n_params_zero_yields_zero_peak_and_standard():
+    """Audit finding #17: n_params<=0 forces peak_memory_gb to 0.0 (can't estimate
+    a Jacobian) and, with a small index, routes to STANDARD."""
+    decision = select_nlsq_strategy(n_points=10_000, n_params=0)
+    assert decision.peak_memory_gb == 0.0
+    assert _strategy_name(decision) == "STANDARD"
+
+
+def test_out_of_core_isolated_from_hybrid_streaming():
+    """Audit finding #17: exercise the OUT_OF_CORE branch specifically — peak
+    Jacobian exceeds the threshold while the int64 index array stays under it (so
+    HYBRID_STREAMING, which checks the index first, does not fire)."""
+    import psutil
+
+    total_gb = psutil.virtual_memory().total / 1e9
+    threshold_gb = 0.1 * total_gb  # mirrors the clamped fraction floor
+    threshold_points = threshold_gb * 1e9 / 8.0
+    # index ~ 0.5 * threshold (< threshold); peak ~ n_points * 50 * 8 >> threshold.
+    n_points = int(threshold_points / 2)
+
+    decision = select_nlsq_strategy(
+        n_points=n_points, n_params=50, memory_fraction=0.1
+    )
+    assert _strategy_name(decision) == "OUT_OF_CORE", (
+        f"expected OUT_OF_CORE for index<threshold<peak, got {_strategy_name(decision)}"
+    )
+
+
 def test_router_executes_without_exception_for_typical_inputs():
     """Smoke check: the router accepts XPCS-typical sizes without crashing."""
     for n_points, n_params in [

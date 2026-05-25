@@ -28,7 +28,15 @@ from xpcsjax.optimization.nlsq import parameter_utils as pu
 
 
 def test_build_parameter_labels_no_per_angle() -> None:
-    assert pu.build_parameter_labels(False, 3, ["D0", "alpha"]) == ["D0", "alpha"]
+    # Without per-angle scaling the parameter vector still begins with the scalar
+    # contrast + offset pair (c2 = contrast*g1^2 + offset), so the labels must too
+    # — this keeps them aligned with ParameterManager.get_all_parameter_names().
+    assert pu.build_parameter_labels(False, 3, ["D0", "alpha"]) == [
+        "contrast",
+        "offset",
+        "D0",
+        "alpha",
+    ]
 
 
 def test_build_parameter_labels_per_angle() -> None:

@@ -69,6 +69,7 @@ from typing import Any
 
 import numpy as np
 
+from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.optimization.nlsq.adapter_base import NLSQAdapterBase
 from xpcsjax.optimization.nlsq.results import OptimizationResult
 from xpcsjax.utils.logging import get_logger
@@ -111,7 +112,7 @@ class ModelCacheKey:
         per_angle_scaling: Whether per-angle contrast/offset is used
     """
 
-    analysis_mode: str
+    analysis_mode: AnalysisMode
     phi_angles: tuple[float, ...]
     q: float
     per_angle_scaling: bool
@@ -156,7 +157,7 @@ _CACHE_MAX_SIZE: int = 64  # LRU eviction threshold
 # T006: _make_cache_key() helper function
 # =============================================================================
 def _make_cache_key(
-    analysis_mode: str,
+    analysis_mode: AnalysisMode,
     phi_angles: np.ndarray,
     q: float,
     per_angle_scaling: bool,
@@ -299,7 +300,7 @@ def _get_or_create_heterodyne_model(
 # T007: get_or_create_model() function per contracts/model-caching.md
 # =============================================================================
 def get_or_create_model(
-    analysis_mode: str,
+    analysis_mode: AnalysisMode,
     phi_angles: np.ndarray,
     q: float,
     per_angle_scaling: bool = True,
@@ -670,7 +671,7 @@ class NLSQAdapter(NLSQAdapterBase):
         )
 
     @staticmethod
-    def _get_physical_param_names(analysis_mode: str) -> list[str]:
+    def _get_physical_param_names(analysis_mode: AnalysisMode) -> list[str]:
         """Get physical parameter names for a given analysis mode."""
         normalized_mode = analysis_mode.lower()
 
@@ -746,7 +747,7 @@ class NLSQAdapter(NLSQAdapterBase):
         self,
         data: dict[str, Any],
         config: Any,
-        analysis_mode: str,
+        analysis_mode: AnalysisMode,
         per_angle_scaling: bool,
         n_phi: int,
     ) -> tuple[Callable[[np.ndarray, Any], np.ndarray], bool, bool]:
@@ -1062,7 +1063,7 @@ class NLSQAdapter(NLSQAdapterBase):
         config: Any,
         initial_params: np.ndarray | None = None,
         bounds: tuple[np.ndarray, np.ndarray] | None = None,
-        analysis_mode: str = "static_isotropic",
+        analysis_mode: AnalysisMode = AnalysisMode.STATIC_ISOTROPIC,
         per_angle_scaling: bool = True,
         diagnostics_enabled: bool = False,
         shear_transforms: dict[str, Any] | None = None,

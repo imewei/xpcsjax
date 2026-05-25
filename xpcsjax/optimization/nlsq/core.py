@@ -73,6 +73,7 @@ except ImportError:
 # Core homodyne imports
 try:
     from xpcsjax.config.manager import ConfigManager
+    from xpcsjax.config.parameter_registry import AnalysisMode
     from xpcsjax.core.fitting import ParameterSpace
     from xpcsjax.utils.logging import get_logger, log_performance
 
@@ -595,7 +596,7 @@ def fit_nlsq_jax(
 
 def _log_optimization_results(
     result: Any,
-    analysis_mode: str,
+    analysis_mode: AnalysisMode,
     per_angle_scaling: bool,
     logger: Any,
 ) -> None:
@@ -706,7 +707,7 @@ def _normalize_data_to_object(data: Any, config: Any, logger: Any) -> Any:
 
         # Extract scalar q from wavevector_q_list if present
         if hasattr(data_obj, "wavevector_q_list"):
-            q_list = np.asarray(data_obj.wavevector_q_list)
+            q_list = np.atleast_1d(np.asarray(data_obj.wavevector_q_list))
             if q_list.size > 0:
                 data_obj.q = float(q_list[0])
                 logger.debug(f"Extracted q = {data_obj.q:.6f} from wavevector_q_list")
@@ -822,7 +823,10 @@ def _validate_data(data: dict[str, Any]) -> None:
     if missing:
         raise ValueError(f"Missing required data key(s): {missing}")
 
-    if data["c2_exp"].shape[0] == 0:
+    # Accept either key: the missing-key check above allows "c2_exp" OR "g2",
+    # so reading data["c2_exp"] directly would KeyError on g2-format callers.
+    c2 = data.get("c2_exp", data.get("g2"))
+    if c2 is not None and np.asarray(c2).shape[0] == 0:
         raise ValueError("Empty experimental data")
 
 
@@ -872,7 +876,7 @@ def _extract_shear_transform_config(
 
 def _load_initial_params_from_config(
     config: ConfigManager,
-    analysis_mode: str,
+    analysis_mode: AnalysisMode,
     data: dict[str, Any] | None = None,
 ) -> tuple[dict[str, float] | None, dict[str, list[float]] | None]:
     """Load initial parameters from configuration file.
@@ -1066,7 +1070,7 @@ def _estimate_contrast_offset_from_data(
     return contrast_est, offset_est
 
 
-def _get_default_initial_params(analysis_mode: str) -> dict[str, float]:
+def _get_default_initial_params(analysis_mode: AnalysisMode) -> dict[str, float]:
     """Get default initial parameters for analysis mode.
 
     NOTE: This function provides generic physical parameter defaults.
@@ -1098,7 +1102,7 @@ def _get_default_initial_params(analysis_mode: str) -> dict[str, float]:
 
 
 def _get_parameter_bounds(
-    analysis_mode: str,
+    analysis_mode: AnalysisMode,
     param_space: ParameterSpace,
 ) -> dict[str, tuple[float, float]]:
     """Get parameter bounds for analysis mode."""
@@ -1123,7 +1127,7 @@ def _get_parameter_bounds(
     return bounds
 
 
-def _get_param_names(analysis_mode: str) -> list[str]:
+def _get_param_names(analysis_mode: AnalysisMode) -> list[str]:
     """Get parameter names for a given analysis mode.
 
     Parameters
@@ -1152,7 +1156,7 @@ def _get_param_names(analysis_mode: str) -> list[str]:
         ]
 
 
-def _get_physical_param_names(analysis_mode: str) -> list[str]:
+def _get_physical_param_names(analysis_mode: AnalysisMode) -> list[str]:
     """Get physical parameter names for a given analysis mode.
 
     Unlike _get_param_names, this excludes scaling parameters (contrast, offset)
@@ -1182,7 +1186,7 @@ def _get_physical_param_names(analysis_mode: str) -> list[str]:
         ]
 
 
-def _params_to_array(params: dict[str, float], analysis_mode: str) -> jnp.ndarray:
+def _params_to_array(params: dict[str, float], analysis_mode: AnalysisMode) -> jnp.ndarray:
     """Convert parameter dictionary to array."""
     if "static" in analysis_mode.lower():
         return jnp.array(
@@ -1210,7 +1214,7 @@ def _params_to_array(params: dict[str, float], analysis_mode: str) -> jnp.ndarra
         )
 
 
-def _array_to_params(array: jnp.ndarray, analysis_mode: str) -> dict[str, Any]:
+def _array_to_params(array: jnp.ndarray, analysis_mode: AnalysisMode) -> dict[str, Any]:
     """Convert parameter array to dictionary.
 
     Returns JAX arrays as-is to avoid tracing issues.
@@ -1240,7 +1244,7 @@ def _array_to_params(array: jnp.ndarray, analysis_mode: str) -> dict[str, Any]:
 
 def _bounds_to_arrays(
     bounds: dict[str, tuple[float, float]],
-    analysis_mode: str,
+    analysis_mode: AnalysisMode,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Convert bounds dictionary to lower/upper bound arrays."""
     if "static" in analysis_mode.lower():
@@ -1335,7 +1339,7 @@ class _SingleFitWorker:
         self,
         config: Any,  # ConfigManager
         per_angle_scaling: bool,
-        analysis_mode: str,
+        analysis_mode: AnalysisMode,
     ) -> None:
         # Extract picklable data from ConfigManager
         # This avoids pickle issues with loggers, file handles, etc.
@@ -1819,10 +1823,21 @@ def fit_nlsq_cmaes(
         use_averaged_scaling = False
         ad_controller = None
         is_laminar_flow = analysis_mode == "laminar_flow"
+        # L1-L4 (Fourier reparam / hierarchical / regularization / gradient
+        # monitoring) apply to ALL homodyne modes with per-angle scaling; only L5
+        # (shear weighting) stays gated to laminar_flow. The controller's
+        # _LAYER_GATES suppresses L5 internally for non-laminar modes, and the L5
+        # application block below is independently is_laminar_flow-gated, so
+        # constructing the controller for static modes is safe.
+        is_homodyne = analysis_mode in {
+            "static_anisotropic",
+            "static_isotropic",
+            "laminar_flow",
+        }
         fixed_contrast_per_angle = None
         fixed_offset_per_angle = None
 
-        if HAS_ANTI_DEGENERACY and per_angle_scaling and is_laminar_flow:
+        if HAS_ANTI_DEGENERACY and per_angle_scaling and is_homodyne:
             # Load anti-degeneracy config
             anti_degeneracy_config = nlsq_dict.get("anti_degeneracy", {})
 

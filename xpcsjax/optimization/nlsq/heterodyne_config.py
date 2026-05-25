@@ -15,6 +15,7 @@ from typing import Any, Literal
 
 import numpy as np
 
+from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -415,7 +416,7 @@ class NLSQConfig:
 
     use_nlsq_library: bool = True
     n_params: int = 14  # heterodyne: 14 parameters
-    analysis_mode: str = "two_component"
+    analysis_mode: AnalysisMode = "two_component"
 
     # ------------------------------------------------------------------
     # NLSQ package integration (mirrors homodyne wrapper.py)

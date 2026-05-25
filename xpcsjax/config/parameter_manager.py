@@ -10,7 +10,7 @@ from typing import Any, cast
 
 import numpy as np
 
-from xpcsjax.config.parameter_registry import get_registry
+from xpcsjax.config.parameter_registry import AnalysisMode, get_registry
 from xpcsjax.config.types import (
     LAMINAR_FLOW_PARAM_NAMES,
     PARAMETER_NAME_MAPPING,
@@ -77,7 +77,7 @@ class ParameterManager:
     def __init__(
         self,
         config_dict: HomodyneConfig | dict[str, Any] | None = None,
-        analysis_mode: str = "laminar_flow",
+        analysis_mode: AnalysisMode = AnalysisMode.LAMINAR_FLOW,
     ):
         """Initialize ParameterManager."""
         # ``HomodyneConfig`` is a TypedDict, which mypy doesn't auto-collapse

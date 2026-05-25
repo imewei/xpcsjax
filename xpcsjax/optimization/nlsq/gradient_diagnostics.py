@@ -45,6 +45,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -52,7 +53,7 @@ logger = get_logger(__name__)
 
 def _create_residual_function(
     data: Any,
-    analysis_mode: str,
+    analysis_mode: AnalysisMode,
 ) -> tuple[Callable, list[str]]:
     """Create residual function for gradient computation.
 
@@ -121,7 +122,7 @@ def compute_gradient_norms(
     parameters: dict[str, float],
     data: Any,
     config: Any,
-    analysis_mode: str,
+    analysis_mode: AnalysisMode,
 ) -> dict[str, float]:
     """Compute gradient L2 norms for each parameter at the given point.
 
@@ -158,7 +159,7 @@ def compute_optimal_x_scale(
     parameters: dict[str, float],
     data: Any,
     config: Any,
-    analysis_mode: str,
+    analysis_mode: AnalysisMode,
     baseline_params: list[str] | None = None,
     safety_factor: float = 1.0,
     min_scale: float = 1e-8,

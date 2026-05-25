@@ -431,10 +431,17 @@ class PreprocessingPipeline:
             # Calculate final metrics
             provenance.total_duration = time.time() - start_time
 
-            # Pipeline fails if VALIDATE_OUTPUT ran and failed (data integrity gate).
-            # Otherwise succeeds if at least one stage ran, or the pipeline was empty.
-            validate_stage_result = stage_results.get(PreprocessingStage.VALIDATE_OUTPUT)
-            if validate_stage_result is not None and not validate_stage_result:
+            # Pipeline fails if any critical data-integrity stage ran and failed.
+            # Both CORRECT_DIAGONAL and VALIDATE_OUTPUT gate downstream fit validity:
+            # silently continuing past their failure (the default abort_on_error=False
+            # path) would feed uncorrected/invalid data into the optimizer with a
+            # success=True report. Otherwise succeed if any stage ran, or empty pipeline.
+            critical_stages = (
+                PreprocessingStage.CORRECT_DIAGONAL,
+                PreprocessingStage.VALIDATE_OUTPUT,
+            )
+            critical_failed = any(stage_results.get(s) is False for s in critical_stages)
+            if critical_failed:
                 success = False
             else:
                 success = (len(stage_results) == 0) or any(stage_results.values())

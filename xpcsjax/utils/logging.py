@@ -19,7 +19,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
+
+if TYPE_CHECKING:
+    from xpcsjax.config.parameter_registry import AnalysisMode
 
 # Type variables for decorators
 F = TypeVar("F", bound=Callable[..., Any])
@@ -259,7 +262,7 @@ class AnalysisSummaryLogger:
         >>> summary.log_summary(logger)
     """
 
-    def __init__(self, run_id: str, analysis_mode: str) -> None:
+    def __init__(self, run_id: str, analysis_mode: AnalysisMode) -> None:
         """Initialize summary logger for an analysis run.
 
         Args:

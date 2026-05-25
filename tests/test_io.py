@@ -11,7 +11,6 @@ import pytest
 from xpcsjax.io.json_utils import _JSON_ARRAY_SIZE_LIMIT, json_safe, json_serializer
 from xpcsjax.io.nlsq_writers import save_nlsq_json_files, save_nlsq_npz_file
 
-
 # ---------------------------------------------------------------------------
 # json_safe
 # ---------------------------------------------------------------------------

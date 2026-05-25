@@ -17,12 +17,20 @@ Each constraint is defined with:
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
 
 # Severity levels for constraint violations
-class ConstraintSeverity:
-    """Severity levels for physics constraint violations."""
+class ConstraintSeverity(StrEnum):
+    """Severity levels for physics constraint violations.
+
+    StrEnum (a str subclass): members compare equal to their string values, so
+    existing ``== "error"`` checks and f-string formatting are unchanged, while
+    static checkers now treat the set as closed. Mirrors the heterodyne
+    ConstraintSeverity in heterodyne_physics_validators.py (previously this homodyne
+    copy was a plain class with bare string constants).
+    """
 
     ERROR = "error"  # Physically impossible
     WARNING = "warning"  # Unusual but possible
@@ -36,7 +44,7 @@ class PhysicsViolation:
     param: str
     value: float
     message: str
-    severity: str
+    severity: ConstraintSeverity
 
     def format(self) -> str:
         """Format violation as string."""
@@ -49,7 +57,7 @@ class ConstraintRule:
 
     condition: Callable[[float], bool]  # Returns True if violated
     message: str
-    severity: str
+    severity: ConstraintSeverity
 
 
 # Physics constraints registry: param_name -> list of rules
@@ -160,7 +168,7 @@ SEVERITY_PRIORITY = {
 def validate_single_parameter(
     param: str,
     value: float,
-    min_severity: str = ConstraintSeverity.WARNING,
+    min_severity: ConstraintSeverity = ConstraintSeverity.WARNING,
 ) -> list[PhysicsViolation]:
     """Validate a single parameter against physics constraints.
 
@@ -199,7 +207,7 @@ def validate_single_parameter(
 
 def validate_cross_parameter_constraints(
     params: dict[str, float],
-    min_severity: str = ConstraintSeverity.WARNING,
+    min_severity: ConstraintSeverity = ConstraintSeverity.WARNING,
 ) -> list[PhysicsViolation]:
     """Validate cross-parameter physics constraints.
 
@@ -233,7 +241,7 @@ def validate_cross_parameter_constraints(
 
 def validate_all_parameters(
     params: dict[str, float],
-    min_severity: str = ConstraintSeverity.WARNING,
+    min_severity: ConstraintSeverity = ConstraintSeverity.WARNING,
 ) -> list[PhysicsViolation]:
     """Validate all parameters against physics constraints.
 

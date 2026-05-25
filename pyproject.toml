@@ -151,6 +151,15 @@ select = ["E", "F", "W", "I", "B", "UP", "N"]
 #   snake_case here would degrade readability against the physics literature.
 ignore = ["E501", "N806", "N803"]
 
+[tool.ruff.lint.per-file-ignores]
+# These modules intentionally execute code before their module-level imports:
+# the package __init__ sets JAX env vars (JAX_ENABLE_X64, XLA_FLAGS) before any
+# JAX import, and the viz module probes optional deps before importing them. So
+# E402 (and the import-sort reorganization I001 would force) is expected here,
+# not a defect — fixing it would break the required ordering.
+"xpcsjax/__init__.py" = ["E402", "I001"]
+"xpcsjax/viz/nlsq_plots.py" = ["E402", "I001"]
+
 [tool.bandit]
 # Mirrors homodyne and heterodyne. Skips rationale:
 #   B101 — asserts are used for invariants in physics / NLSQ hot paths

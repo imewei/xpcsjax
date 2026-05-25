@@ -20,6 +20,7 @@ from typing import Any
 
 import numpy as np
 
+from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.utils.logging import get_logger, log_performance
 
 # Import with fallback handling
@@ -49,7 +50,7 @@ class TheoryEngine:
     computation orchestration for homodyne scattering analysis.
     """
 
-    def __init__(self, analysis_mode: str = "laminar_flow"):
+    def __init__(self, analysis_mode: AnalysisMode = AnalysisMode.LAMINAR_FLOW):
         """Initialize theory engine with specified analysis mode.
 
         Args:
@@ -488,7 +489,7 @@ def compute_g2_theory(
     L: float,
     contrast: float,
     offset: float,
-    analysis_mode: str = "laminar_flow",
+    analysis_mode: AnalysisMode = AnalysisMode.LAMINAR_FLOW,
     dt: float | None = None,
 ) -> Any:
     """Direct computation of g2 theory. Convenience wrapper for one-off calculations.
@@ -525,7 +526,7 @@ def compute_chi2_theory(
     L: float,
     contrast: float,
     offset: float,
-    analysis_mode: str = "laminar_flow",
+    analysis_mode: AnalysisMode = AnalysisMode.LAMINAR_FLOW,
 ) -> float:
     """Direct computation of chi-squared with minimal overhead.
 

@@ -278,14 +278,16 @@ def build_parameter_labels(
     Returns:
         List of parameter labels
     """
-    labels: list[str] = []
-    if per_angle_scaling:
-        labels.extend([f"contrast[{i}]" for i in range(n_phi)])
-        labels.extend([f"offset[{i}]" for i in range(n_phi)])
-    else:
-        labels.extend(["contrast", "offset"])
-    labels.extend(physical_param_names)
-    return labels
+    # Delegate to the single canonical implementation in parameter_utils. The two
+    # copies previously diverged on the non-per-angle case (this one emitted
+    # contrast/offset; parameter_utils omitted them), silently mislabeling
+    # diagnostics depending on which copy a caller reached. Lazy import avoids a
+    # module-load cycle.
+    from xpcsjax.optimization.nlsq.parameter_utils import (
+        build_parameter_labels as _canonical,
+    )
+
+    return _canonical(per_angle_scaling, n_phi, physical_param_names)
 
 
 def classify_parameter_status(
@@ -310,9 +312,9 @@ def classify_parameter_status(
 
     statuses: list[str] = []
     for value, lo, hi in zip(values, lower, upper, strict=False):
-        if np.isclose(value, lo, atol=atol * (1.0 + abs(lo))):
+        if np.isclose(value, lo, atol=atol * (1.0 + abs(lo)), rtol=0.0):
             statuses.append("at_lower_bound")
-        elif np.isclose(value, hi, atol=atol * (1.0 + abs(hi))):
+        elif np.isclose(value, hi, atol=atol * (1.0 + abs(hi)), rtol=0.0):
             statuses.append("at_upper_bound")
         else:
             statuses.append("active")

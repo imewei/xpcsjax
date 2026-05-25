@@ -461,7 +461,9 @@ def diagnose_error(
             "Verify NLSQ package installation",
             "Consult error message for details",
         ]
-        perturbation = np.random.randn(*params.shape) * 0.05
+        perturbation = (
+            np.random.default_rng(seed=99 + attempt).standard_normal(params.shape) * 0.05
+        )
         new_params = params * (1.0 + perturbation)
         if bounds is not None:
             new_params = np.clip(new_params, bounds[0], bounds[1])

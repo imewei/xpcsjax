@@ -20,7 +20,8 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from xpcsjax.utils.logging import get_logger
 
@@ -30,7 +31,20 @@ if TYPE_CHECKING:
 # T055: Module-level logger for parameter registry
 logger = get_logger(__name__)
 
-AnalysisMode = Literal["static_anisotropic", "static_isotropic", "laminar_flow", "two_component"]
+
+class AnalysisMode(StrEnum):
+    """Canonical XPCS analysis modes.
+
+    ``StrEnum`` (a ``str`` subclass): each member compares equal to and hashes
+    identically to its string value, so existing string comparisons, dict
+    lookups (e.g. ``_MODE_PARAMS``), and YAML/JSON round-trips keep working
+    unchanged — while static checkers now treat the set of modes as closed.
+    """
+
+    STATIC_ANISOTROPIC = "static_anisotropic"
+    STATIC_ISOTROPIC = "static_isotropic"
+    LAMINAR_FLOW = "laminar_flow"
+    TWO_COMPONENT = "two_component"
 
 
 @dataclass(frozen=True)

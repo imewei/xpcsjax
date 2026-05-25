@@ -522,7 +522,11 @@ def fit_with_stratified_hybrid_streaming(
     n_phi = len(set(all_phi_early))
     phi_unique = np.array(sorted(set(all_phi_early)))  # For shear weighting
 
-    # Auto-compute group_variance_indices for laminar_flow with per-angle scaling
+    # is_laminar_flow (shear present) gates ONLY Layer 5 (shear weighting) and the
+    # shear-specific bounds/popt handling below. Layers 1-4 (Fourier reparam,
+    # hierarchical, adaptive regularization, gradient monitoring) gate on
+    # per_angle_scaling alone so they fire for ALL analysis modes, not just
+    # laminar_flow.
     is_laminar_flow = "gamma_dot_t0" in physical_param_names
 
     # =====================================================================
@@ -615,7 +619,7 @@ def fit_with_stratified_hybrid_streaming(
 
     # Initialize Fourier reparameterizer if using fourier mode
     fourier_reparameterizer = None
-    if per_angle_mode_actual == "fourier" and per_angle_scaling and is_laminar_flow:
+    if per_angle_mode_actual == "fourier" and per_angle_scaling:
         # Get unique phi angles in radians
         phi_unique_rad = np.deg2rad(np.array(sorted(set(all_phi_early))))
 
@@ -654,11 +658,7 @@ def fit_with_stratified_hybrid_streaming(
             f"  Parameter reduction: {2 * n_phi} -> {fourier_reparameterizer.n_coeffs}"
         )
         logger.info("=" * 60)
-    elif (
-        per_angle_mode_actual == "fixed_constant"
-        and per_angle_scaling
-        and is_laminar_flow
-    ):
+    elif per_angle_mode_actual == "fixed_constant" and per_angle_scaling:
         # fixed_constant mode: per-angle scaling is FIXED, not optimized
         logger.info("=" * 60)
         logger.info("ANTI-DEGENERACY DEFENSE: Layer 1 - Fixed Constant Mode (v2.18.0)")
@@ -671,11 +671,7 @@ def fit_with_stratified_hybrid_streaming(
         logger.info("  These values are FIXED (not optimized) during fitting")
         logger.info(f"  Parameter reduction: {2 * n_phi} -> 0 (physical only)")
         logger.info("=" * 60)
-    elif (
-        per_angle_mode_actual == "auto_averaged"
-        and per_angle_scaling
-        and is_laminar_flow
-    ):
+    elif per_angle_mode_actual == "auto_averaged" and per_angle_scaling:
         # auto_averaged mode: averaged scaling is OPTIMIZED (9 params)
         logger.info("=" * 60)
         logger.info("ANTI-DEGENERACY DEFENSE: Layer 1 - Auto Averaged Mode (v2.18.0)")
@@ -703,7 +699,7 @@ def fit_with_stratified_hybrid_streaming(
     averaged_contrast_init: float | None = None
     averaged_offset_init: float | None = None
 
-    if use_constant and per_angle_scaling and is_laminar_flow:
+    if use_constant and per_angle_scaling:
         logger.info("Computing quantile-based per-angle scaling estimates...")
         try:
             # Extract bounds for clipping
@@ -822,12 +818,7 @@ def fit_with_stratified_hybrid_streaming(
     # - Constant mode already prevents per-angle absorption (2 DoF vs 46)
     # - HierarchicalOptimizer expects n_per_angle = 2*n_phi or n_coeffs (Fourier)
     # - Using hierarchical with constant mode causes index mismatch error
-    if (
-        enable_hierarchical
-        and per_angle_scaling
-        and is_laminar_flow
-        and not use_constant
-    ):
+    if enable_hierarchical and per_angle_scaling and not use_constant:
         # n_physical defined unconditionally above
         hier_config = HierarchicalConfig(
             enable=True,
@@ -856,7 +847,7 @@ def fit_with_stratified_hybrid_streaming(
                 "  Shear weighting: WILL BE APPLIED via hierarchical loss function"
             )
         logger.info("=" * 60)
-    elif use_constant and enable_hierarchical and per_angle_scaling and is_laminar_flow:
+    elif use_constant and enable_hierarchical and per_angle_scaling:
         # Log that hierarchical is skipped due to constant scaling mode
         logger.info("=" * 60)
         logger.info("ANTI-DEGENERACY DEFENSE: Layer 2 - Hierarchical Optimization")
@@ -877,7 +868,7 @@ def fit_with_stratified_hybrid_streaming(
     max_cv = float(regularization_config.get("max_cv", 0.20))
 
     adaptive_regularizer = None
-    if per_angle_scaling and is_laminar_flow:
+    if per_angle_scaling:
         # Compute mode-aware group indices
         # Group indices depend on per-angle mode: fixed_constant, auto_averaged, fourier, or individual
         if use_fixed_scaling:
@@ -943,7 +934,7 @@ def fit_with_stratified_hybrid_streaming(
     # Layer 4: Gradient Collapse Monitor Configuration
     gradient_monitor_enabled = gradient_monitoring_config.get("enable", True)
     gradient_monitor = None
-    if gradient_monitor_enabled and per_angle_scaling and is_laminar_flow:
+    if gradient_monitor_enabled and per_angle_scaling:
         # Compute mode-aware parameter count
         # n_per_angle depends on per-angle mode: fixed_constant, auto_averaged, fourier, or individual
         if use_fixed_scaling:

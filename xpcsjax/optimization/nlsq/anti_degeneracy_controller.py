@@ -31,6 +31,7 @@ from typing import Any, Literal, cast
 
 import numpy as np
 
+from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.optimization.nlsq.adaptive_regularization import (
     AdaptiveRegularizationConfig,
     AdaptiveRegularizer,
@@ -260,7 +261,7 @@ class AntiDegeneracyController:
     # None = backward-compatible "all layers active" behavior used by the
     # homodyne characterization gate at rtol=1e-10. When set (e.g. by
     # HeterodyneModel passing "two_component"), Layer 5 is short-circuited.
-    analysis_mode: str | None = None
+    analysis_mode: AnalysisMode | None = None
     # Fixed per-angle quantile estimates for constant mode (v2.17.0+)
     _fixed_contrast_per_angle: np.ndarray | None = field(default=None, repr=False)
     _fixed_offset_per_angle: np.ndarray | None = field(default=None, repr=False)
@@ -275,7 +276,7 @@ class AntiDegeneracyController:
         n_physical: int,
         per_angle_scaling: bool = True,
         is_laminar_flow: bool = True,
-        analysis_mode: str | None = None,
+        analysis_mode: AnalysisMode | None = None,
     ) -> AntiDegeneracyController:
         """Create controller from configuration dictionary.
 

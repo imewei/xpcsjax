@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 
 from xpcsjax.config.parameter_manager import ParameterManager
+from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.config.types import PARAMETER_NAME_MAPPING
 from xpcsjax.utils.logging import get_logger
 
@@ -63,7 +64,7 @@ class ParameterSpace:
     def from_config(
         cls,
         config_dict: dict[str, Any],
-        analysis_mode: str | None = None,
+        analysis_mode: AnalysisMode | None = None,
     ) -> "ParameterSpace":
         """Load ParameterSpace from configuration dictionary.
 
@@ -217,7 +218,7 @@ class ParameterSpace:
     @classmethod
     def from_defaults(
         cls,
-        analysis_mode: str = "laminar_flow",
+        analysis_mode: AnalysisMode = AnalysisMode.LAMINAR_FLOW,
     ) -> "ParameterSpace":
         """Create ParameterSpace with package defaults (no config file).
 

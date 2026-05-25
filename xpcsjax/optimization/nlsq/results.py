@@ -10,12 +10,18 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
 if TYPE_CHECKING:
     from xpcsjax.optimization.nlsq.strategies.chunking import StratificationDiagnostics
+
+# Closed sets for optimization status fields. Kept as Literals so existing string
+# comparisons (e.g. ``convergence_status == "converged"``) keep working at runtime
+# while static checkers gain exhaustiveness over the allowed values.
+ConvergenceStatus = Literal["converged", "max_iter", "failed", "partial"]
+QualityFlag = Literal["good", "marginal", "poor", "unknown"]
 
 
 @dataclass
@@ -75,12 +81,12 @@ class OptimizationResult:
     covariance: np.ndarray
     chi_squared: float
     reduced_chi_squared: float
-    convergence_status: str
+    convergence_status: ConvergenceStatus
     iterations: int
     execution_time: float
     device_info: dict[str, Any]
     recovery_actions: list[str] = field(default_factory=list)
-    quality_flag: str = "good"
+    quality_flag: QualityFlag = "good"
     streaming_diagnostics: dict[str, Any] | None = None
     stratification_diagnostics: StratificationDiagnostics | None = None
     nlsq_diagnostics: dict[str, Any] | None = None

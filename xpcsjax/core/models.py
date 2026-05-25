@@ -45,6 +45,7 @@ from typing import Any
 
 import numpy as np
 
+from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.core.jax_backend import (
     compute_chi_squared,
     compute_g1_diffusion,
@@ -285,7 +286,7 @@ class CombinedModel(
     - OptimizationRecommendationMixin: optimization guidance and model info
     """
 
-    def __init__(self, analysis_mode: str = "laminar_flow"):
+    def __init__(self, analysis_mode: AnalysisMode = AnalysisMode.LAMINAR_FLOW):
         """Initialize combined model.
 
         Args:
@@ -576,7 +577,7 @@ class CombinedModel(
 
 
 # Factory functions for easy model creation
-def create_model(analysis_mode: str) -> CombinedModel:
+def create_model(analysis_mode: AnalysisMode) -> CombinedModel:
     """Factory function to create appropriate model for analysis mode.
 
     Args:

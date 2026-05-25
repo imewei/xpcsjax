@@ -14,6 +14,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.core.jax_backend import compute_g2_scaled
 from xpcsjax.utils.logging import get_logger
 
@@ -226,7 +227,7 @@ def normalize_analysis_mode(
     return "static_anisotropic"
 
 
-def get_physical_param_count(analysis_mode: str) -> int:
+def get_physical_param_count(analysis_mode: AnalysisMode) -> int:
     """Get number of physical parameters for analysis mode.
 
     Args:
@@ -252,7 +253,7 @@ def get_physical_param_count(analysis_mode: str) -> int:
 def extract_parameters_from_result(
     parameters: np.ndarray,
     n_angles: int,
-    analysis_mode: str,
+    analysis_mode: AnalysisMode,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, bool]:
     """Extract contrast, offset, and physical parameters from result.
 
@@ -309,7 +310,7 @@ def compute_theoretical_fits(
     data: dict[str, Any],
     metadata: dict[str, Any],
     *,
-    analysis_mode: str | None = None,
+    analysis_mode: AnalysisMode | None = None,
     include_solver_surface: bool = True,
 ) -> dict[str, Any]:
     """Compute theoretical fits with per-angle least squares scaling.

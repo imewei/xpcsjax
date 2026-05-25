@@ -101,6 +101,7 @@ import logging
 
 from xpcsjax.utils.logging import get_logger
 
+from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.optimization.batch_statistics import BatchStatistics
 from xpcsjax.optimization.nlsq.adapter_base import NLSQAdapterBase
 from xpcsjax.optimization.nlsq.results import (
@@ -468,7 +469,7 @@ class NLSQWrapper(NLSQAdapterBase):
         self.best_batch_idx = -1
 
     @staticmethod
-    def _get_physical_param_names(analysis_mode: str) -> list[str]:
+    def _get_physical_param_names(analysis_mode: AnalysisMode) -> list[str]:
         """Get physical parameter names for a given analysis mode.
 
         Args:
@@ -542,7 +543,7 @@ class NLSQWrapper(NLSQAdapterBase):
         config: Any,
         initial_params: np.ndarray | None = None,
         bounds: tuple[np.ndarray, np.ndarray] | None = None,
-        analysis_mode: str = "static_isotropic",
+        analysis_mode: AnalysisMode = AnalysisMode.STATIC_ISOTROPIC,
         per_angle_scaling: bool = True,  # REQUIRED: per-angle is physically correct
         diagnostics_enabled: bool = False,
         shear_transforms: dict[str, Any] | None = None,
@@ -2430,7 +2431,7 @@ class NLSQWrapper(NLSQAdapterBase):
         config: Any,
         initial_params: np.ndarray | None,
         bounds: tuple[np.ndarray, np.ndarray] | None,
-        analysis_mode: str,
+        analysis_mode: AnalysisMode,
         per_angle_scaling: bool,
         logger: Any,
         start_time: float,
@@ -3080,7 +3081,7 @@ class NLSQWrapper(NLSQAdapterBase):
         return (lower, upper)
 
     def _create_residual_function(
-        self, data: Any, analysis_mode: str, per_angle_scaling: bool = True
+        self, data: Any, analysis_mode: AnalysisMode, per_angle_scaling: bool = True
     ) -> Any:
         """Create JAX-compatible model function for NLSQ with per-angle scaling support.
 
@@ -3376,7 +3377,7 @@ class NLSQWrapper(NLSQAdapterBase):
         target_chunk_size: int = 100_000,
         anti_degeneracy_config: dict | None = None,
         nlsq_config_dict: dict | None = None,
-        analysis_mode: str | None = None,
+        analysis_mode: AnalysisMode | None = None,
     ) -> tuple[np.ndarray, np.ndarray, dict]:
         """Fit using NLSQ's least_squares() with stratified residual function."""
         return fit_with_stratified_least_squares(

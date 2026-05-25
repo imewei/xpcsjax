@@ -2102,7 +2102,14 @@ def _fit_cmaes(
                 offset_val,
             )
             cmaes_cost = 0.5 * float(jnp.sum(_off_diag_res**2))
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Phase 3: CMA-ES cost computation failed (%s); treating as inf so "
+                "the NLSQ result wins by default. Inspect the off-diagonal residual "
+                "block if this recurs.",
+                exc,
+                exc_info=True,
+            )
             cmaes_cost = float("inf")
     else:
         cmaes_cost = float("inf")

@@ -26,6 +26,7 @@ from typing import Any, TypeVar
 
 import numpy as np
 
+from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.utils.logging import get_logger, log_performance
 
 # Type variable for generic functions
@@ -102,7 +103,7 @@ class ParameterSpace:
     # Optional configuration manager for bound override
     config_manager: Any | None = None
 
-    def get_param_bounds(self, analysis_mode: str) -> list[tuple[float, float]]:
+    def get_param_bounds(self, analysis_mode: AnalysisMode) -> list[tuple[float, float]]:
         """Get parameter bounds based on analysis mode with configuration override support.
 
         Uses ParameterManager for consistent parameter handling and name mapping.
@@ -387,7 +388,7 @@ class UnifiedHomodyneEngine:
 
     def __init__(
         self,
-        analysis_mode: str = "laminar_flow",
+        analysis_mode: AnalysisMode = AnalysisMode.LAMINAR_FLOW,
         parameter_space: ParameterSpace | None = None,
     ):
         """Initialize unified homodyne engine.
@@ -510,6 +511,13 @@ class UnifiedHomodyneEngine:
             Negative log-likelihood value (not chi-squared)
         """
         try:
+            # Guard against sigma <= 0, which yields -inf/NaN in the NLL
+            # (log(sigma**2)) and division below. Clamp to a small positive floor.
+            if JAX_AVAILABLE:
+                sigma = jnp.maximum(sigma, 1e-10)
+            else:
+                sigma = np.maximum(sigma, 1e-10)
+
             # Compute theoretical g1
             g1_theory = self.theory_engine.compute_g1(params, t1, t2, phi, q, L, dt=dt)
             g1_squared = g1_theory**2
