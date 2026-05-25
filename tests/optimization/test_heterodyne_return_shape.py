@@ -660,7 +660,7 @@ def test_no_list_indexed_consumers_remain() -> None:
                 matches.append(f"{path.relative_to(src_dir.parent)}:{line_num}: {line.strip()}")
 
     assert not matches, (
-        f"found direct list-indexed consumers of fit_nlsq_multi_phi:\n"
+        "found direct list-indexed consumers of fit_nlsq_multi_phi:\n"
         + "\n".join(matches)
     )
 
