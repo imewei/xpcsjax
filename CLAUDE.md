@@ -38,6 +38,11 @@ _LAZY_EXPORTS = {
 
 Adding a new public symbol means: (a) add it to `_LAZY_EXPORTS`, (b) add to literal `__all__`, (c) ensure the target submodule actually exposes the symbol (the runtime `assert` will catch (a)/(b) drift but not (c)). Pyright's `reportUnsupportedDunderAll` requires `__all__` to be a literal list, so don't generate it from `_LAZY_EXPORTS`.
 
+`xpcsjax.viz` is a separate lazy-loaded subpackage (not in the top-level `_LAZY_EXPORTS`). Import directly:
+`from xpcsjax.viz import plot_nlsq_fit, plot_residual_map, plot_simulated_data, generate_nlsq_plots, compute_diagonal_overlay_stats, DiagonalOverlayResult`
+
+`xpcsjax/config/parameter_registry.py` is the single source of truth for parameter names, bounds, and physical constraints across all modes. When adding a new physics parameter, register it there first — `ConfigManager` and the NLSQ bounds builder both read from the registry.
+
 ### `xpcsjax/__init__.py` sets JAX environment **before any JAX import**
 
 The module top sets:
@@ -55,6 +60,33 @@ The split with the upstream NLSQ library (`nlsq>=0.6.10`) is:
 - **xpcsjax owns:** memory-aware strategy routing (`select_nlsq_strategy`), the 5-layer anti-degeneracy controller (`anti_degeneracy_controller.py`), CMA-ES escape (auto-triggered above a threshold), LHS multistart, bounds + parameter transforms, angle-stratified chunking for large datasets, and shear-weighting.
 
 When working inside `xpcsjax/optimization/nlsq/`, the convention is: call NLSQ's `CurveFit` directly, never NLSQ's higher-level `fit()` unified API or its `MemoryBudgetSelector`. xpcsjax routes memory itself.
+
+The 5 anti-degeneracy layers, in order:
+
+| Layer | Name | Module | Active modes |
+|-------|------|--------|-------------|
+| L1 | Fourier/Constant Reparameterization | `fourier_reparam.py` | all |
+| L2 | Hierarchical Optimization | `hierarchical.py` | all |
+| L3 | Adaptive CV-based Regularization | `adaptive_regularization.py` | all |
+| L4 | Gradient Collapse Monitoring | `gradient_monitor.py` | all |
+| L5 | Shear-Sensitivity Weighting | `shear_weighting.py` | `static_anisotropic`, `static_isotropic`, `laminar_flow` |
+
+Layer gating is declared in `_LAYER_GATES` at the top of `anti_degeneracy_controller.py`. Layers absent from that dict are default-active for all modes; only L5 is gated. `two_component` (heterodyne) has no shear rate in its kernel, so L5 short-circuits automatically.
+
+### Analysis modes and config templates
+
+xpcsjax ships four mode-specific YAML templates under `xpcsjax/config/templates/`:
+
+| Mode | Template file |
+|------|--------------|
+| `static_anisotropic` | `xpcsjax_static_anisotropic.yaml` |
+| `static_isotropic` | `xpcsjax_static_isotropic.yaml` |
+| `laminar_flow` | `xpcsjax_laminar_flow.yaml` |
+| `two_component` | `xpcsjax_two_component.yaml` |
+
+`ConfigManager` validates mode at construction; passing an unknown mode raises immediately.
+
+**`data_type` valid values:** `"aps_old"` (legacy APS format) or `"aps_u"` (unified APS format). No other strings are accepted.
 
 ### Homodyne is both a port source and a parity oracle
 

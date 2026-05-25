@@ -63,13 +63,21 @@ For heterodyne (`two_component`) fits, `fit_nlsq` returns a `list[NLSQResult]`
 - **Multi-angle heterodyne** — full parity with source heterodyne's
   `fit_nlsq_multi_phi`: joint Fourier / independent / constant-averaged scaling
   modes, plus CMA-ES multi-angle path.
+- **Visualization** (`xpcsjax.viz`) — fit-comparison, residual-map, and
+  simulated-data plots with an optional Datashader fast path and parallel
+  multi-process rendering (`pip install 'xpcsjax[viz-fast]'`).
+- **Command-line interface** — console scripts `xpcsjax`/`xj` (flag-driven
+  fits and standalone QC/simulation plots), `xpcsjax-config` (template
+  generation/validation), `xpcsjax-validate`, plus `xjexp`/`xjsim` plotting
+  shortcuts and `xpcsjax-post-install`/`xpcsjax-cleanup` for shell completion
+  and XLA activation. See the
+  [CLI guide](docs/source/user_guide/cli.rst).
 
 ---
 
 ## What's coming in v0.2+
 
-- Visualization (matplotlib + pyqtgraph + datashader).
-- CLI (`xpcsjax fit ...`, `xpcsjax plot ...`, `xpcsjax convert ...`).
+- GPU/TPU support (v0.1 sets `NLSQ_SKIP_GPU_CHECK=1` and runs CPU-only).
 - PyQt6 desktop UI.
 - Unification of the two `HeterodyneModel` classes (Task 27 wrapper vs Task 30
   stateful — see [MIGRATION.md](docs/MIGRATION.md)).

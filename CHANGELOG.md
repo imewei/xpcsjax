@@ -11,6 +11,31 @@ the rendered documentation.
 
 ## [Unreleased]
 
+### Added
+
+- **Command-line interface** (`xpcsjax/cli/`). Console scripts registered in
+  `pyproject.toml`, each with an `xj` short alias:
+    - `xpcsjax` / `xj` — single flat flag-driven command for NLSQ fits;
+      `--plot-experimental-data` / `--plot-simulated-data` switch to a
+      standalone-plot path that skips optimisation.
+    - `xpcsjax-config` / `xj-config` — generate, `--show-template`,
+      `--validate`, or `--interactive`ly build a YAML config from the four
+      mode templates.
+    - `xpcsjax-config-xla` / `xj-config-xla` — inspect/print the CPU
+      `XLA_FLAGS`.
+    - `xpcsjax-validate` / `xj-validate` — validate the installation.
+    - `xpcsjax-post-install` / `xpcsjax-cleanup` (+ `xj-` aliases) — install
+      and remove shell completion + XLA activation scripts.
+    - `xjexp` / `xjsim` — plotting shortcuts (experimental QC / simulated C₂),
+      mirroring upstream heterodyne's `hexp` / `hsim`.
+- **Runtime utilities** (`xpcsjax/runtime/`). System validator
+  (`xpcsjax.runtime.utils.system_validator`) checking environment, dependency
+  versions, JAX/float64 config, and template / public-API integrity
+  (NLSQ-only — no Bayesian/MCMC probes), plus the bash/zsh/fish completion and
+  XLA activation shell assets under `xpcsjax.runtime.shell`.
+- Documentation: `docs/source/user_guide/cli.rst`, `docs/source/api/cli.rst`,
+  and `docs/source/api/runtime.rst`.
+
 ### Changed
 
 - **Breaking — `analysis_mode` taxonomy.** The bare value

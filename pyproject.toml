@@ -54,12 +54,34 @@ viz-fast = [
     "colorcet>=3.1",
 ]
 
+[project.scripts]
+# Full names
+xpcsjax = "xpcsjax.cli.main:main"
+xpcsjax-config = "xpcsjax.cli.config_generator:main"
+xpcsjax-config-xla = "xpcsjax.cli.xla_config:main"
+xpcsjax-post-install = "xpcsjax.post_install:main"
+xpcsjax-cleanup = "xpcsjax.uninstall_scripts:main"
+xpcsjax-validate = "xpcsjax.runtime.utils.system_validator:main"
+# Short aliases (xj = xpcsjax)
+xj = "xpcsjax.cli.main:main"
+xj-config = "xpcsjax.cli.config_generator:main"
+xj-config-xla = "xpcsjax.cli.xla_config:main"
+xj-post-install = "xpcsjax.post_install:main"
+xj-cleanup = "xpcsjax.uninstall_scripts:main"
+xj-validate = "xpcsjax.runtime.utils.system_validator:main"
+# Plotting shortcuts (mirror heterodyne's hexp/hsim)
+xjexp = "xpcsjax.cli.main:main_xjexp"
+xjsim = "xpcsjax.cli.main:main_xjsim"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["xpcsjax"]
+
+[tool.hatch.build.targets.wheel.shared-data]
+"xpcsjax/config/templates" = "share/xpcsjax/templates"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
