@@ -8,6 +8,20 @@ current release line.
 Unreleased
 ----------
 
+**Command-line interface.** xpcsjax now ships console scripts (with ``xj``
+short aliases): ``xpcsjax`` runs flag-driven NLSQ fits and standalone
+QC/simulation plots; ``xpcsjax-config`` generates, prints, and validates
+configs from the four mode templates; ``xpcsjax-validate`` checks the
+installation; ``xjexp`` / ``xjsim`` are plotting shortcuts; and
+``xpcsjax-post-install`` / ``xpcsjax-cleanup`` manage shell completion and XLA
+activation scripts. See :doc:`/user_guide/cli`, :doc:`/api/cli`, and
+:doc:`/api/runtime`.
+
+**Runtime utilities.** New :mod:`xpcsjax.runtime` package providing system
+validation (CPU, RAM, JAX, dependency, template/public-API integrity checks —
+NLSQ-only, no Bayesian probes) and the bash/zsh/fish completion and XLA
+activation assets.
+
 **Breaking change — ``analysis_mode`` taxonomy.** The bare value
 ``analysis_mode: static`` is no longer accepted. It was ambiguous
 between ``static_isotropic`` (angle-collapsed) and ``static_anisotropic``
