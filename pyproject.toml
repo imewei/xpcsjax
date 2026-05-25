@@ -122,12 +122,14 @@ omit = [
 ]
 
 [tool.coverage.report]
-# v0.1 floor: 50% across the non-engine-orchestration surface listed in
-# [tool.coverage.run].omit above. Heterodyne end-to-end tests still gated on
-# Phase 6; once they land the floor should rise (target 65% before v0.2,
-# 80% before v1.0). The /double-check Standard target of 80% is aspirational
-# for a port still missing heterodyne+CMA-ES regression tests.
-fail_under = 50
+# v0.1 floor: 55% across the non-engine-orchestration surface listed in
+# [tool.coverage.run].omit above. Raised from 50 after a unit-test campaign
+# brought the pure/dispatch/strategy/config/recovery modules to 85-100% and
+# added real-fit integration smoke tests (total 55.85%). The remaining gap to
+# higher floors is dominated by real-optimizer execution variants already
+# validated for correctness by the parity/characterization suite; target 65%
+# before v0.2, 80% before v1.0.
+fail_under = 55
 exclude_lines = [
     "pragma: no cover",
     "raise NotImplementedError",
