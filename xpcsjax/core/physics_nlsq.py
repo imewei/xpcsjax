@@ -368,11 +368,11 @@ def compute_g2_scaled(
     params: jnp.ndarray,
     t1: jnp.ndarray,
     t2: jnp.ndarray,
-    phi: jnp.ndarray,
+    phi: float | jnp.ndarray,
     q: float,
     L: float,
-    contrast: float,
-    offset: float,
+    contrast: float | jnp.ndarray,
+    offset: float | jnp.ndarray,
     dt: float,
 ) -> jnp.ndarray:
     """Compute g2 for NLSQ using meshgrid 2D matrices.
