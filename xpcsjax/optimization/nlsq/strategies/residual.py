@@ -139,23 +139,18 @@ class StratifiedResidualFunction:
             f"{self._n_t2_global} t2"
         )
 
-        # Store SAME global unique arrays for ALL chunks
-        # This ensures flat indexing calculations use correct dimensions
-        self.chunk_metadata = []
+        # A4: Store the global unique arrays directly. They are identical for
+        # every chunk (grid dimensions must match sigma_full), so a per-chunk
+        # metadata dict list was pure indirection — replaced by three attrs.
+        self._phi_unique_global = global_phi_unique
+        self._t1_unique_global = global_t1_unique
+        self._t2_unique_global = global_t2_unique
+
         self._precomputed_flat_indices = []
         self._precomputed_t1_indices = []  # v2.14.2+: for diagonal masking
         self._precomputed_t2_indices = []  # v2.14.2+: for diagonal masking
-        self._precomputed_t1_values = []  # R5 fix: actual float t1 values for masking
-        self._precomputed_t2_values = []  # R5 fix: actual float t2 values for masking
 
         for chunk in self.chunks:
-            metadata = {
-                "phi_unique": global_phi_unique,  # Same for all chunks
-                "t1_unique": global_t1_unique,  # Same for all chunks
-                "t2_unique": global_t2_unique,  # Same for all chunks
-            }
-            self.chunk_metadata.append(metadata)
-
             # Pre-compute flat indices for this chunk (FR-001 optimization)
             # v2.14.2+: Also returns t1/t2 indices for diagonal masking
             flat_indices, t1_indices, t2_indices = self._compute_flat_indices(
@@ -169,9 +164,6 @@ class StratifiedResidualFunction:
             self._precomputed_flat_indices.append(flat_indices)
             self._precomputed_t1_indices.append(t1_indices)
             self._precomputed_t2_indices.append(t2_indices)
-            # R5 fix: store actual float time values for value-based diagonal masking
-            self._precomputed_t1_values.append(jnp.asarray(chunk.t1))
-            self._precomputed_t2_values.append(jnp.asarray(chunk.t2))
 
         self.logger.debug(
             f"Pre-computed flat indices for {len(self._precomputed_flat_indices)} chunks"
@@ -312,9 +304,13 @@ class StratifiedResidualFunction:
         # v2.14.2+: Concatenate t1/t2 indices for diagonal masking
         self.t1_indices_all = jnp.concatenate(self._precomputed_t1_indices, axis=0)
         self.t2_indices_all = jnp.concatenate(self._precomputed_t2_indices, axis=0)
-        # R5 fix: concatenate actual float time values for value-based masking
-        self.t1_values_all = jnp.concatenate(self._precomputed_t1_values, axis=0)
-        self.t2_values_all = jnp.concatenate(self._precomputed_t2_values, axis=0)
+
+        # A2: Precompute the diagonal mask ONCE (was recomputed every iteration
+        # inside the residual, polluting the jacfwd tape with two large float
+        # temporaries). Diagonal points (t1 == t2) map to identical grid indices
+        # by construction, so an integer-exact comparison is both correct and
+        # avoids storing the ~370 MB float t1/t2 value arrays at 23M points.
+        self._diag_mask = self.t1_indices_all != self.t2_indices_all
 
         # Compute chunk boundaries for index lookup
         chunk_sizes = [
@@ -332,10 +328,11 @@ class StratifiedResidualFunction:
         self._chunk_L = cast(float, self.chunks_jax[0]["L"])
         self._chunk_dt = cast(float | None, self.chunks_jax[0]["dt"])
 
-        # Store global unique arrays (same for all chunks, from first metadata)
-        self._phi_unique = self.chunk_metadata[0]["phi_unique"]
-        self._t1_unique = self.chunk_metadata[0]["t1_unique"]
-        self._t2_unique = self.chunk_metadata[0]["t2_unique"]
+        # Store global unique arrays (A4: read directly from the precomputed
+        # global attrs instead of a per-chunk metadata dict).
+        self._phi_unique = self._phi_unique_global
+        self._t1_unique = self._t1_unique_global
+        self._t2_unique = self._t2_unique_global
 
         self.logger.debug(
             f"Concatenated chunk data: {len(self.g2_all):,} total points, "
@@ -354,8 +351,6 @@ class StratifiedResidualFunction:
         del self._precomputed_flat_indices
         del self._precomputed_t1_indices
         del self._precomputed_t2_indices
-        del self._precomputed_t1_values
-        del self._precomputed_t2_values
         del self.chunks_jax
 
         # Cache diagnostics before freeing original numpy chunks (~320 MB for 10M pts).
@@ -436,9 +431,9 @@ class StratifiedResidualFunction:
         # Per-angle scaling: physical_params, phi, contrast, offset all vary
         def _g2_per_angle(
             physical_params: jnp.ndarray,
-            phi_val: float,
-            contrast_val: float,
-            offset_val: float,
+            phi_val: float | jnp.ndarray,
+            contrast_val: float | jnp.ndarray,
+            offset_val: float | jnp.ndarray,
         ) -> jnp.ndarray:
             return jnp.squeeze(
                 compute_g2_scaled(
@@ -460,9 +455,9 @@ class StratifiedResidualFunction:
         # Scalar scaling: contrast/offset are scalars, only phi varies
         def _g2_scalar(
             physical_params: jnp.ndarray,
-            contrast_val: float,
-            offset_val: float,
-            phi_val: float,
+            contrast_val: float | jnp.ndarray,
+            offset_val: float | jnp.ndarray,
+            phi_val: float | jnp.ndarray,
         ) -> jnp.ndarray:
             return jnp.squeeze(
                 compute_g2_scaled(
@@ -541,7 +536,10 @@ class StratifiedResidualFunction:
         Returns:
             Weighted residuals for ALL data points
         """
-        params_jax = jnp.asarray(params)
+        # A3: params already arrives as a jnp array on the JIT/Jacobian hot path
+        # (the only entry points are jax_residual and __call__, the latter doing
+        # its own jnp.asarray). Re-wrapping here was a redundant device op.
+        params_jax = params
         sigma_full = self._sigma_jax
 
         # Extract scaling and physical parameters
@@ -588,15 +586,15 @@ class StratifiedResidualFunction:
             valid_sigma, (self.g2_all - g2_theory_all) / safe_sigma, 0.0
         )
 
-        # v2.14.2+ / R5 fix: Mask diagonal points (t1 == t2) to zero.
-        # Use actual float time values, not grid indices, to correctly detect
-        # t1==t2 even when two different time points happen to map to the same
-        # index bin (which is impossible but safe) and, critically, to mirror
-        # the JIT path in residual_jit.py which compares values not indices.
-        # Diagonal points are autocorrelation artifacts, not physics.
-        residuals = jnp.where(
-            jnp.abs(self.t1_values_all - self.t2_values_all) > 1e-15, residuals, 0.0
-        )
+        # v2.14.2+ / A2: Mask diagonal points (t1 == t2) to zero. Diagonal
+        # points are autocorrelation artifacts, not physics. The mask is
+        # precomputed once in _concatenate_chunk_data (self._diag_mask) using
+        # the integer grid indices — diagonal points have identical t1/t2
+        # indices by construction, so the comparison is exact and needs no
+        # float tolerance. This keeps the residual bitwise-equal to the prior
+        # value-based test while removing two large float temporaries from the
+        # jacfwd tape (and ~370 MB of stored value arrays at 23M points).
+        residuals = jnp.where(self._diag_mask, residuals, 0.0)
 
         return residuals
 

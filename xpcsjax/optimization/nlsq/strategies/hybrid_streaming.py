@@ -1385,7 +1385,15 @@ def fit_with_stratified_hybrid_streaming(
     t1_idx_arr = _bin_to_grid(all_t1_data, t1_unique, "t1")
     t2_idx_arr = _bin_to_grid(all_t2_data, t1_unique, "t2")
 
-    x_data = np.column_stack([phi_idx_arr, t1_idx_arr, t2_idx_arr]).astype(np.float64)
+    # B2: Store grid indices as int32 (not float64).  Grid indices are
+    # non-negative integers; int32 covers any realistic grid (max ~2.1B).
+    # The float64 cast wasted ~276 MB at 23M pts and the consumption sites
+    # (model_fn_pointwise lines 1258-1260, loss_fn phi_indices_jax line 1712)
+    # cast back to int32 anyway.  JAX_ENABLE_X64 stays on — this is indices,
+    # not physical data.
+    x_data = np.column_stack(
+        [phi_idx_arr.astype(np.int32), t1_idx_arr.astype(np.int32), t2_idx_arr.astype(np.int32)]
+    )
     y_data = np.asarray(y_data, dtype=np.float64)
 
     # =====================================================================
@@ -1709,7 +1717,7 @@ def fit_with_stratified_hybrid_streaming(
         logger.info("ANTI-DEGENERACY EXECUTION: Hierarchical Two-Stage Optimization")
 
         # Pre-extract phi indices for shear weighting (x_data[:, 0] contains phi indices)
-        phi_indices_jax = jnp.asarray(x_data[:, 0], dtype=jnp.int32)
+        phi_indices_jax = jnp.asarray(x_data[:, 0])  # already int32 (B2)
         shear_weighter_local = cast(
             ShearSensitivityWeighting | None,
             anti_degeneracy_components.get("shear_weighter"),

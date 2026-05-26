@@ -785,12 +785,6 @@ def create_angle_stratified_data(
                 }
             )
 
-    # Flatten back to single arrays
-    phi_stratified = np.concatenate([chunk["phi"] for chunk in stratified_chunks])
-    t1_stratified = np.concatenate([chunk["t1"] for chunk in stratified_chunks])
-    t2_stratified = np.concatenate([chunk["t2"] for chunk in stratified_chunks])
-    g2_stratified = np.concatenate([chunk["g2_exp"] for chunk in stratified_chunks])
-
     # Store chunk sizes for correct re-chunking. The ``stratified_chunks``
     # dicts mix ndarray and int values, so mypy widens lookups to ``object``;
     # cast to int (we know "size" is the ``sum(len(...))`` int written above).
@@ -800,6 +794,26 @@ def create_angle_stratified_data(
         _cast(int, chunk["size"]) for chunk in stratified_chunks
     ]
 
+    # Flatten back to single arrays using pre-allocated buffers.
+    # B1: Avoids four np.concatenate() intermediate copies followed by
+    # jnp.array() (which forces a second copy on CPU).  Instead we allocate
+    # once per output array and fill by slice, then use jnp.asarray() which
+    # is zero-copy on the JAX CPU backend (shares the numpy buffer).
+    # At 23M pts × float64 this saves ~370–740 MB of transient RSS.
+    total_stratified = sum(chunk_sizes)
+    phi_out = np.empty(total_stratified, dtype=np.float64)
+    t1_out = np.empty(total_stratified, dtype=np.float64)
+    t2_out = np.empty(total_stratified, dtype=np.float64)
+    g2_out = np.empty(total_stratified, dtype=np.float64)
+    pos = 0
+    for chunk in stratified_chunks:
+        n = _cast(int, chunk["size"])
+        phi_out[pos : pos + n] = chunk["phi"]
+        t1_out[pos : pos + n] = chunk["t1"]
+        t2_out[pos : pos + n] = chunk["t2"]
+        g2_out[pos : pos + n] = chunk["g2_exp"]
+        pos += n
+
     # T039: Log chunking operation timing
     _duration = _time.perf_counter() - _start_time
     logger.info(
@@ -807,12 +821,14 @@ def create_angle_stratified_data(
         f"in {_duration:.3f}s ({n_points / _duration / 1e6:.2f}M pts/s)"
     )
 
-    # Convert back to JAX arrays and return with chunk boundary information
+    # Convert back to JAX arrays and return with chunk boundary information.
+    # jnp.asarray() on a contiguous C-order float64 numpy array is zero-copy
+    # on the CPU backend; jnp.array() would force an additional device copy.
     return (
-        jnp.array(phi_stratified),
-        jnp.array(t1_stratified),
-        jnp.array(t2_stratified),
-        jnp.array(g2_stratified),
+        jnp.asarray(phi_out),
+        jnp.asarray(t1_out),
+        jnp.asarray(t2_out),
+        jnp.asarray(g2_out),
         chunk_sizes,
     )
 
