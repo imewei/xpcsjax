@@ -9,7 +9,7 @@ from typing import Any, Literal, TypedDict
 
 from xpcsjax.config.parameter_registry import AnalysisMode
 
-__all__ = ["AnalysisMode"]  # re-export for back-compat
+__all__ = ["AnalysisMode", "XpcsConfig"]  # re-export for back-compat
 
 
 class BoundDict(TypedDict, total=False):
@@ -347,6 +347,16 @@ class HomodyneConfig(TypedDict, total=False):
     initial_parameters: InitialParametersConfig
     optimization: OptimizationConfig
     output: dict[str, Any]
+
+
+# Canonical project name for the complete configuration schema (M-1). This is
+# the composed top-level TypedDict the type-analyzer recommended; it already
+# existed as ``HomodyneConfig`` (a port-era name). New code should annotate
+# against ``XpcsConfig``. NOTE: ``ConfigManager.config`` is still typed
+# ``dict[str, Any] | None`` and guarded by runtime ``isinstance`` checks against
+# untrusted YAML input; migrating it to this TypedDict (and pruning the guards)
+# is a deliberately separate, incremental change.
+XpcsConfig = HomodyneConfig
 
 
 

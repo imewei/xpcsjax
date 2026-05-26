@@ -23,10 +23,16 @@ from typing import TYPE_CHECKING
 import jax
 import jax.numpy as jnp
 
+# Physics primitives are sourced from ``heterodyne_physics_utils`` (NOT the
+# homodyne ``physics_utils``): the two define same-named helpers with different
+# contracts (e.g. ``create_signed_integral_matrix`` here returns a *signed*
+# difference, while ``physics_utils.create_time_integral_matrix`` returns a
+# smooth-abs'd matrix). ``safe_exp`` is the shared canonical one re-exported
+# from ``math_primitives``.
 from xpcsjax.core.heterodyne_physics_utils import (
     compute_transport_rate,
     compute_velocity_rate,
-    create_time_integral_matrix,
+    create_signed_integral_matrix,
     safe_exp,
     smooth_abs,
     smooth_clip,
@@ -80,7 +86,7 @@ def compute_velocity_integral_matrix(
     Computes M[i,j] = ∫_{t_i}^{t_j} v(t') dt'
     where v(t) = v0 * t^beta + v_offset
 
-    Uses shared ``trapezoid_cumsum`` → ``create_time_integral_matrix``
+    Uses shared ``trapezoid_cumsum`` → ``create_signed_integral_matrix``
     pipeline for O(N) efficiency and O(dt²) accuracy.
     The velocity integral is *signed* (not absolute-valued) because it
     feeds into the phase factor ``cos(q cos(φ) ∫v dt)``.
@@ -97,7 +103,7 @@ def compute_velocity_integral_matrix(
     """
     velocity = compute_velocity_rate(t, v0, beta, v_offset)
     cumsum = trapezoid_cumsum(velocity, dt)
-    return create_time_integral_matrix(cumsum)
+    return create_signed_integral_matrix(cumsum)
 
 
 @jax.jit
@@ -114,7 +120,7 @@ def compute_transport_integral_matrix(
     where J_rate(t) = D0 * t^alpha + offset
 
     Uses shared ``compute_transport_rate`` → ``trapezoid_cumsum`` →
-    ``create_time_integral_matrix`` → ``smooth_abs`` pipeline.
+    ``create_signed_integral_matrix`` → ``smooth_abs`` pipeline.
 
     Args:
         t: Time array, shape (N,)
@@ -128,7 +134,7 @@ def compute_transport_integral_matrix(
     """
     J_rate = compute_transport_rate(t, D0, alpha, offset)
     cumsum = trapezoid_cumsum(J_rate, dt)
-    diff = create_time_integral_matrix(cumsum)
+    diff = create_signed_integral_matrix(cumsum)
     return smooth_abs(diff)
 
 

@@ -209,6 +209,16 @@ def compute_optimal_x_scale(
     for name, grad_norm in gradient_norms.items():
         raw_scale = baseline_grad / max(grad_norm, 1e-10) * safety_factor
         clipped_scale = np.clip(raw_scale, min_scale, max_scale)
+        if clipped_scale != raw_scale:
+            logger.debug(
+                "Parameter %s: x_scale clipped %.3g -> %.3g (bounds [%.3g, %.3g]); "
+                "step size for this parameter is bound-limited.",
+                name,
+                raw_scale,
+                clipped_scale,
+                min_scale,
+                max_scale,
+            )
         x_scale_map[name] = float(clipped_scale)
 
         ratio = grad_norm / baseline_grad

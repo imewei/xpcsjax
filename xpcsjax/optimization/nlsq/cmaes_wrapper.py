@@ -1173,7 +1173,29 @@ class CMAESWrapper:
         )
 
         converged_reasons = {"tol_fun", "tol_x", "tol_fun_hist", "ftarget"}
-        success = convergence_reason in converged_reasons or nlsq_refined
+        cmaes_converged = convergence_reason in converged_reasons
+        # CR-5: NLSQ refinement can polish a point but cannot make an unconverged
+        # global search "successful". Keep the two notions distinct and warn when
+        # the success flag rests on refinement alone, so the caller in
+        # heterodyne_core (which picks CMA-ES vs NLSQ off this flag) is not misled.
+        success = cmaes_converged or nlsq_refined
+        if nlsq_refined and not cmaes_converged:
+            logger.warning(
+                "CMA-ES did not meet a convergence criterion (reason=%s); success "
+                "set via NLSQ refinement only — the global search may not have "
+                "found the correct basin.",
+                convergence_reason,
+            )
+
+        if cmaes_converged:
+            message = f"CMA-ES converged: {convergence_reason}"
+        elif nlsq_refined:
+            message = (
+                f"CMA-ES did not converge (reason={convergence_reason}); "
+                "result refined by NLSQ"
+            )
+        else:
+            message = f"CMA-ES did not converge (reason={convergence_reason})"
 
         return CMAESResult(
             parameters=best_params,
@@ -1183,7 +1205,7 @@ class CMAESWrapper:
             diagnostics=diagnostics,
             method_used="cmaes",
             nlsq_refined=nlsq_refined,
-            message=f"CMA-ES converged: {convergence_reason}",
+            message=message,
         )
 
 

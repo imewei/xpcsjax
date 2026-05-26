@@ -293,6 +293,7 @@ fix-imports/
 scripts/dev_cleanup/
 
 # Temporary analysis / review reports
+PROGRESS.md
 commit_*_review.json
 commit_*_breaking_changes.json
 git_workflow_summary_*.md

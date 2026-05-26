@@ -68,6 +68,34 @@ except ImportError:
 
 logger = get_logger(__name__)
 
+# CR-4: the contrast/offset least-squares solve silently substitutes
+# contrast=offset=1.0 when an angle's 2x2 normal-equation matrix is singular
+# (theory curve constant over the time window). That biases that angle's
+# residuals. We surface it without spamming the JIT hot path: the warning is
+# emitted at most once per process, and (in the JAX path) only when a singular
+# angle is actually detected via lax.cond, so well-conditioned fits pay nothing.
+_singular_fallback_warned = False
+
+
+def _warn_singular_fallback(n_singular: object) -> None:
+    """Host-side, deduplicated warning for the singular-matrix scaling fallback.
+
+    Accepts a Python int (NumPy path) or a concrete 0-d array (delivered by
+    ``jax.debug.callback`` from the JIT path); ``np.asarray(...).item()`` handles
+    both.
+    """
+    global _singular_fallback_warned
+    n = int(np.asarray(n_singular).item())
+    if n > 0 and not _singular_fallback_warned:
+        _singular_fallback_warned = True
+        logger.warning(
+            "%d angle(s) hit the singular normal-equation fallback "
+            "(contrast=offset=1.0); their scaling is a placeholder, not a fit — "
+            "check the theory curve for constant regions. Further occurrences "
+            "are suppressed this run.",
+            n,
+        )
+
 
 @dataclass
 class ParameterSpace:
@@ -240,7 +268,9 @@ class FitResult:
     residual_std: float = 0.0  # Standard deviation of residuals
     max_residual: float = 0.0  # Maximum absolute residual
     fit_iterations: int = 0  # Number of optimization iterations
-    converged: bool = True  # Convergence flag
+    # Default False: a result not explicitly marked converged must not claim
+    # success (a converged fit always sets this True at construction).
+    converged: bool = False  # Convergence flag
 
     # Computational metadata
     computation_time: float = 0.0  # Fitting time in seconds
@@ -287,6 +317,20 @@ class FitResult:
 # JAX-accelerated least squares implementation
 if JAX_AVAILABLE:
 
+    def _warn_if_singular_jax(valid_det: jnp.ndarray) -> None:
+        """Emit the singular-fallback warning only when an angle is singular.
+
+        Uses ``lax.cond`` so the host callback branch is skipped at runtime for
+        well-conditioned data (the common case) — zero hot-path overhead — and
+        fires (then self-suppresses) when a singular angle appears.
+        """
+        n_singular = jnp.sum(~valid_det)
+        jax.lax.cond(
+            n_singular > 0,
+            lambda: jax.debug.callback(_warn_singular_fallback, n_singular),
+            lambda: None,
+        )
+
     @jit
     def solve_least_squares_jax(
         theory_batch: jnp.ndarray,
@@ -325,12 +369,13 @@ if JAX_AVAILABLE:
         # Handle singular matrix cases
         valid_det = jnp.abs(det) > 1e-12
         safe_det = jnp.where(valid_det, det, 1.0)  # Avoid division by zero
+        _warn_if_singular_jax(valid_det)
 
         # Solve normal equations
         contrast = (n_data * sum_theory_exp - sum_theory * sum_exp) / safe_det
         offset = (sum_theory_sq * sum_exp - sum_theory * sum_theory_exp) / safe_det
 
-        # Fallback for singular cases
+        # Fallback for singular cases (see _warn_singular_fallback)
         contrast = jnp.where(valid_det, contrast, 1.0)
         offset = jnp.where(valid_det, offset, 1.0)
 
@@ -350,6 +395,7 @@ else:
         n_angles, n_data = theory_batch.shape
         contrast_batch = np.zeros(n_angles)
         offset_batch = np.zeros(n_angles)
+        n_singular = 0
 
         for i in range(n_angles):
             theory = theory_batch[i]
@@ -374,7 +420,9 @@ else:
             else:
                 contrast_batch[i] = 1.0
                 offset_batch[i] = 1.0
+                n_singular += 1
 
+        _warn_singular_fallback(n_singular)
         return contrast_batch, offset_batch
 
 
@@ -757,6 +805,7 @@ if JAX_AVAILABLE:
         # Handle singular matrix cases
         valid_det = jnp.abs(det) > 1e-12
         safe_det = jnp.where(valid_det, det, 1.0)
+        _warn_if_singular_jax(valid_det)
 
         # Solve for contrast and offset
         contrast = (
@@ -820,6 +869,7 @@ else:
         else:
             contrast = 1.0
             offset = 1.0
+            _warn_singular_fallback(1)
 
         return np.array(contrast), np.array(offset)
 

@@ -37,12 +37,19 @@ def test_disabled_returns_zero() -> None:
     assert reg.compute_regularization(np.ones(8), mse=0.04, n_points=1000) == 0.0
 
 
-def test_nonfinite_params_return_zero() -> None:
-    """Audit fix #12: NaN/inf params must not poison the loss with a NaN penalty."""
+def test_nonfinite_params_return_inf() -> None:
+    """H-4: NaN/inf params (a diverged step) must force trust-region rejection.
+
+    The penalty must never be NaN (which would poison the loss ambiguously) and
+    must not be 0.0 either (which would silently drop the stabilizing term at the
+    moment it is most needed). Returning +inf makes the augmented loss
+    unambiguously bad so the step is rejected.
+    """
     reg = _make(group_indices=[(0, 3), (3, 6)])
     params = np.array([1.0, np.nan, 2.0, 0.5, 0.6, np.inf])
     out = reg.compute_regularization(params, mse=0.04, n_points=1000)
-    assert out == 0.0
+    assert out == np.inf
+    assert not np.isnan(out)
 
 
 def test_out_of_range_group_is_skipped_not_crash() -> None:

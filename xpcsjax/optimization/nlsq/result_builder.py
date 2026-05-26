@@ -133,7 +133,7 @@ def normalize_nlsq_result(
         pcov = np.asarray(result.get("pcov", np.eye(len(popt))))
         info = {
             "streaming_diagnostics": result.get("streaming_diagnostics", {}),
-            "success": result.get("success", True),
+            "success": result.get("success", False),
             "message": result.get("message", ""),
             "best_loss": result.get("best_loss", None),
             "final_epoch": result.get("final_epoch", None),

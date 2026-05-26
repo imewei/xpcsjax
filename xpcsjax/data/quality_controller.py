@@ -609,19 +609,25 @@ class DataQualityController:
 
         # Compare with previous stage if available
         if previous_result:
-            result.metrics.transformation_fidelity = (
-                self._compute_transformation_fidelity(data, previous_result)
-            )
+            fidelity = self._compute_transformation_fidelity(data, previous_result)
 
-            if result.metrics.transformation_fidelity < 0.8:  # Less than 80% fidelity
-                result.issues.append(
-                    ValidationIssue(
-                        severity="warning",
-                        category="preprocessing",
-                        message=f"Preprocessing fidelity low: {result.metrics.transformation_fidelity:.2f}",
-                        recommendation="Check preprocessing parameters for excessive modification",
-                    ),
+            if fidelity is None:
+                # No usable baseline — skip the gate rather than compare against
+                # a fabricated value (M-3).
+                logger.info(
+                    "No usable transformation-fidelity baseline; skipping fidelity check."
                 )
+            else:
+                result.metrics.transformation_fidelity = fidelity
+                if fidelity < 0.8:  # Less than 80% fidelity
+                    result.issues.append(
+                        ValidationIssue(
+                            severity="warning",
+                            category="preprocessing",
+                            message=f"Preprocessing fidelity low: {fidelity:.2f}",
+                            recommendation="Check preprocessing parameters for excessive modification",
+                        ),
+                    )
 
         # Advanced quality checks
         self._advanced_data_quality_checks(data, result)
@@ -924,8 +930,14 @@ class DataQualityController:
         self,
         current_data: dict[str, Any],
         previous_result: QualityControlResult,
-    ) -> float:
-        """Compute fidelity of data transformation."""
+    ) -> float | None:
+        """Compute fidelity of data transformation.
+
+        Returns ``None`` when no usable baseline is available (M-3). Previously
+        this returned a fabricated 0.8 — exactly the downstream threshold — so
+        the fidelity gate passed trivially on first run / cache miss. ``None``
+        lets the caller skip the gate rather than compare against a made-up value.
+        """
         try:
             # Simple fidelity measure based on data statistics preservation
             current_c2 = current_data.get("c2_exp", [])
@@ -948,9 +960,9 @@ class DataQualityController:
                         / max(0.1, previous_result.metrics.finite_fraction),
                     )
 
-            return 0.8  # Default reasonable fidelity
+            return None  # No usable baseline — caller skips the fidelity gate
         except (AttributeError, TypeError, IndexError):
-            return 0.5  # Conservative default
+            return None  # Could not compute fidelity — skip the gate, don't fake it
 
     def _assess_analysis_readiness(
         self,

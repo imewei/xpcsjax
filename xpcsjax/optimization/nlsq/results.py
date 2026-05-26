@@ -92,6 +92,50 @@ class OptimizationResult:
     nlsq_diagnostics: dict[str, Any] | None = None
     sigma_is_default: bool = False
 
+    def __post_init__(self) -> None:
+        """Enforce result invariants so illegal states cannot be constructed.
+
+        H-2: the central result type previously trusted every one of its ~15
+        construction sites to assemble a coherent object, so a result could claim
+        ``convergence_status='converged'`` with empty or non-finite parameters, or
+        carry a covariance whose shape disagreed with the parameter vector
+        (silently producing wrong error bars). These checks make that
+        unrepresentable while staying tolerant of legitimate failed/partial
+        results (empty parameters with a non-converged status) and of placeholder
+        arrays passed on degraded paths.
+        """
+        params = np.asarray(self.parameters)
+        n = int(params.size)
+
+        if self.convergence_status == "converged":
+            if n == 0:
+                raise ValueError(
+                    "OptimizationResult: convergence_status='converged' requires "
+                    "non-empty parameters (got an empty array)."
+                )
+            if not np.all(np.isfinite(params)):
+                n_bad = int(np.sum(~np.isfinite(params)))
+                raise ValueError(
+                    "OptimizationResult: convergence_status='converged' but "
+                    f"{n_bad} of {n} parameter(s) are non-finite (NaN/Inf)."
+                )
+
+        if self.uncertainties is not None:
+            unc = np.asarray(self.uncertainties)
+            if unc.ndim == 1 and unc.size and unc.size != n:
+                raise ValueError(
+                    f"OptimizationResult: uncertainties length {unc.size} does not "
+                    f"match number of parameters {n}."
+                )
+
+        if self.covariance is not None:
+            cov = np.asarray(self.covariance)
+            if cov.ndim == 2 and cov.size and cov.shape != (n, n):
+                raise ValueError(
+                    f"OptimizationResult: covariance shape {cov.shape} does not "
+                    f"match ({n}, {n}) for the parameter vector."
+                )
+
     @property
     def success(self) -> bool:
         """Return True if optimization converged (backward compatibility)."""

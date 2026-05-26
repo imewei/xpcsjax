@@ -120,8 +120,8 @@ class AsyncWriter:
         def _write() -> None:
             try:
                 self._write_npz(path, data)
-            except Exception:
-                logger.error("Failed to write NPZ: %s", path)
+            except Exception as e:
+                logger.error("Failed to write NPZ %s: %s", path, e, exc_info=True)
                 raise
 
         future = self._executor.submit(_write)
@@ -136,8 +136,8 @@ class AsyncWriter:
         def _write() -> None:
             try:
                 self._write_json(path, data)
-            except Exception:
-                logger.error("Failed to write JSON: %s", path)
+            except Exception as e:
+                logger.error("Failed to write JSON %s: %s", path, e, exc_info=True)
                 raise
 
         future = self._executor.submit(_write)

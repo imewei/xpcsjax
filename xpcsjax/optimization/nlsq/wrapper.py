@@ -1206,7 +1206,7 @@ class NLSQWrapper(NLSQAdapterBase):
                             iterations=info.get("nit", 0),
                             execution_time=execution_time,
                             convergence_status=(
-                                "converged" if info.get("success", True) else "failed"
+                                "converged" if info.get("success", False) else "failed"
                             ),
                             recovery_actions=["hybrid_streaming_optimizer_method"],
                             streaming_diagnostics=info.get(
@@ -1311,7 +1311,7 @@ class NLSQWrapper(NLSQAdapterBase):
                     iterations=info.get("nit", 0),
                     execution_time=execution_time,
                     convergence_status=(
-                        "converged" if info.get("success", True) else "failed"
+                        "converged" if info.get("success", False) else "failed"
                     ),
                     recovery_actions=["stratified_least_squares_method"],
                     streaming_diagnostics=None,
@@ -2827,9 +2827,11 @@ class NLSQWrapper(NLSQAdapterBase):
         opt_config = config.config.get("optimization", {})
         nlsq_config = opt_config.get("nlsq", {})
 
-        # Sequential-specific config
+        # Sequential-specific config. Default raised 0.5 -> 0.8 (CR-6): at 0.5,
+        # up to half the angles could be unconverged while the overall result was
+        # still stamped "converged". 0.8 requires a clear majority to converge.
         seq_config = opt_config.get("sequential", {})
-        min_success_rate = seq_config.get("min_success_rate", 0.5)
+        min_success_rate = seq_config.get("min_success_rate", 0.8)
         weighting = seq_config.get("weighting", "inverse_variance")
 
         # Run sequential optimization
@@ -2950,18 +2952,51 @@ class NLSQWrapper(NLSQAdapterBase):
             "reduced_chi_squared": reduced_chi_squared,
         }
 
+        # CR-6: enumerate which angles failed so a partially-converged result is
+        # not opaque. A caller checking only convergence_status must still be able
+        # to discover that some per-angle parameters are unconverged.
+        failed_angle_indices = [
+            i
+            for i, r in enumerate(sequential_result.per_angle_results)
+            if not r.get("success", False)
+        ]
+        diagnostics_payload["n_angles_failed"] = sequential_result.n_angles_failed
+        diagnostics_payload["failed_angle_indices"] = failed_angle_indices
+        diagnostics_payload["min_success_rate"] = min_success_rate
+
         # Determine convergence status
         if sequential_result.success_rate >= min_success_rate:
             convergence_status = "converged"
             quality_flag = (
                 "good" if sequential_result.success_rate > 0.8 else "marginal"
             )
+            if failed_angle_indices:
+                logger.warning(
+                    "Sequential fit marked converged at %.0f%% success, but %d "
+                    "angle(s) failed; their parameters in the result are "
+                    "unconverged. Failed angle indices: %s",
+                    sequential_result.success_rate * 100,
+                    sequential_result.n_angles_failed,
+                    failed_angle_indices,
+                )
         else:
             convergence_status = "failed"
             quality_flag = "poor"
 
-        # Compute uncertainties from covariance
-        uncertainties = np.sqrt(np.diag(sequential_result.combined_covariance))
+        # Compute uncertainties from covariance. Guard against negative diagonal
+        # entries (possible from a near-singular Hessian or numerical noise):
+        # an unguarded np.sqrt would silently emit NaN uncertainties indistinguishable
+        # from a valid zero. Mirror the np.maximum(diag, 0) guard in recovery.py.
+        cov_diag = np.diag(sequential_result.combined_covariance)
+        n_negative = int(np.sum(cov_diag < 0.0))
+        if n_negative > 0:
+            logger.warning(
+                "%d negative covariance diagonal entr%s clipped to 0 before sqrt; "
+                "uncertainties for those parameters are unreliable (near-singular fit).",
+                n_negative,
+                "y" if n_negative == 1 else "ies",
+            )
+        uncertainties = np.sqrt(np.maximum(cov_diag, 0.0))
 
         # Summary logging
         logger.info("=" * 80)

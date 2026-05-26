@@ -720,7 +720,7 @@ def fit_with_stratified_least_squares(
         )
 
     # Extract convergence information
-    success = result.get("success", True)
+    success = result.get("success", False)
     message = result.get("message", "Optimization completed")
     nfev = result.get("nfev", 0)
     nit = result.get("nit", 0)

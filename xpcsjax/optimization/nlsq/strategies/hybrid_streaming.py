@@ -256,7 +256,7 @@ def fit_with_hybrid_streaming_optimizer(
 
         # Build info dict with phase diagnostics
         info = {
-            "success": result.get("success", True),
+            "success": result.get("success", False),
             "message": result.get("message", "Hybrid optimization completed"),
             "hybrid_streaming_diagnostics": result.get("streaming_diagnostics", {}),
             "perr": perr,
@@ -1362,11 +1362,28 @@ def fit_with_stratified_hybrid_streaming(
     # Convert to indices (vectorized).
     # NOTE: Both t1 and t2 index into t1_unique because XPCS correlation
     # matrices use a shared time grid (t1_unique == t2_unique).
-    phi_idx_arr = np.clip(
-        np.searchsorted(phi_unique, all_phi_data), 0, len(phi_unique) - 1
-    )
-    t1_idx_arr = np.clip(np.searchsorted(t1_unique, all_t1_data), 0, len(t1_unique) - 1)
-    t2_idx_arr = np.clip(np.searchsorted(t1_unique, all_t2_data), 0, len(t1_unique) - 1)
+    def _bin_to_grid(values: np.ndarray, grid: np.ndarray, axis_name: str) -> np.ndarray:
+        """searchsorted + boundary clip, warning on out-of-grid points.
+
+        An unguarded clip silently routes data lying outside the fitted grid to
+        the boundary bin, mis-associating it with the wrong (phi, t1, t2) cell —
+        a data-integrity violation. We clip (to stay in-bounds) but surface how
+        many points were affected so misaligned data/config is not silent.
+        """
+        raw = np.searchsorted(grid, values)
+        n_oob = int(np.sum(raw >= len(grid)))
+        if n_oob > 0:
+            logger.warning(
+                "%d data point(s) lie beyond the %s grid; clipped to the boundary "
+                "bin. Check data/config grid alignment.",
+                n_oob,
+                axis_name,
+            )
+        return np.clip(raw, 0, len(grid) - 1)
+
+    phi_idx_arr = _bin_to_grid(all_phi_data, phi_unique, "phi")
+    t1_idx_arr = _bin_to_grid(all_t1_data, t1_unique, "t1")
+    t2_idx_arr = _bin_to_grid(all_t2_data, t1_unique, "t2")
 
     x_data = np.column_stack([phi_idx_arr, t1_idx_arr, t2_idx_arr]).astype(np.float64)
     y_data = np.asarray(y_data, dtype=np.float64)
@@ -1788,6 +1805,7 @@ def fit_with_stratified_hybrid_streaming(
             )
             H = None
 
+        covariance_is_placeholder = False
         if H is not None:
             try:
                 pcov_hier = 2.0 * s2_hier * np.linalg.inv(H)
@@ -1801,7 +1819,15 @@ def fit_with_stratified_hybrid_streaming(
                 )
                 pcov_hier = 2.0 * s2_hier * np.linalg.pinv(H)
         else:
+            # H-5: an identity covariance is fabricated, not measured. Reported
+            # uncertainties (±1.0 for every parameter) are meaningless; flag it
+            # explicitly so downstream consumers do not treat them as real.
+            logger.error(
+                "Hessian computation failed in hierarchical path; covariance is an "
+                "identity placeholder — reported uncertainties are NOT meaningful."
+            )
             pcov_hier = np.eye(n_hier_params)
+            covariance_is_placeholder = True
 
         # Convert HierarchicalResult to standard format
         result = {
@@ -1810,6 +1836,7 @@ def fit_with_stratified_hybrid_streaming(
             "success": hier_result.success,
             "message": hier_result.message,
             "function_evaluations": hier_result.n_outer_iterations * 150,  # Estimate
+            "covariance_is_placeholder": covariance_is_placeholder,
             "streaming_diagnostics": {
                 "phase_iterations": {
                     "phase1": 0,
@@ -1820,6 +1847,7 @@ def fit_with_stratified_hybrid_streaming(
                     "final_cost": hier_result.fun,
                 },
                 "hierarchical_history": hier_result.history,
+                "covariance_is_placeholder": covariance_is_placeholder,
             },
         }
         logger.info(f"  Hierarchical result: success={hier_result.success}")

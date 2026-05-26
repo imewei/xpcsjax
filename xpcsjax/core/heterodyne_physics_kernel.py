@@ -10,7 +10,7 @@ This module factors the **physics** out of the **evaluation strategy**.
 The primitives are sourced from
 :mod:`xpcsjax.core.heterodyne_physics_utils` (``compute_transport_rate``,
 ``compute_velocity_rate``, ``trapezoid_cumsum``, ``smooth_abs``,
-``smooth_clip``, ``safe_exp``, ``create_time_integral_matrix``) and apply
+``smooth_clip``, ``safe_exp``, ``create_signed_integral_matrix``) and apply
 gradient-safe clips.
 
 The legacy ``compute_c2_heterodyne`` is retained as a thin shim that
@@ -28,7 +28,7 @@ import jax.numpy as jnp
 from xpcsjax.core.heterodyne_physics_utils import (
     compute_transport_rate,
     compute_velocity_rate,
-    create_time_integral_matrix,
+    create_signed_integral_matrix,
     safe_exp,
     smooth_abs,
     smooth_clip,
@@ -54,7 +54,7 @@ def _half_transport_meshgrid(
     """
     rate = compute_transport_rate(t, D0, alpha, D_offset)
     cumsum = trapezoid_cumsum(rate, dt)
-    J_integral = smooth_abs(create_time_integral_matrix(cumsum))
+    J_integral = smooth_abs(create_signed_integral_matrix(cumsum))
     return jnp.exp(jnp.clip(-0.5 * q * q * J_integral, -700.0, 0.0))
 
 
@@ -68,7 +68,7 @@ def _velocity_integral_meshgrid(
     """Full ``(N, N)`` signed velocity integral."""
     velocity = compute_velocity_rate(t, v0, beta, v_offset)
     v_cumsum = trapezoid_cumsum(velocity, dt)
-    return create_time_integral_matrix(v_cumsum)
+    return create_signed_integral_matrix(v_cumsum)
 
 
 def _fraction(

@@ -150,7 +150,11 @@ def _config_summary(config_manager: ConfigManager | None) -> dict[str, Any]:
         try:
             summary["parameter_names"] = list(config_manager.get_active_parameters())
         except Exception:  # pragma: no cover - defensive: never fail save on config introspection
-            logger.debug("ConfigManager.get_active_parameters() failed", exc_info=True)
+            logger.warning(
+                "ConfigManager.get_active_parameters() failed; saved result will "
+                "omit parameter_names (downstream parsers may need them).",
+                exc_info=True,
+            )
     return summary
 
 
@@ -162,7 +166,11 @@ def _resolve_parameter_names(config_manager: ConfigManager | None) -> list[str] 
         try:
             return list(config_manager.get_active_parameters())
         except Exception:
-            logger.debug("Could not resolve parameter names from ConfigManager", exc_info=True)
+            logger.warning(
+                "Could not resolve parameter names from ConfigManager; "
+                "output will be unlabeled.",
+                exc_info=True,
+            )
     return None
 
 

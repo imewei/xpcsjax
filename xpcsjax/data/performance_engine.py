@@ -824,7 +824,10 @@ class MultiLevelCache:
         except OSError as exc:
             raise OSError(f"cache file {resolved} missing or unreadable") from exc
 
-        # POSIX ownership check (no-op on Windows where ``getuid`` is missing).
+        # POSIX ownership check. On Windows ``getuid``/``st_uid`` ownership
+        # semantics are unavailable, so this defense-in-depth layer is absent
+        # there. Surface that explicitly (M-6) rather than silently running with
+        # a weaker posture — the path-containment and mode checks still apply.
         if hasattr(os, "getuid"):
             current_uid = os.getuid()
             if st.st_uid != current_uid:
@@ -832,6 +835,13 @@ class MultiLevelCache:
                     f"refusing to load {resolved}: owned by uid {st.st_uid}, "
                     f"current uid is {current_uid}. Possible cache poisoning."
                 )
+        else:
+            logger.warning(
+                "Cache ownership verification is not available on this platform "
+                "(no os.getuid); loading %s with reduced tamper-resistance. "
+                "Ensure the cache directory is not writable by other users.",
+                resolved,
+            )
 
         # Mode check — group/world must have no permissions. ``_save_to_disk``
         # writes 0o600; if the mode drifted, refuse to load.

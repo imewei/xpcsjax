@@ -271,8 +271,17 @@ class LargeDatasetExecutor(OptimizationExecutor):
                     pcov = np.eye(len(popt))
                 else:
                     pcov = result.pcov
-                info = {"nfev": getattr(result, "nfev", 0)}
+                # Capture the solver's own verdict instead of discarding it: an
+                # OptimizeResult carries .success / .status, and dropping them
+                # let a failed solve be re-stamped "converged" downstream.
+                info = {
+                    "nfev": getattr(result, "nfev", 0),
+                    "success": bool(getattr(result, "success", False)),
+                    "status": getattr(result, "status", 0),
+                }
 
+            # Tuple-return path (curve_fit_large): a normal return without an
+            # explicit success flag means the solve completed — infer success.
             info.setdefault("success", True)
             info["strategy"] = "large"
 
@@ -282,7 +291,7 @@ class LargeDatasetExecutor(OptimizationExecutor):
                 info=info,
                 recovery_actions=[],
                 convergence_status="converged"
-                if info.get("success", True)
+                if info.get("success", False)
                 else "partial",
             )
 
@@ -366,7 +375,7 @@ class StreamingExecutor(OptimizationExecutor):
             )
 
             info = {
-                "success": result.get("success", True),
+                "success": result.get("success", False),
                 "strategy": "hybrid_streaming",
                 "iterations": result.get("nit", 0),
                 "streaming_diagnostics": result.get("streaming_diagnostics", {}),

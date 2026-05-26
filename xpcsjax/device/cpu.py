@@ -33,6 +33,24 @@ from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+
+def _jax_backend_initialized() -> bool:
+    """Return True if a JAX backend is already live.
+
+    XLA reads ``XLA_FLAGS`` exactly once, when the backend is first initialized.
+    After that, mutating the env var has no effect. Checking the live-backend
+    registry (best-effort across JAX versions, with a ``sys.modules`` fallback)
+    lets ``configure_cpu_jax`` warn instead of silently writing ignored flags.
+    """
+    try:
+        from jax._src import xla_bridge
+
+        return bool(getattr(xla_bridge, "_backends", None))
+    except Exception:
+        import sys
+
+        return "jax" in sys.modules
+
 # JAX imports with fallback
 try:
     import jax
@@ -352,12 +370,26 @@ def _configure_jax_cpu(
         # CRITICAL: Do NOT overwrite — __init__.py sets
         # --xla_force_host_platform_device_count and
         # --xla_disable_hlo_passes which must be preserved.
-        existing_flags = os.environ.get("XLA_FLAGS", "")
-        for flag in xla_flags:
-            flag_name = flag.split("=")[0]
-            if flag_name not in existing_flags:
-                existing_flags = existing_flags + " " + flag
-        os.environ["XLA_FLAGS"] = existing_flags.strip()
+        # H-1: XLA parses XLA_FLAGS once at backend init. If the backend is
+        # already live (the common case — xpcsjax/__init__.py imports JAX at
+        # import time, before this runs), writing the env var here is silently
+        # ignored. Warn and skip rather than write stale flags and imply success.
+        if _jax_backend_initialized():
+            logger.warning(
+                "JAX backend already initialized; CPU XLA flags %s cannot take "
+                "effect (XLA_FLAGS is read once, at init). Set them before "
+                "importing xpcsjax/JAX. Skipping env mutation.",
+                xla_flags,
+            )
+            jax_config["xla_flags_applied"] = False
+        else:
+            existing_flags = os.environ.get("XLA_FLAGS", "")
+            for flag in xla_flags:
+                flag_name = flag.split("=")[0]
+                if flag_name not in existing_flags:
+                    existing_flags = existing_flags + " " + flag
+            os.environ["XLA_FLAGS"] = existing_flags.strip()
+            jax_config["xla_flags_applied"] = True
 
         # Memory optimization
         jax.config.update("jax_default_device", jax.devices("cpu")[0])

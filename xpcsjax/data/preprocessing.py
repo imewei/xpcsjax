@@ -425,7 +425,12 @@ class PreprocessingPipeline:
                         ) from e
                     else:
                         logger.warning(
-                            f"Continuing pipeline after stage {stage.value} failure",
+                            "Continuing pipeline after stage '%s' failure "
+                            "(abort_on_error=False): the data passed downstream has "
+                            "NOT had this operation applied. PreprocessingResult."
+                            "success may still be True; inspect stage_results to see "
+                            "which operations were skipped.",
+                            stage.value,
                         )
 
             # Calculate final metrics

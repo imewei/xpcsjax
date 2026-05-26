@@ -23,6 +23,11 @@ Key Functions:
 import jax.numpy as jnp
 from jax import jit
 
+# safe_exp is canonical in math_primitives so the homodyne and heterodyne paths
+# cannot silently diverge on the overflow clip limit. Re-exported here for
+# backward compatibility with existing `from physics_utils import safe_exp`.
+from xpcsjax.core.math_primitives import safe_exp  # noqa: F401
+
 # Physical and mathematical constants
 PI = jnp.pi
 EPS = 1e-12  # Numerical stability epsilon
@@ -69,20 +74,6 @@ def safe_len(obj: object) -> int:
 
     # Default case: treat as scalar
     return 1
-
-
-@jit
-def safe_exp(x: jnp.ndarray, max_val: float = 700.0) -> jnp.ndarray:
-    """Safe exponential to prevent overflow.
-
-    Args:
-        x: Input array
-        max_val: Maximum absolute value to clip to (default 700.0)
-
-    Returns:
-        exp(clip(x, -max_val, max_val))
-    """
-    return jnp.exp(jnp.clip(x, -max_val, max_val))
 
 
 @jit

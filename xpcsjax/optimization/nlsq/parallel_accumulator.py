@@ -297,9 +297,26 @@ def create_ooc_kernels(
             # jnp.searchsorted returns int32; for large OOC datasets
             # (n_phi=100, n_t1=5000, n_t2=5000) the product 99 * 25_000_000 = 2.475B
             # exceeds int32 max (2.147B), silently wrapping to a negative index.
-            phi_indices = jnp.searchsorted(phi_unique, phi_c).astype(jnp.int64)
-            t1_indices = jnp.searchsorted(t1_unique_global, t1_c).astype(jnp.int64)
-            t2_indices = jnp.searchsorted(t2_unique_global, t2_c).astype(jnp.int64)
+            # Explicit clamp to grid bounds: searchsorted returns len(grid) for
+            # any value beyond the last grid point. Without this clamp such an
+            # index would silently gather the wrong (or, after the int64 product,
+            # an out-of-range) cell. The chunk data should always lie on the grid
+            # it was built from, so the clamp is defensive — it bounds float drift.
+            phi_indices = jnp.clip(
+                jnp.searchsorted(phi_unique, phi_c).astype(jnp.int64),
+                0,
+                phi_unique.shape[0] - 1,
+            )
+            t1_indices = jnp.clip(
+                jnp.searchsorted(t1_unique_global, t1_c).astype(jnp.int64),
+                0,
+                t1_unique_global.shape[0] - 1,
+            )
+            t2_indices = jnp.clip(
+                jnp.searchsorted(t2_unique_global, t2_c).astype(jnp.int64),
+                0,
+                t2_unique_global.shape[0] - 1,
+            )
             flat_indices = phi_indices * (n_t1 * n_t2) + t1_indices * n_t2 + t2_indices
             g2_theory_chunk = g2_theory_flat[flat_indices]
 
@@ -365,9 +382,23 @@ def create_ooc_kernels(
         g2_theory_flat = g2_theory_grid.flatten()
         # Cast to int64 BEFORE multiplication to prevent int32 overflow (same fix
         # as compute_chunk_accumulators above).
-        phi_indices = jnp.searchsorted(phi_unique, phi_c).astype(jnp.int64)
-        t1_indices = jnp.searchsorted(t1_unique_global, t1_c).astype(jnp.int64)
-        t2_indices = jnp.searchsorted(t2_unique_global, t2_c).astype(jnp.int64)
+        # Explicit clamp to grid bounds (see the matching block above): bounds
+        # out-of-range searchsorted results before they index the flat grid.
+        phi_indices = jnp.clip(
+            jnp.searchsorted(phi_unique, phi_c).astype(jnp.int64),
+            0,
+            phi_unique.shape[0] - 1,
+        )
+        t1_indices = jnp.clip(
+            jnp.searchsorted(t1_unique_global, t1_c).astype(jnp.int64),
+            0,
+            t1_unique_global.shape[0] - 1,
+        )
+        t2_indices = jnp.clip(
+            jnp.searchsorted(t2_unique_global, t2_c).astype(jnp.int64),
+            0,
+            t2_unique_global.shape[0] - 1,
+        )
         flat_indices = phi_indices * (n_t1 * n_t2) + t1_indices * n_t2 + t2_indices
         g2_theory_chunk = g2_theory_flat[flat_indices]
 
@@ -425,7 +456,7 @@ def _ooc_worker_init(
     os.environ.pop("OMP_PLACES", None)
 
     # JAX float64 before import (CLAUDE.md rule #8)
-    os.environ["JAX_ENABLE_X64"] = "true"
+    os.environ["JAX_ENABLE_X64"] = "1"  # canonical value, matches xpcsjax/__init__.py
 
     import jax
     import jax.numpy as jnp

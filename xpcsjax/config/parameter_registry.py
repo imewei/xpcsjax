@@ -46,6 +46,43 @@ class AnalysisMode(StrEnum):
     LAMINAR_FLOW = "laminar_flow"
     TWO_COMPONENT = "two_component"
 
+    @classmethod
+    def parse(cls, raw: str, *, allow_bare_static: bool = False) -> AnalysisMode:
+        """Normalize an arbitrary mode string to a canonical ``AnalysisMode``.
+
+        M-8: single source of truth for synonym handling, so ``ConfigManager``
+        and ``ParameterRegistry`` cannot drift apart on what a mode string means.
+        Recognizes (case-insensitively): ``heterodyne`` / ``two-component`` →
+        ``TWO_COMPONENT``; ``laminar*`` → ``LAMINAR_FLOW``; ``static*isotropic`` →
+        ``STATIC_ISOTROPIC``; ``static*anisotropic`` → ``STATIC_ANISOTROPIC``.
+
+        Bare ``"static"`` is ambiguous. It is rejected unless
+        ``allow_bare_static=True`` (registry-internal callers), in which case it
+        maps to ``STATIC_ANISOTROPIC`` — the angle-resolved drop-in for legacy
+        ``"static"`` configs.
+        """
+        m = raw.lower()
+        if "laminar" in m:
+            return cls.LAMINAR_FLOW
+        if "two_component" in m or "two-component" in m or "heterodyne" in m:
+            return cls.TWO_COMPONENT
+        if "static" in m and "anisotropic" in m:
+            return cls.STATIC_ANISOTROPIC
+        if "static" in m and "isotropic" in m:
+            return cls.STATIC_ISOTROPIC
+        if "static" in m:
+            if allow_bare_static:
+                return cls.STATIC_ANISOTROPIC
+            raise ValueError(
+                f"analysis_mode={raw!r} is ambiguous and no longer accepted. "
+                "Use 'static_anisotropic' (angle-resolved; drop-in for legacy "
+                "'static') or 'static_isotropic' (angle-collapsed) explicitly."
+            )
+        raise ValueError(
+            f"Unknown analysis mode: {raw!r}. Expected one of "
+            f"{[e.value for e in cls]}."
+        )
+
 
 @dataclass(frozen=True)
 class ParameterInfo:
@@ -99,6 +136,20 @@ class ParameterInfo:
     # defaults match upstream behavior so xpcsjax-native parameters still work.
     vary_default: bool = True
     group: str = ""
+
+    def __post_init__(self) -> None:
+        """Reject inverted bounds at construction (frozen-dataclass safe).
+
+        ``lower_bound > upper_bound`` defines an empty feasible interval and is
+        always a definition error; catching it here makes it unrepresentable
+        rather than surfacing as a confusing zero-volume bounds failure deep in
+        the optimizer.
+        """
+        if self.lower_bound > self.upper_bound:
+            raise ValueError(
+                f"ParameterInfo({self.name!r}): lower_bound {self.lower_bound} "
+                f"exceeds upper_bound {self.upper_bound}."
+            )
 
     # ------------------------------------------------------------------
     # Upstream-heterodyne alias surface — the ported heterodyne config
@@ -794,30 +845,15 @@ class ParameterRegistry:
         return result
 
     def _normalize_mode(self, mode: str) -> str:
-        """Normalize analysis mode string.
+        """Normalize analysis mode string (registry-internal, lenient).
 
-        Accepts canonical names and a few synonyms:
-        - containing 'static' + 'isotropic' → 'static_isotropic'
-        - containing 'static' (incl. 'static_anisotropic') → 'static_anisotropic'
-        - containing 'laminar' → 'laminar_flow'
-        - 'two_component' or 'heterodyne' (any case) → 'two_component'
+        Delegates to :meth:`AnalysisMode.parse` — the single normalization
+        authority (M-8) — with ``allow_bare_static=True`` so a bare ``"static"``
+        still maps to ``static_anisotropic`` for registry-internal callers.
+        Returns the canonical ``str`` value (``AnalysisMode`` is a ``str``
+        subclass, so the return type and comparisons are unchanged).
         """
-        mode_lower = mode.lower()
-        if "static" in mode_lower and "anisotropic" in mode_lower:
-            return "static_anisotropic"
-        elif "static" in mode_lower and "isotropic" in mode_lower:
-            return "static_isotropic"
-        elif "static" in mode_lower:
-            return "static_anisotropic"
-        elif "laminar" in mode_lower:
-            return "laminar_flow"
-        elif "two_component" in mode_lower or "two-component" in mode_lower or "heterodyne" in mode_lower:
-            return "two_component"
-        else:
-            raise ValueError(
-                f"Unknown analysis mode: {mode}. "
-                f"Expected 'static_anisotropic', 'static_isotropic', 'laminar_flow', or 'two_component'"
-            )
+        return AnalysisMode.parse(mode, allow_bare_static=True).value
 
 
 def get_registry() -> ParameterRegistry:

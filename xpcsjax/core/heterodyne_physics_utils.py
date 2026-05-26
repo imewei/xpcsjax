@@ -5,11 +5,19 @@ arrays, avoiding NaN/Inf from edge cases (division by zero,
 overflow in exp, negative bases in power).
 
 Shared utilities used by the NLSQ meshgrid path:
-- ``trapezoid_cumsum``: O(dt²) cumulative integral
-- ``create_time_integral_matrix``: N×N from cumsum (NLSQ only)
-- ``smooth_abs``: gradient-safe ``|x|`` for NUTS
+- ``trapezoid_cumsum``: O(dt²) cumulative integral (dt folded IN — differs from
+  the homodyne ``physics_utils.trapezoid_cumsum`` which factors dt out; do not
+  merge the two)
+- ``create_signed_integral_matrix``: N×N signed difference from cumsum (NLSQ
+  only). Distinct from ``physics_utils.create_time_integral_matrix`` (which
+  takes a rate, integrates internally, and smooth-abs'es the result).
+- ``smooth_abs``: gradient-safe ``|x|``
 - ``compute_transport_rate``: J(t) = D0·t^α + offset
 - ``compute_velocity_rate``: v(t) = v0·t^β + v_offset
+
+``safe_exp`` is re-exported from ``math_primitives`` (canonical, clip 700).
+``safe_sinc`` here intentionally differs from the homodyne Taylor-expansion
+version; see ``math_primitives`` module docstring.
 """
 
 from __future__ import annotations
@@ -18,27 +26,14 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+# safe_exp is canonical in math_primitives (clip 700, the correct float64 bound).
+# It previously lived here with a clip of 500, which silently truncated valid
+# exponents in (500, 709.78). Re-exported for backward compatibility.
+from xpcsjax.core.math_primitives import safe_exp  # noqa: F401
+
 # ---------------------------------------------------------------------------
 # Numerically safe math primitives
 # ---------------------------------------------------------------------------
-
-
-def safe_exp(x: jnp.ndarray | np.ndarray, limit: float = 500.0) -> jnp.ndarray:
-    """Exponential with overflow protection.
-
-    Clips the argument to [-limit, limit] before computing exp()
-    to avoid Inf outputs. The default limit of 500 gives exp(500) ≈ 1.4e217
-    which is within float64 range.
-
-    Args:
-        x: Input array
-        limit: Clipping threshold (symmetric)
-
-    Returns:
-        exp(clip(x)), same shape as x
-    """
-    x = jnp.asarray(x)
-    return jnp.exp(jnp.clip(x, -limit, limit))
 
 
 def safe_power(base: jnp.ndarray | np.ndarray, exponent: float) -> jnp.ndarray:
@@ -236,10 +231,18 @@ def trapezoid_cumsum(f: jnp.ndarray, dt: float | jnp.ndarray) -> jnp.ndarray:
     return jnp.concatenate([jnp.zeros(1), jnp.cumsum(midpoints) * dt])
 
 
-def create_time_integral_matrix(cumsum_values: jnp.ndarray) -> jnp.ndarray:
-    """Build N×N integral matrix from cumulative sums (NLSQ meshgrid path).
+def create_signed_integral_matrix(cumsum_values: jnp.ndarray) -> jnp.ndarray:
+    """Build N×N **signed** integral matrix from cumulative sums (NLSQ path).
 
     M[i,j] = cumsum[j] - cumsum[i]  (signed difference).
+
+    NOTE: This is deliberately NOT the same function as
+    ``physics_utils.create_time_integral_matrix``. The homodyne version takes a
+    *rate* array, integrates it internally, and returns a smooth-abs'd matrix
+    with a zeroed diagonal. This one takes an already-integrated *cumsum* and
+    returns a raw signed difference. The two shared a name historically, which
+    let a homodyne-contract caller silently receive signed (wrong-sign) decay
+    values — hence the rename.
 
     For transport integrals, call ``smooth_abs`` on the result to get
     direction-independent decay.  For velocity integrals, use the signed

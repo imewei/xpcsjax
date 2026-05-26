@@ -119,7 +119,7 @@ def handle_nlsq_result(
         pcov = np.asarray(result.get("pcov", np.eye(len(popt))))  # Identity if missing
         info = {
             "streaming_diagnostics": result.get("streaming_diagnostics", {}),
-            "success": result.get("success", True),
+            "success": result.get("success", False),
             "message": result.get("message", ""),
             "best_loss": result.get("best_loss", None),
             "final_epoch": result.get("final_epoch", None),
@@ -264,7 +264,7 @@ def execute_optimization_with_fallback(
                 )
                 recovery_actions = info.get("recovery_actions", [])
                 convergence_status = (
-                    "converged" if info.get("success", True) else "partial"
+                    "converged" if info.get("success", False) else "partial"
                 )
 
             elif enable_recovery:

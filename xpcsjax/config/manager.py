@@ -74,7 +74,14 @@ class ConfigManager:
             Override configuration data instead of loading from file
         """
         self.config_file = config_file
-        self.config: dict[str, Any] | None = None
+        # M-1: config is non-optional — always a dict after __init__ (load_config
+        # and the override path both guarantee it, and load_config coerces any
+        # non-mapping load to defaults). The vestigial ``| None`` and the
+        # ``if self.config is None`` guards it forced are gone. Annotated
+        # ``dict[str, Any]`` (not the closed ``XpcsConfig`` TypedDict) because
+        # update_config assigns dynamic dot-notation keys; ``XpcsConfig`` in
+        # config/types.py documents the schema for typed consumers.
+        self.config: dict[str, Any] = {}
 
         # Cache for ParameterManager to avoid repeated instantiation
         self._cached_param_manager: Any | None = None
@@ -115,6 +122,15 @@ class ConfigManager:
             # Determine file format and load accordingly
             file_extension = config_path.suffix.lower()
 
+            # A .yaml/.yml file requires PyYAML — fail clearly here rather than
+            # falling through to json.load and surfacing a confusing
+            # JSONDecodeError on valid YAML (M-5).
+            if file_extension in [".yaml", ".yml"] and not (HAS_YAML and yaml_module):
+                raise ImportError(
+                    f"PyYAML is required to load '{config_path}' (a {file_extension} "
+                    "file). Install it with `uv pip install pyyaml`."
+                )
+
             # Use 8KB buffering for improved I/O performance on large config files
             with open(config_path, buffering=8192, encoding="utf-8") as f:
                 if file_extension in [".yaml", ".yml"] and HAS_YAML and yaml_module:
@@ -135,16 +151,19 @@ class ConfigManager:
 
             logger.info(f"Configuration loaded from: {self.config_file}")
 
-            # Display version information if available
-            if self.config is None:
+            # M-1: guarantee config is always a mapping. An empty/null file
+            # parses to None; a scalar/list YAML parses to a non-dict. Both fall
+            # back to defaults so self.config is never None and never a
+            # non-mapping — the invariant that lets it be typed non-optional.
+            if not isinstance(self.config, dict):
                 logger.warning(
-                    "Configuration file '%s' is empty or null; using defaults",
+                    "Configuration file '%s' did not parse to a mapping; using defaults",
                     self.config_file,
                 )
                 self.config = self._get_default_config()
                 return
 
-            if isinstance(self.config, dict) and "metadata" in self.config:
+            if "metadata" in self.config:
                 version = self.config["metadata"].get("config_version", "Unknown")
                 logger.info(f"Configuration version: {version}")
 
@@ -228,8 +247,6 @@ class ConfigManager:
         Dict[str, Any]
             Current configuration dictionary
         """
-        if self.config is None:
-            return {}
         return self.config
 
     def update_config(self, key: str, value: Any) -> None:
@@ -242,9 +259,6 @@ class ConfigManager:
         value : Any
             New value to set
         """
-        if self.config is None:
-            self.config = {}
-
         keys = key.split(".")
         config_ref = self.config
 
@@ -315,31 +329,34 @@ class ConfigManager:
         """
         if self._cached_param_manager is None:
             from xpcsjax.config.parameter_manager import ParameterManager
+            from xpcsjax.config.parameter_registry import AnalysisMode
 
             # Determine analysis mode (Task 28: include two_component branch).
             # Order: explicit two_component → static (via is_static_mode_enabled)
-            # → laminar_flow fallback.
+            # → laminar_flow fallback. Use AnalysisMode members (not raw strings)
+            # so the value typechecks at the ParameterManager boundary.
             raw_mode = ""
             if self.config:
                 cfg_mode = self.config.get("analysis_mode", "")
                 if isinstance(cfg_mode, str):
                     raw_mode = cfg_mode.lower()
 
+            analysis_mode: AnalysisMode
             if (
                 "two_component" in raw_mode
                 or "two-component" in raw_mode
                 or "heterodyne" in raw_mode
             ):
-                analysis_mode = "two_component"
+                analysis_mode = AnalysisMode.TWO_COMPONENT
             elif self.is_static_mode_enabled():
                 # Preserve isotropic/anisotropic distinction if specified;
                 # otherwise default to the angular-resolved variant.
                 if "isotropic" in raw_mode and "anisotropic" not in raw_mode:
-                    analysis_mode = "static_isotropic"
+                    analysis_mode = AnalysisMode.STATIC_ISOTROPIC
                 else:
-                    analysis_mode = "static_anisotropic"
+                    analysis_mode = AnalysisMode.STATIC_ANISOTROPIC
             else:
-                analysis_mode = "laminar_flow"
+                analysis_mode = AnalysisMode.LAMINAR_FLOW
 
             # Create and cache ParameterManager
             self._cached_param_manager = ParameterManager(self.config, analysis_mode)
@@ -929,21 +946,22 @@ class ConfigManager:
         ``static_isotropic`` and ``static_anisotropic`` and must be made
         explicit at the config layer.
         """
-        if self.config is None or "analysis_mode" not in self.config:
+        if "analysis_mode" not in self.config:
             return
 
         mode = self.config["analysis_mode"]
         if not isinstance(mode, str):
             return
 
+        from xpcsjax.config.parameter_registry import AnalysisMode
+
         original_mode = mode
-        normalized_mode = mode.lower()
 
         # Reject the legacy bare "static" value loudly at config-load time
         # rather than letting it fall through to a deeper ValueError at first
         # model dispatch. It was ambiguous between static_isotropic and
         # static_anisotropic and silently collapsed downstream pre-rename.
-        if normalized_mode == "static":
+        if mode.lower() == "static":
             raise ValueError(
                 "analysis_mode='static' is ambiguous and no longer accepted. "
                 "Use 'static_anisotropic' (angle-resolved; recommended drop-in "
@@ -951,13 +969,16 @@ class ConfigManager:
                 "(angle-collapsed) explicitly."
             )
 
-        # Heterodyne / two-component synonyms (Task 28)
-        if (
-            "two_component" in normalized_mode
-            or "two-component" in normalized_mode
-            or "heterodyne" in normalized_mode
-        ):
-            normalized_mode = "two_component"
+        # Canonicalize synonyms (e.g. 'heterodyne' -> 'two_component') via the
+        # single normalization authority (M-8). This method only normalizes;
+        # unknown/non-canonical values are left lowercased and deferred to the
+        # construction-time mode validation rather than raised here.
+        try:
+            normalized_mode = AnalysisMode.parse(
+                mode, allow_bare_static=False
+            ).value
+        except ValueError:
+            normalized_mode = mode.lower()
 
         if normalized_mode != original_mode:
             self.config["analysis_mode"] = normalized_mode
@@ -971,7 +992,7 @@ class ConfigManager:
         Warns if config version doesn't match package version, which may
         indicate incompatible configuration schema.
         """
-        if self.config is None or "metadata" not in self.config:
+        if "metadata" not in self.config:
             return
 
         config_version = self.config["metadata"].get("config_version")
@@ -1011,7 +1032,7 @@ class ConfigManager:
         The normalization adds the missing format while preserving
         the original fields for backward compatibility.
         """
-        if self.config is None or "experimental_data" not in self.config:
+        if "experimental_data" not in self.config:
             return
 
         from pathlib import Path

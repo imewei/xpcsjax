@@ -847,8 +847,17 @@ class NLSQAdapter(NLSQAdapterBase):
                 t2_all = xdata[:, 1]
                 phi_all = xdata[:, 2]
 
-                # Map phi values to indices (vectorized)
+                # Map phi values to indices (vectorized). Warn on out-of-grid
+                # phi: an unguarded clip would silently route those points to the
+                # boundary angle bin, mis-associating them in the residual.
                 phi_idx_all = np.searchsorted(phi_unique, phi_all)
+                n_phi_oob = int(np.sum(phi_idx_all >= len(phi_unique)))
+                if n_phi_oob > 0:
+                    logger.warning(
+                        "%d phi value(s) lie beyond the fitted angle grid; clipped "
+                        "to the boundary bin. Check data/config alignment.",
+                        n_phi_oob,
+                    )
                 phi_idx_all = np.clip(phi_idx_all, 0, len(phi_unique) - 1)
 
                 # Batch compute g1 using model
@@ -1013,7 +1022,7 @@ class NLSQAdapter(NLSQAdapterBase):
         reduced_chi_squared = chi_squared / dof
 
         # Convergence status
-        success = info.get("success", True)
+        success = info.get("success", False)
         convergence_status = "converged" if success else "failed"
         if info.get("status", 0) == 1:  # max iterations
             convergence_status = "max_iter"

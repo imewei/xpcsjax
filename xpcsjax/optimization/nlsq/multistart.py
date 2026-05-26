@@ -90,6 +90,10 @@ class MultiStartConfig:
     refine_top_k: int = 3
     refinement_ftol: float = 1e-12
     degeneracy_threshold: float = 0.1
+    # M-7: when every start fails, the "best" result is a failed one carrying
+    # initial-guess parameters. Callers that only check chi_squared (not
+    # .success) could silently proceed with it. Opt-in to a hard RuntimeError.
+    raise_on_total_failure: bool = False
 
     @classmethod
     def from_nlsq_config(cls, nlsq_config: Any) -> MultiStartConfig:
@@ -1010,6 +1014,12 @@ def run_multistart_nlsq(
             logger.error(f"  Start {r.start_idx}: {r.message}")
         if len(failed) > 5:
             logger.error(f"  ... and {len(failed) - 5} more failures")
+
+        if config.raise_on_total_failure:
+            raise RuntimeError(
+                f"All {len(results)} multi-start optimizations failed; no "
+                "converged result is available (raise_on_total_failure=True)."
+            )
 
         best = (
             results[0]
