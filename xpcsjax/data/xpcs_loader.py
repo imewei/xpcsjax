@@ -182,6 +182,16 @@ except ImportError:
 
 logger = get_logger(__name__)
 
+# HDF5 chunk-cache tuning for the two production format loaders.
+# APS correlation matrices are (n_t, n_t) float64.  At worst-case n_t=1000
+# each matrix is 8 MB; we size the cache to hold ~12 matrices comfortably.
+# rdcc_nslots must be a prime roughly 100× the number of cached chunks.
+_HDF5_RDCC_N_MATRICES: int = 12
+_HDF5_RDCC_MATRIX_BYTES: int = 1000 * 1000 * 8  # float64, n_t=1000 worst-case
+_HDF5_RDCC_NBYTES: int = _HDF5_RDCC_N_MATRICES * _HDF5_RDCC_MATRIX_BYTES  # 96 MB
+_HDF5_RDCC_NSLOTS: int = 6257   # prime; ≥ 100 × _HDF5_RDCC_N_MATRICES
+_HDF5_RDCC_W0: float = 0.75     # prefer evicting chunks not likely to be re-read
+
 # Regex to detect old str.format()-style placeholders: {var} or {var:.4f}
 _OLD_FORMAT_RE = re.compile(r"\{(\w+)(?::[^}]*)?\}")
 
@@ -578,14 +588,18 @@ class XPCSDataLoader:
         if output_format == "jax" and HAS_JAX and jax_available:
             logger.debug("Converting arrays to JAX format")
             return {
-                k: jnp.asarray(v, dtype=jnp.float64) if isinstance(v, np.ndarray) else v
+                k: jnp.asarray(np.ascontiguousarray(v), dtype=jnp.float64)
+                if isinstance(v, np.ndarray)
+                else v
                 for k, v in data.items()
             }
 
         elif output_format == "auto" and HAS_JAX and jax_available:
             logger.debug("Auto-selecting JAX format (available)")
             return {
-                k: jnp.asarray(v, dtype=jnp.float64) if isinstance(v, np.ndarray) else v
+                k: jnp.asarray(np.ascontiguousarray(v), dtype=jnp.float64)
+                if isinstance(v, np.ndarray)
+                else v
                 for k, v in data.items()
             }
 
@@ -901,7 +915,13 @@ class XPCSDataLoader:
         This reduces I/O by up to 98% for typical datasets where only ~23 of
         ~1150 matrices are actually used.
         """
-        with h5py.File(hdf_path, "r") as f:
+        with h5py.File(
+            hdf_path,
+            "r",
+            rdcc_nbytes=_HDF5_RDCC_NBYTES,
+            rdcc_nslots=_HDF5_RDCC_NSLOTS,
+            rdcc_w0=_HDF5_RDCC_W0,
+        ) as f:
             # Load q and phi lists (small metadata - always needed)
             dqlist = f["xpcs/dqlist"][0, :]  # Shape (1, N) -> (N,)
             dphilist = f["xpcs/dphilist"][0, :]  # Shape (1, N) -> (N,)
@@ -1027,22 +1047,42 @@ class XPCSDataLoader:
                         f"No phi filtering - using all {len(final_indices)} (q,phi) pairs",
                     )
 
-                # Selective load: only read the matrices we need
+                # Selective load: only read the matrices we need.
+                # C1 perf: pre-allocate a single C-order output buffer and write
+                # each reconstructed matrix directly, eliminating the Python-list
+                # accumulation + np.array() re-stack copy (~30-50% peak-RSS saving).
                 logger.info(
                     f"Selective HDF5 read: loading {len(final_indices)} of {len(c2_keys)} matrices "
                     f"({len(final_indices) / len(c2_keys) * 100:.1f}% I/O)"
                 )
-                selected_c2_matrices = []
-                for idx in final_indices:
+                n_sel = len(final_indices)
+                # Read first matrix to get the time-axis dimension without storing it.
+                # Preserve the source dtype (do NOT force float64): _reconstruct_full_matrix
+                # did the c2_half + c2_half.T arithmetic in the stored dtype, and parity is
+                # bit-exact — upcasting here would change the reconstructed bits.
+                _probe_half = c2t_group[c2_keys[int(final_indices[0])]][()]
+                _n_t = _probe_half.shape[0]
+                c2_matrices_array = np.empty((n_sel, _n_t, _n_t), dtype=_probe_half.dtype, order="C")
+                # Write the already-read probe matrix into slot 0 (exact same arithmetic
+                # as _reconstruct_full_matrix: c2_half + c2_half.T, diagonal /= 2).
+                c2_matrices_array[0] = _probe_half + _probe_half.T
+                _diag_idx = np.diag_indices(_n_t)
+                c2_matrices_array[0][_diag_idx] /= 2
+                del _probe_half
+                # Load remaining matrices directly into pre-allocated slots.
+                for _out_i, idx in enumerate(final_indices[1:], start=1):
                     key = c2_keys[int(idx)]
-                    c2_half = c2t_group[key][()]
-                    c2_full = self._reconstruct_full_matrix(c2_half)
-                    selected_c2_matrices.append(c2_full)
+                    _c2_half = c2t_group[key][()]
+                    c2_matrices_array[_out_i] = _c2_half + _c2_half.T
+                    c2_matrices_array[_out_i][_diag_idx] /= 2
 
             # Extract metadata for final indices
             filtered_dqlist = dqlist[final_indices]
             filtered_dphilist = dphilist[final_indices]
-            c2_matrices_array = np.array(selected_c2_matrices)
+            # c2_matrices_array already built (pre-allocated in no-quality-filter path;
+            # stacked from candidate_matrices list in the quality-filter path below)
+            if quality_filtering_enabled:
+                c2_matrices_array = np.array(selected_c2_matrices)
 
             # Apply frame slicing to selected q-vector data
             logger.debug(
@@ -1064,7 +1104,13 @@ class XPCSDataLoader:
     @log_performance(threshold=0.8)
     def _load_aps_u_format(self, hdf_path: str) -> dict[str, Any]:
         """Load data from APS-U new format HDF5 file using processed_bins mapping."""
-        with h5py.File(hdf_path, "r") as f:
+        with h5py.File(
+            hdf_path,
+            "r",
+            rdcc_nbytes=_HDF5_RDCC_NBYTES,
+            rdcc_nslots=_HDF5_RDCC_NSLOTS,
+            rdcc_w0=_HDF5_RDCC_W0,
+        ) as f:
             # Load the processed_bins mapping - this tells us which (q,phi) pairs have correlation data
             processed_bins = f["xpcs/twotime/processed_bins"][()]
 
@@ -1210,12 +1256,30 @@ class XPCSDataLoader:
             # Use final indices for both (q,phi) pairs and correlation matrices
             final_dqlist = filtered_dqlist[final_indices]
             final_dphilist = filtered_dphilist[final_indices]
-            c2_matrices = [c2_matrices_for_filtering[i] for i in final_indices]
 
-            logger.debug(f"Final selection: {len(c2_matrices)} correlation matrices")
+            logger.debug(f"Final selection: {len(final_indices)} correlation matrices")
 
-            # Convert to numpy array for frame slicing
-            c2_matrices_array = np.array(c2_matrices)
+            # C1 perf: pre-allocate a single C-order output buffer and write each
+            # selected matrix directly, eliminating the Python-list + np.array() re-stack
+            # copy (~30-50% peak-RSS saving at 23M-point scale).
+            _n_sel_u = len(final_indices)
+            if _n_sel_u == 0:
+                # Fallback already handled above (final_indices = [0]); guard here for safety.
+                c2_matrices_array = np.empty((0,), dtype=np.float64)
+            else:
+                # Preserve source dtype (original was np.array(c2_matrices)); forcing
+                # float64 here would change reconstructed bits vs the parity baseline.
+                _first_mat = np.asarray(c2_matrices_for_filtering[int(final_indices[0])])
+                _n_t_u = _first_mat.shape[0]
+                c2_matrices_array = np.empty(
+                    (_n_sel_u, _n_t_u, _n_t_u), dtype=_first_mat.dtype, order="C"
+                )
+                c2_matrices_array[0] = _first_mat
+                del _first_mat
+                for _out_j, _sel_i in enumerate(final_indices[1:], start=1):
+                    c2_matrices_array[_out_j] = np.asarray(
+                        c2_matrices_for_filtering[int(_sel_i)]
+                    )
 
             # Apply frame slicing to the selected q-vector data
             c2_exp = self._apply_frame_slicing_to_selected_q(c2_matrices_array)
