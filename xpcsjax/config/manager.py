@@ -814,6 +814,7 @@ class ConfigManager:
             "two_component",
             "heterodyne",  # accepted raw; _normalize rewrites to "two_component"
             "two-component",  # accepted raw; _normalize rewrites to "two_component"
+            "static",  # accepted raw (deprecated); _normalize rewrites to "static_anisotropic"
         ]
         mode = self.config.get("analysis_mode", "")
         if mode and mode not in valid_modes:
@@ -942,9 +943,12 @@ class ConfigManager:
         - "LAMINAR_FLOW", "Laminar_Flow" → "laminar_flow"
         - "HETERODYNE", "Heterodyne", "two-component" → "two_component"
 
-        Bare "static" is intentionally not accepted: it is ambiguous between
-        ``static_isotropic`` and ``static_anisotropic`` and must be made
-        explicit at the config layer.
+        Bare "static" is accepted as a deprecated alias for
+        ``static_anisotropic`` — the angle-resolved drop-in for legacy
+        ``"static"`` configs, matching the canonical mapping in
+        :meth:`AnalysisMode.parse` (``allow_bare_static=True``). A deprecation
+        warning nudges users to choose explicitly; truly unknown modes are
+        left as-is and deferred to construction-time validation.
         """
         if "analysis_mode" not in self.config:
             return
@@ -957,25 +961,25 @@ class ConfigManager:
 
         original_mode = mode
 
-        # Reject the legacy bare "static" value loudly at config-load time
-        # rather than letting it fall through to a deeper ValueError at first
-        # model dispatch. It was ambiguous between static_isotropic and
-        # static_anisotropic and silently collapsed downstream pre-rename.
+        # Bare legacy "static" is a deprecated alias for "static_anisotropic".
+        # Warn (don't hard-fail): homodyne configs and the characterization
+        # parity oracle legitimately use bare "static", and the registry's
+        # single normalization authority already canonicalizes it that way.
         if mode.lower() == "static":
-            raise ValueError(
-                "analysis_mode='static' is ambiguous and no longer accepted. "
-                "Use 'static_anisotropic' (angle-resolved; recommended drop-in "
-                "for legacy 'static' configs) or 'static_isotropic' "
-                "(angle-collapsed) explicitly."
+            logger.warning(
+                "analysis_mode='static' is deprecated; mapping to "
+                "'static_anisotropic' (angle-resolved drop-in). Set "
+                "'static_anisotropic' or 'static_isotropic' explicitly to "
+                "silence this warning."
             )
 
-        # Canonicalize synonyms (e.g. 'heterodyne' -> 'two_component') via the
-        # single normalization authority (M-8). This method only normalizes;
-        # unknown/non-canonical values are left lowercased and deferred to the
+        # Canonicalize synonyms (e.g. 'heterodyne' -> 'two_component', bare
+        # 'static' -> 'static_anisotropic') via the single normalization
+        # authority (M-8). Unknown values are lowercased and deferred to
         # construction-time mode validation rather than raised here.
         try:
             normalized_mode = AnalysisMode.parse(
-                mode, allow_bare_static=False
+                mode, allow_bare_static=True
             ).value
         except ValueError:
             normalized_mode = mode.lower()
