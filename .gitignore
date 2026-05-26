@@ -90,6 +90,9 @@ coverage.xml
 .pytest_cache/
 cover/
 .benchmarks/
+# Root-level perf-benchmark scratch (e.g. bench_*.py, baseline.json). Anchored
+# with a leading slash so the committed tests/benchmarks/ suite stays tracked.
+/benchmarks/
 test_report*/
 test_reports/
 test-results.xml
