@@ -566,7 +566,12 @@ optimization:
         consecutive_triggers: 5
         response: "hierarchical"        # "warn" | "hierarchical" | "reset" | "abort"
 
-      # NOTE: L5 shear_weighting is HOMODYNE-ONLY by design.
+      # NOTE: L5 shear_weighting is gated to laminar_flow ONLY (see
+      # _LAYER_GATES in anti_degeneracy_controller.py). It is hard-blocked for
+      # two_component — heterodyne's velocity/flow term (v0, v_offset, phi0_het)
+      # is structurally different from laminar_flow's shear rate, so the
+      # |cos(phi0-phi)| weighting does not transfer. Even setting
+      # shear_weighting.enable here has no effect.
       # See docs/source/theory/heterodyne_anti_degeneracy.rst.
 
     # ----------------------------------------------------------------------

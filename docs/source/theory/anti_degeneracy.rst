@@ -267,14 +267,26 @@ the gradient cancellation symmetry and produces a net signal on
 
 .. note::
 
-   Layer 5 is **homodyne-specific**: it only activates for the
-   ``static``, ``static_isotropic``, and ``laminar_flow`` modes, where a
-   shear rate appears in the kernel. For the heterodyne ``two_component``
-   mode the layer short-circuits because there is no shear-rate parameter
-   to weight; the analogous physics is carried by the velocity-encoding
-   cosine in :eq:`het_Anm`. The layer gating is declared in
-   ``_LAYER_GATES`` inside
-   :mod:`xpcsjax.optimization.nlsq.anti_degeneracy_controller`.
+   Layer 5 is **gated to** ``laminar_flow`` **only**. The
+   :math:`|\cos(\phi - \phi_0)|` weighting is derived from the laminar shear
+   gradient :math:`\partial g_1 / \partial \dot{\gamma}_0 \propto
+   \cos(\phi - \phi_0)`, so it is meaningful only where a shear rate appears
+   in the kernel:
+
+   * ``static_isotropic`` / ``static_anisotropic`` --- no flow direction and
+     no shear-sensitivity peak, so L5 is gated off (the static degeneracy is
+     handled structurally by Layers 1--4).
+   * ``two_component`` (heterodyne) --- has its **own** velocity/flow term
+     (:math:`v_0`, :math:`v_\mathrm{offset}`, :math:`\phi_{0,\mathrm{het}}`),
+     but it is *structurally different* from laminar_flow's shear rate, so the
+     laminar weighting does not transfer; the angular information is already
+     well distributed across :math:`\phi`.
+
+   The gating is declared in ``_LAYER_GATES`` inside
+   :mod:`xpcsjax.optimization.nlsq.anti_degeneracy_controller`. Note that
+   ``is_layer_active()`` returns ``True`` for every layer when
+   ``analysis_mode`` is ``None`` (the homodyne characterisation gate's path),
+   so the gating does not affect the ``rtol=1e-10`` parity baselines.
 
 Layer-by-layer coverage by optimisation path
 --------------------------------------------
@@ -317,6 +329,113 @@ apply. Layer 1 (parameter-space reduction) is, however, essential for
 CMA-ES too --- it reduces the search dimension from :math:`53` to
 :math:`9` for a 23-angle laminar-flow fit and is the difference between a
 tractable and an intractable global search.
+
+Layer activation by analysis mode
+---------------------------------
+
+Only Layer 5 is gated by ``analysis_mode``; Layers 1--4 are available in every
+mode (their *effect* still depends on configuration and per-angle mode). The
+following table shows which layers a mode can run (the hard gate), independent
+of the config-level enable flags:
+
+.. list-table:: Layer availability by analysis mode (the gate)
+   :header-rows: 1
+   :widths: 28 12 12 12 12 12
+
+   * - Mode
+     - L1
+     - L2
+     - L3
+     - L4
+     - L5
+   * - ``static_isotropic``
+     - yes
+     - yes
+     - yes
+     - yes
+     - **no**
+   * - ``static_anisotropic``
+     - yes
+     - yes
+     - yes
+     - yes
+     - **no**
+   * - ``laminar_flow``
+     - yes
+     - yes
+     - yes
+     - yes
+     - **yes**
+   * - ``two_component``
+     - yes
+     - yes
+     - yes
+     - yes
+     - **no**
+
+Recommended per-mode setup (template defaults)
+----------------------------------------------
+
+The four shipped templates under ``xpcsjax/config/templates/`` carry the
+maintainer-tuned defaults below. They optimise for **fit robustness**; the
+``two_component`` defaults in particular run an extra full solve (L2) and can
+be relaxed when wall-time matters and the fit is well behaved.
+
+.. list-table:: Recommended anti-degeneracy configuration per mode
+   :header-rows: 1
+   :widths: 18 16 13 13 18 13
+
+   * - Mode
+     - ``per_angle_mode``
+     - L2
+     - L3
+     - L4 response
+     - L5
+   * - ``static_isotropic``
+     - ``constant`` (fixed)
+     - off
+     - off
+     - ``warn``
+     - n/a
+   * - ``static_anisotropic``
+     - ``auto``
+     - off
+     - off
+     - ``warn``
+     - n/a
+   * - ``laminar_flow``
+     - ``auto``
+     - **on**
+     - off
+     - ``hierarchical``
+     - **on**
+   * - ``two_component``
+     - ``auto``
+     - **on**
+     - off
+     - ``hierarchical``
+     - n/a
+
+Notes on the recommendations:
+
+* **L1** is always the primary defense. For ``static_isotropic`` it is the
+  *only* one that matters (``per_angle_mode: "constant"`` freezes scaling; the
+  3-parameter problem is unimodal).
+* **L2 and L4 are coupled.** ``response: "hierarchical"`` only does something
+  if L2 is enabled to escalate into --- hence ``laminar_flow`` and
+  ``two_component`` pair them, while the static modes pair ``warn`` with L2
+  off.
+* **L2 is mandatory for L5.** In ``laminar_flow`` the alternating
+  frozen-scaling / frozen-physics solve breaks the absorption coupling so the
+  shear weighting can take effect; the template flags ``hierarchical.enable``
+  as *critical*.
+* **L3 is inert in** ``auto``-**averaged mode.** With a single shared
+  ``(contrast, offset)`` pair there is only one scaling group, so the
+  cross-group CV penalty is identically zero. L3 only bites once there are
+  :math:`\geq 2` groups (``fourier`` / ``individual``).
+* **CMA-ES** (a separate escape path, not a layer) is rarely needed for static
+  modes, often needed for ``laminar_flow``, and routinely engaged for
+  ``two_component`` (14-D, wide parameter scales).
 
 Configuration
 -------------

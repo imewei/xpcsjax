@@ -459,7 +459,8 @@ optimization:
     #   1. Structural Degeneracy: per-angle (contrast, offset) can absorb
     #      physical-parameter signals if naively fit jointly (worse with N_phi)
     #   2. Gradient Cancellation: only in laminar_flow — shear gradient
-    #      changes sign across angles (handled by L5, off for static)
+    #      changes sign across angles (handled by L5, which is hard-gated to
+    #      laminar_flow only; there is no shear gradient to cancel for static)
     #   3. Ineffective Regularization: previously λ was too weak (now CV-based)
     #
     # PER-ANGLE MODE — controls how (contrast, offset) varies with angle:
@@ -477,8 +478,11 @@ optimization:
     #   fourier:    13 params (3 physical + 10 Fourier coeffs)
     #   individual: 23 params (3 physical + 20 per-angle scaling)
     #
-    # For static_anisotropic the default 4-layer defense is sufficient.
-    # L5 shear-weighting is laminar_flow-only and has no block here.
+    # For static_anisotropic the default defense (L1 + L4, with L2/L3 optional)
+    # is sufficient. L5 shear-weighting is hard-gated to laminar_flow ONLY
+    # (see _LAYER_GATES in anti_degeneracy_controller.py): static modes have no
+    # flow direction / shear peak, so L5 is blocked here exactly as it is for
+    # two_component. Setting shear_weighting.enable in a static config has no effect.
     anti_degeneracy:
       enable: true
 

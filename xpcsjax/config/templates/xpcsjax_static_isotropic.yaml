@@ -282,7 +282,9 @@ optimization:
     # Parameter count (isotropic, any n_phi):
     #   constant:  3 params  (3 physical only — scaling FROZEN per-angle)
     #
-    # Hierarchical / shear_weighting are not applicable here (no shear).
+    # Hierarchical is unnecessary here (constant scaling is frozen). L5
+    # shear_weighting is hard-gated to laminar_flow ONLY (see _LAYER_GATES in
+    # anti_degeneracy_controller.py) — blocked for static modes, no flow/shear.
     anti_degeneracy:
       enable: true
 

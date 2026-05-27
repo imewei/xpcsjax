@@ -1,4 +1,12 @@
 {
+  "/home/wei/Documents/GitHub/xpcsjax/docs/_build/_static/scripts/furo.js": {
+    "mtime": 1778215553.1038508,
+    "hash": "8115f36b8bd7402803751e8cd4055891"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/docs/_build/_static/scripts/furo-extensions.js": {
+    "mtime": 1778215553.0198512,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/conf.py": {
     "mtime": 1779238835.630476,
     "hash": "a47163357542b306fb3219c8515c186e"
@@ -128,8 +136,8 @@
     "hash": "997f72663f1c6ccb6a842f318f229138"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_layer5_gating.py": {
-    "mtime": 1779559896.2599955,
-    "hash": "8b14c3a62d08940a9594dc1b4a426023"
+    "mtime": 1779901361.1251848,
+    "hash": "a9fe1a715c6520fdadb8fb434eb72925"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_hierarchical.py": {
     "mtime": 1779696334.3206186,
@@ -536,8 +544,8 @@
     "hash": "378058137312e068dc70dfa4124bc39d"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/anti_degeneracy_controller.py": {
-    "mtime": 1779734180.4857068,
-    "hash": "ca5a9b546138626a5497060fdbae593c"
+    "mtime": 1779901593.5064497,
+    "hash": "342834db06fd2b9e17f1eb23c836ccf8"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/config.py": {
     "mtime": 1779410493.2508528,
@@ -955,6 +963,10 @@
     "mtime": 1779837861.376983,
     "hash": "53f3cdb31367a4b120eddfc5182df394"
   },
+  "/home/wei/Documents/GitHub/xpcsjax/docs/_build/_static/scripts/furo.js.LICENSE.txt": {
+    "mtime": 1778215553.1038508,
+    "hash": "7bbc9f9fc90fbe3bd69de1b43bc8a6be"
+  },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/quickstart.rst": {
     "mtime": 1779237474.1044652,
     "hash": "9fb7b88732159771c0d36da3bb8c12a9"
@@ -1152,8 +1164,8 @@
     "hash": "93ea95de232bd8158b4d0726c0d3cc67"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/theory/anti_degeneracy.rst": {
-    "mtime": 1779237474.1074653,
-    "hash": "92386524578a4501ba2ad80186c015ee"
+    "mtime": 1779902869.3920605,
+    "hash": "8d7438f289d2e00f92d1268c150de73b"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/theory/transport_coefficient.rst": {
     "mtime": 1779236371.284029,
@@ -1164,8 +1176,8 @@
     "hash": "082a8629b6c604f00b83297bea4b370a"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/theory/heterodyne_anti_degeneracy.rst": {
-    "mtime": 1779298922.2669196,
-    "hash": "c518ae72fe8b0f6be70ca0fa88ce0ae7"
+    "mtime": 1779901635.2856426,
+    "hash": "7953fc168205d2869e9a0ad6c871063a"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/theory/index.rst": {
     "mtime": 1779286310.7370994,
@@ -1176,20 +1188,20 @@
     "hash": "c8a27eb7925329069222f00034e301fa"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/templates/xpcsjax_static_isotropic.yaml": {
-    "mtime": 1779600353.7427917,
-    "hash": "564a65e9091e1b0b9be5f7bbb96d2aa8"
+    "mtime": 1779902817.713226,
+    "hash": "96cd656550601f1110c5e4d2d49ef241"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/templates/xpcsjax_laminar_flow.yaml": {
     "mtime": 1779600353.8787906,
     "hash": "d5ebec8bf4816c2b4be2ca93e09387dc"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/templates/xpcsjax_two_component.yaml": {
-    "mtime": 1779837831.4873238,
-    "hash": "afa422b8d69317017036413d1ba3553b"
+    "mtime": 1779902754.9134445,
+    "hash": "3fed47f55ed2d8b2407c314700731af1"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/templates/xpcsjax_static_anisotropic.yaml": {
-    "mtime": 1779588574.9281805,
-    "hash": "1f306e314efea9669b7f90e9cfdd1d0e"
+    "mtime": 1779902793.9303064,
+    "hash": "9ce16c5f8c4a38c3cec496e66a3d62c1"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/theory/citations.rst": {
     "mtime": 1779237286.5874834,
