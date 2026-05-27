@@ -14,7 +14,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from xpcsjax.optimization.nlsq.multistart import MultiStartConfig
+import numpy as np
+
+from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
+from xpcsjax.optimization.nlsq.multistart import (
+    MultiStartConfig,
+    SingleStartResult,
+    run_multistart_nlsq,
+)
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -45,3 +52,87 @@ def build_multistart_config(ms_dict: dict[str, Any]) -> MultiStartConfig:
         refinement_ftol=float(ms_dict.get("refinement_ftol", 1e-12)),
         degeneracy_threshold=float(ms_dict.get("degeneracy_threshold", 0.1)),
     )
+
+
+def fit_nlsq_multistart_heterodyne(model, c2, phi, nlsq_cfg, weights, ms_cfg):
+    """Run joint multi-phi multistart, then re-fit once from the best start.
+
+    Each Latin-Hypercube start sets the model's varying physics initial values
+    and re-runs ``fit_nlsq_multi_phi``. The winning start is re-fit once to
+    produce the authoritative heterodyne ``OptimizationResult``.
+    """
+    pm = model.param_manager
+    varying_names = list(pm.varying_names)
+    lower, upper = pm.get_bounds()
+    bounds = np.column_stack([np.asarray(lower), np.asarray(upper)])
+
+    c2 = np.asarray(c2)
+    phi = np.asarray(phi)
+    data = {"c2_exp": c2, "phi_angles_list": phi}
+
+    def _single_fit(_data, start_params):
+        import time
+
+        t0 = time.perf_counter()
+        start_params = np.asarray(start_params, dtype=np.float64)
+        try:
+            pm.update_values(
+                {name: float(v) for name, v in zip(varying_names, start_params, strict=True)}
+            )
+            res = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
+            return SingleStartResult(
+                start_idx=0,
+                initial_params=start_params,
+                final_params=np.asarray(res.parameters, dtype=np.float64),
+                chi_squared=float(res.chi_squared),
+                reduced_chi_squared=float(getattr(res, "reduced_chi_squared", res.chi_squared)),
+                success=bool(getattr(res, "success", True)),
+                message=str(getattr(res, "message", "")),
+                wall_time=time.perf_counter() - t0,
+            )
+        except (ValueError, RuntimeError, TypeError, FloatingPointError) as exc:
+            return SingleStartResult(
+                start_idx=0,
+                initial_params=start_params,
+                final_params=start_params,
+                chi_squared=float("inf"),
+                success=False,
+                message=str(exc),
+                wall_time=time.perf_counter() - t0,
+            )
+
+    def _cost_func(params):
+        params = np.asarray(params, dtype=np.float64)
+        if np.any(params <= lower) or np.any(params >= upper):
+            return 1e20
+        center = (lower + upper) / 2.0
+        scale = upper - lower
+        return float(np.sum(((params - center) / scale) ** 2))
+
+    custom_starts = [pm.get_initial_values().astype(float).tolist()]
+
+    logger.info("Heterodyne joint multistart: %d starts (sequential)", ms_cfg.n_starts)
+    ms_result = run_multistart_nlsq(
+        data=data,
+        bounds=bounds,
+        config=ms_cfg,
+        single_fit_func=_single_fit,
+        cost_func=_cost_func if ms_cfg.use_screening else None,
+        custom_starts=custom_starts,
+    )
+
+    best_start = np.asarray(ms_result.best.initial_params, dtype=np.float64)
+    pm.update_values(
+        {name: float(v) for name, v in zip(varying_names, best_start, strict=True)}
+    )
+    final = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
+
+    diagnostics = getattr(final, "nlsq_diagnostics", None)
+    if isinstance(diagnostics, dict):
+        diagnostics["multistart"] = {
+            "n_starts": ms_cfg.n_starts,
+            "best_start_idx": ms_result.best.start_idx,
+            "n_unique_basins": ms_result.n_unique_basins,
+            "degeneracy_detected": ms_result.degeneracy_detected,
+        }
+    return final
