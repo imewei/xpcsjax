@@ -598,6 +598,24 @@ def _fit_nlsq_heterodyne(
         # Build a numpy view of the trimmed time axis and re-attach.
         model.sync_time_axis(_np.arange(n_data, dtype=_np.float64))
 
+    # Multi-start dispatch (mirrors homodyne core.py:374-392). Reads the nested
+    # multi_start section; CMA-ES keeps precedence (it owns the enable_cmaes
+    # branch inside fit_nlsq_multi_phi).
+    ms_dict = nlsq_dict.get("multi_start", {}) if isinstance(nlsq_dict, dict) else {}
+    cmaes_on = bool(
+        nlsq_dict.get("cmaes", {}).get("enable", False)
+        if isinstance(nlsq_dict, dict)
+        else False
+    )
+    if isinstance(ms_dict, dict) and ms_dict.get("enable", False) and not cmaes_on:
+        from xpcsjax.optimization.nlsq.heterodyne_multistart import (
+            build_multistart_config,
+            fit_nlsq_multistart_heterodyne,
+        )
+
+        ms_cfg = build_multistart_config(ms_dict)
+        return fit_nlsq_multistart_heterodyne(model, c2, phi, nlsq_cfg, weights, ms_cfg)
+
     return fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
 
 

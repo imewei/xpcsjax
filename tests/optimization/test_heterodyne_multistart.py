@@ -1,6 +1,9 @@
 """Tests for heterodyne joint multistart wiring (Phase 1)."""
 from __future__ import annotations
 
+import sys
+import types
+
 import numpy as np
 
 import xpcsjax.optimization.nlsq.heterodyne_multistart as hm
@@ -130,3 +133,81 @@ def test_build_multistart_config_defaults_on_empty() -> None:
     assert cfg.n_starts == 10
     assert cfg.seed == 42
     assert cfg.n_workers == 1
+
+
+class _CfgMgr:
+    def __init__(self, cfg):
+        self.config = cfg
+
+
+def _install_model_stub(monkeypatch):
+    stub_model = _StubModel()
+    fake_model_mod = types.ModuleType("xpcsjax.core.heterodyne_model_stateful")
+
+    class _M:
+        @classmethod
+        def from_config(cls, _cfg):
+            return stub_model
+
+    stub_model.t = np.zeros(4)
+    stub_model.sync_time_axis = lambda _t: None
+    fake_model_mod.HeterodyneModel = _M
+    monkeypatch.setitem(sys.modules, "xpcsjax.core.heterodyne_model_stateful", fake_model_mod)
+    return stub_model
+
+
+def test_dispatch_routes_to_multistart_when_enabled(monkeypatch):
+    import xpcsjax.optimization.nlsq as nlsq_pkg
+
+    _install_model_stub(monkeypatch)
+    called = {}
+
+    def _fake_multistart(model, c2, phi, nlsq_cfg, weights, ms_cfg):
+        called["ms_cfg"] = ms_cfg
+        return _StubResult([1.0], 0.1)
+
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.heterodyne_multistart.fit_nlsq_multistart_heterodyne",
+        _fake_multistart,
+    )
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.heterodyne_core.fit_nlsq_multi_phi",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("joint path should not run")),
+    )
+
+    cfg = _CfgMgr({
+        "analysis_mode": "two_component",
+        "optimization": {"nlsq": {"multi_start": {"enable": True, "n_starts": 4}}},
+    })
+    data = {"c2_exp": np.ones((1, 4, 4)), "phi_angles_list": np.array([0.0])}
+
+    nlsq_pkg.fit_nlsq(data, cfg)
+    assert called["ms_cfg"].n_starts == 4
+
+
+def test_dispatch_cmaes_takes_precedence_over_multistart(monkeypatch):
+    import xpcsjax.optimization.nlsq as nlsq_pkg
+
+    _install_model_stub(monkeypatch)
+
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.heterodyne_multistart.fit_nlsq_multistart_heterodyne",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("multistart must not run when cmaes on")),
+    )
+    joint_called = {}
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.heterodyne_core.fit_nlsq_multi_phi",
+        lambda *a, **k: joint_called.setdefault("yes", True) or _StubResult([1.0], 0.1),
+    )
+
+    cfg = _CfgMgr({
+        "analysis_mode": "two_component",
+        "optimization": {"nlsq": {
+            "cmaes": {"enable": True},
+            "multi_start": {"enable": True},
+        }},
+    })
+    data = {"c2_exp": np.ones((1, 4, 4)), "phi_angles_list": np.array([0.0])}
+
+    nlsq_pkg.fit_nlsq(data, cfg)
+    assert joint_called.get("yes") is True
