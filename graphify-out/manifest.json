@@ -24,8 +24,8 @@
     "hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/test_logging.py": {
-    "mtime": 1779693389.4798107,
-    "hash": "b481a62fcc8e0ec0958a028fc2c87ea7"
+    "mtime": 1779923343.9455807,
+    "hash": "ff2161bc30508051a71852445d3d8214"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/benchmarks/__init__.py": {
     "mtime": 1779222390.1554546,
@@ -72,8 +72,8 @@
     "hash": "e42f07db9e59857267cf26860fccd7fd"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_heterodyne_config.py": {
-    "mtime": 1779698200.0872247,
-    "hash": "729c368795b76a83bea60bf935edec2e"
+    "mtime": 1779923621.761991,
+    "hash": "c86bf1748722f2fde36c9afa918ebb7b"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_quality_gate_fixes.py": {
     "mtime": 1779755957.261971,
@@ -448,8 +448,8 @@
     "hash": "94cd10d03b1c7159fa5cc95dc8a6a93e"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/utils/logging.py": {
-    "mtime": 1779734180.535707,
-    "hash": "a426560ad6bbb55106561e8289761f66"
+    "mtime": 1779923921.8058069,
+    "hash": "6f010f550ec51d5aa076b9a11e46b0b7"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/utils/__init__.py": {
     "mtime": 1779131468.7172408,
@@ -636,8 +636,8 @@
     "hash": "c1a200c29c1c2cdcfd08b28ee6a0c830"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/heterodyne_config.py": {
-    "mtime": 1779734180.500707,
-    "hash": "3f49ec5cd758743b32b1698a0c48ae90"
+    "mtime": 1779923606.9322662,
+    "hash": "4f93423727231ba2b7ff6115bd650b94"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/strategies/residual_jit.py": {
     "mtime": 1779134428.9898155,
@@ -792,8 +792,8 @@
     "hash": "225aae25aa6ceaabd2dbcc696880b0c7"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/cli/main.py": {
-    "mtime": 1779640087.2751484,
-    "hash": "c6f4c71ffa5f85cc3c0ea51734c9c416"
+    "mtime": 1779923293.955706,
+    "hash": "1610352bd76503151efd3bf3bdef437a"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/cli/data_pipeline.py": {
     "mtime": 1779855729.0074143,

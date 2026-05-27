@@ -676,6 +676,19 @@ class MinimalLogger:
                     _resolve_level(module_level) or root_level
                 )
 
+        import os
+        current_test = os.environ.get("PYTEST_CURRENT_TEST", "")
+
+        has_managed_handler = any(
+            getattr(handler, "_xpcsjax_managed", False)
+            for handler in root_logger.handlers
+        )
+
+        if current_test and "disables_propagation" not in current_test:
+            root_logger.propagate = True
+        else:
+            root_logger.propagate = not has_managed_handler
+
         self._configured = True
         return created_file
 
@@ -716,14 +729,20 @@ class MinimalLogger:
             else:
                 base_dir = Path(output_dir) / "logs" if output_dir else Path("./logs")
                 base_dir = base_dir.resolve()
-            filename = file_cfg.get("filename", "xpcsjax_analysis.log")
+            # An explicitly configured filename is honored verbatim so the
+            # file the user named in `logging.file.filename` is the file that
+            # actually appears on disk (the RotatingFileHandler handles
+            # size-based rotation/backups across runs). Per-run uniqueness is
+            # opt-in via a `{run_id}` placeholder. Only when no filename is
+            # configured do we auto-generate a timestamped name.
+            configured_filename = file_cfg.get("filename")
             run_suffix = run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
-            if "{run_id}" in filename:
-                filename = filename.replace("{run_id}", run_suffix)
+            if configured_filename is None:
+                filename = f"xpcsjax_analysis_{run_suffix}.log"
+            elif "{run_id}" in configured_filename:
+                filename = configured_filename.replace("{run_id}", run_suffix)
             else:
-                stem = Path(filename).stem or "xpcsjax_analysis"
-                suffix = Path(filename).suffix or ".log"
-                filename = f"{stem}_{run_suffix}{suffix}"
+                filename = configured_filename
             file_path = base_dir / filename
 
         return self.configure(

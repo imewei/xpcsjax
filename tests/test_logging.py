@@ -247,6 +247,23 @@ def test_configure_creates_rotating_file_handler(tmp_path: Path) -> None:
     assert logging.getLogger("somemod").level == logging.ERROR
 
 
+def test_configure_disables_propagation_when_handler_installed(tmp_path: Path) -> None:
+    # When xpcsjax owns a handler, propagation to the root logger must be off,
+    # so third-party root handlers (e.g. nlsq's import-time basicConfig) don't
+    # re-emit every xpcsjax record in the bare LEVEL:name:msg format.
+    mgr = lm.MinimalLogger()
+    mgr.configure(console_level="INFO", file_path=tmp_path / "p.log", force=True)
+    assert logging.getLogger("xpcsjax").propagate is False
+
+
+def test_configure_keeps_propagation_when_no_handler_installed() -> None:
+    # With no console level and no file, we install no handler — keep
+    # propagation so a library consumer relying on root logging still sees output.
+    mgr = lm.MinimalLogger()
+    mgr.configure(force=True)
+    assert logging.getLogger("xpcsjax").propagate is True
+
+
 def test_configure_plain_file_handler_when_no_rotation(tmp_path: Path) -> None:
     mgr = lm.MinimalLogger()
     mgr.configure(file_path=tmp_path / "b.log", file_level="DEBUG", max_size_mb=0, force=True)
@@ -311,6 +328,9 @@ def test_configure_from_dict_with_file_run_id(tmp_path: Path) -> None:
 
 
 def test_configure_from_dict_filename_without_run_id_placeholder(tmp_path: Path) -> None:
+    # An explicit filename with no {run_id} placeholder is honored verbatim,
+    # even when a run_id is available — so the file the user named in the
+    # config is the file that appears on disk.
     cfg = {
         "enabled": True,
         "console": {"enabled": True},
@@ -318,7 +338,19 @@ def test_configure_from_dict_filename_without_run_id_placeholder(tmp_path: Path)
     }
     out = lm._logger_manager.configure_from_dict(cfg, run_id="X1")
     assert out is not None
-    assert out.name == "analysis_X1.log"
+    assert out.name == "analysis.log"
+
+
+def test_configure_from_dict_filename_auto_generated(tmp_path: Path) -> None:
+    # With no filename configured, a unique timestamped name is generated.
+    cfg = {
+        "enabled": True,
+        "console": {"enabled": True},
+        "file": {"enabled": True, "path": str(tmp_path)},
+    }
+    out = lm._logger_manager.configure_from_dict(cfg, run_id="X1")
+    assert out is not None
+    assert out.name == "xpcsjax_analysis_X1.log"
 
 
 def test_configure_from_dict_quiet_and_verbose(tmp_path: Path) -> None:

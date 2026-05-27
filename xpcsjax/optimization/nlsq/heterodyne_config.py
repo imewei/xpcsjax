@@ -887,8 +887,27 @@ class NLSQConfig:
             "cmaes",
         }
 
+        # Canonical ``optimization.nlsq`` template sections that the heterodyne
+        # solver-config deliberately does not translate into solver scalars.
+        # They are owned by other layers — memory/strategy routing and the
+        # shared NLSQ config in ``config.py`` consume ``memory_fraction``,
+        # ``trust_region_scale``, ``hybrid_streaming``, ``quality_validation``,
+        # ``diagnostics`` and ``progress``; heterodyne multi-start is not yet
+        # wired (so ``multi_start`` is intentionally inert here). Listing them
+        # keeps the "unrecognised key" warning a genuine typo detector instead
+        # of firing for every documented template section on every run.
+        known_ignored_keys = {
+            "memory_fraction",
+            "trust_region_scale",
+            "progress",
+            "diagnostics",
+            "multi_start",
+            "hybrid_streaming",
+            "quality_validation",
+        }
+
         # Warn on unrecognised keys
-        all_known = set(known_scalar_fields) | nested_keys
+        all_known = set(known_scalar_fields) | nested_keys | known_ignored_keys
         for key in normalized_config:
             if key not in all_known:
                 logger.warning("NLSQConfig.from_dict: unrecognised key %r — ignoring", key)

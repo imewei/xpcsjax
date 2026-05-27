@@ -105,8 +105,14 @@ def main(argv: list[str] | None = None) -> int:
     from xpcsjax.cli.commands import dispatch_command
     from xpcsjax.utils.logging import configure_logging, get_logger, log_exception
 
+    # Bootstrap console logging before the config file is parsed, so early
+    # records (config loading) render in xpcsjax's format and stop propagating
+    # to the root logger. A bare ``logging_config=None`` short-circuits in
+    # configure_from_dict and would leave those records to nlsq's import-time
+    # root StreamHandler (bare ``LEVEL:name:msg``). dispatch_command later
+    # reconfigures from the config's ``logging:`` section (force=True).
     configure_logging(
-        logging_config=None,
+        logging_config={"enabled": True, "console": {"enabled": True}},
         verbose=bool(args.verbose),
         quiet=bool(args.quiet),
     )

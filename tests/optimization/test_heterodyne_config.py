@@ -199,6 +199,36 @@ def test_from_dict_cmaes_alias_keys() -> None:
     assert cfg.cmaes_population_size == 16  # 'popsize' alias
 
 
+def test_from_dict_known_ignored_sections_do_not_warn(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Canonical optimization.nlsq template sections the heterodyne adapter
+    # doesn't translate must not emit "unrecognised key" warnings — that noise
+    # fired on every two_component run and obscured genuine typos.
+    cfg_dict = {
+        "memory_fraction": 0.75,
+        "trust_region_scale": 1.0,
+        "progress": {"enable": True},
+        "diagnostics": {"enabled": False},
+        "multi_start": {"enable": False},
+        "hybrid_streaming": {"enable": True},
+        "quality_validation": {"enable": True},
+    }
+    with caplog.at_level("WARNING", logger="xpcsjax.optimization.nlsq.heterodyne_config"):
+        NLSQConfig.from_dict(cfg_dict)
+    assert not [r for r in caplog.records if "unrecognised key" in r.getMessage()]
+
+
+def test_from_dict_genuine_typo_still_warns(caplog: pytest.LogCaptureFixture) -> None:
+    # The warning must still catch real typos so users learn their key was dropped.
+    with caplog.at_level("WARNING", logger="xpcsjax.optimization.nlsq.heterodyne_config"):
+        NLSQConfig.from_dict({"max_iterationz": 500})
+    assert any(
+        "unrecognised key" in r.getMessage() and "max_iterationz" in r.getMessage()
+        for r in caplog.records
+    )
+
+
 def test_from_dict_nested_recovery_and_validation() -> None:
     cfg = NLSQConfig.from_dict(
         {
