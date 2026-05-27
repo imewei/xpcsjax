@@ -61,14 +61,17 @@ logger = get_logger(__name__)
 # Task 29: Layer-gating by analysis_mode (model lineage).
 # Map: layer class-name -> set of analysis_modes where it is ACTIVE.
 # A layer NOT listed here is active for all modes (default-active).
-# ShearSensitivityWeighting is homodyne-specific (laminar_flow has the shear rate
-# in its kernel; static_anisotropic / static_isotropic still belong to the homodyne
-# family and previously ran with this layer wired in). For heterodyne
-# (two_component) there is no shear rate to weight, so Layer 5 short-circuits.
+# ShearSensitivityWeighting (L5) is laminar_flow-specific: it up-weights data
+# near the flow direction phi0 to exploit laminar_flow's shear-sensitivity peak
+# (d g1_shear / d gamma_dot ~ cos(phi0 - phi)). This weighting scheme is tied to
+# laminar_flow's shear-rate (gamma_dot) kernel. The static modes
+# (static_anisotropic / static_isotropic) have no flow term at all. Heterodyne
+# (two_component) DOES have a velocity/flow term (v0, v_offset, phi0_het), but it
+# is structurally different from laminar_flow's shear rate, so the same weighting
+# does not transfer — its angular information is already well distributed across
+# phi. L5 is therefore active for laminar_flow ONLY.
 _LAYER_GATES: dict[str, frozenset[str]] = {
-    "ShearSensitivityWeighting": frozenset({
-        "static_anisotropic", "static_isotropic", "laminar_flow",
-    }),
+    "ShearSensitivityWeighting": frozenset({"laminar_flow"}),
 }
 
 

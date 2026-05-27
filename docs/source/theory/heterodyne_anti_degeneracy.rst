@@ -67,13 +67,20 @@ L4: Gradient collapse monitor
   future per-iteration implementation (host_callback or a custom solver
   wrapper). See the follow-up tracking item for the callback migration.
 
-L5: Shear-sensitivity weighting (NOT APPLICABLE to heterodyne)
-  Homodyne's L5 up-weights data near phi=0 to exploit the laminar-flow
-  shear-sensitivity peak. The heterodyne two-component model does not
-  exhibit this peak — the relative weight of the two components varies
-  with phi in a way that's already informative, so additional weighting
-  has no physics motivation. xpcsjax heterodyne deliberately omits L5;
-  see ``result.nlsq_diagnostics['shear_weighting'] == 'not_applicable_heterodyne'``
+L5: Shear-sensitivity weighting (laminar_flow ONLY)
+  L5 up-weights data near the flow direction phi0 to exploit *laminar_flow's*
+  shear-sensitivity peak (``d g1_shear / d gamma_dot ~ cos(phi0 - phi)``). It is
+  tied to laminar_flow's shear-rate (``gamma_dot``) kernel and is active for
+  ``laminar_flow`` only — the static modes have no flow term, so L5 is gated
+  off for them too (see ``_LAYER_GATES`` in ``anti_degeneracy_controller.py``).
+
+  The heterodyne two-component model has its OWN velocity/flow term
+  (``v0``, ``v_offset``, ``phi0_het``), but it is **structurally different** from
+  laminar_flow's shear rate, so laminar_flow's shear-sensitivity weighting does
+  not transfer: the relative weight of the two components already varies with
+  phi in an informative way, so an additional ``cos(phi0 - phi)`` weight has no
+  physics motivation. xpcsjax heterodyne therefore omits L5; see
+  ``result.nlsq_diagnostics['shear_weighting'] == 'not_applicable_heterodyne'``
   for the explicit marker.
 
   This is a structural decision, not a TODO.

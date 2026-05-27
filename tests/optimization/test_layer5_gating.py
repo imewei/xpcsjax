@@ -1,8 +1,11 @@
-"""ShearSensitivityWeighting (anti-degeneracy Layer 5) is gated by model lineage.
+"""ShearSensitivityWeighting (anti-degeneracy Layer 5) is gated by analysis mode.
 
-Per spec §10.3:
-- Homodyne modes (static / static_isotropic / laminar_flow) -> 5 layers active including Layer 5
-- Heterodyne mode (two_component) -> 4 layers; Layer 5 disabled (no shear rate to weight)
+L5 up-weights data near the flow direction phi0 to exploit the shear-sensitivity
+peak, which only exists when the kernel has a shear rate. So L5 is active for
+``laminar_flow`` ONLY:
+- ``laminar_flow`` -> Layer 5 active (has shear rate / flow direction)
+- ``static_isotropic`` / ``static_anisotropic`` -> Layer 5 disabled (no flow, no shear peak)
+- ``two_component`` (heterodyne) -> Layer 5 disabled (no shear rate to weight)
 """
 import numpy as np
 import pytest
@@ -25,12 +28,20 @@ def _make_controller(analysis_mode: str | None = None):
     )
 
 
-@pytest.mark.parametrize("homodyne_mode", ["static_anisotropic", "static_isotropic", "laminar_flow"])
-def test_shear_layer_active_for_homodyne(homodyne_mode):
-    """Layer 5 is active for every homodyne analysis_mode."""
-    controller = _make_controller(analysis_mode=homodyne_mode)
+def test_shear_layer_active_for_laminar_flow():
+    """Layer 5 is active ONLY for laminar_flow (the mode with a shear rate)."""
+    controller = _make_controller(analysis_mode="laminar_flow")
     assert controller.is_layer_active("ShearSensitivityWeighting") is True, (
-        f"Layer 5 must be active for homodyne mode {homodyne_mode!r}"
+        "Layer 5 must be active for laminar_flow (has flow direction / shear peak)"
+    )
+
+
+@pytest.mark.parametrize("static_mode", ["static_anisotropic", "static_isotropic"])
+def test_shear_layer_inactive_for_static(static_mode):
+    """Layer 5 is inactive for static modes — no flow direction, no shear peak."""
+    controller = _make_controller(analysis_mode=static_mode)
+    assert controller.is_layer_active("ShearSensitivityWeighting") is False, (
+        f"Layer 5 must be inactive for static mode {static_mode!r} (no shear to weight)"
     )
 
 

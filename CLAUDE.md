@@ -69,9 +69,9 @@ The 5 anti-degeneracy layers, in order:
 | L2 | Hierarchical Optimization | `hierarchical.py` | all |
 | L3 | Adaptive CV-based Regularization | `adaptive_regularization.py` | all |
 | L4 | Gradient Collapse Monitoring | `gradient_monitor.py` | all |
-| L5 | Shear-Sensitivity Weighting | `shear_weighting.py` | `static_anisotropic`, `static_isotropic`, `laminar_flow` |
+| L5 | Shear-Sensitivity Weighting | `shear_weighting.py` | `laminar_flow` only |
 
-Layer gating is declared in `_LAYER_GATES` at the top of `anti_degeneracy_controller.py`. Layers absent from that dict are default-active for all modes; only L5 is gated. `two_component` (heterodyne) has no shear rate in its kernel, so L5 short-circuits automatically.
+Layer gating is declared in `_LAYER_GATES` at the top of `anti_degeneracy_controller.py`. Layers absent from that dict are default-active for all modes; only L5 is gated. L5 up-weights data near the flow direction φ0 to exploit the shear-sensitivity peak, which exists only when the kernel has a shear rate — so L5 is active for `laminar_flow` **only**. The static modes (`static_anisotropic`, `static_isotropic`) have no flow direction and `two_component` (heterodyne) has no shear rate, so L5 short-circuits for all of them. Note `is_layer_active()` still returns `True` for every layer when `analysis_mode=None` (the homodyne characterization gate's path), so this gating does not affect the rtol=1e-10 parity baselines.
 
 ### Analysis modes and config templates
 
@@ -97,7 +97,9 @@ xpcsjax ships four mode-specific YAML templates under `xpcsjax/config/templates/
 HeterodyneModel is a public lazy export. Phase 6 brought it to full
 per-angle-mode parity with homodyne — see
 `docs/source/theory/heterodyne_anti_degeneracy.rst` for the 4-layer defense
-system (L5 shear-weighting is homodyne-only by design).
+system (L5 shear-weighting is `laminar_flow`-only by design — heterodyne has
+its own, structurally different velocity/flow term, so laminar_flow's
+shear-sensitivity weighting does not transfer to it).
 
 ### Heterodyne per-angle modes (parity with homodyne)
 
@@ -108,8 +110,10 @@ system (L5 shear-weighting is homodyne-only by design).
 | `fourier` | `n_physics + 2(2K+1)` | Many angles, smooth angular variation |
 | `individual` | `n_physics + 2·n_phi` | Many angles, large physical contrast variation |
 
-L5 (shear weighting) is homodyne-only. See
-`docs/source/theory/heterodyne_anti_degeneracy.rst`.
+L5 (shear weighting) is `laminar_flow`-only. Heterodyne's velocity/flow term
+(`v0`, `v_offset`, `phi0_het`) is structurally different from laminar_flow's
+shear rate (`gamma_dot`), so laminar_flow's shear-sensitivity weighting does
+not apply to it. See `docs/source/theory/heterodyne_anti_degeneracy.rst`.
 
 ## Commands
 
