@@ -605,6 +605,7 @@ def plot_simulated_data(
     figsize: tuple[float, float] = (8, 7),
     *,
     t2: np.ndarray | None = None,
+    title: str | None = None,
 ) -> Figure | None:
     """Single-panel theoretical/fitted c2 heatmap with inline stats annotation.
 
@@ -625,6 +626,10 @@ def plot_simulated_data(
         Optional phi angle for title.
     contrast, offset, analysis_mode
         Optional metadata annotations rendered in a corner box.
+    title
+        Optional base title override. Defaults to ``"Simulated C₂(t₁, t₂)"``.
+        Pass e.g. ``"Experimental C₂(t₁, t₂)"`` when rendering real data.
+        The ``φ=…`` suffix from ``phi_deg`` is appended regardless.
     save_path
         If provided, saved and closed; the function returns ``None``.
         Otherwise the live Figure is returned.
@@ -669,10 +674,10 @@ def plot_simulated_data(
         vmin=vmin,
         vmax=vmax,
     )
-    title = "Simulated C₂(t₁, t₂)"
+    base_title = title if title is not None else "Simulated C₂(t₁, t₂)"
     if phi_deg is not None:
-        title = f"{title} at φ={phi_deg:.1f}°"
-    ax.set_title(title, fontsize=13, fontweight="bold")
+        base_title = f"{base_title} at φ={phi_deg:.1f}°"
+    ax.set_title(base_title, fontsize=13, fontweight="bold")
     ax.set_xlabel("t₂ (s)" if t is not None else "t₂ Index", fontsize=11)
     ax.set_ylabel("t₁ (s)" if t is not None else "t₁ Index", fontsize=11)
     cbar = plt.colorbar(im, ax=ax, label="C₂", shrink=0.9)

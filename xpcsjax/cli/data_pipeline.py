@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from xpcsjax import ConfigManager, load_xpcs_data
+from xpcsjax.data.angle_filtering import apply_angle_filtering_for_optimization
 from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -26,9 +27,6 @@ if TYPE_CHECKING:
     from xpcsjax.config.manager import ConfigManager as _ConfigManager  # noqa: F401
 
 logger = get_logger(__name__)
-
-# Common azimuthal angles used in XPCS experiments (degrees).
-COMMON_XPCS_ANGLES: list[int] = [0, 30, 45, 60, 90, 120, 135, 150, 180]
 
 # Tolerant key spellings emitted by load_xpcs_data / XPCSDataLoader.
 _C2_KEYS: tuple[str, ...] = ("c2_exp", "c2")
@@ -51,59 +49,15 @@ def _norm_scalar(a: float) -> float:
     return v - 360.0 if v > 180.0 else v
 
 
-def _apply_phi_filtering(
-    data_phi_angles: np.ndarray,
-    phi_cfg: dict[str, Any],
-) -> list[float] | None:
-    """Apply ``phi_filtering`` config to select angles from data.
-
-    Returns matched data angles as a list, or ``None`` if no match.
-    """
-    target_ranges = phi_cfg.get("target_ranges", [])
-    if not target_ranges:
-        return None
-
-    arr = np.asarray(data_phi_angles, dtype=float)
-    normalized: np.ndarray = np.where(
-        (arr % 360) > 180, (arr % 360) - 360, arr % 360
-    )
-    tol = float(phi_cfg.get("tolerance", 5.0))
-    selected_mask = np.zeros(len(normalized), dtype=bool)
-
-    for rng in target_ranges:
-        if isinstance(rng, dict):
-            lo = _norm_scalar(float(rng.get("min_angle", -10.0)))
-            hi = _norm_scalar(float(rng.get("max_angle", 10.0)))
-        elif isinstance(rng, (list, tuple)) and len(rng) == 2:
-            lo = _norm_scalar(float(rng[0]))
-            hi = _norm_scalar(float(rng[1]))
-        elif isinstance(rng, (int, float)):
-            center = _norm_scalar(float(rng))
-            lo, hi = center - tol, center + tol
-        else:
-            continue
-
-        if lo <= hi:
-            selected_mask |= (normalized >= lo) & (normalized <= hi)
-        else:
-            # Wrap-around range (e.g. [170, -170]).
-            selected_mask |= (normalized >= lo) | (normalized <= hi)
-
-    if not np.any(selected_mask):
-        return None
-
-    return [float(a) for a in arr[selected_mask]]
-
-
 def load_and_validate_data(
     args: argparse.Namespace,
     config_manager: ConfigManager,
 ) -> dict[str, Any]:
     """Load XPCS experimental data and apply phi-angle filtering.
 
-    The return is the raw dict produced by :func:`xpcsjax.load_xpcs_data`,
-    augmented with a ``"phi_angles_selected"`` key holding the
-    post-filter angle list used by the rest of the pipeline.
+    Returns the dict produced by :func:`xpcsjax.load_xpcs_data`, with the
+    ``c2_exp`` / ``phi_angles_list`` arrays subset to the angles selected by
+    the ``phi_filtering`` config block (and any ``--phi`` CLI override).
 
     Args:
         args: Parsed CLI arguments (may carry ``--phi`` overrides).
@@ -112,7 +66,7 @@ def load_and_validate_data(
     Returns:
         Dict with keys including (subject to loader version):
         ``c2_exp`` / ``c2``, ``phi_angles_list`` / ``phi_angles`` / ``phi``,
-        ``t1``, ``t2``, plus ``"phi_angles_selected"``.
+        ``t1``, ``t2``.
 
     Raises:
         ValueError: If essential keys are missing from the loader output.
@@ -157,25 +111,26 @@ def load_and_validate_data(
     data_phi_arr = (
         None if data_phi is None else np.asarray(data_phi, dtype=float).ravel()
     )
-    selected = resolve_phi_angles(args, config_manager, data_phi_angles=data_phi_arr)
-    data["phi_angles_selected"] = selected
 
     # When the user explicitly passes --phi, actually subset the data so
-    # the fit and plots see only those angles. (Config-based phi_filtering
-    # is already applied by load_xpcs_data; this handles the CLI override
-    # that the loader never saw.) Slice defensively: only when every
-    # requested angle matches a data angle within tolerance — otherwise
+    # the fit and plots see only those angles. Slice defensively: only when
+    # every requested angle matches a data angle within tolerance — otherwise
     # keep all angles and warn, since fitting the wrong subset silently is
     # worse than fitting all.
     cli_phi = getattr(args, "phi", None)
     if cli_phi and data_phi_arr is not None:
         _subset_data_by_phi(data, data_phi_arr, [float(p) for p in cli_phi])
 
-    logger.debug(
-        "Phi selection resolved to %s angle(s): %s",
-        0 if selected is None else len(selected),
-        selected,
-    )
+    # Apply config-driven phi_filtering to the data arrays (parity with
+    # upstream homodyne, which calls apply_angle_filtering_for_optimization
+    # before the fit). The HDF5 loader does NOT honor the top-level
+    # phi_filtering block — it only reads a `data_filtering` block — so
+    # without this call config filtering would silently select nothing and
+    # the fit + plots would run on all angles. Subsetting here means both
+    # the optimizer and the experimental-data plots see only the angles in
+    # phi_filtering.target_ranges.
+    data = apply_angle_filtering_for_optimization(data, config_manager)
+
     return data
 
 
@@ -241,7 +196,6 @@ def _subset_data_by_phi(
 def resolve_phi_angles(
     args: argparse.Namespace,
     config_manager: ConfigManager,
-    data_phi_angles: np.ndarray | None = None,
 ) -> list[float] | None:
     """Determine phi angles from CLI args or configuration.
 
@@ -249,15 +203,15 @@ def resolve_phi_angles(
         1. ``args.phi``        -- explicit ``--phi`` list (real data).
         2. ``args.phi_angles`` -- comma-separated string (simulated mode).
         3. ``scattering.phi_angles`` in config.
-        4. ``phi_filtering`` block against ``data_phi_angles``.
-        5. ``data_phi_angles`` themselves (if present).
-        6. ``None`` (no selection -- caller decides default).
+        4. ``None`` (no selection -- caller decides default).
+
+    Config ``phi_filtering`` is applied to the data arrays directly in
+    :func:`load_and_validate_data` (via ``apply_angle_filtering_for_optimization``),
+    not here.
 
     Args:
         args: Parsed CLI args; may have ``.phi``, ``.phi_angles``.
         config_manager: Configuration manager.
-        data_phi_angles: Angles present in the loaded data (used for
-            ``phi_filtering``). When omitted, filtering is skipped.
 
     Returns:
         Normalized phi angles in degrees, or ``None`` if nothing resolved.
@@ -295,38 +249,6 @@ def resolve_phi_angles(
         if scatter_phi:
             phi_angles = [float(a) for a in scatter_phi]
             logger.debug("Phi angles from config scattering.phi_angles: %s", phi_angles)
-
-    # 4. phi_filtering against data.
-    if phi_angles is None and data_phi_angles is not None:
-        phi_cfg: dict[str, Any] = cfg.get("phi_filtering", {}) or {}
-        if phi_cfg.get("enabled", False):
-            filtered = _apply_phi_filtering(
-                np.asarray(data_phi_angles, dtype=float), phi_cfg
-            )
-            if filtered is not None:
-                phi_angles = filtered
-                logger.debug("Phi angles from phi_filtering: %s", phi_angles)
-            else:
-                fallback = phi_cfg.get("fallback_to_all_angles", True)
-                if fallback:
-                    phi_angles = [float(a) for a in data_phi_angles]
-                    logger.debug(
-                        "phi_filtering matched nothing; falling back to all %d angles",
-                        len(phi_angles),
-                    )
-                else:
-                    raise ValueError(
-                        "phi_filtering matched no data angles and "
-                        "fallback_to_all_angles is false"
-                    )
-
-    # 5. Use raw data angles if still nothing.
-    if phi_angles is None and data_phi_angles is not None:
-        phi_angles = [float(a) for a in data_phi_angles]
-        logger.debug(
-            "No CLI/config phi source; using all %d data angles",
-            len(phi_angles),
-        )
 
     if phi_angles is None:
         logger.debug("No phi angle source resolved; returning None")

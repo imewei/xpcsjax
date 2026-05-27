@@ -140,6 +140,7 @@ def _plot_experimental_data(data: dict[str, Any], plots_dir: Path) -> None:
                 t2=np.asarray(t2) if t2 is not None else None,
                 phi_deg=phi,
                 save_path=save_path,
+                title="Experimental C₂(t₁, t₂)",
             )
         except Exception:
             logger.exception("Failed to plot experimental data for phi=%s", phi)

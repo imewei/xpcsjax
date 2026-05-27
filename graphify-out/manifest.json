@@ -275,6 +275,10 @@
     "mtime": 1779298920.2269258,
     "hash": "f9d6d9474bfec2e3843cea0e67ecb644"
   },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/cli/test_data_pipeline_phi_filtering.py": {
+    "mtime": 1779855004.4089417,
+    "hash": "ff0c0fb83728dd88dd6ee4252c53b06a"
+  },
   "/home/wei/Documents/GitHub/xpcsjax/tests/cli/test_post_install.py": {
     "mtime": 1779685239.4647157,
     "hash": "6611747531f7637937e3f56035620e7f"
@@ -768,12 +772,12 @@
     "hash": "c6f4c71ffa5f85cc3c0ea51734c9c416"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/cli/data_pipeline.py": {
-    "mtime": 1779676976.005588,
-    "hash": "28f8491d2162ecff3bfb845bfa33df8b"
+    "mtime": 1779855729.0074143,
+    "hash": "d390dba881d2763de00944ee970c1503"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/cli/plot_dispatch.py": {
-    "mtime": 1779681260.8709035,
-    "hash": "14b9d098634b694536de7d5bf1eadb63"
+    "mtime": 1779853691.375835,
+    "hash": "0385cb422d6d24ede1bd7706d314a841"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/cli/__init__.py": {
     "mtime": 1779641036.0799568,
@@ -920,8 +924,8 @@
     "hash": "619f84235e52eb988f26cc1c2768703f"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/viz/nlsq_plots.py": {
-    "mtime": 1779734180.5377069,
-    "hash": "93ee75ac7bfc54d58dc62ed36ef7a2e0"
+    "mtime": 1779853685.6906044,
+    "hash": "b9cfa032ad75cd02414b9bacdf57dbd6"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/viz/diagnostics.py": {
     "mtime": 1779488075.8192756,
