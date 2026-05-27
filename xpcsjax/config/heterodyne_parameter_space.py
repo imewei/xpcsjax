@@ -26,6 +26,15 @@ logger = get_logger(__name__)
 # [-10, 10].  Use "phi0_het" ([-π, π], radians) for the bounds default.
 _REGISTRY_ALIAS: dict[str, str] = {"phi0": "phi0_het"}
 
+# Public template names (``v_beta``, ``phi0_het``) disambiguate the heterodyne
+# velocity exponent and flow angle from homodyne's ``beta``/``phi0`` — see the
+# header of ``templates/xpcsjax_two_component.yaml``. The parameter space,
+# kernel, and registry-group lookups all use the canonical kernel names, so
+# inbound ``initial_parameters`` names are translated here. Kept heterodyne-
+# local (not added to the global PARAMETER_NAME_MAPPING) so homodyne's distinct
+# ``beta``/``phi0`` and manager-side canonicalization are unaffected.
+_INBOUND_NAME_ALIAS: dict[str, str] = {"v_beta": "beta", "phi0_het": "phi0"}
+
 
 @dataclass
 class ParameterSpace:
@@ -381,8 +390,12 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
     ):
         return
 
-    # Apply name mapping for legacy/alias names
-    param_names = [PARAMETER_NAME_MAPPING.get(str(n), str(n)) for n in param_names_raw]
+    # Apply name mapping for legacy/alias names, then heterodyne public→canonical
+    # rename (v_beta→beta, phi0_het→phi0) so template names resolve.
+    param_names = [
+        _INBOUND_NAME_ALIAS.get(m, m)
+        for m in (PARAMETER_NAME_MAPPING.get(str(n), str(n)) for n in param_names_raw)
+    ]
 
     if len(param_names) != len(param_values):
         logger.warning(
@@ -405,7 +418,10 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
     # active_parameters: if provided, only these parameters vary
     active_raw = initial.get("active_parameters")
     if active_raw and isinstance(active_raw, list):
-        active_names = {PARAMETER_NAME_MAPPING.get(str(n), str(n)) for n in active_raw}
+        active_names = {
+            _INBOUND_NAME_ALIAS.get(m, m)
+            for m in (PARAMETER_NAME_MAPPING.get(str(n), str(n)) for n in active_raw)
+        }
         for name in ALL_PARAM_NAMES_WITH_SCALING:
             if name in active_names:
                 space.vary[name] = True

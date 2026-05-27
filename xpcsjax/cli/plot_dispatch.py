@@ -190,30 +190,41 @@ def _plot_simulated_from_config(
         logger.exception("Could not extract initial parameters; skipping simulated plots")
         return
 
-    t1 = None
-    t2 = None
-    if data is not None:
-        t1 = data.get("t1")
-        t2 = data.get("t2")
-
-    # Build a minimal time grid if data didn't carry one.
-    if t1 is None or t2 is None:
-        n = 64
-        t_grid = np.arange(n, dtype=np.float64)
-        t1 = t1 if t1 is not None else t_grid
-        t2 = t2 if t2 is not None else t_grid
-
-    t1_arr = np.asarray(t1, dtype=np.float64)
-    t2_arr = np.asarray(t2, dtype=np.float64)
-
     # Pull physical scalars from the merged config for the model call.
     cfg = config_manager.config or {}
     analyzer = cfg.get("analyzer_parameters", {}) or {}
+    temporal = cfg.get("temporal", {}) or {}
     scattering = analyzer.get("scattering", {}) or {}
     q = float(scattering.get("wavevector_q", 0.01))
     geometry = analyzer.get("geometry", {}) or {}
     L = float(geometry.get("stator_rotor_gap", 1.0))
-    dt = float(analyzer.get("dt", 1.0))
+    dt = float(analyzer.get("dt", temporal.get("dt", 1.0)))
+
+    # Evaluate the model on its configured *elapsed-time* grid, not on raw
+    # frame-index axes. Mirrors heterodyne.core.HeterodyneModel.from_config:
+    # t = arange(n_times) * dt + t_start with t_start = dt (the first usable
+    # frame sits at 1×dt). The two-component cross term is
+    # cos(q·cos φ·∫v(t')dt'); feeding frame indices (or a bare arange that
+    # ignores dt and the frame window) into that integral collapses the
+    # fringe structure and yields a qualitatively wrong C2 surface.
+    if "start_frame" in analyzer:
+        n_times = int(analyzer["end_frame"]) - int(analyzer["start_frame"]) + 1
+        t_start = dt
+    else:
+        n_times = int(temporal.get("time_length", 1000))
+        t_start = float(temporal.get("t_start", dt))
+    t_model = np.arange(n_times, dtype=np.float64) * dt + t_start
+
+    # Display extent: prefer the experiment's true elapsed-time axis when it is
+    # present and shape-compatible; otherwise fall back to the model grid.
+    t_extent = t_model
+    if data is not None:
+        t_disp = data.get("t1_original", data.get("t1"))
+        if t_disp is not None and len(np.asarray(t_disp)) == n_times:
+            t_extent = np.asarray(t_disp, dtype=np.float64)
+
+    t1_arr = t_model
+    t2_arr = t_model
 
     # Order the dict-form init params per the active-parameter list.
     try:
@@ -253,8 +264,8 @@ def _plot_simulated_from_config(
         try:
             plot_simulated_data(
                 c2_surface,
-                t=t1_arr,
-                t2=t2_arr,
+                t=t_extent,
+                t2=t_extent,
                 phi_deg=float(phi),
                 contrast=contrast,
                 offset=offset,

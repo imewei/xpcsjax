@@ -975,8 +975,8 @@ def _fit_joint_averaged_multi_phi(
     # ------------------------------------------------------------------
     # Decompose per-angle chi^2 from the final residual.
     # ``compute_multi_angle_residuals`` returns an angle-major flat layout
-    # (n_phi, n_per_angle) — n_per_angle = n_time * (n_time - 1) because the
-    # kernel excludes the diagonal. Re-use the canonical helper from
+    # (n_phi, n_per_angle) — n_per_angle = (n_time - 1) * (n_time - 2) because
+    # the kernel excludes the diagonal AND the t=0 boundary row/col. Re-use the canonical helper from
     # heterodyne_constant_mode (same import the Fourier-mode joint path uses).
     # ------------------------------------------------------------------
     from xpcsjax.optimization.nlsq.heterodyne_constant_mode import (
@@ -988,7 +988,7 @@ def _fit_joint_averaged_multi_phi(
     # same pattern.
     data_only_residual = np.asarray(base_residual_fn(fitted_all))
     n_time = c2_data.shape[1]
-    n_per_angle = n_time * (n_time - 1)  # off-diagonal only — matches kernel
+    n_per_angle = (n_time - 1) * (n_time - 2)  # off-diag, t=0 boundary excluded — matches kernel
     chi2_per_angle = _decompose_chi2_per_angle(
         final_residual=data_only_residual,
         n_phi=n_phi,
@@ -1630,7 +1630,7 @@ def _fit_joint_multi_phi(
     # carry extra rows that must NOT contribute to per-angle chi^2.
     data_only_residual = np.asarray(base_residual_fn(fitted_params_full))
     n_time = c2_data.shape[1]
-    n_per_angle = n_time * (n_time - 1)  # off-diagonal only — matches kernel
+    n_per_angle = (n_time - 1) * (n_time - 2)  # off-diag, t=0 boundary excluded — matches kernel
     chi2_per_angle = _decompose_chi2_per_angle(
         final_residual=data_only_residual,
         n_phi=n_phi,

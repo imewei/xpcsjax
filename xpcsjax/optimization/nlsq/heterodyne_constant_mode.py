@@ -280,7 +280,7 @@ def _fit_joint_constant_multi_phi(
     # ------------------------------------------------------------------
     final_residual = np.asarray(joint_residual_fn(fitted_physics))
     n_time = c2_data.shape[1]
-    n_per_angle = n_time * (n_time - 1)  # off-diagonal only — matches kernel
+    n_per_angle = (n_time - 1) * (n_time - 2)  # off-diag, t=0 boundary excluded — matches kernel
     chi2_per_angle = _decompose_chi2_per_angle(
         final_residual=final_residual,
         n_phi=n_phi,

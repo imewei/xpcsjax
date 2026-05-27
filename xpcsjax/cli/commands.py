@@ -23,7 +23,7 @@ from xpcsjax.cli.data_pipeline import load_and_validate_data, resolve_phi_angles
 from xpcsjax.cli.optimization_runner import run_nlsq
 from xpcsjax.cli.plot_dispatch import dispatch_plots
 from xpcsjax.cli.result_saving import save_results
-from xpcsjax.utils.logging import get_logger, log_exception
+from xpcsjax.utils.logging import configure_logging, get_logger, log_exception
 
 if TYPE_CHECKING:
     from xpcsjax.config.manager import ConfigManager
@@ -44,6 +44,16 @@ def dispatch_command(args: argparse.Namespace) -> int:
         Exit code (0 ok, 2 non-convergence, callee exceptions bubble up).
     """
     cfg_manager = load_and_merge_config(args.config, args)
+
+    # The bootstrap configure_logging() in main() runs before the config file
+    # is parsed, so the config's `logging:` section — including file output —
+    # is only applied here, once cfg_manager exists.
+    configure_logging(
+        logging_config=(cfg_manager.config or {}).get("logging"),
+        verbose=bool(getattr(args, "verbose", False)),
+        quiet=bool(getattr(args, "quiet", False)),
+        output_dir=resolve_output_dir(args, cfg_manager),
+    )
 
     standalone_plot = bool(
         getattr(args, "plot_experimental_data", False)

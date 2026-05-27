@@ -234,15 +234,25 @@ def _compute_residuals_jit(
 ) -> jnp.ndarray:
     """JIT-compiled residuals computation (always receives weights).
 
-    Diagonal elements (t1==t2) are zeroed per homodyne parity: the diagonal
-    is kept in the data for loading/plotting but excluded from fitting because
-    corrected diagonal values are interpolated estimates, not real physics.
+    Two boundary exclusions are applied at residual construction (upstream
+    ``heterodyne._compute_residuals_jit`` parity):
+
+    1. The t=0 row ``(0, j)`` and t=0 column ``(i, 0)`` are excluded. The
+       first frame holds the correlator's raw output; the experimental
+       boundary is not used in chi-square fitting.
+    2. The diagonal ``t1==t2`` is excluded (homodyne parity): corrected
+       diagonal values are interpolated estimates, not real physics.
+
+    The returned vector has shape ``(n_time-1) * (n_time-2)`` — only
+    off-diagonal pairs where both row > 0 and col > 0.
     """
     c2_model = compute_c2_heterodyne(params, t, q, dt, phi_angle, contrast, offset)
     residuals = (c2_model - c2_data) * jnp.sqrt(weights)
     n_time = c2_data.shape[0]
-    non_diagonal = ~jnp.eye(n_time, dtype=bool)
-    rows, cols = jnp.nonzero(non_diagonal, size=n_time * (n_time - 1))
+    indices = jnp.arange(n_time)
+    boundary_mask = (indices[:, None] > 0) & (indices[None, :] > 0)
+    valid_mask = boundary_mask & ~jnp.eye(n_time, dtype=bool)
+    rows, cols = jnp.nonzero(valid_mask, size=(n_time - 1) * (n_time - 2))
     return residuals[rows, cols]  # type: ignore[no-any-return]
 
 
@@ -377,7 +387,7 @@ def compute_multi_angle_residuals(
         offsets: Per-angle offsets, shape (n_phi,)
 
     Returns:
-        Stacked flattened residuals, shape (n_phi × N × (N-1),)
+        Stacked flattened residuals, shape (n_phi × (N-1) × (N-2),)
     """
 
     def single_angle_residual(
@@ -387,11 +397,16 @@ def compute_multi_angle_residuals(
         c: jnp.ndarray,
         o: jnp.ndarray,
     ) -> jnp.ndarray:
+        # Match _compute_residuals_jit / upstream: exclude BOTH the t=0
+        # boundary row/col and the diagonal before flattening, so joint
+        # multi-phi fits use the same chi-square support as single-phi fits.
         c2_model = compute_c2_heterodyne(params, t, q, dt, phi, c, o)
         residuals = (c2_model - c2_exp) * jnp.sqrt(w)
         n_time = c2_exp.shape[0]
-        non_diagonal = ~jnp.eye(n_time, dtype=bool)
-        rows, cols = jnp.nonzero(non_diagonal, size=n_time * (n_time - 1))
+        indices = jnp.arange(n_time)
+        boundary_mask = (indices[:, None] > 0) & (indices[None, :] > 0)
+        valid_mask = boundary_mask & ~jnp.eye(n_time, dtype=bool)
+        rows, cols = jnp.nonzero(valid_mask, size=(n_time - 1) * (n_time - 2))
         return residuals[rows, cols]  # type: ignore[no-any-return]
 
     compute_all = jax.vmap(single_angle_residual, in_axes=(0, 0, 0, 0, 0))
