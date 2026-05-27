@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-
 import jax.numpy as jnp  # noqa: F401  (imported to ensure JAX is initialized before model use)
 import numpy as np  # noqa: F401
 
@@ -69,7 +67,7 @@ def test_param_bounds_match_docs() -> None:
     names_list = list(names)
     assert bounds[names_list.index("D0_ref")] == (0.0, 1e6)
     assert bounds[names_list.index("v_beta")] == (0.0, 2.0)
-    assert bounds[names_list.index("phi0_het")] == (-math.pi, math.pi)
+    assert bounds[names_list.index("phi0_het")] == (-10.0, 10.0)
 
 
 def test_default_params_length_14() -> None:

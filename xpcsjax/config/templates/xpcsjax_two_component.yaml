@@ -19,7 +19,7 @@
 #   Sample transport (3):     D0_sample, alpha_sample, D_offset_sample
 #   Velocity (3):             v0, v_beta, v_offset
 #   Fraction (4):             f0, f1, f2, f3
-#   Flow angle (1):           phi0_het              [RADIANS, [−π, π]]
+#   Flow angle (1):           phi0_het              [DEGREES, [−10, 10]]
 #   Per-angle scaling (2N):   contrast_i, offset_i
 #
 # Critical naming notes (xpcsjax registry IS the source of truth):
@@ -28,8 +28,9 @@
 #     `beta`. Upstream heterodyne docs call it `beta`; do not use that name
 #     here — `xpcsjax.config.parameter_registry._MODE_PARAMS["two_component"]`
 #     requires `v_beta`.
-#   * `phi0_het` — NOT `phi0`. Heterodyne phi0_het is in RADIANS over [−π, π],
-#     distinct from the homodyne `phi0` (degrees, [−10°, 10°]).
+#   * `phi0_het` — NOT `phi0`. The name disambiguates the heterodyne flow angle
+#     from the homodyne `phi0`, but both share the same unit and bounds:
+#     DEGREES over [−10°, 10°] (kernel computes deg2rad(phi_angle + phi0_het)).
 #
 # Per-angle modes (from anti_degeneracy.per_angle_mode):
 #   constant:   per-angle (β, o) frozen from quantile — 14 physics only
@@ -238,10 +239,11 @@ initial_parameters:
   #      to [-1, 1] (registry choice). The upstream heterodyne template uses
   #      different unit conventions; xpcsjax registry is authoritative here.
   #
-  # FLOW ANGLE — phi0_het (RADIANS)
+  # FLOW ANGLE — phi0_het (DEGREES)
   #   Angle between q-vector and flow direction, in cross-term phase factor.
-  #   ⚠  NAMING: xpcsjax uses `phi0_het` (RADIANS, [-π, π]). NOT `phi0`,
-  #              which is the homodyne convention (degrees, [-10°, 10°]).
+  #   ⚠  NAMING: xpcsjax uses `phi0_het` (DEGREES, [-10, 10]). The name differs
+  #              from the homodyne `phi0` to avoid collision, but the unit and
+  #              bounds match (degrees, [-10°, 10°]).
   #   For well-aligned experiments, phi0_het ≈ 0. Widen bounds in the
   #   parameter_space block if you suspect significant misalignment.
   # └──────────────────────────────────────────────────────────────────────┘
@@ -264,7 +266,7 @@ initial_parameters:
     - "dimensionless"
     - "dimensionless"
     - "dimensionless"
-    - "radians"       # phi0_het uses radians, NOT degrees
+    - "degrees"       # phi0_het uses degrees, same unit as homodyne phi0
 
   active_parameters: null
   # Frequent simplification (constant-velocity, constant-fraction):
@@ -279,7 +281,7 @@ initial_parameters:
 #   * v0 upper:        xpcsjax 1e6           vs upstream 1e4
 #   * f1 bounds:       xpcsjax [-1, 1] (dim) vs upstream [-10, 10] s⁻¹
 #   * f2 bounds:       xpcsjax [-1, 1] (dim) vs upstream [-1e4, 1e4] s
-#   * phi0_het bounds: xpcsjax [-π, π] rad   vs upstream [-10, 10] deg (phi0)
+#   * phi0_het bounds: xpcsjax [-10, 10] deg  ==  upstream [-10, 10] deg (phi0)
 # The xpcsjax registry is authoritative — the upstream YAML is a reference,
 # not a constraint.
 parameter_space:
@@ -416,18 +418,17 @@ parameter_space:
       # Most fits give f3 ≈ 0. Common simplification:
       # fixed_parameters: {"f3": 0.0}
 
-    # ----- Flow angle (heterodyne convention: RADIANS, NOT degrees) -----
+    # ----- Flow angle (heterodyne convention: DEGREES, same unit as phi0) -----
     - name: phi0_het          # ⚠ NAMING TRAP: phi0_het (NOT phi0).
-                              # phi0 is the homodyne flow angle in DEGREES.
-                              # phi0_het is the heterodyne flow angle in RADIANS.
-      min: -3.141592653589793   # −π radians
-      max:  3.141592653589793   # +π radians
+                              # phi0 is the homodyne flow angle; phi0_het is the
+                              # heterodyne flow angle. Both are in DEGREES — the
+                              # kernel computes deg2rad(phi_angle + phi0_het).
+      min: -10.0   # degrees (matches upstream phi0 bounds)
+      max:  10.0   # degrees
       type: TruncatedNormal
-      unit: "radians"
+      unit: "degrees"
       # phi0_het = 0  flow aligned with detector primary axis (RECOMMENDED start)
-      # Tighten to [-π/4, π/4] (≈ [-0.79, 0.79]) if alignment is well-known.
-      # Note: the in-file phi-angles list is still in DEGREES; only phi0_het
-      # internally uses radians.
+      # Tighten to [-2, 2] if alignment is well-known.
 
 # -----------------------------------------------------------------------------
 # OPTIMIZATION (NLSQ-only) — two_component tuning
@@ -727,7 +728,7 @@ optimization:
       warn_on_max_restarts: true            # warn if CMA-ES hit max_restarts
       warn_on_bounds_hit: true              # warn if a param pinned at bounds.
                                             # Common heterodyne offenders:
-                                            #   * phi0_het at ±π (widen bounds)
+                                            #   * phi0_het at ±10° (widen bounds)
                                             #   * D0_ref/sample at upper (sample is
                                             #     fitting wrong mode — try other priors)
       warn_on_convergence_failure: true     # warn if optimizer didn't converge

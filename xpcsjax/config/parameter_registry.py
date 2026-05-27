@@ -17,7 +17,6 @@ Addresses code review finding of 8x parameter name duplication.
 
 from __future__ import annotations
 
-import math
 import re
 from dataclasses import dataclass
 from enum import StrEnum
@@ -445,15 +444,17 @@ class ParameterRegistry:
             units="",
             is_physical=True,
         ),
-        # Heterodyne flow angle (radians; renamed from heterodyne docs' `phi0`
-        # to avoid collision with homodyne's phi0 which uses degrees)
+        # Heterodyne flow angle (degrees; renamed from heterodyne docs' `phi0`
+        # to avoid name collision with homodyne's phi0). Both use degrees:
+        # the kernel computes deg2rad(phi_angle + phi0_het), so phi0_het is a
+        # degree-valued offset on the detector angle, matching upstream [-10, 10].
         "phi0_het": ParameterInfo(
             name="phi0_het",
-            description="Flow angle (heterodyne; radians)",
+            description="Flow angle (heterodyne; degrees)",
             default=0.0,
-            lower_bound=-math.pi,
-            upper_bound=math.pi,
-            units="radians",
+            lower_bound=-10.0,
+            upper_bound=10.0,
+            units="degrees",
             is_physical=True,
         ),
     }

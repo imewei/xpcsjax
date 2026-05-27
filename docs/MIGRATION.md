@@ -78,7 +78,7 @@ heterodyne versions to keep a flat registry:
 | Heterodyne docs | xpcsjax registry | Reason |
 |---|---|---|
 | `beta` (velocity exponent) | `v_beta` | Homodyne's `beta` is the shear-rate exponent — different physics, different bounds |
-| `phi0` (radians, [-π, π]) | `phi0_het` | Homodyne's `phi0` is in degrees with different bounds |
+| `phi0` (degrees, [-10, 10]) | `phi0_het` | Renamed only to avoid colliding with homodyne's `phi0`; same unit and bounds (degrees, [-10, 10]) |
 
 YAML configs written against the upstream heterodyne package may need to rename
 `beta` → `v_beta` and `phi0` → `phi0_het` in their `parameters` section. The

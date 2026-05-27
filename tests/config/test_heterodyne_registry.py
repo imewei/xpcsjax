@@ -4,10 +4,9 @@ Source: https://heterodyne.readthedocs.io/en/latest/configuration/options.html
 
 Note: two parameter renames to avoid collisions with homodyne:
 - heterodyne docs' `beta` (velocity exponent) → `v_beta` (matches v0/v_offset prefix)
-- heterodyne docs' `phi0` (radians, [-π,π]) → `phi0_het` (homodyne's phi0 is degrees, [-10,10])
+- heterodyne docs' `phi0` → `phi0_het` (renamed to avoid colliding with
+  homodyne's `phi0`; both share the same unit and bounds: degrees, [-10, 10])
 """
-import math
-
 import pytest
 
 from xpcsjax.config.parameter_registry import get_param_names, get_registry
@@ -26,7 +25,7 @@ EXPECTED_HETERODYNE = {
     "f1":              {"default": 0.0,  "bounds": (-1.0, 1.0),     "log_space": False},
     "f2":              {"default": 0.0,  "bounds": (-1.0, 1.0),     "log_space": False},
     "f3":              {"default": 0.0,  "bounds": (-1.0, 1.0),     "log_space": False},
-    "phi0_het":        {"default": 0.0,  "bounds": (-math.pi, math.pi), "log_space": False},
+    "phi0_het":        {"default": 0.0,  "bounds": (-10.0, 10.0),   "log_space": False},
 }
 
 
