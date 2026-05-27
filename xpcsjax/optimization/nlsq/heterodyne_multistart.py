@@ -127,12 +127,17 @@ def fit_nlsq_multistart_heterodyne(model, c2, phi, nlsq_cfg, weights, ms_cfg):
     )
     final = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
 
+    # Attach multistart provenance. nlsq_diagnostics defaults to None on
+    # OptimizationResult, so initialise it rather than silently dropping the
+    # metadata when the joint result carried no diagnostics dict.
     diagnostics = getattr(final, "nlsq_diagnostics", None)
-    if isinstance(diagnostics, dict):
-        diagnostics["multistart"] = {
-            "n_starts": ms_cfg.n_starts,
-            "best_start_idx": ms_result.best.start_idx,
-            "n_unique_basins": ms_result.n_unique_basins,
-            "degeneracy_detected": ms_result.degeneracy_detected,
-        }
+    if not isinstance(diagnostics, dict):
+        diagnostics = {}
+        final.nlsq_diagnostics = diagnostics
+    diagnostics["multistart"] = {
+        "n_starts": ms_cfg.n_starts,
+        "best_start_idx": ms_result.best.start_idx,
+        "n_unique_basins": ms_result.n_unique_basins,
+        "degeneracy_detected": ms_result.degeneracy_detected,
+    }
     return final

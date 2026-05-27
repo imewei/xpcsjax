@@ -101,6 +101,46 @@ def test_fit_nlsq_multistart_heterodyne_runs_and_annotates(monkeypatch):
     assert out.nlsq_diagnostics["multistart"]["n_unique_basins"] == 1
 
 
+def test_multistart_metadata_attached_when_diagnostics_is_none(monkeypatch):
+    # OptimizationResult.nlsq_diagnostics defaults to None; the metadata must
+    # still be attached (initialised) rather than silently dropped.
+    model = _StubModel()
+
+    def _fake_run_multistart(data, bounds, config, single_fit_func, cost_func=None, custom_starts=None):
+        best = SingleStartResult(
+            start_idx=0,
+            initial_params=np.array([1500.0, 0.7]),
+            final_params=np.array([1500.0, 0.7, 0.18, 1.19]),
+            chi_squared=2.0,
+            reduced_chi_squared=2.0,
+            success=True,
+            message="best",
+        )
+        return MultiStartResult(
+            best=best,
+            all_results=[best],
+            config=config,
+            strategy_used="full",
+            n_unique_basins=1,
+            degeneracy_detected=False,
+        )
+
+    def _fake_fit(m, c2_in, phi_in, cfg, w):
+        res = _StubResult([1500.0, 0.7, 0.18, 1.19], chi2=2.0)
+        res.nlsq_diagnostics = None  # simulate a result with no diagnostics dict
+        return res
+
+    monkeypatch.setattr(hm, "run_multistart_nlsq", _fake_run_multistart)
+    monkeypatch.setattr(hm, "fit_nlsq_multi_phi", _fake_fit)
+
+    ms_cfg = hm.build_multistart_config({"enable": True, "n_starts": 3})
+    out = hm.fit_nlsq_multistart_heterodyne(
+        model, np.ones((1, 4, 4)), np.array([0.0]), nlsq_cfg=object(), weights=None, ms_cfg=ms_cfg
+    )
+    assert isinstance(out.nlsq_diagnostics, dict)
+    assert out.nlsq_diagnostics["multistart"]["n_starts"] == 3
+
+
 def test_build_multistart_config_reads_nested_keys() -> None:
     ms_dict = {
         "enable": True,
