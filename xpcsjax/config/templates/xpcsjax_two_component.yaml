@@ -639,13 +639,15 @@ optimization:
                                           # | "cauchy" | "arctan"
 
     # ----------------------------------------------------------------------
-    # MULTI-START OPTIMIZATION
+    # MULTI-START OPTIMIZATION  (wired for heterodyne as of 2026-05-27)
     # ----------------------------------------------------------------------
-    # Disable when CMA-ES is enabled (they're redundant). For 14-D
-    # heterodyne, CMA-ES dominates this approach — use multi_start ONLY if
-    # you have a specific reason to avoid CMA-ES (e.g. evosax not installed).
-    # When using multi_start standalone for heterodyne, bump n_starts to
-    # 15–30 to cover the higher-dimensional parameter space.
+    # When enable=true and cmaes.enable=false, each LHS start re-runs the FULL
+    # joint multi-phi fit; the best basin is then re-fit once for the final
+    # result. CMA-ES keeps precedence when both are enabled (they're redundant).
+    # For 14-D heterodyne, bump n_starts to 15–30 to cover the parameter box.
+    # NOTE: heterodyne multi-start runs SEQUENTIALLY — n_workers is ignored (the
+    # JAX model is not process-picklable; parallel heterodyne multi-start is a
+    # follow-up).
     multi_start:
       enable: false                       # OFF when cmaes.enable=true.
                                           # Use standalone only if you have a reason
@@ -657,7 +659,7 @@ optimization:
       seed: 42                            # PRNG seed. CHANGE between runs to confirm
                                           # the result isn't seed-dependent.
       sampling_strategy: "latin_hypercube"  # "latin_hypercube" (RECOMMENDED) | "random"
-      n_workers: 0                        # 0 = auto | 1 = sequential | >1 explicit.
+      n_workers: 0                        # IGNORED for heterodyne (always sequential).
                                           # CONSTRAINT: >= 0
       use_screening: true                 # true = cheap filter pass before refinement
       screen_keep_fraction: 0.5           # fraction of starts to refine.
