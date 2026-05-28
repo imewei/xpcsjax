@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from xpcsjax.core.heterodyne_model_stateful import (
         HeterodyneModel as HeterodyneModel,
     )
-    from xpcsjax.optimization.nlsq.results import QualityFlag
+    from xpcsjax.optimization.nlsq.results import ConvergenceStatus, QualityFlag
 
 logger = get_logger(__name__)
 
@@ -343,7 +343,7 @@ def _aggregate_individual_results(
     # ------------------------------------------------------------------
     n_success = int(sum(bool(r.success) for r in per_angle_results))
     all_converged = n_success == n_phi
-    convergence_status = "converged" if all_converged else "partial"
+    convergence_status: ConvergenceStatus = "converged" if all_converged else "partial"
     quality_flag = classify_quality_flag(reduced_chi2=reduced_chi2)
     if not all_converged and quality_flag == "good":
         # Mixed-success aggregate should not advertise good quality even
@@ -1032,7 +1032,7 @@ def _fit_joint_averaged_multi_phi(
         else np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
     )
 
-    convergence_status = "converged" if joint_result.success else "failed"
+    convergence_status: ConvergenceStatus = "converged" if joint_result.success else "failed"
     quality_flag: QualityFlag = "good" if joint_result.success else "marginal"
 
     # ------------------------------------------------------------------
@@ -1671,7 +1671,7 @@ def _fit_joint_multi_phi(
         else np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
     )
 
-    convergence_status = "converged" if joint_result.success else "failed"
+    convergence_status: ConvergenceStatus = "converged" if joint_result.success else "failed"
     quality_flag: QualityFlag = "good" if joint_result.success else "marginal"
 
     # ------------------------------------------------------------------
