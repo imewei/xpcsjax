@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -351,6 +352,27 @@ def test_configure_from_dict_filename_auto_generated(tmp_path: Path) -> None:
     out = lm._logger_manager.configure_from_dict(cfg, run_id="X1")
     assert out is not None
     assert out.name == "xpcsjax_analysis_X1.log"
+
+
+@pytest.mark.parametrize("placeholder", ["<timestamp>", "{timestamp}"])
+def test_configure_from_dict_filename_timestamp_placeholder(
+    tmp_path: Path, placeholder: str
+) -> None:
+    # A <timestamp> / {timestamp} placeholder is replaced with YYYYmmdd_HHMMSS
+    # so each run gets a unique, named log file (not the literal placeholder).
+    cfg = {
+        "enabled": True,
+        "console": {"enabled": True},
+        "file": {
+            "enabled": True,
+            "path": str(tmp_path),
+            "filename": f"xpcsjax_two_component_{placeholder}.log",
+        },
+    }
+    out = lm._logger_manager.configure_from_dict(cfg)
+    assert out is not None
+    assert placeholder not in out.name, "placeholder was not substituted"
+    assert re.fullmatch(r"xpcsjax_two_component_\d{8}_\d{6}\.log", out.name), out.name
 
 
 def test_configure_from_dict_quiet_and_verbose(tmp_path: Path) -> None:

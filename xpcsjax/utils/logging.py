@@ -729,20 +729,24 @@ class MinimalLogger:
             else:
                 base_dir = Path(output_dir) / "logs" if output_dir else Path("./logs")
                 base_dir = base_dir.resolve()
-            # An explicitly configured filename is honored verbatim so the
-            # file the user named in `logging.file.filename` is the file that
-            # actually appears on disk (the RotatingFileHandler handles
-            # size-based rotation/backups across runs). Per-run uniqueness is
-            # opt-in via a `{run_id}` placeholder. Only when no filename is
-            # configured do we auto-generate a timestamped name.
+            # A configured filename is honored as-is unless it contains a
+            # placeholder, in which case per-run uniqueness is opt-in:
+            #   ``{run_id}``                -> the run id (timestamp fallback)
+            #   ``<timestamp>`` / ``{timestamp}`` -> current YYYYmmdd_HHMMSS
+            # With no placeholder the filename is used verbatim (the
+            # RotatingFileHandler handles size-based rotation/backups). When no
+            # filename is configured at all, auto-generate a timestamped name.
             configured_filename = file_cfg.get("filename")
-            run_suffix = run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            run_suffix = run_id or timestamp
             if configured_filename is None:
                 filename = f"xpcsjax_analysis_{run_suffix}.log"
-            elif "{run_id}" in configured_filename:
-                filename = configured_filename.replace("{run_id}", run_suffix)
             else:
-                filename = configured_filename
+                filename = (
+                    configured_filename.replace("{run_id}", run_suffix)
+                    .replace("<timestamp>", timestamp)
+                    .replace("{timestamp}", timestamp)
+                )
             file_path = base_dir / filename
 
         return self.configure(

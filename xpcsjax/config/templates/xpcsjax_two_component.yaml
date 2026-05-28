@@ -838,8 +838,13 @@ logging:
   file:
     enabled: false                       # true = also log to rotating file
     level: "DEBUG"                       # capture verbose record for debugging
-    path: "./logs/"                      # log directory (created if missing)
-    filename: "xpcsjax_two_component.log"
+    path: "./logs/"                      # log directory (created if missing); resolved
+                                         # relative to the current working directory.
+    filename: "xpcsjax_two_component.log"  # used verbatim. Optional placeholders for
+                                         # per-run-unique files (substituted at runtime):
+                                         #   <timestamp> or {timestamp} -> YYYYmmdd_HHMMSS
+                                         #   {run_id}                   -> run id (timestamp fallback)
+                                         # e.g. "xpcsjax_two_component_<timestamp>.log"
     max_size_mb: 10                      # rotate at this size. CONSTRAINT: > 0
     backup_count: 5                      # # of backups. CONSTRAINT: >= 0
 
