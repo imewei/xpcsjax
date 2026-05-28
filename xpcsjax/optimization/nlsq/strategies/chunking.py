@@ -808,10 +808,12 @@ def create_angle_stratified_data(
     pos = 0
     for chunk in stratified_chunks:
         n = _cast(int, chunk["size"])
-        phi_out[pos : pos + n] = chunk["phi"]
-        t1_out[pos : pos + n] = chunk["t1"]
-        t2_out[pos : pos + n] = chunk["t2"]
-        g2_out[pos : pos + n] = chunk["g2_exp"]
+        # np.asarray narrows the ``object``-typed chunk values to ndarray for the
+        # slice assignment (zero-copy when the value is already an ndarray).
+        phi_out[pos : pos + n] = np.asarray(chunk["phi"])
+        t1_out[pos : pos + n] = np.asarray(chunk["t1"])
+        t2_out[pos : pos + n] = np.asarray(chunk["t2"])
+        g2_out[pos : pos + n] = np.asarray(chunk["g2_exp"])
         pos += n
 
     # T039: Log chunking operation timing

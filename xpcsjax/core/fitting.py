@@ -561,10 +561,12 @@ class UnifiedHomodyneEngine:
         try:
             # Guard against sigma <= 0, which yields -inf/NaN in the NLL
             # (log(sigma**2)) and division below. Clamp to a small positive floor.
+            # New name: the clamped result is a JAX Array in the JAX branch, which
+            # is not assignable back to the np.ndarray-typed ``sigma`` parameter.
             if JAX_AVAILABLE:
-                sigma = jnp.maximum(sigma, 1e-10)
+                sigma_safe = jnp.maximum(sigma, 1e-10)
             else:
-                sigma = np.maximum(sigma, 1e-10)
+                sigma_safe = np.maximum(sigma, 1e-10)
 
             # Compute theoretical g1
             g1_theory = self.theory_engine.compute_g1(params, t1, t2, phi, q, L, dt=dt)
@@ -574,16 +576,16 @@ class UnifiedHomodyneEngine:
             theory_fitted = contrast * g1_squared + offset
 
             # Compute residuals: Exp - Fitted
-            residuals = (data - theory_fitted) / sigma
+            residuals = (data - theory_fitted) / sigma_safe
 
             # Negative log-likelihood (Gaussian assumption)
             if JAX_AVAILABLE:
                 chi_squared = jnp.sum(residuals**2)
-                nll = 0.5 * chi_squared + 0.5 * jnp.sum(jnp.log(2 * jnp.pi * sigma**2))
+                nll = 0.5 * chi_squared + 0.5 * jnp.sum(jnp.log(2 * jnp.pi * sigma_safe**2))
                 return float(nll)
             else:
                 chi_squared = np.sum(residuals**2)
-                nll = 0.5 * chi_squared + 0.5 * np.sum(np.log(2 * np.pi * sigma**2))
+                nll = 0.5 * chi_squared + 0.5 * np.sum(np.log(2 * np.pi * sigma_safe**2))
                 return float(nll)
 
         except (ValueError, ArithmeticError) as e:
