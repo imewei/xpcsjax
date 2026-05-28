@@ -50,9 +50,10 @@ except ImportError:
     HAS_NUMPY = False
     np = None  # type: ignore[assignment]
 
-# Optional compression library with fallback
+# Optional compression library with fallback. zstd ships as a compiled
+# extension without bundled source, so Pyright cannot resolve a source module.
 try:
-    import zstd
+    import zstd  # pyright: ignore[reportMissingModuleSource]
 
     HAS_ZSTD = True
 except ImportError:

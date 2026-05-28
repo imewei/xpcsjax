@@ -13,7 +13,23 @@ Task 15 → ``DiagonalOverlayResult`` and ``compute_diagonal_overlay_stats``).
 from __future__ import annotations
 
 import importlib
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+# Static visibility for Pyright (reportUnsupportedDunderAll): the public symbols
+# are resolved lazily via __getattr__ at runtime, so import them here under
+# TYPE_CHECKING — seen by type checkers, not imported at runtime (keeps
+# matplotlib out of the import chain). Mirrors the top-level xpcsjax/__init__.py.
+if TYPE_CHECKING:
+    from xpcsjax.viz.diagnostics import (
+        DiagonalOverlayResult,
+        compute_diagonal_overlay_stats,
+    )
+    from xpcsjax.viz.nlsq_plots import (
+        generate_nlsq_plots,
+        plot_nlsq_fit,
+        plot_residual_map,
+        plot_simulated_data,
+    )
 
 # Map public symbol → submodule that defines it. Each later task appends here.
 _LAZY_EXPORTS: dict[str, str] = {
