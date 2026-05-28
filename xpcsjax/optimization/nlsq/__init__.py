@@ -620,8 +620,12 @@ def _fit_nlsq_heterodyne(
     # fire only when the memory tier requires streaming (LARGE/STREAMING) so the
     # template's default hybrid_streaming.enable: true does not stream small data.
     # Precedence: cmaes > multi_start > hybrid_streaming > local.
+    # `enable` defaults to False (homodyne parity, wrapper.py:1109): a config that
+    # omits the hybrid_streaming section opts out, so the gate never touches
+    # select_nlsq_strategy / model.param_manager for non-hybrid fits. The shipped
+    # template sets enable: true explicitly, so template users still get it.
     hybrid_dict = nlsq_dict.get("hybrid_streaming", {}) if isinstance(nlsq_dict, dict) else {}
-    if not cmaes_on and isinstance(hybrid_dict, dict) and hybrid_dict.get("enable", True):
+    if not cmaes_on and isinstance(hybrid_dict, dict) and hybrid_dict.get("enable", False):
         from xpcsjax.optimization.nlsq.heterodyne_memory import (
             NLSQStrategy,
             select_nlsq_strategy,
