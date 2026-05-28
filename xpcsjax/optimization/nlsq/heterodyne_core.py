@@ -2292,7 +2292,7 @@ def _fit_local(
         n_data_est = np.asarray(c2_data).size
         decision = select_nlsq_strategy(n_data_est, n_varying)
         if decision.strategy in (NLSQStrategy.LARGE, NLSQStrategy.STREAMING):
-            logger.warning(
+            logger.debug(
                 "Estimated peak memory (%.2f GB) exceeds threshold (%.2f GB). "
                 "Fit may fail with OOM.",
                 decision.peak_memory_gb,

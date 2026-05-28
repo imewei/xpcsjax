@@ -616,6 +616,58 @@ def _fit_nlsq_heterodyne(
         ms_cfg = build_multistart_config(ms_dict)
         return fit_nlsq_multistart_heterodyne(model, c2, phi, nlsq_cfg, weights, ms_cfg)
 
+    # Hybrid-streaming dispatch (Phase 2). Mirrors homodyne wrapper.py:1119-1165:
+    # fire only when the memory tier requires streaming (LARGE/STREAMING) so the
+    # template's default hybrid_streaming.enable: true does not stream small data.
+    # Precedence: cmaes > multi_start > hybrid_streaming > local.
+    hybrid_dict = nlsq_dict.get("hybrid_streaming", {}) if isinstance(nlsq_dict, dict) else {}
+    if not cmaes_on and isinstance(hybrid_dict, dict) and hybrid_dict.get("enable", True):
+        from xpcsjax.optimization.nlsq.heterodyne_memory import (
+            NLSQStrategy,
+            select_nlsq_strategy,
+        )
+        from xpcsjax.utils.logging import get_logger as _get_logger
+
+        _logger = _get_logger(__name__)
+        decision = select_nlsq_strategy(
+            int(_np.asarray(c2).size), int(model.param_manager.n_varying)
+        )
+        if decision.strategy in (NLSQStrategy.LARGE, NLSQStrategy.STREAMING):
+            from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
+                build_hybrid_streaming_result,
+            )
+            from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+                build_heterodyne_stratified_data,
+            )
+            from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+                fit_with_stratified_hybrid_streaming_heterodyne,
+            )
+
+            strat = build_heterodyne_stratified_data(model, c2, phi, weights)
+            lower, upper = model.param_manager.get_bounds()
+            popt, pcov, info = fit_with_stratified_hybrid_streaming_heterodyne(
+                stratified_data=strat,
+                model=model,
+                physical_param_names=list(model.param_manager.varying_names),
+                initial_params=_np.asarray(
+                    model.param_manager.get_initial_values(), dtype=_np.float64
+                ),
+                bounds=(_np.asarray(lower), _np.asarray(upper)),
+                hybrid_config=hybrid_dict,
+                anti_degeneracy_config=(
+                    nlsq_dict.get("anti_degeneracy", {})
+                    if isinstance(nlsq_dict, dict)
+                    else {}
+                ),
+            )
+            return build_hybrid_streaming_result(
+                model=model, popt=popt, pcov=pcov, info=info, phi_angles=phi,
+            )
+        _logger.debug(
+            "hybrid_streaming enabled but memory tier is %s (< LARGE); using standard joint fit",
+            decision.strategy,
+        )
+
     return fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
 
 

@@ -125,3 +125,143 @@ def test_build_hybrid_streaming_result():
     assert isinstance(res.nlsq_diagnostics, dict)
     assert res.nlsq_diagnostics["hybrid_streaming"]["phase"] == "done"
     assert res.nlsq_diagnostics.get("shear_weighting") == "not_applicable_heterodyne"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 Task 4: dispatch gate tests
+# ---------------------------------------------------------------------------
+
+
+def _install_model_stub(monkeypatch, model):
+    import sys
+    import types
+
+    fake_mod = types.ModuleType("xpcsjax.core.heterodyne_model_stateful")
+
+    class _M:
+        @classmethod
+        def from_config(cls, _cfg):
+            return model
+
+    fake_mod.HeterodyneModel = _M
+    monkeypatch.setitem(sys.modules, "xpcsjax.core.heterodyne_model_stateful", fake_mod)
+
+
+class _Cfg:
+    def __init__(self, c):
+        self.config = c
+
+
+def test_hybrid_fires_on_streaming_tier(monkeypatch):
+    import xpcsjax.optimization.nlsq as nlsq_pkg
+    from xpcsjax.optimization.nlsq import heterodyne_memory as hm
+
+    model, c2, phi = _make_synthetic_heterodyne()
+    _install_model_stub(monkeypatch, model)
+
+    # Force tier = STREAMING
+    class _Dec:
+        strategy = hm.NLSQStrategy.STREAMING
+        peak_memory_gb = 99.0
+        threshold_gb = 1.0
+
+    monkeypatch.setattr(hm, "select_nlsq_strategy", lambda *a, **k: _Dec())
+
+    called = {}
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming.fit_with_stratified_hybrid_streaming_heterodyne",
+        lambda **k: (called.setdefault("yes", True), (__import__("numpy").zeros(model.param_manager.n_varying),
+                     __import__("numpy").eye(model.param_manager.n_varying), {"nit": 1, "success": True}))[1],
+    )
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.heterodyne_core.fit_nlsq_multi_phi",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("joint path must not run when hybrid fires")),
+    )
+
+    cfg = _Cfg({"analysis_mode": "two_component",
+                "optimization": {"nlsq": {"hybrid_streaming": {"enable": True}}}})
+    data = {"c2_exp": c2, "phi_angles_list": phi}
+    nlsq_pkg.fit_nlsq(data, cfg)
+    assert called.get("yes") is True
+
+
+def test_hybrid_does_not_fire_on_standard_tier(monkeypatch):
+    import xpcsjax.optimization.nlsq as nlsq_pkg
+    from xpcsjax.optimization.nlsq import heterodyne_memory as hm
+
+    model, c2, phi = _make_synthetic_heterodyne()
+    _install_model_stub(monkeypatch, model)
+
+    class _Dec:
+        strategy = hm.NLSQStrategy.STANDARD
+        peak_memory_gb = 0.1
+        threshold_gb = 1.0
+
+    monkeypatch.setattr(hm, "select_nlsq_strategy", lambda *a, **k: _Dec())
+
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming.fit_with_stratified_hybrid_streaming_heterodyne",
+        lambda **k: (_ for _ in ()).throw(AssertionError("hybrid must NOT fire on STANDARD tier")),
+    )
+    joint = {}
+    import numpy as _np
+
+    class _R:
+        parameters = _np.zeros(1)
+        chi_squared = 0.0
+        reduced_chi_squared = 0.0
+        success = True
+        message = "ok"
+        nlsq_diagnostics: dict = {}
+
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.heterodyne_core.fit_nlsq_multi_phi",
+        lambda *a, **k: joint.setdefault("yes", True) or _R(),
+    )
+
+    cfg = _Cfg({"analysis_mode": "two_component",
+                "optimization": {"nlsq": {"hybrid_streaming": {"enable": True}}}})
+    data = {"c2_exp": c2, "phi_angles_list": phi}
+    nlsq_pkg.fit_nlsq(data, cfg)
+    assert joint.get("yes") is True  # fell through to the normal joint fit
+
+
+def test_cmaes_precedence_over_hybrid(monkeypatch):
+    import xpcsjax.optimization.nlsq as nlsq_pkg
+    from xpcsjax.optimization.nlsq import heterodyne_memory as hm
+
+    model, c2, phi = _make_synthetic_heterodyne()
+    _install_model_stub(monkeypatch, model)
+
+    class _Dec:
+        strategy = hm.NLSQStrategy.STREAMING
+        peak_memory_gb = 99.0
+        threshold_gb = 1.0
+
+    monkeypatch.setattr(hm, "select_nlsq_strategy", lambda *a, **k: _Dec())
+
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming.fit_with_stratified_hybrid_streaming_heterodyne",
+        lambda **k: (_ for _ in ()).throw(AssertionError("hybrid must not run when cmaes on")),
+    )
+    import numpy as _np
+
+    class _R:
+        parameters = _np.zeros(1)
+        chi_squared = 0.0
+        reduced_chi_squared = 0.0
+        success = True
+        message = "ok"
+        nlsq_diagnostics: dict = {}
+
+    joint = {}
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.heterodyne_core.fit_nlsq_multi_phi",
+        lambda *a, **k: joint.setdefault("yes", True) or _R(),
+    )
+    cfg = _Cfg({"analysis_mode": "two_component",
+                "optimization": {"nlsq": {"cmaes": {"enable": True},
+                                          "hybrid_streaming": {"enable": True}}}})
+    data = {"c2_exp": c2, "phi_angles_list": phi}
+    nlsq_pkg.fit_nlsq(data, cfg)
+    assert joint.get("yes") is True
