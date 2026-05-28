@@ -37,7 +37,11 @@ _MAX_POINTS_FOR_PARALLEL = 500_000  # 500K points
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-    from xpcsjax.optimization.nlsq.results import ConvergenceStatus, OptimizationResult
+    from xpcsjax.optimization.nlsq.results import (
+        ConvergenceStatus,
+        OptimizationResult,
+        QualityFlag,
+    )
 
 logger = get_logger(__name__)
 
@@ -301,6 +305,7 @@ class MultiStartResult:
             convergence_status = "failed"
 
         # Determine quality flag based on chi-squared
+        quality_flag: QualityFlag
         if best.reduced_chi_squared < 2.0:
             quality_flag = "good"
         elif best.reduced_chi_squared < 10.0:
