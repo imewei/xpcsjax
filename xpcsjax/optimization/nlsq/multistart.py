@@ -37,7 +37,7 @@ _MAX_POINTS_FOR_PARALLEL = 500_000  # 500K points
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-    from xpcsjax.optimization.nlsq.results import OptimizationResult
+    from xpcsjax.optimization.nlsq.results import ConvergenceStatus, OptimizationResult
 
 logger = get_logger(__name__)
 
@@ -294,6 +294,7 @@ class MultiStartResult:
         n_params = len(best.final_params)
 
         # Determine convergence status
+        convergence_status: ConvergenceStatus
         if best.success:
             convergence_status = "converged"
         else:

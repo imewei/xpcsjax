@@ -34,7 +34,7 @@ from xpcsjax.core.heterodyne_scaling_utils import (
     estimate_per_angle_scaling_from_quantile,
 )
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
-from xpcsjax.optimization.nlsq.results import OptimizationResult
+from xpcsjax.optimization.nlsq.results import ConvergenceStatus, OptimizationResult
 from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -317,7 +317,7 @@ def _fit_joint_constant_multi_phi(
     )
 
     wall_time = time.perf_counter() - t_start
-    convergence_status = "converged" if nlsq_result.success else "failed"
+    convergence_status: ConvergenceStatus = "converged" if nlsq_result.success else "failed"
     quality_flag = "good" if nlsq_result.success else "marginal"
 
     diagnostics: dict[str, Any] = {
