@@ -671,17 +671,20 @@ optimization:
                                           # degenerate fits are common — keep this on.
 
     # ----------------------------------------------------------------------
-    # HYBRID STREAMING — large-dataset four-phase optimizer
+    # HYBRID STREAMING — large-dataset optimizer  (wired for heterodyne 2026-05-27)
     # ----------------------------------------------------------------------
-    # Phase 0: Parameter normalization (essential for heterodyne — handles
-    #          the 5+ order scale span across D0/v0/f0 parameters)
-    # Phase 1: L-BFGS warmup (with 4-layer defense against warm-start divergence)
-    # Phase 2: Streaming Gauss-Newton (~2 GB memory cap)
-    # Phase 3: Denormalize + covariance transform
+    # Routes the heterodyne JOINT fit through NLSQ's AdaptiveHybridStreamingOptimizer
+    # via a pointwise model over scattered (phi, t1, t2) points with per-angle
+    # scaling fixed from quantiles. Phases: normalize → L-BFGS warmup (4-layer
+    # defense) → streaming Gauss-Newton (~2 GB cap) → denormalize + covariance.
+    # ENGAGEMENT: only when the memory tier is LARGE/STREAMING (large datasets,
+    # e.g. unfiltered multi-angle ~10M+ points). On STANDARD-tier (small/filtered)
+    # data it does NOT engage even with enable=true — the normal joint fit runs.
+    # PRECEDENCE: cmaes > multi_start > hybrid_streaming > local.
     # For 14-D heterodyne, normalization is the critical piece — without
     # it, L-BFGS struggles with the scale imbalance. Leave normalize=true.
     hybrid_streaming:
-      enable: true                           # auto-fires for >10M points
+      enable: true                           # engages only at LARGE/STREAMING tier
       normalize: true                        # Phase 0 — ESSENTIAL for heterodyne
                                              # (handles the 5+ order scale span across
                                              # D0_ref / D0_sample / v0 / f0)
