@@ -186,6 +186,64 @@ def compute_c2_heterodyne(
     )
 
 
+def compute_c2_heterodyne_pointwise(
+    params: jnp.ndarray,
+    t: jnp.ndarray,
+    q: float,
+    dt: float,
+    *,
+    phi_unique: jnp.ndarray,
+    phi_idx: jnp.ndarray,
+    t1_idx: jnp.ndarray,
+    t2_idx: jnp.ndarray,
+    contrast: jnp.ndarray,
+    offset: jnp.ndarray,
+) -> jnp.ndarray:
+    """Pointwise heterodyne correlation at scattered ``(phi, t1, t2)`` triples.
+
+    Thin shim around :func:`xpcsjax.core.heterodyne_physics_kernel.compute_c2_unified`
+    with ``eval_strategy="pointwise"``.  Returns a flat ``(P,)`` array —
+    one c2 value per point — suitable for feeding NLSQ's
+    ``AdaptiveHybridStreamingOptimizer``.
+
+    Physics is IDENTICAL to the meshgrid path: per-t cumulative arrays are
+    computed once and then gathered at ``(t1_idx[p], t2_idx[p])`` per point,
+    giving exact float-level parity with
+    ``compute_c2_heterodyne(params, t, q, dt, phi_unique[phi_idx[p]],
+      contrast[phi_idx[p]], offset[phi_idx[p]])[t1_idx[p], t2_idx[p]]``.
+
+    Args:
+        params: Parameter array of shape ``(14,)`` in canonical order.
+        t: Time array, shape ``(N,)``.
+        q: Scattering wavevector magnitude.
+        dt: Time step.
+        phi_unique: Shape ``(n_phi,)`` unique phi angles in degrees.
+        phi_idx: Shape ``(P,)`` int32 index into ``phi_unique`` per point.
+        t1_idx: Shape ``(P,)`` int32 time-1 indices into ``t``.
+        t2_idx: Shape ``(P,)`` int32 time-2 indices into ``t``.
+        contrast: Shape ``(n_phi,)`` per-angle speckle contrast.
+        offset: Shape ``(n_phi,)`` per-angle baseline offset.
+
+    Returns:
+        Flat ``(P,)`` array of c2 values.
+    """
+    from xpcsjax.core.heterodyne_physics_kernel import compute_c2_unified
+
+    return compute_c2_unified(
+        params,
+        q,
+        dt,
+        eval_strategy="pointwise",
+        t=t,
+        phi_unique=phi_unique,
+        phi_idx=phi_idx,
+        t1_idx=t1_idx,
+        t2_idx=t2_idx,
+        contrast_arr=contrast,
+        offset_arr=offset,
+    )
+
+
 def compute_residuals(
     params: jnp.ndarray,
     t: jnp.ndarray,
