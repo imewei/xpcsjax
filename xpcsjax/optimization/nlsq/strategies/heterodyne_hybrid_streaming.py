@@ -122,13 +122,19 @@ def build_heterodyne_pointwise_model(
     t2_idx_arr = _bin_to_grid(all_t2, t_unique, "t2")
 
     # ------------------------------------------------------------------
-    # 4. Filter diagonal (t1 == t2 in index space)
+    # 4. Filter diagonal AND t=0 boundary (mirrors _compute_residuals_jit)
+    #
+    # _compute_residuals_jit in heterodyne_jax_backend.py excludes BOTH:
+    #   (a) the diagonal (t1 == t2)
+    #   (b) the t=0 row/column (t1_idx == 0 OR t2_idx == 0)
+    # Yielding (n_t-1)*(n_t-2) points per angle.  Both exclusions must be
+    # applied here so the pointwise training set matches the residual support.
     # ------------------------------------------------------------------
-    non_diag = t1_idx_arr != t2_idx_arr
-    phi_idx_arr = phi_idx_arr[non_diag]
-    t1_idx_arr = t1_idx_arr[non_diag]
-    t2_idx_arr = t2_idx_arr[non_diag]
-    g2_flat = g2_flat[non_diag]
+    keep = (t1_idx_arr != t2_idx_arr) & (t1_idx_arr > 0) & (t2_idx_arr > 0)
+    phi_idx_arr = phi_idx_arr[keep]
+    t1_idx_arr = t1_idx_arr[keep]
+    t2_idx_arr = t2_idx_arr[keep]
+    g2_flat = g2_flat[keep]
 
     x_data = np.column_stack(
         [phi_idx_arr.astype(np.int32), t1_idx_arr.astype(np.int32), t2_idx_arr.astype(np.int32)]
@@ -246,10 +252,31 @@ def build_heterodyne_pointwise_model(
         )
         return jnp.squeeze(result)
 
+    # ------------------------------------------------------------------
+    # Pre-compute masked sigma aligned 1:1 with x_data/y_data.
+    # We store the raw sigma_3d lookup here (before sigma uniformity check)
+    # so the wrapper does not need to re-derive the keep mask.  If sigma is
+    # not available on stratified_data the entry is None.
+    # ------------------------------------------------------------------
+    meta_sigma: np.ndarray | None = None
+    if hasattr(stratified_data, "sigma") and stratified_data.sigma is not None:
+        sigma_3d = np.asarray(stratified_data.sigma, dtype=np.float64)
+        # Reuse the pre-keep phi/t indices from the PRE-filter arrays so the
+        # mask aligns with the flat order we started from.
+        phi_idx_pre = _bin_to_grid(all_phi, phi_unique, "phi_sigma_pre")
+        t1_idx_pre = _bin_to_grid(all_t1, t_unique, "t1_sigma_pre")
+        t2_idx_pre = _bin_to_grid(all_t2, t_unique, "t2_sigma_pre")
+        # `keep` was built from the same pre-filter arrays, so this is aligned.
+        sigma_sel = sigma_3d[phi_idx_pre[keep], t1_idx_pre[keep], t2_idx_pre[keep]]
+        meta_sigma = sigma_sel
+
     meta: dict[str, Any] = {
         "phi_unique": phi_unique,
         "contrast_arr": contrast_arr,
         "offset_arr": offset_arr,
+        "keep_mask": keep,
+        "n_data_points": int(keep.sum()),
+        "sigma": meta_sigma,
     }
 
     return model_fn, x_data, y_data, p0, meta
@@ -351,7 +378,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     # Build model function and data
     # ------------------------------------------------------------------
     logger.info("Building heterodyne pointwise model for hybrid streaming...")
-    model_fn, x_data, y_data, p0, _meta = build_heterodyne_pointwise_model(
+    model_fn, x_data, y_data, p0, meta = build_heterodyne_pointwise_model(
         stratified_data=stratified_data,
         model=model,
         physical_param_names=physical_param_names,
@@ -364,25 +391,32 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     cfg = _build_hybrid_streaming_config(hybrid_config or {})
 
     # ------------------------------------------------------------------
-    # Build sigma from stratified_data if available
+    # Honor initial_params override (Finding 2)
+    # The model builder always derives p0 from param_manager; override here
+    # when the caller supplies a custom starting point.
+    # ------------------------------------------------------------------
+    p0_arr = np.asarray(p0, dtype=np.float64)
+    if initial_params is not None:
+        ip = np.asarray(initial_params, dtype=np.float64)
+        if ip.shape != p0_arr.shape:
+            logger.warning(
+                "initial_params length %d != model p0 length %d; "
+                "using model default.",
+                len(ip),
+                len(p0_arr),
+            )
+        else:
+            p0_arr = ip
+
+    # ------------------------------------------------------------------
+    # Build sigma from meta (already masked with the keep filter, aligned
+    # 1:1 with x_data/y_data by build_heterodyne_pointwise_model).
+    # The old code recomputed the mask here with diagonal-only exclusion,
+    # which was both redundant and wrong (missed the t=0 boundary).
     # ------------------------------------------------------------------
     sigma: np.ndarray | None = None
-    if hasattr(stratified_data, "sigma") and stratified_data.sigma is not None:
-        sigma_3d = np.asarray(stratified_data.sigma, dtype=np.float64)
-        # Flatten to match y_data ordering (phi-major, then t1xnt t2, off-diag)
-        # For simplicity use uniform sigma when non-trivial sigma is present
-        # The sigma shape is (n_phi, n_t, n_t) — flatten and filter diagonal
-        # Rebuild index mapping to apply same diagonal mask used in x_data
-        phi_vals = stratified_data.phi_flat
-        t1_vals = stratified_data.t1_flat
-        t2_vals = stratified_data.t2_flat
-        phi_unique_s = np.array(sorted(set(phi_vals.tolist())), dtype=np.float64)
-        t_unique_s = np.asarray(model.t, dtype=np.float64)
-        phi_i = _bin_to_grid(phi_vals, phi_unique_s, "phi_sigma")
-        t1_i = _bin_to_grid(t1_vals, t_unique_s, "t1_sigma")
-        t2_i = _bin_to_grid(t2_vals, t_unique_s, "t2_sigma")
-        non_diag = t1_i != t2_i
-        sigma_sel = sigma_3d[phi_i[non_diag], t1_i[non_diag], t2_i[non_diag]]
+    if meta.get("sigma") is not None:
+        sigma_sel = np.asarray(meta["sigma"], dtype=np.float64)
         if np.all(sigma_sel == 1.0):
             sigma = None  # uniform — let optimizer use default
         else:
@@ -394,15 +428,21 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     logger.info("Initializing AdaptiveHybridStreamingOptimizer...")
     optimizer = AdaptiveHybridStreamingOptimizer(cfg)
 
-    p0_arr = np.asarray(p0, dtype=np.float64)
-    lower, upper = bounds
+    if bounds is not None:
+        lower, upper = bounds
+        bounds_arg: tuple[np.ndarray, np.ndarray] | None = (
+            np.asarray(lower, dtype=np.float64),
+            np.asarray(upper, dtype=np.float64),
+        )
+    else:
+        bounds_arg = None
 
     logger.info("Running heterodyne hybrid streaming fit (%d params)...", len(p0_arr))
     result: dict[str, Any] = optimizer.fit(
         data_source=(x_data, y_data),
         func=model_fn,
         p0=p0_arr,
-        bounds=(np.asarray(lower, dtype=np.float64), np.asarray(upper, dtype=np.float64)),
+        bounds=bounds_arg,
         sigma=sigma,
     )
 
@@ -421,5 +461,8 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         info["hybrid_streaming_diagnostics"] = {
             k: info[k] for k in ("nit", "success") if k in info
         }
+
+    # Thread data-point count for reduced-chi dof (Finding 3)
+    info["n_data_points"] = meta["n_data_points"]
 
     return popt, pcov, info

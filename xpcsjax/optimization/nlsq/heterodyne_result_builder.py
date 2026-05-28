@@ -534,7 +534,10 @@ def build_hybrid_streaming_result(
     # SSR: not directly available from streaming result — use 0.0 placeholder
     # ------------------------------------------------------------------
     ssr = float(info.get("cost", 0.0)) * 2.0  # optimizer cost = 0.5 * SSR
-    n_dof = max(1, n)  # placeholder
+    # Finding 3: dof = n_data - n_params.  n_data_points is threaded from the
+    # wrapper via info so this is always correct when the hybrid path ran.
+    n_data = int(info.get("n_data_points", 0))
+    n_dof = max(1, n_data - n)
     reduced_chi2 = ssr / n_dof if ssr > 0 else 0.0
 
     return OptimizationResult(
