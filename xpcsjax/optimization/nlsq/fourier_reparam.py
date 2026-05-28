@@ -35,6 +35,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
+import jax.numpy as jnp
 import numpy as np
 
 from xpcsjax.utils.logging import get_logger
@@ -320,6 +321,28 @@ class FourierReparameterizer:
         contrast = self._basis_matrix @ contrast_coeffs
         offset = self._basis_matrix @ offset_coeffs
 
+        return contrast, offset
+
+    def fourier_to_per_angle_jax(
+        self, fourier_coeffs: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        """JIT-safe variant of :meth:`fourier_to_per_angle`.
+
+        Uses ``jnp`` throughout so it can be called inside a JIT-traced
+        residual. The numpy :meth:`fourier_to_per_angle` calls ``np.asarray``
+        on the coefficient slice, which raises ``TracerArrayConversionError``
+        when the slice is a JAX tracer (the heterodyne fourier joint residual
+        path). ``use_fourier``, ``n_coeffs_per_param`` and the basis matrix are
+        static, so the branch and matmul trace cleanly.
+        """
+        coeffs = jnp.asarray(fourier_coeffs, dtype=jnp.float64)
+        if not self.use_fourier:
+            # Independent mode: first half contrast, second half offset.
+            return coeffs[: self.n_phi], coeffs[self.n_phi :]
+        n_half = self.n_coeffs_per_param
+        basis = jnp.asarray(self._basis_matrix, dtype=jnp.float64)
+        contrast = basis @ coeffs[:n_half]
+        offset = basis @ coeffs[n_half:]
         return contrast, offset
 
     def per_angle_to_fourier(

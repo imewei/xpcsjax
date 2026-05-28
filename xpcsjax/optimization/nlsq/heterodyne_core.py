@@ -1447,10 +1447,11 @@ def _fit_joint_multi_phi(
         varying_jax = jnp.asarray(physics_varying, dtype=jnp.float64)
         full_jax = fixed_values_jax.at[varying_indices_jax].set(varying_jax)
 
-        # Convert Fourier coefficients → per-angle contrast/offset
-        contrast_arr, offset_arr = fourier.fourier_to_per_angle(fourier_coeffs)
-        contrasts_jax = jnp.asarray(contrast_arr, dtype=jnp.float64)  # (n_phi,)
-        offsets_jax = jnp.asarray(offset_arr, dtype=jnp.float64)  # (n_phi,)
+        # Convert Fourier coefficients → per-angle contrast/offset. Must use
+        # the JIT-safe variant: the numpy fourier_to_per_angle calls np.asarray
+        # on the traced coefficient slice, raising TracerArrayConversionError
+        # inside NLSQ's JIT-compiled residual (silently degraded the fourier fit).
+        contrasts_jax, offsets_jax = fourier.fourier_to_per_angle_jax(fourier_coeffs)
 
         # Single batched vmap call — eliminates n_phi serial dispatches
         return compute_multi_angle_residuals(
