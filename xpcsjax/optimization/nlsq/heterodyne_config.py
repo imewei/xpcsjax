@@ -416,7 +416,7 @@ class NLSQConfig:
 
     use_nlsq_library: bool = True
     n_params: int = 14  # heterodyne: 14 parameters
-    analysis_mode: AnalysisMode = "two_component"
+    analysis_mode: AnalysisMode = AnalysisMode.TWO_COMPONENT
 
     # ------------------------------------------------------------------
     # NLSQ package integration (mirrors homodyne wrapper.py)

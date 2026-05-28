@@ -677,7 +677,7 @@ def make_model(config_or_manager: Any) -> PhysicsModelBase:
 
     # Homodyne path — delegate to existing create_model factory
     logger.info("make_model: dispatching to CombinedModel (mode=%s)", raw_mode)
-    return create_model(mode_lower)
+    return create_model(AnalysisMode(mode_lower))
 
 
 # Export main classes and functions

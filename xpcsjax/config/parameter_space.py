@@ -109,16 +109,18 @@ class ParameterSpace:
         # Determine model type
         if analysis_mode is None:
             # Try to get from config
-            analysis_mode = (
-                param_space_config.get("model")
-                or config_dict.get("analysis_mode")
-                or "laminar_flow"
+            analysis_mode = AnalysisMode.parse(
+                str(
+                    param_space_config.get("model")
+                    or config_dict.get("analysis_mode")
+                    or "laminar_flow"
+                )
             )
 
         model_type = analysis_mode.lower()
 
         # Initialize ParameterManager for name mapping and defaults
-        param_manager = ParameterManager(config_dict, analysis_mode=model_type)
+        param_manager = ParameterManager(config_dict, analysis_mode=analysis_mode)
 
         # Get parameter names (use ParameterManager to respect active_parameters)
         parameter_names = param_manager.get_active_parameters()

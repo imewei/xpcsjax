@@ -33,6 +33,7 @@ Usage Example
 
 import numpy as np
 
+from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.core.jax_backend import compute_g2_scaled_with_factors, jnp
 from xpcsjax.core.models import CombinedModel
 from xpcsjax.core.physics_factors import create_physics_factors_from_config_dict
@@ -155,7 +156,7 @@ class HomodyneModel:
         )
 
         # Create underlying model (for backward compatibility)
-        self.model = CombinedModel(analysis_mode=self.analysis_mode)
+        self.model = CombinedModel(analysis_mode=AnalysisMode.parse(self.analysis_mode))
 
         logger.info("HomodyneModel initialized successfully")
         logger.info(f"  Analysis mode: {self.analysis_mode}")

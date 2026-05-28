@@ -20,13 +20,12 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 
+from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.io.json_utils import json_serializer
 from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
-
-    from xpcsjax.config.parameter_registry import AnalysisMode
 
 logger = get_logger(__name__)
 
@@ -1231,7 +1230,9 @@ def generate_nlsq_plots(
             "config.analyzer_parameters must contain scattering.wavevector_q, "
             "geometry.stator_rotor_gap, and dt (or temporal.dt)"
         )
-    analysis_mode = config_dict.get("analysis_mode", "unknown")
+    analysis_mode = AnalysisMode.parse(
+        str(config_dict.get("analysis_mode") or "laminar_flow")
+    )
 
     # Output dirs
     output_dir = Path(output_dir)
@@ -1423,7 +1424,7 @@ def generate_nlsq_plots(
         convergence_status=str(result.convergence_status),
         iterations=int(result.iterations),
         execution_time=float(result.execution_time),
-        analysis_mode=str(analysis_mode),
+        analysis_mode=analysis_mode,
         output_dir=sim_dir,
         compression=compression,
     )

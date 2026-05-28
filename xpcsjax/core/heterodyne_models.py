@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 import numpy as np
 
-from xpcsjax.config.parameter_registry import get_registry
+from xpcsjax.config.parameter_registry import AnalysisMode, get_registry
 from xpcsjax.core.heterodyne_jax_backend import compute_c2_heterodyne
 
 # Canonical 14-parameter heterodyne names, sourced from xpcsjax's
@@ -17,7 +17,7 @@ from xpcsjax.core.heterodyne_jax_backend import compute_c2_heterodyne
 # (``v_beta``, ``phi0_het``) instead of the upstream heterodyne names
 # (``beta``, ``phi0``) that would collide with the homodyne flow params.
 ALL_PARAM_NAMES: tuple[str, ...] = tuple(
-    get_registry().get_param_names("two_component")
+    get_registry().get_param_names(AnalysisMode.TWO_COMPONENT)
 )
 
 if TYPE_CHECKING:
