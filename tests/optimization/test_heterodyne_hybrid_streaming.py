@@ -38,5 +38,90 @@ def _make_synthetic_heterodyne(n_phi: int = 2, n_t: int = 8, seed: int = 0):
 
     return model, c2, phi
 
-# Phase 2-A tests (pointwise model_fn + hybrid streaming) are added in later tasks.
-# This module currently provides only the synthetic-data helper above.
+def test_model_fn_pointwise_matches_kernel():
+    """model_fn must reproduce the meshgrid c2 per point using the SAME per-angle
+    scaling it computed (decoupled from scaling estimation accuracy)."""
+    import jax.numpy as jnp
+
+    from xpcsjax.core.heterodyne_jax_backend import compute_c2_heterodyne
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        build_heterodyne_pointwise_model,
+    )
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=2, n_t=8)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    model_fn, x_data, y_data, p0, meta = build_heterodyne_pointwise_model(
+        stratified_data=strat, model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+    )
+    phi_unique = np.asarray(meta["phi_unique"])
+    contrast_arr = np.asarray(meta["contrast_arr"])
+    offset_arr = np.asarray(meta["offset_arr"])
+    full = np.asarray(model.param_manager.get_full_values())
+
+    pred = np.asarray(model_fn(jnp.asarray(x_data), *[jnp.asarray(v) for v in p0]))
+
+    # Expected: per-point meshgrid c2 with the SAME scaling meta reports.
+    meshes = [np.asarray(compute_c2_heterodyne(jnp.asarray(full), model.t, model.q, model.dt,
+                                               float(phi_unique[a]), float(contrast_arr[a]), float(offset_arr[a])))
+              for a in range(len(phi_unique))]
+    expected = np.array([meshes[int(x_data[k, 0])][int(x_data[k, 1]), int(x_data[k, 2])]
+                         for k in range(x_data.shape[0])])
+    assert np.max(np.abs(pred - expected)) < 1e-6, f"max diff {np.max(np.abs(pred - expected)):.3e}"
+
+
+def test_fit_with_stratified_hybrid_streaming_heterodyne_dispatch(monkeypatch):
+    import xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming as hs
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+
+    captured = {}
+
+    class _FakeOpt:
+        def __init__(self, config):
+            captured["config"] = config
+
+        def fit(self, data_source, func, p0, bounds=None, sigma=None, **kw):
+            captured["n_params"] = len(p0)
+            captured["has_func"] = callable(func)
+            n = len(p0)
+            return {"x": np.zeros(n), "pcov": np.eye(n), "perr": np.zeros(n), "nit": 5, "success": True}
+
+    monkeypatch.setattr(hs, "AdaptiveHybridStreamingOptimizer", _FakeOpt)
+
+    model, c2, phi = _make_synthetic_heterodyne()
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lower, upper = model.param_manager.get_bounds()
+    popt, pcov, info = hs.fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat, model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values()),
+        bounds=(np.asarray(lower), np.asarray(upper)),
+        hybrid_config={"enable": True, "warmup_iterations": 30, "chunk_size": 4000},
+    )
+    assert popt.shape[0] == model.param_manager.n_varying
+    assert pcov.shape == (popt.shape[0], popt.shape[0])
+    assert info["nit"] == 5
+    assert captured["config"].warmup_iterations == 30
+    assert captured["config"].chunk_size == 4000
+    assert captured["has_func"] is True
+
+
+def test_build_hybrid_streaming_result():
+    from xpcsjax.optimization.nlsq.heterodyne_result_builder import build_hybrid_streaming_result
+
+    model, c2, phi = _make_synthetic_heterodyne()
+    n = model.param_manager.n_varying
+    res = build_hybrid_streaming_result(
+        model=model, popt=np.zeros(n), pcov=np.eye(n),
+        info={"nit": 4, "success": True, "hybrid_streaming_diagnostics": {"phase": "done"}},
+        phi_angles=phi,
+    )
+    assert hasattr(res, "parameters")
+    assert isinstance(res.nlsq_diagnostics, dict)
+    assert res.nlsq_diagnostics["hybrid_streaming"]["phase"] == "done"
+    assert res.nlsq_diagnostics.get("shear_weighting") == "not_applicable_heterodyne"

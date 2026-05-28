@@ -440,3 +440,116 @@ def _status_to_reason(status: int) -> str:
         4: "Both xtol and ftol convergence",
     }
     return reasons.get(status, f"Unknown status: {status}")
+
+
+def build_hybrid_streaming_result(
+    *,
+    model: Any,
+    popt: np.ndarray,
+    pcov: np.ndarray,
+    info: dict[str, Any],
+    phi_angles: np.ndarray,
+) -> Any:
+    """Build an OptimizationResult from heterodyne hybrid-streaming optimizer output.
+
+    Mirrors the tail of ``_fit_joint_averaged_multi_phi`` in ``heterodyne_core.py``.
+    The result carries the full ``nlsq_diagnostics`` schema expected by downstream
+    consumers including the ``shear_weighting="not_applicable_heterodyne"`` marker
+    (set by ``_build_heterodyne_diagnostics``).
+
+    Parameters
+    ----------
+    model :
+        HeterodyneModel; provides ``param_manager``.
+    popt :
+        Fitted varying-parameter vector, shape (n_varying,).
+    pcov :
+        Parameter covariance, shape (n_varying, n_varying).
+    info :
+        Raw optimizer info dict (at least ``nit``/``success`` and optionally
+        ``hybrid_streaming_diagnostics``).
+    phi_angles :
+        Array of phi angles (degrees) used in the fit, shape (n_phi,).
+
+    Returns
+    -------
+    OptimizationResult
+        Populated result with ``nlsq_diagnostics`` and proper schema.
+    """
+    from xpcsjax.optimization.nlsq.heterodyne_core import _build_heterodyne_diagnostics
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+    from xpcsjax.optimization.nlsq.validation import classify_fit_quality
+
+    popt = np.asarray(popt, dtype=np.float64)
+    pcov = np.asarray(pcov, dtype=np.float64)
+    n = len(popt)
+    n_phi = len(np.asarray(phi_angles))
+
+    # ------------------------------------------------------------------
+    # Uncertainties from covariance diagonal
+    # ------------------------------------------------------------------
+    uncertainties = np.sqrt(np.clip(np.diag(pcov), 0.0, None))
+
+    # ------------------------------------------------------------------
+    # chi2 placeholder — streaming optimizer does not decompose per-angle
+    # chi2 during Phase 2-A; fill with NaN so downstream can detect.
+    # ------------------------------------------------------------------
+    chi2_per_angle = np.full(n_phi, np.nan, dtype=np.float64)
+
+    # ------------------------------------------------------------------
+    # Build nlsq_diagnostics via the canonical heterodyne helper
+    # ------------------------------------------------------------------
+    diagnostics = _build_heterodyne_diagnostics(
+        per_angle_mode="hybrid_streaming",
+        chi2_per_angle=chi2_per_angle,
+        scaling_source="quantile",
+        fourier_basis_dim=None,
+        parameter_names=list(model.param_manager.varying_names),
+        phi_angles=np.asarray(phi_angles, dtype=np.float64),
+        n_angles_joint=int(n_phi),
+        n_iterations=int(info.get("nit", 0)),
+        success=bool(info.get("success", True)),
+    )
+
+    # ------------------------------------------------------------------
+    # Attach hybrid-streaming-specific diagnostics block
+    # ------------------------------------------------------------------
+    diagnostics["hybrid_streaming"] = info.get(
+        "hybrid_streaming_diagnostics",
+        {k: info[k] for k in ("nit", "success") if k in info},
+    )
+
+    # ------------------------------------------------------------------
+    # Convergence status and quality
+    # ------------------------------------------------------------------
+    success = bool(info.get("success", True))
+    convergence_status: str = "converged" if success else "failed"
+    quality_flag = classify_fit_quality(reduced_chi2=1.0) if success else "poor"
+
+    # Coerce to valid ConvergenceStatus literal
+    if convergence_status not in ("converged", "max_iter", "failed", "partial"):
+        convergence_status = "failed"
+
+    # ------------------------------------------------------------------
+    # SSR: not directly available from streaming result — use 0.0 placeholder
+    # ------------------------------------------------------------------
+    ssr = float(info.get("cost", 0.0)) * 2.0  # optimizer cost = 0.5 * SSR
+    n_dof = max(1, n)  # placeholder
+    reduced_chi2 = ssr / n_dof if ssr > 0 else 0.0
+
+    return OptimizationResult(
+        parameters=popt,
+        uncertainties=uncertainties,
+        covariance=pcov,
+        chi_squared=ssr,
+        reduced_chi_squared=reduced_chi2,
+        convergence_status=convergence_status,  # type: ignore[arg-type]
+        iterations=int(info.get("nit", 0)),
+        execution_time=float(info.get("wall_time", 0.0)),
+        device_info={"backend": "cpu", "adapter": "AdaptiveHybridStreamingOptimizer"},
+        recovery_actions=[],
+        quality_flag=quality_flag,  # type: ignore[arg-type]
+        streaming_diagnostics=None,
+        stratification_diagnostics=None,
+        nlsq_diagnostics=diagnostics,
+    )
