@@ -68,6 +68,22 @@ def test_classify_fit_quality_respects_custom_thresholds():
     assert classify_fit_quality(3.001, cfg) == "poor"
 
 
+def test_classify_quality_flag_maps_band_to_qualityflag():
+    """The QualityFlag bridge maps the 'acceptable' band to 'marginal' and
+    passes the other bands through — every result is a valid QualityFlag member."""
+    from xpcsjax.optimization.nlsq.validation import classify_quality_flag
+
+    valid = {"good", "marginal", "poor", "unknown"}
+    assert classify_quality_flag(1.0) == "good"  # band 'good'
+    assert classify_quality_flag(3.0) == "marginal"  # band 'acceptable' -> 'marginal'
+    assert classify_quality_flag(100.0) == "poor"  # band 'poor'
+    assert classify_quality_flag(None) == "unknown"  # band 'unknown'
+    assert classify_quality_flag(float("nan")) == "unknown"
+    # Never emits the out-of-contract 'acceptable'
+    for chi2 in (0.5, 3.0, 4.9, 50.0, None):
+        assert classify_quality_flag(chi2) in valid
+
+
 # ---------------------------------------------------------------------------
 # FitQualityConfig defaults — these are the homodyne parity contract
 # ---------------------------------------------------------------------------

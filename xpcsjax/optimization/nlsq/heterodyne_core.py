@@ -23,7 +23,7 @@ from xpcsjax.core.heterodyne_jax_backend import (
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
 from xpcsjax.optimization.nlsq.results import OptimizationResult
-from xpcsjax.optimization.nlsq.validation import classify_fit_quality
+from xpcsjax.optimization.nlsq.validation import classify_quality_flag
 from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from xpcsjax.core.heterodyne_model_stateful import (
         HeterodyneModel as HeterodyneModel,
     )
+    from xpcsjax.optimization.nlsq.results import QualityFlag
 
 logger = get_logger(__name__)
 
@@ -343,7 +344,7 @@ def _aggregate_individual_results(
     n_success = int(sum(bool(r.success) for r in per_angle_results))
     all_converged = n_success == n_phi
     convergence_status = "converged" if all_converged else "partial"
-    quality_flag = classify_fit_quality(reduced_chi2=reduced_chi2)
+    quality_flag = classify_quality_flag(reduced_chi2=reduced_chi2)
     if not all_converged and quality_flag == "good":
         # Mixed-success aggregate should not advertise good quality even
         # when reduced_chi2 happens to land in the green band.
@@ -1032,7 +1033,7 @@ def _fit_joint_averaged_multi_phi(
     )
 
     convergence_status = "converged" if joint_result.success else "failed"
-    quality_flag = "good" if joint_result.success else "marginal"
+    quality_flag: QualityFlag = "good" if joint_result.success else "marginal"
 
     # ------------------------------------------------------------------
     # L2 anti-degeneracy: hierarchical two-stage solve.
@@ -1671,7 +1672,7 @@ def _fit_joint_multi_phi(
     )
 
     convergence_status = "converged" if joint_result.success else "failed"
-    quality_flag = "good" if joint_result.success else "marginal"
+    quality_flag: QualityFlag = "good" if joint_result.success else "marginal"
 
     # ------------------------------------------------------------------
     # L2 anti-degeneracy: hierarchical two-stage solve.
@@ -2151,7 +2152,7 @@ def _fit_cmaes(
             ssr = 2.0 * result.final_cost
             result.reduced_chi_squared = ssr / (sigma2_noise * n_dof_valid)
 
-    quality_flag = classify_fit_quality(result.reduced_chi_squared)
+    quality_flag = classify_quality_flag(result.reduced_chi_squared)
     result.metadata["optimizer"] = "cmaes"
     result.metadata["cmaes_winner"] = winner
     result.metadata["cmaes_cost"] = cmaes_cost

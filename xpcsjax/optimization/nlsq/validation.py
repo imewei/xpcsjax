@@ -14,11 +14,14 @@ truth for quality band labels (``good`` / ``acceptable`` / ``poor`` /
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from xpcsjax.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from xpcsjax.optimization.nlsq.results import QualityFlag
 
 logger = get_logger(__name__)
 
@@ -163,6 +166,47 @@ def classify_fit_quality(
     if reduced_chi2 <= config.chi2_acceptable_threshold:
         return "acceptable"
     return "poor"
+
+
+# The fit-quality band vocabulary (``classify_fit_quality``) uses "acceptable",
+# but ``OptimizationResult.quality_flag`` (a ``QualityFlag`` Literal) uses
+# "marginal". This bridge maps band → flag so result objects never carry the
+# out-of-contract "acceptable" value.
+_BAND_TO_QUALITY_FLAG: dict[str, QualityFlag] = {
+    "good": "good",
+    "acceptable": "marginal",
+    "poor": "poor",
+    "unknown": "unknown",
+}
+
+
+def classify_quality_flag(
+    reduced_chi2: float | None,
+    config: FitQualityConfig | None = None,
+) -> QualityFlag:
+    """Classify reduced chi-squared into an ``OptimizationResult`` ``QualityFlag``.
+
+    Wraps :func:`classify_fit_quality` and maps its band label into the
+    ``QualityFlag`` vocabulary (``"acceptable"`` → ``"marginal"``). Use this
+    when populating ``OptimizationResult.quality_flag``; use
+    :func:`classify_fit_quality` directly only when the band vocabulary itself
+    is wanted.
+
+    Parameters
+    ----------
+    reduced_chi2 : float or None
+        Reduced chi-squared value.
+    config : FitQualityConfig, optional
+        Band thresholds. Defaults to :class:`FitQualityConfig` defaults.
+
+    Returns
+    -------
+    QualityFlag
+        One of ``"good"``, ``"marginal"``, ``"poor"``, ``"unknown"``.
+    """
+    return _BAND_TO_QUALITY_FLAG.get(
+        classify_fit_quality(reduced_chi2, config), "unknown"
+    )
 
 
 def _classify_parameter_status(
@@ -749,6 +793,7 @@ __all__ = [
     "FitQualityConfig",
     "FitQualityReport",
     "classify_fit_quality",
+    "classify_quality_flag",
     "validate_fit_quality",
     # Input validation
     "InputValidator",

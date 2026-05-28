@@ -478,7 +478,7 @@ def build_hybrid_streaming_result(
     """
     from xpcsjax.optimization.nlsq.heterodyne_core import _build_heterodyne_diagnostics
     from xpcsjax.optimization.nlsq.results import OptimizationResult
-    from xpcsjax.optimization.nlsq.validation import classify_fit_quality
+    from xpcsjax.optimization.nlsq.validation import classify_quality_flag
 
     popt = np.asarray(popt, dtype=np.float64)
     pcov = np.asarray(pcov, dtype=np.float64)
@@ -524,7 +524,7 @@ def build_hybrid_streaming_result(
     # ------------------------------------------------------------------
     success = bool(info.get("success", True))
     convergence_status: str = "converged" if success else "failed"
-    quality_flag = classify_fit_quality(reduced_chi2=1.0) if success else "poor"
+    quality_flag = classify_quality_flag(reduced_chi2=1.0) if success else "poor"
 
     # Coerce to valid ConvergenceStatus literal
     if convergence_status not in ("converged", "max_iter", "failed", "partial"):
