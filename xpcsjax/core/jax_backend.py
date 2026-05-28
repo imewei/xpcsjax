@@ -40,9 +40,15 @@ except ImportError:
 
     JAX_AVAILABLE = False
 
-    # Import NumPy-based gradients for graceful fallback
+    # Import NumPy-based gradients for graceful fallback. The optional
+    # numpy_gradients module is not shipped (this fallback is only reachable when
+    # JAX is unavailable); the try/except degrades gracefully via the
+    # NUMPY_GRADIENTS_AVAILABLE flag.
     try:
-        from xpcsjax.core.numpy_gradients import numpy_gradient, numpy_hessian
+        from xpcsjax.core.numpy_gradients import (  # pyright: ignore[reportMissingImports]
+            numpy_gradient,
+            numpy_hessian,
+        )
 
         NUMPY_GRADIENTS_AVAILABLE = True
     except ImportError:

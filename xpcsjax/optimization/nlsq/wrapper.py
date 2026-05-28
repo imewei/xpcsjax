@@ -1338,7 +1338,7 @@ class NLSQWrapper(NLSQAdapterBase):
 
         # Step 2: Prepare data
         logger.info(f"Preparing data for {analysis_mode} optimization...")
-        xdata, ydata = self._prepare_data(stratified_data)
+        xdata, ydata = self._prepare_xy_data(stratified_data)
         n_data = len(ydata)
         logger.info(f"Data prepared: {n_data} points")
 
@@ -2045,8 +2045,13 @@ class NLSQWrapper(NLSQAdapterBase):
             attempt=attempt,
         )
 
-    def _prepare_data(self, data: Any) -> tuple[np.ndarray, np.ndarray]:
+    def _prepare_xy_data(self, data: Any) -> tuple[np.ndarray, np.ndarray]:
         """Transform multi-dimensional XPCS data to flattened 1D arrays.
+
+        Named distinctly from the base ``NLSQAdapterBase._prepare_data``
+        (``(t1, t2, phi, g2, weights) -> dict``): this wrapper variant takes a
+        single data object and returns flattened ``(xdata, ydata)``. The two
+        are different operations, so this is intentionally not an override.
 
         Args:
             data: XPCSData with shape (n_phi, n_t1, n_t2) OR StratifiedData (already flattened)
@@ -2343,7 +2348,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 logger.info(f"\n{report}")
 
         # Create stratified data object (modify in-place or create copy)
-        # We need to "unflatten" back to original shape for _prepare_data to work
+        # We need to "unflatten" back to original shape for _prepare_xy_data to work
         # Actually, we can't easily unflatten to 3D grid, so instead we'll create
         # a modified data object that stores the flattened stratified arrays
 

@@ -254,8 +254,11 @@ def benchmark_device_performance(
     return benchmark_results
 
 
-# Main exports
-_all_exports = [
+# Main exports. Literal __all__ + conditional ``+=`` so Pyright can analyze it
+# (reportUnsupportedDunderAll); assigning a dynamically-built variable was not
+# statically supported. The CPU symbols are statically importable (the
+# try-import above), so they pass the dunder-all presence check.
+__all__ = [
     # Primary device configuration
     "configure_optimal_device",
     # Device information
@@ -267,13 +270,9 @@ _all_exports = [
 
 # Add CPU-specific exports if available
 if HAS_CPU_MODULE:
-    _all_exports.extend(
-        [
-            "benchmark_cpu_performance",
-            "configure_cpu_hpc",
-            "detect_cpu_info",
-            "get_optimal_batch_size",
-        ]
-    )
-
-__all__ = _all_exports
+    __all__ += [
+        "benchmark_cpu_performance",
+        "configure_cpu_hpc",
+        "detect_cpu_info",
+        "get_optimal_batch_size",
+    ]
