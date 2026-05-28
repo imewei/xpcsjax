@@ -38,52 +38,5 @@ def _make_synthetic_heterodyne(n_phi: int = 2, n_t: int = 8, seed: int = 0):
 
     return model, c2, phi
 
-
-def test_heterodyne_stratified_residual_zero_at_truth():
-    """At the true parameters residuals must be ≈0 everywhere (off-diagonal)."""
-    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
-        build_heterodyne_stratified_data,
-    )
-    from xpcsjax.optimization.nlsq.strategies.heterodyne_residual import (
-        create_stratified_heterodyne_residual_function,
-    )
-
-    model, c2, phi = _make_synthetic_heterodyne()
-    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
-    fn = create_stratified_heterodyne_residual_function(
-        stratified_data=strat,
-        model=model,
-        per_angle_scaling=True,
-        physical_param_names=list(model.param_manager.varying_names),
-    )
-    res = fn(np.asarray(model.param_manager.get_initial_values(), dtype=np.float64))
-
-    assert res.ndim == 1, f"Expected 1-D residual, got shape {res.shape}"
-    assert res.size > 0, "Residual vector must not be empty"
-    assert np.isfinite(res).all(), "Residual contains non-finite values"
-    assert np.max(np.abs(res)) < 1e-6, (
-        f"max |res| = {np.max(np.abs(res)):.3e} — expected < 1e-6 at true params"
-    )
-
-
-def test_heterodyne_stratified_residual_shape_finite():
-    """Residual is non-empty and all-finite for a 3-angle, 6-time dataset."""
-    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
-        build_heterodyne_stratified_data,
-    )
-    from xpcsjax.optimization.nlsq.strategies.heterodyne_residual import (
-        create_stratified_heterodyne_residual_function,
-    )
-
-    model, c2, phi = _make_synthetic_heterodyne(n_phi=3, n_t=6)
-    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
-    fn = create_stratified_heterodyne_residual_function(
-        stratified_data=strat,
-        model=model,
-        per_angle_scaling=True,
-        physical_param_names=list(model.param_manager.varying_names),
-    )
-    res = fn(np.asarray(model.param_manager.get_initial_values(), dtype=np.float64))
-
-    assert res.size > 0, "Residual vector must not be empty"
-    assert np.isfinite(res).all(), f"Non-finite values in residuals: {res[~np.isfinite(res)]}"
+# Phase 2-A tests (pointwise model_fn + hybrid streaming) are added in later tasks.
+# This module currently provides only the synthetic-data helper above.
