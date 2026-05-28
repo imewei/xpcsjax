@@ -216,3 +216,31 @@ disable_error_code = ["assignment"]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.12"
+
+# Type gate for this project is mypy (non-strict; see [tool.mypy] / `make
+# type-check`). Pyright "standard" mode adds ~750 findings that are systemic to
+# a JAX/NumPy + conditional-import codebase, not real bugs:
+#   * Optional strictness on module-level singletons known non-None by construction
+#   * "possibly unbound" / "obscured declaration" from the `try/except` import and
+#     `if JAX_AVAILABLE: def f() ... else: def f() ...` fallback idioms
+#   * Array/ndarray variance between JAX and NumPy, and untyped `nlsq` interop
+# These rules are silenced so Pyright surfaces only structural findings worth
+# acting on (e.g. reportUnsupportedDunderAll for __all__ drift, which is kept).
+reportOptionalMemberAccess = "none"
+reportOptionalCall = "none"
+reportOptionalOperand = "none"
+reportOptionalSubscript = "none"
+reportOptionalIterable = "none"
+reportPossiblyUnboundVariable = "none"
+reportArgumentType = "none"
+reportAttributeAccessIssue = "none"
+reportAssignmentType = "none"
+reportReturnType = "none"
+reportInvalidTypeForm = "none"
+reportIndexIssue = "none"
+reportOperatorIssue = "none"
+reportCallIssue = "none"
+reportTypedDictNotRequiredAccess = "none"
+reportFunctionMemberAccess = "none"
+reportGeneralTypeIssues = "none"
+reportRedeclaration = "none"
