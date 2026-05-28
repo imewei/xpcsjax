@@ -246,7 +246,9 @@ class ParameterManager:
         """
         if HAS_PHYSICS_VALIDATORS:
             # Use registry-driven validation (reduced complexity)
-            physics_violations = validate_all_parameters(params, severity_level)
+            physics_violations = validate_all_parameters(
+                params, ConstraintSeverity(severity_level)
+            )
             violations = [v.format() for v in physics_violations]
         else:
             # Fallback to inline validation
