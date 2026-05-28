@@ -72,3 +72,50 @@ def test_heterodyne_fourier_joint_fit_has_no_tracer_error(caplog):
         if "__array__" in r.getMessage() or "TracerArrayConversion" in r.getMessage()
     ]
     assert not leaked, f"tracer error leaked into fourier fit: {leaked[0][:100]}"
+
+
+def test_heterodyne_fourier_fit_with_regularization_no_tracer_error(caplog):
+    """The L3-regularization fourier path (joint_residual_fn) must also be
+    JIT-safe and produce finite parameters — guards the DRY consolidation of
+    its per-angle conversion onto fourier_to_per_angle_jax."""
+    import numpy as _np
+
+    from xpcsjax.config import ConfigManager
+    from xpcsjax.core.heterodyne_jax_backend import compute_c2_heterodyne
+    from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
+
+    cfg = ConfigManager("xpcsjax/config/templates/xpcsjax_two_component.yaml")
+    model = HeterodyneModel.from_config(cfg.config)
+    t = _np.arange(1, 13, dtype=_np.float64) * model.dt
+    model.sync_time_axis(t)
+
+    phi = _np.linspace(-30.0, 30.0, 8).astype(_np.float64)
+    full = jnp.asarray(model.param_manager.get_full_values(), dtype=jnp.float64)
+    contrast, offset = model.scaling.get_for_angle(0)
+    c2 = _np.stack(
+        [
+            _np.asarray(compute_c2_heterodyne(full, model.t, model.q, model.dt, float(p), contrast, offset))
+            for p in phi
+        ]
+    )
+
+    # regularization_mode != "none" activates joint_residual_fn (the L3 path).
+    nlsq_cfg = NLSQConfig(
+        per_angle_mode="fourier",
+        fourier_order=2,
+        max_iterations=5,
+        regularization_mode="adaptive",
+        group_variance_lambda=1.0,
+    )
+    with caplog.at_level("WARNING"):
+        result = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, None)
+
+    leaked = [
+        r.getMessage()
+        for r in caplog.records
+        if "__array__" in r.getMessage() or "TracerArrayConversion" in r.getMessage()
+    ]
+    assert not leaked, f"tracer error leaked into regularized fourier fit: {leaked[0][:100]}"
+    assert np.isfinite(np.asarray(result.parameters)).all()

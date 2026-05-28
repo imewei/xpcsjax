@@ -1515,21 +1515,13 @@ def _fit_joint_multi_phi(
         # Fourier coefficients (contrasts_jax, offsets_jax), bypassing the
         # raw group_indices which assume a different layout.
         sqrt_lambda = float(np.sqrt(float(regularizer.lambda_value)))
-        # Precompute the Fourier basis as a JAX array so the closure below is
-        # JIT-traceable: fourier.fourier_to_per_angle calls np.asarray() which
-        # raises TracerArrayConversionError when called on a traced value inside
-        # NLSQAdapter's JIT-compiled residual path.
-        _fourier_basis_jax = jnp.asarray(fourier._basis_matrix, dtype=jnp.float64)
-        _fourier_n_half = fourier.n_coeffs_per_param
 
         def joint_residual_fn(x: np.ndarray) -> Any:  # type: ignore[return-value]
             r = base_residual_fn(x)
-            # Derive per-angle contrast / offset via JAX matmul (JIT-safe).
-            # fourier.fourier_to_per_angle is NOT called here because it calls
-            # np.asarray() internally, which crashes inside a JIT-traced closure.
-            fourier_coeffs_jax = jnp.asarray(x[n_physics_varying:], dtype=jnp.float64)
-            contrasts = _fourier_basis_jax @ fourier_coeffs_jax[:_fourier_n_half]
-            offsets = _fourier_basis_jax @ fourier_coeffs_jax[_fourier_n_half:]
+            # Per-angle contrast/offset via the shared JIT-safe conversion (the
+            # numpy fourier_to_per_angle calls np.asarray on the traced slice and
+            # crashes inside the JIT-compiled residual).
+            contrasts, offsets = fourier.fourier_to_per_angle_jax(x[n_physics_varying:])
             # CV = std / |mean| (safe divide)
             c_mean = jnp.mean(contrasts)
             c_cv = jnp.where(
