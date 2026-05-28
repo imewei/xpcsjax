@@ -516,7 +516,7 @@ def fit_nlsq(
 
 def _fit_nlsq_heterodyne(
     data: dict[str, Any],
-    config: "ConfigManager | str | _Path",
+    config: "ConfigManager",
 ) -> "OptimizationResult":
     """Dispatch the heterodyne multi-phi fit through the ported orchestration.
 
@@ -540,8 +540,10 @@ def _fit_nlsq_heterodyne(
     )
     from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
 
-    # Raw YAML dict for HeterodyneModel.from_config and NLSQConfig.from_dict
-    yaml_dict = config.config if hasattr(config, "config") else dict(config)
+    # Raw YAML dict for HeterodyneModel.from_config and NLSQConfig.from_dict.
+    # fit_nlsq has already coerced str/Path → ConfigManager, so config.config
+    # is always present here.
+    yaml_dict = config.config
 
     model = HeterodyneModel.from_config(yaml_dict)
 
