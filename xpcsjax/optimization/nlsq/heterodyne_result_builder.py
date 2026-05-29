@@ -452,6 +452,7 @@ def build_hybrid_streaming_result(
     per_angle_mode: str = "hybrid_streaming",
     scaling_source: str = "quantile",
     chi2_per_angle: np.ndarray | None = None,
+    stratification_diagnostics: Any | None = None,
 ) -> Any:
     """Build an OptimizationResult from heterodyne hybrid-streaming optimizer output.
 
@@ -562,6 +563,6 @@ def build_hybrid_streaming_result(
         recovery_actions=[],
         quality_flag=quality_flag,  # type: ignore[arg-type]
         streaming_diagnostics=None,
-        stratification_diagnostics=None,
+        stratification_diagnostics=stratification_diagnostics,
         nlsq_diagnostics=diagnostics,
     )

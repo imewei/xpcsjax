@@ -11,6 +11,7 @@ objective; the only intended behavioral change is the seed-42 pre-shuffle.
 """
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -19,7 +20,9 @@ import jax.numpy as jnp
 import numpy as np
 
 from xpcsjax.optimization.nlsq.strategies.chunking import (
+    compute_stratification_diagnostics,
     create_angle_stratified_indices,
+    estimate_stratification_memory,
 )
 
 _SHUFFLE_SEED = 42
@@ -350,11 +353,13 @@ def fit_heterodyne_stratified_least_squares(
     # Stratify on the integer phi-index column directly (identity, not float
     # value) — robust regardless of how create_angle_stratified_indices bins.
     phi_idx_filtered = np.asarray(x_data0[:, 0], dtype=np.int64).astype(np.float64)
-    perm, _chunk_sizes = reorder_for_stratification(
+    _t0_strat = time.perf_counter()
+    perm, chunk_sizes = reorder_for_stratification(
         phi_idx_filtered,
         target_chunk_size,
         shuffle=shuffle,
     )
+    _execution_time_ms = (time.perf_counter() - _t0_strat) * 1000.0
     residual_fn, x_data, y_data, p0_full, meta = build_joint_pointwise_residual(
         model=model,
         stratified_data=strat,
@@ -408,12 +413,31 @@ def fit_heterodyne_stratified_least_squares(
     chi2_per_angle = np.zeros(n_phi_meta, dtype=np.float64)
     np.add.at(chi2_per_angle, phi_idx_flat, final_residual**2)
 
+    # Compute stratification diagnostics and memory estimate.
+    # phi_original and phi_stratified are the same length (phi_idx_filtered[perm]
+    # is a permutation of phi_idx_filtered), so compute_stratification_diagnostics
+    # sees matching arrays.
+    phi_stratified = phi_idx_filtered[perm]
+    strat_diag = compute_stratification_diagnostics(
+        phi_original=phi_idx_filtered,
+        phi_stratified=phi_stratified,
+        execution_time_ms=_execution_time_ms,
+        use_index_based=True,
+        target_chunk_size=target_chunk_size,
+        chunk_sizes=chunk_sizes,
+    )
+    mem_estimate = estimate_stratification_memory(
+        n_points=int(phi_idx_filtered.shape[0]),
+        use_index_based=True,
+    )
+
     info = {
         "success": bool(fit.success),
         "cost": 0.5 * ssr,
         "nit": int(fit.n_iterations or 0),
         "wall_time": float(fit.wall_time_seconds or 0.0),
         "n_data_points": int(meta["n_data_points"]),
+        "stratification_memory": mem_estimate,
     }
     return build_hybrid_streaming_result(
         model=model,
@@ -424,4 +448,5 @@ def fit_heterodyne_stratified_least_squares(
         per_angle_mode=mode,
         scaling_source="stratified_ls",
         chi2_per_angle=chi2_per_angle,
+        stratification_diagnostics=strat_diag,
     )

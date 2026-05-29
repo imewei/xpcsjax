@@ -220,3 +220,29 @@ def test_stratified_ls_fourier_mode():
     d = res.nlsq_diagnostics
     assert np.isclose(float(np.sum(d["chi2_per_angle"])), res.chi_squared, rtol=1e-6)
     assert np.all(np.isfinite(res.parameters))
+
+
+def test_stratified_ls_attaches_diagnostics():
+
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        fit_heterodyne_stratified_least_squares,
+    )
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged"})
+    res = fit_heterodyne_stratified_least_squares(
+        model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=True,
+    )
+    assert res.stratification_diagnostics is not None
+    diag = res.stratification_diagnostics
+    # n_chunks is always >= 1 for any non-empty dataset
+    assert diag.n_chunks >= 1
+    # chunk_sizes must be a non-empty list summing to the number of filtered points
+    assert isinstance(diag.chunk_sizes, list)
+    assert len(diag.chunk_sizes) == diag.n_chunks
+    # use_index_based reflects the stratified-LS path (always True here)
+    assert diag.use_index_based is True
+    # execution_time_ms is non-negative
+    assert diag.execution_time_ms >= 0.0
