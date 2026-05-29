@@ -182,17 +182,75 @@ def test_fourier_scaling_expander_requires_reparameterizer():
 
 
 def test_stratified_ls_individual_mode():
-    import numpy as np
+    """Individual mode is SCOPED OUT of stratified-LS (Fix 1).
+
+    The existing heterodyne ``individual`` mode is sequential per-angle; the
+    stratified driver would treat it as one joint solve (a different objective).
+    Policy: only ``averaged``/``fourier`` use stratified-LS. The driver keeps a
+    defensive ``NotImplementedError`` so it can never silently mis-handle
+    individual even if called directly.
+    """
+    import pytest
 
     from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
     from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import _resolve_effective_mode
     from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
         fit_heterodyne_stratified_least_squares,
     )
 
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
     cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "individual"})
-    res = fit_heterodyne_stratified_least_squares(
+    # Pre-assert the config resolves to individual on this fixture.
+    assert _resolve_effective_mode(cfg, len(phi)) == "individual"
+
+    with pytest.raises(NotImplementedError):
+        fit_heterodyne_stratified_least_squares(
+            model=model,
+            c2=c2,
+            phi=phi,
+            config=cfg,
+            weights=None,
+            shuffle=False,
+        )
+
+
+def test_stratified_ls_fourier_parity():
+    """Fourier-mode stratified-LS matches the in-memory joint fourier fit objective.
+
+    Mirrors ``test_stratified_ls_matches_joint_fit_shuffle_off`` but for FOURIER
+    mode (n_phi=7 so fourier resolves). Both fitted vectors are cross-evaluated
+    against a single shared fourier residual and must reproduce their own
+    reported chi_squared exactly; the stratified chi2 must be within rtol 5e-2
+    of the joint fit (documenting the near-degenerate spread).
+    """
+    import numpy as np
+
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.fourier_reparam import (
+        FourierReparamConfig,
+        FourierReparameterizer,
+    )
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import (
+        _resolve_effective_mode,
+        fit_nlsq_multi_phi,
+    )
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        build_joint_pointwise_residual,
+        fit_heterodyne_stratified_least_squares,
+    )
+
+    model, c2, phi = make_synthetic_two_component(n_phi=7, n_t=20)
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "fourier"})
+    # Pre-assert the config resolves to fourier (fourier is never auto-selected).
+    assert _resolve_effective_mode(cfg, len(phi)) == "fourier"
+
+    joint = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
+    strat = fit_heterodyne_stratified_least_squares(
         model=model,
         c2=c2,
         phi=phi,
@@ -200,10 +258,47 @@ def test_stratified_ls_individual_mode():
         weights=None,
         shuffle=False,
     )
-    assert res.nlsq_diagnostics["per_angle_mode"] == "individual"
-    d = res.nlsq_diagnostics
-    assert np.isclose(float(np.sum(d["chi2_per_angle"])), res.chi_squared, rtol=1e-6)
-    assert np.all(np.isfinite(res.parameters))
+
+    # Shared fourier residual scoring both fitted vectors against one objective.
+    st = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    from xpcsjax.optimization.nlsq.parameter_utils import (
+        compute_quantile_per_angle_scaling,
+    )
+
+    contrast_pa, offset_pa = compute_quantile_per_angle_scaling(st)
+    fr = FourierReparameterizer(
+        np.deg2rad(np.asarray(phi).astype(np.float64)),
+        FourierReparamConfig(
+            mode="fourier",
+            fourier_order=cfg.fourier_order,
+            auto_threshold=cfg.fourier_auto_threshold,
+        ),
+    )
+    init_scaling = np.asarray(
+        fr.per_angle_to_fourier(
+            np.asarray(contrast_pa, np.float64), np.asarray(offset_pa, np.float64)
+        ),
+        dtype=np.float64,
+    )
+    shared_resid, _x, _y, _p0, _meta = build_joint_pointwise_residual(
+        model=model,
+        stratified_data=st,
+        per_angle_mode="fourier",
+        init_scaling=init_scaling,
+        fourier=fr,
+    )
+    ssr_joint = float(np.sum(np.asarray(shared_resid(np.asarray(joint.parameters))) ** 2))
+    ssr_strat = float(np.sum(np.asarray(shared_resid(np.asarray(strat.parameters))) ** 2))
+    assert np.isfinite(ssr_joint) and np.isfinite(ssr_strat)
+    assert np.isclose(ssr_joint, joint.chi_squared, rtol=1e-9)
+    assert np.isclose(ssr_strat, strat.chi_squared, rtol=1e-9)
+
+    # Near-optimal SSR on the degenerate fourier objective.
+    assert np.isclose(strat.chi_squared, joint.chi_squared, rtol=5e-2)
+
+    # SSR conservation: per-angle chi^2 decomposition sums to the total.
+    diag = strat.nlsq_diagnostics
+    assert np.isclose(float(np.sum(diag["chi2_per_angle"])), strat.chi_squared, rtol=1e-6)
 
 
 def test_stratified_ls_fourier_mode():

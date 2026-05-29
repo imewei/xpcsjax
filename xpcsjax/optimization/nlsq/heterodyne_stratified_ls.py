@@ -299,6 +299,18 @@ def fit_heterodyne_stratified_least_squares(
     n_phi = len(phi)
     mode = _resolve_effective_mode(config, n_phi)
 
+    # Defensive scope gate (belt-and-suspenders for the dispatch gate in
+    # __init__.py): only the JOINT modes ``averaged`` and ``fourier`` use
+    # stratified-LS. ``individual`` is sequential per-angle (a different
+    # objective) and ``constant`` freezes scaling — both must use the in-memory
+    # path, so the driver refuses to run them even if called directly.
+    if mode not in ("averaged", "fourier"):
+        raise NotImplementedError(
+            f"stratified-LS supports per_angle_mode in ('averaged', 'fourier'); "
+            f"got resolved mode={mode!r} (individual is sequential per-angle; "
+            "constant freezes scaling — both use the in-memory joint path)"
+        )
+
     contrast_pa, offset_pa = compute_quantile_per_angle_scaling(strat)
     contrast_pa = np.asarray(contrast_pa, dtype=np.float64)
     offset_pa = np.asarray(offset_pa, dtype=np.float64)
@@ -310,13 +322,7 @@ def fit_heterodyne_stratified_least_squares(
             dtype=np.float64,
         )
         scaling_names = ["contrast", "offset"]
-    elif mode == "individual":
-        init_scaling = np.concatenate([contrast_pa, offset_pa])
-        scaling_names = [
-            *[f"contrast_{i}" for i in range(n_phi)],
-            *[f"offset_{i}" for i in range(n_phi)],
-        ]
-    elif mode == "fourier":
+    else:  # mode == "fourier" — guaranteed by the scope gate above
         from xpcsjax.optimization.nlsq.fourier_reparam import (
             FourierReparamConfig,
             FourierReparameterizer,
@@ -336,10 +342,6 @@ def fit_heterodyne_stratified_least_squares(
             fourier.per_angle_to_fourier(contrast_pa, offset_pa), dtype=np.float64
         )
         scaling_names = [f"fourier_{i}" for i in range(int(fourier.n_coeffs))]
-    else:  # "constant" or anything unsupported by stratified-LS
-        raise NotImplementedError(
-            f"stratified-LS does not support per_angle_mode={mode!r}"
-        )
 
     # Build the residual once (native order) to obtain the FILTERED flat support
     # (off-diagonal AND t>0 — strat.phi_flat is the full N_total grid including

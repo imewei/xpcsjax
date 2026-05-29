@@ -768,7 +768,23 @@ def _fit_nlsq_heterodyne(
     if strat_cfg.is_disabled():
         use_strat = False
 
-    if use_strat and n_points >= 1_000_000:
+    # Only resolve the effective per-angle mode when the stratified-LS gate could
+    # actually fire (CMA-ES off, stratification chosen, and >= 1M points). This
+    # keeps the heterodyne_core import lazy so dispatch unit tests that stub
+    # heterodyne_core (and never reach the 1M gate) are unaffected.
+    if not cmaes_on and use_strat and n_points >= 1_000_000:
+        # Only ``averaged`` and ``fourier`` use the JOINT stratified-LS objective.
+        # ``individual`` is a SEQUENTIAL per-angle algorithm
+        # (heterodyne_core._aggregate_individual_results); routing it through
+        # stratified-LS would silently change the objective at the 1M boundary.
+        # ``constant`` (and anything else) likewise stays in-memory.
+        from xpcsjax.optimization.nlsq.heterodyne_core import _resolve_effective_mode
+
+        effective_mode = _resolve_effective_mode(nlsq_cfg, len(phi))
+    else:
+        effective_mode = None
+
+    if effective_mode in ("averaged", "fourier"):
         try:
             from xpcsjax.optimization.nlsq import heterodyne_stratified_ls as _hsl
 
@@ -790,6 +806,15 @@ def _fit_nlsq_heterodyne(
                 "Heterodyne stratified-LS failed (%s); falling back to in-memory joint fit.",
                 exc,
             )
+    elif effective_mode is not None:
+        # effective_mode resolved (>=1M, stratification chosen, CMA-ES off) but is
+        # individual/constant — those use the in-memory path, not stratified-LS.
+        from xpcsjax.utils.logging import get_logger as _get_logger
+
+        _get_logger(__name__).debug(
+            "per_angle_mode=%s uses in-memory path; stratified-LS skipped",
+            effective_mode,
+        )
 
     result = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
     _safe_log_heterodyne_completion(result, model, len(phi))

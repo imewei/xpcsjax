@@ -242,3 +242,87 @@ def test_hybrid_streaming_takes_precedence_over_stratified_ls(monkeypatch):
         "Stratified-LS solver was called despite hybrid_streaming taking precedence"
     )
     assert result is hybrid_sentinel, "Expected the hybrid sentinel result"
+
+
+# -----------------------------------------------------------------------------
+# Fix 1 — individual mode is scoped OUT of stratified-LS
+#
+# The existing heterodyne `individual` mode is sequential per-angle; the
+# stratified driver would treat it as one joint solve (a different objective).
+# Policy: only `averaged`/`fourier` route to stratified-LS. `individual` (and
+# `constant`/anything else) must fall back to the in-memory path even above 1M.
+# -----------------------------------------------------------------------------
+
+
+def test_individual_mode_skips_stratified_ls(monkeypatch):  # noqa: N802
+    """per_angle_mode=individual + >=1M points → in-memory path, NOT stratified-LS."""
+    import xpcsjax.optimization.nlsq as nlsq_pkg
+    import xpcsjax.optimization.nlsq.heterodyne_stratified_ls as hsl
+
+    called = {"strat": False}
+
+    def _fake(**k):
+        called["strat"] = True
+        return object()
+
+    monkeypatch.setattr(hsl, "fit_heterodyne_stratified_least_squares", _fake)
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq._estimate_heterodyne_points",
+        lambda c2, phi: 2_000_000,
+    )
+
+    from tests.optimization._heterodyne_fixtures import make_cfgmgr_and_data
+
+    cfg, data = make_cfgmgr_and_data(n_phi=3, n_t=20)
+    # Request individual explicitly (n_phi=3 would auto-resolve to averaged).
+    cfg.config["optimization"]["nlsq"]["per_angle_mode"] = "individual"
+
+    nlsq_pkg.fit_nlsq(data, cfg)
+    assert called["strat"] is False, (
+        "Stratified-LS solver was called for individual mode (should use in-memory path)"
+    )
+
+
+# -----------------------------------------------------------------------------
+# Fix 2 — flat enable_cmaes takes precedence over the stratified-LS gate
+#
+# Config supports the FLAT `optimization.nlsq.enable_cmaes: true` field (parsed
+# into NLSQConfig.enable_cmaes). When CMA-ES is on, the stratified-LS gate must
+# be skipped so fit_nlsq_multi_phi can delegate to CMA-ES.
+# -----------------------------------------------------------------------------
+
+
+def test_flat_enable_cmaes_skips_stratified_ls(monkeypatch):  # noqa: N802
+    """Flat enable_cmaes=true (no nested cmaes block) + >=1M → stratified-LS NOT called."""
+    import xpcsjax.optimization.nlsq as nlsq_pkg
+    import xpcsjax.optimization.nlsq.heterodyne_stratified_ls as hsl
+    from xpcsjax.optimization.nlsq.heterodyne_config import (
+        NLSQConfig as _HetNLSQConfig,
+    )
+
+    called = {"strat": False}
+
+    def _fake(**k):
+        called["strat"] = True
+        return object()
+
+    monkeypatch.setattr(hsl, "fit_heterodyne_stratified_least_squares", _fake)
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq._estimate_heterodyne_points",
+        lambda c2, phi: 2_000_000,
+    )
+
+    from tests.optimization._heterodyne_fixtures import make_cfgmgr_and_data
+
+    cfg, data = make_cfgmgr_and_data(n_phi=3, n_t=20)
+    # Flat enable_cmaes, NO nested cmaes block.
+    cfg.config["optimization"]["nlsq"]["enable_cmaes"] = True
+
+    # Verify the parsed config actually carries enable_cmaes=True from the flat field.
+    parsed = _HetNLSQConfig.from_dict(dict(cfg.config["optimization"]["nlsq"]))
+    assert parsed.enable_cmaes is True
+
+    nlsq_pkg.fit_nlsq(data, cfg)
+    assert called["strat"] is False, (
+        "Stratified-LS solver was called despite flat enable_cmaes=true (CMA-ES precedence)"
+    )
