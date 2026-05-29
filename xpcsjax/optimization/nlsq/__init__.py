@@ -764,17 +764,26 @@ def _fit_nlsq_heterodyne(
 
     n_points = _estimate_heterodyne_points(c2, phi)
     imbalance = float(analyze_angle_distribution(_np.asarray(phi)).imbalance_ratio)
+    # Pass ``imbalance_ratio=0.0`` so ``should_use_stratification``'s hard-coded
+    # 5.0 cutoff never fires here; we apply the CONFIGURED threshold ourselves
+    # below. This lets ``max_imbalance_ratio`` move the cutoff in BOTH directions
+    # (tighten below 5.0 OR loosen above it), not merely tighten it. The
+    # point-count (>100k) and single-angle checks inside should_use_stratification
+    # still apply.
     use_strat, _reason = should_use_stratification(
         n_points=n_points,
         n_angles=len(phi),
         per_angle_scaling=True,
-        imbalance_ratio=imbalance,
+        imbalance_ratio=0.0,
     )
+    # ``enabled: false`` disables; ``enabled: true`` and ``"auto"`` are equivalent
+    # for heterodyne -- there is no separate force-on path because the ``>=1M``
+    # stratified-LS solver gate below is the real control (stratification only
+    # changes the solver, which engages at >=1M regardless of this flag).
     if strat_cfg.is_disabled():
         use_strat = False
-    # Apply the CONFIGURED imbalance threshold (chunking.should_use_stratification
-    # hard-codes 5.0 internally; this gate-level check honors the user's
-    # ``optimization.stratification.max_imbalance_ratio``).
+    # Apply the CONFIGURED imbalance threshold (this is now the SOLE imbalance
+    # gate, honoring ``optimization.stratification.max_imbalance_ratio`` exactly).
     if use_strat and imbalance > strat_cfg.max_imbalance_ratio:
         from xpcsjax.utils.logging import get_logger as _get_logger
 

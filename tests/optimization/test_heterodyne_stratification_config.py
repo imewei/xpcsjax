@@ -158,6 +158,55 @@ def test_max_imbalance_ratio_disables_stratification(monkeypatch: pytest.MonkeyP
     assert called["hit"] is False
 
 
+def test_max_imbalance_ratio_can_loosen_above_5(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A configured ``max_imbalance_ratio`` ABOVE chunking's hard 5.0 must still
+    allow stratification at an imbalance that the hard cutoff would have rejected.
+
+    This proves the configured threshold is the SOLE imbalance gate (it can move
+    the cutoff in both directions), not merely a tightening on top of 5.0."""
+    import xpcsjax.optimization.nlsq as nlsq_pkg
+    from xpcsjax.optimization.nlsq import heterodyne_stratified_ls as hsl
+    from xpcsjax.optimization.nlsq.strategies.chunking import AngleDistributionStats
+
+    # Loose max_imbalance_ratio (10.0); force a measured imbalance of 6.0 — above
+    # chunking's hard 5.0 (old behavior would reject) but within the configured 10.0.
+    cfg, data = make_cfgmgr_and_data(
+        n_phi=3, n_t=8, stratification={"max_imbalance_ratio": 10.0}
+    )
+
+    monkeypatch.setattr(
+        nlsq_pkg, "_estimate_heterodyne_points", lambda c2, phi: 2_000_000
+    )
+
+    def _fake_dist(phi):
+        return AngleDistributionStats(
+            unique_angles=np.asarray(phi, dtype=np.float64),
+            n_angles=int(np.asarray(phi).size),
+            counts={0.0: 6, 1.0: 1},
+            fractions={0.0: 0.857, 1.0: 0.143},
+            imbalance_ratio=6.0,
+            min_angle=1.0,
+            max_angle=0.0,
+            is_balanced=False,
+        )
+
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.strategies.chunking.analyze_angle_distribution",
+        _fake_dist,
+    )
+
+    called = {"hit": False}
+
+    def _sentinel(*args, **kwargs):
+        called["hit"] = True
+        return object()  # _safe_log_heterodyne_completion is guarded against this
+
+    monkeypatch.setattr(hsl, "fit_heterodyne_stratified_least_squares", _sentinel)
+
+    fit_nlsq(data, cfg)
+    assert called["hit"] is True
+
+
 def test_use_index_based_flows_into_diagnostics() -> None:
     """``use_index_based: false`` flows into the stratified-LS result's
     ``stratification_diagnostics`` (not hard-coded True)."""
