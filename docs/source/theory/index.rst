@@ -15,4 +15,5 @@ NLSQ residual, and the anti-degeneracy defence layered on top.
    transport_coefficient
    anti_degeneracy
    heterodyne_anti_degeneracy
+   heterodyne_memory_strategy
    citations

@@ -115,6 +115,17 @@ L5 (shear weighting) is `laminar_flow`-only. Heterodyne's velocity/flow term
 shear rate (`gamma_dot`), so laminar_flow's shear-sensitivity weighting does
 not apply to it. See `docs/source/theory/heterodyne_anti_degeneracy.rst`.
 
+### Heterodyne memory strategy and angle stratification
+
+Heterodyne mirrors homodyne's angle-stratification mechanism (mechanism parity, not numerical parity — heterodyne fits a different model). The dispatch inside `_fit_nlsq_heterodyne` is: cmaes → multi_start → hybrid_streaming → stratified-LS (≥ 1 M points) → in-memory joint fit.
+
+Key facts:
+- **Stratified-LS activates at ≥ 1 M points only.** Homodyne has an additional 100k–1 M shuffle-only regime; this does NOT transfer to heterodyne because heterodyne's sub-1 M solver is batched by angle (`(n_phi, N, N)`) with no flat point list to shuffle.
+- **Default-on seed-42 pre-shuffle** (objective-invariant — reordering residuals does not change SSR).
+- **Config:** `optimization.stratification.{enabled="auto", target_chunk_size=100000, max_imbalance_ratio=5.0, ...}` in the mode YAML. `enabled: false` reverts to in-memory joint fit at all sizes.
+- New module: `xpcsjax/optimization/nlsq/heterodyne_stratified_ls.py` (`fit_heterodyne_stratified_least_squares`).
+- See `docs/source/theory/heterodyne_memory_strategy.rst` for the full decision table and config reference.
+
 ## Commands
 
 Use the project Makefile rather than reinventing pytest/ruff invocations — the targets are tuned for this layout (domain-sharded tests, not pyramid layers).
