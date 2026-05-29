@@ -408,9 +408,11 @@ def fit_heterodyne_stratified_least_squares(
     lower = np.concatenate([np.asarray(lower_phys, np.float64), scaling_lower])
     upper = np.concatenate([np.asarray(upper_phys, np.float64), scaling_upper])
 
-    adapter = NLSQAdapter(
-        parameter_names=[*model.param_manager.varying_names, *scaling_names]
-    )
+    # Full joint parameter-name list ([physics | scaling]) — used both for the
+    # adapter and (Fix 4) threaded to the result builder so the diagnostics
+    # ``parameter_names`` align 1:1 with the full popt length.
+    joint_param_names = [*model.param_manager.varying_names, *scaling_names]
+    adapter = NLSQAdapter(parameter_names=joint_param_names)
     fit = adapter.fit(
         residual_fn=residual_fn,
         initial_params=p0_full,
@@ -487,4 +489,5 @@ def fit_heterodyne_stratified_least_squares(
         scaling_source="stratified_ls",
         chi2_per_angle=chi2_per_angle,
         stratification_diagnostics=strat_diag,
+        parameter_names=joint_param_names,
     )

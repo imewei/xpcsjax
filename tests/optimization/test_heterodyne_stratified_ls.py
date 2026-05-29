@@ -364,6 +364,39 @@ def test_stratified_ls_attaches_diagnostics():
     assert diag.execution_time_ms >= 0.0
 
 
+def test_stratified_ls_parameter_names_match_full_vector():
+    """Fix 4: diagnostics parameter_names must align with the FULL popt length.
+
+    The stratified popt includes the scaling tail (physics + scaling), so the
+    diagnostics ``parameter_names`` must be the full joint name list, not the
+    physics-only ``varying_names``. Checked for both averaged and fourier.
+    """
+
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        fit_heterodyne_stratified_least_squares,
+    )
+
+    # averaged: tail = [contrast, offset]
+    model_a, c2_a, phi_a = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg_a = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged"})
+    res_a = fit_heterodyne_stratified_least_squares(
+        model=model_a, c2=c2_a, phi=phi_a, config=cfg_a, weights=None, shuffle=False
+    )
+    names_a = res_a.nlsq_diagnostics["parameter_names"]
+    assert len(names_a) == len(res_a.parameters)
+
+    # fourier: tail = fourier coefficient names
+    model_f, c2_f, phi_f = make_synthetic_two_component(n_phi=7, n_t=20)
+    cfg_f = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "fourier"})
+    res_f = fit_heterodyne_stratified_least_squares(
+        model=model_f, c2=c2_f, phi=phi_f, config=cfg_f, weights=None, shuffle=False
+    )
+    names_f = res_f.nlsq_diagnostics["parameter_names"]
+    assert len(names_f) == len(res_f.parameters)
+
+
 def test_stratified_ls_shuffle_on_deterministic_and_comparable():
     import numpy as np
 

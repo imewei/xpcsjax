@@ -453,6 +453,7 @@ def build_hybrid_streaming_result(
     scaling_source: str = "quantile",
     chi2_per_angle: np.ndarray | None = None,
     stratification_diagnostics: Any | None = None,
+    parameter_names: list[str] | None = None,
 ) -> Any:
     """Build an OptimizationResult from heterodyne hybrid-streaming optimizer output.
 
@@ -509,12 +510,21 @@ def build_hybrid_streaming_result(
     # ------------------------------------------------------------------
     # Build nlsq_diagnostics via the canonical heterodyne helper
     # ------------------------------------------------------------------
+    # ``parameter_names`` defaults to physics-only ``varying_names`` (length
+    # n_physics), preserving the existing hybrid-streaming caller. The
+    # stratified-LS driver passes the FULL joint name list ([physics | scaling])
+    # so the diagnostics names align with ``popt`` length (Fix 4).
+    diag_param_names = (
+        list(parameter_names)
+        if parameter_names is not None
+        else list(model.param_manager.varying_names)
+    )
     diagnostics = _build_heterodyne_diagnostics(
         per_angle_mode=per_angle_mode,
         chi2_per_angle=chi2_per_angle,
         scaling_source=scaling_source,
         fourier_basis_dim=None,
-        parameter_names=list(model.param_manager.varying_names),
+        parameter_names=diag_param_names,
         phi_angles=np.asarray(phi_angles, dtype=np.float64),
         n_angles_joint=int(n_phi),
         n_iterations=int(info.get("nit", 0)),
