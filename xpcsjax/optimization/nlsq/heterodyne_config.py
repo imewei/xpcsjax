@@ -171,6 +171,79 @@ class NLSQValidationConfig:
 
 
 # ---------------------------------------------------------------------------
+# StratificationConfig
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class StratificationConfig:
+    """Angle-stratified chunking settings for the heterodyne NLSQ path.
+
+    Mirrors the upstream homodyne wrapper
+    (``homodyne/optimization/nlsq/wrapper.py::_apply_stratification_if_needed``),
+    where the block lives at ``config.config["optimization"]["stratification"]``
+    -- a SIBLING of ``optimization.nlsq``, not nested inside it.  Field names and
+    defaults match homodyne 1:1.
+
+    Attributes:
+        enabled: ``"auto"`` (defer to ``should_use_stratification``), ``True``
+            (force on above the 1M gate), or ``False`` (disable entirely).
+        target_chunk_size: Target scalar count per stratified chunk, forwarded to
+            ``fit_heterodyne_stratified_least_squares(target_chunk_size=...)``.
+        max_imbalance_ratio: Maximum tolerated angle-count imbalance before the
+            stratified path is skipped.
+        force_sequential_fallback: Force the sequential per-angle fallback path.
+        check_memory_safety: Run the pre-stratification memory-safety check.
+        use_index_based: Use zero-copy index-based stratification (vs full copy).
+    """
+
+    enabled: bool | str = "auto"
+    target_chunk_size: int = 100_000
+    max_imbalance_ratio: float = 5.0
+    force_sequential_fallback: bool = False
+    check_memory_safety: bool = True
+    use_index_based: bool = False
+
+    @classmethod
+    def from_optimization_block(cls, opt_block: dict[str, Any] | None) -> StratificationConfig:
+        """Parse the ``optimization`` block's ``stratification`` sub-dict.
+
+        Accepts the full ``optimization`` block (``opt_block["stratification"]``)
+        and resolves homodyne-mirrored defaults for any missing fields.  A missing
+        or non-dict ``stratification`` entry yields all defaults.
+
+        Args:
+            opt_block: The ``config.config["optimization"]`` mapping, or ``None``.
+
+        Returns:
+            A fully resolved :class:`StratificationConfig`.
+        """
+        strat: dict[str, Any] = {}
+        if isinstance(opt_block, dict):
+            candidate = opt_block.get("stratification")
+            if isinstance(candidate, dict):
+                strat = candidate
+        return cls(
+            enabled=strat.get("enabled", "auto"),
+            target_chunk_size=int(strat.get("target_chunk_size", 100_000)),
+            max_imbalance_ratio=float(strat.get("max_imbalance_ratio", 5.0)),
+            force_sequential_fallback=bool(strat.get("force_sequential_fallback", False)),
+            check_memory_safety=bool(strat.get("check_memory_safety", True)),
+            use_index_based=bool(strat.get("use_index_based", False)),
+        )
+
+    def is_disabled(self) -> bool:
+        """Return ``True`` if stratification is explicitly turned off.
+
+        Mirrors homodyne's check: ``enabled`` is the boolean ``False`` or the
+        case-insensitive string ``"false"``.
+        """
+        if self.enabled is False:
+            return True
+        return isinstance(self.enabled, str) and self.enabled.lower() == "false"
+
+
+# ---------------------------------------------------------------------------
 # NLSQConfig
 # ---------------------------------------------------------------------------
 

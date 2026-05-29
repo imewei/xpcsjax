@@ -744,14 +744,20 @@ def _fit_nlsq_heterodyne(
     # Standard tier: homodyne-mirrored stratification gate.
     # Mirror homodyne: stratify when per-angle + >100k points + balanced angles;
     # engage the stratified-LS solver only at >=1M (homodyne's stratified-LS gate).
+    from xpcsjax.optimization.nlsq.heterodyne_config import (
+        StratificationConfig as _StratificationConfig,
+    )
     from xpcsjax.optimization.nlsq.strategies.chunking import (
         analyze_angle_distribution,
         should_use_stratification,
     )
 
+    # Stratification lives at ``optimization.stratification`` -- a SIBLING of
+    # ``optimization.nlsq`` (homodyne wrapper.py:_apply_stratification_if_needed),
+    # so it must be read from ``opt_block``, NOT from the unwrapped ``nlsq_dict``.
+    strat_cfg = _StratificationConfig.from_optimization_block(opt_block)
+
     n_points = _estimate_heterodyne_points(c2, phi)
-    strat_cfg = nlsq_dict.get("stratification", {}) if isinstance(nlsq_dict, dict) else {}
-    strat_enabled = strat_cfg.get("enabled", "auto")
     imbalance = float(analyze_angle_distribution(_np.asarray(phi)).imbalance_ratio)
     use_strat, _reason = should_use_stratification(
         n_points=n_points,
@@ -759,7 +765,7 @@ def _fit_nlsq_heterodyne(
         per_angle_scaling=True,
         imbalance_ratio=imbalance,
     )
-    if strat_enabled is False:
+    if strat_cfg.is_disabled():
         use_strat = False
 
     if use_strat and n_points >= 1_000_000:
@@ -772,7 +778,7 @@ def _fit_nlsq_heterodyne(
                 phi=phi,
                 config=nlsq_cfg,
                 weights=weights,
-                target_chunk_size=int(strat_cfg.get("target_chunk_size", 100_000)),
+                target_chunk_size=strat_cfg.target_chunk_size,
                 shuffle=True,
             )
             _safe_log_heterodyne_completion(result, model, len(phi))

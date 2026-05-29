@@ -19,7 +19,16 @@ _Q = 0.0054
 _NOISE = 5e-4
 
 
-def _config_dict(n_phi: int, n_t: int) -> dict:
+def _config_dict(n_phi: int, n_t: int, stratification: dict | None = None) -> dict:
+    optimization: dict = {
+        "nlsq": {
+            "analysis_mode": "two_component",
+            "max_iterations": 30,
+            "enable_cmaes": False,
+        },
+    }
+    if stratification is not None:
+        optimization["stratification"] = stratification
     return {
         "analysis_mode": "two_component",
         "analyzer_parameters": {
@@ -34,17 +43,11 @@ def _config_dict(n_phi: int, n_t: int) -> dict:
             "initial_contrast": 0.3,
             "initial_offset": 1.0,
         },
-        "optimization": {
-            "nlsq": {
-                "analysis_mode": "two_component",
-                "max_iterations": 30,
-                "enable_cmaes": False,
-            },
-        },
+        "optimization": optimization,
     }
 
 
-def _build_cfgmgr(n_phi: int, n_t: int):
+def _build_cfgmgr(n_phi: int, n_t: int, stratification: dict | None = None):
     """Construct a real ``ConfigManager`` for a two-component fixture config.
 
     The temp YAML is written, loaded, and discarded; the returned manager keeps
@@ -57,7 +60,7 @@ def _build_cfgmgr(n_phi: int, n_t: int):
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         cfg_path = Path(tmp_dir) / "fixture.yaml"
-        cfg_path.write_text(yaml.safe_dump(_config_dict(n_phi, n_t)))
+        cfg_path.write_text(yaml.safe_dump(_config_dict(n_phi, n_t, stratification)))
         cfg = ConfigManager(str(cfg_path))
     assert cfg.config is not None
     return cfg
@@ -89,7 +92,7 @@ def make_synthetic_two_component(n_phi: int = 3, n_t: int = 12):
     return model, c2, phi
 
 
-def make_cfgmgr_and_data(n_phi: int, n_t: int):
+def make_cfgmgr_and_data(n_phi: int, n_t: int, stratification: dict | None = None):
     """Build a real ``ConfigManager`` plus a heterodyne-loader data dict.
 
     Returns ``(cfg, data)`` where:
@@ -103,6 +106,6 @@ def make_cfgmgr_and_data(n_phi: int, n_t: int):
     dispatch path runs end-to-end through ``fit_nlsq`` without raising.
     """
     model, c2, phi = make_synthetic_two_component(n_phi=n_phi, n_t=n_t)
-    cfg = _build_cfgmgr(n_phi, n_t)
+    cfg = _build_cfgmgr(n_phi, n_t, stratification)
     data = {"c2_exp": c2, "phi_angles_list": phi}
     return cfg, data
