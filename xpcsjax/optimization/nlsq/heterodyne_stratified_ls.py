@@ -76,8 +76,12 @@ def make_scaling_expander(
     packing means these scaling params are the TAIL of the joint vector.
 
     - averaged: 2 params (one contrast, one offset) broadcast to all angles.
-    - individual: 2*n_phi params (contrast block then offset block). [Phase 2]
-    - fourier: 2*(2K+1) Fourier coefficients via ``fourier``.            [Phase 2]
+    - individual: 2*n_phi params (contrast block then offset block).
+    - fourier: 2*(2K+1) Fourier coefficients via ``fourier``.
+
+    ``constant`` and any unrecognized mode are unsupported by stratified-LS and
+    raise ``NotImplementedError`` (the dispatch gate falls back to the in-memory
+    joint fit).
     """
     if per_angle_mode == "averaged":
 
@@ -111,7 +115,8 @@ def make_scaling_expander(
         return expand, n_scaling
 
     raise NotImplementedError(
-        f"scaling expander for per_angle_mode={per_angle_mode!r} lands in Phase 2"
+        f"stratified-LS does not support per_angle_mode={per_angle_mode!r} "
+        "(supported: averaged, individual, fourier)"
     )
 
 
