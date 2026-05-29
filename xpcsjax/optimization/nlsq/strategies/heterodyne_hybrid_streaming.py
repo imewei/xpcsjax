@@ -277,6 +277,12 @@ def build_heterodyne_pointwise_model(
         "keep_mask": keep,
         "n_data_points": int(keep.sum()),
         "sigma": meta_sigma,
+        # Unique time grid the pointwise kernel was indexed against (t1_idx /
+        # t2_idx in x_data address THIS array, not necessarily model.t — they
+        # are equal here since build_heterodyne_stratified_data syncs the model
+        # time axis, but expose it explicitly so downstream residual builders
+        # index against the exact same grid).
+        "t_unique": t_unique,
     }
 
     return model_fn, x_data, y_data, p0, meta

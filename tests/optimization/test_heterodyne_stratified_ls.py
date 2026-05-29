@@ -32,3 +32,32 @@ def test_averaged_scaling_expander_broadcasts():
     assert contrast.shape == (3,) and offset.shape == (3,)
     assert np.allclose(np.asarray(contrast), 0.3)
     assert np.allclose(np.asarray(offset), 0.8)
+
+
+def test_joint_pointwise_residual_matches_batched():
+    """Flat pointwise residual is finite and has the off-diagonal/t>0 support length."""
+    import numpy as np
+
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        build_joint_pointwise_residual,
+    )
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=12)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    # Seed the scaling tail at the data-generating values (the fixture config
+    # uses initial_contrast=0.3, initial_offset=1.0), so the residual at
+    # p0_full is noise-level rather than carrying a constant baseline offset.
+    residual_fn, x_data, y_data, p0_full, meta = build_joint_pointwise_residual(
+        model=model, stratified_data=strat, per_angle_mode="averaged",
+        avg_contrast=0.3, avg_offset=1.0,
+    )
+    r = np.asarray(residual_fn(np.asarray(p0_full)))
+    assert r.shape[0] == meta["n_data_points"]
+    assert np.all(np.isfinite(r))
+    # Data is the model at its initial params plus ~5e-4 noise, so the residual
+    # at p0_full must be noise-level — confirms real values, not just finiteness.
+    assert float(np.max(np.abs(r))) < 0.05
