@@ -667,9 +667,14 @@ def _fit_nlsq_heterodyne(
     # multi_start section; CMA-ES keeps precedence (it owns the enable_cmaes
     # branch inside fit_nlsq_multi_phi).
     ms_dict = nlsq_dict.get("multi_start", {}) if isinstance(nlsq_dict, dict) else {}
-    cmaes_on = bool(
-        nlsq_dict.get("cmaes", {}).get("enable", False) if isinstance(nlsq_dict, dict) else False
-    )
+    # Read CMA-ES enablement from the PARSED config so BOTH the nested
+    # (``cmaes.enable``) and FLAT (``enable_cmaes``) YAML forms are honored —
+    # NLSQConfig.from_dict folds the nested block into the flat ``enable_cmaes``
+    # field. Reading the raw nested dict alone would miss a flat
+    # ``optimization.nlsq.enable_cmaes: true`` and let multistart/hybrid/
+    # stratified-LS intercept before CMA-ES. This single change fixes the
+    # multistart, hybrid, AND stratified-LS precedence gates.
+    cmaes_on = bool(getattr(nlsq_cfg, "enable_cmaes", False))
     if isinstance(ms_dict, dict) and ms_dict.get("enable", False) and not cmaes_on:
         from xpcsjax.optimization.nlsq.heterodyne_multistart import (
             build_multistart_config,
