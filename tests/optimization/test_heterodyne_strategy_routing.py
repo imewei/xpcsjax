@@ -7,6 +7,7 @@ point estimator so no large array is ever allocated.
 """
 
 import numpy as np  # noqa: F401  (kept for parity / future array fixtures)
+import pytest
 
 
 def test_sub_1M_does_not_stratify(monkeypatch):  # noqa: N802 - "1M" pins the >=1M point boundary
@@ -49,3 +50,195 @@ def test_ge_1M_stratifies(monkeypatch):  # noqa: N802 - "1M" pins the >=1M point
     result = nlsq_pkg.fit_nlsq(data, cfg)
     assert called["strat"] is True
     assert result is sentinel
+
+
+# =============================================================================
+# Task 13 additions: behavioral parity suite for memory/stratification routing
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# Part 1 — Parametrized boundary table
+#
+# Boundary rationale (encoded here to survive future refactors):
+#   should_use_stratification() requires n_points > 100_000 to even consider
+#   stratifying.  But the stratified-LS SOLVER only engages at >= 1_000_000
+#   (homodyne's stratified-LS activation gate, mirrored in _fit_nlsq_heterodyne
+#   line: `if use_strat and n_points >= 1_000_000`).  So:
+#     - 99_999   → below the "consider" threshold; use_strat=False  → no solver
+#     - 100_001  → above "consider"; use_strat may be True, but < 1M → no solver
+#     - 999_999  → above "consider"; use_strat may be True, but < 1M → no solver
+#     - 1_000_001→ above both thresholds → solver IS called
+#
+#   The test asserts the SOLVER call, which fires ONLY at >= 1M.
+# -----------------------------------------------------------------------------
+
+_BOUNDARY_CASES = [
+    pytest.param(99_999, False, id="below-100k-no-solver"),
+    pytest.param(100_001, False, id="above-100k-below-1M-no-solver"),
+    pytest.param(999_999, False, id="just-below-1M-no-solver"),
+    pytest.param(1_000_001, True, id="just-above-1M-solver-fires"),
+]
+
+
+@pytest.mark.parametrize("n_points,expect_solver", _BOUNDARY_CASES)
+def test_stratified_ls_boundary(monkeypatch, n_points, expect_solver):
+    """Solver fires ONLY at n_points >= 1_000_000.
+
+    All four boundary values exercise the two decision levels:
+    (a) should_use_stratification  — threshold > 100k
+    (b) the solver gate            — threshold >= 1M
+    The test patches only the estimator and the solver; it never allocates
+    a large array, so all four cases run cheaply.
+    """
+    import xpcsjax.optimization.nlsq as nlsq_pkg
+    import xpcsjax.optimization.nlsq.heterodyne_stratified_ls as hsl
+
+    sentinel = object()
+    called = {"strat": False}
+
+    def _fake_solver(**k):
+        called["strat"] = True
+        return sentinel
+
+    monkeypatch.setattr(hsl, "fit_heterodyne_stratified_least_squares", _fake_solver)
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq._estimate_heterodyne_points",
+        lambda c2, phi: n_points,
+    )
+
+    from tests.optimization._heterodyne_fixtures import make_cfgmgr_and_data
+
+    cfg, data = make_cfgmgr_and_data(n_phi=3, n_t=20)
+    result = nlsq_pkg.fit_nlsq(data, cfg)
+
+    assert called["strat"] is expect_solver, (
+        f"n_points={n_points}: expected solver_called={expect_solver}, "
+        f"got solver_called={called['strat']}"
+    )
+    if expect_solver:
+        assert result is sentinel, "Expected the sentinel returned by the fake solver"
+
+
+# -----------------------------------------------------------------------------
+# Part 2 — Tier-routing: hybrid-streaming takes precedence over stratified-LS
+#
+# Design choice: patch `select_nlsq_strategy` in the heterodyne_memory module
+# (the exact symbol the dispatch imports at runtime — see _fit_nlsq_heterodyne
+# lines importing from `xpcsjax.optimization.nlsq.heterodyne_memory`).
+# We force strategy=LARGE so the hybrid gate triggers, then assert the
+# stratified-LS solver is NOT called.
+#
+# The hybrid gate also calls build_heterodyne_stratified_data,
+# fit_with_stratified_hybrid_streaming_heterodyne, and build_hybrid_streaming_result.
+# We patch the top-level streaming fit function (the deepest common call) so we
+# don't have to stub the entire chain; build_hybrid_streaming_result is also
+# patched because it consumes the streaming fit's output.
+#
+# Alternative considered and rejected: asserting only the simpler invariant
+# "hybrid disabled + >=1M → stratified-LS chosen" — that is already covered
+# by test_ge_1M_stratifies above.  The value of Part 2 is testing the
+# PRECEDENCE of hybrid over stratified-LS, which is a distinct behavioural
+# contract documented in the dispatch comments ("Precedence: cmaes > multi_start
+# > hybrid_streaming > local").
+# -----------------------------------------------------------------------------
+
+
+def test_hybrid_streaming_takes_precedence_over_stratified_ls(monkeypatch):
+    """LARGE memory tier + hybrid_streaming.enable=true → hybrid path, not stratified-LS.
+
+    Patches:
+      - heterodyne_memory.select_nlsq_strategy → forces LARGE tier
+      - heterodyne_stratified_data.build_heterodyne_stratified_data → no-op sentinel
+      - strategies.heterodyne_hybrid_streaming.fit_with_stratified_hybrid_streaming_heterodyne
+            → sentinel (popt/pcov/info triple)
+      - heterodyne_result_builder.build_hybrid_streaming_result → sentinel result
+      - heterodyne_stratified_ls.fit_heterodyne_stratified_least_squares → sentinel
+            (must NOT be called)
+    """
+    import xpcsjax.optimization.nlsq as nlsq_pkg
+    import xpcsjax.optimization.nlsq.heterodyne_memory as het_mem
+    import xpcsjax.optimization.nlsq.heterodyne_result_builder as het_rb
+    import xpcsjax.optimization.nlsq.heterodyne_stratified_data as het_strat_data
+    import xpcsjax.optimization.nlsq.heterodyne_stratified_ls as hsl
+    import xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming as het_hstream
+    from xpcsjax.optimization.nlsq.heterodyne_memory import NLSQStrategy, StrategyDecision
+
+    called = {"strat_ls": False, "hybrid": False}
+
+    # Force LARGE tier so the hybrid gate fires.
+    def _fake_select(n_points, n_params):
+        return StrategyDecision(
+            strategy=NLSQStrategy.LARGE,
+            threshold_gb=16.0,
+            peak_memory_gb=99.0,
+            reason="forced-LARGE for test",
+        )
+
+    monkeypatch.setattr(het_mem, "select_nlsq_strategy", _fake_select)
+
+    # Stub build_heterodyne_stratified_data → lightweight sentinel object.
+    fake_strat = object()
+    monkeypatch.setattr(
+        het_strat_data,
+        "build_heterodyne_stratified_data",
+        lambda model, c2, phi, weights=None: fake_strat,
+    )
+
+    # Stub the streaming fitter → (popt, pcov, info) triple consumed by result builder.
+    import numpy as _np
+
+    fake_popt = _np.zeros(1)
+    fake_pcov = _np.zeros((1, 1))
+    fake_info = {}
+
+    def _fake_streaming(**k):
+        called["hybrid"] = True
+        return fake_popt, fake_pcov, fake_info
+
+    monkeypatch.setattr(
+        het_hstream,
+        "fit_with_stratified_hybrid_streaming_heterodyne",
+        _fake_streaming,
+    )
+
+    # Stub build_hybrid_streaming_result → sentinel result object.
+    hybrid_sentinel = object()
+    monkeypatch.setattr(
+        het_rb,
+        "build_hybrid_streaming_result",
+        lambda model, popt, pcov, info, phi_angles: hybrid_sentinel,
+    )
+
+    # Stub stratified-LS solver — must NOT be called.
+    def _fake_strat_ls(**k):
+        called["strat_ls"] = True
+        return object()
+
+    monkeypatch.setattr(hsl, "fit_heterodyne_stratified_least_squares", _fake_strat_ls)
+
+    # Also force >=1M points so the stratified-LS gate would fire if hybrid
+    # were not taking precedence.
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq._estimate_heterodyne_points",
+        lambda c2, phi: 2_000_000,
+    )
+
+    # Build config with hybrid_streaming enabled.
+    from tests.optimization._heterodyne_fixtures import make_cfgmgr_and_data
+
+    cfg, data = make_cfgmgr_and_data(
+        n_phi=3,
+        n_t=20,
+        stratification=None,
+    )
+    # Inject hybrid_streaming.enable into the NLSQ config block so the gate fires.
+    cfg.config["optimization"]["nlsq"]["hybrid_streaming"] = {"enable": True}
+
+    result = nlsq_pkg.fit_nlsq(data, cfg)
+
+    assert called["hybrid"] is True, "Hybrid streaming fitter was not called"
+    assert called["strat_ls"] is False, (
+        "Stratified-LS solver was called despite hybrid_streaming taking precedence"
+    )
+    assert result is hybrid_sentinel, "Expected the hybrid sentinel result"
