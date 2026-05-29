@@ -116,3 +116,14 @@ def test_stratified_ls_matches_joint_fit_shuffle_off():
     # SSR conservation: per-angle chi^2 decomposition sums to the total.
     diag = strat.nlsq_diagnostics
     assert np.isclose(float(np.sum(diag["chi2_per_angle"])), strat.chi_squared, rtol=1e-6)
+
+
+def test_individual_scaling_expander_splits_blocks():
+    import jax.numpy as jnp
+
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import make_scaling_expander
+    expander, n_scaling = make_scaling_expander("individual", n_phi=3)
+    assert n_scaling == 6
+    c, o = expander(jnp.array([0.1, 0.2, 0.3, 0.7, 0.8, 0.9]))
+    assert np.allclose(np.asarray(c), [0.1, 0.2, 0.3])
+    assert np.allclose(np.asarray(o), [0.7, 0.8, 0.9])

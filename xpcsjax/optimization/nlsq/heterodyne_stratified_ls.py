@@ -83,6 +83,13 @@ def make_scaling_expander(
 
         return expand, 2
 
+    if per_angle_mode == "individual":
+
+        def expand(s: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+            return s[:n_phi], s[n_phi:2 * n_phi]
+
+        return expand, 2 * n_phi
+
     raise NotImplementedError(
         f"scaling expander for per_angle_mode={per_angle_mode!r} lands in Phase 2"
     )
