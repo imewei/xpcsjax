@@ -19,3 +19,16 @@ def test_reorder_shuffle_off_is_pure_interleave():
     perm_a, _ = reorder_for_stratification(phi, target_chunk_size=6, shuffle=False, seed=42)
     perm_b, _ = reorder_for_stratification(phi, target_chunk_size=6, shuffle=False, seed=999)
     assert np.array_equal(perm_a, perm_b)
+
+
+def test_averaged_scaling_expander_broadcasts():
+    import jax.numpy as jnp
+
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import make_scaling_expander
+
+    expander, n_scaling = make_scaling_expander("averaged", n_phi=3)
+    assert n_scaling == 2  # one contrast + one offset
+    contrast, offset = expander(jnp.array([0.3, 0.8]))
+    assert contrast.shape == (3,) and offset.shape == (3,)
+    assert np.allclose(np.asarray(contrast), 0.3)
+    assert np.allclose(np.asarray(offset), 0.8)

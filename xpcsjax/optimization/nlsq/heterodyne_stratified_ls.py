@@ -11,6 +11,10 @@ objective; the only intended behavioral change is the seed-42 pre-shuffle.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
+import jax.numpy as jnp
 import numpy as np
 
 from xpcsjax.optimization.nlsq.strategies.chunking import (
@@ -53,3 +57,31 @@ def reorder_for_stratification(
         rng = np.random.RandomState(seed)
         perm = perm[rng.permutation(len(perm))]
     return perm, list(chunk_sizes)
+
+
+def make_scaling_expander(
+    per_angle_mode: str,
+    n_phi: int,
+    *,
+    fourier: Any | None = None,
+) -> tuple[Callable[[jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]], int]:
+    """Return ``(expander, n_scaling_params)`` for the active per-angle mode.
+
+    ``expander(scaling_params) -> (contrast[n_phi], offset[n_phi])`` maps the
+    varying scaling parameters to per-angle contrast/offset arrays. Physics-first
+    packing means these scaling params are the TAIL of the joint vector.
+
+    - averaged: 2 params (one contrast, one offset) broadcast to all angles.
+    - individual: 2*n_phi params (contrast block then offset block). [Phase 2]
+    - fourier: 2*(2K+1) Fourier coefficients via ``fourier``.            [Phase 2]
+    """
+    if per_angle_mode == "averaged":
+
+        def expand(s: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+            return jnp.full((n_phi,), s[0]), jnp.full((n_phi,), s[1])
+
+        return expand, 2
+
+    raise NotImplementedError(
+        f"scaling expander for per_angle_mode={per_angle_mode!r} lands in Phase 2"
+    )
