@@ -495,6 +495,7 @@ def fit_nlsq(
     """
     if isinstance(config, (str, _Path)):
         from xpcsjax.config import ConfigManager
+
         config = ConfigManager(str(config))
 
     mode = ""
@@ -512,6 +513,22 @@ def fit_nlsq(
 
     # Homodyne path — unchanged.
     return fit_nlsq_jax(data, config)
+
+
+def _estimate_heterodyne_points(c2: "Any", phi: "Any") -> int:
+    """Total scalar count of a heterodyne ``c2`` stack.
+
+    Accepts the in-memory layouts produced by the heterodyne loader: a 2-D
+    single-angle ``(N, N)`` correlation matrix or a 3-D ``(n_phi, N, N)`` stack.
+    ``phi`` is accepted for signature symmetry with the stratification gate but
+    is not needed for the count (the angle axis is already the leading dim).
+    """
+    import numpy as _np
+
+    arr = _np.asarray(c2)
+    if arr.ndim == 2:
+        return int(arr.shape[0] * arr.shape[1])
+    return int(arr.shape[0] * arr.shape[1] * arr.shape[2])
 
 
 def _safe_log_heterodyne_start(nlsq_cfg: Any, analysis_mode: str, n_phi: int) -> None:
@@ -612,8 +629,7 @@ def _fit_nlsq_heterodyne(
         c2 = _np.asarray(data["c2"])
     else:
         raise KeyError(
-            "heterodyne dispatch requires 'c2_exp' or 'c2' in the data dict; "
-            f"got keys {list(data)}"
+            f"heterodyne dispatch requires 'c2_exp' or 'c2' in the data dict; got keys {list(data)}"
         )
 
     if "phi_angles_list" in data:
@@ -652,9 +668,7 @@ def _fit_nlsq_heterodyne(
     # branch inside fit_nlsq_multi_phi).
     ms_dict = nlsq_dict.get("multi_start", {}) if isinstance(nlsq_dict, dict) else {}
     cmaes_on = bool(
-        nlsq_dict.get("cmaes", {}).get("enable", False)
-        if isinstance(nlsq_dict, dict)
-        else False
+        nlsq_dict.get("cmaes", {}).get("enable", False) if isinstance(nlsq_dict, dict) else False
     )
     if isinstance(ms_dict, dict) and ms_dict.get("enable", False) and not cmaes_on:
         from xpcsjax.optimization.nlsq.heterodyne_multistart import (
@@ -710,13 +724,15 @@ def _fit_nlsq_heterodyne(
                 bounds=(_np.asarray(lower), _np.asarray(upper)),
                 hybrid_config=hybrid_dict,
                 anti_degeneracy_config=(
-                    nlsq_dict.get("anti_degeneracy", {})
-                    if isinstance(nlsq_dict, dict)
-                    else {}
+                    nlsq_dict.get("anti_degeneracy", {}) if isinstance(nlsq_dict, dict) else {}
                 ),
             )
             result = build_hybrid_streaming_result(
-                model=model, popt=popt, pcov=pcov, info=info, phi_angles=phi,
+                model=model,
+                popt=popt,
+                pcov=pcov,
+                info=info,
+                phi_angles=phi,
             )
             _safe_log_heterodyne_completion(result, model, len(phi))
             return result
@@ -724,6 +740,50 @@ def _fit_nlsq_heterodyne(
             "hybrid_streaming enabled but memory tier is %s (< LARGE); using standard joint fit",
             decision.strategy,
         )
+
+    # Standard tier: homodyne-mirrored stratification gate.
+    # Mirror homodyne: stratify when per-angle + >100k points + balanced angles;
+    # engage the stratified-LS solver only at >=1M (homodyne's stratified-LS gate).
+    from xpcsjax.optimization.nlsq.strategies.chunking import (
+        analyze_angle_distribution,
+        should_use_stratification,
+    )
+
+    n_points = _estimate_heterodyne_points(c2, phi)
+    strat_cfg = nlsq_dict.get("stratification", {}) if isinstance(nlsq_dict, dict) else {}
+    strat_enabled = strat_cfg.get("enabled", "auto")
+    imbalance = float(analyze_angle_distribution(_np.asarray(phi)).imbalance_ratio)
+    use_strat, _reason = should_use_stratification(
+        n_points=n_points,
+        n_angles=len(phi),
+        per_angle_scaling=True,
+        imbalance_ratio=imbalance,
+    )
+    if strat_enabled is False:
+        use_strat = False
+
+    if use_strat and n_points >= 1_000_000:
+        try:
+            from xpcsjax.optimization.nlsq import heterodyne_stratified_ls as _hsl
+
+            result = _hsl.fit_heterodyne_stratified_least_squares(
+                model=model,
+                c2=c2,
+                phi=phi,
+                config=nlsq_cfg,
+                weights=weights,
+                target_chunk_size=int(strat_cfg.get("target_chunk_size", 100_000)),
+                shuffle=True,
+            )
+            _safe_log_heterodyne_completion(result, model, len(phi))
+            return result
+        except Exception as exc:  # best-effort: never let stratification break a fit
+            from xpcsjax.utils.logging import get_logger as _get_logger
+
+            _get_logger(__name__).warning(
+                "Heterodyne stratified-LS failed (%s); falling back to in-memory joint fit.",
+                exc,
+            )
 
     result = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
     _safe_log_heterodyne_completion(result, model, len(phi))

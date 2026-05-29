@@ -44,6 +44,25 @@ def _config_dict(n_phi: int, n_t: int) -> dict:
     }
 
 
+def _build_cfgmgr(n_phi: int, n_t: int):
+    """Construct a real ``ConfigManager`` for a two-component fixture config.
+
+    The temp YAML is written, loaded, and discarded; the returned manager keeps
+    its parsed ``.config`` dict in memory (the file is no longer needed once the
+    manager has parsed it).
+    """
+    import yaml
+
+    from xpcsjax.config import ConfigManager
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        cfg_path = Path(tmp_dir) / "fixture.yaml"
+        cfg_path.write_text(yaml.safe_dump(_config_dict(n_phi, n_t)))
+        cfg = ConfigManager(str(cfg_path))
+    assert cfg.config is not None
+    return cfg
+
+
 def make_synthetic_two_component(n_phi: int = 3, n_t: int = 12):
     """Build a configured HeterodyneModel plus self-consistent synthetic data.
 
@@ -54,19 +73,12 @@ def make_synthetic_two_component(n_phi: int = 3, n_t: int = 12):
       ``model.compute_correlation`` at the model's initial params (+ tiny noise),
     * ``phi`` is a ``(n_phi,)`` float64 array of angles in degrees.
     """
-    import yaml
-
-    from xpcsjax.config import ConfigManager
     from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
 
     phi = np.linspace(0.0, 150.0, n_phi, dtype=np.float64)
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        cfg_path = Path(tmp_dir) / "fixture.yaml"
-        cfg_path.write_text(yaml.safe_dump(_config_dict(n_phi, n_t)))
-        cfg = ConfigManager(str(cfg_path))
-        assert cfg.config is not None
-        model = HeterodyneModel.from_config(cfg.config)
+    cfg = _build_cfgmgr(n_phi, n_t)
+    model = HeterodyneModel.from_config(cfg.config)
 
     rng = np.random.default_rng(seed=20260524)
     c2 = np.empty((n_phi, n_t, n_t), dtype=np.float64)
@@ -75,3 +87,22 @@ def make_synthetic_two_component(n_phi: int = 3, n_t: int = 12):
         c2[i] = corr + rng.normal(0.0, _NOISE, size=corr.shape)
 
     return model, c2, phi
+
+
+def make_cfgmgr_and_data(n_phi: int, n_t: int):
+    """Build a real ``ConfigManager`` plus a heterodyne-loader data dict.
+
+    Returns ``(cfg, data)`` where:
+
+    * ``cfg`` is a ``ConfigManager`` in ``two_component`` mode (the same config
+      used by :func:`make_synthetic_two_component`),
+    * ``data`` is ``{"c2_exp": <(n_phi, n_t, n_t) array>, "phi_angles_list": <phi>}``,
+      the key names the heterodyne dispatch (``_fit_nlsq_heterodyne``) accepts.
+
+    The synthetic ``c2`` stack is self-consistent with the config's model so the
+    dispatch path runs end-to-end through ``fit_nlsq`` without raising.
+    """
+    model, c2, phi = make_synthetic_two_component(n_phi=n_phi, n_t=n_t)
+    cfg = _build_cfgmgr(n_phi, n_t)
+    data = {"c2_exp": c2, "phi_angles_list": phi}
+    return cfg, data
