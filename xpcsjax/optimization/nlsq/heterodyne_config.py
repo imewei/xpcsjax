@@ -186,14 +186,20 @@ class StratificationConfig:
     defaults match homodyne 1:1.
 
     Attributes:
-        enabled: ``"auto"`` (defer to ``should_use_stratification``), ``True``
-            (force on above the 1M gate), or ``False`` (disable entirely).
+        enabled: ``False`` disables stratification entirely. ``"auto"`` (default)
+            and ``True`` are equivalent for heterodyne: both defer to
+            ``should_use_stratification`` plus the ``>=1M`` solver gate. There is
+            no separate force-on path -- the ``>=1M`` gate is the real control
+            (stratification only swaps the solver, which engages at ``>=1M``
+            regardless of this flag).
         target_chunk_size: Target scalar count per stratified chunk, forwarded to
             ``fit_heterodyne_stratified_least_squares(target_chunk_size=...)``.
         max_imbalance_ratio: Maximum tolerated angle-count imbalance before the
-            stratified path is skipped. Honored by the heterodyne gate
-            (``_fit_nlsq_heterodyne``) as a configured threshold layered on top
-            of ``should_use_stratification``'s internal hard-coded 5.0.
+            stratified path is skipped. This is the SOLE imbalance gate in
+            ``_fit_nlsq_heterodyne``: ``should_use_stratification`` is called with
+            ``imbalance_ratio=0.0`` so its internal hard-coded 5.0 cutoff cannot
+            pre-empt this value, which therefore moves the cutoff in either
+            direction (tighten below 5.0 or loosen above it).
         force_sequential_fallback: Accepted for homodyne-config compatibility but
             **inert for heterodyne.** With ``individual`` mode scoped out of
             stratified-LS (it already uses the sequential per-angle path in
