@@ -290,3 +290,28 @@ def test_advisory_warning_does_not_error() -> None:
         warnings.simplefilter("ignore")
         errors = NLSQConfig(gtol=1e-9, loss="soft_l1").validate()
     assert errors == []  # advisory is a log, not an error
+
+
+def test_config_overrides_defaults_not_silently_dropped() -> None:
+    """Config-file anti_degeneracy settings must OVERRIDE dataclass defaults.
+
+    Defaults are per_angle_mode='auto', constant_scaling_threshold=3,
+    fourier_auto_threshold=6, fourier_order=3. Feed distinct non-default values
+    via the nested ``anti_degeneracy`` block (production YAML layout) and assert
+    each survives into the parsed config rather than reverting to the default.
+    """
+    defaults = NLSQConfig()
+    cfg = NLSQConfig.from_dict(
+        {
+            "anti_degeneracy": {
+                "per_angle_mode": "fourier",
+                "constant_scaling_threshold": 5,
+                "fourier_auto_threshold": 9,
+                "fourier_order": 4,
+            }
+        }
+    )
+    assert cfg.per_angle_mode == "fourier" != defaults.per_angle_mode
+    assert cfg.constant_scaling_threshold == 5 != defaults.constant_scaling_threshold
+    assert cfg.fourier_auto_threshold == 9 != defaults.fourier_auto_threshold
+    assert cfg.fourier_order == 4 != defaults.fourier_order

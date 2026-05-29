@@ -100,3 +100,24 @@ def test_controller_instantiates_with_minimal_config():
 
     controller = AntiDegeneracyController(**stub_values)
     assert controller is not None
+
+
+def test_anti_degeneracy_config_overrides_defaults():
+    """Homodyne AntiDegeneracyConfig.from_dict must honor config-file values
+    over the dataclass defaults (constant_scaling_threshold=3,
+    fourier_auto_threshold=6) — never silently dropped to the default."""
+    from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
+        AntiDegeneracyConfig,
+    )
+
+    defaults = AntiDegeneracyConfig()
+    cfg = AntiDegeneracyConfig.from_dict(
+        {
+            "per_angle_mode": "individual",
+            "constant_scaling_threshold": 7,
+            "fourier_auto_threshold": 11,
+        }
+    )
+    assert cfg.per_angle_mode == "individual"
+    assert cfg.constant_scaling_threshold == 7 != defaults.constant_scaling_threshold
+    assert cfg.fourier_auto_threshold == 11 != defaults.fourier_auto_threshold

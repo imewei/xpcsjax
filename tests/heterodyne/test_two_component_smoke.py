@@ -24,7 +24,11 @@ import yaml
 _N_TIMES = 40
 _DT = 1.0
 _Q = 0.0054
-_PHI_ANGLES = np.array([0.0, 45.0], dtype=np.float64)
+# 3 angles so the default per_angle_mode="auto" resolves to "averaged" (the
+# joint, well-conditioned path that real 3-angle runs hit). With <3 angles the
+# unified auto rule would route to "individual" (sequential single-angle fits),
+# which is less constrained for a tiny smoke budget.
+_PHI_ANGLES = np.array([0.0, 45.0, 90.0], dtype=np.float64)
 _NOISE_SIGMA = 1e-3
 
 

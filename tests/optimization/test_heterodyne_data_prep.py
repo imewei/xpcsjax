@@ -12,7 +12,9 @@ import pytest
 from xpcsjax.optimization.nlsq.heterodyne_data_prep import (
     compute_degrees_of_freedom,
     compute_weights,
+    far_lag_noise_variance,
     flatten_upper_triangle,
+    noise_normalized_reduced_chi2,
     unflatten_upper_triangle,
 )
 
@@ -70,3 +72,47 @@ def test_degrees_of_freedom_underdetermined_floors_at_one() -> None:
     # n_data <= n_params hits the warning branch and floors dof at 1.
     assert compute_degrees_of_freedom(n_data=5, n_params=7) == 1
     assert compute_degrees_of_freedom(n_data=7, n_params=7) == 1
+
+
+def test_far_lag_noise_variance_batched_matches_pooled() -> None:
+    # 3-D (n_phi, n_time, n_time): far-lag entries pooled across angles.
+    rng = np.random.default_rng(0)
+    c2 = rng.normal(1.0, 0.05, size=(3, 8, 8))
+    var = far_lag_noise_variance(c2)
+    # Reproduce the far-lag mask (|i-j| >= n_time//2) and compare.
+    n = 8
+    idx = np.arange(n)
+    mask = np.abs(idx[:, None] - idx[None, :]) >= n // 2
+    expected = float(np.var(c2[:, mask].ravel()))
+    assert var == pytest.approx(expected)
+
+
+def test_far_lag_noise_variance_degenerate_is_zero() -> None:
+    # A perfectly flat far-lag tail -> zero variance (triggers MSE fallback).
+    assert far_lag_noise_variance(np.ones((4, 4))) == 0.0
+
+
+def test_noise_normalized_reduced_chi2_targets_one() -> None:
+    # When SSR/dof equals sigma2_noise, the normalised chi2 is exactly 1.
+    n_time = 8
+    idx = np.arange(n_time)
+    mask = np.abs(idx[:, None] - idx[None, :]) >= n_time // 2
+    # Build C2 whose far-lag variance is a known value.
+    c2 = np.ones((n_time, n_time))
+    far_vals = np.array([0.9, 1.1] * (int(mask.sum()) // 2 + 1))[: int(mask.sum())]
+    c2[mask] = far_vals
+    sigma2 = far_lag_noise_variance(c2)
+    assert sigma2 > 0
+    n_valid, n_params = 50, 6
+    dof = n_valid - n_params
+    ssr = sigma2 * dof  # arrange chi2_red == 1.0
+    chi2_red = noise_normalized_reduced_chi2(ssr, c2, n_valid, n_params)
+    assert chi2_red == pytest.approx(1.0)
+
+
+def test_noise_normalized_reduced_chi2_mse_fallback() -> None:
+    # Degenerate noise -> falls back to plain MSE = SSR / dof.
+    c2 = np.ones((4, 4))  # zero far-lag variance
+    ssr, n_valid, n_params = 8.0, 10, 2
+    out = noise_normalized_reduced_chi2(ssr, c2, n_valid, n_params)
+    assert out == pytest.approx(ssr / (n_valid - n_params))

@@ -123,9 +123,12 @@ def test_individual_mode_joint_fit() -> None:
     assert diag is not None and diag["per_angle_mode"] == "individual"
 
 
-def test_auto_mode_resolves_to_fourier_for_many_angles() -> None:
+def test_auto_mode_resolves_to_averaged_for_many_angles() -> None:
+    # Unified auto rule: n_phi >= 3 -> averaged, regardless of how large.
+    # Even at n_phi=6 (the OLD fourier_auto_threshold) auto stays "averaged";
+    # fourier is selected only when the user requests it explicitly.
     model = _build_model()
-    n_phi = 6  # >= fourier_auto_threshold default (6) -> fourier
+    n_phi = 6
     c2 = _synthetic_stack(model, n_phi=n_phi)
     config = NLSQConfig(per_angle_mode="auto", max_nfev=30, enable_cmaes=False)
 
@@ -134,7 +137,7 @@ def test_auto_mode_resolves_to_fourier_for_many_angles() -> None:
     assert isinstance(result, OptimizationResult)
     assert np.all(np.isfinite(result.parameters))
     diag = result.nlsq_diagnostics
-    assert diag is not None and diag["per_angle_mode"] == "fourier"
+    assert diag is not None and diag["per_angle_mode"] == "averaged"
 
 
 def test_cmaes_path_runs() -> None:

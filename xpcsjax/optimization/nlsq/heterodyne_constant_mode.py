@@ -314,10 +314,20 @@ def _fit_joint_constant_multi_phi(
     # using the raw residual sum here, SSR conservation
     # (``chi2_per_angle.sum() == chi_squared``) holds for every loss choice.
     ssr = float(np.sum(final_residual**2))
-    reduced_chi2 = (
-        float(nlsq_result.reduced_chi_squared)
-        if nlsq_result.reduced_chi_squared is not None
-        else ssr / max(final_residual.size - n_physics, 1)
+    # Noise-normalised reduced chi^2 (targets ~1.0). ``nlsq_result.reduced_chi_squared``
+    # is SSR/N² (MSE ≪ 1 on normalised C2 data); apply the same far-lag
+    # photon-noise correction the other heterodyne paths use. ``chi_squared``
+    # (= ssr) and ``chi2_per_angle`` are untouched, so SSR conservation
+    # (``chi2_per_angle.sum() == chi_squared``) still holds.
+    from xpcsjax.optimization.nlsq.heterodyne_data_prep import (
+        noise_normalized_reduced_chi2,
+    )
+
+    reduced_chi2 = noise_normalized_reduced_chi2(
+        ssr=ssr,
+        c2_data=c2_data,
+        n_data_valid=int(final_residual.size),
+        n_params=n_physics,
     )
 
     wall_time = time.perf_counter() - t_start

@@ -72,32 +72,18 @@ def test_constant_mode_dispatches_to_constant_fit() -> None:
     mock_fit.assert_called_once()
 
 
-def test_auto_with_small_n_phi_uses_constant() -> None:
-    """`auto` mode with n_phi < constant_scaling_threshold dispatches constant."""
-    from unittest.mock import patch
+def test_auto_with_small_n_phi_uses_individual() -> None:
+    """`auto` with n_phi < constant_scaling_threshold resolves to individual.
 
-    import numpy as np
-
+    Unified rule (matches the homodyne AntiDegeneracyController): auto never
+    selects constant — few angles get per-angle individual scaling.
+    """
     from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
-    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
+    from xpcsjax.optimization.nlsq.heterodyne_core import _resolve_effective_mode
 
     config = NLSQConfig(per_angle_mode="auto", constant_scaling_threshold=3)
-
-    class _StubModel:
-        pass
-
-    model = _StubModel()
-    c2 = np.zeros((2, 8, 8))  # n_phi = 2, below threshold
-    phi = np.array([0.0, 45.0])
-
-    with patch(
-        "xpcsjax.optimization.nlsq.heterodyne_constant_mode."
-        "_fit_joint_constant_multi_phi"
-    ) as mock_fit:
-        mock_fit.return_value = "sentinel"
-        fit_nlsq_multi_phi(model, c2, phi, config, weights=None)  # type: ignore[arg-type]
-
-    mock_fit.assert_called_once()
+    assert _resolve_effective_mode(config, 1) == "individual"
+    assert _resolve_effective_mode(config, 2) == "individual"
 
 
 def test_auto_with_mid_n_phi_uses_averaged() -> None:
@@ -131,8 +117,13 @@ def test_auto_with_mid_n_phi_uses_averaged() -> None:
     mock_avg.assert_called_once()
 
 
-def test_auto_with_large_n_phi_uses_fourier() -> None:
-    """`auto` mode with n_phi >= fourier_auto_threshold dispatches fourier."""
+def test_auto_with_large_n_phi_uses_averaged() -> None:
+    """`auto` with large n_phi dispatches averaged, NOT fourier.
+
+    Unified rule: auto never auto-selects fourier (``fourier_auto_threshold``
+    has no effect under auto). Even at n_phi=8 (>= the old fourier threshold),
+    auto resolves to averaged; fourier must be requested explicitly.
+    """
     from unittest.mock import patch
 
     import numpy as np
@@ -150,13 +141,35 @@ def test_auto_with_large_n_phi_uses_fourier() -> None:
         pass
 
     model = _StubModel()
-    c2 = np.zeros((8, 8, 8))  # n_phi = 8, at/above fourier threshold
+    c2 = np.zeros((8, 8, 8))  # n_phi = 8, at/above the OLD fourier threshold
     phi = np.linspace(0, 157.5, 8)
 
     with patch(
-        "xpcsjax.optimization.nlsq.heterodyne_core._fit_joint_multi_phi"
-    ) as mock_fourier:
-        mock_fourier.return_value = "sentinel"
+        "xpcsjax.optimization.nlsq.heterodyne_core._fit_joint_averaged_multi_phi"
+    ) as mock_avg:
+        mock_avg.return_value = "sentinel"
         fit_nlsq_multi_phi(model, c2, phi, config, weights=None)  # type: ignore[arg-type]
 
-    mock_fourier.assert_called_once()
+    mock_avg.assert_called_once()
+
+
+def test_auto_never_selects_constant_or_fourier() -> None:
+    """Unified rule: auto ∈ {individual, averaged} for ALL n_phi; explicit
+    constant/fourier/individual pass through unchanged."""
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import _resolve_effective_mode
+
+    auto = NLSQConfig(
+        per_angle_mode="auto", constant_scaling_threshold=3, fourier_auto_threshold=6
+    )
+    for n_phi in (1, 2, 3, 4, 5, 6, 10, 23, 100):
+        mode = _resolve_effective_mode(auto, n_phi)
+        assert mode in ("individual", "averaged"), (
+            f"auto must never select {mode!r} (n_phi={n_phi})"
+        )
+        assert mode == ("individual" if n_phi < 3 else "averaged")
+
+    # Explicit modes are honored regardless of n_phi.
+    for explicit in ("constant", "fourier", "individual"):
+        cfg = NLSQConfig(per_angle_mode=explicit)
+        assert _resolve_effective_mode(cfg, 8) == explicit

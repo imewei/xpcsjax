@@ -431,7 +431,7 @@ optimization:
     anti_degeneracy:
       enable: true
 
-      per_angle_mode: "auto"               # auto → "constant" when n_phi >= threshold
+      per_angle_mode: "auto"               # auto → "averaged" for n_phi >= constant_scaling_threshold (3), else "individual" (homodyne auto never picks fourier — set "fourier" explicitly)
       constant_scaling_threshold: 3
       fourier_order: 2                     # used only when per_angle_mode="fourier"
       fourier_auto_threshold: 6            # min angles for fourier mode

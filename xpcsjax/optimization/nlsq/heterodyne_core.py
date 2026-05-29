@@ -1011,11 +1011,23 @@ def _fit_joint_averaged_multi_phi(
     final_residual = np.asarray(joint_residual_fn(fitted_all))
     total_ssr_with_penalty = float(np.sum(final_residual**2))
     n_total_params = int(joint_result.parameters.size)
-    n_dof = max(final_residual.size - n_total_params, 1)
-    reduced_chi2 = (
-        float(joint_result.reduced_chi_squared)
-        if joint_result.reduced_chi_squared is not None
-        else ssr / n_dof
+    # Noise-normalised reduced chi^2 (targets ~1.0). The raw
+    # ``joint_result.reduced_chi_squared`` is SSR/N² — i.e. MSE ≪ 1 on
+    # normalised C2 data (C2 ~ 1, residuals ~ 5%) — which is not an
+    # interpretable goodness-of-fit. Apply the same far-lag photon-noise
+    # correction the single-angle / per-angle paths use so every heterodyne
+    # path reports a comparable metric. ``chi_squared`` (= ssr) and
+    # ``chi2_per_angle`` are left untouched, so the SSR-conservation invariant
+    # (``chi2_per_angle.sum() == chi_squared``) still holds.
+    from xpcsjax.optimization.nlsq.heterodyne_data_prep import (
+        noise_normalized_reduced_chi2,
+    )
+
+    reduced_chi2 = noise_normalized_reduced_chi2(
+        ssr=ssr,
+        c2_data=c2_data,
+        n_data_valid=int(data_only_residual.size),
+        n_params=n_total_params,
     )
 
     # NaN-fill uncertainties / covariance when the NLSQ adapter could not
@@ -1271,11 +1283,17 @@ def _resolve_effective_mode(config: NLSQConfig, n_phi: int) -> str:
       (smooth angular variation).
     * ``"individual"`` — sequential per-angle fits with warm-start chaining.
 
-    ``auto`` threshold semantics match homodyne::
+    ``auto`` resolution is unified with the homodyne
+    :class:`AntiDegeneracyController` — ``auto`` only ever selects
+    ``individual`` or ``averaged``::
 
-        n_phi <  constant_scaling_threshold (3) -> "constant"
-        n_phi <  fourier_auto_threshold     (6) -> "averaged"
-        n_phi >= fourier_auto_threshold     (6) -> "fourier"
+        n_phi <  constant_scaling_threshold (3) -> "individual"
+        n_phi >= constant_scaling_threshold (3) -> "averaged"
+
+    ``constant`` and ``fourier`` are NEVER auto-selected; the user must request
+    them explicitly via ``anti_degeneracy.per_angle_mode`` in the config (or a
+    CLI option). ``fourier_auto_threshold`` therefore has no effect under
+    ``auto`` and is consulted only when ``fourier`` is requested explicitly.
 
     Explicit modes (``"constant"``, ``"fourier"``, ``"individual"``) pass
     through unchanged. The legacy alias ``"independent"`` is already rewritten
@@ -1288,14 +1306,13 @@ def _resolve_effective_mode(config: NLSQConfig, n_phi: int) -> str:
         return "fourier"
     if requested == "individual":
         return "individual"
-    # requested == "auto" — route by n_phi
+    # requested == "auto" — unified with the homodyne AntiDegeneracyController:
+    # few angles -> per-angle individual scaling; otherwise the averaged
+    # single-pair scaling. constant/fourier are never auto-selected.
     constant_threshold = max(int(config.constant_scaling_threshold), 1)
-    fourier_threshold = max(int(config.fourier_auto_threshold), 1)
     if n_phi < constant_threshold:
-        return "constant"
-    if n_phi < fourier_threshold:
-        return "averaged"
-    return "fourier"
+        return "individual"
+    return "averaged"
 
 
 def _fit_joint_multi_phi(
@@ -1650,11 +1667,18 @@ def _fit_joint_multi_phi(
     final_residual = np.asarray(joint_residual_fn(fitted_params_full))
     total_ssr_with_penalty = float(np.sum(final_residual**2))
     n_total_params = int(joint_result.parameters.size)
-    n_dof = max(final_residual.size - n_total_params, 1)
-    reduced_chi2 = (
-        float(joint_result.reduced_chi_squared)
-        if joint_result.reduced_chi_squared is not None
-        else ssr / n_dof
+    # Noise-normalised reduced chi^2 (targets ~1.0); see the averaged path for
+    # the rationale. Only ``reduced_chi_squared`` changes — ``chi_squared``
+    # (= ssr) and ``chi2_per_angle`` are untouched, preserving SSR conservation.
+    from xpcsjax.optimization.nlsq.heterodyne_data_prep import (
+        noise_normalized_reduced_chi2,
+    )
+
+    reduced_chi2 = noise_normalized_reduced_chi2(
+        ssr=ssr,
+        c2_data=c2_data,
+        n_data_valid=int(data_only_residual.size),
+        n_params=n_total_params,
     )
 
     # NaN-fill uncertainties/covariance when the NLSQ adapter could not

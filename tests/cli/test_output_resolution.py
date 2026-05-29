@@ -81,3 +81,71 @@ def test_plots_dir_honors_cli_override(tmp_path: Path) -> None:
     plots_dir = resolve_plots_dir(args, cfgmgr)
     assert plots_dir == tmp_path / "cli_out" / "plots"
     assert plots_dir.is_dir()
+
+
+def test_post_fit_plots_write_under_plots_subdir(tmp_path: Path, monkeypatch: Any) -> None:
+    """``_generate_post_fit_plots`` must hand the ``plots/`` subdir to
+    ``generate_nlsq_plots`` — not strip it back to the root. Previously it passed
+    ``plots_dir.parent``, scattering heatmaps/residuals/simulated_data into the
+    output root while the dispatcher logged "Plots written to <root>/plots".
+    """
+    import xpcsjax.viz as viz
+    from xpcsjax.cli import plot_dispatch
+
+    captured: dict[str, Any] = {}
+
+    def _capture(**kwargs: Any) -> None:
+        captured["output_dir"] = kwargs["output_dir"]
+
+    monkeypatch.setattr(viz, "generate_nlsq_plots", _capture)
+
+    plots_dir = tmp_path / "results" / "plots"
+    plots_dir.mkdir(parents=True)
+    # Minimal ConfigManager stand-in: only get_model/get_config are used.
+    cfgmgr = SimpleNamespace(
+        get_model=lambda: object(),
+        get_config=lambda: {},
+    )
+
+    out = plot_dispatch._generate_post_fit_plots(
+        args=_args(),
+        config_manager=cfgmgr,
+        data={},
+        result=SimpleNamespace(),
+        plots_dir=plots_dir,
+    )
+
+    # The artifact dump must land under <root>/plots, matching the logged path
+    # and every other plot path — not the root (plots_dir.parent).
+    assert captured["output_dir"] == plots_dir
+    assert captured["output_dir"] != plots_dir.parent
+    # Log-accuracy prevention: the helper reports the directory it actually
+    # wrote to, so dispatch_plots' "Plots written to …" message derives from
+    # reality rather than the pre-computed plots_dir.
+    assert out == plots_dir
+
+
+def test_post_fit_plots_return_none_on_failure(tmp_path: Path, monkeypatch: Any) -> None:
+    """When generate_nlsq_plots raises, _generate_post_fit_plots must report
+    that nothing was written (return None) so dispatch_plots does not log a
+    location that received no files."""
+    import xpcsjax.viz as viz
+    from xpcsjax.cli import plot_dispatch
+
+    def _boom(**_kwargs: Any) -> None:
+        raise RuntimeError("plotting blew up")
+
+    monkeypatch.setattr(viz, "generate_nlsq_plots", _boom)
+
+    plots_dir = tmp_path / "results" / "plots"
+    plots_dir.mkdir(parents=True)
+    cfgmgr = SimpleNamespace(get_model=lambda: object(), get_config=lambda: {})
+
+    out = plot_dispatch._generate_post_fit_plots(
+        args=_args(),
+        config_manager=cfgmgr,
+        data={},
+        result=SimpleNamespace(),
+        plots_dir=plots_dir,
+    )
+    assert out is None

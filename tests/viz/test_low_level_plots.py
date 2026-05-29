@@ -99,8 +99,53 @@ def test_unpack_homodyne_short_params_raises(
         execution_time=0.1,
         device_info={},
     )
-    with pytest.raises(ValueError, match="needs >=3"):
+    # 2 params with a >=3-physical homodyne model leaves a negative scaling
+    # block (2 - n_physical < 0), which _homodyne_scaling_arrays rejects.
+    with pytest.raises(ValueError, match="non-negative even count"):
         _unpack_result_params(homodyne_model, bad, minimal_homodyne_config)
+
+
+def test_unpack_homodyne_per_angle_layout_offset_not_misread() -> None:
+    """Regression: homodyne per-angle results are ``[c_0..N-1, o_0..N-1, phys]``.
+
+    The fit uses per-angle scaling by default, so a laminar result for 3 angles
+    is ``[c0,c1,c2, o0,o1,o2, D0,alpha,D_offset,gd0,beta,gdoff,phi0]`` (13). The
+    viz must infer n_phi from the 7 physical params, NOT assume the scalar
+    ``[contrast, offset, *physical]`` layout — doing the latter read ``offset``
+    as ``c1`` (so offset == contrast) and shifted scaling values into the
+    physical block, rendering the fitted c2 surface flat.
+    """
+    from xpcsjax.core.models import make_model
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+
+    model = make_model({"analysis_mode": "laminar_flow"})
+    n_physical = len(model.parameter_names)  # 7
+    contrasts = np.array([0.30, 0.31, 0.32])
+    offsets = np.array([1.10, 1.11, 1.12])
+    physical = np.asarray(model.get_default_parameters(), dtype=float)
+    params = np.concatenate([contrasts, offsets, physical])  # 3 + 3 + 7 = 13
+
+    result = OptimizationResult(
+        parameters=params,
+        uncertainties=np.zeros_like(params),
+        covariance=np.eye(params.size),
+        chi_squared=1.0,
+        reduced_chi_squared=1.0,
+        convergence_status="converged",
+        iterations=1,
+        execution_time=0.1,
+        device_info={},
+    )
+
+    contrast, offset, physical_params, names = _unpack_result_params(model, result, {})
+    # offset must be the mean OFFSET (~1.11), never the mean contrast (~0.31).
+    assert offset == pytest.approx(offsets.mean())
+    assert contrast == pytest.approx(contrasts.mean())
+    assert offset != pytest.approx(contrast)
+    # Physical block must be exactly the 7 physical params (not shifted/padded).
+    assert physical_params.size == n_physical
+    np.testing.assert_allclose(physical_params, physical)
+    assert list(names) == list(model.parameter_names)
 
 
 def test_unpack_heterodyne_size_mismatch_raises(heterodyne_model) -> None:

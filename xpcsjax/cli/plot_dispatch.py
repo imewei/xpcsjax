@@ -103,7 +103,7 @@ def resolve_phi_angles_for_sim(
 # ---------------------------------------------------------------------------
 
 
-def _plot_experimental_data(data: dict[str, Any], plots_dir: Path) -> None:
+def _plot_experimental_data(data: dict[str, Any], plots_dir: Path) -> Path | None:
     """Render per-angle experimental C2 heatmaps for QC.
 
     Uses ``xpcsjax.viz.plot_nlsq_fit`` is unsuitable here (it requires a fit),
@@ -125,7 +125,7 @@ def _plot_experimental_data(data: dict[str, Any], plots_dir: Path) -> None:
 
     if c2_exp.size == 0:
         logger.warning("No experimental c2 data to plot")
-        return
+        return None
 
     if c2_exp.ndim == 2:
         c2_exp = c2_exp[np.newaxis, ...]
@@ -145,6 +145,8 @@ def _plot_experimental_data(data: dict[str, Any], plots_dir: Path) -> None:
         except Exception:
             logger.exception("Failed to plot experimental data for phi=%s", phi)
 
+    return plots_dir
+
 
 # ---------------------------------------------------------------------------
 # Simulated data plots (standalone, no fit required)
@@ -158,7 +160,7 @@ def _plot_simulated_from_config(
     phi_angles_str: str | None,
     plots_dir: Path,
     data: dict[str, Any] | None,
-) -> None:
+) -> Path | None:
     """Render theoretical C2 heatmaps from the config's initial parameters.
 
     This evaluates the configured model at its initial-parameter vector for
@@ -182,13 +184,13 @@ def _plot_simulated_from_config(
         model = config_manager.get_model()
     except Exception:
         logger.exception("Could not construct model from config; skipping simulated plots")
-        return
+        return None
 
     try:
         init_params = config_manager.get_initial_parameters()
     except Exception:
         logger.exception("Could not extract initial parameters; skipping simulated plots")
-        return
+        return None
 
     # Pull physical scalars from the merged config for the model call.
     cfg = config_manager.config or {}
@@ -234,7 +236,7 @@ def _plot_simulated_from_config(
         )
     except Exception:
         logger.exception("Could not order init params; skipping simulated plots")
-        return
+        return None
 
     for phi in phi_angles:
         try:
@@ -274,6 +276,8 @@ def _plot_simulated_from_config(
             )
         except Exception:
             logger.exception("Failed to render simulated plot for phi=%s", phi)
+
+    return plots_dir
 
 
 def _evaluate_model_c2(
@@ -351,7 +355,7 @@ def _generate_post_fit_plots(
     data: dict[str, Any],
     result: OptimizationResult,
     plots_dir: Path,
-) -> None:
+) -> Path | None:
     """Generate the full 3-panel / residual / simulated artifact set.
 
     Delegates to ``xpcsjax.viz.generate_nlsq_plots``, which is the high-level
@@ -364,8 +368,15 @@ def _generate_post_fit_plots(
 
     from xpcsjax.viz import generate_nlsq_plots
 
-    # generate_nlsq_plots wants the output ROOT, not the plots/ subdir.
-    output_root = plots_dir.parent
+    # Write the full artifact set under the ``plots/`` directory so the post-fit
+    # dispatch lands in the same place as every other plot path
+    # (``_plot_experimental_data``, ``_save_simulated_only``,
+    # ``_save_fit_comparison_only``) and matches the "Plots written to <root>/plots"
+    # message logged by ``dispatch_plots``. ``generate_nlsq_plots`` creates its
+    # own ``simulated_data/`` subdirectory beneath whatever output_dir it is given,
+    # so the fitted artifacts land at ``<root>/plots/simulated_data/``. The main
+    # NLSQ results (nlsq_result.json/.npz) are written separately to ``<root>`` by
+    # ``save_results`` and are intentionally not nested under ``plots/``.
 
     use_datashader = should_use_datashader(getattr(args, "plotting_backend", "auto"))
     parallel = bool(getattr(args, "parallel_plots", False))
@@ -374,7 +385,7 @@ def _generate_post_fit_plots(
         model = config_manager.get_model()
     except Exception:
         logger.exception("Could not construct model for post-fit plotting")
-        return
+        return None
 
     cfg = config_manager.get_config()
 
@@ -384,12 +395,15 @@ def _generate_post_fit_plots(
             result=result,
             data=data,
             config=cfg,
-            output_dir=output_root,
+            output_dir=plots_dir,
             use_datashader=use_datashader,
             parallel=parallel,
         )
     except Exception:
         logger.exception("generate_nlsq_plots failed")
+        return None
+
+    return plots_dir
 
 
 def _save_fit_comparison_only(
@@ -397,7 +411,7 @@ def _save_fit_comparison_only(
     data: dict[str, Any],
     result: OptimizationResult,
     plots_dir: Path,
-) -> None:
+) -> Path | None:
     """Lightweight ``--save-plots`` path: per-angle fit + residual figures only.
 
     Used when the user wants fit-vs-experiment comparisons saved but doesn't
@@ -414,7 +428,7 @@ def _save_fit_comparison_only(
         model = config_manager.get_model()
     except Exception:
         logger.exception("Could not construct model for fit-comparison plotting")
-        return
+        return None
 
     c2_exp = np.asarray(data.get("c2_exp", data.get("c2")))
     phi_list = np.asarray(data.get("phi_angles_list", []), dtype=np.float64)
@@ -435,7 +449,7 @@ def _save_fit_comparison_only(
 
     if c2_exp.size == 0 or len(phi_list) == 0:
         logger.warning("Missing c2_exp or phi_angles_list; skipping fit-comparison plots")
-        return
+        return None
 
     if c2_exp.ndim == 2:
         c2_exp = c2_exp[np.newaxis, ...]
@@ -489,6 +503,8 @@ def _save_fit_comparison_only(
         except Exception:
             logger.exception("plot_residual_map failed for phi=%s", phi)
 
+    return plots_dir
+
 
 # ---------------------------------------------------------------------------
 # Public entry point
@@ -538,14 +554,23 @@ def dispatch_plots(
     save_plots = bool(getattr(args, "save_plots", False))
     plot_after_fit = bool(getattr(args, "plot", True))
 
-    did_anything = False
+    # Each plot helper returns the directory it actually wrote into (or None
+    # when it wrote nothing). We log the *actual* set of written locations
+    # rather than the pre-computed ``plots_dir`` so the "Plots written to …"
+    # message can never drift from where files really landed — the failure mode
+    # that previously had post-fit artifacts scattered into the output root
+    # while the log claimed ``<root>/plots``.
+    written: set[Path] = set()
+
+    def _record(out: Path | None) -> None:
+        if out is not None:
+            written.add(Path(out))
 
     # ---- Standalone QC paths (no fit needed) ----
     if plot_exp:
         if data is not None:
             try:
-                _plot_experimental_data(data, plots_dir)
-                did_anything = True
+                _record(_plot_experimental_data(data, plots_dir))
             except Exception:
                 logger.exception("Experimental data plot dispatch failed")
         else:
@@ -557,10 +582,11 @@ def dispatch_plots(
                 contrast = float(getattr(args, "contrast", 0.3))
                 offset = float(getattr(args, "offset_sim", 1.0))
                 phi_str = getattr(args, "phi_angles", None)
-                _plot_simulated_from_config(
-                    config_manager, contrast, offset, phi_str, plots_dir, data
+                _record(
+                    _plot_simulated_from_config(
+                        config_manager, contrast, offset, phi_str, plots_dir, data
+                    )
                 )
-                did_anything = True
             except Exception:
                 logger.exception("Simulated data plot dispatch failed")
         else:
@@ -570,8 +596,7 @@ def dispatch_plots(
     if result is not None and config_manager is not None and data is not None:
         if save_plots:
             try:
-                _save_fit_comparison_only(config_manager, data, result, plots_dir)
-                did_anything = True
+                _record(_save_fit_comparison_only(config_manager, data, result, plots_dir))
             except Exception:
                 logger.exception("Fit-comparison plot dispatch failed")
 
@@ -579,13 +604,14 @@ def dispatch_plots(
             # Full artifact dump path — only when the user did NOT explicitly
             # request a standalone plot mode (those skip the fit entirely).
             try:
-                _generate_post_fit_plots(args, config_manager, data, result, plots_dir)
-                did_anything = True
+                _record(
+                    _generate_post_fit_plots(args, config_manager, data, result, plots_dir)
+                )
             except Exception:
                 logger.exception("Post-fit plot dispatch failed")
 
-    if did_anything:
-        logger.info("Plots written to %s", plots_dir)
+    if written:
+        logger.info("Plots written to %s", ", ".join(sorted(str(p) for p in written)))
     else:
         logger.debug("dispatch_plots: nothing to do (no flags set or required inputs missing)")
 

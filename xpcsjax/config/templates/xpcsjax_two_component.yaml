@@ -530,7 +530,7 @@ optimization:
     anti_degeneracy:
       enable: true
 
-      per_angle_mode: "auto"
+      per_angle_mode: "auto"               # auto → "averaged" for n_phi >= constant_scaling_threshold (3), else "individual"; "constant"/"fourier" only when set explicitly here
       constant_scaling_threshold: 3
       fourier_order: 2
       fourier_auto_threshold: 6

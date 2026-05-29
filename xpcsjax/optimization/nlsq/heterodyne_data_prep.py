@@ -207,3 +207,71 @@ def compute_degrees_of_freedom(
             "Underdetermined system: %d data points, %d parameters", n_data, n_params
         )
     return dof
+
+
+def far_lag_noise_variance(c2_data: np.ndarray) -> float:
+    """Estimate the photon-noise variance from the far-lag tail of C2.
+
+    For large lag ``|t1 - t2|`` the correlation has fully decayed to its
+    baseline, so the residual scatter there is dominated by measurement noise
+    rather than dynamics. The variance of those far-lag values is therefore a
+    data-driven estimate of ``σ²_noise``. Pools the far-lag entries across all
+    angles when ``c2_data`` is 3-D ``(n_phi, n_time, n_time)``.
+
+    Mirrors the per-angle estimate in
+    :func:`heterodyne_core._compute_per_angle_chi2` so the single-angle and
+    joint multi-angle paths share one noise convention.
+
+    Args:
+        c2_data: Per-angle C2 matrix ``(n_time, n_time)`` or batched
+            ``(n_phi, n_time, n_time)``.
+
+    Returns:
+        ``var(far_lag_values)``; ``0.0`` when too few far-lag points exist.
+    """
+    c2_np = np.asarray(c2_data, dtype=np.float64)
+    n_time = c2_np.shape[-1]
+    row_idx = np.arange(n_time)
+    lag_mat = np.abs(row_idx[:, None] - row_idx[None, :])
+    far_mask = lag_mat >= n_time // 2
+    far_vals = c2_np[..., far_mask].ravel()
+    return float(np.var(far_vals)) if far_vals.size > 1 else 0.0
+
+
+def noise_normalized_reduced_chi2(
+    ssr: float,
+    c2_data: np.ndarray,
+    n_data_valid: int,
+    n_params: int,
+) -> float:
+    """Noise-normalised reduced chi-squared targeting ≈ 1.0 for a good fit.
+
+    The raw least-squares ``SSR / dof`` collapses to ``MSE ≪ 1`` on normalised
+    C2 data (C2 ~ 1, residuals ~ 5%), which is statistically meaningless as a
+    goodness-of-fit. Dividing the SSR additionally by an estimated far-lag
+    photon-noise variance restores the conventional ``χ²_red ≈ 1`` scale. This
+    is the same correction the single-angle / per-angle / CMA-ES heterodyne
+    paths already apply (see ``heterodyne_core._compute_per_angle_chi2`` and the
+    ``chi2_corrected`` block in ``_run_nlsq_with_cmaes_escape``); centralising it
+    here keeps every joint path (averaged, fourier, constant) consistent.
+
+    Falls back to plain MSE (``SSR / dof``) when the noise estimate is
+    degenerate, matching the fallback used elsewhere.
+
+    Args:
+        ssr: Data-only sum of squared residuals.
+        c2_data: Per-angle C2 matrix or batched ``(n_phi, n_time, n_time)``;
+            used only to estimate ``σ²_noise``.
+        n_data_valid: Number of residuals actually fit (off-diagonal,
+            t=0-boundary excluded) — i.e. ``len(data_only_residual)``.
+        n_params: Number of fitted parameters.
+
+    Returns:
+        Noise-normalised reduced chi-squared (MSE fallback when noise is
+        degenerate).
+    """
+    n_dof = max(int(n_data_valid) - int(n_params), 1)
+    sigma2_noise = far_lag_noise_variance(c2_data)
+    if sigma2_noise > 1e-12:
+        return float(ssr) / (sigma2_noise * n_dof)
+    return float(ssr) / n_dof

@@ -555,3 +555,141 @@ def test_save_fig_closes_on_savefig_exception(tmp_path):
     with pytest.raises(Exception):  # noqa: B017 — exception class varies by mpl version
         _save_fig(fig, bad_path)
     assert not plt.fignum_exists(fignum), "figure should be closed even when savefig raises"
+
+
+# ---------------------------------------------------------------------------
+# 13. Non-individual heterodyne scaling modes that carry per_angle_mode in
+#     diagnostics (averaged / constant) are now reconstructed by viz instead
+#     of raising NotImplementedError. Regression for the auto->averaged fit
+#     that crashed plot generation (16 params != 20 individual-mode params).
+# ---------------------------------------------------------------------------
+
+
+def test_heterodyne_averaged_mode_does_not_raise(tmp_path):
+    """Averaged mode (14 physics + 2 shared scaling, per_angle_mode in diag)."""
+    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+    from xpcsjax.viz.nlsq_plots import _unpack_heterodyne_scaling, generate_nlsq_plots
+
+    model = HeterodyneModel()
+    n_phi = 3
+    physical = np.asarray(model.get_default_parameters(), dtype=float)
+    # Averaged layout: [physics..., contrast, offset].
+    params = np.concatenate([physical, [0.2, 1.0]])
+    result = OptimizationResult(
+        parameters=params,
+        uncertainties=np.full(params.size, 0.01),
+        covariance=np.eye(params.size) * 0.01,
+        chi_squared=2.5,
+        reduced_chi_squared=0.9,
+        convergence_status="converged",
+        iterations=10,
+        execution_time=0.1,
+        device_info={"platform": "cpu"},
+        nlsq_diagnostics={
+            "per_angle_mode": "averaged",
+            "averaged_contrast": 0.2,
+            "averaged_offset": 1.0,
+        },
+    )
+    data = _make_heterodyne_data(n_phi=n_phi)
+    config = _make_heterodyne_config()
+
+    # The shared contrast/offset must be replicated across all angles.
+    contrasts, offsets, phys, n = _unpack_heterodyne_scaling(
+        model, result, n_phi_expected=n_phi
+    )
+    assert n == n_phi
+    np.testing.assert_allclose(contrasts, 0.2)
+    np.testing.assert_allclose(offsets, 1.0)
+    np.testing.assert_allclose(phys, physical)
+
+    # End-to-end: must not raise (previously raised NotImplementedError).
+    generate_nlsq_plots(
+        model=model, result=result, data=data, config=config, output_dir=tmp_path
+    )
+
+
+def test_laminar_flow_combined_model_does_not_raise(tmp_path):
+    """make_model returns a bare CombinedModel for homodyne modes
+    (static_*/laminar_flow) — the Task-28 contract. generate_nlsq_plots must
+    accept it (regression: previously raised "Unsupported model type:
+    CombinedModel"). Drives the model via CombinedModel.compute_g2.
+    """
+    from xpcsjax.core.models import make_model
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+    from xpcsjax.viz.nlsq_plots import _unpack_result_params, generate_nlsq_plots
+
+    model = make_model({"analysis_mode": "laminar_flow"})
+    assert type(model).__name__ == "CombinedModel"
+
+    physical = np.asarray(model.get_default_parameters(), dtype=float)  # 7 physical
+    # Homodyne result layout: [contrast, offset, *physical].
+    params = np.concatenate([[0.2, 1.0], physical])
+    n = params.size
+    result = OptimizationResult(
+        parameters=params,
+        uncertainties=np.full(n, 0.01),
+        covariance=np.eye(n) * 0.01,
+        chi_squared=2.5,
+        reduced_chi_squared=0.9,
+        convergence_status="converged",
+        iterations=10,
+        execution_time=0.1,
+        device_info={"platform": "cpu"},
+    )
+
+    # Unpacking treats CombinedModel like the homodyne layout.
+    contrast, offset, phys, names = _unpack_result_params(model, result, {})
+    assert contrast == 0.2
+    assert offset == 1.0
+    np.testing.assert_allclose(phys, physical)
+    assert names == list(model.parameter_names)
+
+    data = _make_heterodyne_data(n_phi=3)
+    config = _make_heterodyne_config()
+    config["analysis_mode"] = "laminar_flow"
+
+    generate_nlsq_plots(
+        model=model, result=result, data=data, config=config, output_dir=tmp_path
+    )
+
+
+def test_heterodyne_constant_mode_with_diag_does_not_raise(tmp_path):
+    """Constant mode (14 physics, frozen per-angle scaling in diagnostics)."""
+    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+    from xpcsjax.viz.nlsq_plots import _unpack_heterodyne_scaling, generate_nlsq_plots
+
+    model = HeterodyneModel()
+    n_phi = 3
+    physical = np.asarray(model.get_default_parameters(), dtype=float)
+    result = OptimizationResult(
+        parameters=physical.copy(),
+        uncertainties=np.full(physical.size, 0.01),
+        covariance=np.eye(physical.size) * 0.01,
+        chi_squared=2.5,
+        reduced_chi_squared=0.9,
+        convergence_status="converged",
+        iterations=10,
+        execution_time=0.1,
+        device_info={"platform": "cpu"},
+        nlsq_diagnostics={
+            "per_angle_mode": "constant",
+            "contrast_per_angle_fixed": np.full(n_phi, 0.2),
+            "offset_per_angle_fixed": np.full(n_phi, 1.0),
+        },
+    )
+    data = _make_heterodyne_data(n_phi=n_phi)
+    config = _make_heterodyne_config()
+
+    contrasts, offsets, phys, _ = _unpack_heterodyne_scaling(
+        model, result, n_phi_expected=n_phi
+    )
+    np.testing.assert_allclose(contrasts, 0.2)
+    np.testing.assert_allclose(offsets, 1.0)
+    np.testing.assert_allclose(phys, physical)
+
+    generate_nlsq_plots(
+        model=model, result=result, data=data, config=config, output_dir=tmp_path
+    )

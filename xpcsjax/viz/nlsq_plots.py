@@ -91,6 +91,88 @@ def _save_fig(fig: Figure, save_path: Path | str | None, dpi: int = 150) -> None
     logger.info("Figure saved: %s", p)
 
 
+def _is_homodyne_family(model: Any) -> bool:
+    """True for models that use the homodyne result layout
+    ``[contrast, offset, *physical]`` with scalar per-angle scaling.
+
+    Two concrete types qualify: :class:`HomodyneModel` (the stateful viz
+    wrapper) and the bare :class:`CombinedModel` that
+    :func:`xpcsjax.core.models.make_model` returns for the homodyne analysis
+    modes (``static_*`` / ``laminar_flow``; the Task-28 contract pinned by
+    ``tests/config/test_get_model.py``).
+
+    This is the single source of truth for homodyne-family membership in the
+    viz layer — the acceptance gates (``_unpack_result_params`` and the
+    ``generate_nlsq_plots`` guard) route through it so they cannot drift apart
+    when a model type is added.
+    """
+    from xpcsjax.core.homodyne_model import HomodyneModel
+    from xpcsjax.core.models import CombinedModel
+
+    return isinstance(model, (HomodyneModel, CombinedModel))
+
+
+def _is_heterodyne_family(model: Any) -> bool:
+    """True for :class:`HeterodyneModel` (per-angle ``[c.., o.., *physical]`` layout)."""
+    from xpcsjax.core.heterodyne_model import HeterodyneModel
+
+    return isinstance(model, HeterodyneModel)
+
+
+def _is_supported_viz_model(model: Any) -> bool:
+    """True for any model type the viz layer knows how to plot."""
+    return _is_homodyne_family(model) or _is_heterodyne_family(model)
+
+
+def _homodyne_scaling_arrays(
+    model: Any, result: Any
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str]]:
+    """Return per-angle ``(contrasts, offsets, physical_params, names)`` for a
+    homodyne-family result.
+
+    The homodyne NLSQ fit uses per-angle scaling by default, so
+    ``result.parameters`` is laid out ``[c_0..N-1, o_0..N-1, physical_0..M-1]``
+    — the *same* layout as heterodyne ``individual`` mode. The legacy scalar
+    layout ``[contrast, offset, physical...]`` is simply the ``n_phi == 1`` case
+    and falls out of the same slicing.
+
+    ``n_phi`` is inferred from the model's physical-parameter count
+    (``len(parameter_names)``), NOT assumed to be 1. Assuming a single
+    ``[contrast, offset, ...]`` pair on a per-angle vector read ``offset`` as the
+    second *contrast* (``c_1``) and shifted the physical block — which rendered
+    the fitted c2 surface flat (``offset + contrast*g1²`` with ``offset`` wrongly
+    ≈ ``contrast``). Inferring ``n_phi`` from the physical count fixes that.
+    """
+    params = np.asarray(result.parameters, dtype=float)
+    # Resolve physical names from the model (CombinedModel directly; HomodyneModel
+    # via its inner ``.model``). No hardcoded fallback — a missing attribute
+    # surfaces the real bug instead of silently mislabeling.
+    names_obj = getattr(model, "parameter_names", None)
+    if names_obj is None:
+        inner = getattr(model, "model", None)
+        names_obj = getattr(inner, "parameter_names", None)
+    if names_obj is None:
+        raise AttributeError(
+            "Homodyne-family model exposes no parameter_names (neither directly "
+            "nor via .model); xpcsjax viz cannot determine the scaling layout."
+        )
+    names = list(names_obj)
+    n_physical = len(names)
+    n_scaling = params.size - n_physical
+    if n_scaling < 0 or n_scaling % 2 != 0:
+        raise ValueError(
+            f"Homodyne-family result has {params.size} params but the model "
+            f"declares {n_physical} physical; the scaling block ({n_scaling}) is "
+            f"not a non-negative even count. Expected "
+            f"[c_0..N-1, o_0..N-1, physical...] = 2*n_phi + {n_physical}."
+        )
+    n_phi = n_scaling // 2
+    contrasts = params[:n_phi].copy()
+    offsets = params[n_phi : 2 * n_phi].copy()
+    physical_params = params[2 * n_phi :].copy()
+    return contrasts, offsets, physical_params, names
+
+
 def _unpack_result_params(
     model: Any,
     result: Any,
@@ -108,42 +190,51 @@ def _unpack_result_params(
         ``compute_g1`` API consumes the whole vector). ``parameter_names`` is the
         full 14-element registry-ordered name list.
     """
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
-    from xpcsjax.core.homodyne_model import HomodyneModel
+    # HomodyneModel (the stateful viz wrapper) and the bare CombinedModel
+    # returned by ``core.models.make_model`` for the homodyne modes
+    # (static_*/laminar_flow). The homodyne NLSQ fit uses per-angle scaling by
+    # default, so ``result.parameters`` is ``[c_0..N-1, o_0..N-1, *physical]`` —
+    # see _homodyne_scaling_arrays. Collapse the per-angle pairs to scalars for
+    # this helper's summary contract; the per-angle arrays are used directly by
+    # _evaluate_c2_per_angle.
+    if _is_homodyne_family(model):
+        contrasts, offsets, physical_params, names = _homodyne_scaling_arrays(
+            model, result
+        )
+        contrast_scalar = float(contrasts.mean()) if contrasts.size else 0.0
+        offset_scalar = float(offsets.mean()) if offsets.size else 0.0
+        return contrast_scalar, offset_scalar, physical_params, names
 
-    if isinstance(model, HomodyneModel):
-        params = np.asarray(result.parameters, dtype=float)
-        if params.size < 3:
-            raise ValueError(
-                f"HomodyneModel needs >=3 params (contrast, offset, physical...); got {params.size}"
-            )
-        # Resolve names from either the wrapper or its inner CombinedModel; no
-        # hardcoded fallback — if upstream refactors so neither attribute exists,
-        # the AttributeError surfaces the real bug instead of silently lying.
-        names_obj = getattr(model, "parameter_names", None)
-        if names_obj is None:
-            inner = getattr(model, "model", None)
-            names_obj = getattr(inner, "parameter_names", None)
-        if names_obj is None:
-            raise AttributeError(
-                "HomodyneModel exposes no parameter_names (neither directly "
-                "nor via .model). xpcsjax viz cannot label physical parameters."
-            )
-        full_names = list(names_obj)
-        physical_params = params[2:].copy()
-        # Slice names to match the actual physical-param count. In static mode
-        # the inner CombinedModel has 3 names and physical_params is length 3;
-        # in laminar_flow it has 7 names and physical_params is length 7 — so
-        # the slice is a no-op in valid cases. The slice guards against a
-        # length mismatch silently corrupting downstream labels.
-        names = full_names[: physical_params.size]
-        return float(params[0]), float(params[1]), physical_params, names
-
-    if isinstance(model, HeterodyneModel):
+    if _is_heterodyne_family(model):
         params = np.asarray(result.parameters, dtype=float)
         physical_names = list(model.parameter_names)  # 14 names
         n_physical = len(physical_names)
         n_total = params.size
+        diagnostics = getattr(result, "nlsq_diagnostics", None) or {}
+        mode = diagnostics.get("per_angle_mode")
+        # Averaged mode: [physical..., contrast, offset]. Scalar summary is the
+        # single fitted pair (physics is the leading 14-vector).
+        if mode == "averaged":
+            physical_params = params[:n_physical].copy()
+            contrast_scalar = float(
+                diagnostics.get("averaged_contrast", params[n_physical])
+            )
+            offset_scalar = float(
+                diagnostics.get("averaged_offset", params[n_physical + 1])
+            )
+            return contrast_scalar, offset_scalar, physical_params, physical_names
+        # Constant mode: [physical...] only; scaling frozen in diagnostics.
+        if mode == "constant":
+            physical_params = params[:n_physical].copy()
+            c_fixed = np.asarray(diagnostics["contrast_per_angle_fixed"], dtype=float)
+            o_fixed = np.asarray(diagnostics["offset_per_angle_fixed"], dtype=float)
+            return (
+                float(c_fixed.mean()),
+                float(o_fixed.mean()),
+                physical_params,
+                physical_names,
+            )
+        # Individual mode (or diagnostics-less result):
         # Per-angle layout: [c_0..N-1, o_0..N-1, physical_0..n_physical-1]
         # Require 2*n_phi + n_physical params; the residual (n_total - n_physical)
         # must be even *and* the orchestrator's upfront layout validator must
@@ -173,7 +264,7 @@ def _unpack_result_params(
 
     raise TypeError(
         f"Unsupported model type: {type(model).__name__}. "
-        f"Expected HomodyneModel or HeterodyneModel."
+        f"Expected HomodyneModel, CombinedModel, or HeterodyneModel."
     )
 
 
@@ -184,11 +275,23 @@ def _unpack_heterodyne_scaling(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     """Extract heterodyne per-angle scaling + physical params from a result.
 
-    Only the ``individual`` per-angle scaling layout
-    ``[c_0..N-1, o_0..N-1, physical_0..M-1]`` is supported by v0.1 viz.
-    The caller must supply ``n_phi_expected`` (from ``data["phi_angles_list"]``)
-    so the layout can be disambiguated from the ``fourier`` mode, which has
-    ``2*(2K+1)`` extra slots that would otherwise be misread as ``2*n_phi``.
+    The per-angle scaling mode is read from
+    ``result.nlsq_diagnostics["per_angle_mode"]`` and the correct parameter
+    layout is reconstructed for each:
+
+    - ``individual`` — ``[c_0..N-1, o_0..N-1, physical_0..M-1]`` (per-angle
+      contrast/offset fitted independently).
+    - ``averaged`` — ``[physical..., contrast, offset]``; the single fitted
+      (contrast, offset) pair is replicated across all angles.
+    - ``constant`` — ``[physical...]``; per-angle scaling was frozen pre-fit
+      and is read from the ``contrast_per_angle_fixed`` /
+      ``offset_per_angle_fixed`` diagnostics.
+
+    When ``nlsq_diagnostics`` is absent (e.g. a synthetic result), the layout
+    is inferred from the parameter count and treated as ``individual``. The
+    caller must supply ``n_phi_expected`` (from ``data["phi_angles_list"]``) so
+    the individual layout can be disambiguated from the ``fourier`` mode, which
+    has ``2*(2K+1)`` extra slots that would otherwise be misread as ``2*n_phi``.
 
     Returns
     -------
@@ -200,19 +303,49 @@ def _unpack_heterodyne_scaling(
     Raises
     ------
     NotImplementedError
-        Result layout does not match ``individual`` mode (likely ``constant``,
-        ``fourier``, or ``auto`` resolved to one of those). Those modes are
-        out of scope for v0.1 viz.
+        ``fourier`` mode, or a diagnostics-less result whose parameter count
+        matches no recognised layout. Those remain out of scope for v0.1 viz.
     """
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
-
-    if not isinstance(model, HeterodyneModel):
+    if not _is_heterodyne_family(model):
         raise TypeError(
             f"_unpack_heterodyne_scaling expects HeterodyneModel; got {type(model).__name__}"
         )
     params = np.asarray(result.parameters, dtype=float)
     n_physical = len(model.parameter_names)
     n_total = params.size
+    diagnostics = getattr(result, "nlsq_diagnostics", None) or {}
+    mode = diagnostics.get("per_angle_mode")
+
+    # Averaged mode: layout is ``[physics..., contrast, offset]`` — one fitted
+    # (contrast, offset) pair shared across all angles. Prefer the fitted
+    # scalars stored in diagnostics; fall back to the trailing two parameter
+    # slots. Replicate across n_phi so the per-angle evaluation path stays
+    # uniform with individual mode.
+    if mode == "averaged":
+        physical_params = params[:n_physical].copy()
+        contrast = float(diagnostics.get("averaged_contrast", params[n_physical]))
+        offset = float(diagnostics.get("averaged_offset", params[n_physical + 1]))
+        contrasts = np.full(n_phi_expected, contrast, dtype=float)
+        offsets = np.full(n_phi_expected, offset, dtype=float)
+        return contrasts, offsets, physical_params, n_phi_expected
+
+    # Constant mode: layout is ``[physics...]`` only; per-angle scaling was
+    # frozen pre-fit and is carried in diagnostics.
+    if mode == "constant":
+        physical_params = params[:n_physical].copy()
+        contrasts = np.asarray(
+            diagnostics["contrast_per_angle_fixed"], dtype=float
+        ).ravel()
+        offsets = np.asarray(diagnostics["offset_per_angle_fixed"], dtype=float).ravel()
+        if contrasts.size != n_phi_expected or offsets.size != n_phi_expected:
+            raise ValueError(
+                f"Constant-mode per-angle scaling has {contrasts.size} contrasts / "
+                f"{offsets.size} offsets but {n_phi_expected} angles were requested."
+            )
+        return contrasts, offsets, physical_params, n_phi_expected
+
+    # Individual mode (or a diagnostics-less result, e.g. a synthetic
+    # OptimizationResult): layout is ``[c_0..N-1, o_0..N-1, physics...]``.
     individual_total = n_physical + 2 * n_phi_expected
     if n_total != individual_total:
         if n_total == n_physical:
@@ -226,9 +359,8 @@ def _unpack_heterodyne_scaling(
         raise NotImplementedError(
             f"Heterodyne result has {n_total} parameters but xpcsjax viz expects "
             f"{individual_total} (individual mode: {n_physical} physics + "
-            f"2*{n_phi_expected} per-angle scaling). Other scaling modes "
-            "('fourier', 'auto' resolved to non-individual) are not yet supported "
-            "by v0.1 viz."
+            f"2*{n_phi_expected} per-angle scaling). Scaling mode "
+            f"{mode!r} (e.g. 'fourier') is not yet supported by v0.1 viz."
         )
     contrasts = params[:n_phi_expected].copy()
     offsets = params[n_phi_expected : 2 * n_phi_expected].copy()
@@ -260,15 +392,68 @@ def _evaluate_c2_per_angle(
         applies ``c2 = offset[i] + contrast[i] * g1_sq``. Resolves Spec
         Amendment 3.
     """
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
-    from xpcsjax.core.homodyne_model import HomodyneModel
+    if _is_homodyne_family(model):
+        contrasts, offsets, physical_params, _ = _homodyne_scaling_arrays(model, result)
+        # Per-angle scaling: render THIS angle with its own (contrast, offset),
+        # matching upstream homodyne's per-angle plots. With the scalar legacy
+        # layout (n_phi == 1) the single pair applies to every angle.
+        if contrasts.size <= 1:
+            contrast = float(contrasts[0]) if contrasts.size else 0.0
+            offset = float(offsets[0]) if offsets.size else 1.0
+        else:
+            phi_array = np.asarray(data["phi_angles_list"], dtype=float)
+            matches = np.where(np.isclose(phi_array, phi_deg, atol=1e-6))[0]
+            if matches.size == 0:
+                raise ValueError(
+                    f"phi_deg={phi_deg!r} not found in data['phi_angles_list'] "
+                    f"(values: {phi_array.tolist()})"
+                )
+            i = int(matches[0])
+            contrast = float(contrasts[i])
+            offset = float(offsets[i])
+        # HomodyneModel (the stateful wrapper) carries pre-computed grids /
+        # physics-factors and exposes a single-angle helper. The bare
+        # CombinedModel that ``make_model`` returns for static_*/laminar_flow
+        # does not, so drive its ``compute_g2`` with q/L/dt from the config and
+        # the data's time grids (``compute_g2`` applies ``offset + contrast*g1**2``
+        # internally — mirrors plot_dispatch._evaluate_model_c2). Capability
+        # dispatch rather than isinstance-per-type keeps any future
+        # homodyne-family model working as long as it exposes one of these APIs.
+        if hasattr(model, "compute_c2_single_angle"):
+            c2 = model.compute_c2_single_angle(physical_params, phi_deg, contrast, offset)
+            return np.asarray(c2)
+        ap = config.get("analyzer_parameters", {})
+        q_raw = ap.get("scattering", {}).get("wavevector_q")
+        if q_raw is None:
+            raise ValueError("Missing analyzer_parameters.scattering.wavevector_q")
+        L_raw = ap.get("geometry", {}).get("stator_rotor_gap")
+        if L_raw is None:
+            raise ValueError("Missing analyzer_parameters.geometry.stator_rotor_gap")
+        # Explicit None-check so dt=0 is not treated as falsy.
+        dt_raw = ap.get("dt")
+        if dt_raw is None:
+            dt_raw = ap.get("temporal", {}).get("dt")
+        if dt_raw is None:
+            raise ValueError(
+                "Missing analyzer_parameters: 'dt' or 'temporal.dt' is required"
+            )
+        t1 = jnp.asarray(data["t1"], dtype=jnp.float64)
+        t2 = jnp.asarray(data["t2"], dtype=jnp.float64)
+        g2 = model.compute_g2(
+            jnp.asarray(physical_params, dtype=jnp.float64),
+            t1,
+            t2,
+            jnp.asarray([phi_deg], dtype=jnp.float64),
+            float(q_raw),
+            float(L_raw),
+            float(contrast),
+            float(offset),
+            float(dt_raw),
+        )
+        # compute_g2 returns shape (1, n_t1, n_t2) for length-1 phi; drop axis.
+        return np.asarray(g2[0])
 
-    if isinstance(model, HomodyneModel):
-        contrast, offset, physical_params, _ = _unpack_result_params(model, result, config)
-        c2 = model.compute_c2_single_angle(physical_params, phi_deg, contrast, offset)
-        return np.asarray(c2)
-
-    if isinstance(model, HeterodyneModel):
+    if _is_heterodyne_family(model):
         # Locate phi_deg's index in data["phi_angles_list"] to pick the
         # right per-angle contrast/offset. Tolerance is loose since phi
         # angles are user-provided floats; exact match expected.
@@ -322,7 +507,7 @@ def _evaluate_c2_per_angle(
 
     raise TypeError(
         f"Unsupported model type: {type(model).__name__}. "
-        f"Expected HomodyneModel or HeterodyneModel."
+        f"Expected HomodyneModel, CombinedModel, or HeterodyneModel."
     )
 
 
@@ -1182,15 +1367,13 @@ def generate_nlsq_plots(
         Unknown plot family, invalid compression, missing required data key,
         shape mismatch, or missing physics keys in config.
     TypeError
-        Unsupported model type (not HomodyneModel or HeterodyneModel).
+        Unsupported model type (not HomodyneModel, CombinedModel, or
+        HeterodyneModel).
     """
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
-    from xpcsjax.core.homodyne_model import HomodyneModel
-
-    if not isinstance(model, (HomodyneModel, HeterodyneModel)):
+    if not _is_supported_viz_model(model):
         raise TypeError(
             f"Unsupported model type: {type(model).__name__}. "
-            f"Expected HomodyneModel or HeterodyneModel."
+            f"Expected HomodyneModel, CombinedModel, or HeterodyneModel."
         )
 
     # Resolve config to a plain dict
@@ -1241,29 +1424,36 @@ def generate_nlsq_plots(
     sim_dir.mkdir(parents=True, exist_ok=True)
 
     # Heterodyne: validate the per-angle scaling layout upfront. Without this,
-    # non-individual modes (constant/fourier/auto) would either silently produce
-    # all-NaN artifacts (the per-angle compute loop catches Exception and
-    # leaves NaN) or mis-infer n_phi from a residual that happens to be even.
-    if isinstance(model, HeterodyneModel):
+    # an unsupported mode (fourier) would either silently produce all-NaN
+    # artifacts (the per-angle compute loop catches Exception and leaves NaN)
+    # or mis-infer n_phi from a residual that happens to be even. The
+    # ``averaged`` and ``constant`` modes are now reconstructed by
+    # ``_unpack_heterodyne_scaling`` (via ``per_angle_mode`` in diagnostics),
+    # so only genuinely-unsupported layouts are rejected here.
+    if _is_heterodyne_family(model):
         n_phi_expected = int(phi_angles.size)
         n_physical = len(model.parameter_names)
         n_total = int(np.asarray(result.parameters).size)
         individual_total = n_physical + 2 * n_phi_expected
-        if n_total != individual_total:
+        diagnostics = getattr(result, "nlsq_diagnostics", None) or {}
+        per_angle_mode = diagnostics.get("per_angle_mode")
+        supported_non_individual = per_angle_mode in ("averaged", "constant")
+        if not supported_non_individual and n_total != individual_total:
             if n_total == n_physical:
                 raise NotImplementedError(
                     f"Heterodyne 'constant' scaling mode is not yet supported by "
                     f"xpcsjax viz (got {n_physical} physical params with no "
-                    f"per-angle scaling pairs). v0.1 supports per-angle "
-                    f"'individual' mode only. Use the upstream heterodyne "
-                    f"package or wait for v0.2 for full mode parity."
+                    f"per-angle scaling pairs and no 'constant' diagnostics). "
+                    f"v0.1 supports per-angle 'individual', 'averaged', and "
+                    f"'constant' modes. Use the upstream heterodyne package or "
+                    f"wait for v0.2 for full mode parity."
                 )
             raise NotImplementedError(
                 f"Heterodyne result has {n_total} parameters but xpcsjax viz "
                 f"expects {individual_total} (individual mode: {n_physical} "
-                f"physics + 2*{n_phi_expected} per-angle scaling). Other scaling "
-                f"modes ('fourier', 'auto' resolved to non-individual) are not "
-                f"yet supported by v0.1 viz."
+                f"physics + 2*{n_phi_expected} per-angle scaling). Scaling mode "
+                f"{per_angle_mode!r} (e.g. 'fourier') is not yet supported by "
+                f"v0.1 viz."
             )
 
     # Per-model param unpacking (model-type dispatched inside helper).
@@ -1399,7 +1589,7 @@ def generate_nlsq_plots(
     # Homodyne layout: [contrast, offset, physical...] -> skip first 2.
     # Heterodyne layout: [c_0..N-1, o_0..N-1, physical...] -> skip first 2*n_phi.
     n_phi_local = phi_angles.size
-    if isinstance(model, HeterodyneModel):
+    if _is_heterodyne_family(model):
         skip = 2 * n_phi_local
     else:
         skip = 2
