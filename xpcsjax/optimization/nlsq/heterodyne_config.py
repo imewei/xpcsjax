@@ -191,10 +191,23 @@ class StratificationConfig:
         target_chunk_size: Target scalar count per stratified chunk, forwarded to
             ``fit_heterodyne_stratified_least_squares(target_chunk_size=...)``.
         max_imbalance_ratio: Maximum tolerated angle-count imbalance before the
-            stratified path is skipped.
-        force_sequential_fallback: Force the sequential per-angle fallback path.
-        check_memory_safety: Run the pre-stratification memory-safety check.
-        use_index_based: Use zero-copy index-based stratification (vs full copy).
+            stratified path is skipped. Honored by the heterodyne gate
+            (``_fit_nlsq_heterodyne``) as a configured threshold layered on top
+            of ``should_use_stratification``'s internal hard-coded 5.0.
+        force_sequential_fallback: Accepted for homodyne-config compatibility but
+            **inert for heterodyne.** With ``individual`` mode scoped out of
+            stratified-LS (it already uses the sequential per-angle path in
+            ``heterodyne_core``), there is no heterodyne behavior this knob maps
+            to. Parsed so a shared homodyne/heterodyne config does not trip the
+            "unrecognised key" warning; it has no effect on the heterodyne path.
+        check_memory_safety: When True, the heterodyne stratified-LS driver
+            consults the memory estimate's ``is_safe`` flag and logs a
+            (non-fatal) warning if the projected peak exceeds the safe RAM
+            fraction. When False, the warning is suppressed.
+        use_index_based: Threaded into the stratified-LS driver's diagnostics and
+            memory estimate. Heterodyne is structurally index-based, so the value
+            is informational, but the recorded diagnostic reflects this config
+            setting rather than a hard-coded literal.
     """
 
     enabled: bool | str = "auto"

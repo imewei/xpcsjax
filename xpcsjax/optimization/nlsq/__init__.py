@@ -772,6 +772,19 @@ def _fit_nlsq_heterodyne(
     )
     if strat_cfg.is_disabled():
         use_strat = False
+    # Apply the CONFIGURED imbalance threshold (chunking.should_use_stratification
+    # hard-codes 5.0 internally; this gate-level check honors the user's
+    # ``optimization.stratification.max_imbalance_ratio``).
+    if use_strat and imbalance > strat_cfg.max_imbalance_ratio:
+        from xpcsjax.utils.logging import get_logger as _get_logger
+
+        _get_logger(__name__).debug(
+            "angle imbalance %.2f > configured max_imbalance_ratio %.2f; "
+            "stratified-LS skipped",
+            imbalance,
+            strat_cfg.max_imbalance_ratio,
+        )
+        use_strat = False
 
     # Only resolve the effective per-angle mode when the stratified-LS gate could
     # actually fire (CMA-ES off, stratification chosen, and >= 1M points). This
@@ -801,6 +814,8 @@ def _fit_nlsq_heterodyne(
                 weights=weights,
                 target_chunk_size=strat_cfg.target_chunk_size,
                 shuffle=True,
+                use_index_based=strat_cfg.use_index_based,
+                check_memory_safety=strat_cfg.check_memory_safety,
             )
             _safe_log_heterodyne_completion(result, model, len(phi))
             return result

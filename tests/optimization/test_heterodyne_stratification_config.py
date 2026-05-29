@@ -101,3 +101,82 @@ def test_stratification_balanced_angles_required_for_default() -> None:
     cfg, data = make_cfgmgr_and_data(n_phi=3, n_t=8)
     phi = np.asarray(data["phi_angles_list"])
     assert phi.size == 3
+
+
+# =============================================================================
+# Fix 3 — config knobs are honored (max_imbalance_ratio, use_index_based)
+# =============================================================================
+
+
+def test_max_imbalance_ratio_disables_stratification(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A configured ``max_imbalance_ratio`` lower than the measured imbalance
+    must disable the stratified-LS solver even above the 1M gate.
+
+    The gate-level check applies the CONFIGURED threshold (chunking's internal
+    should_use_stratification hard-codes 5.0)."""
+    import xpcsjax.optimization.nlsq as nlsq_pkg
+    from xpcsjax.optimization.nlsq import heterodyne_stratified_ls as hsl
+    from xpcsjax.optimization.nlsq.strategies.chunking import AngleDistributionStats
+
+    # Configure a tight max_imbalance_ratio (1.5); force a measured imbalance of 4.0.
+    cfg, data = make_cfgmgr_and_data(
+        n_phi=3, n_t=8, stratification={"max_imbalance_ratio": 1.5}
+    )
+
+    monkeypatch.setattr(
+        nlsq_pkg, "_estimate_heterodyne_points", lambda c2, phi: 2_000_000
+    )
+
+    def _fake_dist(phi):
+        # imbalance_ratio=4.0 is below chunking's hard 5.0 (so
+        # should_use_stratification keeps it on) but above the configured 1.5.
+        return AngleDistributionStats(
+            unique_angles=np.asarray(phi, dtype=np.float64),
+            n_angles=int(np.asarray(phi).size),
+            counts={0.0: 4, 1.0: 1},
+            fractions={0.0: 0.8, 1.0: 0.2},
+            imbalance_ratio=4.0,
+            min_angle=1.0,
+            max_angle=0.0,
+            is_balanced=True,
+        )
+
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.strategies.chunking.analyze_angle_distribution",
+        _fake_dist,
+    )
+
+    called = {"hit": False}
+
+    def _sentinel(*args, **kwargs):
+        called["hit"] = True
+        raise AssertionError("stratified-LS must not be called when imbalance > configured ratio")
+
+    monkeypatch.setattr(hsl, "fit_heterodyne_stratified_least_squares", _sentinel)
+
+    fit_nlsq(data, cfg)
+    assert called["hit"] is False
+
+
+def test_use_index_based_flows_into_diagnostics() -> None:
+    """``use_index_based: false`` flows into the stratified-LS result's
+    ``stratification_diagnostics`` (not hard-coded True)."""
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        fit_heterodyne_stratified_least_squares,
+    )
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged"})
+    res = fit_heterodyne_stratified_least_squares(
+        model=model,
+        c2=c2,
+        phi=phi,
+        config=cfg,
+        weights=None,
+        shuffle=False,
+        use_index_based=False,
+    )
+    assert res.stratification_diagnostics is not None
+    assert res.stratification_diagnostics.use_index_based is False

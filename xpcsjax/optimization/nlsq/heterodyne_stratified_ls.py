@@ -267,21 +267,38 @@ def fit_heterodyne_stratified_least_squares(
     weights: np.ndarray | None,
     target_chunk_size: int = 100_000,
     shuffle: bool = True,
+    use_index_based: bool = True,
+    check_memory_safety: bool = True,
 ) -> Any:
     """Mode-aware heterodyne stratified-LS solve. Returns OptimizationResult.
 
-    Resolves the effective per-angle mode (``averaged`` / ``individual`` /
-    ``fourier``) via :func:`_resolve_effective_mode`, computes the
-    mode-appropriate scaling-tail seed from per-angle quantiles, and runs a
-    single joint pointwise least-squares solve. The objective equals the
-    in-memory joint fit for the same mode; the only behavioral change is the
-    optional seed-42 reorder/shuffle of the flat point support
-    (objective-invariant — reordering residual elements does not change the
-    sum of squares).
+    Resolves the effective per-angle mode (``averaged`` / ``fourier``) via
+    :func:`_resolve_effective_mode`, computes the mode-appropriate scaling-tail
+    seed from per-angle quantiles, and runs a single joint pointwise
+    least-squares solve. The objective equals the in-memory joint fit for the
+    same mode; the only behavioral change is the optional seed-42 reorder/shuffle
+    of the flat point support (objective-invariant — reordering residual elements
+    does not change the sum of squares).
 
-    ``constant`` mode is not supported here and raises ``NotImplementedError``;
-    the dispatch gate in ``__init__.py`` wraps this driver in a best-effort
+    Only the JOINT modes ``averaged`` and ``fourier`` are supported. ``individual``
+    (sequential per-angle) and ``constant`` (frozen scaling) raise
+    ``NotImplementedError``; the dispatch gate in ``__init__.py`` only routes
+    averaged/fourier here and additionally wraps this driver in a best-effort
     try/except that falls through to the in-memory joint fit.
+
+    Parameters
+    ----------
+    use_index_based :
+        Threaded into ``compute_stratification_diagnostics`` and
+        ``estimate_stratification_memory``. Heterodyne is structurally
+        index-based (the pointwise kernel addresses a flat support by integer
+        index), so the value is informational — but it is sourced from config,
+        not a literal, so the recorded diagnostic reflects the user's setting.
+    check_memory_safety :
+        When True, the memory estimate's ``is_safe`` flag is consulted and a
+        warning is logged if the projected peak exceeds the safe fraction of
+        RAM. Best-effort and non-fatal. When False, the estimate is still
+        computed for diagnostics but the safety warning is suppressed.
     """
     from xpcsjax.optimization.nlsq.heterodyne_adapter import NLSQAdapter
     from xpcsjax.optimization.nlsq.heterodyne_core import _resolve_effective_mode
@@ -429,14 +446,28 @@ def fit_heterodyne_stratified_least_squares(
         phi_original=phi_idx_filtered,
         phi_stratified=phi_stratified,
         execution_time_ms=_execution_time_ms,
-        use_index_based=True,
+        use_index_based=use_index_based,
         target_chunk_size=target_chunk_size,
         chunk_sizes=chunk_sizes,
     )
     mem_estimate = estimate_stratification_memory(
         n_points=int(phi_idx_filtered.shape[0]),
-        use_index_based=True,
+        use_index_based=use_index_based,
     )
+    # check_memory_safety: best-effort, non-fatal warning when the projected
+    # peak exceeds the safe RAM fraction (estimate_stratification_memory sets
+    # ``is_safe`` from psutil). When disabled, the estimate is still recorded in
+    # diagnostics but the warning is suppressed.
+    if check_memory_safety and not mem_estimate.get("is_safe", True):
+        from xpcsjax.utils.logging import get_logger
+
+        get_logger(__name__).warning(
+            "Heterodyne stratification memory estimate is unsafe: peak %.1f MB "
+            "exceeds the safe fraction of available RAM (n_points=%d). "
+            "Proceeding (non-fatal).",
+            float(mem_estimate.get("peak_memory_mb", 0.0)),
+            int(phi_idx_filtered.shape[0]),
+        )
 
     info = {
         "success": bool(fit.success),
