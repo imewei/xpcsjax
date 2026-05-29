@@ -514,6 +514,47 @@ def fit_nlsq(
     return fit_nlsq_jax(data, config)
 
 
+def _safe_log_heterodyne_start(nlsq_cfg: Any, analysis_mode: str, n_phi: int) -> None:
+    """Best-effort opening ``NLSQ OPTIMIZATION`` banner for the heterodyne path.
+
+    Logging must never break a fit: guarded so stubbed dispatch unit tests
+    (which may replace ``heterodyne_core`` or pass a sentinel config) skip the
+    banner instead of raising.
+    """
+    try:
+        from xpcsjax.optimization.nlsq.heterodyne_core import log_heterodyne_start
+
+        per_angle_mode = str(getattr(nlsq_cfg, "per_angle_mode", "auto"))
+        log_heterodyne_start(analysis_mode, per_angle_mode, n_phi)
+    except Exception:  # pragma: no cover - logging is non-critical, never fatal
+        pass
+
+
+def _safe_log_heterodyne_completion(result: Any, model: Any, n_phi: int) -> None:
+    """Best-effort homodyne-parity completion logging for the heterodyne path.
+
+    Logging must never break a fit: the call is guarded so that dispatch unit
+    tests using lightweight stubs (a fake model without ``param_manager``, a
+    sentinel result, or a replaced ``heterodyne_core`` module) skip the block
+    instead of raising. Real runs always carry a model + ``OptimizationResult``
+    with the required attributes and log the full block.
+    """
+    try:
+        from xpcsjax.optimization.nlsq.heterodyne_core import log_heterodyne_completion
+
+        param_manager = getattr(model, "param_manager", None)
+        if param_manager is None:
+            return
+        log_heterodyne_completion(
+            result,
+            list(param_manager.varying_names),
+            int(param_manager.n_varying),
+            n_phi,
+        )
+    except Exception:  # pragma: no cover - logging is non-critical, never fatal
+        pass
+
+
 def _fit_nlsq_heterodyne(
     data: dict[str, Any],
     config: "ConfigManager",
@@ -592,6 +633,12 @@ def _fit_nlsq_heterodyne(
     if weights is not None:
         weights = _np.asarray(weights)
 
+    _safe_log_heterodyne_start(
+        nlsq_cfg,
+        str(getattr(nlsq_cfg, "analysis_mode", "two_component") or "two_component"),
+        len(phi),
+    )
+
     # Sync the model's internal time axis with the data shape (the source
     # heterodyne pipeline drops the leading time point, shrinking N by 1).
     n_data = c2.shape[-1]
@@ -616,7 +663,9 @@ def _fit_nlsq_heterodyne(
         )
 
         ms_cfg = build_multistart_config(ms_dict)
-        return fit_nlsq_multistart_heterodyne(model, c2, phi, nlsq_cfg, weights, ms_cfg)
+        result = fit_nlsq_multistart_heterodyne(model, c2, phi, nlsq_cfg, weights, ms_cfg)
+        _safe_log_heterodyne_completion(result, model, len(phi))
+        return result
 
     # Hybrid-streaming dispatch (Phase 2). Mirrors homodyne wrapper.py:1119-1165:
     # fire only when the memory tier requires streaming (LARGE/STREAMING) so the
@@ -666,15 +715,19 @@ def _fit_nlsq_heterodyne(
                     else {}
                 ),
             )
-            return build_hybrid_streaming_result(
+            result = build_hybrid_streaming_result(
                 model=model, popt=popt, pcov=pcov, info=info, phi_angles=phi,
             )
+            _safe_log_heterodyne_completion(result, model, len(phi))
+            return result
         _logger.debug(
             "hybrid_streaming enabled but memory tier is %s (< LARGE); using standard joint fit",
             decision.strategy,
         )
 
-    return fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
+    result = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
+    _safe_log_heterodyne_completion(result, model, len(phi))
+    return result
 
 
 # Ensure fit_nlsq joins whatever __all__ the verbatim port already defined

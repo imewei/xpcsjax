@@ -2582,3 +2582,140 @@ def _log_result(result: NLSQResult) -> None:
                 logger.info("  %s: %.6g", name, val)
 
     logger.info("=" * 60)
+
+
+# ---------------------------------------------------------------------------
+# CLI-facing joint-fit completion logging (homodyne parity)
+#
+# The homodyne path logs an "NLSQ OPTIMIZATION COMPLETE" block with the fitted
+# physical parameters from ``core._log_optimization_results`` (called once at
+# the end of ``core.fit_nlsq_jax``). The heterodyne multi-phi joint paths
+# (averaged / constant / fourier / individual / hybrid_streaming) returned an
+# ``OptimizationResult`` without ever emitting that block, so the two_component
+# log jumped straight from the adapter fit to the CLI results table. The helper
+# below restores parity: it is invoked once per analysis from the CLI-facing
+# dispatch ``optimization.nlsq._fit_nlsq_heterodyne`` (the heterodyne analog of
+# ``fit_nlsq_jax``), not from the per-angle / per-trial sub-fits.
+# ---------------------------------------------------------------------------
+
+# Per-angle scaling lives in ``nlsq_diagnostics`` under a mode-specific suffix
+# (individual: plain, averaged: ``_quantile``, constant: ``_fixed``, fourier:
+# ``_fitted``). The completion logger reads whichever is present so the
+# mean-scaling line stays mode-agnostic.
+_CONTRAST_DIAG_KEYS = (
+    "contrast_per_angle",
+    "contrast_per_angle_quantile",
+    "contrast_per_angle_fixed",
+    "contrast_per_angle_fitted",
+)
+_OFFSET_DIAG_KEYS = (
+    "offset_per_angle",
+    "offset_per_angle_quantile",
+    "offset_per_angle_fixed",
+    "offset_per_angle_fitted",
+)
+
+
+def _mean_scaling_from_diagnostics(
+    diagnostics: dict[str, Any] | None,
+) -> tuple[float | None, float | None]:
+    """Return ``(mean_contrast, mean_offset)`` from whichever per-angle scaling
+    key the active mode populated, or ``(None, None)`` if none is present."""
+    if not diagnostics:
+        return None, None
+
+    def _first(keys: tuple[str, ...], scalar_key: str) -> float | None:
+        for k in keys:
+            v = diagnostics.get(k)
+            if v is not None:
+                arr = np.asarray(v, dtype=np.float64)
+                if arr.size:
+                    return float(np.nanmean(arr))
+        s = diagnostics.get(scalar_key)
+        return float(s) if s is not None else None
+
+    return (
+        _first(_CONTRAST_DIAG_KEYS, "averaged_contrast"),
+        _first(_OFFSET_DIAG_KEYS, "averaged_offset"),
+    )
+
+
+def log_heterodyne_start(analysis_mode: str, per_angle_mode: str, n_phi: int) -> None:
+    """Log the opening ``NLSQ OPTIMIZATION`` banner for the heterodyne dispatch.
+
+    Mirrors the opening block ``core.fit_nlsq_jax`` emits for the homodyne /
+    laminar_flow path so the two_component log opens with the same banner. The
+    ``per_angle_mode`` reported here is the *requested* mode (``auto`` is not
+    yet resolved at this point); the subsequent ``Per-angle dispatch`` line
+    inside :func:`fit_nlsq_multi_phi` records the resolved effective mode.
+    """
+    logger.info("=" * 60)
+    logger.info("NLSQ OPTIMIZATION")
+    logger.info("=" * 60)
+    logger.info("Analysis mode: %s", analysis_mode)
+    logger.info("Per-angle mode: %s", per_angle_mode)
+    logger.info("Angles: %d", n_phi)
+
+
+def log_heterodyne_completion(
+    result: OptimizationResult,
+    varying_names: list[str],
+    n_physics: int,
+    n_phi: int,
+) -> None:
+    """Log a homodyne-parity ``NLSQ OPTIMIZATION COMPLETE`` block.
+
+    Mirrors the block ``core._log_optimization_results`` emits for the
+    homodyne / laminar_flow path so the two_component log carries the same
+    status / χ² / fitted-physical-parameter summary. Pure logging — reads from
+    ``result`` only, never mutates state.
+
+    Physics parameters lead the joint vector for every mode **except**
+    ``hybrid_streaming`` (which packs scaling first); that one case is handled
+    explicitly so the per-name table is never mislabeled.
+    """
+    diag = result.nlsq_diagnostics or {}
+    mode = diag.get("per_angle_mode", "?")
+    params = np.asarray(result.parameters, dtype=np.float64)
+    unc = (
+        np.asarray(result.uncertainties, dtype=np.float64)
+        if result.uncertainties is not None
+        else None
+    )
+
+    logger.info("=" * 60)
+    logger.info("NLSQ OPTIMIZATION COMPLETE")
+    logger.info("=" * 60)
+    logger.info("Status: %s", "SUCCESS" if result.success else "FAILED")
+    logger.info("Per-angle mode: %s", mode)
+    logger.info("Iterations: %d", result.iterations)
+    logger.info("Execution time: %.3fs", result.execution_time)
+    logger.info("chi2 = %.6e", result.chi_squared)
+    logger.info("Reduced chi2 = %.6f", result.reduced_chi_squared)
+    logger.info("Quality: %s", result.quality_flag)
+
+    if n_physics > 0 and params.size >= n_physics:
+        if mode == "hybrid_streaming":
+            phys_vals = params[-n_physics:]
+            phys_unc = (
+                unc[-n_physics:] if unc is not None and unc.size >= n_physics else None
+            )
+        else:
+            phys_vals = params[:n_physics]
+            phys_unc = (
+                unc[:n_physics] if unc is not None and unc.size >= n_physics else None
+            )
+
+        logger.info("Fitted parameters (%d physical, %d angles):", n_physics, n_phi)
+        logger.info("  Physical parameters:")
+        for i, name in enumerate(varying_names[:n_physics]):
+            unc_val = float(phys_unc[i]) if phys_unc is not None else 0.0
+            logger.info("    %s: %.6g +/- %.6g", name, float(phys_vals[i]), unc_val)
+
+    mean_contrast, mean_offset = _mean_scaling_from_diagnostics(diag)
+    if mean_contrast is not None and mean_offset is not None:
+        logger.info(
+            "  Mean scaling: contrast=%.4f, offset=%.4f", mean_contrast, mean_offset
+        )
+
+    logger.info("=" * 60)
