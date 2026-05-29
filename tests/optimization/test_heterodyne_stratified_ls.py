@@ -52,7 +52,9 @@ def test_joint_pointwise_residual_matches_batched():
     # uses initial_contrast=0.3, initial_offset=1.0), so the residual at
     # p0_full is noise-level rather than carrying a constant baseline offset.
     residual_fn, x_data, y_data, p0_full, meta = build_joint_pointwise_residual(
-        model=model, stratified_data=strat, per_angle_mode="averaged",
+        model=model,
+        stratified_data=strat,
+        per_angle_mode="averaged",
         init_scaling=np.array([0.3, 1.0]),
     )
     r = np.asarray(residual_fn(np.asarray(p0_full)))
@@ -82,7 +84,12 @@ def test_stratified_ls_matches_joint_fit_shuffle_off():
 
     joint = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
     strat = fit_heterodyne_stratified_least_squares(
-        model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False,
+        model=model,
+        c2=c2,
+        phi=phi,
+        config=cfg,
+        weights=None,
+        shuffle=False,
     )
 
     # --- Parity proof: identical objective ---------------------------------
@@ -99,11 +106,13 @@ def test_stratified_ls_matches_joint_fit_shuffle_off():
     # equivalent to the one the driver builds — a fair common objective.
     st = build_heterodyne_stratified_data(model, c2, phi, weights=None)
     shared_resid, _x, _y, _p0, _meta = build_joint_pointwise_residual(
-        model=model, stratified_data=st, per_angle_mode="averaged",
+        model=model,
+        stratified_data=st,
+        per_angle_mode="averaged",
         init_scaling=np.array([0.3, 1.0]),
     )
-    ssr_joint = float(np.sum(np.asarray(shared_resid(np.asarray(joint.parameters)))**2))
-    ssr_strat = float(np.sum(np.asarray(shared_resid(np.asarray(strat.parameters)))**2))
+    ssr_joint = float(np.sum(np.asarray(shared_resid(np.asarray(joint.parameters))) ** 2))
+    ssr_strat = float(np.sum(np.asarray(shared_resid(np.asarray(strat.parameters))) ** 2))
     assert np.isclose(ssr_joint, joint.chi_squared, rtol=1e-9)
     assert np.isclose(ssr_strat, strat.chi_squared, rtol=1e-9)
 
@@ -122,6 +131,7 @@ def test_individual_scaling_expander_splits_blocks():
     import jax.numpy as jnp
 
     from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import make_scaling_expander
+
     expander, n_scaling = make_scaling_expander("individual", n_phi=3)
     assert n_scaling == 6
     c, o = expander(jnp.array([0.1, 0.2, 0.3, 0.7, 0.8, 0.9]))
@@ -181,11 +191,14 @@ def test_stratified_ls_individual_mode():
     )
 
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
-    cfg = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": "individual"}
-    )
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "individual"})
     res = fit_heterodyne_stratified_least_squares(
-        model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False,
+        model=model,
+        c2=c2,
+        phi=phi,
+        config=cfg,
+        weights=None,
+        shuffle=False,
     )
     assert res.nlsq_diagnostics["per_angle_mode"] == "individual"
     d = res.nlsq_diagnostics
@@ -207,14 +220,17 @@ def test_stratified_ls_fourier_mode():
     # (fourier is never auto-selected — _resolve_effective_mode passes the
     # explicit request through unchanged).
     model, c2, phi = make_synthetic_two_component(n_phi=7, n_t=20)
-    cfg = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": "fourier"}
-    )
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "fourier"})
     # Guard: confirm the config actually resolves to fourier before asserting.
     assert _resolve_effective_mode(cfg, len(phi)) == "fourier"
 
     res = fit_heterodyne_stratified_least_squares(
-        model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False,
+        model=model,
+        c2=c2,
+        phi=phi,
+        config=cfg,
+        weights=None,
+        shuffle=False,
     )
     assert res.nlsq_diagnostics["per_angle_mode"] == "fourier"
     d = res.nlsq_diagnostics
@@ -233,7 +249,12 @@ def test_stratified_ls_attaches_diagnostics():
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
     cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged"})
     res = fit_heterodyne_stratified_least_squares(
-        model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=True,
+        model=model,
+        c2=c2,
+        phi=phi,
+        config=cfg,
+        weights=None,
+        shuffle=True,
     )
     assert res.stratification_diagnostics is not None
     diag = res.stratification_diagnostics
@@ -246,3 +267,39 @@ def test_stratified_ls_attaches_diagnostics():
     assert diag.use_index_based is True
     # execution_time_ms is non-negative
     assert diag.execution_time_ms >= 0.0
+
+
+def test_stratified_ls_shuffle_on_deterministic_and_comparable():
+    import numpy as np
+
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        fit_heterodyne_stratified_least_squares,
+    )
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged"})
+
+    def _fit(shuffle):
+        return fit_heterodyne_stratified_least_squares(
+            model=model,
+            c2=c2,
+            phi=phi,
+            config=cfg,
+            weights=None,
+            shuffle=shuffle,
+        )
+
+    # 1) Determinism: shuffle=True (seed 42) is reproducible run-to-run.
+    a = _fit(True)
+    b = _fit(True)
+    assert np.allclose(a.parameters, b.parameters, rtol=1e-8, atol=1e-10)
+    assert np.isclose(a.chi_squared, b.chi_squared, rtol=1e-10)
+
+    # 2) Comparable to shuffle-off: same objective scale, not bit-equal
+    #    (the seed-42 reorder may land in a nearby basin — documented C044
+    #    degeneracy — so assert SSR is comparable, not identical).
+    off = _fit(False)
+    assert a.chi_squared <= off.chi_squared * 2.0 + 1e-12
+    assert off.chi_squared <= a.chi_squared * 2.0 + 1e-12
