@@ -90,6 +90,23 @@ def make_scaling_expander(
 
         return expand, 2 * n_phi
 
+    if per_angle_mode == "fourier":
+        if fourier is None:
+            raise ValueError(
+                "fourier mode requires a FourierReparameterizer (fourier=...)"
+            )
+        # The scaling vector IS the full Fourier coefficient vector
+        # [contrast_coeffs (n_coeffs_per_param) | offset_coeffs (n_coeffs_per_param)].
+        # fourier_to_per_angle_jax splits and maps both halves to per-angle
+        # arrays in one JIT-safe call — identical to the conversion done every
+        # iteration by ``_fit_joint_multi_phi`` in heterodyne_core.py.
+        n_scaling = int(fourier.n_coeffs)
+
+        def expand(s: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+            return fourier.fourier_to_per_angle_jax(s)
+
+        return expand, n_scaling
+
     raise NotImplementedError(
         f"scaling expander for per_angle_mode={per_angle_mode!r} lands in Phase 2"
     )

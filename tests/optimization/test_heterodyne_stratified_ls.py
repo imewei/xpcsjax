@@ -127,3 +127,45 @@ def test_individual_scaling_expander_splits_blocks():
     c, o = expander(jnp.array([0.1, 0.2, 0.3, 0.7, 0.8, 0.9]))
     assert np.allclose(np.asarray(c), [0.1, 0.2, 0.3])
     assert np.allclose(np.asarray(o), [0.7, 0.8, 0.9])
+
+
+def test_fourier_scaling_expander_shapes():
+    import jax.numpy as jnp
+
+    from xpcsjax.optimization.nlsq.fourier_reparam import (
+        FourierReparamConfig,
+        FourierReparameterizer,
+    )
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import make_scaling_expander
+
+    n_phi = 7
+    K = 2
+    phi_rad = np.deg2rad(np.linspace(0.0, 150.0, n_phi))
+    fr = FourierReparameterizer(
+        phi_rad,
+        FourierReparamConfig(mode="fourier", fourier_order=K, auto_threshold=6),
+    )
+    # Confirm fourier mode is actually active (not auto-downgraded).
+    assert fr.use_fourier
+    assert fr.n_coeffs_per_param == 2 * K + 1
+
+    expander, n_scaling = make_scaling_expander("fourier", n_phi=n_phi, fourier=fr)
+    assert n_scaling == 2 * (2 * K + 1)
+
+    # DC (constant) coeff of contrast is index 0; DC of offset is index n_coeffs_per_param.
+    coeffs = jnp.zeros(n_scaling).at[0].set(0.3).at[2 * K + 1].set(0.8)
+    c, o = expander(coeffs)
+    assert c.shape == (n_phi,) and o.shape == (n_phi,)
+    assert np.all(np.isfinite(np.asarray(c))) and np.all(np.isfinite(np.asarray(o)))
+    # Only the DC term is nonzero -> constant contrast/offset across angles.
+    assert np.allclose(np.asarray(c), 0.3)
+    assert np.allclose(np.asarray(o), 0.8)
+
+
+def test_fourier_scaling_expander_requires_reparameterizer():
+    import pytest
+
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import make_scaling_expander
+
+    with pytest.raises(ValueError, match="fourier"):
+        make_scaling_expander("fourier", n_phi=7, fourier=None)
