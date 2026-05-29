@@ -449,6 +449,9 @@ def build_hybrid_streaming_result(
     pcov: np.ndarray,
     info: dict[str, Any],
     phi_angles: np.ndarray,
+    per_angle_mode: str = "hybrid_streaming",
+    scaling_source: str = "quantile",
+    chi2_per_angle: np.ndarray | None = None,
 ) -> Any:
     """Build an OptimizationResult from heterodyne hybrid-streaming optimizer output.
 
@@ -491,18 +494,24 @@ def build_hybrid_streaming_result(
     uncertainties = np.sqrt(np.clip(np.diag(pcov), 0.0, None))
 
     # ------------------------------------------------------------------
-    # chi2 placeholder — streaming optimizer does not decompose per-angle
-    # chi2 during Phase 2-A; fill with NaN so downstream can detect.
+    # chi2 placeholder — the hybrid-streaming optimizer does not decompose
+    # per-angle chi2 during Phase 2-A; fill with NaN so downstream can detect.
+    # The stratified-LS driver passes a real ``chi2_per_angle`` (computed from
+    # the final residual grouped by phi_idx) so the SSR-conservation invariant
+    # ``chi2_per_angle.sum() == chi_squared`` holds for that path.
     # ------------------------------------------------------------------
-    chi2_per_angle = np.full(n_phi, np.nan, dtype=np.float64)
+    if chi2_per_angle is None:
+        chi2_per_angle = np.full(n_phi, np.nan, dtype=np.float64)
+    else:
+        chi2_per_angle = np.asarray(chi2_per_angle, dtype=np.float64)
 
     # ------------------------------------------------------------------
     # Build nlsq_diagnostics via the canonical heterodyne helper
     # ------------------------------------------------------------------
     diagnostics = _build_heterodyne_diagnostics(
-        per_angle_mode="hybrid_streaming",
+        per_angle_mode=per_angle_mode,
         chi2_per_angle=chi2_per_angle,
-        scaling_source="quantile",
+        scaling_source=scaling_source,
         fourier_basis_dim=None,
         parameter_names=list(model.param_manager.varying_names),
         phi_angles=np.asarray(phi_angles, dtype=np.float64),
