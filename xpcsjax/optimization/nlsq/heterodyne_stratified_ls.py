@@ -117,8 +117,7 @@ def build_joint_pointwise_residual(
     model: Any,
     stratified_data: Any,
     per_angle_mode: str,
-    avg_contrast: float,
-    avg_offset: float,
+    init_scaling: np.ndarray,
     fourier: Any | None = None,
     perm: np.ndarray | None = None,
 ) -> tuple[Callable[[np.ndarray], jnp.ndarray], np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
@@ -137,11 +136,12 @@ def build_joint_pointwise_residual(
     stratified_data :
         Flat heterodyne data from ``build_heterodyne_stratified_data``.
     per_angle_mode :
-        One of the modes accepted by ``make_scaling_expander`` (``"averaged"``;
-        ``"individual"`` / ``"fourier"`` in Phase 2).
-    avg_contrast, avg_offset :
-        Initial scalar contrast/offset used to seed the scaling tail of
-        ``p0_full`` (truncated to ``n_scaling`` for the averaged case).
+        One of the modes accepted by ``make_scaling_expander``
+        (``"averaged"`` / ``"individual"`` / ``"fourier"``).
+    init_scaling :
+        Mode-appropriate initial scaling tail seed (the driver computes this).
+        Length must equal ``n_scaling`` for the active mode: ``2`` for
+        averaged, ``2*n_phi`` for individual, ``fourier.n_coeffs`` for fourier.
     fourier :
         Optional Fourier descriptor passed through to ``make_scaling_expander``.
     perm :
@@ -234,12 +234,12 @@ def build_joint_pointwise_residual(
             resid = resid * inv_sigma_jax
         return resid
 
-    if n_scaling != 2:
-        raise NotImplementedError(
-            f"p0 seeding for per_angle_mode={per_angle_mode!r} (n_scaling={n_scaling}) "
-            "lands in Phase 2 (Task 8)"
+    init_scaling = np.asarray(init_scaling, dtype=np.float64)
+    if init_scaling.shape[0] != n_scaling:
+        raise ValueError(
+            f"init_scaling has length {init_scaling.shape[0]} but per_angle_mode="
+            f"{per_angle_mode!r} (n_phi={n_phi}) requires n_scaling={n_scaling}"
         )
-    init_scaling = np.array([avg_contrast, avg_offset], dtype=np.float64)[:n_scaling]
     p0_full = np.concatenate(
         [
             np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
@@ -260,14 +260,23 @@ def fit_heterodyne_stratified_least_squares(
     target_chunk_size: int = 100_000,
     shuffle: bool = True,
 ) -> Any:
-    """Heterodyne stratified-LS solve (averaged mode). Returns OptimizationResult.
+    """Mode-aware heterodyne stratified-LS solve. Returns OptimizationResult.
 
-    Objective equals the in-memory joint averaged fit; the only behavioral
-    change vs that fit is the optional seed-42 reorder/shuffle of the flat
-    point support (objective-invariant — reordering residual elements does not
-    change the sum of squares).
+    Resolves the effective per-angle mode (``averaged`` / ``individual`` /
+    ``fourier``) via :func:`_resolve_effective_mode`, computes the
+    mode-appropriate scaling-tail seed from per-angle quantiles, and runs a
+    single joint pointwise least-squares solve. The objective equals the
+    in-memory joint fit for the same mode; the only behavioral change is the
+    optional seed-42 reorder/shuffle of the flat point support
+    (objective-invariant — reordering residual elements does not change the
+    sum of squares).
+
+    ``constant`` mode is not supported here and raises ``NotImplementedError``;
+    the dispatch gate in ``__init__.py`` wraps this driver in a best-effort
+    try/except that falls through to the in-memory joint fit.
     """
     from xpcsjax.optimization.nlsq.heterodyne_adapter import NLSQAdapter
+    from xpcsjax.optimization.nlsq.heterodyne_core import _resolve_effective_mode
     from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
         build_hybrid_streaming_result,
     )
@@ -279,9 +288,50 @@ def fit_heterodyne_stratified_least_squares(
     )
 
     strat = build_heterodyne_stratified_data(model, c2, phi, weights)
+    n_phi = len(phi)
+    mode = _resolve_effective_mode(config, n_phi)
+
     contrast_pa, offset_pa = compute_quantile_per_angle_scaling(strat)
-    avg_contrast = float(np.nanmean(contrast_pa))
-    avg_offset = float(np.nanmean(offset_pa))
+    contrast_pa = np.asarray(contrast_pa, dtype=np.float64)
+    offset_pa = np.asarray(offset_pa, dtype=np.float64)
+
+    fourier: Any | None = None
+    if mode == "averaged":
+        init_scaling = np.array(
+            [float(np.nanmean(contrast_pa)), float(np.nanmean(offset_pa))],
+            dtype=np.float64,
+        )
+        scaling_names = ["contrast", "offset"]
+    elif mode == "individual":
+        init_scaling = np.concatenate([contrast_pa, offset_pa])
+        scaling_names = [
+            *[f"contrast_{i}" for i in range(n_phi)],
+            *[f"offset_{i}" for i in range(n_phi)],
+        ]
+    elif mode == "fourier":
+        from xpcsjax.optimization.nlsq.fourier_reparam import (
+            FourierReparamConfig,
+            FourierReparameterizer,
+        )
+
+        fourier_config = FourierReparamConfig(
+            mode="fourier",
+            fourier_order=config.fourier_order,
+            auto_threshold=config.fourier_auto_threshold,
+        )
+        phi_rad = np.deg2rad(np.asarray(phi).astype(np.float64))
+        fourier = FourierReparameterizer(phi_rad, fourier_config)
+        # Seed coeffs from the per-angle quantiles via the least-squares inverse.
+        # per_angle_to_fourier returns the full n_coeffs vector
+        # [contrast_coeffs | offset_coeffs] in one call.
+        init_scaling = np.asarray(
+            fourier.per_angle_to_fourier(contrast_pa, offset_pa), dtype=np.float64
+        )
+        scaling_names = [f"fourier_{i}" for i in range(int(fourier.n_coeffs))]
+    else:  # "constant" or anything unsupported by stratified-LS
+        raise NotImplementedError(
+            f"stratified-LS does not support per_angle_mode={mode!r}"
+        )
 
     # Build the residual once (native order) to obtain the FILTERED flat support
     # (off-diagonal AND t>0 — strat.phi_flat is the full N_total grid including
@@ -293,9 +343,9 @@ def fit_heterodyne_stratified_least_squares(
     _rfn0, x_data0, _y0, _p00, _meta0 = build_joint_pointwise_residual(
         model=model,
         stratified_data=strat,
-        per_angle_mode="averaged",
-        avg_contrast=avg_contrast,
-        avg_offset=avg_offset,
+        per_angle_mode=mode,
+        init_scaling=init_scaling,
+        fourier=fourier,
     )
     # Stratify on the integer phi-index column directly (identity, not float
     # value) — robust regardless of how create_angle_stratified_indices bins.
@@ -308,20 +358,29 @@ def fit_heterodyne_stratified_least_squares(
     residual_fn, x_data, y_data, p0_full, meta = build_joint_pointwise_residual(
         model=model,
         stratified_data=strat,
-        per_angle_mode="averaged",
-        avg_contrast=avg_contrast,
-        avg_offset=avg_offset,
+        per_angle_mode=mode,
+        init_scaling=init_scaling,
+        fourier=fourier,
         perm=perm,
     )
 
+    n_scaling = int(meta["n_scaling"])
     lower_phys, upper_phys = model.param_manager.get_bounds()
-    lower = np.concatenate([np.asarray(lower_phys, np.float64), np.array([0.0, 0.0])])
-    upper = np.concatenate(
-        [np.asarray(upper_phys, np.float64), np.array([np.inf, np.inf])]
-    )
+    if mode == "fourier":
+        # Fourier coefficients are bounded per the reparameterizer (matches the
+        # in-memory _fit_joint_multi_phi path, which uses fourier.get_bounds()).
+        scaling_lower, scaling_upper = fourier.get_bounds()
+        scaling_lower = np.asarray(scaling_lower, np.float64)
+        scaling_upper = np.asarray(scaling_upper, np.float64)
+    else:
+        # averaged / individual: contrast and offset are non-negative.
+        scaling_lower = np.zeros(n_scaling, dtype=np.float64)
+        scaling_upper = np.full(n_scaling, np.inf, dtype=np.float64)
+    lower = np.concatenate([np.asarray(lower_phys, np.float64), scaling_lower])
+    upper = np.concatenate([np.asarray(upper_phys, np.float64), scaling_upper])
 
     adapter = NLSQAdapter(
-        parameter_names=[*model.param_manager.varying_names, "contrast", "offset"]
+        parameter_names=[*model.param_manager.varying_names, *scaling_names]
     )
     fit = adapter.fit(
         residual_fn=residual_fn,
@@ -345,8 +404,8 @@ def fit_heterodyne_stratified_least_squares(
     final_residual = np.asarray(residual_fn(popt), dtype=np.float64)
     ssr = float(np.sum(final_residual**2))
     phi_idx_flat = np.asarray(x_data[:, 0], dtype=np.int64)
-    n_phi = int(meta["n_phi"])
-    chi2_per_angle = np.zeros(n_phi, dtype=np.float64)
+    n_phi_meta = int(meta["n_phi"])
+    chi2_per_angle = np.zeros(n_phi_meta, dtype=np.float64)
     np.add.at(chi2_per_angle, phi_idx_flat, final_residual**2)
 
     info = {
@@ -362,7 +421,7 @@ def fit_heterodyne_stratified_least_squares(
         pcov=pcov,
         info=info,
         phi_angles=np.asarray(phi),
-        per_angle_mode="averaged",
+        per_angle_mode=mode,
         scaling_source="stratified_ls",
         chi2_per_angle=chi2_per_angle,
     )

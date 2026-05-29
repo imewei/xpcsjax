@@ -53,7 +53,7 @@ def test_joint_pointwise_residual_matches_batched():
     # p0_full is noise-level rather than carrying a constant baseline offset.
     residual_fn, x_data, y_data, p0_full, meta = build_joint_pointwise_residual(
         model=model, stratified_data=strat, per_angle_mode="averaged",
-        avg_contrast=0.3, avg_offset=1.0,
+        init_scaling=np.array([0.3, 1.0]),
     )
     r = np.asarray(residual_fn(np.asarray(p0_full)))
     assert r.shape[0] == meta["n_data_points"]
@@ -100,7 +100,7 @@ def test_stratified_ls_matches_joint_fit_shuffle_off():
     st = build_heterodyne_stratified_data(model, c2, phi, weights=None)
     shared_resid, _x, _y, _p0, _meta = build_joint_pointwise_residual(
         model=model, stratified_data=st, per_angle_mode="averaged",
-        avg_contrast=0.3, avg_offset=1.0,
+        init_scaling=np.array([0.3, 1.0]),
     )
     ssr_joint = float(np.sum(np.asarray(shared_resid(np.asarray(joint.parameters)))**2))
     ssr_strat = float(np.sum(np.asarray(shared_resid(np.asarray(strat.parameters)))**2))
@@ -169,3 +169,54 @@ def test_fourier_scaling_expander_requires_reparameterizer():
 
     with pytest.raises(ValueError, match="fourier"):
         make_scaling_expander("fourier", n_phi=7, fourier=None)
+
+
+def test_stratified_ls_individual_mode():
+    import numpy as np
+
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        fit_heterodyne_stratified_least_squares,
+    )
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict(
+        {"analysis_mode": "two_component", "per_angle_mode": "individual"}
+    )
+    res = fit_heterodyne_stratified_least_squares(
+        model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False,
+    )
+    assert res.nlsq_diagnostics["per_angle_mode"] == "individual"
+    d = res.nlsq_diagnostics
+    assert np.isclose(float(np.sum(d["chi2_per_angle"])), res.chi_squared, rtol=1e-6)
+    assert np.all(np.isfinite(res.parameters))
+
+
+def test_stratified_ls_fourier_mode():
+    import numpy as np
+
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import _resolve_effective_mode
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        fit_heterodyne_stratified_least_squares,
+    )
+
+    # n_phi=7 with explicit fourier request so the mode resolves to "fourier"
+    # (fourier is never auto-selected — _resolve_effective_mode passes the
+    # explicit request through unchanged).
+    model, c2, phi = make_synthetic_two_component(n_phi=7, n_t=20)
+    cfg = NLSQConfig.from_dict(
+        {"analysis_mode": "two_component", "per_angle_mode": "fourier"}
+    )
+    # Guard: confirm the config actually resolves to fourier before asserting.
+    assert _resolve_effective_mode(cfg, len(phi)) == "fourier"
+
+    res = fit_heterodyne_stratified_least_squares(
+        model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False,
+    )
+    assert res.nlsq_diagnostics["per_angle_mode"] == "fourier"
+    d = res.nlsq_diagnostics
+    assert np.isclose(float(np.sum(d["chi2_per_angle"])), res.chi_squared, rtol=1e-6)
+    assert np.all(np.isfinite(res.parameters))
