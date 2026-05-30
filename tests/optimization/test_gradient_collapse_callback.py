@@ -60,3 +60,19 @@ def test_diagnostics_empty_history_is_fallback():
     d = gradient_monitor_diagnostics(mon)
     assert d["n_observations"] == 0
     assert d["mechanism"] == "post_solve_fallback"
+
+
+def test_zero_or_nan_denominator_yields_inf_ratio():
+    # per-angle (scaling) block norm is exactly 0 -> collapsed scaling block
+    # (the opposite degeneracy end). Ratio must be inf and ALSO count as a
+    # collapse via the dual-ended trigger predicate.
+    mon = _monitor(threshold=0.01, triggers=1)
+
+    def grad_fn(p):  # per_angle_indices=[2,3] both zero -> denom == 0
+        return np.array([1.0, 1.0, 0.0, 0.0])
+
+    cb = build_gradient_collapse_callback(mon, grad_fn)
+    cb(0, 1.0, np.zeros(4))
+
+    assert np.isinf(mon.history[-1]["ratio"])
+    assert mon.collapse_detected is True

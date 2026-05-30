@@ -302,8 +302,15 @@ class GradientCollapseMonitor:
         physical_grad_norm = np.linalg.norm(gradients[self.physical_indices])
         per_angle_grad_norm = np.linalg.norm(gradients[self.per_angle_indices])
 
-        # Compute ratio (avoid division by zero)
-        ratio = physical_grad_norm / (per_angle_grad_norm + 1e-12)
+        # Compute ratio. A zero / non-finite per-angle(scaling) denominator
+        # means the scaling block itself collapsed (the opposite degeneracy
+        # end) -> ratio is inf, which the dual-ended trigger below treats as a
+        # collapse rather than masking it with a tiny epsilon.
+        denom = per_angle_grad_norm
+        if denom > 0 and np.isfinite(denom):
+            ratio = physical_grad_norm / denom
+        else:
+            ratio = float("inf")
 
         # Record history.  deque(maxlen=MAX_HISTORY_SIZE) drops the oldest
         # entry automatically on append — no manual pop loop needed.
@@ -316,8 +323,12 @@ class GradientCollapseMonitor:
             }
         )
 
-        # Check for collapse
-        if ratio < self.config.ratio_threshold:
+        # Check for collapse at either degeneracy end: a low ratio (physical
+        # block collapsing) OR a non-finite ratio (scaling block collapsed,
+        # denom was zero/non-finite). Since `inf < threshold` is False, the
+        # latter would be silently missed by a single-ended test.
+        triggered = (ratio < self.config.ratio_threshold) or (not np.isfinite(ratio))
+        if triggered:
             self.consecutive_count += 1
         else:
             self.consecutive_count = 0
