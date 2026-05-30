@@ -560,3 +560,53 @@ def create_gradient_function_with_monitoring(
         return gradients
 
     return monitored_grad_fn
+
+
+def build_gradient_collapse_callback(monitor, grad_fn):
+    """Return an NLSQ ``curve_fit`` callback that feeds ``monitor`` each iteration.
+
+    Strictly observational: computes ``grad_fn(params)`` and calls
+    ``monitor.check(...)``; returns ``None`` and never mutates solve state.
+    ``grad_fn`` errors are swallowed (best-effort, debug-logged) so the monitor
+    can never abort a fit.
+
+    Parameters
+    ----------
+    monitor : GradientCollapseMonitor
+        Pre-constructed with the mode's physical / per-angle (scaling) indices.
+    grad_fn : callable
+        ``grad_fn(params: np.ndarray) -> np.ndarray`` — full gradient of the
+        scalar loss (typically ``jax.grad(lambda p: 0.5*sum(residual(p)**2))``).
+    """
+
+    def callback(iteration, cost, params, info=None, **kwargs):
+        try:
+            p = np.asarray(params, dtype=np.float64)
+            g = np.asarray(grad_fn(p), dtype=np.float64)
+            monitor.check(g, int(iteration), params=p, loss=float(cost))
+        except Exception:  # pragma: no cover - monitor must never break a fit
+            logger.debug("gradient-collapse callback skipped (non-fatal)", exc_info=True)
+        return None
+
+    return callback
+
+
+def gradient_monitor_diagnostics(monitor, *, mechanism="per_iteration_gradient_ratio"):
+    """Build the canonical L4 ``gradient_monitor`` diagnostics block from a monitor.
+
+    When the monitor recorded zero observations (callback never fired) the block
+    is tagged ``mechanism="post_solve_fallback"`` so callers run the post-solve
+    covariance-condition check instead.
+    """
+    ratios = [float(h["ratio"]) for h in monitor.history]
+    n_obs = len(ratios)
+    return {
+        "collapse_detected": bool(monitor.collapse_detected),
+        "trigger_count": int(len(monitor.collapse_events)),
+        "min_gradient_ratio": float(min(ratios)) if ratios else float("nan"),
+        "max_gradient_ratio": float(max(ratios)) if ratios else float("nan"),
+        "n_observations": int(n_obs),
+        "ratio_threshold": float(monitor.config.ratio_threshold),
+        "consecutive_triggers": int(monitor.config.consecutive_triggers),
+        "mechanism": mechanism if n_obs > 0 else "post_solve_fallback",
+    }
