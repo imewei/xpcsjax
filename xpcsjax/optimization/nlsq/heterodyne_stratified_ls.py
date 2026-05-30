@@ -395,6 +395,14 @@ def fit_heterodyne_stratified_least_squares(
         shuffle=shuffle,
     )
     _execution_time_ms = (time.perf_counter() - _t0_strat) * 1000.0
+    # Support-ordering contract: ``perm`` is a permutation of the FILTERED captured
+    # support (``x_data0[:, 0]``). If a future builder change reorders or resizes
+    # that support, this guard fails loudly instead of silently mis-indexing the
+    # residual via a length-mismatched permutation.
+    assert len(perm) == x_data0.shape[0], (
+        f"stratification perm length ({len(perm)}) != filtered support length "
+        f"({x_data0.shape[0]}); the builder's flat-support ordering changed"
+    )
     residual_fn, x_data, y_data, p0_full, meta = build_joint_pointwise_residual(
         model=model,
         stratified_data=strat,
@@ -402,6 +410,13 @@ def fit_heterodyne_stratified_least_squares(
         init_scaling=init_scaling,
         fourier=fourier,
         perm=perm,
+    )
+    # The reordered build must produce the SAME support length perm was derived
+    # against — otherwise ``x_data = x_data0[perm]`` (inside the builder) would have
+    # indexed a differently-sized array.
+    assert len(perm) == x_data.shape[0], (
+        f"stratification perm length ({len(perm)}) != rebuilt support length "
+        f"({x_data.shape[0]}); native and permuted builds disagree on support size"
     )
 
     n_scaling = int(meta["n_scaling"])

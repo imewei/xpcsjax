@@ -763,6 +763,18 @@ def _fit_nlsq_heterodyne(
     strat_cfg = _StratificationConfig.from_optimization_block(opt_block)
 
     n_points = _estimate_heterodyne_points(c2, phi)
+    # ``imbalance`` here is computed from the per-angle ``phi`` list (each unique
+    # angle counted once), mirroring upstream homodyne's gate
+    # (wrapper.py:_apply_stratification_if_needed → ``analyze_angle_distribution(phi)``)
+    # 1:1 — homodyne feeds the same per-angle array, not a per-point distribution.
+    # It DOES drive a real routing decision below (the configured
+    # ``max_imbalance_ratio`` gate), but the TRUE per-point angle imbalance is
+    # applied inside the stratified path itself: ``reorder_for_stratification`` →
+    # ``create_angle_stratified_indices`` runs ``analyze_angle_distribution`` over
+    # the filtered per-point ``phi_idx_filtered`` support. Switching this gate to a
+    # per-point distribution would diverge from homodyne (and would require
+    # materializing the flat support before the routing decision), so it is left as
+    # the homodyne-parity per-angle imbalance.
     imbalance = float(analyze_angle_distribution(_np.asarray(phi)).imbalance_ratio)
     # Pass ``imbalance_ratio=0.0`` so ``should_use_stratification``'s hard-coded
     # 5.0 cutoff never fires here; we apply the CONFIGURED threshold ourselves
@@ -838,12 +850,26 @@ def _fit_nlsq_heterodyne(
     elif effective_mode is not None:
         # effective_mode resolved (>=1M, stratification chosen, CMA-ES off) but is
         # individual/constant — those use the in-memory path, not stratified-LS.
+        # "No silent caps": at >=1M the in-memory joint fit is the OOM-prone path,
+        # and the ONLY reason stratification was skipped is that this mode lacks a
+        # stratified expander. Surface that at WARNING so a large fit silently
+        # taking the higher-memory path is VISIBLE. Below 1M stratification would
+        # not have engaged anyway, so keep it at debug there.
         from xpcsjax.utils.logging import get_logger as _get_logger
 
-        _get_logger(__name__).debug(
-            "per_angle_mode=%s uses in-memory path; stratified-LS skipped",
-            effective_mode,
-        )
+        if n_points >= 1_000_000:
+            _get_logger(__name__).warning(
+                "per_angle_mode=%s at %d points (>=1M): stratified-LS skipped "
+                "because this mode's stratified expander is not wired; using the "
+                "higher-memory in-memory joint fit (potential OOM risk).",
+                effective_mode,
+                int(n_points),
+            )
+        else:
+            _get_logger(__name__).debug(
+                "per_angle_mode=%s uses in-memory path; stratified-LS skipped",
+                effective_mode,
+            )
 
     result = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
     _safe_log_heterodyne_completion(result, model, len(phi))
