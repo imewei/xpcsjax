@@ -20,6 +20,9 @@ from xpcsjax.core.heterodyne_jax_backend import (
     compute_multi_angle_residuals,
     compute_residuals,
 )
+from xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics import (
+    assemble_anti_degeneracy_diagnostics,
+)
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
 from xpcsjax.optimization.nlsq.results import OptimizationResult
@@ -266,19 +269,39 @@ def _build_heterodyne_diagnostics(
     in constant mode, ``fourier_coeffs`` in Fourier mode) are passed through
     ``**extras``.
 
-    The ``"not_applicable_heterodyne"`` shear-weighting marker is Task D4's
-    L5 N/A semantic: heterodyne does not use the homodyne shear-weighting
-    layer, but the OptimizationResult schema may carry the key in other
-    modes, so we make the absence explicit rather than omitting the key.
+    The anti-degeneracy activation block (``hierarchical_active`` /
+    ``regularization_active`` / ``shear_weighting``, plus the L4
+    ``gradient_monitor`` when present) is assembled by the shared
+    :func:`assemble_anti_degeneracy_diagnostics`, so heterodyne and homodyne
+    surface the SAME activation-key set. Both ``*_active`` flags are emitted on
+    EVERY path (``False`` when the layer did not run); only the per-layer DETAIL
+    keys (``hierarchical_stages``, ``regularization_mode``, ...) remain
+    conditional and flow through ``**extras`` verbatim. The
+    ``"not_applicable_heterodyne"`` shear-weighting marker makes the homodyne
+    L5 layer's N/A status explicit for heterodyne.
     """
+    # The activation flags arrive in ``extras`` only when the layer ran; pop
+    # them out so the always-emit assembler owns them (default ``False``).
+    extras = dict(extras)
+    hierarchical_active = bool(extras.pop("hierarchical_active", False))
+    regularization_active = bool(extras.pop("regularization_active", False))
+    gradient_monitor = extras.pop("gradient_monitor", None)
+
     base: dict[str, Any] = {
         "per_angle_mode": per_angle_mode,
         "chi2_per_angle": chi2_per_angle,
         "scaling_source": scaling_source,
         "fourier_basis_dim": fourier_basis_dim,
-        "shear_weighting": "not_applicable_heterodyne",
     }
-    base.update(extras)
+    base.update(
+        assemble_anti_degeneracy_diagnostics(
+            hierarchical_active=hierarchical_active,
+            regularization_active=regularization_active,
+            shear_weighting="not_applicable_heterodyne",
+            gradient_monitor=gradient_monitor,
+            **extras,
+        )
+    )
     return base
 
 
