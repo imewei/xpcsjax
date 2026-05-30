@@ -306,49 +306,60 @@ def test_l4_gradient_monitor_records_real_observations() -> None:
     # Behavioral evidence: real numerical observation, not a hardcoded zero stub.
     assert isinstance(monitor.get("max_gradient_ratio"), float)
     ratio = monitor["max_gradient_ratio"]
-    # When the underlying fit converges, the condition number must be a real
-    # number (finite or +inf for singular Jacobian). When the fit fails (e.g.,
-    # the NLSQ wrapper exhausts its tier retries on the small synthetic
-    # fixture), covariance is None and the monitor honestly records NaN —
-    # itself a real observation, not the MVP zero stub.
-    if result.convergence_status == "converged":
-        assert np.isfinite(ratio) or ratio == float("inf"), (
-            f"converged fit must yield finite or +inf max_gradient_ratio, "
-            f"got {ratio!r}"
-        )
-        assert ratio >= 0.0, "ratio must be non-negative when finite"
-    else:
-        # Fit didn't converge — NaN is the honest signal that no meaningful
-        # cov was available. Either NaN, finite (cov was partially populated),
-        # or +inf (singular) are all acceptable real observations.
-        assert np.isnan(ratio) or np.isfinite(ratio) or ratio == float("inf"), (
-            f"max_gradient_ratio must be NaN, finite, or +inf for failed fit, "
-            f"got {ratio!r}"
-        )
-    # collapse_detected is the actual comparison vs threshold (real bool):
+    # collapse_detected is a real bool in both mechanisms:
     assert isinstance(monitor.get("collapse_detected"), bool)
-    # trigger_count is 0 or 1 (one-shot post-solve observation):
-    assert monitor.get("trigger_count") in (0, 1)
-    # The monitor must record the threshold it compared against:
-    assert monitor.get("threshold_used") == 100.0
-    # Full integration marker — not the MVP placeholder:
-    assert monitor.get("scope") == "post_solve_covariance_conditioning", (
-        f"L4 scope must be 'post_solve_covariance_conditioning', "
-        f"got {monitor.get('scope')!r}"
-    )
-    # Internal consistency: NaN ratio → collapse_detected=False (no signal);
-    # finite ratio >= threshold → True; +inf → True (singular).
-    if np.isnan(ratio):
-        expected_collapse = False
+
+    # Task 2 introduced a per-iteration gradient-ratio monitor that supersedes
+    # the post-solve covariance-conditioning fallback whenever the NLSQ
+    # curve_fit callback recorded >=1 observation. The block now carries a
+    # ``mechanism`` discriminator; the real-observation contract differs by
+    # mechanism.
+    mechanism = monitor.get("mechanism")
+    assert mechanism in ("per_iteration_gradient_ratio", "post_solve_fallback")
+
+    if mechanism == "per_iteration_gradient_ratio":
+        # Per-iteration: max_gradient_ratio is the largest physical/per-angle
+        # gradient-norm ratio observed during the solve — a real finite
+        # non-negative number, with >=1 recorded observation.
+        assert monitor.get("n_observations", 0) >= 1
+        assert np.isfinite(ratio) and ratio >= 0.0, (
+            f"per-iteration max_gradient_ratio must be finite, non-negative; got {ratio!r}"
+        )
     else:
-        expected_collapse = (
-            np.isfinite(ratio) and ratio >= 100.0
-        ) or ratio == float("inf")
-    assert monitor["collapse_detected"] == expected_collapse, (
-        f"collapse_detected ({monitor['collapse_detected']}) must equal "
-        f"(NaN→False, finite>=threshold→True, +inf→True): "
-        f"ratio={ratio}, threshold=100.0"
-    )
+        # post_solve_fallback: retains the covariance-condition semantics
+        # (finite / +inf / NaN) plus the legacy descriptive keys.
+        if result.convergence_status == "converged":
+            assert np.isfinite(ratio) or ratio == float("inf"), (
+                f"converged fit must yield finite or +inf max_gradient_ratio, "
+                f"got {ratio!r}"
+            )
+        else:
+            assert np.isnan(ratio) or np.isfinite(ratio) or ratio == float("inf"), (
+                f"max_gradient_ratio must be NaN, finite, or +inf for failed fit, "
+                f"got {ratio!r}"
+            )
+        # trigger_count is 0 or 1 (one-shot post-solve observation):
+        assert monitor.get("trigger_count") in (0, 1)
+        # The monitor must record the threshold it compared against:
+        assert monitor.get("threshold_used") == 100.0
+        # Full integration marker for the fallback path:
+        assert monitor.get("scope") == "post_solve_covariance_conditioning", (
+            f"L4 fallback scope must be 'post_solve_covariance_conditioning', "
+            f"got {monitor.get('scope')!r}"
+        )
+        # Internal consistency: NaN ratio → collapse_detected=False (no signal);
+        # finite ratio >= threshold → True; +inf → True (singular).
+        if np.isnan(ratio):
+            expected_collapse = False
+        else:
+            expected_collapse = (
+                np.isfinite(ratio) and ratio >= 100.0
+            ) or ratio == float("inf")
+        assert monitor["collapse_detected"] == expected_collapse, (
+            f"collapse_detected ({monitor['collapse_detected']}) must equal "
+            f"(NaN→False, finite>=threshold→True, +inf→True): "
+            f"ratio={ratio}, threshold=100.0"
+        )
 
 
 def test_l5_shear_weighting_is_homodyne_only() -> None:

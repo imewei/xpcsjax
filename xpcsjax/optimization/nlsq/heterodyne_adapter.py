@@ -237,6 +237,7 @@ class NLSQAdapter(NLSQAdapterBase):
         bounds: tuple[np.ndarray, np.ndarray],
         config: NLSQConfig,
         jacobian_fn: Callable[[np.ndarray], np.ndarray] | None = None,
+        callback: Callable[..., Any] | None = None,
     ) -> NLSQResult:
         """Run NLSQ optimisation using nlsq.CurveFit.
 
@@ -251,6 +252,11 @@ class NLSQAdapter(NLSQAdapterBase):
             config: Optimisation configuration.
             jacobian_fn: Optional analytic Jacobian (unused by CurveFit; kept
                 for API compatibility).
+            callback: Optional per-iteration ``curve_fit`` callback
+                ``(iteration, cost, params, info=None, **kwargs) -> None``.
+                Strictly observational — must not mutate solve state. Forwarded
+                to ``CurveFit.curve_fit`` when provided; takes precedence over
+                the Task-0 debug seam, which remains as a secondary fallback.
 
         Returns:
             NLSQResult with fit results.
@@ -308,6 +314,8 @@ class NLSQAdapter(NLSQAdapterBase):
                 config.x_scale,
             )
             fit_kwargs = _optimizer_kwargs(config, method)
+            if callback is not None and "callback" not in fit_kwargs:
+                fit_kwargs["callback"] = callback
             _dbg_cb = _get_debug_curvefit_callback()
             if _dbg_cb is not None and "callback" not in fit_kwargs:
                 fit_kwargs["callback"] = _dbg_cb
@@ -376,6 +384,7 @@ class NLSQAdapter(NLSQAdapterBase):
         bounds: tuple[np.ndarray, np.ndarray],
         config: NLSQConfig,
         n_data: int,
+        callback: Callable[..., Any] | None = None,
     ) -> NLSQResult:
         """Run NLSQ optimisation using a pure JAX-traceable residual function.
 
@@ -388,6 +397,9 @@ class NLSQAdapter(NLSQAdapterBase):
             bounds: ``(lower, upper)`` bound arrays.
             config: Optimisation configuration.
             n_data: Number of data points (used as CurveFit ``flength``).
+            callback: Optional per-iteration ``curve_fit`` callback (strictly
+                observational). Forwarded to ``CurveFit.curve_fit`` when
+                provided; takes precedence over the Task-0 debug seam.
 
         Returns:
             NLSQResult with fit results.
@@ -434,6 +446,8 @@ class NLSQAdapter(NLSQAdapterBase):
                 config.x_scale,
             )
             fit_kwargs = _optimizer_kwargs(config, method)
+            if callback is not None and "callback" not in fit_kwargs:
+                fit_kwargs["callback"] = callback
             _dbg_cb = _get_debug_curvefit_callback()
             if _dbg_cb is not None and "callback" not in fit_kwargs:
                 fit_kwargs["callback"] = _dbg_cb
