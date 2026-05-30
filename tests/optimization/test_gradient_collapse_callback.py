@@ -28,6 +28,22 @@ def test_callback_feeds_monitor_per_iteration():
     assert len(mon.history) == 5
 
 
+def test_update_frequency_throttles_grad_evals():
+    # update_frequency=3 -> grad_fn/check only on iterations 0, 3, 6 of 0..8.
+    mon = _monitor()
+    calls = [0]
+
+    def grad_fn(p):
+        calls[0] += 1
+        return np.array([1.0, 1.0, 1.0, 1.0])
+
+    cb = build_gradient_collapse_callback(mon, grad_fn, update_frequency=3)
+    for it in range(9):  # iterations 0..8
+        assert cb(it, 1.0, np.zeros(4)) is None
+    assert calls[0] == 3  # only iterations 0, 3, 6 fired
+    assert len(mon.history) == 3
+
+
 def test_callback_swallows_grad_fn_errors():
     mon = _monitor()
     def boom(p):
