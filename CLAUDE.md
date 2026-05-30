@@ -73,6 +73,8 @@ The 5 anti-degeneracy layers, in order:
 
 Layer gating is declared in `_LAYER_GATES` at the top of `anti_degeneracy_controller.py`. Layers absent from that dict are default-active for all modes; only L5 is gated. L5 up-weights data near the flow direction φ0 to exploit the shear-sensitivity peak, which exists only when the kernel has a shear rate — so L5 is active for `laminar_flow` **only**. The static modes (`static_anisotropic`, `static_isotropic`) have no flow direction and `two_component` (heterodyne) has no shear rate, so L5 short-circuits for all of them. Note `is_layer_active()` still returns `True` for every layer when `analysis_mode=None` (the homodyne characterization gate's path), so this gating does not affect the rtol=1e-10 parity baselines.
 
+L4 is a **per-iteration gradient-collapse monitor** (`build_gradient_collapse_callback` feeding `GradientCollapseMonitor`), a **shared mechanism** with behavioral parity between `laminar_flow` and `two_component`. It is **strictly diagnostic** — monitor-on vs monitor-off is bit-identical (the homodyne rtol=1e-10 baselines included). When the solver callback never fires it falls back to a **post-solve covariance-condition** check; the `gradient_monitor` diagnostics block's `mechanism` field reports which path ran (`per_iteration_gradient_ratio` vs `post_solve_fallback`), and `gradient_consecutive_triggers` is now effective. Per-iteration is wired on the standard joint-fit path of both modes; the ≥1 M stratified tier is not yet wired (documented follow-up).
+
 ### Analysis modes and config templates
 
 xpcsjax ships four mode-specific YAML templates under `xpcsjax/config/templates/`:

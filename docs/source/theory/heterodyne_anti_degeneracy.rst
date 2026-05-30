@@ -55,17 +55,47 @@ L3: Adaptive CV regularization
 
 L4: Gradient collapse monitor
   Activated by ``config.enable_gradient_monitoring``. Implemented as a
-  **post-solve** diagnostic: the joint solver's covariance matrix is
-  decomposed via SVD and the condition number ``σ_max / σ_min`` is used
-  as a proxy for gradient collapse. If the ratio exceeds
-  ``config.gradient_ratio_threshold`` (or the covariance is rank-
-  deficient), ``collapse_detected=True`` is reported in
-  ``result.nlsq_diagnostics['gradient_monitor']``. This is **not** the
-  per-iteration ``GradientCollapseMonitor`` callback used by homodyne;
-  ``config.gradient_consecutive_triggers`` is parsed and surfaced in
-  diagnostics but currently has no effect — it is preserved for a
-  future per-iteration implementation (host_callback or a custom solver
-  wrapper). See the follow-up tracking item for the callback migration.
+  **per-iteration** gradient-collapse monitor **shared with homodyne**:
+  ``build_gradient_collapse_callback`` builds an NLSQ ``curve_fit``
+  callback that, each iteration, feeds the physical/per-angle gradient
+  ratio to a :class:`GradientCollapseMonitor`. The monitor is **strictly
+  diagnostic** — it observes the solve and never mutates it, so a fit with
+  monitoring enabled is **bit-identical** to one with it disabled
+  (including the homodyne ``rtol=1e-10`` characterization baselines).
+
+  When the solver callback never fires (e.g. a solve path that does not
+  forward per-iteration callbacks), L4 falls back to a **post-solve
+  covariance-condition** check: the joint solver's covariance matrix is
+  decomposed via SVD and the condition number ``σ_max / σ_min`` is used as
+  a proxy for gradient collapse. The two paths are distinguished by the
+  ``mechanism`` field of the diagnostics block (see below).
+
+  ``config.gradient_consecutive_triggers`` is now **effective**: it sets
+  the number of consecutive low-ratio iterations required before
+  ``collapse_detected`` is raised.
+
+  The L4 block lives at ``result.nlsq_diagnostics['gradient_monitor']``
+  and carries these keys:
+
+  ``collapse_detected`` : bool
+    Whether gradient collapse was confirmed.
+  ``trigger_count`` : int
+    Number of recorded collapse events.
+  ``min_gradient_ratio`` / ``max_gradient_ratio`` : float
+    Extremes of the observed physical/per-angle gradient ratio
+    (``nan`` when no observations were recorded).
+  ``n_observations`` : int
+    Number of per-iteration observations the callback recorded.
+  ``ratio_threshold`` : float
+    The configured collapse ratio threshold.
+  ``consecutive_triggers`` : int
+    The configured consecutive-trigger count
+    (``config.gradient_consecutive_triggers``).
+  ``mechanism`` : str
+    Which path produced the block — ``'per_iteration_gradient_ratio'``
+    when the callback recorded ≥ 1 observation, or
+    ``'post_solve_fallback'`` when it recorded none and the post-solve
+    covariance-condition check ran instead.
 
 L5: Shear-sensitivity weighting (laminar_flow ONLY)
   L5 up-weights data near the flow direction phi0 to exploit *laminar_flow's*
