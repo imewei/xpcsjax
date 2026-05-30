@@ -61,3 +61,16 @@ def test_core_keys_constant_matches_contract():
         "shear_weighting",
         "gradient_monitor",
     )
+
+
+def test_empty_gradient_monitor_is_still_included():
+    # {} is falsy but not None -> the key must be present (guards against a
+    # naive `if gradient_monitor:` refactor silently dropping it).
+    b = assemble_anti_degeneracy_diagnostics(
+        hierarchical_active=False,
+        regularization_active=False,
+        shear_weighting="not_applicable_heterodyne",
+        gradient_monitor={},
+    )
+    assert "gradient_monitor" in b
+    assert b["gradient_monitor"] == {}
