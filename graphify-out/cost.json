@@ -45,6 +45,13 @@
       "output_tokens": 0,
       "files": 16,
       "note": "incremental --update (AST 14 code + 1 doc semantic)"
+    },
+    {
+      "date": "2026-05-30T13:42:35.722047+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 323,
+      "note": "code-only incremental update (AST, no LLM)"
     }
   ],
   "total_input_tokens": 170461,
