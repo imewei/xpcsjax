@@ -308,7 +308,7 @@ class GradientCollapseMonitor:
         # collapse rather than masking it with a tiny epsilon.
         denom = per_angle_grad_norm
         if denom > 0 and np.isfinite(denom):
-            ratio = physical_grad_norm / denom
+            ratio = float(physical_grad_norm / denom)
         else:
             ratio = float("inf")
 
