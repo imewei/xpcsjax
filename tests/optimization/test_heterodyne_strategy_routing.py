@@ -6,6 +6,8 @@ stratification above 100k points but only *engages* the stratified-LS solver at
 point estimator so no large array is ever allocated.
 """
 
+import logging
+
 import numpy as np  # noqa: F401  (kept for parity / future array fixtures)
 import pytest
 
@@ -280,6 +282,61 @@ def test_individual_mode_skips_stratified_ls(monkeypatch):  # noqa: N802
     nlsq_pkg.fit_nlsq(data, cfg)
     assert called["strat"] is False, (
         "Stratified-LS solver was called for individual mode (should use in-memory path)"
+    )
+
+
+def test_ge_1M_unsupported_mode_warns(monkeypatch, caplog):  # noqa: N802 - "1M" pins the boundary
+    """>=1M points in an UNSUPPORTED per-angle mode (individual) → WARNING, not silence.
+
+    "No silent caps": a fit large enough that stratification would have mattered
+    (>=1M) that is routed to the higher-memory in-memory joint fit ONLY because
+    its mode lacks a stratified expander must say so at WARNING level. The fit
+    must still complete (fall back to the in-memory joint fit) and return a valid
+    OptimizationResult.
+    """
+    import xpcsjax.optimization.nlsq as nlsq_pkg
+    import xpcsjax.optimization.nlsq.heterodyne_stratified_ls as hsl
+
+    # The stratified-LS solver must NOT be called (individual is unsupported).
+    called = {"strat": False}
+
+    def _fake(**k):
+        called["strat"] = True
+        return object()
+
+    monkeypatch.setattr(hsl, "fit_heterodyne_stratified_least_squares", _fake)
+    # Force the gate above 1M without allocating a huge array.
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq._estimate_heterodyne_points",
+        lambda c2, phi: 2_000_000,
+    )
+
+    from tests.optimization._heterodyne_fixtures import make_cfgmgr_and_data
+
+    cfg, data = make_cfgmgr_and_data(n_phi=3, n_t=20)
+    # Unsupported-by-stratified-LS per-angle mode.
+    cfg.config["optimization"]["nlsq"]["per_angle_mode"] = "individual"
+
+    with caplog.at_level(logging.WARNING, logger="xpcsjax.optimization.nlsq"):
+        result = nlsq_pkg.fit_nlsq(data, cfg)
+
+    # The stratified-LS solver was correctly skipped...
+    assert called["strat"] is False
+    # ...and the fit still produced a valid result (fell back to the joint fit).
+    assert result is not None
+    assert hasattr(result, "parameters")
+
+    # A WARNING-level record naming the mode + the skip must have been emitted.
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    matching = [
+        r
+        for r in warnings
+        if "individual" in r.getMessage()
+        and "stratified-LS skipped" in r.getMessage()
+    ]
+    assert matching, (
+        "Expected a WARNING that names per_angle_mode=individual and reports "
+        f"stratified-LS was skipped; got warnings: {[r.getMessage() for r in warnings]}"
     )
 
 

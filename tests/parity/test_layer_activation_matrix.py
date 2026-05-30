@@ -14,6 +14,18 @@ from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
 
+# Canonical L4 gradient_monitor block keys (shared mechanism across both modes).
+_CANONICAL_GM_KEYS = {
+    "collapse_detected",
+    "trigger_count",
+    "min_gradient_ratio",
+    "max_gradient_ratio",
+    "n_observations",
+    "ratio_threshold",
+    "consecutive_triggers",
+    "mechanism",
+}
+
 # ---------------------------------------------------------------------------
 # L1: mode-level reparameterization
 # ---------------------------------------------------------------------------
@@ -116,3 +128,52 @@ def test_heterodyne_l2_l3_l4_active_l5_excluded_fourier():
 
     # L5
     assert diag["shear_weighting"] == "not_applicable_heterodyne"
+
+
+# ---------------------------------------------------------------------------
+# Laminar (homodyne) counterpart — L1-L4 active, L5 is laminar's OWN layer
+# (inverse of the heterodyne case, which excludes L5).
+# ---------------------------------------------------------------------------
+
+
+def test_laminar_l1_l4_active_l5_present():
+    """Laminar_flow L4 activation contract, the inverse of the heterodyne case.
+
+    KEY-NAME DEVIATION (verified against the live code, not guessed): the
+    homodyne / laminar in-memory joint-fit path does NOT emit the flat
+    ``hierarchical_active`` / ``regularization_active`` / ``shear_weighting``
+    diagnostics keys that ``heterodyne_core._build_heterodyne_diagnostics``
+    produces. Those flat keys are heterodyne-specific. On the laminar side:
+
+    * the L4 ``gradient_monitor`` block IS surfaced under ``nlsq_diagnostics``
+      (via the wrapper's ``_l4_extras``, independent of the diagnostics gate),
+      carrying the same canonical key set as heterodyne (shared mechanism), and
+    * the laminar result does NOT carry heterodyne's
+      ``shear_weighting == "not_applicable_heterodyne"`` marker — L5 shear
+      weighting is laminar_flow's OWN layer, so the heterodyne N/A sentinel is
+      absent. This is the inverse of ``..._l5_excluded_averaged`` above.
+
+    The richer L2/L3/L5 controller diagnostics only reach the result on the
+    >=1M-point stratified-LS path (nested under ``controller_diagnostics``),
+    which this small in-memory fixture does not exercise; asserting the flat
+    heterodyne keys here would fail against the (correct) current code.
+    """
+    from tests.optimization.test_l4_callback_observational import _build_laminar_fit
+
+    fit_nlsq, data, cfg = _build_laminar_fit()
+    cfg.config["optimization"]["nlsq"]["anti_degeneracy"]["gradient_monitoring"] = {
+        "enable": True
+    }
+    diag = fit_nlsq(data, cfg).nlsq_diagnostics
+    assert diag is not None, "laminar result carries no nlsq_diagnostics"
+
+    # L4: gradient-collapse monitor block present with the canonical key set.
+    assert "gradient_monitor" in diag, "gradient_monitor block missing"
+    gm = diag["gradient_monitor"]
+    assert set(gm) >= _CANONICAL_GM_KEYS
+    # Production wires the per-iteration callback on the laminar STANDARD path.
+    assert gm["mechanism"] == "per_iteration_gradient_ratio"
+
+    # L5: laminar's OWN layer — the heterodyne N/A sentinel must be absent
+    # (inverse of the heterodyne excluded-L5 contract).
+    assert diag.get("shear_weighting") != "not_applicable_heterodyne"

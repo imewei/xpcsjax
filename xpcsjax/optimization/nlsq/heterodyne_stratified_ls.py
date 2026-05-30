@@ -44,10 +44,14 @@ def reorder_for_stratification(
     target_chunk_size : int
         Interleaved-stratification chunk target (model-agnostic, from chunking.py).
     shuffle : bool
-        If True, apply a fixed-seed permutation after stratification to break
-        angle-sequential ordering (homodyne local-minimum-avoidance parity).
+        If True, apply a fixed-seed PRE-shuffle to the flat point order BEFORE
+        stratification, then compose back. Stratification is re-derived from the
+        relabeled angles, so each chunk keeps its balanced angle multiset; only
+        WHICH concrete points fill each angle's slots changes (homodyne
+        local-minimum-avoidance parity — alters trajectory, not objective). With
+        ``shuffle=False`` the behavior is identical to no shuffle (seed-independent).
     seed : int
-        Shuffle seed (fixed at 42 for reproducibility; matches homodyne).
+        Pre-shuffle seed (fixed at 42 for reproducibility; matches homodyne).
 
     Returns
     -------
@@ -55,11 +59,18 @@ def reorder_for_stratification(
         ``perm`` reorders any per-point array; ``chunk_sizes`` are the
         interleaved chunk sizes from stratification.
     """
-    perm, chunk_sizes = create_angle_stratified_indices(phi_flat, target_chunk_size)
-    perm = np.asarray(perm, dtype=np.int64)
+    phi_flat = np.asarray(phi_flat)
+    n = len(phi_flat)
     if shuffle:
         rng = np.random.RandomState(seed)
-        perm = perm[rng.permutation(len(perm))]
+        pre = rng.permutation(n)  # pre-shuffle the flat point order
+    else:
+        pre = np.arange(n)
+    # Stratify the (pre-shuffled) labels, then compose back so chunk balance is
+    # preserved. ``strat_perm`` indexes ``phi_flat[pre]``, so ``pre[strat_perm]``
+    # maps back to the original point indices.
+    strat_perm, chunk_sizes = create_angle_stratified_indices(phi_flat[pre], target_chunk_size)
+    perm = pre[np.asarray(strat_perm, dtype=np.int64)]
     return perm, list(chunk_sizes)
 
 
@@ -384,6 +395,15 @@ def fit_heterodyne_stratified_least_squares(
         shuffle=shuffle,
     )
     _execution_time_ms = (time.perf_counter() - _t0_strat) * 1000.0
+    # Support-ordering contract: ``perm`` is a permutation of the FILTERED captured
+    # support (``x_data0[:, 0]``). If a future builder change reorders or resizes
+    # that support, this guard fails loudly instead of silently mis-indexing the
+    # residual via a length-mismatched permutation.
+    if len(perm) != x_data0.shape[0]:
+        raise RuntimeError(
+            f"stratification perm length ({len(perm)}) != filtered support length "
+            f"({x_data0.shape[0]}); the builder's flat-support ordering changed"
+        )
     residual_fn, x_data, y_data, p0_full, meta = build_joint_pointwise_residual(
         model=model,
         stratified_data=strat,
@@ -392,6 +412,14 @@ def fit_heterodyne_stratified_least_squares(
         fourier=fourier,
         perm=perm,
     )
+    # The reordered build must produce the SAME support length perm was derived
+    # against — otherwise ``x_data = x_data0[perm]`` (inside the builder) would have
+    # indexed a differently-sized array.
+    if len(perm) != x_data.shape[0]:
+        raise RuntimeError(
+            f"stratification perm length ({len(perm)}) != rebuilt support length "
+            f"({x_data.shape[0]}); native and permuted builds disagree on support size"
+        )
 
     n_scaling = int(meta["n_scaling"])
     lower_phys, upper_phys = model.param_manager.get_bounds()

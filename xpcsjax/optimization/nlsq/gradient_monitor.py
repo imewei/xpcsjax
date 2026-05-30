@@ -302,8 +302,15 @@ class GradientCollapseMonitor:
         physical_grad_norm = np.linalg.norm(gradients[self.physical_indices])
         per_angle_grad_norm = np.linalg.norm(gradients[self.per_angle_indices])
 
-        # Compute ratio (avoid division by zero)
-        ratio = physical_grad_norm / (per_angle_grad_norm + 1e-12)
+        # Compute ratio. A zero / non-finite per-angle(scaling) denominator
+        # means the scaling block itself collapsed (the opposite degeneracy
+        # end) -> ratio is inf, which the dual-ended trigger below treats as a
+        # collapse rather than masking it with a tiny epsilon.
+        denom = per_angle_grad_norm
+        if denom > 0 and np.isfinite(denom):
+            ratio = physical_grad_norm / denom
+        else:
+            ratio = float("inf")
 
         # Record history.  deque(maxlen=MAX_HISTORY_SIZE) drops the oldest
         # entry automatically on append — no manual pop loop needed.
@@ -316,8 +323,12 @@ class GradientCollapseMonitor:
             }
         )
 
-        # Check for collapse
-        if ratio < self.config.ratio_threshold:
+        # Check for collapse at either degeneracy end: a low ratio (physical
+        # block collapsing) OR a non-finite ratio (scaling block collapsed,
+        # denom was zero/non-finite). Since `inf < threshold` is False, the
+        # latter would be silently missed by a single-ended test.
+        triggered = (ratio < self.config.ratio_threshold) or (not np.isfinite(ratio))
+        if triggered:
             self.consecutive_count += 1
         else:
             self.consecutive_count = 0
@@ -339,7 +350,7 @@ class GradientCollapseMonitor:
 
                 logger.warning(
                     f"GRADIENT COLLAPSE DETECTED at iteration {iteration}! "
-                    f"ratio={ratio:.6f} < threshold={self.config.ratio_threshold}"
+                    f"ratio={ratio:.6f} (threshold={self.config.ratio_threshold})"
                 )
                 logger.warning(f"  Physical gradient norm: {physical_grad_norm:.6e}")
                 logger.warning(f"  Per-angle gradient norm: {per_angle_grad_norm:.6e}")
@@ -562,7 +573,7 @@ def create_gradient_function_with_monitoring(
     return monitored_grad_fn
 
 
-def build_gradient_collapse_callback(monitor, grad_fn):
+def build_gradient_collapse_callback(monitor, grad_fn, *, update_frequency=None):
     """Return an NLSQ ``curve_fit`` callback that feeds ``monitor`` each iteration.
 
     Strictly observational: computes ``grad_fn(params)`` and calls
@@ -577,9 +588,23 @@ def build_gradient_collapse_callback(monitor, grad_fn):
     grad_fn : callable
         ``grad_fn(params: np.ndarray) -> np.ndarray`` — full gradient of the
         scalar loss (typically ``jax.grad(lambda p: 0.5*sum(residual(p)**2))``).
+    update_frequency : int or None, optional
+        Throttle for the extra per-iteration ``jax.grad`` evaluation. When
+        ``None`` (default) the effective frequency falls back to the monitor's
+        ``check_interval`` (or 1). With ``freq == 1`` the callback fires every
+        iteration (current behavior); with ``freq == N`` it computes the
+        gradient / runs ``monitor.check`` only on iterations where
+        ``iteration % N == 0``. Strictly diagnostic — never mutates solve state.
     """
+    freq = int(
+        update_frequency
+        if update_frequency is not None
+        else (getattr(monitor.config, "check_interval", 1) or 1)
+    )
 
     def callback(iteration, cost, params, info=None, **kwargs):
+        if freq > 1 and int(iteration) % freq != 0:
+            return None
         try:
             p = np.asarray(params, dtype=np.float64)
             g = np.asarray(grad_fn(p), dtype=np.float64)

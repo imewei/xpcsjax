@@ -37,6 +37,12 @@ def test_heterodyne_curve_fit_callback_is_observational_and_per_iteration():
 
     assert np.array_equal(np.asarray(base.parameters), np.asarray(withcb.parameters))
     assert base.chi_squared == withcb.chi_squared
+    # Hard-gate covariance (pcov) bit-identity too: monitor-on vs monitor-off
+    # must be identical at rtol=0/atol=0 on popt + pcov + chi2.
+    cov_a = getattr(base, "covariance", None)
+    cov_b = getattr(withcb, "covariance", None)
+    if cov_a is not None and cov_b is not None:
+        assert np.array_equal(np.asarray(cov_a), np.asarray(cov_b))
     assert len(seen) == 0 or len(seen) >= 2  # per-iteration, or fallback-only
 
 
@@ -138,6 +144,11 @@ def test_homodyne_curve_fit_callback_is_observational_and_per_iteration():
     withcb_params = np.asarray(_result_params(withcb), dtype=np.float64)
     assert np.array_equal(base_params, withcb_params)
     assert _result_chi2(base) == _result_chi2(withcb)
+    # Hard-gate covariance (pcov) bit-identity too (popt + pcov + chi2 at rtol=0).
+    cov_a = getattr(base, "covariance", None)
+    cov_b = getattr(withcb, "covariance", None)
+    if cov_a is not None and cov_b is not None:
+        assert np.array_equal(np.asarray(cov_a), np.asarray(cov_b))
     assert len(seen) == 0 or len(seen) >= 2  # per-iteration, or fallback-only
 
 

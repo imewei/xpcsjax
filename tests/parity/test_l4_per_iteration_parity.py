@@ -103,6 +103,11 @@ def test_homodyne_l4_is_diagnostic_only():
         _homodyne_result_params(r_on), _homodyne_result_params(r_off)
     )
     assert _homodyne_result_chi2(r_on) == _homodyne_result_chi2(r_off)
+    # Covariance (pcov) bit-identity is part of the same hard gate as popt + chi2.
+    cov_on = getattr(r_on, "covariance", None)
+    cov_off = getattr(r_off, "covariance", None)
+    if cov_on is not None and cov_off is not None:
+        assert np.array_equal(np.asarray(cov_on), np.asarray(cov_off))
 
 
 def test_homodyne_l4_is_per_iteration_block():
@@ -117,10 +122,13 @@ def test_homodyne_l4_is_per_iteration_block():
 
     res = fit_nlsq(data, cfg)
     gm = _homodyne_gradient_monitor_block(res)
-    assert gm["mechanism"] in ("per_iteration_gradient_ratio", "post_solve_fallback")
     assert "collapse_detected" in gm and "max_gradient_ratio" in gm
-    if gm["mechanism"] == "per_iteration_gradient_ratio":
-        assert gm["n_observations"] >= 2
+    # The laminar STANDARD curve_fit path wires the per-iteration callback
+    # explicitly (Phase-0 seam), so the live mechanism MUST be
+    # per_iteration_gradient_ratio. Strict assertion catches a silent regression
+    # to the post-solve covariance-condition fallback.
+    assert gm["mechanism"] == "per_iteration_gradient_ratio"
+    assert gm["n_observations"] >= 2
 
 
 def test_heterodyne_l4_is_per_iteration_block():
@@ -129,10 +137,15 @@ def test_heterodyne_l4_is_per_iteration_block():
                                 "enable_gradient_monitoring": True})
     res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
     gm = res.nlsq_diagnostics["gradient_monitor"]
-    assert gm["mechanism"] in ("per_iteration_gradient_ratio", "post_solve_fallback")
     assert "collapse_detected" in gm and "max_gradient_ratio" in gm
-    if gm["mechanism"] == "per_iteration_gradient_ratio":
-        assert gm["n_observations"] >= 2
+    # Production wires the per-iteration callback explicitly on the heterodyne
+    # joint-fit path, so the live mechanism MUST be per_iteration_gradient_ratio
+    # (empirically n_observations ~= 782 for this fixture). Asserting strictly
+    # here means a future regression that silently degrades the joint-fit path to
+    # the post-solve covariance-condition fallback fails CI instead of passing
+    # vacuously through a permissive `mechanism in (...)` check.
+    assert gm["mechanism"] == "per_iteration_gradient_ratio"
+    assert gm["n_observations"] >= 2
 
 
 def test_heterodyne_l4_is_diagnostic_only():
@@ -145,6 +158,11 @@ def test_heterodyne_l4_is_diagnostic_only():
     r_off = fit_nlsq_multi_phi(model, c2, phi, off, weights=None)
     assert np.array_equal(np.asarray(r_on.parameters), np.asarray(r_off.parameters))
     assert r_on.chi_squared == r_off.chi_squared
+    # Covariance (pcov) bit-identity is part of the same hard gate as popt + chi2.
+    cov_on = getattr(r_on, "covariance", None)
+    cov_off = getattr(r_off, "covariance", None)
+    if cov_on is not None and cov_off is not None:
+        assert np.array_equal(np.asarray(cov_on), np.asarray(cov_off))
 
 
 # ---------------------------------------------------------------------------
@@ -164,11 +182,12 @@ _EXPECTED_GM_KEYS = {
 
 
 def test_both_modes_emit_same_l4_block_keys():
-    """Heterodyne averaged mode must emit the canonical gradient_monitor keys.
+    """Heterodyne AND laminar_flow must emit the SAME canonical gradient_monitor
+    key set — L4 is a shared mechanism, so the block contract is mode-agnostic.
 
-    The homodyne block keys are already verified by
-    ``test_homodyne_l4_is_per_iteration_block``; this test locks the
-    heterodyne side to the same contract.
+    Heterodyne side locks to the canonical keys; the laminar side is fitted with
+    monitoring enabled and its block-key set is asserted EQUAL to the heterodyne
+    block's, so a future divergence in either result builder fails CI.
     """
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
     het = fit_nlsq_multi_phi(
@@ -184,7 +203,19 @@ def test_both_modes_emit_same_l4_block_keys():
         ),
         weights=None,
     )
-    assert set(het.nlsq_diagnostics["gradient_monitor"]) >= _EXPECTED_GM_KEYS
+    het_keys = set(het.nlsq_diagnostics["gradient_monitor"])
+    assert het_keys >= _EXPECTED_GM_KEYS
+
+    # Laminar counterpart: same shared L4 block, asserted to carry the SAME keys.
+    from tests.optimization.test_l4_callback_observational import _build_laminar_fit
+
+    fit_nlsq, data, cfg = _build_laminar_fit()
+    cfg.config["optimization"]["nlsq"]["anti_degeneracy"]["gradient_monitoring"] = {
+        "enable": True
+    }
+    lam = fit_nlsq(data, cfg)
+    lam_keys = set(lam.nlsq_diagnostics["gradient_monitor"])
+    assert lam_keys == het_keys
 
 
 def test_l4_fallback_block_when_no_observations():

@@ -207,6 +207,51 @@ def test_max_imbalance_ratio_can_loosen_above_5(monkeypatch: pytest.MonkeyPatch)
     assert called["hit"] is True
 
 
+# =============================================================================
+# Item 2 — shipped template <-> parser parity
+#
+# Loads the SHIPPED ``xpcsjax_two_component.yaml`` through the real ConfigManager
+# path and asserts the parsed StratificationConfig exposes the homodyne-matching
+# defaults. This locks template<->parser agreement: if the YAML ships a value
+# that the parser would surface differently (or a future YAML edit drifts from
+# homodyne's defaults), this fails loudly.
+# =============================================================================
+
+
+def _shipped_two_component_template_path() -> str:
+    """Resolve the installed ``xpcsjax_two_component.yaml`` path (import-anchored)."""
+    from importlib import resources
+
+    return str(resources.files("xpcsjax.config.templates") / "xpcsjax_two_component.yaml")
+
+
+def test_shipped_template_stratification_defaults() -> None:
+    """The shipped two_component template's stratification block parses to the
+    homodyne-matching defaults through ConfigManager + StratificationConfig."""
+    from xpcsjax.config import ConfigManager
+
+    cfg = ConfigManager(_shipped_two_component_template_path())
+    assert cfg.config is not None
+    opt_block = cfg.config.get("optimization", {})
+
+    # The block is a SIBLING of optimization.nlsq (not nested inside it).
+    assert "stratification" in opt_block, (
+        "shipped two_component template must ship optimization.stratification"
+    )
+
+    sc = StratificationConfig.from_optimization_block(opt_block)
+
+    # Homodyne-matching defaults (these are the shipped values in the YAML).
+    assert sc.enabled == "auto"
+    assert sc.target_chunk_size == 100_000
+    assert sc.max_imbalance_ratio == 5.0
+    assert sc.check_memory_safety is True
+    assert sc.use_index_based is False
+    # force_sequential_fallback ships false (inert for heterodyne, parsed for
+    # shared-config compatibility).
+    assert sc.force_sequential_fallback is False
+
+
 def test_use_index_based_flows_into_diagnostics() -> None:
     """``use_index_based: false`` flows into the stratified-LS result's
     ``stratification_diagnostics`` (not hard-coded True)."""
