@@ -21,6 +21,30 @@ def test_reorder_shuffle_off_is_pure_interleave():
     assert np.array_equal(perm_a, perm_b)
 
 
+def test_preshuffle_preserves_chunk_angle_balance():
+    """Seed-42 shuffle is a PRE-shuffle that preserves per-chunk angle balance.
+
+    A correct pre-shuffle re-derives stratification from the relabeled angles,
+    so each chunk keeps its balanced angle multiset; only WHICH concrete points
+    fill each angle's slots changes. A post-stratification global shuffle would
+    scramble that per-chunk composition (the bug this guards against).
+    """
+    phi = np.repeat([10.0, 20.0, 30.0], 8)  # 3 angles, 8 pts each
+    perm_off, sizes_off = reorder_for_stratification(phi, target_chunk_size=6, shuffle=False)
+    perm_on, sizes_on = reorder_for_stratification(phi, target_chunk_size=6, shuffle=True, seed=42)
+
+    # Same chunk boundaries regardless of shuffle.
+    assert sizes_on == sizes_off
+
+    # Per-chunk angle multiset preserved -> stratified balance intact.
+    bounds = np.cumsum([0, *sizes_off])
+    for a, b in zip(bounds[:-1], bounds[1:], strict=True):
+        assert sorted(phi[perm_on[a:b]].tolist()) == sorted(phi[perm_off[a:b]].tolist())
+
+    # The pre-shuffle still changed the concrete ordering.
+    assert not np.array_equal(perm_on, perm_off)
+
+
 def test_averaged_scaling_expander_broadcasts():
     import jax.numpy as jnp
 

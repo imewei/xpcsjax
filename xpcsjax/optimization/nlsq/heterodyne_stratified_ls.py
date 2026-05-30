@@ -44,10 +44,14 @@ def reorder_for_stratification(
     target_chunk_size : int
         Interleaved-stratification chunk target (model-agnostic, from chunking.py).
     shuffle : bool
-        If True, apply a fixed-seed permutation after stratification to break
-        angle-sequential ordering (homodyne local-minimum-avoidance parity).
+        If True, apply a fixed-seed PRE-shuffle to the flat point order BEFORE
+        stratification, then compose back. Stratification is re-derived from the
+        relabeled angles, so each chunk keeps its balanced angle multiset; only
+        WHICH concrete points fill each angle's slots changes (homodyne
+        local-minimum-avoidance parity — alters trajectory, not objective). With
+        ``shuffle=False`` the behavior is identical to no shuffle (seed-independent).
     seed : int
-        Shuffle seed (fixed at 42 for reproducibility; matches homodyne).
+        Pre-shuffle seed (fixed at 42 for reproducibility; matches homodyne).
 
     Returns
     -------
@@ -55,11 +59,18 @@ def reorder_for_stratification(
         ``perm`` reorders any per-point array; ``chunk_sizes`` are the
         interleaved chunk sizes from stratification.
     """
-    perm, chunk_sizes = create_angle_stratified_indices(phi_flat, target_chunk_size)
-    perm = np.asarray(perm, dtype=np.int64)
+    phi_flat = np.asarray(phi_flat)
+    n = len(phi_flat)
     if shuffle:
         rng = np.random.RandomState(seed)
-        perm = perm[rng.permutation(len(perm))]
+        pre = rng.permutation(n)  # pre-shuffle the flat point order
+    else:
+        pre = np.arange(n)
+    # Stratify the (pre-shuffled) labels, then compose back so chunk balance is
+    # preserved. ``strat_perm`` indexes ``phi_flat[pre]``, so ``pre[strat_perm]``
+    # maps back to the original point indices.
+    strat_perm, chunk_sizes = create_angle_stratified_indices(phi_flat[pre], target_chunk_size)
+    perm = pre[np.asarray(strat_perm, dtype=np.int64)]
     return perm, list(chunk_sizes)
 
 
