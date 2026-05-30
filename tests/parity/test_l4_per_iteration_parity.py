@@ -145,3 +145,60 @@ def test_heterodyne_l4_is_diagnostic_only():
     r_off = fit_nlsq_multi_phi(model, c2, phi, off, weights=None)
     assert np.array_equal(np.asarray(r_on.parameters), np.asarray(r_off.parameters))
     assert r_on.chi_squared == r_off.chi_squared
+
+
+# ---------------------------------------------------------------------------
+# Task 4 additions: cross-mode block-key parity + fallback coverage
+# ---------------------------------------------------------------------------
+
+_EXPECTED_GM_KEYS = {
+    "collapse_detected",
+    "trigger_count",
+    "min_gradient_ratio",
+    "max_gradient_ratio",
+    "n_observations",
+    "ratio_threshold",
+    "consecutive_triggers",
+    "mechanism",
+}
+
+
+def test_both_modes_emit_same_l4_block_keys():
+    """Heterodyne averaged mode must emit the canonical gradient_monitor keys.
+
+    The homodyne block keys are already verified by
+    ``test_homodyne_l4_is_per_iteration_block``; this test locks the
+    heterodyne side to the same contract.
+    """
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    het = fit_nlsq_multi_phi(
+        model,
+        c2,
+        phi,
+        NLSQConfig.from_dict(
+            {
+                "analysis_mode": "two_component",
+                "per_angle_mode": "averaged",
+                "enable_gradient_monitoring": True,
+            }
+        ),
+        weights=None,
+    )
+    assert set(het.nlsq_diagnostics["gradient_monitor"]) >= _EXPECTED_GM_KEYS
+
+
+def test_l4_fallback_block_when_no_observations():
+    """An empty monitor (callback never fired) must produce mechanism='post_solve_fallback'."""
+    from xpcsjax.optimization.nlsq.gradient_monitor import (
+        GradientCollapseMonitor,
+        GradientMonitorConfig,
+        gradient_monitor_diagnostics,
+    )
+
+    mon = GradientCollapseMonitor(
+        GradientMonitorConfig(), physical_indices=[0], per_angle_indices=[1]
+    )
+    block = gradient_monitor_diagnostics(mon)  # empty history
+    assert block["mechanism"] == "post_solve_fallback"
+    assert "collapse_detected" in block
+    assert "max_gradient_ratio" in block
