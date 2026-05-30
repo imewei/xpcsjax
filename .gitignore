@@ -166,6 +166,7 @@ tempCodeRunnerFile.py
 # ----------------------------------------------------------------------------
 .agent/
 .agents/
+.antigravitycli/
 .claude/
 .claude-progress.md
 .claude-scratch

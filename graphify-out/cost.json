@@ -31,6 +31,13 @@
       "output_tokens": 113641,
       "files": 23,
       "mode": "update"
+    },
+    {
+      "date": "2026-05-29T23:31:30.279413+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 316,
+      "note": "incremental: 7 code (AST) + 1 doc (subagent ~81.8k tok), 3 deleted"
     }
   ],
   "total_input_tokens": 170461,

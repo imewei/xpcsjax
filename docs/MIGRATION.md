@@ -28,13 +28,38 @@ The YAML config's `analysis_mode` field picks the physics model:
 | `two_component` | Heterodyne reference + sample + velocity + mixing | 14 |
 | `heterodyne` | Accepted synonym for `two_component` (normalized at load) | 14 |
 
-> **Breaking (vs. pre-rename xpcsjax and vs. the upstream `homodyne`
-> package):** the bare value `analysis_mode: static` is no longer
-> accepted. It was ambiguous between `static_isotropic` and
-> `static_anisotropic` and silently collapsed downstream. Configs
-> that previously used `analysis_mode: static` must now specify
-> the variant explicitly. The recommended default for legacy `static`
-> configs is `static_anisotropic` (preserves angle resolution).
+> **Deprecation (vs. the upstream `homodyne` package):** the bare value
+> `analysis_mode: static` is **accepted but deprecated**. It was ambiguous
+> between `static_isotropic` and `static_anisotropic`, so `ConfigManager`
+> normalizes it to `static_anisotropic` (angle-resolved — the
+> drop-in-compatible default) and emits a deprecation warning:
+>
+> ```text
+> analysis_mode='static' is deprecated; mapping to 'static_anisotropic'
+> (angle-resolved drop-in). Set 'static_anisotropic' or 'static_isotropic'
+> explicitly to silence this warning.
+> ```
+>
+> Bare `static` is **not** hard-failed: upstream `homodyne` configs and the
+> characterization parity oracle legitimately use it. Set the variant
+> explicitly to silence the warning.
+
+### Command-line interface
+
+A `xpcsjax` console entry point ships in v0.1 (the upstream packages had their
+own runners). It dispatches on the same YAML `analysis_mode`:
+
+```bash
+# Run an NLSQ fit from a YAML config
+xpcsjax --config analysis.yaml
+
+# Override the output directory; run multistart with 16 restarts
+xpcsjax --config analysis.yaml --output ./results --multistart --multistart-n 16
+```
+
+Companion entry points: `xpcsjax-config` (generate a starter YAML),
+`xpcsjax-config-xla` (XLA flags), `xpcsjax-validate` (system check), and
+`xpcsjax-post-install` / `xpcsjax-cleanup` (shell-completion installer).
 
 ---
 
@@ -112,11 +137,15 @@ but does NOT rename parameter keys automatically.
 
 ## What is NOT in v0.1 (deferred to v0.2+)
 
-- Visualization (matplotlib + pyqtgraph + datashader)
-- CLI (`xpcsjax fit ...`)
-- Shell-completion installer (`runtime/`, `post_install.py`)
-- PyQt6 desktop UI
+- **Interactive** visualization (PyQtGraph) and the PyQt6 desktop UI
 - NetworkDynamics, advanced HPC scheduling
+
+> **Shipped since the original v0.1 merge plan** (no longer deferred):
+> static-plot visualization (matplotlib + datashader) via
+> `from xpcsjax.viz import plot_nlsq_fit, plot_residual_map,
+> plot_simulated_data, generate_nlsq_plots`; the `xpcsjax` CLI (see
+> [Command-line interface](#command-line-interface) above); and the
+> shell-completion installer (`runtime/`, `post_install.py`).
 
 ---
 
