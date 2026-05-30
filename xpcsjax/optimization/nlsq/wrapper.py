@@ -201,6 +201,112 @@ from xpcsjax.optimization.nlsq.parameter_utils import (  # noqa: E402
 _memory_logger = get_logger(__name__)
 
 
+def _homodyne_l4_monitoring_enabled(config: Any) -> tuple[bool, float, int]:
+    """Read the homodyne L4 gradient-monitoring gate from the config.
+
+    The flag lives at ``optimization.nlsq.anti_degeneracy.gradient_monitoring``
+    (mirroring ``AntiDegeneracyConfig`` / the mode YAML templates). When that
+    block is absent the gate defaults to **disabled** so behavior is unchanged
+    for configs that never opted into L4 — the live solve path must be a no-op
+    unless monitoring is explicitly requested.
+
+    Returns ``(enabled, ratio_threshold, consecutive_triggers)``.
+    """
+    ratio_threshold = 0.01
+    consecutive_triggers = 5
+    if config is None or not hasattr(config, "config"):
+        return False, ratio_threshold, consecutive_triggers
+    try:
+        gm = (
+            config.config.get("optimization", {})
+            .get("nlsq", {})
+            .get("anti_degeneracy", {})
+            .get("gradient_monitoring", {})
+        )
+    except AttributeError:
+        return False, ratio_threshold, consecutive_triggers
+    if not isinstance(gm, dict):
+        return False, ratio_threshold, consecutive_triggers
+    enabled = bool(gm.get("enable", False))
+    try:
+        ratio_threshold = float(gm.get("ratio_threshold", ratio_threshold))
+    except (TypeError, ValueError):
+        pass
+    try:
+        consecutive_triggers = int(gm.get("consecutive_triggers", consecutive_triggers))
+    except (TypeError, ValueError):
+        pass
+    return enabled, ratio_threshold, consecutive_triggers
+
+
+def _build_homodyne_l4_callback(
+    config: Any,
+    solver_residual_fn: Callable[..., np.ndarray],
+    xdata: np.ndarray,
+    ydata: np.ndarray,
+    validated_params: np.ndarray,
+    per_angle_scaling: bool,
+    n_phi: int,
+    n_physical: int,
+) -> tuple[Any, Any]:
+    """Build the L4 per-iteration gradient-collapse monitor + curve_fit callback.
+
+    Returns ``(None, None)`` when monitoring is disabled (so the caller passes
+    no callback and the fit is unchanged). When enabled, returns
+    ``(monitor, callback)`` where the monitor watches the HOMODYNE per-angle-FIRST
+    layout ``[per_angle (2*n_phi) | physical (n_physical)]`` and the callback is
+    strictly observational — Phase-0 proved NLSQ's curve_fit callback fires
+    per-iteration and never perturbs the solve.
+
+    ``solver_residual_fn`` is the NLSQ MODEL function ``f(xdata, *params) -> y``
+    (NLSQ forms residuals internally), so the monitored loss reconstructs the
+    least-squares objective ``0.5 * sum((model(xdata, *p) - ydata) ** 2)``.
+    """
+    enabled, ratio_threshold, consecutive_triggers = _homodyne_l4_monitoring_enabled(
+        config
+    )
+    if not enabled:
+        return None, None
+
+    from xpcsjax.optimization.nlsq.gradient_monitor import (
+        GradientCollapseMonitor,
+        GradientMonitorConfig,
+        build_gradient_collapse_callback,
+    )
+
+    total = len(validated_params)
+    if per_angle_scaling and total >= (2 * n_phi + n_physical):
+        # Per-angle-FIRST: [per_angle (2*n_phi) | physical (n_physical)].
+        per_angle_indices = list(range(0, 2 * n_phi))
+        physical_indices = list(range(2 * n_phi, 2 * n_phi + n_physical))
+    else:
+        # Scalar layout: [contrast, offset | physical]. Two scaling slots.
+        per_angle_indices = [0, 1]
+        physical_indices = list(range(2, total))
+
+    gm_cfg = GradientMonitorConfig(
+        ratio_threshold=ratio_threshold,
+        consecutive_triggers=consecutive_triggers,
+        check_interval=1,
+    )
+    monitor = GradientCollapseMonitor(
+        gm_cfg,
+        physical_indices=physical_indices,
+        per_angle_indices=per_angle_indices,
+    )
+
+    _xdata = jnp.asarray(xdata)
+    _ydata = jnp.asarray(ydata)
+
+    def _loss(p: Any) -> Any:
+        model = solver_residual_fn(_xdata, *p)
+        return 0.5 * jnp.sum((model - _ydata) ** 2)
+
+    grad_fn = jax.jit(jax.grad(_loss))
+    callback = build_gradient_collapse_callback(monitor, grad_fn)
+    return monitor, callback
+
+
 def _extract_n_points(data: Any) -> int:
     """Extract number of data points from various data formats.
 
@@ -1688,6 +1794,21 @@ class NLSQWrapper(NLSQAdapterBase):
             f"(peak memory: {memory_stats['peak_gb']:.2f} GB)"
         )
 
+        # Step 7b: L4 per-iteration gradient-collapse monitor (strictly
+        # observational). Returns (None, None) when the gradient_monitoring gate
+        # is disabled, leaving the solve unchanged. The monitor watches the
+        # homodyne per-angle-FIRST layout and feeds NLSQ's curve_fit callback.
+        _l4_monitor, _l4_callback = _build_homodyne_l4_callback(
+            config=config,
+            solver_residual_fn=solver_residual_fn,
+            xdata=xdata,
+            ydata=ydata,
+            validated_params=validated_params,
+            per_angle_scaling=per_angle_scaling,
+            n_phi=n_phi_unique,
+            n_physical=len(physical_param_names),
+        )
+
         # Step 8: Execute optimization with strategy fallback
         popt, pcov, info, recovery_actions, convergence_status = (
             self._execute_optimization_with_fallback(
@@ -1702,8 +1823,14 @@ class NLSQWrapper(NLSQAdapterBase):
                 config=config,
                 start_time=start_time,
                 logger=logger,
+                callback=_l4_callback,
             )
         )
+
+        # L4: assemble the gradient_monitor diagnostics block from the monitor.
+        # Strictly diagnostic — attached under the same ``gradient_monitor`` key
+        # heterodyne uses, independent of the diagnostics_enabled gate.
+        _l4_extras = self._assemble_homodyne_l4_extras(_l4_monitor)
 
         # Compute effective DOF for the diagnostics covariance scaling (s²).
         # In auto_averaged mode the optimizer works on a compressed 9-param vector
@@ -1747,6 +1874,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 "solver_residual_fn": solver_residual_fn,
                 "sample_scaling": sample_scaling,
                 "param_labels": param_labels,
+                "l4_extras": _l4_extras,
             },
             logger=logger,
             n_dof_effective=n_dof_effective,
@@ -1765,6 +1893,7 @@ class NLSQWrapper(NLSQAdapterBase):
         config: Any,
         start_time: float,
         logger: logging.Logger | logging.LoggerAdapter[logging.Logger],
+        callback: Callable[..., Any] | None = None,
     ) -> tuple[np.ndarray, np.ndarray | None, dict[str, Any], list[str], str]:
         """Execute optimization with strategy fallback.
 
@@ -1789,7 +1918,36 @@ class NLSQWrapper(NLSQAdapterBase):
             curve_fit_fn=curve_fit,
             curve_fit_large_fn=curve_fit_large,
             fast_mode=self.fast_mode,
+            callback=callback,
         )
+
+    @staticmethod
+    def _assemble_homodyne_l4_extras(monitor: Any) -> dict[str, Any]:
+        """Build the L4 ``gradient_monitor`` diagnostics block from a monitor.
+
+        Returns ``{}`` when ``monitor`` is ``None`` (monitoring disabled). When
+        the per-iteration callback recorded zero observations the canonical
+        builder tags the block ``mechanism="post_solve_fallback"`` — homodyne
+        emits that block as-is (the post-solve covariance-condition variant is a
+        heterodyne extension and is left out of scope here per Task 3).
+        """
+        if monitor is None:
+            return {}
+        from xpcsjax.optimization.nlsq.gradient_monitor import (
+            gradient_monitor_diagnostics,
+        )
+
+        gm_block = gradient_monitor_diagnostics(monitor)
+        _memory_logger.info(
+            "L4 gradient collapse monitor enabled (laminar_flow): "
+            "mechanism=%s, n_observations=%s, max_gradient_ratio=%.3g, "
+            "collapse_detected=%s.",
+            gm_block["mechanism"],
+            gm_block.get("n_observations"),
+            gm_block["max_gradient_ratio"],
+            gm_block["collapse_detected"],
+        )
+        return {"gradient_monitor": gm_block}
 
     def _post_process_results(
         self,
@@ -1995,6 +2153,17 @@ class NLSQWrapper(NLSQAdapterBase):
             n_params_effective=n_dof_effective,
         )
 
+        # L4: attach the gradient_monitor block under nlsq_diagnostics (same key
+        # heterodyne uses), independent of the diagnostics_enabled gate. Strictly
+        # diagnostic — never mutates popt/pcov/chi2.
+        l4_extras = diagnostics_state.get("l4_extras")
+        if l4_extras:
+            existing = getattr(result, "nlsq_diagnostics", None)
+            if not isinstance(existing, dict):
+                existing = {}
+            existing.update(l4_extras)
+            result.nlsq_diagnostics = existing
+
         logger.info(
             f"Final chi-squared: {result.chi_squared:.4e}, "
             f"reduced chi-squared: {result.reduced_chi_squared:.4f}",
@@ -2013,6 +2182,7 @@ class NLSQWrapper(NLSQAdapterBase):
         logger: logging.Logger | logging.LoggerAdapter[logging.Logger],
         loss_name: str,
         x_scale_value: float | str,
+        callback: Callable[..., Any] | None = None,
     ) -> tuple[np.ndarray, np.ndarray, dict, list[str], str]:
         """Execute optimization with automatic error recovery (T022-T024)."""
         return execute_with_recovery(
@@ -2028,6 +2198,7 @@ class NLSQWrapper(NLSQAdapterBase):
             handle_nlsq_result_fn=self._handle_nlsq_result,
             curve_fit_fn=curve_fit,
             curve_fit_large_fn=curve_fit_large,
+            callback=callback,
         )
 
     def _diagnose_error(

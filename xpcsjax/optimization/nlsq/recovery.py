@@ -50,6 +50,7 @@ def execute_with_recovery(
     handle_nlsq_result_fn: Callable,
     curve_fit_fn: Callable,
     curve_fit_large_fn: Callable,
+    callback: Callable | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict, list[str], str]:
     """Execute optimization with automatic error recovery (T022-T024).
 
@@ -171,6 +172,10 @@ def execute_with_recovery(
                     stability="auto",
                     rescale_data=False,
                 )
+                if callback is not None and "callback" not in _std_kwargs:
+                    # Real L4 per-iteration monitor callback (strictly
+                    # observational); takes precedence over the Task-0 debug seam.
+                    _std_kwargs["callback"] = callback
                 _dbg_cb = _get_debug_curvefit_callback()
                 if _dbg_cb is not None and "callback" not in _std_kwargs:
                     _std_kwargs["callback"] = _dbg_cb

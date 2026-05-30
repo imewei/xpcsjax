@@ -229,6 +229,7 @@ def execute_optimization_with_fallback(
     curve_fit_fn: Callable,
     curve_fit_large_fn: Callable,
     fast_mode: bool = False,
+    callback: Callable | None = None,
 ) -> tuple[np.ndarray, np.ndarray | None, dict[str, Any], list[str], str]:
     """Execute optimization with strategy fallback.
 
@@ -279,6 +280,7 @@ def execute_optimization_with_fallback(
                         logger=log,
                         loss_name=loss_name,
                         x_scale_value=x_scale_value,
+                        callback=callback,
                     )
                 )
             else:
@@ -321,6 +323,10 @@ def execute_optimization_with_fallback(
                         stability="auto",
                         rescale_data=False,
                     )
+                    if callback is not None and "callback" not in _std_kwargs:
+                        # Real L4 per-iteration monitor callback (strictly
+                        # observational); precedence over the Task-0 debug seam.
+                        _std_kwargs["callback"] = callback
                     _dbg_cb = _get_debug_curvefit_callback()
                     if _dbg_cb is not None and "callback" not in _std_kwargs:
                         _std_kwargs["callback"] = _dbg_cb
