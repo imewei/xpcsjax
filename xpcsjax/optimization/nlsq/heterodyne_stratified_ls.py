@@ -399,10 +399,11 @@ def fit_heterodyne_stratified_least_squares(
     # support (``x_data0[:, 0]``). If a future builder change reorders or resizes
     # that support, this guard fails loudly instead of silently mis-indexing the
     # residual via a length-mismatched permutation.
-    assert len(perm) == x_data0.shape[0], (
-        f"stratification perm length ({len(perm)}) != filtered support length "
-        f"({x_data0.shape[0]}); the builder's flat-support ordering changed"
-    )
+    if len(perm) != x_data0.shape[0]:
+        raise RuntimeError(
+            f"stratification perm length ({len(perm)}) != filtered support length "
+            f"({x_data0.shape[0]}); the builder's flat-support ordering changed"
+        )
     residual_fn, x_data, y_data, p0_full, meta = build_joint_pointwise_residual(
         model=model,
         stratified_data=strat,
@@ -414,10 +415,11 @@ def fit_heterodyne_stratified_least_squares(
     # The reordered build must produce the SAME support length perm was derived
     # against — otherwise ``x_data = x_data0[perm]`` (inside the builder) would have
     # indexed a differently-sized array.
-    assert len(perm) == x_data.shape[0], (
-        f"stratification perm length ({len(perm)}) != rebuilt support length "
-        f"({x_data.shape[0]}); native and permuted builds disagree on support size"
-    )
+    if len(perm) != x_data.shape[0]:
+        raise RuntimeError(
+            f"stratification perm length ({len(perm)}) != rebuilt support length "
+            f"({x_data.shape[0]}); native and permuted builds disagree on support size"
+        )
 
     n_scaling = int(meta["n_scaling"])
     lower_phys, upper_phys = model.param_manager.get_bounds()
