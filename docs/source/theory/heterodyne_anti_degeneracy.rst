@@ -132,3 +132,9 @@ regardless of mode. The ``shear_weighting`` value is mode-appropriate:
 This was a **diagnostics-only** unification: the L2/L3 solve code was already
 shared between the two modes, and only the emission of the diagnostics keys was
 made symmetric. Both characterization baselines remain bit-identical.
+
+These flat top-level activation keys are guaranteed on the in-memory laminar
+path and on all heterodyne paths; the laminar ≥1 M stratified/sequential and
+HYBRID_STREAMING return paths bypass ``_post_process_results`` and continue to
+nest their L2/L3/L5 layer state under ``controller_diagnostics`` (lifting them
+to the flat contract is a documented follow-up).
