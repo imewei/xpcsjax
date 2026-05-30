@@ -306,11 +306,11 @@ def execute_optimization_with_fallback(
                     )
                     popt, pcov, info = result_tuple
                 else:
-                    popt, pcov = curve_fit_fn(
-                        wrapped_residual_fn,
-                        xdata,
-                        ydata,
-                        p0=validated_params.tolist(),
+                    from xpcsjax.optimization.nlsq.gradient_monitor import (
+                        _get_debug_curvefit_callback,
+                    )
+
+                    _std_kwargs: dict = dict(
                         bounds=nlsq_bounds,
                         loss=loss_name,
                         x_scale=x_scale_value,
@@ -320,6 +320,16 @@ def execute_optimization_with_fallback(
                         verbose=0,
                         stability="auto",
                         rescale_data=False,
+                    )
+                    _dbg_cb = _get_debug_curvefit_callback()
+                    if _dbg_cb is not None and "callback" not in _std_kwargs:
+                        _std_kwargs["callback"] = _dbg_cb
+                    popt, pcov = curve_fit_fn(
+                        wrapped_residual_fn,
+                        xdata,
+                        ydata,
+                        p0=validated_params.tolist(),
+                        **_std_kwargs,
                     )
                     info = {}
 

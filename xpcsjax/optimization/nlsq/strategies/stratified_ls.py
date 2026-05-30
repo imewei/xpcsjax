@@ -576,7 +576,9 @@ def fit_with_stratified_least_squares(
 
     ls = LeastSquares(enable_stability=True, enable_diagnostics=True)
 
-    result = ls.least_squares(
+    from xpcsjax.optimization.nlsq.gradient_monitor import _get_debug_curvefit_callback
+
+    _ls_kwargs: dict = dict(
         fun=residual_fn,
         x0=initial_params,
         jac=None,  # Use JAX autodiff for Jacobian
@@ -588,6 +590,11 @@ def fit_with_stratified_least_squares(
         max_nfev=opt_max_nfev,
         verbose=0,
     )
+    _dbg_cb = _get_debug_curvefit_callback()
+    if _dbg_cb is not None and "callback" not in _ls_kwargs:
+        _ls_kwargs["callback"] = _dbg_cb
+
+    result = ls.least_squares(**_ls_kwargs)
 
     optimization_time = time.perf_counter() - optimization_start
     log.info(f"Optimization completed in {optimization_time:.2f}s")

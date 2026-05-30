@@ -29,6 +29,7 @@ except ImportError:
 
 import jax.numpy as jnp  # noqa: E402 — must follow nlsq to preserve x64 init order
 
+from xpcsjax.optimization.nlsq.gradient_monitor import _get_debug_curvefit_callback
 from xpcsjax.optimization.nlsq.heterodyne_adapter_base import NLSQAdapterBase
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 from xpcsjax.optimization.nlsq.heterodyne_memory import NLSQStrategy, select_nlsq_strategy
@@ -306,13 +307,17 @@ class NLSQAdapter(NLSQAdapterBase):
                 else f"auto({100 * n_params})",
                 config.x_scale,
             )
+            fit_kwargs = _optimizer_kwargs(config, method)
+            _dbg_cb = _get_debug_curvefit_callback()
+            if _dbg_cb is not None and "callback" not in fit_kwargs:
+                fit_kwargs["callback"] = _dbg_cb
             nlsq_result = fitter.curve_fit(  # type: ignore[attr-defined,union-attr]
                 f=_wrapped,
                 xdata=xdata,
                 ydata=ydata,
                 p0=initial_params,
                 bounds=(lower_bounds, upper_bounds),
-                **_optimizer_kwargs(config, method),
+                **fit_kwargs,
             )
 
             wall_time = time.perf_counter() - start_time
@@ -428,13 +433,17 @@ class NLSQAdapter(NLSQAdapterBase):
                 else f"auto({100 * n_params})",
                 config.x_scale,
             )
+            fit_kwargs = _optimizer_kwargs(config, method)
+            _dbg_cb = _get_debug_curvefit_callback()
+            if _dbg_cb is not None and "callback" not in fit_kwargs:
+                fit_kwargs["callback"] = _dbg_cb
             nlsq_result = fitter.curve_fit(  # type: ignore[attr-defined,union-attr]
                 f=jax_residual_fn,
                 xdata=xdata,
                 ydata=ydata,
                 p0=initial_params,
                 bounds=(lower_bounds, upper_bounds),
-                **_optimizer_kwargs(config, method),
+                **fit_kwargs,
             )
 
             wall_time = time.perf_counter() - start_time

@@ -156,11 +156,11 @@ def execute_with_recovery(
                             f"x_scale={x_scale_array[i]:.6e}"
                         )
 
-                popt, pcov = curve_fit_fn(
-                    residual_fn,
-                    xdata,
-                    ydata,
-                    p0=current_params.tolist(),
+                from xpcsjax.optimization.nlsq.gradient_monitor import (
+                    _get_debug_curvefit_callback,
+                )
+
+                _std_kwargs: dict = dict(
                     bounds=bounds,
                     loss=loss_name,
                     x_scale=x_scale_array,
@@ -170,6 +170,16 @@ def execute_with_recovery(
                     verbose=2,
                     stability="auto",
                     rescale_data=False,
+                )
+                _dbg_cb = _get_debug_curvefit_callback()
+                if _dbg_cb is not None and "callback" not in _std_kwargs:
+                    _std_kwargs["callback"] = _dbg_cb
+                popt, pcov = curve_fit_fn(
+                    residual_fn,
+                    xdata,
+                    ydata,
+                    p0=current_params.tolist(),
+                    **_std_kwargs,
                 )
                 info = {"initial_cost": initial_cost}
 

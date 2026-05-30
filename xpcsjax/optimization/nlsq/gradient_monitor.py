@@ -38,6 +38,20 @@ from xpcsjax.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+_DEBUG_CURVEFIT_CALLBACK = None
+
+
+def _set_debug_curvefit_callback(cb):
+    """TEST SEAM: inject a callback into solve paths to verify NLSQ forwarding.
+    Not used in production wiring (later phases pass the real callback explicitly)."""
+    global _DEBUG_CURVEFIT_CALLBACK
+    _DEBUG_CURVEFIT_CALLBACK = cb
+
+
+def _get_debug_curvefit_callback():
+    return _DEBUG_CURVEFIT_CALLBACK
+
+
 @dataclass
 class GradientMonitorConfig:
     """Configuration for gradient collapse detection.
