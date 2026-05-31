@@ -52,6 +52,13 @@
       "output_tokens": 0,
       "files": 323,
       "note": "code-only incremental update (AST, no LLM)"
+    },
+    {
+      "date": "2026-05-31T03:05:50.945612+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 12,
+      "note": "incremental: 11 code (AST) + 1 doc (Claude subagent)"
     }
   ],
   "total_input_tokens": 170461,
