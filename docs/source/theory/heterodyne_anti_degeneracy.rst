@@ -49,6 +49,13 @@ escapes were already real. Together these closed the joint-escape parity gap
 with ``laminar_flow``. The escapes are strategy-level and do **not** touch the
 anti-degeneracy controller.
 
+An escape result is tagged ``nlsq_diagnostics["global_escape"]`` (``"cmaes"`` or
+``"multistart"``; the key is absent on a plain joint fit) and, **by
+construction**, carries NaN ``covariance`` / ``parameter_uncertainties`` and
+``n_iterations=0`` — the escape returns a pre-accepted (compared-and-kept)
+vector with no covariance solve, so consumers needing uncertainties should
+detect an escape result via the ``global_escape`` tag.
+
 Defense Layers
 --------------
 

@@ -128,7 +128,10 @@ optimizer over the joint `[physics | scaling]` vector, **keeps-better** vs the
 plain NLSQ joint fit, and **best-effort falls back** to the plain joint fit on
 failure — reusing the shared `fit_with_cmaes` / `run_multistart_nlsq`. This is
 the joint-fit global escape; the per-angle escapes were already real. This
-closed parity gap **C** between `two_component` and `laminar_flow`. Remaining
+closed parity gap **C** between `two_component` and `laminar_flow`. An escape
+result is tagged `nlsq_diagnostics["global_escape"]` and, by construction,
+carries NaN covariance / uncertainties and `n_iterations=0` (no covariance solve
+on the kept vector) — read `global_escape` to detect an escape result. Remaining
 documented follow-ups: gaps **A**/**B** (shared `AntiDegeneracyController` and
 `HierarchicalOptimizer`/L2 wiring — the escapes do **not** touch the controller)
 and **D** (hybrid-streaming anti-degeneracy).
