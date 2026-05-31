@@ -22,7 +22,11 @@ classifies the dataset into one of three memory tiers (``STANDARD``,
 2. **Multi-start** — LHS multistart when ``config.multistart.enabled``.
 3. **Hybrid streaming** — when ``tier ∈ {LARGE, STREAMING}`` and
    ``optimization.hybrid_streaming.enable = true``; this path is inherently
-   stratified by angle chunk.
+   stratified by angle chunk.  The streaming path **optimizes** the per-angle
+   scaling tail (contrast + offset) via the ``per_angle_mode`` dispatch
+   (``anti_degeneracy_config.per_angle_mode``) and runs L1–L4 anti-degeneracy
+   layers.  See :ref:`Streaming anti-degeneracy <streaming_antidegeneracy>`
+   below.
 4. **Stratified least-squares** — when the tier is ``STANDARD`` and
    ``should_use_stratification(n_points, n_phi, per_angle=True, imbalance)``
    returns ``True`` **and** ``n_points ≥ 1 000 000``; uses
@@ -115,6 +119,77 @@ on regardless of the heuristic.  The remaining keys match homodyne's
 stratification config and control how angle chunks are balanced and whether
 memory-safety checks are enforced before chunk assembly.
 
+.. _streaming_antidegeneracy:
+
+Streaming anti-degeneracy (Gap D closed)
+-----------------------------------------
+
+The STREAMING tier previously froze the quantile-estimated per-angle scaling
+inside the JIT closure and ran no anti-degeneracy layers.  This has been
+closed: heterodyne streaming now **optimizes** the scaling tail and runs
+**L1–L4**, reaching mechanism parity with ``laminar_flow`` streaming.
+
+Per-angle mode dispatch
+~~~~~~~~~~~~~~~~~~~~~~~
+
+The scaling treatment is selected by ``anti_degeneracy_config.per_angle_mode``:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 30 50
+
+   * - ``per_angle_mode`` value
+     - Optimized params
+     - Notes
+   * - ``"fixed_constant"``
+     - none (scaling frozen)
+     - Legacy opt-out / backward-compatible default.  Use when ``anti_degeneracy_config`` is absent or ``None``.
+   * - ``"auto"`` → ``"auto_averaged"``
+     - 2 (mean contrast, mean offset)
+     - Default when config is present; recommended starting point.
+   * - ``"individual"``
+     - 2 × n_phi
+     - Per-angle contrast + offset optimized jointly.
+   * - ``"fourier"``
+     - 2 × (2K+1) Fourier coeffs
+     - Smooth angular variation.  Falls back silently to ``"individual"`` when n_phi < 1+2K; the effective mode is surfaced via ``meta["fourier_effective_mode"]``.
+
+Layer activation on the STREAMING path
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- **L1** — active for all optimized modes (``auto_averaged``, ``individual``,
+  ``fourier``); skipped for ``fixed_constant`` (no tail to reparameterize).
+- **L2** — active for ``individual`` and ``fourier`` only, gated identically to
+  ``laminar_flow`` streaming (``not use_constant``).  ``auto_averaged`` and
+  ``fixed_constant`` have ≤ 2 per-angle DoF so hierarchical alternation is not
+  needed.  On the L2 branch the ``[physics | scaling]`` vector is permuted to
+  the ``[per_angle | physics]`` layout expected by
+  :class:`~xpcsjax.optimization.nlsq.hierarchical.HierarchicalOptimizer` and
+  un-permuted on exit; covariance is an identity placeholder on this branch.
+- **L3** — active when ``anti_degeneracy_config.regularization.enable`` is
+  ``True`` (default) and there is a scaling tail (``n_scaling > 0``).  Uses
+  group-variance config on the plain branch and
+  ``compute_regularization_jax`` inside the hierarchical loss.
+- **L4** — always active when there is a scaling tail.  The gradient-collapse
+  monitor is wired via ``callback=`` on the plain branch and via
+  ``_hier_grad`` on the L2 branch.  Strictly observational: monitor-on ==
+  monitor-off objective.
+- **L5** — omitted by design (``laminar_flow``-only); the diagnostics block
+  reports the ``'laminar_flow_inactive'`` sentinel.
+
+Diagnostics
+~~~~~~~~~~~
+
+The streaming path emits the symmetric ``info["anti_degeneracy"]`` block via
+the shared
+:func:`~xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics.assemble_anti_degeneracy_diagnostics`
+assembler.  Keys: ``hierarchical_active``, ``regularization_active``,
+``shear_weighting`` (always ``'laminar_flow_inactive'``), ``gradient_monitor``
+(when L4 ran), and ``per_angle_mode``.  The SSR of the optimized solution is
+available at ``info["ssr"]``; the frozen-scaling baseline SSR at
+``info["ssr_frozen_baseline"]`` (``ssr <= ssr_frozen_baseline`` is the
+objective-parity invariant).
+
 Parity notes
 ------------
 
@@ -126,7 +201,11 @@ Parity notes
 * **SSR conservation.** The cross-evaluation invariant is verified in the
   equivalence test: evaluating either path's parameters through the other
   path's residual function gives the same SSR at rtol 1e-9.
+* **Streaming parity contract.** The STREAMING anti-degeneracy contract is
+  mechanism + objective parity with ``laminar_flow`` streaming (not
+  ``rtol=1e-10`` — that gate is homodyne-specific).  See
+  :ref:`heterodyne_anti_degeneracy` for details.
 * **L5 not applicable.** As described in :ref:`heterodyne_anti_degeneracy`,
   L5 shear-sensitivity weighting is ``laminar_flow``-only and does not apply
-  to the heterodyne two-component model; this remains true inside the
-  stratified-LS path.
+  to the heterodyne two-component model; this remains true on all heterodyne
+  paths including stratified-LS and streaming.

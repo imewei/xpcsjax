@@ -1,3 +1,5 @@
+.. _heterodyne_anti_degeneracy:
+
 Heterodyne Anti-Degeneracy System (4 layers)
 =============================================
 
@@ -59,20 +61,72 @@ detect an escape result via the ``global_escape`` tag.
 Defense Layers
 --------------
 
+The table below summarises which layers are active on each heterodyne solve
+path.  "Gated" means the layer runs only for the listed
+``per_angle_mode`` values.
+
+.. list-table:: Layer activation by path
+   :header-rows: 1
+   :widths: 10 30 20 40
+
+   * - Layer
+     - Standard joint-fit path
+     - STREAMING path
+     - Notes
+   * - L1
+     - all modes
+     - all modes
+     - Fourier/averaged/individual reparameterization of the scaling tail
+   * - L2
+     - all modes (inline two-stage)
+     - ``individual`` / ``fourier`` only
+     - ``auto_averaged`` and ``fixed_constant`` skip L2 (≤ 2 DoF; no cancellation risk)
+   * - L3
+     - all modes
+     - all modes (group-variance config on plain branch; ``compute_regularization_jax`` in hier. loss)
+     - Mode-aware group indices
+   * - L4
+     - all modes
+     - all modes (``callback=`` on plain branch; gradient computed via ``_hier_grad`` on L2 branch)
+     - Strictly observational; monitor-on == monitor-off objective
+   * - L5
+     - not applicable
+     - not applicable
+     - ``laminar_flow``-only; reports ``'laminar_flow_inactive'`` sentinel
+
 L1: Mode-level reparameterization
   Selected by ``per_angle_mode``. Removes the flat optimization direction
-  algebraically.
+  algebraically.  Active on both the standard joint-fit path and the
+  STREAMING path for all modes except ``fixed_constant`` (which freezes
+  the scaling tail entirely inside the JIT closure).
 
 L2: Hierarchical optimization
-  Activated by ``config.enable_hierarchical``. Runs as a two-stage solve:
-  stage 1 fits the physics-only parameters with quantile-frozen scaling
-  (the same path the standalone ``constant`` mode uses); stage 2 warm-
-  starts the joint solve from the stage-1 estimate. Stage-1 χ² and the
-  stage-1/stage-2 χ² ratio are recorded in
-  ``result.nlsq_diagnostics['hierarchical']``. Note this is an inline
+  **Standard path:** activated by ``config.enable_hierarchical``. Runs as a
+  two-stage solve: stage 1 fits the physics-only parameters with
+  quantile-frozen scaling (the same path the standalone ``constant`` mode
+  uses); stage 2 warm-starts the joint solve from the stage-1 estimate.
+  Stage-1 χ² and the stage-1/stage-2 χ² ratio are recorded in
+  ``result.nlsq_diagnostics['hierarchical']``.  Note this is an inline
   two-stage implementation, not a delegation to
   ``xpcsjax.optimization.nlsq.hierarchical.fit_hierarchical_two_stage`` —
   see the follow-up tracking item for unifying with homodyne's helper.
+
+  **STREAMING path:** wired via
+  :class:`~xpcsjax.optimization.nlsq.hierarchical.HierarchicalOptimizer`
+  and gated to ``individual`` / ``fourier`` modes (i.e. ``not use_constant``
+  — exactly mirroring laminar_flow's streaming gate).  ``auto_averaged``
+  and ``fixed_constant`` modes skip L2 because they have at most 2
+  per-angle DoF, so gradient-cancellation degeneracy cannot arise.
+
+  The STREAMING L2 branch permutes heterodyne's native ``[physics | scaling]``
+  vector to the ``[per_angle | physics]`` layout that
+  :class:`~xpcsjax.optimization.nlsq.hierarchical.HierarchicalOptimizer`
+  expects, runs the alternating solver, then un-permutes the result.
+  Covariance on this path is an identity placeholder
+  (``info["covariance_is_placeholder"] = True``); the post-solve condition
+  number is reported as ``NaN`` rather than the meaningless ``cond(I) = 1``.
+  The L4 monitor is applied in ``_hier_grad`` after un-permuting to native
+  index layout so the physical/per-angle index slices remain valid.
 
 L3: Adaptive CV regularization
   Activated by ``config.regularization_mode != 'none'``. Instantiates
@@ -148,26 +202,43 @@ L5: Shear-sensitivity weighting (laminar_flow ONLY)
 Symmetric diagnostics contract
 ------------------------------
 
-Both ``laminar_flow`` and ``two_component`` now emit the same top-level
+Both ``laminar_flow`` and ``two_component`` emit the same top-level
 ``nlsq_diagnostics`` activation keys —
 ``{hierarchical_active, regularization_active, shear_weighting}``, plus
-``gradient_monitor`` when L4 ran — via the shared assembler
+``gradient_monitor`` when L4 ran, plus ``per_angle_mode`` on paths that
+expose it — via the shared assembler
 ``xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics.assemble_anti_degeneracy_diagnostics``.
 The ``*_active`` flags are **always present**, taking the value ``False`` when
 the corresponding layer did not run, so a caller can read the same key set
-regardless of mode. The ``shear_weighting`` value is mode-appropriate:
-``'not_applicable_heterodyne'`` for ``two_component`` and
-``'laminar_flow_inactive'`` for ``laminar_flow``'s in-memory path.
+regardless of mode. The ``shear_weighting`` value is mode- and path-appropriate:
+``'not_applicable_heterodyne'`` on the ``two_component`` in-memory (standard
+joint-fit) path, and ``'laminar_flow_inactive'`` on the ``two_component``
+streaming path (matching ``laminar_flow``'s inactive sentinel on the
+stratified/streaming paths).
 
-This was a **diagnostics-only** unification: the L2/L3 solve code was already
-shared between the two modes, and only the emission of the diagnostics keys was
-made symmetric. Both characterization baselines remain bit-identical.
+These flat top-level activation keys are emitted on **every** laminar path —
+in-memory, HYBRID_STREAMING, stratified-LS (≥1 M points), sequential, and
+out-of-core — as well as on all heterodyne paths, including the STREAMING path.
+The values are honest per path: HYBRID_STREAMING (both homodyne and heterodyne)
+reports the real active L2/L3 it ran, while stratified-LS, sequential, and
+out-of-core report inactive markers (``hierarchical_active=False``,
+``regularization_active=False``, ``shear_weighting='laminar_flow_inactive'``)
+because those layers do not run on those paths. Activation is never fabricated.
 
-These flat top-level activation keys are now emitted on **every** laminar path
-— in-memory, HYBRID_STREAMING, stratified-LS (≥1 M points), sequential, and
-out-of-core — as well as on all heterodyne paths, via the shared assembler. The
-values are honest per path: HYBRID_STREAMING reports the real active L2/L3/L5 it
-runs, while stratified-LS, sequential, and out-of-core report inactive markers
-(``hierarchical_active=False``, ``regularization_active=False``,
-``shear_weighting='laminar_flow_inactive'``) because those layers do not run on
-those paths. Activation is never fabricated.
+Parity contract: mechanism + objective, not rtol=1e-10
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The parity contract for heterodyne streaming anti-degeneracy is **mechanism +
+objective parity** with ``laminar_flow`` streaming — not the ``rtol=1e-10``
+bit-identical gate used by the homodyne characterization baselines. The
+rtol=1e-10 gate is homodyne-specific: it tests whether xpcsjax's JAX rewrite
+reproduces the upstream ``homodyne`` package's numerical output to near
+machine precision. Heterodyne fits a structurally different model, so the
+equivalent contract is:
+
+1. **Mechanism parity** — the same defense layers (L1–L4) are wired on the
+   streaming path, with the same gating rules (L2 only for
+   ``individual``/``fourier``; L5 omitted).
+2. **Objective parity** — optimized-scaling SSR ≤ frozen-scaling baseline
+   (``info["ssr"] <= info["ssr_frozen_baseline"]``), verified by the
+   ``fixed_constant`` regression guard test.

@@ -75,7 +75,7 @@ Layer gating is declared in `_LAYER_GATES` at the top of `anti_degeneracy_contro
 
 L4 is a **per-iteration gradient-collapse monitor** (`build_gradient_collapse_callback` feeding `GradientCollapseMonitor`), a **shared mechanism** with behavioral parity between `laminar_flow` and `two_component`. It is **strictly diagnostic** — monitor-on vs monitor-off is bit-identical (the homodyne rtol=1e-10 baselines included). When the solver callback never fires it falls back to a **post-solve covariance-condition** check; the `gradient_monitor` diagnostics block's `mechanism` field reports which path ran (`per_iteration_gradient_ratio` vs `post_solve_fallback`), and `gradient_consecutive_triggers` is now effective. Per-iteration is wired on the standard joint-fit path of both modes; the ≥1 M stratified tier is not yet wired (documented follow-up).
 
-The anti-degeneracy *diagnostics contract* is now symmetric across modes: both `laminar_flow` and `two_component` emit the same top-level `nlsq_diagnostics` activation keys (`hierarchical_active`, `regularization_active`, `shear_weighting`, + `gradient_monitor` when L4 ran) via the shared `assemble_anti_degeneracy_diagnostics` (`xpcsjax/optimization/nlsq/anti_degeneracy_diagnostics.py`). This was diagnostics-only — the L2/L3 solve code was already shared; both baselines stay bit-identical. The flat top-level keys are now emitted at all dataset sizes — every laminar path (in-memory, HYBRID_STREAMING, stratified-LS ≥1 M, sequential, out-of-core) plus all heterodyne paths — with honest per-path values: HYBRID_STREAMING reports the real active L2/L3/L5 it runs, while stratified-LS/sequential/out-of-core report inactive markers (`hierarchical_active=False`, `regularization_active=False`, `shear_weighting="laminar_flow_inactive"`) since those layers don't run there (commit 083eebb).
+The anti-degeneracy *diagnostics contract* is now symmetric across modes: both `laminar_flow` and `two_component` emit the same top-level `nlsq_diagnostics` activation keys (`hierarchical_active`, `regularization_active`, `shear_weighting`, + `gradient_monitor` when L4 ran) via the shared `assemble_anti_degeneracy_diagnostics` (`xpcsjax/optimization/nlsq/anti_degeneracy_diagnostics.py`). The flat top-level keys are emitted at all dataset sizes — every laminar path (in-memory, HYBRID_STREAMING, stratified-LS ≥1 M, sequential, out-of-core) plus all heterodyne paths (in-memory, STREAMING) — with honest per-path values: both laminar and heterodyne HYBRID_STREAMING report the real active L2/L3 they ran; stratified-LS/sequential/out-of-core report inactive markers (`hierarchical_active=False`, `regularization_active=False`, `shear_weighting="laminar_flow_inactive"`) since those layers don't run there.
 
 ### Analysis modes and config templates
 
@@ -131,10 +131,44 @@ the joint-fit global escape; the per-angle escapes were already real. This
 closed parity gap **C** between `two_component` and `laminar_flow`. An escape
 result is tagged `nlsq_diagnostics["global_escape"]` and, by construction,
 carries NaN covariance / uncertainties and `n_iterations=0` (no covariance solve
-on the kept vector) — read `global_escape` to detect an escape result. Remaining
-documented follow-ups: gaps **A**/**B** (shared `AntiDegeneracyController` and
-`HierarchicalOptimizer`/L2 wiring — the escapes do **not** touch the controller)
-and **D** (hybrid-streaming anti-degeneracy).
+on the kept vector) — read `global_escape` to detect an escape result.
+
+### Heterodyne hybrid-streaming anti-degeneracy (parity gap D closed)
+
+The heterodyne STREAMING path previously froze the quantile-estimated per-angle
+scaling inside the JIT closure and ran no anti-degeneracy layers. Gap D is now
+**closed**: `fit_with_stratified_hybrid_streaming_heterodyne` optimizes the
+scaling tail and runs L1–L4, mirroring `laminar_flow` streaming:
+
+- **`per_angle_mode` dispatch** (driven by `anti_degeneracy_config.per_angle_mode`):
+  `fixed_constant` (legacy frozen scaling — safe opt-out; also the default when
+  `anti_degeneracy_config` is `None`), `auto` → `auto_averaged` (2 averaged
+  scaling params), `individual` (2·n_phi per-angle params), `fourier` (2·(2K+1)
+  Fourier coeffs; silently falls back to `individual` when n_phi < 1+2K — surfaced
+  via `meta["fourier_effective_mode"]`).
+- **L1** active for all optimized modes; skipped for `fixed_constant`.
+- **L2** (`HierarchicalOptimizer`) gated to `individual`/`fourier` exactly mirroring
+  laminar's gate. `auto_averaged`/`fixed_constant` skip L2. On the L2 branch the
+  `[physics | scaling]` vector is permuted to `[per_angle | physics]` layout,
+  solved, and un-permuted; covariance is an identity placeholder on this branch
+  (`info["covariance_is_placeholder"] = True`).
+- **L3** adaptive CV regularization active when `regularization.enable=True` and
+  there is a scaling tail; group indices are mode-aware.
+- **L4** gradient-collapse monitor wired via `callback=` (plain branch) and
+  `_hier_grad` (L2 branch); strictly observational.
+- **L5** omitted (heterodyne has no shear term); diagnostics report
+  `'laminar_flow_inactive'` sentinel.
+- **Parity contract:** mechanism + objective (optimized SSR ≤ frozen baseline),
+  NOT `rtol=1e-10` (that gate is homodyne-specific).
+
+Diagnostics: streaming emits the symmetric `info["anti_degeneracy"]` block
+(`hierarchical_active`, `regularization_active`, `shear_weighting`,
+`gradient_monitor`, `per_angle_mode`) via `assemble_anti_degeneracy_diagnostics`.
+
+Remaining optional/structural follow-ups: **A** (routing heterodyne standard path
+through the shared `AntiDegeneracyController`) and aligning heterodyne's standard-path
+L2 onto `HierarchicalOptimizer` (currently an inline two-stage implementation).
+Neither is required for mechanism parity; both are architectural cleanups.
 
 ### Heterodyne memory strategy and angle stratification
 
