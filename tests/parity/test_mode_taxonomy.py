@@ -12,13 +12,17 @@ Parameter Count Summary table:
 * ``individual`` : ``n_physics + 2 * n_phi``           (free per-angle scaling)
 * ``fourier``    : ``n_physics + 2 * (2K + 1)``        (truncated basis)
 
-All three parametrizations now pass — the ``individual`` mode aggregates
-the sequential per-angle ``NLSQResult``s into a single
-:class:`OptimizationResult` via :func:`_aggregate_individual_results`
-(Phase-6 follow-up C5b). Off-diagonal covariance entries between the
-physics block and the per-angle scaling tail are zero by construction;
-the diagnostic key ``covariance_structure="block_diagonal_sequential"``
-flags this.
+All three parametrizations pass. Explicit multi-angle ``individual`` mode is a
+JOINT fit: the ``n_phi`` independent per-angle ``(contrast, offset)`` are packed
+as the ``2 * n_phi`` scaling tail of the joint vector and optimized jointly with
+physics via :func:`_fit_joint_multi_phi` (``FourierReparameterizer`` in
+``"independent"`` mode), matching ``laminar_flow`` and upstream heterodyne. The
+parameter dim is therefore ``n_physics + 2 * n_phi`` — the same as the old
+sequential aggregate, but now from one consistent joint optimum (its parameters
+reproduce its reported chi-squared). The sequential per-angle aggregate
+(:func:`_aggregate_individual_results`, ``covariance_structure=
+"block_diagonal_sequential"``) survives only as the ``config is None`` /
+single-angle fallback.
 """
 from __future__ import annotations
 
