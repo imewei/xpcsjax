@@ -10,6 +10,8 @@ Unified entry point for NLSQ optimization with:
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import jax.numpy as jnp
@@ -1514,56 +1516,82 @@ def _resolve_effective_mode(config: NLSQConfig, n_phi: int) -> str:
     return "averaged"
 
 
-def _fit_joint_multi_phi(
+@dataclass
+class JointProblem:
+    """Constructed heterodyne joint LSQ problem (residual + x0 + bounds + reparam).
+
+    Shared by :func:`_fit_joint_multi_phi` (the plain joint fit) and the
+    upcoming CMA-ES / multistart global escapes so all three optimize the SAME
+    objective. ``joint_residual_fn`` is the L3-augmented residual NLSQ minimizes;
+    ``meta`` carries the bookkeeping the caller needs to assemble diagnostics
+    (``base_residual_fn`` for the data-only SSR, the scaling-tail size, the
+    regularization-active flag + penalty-row count, and any L2 stage-1 chi^2).
+    """
+
+    joint_residual_fn: Callable[[np.ndarray], Any]
+    x0: np.ndarray
+    lb: np.ndarray
+    ub: np.ndarray
+    fourier: Any
+    meta: dict[str, Any]
+
+
+def _build_joint_problem(
     model: HeterodyneModel,
     c2_data: np.ndarray,
     phi_angles: np.ndarray,
     config: NLSQConfig,
     weights: np.ndarray | None,
-    fourier: Any,
-) -> OptimizationResult:
-    """Joint multi-angle fit with reparameterized per-angle scaling.
+    *,
+    fourier: Any = None,
+) -> JointProblem:
+    """Build the joint heterodyne LSQ problem (residual + x0 + bounds + reparam).
 
-    Shared joint solver for BOTH the ``fourier`` and ``individual`` per-angle
-    modes — the only difference is the :class:`FourierReparameterizer` mode the
-    caller passes in:
+    Lifts the inline construction of :func:`_fit_joint_multi_phi` VERBATIM so the
+    plain joint fit and the global escapes optimize the SAME objective. When
+    ``fourier`` is provided (already built by the dispatch in
+    :func:`fit_nlsq_multi_phi`) it is reused; otherwise a mode-appropriate
+    ``FourierReparameterizer`` is built here in ``"independent"`` mode (the
+    individual per-angle layout ``[physics | contrast_0..N | offset_0..N]``).
 
-    * ``fourier`` (``fourier.use_fourier=True``) — per-angle scaling is a
-      truncated Fourier basis; optimizer vector is
-      ``[physics_varying | fourier_contrast_coeffs | fourier_offset_coeffs]``
-      (``physics + 2*(2K+1)``).
-    * ``individual`` (``fourier.use_fourier=False``, mode ``"independent"``) —
-      per-angle scaling is free; optimizer vector is
-      ``[physics_varying | contrast_0..N | offset_0..N]`` (``physics + 2*n_phi``),
-      matching xpcsjax ``laminar_flow`` and upstream heterodyne. The
-      reparameterizer is an identity passthrough in this mode.
-
-    The residual function evaluates all angles, using the reparameterizer to
-    convert coefficients → per-angle contrast/offset at each evaluation (an
-    identity map in individual mode).
-
-    This is the heterodyne equivalent of homodyne's AntiDegeneracyController
-    joint-fit path.
+    Includes the L2 hierarchical Stage 1 physics-only solve (run when
+    ``config.enable_hierarchical`` is True) — its converged physics vector
+    warm-starts ``x0`` and its chi^2 is surfaced via ``meta``.
 
     Returns
     -------
-    OptimizationResult
-        One result for the entire joint solve.  ``parameters`` has the
-        ``physics_varying + 2*(2K+1)`` (fourier) or ``physics_varying + 2*n_phi``
-        (individual) layout. Per-angle diagnostics — ``chi2_per_angle``,
-        ``fourier_basis_dim`` (``None`` in individual mode), ``per_angle_mode``
-        (``'fourier'`` or ``'individual'``), ``scaling_source='fitted'``,
-        ``shear_weighting='not_applicable_heterodyne'`` — live in
-        ``nlsq_diagnostics``.  Mirrors the contract of
-        :func:`xpcsjax.optimization.nlsq.heterodyne_constant_mode._fit_joint_constant_multi_phi`
-        (Sub-PR B2).
+    JointProblem
+        ``joint_residual_fn`` is the L3-augmented residual (identity to
+        ``base_residual_fn`` when ``config.regularization_mode == "none"``).
+        ``meta`` carries ``base_residual_fn``, ``n_physics_varying``,
+        ``scaling_tail_size`` (``2*(2K+1)`` fourier / ``2*n_phi`` individual),
+        ``regularization_active``, ``n_penalty_rows``, and
+        ``hierarchical_stage1_chi2`` (``None`` when L2 is disabled).
     """
-    t_start = time.perf_counter()
-
     param_manager = model.param_manager
     varying_names = param_manager.varying_names
     n_physics_varying = param_manager.n_varying
     n_phi = len(phi_angles)
+
+    # Build the reparameterizer here if the dispatch did not supply one. The
+    # ``"independent"`` mode is the individual per-angle layout (free contrast /
+    # offset per angle); an identity passthrough w.r.t. the per-angle scaling.
+    if fourier is None:
+        from xpcsjax.optimization.nlsq.fourier_reparam import (
+            FourierReparamConfig,
+            FourierReparameterizer,
+        )
+
+        # Mirrors the ``individual`` dispatch in ``fit_nlsq_multi_phi``:
+        # ``"independent"`` mode makes the reparameterizer an identity
+        # passthrough describing the ``2*n_phi`` per-angle scaling layout.
+        fourier_config = FourierReparamConfig(
+            mode="independent",
+            fourier_order=config.fourier_order,
+            auto_threshold=config.fourier_auto_threshold,
+        )
+        phi_rad = np.deg2rad(np.asarray(phi_angles, dtype=np.float64))
+        fourier = FourierReparameterizer(phi_rad, fourier_config)
 
     # Physics parameter initial values and bounds
     physics_initial = param_manager.get_initial_values()
@@ -1769,6 +1797,93 @@ def _fit_joint_multi_phi(
             return jnp.concatenate([r, penalty_rows])
     else:
         joint_residual_fn = base_residual_fn  # type: ignore[assignment]
+
+    meta: dict[str, Any] = {
+        "base_residual_fn": base_residual_fn,
+        "n_physics_varying": int(n_physics_varying),
+        "scaling_tail_size": int(len(fourier_initial)),
+        "regularization_active": regularization_active,
+        "n_penalty_rows": int(n_penalty_rows),
+        "hierarchical_stage1_chi2": hierarchical_stage1_chi2,
+        "varying_names": list(varying_names),
+    }
+
+    return JointProblem(
+        joint_residual_fn=joint_residual_fn,
+        x0=x0,
+        lb=lb,
+        ub=ub,
+        fourier=fourier,
+        meta=meta,
+    )
+
+
+def _fit_joint_multi_phi(
+    model: HeterodyneModel,
+    c2_data: np.ndarray,
+    phi_angles: np.ndarray,
+    config: NLSQConfig,
+    weights: np.ndarray | None,
+    fourier: Any,
+) -> OptimizationResult:
+    """Joint multi-angle fit with reparameterized per-angle scaling.
+
+    Shared joint solver for BOTH the ``fourier`` and ``individual`` per-angle
+    modes — the only difference is the :class:`FourierReparameterizer` mode the
+    caller passes in:
+
+    * ``fourier`` (``fourier.use_fourier=True``) — per-angle scaling is a
+      truncated Fourier basis; optimizer vector is
+      ``[physics_varying | fourier_contrast_coeffs | fourier_offset_coeffs]``
+      (``physics + 2*(2K+1)``).
+    * ``individual`` (``fourier.use_fourier=False``, mode ``"independent"``) —
+      per-angle scaling is free; optimizer vector is
+      ``[physics_varying | contrast_0..N | offset_0..N]`` (``physics + 2*n_phi``),
+      matching xpcsjax ``laminar_flow`` and upstream heterodyne. The
+      reparameterizer is an identity passthrough in this mode.
+
+    The residual function evaluates all angles, using the reparameterizer to
+    convert coefficients → per-angle contrast/offset at each evaluation (an
+    identity map in individual mode).
+
+    This is the heterodyne equivalent of homodyne's AntiDegeneracyController
+    joint-fit path.
+
+    Returns
+    -------
+    OptimizationResult
+        One result for the entire joint solve.  ``parameters`` has the
+        ``physics_varying + 2*(2K+1)`` (fourier) or ``physics_varying + 2*n_phi``
+        (individual) layout. Per-angle diagnostics — ``chi2_per_angle``,
+        ``fourier_basis_dim`` (``None`` in individual mode), ``per_angle_mode``
+        (``'fourier'`` or ``'individual'``), ``scaling_source='fitted'``,
+        ``shear_weighting='not_applicable_heterodyne'`` — live in
+        ``nlsq_diagnostics``.  Mirrors the contract of
+        :func:`xpcsjax.optimization.nlsq.heterodyne_constant_mode._fit_joint_constant_multi_phi`
+        (Sub-PR B2).
+    """
+    t_start = time.perf_counter()
+
+    param_manager = model.param_manager
+    scaling = model.scaling
+    n_phi = len(phi_angles)
+
+    # Construct the joint LSQ problem (residual + x0 + bounds + reparam) via the
+    # shared helper so the plain fit and the global escapes optimize the SAME
+    # objective. ``fourier`` was already built by the dispatch — thread it
+    # through to avoid double-building the reparameterizer.
+    prob = _build_joint_problem(model, c2_data, phi_angles, config, weights, fourier=fourier)
+    joint_residual_fn = prob.joint_residual_fn
+    base_residual_fn = prob.meta["base_residual_fn"]
+    x0 = prob.x0
+    lb = prob.lb
+    ub = prob.ub
+    fourier = prob.fourier
+    n_physics_varying = prob.meta["n_physics_varying"]
+    varying_names = prob.meta["varying_names"]
+    regularization_active = prob.meta["regularization_active"]
+    n_penalty_rows = prob.meta["n_penalty_rows"]
+    hierarchical_stage1_chi2 = prob.meta["hierarchical_stage1_chi2"]
 
     # Run optimization via NLSQAdapter (primary) with NLSQWrapper fallback.
     # max_nfev is multiplied by n_phi here because the Fourier joint solve
