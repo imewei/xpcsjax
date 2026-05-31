@@ -675,11 +675,11 @@ def fit_nlsq_multi_phi(
         if getattr(config, "enable_cmaes", False) and HAS_CMAES:
             logger.info("CMA-ES enabled, delegating to joint multi-angle CMA-ES")
             return _fit_joint_cmaes_multi_phi(
-                _model=model,
-                _c2_data=c2_data,
-                _phi_angles=phi_angles,
-                _config=config,
-                _weights=weights,
+                model=model,
+                c2_data=c2_data,
+                phi_angles=phi_angles,
+                config=config,
+                weights=weights,
             )
 
         # Resolve ``auto`` / explicit modes to a canonical dispatch token.
@@ -1412,58 +1412,183 @@ def _fit_joint_averaged_multi_phi(
 # Phase-6 minimal stub: delegates to the standard joint Fourier fit so the
 # return shape is ``OptimizationResult`` (matches the constant/averaged/Fourier
 # paths).  A real CMA-ES escape with NLSQ warm-start and Fourier-reparam
-# scaling integration will land in a later phase against ``fit_with_cmaes``'s
-# positional ``(model_func, xdata, ydata, p0, bounds, sigma, config)`` signature.
-def _fit_joint_cmaes_multi_phi(
-    _model: HeterodyneModel,
-    _c2_data: np.ndarray,
-    _phi_angles: np.ndarray,
-    _config: NLSQConfig,
-    _weights: np.ndarray | None,
-) -> OptimizationResult:
-    """Joint multi-angle CMA-ES escape (Phase-6 minimal stub).
+# Deterministic seed pinned on the joint CMA-ES escape. ``CMAESWrapperConfig``
+# (and NLSQ's ``CMAESConfig``) default ``seed=None`` → non-reproducible; the
+# escape MUST pin it so the global search is bit-reproducible run to run.
+_JOINT_CMAES_SEED = 42
 
-    Currently delegates to the standard Fourier joint fit
-    (:func:`_fit_joint_multi_phi`) so callers get a uniform
-    :class:`OptimizationResult` shape.  Full CMA-ES escape logic — NLSQ
-    warm-start, bipop restarts, and the two-phase compare-and-keep-best
-    pattern from the per-angle :func:`_fit_cmaes` — lands when Phase 6's
-    ``cmaes_wrapper``-integration work is completed.
 
-    Parameter names retain the leading underscore (``_model``, etc.) because
-    the body does not consume them directly; they are forwarded to
-    ``_fit_joint_multi_phi``.  This keeps ruff ARG001 and Pyright
-    ``reportUnusedParameter`` quiet while the dispatch contract is in flux.
+def _build_joint_fourier(
+    config: NLSQConfig, phi_angles: np.ndarray
+) -> Any:
+    """Build the mode-appropriate :class:`FourierReparameterizer` for the joint fit.
+
+    Mirrors the per-mode dispatch in :func:`fit_nlsq_multi_phi`: ``individual``
+    resolves to an identity-passthrough (``"independent"``) reparameterizer
+    (free ``2*n_phi`` per-angle scaling); any other resolved mode keeps the
+    Fourier basis (the reparameterizer re-checks feasibility and degrades to
+    independent internally if ``n_phi`` is too small).
     """
     from xpcsjax.optimization.nlsq.fourier_reparam import (
         FourierReparamConfig,
         FourierReparameterizer,
     )
 
-    # CMA-ES optimizes the full joint vector regardless of mode, so it is
-    # already joint. Pick the reparameterizer mode from the resolved per-angle
-    # mode so the individual CMA-ES path produces a JOINT individual fit (free
-    # ``2*n_phi`` per-angle scaling), not a Fourier-basis fit. ``"independent"``
-    # makes the reparameterizer an identity passthrough; any other resolved
-    # mode keeps the Fourier basis (the reparameterizer re-checks feasibility
-    # and degrades to independent internally if ``n_phi`` is too small).
-    effective_mode = _resolve_effective_mode(_config, len(np.asarray(_phi_angles)))
+    effective_mode = _resolve_effective_mode(config, len(np.asarray(phi_angles)))
     reparam_mode: Any = "independent" if effective_mode == "individual" else "fourier"
     fourier_config = FourierReparamConfig(
         mode=reparam_mode,
-        fourier_order=_config.fourier_order,
-        auto_threshold=_config.fourier_auto_threshold,
+        fourier_order=config.fourier_order,
+        auto_threshold=config.fourier_auto_threshold,
     )
-    phi_rad = np.deg2rad(np.asarray(_phi_angles).astype(np.float64))
-    fourier = FourierReparameterizer(phi_rad, fourier_config)
-    return _fit_joint_multi_phi(
-        model=_model,
-        c2_data=_c2_data,
-        phi_angles=np.asarray(_phi_angles),
-        config=_config,
-        weights=_weights,
-        fourier=fourier,
-    )
+    phi_rad = np.deg2rad(np.asarray(phi_angles).astype(np.float64))
+    return FourierReparameterizer(phi_rad, fourier_config)
+
+
+def _fit_joint_cmaes_multi_phi(
+    model: HeterodyneModel,
+    c2_data: np.ndarray,
+    phi_angles: np.ndarray,
+    config: NLSQConfig,
+    weights: np.ndarray | None,
+) -> OptimizationResult:
+    """Joint multi-angle CMA-ES escape — additive global search over the joint vector.
+
+    Lifts heterodyne's proven PER-ANGLE pattern (:func:`_fit_cmaes`) to the
+    joint multi-angle objective:
+
+    1. **Warm-start** — run the plain joint fit (:func:`_fit_joint_multi_phi`)
+       over the SAME :class:`JointProblem` to get a local optimum ``x_warm``.
+    2. **Global search** — seed-pinned :func:`fit_with_cmaes` over the joint
+       residual ``prob.joint_residual_fn`` (``model_func`` returns the residual,
+       ``ydata`` is zeros, so CMA-ES minimises ``||residual||²`` directly).
+    3. **Keep-better** — recompute the escape's data-only SSR at the CMA-ES
+       optimum and keep CMA-ES only if it succeeded AND did not increase the
+       SSR vs the warm-start; otherwise keep the warm-start vector. Either way
+       the result carries a ``global_escape`` diagnostics tag.
+
+    The plain joint fit is NOT modified — this path is reached only when
+    ``config.enable_cmaes`` is True. On any failure the escape falls back to the
+    plain joint fit (best-effort).
+    """
+    try:
+        fourier = _build_joint_fourier(config, phi_angles)
+        prob = _build_joint_problem(
+            model, c2_data, phi_angles, config, weights, fourier=fourier
+        )
+
+        # Phase 1: warm-start via the plain joint fit over the SAME problem.
+        warm = _fit_joint_multi_phi(
+            model=model,
+            c2_data=c2_data,
+            phi_angles=np.asarray(phi_angles),
+            config=config,
+            weights=weights,
+            fourier=prob.fourier,
+        )
+        x_warm = np.asarray(warm.parameters, dtype=np.float64)
+        ssr_warm = float(warm.chi_squared)
+
+        # Data-only SSR (excludes any L3 penalty rows) so the keep-better
+        # comparison is apples-to-apples with ``warm.chi_squared``.
+        base_residual_fn = prob.meta["base_residual_fn"]
+
+        def _data_ssr(x: np.ndarray) -> float:
+            return float(np.sum(np.asarray(base_residual_fn(x), dtype=np.float64) ** 2))
+
+        # Phase 2: CMA-ES global search over the joint residual. ``model_func``
+        # returns the residual vector; ydata=zeros ⇒ CMA-ES minimises ||r||².
+        #
+        # Tracer-safety (mirrors per-angle ``_fit_cmaes``): cmaes_wrapper wraps
+        # this closure in ``normalized_model_func`` and passes JAX *tracers* for
+        # ``params`` during JIT tracing of parameter normalization. Stack with
+        # ``jnp.stack`` (NOT ``np.asarray``) so the joint residual JIT-traces
+        # cleanly — ``np.asarray`` on a tracer raises TracerArrayConversionError.
+        joint_residual_fn = prob.joint_residual_fn
+
+        def model_func(_x: np.ndarray, *params: Any) -> Any:
+            x_vec = jnp.stack(params).astype(jnp.float64)
+            return joint_residual_fn(x_vec)  # type: ignore[arg-type]
+
+        rdim = int(np.asarray(joint_residual_fn(x_warm)).size)
+
+        from xpcsjax.optimization.nlsq.cmaes_wrapper import CMAESWrapperConfig
+
+        # Build the wrapper config by hand (NOT ``from_nlsq_config``): that
+        # helper expects the *homodyne* NLSQConfig (different field names —
+        # heterodyne uses ``cmaes_max_iterations`` / ``cmaes_tolx`` /
+        # ``cmaes_tolfun``). Same rationale as the per-angle ``_fit_cmaes``.
+        # The seed is PINNED so the global search is bit-reproducible.
+        cfg_cmaes = CMAESWrapperConfig(
+            seed=_JOINT_CMAES_SEED,
+            refine_with_nlsq=True,
+            max_generations=getattr(config, "cmaes_max_iterations", None),
+            popsize=getattr(config, "cmaes_population_size", None),
+            tol_x=float(getattr(config, "cmaes_tolx", 1e-8)),
+            tol_fun=float(getattr(config, "cmaes_tolfun", 1e-8)),
+            restart_strategy=str(getattr(config, "cmaes_restart_strategy", "bipop")),
+            max_restarts=int(getattr(config, "cmaes_max_restarts", 9)),
+        )
+
+        assert fit_with_cmaes is not None, "HAS_CMAES guards entry to the escape"
+        cres = fit_with_cmaes(
+            model_func=model_func,
+            xdata=np.arange(rdim, dtype=np.float64),
+            ydata=np.zeros(rdim, dtype=np.float64),
+            p0=x_warm,
+            bounds=(prob.lb, prob.ub),
+            sigma=None,
+            config=cfg_cmaes,
+        )
+
+        # Phase 3: keep-better. ``fit_with_cmaes`` reports the FULL residual SSR
+        # as ``chi_squared`` (sum of squared residuals over the vector we fed
+        # it); recompute the data-only SSR at the CMA-ES optimum for a clean
+        # comparison with the warm-start's data-only ``chi_squared``.
+        if cres.success and cres.parameters is not None:
+            x_cmaes = np.asarray(cres.parameters, dtype=np.float64)
+            cmaes_ssr = _data_ssr(x_cmaes)
+        else:
+            x_cmaes = x_warm
+            cmaes_ssr = float("inf")
+
+        if cres.success and cmaes_ssr <= ssr_warm * (1.0 + 1e-12):
+            x_final, escape = x_cmaes, "cmaes"
+        else:
+            x_final, escape = x_warm, "cmaes_warmstart_kept"
+
+        logger.info(
+            "Joint CMA-ES escape: warm SSR=%.6e, cmaes SSR=%.6e → kept %s",
+            ssr_warm,
+            cmaes_ssr,
+            escape,
+        )
+
+        return _build_joint_result(
+            model,
+            prob,
+            c2_data,
+            np.asarray(x_final, dtype=np.float64),
+            phi_angles,
+            config,
+            weights,
+            global_escape=escape,
+        )
+    except Exception as exc:  # noqa: BLE001 - best-effort escape, fall back to plain fit
+        logger.warning(
+            "Joint CMA-ES escape failed (%s: %s); falling back to plain joint fit",
+            type(exc).__name__,
+            exc,
+        )
+        fourier_fb = _build_joint_fourier(config, phi_angles)
+        return _fit_joint_multi_phi(
+            model=model,
+            c2_data=c2_data,
+            phi_angles=np.asarray(phi_angles),
+            config=config,
+            weights=weights,
+            fourier=fourier_fb,
+        )
 
 
 def _resolve_effective_mode(config: NLSQConfig, n_phi: int) -> str:
@@ -1864,26 +1989,21 @@ def _fit_joint_multi_phi(
     """
     t_start = time.perf_counter()
 
-    param_manager = model.param_manager
-    scaling = model.scaling
     n_phi = len(phi_angles)
 
     # Construct the joint LSQ problem (residual + x0 + bounds + reparam) via the
     # shared helper so the plain fit and the global escapes optimize the SAME
     # objective. ``fourier`` was already built by the dispatch — thread it
-    # through to avoid double-building the reparameterizer.
+    # through to avoid double-building the reparameterizer. The result-tail
+    # bookkeeping (scaling, base residual, regularization/hierarchical meta) is
+    # consumed by ``_build_joint_result``, not here.
     prob = _build_joint_problem(model, c2_data, phi_angles, config, weights, fourier=fourier)
     joint_residual_fn = prob.joint_residual_fn
-    base_residual_fn = prob.meta["base_residual_fn"]
     x0 = prob.x0
     lb = prob.lb
     ub = prob.ub
     fourier = prob.fourier
-    n_physics_varying = prob.meta["n_physics_varying"]
     varying_names = prob.meta["varying_names"]
-    regularization_active = prob.meta["regularization_active"]
-    n_penalty_rows = prob.meta["n_penalty_rows"]
-    hierarchical_stage1_chi2 = prob.meta["hierarchical_stage1_chi2"]
 
     # Run optimization via NLSQAdapter (primary) with NLSQWrapper fallback.
     # max_nfev is multiplied by n_phi here because the Fourier joint solve
@@ -1948,8 +2068,73 @@ def _fit_joint_multi_phi(
             "Ensure heterodyne.optimization.nlsq.adapter is importable."
         )
 
+    wall_time = time.perf_counter() - t_start
+
+    return _build_joint_result(
+        model,
+        prob,
+        c2_data,
+        np.asarray(joint_result.parameters, dtype=np.float64),
+        phi_angles,
+        config,
+        weights,
+        joint_result=joint_result,
+        joint_param_names=joint_param_names,
+        wall_time=wall_time,
+        monitor=_monitor,
+        used_monitored_backend=used_monitored_backend,
+    )
+
+
+def _build_joint_result(
+    model: HeterodyneModel,
+    prob: JointProblem,
+    c2_data: np.ndarray,
+    x_final: np.ndarray,
+    phi_angles: np.ndarray,
+    config: NLSQConfig,
+    weights: np.ndarray | None,
+    *,
+    joint_result: NLSQResult | None = None,
+    joint_param_names: list[str] | None = None,
+    wall_time: float = 0.0,
+    monitor: Any = None,
+    used_monitored_backend: bool = False,
+    global_escape: str | None = None,
+) -> OptimizationResult:
+    """Assemble the joint :class:`OptimizationResult` from a final parameter vector.
+
+    Behavior-preserving extraction of :func:`_fit_joint_multi_phi`'s result tail
+    so the plain joint fit and the global escapes (CMA-ES, multistart) emit an
+    IDENTICAL-contract result — per-angle χ² (SSR conservation), symmetric
+    diagnostics, L2/L3/L4 extras — just evaluated at a possibly different
+    ``x_final``.
+
+    When ``joint_result`` is ``None`` (a global escape that did not run NLSQ's
+    adapter to produce one), uncertainties/covariance are NaN-filled and
+    convergence is reported as ``"converged"`` (the escape only returns a vector
+    it has already accepted). ``global_escape``, when set (e.g. ``"cmaes"``),
+    is surfaced in ``nlsq_diagnostics`` so callers can tell a global-escape
+    result from a plain joint fit.
+    """
+    param_manager = model.param_manager
+    scaling = model.scaling
+    n_phi = len(phi_angles)
+
+    base_residual_fn = prob.meta["base_residual_fn"]
+    joint_residual_fn = prob.joint_residual_fn
+    fourier = prob.fourier
+    n_physics_varying = prob.meta["n_physics_varying"]
+    varying_names = prob.meta["varying_names"]
+    regularization_active = prob.meta["regularization_active"]
+    n_penalty_rows = prob.meta["n_penalty_rows"]
+    hierarchical_stage1_chi2 = prob.meta["hierarchical_stage1_chi2"]
+
+    if joint_param_names is None:
+        joint_param_names = list(varying_names) + list(fourier.get_coefficient_labels())
+
     # Extract results
-    fitted_params_full = joint_result.parameters
+    fitted_params_full = np.asarray(x_final, dtype=np.float64)
     fitted_physics = fitted_params_full[:n_physics_varying]
     fitted_fourier = fitted_params_full[n_physics_varying:]
     fitted_contrast, fitted_offset = fourier.fourier_to_per_angle(fitted_fourier)
@@ -1962,8 +2147,6 @@ def _fit_joint_multi_phi(
     if len(scaling.contrast) == n_phi:
         scaling.contrast[:] = fitted_contrast
         scaling.offset[:] = fitted_offset
-
-    wall_time = time.perf_counter() - t_start
 
     # ------------------------------------------------------------------
     # Decompose per-angle chi^2 from the final residual.
@@ -2010,7 +2193,7 @@ def _fit_joint_multi_phi(
     # cost diagnostics only.
     final_residual = np.asarray(joint_residual_fn(fitted_params_full))
     total_ssr_with_penalty = float(np.sum(final_residual**2))
-    n_total_params = int(joint_result.parameters.size)
+    n_total_params = int(fitted_params_full.size)
     # Noise-normalised reduced chi^2 (targets ~1.0); see the averaged path for
     # the rationale. Only ``reduced_chi_squared`` changes — ``chi_squared``
     # (= ssr) and ``chi2_per_angle`` are untouched, preserving SSR conservation.
@@ -2030,17 +2213,21 @@ def _fit_joint_multi_phi(
     # matches B2's contract so consumers see a uniform array shape.
     uncertainties = (
         np.asarray(joint_result.uncertainties, dtype=np.float64)
-        if joint_result.uncertainties is not None
+        if joint_result is not None and joint_result.uncertainties is not None
         else np.full(n_total_params, np.nan, dtype=np.float64)
     )
     covariance = (
         np.asarray(joint_result.covariance, dtype=np.float64)
-        if joint_result.covariance is not None
+        if joint_result is not None and joint_result.covariance is not None
         else np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
     )
 
-    convergence_status: ConvergenceStatus = "converged" if joint_result.success else "failed"
-    quality_flag: QualityFlag = "good" if joint_result.success else "marginal"
+    # When no NLSQ result backs this assembly (a global escape that returns a
+    # pre-accepted vector) report success: the escape only emits a vector it
+    # has already compared and kept.
+    solve_success = joint_result.success if joint_result is not None else True
+    convergence_status: ConvergenceStatus = "converged" if solve_success else "failed"
+    quality_flag: QualityFlag = "good" if solve_success else "marginal"
 
     # ------------------------------------------------------------------
     # L2 anti-degeneracy: hierarchical two-stage solve.
@@ -2125,13 +2312,31 @@ def _fit_joint_multi_phi(
     is_individual = not fourier.use_fourier
     per_angle_mode_label = "individual" if is_individual else "fourier"
 
-    gradient_monitor_extras = _assemble_l4_extras(
-        _monitor,
-        joint_result,
-        config,
-        mode_label=f"{per_angle_mode_label} mode (joint)",
-        result_is_monitored=used_monitored_backend,
+    # L4 extras require both a monitor and the NLSQ result it described. A
+    # global escape supplies neither (monitor=None, joint_result=None), so the
+    # block is omitted — ``_assemble_l4_extras`` would itself short-circuit to
+    # ``{}`` on ``monitor is None``, but guarding here keeps the typed contract
+    # (it expects a non-None ``NLSQResult``) honest.
+    if monitor is not None and joint_result is not None:
+        gradient_monitor_extras = _assemble_l4_extras(
+            monitor,
+            joint_result,
+            config,
+            mode_label=f"{per_angle_mode_label} mode (joint)",
+            result_is_monitored=used_monitored_backend,
+        )
+    else:
+        gradient_monitor_extras = {}
+
+    # Solve-shape diagnostics. A global escape supplies no NLSQResult; report
+    # neutral defaults (the escape's own convergence is summarised by the
+    # ``global_escape`` tag below).
+    convergence_reason = (
+        joint_result.convergence_reason if joint_result is not None else "global_escape"
     )
+    n_function_evals = int(joint_result.n_function_evals or 0) if joint_result is not None else 0
+    n_iterations = int(joint_result.n_iterations or 0) if joint_result is not None else 0
+    solve_message = str(joint_result.message) if joint_result is not None else "global escape"
 
     # Fourier-specific diagnostic extras are only meaningful in Fourier mode.
     # In individual mode the "coefficients" ARE the per-angle scaling values,
@@ -2157,24 +2362,30 @@ def _fit_joint_multi_phi(
         phi_angles=np.asarray(phi_angles, dtype=np.float64),
         n_angles_joint=n_phi,
         **fourier_extras,
-        convergence_reason=joint_result.convergence_reason,
-        n_function_evals=int(joint_result.n_function_evals or 0),
-        n_iterations=int(joint_result.n_iterations or 0),
+        convergence_reason=convergence_reason,
+        n_function_evals=n_function_evals,
+        n_iterations=n_iterations,
         wall_time_seconds=wall_time,
-        message=str(joint_result.message),
+        message=solve_message,
         **hierarchical_extras,
         **regularization_extras,
         **gradient_monitor_extras,
     )
 
+    # Tag a global-escape assembly so callers can distinguish it from a plain
+    # joint fit (the plain fit leaves this key absent).
+    if global_escape is not None:
+        diagnostics["global_escape"] = global_escape
+
     logger.info(
         "Joint multi-angle fit complete: success=%s, cost=%.6f, "
-        "n_evals=%d, wall_time=%.2fs, %d angles",
-        joint_result.success,
-        joint_result.final_cost or 0.0,
-        joint_result.n_function_evals or 0,
+        "n_evals=%d, wall_time=%.2fs, %d angles%s",
+        solve_success,
+        (joint_result.final_cost or 0.0) if joint_result is not None else ssr,
+        n_function_evals,
         wall_time,
         n_phi,
+        f" [escape={global_escape}]" if global_escape is not None else "",
     )
 
     return OptimizationResult(
@@ -2184,7 +2395,7 @@ def _fit_joint_multi_phi(
         chi_squared=ssr,
         reduced_chi_squared=reduced_chi2,
         convergence_status=convergence_status,
-        iterations=int(joint_result.n_iterations or 0),
+        iterations=n_iterations,
         execution_time=wall_time,
         device_info={"backend": "cpu", "adapter": "nlsq.CurveFit"},
         recovery_actions=[],
