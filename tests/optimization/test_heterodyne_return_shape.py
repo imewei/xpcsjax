@@ -504,7 +504,12 @@ def test_averaged_path_returns_single_optimization_result() -> None:
 
 
 def test_cmaes_path_returns_single_optimization_result() -> None:
-    """CMA-ES escape stub (multi-phi) must return one OptimizationResult."""
+    """Joint multi-phi CMA-ES escape must return one OptimizationResult.
+
+    ``_fit_joint_cmaes_multi_phi`` is now a real global escape (no longer a
+    Phase-6 stub); its signature uses real parameter names
+    (``model``/``c2_data``/``phi_angles``/``config``/``weights``).
+    """
     pytest.importorskip("xpcsjax.core.heterodyne_model_stateful")
     from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
     from xpcsjax.optimization.nlsq.heterodyne_core import _fit_joint_cmaes_multi_phi
@@ -520,11 +525,11 @@ def test_cmaes_path_returns_single_optimization_result() -> None:
     phi = _C2_PHI_ANGLES
 
     result = _fit_joint_cmaes_multi_phi(
-        _model=model,
-        _c2_data=c2,
-        _phi_angles=phi,
-        _config=config,
-        _weights=None,
+        model=model,
+        c2_data=c2,
+        phi_angles=phi,
+        config=config,
+        weights=None,
     )
     assert isinstance(result, OptimizationResult)
 
