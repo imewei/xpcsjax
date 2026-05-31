@@ -184,6 +184,7 @@ def _assemble_l4_extras(
     config: NLSQConfig,
     *,
     mode_label: str,
+    result_is_monitored: bool = True,
 ) -> dict[str, Any]:
     """Assemble the L4 ``gradient_monitor`` diagnostics block from a monitor.
 
@@ -192,14 +193,24 @@ def _assemble_l4_extras(
     covariance-condition block (tagged ``mechanism="post_solve_fallback"``) when
     the callback recorded zero observations. Wraps the result as
     ``{"gradient_monitor": block}``.
+
+    ``result_is_monitored`` guards against a stale monitor: the callback is only
+    passed to the ``NLSQAdapter``, so when the adapter fires the callback (≥ 1
+    observation) but then fails and the unmonitored ``NLSQWrapper`` fallback
+    produces the returned ``joint_result``, the monitor's per-iteration ratios
+    describe a DISCARDED run's parameters. Pass ``result_is_monitored=False`` in
+    that case to force the post-solve covariance-condition block (computed from
+    the actual returned ``joint_result``, tagged ``mechanism="post_solve_fallback"``)
+    instead of trusting the stale monitor. The default ``True`` keeps the happy
+    path (adapter succeeded → returned result IS the monitored run) unchanged.
     """
     if monitor is None:
         return {}
 
     from xpcsjax.optimization.nlsq.gradient_monitor import gradient_monitor_diagnostics
 
-    gm_block = gradient_monitor_diagnostics(monitor)
-    if gm_block["mechanism"] == "post_solve_fallback":
+    gm_block = gradient_monitor_diagnostics(monitor) if result_is_monitored else None
+    if gm_block is None or gm_block["mechanism"] == "post_solve_fallback":
         gm_block = _post_solve_covariance_l4(joint_result, config)
         gm_block["mechanism"] = "post_solve_fallback"
     logger.info(
@@ -1088,6 +1099,11 @@ def _fit_joint_averaged_multi_phi(
     _monitor, _l4_callback = _build_l4_callback(model, x0, joint_residual_fn, config)
 
     joint_result: NLSQResult | None = None
+    # Tracks whether the RETURNED ``joint_result`` came from the monitored
+    # adapter (the only backend the L4 callback is wired into). Stays False on
+    # the unmonitored NLSQWrapper fallback path so _assemble_l4_extras does not
+    # surface a stale per-iteration monitor against the wrapper's parameters.
+    used_monitored_backend = False
     # Narrow via ``is not None`` instead of the HAS_X flag so Pyright sees
     # NLSQAdapter as bound. HAS_ADAPTERS is True iff NLSQAdapter was imported,
     # so the two predicates are equivalent at runtime.
@@ -1103,6 +1119,8 @@ def _fit_joint_averaged_multi_phi(
             )
             if not joint_result.success:
                 raise RuntimeError(f"Joint adapter returned success=False: {joint_result.message}")
+            # Adapter succeeded → the returned result IS the monitored run.
+            used_monitored_backend = True
         except (ValueError, RuntimeError, TypeError) as adapter_exc:
             logger.warning(
                 "Joint auto averaged NLSQAdapter failed, falling back to NLSQWrapper: %s",
@@ -1281,7 +1299,11 @@ def _fit_joint_averaged_multi_phi(
     # ``mechanism="post_solve_fallback"``).
     # ------------------------------------------------------------------
     gradient_monitor_extras = _assemble_l4_extras(
-        _monitor, joint_result, config, mode_label="averaged mode"
+        _monitor,
+        joint_result,
+        config,
+        mode_label="averaged mode",
+        result_is_monitored=used_monitored_backend,
     )
 
     diagnostics = _build_heterodyne_diagnostics(
@@ -1693,6 +1715,11 @@ def _fit_joint_multi_phi(
     # coefficients are the per-angle (scaling) tail. See ``_build_l4_callback``.
     _monitor, _l4_callback = _build_l4_callback(model, x0, joint_residual_fn, config)
 
+    # Tracks whether the RETURNED ``joint_result`` came from the monitored
+    # adapter (the only backend the L4 callback is wired into). Stays False on
+    # the unmonitored NLSQWrapper fallback path so _assemble_l4_extras does not
+    # surface a stale per-iteration monitor against the wrapper's parameters.
+    used_monitored_backend = False
     if NLSQAdapter is not None:  # ``HAS_ADAPTERS`` equivalent; narrows for Pyright
         try:
             joint_adapter = NLSQAdapter(parameter_names=joint_param_names)
@@ -1705,6 +1732,8 @@ def _fit_joint_multi_phi(
             )
             if not joint_result.success:
                 raise RuntimeError(f"Joint adapter returned success=False: {joint_result.message}")
+            # Adapter succeeded → the returned result IS the monitored run.
+            used_monitored_backend = True
         except (ValueError, RuntimeError, TypeError) as adapter_exc:
             logger.warning("Joint NLSQAdapter failed, falling back to NLSQWrapper: %s", adapter_exc)
             joint_result = None
@@ -1894,7 +1923,11 @@ def _fit_joint_multi_phi(
     # block (tagged ``mechanism="post_solve_fallback"``).
     # ------------------------------------------------------------------
     gradient_monitor_extras = _assemble_l4_extras(
-        _monitor, joint_result, config, mode_label="fourier mode"
+        _monitor,
+        joint_result,
+        config,
+        mode_label="fourier mode",
+        result_is_monitored=used_monitored_backend,
     )
 
     diagnostics = _build_heterodyne_diagnostics(
