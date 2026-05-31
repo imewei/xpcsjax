@@ -92,3 +92,77 @@ def test_joint_cmaes_escape_falls_back_on_failure(monkeypatch):
     # must NOT raise — best-effort fallback to the plain joint fit
     res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
     assert res is not None and getattr(res, "parameters", None) is not None
+
+
+# ---------------------------------------------------------------------------
+# Task 3: real joint MULTISTART escape + dispatch wiring.
+#
+# Heterodyne ``NLSQConfig`` (``heterodyne_config``) exposes multistart as a
+# FLAT ``multistart: bool`` + ``multistart_n: int`` pair (NOT a nested dict and
+# NOT the ``multi_start_n_starts`` vocabulary of the homodyne config). The
+# dispatch gate is ``getattr(config, "multistart", False)``; ``multistart_n``
+# drives the LHS start count. The LHS seed is pinned to ``_JOINT_MULTISTART_SEED``
+# so the global search is bit-reproducible per fresh model.
+# ---------------------------------------------------------------------------
+def test_joint_multistart_escape_runs_multiangle_keep_better_tagged():
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    plain = _plain_ssr(model, c2, phi)
+    cfg = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "averaged",
+            "multistart": True,
+            "multistart_n": 3,
+        }
+    )
+    res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)  # n_phi=3 -> multi-angle
+    diag = res.nlsq_diagnostics
+    # SSR conservation
+    assert np.isclose(
+        float(np.sum(diag["chi2_per_angle"])), res.chi_squared, rtol=1e-6
+    )
+    # keep-better: escape never worse than the plain fit
+    assert res.chi_squared <= plain * (1 + 1e-6)
+    # the real escape ran (tagged)
+    assert diag.get("global_escape", "").startswith("multistart")
+
+
+def test_joint_multistart_escape_deterministic():
+    # Fresh model per run (HeterodyneModel is stateful — see the CMA-ES
+    # determinism note above). Seed-pinned LHS ⇒ same inputs → same result.
+    cfg_kw = {
+        "analysis_mode": "two_component",
+        "per_angle_mode": "averaged",
+        "multistart": True,
+        "multistart_n": 3,
+    }
+
+    def run():
+        model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+        return fit_nlsq_multi_phi(
+            model, c2, phi, NLSQConfig.from_dict(cfg_kw), weights=None
+        )
+
+    r1, r2 = run(), run()
+    assert np.array_equal(np.asarray(r1.parameters), np.asarray(r2.parameters))
+
+
+def test_joint_multistart_escape_falls_back_on_failure(monkeypatch):
+    import xpcsjax.optimization.nlsq.heterodyne_core as hc
+
+    def _boom(**k):
+        raise RuntimeError("ms boom")
+
+    monkeypatch.setattr(hc, "run_multistart_nlsq", _boom, raising=False)
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "averaged",
+            "multistart": True,
+            "multistart_n": 3,
+        }
+    )
+    # must NOT raise — best-effort fallback to the plain joint fit
+    res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
+    assert res is not None and getattr(res, "parameters", None) is not None

@@ -239,6 +239,32 @@ except ImportError:
     fit_with_cmaes = None  # type: ignore[assignment,misc]
     HAS_CMAES = False
 
+# Joint multistart escape (Task 3). ``run_multistart_nlsq`` is imported at MODULE
+# scope (not lazily inside the escape) so the joint-multistart fallback test can
+# monkeypatch ``heterodyne_core.run_multistart_nlsq``. ``multistart`` does NOT
+# import ``heterodyne_core`` so there is no import cycle. ``HAS_JOINT_MULTISTART``
+# reflects only whether the orchestrator is importable — the JOINT path runs
+# ``run_multistart_nlsq`` sequentially (``n_workers=1``, the JAX-pickle
+# constraint) regardless of the module-level ``HAS_MULTISTART=False`` flag, which
+# gates only the legacy per-angle ``_fit_multistart`` stub.
+try:
+    from xpcsjax.optimization.nlsq.multistart import (
+        MultiStartConfig,
+        SingleStartResult,
+        run_multistart_nlsq,
+    )
+
+    HAS_JOINT_MULTISTART = True
+except ImportError:
+    MultiStartConfig = None  # type: ignore[assignment,misc]
+    SingleStartResult = None  # type: ignore[assignment,misc]
+    run_multistart_nlsq = None  # type: ignore[assignment,misc]
+    HAS_JOINT_MULTISTART = False
+
+# Seed for the joint multistart LHS start generation. PINNED so the global
+# search is bit-reproducible run to run (mirrors ``_JOINT_CMAES_SEED``).
+_JOINT_MULTISTART_SEED = 42
+
 try:
     # Heterodyne uses its own memory module (``STANDARD/LARGE/STREAMING`` enum
     # vocabulary). The homodyne ``memory.py`` uses
@@ -615,6 +641,8 @@ def fit_nlsq_multi_phi(
       upstream heterodyne) → :class:`OptimizationResult`
     - ``enable_cmaes=True`` → :func:`_fit_joint_cmaes_multi_phi`
       → :class:`OptimizationResult`
+    - ``multistart=True`` → :func:`_fit_joint_multistart`
+      → :class:`OptimizationResult`
     - ``config is None`` / single-angle (``len(phi_angles) <= 1``)
       → sequential per-angle warm-start chain, aggregated into one
       :class:`OptimizationResult` via :func:`_aggregate_individual_results`.
@@ -650,6 +678,14 @@ def fit_nlsq_multi_phi(
         single-angle fallback). All branches share the unified shape;
         callers may dispatch on ``result.nlsq_diagnostics["per_angle_mode"]``
         for mode-specific post-processing.
+
+    Notes
+    -----
+    The global escapes (CMA-ES, multistart) are seed-pinned and therefore
+    reproducible **per fresh model**: their warm-start ``x0`` reads the stateful
+    ``model.scaling`` (mutated by every prior fit), so "same seed → same result"
+    holds for the same inputs on a freshly constructed :class:`HeterodyneModel`,
+    not across repeated fits that reuse (and mutate) one model instance.
     """
     phi_angles = np.asarray(phi_angles)
 
@@ -680,6 +716,23 @@ def fit_nlsq_multi_phi(
                 phi_angles=phi_angles,
                 config=config,
                 weights=weights,
+            )
+
+        # Joint MULTISTART escape (Task 3). Gated on heterodyne's flat
+        # ``multistart: bool`` config field + the ``run_multistart_nlsq``
+        # orchestrator being importable. NOT gated on the module-level
+        # ``HAS_MULTISTART`` (hard-coded False — that flag only governs the legacy
+        # per-angle ``_fit_multistart`` stub); the JOINT path runs the
+        # orchestrator sequentially itself, so it stays available here.
+        if getattr(config, "multistart", False) and HAS_JOINT_MULTISTART:
+            logger.info("Multistart enabled, delegating to joint multi-angle multistart")
+            return _fit_joint_multistart(
+                model=model,
+                c2_data=c2_data,
+                phi_angles=phi_angles,
+                config=config,
+                weights=weights,
+                use_nlsq_library=True,
             )
 
         # Resolve ``auto`` / explicit modes to a canonical dispatch token.
@@ -1591,6 +1644,148 @@ def _fit_joint_cmaes_multi_phi(
         )
 
 
+def _fit_joint_multistart(
+    model: HeterodyneModel,
+    c2_data: np.ndarray,
+    phi_angles: np.ndarray,
+    config: NLSQConfig,
+    weights: np.ndarray | None,
+    use_nlsq_library: bool,  # noqa: ARG001 - dispatch-signature parity (unused here)
+) -> OptimizationResult:
+    """Joint multi-angle MULTISTART escape — LHS global search over the joint vector.
+
+    Lifts heterodyne's joint objective into ``run_multistart_nlsq``:
+
+    1. **Problem** — build the shared :class:`JointProblem` once; ``bounds2`` is
+       the ``(n_params, 2)`` box ``run_multistart_nlsq`` expects.
+    2. **Starts** — a seed-pinned (:data:`_JOINT_MULTISTART_SEED`) Latin-Hypercube
+       sweep. Each start re-runs the plain joint fit seeded at ``x_start`` via the
+       Task-3 ``x0_override`` kwarg; the winner is selected by data-only SSR
+       (``cost_func``), matching the keep-better UNIT used by the CMA-ES escape.
+    3. **Keep-better** — compare the multistart winner against the default joint
+       fit (no override) on data-only SSR and keep whichever is lower, so the
+       escape is never worse than the plain fit.
+
+    The result carries ``global_escape="multistart"`` (or
+    ``"multistart_default_kept"`` when the default fit wins). On any failure the
+    escape falls back to the plain joint fit (best-effort), exactly like the
+    CMA-ES escape. Runs SEQUENTIALLY (``n_workers=1``): the single-fit worker
+    closes over a JAX ``HeterodyneModel`` that is not process-picklable.
+    """
+    try:
+        fourier = _build_joint_fourier(config, phi_angles)
+        prob = _build_joint_problem(
+            model, c2_data, phi_angles, config, weights, fourier=fourier
+        )
+        bounds2 = np.stack([prob.lb, prob.ub], axis=1)  # (n_params, 2)
+
+        # Data-only SSR (excludes any L3 penalty rows) — the keep-better unit,
+        # identical to the CMA-ES escape's comparison.
+        base_residual_fn = prob.meta["base_residual_fn"]
+
+        def _data_ssr(x: np.ndarray) -> float:
+            return float(np.sum(np.asarray(base_residual_fn(x), dtype=np.float64) ** 2))
+
+        # Seed-pinned LHS multistart config. ``n_starts`` is heterodyne's flat
+        # ``multistart_n``. ``n_workers=1`` (JAX-pickle constraint). Screening is
+        # left off: the cost_func IS the data-only SSR, so every start is a full
+        # joint solve anyway (no cheap pre-screen surrogate).
+        assert MultiStartConfig is not None, "HAS_JOINT_MULTISTART guards entry"
+        ms_cfg = MultiStartConfig(
+            enable=True,
+            n_starts=int(getattr(config, "multistart_n", 10)),
+            seed=_JOINT_MULTISTART_SEED,
+            sampling_strategy="latin_hypercube",
+            n_workers=1,
+            use_screening=False,
+        )
+
+        def single_fit_func(_data: dict[str, Any], x_start: np.ndarray) -> Any:
+            res = _fit_joint_multi_phi(
+                model=model,
+                c2_data=c2_data,
+                phi_angles=np.asarray(phi_angles),
+                config=config,
+                weights=weights,
+                fourier=prob.fourier,
+                x0_override=np.asarray(x_start, dtype=np.float64),
+            )
+            x_fit = np.asarray(res.parameters, dtype=np.float64)
+            assert SingleStartResult is not None, "HAS_JOINT_MULTISTART guards entry"
+            return SingleStartResult(
+                start_idx=0,
+                initial_params=np.asarray(x_start, dtype=np.float64),
+                final_params=x_fit,
+                chi_squared=_data_ssr(x_fit),
+                success=bool(getattr(res, "success", True)),
+                message=str(getattr(res, "message", "")),
+            )
+
+        def cost_func(x: np.ndarray) -> float:
+            return 0.5 * _data_ssr(np.asarray(x, dtype=np.float64))
+
+        assert run_multistart_nlsq is not None, "HAS_JOINT_MULTISTART guards entry"
+        ms = run_multistart_nlsq(
+            data={"c2": c2_data, "phi": phi_angles},
+            bounds=bounds2,
+            config=ms_cfg,
+            single_fit_func=single_fit_func,
+            cost_func=cost_func,
+        )
+        x_ms = np.asarray(ms.best.final_params, dtype=np.float64)
+        ssr_ms = _data_ssr(x_ms)
+
+        # Keep-better vs the default joint fit (no override).
+        default = _fit_joint_multi_phi(
+            model=model,
+            c2_data=c2_data,
+            phi_angles=np.asarray(phi_angles),
+            config=config,
+            weights=weights,
+            fourier=prob.fourier,
+        )
+        x_default = np.asarray(default.parameters, dtype=np.float64)
+        ssr_default = _data_ssr(x_default)
+
+        if ssr_ms <= ssr_default * (1.0 + 1e-12):
+            x_final, escape = x_ms, "multistart"
+        else:
+            x_final, escape = x_default, "multistart_default_kept"
+
+        logger.info(
+            "Joint multistart escape: best-start SSR=%.6e, default SSR=%.6e → kept %s",
+            ssr_ms,
+            ssr_default,
+            escape,
+        )
+
+        return _build_joint_result(
+            model,
+            prob,
+            c2_data,
+            np.asarray(x_final, dtype=np.float64),
+            phi_angles,
+            config,
+            weights,
+            global_escape=escape,
+        )
+    except Exception as exc:  # noqa: BLE001 - best-effort escape, fall back to plain fit
+        logger.warning(
+            "Joint multistart escape failed (%s: %s); falling back to plain joint fit",
+            type(exc).__name__,
+            exc,
+        )
+        fourier_fb = _build_joint_fourier(config, phi_angles)
+        return _fit_joint_multi_phi(
+            model=model,
+            c2_data=c2_data,
+            phi_angles=np.asarray(phi_angles),
+            config=config,
+            weights=weights,
+            fourier=fourier_fb,
+        )
+
+
 def _resolve_effective_mode(config: NLSQConfig, n_phi: int) -> str:
     """Map ``config.per_angle_mode`` + ``n_phi`` to a canonical dispatch token.
 
@@ -1950,6 +2145,7 @@ def _fit_joint_multi_phi(
     config: NLSQConfig,
     weights: np.ndarray | None,
     fourier: Any,
+    x0_override: np.ndarray | None = None,
 ) -> OptimizationResult:
     """Joint multi-angle fit with reparameterized per-angle scaling.
 
@@ -1999,7 +2195,16 @@ def _fit_joint_multi_phi(
     # consumed by ``_build_joint_result``, not here.
     prob = _build_joint_problem(model, c2_data, phi_angles, config, weights, fourier=fourier)
     joint_residual_fn = prob.joint_residual_fn
-    x0 = prob.x0
+    # ``x0_override`` (Task 3) lets the joint multistart escape seed the solver at
+    # an arbitrary LHS start. Default ``None`` ⇒ today's ``prob.x0`` (the
+    # warm-start built from ``model.scaling`` + the deterministic Fourier coeffs),
+    # so the plain fit and every existing caller are byte-identical. The override
+    # is clipped to the problem bounds so an out-of-range LHS draw cannot escape
+    # the feasible box.
+    if x0_override is not None:
+        x0 = np.clip(np.asarray(x0_override, dtype=np.float64), prob.lb, prob.ub)
+    else:
+        x0 = prob.x0
     lb = prob.lb
     ub = prob.ub
     fourier = prob.fourier
