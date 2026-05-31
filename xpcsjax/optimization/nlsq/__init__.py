@@ -543,7 +543,7 @@ def _safe_log_heterodyne_start(nlsq_cfg: Any, analysis_mode: str, n_phi: int) ->
 
         per_angle_mode = str(getattr(nlsq_cfg, "per_angle_mode", "auto"))
         log_heterodyne_start(analysis_mode, per_angle_mode, n_phi)
-    except Exception:  # pragma: no cover - logging is non-critical, never fatal
+    except Exception:  # nosec B110 # pragma: no cover - logging is non-critical, never fatal
         pass
 
 
@@ -568,7 +568,7 @@ def _safe_log_heterodyne_completion(result: Any, model: Any, n_phi: int) -> None
             int(param_manager.n_varying),
             n_phi,
         )
-    except Exception:  # pragma: no cover - logging is non-critical, never fatal
+    except Exception:  # nosec B110 # pragma: no cover - logging is non-critical, never fatal
         pass
 
 

@@ -114,3 +114,27 @@ L5: Shear-sensitivity weighting (laminar_flow ONLY)
   for the explicit marker.
 
   This is a structural decision, not a TODO.
+
+Symmetric diagnostics contract
+------------------------------
+
+Both ``laminar_flow`` and ``two_component`` now emit the same top-level
+``nlsq_diagnostics`` activation keys —
+``{hierarchical_active, regularization_active, shear_weighting}``, plus
+``gradient_monitor`` when L4 ran — via the shared assembler
+``xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics.assemble_anti_degeneracy_diagnostics``.
+The ``*_active`` flags are **always present**, taking the value ``False`` when
+the corresponding layer did not run, so a caller can read the same key set
+regardless of mode. The ``shear_weighting`` value is mode-appropriate:
+``'not_applicable_heterodyne'`` for ``two_component`` and
+``'laminar_flow_inactive'`` for ``laminar_flow``'s in-memory path.
+
+This was a **diagnostics-only** unification: the L2/L3 solve code was already
+shared between the two modes, and only the emission of the diagnostics keys was
+made symmetric. Both characterization baselines remain bit-identical.
+
+These flat top-level activation keys are guaranteed on the in-memory laminar
+path and on all heterodyne paths; the laminar ≥1 M stratified/sequential and
+HYBRID_STREAMING return paths bypass ``_post_process_results`` and continue to
+nest their L2/L3/L5 layer state under ``controller_diagnostics`` (lifting them
+to the flat contract is a documented follow-up).

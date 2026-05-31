@@ -196,9 +196,19 @@ from xpcsjax.optimization.nlsq.parameter_utils import (  # noqa: E402
     compute_jacobian_stats as _compute_jacobian_stats,
     compute_consistent_per_angle_init as _compute_consistent_per_angle_init,
 )
+from xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics import (  # noqa: E402
+    assemble_anti_degeneracy_diagnostics,
+)
 
 # Module-level logger
 _memory_logger = get_logger(__name__)
+
+#: Laminar in-memory L5 marker. The in-memory laminar_flow solve does not expose
+#: shear-weighter diagnostics at the result-build point (no weighter handle is
+#: threaded through ``diagnostics_state``), so the symmetric ``shear_weighting``
+#: key reports this concrete marker rather than the heterodyne
+#: ``"not_applicable_heterodyne"`` sentinel.
+_LAMINAR_L5_INACTIVE = "laminar_flow_inactive"
 
 
 def _homodyne_l4_monitoring_enabled(config: Any) -> tuple[bool, float, int]:
@@ -2153,16 +2163,26 @@ class NLSQWrapper(NLSQAdapterBase):
             n_params_effective=n_dof_effective,
         )
 
-        # L4: attach the gradient_monitor block under nlsq_diagnostics (same key
-        # heterodyne uses), independent of the diagnostics_enabled gate. Strictly
-        # diagnostic — never mutates popt/pcov/chi2.
-        l4_extras = diagnostics_state.get("l4_extras")
-        if l4_extras:
-            existing = getattr(result, "nlsq_diagnostics", None)
-            if not isinstance(existing, dict):
-                existing = {}
-            existing.update(l4_extras)
-            result.nlsq_diagnostics = existing
+        # Anti-degeneracy: emit the SYMMETRIC top-level activation key set so the
+        # laminar in-memory result mirrors heterodyne's contract
+        # (hierarchical_active / regularization_active / shear_weighting), plus the
+        # shared L4 gradient_monitor block. The in-memory laminar path runs no L2
+        # (hierarchical) or L3 (regularization) and exposes no shear-weighter
+        # diagnostics at this point, so it reports L2/L3 inactive and the laminar
+        # L5 marker (NOT the heterodyne sentinel). Strictly diagnostic — never
+        # mutates popt/pcov/chi2.
+        l4_extras = diagnostics_state.get("l4_extras") or {}
+        ad_block = assemble_anti_degeneracy_diagnostics(
+            hierarchical_active=False,
+            regularization_active=False,
+            shear_weighting=_LAMINAR_L5_INACTIVE,
+            gradient_monitor=l4_extras.get("gradient_monitor"),
+        )
+        existing = getattr(result, "nlsq_diagnostics", None)
+        if not isinstance(existing, dict):
+            existing = {}
+        existing.update(ad_block)
+        result.nlsq_diagnostics = existing
 
         logger.info(
             f"Final chi-squared: {result.chi_squared:.4e}, "

@@ -33,6 +33,9 @@ from xpcsjax.core.heterodyne_jax_backend import compute_multi_angle_residuals
 from xpcsjax.core.heterodyne_scaling_utils import (
     estimate_per_angle_scaling_from_quantile,
 )
+from xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics import (
+    assemble_anti_degeneracy_diagnostics,
+)
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 from xpcsjax.optimization.nlsq.results import (
     ConvergenceStatus,
@@ -334,6 +337,19 @@ def _fit_joint_constant_multi_phi(
     convergence_status: ConvergenceStatus = "converged" if nlsq_result.success else "failed"
     quality_flag: QualityFlag = "good" if nlsq_result.success else "marginal"
 
+    # L2 hierarchical: no-op for constant mode. The whole solve IS the
+    # "stage 1" of the two-stage pattern (physics-only with quantile-fixed
+    # scaling); there is no stage 2 because scaling is permanently frozen.
+    # Record the flag-handling so downstream consumers can confirm the
+    # config-side request was observed. Only the DETAIL keys are conditional;
+    # the activation flags below are emitted on every path by the assembler.
+    hierarchical_extras: dict[str, Any] = {}
+    if config.enable_hierarchical:
+        hierarchical_extras = {
+            "hierarchical_stages": 1,
+            "hierarchical_scope": "constant_mode_no_stage2",
+        }
+
     diagnostics: dict[str, Any] = {
         "scaling_source": "quantile_fixed",
         "contrast_per_angle_fixed": contrast_fixed,
@@ -341,10 +357,6 @@ def _fit_joint_constant_multi_phi(
         "chi2_per_angle": chi2_per_angle,
         "per_angle_mode": "constant",
         "fourier_basis_dim": None,
-        # Marker exercised by Task D4 — heterodyne does not use the homodyne
-        # shear-weighting layer, but the OptimizationResult schema may carry
-        # the key in other modes, so we make the absence explicit.
-        "shear_weighting": "not_applicable_heterodyne",
         "parameter_names": varying_names,
         "convergence_reason": nlsq_result.convergence_reason,
         "n_function_evals": int(nlsq_result.n_function_evals or 0),
@@ -352,16 +364,19 @@ def _fit_joint_constant_multi_phi(
         "wall_time_seconds": wall_time,
         "message": str(nlsq_result.message),
     }
-
-    # L2 hierarchical: no-op for constant mode. The whole solve IS the
-    # "stage 1" of the two-stage pattern (physics-only with quantile-fixed
-    # scaling); there is no stage 2 because scaling is permanently frozen.
-    # Record the flag-handling so downstream consumers can confirm the
-    # config-side request was observed.
-    if config.enable_hierarchical:
-        diagnostics["hierarchical_stages"] = 1
-        diagnostics["hierarchical_active"] = False
-        diagnostics["hierarchical_scope"] = "constant_mode_no_stage2"
+    # L2/L3/L4/L5 activation block via the shared assembler. Constant mode never
+    # runs L2 stage-2 (hierarchical_active=False), L3 (regularization_active=
+    # False), or the L4 monitor (gradient_monitor omitted); the
+    # ``"not_applicable_heterodyne"`` marker makes the homodyne L5 N/A explicit.
+    diagnostics.update(
+        assemble_anti_degeneracy_diagnostics(
+            hierarchical_active=False,
+            regularization_active=False,
+            shear_weighting="not_applicable_heterodyne",
+            gradient_monitor=None,
+            **hierarchical_extras,
+        )
+    )
 
     return OptimizationResult(
         parameters=fitted_physics,

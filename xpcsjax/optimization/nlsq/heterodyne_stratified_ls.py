@@ -228,9 +228,12 @@ def build_joint_pointwise_residual(
 
     @jax.jit
     def residual_fn(params: np.ndarray) -> jnp.ndarray:
-        params = jnp.asarray(params, dtype=jnp.float64)
-        physics = params[:n_physics]
-        scaling = params[n_physics:]
+        # Use a distinct local for the JAX-converted vector so the numpy-typed
+        # ``params`` argument is not reassigned to a jnp Array (keeps mypy happy
+        # at the numpy/JAX boundary without changing behavior).
+        p = jnp.asarray(params, dtype=jnp.float64)
+        physics = p[:n_physics]
+        scaling = p[n_physics:]
         contrast, offset = expander(scaling)
         full = fixed_full_jax.at[varying_indices_jax].set(physics)
         phi_idx = x_jax[:, 0]
@@ -426,6 +429,8 @@ def fit_heterodyne_stratified_least_squares(
     if mode == "fourier":
         # Fourier coefficients are bounded per the reparameterizer (matches the
         # in-memory _fit_joint_multi_phi path, which uses fourier.get_bounds()).
+        if fourier is None:  # invariant: fourier mode always carries a reparameterizer
+            raise RuntimeError("fourier per_angle_mode requires a reparameterizer, got None")
         scaling_lower, scaling_upper = fourier.get_bounds()
         scaling_lower = np.asarray(scaling_lower, np.float64)
         scaling_upper = np.asarray(scaling_upper, np.float64)
@@ -442,7 +447,10 @@ def fit_heterodyne_stratified_least_squares(
     joint_param_names = [*model.param_manager.varying_names, *scaling_names]
     adapter = NLSQAdapter(parameter_names=joint_param_names)
     fit = adapter.fit(
-        residual_fn=residual_fn,
+        # residual_fn returns a jnp Array; NLSQAdapter types its residual as
+        # numpy-returning. JAX arrays are numpy-compatible at runtime, so this is
+        # a typing-only impedance at the JAX/numpy boundary.
+        residual_fn=residual_fn,  # type: ignore[arg-type]
         initial_params=p0_full,
         bounds=(lower, upper),
         config=config,
