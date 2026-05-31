@@ -21,6 +21,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from xpcsjax.optimization.nlsq.gradient_monitor import (
+    GradientCollapseMonitor,
+    GradientMonitorConfig,
+    build_gradient_collapse_callback,
+    gradient_monitor_diagnostics,
+)
 from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -560,6 +566,45 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         )
 
     # ------------------------------------------------------------------
+    # Build L4 GradientCollapseMonitor + curve_fit callback (Task 3)
+    # Mirrors heterodyne_core._build_l4_callback — strictly observational.
+    # monitor-on vs monitor-off is objective-identical.
+    # ------------------------------------------------------------------
+    gm_cfg_dict: dict[str, Any] = ad_config.get("gradient_monitoring", {})
+    monitor: GradientCollapseMonitor | None = None
+    l4_callback = None
+
+    if gm_cfg_dict.get("enable", True) and meta["n_scaling"] > 0:
+        base_idx = meta["n_physics_varying"]
+        n_scaling_params = meta["n_scaling"]
+        physical_indices = np.arange(base_idx, dtype=np.intp)
+        per_angle_indices = np.arange(base_idx, base_idx + n_scaling_params, dtype=np.intp)
+        monitor_config = GradientMonitorConfig(
+            enable=True,
+            ratio_threshold=float(gm_cfg_dict.get("ratio_threshold", 0.01)),
+            consecutive_triggers=int(gm_cfg_dict.get("consecutive_triggers", 5)),
+            response_mode=gm_cfg_dict.get("response", "hierarchical"),
+            check_interval=1,
+        )
+        monitor = GradientCollapseMonitor(
+            config=monitor_config,
+            physical_indices=physical_indices,
+            per_angle_indices=per_angle_indices,
+        )
+
+        def _loss(p: jnp.ndarray) -> jnp.ndarray:
+            pred = model_fn(x_data, *p)
+            return 0.5 * jnp.sum((jnp.asarray(y_data) - pred) ** 2)
+
+        grad_fn = jax.jit(jax.grad(_loss))
+        l4_callback = build_gradient_collapse_callback(monitor, grad_fn)
+        logger.info(
+            "L4 gradient-collapse monitor enabled (heterodyne streaming): "
+            "n_physics=%d, n_scaling=%d",
+            base_idx, n_scaling_params,
+        )
+
+    # ------------------------------------------------------------------
     # Build HybridStreamingConfig (merge L3 kwargs)
     # ------------------------------------------------------------------
     cfg = _build_hybrid_streaming_config({**(hybrid_config or {}), **group_variance_kwargs})
@@ -619,6 +664,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         p0=p0_arr,
         bounds=bounds_arg,
         sigma=sigma,
+        callback=l4_callback,
     )
 
     # ------------------------------------------------------------------
@@ -658,8 +704,27 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         info["ssr_frozen_baseline"] = info["ssr"]
 
     # ------------------------------------------------------------------
-    # Seed anti_degeneracy diagnostics dict (Task 2; full diagnostics in Task 4)
+    # Seed anti_degeneracy diagnostics dict (Task 2; L4 block added Task 3)
     # ------------------------------------------------------------------
     info["anti_degeneracy"] = {"per_angle_mode": meta["per_angle_mode"]}
+
+    if monitor is not None:
+        # Build canonical L4 block; falls back to post_solve_fallback mechanism
+        # when the callback never fired (zero observations).
+        gm_block = gradient_monitor_diagnostics(monitor)
+        if gm_block["mechanism"] == "post_solve_fallback":
+            # Compute post-solve covariance condition as fallback indicator
+            pcov_cond = float(np.linalg.cond(pcov)) if pcov.ndim == 2 and pcov.shape[0] > 0 else float("nan")
+            gm_block["post_solve_cov_condition"] = pcov_cond
+        logger.info(
+            "L4 gradient-collapse monitor (heterodyne streaming): "
+            "mechanism=%s, n_observations=%s, max_gradient_ratio=%.3g, "
+            "collapse_detected=%s.",
+            gm_block["mechanism"],
+            gm_block.get("n_observations"),
+            gm_block["max_gradient_ratio"],
+            gm_block["collapse_detected"],
+        )
+        info["anti_degeneracy"]["gradient_monitor"] = gm_block
 
     return popt, pcov, info

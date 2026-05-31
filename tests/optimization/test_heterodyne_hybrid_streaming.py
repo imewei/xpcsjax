@@ -473,6 +473,55 @@ def test_streaming_auto_small_n_phi_does_not_crash(monkeypatch):
     assert info["anti_degeneracy"]["per_angle_mode"] == "auto_averaged"
 
 
+def test_streaming_l4_monitor_present_and_objective_invariant():
+    """Task 3: L4 gradient-collapse monitor diagnostics appear in anti_degeneracy;
+    monitor-on vs monitor-off must be objective-identical (strictly observational)."""
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        fit_with_stratified_hybrid_streaming_heterodyne,
+    )
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=2, n_t=8)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+
+    base_kwargs = dict(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={
+            "warmup_iterations": 10,
+            "max_warmup_iterations": 20,
+            "gauss_newton_max_iterations": 10,
+            "verbose": 0,
+        },
+    )
+
+    # Monitor ON
+    _, _, info_on = fit_with_stratified_hybrid_streaming_heterodyne(
+        **base_kwargs,
+        anti_degeneracy_config={"per_angle_mode": "auto", "gradient_monitoring": {"enable": True}},
+    )
+    # Monitor OFF
+    _, _, info_off = fit_with_stratified_hybrid_streaming_heterodyne(
+        **base_kwargs,
+        anti_degeneracy_config={"per_angle_mode": "auto", "gradient_monitoring": {"enable": False}},
+    )
+
+    # gradient_monitor key must be present when monitoring is on
+    assert "gradient_monitor" in info_on["anti_degeneracy"], (
+        f"gradient_monitor missing from anti_degeneracy; keys={list(info_on['anti_degeneracy'].keys())}"
+    )
+    # Monitor must be strictly observational: SSR must be identical regardless of monitoring
+    assert np.isclose(info_on["ssr"], info_off["ssr"], rtol=0, atol=1e-9), (
+        f"Monitor changed objective: on={info_on['ssr']:.10e}  off={info_off['ssr']:.10e}"
+    )
+
+
 def test_streaming_auto_averaged_real_run_ssr_not_worse():
     """Fix 3: REAL optimizer run (no mock). Optimizing the averaged scaling tail
     must do at least as well as the frozen-quantile baseline (shared physics).
