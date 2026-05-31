@@ -21,6 +21,7 @@ unchanged by the fix.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 import xpcsjax.optimization.nlsq.heterodyne_core as hc
 from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
@@ -61,18 +62,34 @@ def _make_failing_adapter(orig_adapter_cls):
     return _FailingAdapter
 
 
-def test_fallback_does_not_report_discarded_adapter_monitor(monkeypatch):
+@pytest.mark.parametrize(
+    "per_angle_mode, n_phi, expected_mode",
+    [
+        # ``auto`` with n_phi >= constant_scaling_threshold (3) resolves to the
+        # averaged joint builder (_fit_joint_averaged_multi_phi).
+        ("auto", 3, "averaged"),
+        # ``fourier`` routes to the Fourier joint builder (_fit_joint_multi_phi).
+        # n_phi=7 gives the FourierReparameterizer enough angles to build a real
+        # fourier basis rather than silently falling back to independent.
+        ("fourier", 7, "fourier"),
+    ],
+)
+def test_fallback_does_not_report_discarded_adapter_monitor(
+    monkeypatch, per_angle_mode, n_phi, expected_mode
+):
     """Adapter fires the L4 callback then fails; the wrapper fallback succeeds.
 
     The returned ``gradient_monitor`` block must report ``post_solve_fallback``
     (honest, computed from the wrapper's result), NOT the discarded adapter
-    run's ``per_iteration_gradient_ratio``.
+    run's ``per_iteration_gradient_ratio``. Parametrized over BOTH joint-fit
+    builders — the original finding noted the bug is duplicated in the fourier
+    path, so both are locked under test.
     """
-    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    model, c2, phi = make_synthetic_two_component(n_phi=n_phi, n_t=20)
     cfg = NLSQConfig.from_dict(
         {
             "analysis_mode": "two_component",
-            "per_angle_mode": "averaged",
+            "per_angle_mode": per_angle_mode,
             "enable_gradient_monitoring": True,
         }
     )
@@ -80,8 +97,16 @@ def test_fallback_does_not_report_discarded_adapter_monitor(monkeypatch):
     monkeypatch.setattr(hc, "NLSQAdapter", _make_failing_adapter(hc.NLSQAdapter))
 
     res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
-    gm = res.nlsq_diagnostics["gradient_monitor"]
 
+    # Prove the dispatch actually took the intended joint builder. The fourier
+    # case must route through _fit_joint_multi_phi (per_angle_mode == "fourier"),
+    # not the averaged builder — otherwise the fourier path is not exercised.
+    assert res.nlsq_diagnostics.get("per_angle_mode") == expected_mode, (
+        f"expected {expected_mode!r} joint builder, got "
+        f"{res.nlsq_diagnostics.get('per_angle_mode')!r}"
+    )
+
+    gm = res.nlsq_diagnostics["gradient_monitor"]
     assert gm["mechanism"] == "post_solve_fallback", (
         "fallback path must not surface the discarded adapter monitor's "
         f"per-iteration ratios; got mechanism={gm['mechanism']!r}"
