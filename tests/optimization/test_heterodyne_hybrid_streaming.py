@@ -330,3 +330,41 @@ def test_reduced_chi_squared_uses_data_dof():
     # dof must reflect n_data - n_params (~100k), not n_params (~14). With chi2 ~ O(n_data),
     # reduced should not be astronomically inflated. Just assert it's finite and the result is built.
     assert np.isfinite(res.reduced_chi_squared) or res.reduced_chi_squared != res.reduced_chi_squared  # finite or NaN ok
+
+
+def test_pointwise_model_auto_averaged_param_layout():
+    """auto_averaged appends 2 optimized scaling params; model_fn reads them."""
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        build_heterodyne_pointwise_model,
+    )
+
+    # _make_synthetic_heterodyne returns (model, c2, phi)
+    model, c2, phi = _make_synthetic_heterodyne()
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+
+    model_fn, x_data, y_data, p0, meta = build_heterodyne_pointwise_model(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        per_angle_mode="auto_averaged",
+    )
+    n_phys = len(model.param_manager.get_initial_values())
+    assert len(p0) == n_phys + 2
+    assert np.isclose(p0[n_phys], float(np.mean(meta["contrast_arr"])))
+    assert np.isclose(p0[n_phys + 1], float(np.mean(meta["offset_arr"])))
+    pred = np.asarray(model_fn(x_data[:8], *[float(v) for v in p0]))
+    assert pred.shape == (8,)
+    assert np.all(np.isfinite(pred))
+    assert meta["per_angle_mode"] == "auto_averaged"
+    assert meta["n_scaling"] == 2
+    assert meta["n_physics_varying"] == n_phys
+    scaling_lower, scaling_upper = meta["scaling_bounds"]
+    assert scaling_lower.dtype == np.float64
+    assert scaling_upper.dtype == np.float64
+    assert len(scaling_lower) == 2
+    assert len(scaling_upper) == 2
+    assert scaling_lower[0] == 0.01
+    assert np.isclose(scaling_upper[0], max(2.0 * p0[n_phys], 1.0))

@@ -68,6 +68,7 @@ def build_heterodyne_pointwise_model(
     stratified_data: HeterodyneStratifiedData,
     model: HeterodyneModel,
     physical_param_names: list[str],
+    per_angle_mode: str = "fixed_constant",
 ) -> tuple[Any, np.ndarray, np.ndarray, list[float], dict[str, Any]]:
     """Build the pointwise model function and data arrays for hybrid streaming.
 
@@ -81,6 +82,14 @@ def build_heterodyne_pointwise_model(
         ``param_manager``.
     physical_param_names :
         Names of the varying physics parameters (``model.param_manager.varying_names``).
+    per_angle_mode :
+        Scaling treatment for per-angle contrast/offset.
+        ``"fixed_constant"`` (default) — freeze quantile-estimated scaling inside
+        the JIT closure (existing behaviour, backward-compatible).
+        ``"auto_averaged"`` — append 2 optimized scaling scalars (mean contrast,
+        mean offset) to ``p0``; the JIT closure reads them as uniform across all
+        angles.  Later modes (``"individual"``, ``"fourier"``) are reserved for
+        future tasks.
 
     Returns
     -------
@@ -202,9 +211,23 @@ def build_heterodyne_pointwise_model(
         offset_arr = np.asarray(offset_raw, dtype=np.float64)
 
     # ------------------------------------------------------------------
-    # 6. Initial parameter vector (varying physics only)
+    # 6. Initial parameter vector (varying physics; optionally + scaling tail)
     # ------------------------------------------------------------------
     p0: list[float] = [float(v) for v in model.param_manager.get_initial_values()]
+    n_physics_varying = len(p0)
+
+    if per_angle_mode == "auto_averaged":
+        contrast0 = float(np.mean(contrast_arr))
+        offset0 = float(np.mean(offset_arr))
+        n_scaling = 2
+        p0 = [*p0, contrast0, offset0]
+    elif per_angle_mode == "fixed_constant":
+        n_scaling = 0
+    else:
+        raise NotImplementedError(
+            f"per_angle_mode={per_angle_mode!r} not yet wired in streaming "
+            "(individual/fourier modes are not yet supported in streaming)."
+        )
 
     # ------------------------------------------------------------------
     # 7. Prepare JAX-side fixed tensors for the closure
@@ -225,12 +248,21 @@ def build_heterodyne_pointwise_model(
     # ------------------------------------------------------------------
     @jax.jit
     def model_fn(x_batch: jnp.ndarray, *params_tuple: jnp.ndarray) -> jnp.ndarray:
-        """Point-wise heterodyne model function for hybrid streaming optimizer."""
+        """Pointwise heterodyne model: params = [physics_varying | scaling_tail]."""
         x_batch_2d = jnp.atleast_2d(x_batch)
         params_all = jnp.stack(params_tuple)
 
-        # Reconstruct full parameter vector from fixed + varying
-        full = fixed_full_jax.at[varying_indices_jax].set(params_all)
+        # Reconstruct full physics parameter vector from fixed + varying
+        physics = params_all[:n_physics_varying]
+        full = fixed_full_jax.at[varying_indices_jax].set(physics)
+
+        # Resolve per-angle scaling: optimized tail or frozen quantile estimates
+        if n_scaling == 2:
+            contrasts = jnp.full((phi_unique_jax.shape[0],), params_all[n_physics_varying])
+            offsets = jnp.full((phi_unique_jax.shape[0],), params_all[n_physics_varying + 1])
+        else:
+            contrasts = contrast_jax
+            offsets = offset_jax
 
         # Extract grid indices
         phi_idx = x_batch_2d[:, 0].astype(jnp.int32)
@@ -247,8 +279,8 @@ def build_heterodyne_pointwise_model(
             phi_idx=phi_idx,
             t1_idx=t1_idx,
             t2_idx=t2_idx,
-            contrast=contrast_jax,
-            offset=offset_jax,
+            contrast=contrasts,
+            offset=offsets,
         )
         return jnp.squeeze(result)
 
@@ -270,6 +302,21 @@ def build_heterodyne_pointwise_model(
         sigma_sel = sigma_3d[phi_idx_pre[keep], t1_idx_pre[keep], t2_idx_pre[keep]]
         meta_sigma = sigma_sel
 
+    # ------------------------------------------------------------------
+    # Scaling-tail parameter bounds (used by later tasks for joint bounds array)
+    # ------------------------------------------------------------------
+    if n_scaling == 2:
+        c_lo, c_hi = 0.01, max(2.0 * contrast0, 1.0)
+        # Offset is a DC baseline that can be negative; use a symmetric bound
+        # centered on offset0 so the lower bound permits negative offsets.
+        o_lo = offset0 - max(abs(offset0), 1.0)
+        o_hi = offset0 + max(abs(offset0), 1.0)
+        scaling_lower = np.array([c_lo, o_lo], dtype=np.float64)
+        scaling_upper = np.array([c_hi, o_hi], dtype=np.float64)
+    else:
+        scaling_lower = np.empty(0, dtype=np.float64)
+        scaling_upper = np.empty(0, dtype=np.float64)
+
     meta: dict[str, Any] = {
         "phi_unique": phi_unique,
         "contrast_arr": contrast_arr,
@@ -283,6 +330,11 @@ def build_heterodyne_pointwise_model(
         # time axis, but expose it explicitly so downstream residual builders
         # index against the exact same grid).
         "t_unique": t_unique,
+        # Scaling-mode metadata (Task 1+)
+        "per_angle_mode": per_angle_mode,
+        "n_scaling": n_scaling,
+        "n_physics_varying": n_physics_varying,
+        "scaling_bounds": (scaling_lower, scaling_upper),
     }
 
     return model_fn, x_data, y_data, p0, meta
