@@ -26,6 +26,36 @@ Mode             Optimizer params (K=2, n_phi)  Notes
 ``individual``   ``n_physics + 2*n_phi``        free per-angle scaling
 ================ ============================== ===========================
 
+Joint global escapes
+--------------------
+
+Beyond the per-angle defense layers, heterodyne provides two **joint-fit
+global escapes** that search the full ``[physics | scaling]`` vector. Both are
+**real global escapes** (no longer the Phase-6 minimal stubs):
+
+``_fit_joint_cmaes_multi_phi`` (``enable_cmaes=True``)
+  A **seed-pinned** CMA-ES global search over the joint vector, reusing the
+  shared :func:`xpcsjax.optimization.nlsq.cmaes_wrapper.fit_with_cmaes`.
+
+``_fit_joint_multistart`` (``multistart=True``)
+  A **seed-pinned** Latin-Hypercube multistart sweep over the joint vector,
+  reusing the shared ``run_multistart_nlsq`` (each start re-runs the plain
+  joint fit seeded at ``x_start``).
+
+Both escapes are **keep-better** — they are accepted only if their data-only
+SSR beats the plain NLSQ joint fit — and **best-effort fall back** to the plain
+joint fit on failure. This is the joint-fit global escape; the per-angle
+escapes were already real. Together these closed the joint-escape parity gap
+with ``laminar_flow``. The escapes are strategy-level and do **not** touch the
+anti-degeneracy controller.
+
+An escape result is tagged ``nlsq_diagnostics["global_escape"]`` (``"cmaes"`` or
+``"multistart"``; the key is absent on a plain joint fit) and, **by
+construction**, carries NaN ``covariance`` / ``parameter_uncertainties`` and
+``n_iterations=0`` — the escape returns a pre-accepted (compared-and-kept)
+vector with no covariance solve, so consumers needing uncertainties should
+detect an escape result via the ``global_escape`` tag.
+
 Defense Layers
 --------------
 

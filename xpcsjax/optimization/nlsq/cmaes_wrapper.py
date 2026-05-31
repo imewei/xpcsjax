@@ -273,6 +273,7 @@ class CMAESWrapperConfig:
     preset: str = "cmaes"
     max_generations: int | None = None  # None = use preset + adaptive scaling
     popsize: int | None = None  # None = auto from 4+3*ln(n)
+    seed: int | None = None  # Deterministic RNG seed for CMA-ES (None = NLSQ default)
     sigma: float = 0.5
     sigma_warmstart: float = 0.05  # Reduced sigma for warm-start (local refinement)
     tol_fun: float = 1e-8
@@ -321,6 +322,7 @@ class CMAESWrapperConfig:
             preset=getattr(config, "cmaes_preset", "cmaes"),
             max_generations=getattr(config, "cmaes_max_generations", None),
             popsize=getattr(config, "cmaes_popsize", None),
+            seed=getattr(config, "cmaes_seed", None),
             sigma=getattr(config, "cmaes_sigma", 0.5),
             sigma_warmstart=getattr(config, "cmaes_sigma_warmstart", 0.05),
             tol_fun=getattr(config, "cmaes_tol_fun", 1e-8),
@@ -400,6 +402,13 @@ class CMAESWrapperConfig:
         restart_strategy_literal = cast(
             Literal["none", "bipop"], self.restart_strategy
         )
+        # Forward the deterministic seed only when set. NLSQ's CMAESConfig
+        # defaults ``seed=None`` (non-deterministic); pinning it makes the
+        # CMA-ES search reproducible (used by the joint global escape).
+        cmaes_kwargs: dict[str, Any] = {}
+        if self.seed is not None:
+            cmaes_kwargs["seed"] = self.seed
+
         return CMAESConfig(
             popsize=popsize,
             max_generations=max_gen,
@@ -412,6 +421,7 @@ class CMAESWrapperConfig:
             data_chunk_size=self.data_chunk_size,
             # Disable NLSQ's internal refinement - we do it explicitly in homodyne
             refine_with_nlsq=False,
+            **cmaes_kwargs,
         )
 
 

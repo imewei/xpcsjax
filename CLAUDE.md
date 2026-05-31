@@ -119,6 +119,23 @@ L5 (shear weighting) is `laminar_flow`-only. Heterodyne's velocity/flow term
 shear rate (`gamma_dot`), so laminar_flow's shear-sensitivity weighting does
 not apply to it. See `docs/source/theory/heterodyne_anti_degeneracy.rst`.
 
+### Heterodyne joint global escapes (parity gap C closed)
+
+The heterodyne joint CMA-ES (`_fit_joint_cmaes_multi_phi`) and joint multistart
+(`_fit_joint_multistart`) escapes in `heterodyne_core.py` are **real global
+escapes** (no longer the Phase-6 minimal stubs). Each runs a seed-pinned global
+optimizer over the joint `[physics | scaling]` vector, **keeps-better** vs the
+plain NLSQ joint fit, and **best-effort falls back** to the plain joint fit on
+failure — reusing the shared `fit_with_cmaes` / `run_multistart_nlsq`. This is
+the joint-fit global escape; the per-angle escapes were already real. This
+closed parity gap **C** between `two_component` and `laminar_flow`. An escape
+result is tagged `nlsq_diagnostics["global_escape"]` and, by construction,
+carries NaN covariance / uncertainties and `n_iterations=0` (no covariance solve
+on the kept vector) — read `global_escape` to detect an escape result. Remaining
+documented follow-ups: gaps **A**/**B** (shared `AntiDegeneracyController` and
+`HierarchicalOptimizer`/L2 wiring — the escapes do **not** touch the controller)
+and **D** (hybrid-streaming anti-degeneracy).
+
 ### Heterodyne memory strategy and angle stratification
 
 Heterodyne mirrors homodyne's angle-stratification mechanism (mechanism parity, not numerical parity — heterodyne fits a different model). The dispatch inside `_fit_nlsq_heterodyne` is: cmaes → multi_start → hybrid_streaming → stratified-LS (≥ 1 M points) → in-memory joint fit.
