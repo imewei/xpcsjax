@@ -672,6 +672,147 @@ def test_pointwise_model_fourier_fallback_to_independent():
     assert np.all(np.isfinite(pred)), f"pred has non-finite: {pred}"
 
 
+# ---------------------------------------------------------------------------
+# Task 6: L2 hierarchical branch for individual / fourier
+# ---------------------------------------------------------------------------
+
+
+def test_streaming_l2_gate_and_activation():
+    """L2 hierarchical runs for individual (not use_constant), off for auto_averaged.
+
+    Uses a real (but tiny) optimizer run so hierarchical_active is determined by
+    the actual code path, not a mock.  n_phi=4 makes individual meaningful (4
+    independent contrast + 4 independent offset params).
+
+    The dataset is deliberately small so the hierarchical loss_fn's full-vector
+    materialisation is cheap (see implementation comment: L2 only fires for
+    individual/fourier, which auto selects at small n_phi).
+    """
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        fit_with_stratified_hybrid_streaming_heterodyne,
+    )
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=4, n_t=6)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+    base_kwargs = dict(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={
+            "warmup_iterations": 5,
+            "max_warmup_iterations": 10,
+            "gauss_newton_max_iterations": 5,
+            "verbose": 0,
+        },
+    )
+
+    # individual -> L2 must be active
+    _, _, info_ind = fit_with_stratified_hybrid_streaming_heterodyne(
+        **base_kwargs,
+        anti_degeneracy_config={
+            "per_angle_mode": "individual",
+            "hierarchical": {"enable": True, "max_outer_iterations": 2},
+        },
+    )
+    assert info_ind["anti_degeneracy"]["hierarchical_active"] is True, (
+        f"individual: expected hierarchical_active=True, got "
+        f"{info_ind['anti_degeneracy']['hierarchical_active']}"
+    )
+
+    # auto (-> auto_averaged) -> L2 must be off
+    _, _, info_avg = fit_with_stratified_hybrid_streaming_heterodyne(
+        **base_kwargs,
+        anti_degeneracy_config={"per_angle_mode": "auto"},
+    )
+    assert info_avg["anti_degeneracy"]["hierarchical_active"] is False, (
+        f"auto_averaged: expected hierarchical_active=False, got "
+        f"{info_avg['anti_degeneracy']['hierarchical_active']}"
+    )
+
+
+def test_streaming_l2_diagnostics_keys_present_for_individual():
+    """When L2 fires (individual mode) the anti_degeneracy block must still
+    carry all symmetric keys required by the diagnostics contract."""
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        fit_with_stratified_hybrid_streaming_heterodyne,
+    )
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=4, n_t=6)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+
+    _, _, info = fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={
+            "warmup_iterations": 5,
+            "max_warmup_iterations": 10,
+            "gauss_newton_max_iterations": 5,
+            "verbose": 0,
+        },
+        anti_degeneracy_config={
+            "per_angle_mode": "individual",
+            "hierarchical": {"enable": True, "max_outer_iterations": 2},
+        },
+    )
+    ad = info["anti_degeneracy"]
+    for k in ("hierarchical_active", "regularization_active", "shear_weighting", "per_angle_mode"):
+        assert k in ad, f"missing key {k!r} in anti_degeneracy"
+    assert ad["hierarchical_active"] is True
+    assert ad["per_angle_mode"] == "individual"
+    assert ad["shear_weighting"] == "laminar_flow_inactive"
+    assert np.isfinite(info["ssr"])
+
+
+def test_streaming_l2_ssr_finite_for_individual():
+    """Hierarchical path must produce finite SSR and correct popt length."""
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        fit_with_stratified_hybrid_streaming_heterodyne,
+    )
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=4, n_t=6)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+    n_phys = model.param_manager.n_varying
+
+    popt, pcov, info = fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={
+            "warmup_iterations": 5,
+            "max_warmup_iterations": 10,
+            "gauss_newton_max_iterations": 5,
+            "verbose": 0,
+        },
+        anti_degeneracy_config={
+            "per_angle_mode": "individual",
+            "hierarchical": {"enable": True, "max_outer_iterations": 2},
+        },
+    )
+    # n_phys + 2*n_phi scaling params
+    assert len(popt) == n_phys + 2 * 4, f"popt length {len(popt)} != {n_phys + 8}"
+    assert np.all(np.isfinite(popt)), "popt has non-finite values"
+    assert np.isfinite(info["ssr"]), f"SSR not finite: {info['ssr']}"
+
+
 def test_streaming_diagnostics_symmetric_keys():
     """Streaming anti_degeneracy block carries the same top-level keys as other paths."""
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
@@ -710,3 +851,64 @@ def test_streaming_diagnostics_symmetric_keys():
     assert "gradient_monitor" in ad
     assert ad["shear_weighting"] == "laminar_flow_inactive"
     assert ad["hierarchical_active"] is False  # auto_averaged => L2 off
+
+
+def test_streaming_l2_individual_ssr_not_worse():
+    """REAL hierarchical (L2) run for per_angle_mode='individual'. Optimizing the
+    per-angle scaling tail (jointly with shared physics, via hierarchical
+    alternation) cannot worsen the data objective relative to the frozen
+    per-angle quantile baseline.
+
+    This guards the hierarchical path after the Task-6 spec-review fixes:
+      - Bug 1: L3 AdaptiveRegularizer now slices the scaling tail (full-vector
+        indices), not the physics head. A wrong-slice regularizer would penalise
+        the physics params and could push SSR above the frozen baseline.
+      - Bug 2: L4 monitor now receives native-layout gradient/params (diagnostic
+        only; does not affect SSR but is exercised here on the real path).
+
+    n_phi=4 makes 'individual' meaningful (4 independent contrast + 4 offset
+    params). Kept tiny (n_t=6, few iterations) so it runs in a few seconds.
+    """
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        fit_with_stratified_hybrid_streaming_heterodyne,
+    )
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=4, n_t=6)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+
+    _, _, info = fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={
+            "warmup_iterations": 5,
+            "max_warmup_iterations": 10,
+            "gauss_newton_max_iterations": 5,
+            "verbose": 0,
+        },
+        anti_degeneracy_config={
+            "per_angle_mode": "individual",
+            "hierarchical": {"enable": True, "max_outer_iterations": 3},
+        },
+    )
+
+    # Confirm we actually exercised the hierarchical (L2) path.
+    assert info["anti_degeneracy"]["per_angle_mode"] == "individual"
+    assert info["anti_degeneracy"]["hierarchical_active"] is True
+
+    assert np.isfinite(info["ssr"]), f"ssr is not finite: {info['ssr']}"
+    assert np.isfinite(info["ssr_frozen_baseline"]), (
+        f"ssr_frozen_baseline is not finite: {info['ssr_frozen_baseline']}"
+    )
+    # Optimizing the per-angle scaling tail cannot worsen the data objective
+    # versus the frozen per-angle quantile baseline (shared fitted physics).
+    assert info["ssr"] <= info["ssr_frozen_baseline"] + 1e-6, (
+        f"ssr={info['ssr']:.6e} > ssr_frozen_baseline="
+        f"{info['ssr_frozen_baseline']:.6e}"
+    )

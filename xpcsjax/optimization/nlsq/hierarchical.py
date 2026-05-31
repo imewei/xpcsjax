@@ -518,7 +518,10 @@ class HierarchicalOptimizer:
         logger.info(f"  Converged: {converged}")
         logger.info(f"  Outer iterations: {len(history)}")
         logger.info(f"  Final loss: {final_loss:.6e}")
-        logger.info(f"  Improvement: {100 * (1 - final_loss / initial_loss):.2f}%")
+        if initial_loss != 0.0:
+            logger.info(f"  Improvement: {100 * (1 - final_loss / initial_loss):.2f}%")
+        else:
+            logger.info("  Improvement: N/A (initial_loss=0)")
         logger.info(f"  Total time: {total_time:.2f}s")
         logger.info("=" * 60)
 

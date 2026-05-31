@@ -628,16 +628,33 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
             )
 
     # ------------------------------------------------------------------
-    # Build L3 AdaptiveRegularizer + group-variance config (Task 2)
+    # Build L3 AdaptiveRegularizer + group-variance config (Task 2/6)
     # ------------------------------------------------------------------
     n_scaling = meta["n_scaling"]
+    n_phi_meta = meta["n_phi"]
     reg_cfg_dict: dict[str, Any] = ad_config.get("regularization", {})
-    # L3 only makes sense when there are actual scaling groups to regularize.
-    # auto_averaged supplies the (contrast, offset) group pairs; other modes do
-    # not (yet) — Task 5 will extend this to fourier/individual.
+
+    # L3 mode-aware group_indices (Task 6: extend to individual/fourier).
+    # Group indices are LOCAL offsets WITHIN the scaling tail (0-based within
+    # the tail), translated to full-vector coords (base + ...) when building
+    # group_variance_kwargs for the plain optimizer branch.
+    # In the hierarchical branch L3 is applied via the loss_fn directly.
+    _group_indices: list[tuple[int, int]] | None = None
+    if mode_actual == "auto_averaged":
+        _group_indices = [(0, 1), (1, 2)]
+    elif mode_actual == "individual":
+        # individual: tail = [contrast_0..contrast_{n_phi-1} | offset_0..offset_{n_phi-1}]
+        _group_indices = [(0, n_phi_meta), (n_phi_meta, 2 * n_phi_meta)]
+    elif mode_actual == "fourier":
+        # fourier: tail = [contrast_coeffs | offset_coeffs], each of length n_scaling//2
+        # (n_scaling is always even: 2 * n_coeffs_per_param)
+        c = n_scaling // 2
+        _group_indices = [(0, c), (c, 2 * c)]
+    # fixed_constant: _group_indices stays None (nothing to regularize)
+
     regularization_active = (
         (n_scaling > 0)
-        and (mode_actual == "auto_averaged")
+        and (_group_indices is not None)
         and reg_cfg_dict.get("enable", True)
     )
 
@@ -645,22 +662,31 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     group_variance_kwargs: dict[str, Any] = {}
 
     if regularization_active:
-        # Local offsets WITHIN the scaling tail; translated to full-vector coords (base+...) below.
-        group_indices: list[tuple[int, int]] = [(0, 1), (1, 2)]
+        assert _group_indices is not None  # guarded above
+        # Translate tail-LOCAL group indices to FULL-vector coordinates ONCE.
+        # compute_regularization_jax (used by the hierarchical loss) and the
+        # plain-branch group-variance config both slice the FULL
+        # [physics(n_phys) | scaling] vector, so the regularizer must carry
+        # full-vector indices (base + offset), not tail-local ones — otherwise
+        # it would regularize the first n_phi PHYSICS params instead of the
+        # scaling tail.
+        base = meta["n_physics_varying"]
+        group_indices_full: list[tuple[int, int]] = [
+            (base + a, base + b) for (a, b) in _group_indices
+        ]
 
         reg_config = AdaptiveRegularizationConfig(
             enable=True,
             mode=reg_cfg_dict.get("mode", "relative"),
             lambda_base=float(reg_cfg_dict.get("lambda", 1.0)),
             target_cv=float(reg_cfg_dict.get("target_cv", 0.10)),
-            group_indices=group_indices if group_indices else None,
+            group_indices=group_indices_full,
         )
-        adaptive_regularizer = AdaptiveRegularizer(reg_config, meta["n_phi"])
-        base = meta["n_physics_varying"]
+        adaptive_regularizer = AdaptiveRegularizer(reg_config, n_phi_meta)
         group_variance_kwargs = {
             "enable_group_variance_regularization": True,
             "group_variance_lambda": float(adaptive_regularizer.lambda_value),
-            "group_variance_indices": [(base + a, base + b) for (a, b) in (group_indices or [])],
+            "group_variance_indices": group_indices_full,
         }
         logger.info(
             "L3 group-variance regularization: lambda=%.4f, group_indices=%s",
@@ -705,6 +731,51 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
             "L4 gradient-collapse monitor enabled (heterodyne streaming): "
             "n_physics=%d, n_scaling=%d",
             base_idx, n_scaling_params,
+        )
+
+    # ------------------------------------------------------------------
+    # Build L2 HierarchicalOptimizer (Task 6)
+    # Mirrors laminar :821-860.  Only fires for individual/fourier (i.e.
+    # when not use_constant).  auto_averaged / fixed_constant already
+    # suppress gradient-cancellation degeneracy by having only 2 or 0
+    # per-angle DoF, so hierarchical alternation is not needed there.
+    #
+    # LAYOUT NOTE: heterodyne's native vector is [physics(n_phys) | scaling(n_scaling)].
+    # HierarchicalOptimizer expects [per_angle(n_scaling) | physics(n_phys)] (per-angle
+    # first, physics last — same as the laminar convention).  We permute the
+    # vector before passing it to the optimizer and un-permute the result.
+    # ------------------------------------------------------------------
+    use_constant = mode_actual in ("auto_averaged", "fixed_constant")
+    hier_cfg_dict: dict[str, Any] = ad_config.get("hierarchical", {})
+    enable_hier = hier_cfg_dict.get("enable", True)
+    hierarchical_optimizer = None
+
+    if enable_hier and n_scaling > 0 and not use_constant:
+        from xpcsjax.optimization.nlsq.hierarchical import (
+            HierarchicalConfig,
+            HierarchicalOptimizer,
+        )
+
+        hier_config = HierarchicalConfig(
+            enable=True,
+            max_outer_iterations=int(hier_cfg_dict.get("max_outer_iterations", 5)),
+            outer_tolerance=float(hier_cfg_dict.get("outer_tolerance", 1e-6)),
+            physical_max_iterations=int(hier_cfg_dict.get("physical_max_iterations", 100)),
+            per_angle_max_iterations=int(hier_cfg_dict.get("per_angle_max_iterations", 50)),
+        )
+        hierarchical_optimizer = HierarchicalOptimizer(
+            config=hier_config,
+            n_phi=n_phi_meta,
+            n_physical=meta["n_physics_varying"],
+            fourier_reparameterizer=meta.get("fourier"),  # None for individual
+        )
+        logger.info(
+            "L2 hierarchical optimizer enabled (heterodyne streaming): "
+            "mode=%r, n_per_angle=%d, n_physical=%d, max_outer=%d",
+            mode_actual,
+            hierarchical_optimizer.n_per_angle,
+            hierarchical_optimizer.n_physical,
+            hier_config.max_outer_iterations,
         )
 
     # ------------------------------------------------------------------
@@ -761,24 +832,161 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         bounds_arg = None
 
     logger.info("Running heterodyne hybrid streaming fit (%d params)...", len(p0_arr))
-    result: dict[str, Any] = optimizer.fit(
-        data_source=(x_data, y_data),
-        func=model_fn,
-        p0=p0_arr,
-        bounds=bounds_arg,
-        sigma=sigma,
-        callback=l4_callback,
-    )
 
     # ------------------------------------------------------------------
-    # Extract popt / pcov / info
+    # Branch: L2 hierarchical (individual/fourier) or plain optimizer
     # ------------------------------------------------------------------
-    popt = np.asarray(result["x"], dtype=np.float64)
-    n = len(popt)
-    pcov = np.asarray(result.get("pcov", np.eye(n)), dtype=np.float64)
+    hierarchical_active = False
 
-    # Build info dict: everything except x and pcov
-    info: dict[str, Any] = {k: v for k, v in result.items() if k not in ("x", "pcov")}
+    if hierarchical_optimizer is not None:
+        # L2 hierarchical branch (Task 6).
+        #
+        # HierarchicalOptimizer expects layout [per_angle | physics]:
+        #   indices 0..n_scaling-1  → per-angle (scaling tail)
+        #   indices n_scaling..end  → physics
+        #
+        # Heterodyne's native layout is the reverse: [physics | scaling].
+        # We permute to hier-convention, run the solver, then un-permute.
+        #
+        # NOTE: the hierarchical loss_fn materialises the full prediction over
+        # x_data on every call — mirrors laminar; acceptable because L2 only
+        # fires for individual/fourier which auto selects at small n_phi.
+        assert bounds_arg is not None, (
+            "L2 hierarchical requires bounds (bounds_arg is None — pass finite "
+            "physics bounds so the scaling tail is also bounded)"
+        )
+        n_phys_h = meta["n_physics_varying"]
+        n_scal_h = meta["n_scaling"]
+
+        # Permutation: heterodyne [physics | scaling] -> hier [scaling | physics]
+        perm = np.concatenate([
+            np.arange(n_phys_h, n_phys_h + n_scal_h, dtype=np.intp),  # scaling tail first
+            np.arange(n_phys_h, dtype=np.intp),                         # then physics
+        ])
+        unperm = np.empty_like(perm)
+        unperm[perm] = np.arange(len(perm), dtype=np.intp)
+
+        p0_hier = p0_arr[perm]
+        bounds_hier = (bounds_arg[0][perm], bounds_arg[1][perm])
+
+        y_data_jax = jnp.asarray(y_data)
+        x_data_jax = x_data  # already numpy; model_fn accepts both
+
+        def _hier_loss(params_hier: np.ndarray) -> float:
+            """Loss in hier-convention param space [scaling | physics].
+
+            Permutes back to heterodyne convention [physics | scaling] before
+            calling model_fn so the closure is consistent with x_data/y_data.
+            Includes L3 adaptive regularization when active.
+            """
+            params_native = jnp.asarray(params_hier)[unperm]
+            pred = model_fn(x_data_jax, *params_native)
+            residuals = y_data_jax - pred
+            wl = jnp.mean(residuals ** 2) * y_data.shape[0]
+            if adaptive_regularizer is not None:
+                mse = wl / y_data.shape[0]
+                wl = wl + adaptive_regularizer.compute_regularization_jax(
+                    params_native, mse, y_data.shape[0]
+                )
+            return float(wl)
+
+        _hier_counter = [0]
+
+        def _loss_jax(ph: jnp.ndarray) -> jnp.ndarray:
+            """Loss in hier-convention param space [scaling | physics] (JAX)."""
+            params_native = ph[unperm]
+            pred = model_fn(x_data_jax, *params_native)
+            residuals = y_data_jax - pred
+            wl = jnp.mean(residuals ** 2) * y_data.shape[0]
+            if adaptive_regularizer is not None:
+                mse = wl / y_data.shape[0]
+                wl = wl + adaptive_regularizer.compute_regularization_jax(
+                    params_native, mse, y_data.shape[0]
+                )
+            return wl
+
+        _value_and_grad = jax.jit(jax.value_and_grad(_loss_jax))
+
+        def _hier_grad(params_hier: np.ndarray) -> np.ndarray:
+            """Gradient in hier-convention param space."""
+            # Single forward+backward pass: value_and_grad gives both the loss
+            # and the gradient, so the monitor reuses loss_val instead of a
+            # second full _hier_loss forward pass.
+            loss_val, g = _value_and_grad(jnp.asarray(params_hier))
+            if monitor is not None:
+                # `g` and `params_hier` are in HIER layout [scaling | physics],
+                # but the monitor's physical_indices/per_angle_indices are NATIVE
+                # layout [physics | scaling]. Un-permute both before check() so the
+                # group slices line up with the indices.
+                g_native = np.asarray(g)[unperm]
+                params_native_arr = np.asarray(params_hier)[unperm]
+                monitor.check(
+                    g_native,
+                    _hier_counter[0],
+                    params_native_arr,
+                    float(loss_val),
+                )
+                _hier_counter[0] += 1
+            return np.asarray(g)
+
+        hier_result = hierarchical_optimizer.fit(
+            loss_fn=_hier_loss,
+            grad_fn=_hier_grad,
+            p0=np.asarray(p0_hier, dtype=np.float64),
+            bounds=bounds_hier,
+            outer_iteration_callback=None,  # no shear update for heterodyne
+        )
+
+        # Un-permute result back to heterodyne convention [physics | scaling]
+        x_hier_native = np.asarray(hier_result.x, dtype=np.float64)[unperm]
+        n = len(x_hier_native)
+        pcov = np.eye(n)  # Hessian covariance is optional; identity placeholder
+        popt = x_hier_native
+        info: dict[str, Any] = {
+            "success": bool(hier_result.success),
+            "nit": int(hier_result.n_outer_iterations),
+            "message": hier_result.message,
+            # Approximate function-evaluation count: HierarchicalOptimizer does
+            # not surface a true inner-iteration tally, so we estimate ~150 inner
+            # evaluations per outer step (physical + per-angle alternations),
+            # mirroring laminar's same approximation. Diagnostic only — not exact.
+            "function_evaluations": hier_result.n_outer_iterations * 150,
+            "covariance_is_placeholder": True,
+            "hybrid_streaming_diagnostics": {
+                "phase_iterations": {"phase1": 0, "phase2": hier_result.n_outer_iterations},
+                "warmup_diagnostics": {},
+                "gauss_newton_diagnostics": {"final_cost": hier_result.fun},
+                "hierarchical_history": hier_result.history,
+            },
+        }
+        hierarchical_active = True
+        logger.info(
+            "L2 hierarchical fit complete: success=%s, outer_iters=%d, loss=%.6e",
+            hier_result.success,
+            hier_result.n_outer_iterations,
+            hier_result.fun,
+        )
+
+    else:
+        # Plain hybrid-streaming path (auto_averaged / fixed_constant)
+        result: dict[str, Any] = optimizer.fit(
+            data_source=(x_data, y_data),
+            func=model_fn,
+            p0=p0_arr,
+            bounds=bounds_arg,
+            sigma=sigma,
+            callback=l4_callback,
+        )
+
+        # ------------------------------------------------------------------
+        # Extract popt / pcov / info
+        # ------------------------------------------------------------------
+        popt = np.asarray(result["x"], dtype=np.float64)
+        n = len(popt)
+        pcov = np.asarray(result.get("pcov", np.eye(n)), dtype=np.float64)
+
+        # Build info dict: everything except x and pcov
+        info = {k: v for k, v in result.items() if k not in ("x", "pcov")}
 
     # Ensure hybrid_streaming_diagnostics key is always present
     if "hybrid_streaming_diagnostics" not in info:
@@ -797,23 +1005,46 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
 
     if meta["n_scaling"] > 0:
         n_phys = meta["n_physics_varying"]
-        frozen = list(popt[:n_phys]) + [
-            float(np.mean(meta["contrast_arr"])),
-            float(np.mean(meta["offset_arr"])),
-        ]
-        pred0 = np.asarray(model_fn(x_data, *frozen))
-        info["ssr_frozen_baseline"] = float(np.sum((y_data - pred0) ** 2))
+        # Build the frozen scaling tail using the per-mode initial estimates so
+        # we compare optimised SSR against the unoptimised quantile-baseline.
+        # The tail layout must match what model_fn expects for this mode:
+        #   auto_averaged : [mean_contrast, mean_offset]          (2 params)
+        #   individual    : [contrast_arr..., offset_arr...]       (2*n_phi params)
+        #   fourier       : Fourier coefficients from reparam      (n_scaling params)
+        # For fourier, re-project the per-angle quantile estimates into Fourier
+        # space via the same FourierReparameterizer that was used at build time.
+        _contrast_arr = np.asarray(meta["contrast_arr"])
+        _offset_arr = np.asarray(meta["offset_arr"])
+        _mode = meta["per_angle_mode"]
+        if _mode == "auto_averaged":
+            frozen_tail = [float(np.mean(_contrast_arr)), float(np.mean(_offset_arr))]
+        elif _mode == "individual":
+            frozen_tail = _contrast_arr.tolist() + _offset_arr.tolist()
+        elif _mode == "fourier" and meta.get("fourier") is not None:
+            _fp = meta["fourier"]
+            _coeffs = np.asarray(_fp.per_angle_to_fourier(_contrast_arr, _offset_arr), dtype=np.float64)
+            frozen_tail = _coeffs.tolist()
+        else:
+            # fixed_constant or unexpected mode: no scaling tail to freeze
+            frozen_tail = []
+        frozen = list(popt[:n_phys]) + frozen_tail
+        if len(frozen) == len(popt):
+            pred0 = np.asarray(model_fn(x_data, *frozen))
+            info["ssr_frozen_baseline"] = float(np.sum((y_data - pred0) ** 2))
+        else:
+            # Mismatch guard: fall back to current SSR (no meaningful baseline)
+            info["ssr_frozen_baseline"] = info["ssr"]
     else:
         info["ssr_frozen_baseline"] = info["ssr"]
 
     # ------------------------------------------------------------------
     # Anti-degeneracy diagnostics — symmetric contract via shared assembler
-    # (Task 4). Emits the same top-level keys as heterodyne_core and the
+    # (Task 4/6). Emits the same top-level keys as heterodyne_core and the
     # laminar in-memory paths: hierarchical_active / regularization_active /
     # shear_weighting / gradient_monitor (when present) + layer_detail kwargs.
     # L5 (shear weighting) is laminar_flow-only; streaming heterodyne reports
     # the canonical "laminar_flow_inactive" sentinel.
-    # L2 (hierarchical) is not yet wired in streaming (Task 6); always False.
+    # L2 (hierarchical) is now wired for individual/fourier (Task 6).
     # ------------------------------------------------------------------
     gm_block: dict | None = None
     if monitor is not None:
@@ -821,8 +1052,17 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         # when the callback never fired (zero observations).
         gm_block = gradient_monitor_diagnostics(monitor)
         if gm_block["mechanism"] == "post_solve_fallback":
-            # Compute post-solve covariance condition as fallback indicator
-            pcov_cond = float(np.linalg.cond(pcov)) if pcov.ndim == 2 and pcov.shape[0] > 0 else float("nan")
+            # Compute post-solve covariance condition as fallback indicator.
+            # On the hierarchical path pcov is an identity placeholder
+            # (info["covariance_is_placeholder"] is True), so cond(I)=1.0 would
+            # masquerade as a real, well-conditioned covariance. Report NaN there;
+            # only compute the real condition number on a genuine pcov (plain
+            # streaming branch).
+            is_placeholder = bool(info.get("covariance_is_placeholder", False))
+            if (not is_placeholder) and pcov.ndim == 2 and pcov.shape[0] > 0:
+                pcov_cond = float(np.linalg.cond(pcov))
+            else:
+                pcov_cond = float("nan")
             gm_block["post_solve_cov_condition"] = pcov_cond
         logger.info(
             "L4 gradient-collapse monitor (heterodyne streaming): "
@@ -835,7 +1075,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         )
 
     info["anti_degeneracy"] = assemble_anti_degeneracy_diagnostics(
-        hierarchical_active=False,  # L2 not yet wired in streaming (Task 6)
+        hierarchical_active=hierarchical_active,
         regularization_active=bool(regularization_active),
         shear_weighting="laminar_flow_inactive",
         gradient_monitor=gm_block,
