@@ -133,8 +133,11 @@ This was a **diagnostics-only** unification: the L2/L3 solve code was already
 shared between the two modes, and only the emission of the diagnostics keys was
 made symmetric. Both characterization baselines remain bit-identical.
 
-These flat top-level activation keys are guaranteed on the in-memory laminar
-path and on all heterodyne paths; the laminar ≥1 M stratified/sequential and
-HYBRID_STREAMING return paths bypass ``_post_process_results`` and continue to
-nest their L2/L3/L5 layer state under ``controller_diagnostics`` (lifting them
-to the flat contract is a documented follow-up).
+These flat top-level activation keys are now emitted on **every** laminar path
+— in-memory, HYBRID_STREAMING, stratified-LS (≥1 M points), sequential, and
+out-of-core — as well as on all heterodyne paths, via the shared assembler. The
+values are honest per path: HYBRID_STREAMING reports the real active L2/L3/L5 it
+runs, while stratified-LS, sequential, and out-of-core report inactive markers
+(``hierarchical_active=False``, ``regularization_active=False``,
+``shear_weighting='laminar_flow_inactive'``) because those layers do not run on
+those paths. Activation is never fabricated.

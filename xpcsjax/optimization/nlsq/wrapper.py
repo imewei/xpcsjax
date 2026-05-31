@@ -211,6 +211,33 @@ _memory_logger = get_logger(__name__)
 _LAMINAR_L5_INACTIVE = "laminar_flow_inactive"
 
 
+def _laminar_anti_degeneracy_block(anti_degeneracy_info: "dict | None") -> dict:
+    """Build the symmetric anti-degeneracy diagnostics block for a laminar result
+    from the solver's ``info['anti_degeneracy']`` dict (or None).
+
+    Presence-based and honest: a layer is reported active only when its optimizer
+    actually ran and set its sub-key in ``info['anti_degeneracy']``; otherwise the
+    laminar inactive marker. This single rule is correct for every non-in-memory
+    laminar return path:
+
+    - HYBRID_STREAMING threads honest ``"hierarchical"``/``"regularization"``/
+      ``"shear_weighting"``/``"gradient_monitor"`` sub-keys only when the
+      corresponding optimizer ran -> reported active.
+    - stratified-LS carries only ``mode``/``controller_diagnostics`` (no layer
+      sub-keys) -> honestly inactive.
+    - sequential / out-of-core run no anti-degeneracy and pass ``None`` -> markers.
+
+    Diagnostics-only: never reads or writes popt/pcov/chi2.
+    """
+    ad = anti_degeneracy_info or {}
+    return assemble_anti_degeneracy_diagnostics(
+        hierarchical_active="hierarchical" in ad,
+        regularization_active="regularization" in ad,
+        shear_weighting=ad.get("shear_weighting", _LAMINAR_L5_INACTIVE),
+        gradient_monitor=ad.get("gradient_monitor"),
+    )
+
+
 def _homodyne_l4_monitoring_enabled(config: Any) -> tuple[bool, float, int]:
     """Read the homodyne L4 gradient-monitoring gate from the config.
 
@@ -848,6 +875,9 @@ class NLSQWrapper(NLSQAdapterBase):
                 },
                 recovery_actions=["out_of_core_delegation"],
                 quality_flag=_ooc_init_quality,
+                # Anti-degeneracy is unsupported on the out-of-core path; emit the
+                # symmetric inactive markers so this result mirrors the contract.
+                nlsq_diagnostics=_laminar_anti_degeneracy_block(None),
             )
 
         # STANDARD strategy falls through to existing optimization path
@@ -1331,6 +1361,7 @@ class NLSQWrapper(NLSQAdapterBase):
                             stratification_diagnostics=stratification_diagnostics,
                             diagnostics_payload=None,
                             n_params_effective=_hs_n_params_effective,
+                            anti_degeneracy_info=info.get("anti_degeneracy"),
                         )
 
                         logger.info("=" * 80)
@@ -1434,6 +1465,7 @@ class NLSQWrapper(NLSQAdapterBase):
                     stratification_diagnostics=stratification_diagnostics,
                     diagnostics_payload=None,
                     n_params_effective=_sls_n_params_effective,
+                    anti_degeneracy_info=info.get("anti_degeneracy"),
                 )
 
                 logger.info("=" * 80)
@@ -3160,6 +3192,11 @@ class NLSQWrapper(NLSQAdapterBase):
         diagnostics_payload["failed_angle_indices"] = failed_angle_indices
         diagnostics_payload["min_success_rate"] = min_success_rate
 
+        # Anti-degeneracy: emit the SYMMETRIC top-level activation key set. The
+        # sequential per-angle path runs no anti-degeneracy layers, so it honestly
+        # reports inactive markers (None -> markers). Strictly diagnostic.
+        diagnostics_payload.update(_laminar_anti_degeneracy_block(None))
+
         # Determine convergence status
         if sequential_result.success_rate >= min_success_rate:
             convergence_status = "converged"
@@ -3737,6 +3774,7 @@ class NLSQWrapper(NLSQAdapterBase):
         stratification_diagnostics: StratificationDiagnostics | None = None,
         diagnostics_payload: dict[str, Any] | None = None,
         n_params_effective: int | None = None,
+        anti_degeneracy_info: dict[str, Any] | None = None,
     ) -> OptimizationResult:
         """Convert NLSQ output to OptimizationResult.
 
@@ -3842,5 +3880,21 @@ class NLSQWrapper(NLSQAdapterBase):
             stratification_diagnostics=stratification_diagnostics,  # v2.2.1: Stratification diagnostics
             nlsq_diagnostics=diagnostics_payload,
         )
+
+        # Anti-degeneracy: emit the SYMMETRIC top-level activation key set so
+        # non-in-memory laminar paths mirror the in-memory / heterodyne contract.
+        # Presence-based and honest (see ``_laminar_anti_degeneracy_block``):
+        # streaming reports active L2/L3/L5 from info['anti_degeneracy'];
+        # stratified-LS / sequential / out-of-core report inactive markers.
+        # The in-memory path passes ``anti_degeneracy_info=None`` here (markers),
+        # then overwrites with its own authoritative block in _post_process_results
+        # — both are idempotent markers, so the values are identical. Strictly
+        # diagnostic — never mutates popt/pcov/chi2.
+        ad_block = _laminar_anti_degeneracy_block(anti_degeneracy_info)
+        existing = getattr(result, "nlsq_diagnostics", None)
+        if not isinstance(existing, dict):
+            existing = {}
+        existing.update(ad_block)
+        result.nlsq_diagnostics = existing
 
         return result
