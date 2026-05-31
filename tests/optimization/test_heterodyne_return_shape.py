@@ -568,8 +568,8 @@ def test_multistart_path_returns_single_optimization_result() -> None:
 # Each parametrization exercises a single dispatch branch:
 #
 # * ``"constant"``   → :func:`_fit_joint_constant_multi_phi`
-# * ``"individual"`` → sequential per-angle path, aggregated into one
-#   ``OptimizationResult`` via :func:`_aggregate_individual_results` (C5b).
+# * ``"individual"`` → JOINT fit via :func:`_fit_joint_multi_phi` (independent
+#   reparameterizer mode); ``[physics | 2*n_phi per-angle scaling]``.
 # * ``"fourier"``    → :func:`_fit_joint_multi_phi`
 # * ``"auto"``       → routed by ``n_phi`` to constant / averaged / fourier
 #

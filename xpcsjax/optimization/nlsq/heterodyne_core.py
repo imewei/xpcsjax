@@ -607,19 +607,24 @@ def fit_nlsq_multi_phi(
       → :class:`OptimizationResult`
     - ``"fourier"`` → :func:`_fit_joint_multi_phi`
       → :class:`OptimizationResult`
+    - ``"individual"`` (explicit, multi-angle) → :func:`_fit_joint_multi_phi`
+      via a ``FourierReparameterizer`` in ``"independent"`` mode (JOINT fit of
+      ``[physics | 2*n_phi per-angle scaling]``, matching ``laminar_flow`` and
+      upstream heterodyne) → :class:`OptimizationResult`
     - ``enable_cmaes=True`` → :func:`_fit_joint_cmaes_multi_phi`
       → :class:`OptimizationResult`
-    - ``"individual"`` (and ``config is None`` / single-angle fallbacks)
+    - ``config is None`` / single-angle (``len(phi_angles) <= 1``)
       → sequential per-angle warm-start chain, aggregated into one
       :class:`OptimizationResult` via :func:`_aggregate_individual_results`.
 
-    The aggregated ``individual``-mode result uses a **block-diagonal**
+    The sequential-aggregate fallback result uses a **block-diagonal**
     covariance matrix: off-diagonal blocks between physics and the
     per-angle scaling tail (and between distinct angles) are zero **by
     construction**, not by fit. The diagnostic key
     ``covariance_structure="block_diagonal_sequential"`` flags this so
     downstream consumers do not mistake the zeros for fit-derived
-    correlation estimates.
+    correlation estimates. The JOINT individual path (explicit, multi-angle)
+    does NOT carry this key — it returns a real fitted covariance.
 
     Parameters
     ----------
@@ -748,7 +753,51 @@ def fit_nlsq_multi_phi(
             except ImportError:
                 logger.warning("fourier_reparam not available, falling back to sequential fits")
 
-        # effective_mode == "individual" falls through to sequential per-angle.
+        elif effective_mode == "individual":
+            # Explicit multi-angle ``individual`` is a JOINT fit (parity with
+            # xpcsjax ``laminar_flow`` and upstream heterodyne). The per-angle
+            # (contrast, offset) are packed as the ``2*n_phi`` scaling tail of
+            # the joint vector ``[physics | contrast_0..N | offset_0..N]`` and
+            # optimized jointly with physics via ``_fit_joint_multi_phi``,
+            # exactly like the fourier branch — only the reparameterizer mode
+            # differs (``"independent"`` = identity passthrough, no Fourier
+            # basis). This replaces the old sequential-per-angle aggregate
+            # (``mean(physics)`` reported as ``parameters``), which was an
+            # inconsistent estimator whose parameters did not reproduce the
+            # reported chi-squared. The sequential aggregate
+            # (``_aggregate_individual_results``) survives ONLY as the
+            # genuine fallback for ``config is None`` / single-angle
+            # (``len(phi_angles) <= 1``) — both handled by this block's guard
+            # (``config is not None and len(phi_angles) > 1``) being false.
+            try:
+                from xpcsjax.optimization.nlsq.fourier_reparam import (
+                    FourierReparamConfig,
+                    FourierReparameterizer,
+                )
+
+                # ``"independent"`` makes ``FourierReparameterizer`` an
+                # identity passthrough: ``fourier_to_per_angle_jax`` returns
+                # ``coeffs[:n_phi], coeffs[n_phi:]`` and ``get_bounds`` /
+                # ``n_coeffs`` describe the ``2*n_phi`` per-angle layout — so
+                # ``_fit_joint_multi_phi`` solves the individual problem with
+                # no Fourier-only assumptions.
+                fourier_config = FourierReparamConfig(
+                    mode="independent",
+                    fourier_order=config.fourier_order,
+                    auto_threshold=config.fourier_auto_threshold,
+                )
+                phi_rad = np.deg2rad(phi_angles.astype(np.float64))
+                fourier = FourierReparameterizer(phi_rad, fourier_config)
+                use_joint = True
+            except ImportError:
+                logger.warning(
+                    "fourier_reparam not available, falling back to sequential "
+                    "individual fits"
+                )
+
+        # ``config is None`` / single-angle (len(phi_angles) <= 1) never reach
+        # this block — they fall through to the sequential per-angle aggregate
+        # below, the genuine individual-mode fallback.
 
     if use_joint:
         # Invariant: ``use_joint`` is only set to True inside the
@@ -1389,8 +1438,17 @@ def _fit_joint_cmaes_multi_phi(
         FourierReparameterizer,
     )
 
+    # CMA-ES optimizes the full joint vector regardless of mode, so it is
+    # already joint. Pick the reparameterizer mode from the resolved per-angle
+    # mode so the individual CMA-ES path produces a JOINT individual fit (free
+    # ``2*n_phi`` per-angle scaling), not a Fourier-basis fit. ``"independent"``
+    # makes the reparameterizer an identity passthrough; any other resolved
+    # mode keeps the Fourier basis (the reparameterizer re-checks feasibility
+    # and degrades to independent internally if ``n_phi`` is too small).
+    effective_mode = _resolve_effective_mode(_config, len(np.asarray(_phi_angles)))
+    reparam_mode: Any = "independent" if effective_mode == "individual" else "fourier"
     fourier_config = FourierReparamConfig(
-        mode="fourier",
+        mode=reparam_mode,
         fourier_order=_config.fourier_order,
         auto_threshold=_config.fourier_auto_threshold,
     )
@@ -1417,7 +1475,12 @@ def _resolve_effective_mode(config: NLSQConfig, n_phi: int) -> str:
       is the homodyne ``auto``-averaged anti-degeneracy path.
     * ``"fourier"`` — Fourier-basis reparameterization of per-angle scaling
       (smooth angular variation).
-    * ``"individual"`` — sequential per-angle fits with warm-start chaining.
+    * ``"individual"`` — ``n_phi`` independent per-angle ``(contrast, offset)``
+      optimized JOINTLY with physics via :func:`_fit_joint_multi_phi`
+      (:class:`FourierReparameterizer` ``"independent"`` mode), matching
+      ``laminar_flow`` and upstream heterodyne. (The sequential per-angle
+      aggregate survives only as the ``config is None`` / single-angle
+      fallback inside :func:`fit_nlsq_multi_phi`.)
 
     ``auto`` resolution is unified with the homodyne
     :class:`AntiDegeneracyController` — ``auto`` only ever selects
@@ -1459,13 +1522,25 @@ def _fit_joint_multi_phi(
     weights: np.ndarray | None,
     fourier: Any,
 ) -> OptimizationResult:
-    """Joint multi-angle fit with Fourier-parameterized scaling.
+    """Joint multi-angle fit with reparameterized per-angle scaling.
 
-    The optimizer parameter vector is:
-        [physics_varying_params | fourier_contrast_coeffs | fourier_offset_coeffs]
+    Shared joint solver for BOTH the ``fourier`` and ``individual`` per-angle
+    modes — the only difference is the :class:`FourierReparameterizer` mode the
+    caller passes in:
 
-    The residual function evaluates all angles, using the Fourier basis to
-    convert coefficients → per-angle contrast/offset at each evaluation.
+    * ``fourier`` (``fourier.use_fourier=True``) — per-angle scaling is a
+      truncated Fourier basis; optimizer vector is
+      ``[physics_varying | fourier_contrast_coeffs | fourier_offset_coeffs]``
+      (``physics + 2*(2K+1)``).
+    * ``individual`` (``fourier.use_fourier=False``, mode ``"independent"``) —
+      per-angle scaling is free; optimizer vector is
+      ``[physics_varying | contrast_0..N | offset_0..N]`` (``physics + 2*n_phi``),
+      matching xpcsjax ``laminar_flow`` and upstream heterodyne. The
+      reparameterizer is an identity passthrough in this mode.
+
+    The residual function evaluates all angles, using the reparameterizer to
+    convert coefficients → per-angle contrast/offset at each evaluation (an
+    identity map in individual mode).
 
     This is the heterodyne equivalent of homodyne's AntiDegeneracyController
     joint-fit path.
@@ -1474,9 +1549,10 @@ def _fit_joint_multi_phi(
     -------
     OptimizationResult
         One result for the entire joint solve.  ``parameters`` has the
-        full ``physics_varying + 2*(2K+1)`` layout (K = ``config.fourier_order``).
-        Per-angle diagnostics — ``chi2_per_angle``, ``fourier_basis_dim``,
-        ``per_angle_mode='fourier'``, ``scaling_source='fitted'``,
+        ``physics_varying + 2*(2K+1)`` (fourier) or ``physics_varying + 2*n_phi``
+        (individual) layout. Per-angle diagnostics — ``chi2_per_angle``,
+        ``fourier_basis_dim`` (``None`` in individual mode), ``per_angle_mode``
+        (``'fourier'`` or ``'individual'``), ``scaling_source='fitted'``,
         ``shear_weighting='not_applicable_heterodyne'`` — live in
         ``nlsq_diagnostics``.  Mirrors the contract of
         :func:`xpcsjax.optimization.nlsq.heterodyne_constant_mode._fit_joint_constant_multi_phi`
@@ -1708,7 +1784,11 @@ def _fit_joint_multi_phi(
     )
 
     joint_result: NLSQResult | None = None
-    joint_param_names = list(varying_names) + [f"fourier_{i}" for i in range(len(fourier_initial))]
+    # Scaling-tail parameter names depend on the reparameterizer mode: Fourier
+    # coefficients (``fourier_i``) vs. per-angle individual scaling
+    # (``contrast_i`` / ``offset_i``). ``get_coefficient_labels`` returns the
+    # right vocabulary for both modes.
+    joint_param_names = list(varying_names) + list(fourier.get_coefficient_labels())
 
     # L4: per-iteration gradient-collapse monitor (strictly observational).
     # Joint layout is [physics (n_physics) | fourier coeffs] — the fourier
@@ -1922,29 +2002,46 @@ def _fit_joint_multi_phi(
     # ``_assemble_l4_extras`` falls back to the post-solve covariance-condition
     # block (tagged ``mechanism="post_solve_fallback"``).
     # ------------------------------------------------------------------
+    # The joint solver is shared between ``fourier`` and ``individual`` per-angle
+    # modes (the ONLY difference is the FourierReparameterizer mode — Fourier
+    # basis vs. identity passthrough). Derive the reported mode from the
+    # reparameterizer so the diagnostics reflect the actual layout: individual
+    # mode reports ``per_angle_mode="individual"`` with no Fourier basis dim.
+    is_individual = not fourier.use_fourier
+    per_angle_mode_label = "individual" if is_individual else "fourier"
+
     gradient_monitor_extras = _assemble_l4_extras(
         _monitor,
         joint_result,
         config,
-        mode_label="fourier mode",
+        mode_label=f"{per_angle_mode_label} mode (joint)",
         result_is_monitored=used_monitored_backend,
     )
 
+    # Fourier-specific diagnostic extras are only meaningful in Fourier mode.
+    # In individual mode the "coefficients" ARE the per-angle scaling values,
+    # so the basis-reduction metadata is omitted (kept ``None``/absent).
+    fourier_extras: dict[str, Any] = {}
+    if not is_individual:
+        fourier_extras = {
+            "fourier_mode": fourier.config.mode,
+            "fourier_order": fourier.order,
+            "fourier_coeffs": fitted_fourier.tolist(),
+            "fourier_n_coeffs": fourier.n_coeffs,
+            "fourier_reduction": fourier.get_diagnostics()["reduction_ratio"],
+        }
+
     diagnostics = _build_heterodyne_diagnostics(
-        per_angle_mode="fourier",
+        per_angle_mode=per_angle_mode_label,
         chi2_per_angle=chi2_per_angle,
         scaling_source="fitted",
-        fourier_basis_dim=fourier.n_coeffs_per_param,
+        fourier_basis_dim=None if is_individual else fourier.n_coeffs_per_param,
         parameter_names=joint_param_names,
-        fourier_mode=fourier.config.mode,
-        fourier_order=fourier.order,
-        fourier_coeffs=fitted_fourier.tolist(),
-        fourier_n_coeffs=fourier.n_coeffs,
-        fourier_reduction=fourier.get_diagnostics()["reduction_ratio"],
         contrast_per_angle_fitted=np.asarray(fitted_contrast, dtype=np.float64),
         offset_per_angle_fitted=np.asarray(fitted_offset, dtype=np.float64),
         phi_angles=np.asarray(phi_angles, dtype=np.float64),
         n_angles_joint=n_phi,
+        **fourier_extras,
         convergence_reason=joint_result.convergence_reason,
         n_function_evals=int(joint_result.n_function_evals or 0),
         n_iterations=int(joint_result.n_iterations or 0),
