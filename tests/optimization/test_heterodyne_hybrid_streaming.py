@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 
 def _make_synthetic_heterodyne(n_phi: int = 2, n_t: int = 8, seed: int = 0):
@@ -559,6 +560,116 @@ def test_streaming_auto_averaged_real_run_ssr_not_worse():
     assert info["ssr"] <= info["ssr_frozen_baseline"] + 1e-9, (
         f"ssr={info['ssr']:.6e} > ssr_frozen_baseline={info['ssr_frozen_baseline']:.6e}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 5: individual + fourier scaling-tail expansion
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("mode", ["individual", "fourier"])
+def test_pointwise_model_individual_fourier_layout(mode):
+    """individual / fourier per_angle_mode: correct param tail layout, p0 length,
+    meta fields, and a finite forward pass."""
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        build_heterodyne_pointwise_model,
+    )
+
+    # n_phi=6: feasible for fourier order=2 (min angles = 1+2*2 = 5 <= 6).
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=6, n_t=8)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+
+    model_fn, x_data, y_data, p0, meta = build_heterodyne_pointwise_model(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        per_angle_mode=mode,
+        fourier_order=2,
+    )
+
+    n_phys = len(model.param_manager.get_initial_values())
+    n_phi = len(meta["phi_unique"])
+
+    if mode == "individual":
+        assert meta["n_scaling"] == 2 * n_phi, (
+            f"individual: expected n_scaling=2*{n_phi}={2*n_phi}, got {meta['n_scaling']}"
+        )
+        # Non-fourier modes must expose meta["fourier"] as None so Task 6's
+        # HierarchicalOptimizer(..., fourier_reparameterizer=meta.get("fourier"))
+        # is safe.
+        assert meta.get("fourier") is None, "individual: meta['fourier'] must be None"
+    else:  # fourier, K=2 -> 2*(2*K+1) = 2*(5) = 10
+        K = 2
+        expected = 2 * (2 * K + 1)
+        assert meta["n_scaling"] == expected, (
+            f"fourier K=2: expected n_scaling={expected}, got {meta['n_scaling']}"
+        )
+        # Fourier mode must expose the FourierReparameterizer object on meta so
+        # Task 6 can pass it to HierarchicalOptimizer.
+        assert meta.get("fourier") is not None, "fourier: meta['fourier'] must be set"
+
+    assert len(p0) == n_phys + meta["n_scaling"], (
+        f"p0 length mismatch: {len(p0)} vs {n_phys} + {meta['n_scaling']}"
+    )
+
+    # Check meta fields are populated
+    assert meta["per_angle_mode"] == mode
+    assert meta["n_phi"] == n_phi
+    assert meta["n_physics_varying"] == n_phys
+    scaling_lower, scaling_upper = meta["scaling_bounds"]
+    assert len(scaling_lower) == meta["n_scaling"]
+    assert len(scaling_upper) == meta["n_scaling"]
+    assert scaling_lower.dtype == np.float64
+    assert scaling_upper.dtype == np.float64
+    # All bounds must be finite
+    assert np.all(np.isfinite(scaling_lower)), "scaling_lower has non-finite values"
+    assert np.all(np.isfinite(scaling_upper)), "scaling_upper has non-finite values"
+    assert np.all(scaling_lower < scaling_upper), "scaling bounds not lower < upper"
+
+    # Forward pass must return finite values
+    pred = np.asarray(model_fn(x_data[:8], *[float(v) for v in p0]))
+    assert pred.shape == (8,), f"pred shape {pred.shape}"
+    assert np.all(np.isfinite(pred)), f"pred has non-finite: {pred}"
+
+
+def test_pointwise_model_fourier_fallback_to_independent():
+    """fourier with n_phi too small for the requested order falls back to
+    independent per-angle scaling: n_scaling = 2*n_phi (NOT 2*(2K+1)), and
+    meta['fourier_effective_mode'] == 'individual'."""
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        build_heterodyne_pointwise_model,
+    )
+
+    # n_phi=3 < 1+2*2 = 5 minimum angles for fourier order=2 -> silent fallback.
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=3, n_t=8)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+
+    model_fn, x_data, y_data, p0, meta = build_heterodyne_pointwise_model(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        per_angle_mode="fourier",
+        fourier_order=2,
+    )
+
+    n_phys = len(model.param_manager.get_initial_values())
+
+    # (a) n_scaling reflects the fallback: 2*n_phi == 6, not 2*(2*2+1) == 10.
+    assert meta["n_scaling"] == 2 * 3 == 6, f"n_scaling={meta['n_scaling']} (expected 6)"
+    # (b) effective mode reports the fallback for downstream (Task 6) consumers.
+    assert meta["fourier_effective_mode"] == "individual"
+    # (c) p0 carries n_phys + 6 entries.
+    assert len(p0) == n_phys + 6, f"len(p0)={len(p0)} (expected {n_phys + 6})"
+    # (d) forward pass is finite over 8 points.
+    pred = np.asarray(model_fn(x_data[:8], *[float(v) for v in p0]))
+    assert pred.shape == (8,), f"pred shape {pred.shape}"
+    assert np.all(np.isfinite(pred)), f"pred has non-finite: {pred}"
 
 
 def test_streaming_diagnostics_symmetric_keys():
