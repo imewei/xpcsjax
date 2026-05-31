@@ -21,6 +21,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics import (
+    assemble_anti_degeneracy_diagnostics,
+)
 from xpcsjax.optimization.nlsq.gradient_monitor import (
     GradientCollapseMonitor,
     GradientMonitorConfig,
@@ -704,10 +707,15 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         info["ssr_frozen_baseline"] = info["ssr"]
 
     # ------------------------------------------------------------------
-    # Seed anti_degeneracy diagnostics dict (Task 2; L4 block added Task 3)
+    # Anti-degeneracy diagnostics — symmetric contract via shared assembler
+    # (Task 4). Emits the same top-level keys as heterodyne_core and the
+    # laminar in-memory paths: hierarchical_active / regularization_active /
+    # shear_weighting / gradient_monitor (when present) + layer_detail kwargs.
+    # L5 (shear weighting) is laminar_flow-only; streaming heterodyne reports
+    # the canonical "laminar_flow_inactive" sentinel.
+    # L2 (hierarchical) is not yet wired in streaming (Task 6); always False.
     # ------------------------------------------------------------------
-    info["anti_degeneracy"] = {"per_angle_mode": meta["per_angle_mode"]}
-
+    gm_block: dict | None = None
     if monitor is not None:
         # Build canonical L4 block; falls back to post_solve_fallback mechanism
         # when the callback never fired (zero observations).
@@ -725,6 +733,13 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
             gm_block["max_gradient_ratio"],
             gm_block["collapse_detected"],
         )
-        info["anti_degeneracy"]["gradient_monitor"] = gm_block
+
+    info["anti_degeneracy"] = assemble_anti_degeneracy_diagnostics(
+        hierarchical_active=False,  # L2 not yet wired in streaming (Task 6)
+        regularization_active=bool(regularization_active),
+        shear_weighting="laminar_flow_inactive",
+        gradient_monitor=gm_block,
+        per_angle_mode=meta["per_angle_mode"],
+    )
 
     return popt, pcov, info

@@ -559,3 +559,43 @@ def test_streaming_auto_averaged_real_run_ssr_not_worse():
     assert info["ssr"] <= info["ssr_frozen_baseline"] + 1e-9, (
         f"ssr={info['ssr']:.6e} > ssr_frozen_baseline={info['ssr_frozen_baseline']:.6e}"
     )
+
+
+def test_streaming_diagnostics_symmetric_keys():
+    """Streaming anti_degeneracy block carries the same top-level keys as other paths."""
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        fit_with_stratified_hybrid_streaming_heterodyne,
+    )
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=2, n_t=8)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+
+    _, _, info = fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={
+            "warmup_iterations": 10,
+            "max_warmup_iterations": 20,
+            "gauss_newton_max_iterations": 10,
+            "verbose": 0,
+        },
+        anti_degeneracy_config={
+            "per_angle_mode": "auto",
+            "gradient_monitoring": {"enable": True},
+        },
+    )
+
+    ad = info["anti_degeneracy"]
+    for k in ("hierarchical_active", "regularization_active", "shear_weighting", "per_angle_mode"):
+        assert k in ad, f"missing {k}"
+    # gradient_monitor is emitted only when L4 ran; this test enables it, so it must be present here
+    assert "gradient_monitor" in ad
+    assert ad["shear_weighting"] == "laminar_flow_inactive"
+    assert ad["hierarchical_active"] is False  # auto_averaged => L2 off
