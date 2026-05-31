@@ -534,10 +534,15 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     anti_degeneracy_config :
         Consumed to select the per-angle scaling treatment and L3
         group-variance regularization. Accepted keys:
-        ``per_angle_mode`` — ``"auto"`` resolves to auto_averaged (2 optimized
-        scaling scalars), ``"constant"`` resolves to fixed_constant (frozen
-        quantile scaling); ``"fourier"``/``"individual"`` are not yet supported
-        in streaming. ``regularization.{enable, mode, lambda, target_cv}`` —
+        ``per_angle_mode`` — ``"fixed_constant"`` (frozen quantile scaling;
+        default when no config/None), ``"auto"`` resolves to ``"auto_averaged"``
+        (2 optimized averaged scaling scalars), ``"individual"`` (per-angle
+        optimized scaling + L2 hierarchical branch), ``"fourier"``
+        (Fourier-coefficient scaling + L2 hierarchical; falls back to
+        independent when n_phi < 1+2K). Note: ``"auto"`` maps only to
+        ``"auto_averaged"`` today — sub-threshold routing of ``"auto"`` to
+        ``"individual"`` is a deliberate documented follow-up, not a missing
+        wire-up. ``regularization.{enable, mode, lambda, target_cv}`` —
         configures the L3 adaptive group-variance regularizer on the scaling
         tail. An empty/absent dict falls back to fixed_constant (no L3).
 
@@ -573,13 +578,15 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     else:
         requested_mode = ad_config.get("per_angle_mode", "auto")
         if requested_mode == "auto":
-            # auto always optimizes averaged scaling for now; Task 5 will route
-            # sub-threshold n_phi to 'individual' once that mode is wired.
+            # 'auto' intentionally maps only to 'auto_averaged' (optimized
+            # averaged scaling).  'individual' and 'fourier' are both wired;
+            # sub-threshold routing of 'auto' → 'individual' is an optional
+            # future refinement, not pending work.
             mode_actual = "auto_averaged"
         elif requested_mode == "constant":
             mode_actual = "fixed_constant"
         else:
-            mode_actual = requested_mode  # explicit 'fourier'/'individual' -> Task 5
+            mode_actual = requested_mode  # explicit 'individual' or 'fourier'
 
     logger.info(
         "anti_degeneracy_config: mode_actual=%r (ad_config_provided=%s)",
