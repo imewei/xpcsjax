@@ -368,3 +368,145 @@ def test_pointwise_model_auto_averaged_param_layout():
     assert len(scaling_upper) == 2
     assert scaling_lower[0] == 0.01
     assert np.isclose(scaling_upper[0], max(2.0 * p0[n_phys], 1.0))
+
+
+def test_streaming_auto_averaged_optimizes_scaling_and_sets_group_variance(monkeypatch):
+    """Task 2 (structural): anti_degeneracy_config consumed; auto_averaged resolves;
+    group-variance config injected with the correct indices.
+
+    Uses a MOCK optimizer that returns p0 unchanged, so this test asserts ONLY
+    the structural / config contract (param layout, mode, spliced bounds, and the
+    HybridStreamingConfig group-variance fields). The SSR-improvement claim is
+    verified separately by test_streaming_auto_averaged_real_run_ssr_not_worse,
+    because with a no-op optimizer popt == p0 and SSR parity is vacuous.
+    """
+    import xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming as hs
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+
+    captured = {}
+
+    class _FakeOpt:
+        def __init__(self, config):
+            captured["config"] = config
+
+        def fit(self, data_source, func, p0, bounds=None, sigma=None, **kw):
+            captured["p0_len"] = len(p0)
+            captured["bounds"] = bounds
+            n = len(p0)
+            # Return p0 unchanged — a no-op (structural-contract) fit
+            return {
+                "x": np.asarray(p0, dtype=np.float64),
+                "pcov": np.eye(n),
+                "nit": 3,
+                "success": True,
+            }
+
+    monkeypatch.setattr(hs, "AdaptiveHybridStreamingOptimizer", _FakeOpt)
+
+    # n_phi=3 — exercises the multi-angle path
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=3, n_t=6)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+
+    n_phys = model.param_manager.n_varying
+    lower_phys, upper_phys = model.param_manager.get_bounds()
+    p0_phys = np.asarray(model.param_manager.get_initial_values(), dtype=np.float64)
+
+    popt, pcov, info = hs.fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=p0_phys,
+        bounds=(np.asarray(lower_phys, dtype=np.float64), np.asarray(upper_phys, dtype=np.float64)),
+        anti_degeneracy_config={"per_angle_mode": "auto"},
+    )
+
+    # popt has 2 extra scaling params appended
+    assert len(popt) == n_phys + 2, f"Expected {n_phys + 2} params, got {len(popt)}"
+    assert info["anti_degeneracy"]["per_angle_mode"] == "auto_averaged"
+    # bounds were spliced to include scaling tail
+    assert captured["bounds"] is not None
+    assert len(captured["bounds"][0]) == n_phys + 2
+    assert len(captured["bounds"][1]) == n_phys + 2
+    # HybridStreamingConfig must carry the group-variance regularization fields
+    cfg = captured["config"]
+    assert cfg.enable_group_variance_regularization is True
+    assert cfg.group_variance_lambda > 0.0
+    base = n_phys
+    assert cfg.group_variance_indices == [(base, base + 1), (base + 1, base + 2)]
+
+
+def test_streaming_auto_small_n_phi_does_not_crash(monkeypatch):
+    """Fix 1 regression: sub-threshold `auto` (n_phi=2) must NOT route to the
+    unimplemented `individual` mode and raise NotImplementedError. It must route
+    to `auto_averaged` (works for any n_phi >= 1)."""
+    import xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming as hs
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+
+    class _FakeOpt:
+        def __init__(self, config):
+            pass
+
+        def fit(self, data_source, func, p0, bounds=None, sigma=None, **kw):
+            n = len(p0)
+            return {"x": np.asarray(p0, dtype=np.float64), "pcov": np.eye(n),
+                    "nit": 1, "success": True}
+
+    monkeypatch.setattr(hs, "AdaptiveHybridStreamingOptimizer", _FakeOpt)
+
+    # n_phi=2 — below the old threshold=3, which previously routed to 'individual'
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=2, n_t=6)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lower_phys, upper_phys = model.param_manager.get_bounds()
+
+    popt, pcov, info = hs.fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lower_phys, dtype=np.float64), np.asarray(upper_phys, dtype=np.float64)),
+        anti_degeneracy_config={"per_angle_mode": "auto"},
+    )
+    assert info["anti_degeneracy"]["per_angle_mode"] == "auto_averaged"
+
+
+def test_streaming_auto_averaged_real_run_ssr_not_worse():
+    """Fix 3: REAL optimizer run (no mock). Optimizing the averaged scaling tail
+    must do at least as well as the frozen-quantile baseline (shared physics).
+
+    Kept tiny (n_phi=2, n_t=8, few iterations) so it runs in a few seconds.
+    Uses finite physics bounds — the path heterodyne_core actually takes (nlsq's
+    hybrid-streaming optimizer corrupts ±inf bounds to NaN, see Fix 2)."""
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        fit_with_stratified_hybrid_streaming_heterodyne,
+    )
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=2, n_t=8)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+
+    popt, pcov, info = fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={"warmup_iterations": 10, "max_warmup_iterations": 20,
+                       "gauss_newton_max_iterations": 10, "verbose": 0},
+        anti_degeneracy_config={"per_angle_mode": "auto"},
+    )
+
+    assert info["anti_degeneracy"]["per_angle_mode"] == "auto_averaged"
+    assert np.isfinite(info["ssr"])
+    assert np.isfinite(info["ssr_frozen_baseline"])
+    # Optimizing the scaling tail (shared fitted physics) must beat-or-tie the
+    # frozen-quantile default.
+    assert info["ssr"] <= info["ssr_frozen_baseline"] + 1e-9, (
+        f"ssr={info['ssr']:.6e} > ssr_frozen_baseline={info['ssr_frozen_baseline']:.6e}"
+    )

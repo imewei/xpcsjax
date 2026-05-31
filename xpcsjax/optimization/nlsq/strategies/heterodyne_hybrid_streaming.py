@@ -335,6 +335,11 @@ def build_heterodyne_pointwise_model(
         "n_scaling": n_scaling,
         "n_physics_varying": n_physics_varying,
         "scaling_bounds": (scaling_lower, scaling_upper),
+        # Authoritative angle count: the same phi_unique the JIT closure and the
+        # pointwise kernel were built against. Downstream (AdaptiveRegularizer)
+        # must use THIS, not a fresh float-set count which can overcount via
+        # float-representation noise.
+        "n_phi": len(phi_unique),
     }
 
     return model_fn, x_data, y_data, p0, meta
@@ -376,6 +381,10 @@ def _build_hybrid_streaming_config(nested: dict[str, Any]) -> Any:
         "cost_increase_tolerance": 0.05,
         "enable_step_clipping": True,
         "max_warmup_step_size": 0.1,
+        # L3 group-variance regularization (Task 2)
+        "enable_group_variance_regularization": False,
+        "group_variance_lambda": 0.0,
+        "group_variance_indices": None,
     }
 
     # Apply overrides from caller (only for keys that exist in HybridStreamingConfig)
@@ -414,7 +423,14 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     hybrid_config :
         Overrides for HybridStreamingConfig defaults (any subset of keys).
     anti_degeneracy_config :
-        Reserved for future anti-degeneracy integration (unused in Phase 2-A).
+        Consumed to select the per-angle scaling treatment and L3
+        group-variance regularization. Accepted keys:
+        ``per_angle_mode`` — ``"auto"`` resolves to auto_averaged (2 optimized
+        scaling scalars), ``"constant"`` resolves to fixed_constant (frozen
+        quantile scaling); ``"fourier"``/``"individual"`` are not yet supported
+        in streaming. ``regularization.{enable, mode, lambda, target_cv}`` —
+        configures the L3 adaptive group-variance regularizer on the scaling
+        tail. An empty/absent dict falls back to fixed_constant (no L3).
 
     Returns
     -------
@@ -433,38 +449,139 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         )
 
     # ------------------------------------------------------------------
-    # Build model function and data
+    # Resolve anti-degeneracy config (Task 2)
+    # ------------------------------------------------------------------
+    from xpcsjax.optimization.nlsq.adaptive_regularization import (
+        AdaptiveRegularizationConfig,
+        AdaptiveRegularizer,
+    )
+
+    ad_config: dict[str, Any] = anti_degeneracy_config or {}
+
+    if not ad_config:
+        # Backward-compatible default: freeze scaling inside the JIT closure
+        mode_actual = "fixed_constant"
+    else:
+        requested_mode = ad_config.get("per_angle_mode", "auto")
+        if requested_mode == "auto":
+            # auto always optimizes averaged scaling for now; Task 5 will route
+            # sub-threshold n_phi to 'individual' once that mode is wired.
+            mode_actual = "auto_averaged"
+        elif requested_mode == "constant":
+            mode_actual = "fixed_constant"
+        else:
+            mode_actual = requested_mode  # explicit 'fourier'/'individual' -> Task 5
+
+    logger.info(
+        "anti_degeneracy_config: mode_actual=%r (ad_config_provided=%s)",
+        mode_actual, bool(ad_config),
+    )
+
+    # ------------------------------------------------------------------
+    # Build model function and data — pass resolved per_angle_mode
     # ------------------------------------------------------------------
     logger.info("Building heterodyne pointwise model for hybrid streaming...")
     model_fn, x_data, y_data, p0, meta = build_heterodyne_pointwise_model(
         stratified_data=stratified_data,
         model=model,
         physical_param_names=physical_param_names,
+        per_angle_mode=mode_actual,
     )
     logger.info("Dataset size: %d points", len(y_data))
 
     # ------------------------------------------------------------------
-    # Build HybridStreamingConfig
+    # Splice scaling-tail bounds onto physics bounds (Task 2)
     # ------------------------------------------------------------------
-    cfg = _build_hybrid_streaming_config(hybrid_config or {})
+    scaling_lower, scaling_upper = meta["scaling_bounds"]
+    if len(scaling_lower) > 0:
+        if bounds is not None:
+            lo, hi = bounds
+            bounds = (
+                np.concatenate([np.asarray(lo, dtype=np.float64), scaling_lower]),
+                np.concatenate([np.asarray(hi, dtype=np.float64), scaling_upper]),
+            )
+        else:
+            # bounds=None + scaling tail. The ideal would be to bound only the
+            # scaling tail and leave physics unbounded via ±inf. But nlsq's
+            # AdaptiveHybridStreamingOptimizer "bounds" normalization strategy
+            # silently corrupts ±inf bounds to NaN (verified empirically: a real
+            # fit with ±inf physics bounds returns all-NaN params, while finite
+            # physics bounds converge cleanly). Rather than inject NaN, we leave
+            # bounds=None and warn that the scaling tail is unbounded — the
+            # caller should pass finite physics bounds to also bound the scaling
+            # tail. See heterodyne_core which always supplies finite bounds.
+            logger.warning(
+                "bounds=None with an optimized scaling tail (n_scaling=%d): the "
+                "scaling contrast/offset are left UNBOUNDED because nlsq's hybrid-"
+                "streaming optimizer does not accept ±inf bounds (corrupts to NaN). "
+                "Pass finite physics bounds to bound the scaling tail too.",
+                len(scaling_lower),
+            )
 
     # ------------------------------------------------------------------
-    # Honor initial_params override (Finding 2)
-    # The model builder always derives p0 from param_manager; override here
-    # when the caller supplies a custom starting point.
+    # Build L3 AdaptiveRegularizer + group-variance config (Task 2)
+    # ------------------------------------------------------------------
+    n_scaling = meta["n_scaling"]
+    reg_cfg_dict: dict[str, Any] = ad_config.get("regularization", {})
+    # L3 only makes sense when there are actual scaling groups to regularize.
+    # auto_averaged supplies the (contrast, offset) group pairs; other modes do
+    # not (yet) — Task 5 will extend this to fourier/individual.
+    regularization_active = (
+        (n_scaling > 0)
+        and (mode_actual == "auto_averaged")
+        and reg_cfg_dict.get("enable", True)
+    )
+
+    adaptive_regularizer: AdaptiveRegularizer | None = None
+    group_variance_kwargs: dict[str, Any] = {}
+
+    if regularization_active:
+        # Local offsets WITHIN the scaling tail; translated to full-vector coords (base+...) below.
+        group_indices: list[tuple[int, int]] = [(0, 1), (1, 2)]
+
+        reg_config = AdaptiveRegularizationConfig(
+            enable=True,
+            mode=reg_cfg_dict.get("mode", "relative"),
+            lambda_base=float(reg_cfg_dict.get("lambda", 1.0)),
+            target_cv=float(reg_cfg_dict.get("target_cv", 0.10)),
+            group_indices=group_indices if group_indices else None,
+        )
+        adaptive_regularizer = AdaptiveRegularizer(reg_config, meta["n_phi"])
+        base = meta["n_physics_varying"]
+        group_variance_kwargs = {
+            "enable_group_variance_regularization": True,
+            "group_variance_lambda": float(adaptive_regularizer.lambda_value),
+            "group_variance_indices": [(base + a, base + b) for (a, b) in (group_indices or [])],
+        }
+        logger.info(
+            "L3 group-variance regularization: lambda=%.4f, group_indices=%s",
+            adaptive_regularizer.lambda_value,
+            group_variance_kwargs["group_variance_indices"],
+        )
+
+    # ------------------------------------------------------------------
+    # Build HybridStreamingConfig (merge L3 kwargs)
+    # ------------------------------------------------------------------
+    cfg = _build_hybrid_streaming_config({**(hybrid_config or {}), **group_variance_kwargs})
+
+    # ------------------------------------------------------------------
+    # Honor initial_params override — physics-only or full vector
     # ------------------------------------------------------------------
     p0_arr = np.asarray(p0, dtype=np.float64)
     if initial_params is not None:
         ip = np.asarray(initial_params, dtype=np.float64)
-        if ip.shape != p0_arr.shape:
-            logger.warning(
-                "initial_params length %d != model p0 length %d; "
-                "using model default.",
-                len(ip),
-                len(p0_arr),
-            )
-        else:
+        n_phys = meta["n_physics_varying"]
+        if ip.shape[0] == n_phys:
+            # Physics-only override: splice in, keep scaling tail from builder
+            p0_arr[:n_phys] = ip
+        elif ip.shape == p0_arr.shape:
             p0_arr = ip
+        else:
+            logger.warning(
+                "initial_params length %d matches neither physics (%d) nor "
+                "full (%d); using model default.",
+                len(ip), n_phys, len(p0_arr),
+            )
 
     # ------------------------------------------------------------------
     # Build sigma from meta (already masked with the keep filter, aligned
@@ -522,5 +639,27 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
 
     # Thread data-point count for reduced-chi dof (Finding 3)
     info["n_data_points"] = meta["n_data_points"]
+
+    # ------------------------------------------------------------------
+    # SSR + frozen baseline (Task 2)
+    # ------------------------------------------------------------------
+    pred = np.asarray(model_fn(x_data, *popt))
+    info["ssr"] = float(np.sum((y_data - pred) ** 2))
+
+    if meta["n_scaling"] > 0:
+        n_phys = meta["n_physics_varying"]
+        frozen = list(popt[:n_phys]) + [
+            float(np.mean(meta["contrast_arr"])),
+            float(np.mean(meta["offset_arr"])),
+        ]
+        pred0 = np.asarray(model_fn(x_data, *frozen))
+        info["ssr_frozen_baseline"] = float(np.sum((y_data - pred0) ** 2))
+    else:
+        info["ssr_frozen_baseline"] = info["ssr"]
+
+    # ------------------------------------------------------------------
+    # Seed anti_degeneracy diagnostics dict (Task 2; full diagnostics in Task 4)
+    # ------------------------------------------------------------------
+    info["anti_degeneracy"] = {"per_angle_mode": meta["per_angle_mode"]}
 
     return popt, pcov, info
