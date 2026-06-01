@@ -141,11 +141,14 @@ scaling inside the JIT closure and ran no anti-degeneracy layers. Gap D is now
 scaling tail and runs L1–L4, mirroring `laminar_flow` streaming:
 
 - **`per_angle_mode` dispatch** (driven by `anti_degeneracy_config.per_angle_mode`):
-  `fixed_constant` (legacy frozen scaling — safe opt-out; also the default when
-  `anti_degeneracy_config` is `None`), `auto` → `auto_averaged` (2 averaged
-  scaling params), `individual` (2·n_phi per-angle params), `fourier` (2·(2K+1)
-  Fourier coeffs; silently falls back to `individual` when n_phi < 1+2K — surfaced
-  via `meta["fourier_effective_mode"]`).
+  `auto` is **the default**, including when `anti_degeneracy_config` is absent/`None`
+  (mirrors laminar `hybrid_streaming.py:550` — no "freeze when unconfigured" special
+  case). `auto` → `auto_averaged` (2 averaged scaling params) when
+  `n_phi ≥ constant_scaling_threshold` (default 3), else → `individual`
+  (2·n_phi per-angle params, activates L2). `fixed_constant` (frozen scaling) is the
+  **explicit opt-out** via `per_angle_mode="constant"`. `fourier` → 2·(2K+1) Fourier
+  coeffs (silently falls back to `individual` when n_phi < 1+2K — surfaced via
+  `meta["fourier_effective_mode"]`).
 - **L1** active for all optimized modes; skipped for `fixed_constant`.
 - **L2** (`HierarchicalOptimizer`) gated to `individual`/`fourier` exactly mirroring
   laminar's gate. `auto_averaged`/`fixed_constant` skip L2. On the L2 branch the

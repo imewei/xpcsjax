@@ -143,10 +143,10 @@ The scaling treatment is selected by ``anti_degeneracy_config.per_angle_mode``:
      - Notes
    * - ``"fixed_constant"``
      - none (scaling frozen)
-     - Legacy opt-out / backward-compatible default.  Use when ``anti_degeneracy_config`` is absent or ``None``.
-   * - ``"auto"`` → ``"auto_averaged"``
-     - 2 (mean contrast, mean offset)
-     - Default when config is present; recommended starting point.
+     - Explicit opt-out via ``per_angle_mode="constant"``; freezes scaling (no L1/L2/L3).
+   * - ``"auto"`` → ``"auto_averaged"`` / ``"individual"``
+     - 2 (mean) at ``n_phi ≥ threshold``; else 2·n_phi
+     - **THE DEFAULT**, including when ``anti_degeneracy_config`` is absent or ``None`` (mirrors laminar — no "freeze when unconfigured" special case). Resolves to ``auto_averaged`` at ``n_phi ≥ constant_scaling_threshold`` (default 3), else ``individual``.
    * - ``"individual"``
      - 2 × n_phi
      - Per-angle contrast + offset optimized jointly.

@@ -103,6 +103,9 @@ def test_fit_with_stratified_hybrid_streaming_heterodyne_dispatch(monkeypatch):
         initial_params=np.asarray(model.param_manager.get_initial_values()),
         bounds=(np.asarray(lower), np.asarray(upper)),
         hybrid_config={"enable": True, "warmup_iterations": 30, "chunk_size": 4000},
+        # Pin fixed_constant so popt stays physics-only (this test targets config
+        # pass-through / dispatch, not the scaling mode). The default is now 'auto'.
+        anti_degeneracy_config={"per_angle_mode": "constant"},
     )
     assert popt.shape[0] == model.param_manager.n_varying
     assert pcov.shape == (popt.shape[0], popt.shape[0])
@@ -314,6 +317,9 @@ def test_initial_params_override_is_honored(monkeypatch):
         stratified_data=strat, model=model,
         physical_param_names=list(model.param_manager.varying_names),
         initial_params=custom, bounds=None, hybrid_config={"enable": True},
+        # Pin fixed_constant so p0 stays physics-only (this test checks the
+        # initial_params override, not the scaling mode). Default is now 'auto'.
+        anti_degeneracy_config={"per_angle_mode": "constant"},
     )
     assert np.allclose(seen["p0"], custom), "initial_params override ignored"
 
@@ -913,12 +919,13 @@ def test_streaming_fixed_constant_matches_legacy_frozen_scaling():
     assert np.isfinite(info["ssr"]), f"ssr not finite: {info['ssr']}"
 
 
-def test_streaming_none_config_is_fixed_constant_default():
-    """anti_degeneracy_config=None (absent) defaults to fixed_constant.
-
-    This is the backward-compatibility contract: callers that do not pass
-    anti_degeneracy_config must get the same frozen-scaling behavior as
-    per_angle_mode='constant'.
+def test_streaming_none_config_defaults_to_auto():
+    """No/None anti_degeneracy_config defaults to 'auto' — mirroring laminar
+    (hybrid_streaming.py:550), which has no "freeze when unconfigured" special
+    case. It does NOT freeze scaling. At n_phi=2 (< threshold 3) 'auto' resolves
+    to 'individual' (per-angle optimized scaling + L2 hierarchical), so popt
+    carries the 2*n_phi scaling tail. 'fixed_constant' is reachable only via the
+    explicit opt-out per_angle_mode='constant' (covered separately).
     """
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
         build_heterodyne_stratified_data,
@@ -932,6 +939,7 @@ def test_streaming_none_config_is_fixed_constant_default():
     lo, hi = model.param_manager.get_bounds()
     p0 = np.asarray(model.param_manager.get_initial_values(), dtype=np.float64)
     n_phys = len(p0)
+    n_phi = len(set(phi.tolist()))
 
     popt, _pcov, info = fit_with_stratified_hybrid_streaming_heterodyne(
         stratified_data=strat,
@@ -940,23 +948,24 @@ def test_streaming_none_config_is_fixed_constant_default():
         initial_params=p0,
         bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
         hybrid_config={
-            "warmup_iterations": 10,
-            "max_warmup_iterations": 20,
-            "gauss_newton_max_iterations": 10,
+            "warmup_iterations": 5,
+            "max_warmup_iterations": 10,
+            "gauss_newton_max_iterations": 5,
             "verbose": 0,
         },
         anti_degeneracy_config=None,
     )
 
-    # Backward-compat: None config -> physics-only popt, mode == 'fixed_constant'
-    assert len(popt) == n_phys, (
-        f"None config: expected len(popt)={n_phys} (physics-only), got {len(popt)}"
+    # None config -> 'auto' -> (n_phi=2 < 3) -> 'individual' (optimizes scaling).
+    ad = info["anti_degeneracy"]
+    assert ad["per_angle_mode"] == "individual", (
+        f"None config: per_angle_mode={ad['per_angle_mode']!r}, expected 'individual' "
+        "(auto default, NOT frozen fixed_constant)"
     )
-    assert info["anti_degeneracy"]["per_angle_mode"] == "fixed_constant", (
-        f"None config: per_angle_mode={info['anti_degeneracy']['per_angle_mode']!r}, "
-        "expected 'fixed_constant'"
+    assert ad["hierarchical_active"] is True
+    assert len(popt) == n_phys + 2 * n_phi, (
+        f"expected scaling tail: len(popt)={n_phys + 2 * n_phi}, got {len(popt)}"
     )
-    assert info["anti_degeneracy"]["hierarchical_active"] is False
 
 
 def test_streaming_l2_individual_ssr_not_worse():
