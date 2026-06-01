@@ -32,7 +32,9 @@ jobs:
         env:
           JAX_ENABLE_X64: "1"
           QT_QPA_PLATFORM: offscreen
-          # Run the slow homodyne/laminar bit-equivalence parity gate (rtol=1e-10)
-          # plus the heterodyne parity suite. Without this the gate self-skips.
-          XPCSJAX_RUN_CHARACTERIZATION: "1"
+          # NOTE: do NOT set XPCSJAX_RUN_CHARACTERIZATION here. That gate runs a
+          # LIVE fit against the upstream `homodyne` package using datasets at
+          # maintainer-local absolute paths (/home/.../Projects/data/...), so it
+          # only runs on a maintainer machine and self-skips in CI by design.
+          # The portable heterodyne parity + cross-mode suites run unconditionally.
         run: uv run pytest -v
