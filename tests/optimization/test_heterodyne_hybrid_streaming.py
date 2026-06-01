@@ -438,40 +438,41 @@ def test_streaming_auto_averaged_optimizes_scaling_and_sets_group_variance(monke
     assert cfg.group_variance_indices == [(base, base + 1), (base + 1, base + 2)]
 
 
-def test_streaming_auto_small_n_phi_does_not_crash(monkeypatch):
-    """Fix 1 regression: sub-threshold `auto` (n_phi=2) must NOT route to the
-    unimplemented `individual` mode and raise NotImplementedError. It must route
-    to `auto_averaged` (works for any n_phi >= 1)."""
-    import xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming as hs
+def test_streaming_auto_threshold_routing():
+    """Mirror laminar's auto dispatch: sub-threshold `auto` (n_phi <
+    constant_scaling_threshold) routes to `individual` (per-angle scaling, which
+    activates the L2 hierarchical branch); at/above the threshold it stays
+    `auto_averaged` (L2 off). n_phi=2 vs the default threshold 3."""
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
         build_heterodyne_stratified_data,
     )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        fit_with_stratified_hybrid_streaming_heterodyne as fit_fn,
+    )
 
-    class _FakeOpt:
-        def __init__(self, config):
-            pass
-
-        def fit(self, data_source, func, p0, bounds=None, sigma=None, **kw):
-            n = len(p0)
-            return {"x": np.asarray(p0, dtype=np.float64), "pcov": np.eye(n),
-                    "nit": 1, "success": True}
-
-    monkeypatch.setattr(hs, "AdaptiveHybridStreamingOptimizer", _FakeOpt)
-
-    # n_phi=2 — below the old threshold=3, which previously routed to 'individual'
     model, c2, phi = _make_synthetic_heterodyne(n_phi=2, n_t=6)
     strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
-    lower_phys, upper_phys = model.param_manager.get_bounds()
-
-    popt, pcov, info = hs.fit_with_stratified_hybrid_streaming_heterodyne(
+    lo, hi = model.param_manager.get_bounds()
+    common = dict(
         stratified_data=strat,
         model=model,
         physical_param_names=list(model.param_manager.varying_names),
         initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
-        bounds=(np.asarray(lower_phys, dtype=np.float64), np.asarray(upper_phys, dtype=np.float64)),
-        anti_degeneracy_config={"per_angle_mode": "auto"},
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={"warmup_iterations": 5, "max_warmup_iterations": 10,
+                       "gauss_newton_max_iterations": 5, "verbose": 0},
     )
-    assert info["anti_degeneracy"]["per_angle_mode"] == "auto_averaged"
+    # n_phi=2 < default threshold 3 -> individual (activates L2 hierarchical)
+    info_ind = fit_fn(**common, anti_degeneracy_config={"per_angle_mode": "auto"})[2]
+    assert info_ind["anti_degeneracy"]["per_angle_mode"] == "individual"
+    assert info_ind["anti_degeneracy"]["hierarchical_active"] is True
+    # Lowering the threshold to 2 makes n_phi=2 resolve to auto_averaged (L2 off)
+    info_avg = fit_fn(
+        **common,
+        anti_degeneracy_config={"per_angle_mode": "auto", "constant_scaling_threshold": 2},
+    )[2]
+    assert info_avg["anti_degeneracy"]["per_angle_mode"] == "auto_averaged"
+    assert info_avg["anti_degeneracy"]["hierarchical_active"] is False
 
 
 def test_streaming_l4_monitor_present_and_objective_invariant():
@@ -549,7 +550,9 @@ def test_streaming_auto_averaged_real_run_ssr_not_worse():
         bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
         hybrid_config={"warmup_iterations": 10, "max_warmup_iterations": 20,
                        "gauss_newton_max_iterations": 10, "verbose": 0},
-        anti_degeneracy_config={"per_angle_mode": "auto"},
+        # threshold=2 pins auto->auto_averaged at n_phi=2 (this test targets the
+        # averaged path; sub-threshold auto->individual is covered separately).
+        anti_degeneracy_config={"per_angle_mode": "auto", "constant_scaling_threshold": 2},
     )
 
     assert info["anti_degeneracy"]["per_angle_mode"] == "auto_averaged"
@@ -838,8 +841,11 @@ def test_streaming_diagnostics_symmetric_keys():
             "gauss_newton_max_iterations": 10,
             "verbose": 0,
         },
+        # threshold=2 pins auto->auto_averaged at n_phi=2 (this test asserts the
+        # auto_averaged contract: hierarchical_active False).
         anti_degeneracy_config={
             "per_angle_mode": "auto",
+            "constant_scaling_threshold": 2,
             "gradient_monitoring": {"enable": True},
         },
     )
@@ -1012,3 +1018,77 @@ def test_streaming_l2_individual_ssr_not_worse():
         f"ssr={info['ssr']:.6e} > ssr_frozen_baseline="
         f"{info['ssr_frozen_baseline']:.6e}"
     )
+
+
+def test_streaming_result_surfaces_anti_degeneracy_block():
+    """build_hybrid_streaming_result must propagate info['anti_degeneracy'] into
+    the public OptimizationResult.nlsq_diagnostics.
+
+    Regression for the cross-mode parity gap: the streaming fit computes the
+    symmetric anti-degeneracy activation block, but the result builder rebuilt
+    diagnostics from scratch and dropped it, so L2/L3/L4 always reported
+    inactive on the public result. This asserts at the OptimizationResult
+    boundary (not just the raw info dict).
+    """
+    import numpy as np
+
+    from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
+        build_hybrid_streaming_result,
+    )
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        fit_with_stratified_hybrid_streaming_heterodyne,
+    )
+
+    # Real individual-mode run → L2 hierarchical + L3 active, L4 monitor present.
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=4, n_t=6)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+    popt, pcov, info = fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={"warmup_iterations": 5, "max_warmup_iterations": 10,
+                       "gauss_newton_max_iterations": 5, "verbose": 0},
+        anti_degeneracy_config={"per_angle_mode": "individual",
+                                "hierarchical": {"enable": True, "max_outer_iterations": 3}},
+    )
+    ad = info["anti_degeneracy"]
+    assert ad["hierarchical_active"] is True  # sanity: individual ran L2
+
+    result = build_hybrid_streaming_result(
+        model=model, popt=popt, pcov=pcov, info=info, phi_angles=phi,
+    )
+    diag = result.nlsq_diagnostics
+    # The public result must carry the SAME activation keys as the raw info.
+    assert diag["hierarchical_active"] == ad["hierarchical_active"] is True
+    assert diag["regularization_active"] == ad["regularization_active"]
+    assert "gradient_monitor" in diag  # L4 ran -> surfaced
+    assert diag["per_angle_mode"] == "individual"  # real mode, not "hybrid_streaming"
+
+
+def test_streaming_result_without_anti_degeneracy_defaults_inactive():
+    """Backward compat: info lacking 'anti_degeneracy' → result reports inactive."""
+    import numpy as np
+
+    from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
+        build_hybrid_streaming_result,
+    )
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=3, n_t=6)
+    n = model.param_manager.n_varying
+    result = build_hybrid_streaming_result(
+        model=model,
+        popt=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        pcov=np.eye(n),
+        info={"nit": 1, "success": True, "n_data_points": 10},
+        phi_angles=phi,
+    )
+    diag = result.nlsq_diagnostics
+    assert diag["hierarchical_active"] is False
+    assert diag["regularization_active"] is False
+    assert "gradient_monitor" not in diag  # absent when L4 didn't run
