@@ -8,6 +8,37 @@ current release line.
 Unreleased
 ----------
 
+**Heterodyne streaming anti-degeneracy (parity gap D closed).** The
+``two_component`` STREAMING tier previously froze the quantile-estimated
+per-angle scaling and ran no anti-degeneracy layers. It now **optimizes** the
+scaling tail (contrast + offset) and runs **L1–L4**, reaching mechanism parity
+with ``laminar_flow`` streaming. The scaling treatment is selected by
+``anti_degeneracy_config.per_angle_mode``, with ``"auto"`` as the default —
+including when ``anti_degeneracy_config`` is absent or ``None`` (no
+"freeze when unconfigured" special case). ``"auto"`` resolves to
+``auto_averaged`` at ``n_phi ≥ constant_scaling_threshold`` (default 3), else
+``individual``; ``per_angle_mode="constant"`` is the explicit frozen-scaling
+opt-out. See :ref:`Streaming anti-degeneracy <streaming_antidegeneracy>`.
+
+**Heterodyne joint global escapes (parity gap C closed).** The heterodyne
+joint CMA-ES (``enable_cmaes=True``) and joint multistart (``multistart=True``)
+escapes are now **real global escapes** over the full ``[physics | scaling]``
+vector — seed-pinned, **keep-better** vs. the plain NLSQ joint fit, and
+**best-effort fall back** to the plain joint fit on failure (reusing the shared
+``fit_with_cmaes`` / ``run_multistart_nlsq``). An escape result is tagged
+``nlsq_diagnostics["global_escape"]`` and, by construction, carries NaN
+covariance / uncertainties and ``n_iterations=0``. See
+:doc:`/theory/heterodyne_anti_degeneracy`.
+
+**Symmetric anti-degeneracy diagnostics.** Both ``laminar_flow`` and
+``two_component`` now emit the same top-level ``nlsq_diagnostics`` activation
+keys (``hierarchical_active``, ``regularization_active``, ``shear_weighting``,
+plus ``gradient_monitor`` when L4 ran) via the shared
+``assemble_anti_degeneracy_diagnostics`` across every dataset-size path, with
+honest per-path values. ``shear_weighting`` is reported as inactive for
+heterodyne by design (L5 is ``laminar_flow``-only — heterodyne's velocity/flow
+term is structurally different from a shear rate).
+
 **Command-line interface.** xpcsjax now ships console scripts (with ``xj``
 short aliases): ``xpcsjax`` runs flag-driven NLSQ fits and standalone
 QC/simulation plots; ``xpcsjax-config`` generates, prints, and validates

@@ -35,8 +35,36 @@ the rendered documentation.
   XLA activation shell assets under `xpcsjax.runtime.shell`.
 - Documentation: `docs/source/user_guide/cli.rst`, `docs/source/api/cli.rst`,
   and `docs/source/api/runtime.rst`.
+- **Heterodyne joint global escapes (parity gap C closed).** The joint
+  CMA-ES (`enable_cmaes=True`) and joint multistart (`multistart=True`)
+  escapes in `heterodyne_core.py` are now real global escapes over the full
+  `[physics | scaling]` vector — seed-pinned, keep-better vs. the plain NLSQ
+  joint fit, and best-effort fall back on failure (reusing the shared
+  `fit_with_cmaes` / `run_multistart_nlsq`). Escape results are tagged
+  `nlsq_diagnostics["global_escape"]` and carry NaN covariance /
+  uncertainties with `n_iterations=0` by construction. See
+  `docs/source/theory/heterodyne_anti_degeneracy.rst`.
 
 ### Changed
+
+- **Heterodyne streaming anti-degeneracy (parity gap D closed).** The
+  `two_component` STREAMING tier no longer freezes the quantile-estimated
+  per-angle scaling. It now optimizes the scaling tail (contrast + offset)
+  and runs L1–L4, reaching mechanism parity with `laminar_flow` streaming.
+  The scaling treatment is selected by `anti_degeneracy_config.per_angle_mode`,
+  with `"auto"` as the default — including when `anti_degeneracy_config` is
+  absent/`None` (no "freeze when unconfigured" special case). `"auto"`
+  resolves to `auto_averaged` at `n_phi ≥ constant_scaling_threshold`
+  (default 3), else `individual`; `per_angle_mode="constant"` is the explicit
+  frozen-scaling opt-out. See
+  `docs/source/theory/heterodyne_memory_strategy.rst`.
+- **Symmetric anti-degeneracy diagnostics.** Both `laminar_flow` and
+  `two_component` now emit the same top-level `nlsq_diagnostics` activation
+  keys (`hierarchical_active`, `regularization_active`, `shear_weighting`,
+  plus `gradient_monitor` when L4 ran) via the shared
+  `assemble_anti_degeneracy_diagnostics` across every dataset-size path.
+  `shear_weighting` is reported inactive for heterodyne by design (L5 is
+  `laminar_flow`-only).
 
 - **Breaking — `analysis_mode` taxonomy.** The bare value
   `analysis_mode: static` is no longer accepted. It was ambiguous between

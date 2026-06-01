@@ -173,6 +173,23 @@ through the shared `AntiDegeneracyController`) and aligning heterodyne's standar
 L2 onto `HierarchicalOptimizer` (currently an inline two-stage implementation).
 Neither is required for mechanism parity; both are architectural cleanups.
 
+**Gap A is NOT a parity gap — do not "fix" it by routing heterodyne through the
+controller.** The parity target is laminar's *standard* path, and that path is
+itself inline: `wrapper.py` has **zero** `AntiDegeneracyController` uses. The
+controller is instantiated ONLY in laminar's CMA-ES path (`core.py:1846`, inside
+`fit_nlsq_cmaes`) and stratified-LS path (`stratified_ls.py:203`) — it is
+path-specific, not a universal laminar orchestrator. The laminar standard path
+also runs no L2 (`wrapper.py` hard-codes `hierarchical_active=False`; the
+in-memory path runs no L2/L3). So heterodyne's inline standard path already
+*matches* laminar's inline standard path; routing it through the controller (or
+swapping its inline two-stage L2 onto `HierarchicalOptimizer`, which both modes
+already share on the streaming paths) would **create** divergence and risk
+numeric drift with no rtol gate to catch it. Likewise the `shear_weighting` L5
+sentinel split (`not_applicable_heterodyne` on heterodyne public surfaces vs
+`laminar_flow_inactive` on the internal streaming mirror-block, translated by
+`heterodyne_result_builder.py`) is a deliberate two-value design pinned by ~12
+tests, not a cosmetic asymmetry to unify. (Reviewed 2026-06-01.)
+
 ### Heterodyne memory strategy and angle stratification
 
 Heterodyne mirrors homodyne's angle-stratification mechanism (mechanism parity, not numerical parity — heterodyne fits a different model). The dispatch inside `_fit_nlsq_heterodyne` is: cmaes → multi_start → hybrid_streaming → stratified-LS (≥ 1 M points) → in-memory joint fit.

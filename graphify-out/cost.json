@@ -59,8 +59,14 @@
       "output_tokens": 0,
       "files": 12,
       "note": "incremental: 11 code (AST) + 1 doc (Claude subagent)"
+    },
+    {
+      "date": "2026-06-01T06:54:15.313612+00:00",
+      "input_tokens": 0,
+      "output_tokens": 87284,
+      "files": 332
     }
   ],
   "total_input_tokens": 170461,
-  "total_output_tokens": 113641
+  "total_output_tokens": 200925
 }
