@@ -535,14 +535,12 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         Consumed to select the per-angle scaling treatment and L3
         group-variance regularization. Accepted keys:
         ``per_angle_mode`` — ``"fixed_constant"`` (frozen quantile scaling;
-        default when no config/None), ``"auto"`` resolves to ``"auto_averaged"``
-        (2 optimized averaged scaling scalars), ``"individual"`` (per-angle
-        optimized scaling + L2 hierarchical branch), ``"fourier"``
-        (Fourier-coefficient scaling + L2 hierarchical; falls back to
-        independent when n_phi < 1+2K). Note: ``"auto"`` maps only to
-        ``"auto_averaged"`` today — sub-threshold routing of ``"auto"`` to
-        ``"individual"`` is a deliberate documented follow-up, not a missing
-        wire-up. ``regularization.{enable, mode, lambda, target_cv}`` —
+        default when no config/None), ``"auto"`` (mirrors laminar: resolves to
+        ``"auto_averaged"`` when ``n_phi >= constant_scaling_threshold`` (default
+        3), else to ``"individual"``), ``"individual"`` (per-angle optimized
+        scaling + L2 hierarchical branch), ``"fourier"`` (Fourier-coefficient
+        scaling + L2 hierarchical; falls back to independent when n_phi < 1+2K).
+        ``regularization.{enable, mode, lambda, target_cv}`` —
         configures the L3 adaptive group-variance regularizer on the scaling
         tail. An empty/absent dict falls back to fixed_constant (no L3).
 
@@ -578,11 +576,16 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     else:
         requested_mode = ad_config.get("per_angle_mode", "auto")
         if requested_mode == "auto":
-            # 'auto' intentionally maps only to 'auto_averaged' (optimized
-            # averaged scaling).  'individual' and 'fourier' are both wired;
-            # sub-threshold routing of 'auto' → 'individual' is an optional
-            # future refinement, not pending work.
-            mode_actual = "auto_averaged"
+            # Mirror laminar's auto dispatch (hybrid_streaming.py:560): optimize
+            # AVERAGED scaling at/above the threshold, and per-angle 'individual'
+            # scaling (which also activates the L2 hierarchical branch) below it.
+            # n_phi is derived set-wise from phi_flat, matching the builder's
+            # deduplication (build_heterodyne_pointwise_model's phi_unique).
+            threshold = int(ad_config.get("constant_scaling_threshold", 3))
+            n_phi_resolved = len(set(stratified_data.phi_flat.tolist()))
+            mode_actual = (
+                "auto_averaged" if n_phi_resolved >= threshold else "individual"
+            )
         elif requested_mode == "constant":
             mode_actual = "fixed_constant"
         else:
