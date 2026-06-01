@@ -21,4 +21,7 @@ jobs:
       - name: Test
         env:
           JAX_ENABLE_X64: "1"
+          # Run the slow homodyne/laminar bit-equivalence parity gate (rtol=1e-10)
+          # and the heterodyne parity suite. Without this the gate self-skips.
+          XPCSJAX_RUN_CHARACTERIZATION: "1"
         run: uv run pytest -v

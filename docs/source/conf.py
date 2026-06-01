@@ -62,7 +62,7 @@ exclude_patterns: list[str] = ["_build", "Thumbs.db", ".DS_Store"]
 # directive, which makes the LaTeX run report ~100 "Label multiply defined"
 # warnings. Skipping it in LaTeX is harmless because the PDF audience does
 # not click :mod: links.
-import sys as _sys
+import sys as _sys  # noqa: E402  (Sphinx conf: intentional mid-file import near use)
 
 if any(a in ("latex", "latexpdf") for a in _sys.argv):
     exclude_patterns.append("api/modules.rst")
