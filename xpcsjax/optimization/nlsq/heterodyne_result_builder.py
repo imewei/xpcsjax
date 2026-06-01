@@ -552,25 +552,45 @@ def build_hybrid_streaming_result(
     )
 
     # ------------------------------------------------------------------
-    # Convergence status and quality
-    # ------------------------------------------------------------------
-    success = bool(info.get("success", True))
-    convergence_status: str = "converged" if success else "failed"
-    quality_flag = classify_quality_flag(reduced_chi2=1.0) if success else "poor"
-
-    # Coerce to valid ConvergenceStatus literal
-    if convergence_status not in ("converged", "max_iter", "failed", "partial"):
-        convergence_status = "failed"
-
-    # ------------------------------------------------------------------
-    # SSR: not directly available from streaming result — use 0.0 placeholder
+    # SSR + noise-normalized reduced chi^2
     # ------------------------------------------------------------------
     ssr = float(info.get("cost", 0.0)) * 2.0  # optimizer cost = 0.5 * SSR
     # Finding 3: dof = n_data - n_params.  n_data_points is threaded from the
     # wrapper via info so this is always correct when the hybrid path ran.
     n_data = int(info.get("n_data_points", 0))
     n_dof = max(1, n_data - n)
-    reduced_chi2 = ssr / n_dof if ssr > 0 else 0.0
+    # Noise-normalized reduced chi^2 (targets ~1.0 for a good fit), mirroring the
+    # in-memory averaged/fourier joint paths (heterodyne_core: noise_normalized_
+    # reduced_chi2). The driver threads an estimated far-lag photon-noise variance
+    # via ``info['sigma2_noise']``; dividing SSR by it restores the conventional
+    # chi^2_red scale. Without it, raw SSR/dof collapses to MSE << 1 on normalized
+    # C2 data (C2 ~ 1, residuals ~ 5%), which is not an interpretable goodness-of-
+    # fit (this produced the bogus chi^2_red = 0.0024 on the stratified-LS path).
+    # Falls back to plain MSE when the noise estimate is absent/degenerate,
+    # matching ``noise_normalized_reduced_chi2``.
+    sigma2_noise = float(info.get("sigma2_noise", 0.0))
+    if ssr <= 0:
+        reduced_chi2 = 0.0
+    elif sigma2_noise > 1e-12:
+        reduced_chi2 = ssr / (sigma2_noise * n_dof)
+    else:
+        reduced_chi2 = ssr / n_dof
+
+    # ------------------------------------------------------------------
+    # Convergence status and quality
+    # ------------------------------------------------------------------
+    success = bool(info.get("success", True))
+    convergence_status: str = "converged" if success else "failed"
+    # Classify from the REAL noise-normalized reduced chi^2 (parity with the
+    # in-memory joint paths) rather than a hardcoded 1.0 — a converged-but-poor
+    # fit must not advertise "good". A failed solve is forced to "poor".
+    quality_flag = (
+        classify_quality_flag(reduced_chi2=reduced_chi2) if success else "poor"
+    )
+
+    # Coerce to valid ConvergenceStatus literal
+    if convergence_status not in ("converged", "max_iter", "failed", "partial"):
+        convergence_status = "failed"
 
     return OptimizationResult(
         parameters=popt,

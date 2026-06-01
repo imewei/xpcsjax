@@ -131,6 +131,76 @@ def test_build_hybrid_streaming_result():
     assert res.nlsq_diagnostics.get("shear_weighting") == "not_applicable_heterodyne"
 
 
+def test_build_hybrid_streaming_result_noise_normalized_reduced_chi2():
+    """reduced_chi_squared must be noise-normalized (≈1 scale) when the driver
+    threads ``info['sigma2_noise']`` — mirroring the in-memory averaged/fourier
+    joint paths. Prevents the meaningless ``MSE ≪ 1`` value the stratified-LS
+    path reported before (smart-debug RCA: χ²_red = 0.0024 on C020 two_component).
+    """
+    from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
+        build_hybrid_streaming_result,
+    )
+
+    model, _c2, phi = _make_synthetic_heterodyne()
+    n = model.param_manager.n_varying
+    ssr = 100.0
+    n_data = 1000
+    sigma2 = 0.01
+    res = build_hybrid_streaming_result(
+        model=model, popt=np.zeros(n), pcov=np.eye(n),
+        info={"nit": 4, "success": True, "cost": 0.5 * ssr,
+              "n_data_points": n_data, "sigma2_noise": sigma2},
+        phi_angles=phi,
+    )
+    n_dof = max(1, n_data - n)
+    assert res.reduced_chi_squared == pytest.approx(ssr / (sigma2 * n_dof))
+
+
+def test_build_hybrid_streaming_result_mse_fallback_without_sigma2():
+    """Backward-compat: with no ``sigma2_noise`` threaded (degenerate noise /
+    legacy callers) the builder falls back to plain ``MSE = SSR/dof`` exactly as
+    before, so existing callers are unaffected."""
+    from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
+        build_hybrid_streaming_result,
+    )
+
+    model, _c2, phi = _make_synthetic_heterodyne()
+    n = model.param_manager.n_varying
+    ssr = 100.0
+    n_data = 1000
+    res = build_hybrid_streaming_result(
+        model=model, popt=np.zeros(n), pcov=np.eye(n),
+        info={"nit": 4, "success": True, "cost": 0.5 * ssr,
+              "n_data_points": n_data},
+        phi_angles=phi,
+    )
+    n_dof = max(1, n_data - n)
+    assert res.reduced_chi_squared == pytest.approx(ssr / n_dof)
+
+
+def test_build_hybrid_streaming_result_quality_reflects_reduced_chi2():
+    """quality_flag must classify from the real noise-normalized reduced_chi2,
+    not a hardcoded 1.0 — a genuinely bad fit (large χ²_red) must not report
+    'good' merely because the optimizer reported success."""
+    from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
+        build_hybrid_streaming_result,
+    )
+
+    model, _c2, phi = _make_synthetic_heterodyne()
+    n = model.param_manager.n_varying
+    ssr = 100.0
+    n_data = 1000
+    sigma2 = 1e-4  # -> reduced_chi2 ~ 1e6/(n_data-n) >> 5 (poor band)
+    res = build_hybrid_streaming_result(
+        model=model, popt=np.zeros(n), pcov=np.eye(n),
+        info={"nit": 4, "success": True, "cost": 0.5 * ssr,
+              "n_data_points": n_data, "sigma2_noise": sigma2},
+        phi_angles=phi,
+    )
+    assert res.reduced_chi_squared > 5.0
+    assert res.quality_flag == "poor"
+
+
 # ---------------------------------------------------------------------------
 # Phase 2 Task 4: dispatch gate tests
 # ---------------------------------------------------------------------------

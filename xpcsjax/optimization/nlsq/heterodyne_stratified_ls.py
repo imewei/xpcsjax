@@ -317,6 +317,7 @@ def fit_heterodyne_stratified_least_squares(
     from xpcsjax.optimization.nlsq import heterodyne_logging as _hlog
     from xpcsjax.optimization.nlsq.heterodyne_adapter import NLSQAdapter
     from xpcsjax.optimization.nlsq.heterodyne_core import _resolve_effective_mode
+    from xpcsjax.optimization.nlsq.heterodyne_data_prep import far_lag_noise_variance
     from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
         build_hybrid_streaming_result,
     )
@@ -499,7 +500,16 @@ def fit_heterodyne_stratified_least_squares(
     # at ZERO extra residual evaluations — the block then reports the final cost
     # without a cost-reduction percentage.
     _n_data = int(meta["n_data_points"])
-    _reduced_chi2 = ssr / max(1, _n_data - int(popt.size))
+    # Noise-normalized reduced chi^2 (targets ~1.0), mirroring the in-memory
+    # averaged/fourier joint paths. Raw SSR/dof collapses to MSE << 1 on
+    # normalized C2 data and is not an interpretable goodness-of-fit. The far-lag
+    # photon-noise variance is threaded to the result builder via ``sigma2_noise``
+    # so the logged value and the OptimizationResult agree.
+    _sigma2_noise = far_lag_noise_variance(c2)
+    _n_dof = max(1, _n_data - int(popt.size))
+    _reduced_chi2 = (
+        ssr / (_sigma2_noise * _n_dof) if _sigma2_noise > 1e-12 else ssr / _n_dof
+    )
     _hlog.log_optimization_results(
         success=bool(fit.success),
         message=getattr(fit, "message", None),
@@ -553,6 +563,7 @@ def fit_heterodyne_stratified_least_squares(
         "nit": int(fit.n_iterations or 0),
         "wall_time": float(fit.wall_time_seconds or 0.0),
         "n_data_points": int(meta["n_data_points"]),
+        "sigma2_noise": float(_sigma2_noise),
         "stratification_memory": mem_estimate,
     }
     return build_hybrid_streaming_result(

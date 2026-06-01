@@ -93,6 +93,23 @@ filterwarnings = [
     # time that would fail collection under -W error. Suppress until LBFGSB
     # in hierarchical.py is migrated to an alternative (tracked as v0.2 work).
     "ignore::DeprecationWarning:jaxopt",
+    # pytest-benchmark auto-disables benchmarks when the xdist plugin is active
+    # (``make verify`` runs the suite under ``-n auto``). The warning is purely
+    # informational — benchmarks simply run as ordinary tests — so it is noise,
+    # not an actionable signal.
+    "ignore::pytest_benchmark.logger.PytestBenchmarkWarning",
+    # nlsq raises its own OptimizeWarning ("maximum number of function
+    # evaluations exceeded") inside tests that deliberately use tiny iteration
+    # budgets to probe non-convergence / graceful-degradation paths. Convergence
+    # quality is asserted via the returned result objects (and logged via
+    # nlsq_diagnostics in production), not via this warning, so it is expected
+    # test-time noise. (nlsq defines its own class, not scipy's.)
+    "ignore::nlsq.result.optimize_warning.OptimizeWarning",
+    # numba emits NumbaSystemWarning from tests/viz/test_orchestrator.py
+    # ::test_parallel_fallback_on_pool_failure, which INTENTIONALLY simulates a
+    # multiprocessing-spawn failure to verify the sequential fallback. The
+    # warning is the simulated condition itself, not a real defect.
+    "ignore::numba.core.errors.NumbaSystemWarning",
 ]
 
 [tool.coverage.run]
