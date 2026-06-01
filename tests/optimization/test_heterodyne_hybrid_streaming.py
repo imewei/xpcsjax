@@ -1012,3 +1012,77 @@ def test_streaming_l2_individual_ssr_not_worse():
         f"ssr={info['ssr']:.6e} > ssr_frozen_baseline="
         f"{info['ssr_frozen_baseline']:.6e}"
     )
+
+
+def test_streaming_result_surfaces_anti_degeneracy_block():
+    """build_hybrid_streaming_result must propagate info['anti_degeneracy'] into
+    the public OptimizationResult.nlsq_diagnostics.
+
+    Regression for the cross-mode parity gap: the streaming fit computes the
+    symmetric anti-degeneracy activation block, but the result builder rebuilt
+    diagnostics from scratch and dropped it, so L2/L3/L4 always reported
+    inactive on the public result. This asserts at the OptimizationResult
+    boundary (not just the raw info dict).
+    """
+    import numpy as np
+
+    from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
+        build_hybrid_streaming_result,
+    )
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        fit_with_stratified_hybrid_streaming_heterodyne,
+    )
+
+    # Real individual-mode run → L2 hierarchical + L3 active, L4 monitor present.
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=4, n_t=6)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+    popt, pcov, info = fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={"warmup_iterations": 5, "max_warmup_iterations": 10,
+                       "gauss_newton_max_iterations": 5, "verbose": 0},
+        anti_degeneracy_config={"per_angle_mode": "individual",
+                                "hierarchical": {"enable": True, "max_outer_iterations": 3}},
+    )
+    ad = info["anti_degeneracy"]
+    assert ad["hierarchical_active"] is True  # sanity: individual ran L2
+
+    result = build_hybrid_streaming_result(
+        model=model, popt=popt, pcov=pcov, info=info, phi_angles=phi,
+    )
+    diag = result.nlsq_diagnostics
+    # The public result must carry the SAME activation keys as the raw info.
+    assert diag["hierarchical_active"] == ad["hierarchical_active"] is True
+    assert diag["regularization_active"] == ad["regularization_active"]
+    assert "gradient_monitor" in diag  # L4 ran -> surfaced
+    assert diag["per_angle_mode"] == "individual"  # real mode, not "hybrid_streaming"
+
+
+def test_streaming_result_without_anti_degeneracy_defaults_inactive():
+    """Backward compat: info lacking 'anti_degeneracy' → result reports inactive."""
+    import numpy as np
+
+    from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
+        build_hybrid_streaming_result,
+    )
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=3, n_t=6)
+    n = model.param_manager.n_varying
+    result = build_hybrid_streaming_result(
+        model=model,
+        popt=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        pcov=np.eye(n),
+        info={"nit": 1, "success": True, "n_data_points": 10},
+        phi_angles=phi,
+    )
+    diag = result.nlsq_diagnostics
+    assert diag["hierarchical_active"] is False
+    assert diag["regularization_active"] is False
+    assert "gradient_monitor" not in diag  # absent when L4 didn't run

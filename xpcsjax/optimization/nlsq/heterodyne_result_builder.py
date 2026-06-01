@@ -519,8 +519,17 @@ def build_hybrid_streaming_result(
         if parameter_names is not None
         else list(model.param_manager.varying_names)
     )
+    # Propagate the REAL anti-degeneracy activation block computed by the
+    # streaming fit (``info["anti_degeneracy"]``) into ``nlsq_diagnostics`` so the
+    # public OptimizationResult surfaces the SAME activation keys as the in-memory
+    # heterodyne paths. Without threading these flags through, the assembler would
+    # default L2/L3/L4 to inactive and the streaming result would under-report what
+    # actually ran. ``shear_weighting`` stays the canonical heterodyne
+    # ``not_applicable_heterodyne`` marker (set inside the helper); we forward only
+    # the activation flags + the real per-angle mode.
+    ad_block = info.get("anti_degeneracy") or {}
     diagnostics = _build_heterodyne_diagnostics(
-        per_angle_mode=per_angle_mode,
+        per_angle_mode=ad_block.get("per_angle_mode", per_angle_mode),
         chi2_per_angle=chi2_per_angle,
         scaling_source=scaling_source,
         fourier_basis_dim=None,
@@ -529,6 +538,9 @@ def build_hybrid_streaming_result(
         n_angles_joint=int(n_phi),
         n_iterations=int(info.get("nit", 0)),
         success=bool(info.get("success", True)),
+        hierarchical_active=bool(ad_block.get("hierarchical_active", False)),
+        regularization_active=bool(ad_block.get("regularization_active", False)),
+        gradient_monitor=ad_block.get("gradient_monitor"),
     )
 
     # ------------------------------------------------------------------
