@@ -534,15 +534,16 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     anti_degeneracy_config :
         Consumed to select the per-angle scaling treatment and L3
         group-variance regularization. Accepted keys:
-        ``per_angle_mode`` — ``"fixed_constant"`` (frozen quantile scaling;
-        default when no config/None), ``"auto"`` (mirrors laminar: resolves to
-        ``"auto_averaged"`` when ``n_phi >= constant_scaling_threshold`` (default
-        3), else to ``"individual"``), ``"individual"`` (per-angle optimized
-        scaling + L2 hierarchical branch), ``"fourier"`` (Fourier-coefficient
-        scaling + L2 hierarchical; falls back to independent when n_phi < 1+2K).
+        ``per_angle_mode`` — ``"auto"`` (THE DEFAULT, including when no config /
+        None is supplied — mirrors laminar; resolves to ``"auto_averaged"`` when
+        ``n_phi >= constant_scaling_threshold`` (default 3), else to
+        ``"individual"``), ``"fixed_constant"`` (explicit opt-out: frozen quantile
+        scaling, no L3), ``"individual"`` (per-angle optimized scaling + L2
+        hierarchical branch), ``"fourier"`` (Fourier-coefficient scaling + L2
+        hierarchical; falls back to independent when n_phi < 1+2K).
         ``regularization.{enable, mode, lambda, target_cv}`` —
         configures the L3 adaptive group-variance regularizer on the scaling
-        tail. An empty/absent dict falls back to fixed_constant (no L3).
+        tail (active for the optimized-scaling modes).
 
     Returns
     -------
@@ -570,26 +571,23 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
 
     ad_config: dict[str, Any] = anti_degeneracy_config or {}
 
-    if not ad_config:
-        # Backward-compatible default: freeze scaling inside the JIT closure
+    # Mirror laminar EXACTLY (hybrid_streaming.py:550): the default per-angle mode
+    # is "auto" even when NO anti-degeneracy config is supplied — there is no
+    # special-cased "freeze scaling when unconfigured" branch. 'auto' optimizes
+    # scaling (AVERAGED at/above the threshold; per-angle 'individual', which also
+    # activates the L2 hierarchical branch, below it). Explicit
+    # ``per_angle_mode="constant"`` is the opt-out that freezes scaling.
+    requested_mode = ad_config.get("per_angle_mode", "auto")
+    if requested_mode == "auto":
+        # n_phi is derived set-wise from phi_flat, matching the builder's
+        # deduplication (build_heterodyne_pointwise_model's phi_unique).
+        threshold = int(ad_config.get("constant_scaling_threshold", 3))
+        n_phi_resolved = len(set(stratified_data.phi_flat.tolist()))
+        mode_actual = "auto_averaged" if n_phi_resolved >= threshold else "individual"
+    elif requested_mode == "constant":
         mode_actual = "fixed_constant"
     else:
-        requested_mode = ad_config.get("per_angle_mode", "auto")
-        if requested_mode == "auto":
-            # Mirror laminar's auto dispatch (hybrid_streaming.py:560): optimize
-            # AVERAGED scaling at/above the threshold, and per-angle 'individual'
-            # scaling (which also activates the L2 hierarchical branch) below it.
-            # n_phi is derived set-wise from phi_flat, matching the builder's
-            # deduplication (build_heterodyne_pointwise_model's phi_unique).
-            threshold = int(ad_config.get("constant_scaling_threshold", 3))
-            n_phi_resolved = len(set(stratified_data.phi_flat.tolist()))
-            mode_actual = (
-                "auto_averaged" if n_phi_resolved >= threshold else "individual"
-            )
-        elif requested_mode == "constant":
-            mode_actual = "fixed_constant"
-        else:
-            mode_actual = requested_mode  # explicit 'individual' or 'fourier'
+        mode_actual = requested_mode  # explicit 'individual' or 'fourier'
 
     logger.info(
         "anti_degeneracy_config: mode_actual=%r (ad_config_provided=%s)",
