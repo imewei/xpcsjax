@@ -65,6 +65,13 @@
       "input_tokens": 0,
       "output_tokens": 87284,
       "files": 332
+    },
+    {
+      "date": "2026-06-01T07:30:48.081911+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 1,
+      "note": "incremental code-only (parameter_registry.py)"
     }
   ],
   "total_input_tokens": 170461,
