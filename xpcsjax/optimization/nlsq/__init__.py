@@ -676,11 +676,15 @@ def _fit_nlsq_heterodyne(
     # multistart, hybrid, AND stratified-LS precedence gates.
     cmaes_on = bool(getattr(nlsq_cfg, "enable_cmaes", False))
     if isinstance(ms_dict, dict) and ms_dict.get("enable", False) and not cmaes_on:
+        from xpcsjax.optimization.nlsq.heterodyne_logging import (
+            log_strategy_selection as _log_strategy,
+        )
         from xpcsjax.optimization.nlsq.heterodyne_multistart import (
             build_multistart_config,
             fit_nlsq_multistart_heterodyne,
         )
 
+        _log_strategy("multi_start", "multi_start.enable=True")
         ms_cfg = build_multistart_config(ms_dict)
         result = fit_nlsq_multistart_heterodyne(model, c2, phi, nlsq_cfg, weights, ms_cfg)
         _safe_log_heterodyne_completion(result, model, len(phi))
@@ -707,6 +711,9 @@ def _fit_nlsq_heterodyne(
             int(_np.asarray(c2).size), int(model.param_manager.n_varying)
         )
         if decision.strategy in (NLSQStrategy.LARGE, NLSQStrategy.STREAMING):
+            from xpcsjax.optimization.nlsq.heterodyne_logging import (
+                log_strategy_selection as _log_strategy,
+            )
             from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
                 build_hybrid_streaming_result,
             )
@@ -717,6 +724,9 @@ def _fit_nlsq_heterodyne(
                 fit_with_stratified_hybrid_streaming_heterodyne,
             )
 
+            _log_strategy(
+                "hybrid_streaming", f"memory tier {decision.strategy.name}"
+            )
             strat = build_heterodyne_stratified_data(model, c2, phi, weights)
             lower, upper = model.param_manager.get_bounds()
             popt, pcov, info = fit_with_stratified_hybrid_streaming_heterodyne(
@@ -826,7 +836,14 @@ def _fit_nlsq_heterodyne(
     if effective_mode in ("averaged", "fourier"):
         try:
             from xpcsjax.optimization.nlsq import heterodyne_stratified_ls as _hsl
+            from xpcsjax.optimization.nlsq.heterodyne_logging import (
+                log_strategy_selection as _log_strategy,
+            )
 
+            _log_strategy(
+                "stratified_least_squares",
+                f"{int(n_points):,} points >= 1M, per_angle_mode={effective_mode}",
+            )
             result = _hsl.fit_heterodyne_stratified_least_squares(
                 model=model,
                 c2=c2,
@@ -871,6 +888,13 @@ def _fit_nlsq_heterodyne(
                 effective_mode,
             )
 
+    from xpcsjax.optimization.nlsq.heterodyne_logging import (
+        log_strategy_selection as _log_strategy,
+    )
+
+    _log_strategy(
+        "standard", f"{int(n_points):,} points (in-memory joint fit)"
+    )
     result = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
     _safe_log_heterodyne_completion(result, model, len(phi))
     return result

@@ -314,6 +314,7 @@ def fit_heterodyne_stratified_least_squares(
         RAM. Best-effort and non-fatal. When False, the estimate is still
         computed for diagnostics but the safety warning is suppressed.
     """
+    from xpcsjax.optimization.nlsq import heterodyne_logging as _hlog
     from xpcsjax.optimization.nlsq.heterodyne_adapter import NLSQAdapter
     from xpcsjax.optimization.nlsq.heterodyne_core import _resolve_effective_mode
     from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
@@ -342,9 +343,16 @@ def fit_heterodyne_stratified_least_squares(
             "constant freezes scaling — both use the in-memory joint path)"
         )
 
+    # Laminar-parity narration: announce the path + physical parameter block
+    # before the (multi-minute) solve so the two_component log is not silent.
+    n_physics_pre = int(model.param_manager.n_varying)
+    _hlog.log_stratified_path_activated(int(np.asarray(c2).size))
+    _hlog.log_physical_parameters("two_component", list(model.param_manager.varying_names))
+
     contrast_pa, offset_pa = compute_quantile_per_angle_scaling(strat)
     contrast_pa = np.asarray(contrast_pa, dtype=np.float64)
     offset_pa = np.asarray(offset_pa, dtype=np.float64)
+    _hlog.log_quantile_scaling(contrast_pa, offset_pa)
 
     fourier: Any | None = None
     if mode == "averaged":
@@ -373,6 +381,14 @@ def fit_heterodyne_stratified_least_squares(
             fourier.per_angle_to_fourier(contrast_pa, offset_pa), dtype=np.float64
         )
         scaling_names = [f"fourier_{i}" for i in range(int(fourier.n_coeffs))]
+
+    _hlog.log_effective_mode(
+        mode,
+        n_phi=n_phi,
+        n_physics=n_physics_pre,
+        n_scaling=len(init_scaling),
+        threshold=int(getattr(config, "constant_scaling_threshold", 3)),
+    )
 
     # Build the residual once (native order) to obtain the FILTERED flat support
     # (off-diagonal AND t>0 — strat.phi_flat is the full N_total grid including
@@ -446,6 +462,9 @@ def fit_heterodyne_stratified_least_squares(
     # ``parameter_names`` align 1:1 with the full popt length.
     joint_param_names = [*model.param_manager.varying_names, *scaling_names]
     adapter = NLSQAdapter(parameter_names=joint_param_names)
+    _hlog.log_fit_start(
+        int(p0_full.size), int(meta["n_data_points"]), n_chunks=len(chunk_sizes)
+    )
     fit = adapter.fit(
         # residual_fn returns a jnp Array; NLSQAdapter types its residual as
         # numpy-returning. JAX arrays are numpy-compatible at runtime, so this is
@@ -475,6 +494,22 @@ def fit_heterodyne_stratified_least_squares(
     chi2_per_angle = np.zeros(n_phi_meta, dtype=np.float64)
     np.add.at(chi2_per_angle, phi_idx_flat, final_residual**2)
 
+    # Laminar-parity OPTIMIZATION RESULTS block (reads the adapter's real fit
+    # outcome). ``initial_cost`` is omitted (None) to keep the stratified-LS path
+    # at ZERO extra residual evaluations — the block then reports the final cost
+    # without a cost-reduction percentage.
+    _n_data = int(meta["n_data_points"])
+    _reduced_chi2 = ssr / max(1, _n_data - int(popt.size))
+    _hlog.log_optimization_results(
+        success=bool(fit.success),
+        message=getattr(fit, "message", None),
+        n_iterations=int(fit.n_iterations or 0),
+        initial_cost=None,
+        final_cost=0.5 * ssr,
+        wall_time=float(fit.wall_time_seconds or 0.0),
+        function_evals=getattr(fit, "n_function_evals", None),
+    )
+
     # Compute stratification diagnostics and memory estimate.
     # phi_original and phi_stratified are the same length (phi_idx_filtered[perm]
     # is a permutation of phi_idx_filtered), so compute_stratification_diagnostics
@@ -487,6 +522,9 @@ def fit_heterodyne_stratified_least_squares(
         use_index_based=use_index_based,
         target_chunk_size=target_chunk_size,
         chunk_sizes=chunk_sizes,
+    )
+    _hlog.log_stratification_diagnostics(
+        strat_diag, n_chunks=len(chunk_sizes), n_points=_n_data, n_phi=n_phi_meta
     )
     mem_estimate = estimate_stratification_memory(
         n_points=int(phi_idx_filtered.shape[0]),
@@ -506,6 +544,8 @@ def fit_heterodyne_stratified_least_squares(
             float(mem_estimate.get("peak_memory_mb", 0.0)),
             int(phi_idx_filtered.shape[0]),
         )
+
+    _hlog.log_stratified_complete(ssr, _reduced_chi2)
 
     info = {
         "success": bool(fit.success),

@@ -3453,3 +3453,14 @@ def log_heterodyne_completion(
         )
 
     logger.info("=" * 60)
+
+    # Laminar-parity anti-degeneracy DEFENSE summary. Read from the assembled
+    # ``nlsq_diagnostics`` so the reported layer activity is HONEST per path
+    # (stratified-LS / sequential report inactive L2/L3; in-memory / streaming
+    # report the layers they actually ran). Runs once per analysis for EVERY
+    # heterodyne path because this completion helper is the shared chokepoint.
+    from xpcsjax.optimization.nlsq.heterodyne_logging import (
+        log_anti_degeneracy_defense,
+    )
+
+    log_anti_degeneracy_defense(diag)

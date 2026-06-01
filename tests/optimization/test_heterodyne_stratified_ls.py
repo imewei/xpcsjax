@@ -1,6 +1,80 @@
+import logging
+
 import numpy as np
 
 from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import reorder_for_stratification
+
+
+def test_stratified_ls_emits_laminar_parity_banners(caplog):
+    """The stratified-LS path (the >=1M solver the C044 two_component run took)
+    historically logged NOTHING between the adapter call and completion, leaving
+    a multi-minute silent gap. It must now narrate the laminar_flow log surface
+    end to end (path activation -> mode -> quantiles -> gradient sanity ->
+    fit start -> results -> complete)."""
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        fit_heterodyne_stratified_least_squares,
+    )
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict(
+        {"analysis_mode": "two_component", "per_angle_mode": "averaged"}
+    )
+
+    with caplog.at_level(logging.INFO, logger="xpcsjax.optimization.nlsq.heterodyne_logging"):
+        fit_heterodyne_stratified_least_squares(
+            model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False
+        )
+    text = caplog.text
+    for expected in (
+        "STRATIFIED LEAST-SQUARES PATH ACTIVATED",
+        "Physical parameters for two_component",
+        "Quantile-based per-angle estimation complete",
+        "Contrast: mean=",
+        "Offset: mean=",
+        "ANTI-DEGENERACY: Effective per-angle mode 'averaged'",
+        "Starting NLSQ least_squares() optimization",
+        "OPTIMIZATION RESULTS",
+        "STRATIFIED LEAST-SQUARES COMPLETE",
+    ):
+        assert expected in text, f"missing laminar-parity banner: {expected!r}"
+
+
+def test_completion_emits_honest_anti_degeneracy_defense(caplog):
+    """The shared completion chokepoint must emit an anti-degeneracy DEFENSE
+    summary reading REAL per-path diagnostics. The stratified-LS path runs a
+    plain joint solve, so it must HONESTLY report L2/L3 inactive (not fabricate
+    'Enabled: True' the way laminar's controller-driven path does)."""
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import log_heterodyne_completion
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        fit_heterodyne_stratified_least_squares,
+    )
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict(
+        {"analysis_mode": "two_component", "per_angle_mode": "averaged"}
+    )
+    result = fit_heterodyne_stratified_least_squares(
+        model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False
+    )
+
+    with caplog.at_level(logging.INFO, logger="xpcsjax.optimization.nlsq.heterodyne_logging"):
+        log_heterodyne_completion(
+            result,
+            list(model.param_manager.varying_names),
+            int(model.param_manager.n_varying),
+            len(phi),
+        )
+    text = caplog.text
+    assert "ANTI-DEGENERACY DEFENSE" in text
+    assert "L2 hierarchical_active: False" in text
+    assert "L3 regularization_active: False" in text
+    # Heterodyne has no shear term -> structural L5 sentinel, NOT laminar's
+    # "Enabled: True" shear banner.
+    assert "not_applicable_heterodyne" in text
 
 
 def test_reorder_preserves_multiset_and_shuffles():

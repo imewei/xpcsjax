@@ -76,8 +76,8 @@
     "hash": "4d789c72c66c1e7d1f99d3e0af2f04dc"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_heterodyne_stratified_ls.py": {
-    "mtime": 1780148961.5186217,
-    "hash": "99baf888a08d1c32991b65f8d3020923"
+    "mtime": 1780303550.337353,
+    "hash": "ecb34c11fac620c5899ac52c2c2f67ca"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_heterodyne_stratification_config.py": {
     "mtime": 1780148961.5186217,
@@ -584,8 +584,8 @@
     "hash": "01c379900cb6df800d70c1ab562561f2"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/heterodyne_stratified_ls.py": {
-    "mtime": 1780192826.1317966,
-    "hash": "4bbc0ba0a14abec796e85f4a324480d1"
+    "mtime": 1780303527.304358,
+    "hash": "2ae8c97aae699f6bd83d6c8e100bbdcd"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/transforms.py": {
     "mtime": 1779734180.5217068,
@@ -612,8 +612,8 @@
     "hash": "820f55764c0f31d393dc077db3dc901c"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/__init__.py": {
-    "mtime": 1780192826.1307967,
-    "hash": "6f43ffc254fb14e44cceb3a02fe27bcf"
+    "mtime": 1780301701.993253,
+    "hash": "d6427b64ad2a650fd7334671494513f4"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/cmaes_wrapper.py": {
     "mtime": 1780254038.9518752,
@@ -622,6 +622,10 @@
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/heterodyne_results.py": {
     "mtime": 1779142890.0174115,
     "hash": "794b7882c642137e5689667d3292b51e"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/heterodyne_logging.py": {
+    "mtime": 1780303537.226356,
+    "hash": "66e9724d0f59b293397795e55459bad2"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/shear_weighting.py": {
     "mtime": 1779134428.9078135,
@@ -692,8 +696,8 @@
     "hash": "c36242b068de69bf2928cba201aa672d"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/heterodyne_core.py": {
-    "mtime": 1780254038.9518752,
-    "hash": "c751e2b7485a4bce4e3b355b39d0b70e"
+    "mtime": 1780301644.95342,
+    "hash": "bf7882fbdc1bc4c3002bcaebd9413a6f"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/result_builder.py": {
     "mtime": 1779755957.264971,
