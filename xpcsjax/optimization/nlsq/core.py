@@ -2503,10 +2503,12 @@ def fit_nlsq_cmaes(
         else:
             quality_flag = "poor"
 
+        from xpcsjax.optimization.nlsq.result_builder import compute_uncertainties
+
         result = OptimizationResult(
             parameters=final_params,
             uncertainties=(
-                np.sqrt(np.diag(final_covariance))
+                compute_uncertainties(final_covariance)
                 if final_covariance is not None
                 else np.zeros(n_params)
             ),

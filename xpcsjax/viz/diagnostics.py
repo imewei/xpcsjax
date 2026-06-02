@@ -70,11 +70,19 @@ def compute_diagonal_overlay_stats(
     # Guard against n<2 to avoid division-by-zero; return NaN for degenerate inputs.
     n_raw = int(np.isfinite(raw_diag).sum())
     n_fit = int(np.isfinite(fitted_diag).sum())
+    # RMSE over pairs where BOTH diagonals are finite — nanmean ignores NaN but
+    # not inf, so an inf entry would otherwise poison the mean.
+    pair_mask = np.isfinite(raw_diag) & np.isfinite(fitted_diag)
+    if pair_mask.any():
+        diff = fitted_diag[pair_mask] - raw_diag[pair_mask]
+        fitted_rmse = float(np.sqrt(np.mean(diff**2)))
+    else:
+        fitted_rmse = float("nan")
     return DiagonalOverlayResult(
         phi_index=phi_index,
         raw_diagonal=raw_diag,
         fitted_diagonal=fitted_diag,
         raw_variance=float(np.nanvar(raw_diag, ddof=1)) if n_raw > 1 else float("nan"),
         fitted_variance=float(np.nanvar(fitted_diag, ddof=1)) if n_fit > 1 else float("nan"),
-        fitted_rmse=float(np.sqrt(np.nanmean((fitted_diag - raw_diag) ** 2))),
+        fitted_rmse=fitted_rmse,
     )

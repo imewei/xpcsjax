@@ -17,31 +17,22 @@ from __future__ import annotations
 
 import time
 from collections import deque
-from collections.abc import Callable, Iterator
-from typing import Any, TypeVar
+from collections.abc import Iterator
+from typing import Any
 
 import numpy as np
 
 from xpcsjax.data.types import DatasetInfo, ProcessingStrategy
 from xpcsjax.utils.logging import get_logger, log_performance
 
-_F = TypeVar("_F", bound=Callable[..., Any])
-
 # JAX imports with fallback
 try:
     import jax.numpy as jnp
-    from jax import jit, vmap
 
     JAX_AVAILABLE = True
 except ImportError:
     JAX_AVAILABLE = False
     jnp = np  # type: ignore[misc]
-
-    def jit(f: _F) -> _F:  # type: ignore[no-redef]  # noqa: UP047
-        return f
-
-    def vmap(f: _F, **kwargs: Any) -> _F:  # type: ignore[misc]  # noqa: UP047
-        return f
 
 
 logger = get_logger(__name__)
@@ -736,14 +727,6 @@ class AdvancedDatasetOptimizer:
             dataset_info = config.get("dataset_info")
             if dataset_info is None:
                 return
-            dataset_size = dataset_info.size
-            performance_metrics = config.get("performance_metrics", {})
-            method = performance_metrics.get("method", "").lower()
-
-            # Predict next operation based on common patterns
-            if method == "nlsq" and dataset_size > 1000000:
-                pass  # reserved for future background scheduling
-
         except Exception as e:
             logger.warning(f"Background optimization scheduling failed: {e}")
 

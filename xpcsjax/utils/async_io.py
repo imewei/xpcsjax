@@ -114,8 +114,6 @@ class AsyncWriter:
 
     def submit_npz(self, path: Path, data: dict[str, np.ndarray]) -> None:
         """Write NPZ file in background."""
-        if self._shutdown:
-            raise RuntimeError("AsyncWriter is shut down; cannot submit new writes")
 
         def _write() -> None:
             try:
@@ -124,14 +122,16 @@ class AsyncWriter:
                 logger.error("Failed to write NPZ %s: %s", path, e, exc_info=True)
                 raise
 
-        future = self._executor.submit(_write)
+        # Check-and-submit must be atomic w.r.t. shutdown(): a concurrent
+        # shutdown could otherwise flip _shutdown and tear down the executor
+        # between the check and the submit, racing _executor.submit().
         with self._lock:
-            self._futures.append(future)
+            if self._shutdown:
+                raise RuntimeError("AsyncWriter is shut down; cannot submit new writes")
+            self._futures.append(self._executor.submit(_write))
 
     def submit_json(self, path: Path, data: dict[str, Any]) -> None:
         """Write JSON file in background."""
-        if self._shutdown:
-            raise RuntimeError("AsyncWriter is shut down; cannot submit new writes")
 
         def _write() -> None:
             try:
@@ -140,17 +140,19 @@ class AsyncWriter:
                 logger.error("Failed to write JSON %s: %s", path, e, exc_info=True)
                 raise
 
-        future = self._executor.submit(_write)
+        # Atomic check-and-submit under _lock (see submit_npz).
         with self._lock:
-            self._futures.append(future)
+            if self._shutdown:
+                raise RuntimeError("AsyncWriter is shut down; cannot submit new writes")
+            self._futures.append(self._executor.submit(_write))
 
     def submit_task(self, fn: Callable[..., None], *args: Any, **kwargs: Any) -> None:
         """Submit an arbitrary callable for background execution."""
-        if self._shutdown:
-            raise RuntimeError("AsyncWriter is shut down; cannot submit new writes")
-        future = self._executor.submit(fn, *args, **kwargs)
+        # Atomic check-and-submit under _lock (see submit_npz).
         with self._lock:
-            self._futures.append(future)
+            if self._shutdown:
+                raise RuntimeError("AsyncWriter is shut down; cannot submit new writes")
+            self._futures.append(self._executor.submit(fn, *args, **kwargs))
 
     def wait_all(self, timeout: float = 60.0) -> list[Exception]:
         """Wait for all pending writes. Returns list of errors.
@@ -190,9 +192,13 @@ class AsyncWriter:
 
     def shutdown(self) -> None:
         """Wait for pending writes and shut down. Idempotent."""
-        if self._shutdown:
-            return
-        self._shutdown = True
+        # Flip the flag under _lock so it serializes against the submit_*
+        # check-and-submit. Release before wait_all()/executor.shutdown(), which
+        # re-acquire _lock — holding it across them would deadlock.
+        with self._lock:
+            if self._shutdown:
+                return
+            self._shutdown = True
         errors = self.wait_all(timeout=300.0)
         if errors:
             logger.error(

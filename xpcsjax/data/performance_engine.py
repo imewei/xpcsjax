@@ -72,7 +72,6 @@ except ImportError:
 F = TypeVar("F", bound=Callable[..., Any])
 try:
     import jax.numpy as jnp
-    from jax import jit, vmap
 
     from xpcsjax.core.jax_backend import jax_available
 
@@ -81,12 +80,6 @@ except ImportError:
     HAS_JAX = False
     jax_available = False
     jnp: types.ModuleType = np  # type: ignore[no-redef]
-
-    def jit(f: F) -> F:  # type: ignore[no-redef]  # noqa: UP047
-        return f
-
-    def vmap(f: F, **kwargs: Any) -> F:  # type: ignore[misc]  # noqa: UP047
-        return f
 
     def device_put(x: Any) -> Any:  # type: ignore[misc]
         return x

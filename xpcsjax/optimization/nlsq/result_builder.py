@@ -92,7 +92,11 @@ def compute_uncertainties(covariance: np.ndarray) -> np.ndarray:
     if covariance is None or covariance.size == 0:
         return np.array([])
 
-    diagonal = np.diag(covariance)
+    diagonal = np.asarray(np.diag(covariance), dtype=float)
+
+    # Reject non-finite variances (NaN/inf from a singular or failed solve);
+    # np.maximum leaves NaN as NaN, so zero them out explicitly first.
+    diagonal = np.where(np.isfinite(diagonal), diagonal, 0.0)
 
     # Handle negative diagonal elements (numerical issues)
     diagonal = np.maximum(diagonal, 0.0)

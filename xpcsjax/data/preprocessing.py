@@ -57,19 +57,12 @@ except ImportError:
 
 # JAX integration with fallback
 try:
-    from jax import jit, lax
-
     from xpcsjax.core.jax_backend import jax_available
 
     HAS_JAX = True
 except ImportError:
     HAS_JAX = False
     jax_available = False
-
-    def jit(func):  # type: ignore[no-redef, no-untyped-def]
-        return func
-
-    lax = None  # type: ignore[assignment]
 
 # Scipy for advanced algorithms
 try:

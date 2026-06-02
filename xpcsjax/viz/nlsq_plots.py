@@ -62,8 +62,11 @@ def _resolve_color_limits(
     """
     if matrix.size == 0 or not np.any(np.isfinite(matrix)):
         return 1.0, 1.5
-    vmin = float(np.nanpercentile(matrix, percentile_min))
-    vmax = float(np.nanpercentile(matrix, percentile_max))
+    # Percentile over finite values only — nanpercentile ignores NaN but lets a
+    # single +/-inf skew the limits toward the extreme.
+    finite = matrix[np.isfinite(matrix)]
+    vmin = float(np.percentile(finite, percentile_min))
+    vmax = float(np.percentile(finite, percentile_max))
     if not np.isfinite(vmin):
         vmin = 1.0
     if not np.isfinite(vmax):
@@ -743,8 +746,10 @@ def plot_residual_map(
     axes[0, 1].set_xlabel("Residual Value")
     axes[0, 1].set_ylabel("Density")
     axes[0, 1].set_title("Residual Distribution")
-    mu = float(np.nanmean(residuals)) if flat_finite.size > 0 else 0.0
-    sigma = float(np.nanstd(residuals)) if flat_finite.size > 0 else 0.0
+    # Stats over the already-computed finite residuals — nanmean/nanstd ignore
+    # NaN but not inf, and flat_finite has both excluded.
+    mu = float(np.mean(flat_finite)) if flat_finite.size > 0 else 0.0
+    sigma = float(np.std(flat_finite)) if flat_finite.size > 0 else 0.0
     if np.isfinite(sigma) and sigma > 0:
         x = np.linspace(mu - 4 * sigma, mu + 4 * sigma, 200)
         pdf = np.exp(-((x - mu) ** 2) / (2 * sigma**2)) / (sigma * np.sqrt(2 * np.pi))

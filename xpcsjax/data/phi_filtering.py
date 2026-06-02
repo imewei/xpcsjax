@@ -373,7 +373,11 @@ if HAS_JAX:
                 )
             optimization_mask = optimization_mask | range_mask
 
-        # Get indices and filtered angles
+        # Get indices and filtered angles. NOTE: single-argument jnp.where and
+        # boolean-mask indexing yield data-dependent output shapes, so this is
+        # EAGER-ONLY and must not be called under jax.jit (it would raise a
+        # ConcretizationTypeError). Callers run it as a host-side preprocessing
+        # step, not inside a traced path.
         optimization_indices = jnp.where(optimization_mask)[0]
         filtered_angles = phi_angles_jax[optimization_mask]
 

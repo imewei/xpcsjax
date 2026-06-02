@@ -90,6 +90,7 @@ except ImportError:
             )
 
 
+import threading
 from collections import OrderedDict
 from functools import partial, wraps
 from typing import Any, cast
@@ -129,6 +130,9 @@ _fallback_stats = {
 # Performance Optimization (Spec 001 - FR-002): LRU eviction for better cache utilization
 _meshgrid_cache: OrderedDict[tuple, tuple] = OrderedDict()
 _MESHGRID_CACHE_MAX_SIZE = 64  # Increased for 23-angle datasets (v2.11.0+)
+# Guards every mutation of _meshgrid_cache (move_to_end, popitem, insert, clear)
+# and _cache_stats — the cache is a process-global shared by all threads.
+_cache_lock = threading.Lock()
 
 # Performance Optimization (Spec 006 - FR-010, T040-T042): Cache statistics
 _cache_stats: dict[str, int] = {
@@ -176,6 +180,9 @@ def _get_array_hash_key(arr: "jnp.ndarray") -> tuple | None:
     """
     try:
         n = int(arr.shape[0])
+        if n == 0:
+            # Empty array: no endpoints to sample — skip caching (sentinel None)
+            return None
         if n <= 4:
             # Short arrays: include every element to guarantee uniqueness
             interior: tuple = tuple(float(arr[i]) for i in range(1, n - 1))
@@ -218,7 +225,8 @@ def get_cached_meshgrid(t1: "jnp.ndarray", t2: "jnp.ndarray") -> tuple:
     try:
         n1 = len(t1)
         if n1 > 2000:
-            _cache_stats["skipped_large"] += 1  # T041: Track skipped large arrays
+            with _cache_lock:
+                _cache_stats["skipped_large"] += 1  # T041: Track skipped large arrays
             return t1, t2
     except TypeError:
         # Inside JIT tracing - skip stats AND caching
@@ -236,23 +244,24 @@ def get_cached_meshgrid(t1: "jnp.ndarray", t2: "jnp.ndarray") -> tuple:
 
     key = (t1_key, t2_key)
 
-    if key in _meshgrid_cache:
-        # Performance Optimization (Spec 001 - FR-002, T019): LRU - mark as recently used
-        _meshgrid_cache.move_to_end(key)
-        _cache_stats["hits"] += 1  # T041: Increment hit counter
-        return _meshgrid_cache[key]
+    with _cache_lock:
+        if key in _meshgrid_cache:
+            # Performance Optimization (Spec 001 - FR-002, T019): LRU - mark recent
+            _meshgrid_cache.move_to_end(key)
+            _cache_stats["hits"] += 1  # T041: Increment hit counter
+            return _meshgrid_cache[key]
+        _cache_stats["misses"] += 1  # T041: Increment miss counter
 
-    # Create meshgrid and cache it
-    _cache_stats["misses"] += 1  # T041: Increment miss counter
+    # Create meshgrid outside the lock (pure XLA work — don't serialize it).
     t1_grid, t2_grid = jnp.meshgrid(t1, t2, indexing="ij")
 
-    # Performance Optimization (Spec 001 - FR-002, T020): LRU eviction
-    if len(_meshgrid_cache) >= _MESHGRID_CACHE_MAX_SIZE:
-        # Remove least recently used entry (first in OrderedDict)
-        _meshgrid_cache.popitem(last=False)
-        _cache_stats["evictions"] += 1  # T041: Track evictions
-
-    _meshgrid_cache[key] = (t1_grid, t2_grid)
+    with _cache_lock:
+        # Performance Optimization (Spec 001 - FR-002, T020): LRU eviction
+        if len(_meshgrid_cache) >= _MESHGRID_CACHE_MAX_SIZE and key not in _meshgrid_cache:
+            # Remove least recently used entry (first in OrderedDict)
+            _meshgrid_cache.popitem(last=False)
+            _cache_stats["evictions"] += 1  # T041: Track evictions
+        _meshgrid_cache[key] = (t1_grid, t2_grid)
     return t1_grid, t2_grid
 
 
@@ -262,7 +271,8 @@ def clear_meshgrid_cache() -> None:
     Call this when switching between datasets or when memory is constrained.
     """
     global _meshgrid_cache
-    _meshgrid_cache.clear()
+    with _cache_lock:
+        _meshgrid_cache.clear()
 
 
 # Performance Optimization (Spec 006 - FR-010, T042): Cache stats utility
@@ -300,13 +310,14 @@ def reset_cache_stats() -> None:
     Call before benchmarking to get clean statistics.
     """
     global _cache_stats
-    _cache_stats = {
-        "hits": 0,
-        "misses": 0,
-        "evictions": 0,
-        "skipped_large": 0,
-        "skipped_traced": 0,
-    }
+    with _cache_lock:
+        _cache_stats = {
+            "hits": 0,
+            "misses": 0,
+            "evictions": 0,
+            "skipped_large": 0,
+            "skipped_traced": 0,
+        }
 
 
 # Global flags for availability checking

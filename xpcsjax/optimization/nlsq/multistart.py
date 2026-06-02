@@ -23,6 +23,7 @@ import numpy as np
 from scipy.stats import qmc
 
 from xpcsjax.optimization.nlsq.progress import MultiStartProgressTracker
+from xpcsjax.optimization.nlsq.result_builder import compute_uncertainties
 from xpcsjax.utils.logging import get_logger
 
 # Timeout for individual worker results (seconds)
@@ -327,7 +328,7 @@ class MultiStartResult:
         return OptimizationResult(
             parameters=best.final_params,
             uncertainties=(
-                np.sqrt(np.diag(best.covariance))
+                compute_uncertainties(best.covariance)
                 if best.covariance is not None
                 else np.zeros(n_params)
             ),

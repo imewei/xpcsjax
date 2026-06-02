@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 from typing import Any
 
 import jax
@@ -28,6 +29,27 @@ from xpcsjax.optimization.nlsq.strategies.residual_jit import (
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class Chunk:
+    """One stratified chunk of flat (phi, t1, t2, g2) arrays plus shared metadata."""
+
+    phi: Any
+    t1: Any
+    t2: Any
+    g2: Any
+    q: Any
+    L: Any
+    dt: Any
+
+
+@dataclass
+class StratifiedChunkedData:
+    """Container exposing chunked data via ``.chunks`` plus parent-level ``sigma``."""
+
+    chunks: list[Any]
+    sigma: Any
 
 
 def create_stratified_chunks(
@@ -70,26 +92,6 @@ def create_stratified_chunks(
             start_idx = current_idx
             end_idx = current_idx + chunk_size
 
-            # Create simple namespace object for chunk
-            class Chunk:
-                def __init__(
-                    self,
-                    phi: Any,
-                    t1: Any,
-                    t2: Any,
-                    g2: Any,
-                    q: Any,
-                    L: Any,
-                    dt: Any,
-                ) -> None:
-                    self.phi = phi
-                    self.t1 = t1
-                    self.t2 = t2
-                    self.g2 = g2
-                    self.q = q
-                    self.L = L
-                    self.dt = dt
-
             chunk = Chunk(
                 phi=phi_flat[start_idx:end_idx],
                 t1=t1_flat[start_idx:end_idx],
@@ -112,25 +114,6 @@ def create_stratified_chunks(
             start_idx = i * target_chunk_size
             end_idx = min(start_idx + target_chunk_size, n_total)
 
-            class Chunk:  # type: ignore[no-redef]
-                def __init__(
-                    self,
-                    phi: Any,
-                    t1: Any,
-                    t2: Any,
-                    g2: Any,
-                    q: Any,
-                    L: Any,
-                    dt: Any,
-                ) -> None:
-                    self.phi = phi
-                    self.t1 = t1
-                    self.t2 = t2
-                    self.g2 = g2
-                    self.q = q
-                    self.L = L
-                    self.dt = dt
-
             chunk = Chunk(
                 phi=phi_flat[start_idx:end_idx],
                 t1=t1_flat[start_idx:end_idx],
@@ -141,12 +124,6 @@ def create_stratified_chunks(
                 dt=dt,
             )
             chunks.append(chunk)
-
-    # Create object with chunks attribute and metadata
-    class StratifiedChunkedData:
-        def __init__(self, chunks: list[Any], sigma: Any) -> None:
-            self.chunks = chunks
-            self.sigma = sigma  # Store sigma as metadata at parent level
 
     return StratifiedChunkedData(chunks, sigma)
 

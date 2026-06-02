@@ -712,13 +712,22 @@ def combine_angle_results(
     # Extract parameters and covariances
     params_list = np.array([r["parameters"] for r in successful])
     cov_list = np.array([r["covariance"] for r in successful])
-    _n_params = params_list.shape[1]  # noqa: F841 - Reserved for future validation
 
     # Compute weights
     if weighting == "inverse_variance":
-        # Weight by 1/σ² (diagonal of inverse covariance)
-        # Add small epsilon to prevent division by zero
-        weights = np.array([1.0 / (np.diag(cov).mean() + 1e-10) for cov in cov_list])
+        # Weight by 1/σ² (diagonal of inverse covariance). Clip the per-angle
+        # mean variance to a floor so a singular (near-zero) covariance can't
+        # blow the weight up to ~1e10, and reject non-finite variances (NaN/inf
+        # from a failed solve) by giving those angles zero weight.
+        min_var = 1e-10
+        mean_vars = np.array([np.diag(cov).mean() for cov in cov_list])
+        finite = np.isfinite(mean_vars)
+        weights = np.zeros_like(mean_vars)
+        weights[finite] = 1.0 / np.maximum(mean_vars[finite], min_var)
+        if not np.any(weights > 0):
+            raise ValueError(
+                "All angle covariances are non-finite; cannot inverse-variance weight"
+            )
     elif weighting == "n_points":
         # Weight by number of data points
         weights = np.array([r["n_points"] for r in successful], dtype=float)
