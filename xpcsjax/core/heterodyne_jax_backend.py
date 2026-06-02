@@ -18,10 +18,12 @@ v0, beta, v_offset, f0, f1, f2, f3, phi0.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 # Physics primitives are sourced from ``heterodyne_physics_utils`` (NOT the
 # homodyne ``physics_utils``): the two define same-named helpers with different
@@ -278,6 +280,30 @@ def compute_residuals(
     )
 
 
+@lru_cache(maxsize=64)
+def _offdiag_indices(n_time: int) -> tuple[np.ndarray, np.ndarray]:
+    """Return the static off-diagonal gather indices for an ``n_time × n_time`` grid.
+
+    The chi-square support excludes the t=0 row/column and the ``t1==t2``
+    diagonal, leaving ``(n_time-1) * (n_time-2)`` pairs where both row > 0 and
+    col > 0. This set depends only on ``n_time`` (a concrete int at trace time),
+    so it is computed once host-side with NumPy and memoized — avoiding the
+    per-evaluation ``jnp.eye`` + ``jnp.nonzero`` (~30x slower) that XLA does not
+    constant-fold (constant folding is disabled package-wide).
+
+    The arrays are returned as plain NumPy (not ``jnp.asarray``): JAX accepts
+    NumPy integer index arrays in ``residuals[rows, cols]`` and bakes them in as
+    trace constants. Materializing ``jnp`` arrays here would, on a first call
+    made *inside* a trace, capture that trace into the memoized value and leak it
+    across subsequent traces (UnexpectedTracerError under vmap).
+    """
+    indices = np.arange(n_time)
+    boundary_mask = (indices[:, None] > 0) & (indices[None, :] > 0)
+    valid_mask = boundary_mask & ~np.eye(n_time, dtype=bool)
+    rows, cols = np.nonzero(valid_mask)
+    return rows, cols
+
+
 @jax.jit
 def _compute_residuals_jit(
     params: jnp.ndarray,
@@ -306,11 +332,7 @@ def _compute_residuals_jit(
     """
     c2_model = compute_c2_heterodyne(params, t, q, dt, phi_angle, contrast, offset)
     residuals = (c2_model - c2_data) * jnp.sqrt(weights)
-    n_time = c2_data.shape[0]
-    indices = jnp.arange(n_time)
-    boundary_mask = (indices[:, None] > 0) & (indices[None, :] > 0)
-    valid_mask = boundary_mask & ~jnp.eye(n_time, dtype=bool)
-    rows, cols = jnp.nonzero(valid_mask, size=(n_time - 1) * (n_time - 2))
+    rows, cols = _offdiag_indices(c2_data.shape[0])
     return residuals[rows, cols]  # type: ignore[no-any-return]
 
 
@@ -460,11 +482,7 @@ def compute_multi_angle_residuals(
         # multi-phi fits use the same chi-square support as single-phi fits.
         c2_model = compute_c2_heterodyne(params, t, q, dt, phi, c, o)
         residuals = (c2_model - c2_exp) * jnp.sqrt(w)
-        n_time = c2_exp.shape[0]
-        indices = jnp.arange(n_time)
-        boundary_mask = (indices[:, None] > 0) & (indices[None, :] > 0)
-        valid_mask = boundary_mask & ~jnp.eye(n_time, dtype=bool)
-        rows, cols = jnp.nonzero(valid_mask, size=(n_time - 1) * (n_time - 2))
+        rows, cols = _offdiag_indices(c2_exp.shape[0])
         return residuals[rows, cols]  # type: ignore[no-any-return]
 
     compute_all = jax.vmap(single_angle_residual, in_axes=(0, 0, 0, 0, 0))
