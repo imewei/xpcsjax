@@ -91,6 +91,11 @@ class OptimizationResult:
     stratification_diagnostics: StratificationDiagnostics | None = None
     nlsq_diagnostics: dict[str, Any] | None = None
     sigma_is_default: bool = False
+    # Length of the leading physics block in ``parameters`` (physics-first
+    # ``[physics | scaling]`` layout). Enables the typed physics/scaling
+    # accessors; ``None`` when the split is unknown (e.g. homodyne paths that
+    # do not carry a scaling tail).
+    n_physics: int | None = None
 
     def __post_init__(self) -> None:
         """Enforce result invariants so illegal states cannot be constructed.
@@ -160,6 +165,43 @@ class OptimizationResult:
             return "Optimization stopped: maximum iterations reached"
         else:
             return f"Optimization failed: {self.convergence_status}"
+
+    @property
+    def physics_parameters(self) -> np.ndarray:
+        """Leading physics block of :attr:`parameters` (requires ``n_physics``).
+
+        Makes the physics-first ``[physics | scaling]`` layout explicit so
+        callers stop slicing by hardcoded offsets — the root of past scaling
+        mis-application bugs.
+        """
+        if self.n_physics is None:
+            raise ValueError(
+                "physics_parameters requires n_physics to be set on the result "
+                "(the physics/scaling split point is unknown)."
+            )
+        return np.asarray(self.parameters)[: self.n_physics]
+
+    @property
+    def scaling_parameters(self) -> np.ndarray:
+        """Trailing scaling block of :attr:`parameters` (requires ``n_physics``)."""
+        if self.n_physics is None:
+            raise ValueError(
+                "scaling_parameters requires n_physics to be set on the result "
+                "(the physics/scaling split point is unknown)."
+            )
+        return np.asarray(self.parameters)[self.n_physics :]
+
+    @property
+    def global_escape(self) -> str | None:
+        """Global-escape tag from diagnostics, or ``None``.
+
+        Typed accessor for ``nlsq_diagnostics['global_escape']`` so a misspelled
+        key cannot silently read as "no escape".
+        """
+        if not self.nlsq_diagnostics:
+            return None
+        tag = self.nlsq_diagnostics.get("global_escape")
+        return str(tag) if tag is not None else None
 
 
 @dataclass

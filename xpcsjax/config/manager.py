@@ -8,7 +8,10 @@ analysis mode dispatch, and bounds configuration.
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from xpcsjax.config.parameter_registry import AnalysisMode
 
 # Handle YAML dependency
 try:
@@ -102,6 +105,18 @@ class ConfigManager:
 
             if os.environ.get("XPCSJAX_VALIDATE_CONFIG", "true").lower() == "true":
                 self._validate_config()
+
+    @property
+    def analysis_mode(self) -> "AnalysisMode":
+        """Validated analysis mode as the typed :class:`AnalysisMode` enum.
+
+        Centralises the scattered ``config.get("analysis_mode", ...)`` string
+        lookups behind one typed accessor. ``AnalysisMode`` is a ``StrEnum`` so
+        existing string comparisons keep working.
+        """
+        from xpcsjax.config.parameter_registry import AnalysisMode
+
+        return AnalysisMode(self.config.get("analysis_mode", "static_isotropic"))
 
     def load_config(self) -> None:
         """Load and parse YAML/JSON configuration file.

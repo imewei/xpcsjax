@@ -20,6 +20,13 @@ from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Per-angle scaling vocabularies. ``PerAngleMode`` is what a user/config may set
+# (``"independent"`` is a deprecated alias for ``"individual"``);
+# ``ResolvedPerAngleMode`` is the canonical token ``_resolve_effective_mode``
+# dispatches on after applying the auto/threshold rules.
+PerAngleMode = Literal["individual", "fourier", "auto", "constant", "independent"]
+ResolvedPerAngleMode = Literal["constant", "averaged", "fourier", "individual"]
+
 # ---------------------------------------------------------------------------
 # Safe type-conversion utilities
 # ---------------------------------------------------------------------------
@@ -429,7 +436,7 @@ class NLSQConfig:
     # Fourier reparameterization for per-angle scaling
     # ------------------------------------------------------------------
 
-    per_angle_mode: Literal["individual", "fourier", "auto", "constant", "independent"] = "auto"
+    per_angle_mode: PerAngleMode = "auto"
     fourier_order: int = 2
     fourier_auto_threshold: int = 6
 

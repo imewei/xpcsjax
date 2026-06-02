@@ -25,7 +25,7 @@ from xpcsjax.core.heterodyne_jax_backend import (
 from xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics import (
     assemble_anti_degeneracy_diagnostics,
 )
-from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig, ResolvedPerAngleMode
 from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
 from xpcsjax.optimization.nlsq.results import OptimizationResult
 from xpcsjax.optimization.nlsq.validation import classify_quality_flag
@@ -605,6 +605,7 @@ def _aggregate_individual_results(
         streaming_diagnostics=None,
         stratification_diagnostics=None,
         nlsq_diagnostics=diagnostics,
+        n_physics=n_physics,
     )
 
 
@@ -1512,6 +1513,7 @@ def _fit_joint_averaged_multi_phi(
         streaming_diagnostics=None,
         stratification_diagnostics=None,
         nlsq_diagnostics=diagnostics,
+        n_physics=int(n_physics_varying),
     )
 
 
@@ -2103,7 +2105,7 @@ def _apply_global_escape(
     return x_warm, f"{escape_kind}_warmstart_kept"
 
 
-def _resolve_effective_mode(config: NLSQConfig, n_phi: int) -> str:
+def _resolve_effective_mode(config: NLSQConfig, n_phi: int) -> ResolvedPerAngleMode:
     """Map ``config.per_angle_mode`` + ``n_phi`` to a canonical dispatch token.
 
     Returns one of:
@@ -2926,6 +2928,7 @@ def _build_joint_result(
         streaming_diagnostics=None,
         stratification_diagnostics=None,
         nlsq_diagnostics=diagnostics,
+        n_physics=int(model.param_manager.n_varying),
     )
 
 

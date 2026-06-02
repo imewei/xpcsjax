@@ -9,7 +9,10 @@ from typing import Any, Literal, TypedDict
 
 from xpcsjax.config.parameter_registry import AnalysisMode
 
-__all__ = ["AnalysisMode", "XpcsConfig"]  # re-export for back-compat
+# Closed vocabulary for the (auto-detected, largely vestigial) data_type field.
+DataType = Literal["aps_old", "aps_u"]
+
+__all__ = ["AnalysisMode", "DataType", "XpcsConfig"]  # re-export for back-compat
 
 
 class BoundDict(TypedDict, total=False):
@@ -85,6 +88,7 @@ class ExperimentalDataConfig(TypedDict, total=False):
     data_folder_path: str
     data_file_name: str
     phi_angles_file: str
+    data_type: DataType  # auto-detected; "aps_old" | "aps_u" when present
 
 
 class StreamingConfig(TypedDict, total=False):
