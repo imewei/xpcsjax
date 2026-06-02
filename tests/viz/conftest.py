@@ -97,12 +97,16 @@ def converged_homodyne_result():
 def converged_heterodyne_result(synthetic_multi_angle_data):
     """Synthetic heterodyne OptimizationResult with per-angle scaling layout.
 
-    Heterodyne fit-time parameter layout:
-        [contrast_0..n_phi-1, offset_0..n_phi-1, physical_0..13]
-    Total: 2 * n_phi + 14 entries.
-
-    Uses sensible default contrasts (~0.2 each) and offsets (~1.0 each) per
-    angle, with HeterodyneModel default physical params.
+    Heterodyne fit-time parameter layout is PHYSICS-FIRST:
+        [physical_0..13, contrast_0..n_phi-1, offset_0..n_phi-1]
+    Total: 14 + 2 * n_phi entries. This mirrors what the fit emits
+    (``heterodyne_core._aggregate_individual_results`` /
+    ``_fit_joint_multi_phi``; see
+    tests/optimization/test_heterodyne_individual_joint.py) — NOT the homodyne
+    scaling-first layout. A regression that reads physics as scaling would map
+    huge physics values (D0_sample up to 1e6) into the offset/contrast slots and
+    blow the fitted c2 surface up to ~1e6, which the range assertion in
+    ``test_evaluate_heterodyne_returns_2d_finite`` then catches.
     """
     from xpcsjax.core.heterodyne_model import HeterodyneModel
     from xpcsjax.optimization.nlsq.results import OptimizationResult
@@ -112,7 +116,7 @@ def converged_heterodyne_result(synthetic_multi_angle_data):
     physical = np.asarray(het.get_default_parameters(), dtype=float)
     contrasts = np.full(n_phi, 0.2, dtype=float)
     offsets = np.full(n_phi, 1.0, dtype=float)
-    parameters = np.concatenate([contrasts, offsets, physical])
+    parameters = np.concatenate([physical, contrasts, offsets])
     n_params = parameters.size
     return OptimizationResult(
         parameters=parameters,

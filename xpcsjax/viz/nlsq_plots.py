@@ -235,14 +235,17 @@ def _unpack_result_params(
                 physical_names,
             )
         # Individual mode (or diagnostics-less result):
-        # Per-angle layout: [c_0..N-1, o_0..N-1, physical_0..n_physical-1]
+        # Per-angle layout is PHYSICS-FIRST:
+        #   [physical_0..n_physical-1, c_0..N-1, o_0..N-1]
+        # matching what the fit emits (heterodyne_core ``_aggregate_individual_results``
+        # / ``_fit_joint_multi_phi``: ``[physics | contrast_per_angle | offset_per_angle]``;
+        # see tests/optimization/test_heterodyne_individual_joint.py). This is the
+        # OPPOSITE of the homodyne scaling-first layout — heterodyne consumes the
+        # full physics vector through ``compute_g1`` and carries scaling as a tail.
         # Require 2*n_phi + n_physical params; the residual (n_total - n_physical)
-        # must be even *and* the orchestrator's upfront layout validator must
-        # have already confirmed individual-mode shape — see
-        # ``_assert_heterodyne_individual_layout``. We tolerate the no-scaling
-        # case (n_total == n_physical) by returning zero scalars so the
-        # downstream simulated-data annotation panel still renders; the real
-        # heterodyne per-angle evaluation path uses
+        # must be even. We tolerate the no-scaling case (n_total == n_physical) by
+        # returning zero scalars so the downstream simulated-data annotation panel
+        # still renders; the real heterodyne per-angle evaluation path uses
         # ``_unpack_heterodyne_scaling`` which fails loudly for that case.
         residual = n_total - n_physical
         if residual < 0 or residual % 2 != 0:
@@ -252,9 +255,9 @@ def _unpack_result_params(
                 f"{residual} is not divisible by 2."
             )
         n_phi = residual // 2
-        contrasts = params[:n_phi]
-        offsets = params[n_phi : 2 * n_phi]
-        physical_params = params[2 * n_phi :].copy()
+        physical_params = params[:n_physical].copy()
+        contrasts = params[n_physical : n_physical + n_phi]
+        offsets = params[n_physical + n_phi : n_physical + 2 * n_phi]
         # For the homodyne-shaped (scalar contrast, offset) return contract,
         # use the per-angle means as scalar summaries. Per-angle arrays are
         # extracted by callers that need them (see _evaluate_c2_per_angle).
@@ -279,8 +282,10 @@ def _unpack_heterodyne_scaling(
     ``result.nlsq_diagnostics["per_angle_mode"]`` and the correct parameter
     layout is reconstructed for each:
 
-    - ``individual`` — ``[c_0..N-1, o_0..N-1, physical_0..M-1]`` (per-angle
-      contrast/offset fitted independently).
+    - ``individual`` — ``[physical_0..M-1, c_0..N-1, o_0..N-1]`` (per-angle
+      contrast/offset fitted independently). Physics-first — matches the fit's
+      emitted layout (``heterodyne_core`` packs
+      ``[physics | contrast_per_angle | offset_per_angle]``).
     - ``averaged`` — ``[physical..., contrast, offset]``; the single fitted
       (contrast, offset) pair is replicated across all angles.
     - ``constant`` — ``[physical...]``; per-angle scaling was frozen pre-fit
@@ -345,7 +350,10 @@ def _unpack_heterodyne_scaling(
         return contrasts, offsets, physical_params, n_phi_expected
 
     # Individual mode (or a diagnostics-less result, e.g. a synthetic
-    # OptimizationResult): layout is ``[c_0..N-1, o_0..N-1, physics...]``.
+    # OptimizationResult): layout is PHYSICS-FIRST ``[physics..., c_0..N-1,
+    # o_0..N-1]`` — matching what the heterodyne fit emits (see
+    # ``heterodyne_core._aggregate_individual_results`` / ``_fit_joint_multi_phi``
+    # and tests/optimization/test_heterodyne_individual_joint.py).
     individual_total = n_physical + 2 * n_phi_expected
     if n_total != individual_total:
         if n_total == n_physical:
@@ -362,9 +370,9 @@ def _unpack_heterodyne_scaling(
             f"2*{n_phi_expected} per-angle scaling). Scaling mode "
             f"{mode!r} (e.g. 'fourier') is not yet supported by v0.1 viz."
         )
-    contrasts = params[:n_phi_expected].copy()
-    offsets = params[n_phi_expected : 2 * n_phi_expected].copy()
-    physical_params = params[2 * n_phi_expected :].copy()
+    physical_params = params[:n_physical].copy()
+    contrasts = params[n_physical : n_physical + n_phi_expected].copy()
+    offsets = params[n_physical + n_phi_expected : n_physical + 2 * n_phi_expected].copy()
     return contrasts, offsets, physical_params, n_phi_expected
 
 
@@ -1585,15 +1593,17 @@ def generate_nlsq_plots(
                     continue
                 _render_one_angle_worker(_render_args_for_index(i))
 
-    # Slice uncertainties to match physical_params length.
-    # Homodyne layout: [contrast, offset, physical...] -> skip first 2.
-    # Heterodyne layout: [c_0..N-1, o_0..N-1, physical...] -> skip first 2*n_phi.
-    n_phi_local = phi_angles.size
+    # Slice uncertainties to match physical_params.
+    # Homodyne layout is scaling-first ([contrast, offset, physical...]) -> the
+    # physical uncertainties trail the 2 scalar scaling slots, so skip first 2.
+    # Heterodyne layout is PHYSICS-first ([physics(n_physical) | contrast | offset],
+    # or [physics] for constant mode) -> physical uncertainties are the LEADING
+    # n_physical entries.
+    all_unc = np.asarray(result.uncertainties, dtype=float)
     if _is_heterodyne_family(model):
-        skip = 2 * n_phi_local
+        phys_unc = all_unc[: len(model.parameter_names)]
     else:
-        skip = 2
-    phys_unc = np.asarray(result.uncertainties, dtype=float)[skip:]
+        phys_unc = all_unc[2:]
 
     _save_fit_artifacts(
         c2_exp=c2_exp,
