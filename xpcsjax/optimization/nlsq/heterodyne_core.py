@@ -708,23 +708,50 @@ def fit_nlsq_multi_phi(
     # so this initial None is never actually consumed at runtime.
     fourier: Any = None
     if config is not None and len(phi_angles) > 1:
-        if getattr(config, "enable_cmaes", False) and HAS_CMAES:
-            logger.info("CMA-ES enabled, delegating to joint multi-angle CMA-ES")
-            return _fit_joint_cmaes_multi_phi(
-                model=model,
-                c2_data=c2_data,
-                phi_angles=phi_angles,
-                config=config,
-                weights=weights,
-            )
+        # Resolve ``auto`` / explicit modes to a canonical dispatch token FIRST.
+        # The resolver returns one of: "constant", "averaged", "fourier",
+        # "individual". Resolving before the global-escape gate is what keeps the
+        # scaling layout consistent: enabling CMA-ES / multistart must NOT change
+        # which layout is used. The escapes honour ``effective_mode`` — the
+        # ``auto → averaged`` default (and explicit ``constant``) run their own
+        # ``[physics | scaling]`` global search instead of collapsing to Fourier.
+        # Keeping the table explicit makes the threshold semantics testable in
+        # isolation — see tests/optimization/test_heterodyne_modes.py.
+        effective_mode = _resolve_effective_mode(config, len(phi_angles))
 
-        # Joint MULTISTART escape (Task 3). Gated on heterodyne's flat
-        # ``multistart: bool`` config field + the ``run_multistart_nlsq``
-        # orchestrator being importable. NOT gated on the module-level
-        # ``HAS_MULTISTART`` (hard-coded False — that flag only governs the legacy
-        # per-angle ``_fit_multistart`` stub); the JOINT path runs the
-        # orchestrator sequentially itself, so it stays available here.
-        if getattr(config, "multistart", False) and HAS_JOINT_MULTISTART:
+        # Global-escape gate. CMA-ES takes priority over multistart (matching the
+        # per-angle ``_try_global_optimization`` ordering). ``escape_kind`` is
+        # None when no global method is configured/available → plain dispatch.
+        escape_kind: str | None = None
+        if getattr(config, "enable_cmaes", False) and HAS_CMAES:
+            escape_kind = "cmaes"
+        elif getattr(config, "multistart", False) and HAS_JOINT_MULTISTART:
+            escape_kind = "multistart"
+
+        logger.info(
+            "Per-angle dispatch: requested=%s, n_phi=%d, constant_threshold=%d, "
+            "fourier_threshold=%d, effective=%s, escape=%s",
+            config.per_angle_mode,
+            len(phi_angles),
+            config.constant_scaling_threshold,
+            config.fourier_auto_threshold,
+            effective_mode,
+            escape_kind,
+        )
+
+        # The Fourier / individual escapes keep the existing Fourier-reparam
+        # joint-problem builder (``_build_joint_problem``), which already
+        # represents both layouts (``"fourier"`` / ``"independent"``) correctly.
+        if escape_kind is not None and effective_mode in ("individual", "fourier"):
+            if escape_kind == "cmaes":
+                logger.info("CMA-ES enabled, delegating to joint multi-angle CMA-ES")
+                return _fit_joint_cmaes_multi_phi(
+                    model=model,
+                    c2_data=c2_data,
+                    phi_angles=phi_angles,
+                    config=config,
+                    weights=weights,
+                )
             logger.info("Multistart enabled, delegating to joint multi-angle multistart")
             return _fit_joint_multistart(
                 model=model,
@@ -734,22 +761,6 @@ def fit_nlsq_multi_phi(
                 weights=weights,
                 use_nlsq_library=True,
             )
-
-        # Resolve ``auto`` / explicit modes to a canonical dispatch token.
-        # The resolver returns one of: "constant", "averaged", "fourier",
-        # "individual". Keeping the table explicit makes the threshold
-        # semantics testable in isolation — see
-        # tests/optimization/test_heterodyne_modes.py.
-        effective_mode = _resolve_effective_mode(config, len(phi_angles))
-        logger.info(
-            "Per-angle dispatch: requested=%s, n_phi=%d, constant_threshold=%d, "
-            "fourier_threshold=%d, effective=%s",
-            config.per_angle_mode,
-            len(phi_angles),
-            config.constant_scaling_threshold,
-            config.fourier_auto_threshold,
-            effective_mode,
-        )
 
         if effective_mode == "constant":
             # Lazy import: keeps the heterodyne_constant_mode module out of
@@ -766,6 +777,7 @@ def fit_nlsq_multi_phi(
                 phi_angles=phi_angles,
                 config=config,
                 weights=weights,
+                global_escape_kind=escape_kind,
             )
 
         if effective_mode == "averaged":
@@ -775,6 +787,7 @@ def fit_nlsq_multi_phi(
                 phi_angles=phi_angles,
                 config=config,
                 weights=weights,
+                global_escape_kind=escape_kind,
             )
 
         if effective_mode == "fourier":
@@ -962,8 +975,20 @@ def _fit_joint_averaged_multi_phi(
     phi_angles: np.ndarray,
     config: NLSQConfig,
     weights: np.ndarray | None,
+    *,
+    global_escape_kind: str | None = None,
 ) -> OptimizationResult:
     """Joint multi-angle fit with averaged contrast/offset scaling.
+
+    When ``global_escape_kind`` is ``"cmaes"`` or ``"multistart"`` the plain
+    NLSQ solve below is used as the warm-start, a seed-pinned global search is
+    run over the SAME ``[physics | avg_contrast, avg_offset]`` data residual,
+    and the better (lower data-only SSR) vector is kept. This honours the
+    ``auto → averaged`` default under CMA-ES / multistart instead of collapsing
+    to the Fourier layout — matching the plain dispatch and laminar_flow's
+    CMA-ES. An escape result carries ``nlsq_diagnostics["global_escape"]`` and,
+    by the escape contract, NaN covariance / uncertainties and
+    ``n_iterations=0`` (no covariance solve on the kept vector).
 
     Implements homodyne's `auto`-averaged anti-degeneracy path:
     per-angle quantile estimates are computed first, averaged to one contrast
@@ -1245,6 +1270,23 @@ def _fit_joint_averaged_multi_phi(
         raise ImportError("No NLSQ backend available for joint auto averaged multi-angle fit.")
 
     fitted_all = np.asarray(joint_result.parameters, dtype=np.float64)
+
+    # Global escape (CMA-ES / multistart): warm-started at the plain solve,
+    # keep-better over the SAME averaged data residual. ``global_escape_tag`` is
+    # None on the plain path (no behaviour change) or when the search failed.
+    fitted_all, global_escape_tag = _apply_global_escape(
+        global_escape_kind,
+        base_residual_fn,
+        fitted_all,
+        lb,
+        ub,
+        joint_config,
+        joint_param_names,
+        config,
+        {"c2": c2_data, "phi": phi_angles},
+    )
+    is_escape = global_escape_tag is not None
+
     fitted_physics = fitted_all[:n_physics_varying]
     fitted_contrast = float(fitted_all[n_physics_varying])
     fitted_offset = float(fitted_all[n_physics_varying + 1])
@@ -1317,16 +1359,22 @@ def _fit_joint_averaged_multi_phi(
     # NaN-fill uncertainties / covariance when the NLSQ adapter could not
     # produce them (e.g. singular Jacobian after a non-converged solve) —
     # matches B2 / C2's contract so consumers see a uniform array shape.
-    uncertainties = (
-        np.asarray(joint_result.uncertainties, dtype=np.float64)
-        if joint_result.uncertainties is not None
-        else np.full(n_total_params, np.nan, dtype=np.float64)
-    )
-    covariance = (
-        np.asarray(joint_result.covariance, dtype=np.float64)
-        if joint_result.covariance is not None
-        else np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
-    )
+    # Escape contract (mirrors ``_build_joint_result``): a kept global-escape
+    # vector has no covariance solve, so uncertainties / covariance are NaN.
+    if is_escape:
+        uncertainties = np.full(n_total_params, np.nan, dtype=np.float64)
+        covariance = np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
+    else:
+        uncertainties = (
+            np.asarray(joint_result.uncertainties, dtype=np.float64)
+            if joint_result.uncertainties is not None
+            else np.full(n_total_params, np.nan, dtype=np.float64)
+        )
+        covariance = (
+            np.asarray(joint_result.covariance, dtype=np.float64)
+            if joint_result.covariance is not None
+            else np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
+        )
 
     convergence_status: ConvergenceStatus = "converged" if joint_result.success else "failed"
     quality_flag: QualityFlag = "good" if joint_result.success else "marginal"
@@ -1424,24 +1472,29 @@ def _fit_joint_averaged_multi_phi(
         offset_initial_average=float(avg_offset),
         phi_angles=np.asarray(phi_angles, dtype=np.float64),
         n_angles_joint=n_phi,
-        convergence_reason=joint_result.convergence_reason,
-        n_function_evals=int(joint_result.n_function_evals or 0),
-        n_iterations=int(joint_result.n_iterations or 0),
+        convergence_reason=("global_escape" if is_escape else joint_result.convergence_reason),
+        n_function_evals=(0 if is_escape else int(joint_result.n_function_evals or 0)),
+        n_iterations=(0 if is_escape else int(joint_result.n_iterations or 0)),
         wall_time_seconds=wall_time,
-        message=str(joint_result.message),
+        message=("global escape" if is_escape else str(joint_result.message)),
         **hierarchical_extras,
         **regularization_extras,
         **gradient_monitor_extras,
     )
+    # Tag a global-escape assembly so callers can distinguish it from a plain
+    # joint fit (the plain fit leaves this key absent).
+    if global_escape_tag is not None:
+        diagnostics["global_escape"] = global_escape_tag
 
     logger.info(
         "Joint auto averaged fit complete: success=%s, cost=%.6f, "
-        "n_evals=%d, wall_time=%.2fs, %d angles",
+        "n_evals=%d, wall_time=%.2fs, %d angles%s",
         joint_result.success,
         joint_result.final_cost or 0.0,
         joint_result.n_function_evals or 0,
         wall_time,
         n_phi,
+        f" [escape={global_escape_tag}]" if is_escape else "",
     )
 
     return OptimizationResult(
@@ -1451,7 +1504,7 @@ def _fit_joint_averaged_multi_phi(
         chi_squared=ssr,
         reduced_chi_squared=reduced_chi2,
         convergence_status=convergence_status,
-        iterations=int(joint_result.n_iterations or 0),
+        iterations=(0 if is_escape else int(joint_result.n_iterations or 0)),
         execution_time=wall_time,
         device_info={"backend": "cpu", "adapter": "nlsq.CurveFit"},
         recovery_actions=[],
@@ -1784,6 +1837,237 @@ def _fit_joint_multistart(
             weights=weights,
             fourier=fourier_fb,
         )
+
+
+# ---------------------------------------------------------------------------
+# Shared joint global-escape machinery for the AVERAGED / CONSTANT layouts.
+#
+# The Fourier/individual escapes (``_fit_joint_cmaes_multi_phi`` /
+# ``_fit_joint_multistart``) optimize the Fourier-reparam joint vector via
+# ``_build_joint_problem``. The averaged (2 scaling params) and constant
+# (frozen scaling) layouts have their OWN ``base_residual_fn`` + ``[physics |
+# scaling]`` vector built inline by ``_fit_joint_averaged_multi_phi`` /
+# ``_fit_joint_constant_multi_phi``. To honour the ``auto → averaged`` default
+# (and explicit ``constant``) under CMA-ES / multistart — matching the plain
+# path AND laminar_flow's CMA-ES, which honours ``use_averaged_scaling`` — those
+# two solvers accept a ``global_escape_kind`` and run the search over their own
+# data residual via the helpers below. Keep-better (escape kept only if it does
+# not increase the data-only SSR) and the NaN-covariance / n_iterations=0 escape
+# contract are applied by the solver, exactly like the Fourier escape.
+# ---------------------------------------------------------------------------
+
+
+def _solve_residual_nlsq(
+    residual_fn: Any,
+    x0: np.ndarray,
+    lb: np.ndarray,
+    ub: np.ndarray,
+    solver_config: NLSQConfig,
+    param_names: list[str],
+) -> np.ndarray:
+    """Local trust-region solve of ``residual_fn`` from ``x0`` (adapter→wrapper).
+
+    Mirrors the adapter-primary / wrapper-fallback dispatch the averaged and
+    constant solvers use for their warm-start solve, but without the L4 monitor
+    callback (the per-start refines inside a multistart escape are not
+    monitored). Returns the fitted parameter vector.
+    """
+    res = None
+    if NLSQAdapter is not None:
+        try:
+            res = NLSQAdapter(parameter_names=param_names).fit(
+                residual_fn=residual_fn,
+                initial_params=np.asarray(x0, dtype=np.float64),
+                bounds=(np.asarray(lb, dtype=np.float64), np.asarray(ub, dtype=np.float64)),
+                config=solver_config,
+            )
+            if not res.success:
+                raise RuntimeError(res.message)
+        except (ValueError, RuntimeError, TypeError):
+            res = None
+    if res is None and NLSQWrapper is not None:
+        res = NLSQWrapper(parameter_names=param_names).fit(
+            residual_fn=residual_fn,
+            initial_params=np.asarray(x0, dtype=np.float64),
+            bounds=(np.asarray(lb, dtype=np.float64), np.asarray(ub, dtype=np.float64)),
+            config=solver_config,
+        )
+    if res is None:  # pragma: no cover — guarded by callers
+        raise ImportError("No NLSQ backend available for residual solve.")
+    return np.asarray(res.parameters, dtype=np.float64)
+
+
+def _cmaes_joint_candidate(
+    base_residual_fn: Any,
+    x_warm: np.ndarray,
+    lb: np.ndarray,
+    ub: np.ndarray,
+    config: NLSQConfig,
+) -> np.ndarray | None:
+    """Seed-pinned CMA-ES global search over ``base_residual_fn`` from ``x_warm``.
+
+    Returns the CMA-ES optimum (``None`` when the search did not succeed so the
+    caller keeps the warm-start). Mirrors ``_fit_joint_cmaes_multi_phi`` Phase 2
+    but over the averaged/constant data residual (not the Fourier-augmented
+    one); ``ydata=zeros`` ⇒ CMA-ES minimises ``||residual||²`` directly.
+    """
+    from xpcsjax.optimization.nlsq.cmaes_wrapper import CMAESWrapperConfig
+
+    x_warm = np.asarray(x_warm, dtype=np.float64)
+
+    # Tracer-safety: cmaes_wrapper passes JAX tracers during JIT tracing of
+    # parameter normalization — stack with jnp.stack, not np.asarray.
+    def model_func(_x: np.ndarray, *params: Any) -> Any:
+        x_vec = jnp.stack(params).astype(jnp.float64)
+        return base_residual_fn(x_vec)
+
+    rdim = int(np.asarray(base_residual_fn(x_warm)).size)
+    cfg_cmaes = CMAESWrapperConfig(
+        seed=_JOINT_CMAES_SEED,
+        refine_with_nlsq=True,
+        max_generations=getattr(config, "cmaes_max_iterations", None),
+        popsize=getattr(config, "cmaes_population_size", None),
+        tol_x=float(getattr(config, "cmaes_tolx", 1e-8)),
+        tol_fun=float(getattr(config, "cmaes_tolfun", 1e-8)),
+        restart_strategy=str(getattr(config, "cmaes_restart_strategy", "bipop")),
+        max_restarts=int(getattr(config, "cmaes_max_restarts", 9)),
+    )
+    assert fit_with_cmaes is not None, "HAS_CMAES guards entry to the escape"
+    cres = fit_with_cmaes(
+        model_func=model_func,
+        xdata=np.arange(rdim, dtype=np.float64),
+        ydata=np.zeros(rdim, dtype=np.float64),
+        p0=x_warm,
+        bounds=(np.asarray(lb, dtype=np.float64), np.asarray(ub, dtype=np.float64)),
+        sigma=None,
+        config=cfg_cmaes,
+    )
+    if cres.success and cres.parameters is not None:
+        return np.asarray(cres.parameters, dtype=np.float64)
+    return None
+
+
+def _multistart_joint_candidate(
+    base_residual_fn: Any,
+    x_warm: np.ndarray,  # noqa: ARG001 - LHS samples its own starts; signature parity
+    lb: np.ndarray,
+    ub: np.ndarray,
+    solver_config: NLSQConfig,
+    param_names: list[str],
+    config: NLSQConfig,
+    data: dict[str, Any],
+) -> np.ndarray | None:
+    """Seed-pinned LHS multistart over ``base_residual_fn``; returns the best start.
+
+    Mirrors ``_fit_joint_multistart`` but each start is a local trust-region
+    refine of the averaged/constant data residual (``_solve_residual_nlsq``)
+    rather than a Fourier-reparam joint solve. The keep-better vs the warm-start
+    is applied by the caller (``_apply_global_escape``).
+    """
+    if not HAS_JOINT_MULTISTART:
+        return None
+    bounds2 = np.stack([np.asarray(lb, dtype=np.float64), np.asarray(ub, dtype=np.float64)], axis=1)
+
+    def _ssr(x: np.ndarray) -> float:
+        return float(np.sum(np.asarray(base_residual_fn(x), dtype=np.float64) ** 2))
+
+    assert MultiStartConfig is not None and SingleStartResult is not None
+    ms_cfg = MultiStartConfig(
+        enable=True,
+        n_starts=int(getattr(config, "multistart_n", 10)),
+        seed=_JOINT_MULTISTART_SEED,
+        sampling_strategy="latin_hypercube",
+        n_workers=1,
+        use_screening=False,
+    )
+
+    def single_fit_func(_data: dict[str, Any], x_start: np.ndarray) -> Any:
+        x_fit = _solve_residual_nlsq(
+            base_residual_fn, np.asarray(x_start, dtype=np.float64), lb, ub, solver_config, param_names
+        )
+        return SingleStartResult(
+            start_idx=0,
+            initial_params=np.asarray(x_start, dtype=np.float64),
+            final_params=x_fit,
+            chi_squared=_ssr(x_fit),
+            success=True,
+            message="",
+        )
+
+    def cost_func(x: np.ndarray) -> float:
+        return 0.5 * _ssr(np.asarray(x, dtype=np.float64))
+
+    assert run_multistart_nlsq is not None
+    ms = run_multistart_nlsq(
+        data=data,
+        bounds=bounds2,
+        config=ms_cfg,
+        single_fit_func=single_fit_func,
+        cost_func=cost_func,
+    )
+    return np.asarray(ms.best.final_params, dtype=np.float64)
+
+
+def _apply_global_escape(
+    escape_kind: str | None,
+    base_residual_fn: Any,
+    x_warm: np.ndarray,
+    lb: np.ndarray,
+    ub: np.ndarray,
+    solver_config: NLSQConfig,
+    param_names: list[str],
+    config: NLSQConfig,
+    multistart_data: dict[str, Any],
+) -> tuple[np.ndarray, str | None]:
+    """Run a global escape over the data residual and keep-better vs ``x_warm``.
+
+    Returns ``(x_final, global_escape_tag)``. The tag is ``None`` when no escape
+    was requested or the search failed (best-effort → keep warm-start, no tag);
+    ``"<kind>"`` when the escape improved the data-only SSR; or
+    ``"<kind>_warmstart_kept"`` when the search ran but did not beat the warm
+    start. Shared by the averaged and constant solvers so keep-better semantics
+    live in ONE place. Never raises — search failures fall back to ``x_warm``.
+    """
+    if escape_kind is None:
+        return np.asarray(x_warm, dtype=np.float64), None
+    x_warm = np.asarray(x_warm, dtype=np.float64)
+
+    def _ssr(x: np.ndarray) -> float:
+        return float(np.sum(np.asarray(base_residual_fn(x), dtype=np.float64) ** 2))
+
+    ssr_warm = _ssr(x_warm)
+    try:
+        if escape_kind == "cmaes":
+            cand = _cmaes_joint_candidate(base_residual_fn, x_warm, lb, ub, config)
+        elif escape_kind == "multistart":
+            cand = _multistart_joint_candidate(
+                base_residual_fn, x_warm, lb, ub, solver_config, param_names, config, multistart_data
+            )
+        else:  # pragma: no cover — unknown kind treated as no escape
+            return x_warm, None
+    except Exception as exc:  # noqa: BLE001 - best-effort escape; keep warm-start
+        logger.warning(
+            "Joint %s escape failed (%s: %s); keeping warm-start fit",
+            escape_kind,
+            type(exc).__name__,
+            exc,
+        )
+        return x_warm, None
+
+    if cand is None:
+        return x_warm, f"{escape_kind}_warmstart_kept"
+    cand = np.asarray(cand, dtype=np.float64)
+    cand_ssr = _ssr(cand)
+    logger.info(
+        "Joint %s escape (%s layout): warm SSR=%.6e, escape SSR=%.6e",
+        escape_kind,
+        "averaged/constant",
+        ssr_warm,
+        cand_ssr,
+    )
+    if cand_ssr <= ssr_warm * (1.0 + 1e-12):
+        return cand, escape_kind
+    return x_warm, f"{escape_kind}_warmstart_kept"
 
 
 def _resolve_effective_mode(config: NLSQConfig, n_phi: int) -> str:

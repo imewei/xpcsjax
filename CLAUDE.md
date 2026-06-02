@@ -133,6 +133,28 @@ result is tagged `nlsq_diagnostics["global_escape"]` and, by construction,
 carries NaN covariance / uncertainties and `n_iterations=0` (no covariance solve
 on the kept vector) — read `global_escape` to detect an escape result.
 
+**The escape honours the resolved per-angle scaling mode — it does NOT force
+Fourier.** `fit_nlsq_multi_phi` resolves `effective_mode` (`_resolve_effective_mode`)
+*before* the global-escape gate, so enabling CMA-ES / multistart never changes
+which scaling layout is used (the consistency invariant: `auto → averaged` for
+`n_phi >= constant_scaling_threshold` (3) else `individual`; `constant`/`fourier`
+explicit-only — see the `per_angle_mode` templates). Routing by mode:
+
+- **`fourier` / `individual`** escapes use the Fourier-reparam joint problem
+  builder (`_fit_joint_cmaes_multi_phi` / `_fit_joint_multistart` →
+  `_build_joint_problem` / `_build_joint_fourier`: `fourier` ↔ `independent`).
+- **`averaged`** (the `auto` default at `n_phi >= 3`) and explicit **`constant`**
+  escapes run the global search over their OWN `[physics | scaling]` data
+  residual via the `global_escape_kind=` hook on `_fit_joint_averaged_multi_phi`
+  / `_fit_joint_constant_multi_phi` (frozen scaling → physics-only search). The
+  shared keep-better + escape-contract machinery lives in `_apply_global_escape`
+  (with `_cmaes_joint_candidate` / `_multistart_joint_candidate` /
+  `_solve_residual_nlsq`); when `global_escape_kind=None` those solvers are
+  byte-identical to the plain path. This mirrors `laminar_flow`'s CMA-ES, which
+  honours `use_averaged_scaling` (`core.py`'s `AntiDegeneracyController` path) —
+  so a default `auto` fit no longer silently switches to a Fourier scaling tail
+  just because a global escape was enabled.
+
 ### Heterodyne hybrid-streaming anti-degeneracy (parity gap D closed)
 
 The heterodyne STREAMING path previously froze the quantile-estimated per-angle

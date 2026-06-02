@@ -104,7 +104,7 @@
     "hash": "db6c473779eb54d3aa86cb5fa5b091c0"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_heterodyne_hybrid_streaming.py": {
-    "mtime": 1780304406.2383494,
+    "mtime": 1780346467.5972235,
     "hash": "7f23e88443dbc08635349c23b20bef4f"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/_heterodyne_fixtures.py": {
@@ -248,8 +248,8 @@
     "hash": "0028920747b3e8a12e5e411901b6097f"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_heterodyne_joint_escapes.py": {
-    "mtime": 1780254038.9508753,
-    "hash": "5d072b874229d2ccaebdcea0939621e5"
+    "mtime": 1780412874.9831722,
+    "hash": "ae561a797a7a8bdf8835ac47a6462461"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_l4_callback_observational.py": {
     "mtime": 1780148961.5196216,
@@ -484,8 +484,8 @@
     "hash": "c9c1cffe0c06c5dbce6c8e96f9064fa9"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/viz/conftest.py": {
-    "mtime": 1779366132.2973888,
-    "hash": "104e3bcebccb04854869309e4047eb97"
+    "mtime": 1780410066.0773783,
+    "hash": "e296550a476685986035d74a73698edf"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/viz/test_color_resolution.py": {
     "mtime": 1779334904.2396622,
@@ -584,7 +584,7 @@
     "hash": "01c379900cb6df800d70c1ab562561f2"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/heterodyne_stratified_ls.py": {
-    "mtime": 1780304604.0850017,
+    "mtime": 1780346467.5972235,
     "hash": "325f646488bac1ad39e4f0ce820a588c"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/transforms.py": {
@@ -604,7 +604,7 @@
     "hash": "eb3888fc865f2783f326b61a43efac46"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/heterodyne_result_builder.py": {
-    "mtime": 1780304447.7462783,
+    "mtime": 1780346467.5972235,
     "hash": "f206a686759c1d55c6776f675fc4a7ef"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/adapter.py": {
@@ -688,16 +688,16 @@
     "hash": "aa0c71724ef1b21f9232787f016423b2"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/heterodyne_constant_mode.py": {
-    "mtime": 1780192826.1307967,
-    "hash": "6c5acee3573424c946fc55982007e6f9"
+    "mtime": 1780413518.8816988,
+    "hash": "502743bfdbfe461d024eb5dc22bef094"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/heterodyne_adapter_base.py": {
     "mtime": 1779142889.9914117,
     "hash": "c36242b068de69bf2928cba201aa672d"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/heterodyne_core.py": {
-    "mtime": 1780303768.2582245,
-    "hash": "bf7882fbdc1bc4c3002bcaebd9413a6f"
+    "mtime": 1780413513.6566956,
+    "hash": "5d23c6313d1dbae9ec746a11b3f855a4"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/result_builder.py": {
     "mtime": 1779755957.264971,
@@ -1056,8 +1056,8 @@
     "hash": "619f84235e52eb988f26cc1c2768703f"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/viz/nlsq_plots.py": {
-    "mtime": 1780004311.5311992,
-    "hash": "4e14d1da0bf26f40c63741757cb5aa2b"
+    "mtime": 1780410028.9695942,
+    "hash": "0964fc66a01313a8bed605cbd64d4036"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/viz/diagnostics.py": {
     "mtime": 1779488075.8192756,

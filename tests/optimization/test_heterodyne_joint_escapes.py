@@ -166,3 +166,85 @@ def test_joint_multistart_escape_falls_back_on_failure(monkeypatch):
     # must NOT raise — best-effort fallback to the plain joint fit
     res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
     assert res is not None and getattr(res, "parameters", None) is not None
+
+
+# ---------------------------------------------------------------------------
+# Per-angle scaling-mode parity: the global escapes must optimize the SAME
+# ``[physics | scaling]`` vector the plain path would. The DEFAULT ``auto``
+# mode resolves to ``averaged`` (2 scaling params) for n_phi >= 3; explicit
+# ``constant`` freezes scaling (0 scaling params). Enabling CMA-ES / multistart
+# must NOT silently switch the layout to Fourier. (Mirrors laminar's CMA-ES,
+# which honours ``use_averaged_scaling``.)
+# ---------------------------------------------------------------------------
+def _plain_diag_and_size(per_angle_mode: str):
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict(
+        {"analysis_mode": "two_component", "per_angle_mode": per_angle_mode}
+    )
+    res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
+    return res.nlsq_diagnostics, int(np.asarray(res.parameters).size)
+
+
+def test_joint_cmaes_escape_honors_averaged_default():
+    # auto + n_phi>=3 → averaged (2 scaling params). The escape must report the
+    # averaged layout, NOT collapse to Fourier.
+    plain_diag, plain_size = _plain_diag_and_size("auto")
+    assert plain_diag["per_angle_mode"] == "averaged"  # sanity: plain path baseline
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "auto",
+            "enable_cmaes": True,
+        }
+    )
+    res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
+    diag = res.nlsq_diagnostics
+    assert diag.get("global_escape", "").startswith("cmaes")
+    assert diag["per_angle_mode"] == "averaged"
+    assert diag.get("fourier_basis_dim") is None
+    assert int(np.asarray(res.parameters).size) == plain_size
+
+
+def test_joint_cmaes_escape_honors_constant_explicit():
+    # explicit constant → frozen scaling (0 scaling params). The escape is a
+    # global search over physics only; scaling stays quantile-frozen.
+    plain_diag, plain_size = _plain_diag_and_size("constant")
+    assert plain_diag["per_angle_mode"] == "constant"  # sanity: plain path baseline
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "constant",
+            "enable_cmaes": True,
+        }
+    )
+    res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
+    diag = res.nlsq_diagnostics
+    assert diag.get("global_escape", "").startswith("cmaes")
+    assert diag["per_angle_mode"] == "constant"
+    assert diag.get("fourier_basis_dim") is None
+    assert int(np.asarray(res.parameters).size) == plain_size
+
+
+def test_joint_multistart_escape_honors_averaged_default():
+    plain_diag, plain_size = _plain_diag_and_size("auto")
+    assert plain_diag["per_angle_mode"] == "averaged"
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "auto",
+            "multistart": True,
+            "multistart_n": 3,
+        }
+    )
+    res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
+    diag = res.nlsq_diagnostics
+    assert diag.get("global_escape", "").startswith("multistart")
+    assert diag["per_angle_mode"] == "averaged"
+    assert diag.get("fourier_basis_dim") is None
+    assert int(np.asarray(res.parameters).size) == plain_size

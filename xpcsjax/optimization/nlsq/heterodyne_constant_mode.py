@@ -75,8 +75,20 @@ def _fit_joint_constant_multi_phi(
     phi_angles: np.ndarray,
     config: NLSQConfig,
     weights: np.ndarray | None,
+    *,
+    global_escape_kind: str | None = None,
 ) -> OptimizationResult:
     """Joint multi-angle fit with quantile-fixed per-angle scaling.
+
+    When ``global_escape_kind`` is ``"cmaes"`` or ``"multistart"`` the plain
+    NLSQ solve is used as the warm-start and a seed-pinned global search is run
+    over the SAME physics-only data residual (scaling stays quantile-frozen),
+    keeping the lower-SSR vector. This honours an explicit ``constant`` request
+    under CMA-ES / multistart — a physics-only global escape, mirroring
+    laminar_flow's ``fixed_constant`` CMA-ES — instead of collapsing to the
+    Fourier layout. An escape result carries ``nlsq_diagnostics["global_escape"]``
+    and, by the escape contract, NaN covariance / uncertainties and
+    ``n_iterations=0``.
 
     The optimizer parameter vector contains only the ``n_physics_varying``
     physics parameters. Per-angle contrast and offset are estimated pre-fit
@@ -276,6 +288,28 @@ def _fit_joint_constant_multi_phi(
     # 6. Update model state with fitted physics + frozen scaling.
     # ------------------------------------------------------------------
     fitted_physics = np.asarray(nlsq_result.parameters, dtype=np.float64)
+
+    # Global escape (CMA-ES / multistart): warm-started at the plain solve,
+    # keep-better over the SAME physics-only data residual (scaling frozen).
+    # ``global_escape_tag`` is None on the plain path (no behaviour change).
+    if global_escape_kind is not None:
+        from xpcsjax.optimization.nlsq.heterodyne_core import _apply_global_escape
+
+        fitted_physics, global_escape_tag = _apply_global_escape(
+            global_escape_kind,
+            joint_residual_fn,
+            fitted_physics,
+            physics_lower,
+            physics_upper,
+            joint_config,
+            varying_names,
+            config,
+            {"c2": c2_data, "phi": phi_angles_np},
+        )
+    else:
+        global_escape_tag = None
+    is_escape = global_escape_tag is not None
+
     full_fitted = param_manager.expand_varying_to_full(fitted_physics)
     model.set_params(full_fitted)
     if hasattr(model, "scaling") and len(model.scaling.contrast) == n_phi:
@@ -297,16 +331,22 @@ def _fit_joint_constant_multi_phi(
     # ------------------------------------------------------------------
     # 8. Translate heterodyne NLSQResult → homodyne-side OptimizationResult.
     # ------------------------------------------------------------------
-    uncertainties = (
-        np.asarray(nlsq_result.uncertainties, dtype=np.float64)
-        if nlsq_result.uncertainties is not None
-        else np.full(n_physics, np.nan, dtype=np.float64)
-    )
-    covariance = (
-        np.asarray(nlsq_result.covariance, dtype=np.float64)
-        if nlsq_result.covariance is not None
-        else np.full((n_physics, n_physics), np.nan, dtype=np.float64)
-    )
+    # Escape contract: a kept global-escape vector has no covariance solve, so
+    # uncertainties / covariance are NaN (mirrors the averaged / Fourier escapes).
+    if is_escape:
+        uncertainties = np.full(n_physics, np.nan, dtype=np.float64)
+        covariance = np.full((n_physics, n_physics), np.nan, dtype=np.float64)
+    else:
+        uncertainties = (
+            np.asarray(nlsq_result.uncertainties, dtype=np.float64)
+            if nlsq_result.uncertainties is not None
+            else np.full(n_physics, np.nan, dtype=np.float64)
+        )
+        covariance = (
+            np.asarray(nlsq_result.covariance, dtype=np.float64)
+            if nlsq_result.covariance is not None
+            else np.full((n_physics, n_physics), np.nan, dtype=np.float64)
+        )
 
     # The OptimizationResult ``chi_squared`` field carries SSR (sum of
     # squared *raw* residuals, homodyne convention). We compute it directly
@@ -358,12 +398,14 @@ def _fit_joint_constant_multi_phi(
         "per_angle_mode": "constant",
         "fourier_basis_dim": None,
         "parameter_names": varying_names,
-        "convergence_reason": nlsq_result.convergence_reason,
-        "n_function_evals": int(nlsq_result.n_function_evals or 0),
-        "n_iterations": int(nlsq_result.n_iterations or 0),
+        "convergence_reason": ("global_escape" if is_escape else nlsq_result.convergence_reason),
+        "n_function_evals": (0 if is_escape else int(nlsq_result.n_function_evals or 0)),
+        "n_iterations": (0 if is_escape else int(nlsq_result.n_iterations or 0)),
         "wall_time_seconds": wall_time,
-        "message": str(nlsq_result.message),
+        "message": ("global escape" if is_escape else str(nlsq_result.message)),
     }
+    if global_escape_tag is not None:
+        diagnostics["global_escape"] = global_escape_tag
     # L2/L3/L4/L5 activation block via the shared assembler. Constant mode never
     # runs L2 stage-2 (hierarchical_active=False), L3 (regularization_active=
     # False), or the L4 monitor (gradient_monitor omitted); the
@@ -385,7 +427,7 @@ def _fit_joint_constant_multi_phi(
         chi_squared=ssr,
         reduced_chi_squared=reduced_chi2,
         convergence_status=convergence_status,
-        iterations=int(nlsq_result.n_iterations or 0),
+        iterations=(0 if is_escape else int(nlsq_result.n_iterations or 0)),
         execution_time=wall_time,
         device_info={"backend": "cpu", "adapter": "nlsq.CurveFit"},
         recovery_actions=[],
