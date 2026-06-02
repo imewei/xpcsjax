@@ -833,6 +833,7 @@ def _fit_nlsq_heterodyne(
     else:
         effective_mode = None
 
+    _stratified_ls_fallback = False
     if effective_mode in ("averaged", "fourier"):
         try:
             from xpcsjax.optimization.nlsq import heterodyne_stratified_ls as _hsl
@@ -864,6 +865,9 @@ def _fit_nlsq_heterodyne(
                 "Heterodyne stratified-LS failed (%s); falling back to in-memory joint fit.",
                 exc,
             )
+            # Surface the fallback so the caller can distinguish "stratified
+            # succeeded" from "stratified failed → OOM-prone in-memory path".
+            _stratified_ls_fallback = True
     elif effective_mode is not None:
         # effective_mode resolved (>=1M, stratification chosen, CMA-ES off) but is
         # individual/constant — those use the in-memory path, not stratified-LS.
@@ -896,6 +900,8 @@ def _fit_nlsq_heterodyne(
         "standard", f"{int(n_points):,} points (in-memory joint fit)"
     )
     result = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
+    if _stratified_ls_fallback and result.nlsq_diagnostics is not None:
+        result.nlsq_diagnostics["stratified_ls_fallback"] = True
     _safe_log_heterodyne_completion(result, model, len(phi))
     return result
 

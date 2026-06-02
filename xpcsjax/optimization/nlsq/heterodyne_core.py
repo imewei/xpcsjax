@@ -1939,6 +1939,11 @@ def _cmaes_joint_candidate(
         tol_fun=float(getattr(config, "cmaes_tolfun", 1e-8)),
         restart_strategy=str(getattr(config, "cmaes_restart_strategy", "bipop")),
         max_restarts=int(getattr(config, "cmaes_max_restarts", 9)),
+        # ``sigma`` config field = initial CMA-ES step (fraction of search
+        # range), NOT the ``sigma=`` arg to fit_with_cmaes (per-point weight).
+        # Honour ``cmaes_sigma0`` here as the per-angle path does; omitting it
+        # silently pinned the joint escape to the 0.5 default.
+        sigma=float(getattr(config, "cmaes_sigma0", 0.5)),
     )
     assert fit_with_cmaes is not None, "HAS_CMAES guards entry to the escape"
     cres = fit_with_cmaes(
@@ -2016,6 +2021,26 @@ def _multistart_joint_candidate(
     return np.asarray(ms.best.final_params, dtype=np.float64)
 
 
+def _escape_keeps_candidate(ssr_warm: float, ssr_cand: float) -> bool:
+    """Keep-better decision for the joint global escape, NaN-safe.
+
+    A non-finite warm-start SSR must NEVER win over a finite candidate: the
+    naive ``ssr_cand <= ssr_warm * (1 + eps)`` evaluates to ``False`` when
+    ``ssr_warm`` is NaN/Inf, which would discard a real (finite) escape result
+    in favour of a NaN warm-start fit and return it tagged as a success — a
+    data-integrity defect. Rules:
+
+    * a non-finite candidate is never an improvement;
+    * a finite candidate always beats a non-finite warm start;
+    * otherwise the original within-tolerance keep-better comparison applies.
+    """
+    if not np.isfinite(ssr_cand):
+        return False
+    if not np.isfinite(ssr_warm):
+        return True
+    return bool(ssr_cand <= ssr_warm * (1.0 + 1e-12))
+
+
 def _apply_global_escape(
     escape_kind: str | None,
     base_residual_fn: Any,
@@ -2073,7 +2098,7 @@ def _apply_global_escape(
         ssr_warm,
         cand_ssr,
     )
-    if cand_ssr <= ssr_warm * (1.0 + 1e-12):
+    if _escape_keeps_candidate(ssr_warm, cand_ssr):
         return cand, escape_kind
     return x_warm, f"{escape_kind}_warmstart_kept"
 
@@ -2648,9 +2673,10 @@ def _build_joint_result(
     # ------------------------------------------------------------------
     # Decompose per-angle chi^2 from the final residual.
     # ``compute_multi_angle_residuals`` returns an angle-major flat layout
-    # (n_phi, n_per_angle) — n_per_angle = n_time * (n_time - 1) because the
-    # kernel excludes the diagonal. Re-import the helper from the constant-
-    # mode module to keep one canonical implementation.
+    # (n_phi, n_per_angle) — n_per_angle = (n_time - 1) * (n_time - 2) because
+    # the kernel excludes BOTH the t=0 boundary row/col and the diagonal. Re-
+    # import the helper from the constant-mode module to keep one canonical
+    # implementation.
     # TODO(C3): consolidate _decompose_chi2_per_angle when the averaged path
     # also returns OptimizationResult, so all three joint paths share the
     # same helper without crossing module boundaries.

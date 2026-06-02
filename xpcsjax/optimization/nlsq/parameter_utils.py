@@ -319,7 +319,20 @@ def compute_consistent_per_angle_init(
             else:
                 g1_model = g1_diffusion
 
-            # Clip for numerical stability (g1 ∈ [0, 1] by physics)
+            # Clip for numerical stability (g1 ∈ [0, 1] by physics). Heavy
+            # clipping means the fit diverged out of the physical range; count
+            # it so a heavily-clipped (unreliable) result is not silently
+            # indistinguishable from a well-behaved one.
+            n_clipped = int(np.count_nonzero((g1_model < 1e-10) | (g1_model > 1.0)))
+            if n_clipped:
+                from xpcsjax.utils.logging import get_logger as _get_logger
+
+                _get_logger(__name__).warning(
+                    "g1 model clipped to [1e-10, 1.0] at %d/%d points; "
+                    "contrast/offset estimate may be unreliable.",
+                    n_clipped,
+                    int(g1_model.size),
+                )
             g1_model = np.clip(g1_model, 1e-10, 1.0)
             g1_sq = g1_model**2
 

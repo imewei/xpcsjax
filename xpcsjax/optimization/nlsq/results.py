@@ -120,6 +120,16 @@ class OptimizationResult:
                     f"{n_bad} of {n} parameter(s) are non-finite (NaN/Inf)."
                 )
 
+        # A 'good' fit must have a finite objective. This blocks the
+        # data-integrity failure mode where a non-finite reduced chi-squared
+        # (e.g. NaN residuals from corrupt input) surfaces as a confidently
+        # "good" scientific result.
+        if self.quality_flag == "good" and not np.isfinite(self.reduced_chi_squared):
+            raise ValueError(
+                "OptimizationResult: quality_flag='good' requires a finite "
+                f"reduced_chi_squared (got {self.reduced_chi_squared})."
+            )
+
         if self.uncertainties is not None:
             unc = np.asarray(self.uncertainties)
             if unc.ndim == 1 and unc.size and unc.size != n:

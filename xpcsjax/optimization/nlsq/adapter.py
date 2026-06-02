@@ -1014,7 +1014,11 @@ class NLSQAdapter(NLSQAdapterBase):
         if raw_fun is not None and isinstance(raw_fun, np.ndarray):
             chi_squared = float(np.sum(raw_fun**2))
         else:
-            cost = info.get("cost", 0.0)
+            # Default to NaN, not 0.0: a missing objective means the solve
+            # reported no cost, which must surface as a non-finite chi-squared
+            # (→ a non-"good" quality flag) rather than masquerade as a perfect
+            # fit. Defaulting to 0.0 minted "good" results from failed solves.
+            cost = info.get("cost", float("nan"))
             chi_squared = float(cost) * 2.0  # cost = 0.5 * sum(r²)
 
         # Reduced chi-squared
