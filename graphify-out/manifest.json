@@ -904,8 +904,8 @@
     "hash": "1610352bd76503151efd3bf3bdef437a"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/cli/data_pipeline.py": {
-    "mtime": 1779855729.0074143,
-    "hash": "d390dba881d2763de00944ee970c1503"
+    "mtime": 1780416773.6013055,
+    "hash": "9e900f708fcfecfd37095fa31830f607"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/cli/plot_dispatch.py": {
     "mtime": 1780001250.664912,
@@ -916,12 +916,12 @@
     "hash": "213dcb89155a3cfcfe0be8077851bc96"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/cli/optimization_runner.py": {
-    "mtime": 1779640599.549184,
-    "hash": "88ca41bf8394ed6ce3324bda7653a4e8"
+    "mtime": 1780416769.630317,
+    "hash": "0cac8a238f5debe542aa4a20cddaf213"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/cli/args_parser.py": {
-    "mtime": 1779681583.0941079,
-    "hash": "9ee38af7a4c98085931255924a5dd3b1"
+    "mtime": 1780416771.5503116,
+    "hash": "643e8487d7b03e4b8f1b682122048073"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/cli/config_handling.py": {
     "mtime": 1779681240.4596612,
@@ -1004,8 +1004,8 @@
     "hash": "543beee6d4cbcf12b6aa2c03cbea1703"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/core/fitting.py": {
-    "mtime": 1779988462.9806664,
-    "hash": "c129f681dfb73bf4d526e4ca99a4dee2"
+    "mtime": 1780416066.3258696,
+    "hash": "fb020d8e2b24062fd53c7a3b1824febc"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/core/heterodyne_models.py": {
     "mtime": 1779988462.9716666,

@@ -8,8 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The architectural rule this implies:
 
-- **Do not wire up `get_cmc_config()` or any MCMC pathway.** Stale references survive from the homodyne port in:
-  `xpcsjax/config/manager.py` (`get_cmc_config`, `_get_default_cmc_config`, `"mcmc"` config block), `xpcsjax/core/`, `xpcsjax/data/`, `xpcsjax/utils/logging.py`, and ~20 other files. Treat these as **scheduled-for-removal** dead code; don't add new call sites and don't write tests that exercise them.
+- **Do not wire up any Bayesian / MCMC / CMC pathway.** The homodyne port's CMC/MCMC machinery (`get_cmc_config`, `_get_default_cmc_config`, the `"mcmc"` config block) has been **removed** — those symbols no longer exist anywhere in the package. What remains are a handful of docstrings and **defensive guards** that *name* Bayesian sampling only to state it is out of scope (e.g. the `ValueError` in `xpcsjax/data/optimization.py` that rejects non-NLSQ methods). Keep those — they reject invalid input, they are not dead code. Don't add new Bayesian call sites and don't write tests that exercise one.
 - New optimization code goes through `fit_nlsq` (the v0.1 single-entry wrapper) or `fit_nlsq_jax` / `fit_nlsq_multistart`. There is no second optimizer pathway to "fall back to."
 
 ### Intentional v0.1 cuts from the homodyne port

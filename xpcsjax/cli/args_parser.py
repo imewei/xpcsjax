@@ -1,7 +1,7 @@
 """Argument parser for the xpcsjax CLI.
 
-NLSQ-only by design (see project CLAUDE.md). All CMC / MCMC / Bayesian
-flags from the upstream heterodyne CLI are intentionally absent.
+NLSQ-only by design (see project CLAUDE.md); Bayesian sampling flags from
+the upstream heterodyne CLI are intentionally absent.
 
 Parameter override flags map to canonical names per
 ``parameter_registry._MODE_PARAMS``:

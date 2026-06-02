@@ -1,7 +1,7 @@
 """Data loading and validation pipeline for xpcsjax CLI.
 
 Ported from heterodyne/cli/data_pipeline.py. Adapted to xpcsjax's
-NLSQ-only surface (no CMC/MCMC paths), xpcsjax's analysis-mode taxonomy
+NLSQ-only surface, xpcsjax's analysis-mode taxonomy
 (``static_anisotropic`` / ``static_isotropic`` / ``laminar_flow`` /
 ``two_component``), and the dict-shaped return of
 :func:`xpcsjax.load_xpcs_data`.

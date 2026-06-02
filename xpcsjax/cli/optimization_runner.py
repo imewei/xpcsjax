@@ -1,9 +1,7 @@
 """Optimization execution for xpcsjax CLI.
 
-Manages NLSQ fitting runs. Bayesian / MCMC paths are permanently out of
-scope for xpcsjax v0.1 (see project CLAUDE.md); CMC, warm-start
-resolution, and dual-method dispatch from the upstream heterodyne CLI
-are intentionally omitted.
+Manages NLSQ fitting runs. NLSQ is the only optimizer pathway in xpcsjax
+v0.1; Bayesian sampling is out of scope (see project CLAUDE.md).
 
 Public surface
 --------------
