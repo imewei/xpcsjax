@@ -14,9 +14,7 @@ from xpcsjax.data import load_xpcs_data
 # No bundled fixture is available yet (Phase 5 will provide one). Point at a
 # deliberately non-existent path so the test SKIPs cleanly on every machine
 # until the characterization-test infra lands proper baselines.
-HOMODYNE_FIXTURE_CONFIG = Path(
-    "/home/wei/Documents/GitHub/xpcsjax/tests/data/_fixtures/homodyne_static_fixture.yaml"
-)
+HOMODYNE_FIXTURE_CONFIG = Path(__file__).parent / "_fixtures" / "homodyne_static_fixture.yaml"
 
 
 @pytest.mark.skipif(

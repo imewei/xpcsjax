@@ -226,6 +226,35 @@ class XPCSConfigurationError(Exception):
     """Raised when configuration is invalid or missing required parameters."""
 
 
+# Upper bound on the correlation-matrix time dimension. Real XPCS experiments
+# run from hundreds to a few tens of thousands of frames; this generous cap
+# exists only to stop a crafted/corrupt file from declaring an absurd dimension
+# that triggers a multi-hundred-GB ``(n_sel, n_t, n_t)`` allocation (OOM/DoS)
+# before any other validation runs.
+MAX_CORRELATION_FRAMES = 100_000
+
+
+def _check_frame_count(n_frames: int, *, source: str) -> None:
+    """Validate a correlation-matrix time dimension before allocating on it.
+
+    Raises ``XPCSDataFormatError`` if ``n_frames`` is non-positive or exceeds
+    :data:`MAX_CORRELATION_FRAMES`. This guards the I/O boundary against an
+    unbounded allocation driven by an untrusted file's declared shape.
+    """
+    if n_frames <= 0:
+        raise XPCSDataFormatError(
+            f"Invalid correlation frame count {n_frames} from {source!r} "
+            "(must be positive)."
+        )
+    if n_frames > MAX_CORRELATION_FRAMES:
+        raise XPCSDataFormatError(
+            f"Correlation frame count {n_frames} from {source!r} exceeds the "
+            f"{MAX_CORRELATION_FRAMES} cap; refusing to allocate "
+            f"{n_frames}x{n_frames} matrices. Raise MAX_CORRELATION_FRAMES if "
+            "this is a legitimately large experiment."
+        )
+
+
 def load_xpcs_config(config_path: str | Path) -> dict[str, Any]:
     """Load XPCS configuration from YAML or JSON file.
 
@@ -650,6 +679,16 @@ class XPCSDataLoader:
         if os.sep in cache_filename or ".." in cache_filename:
             raise ValueError(f"Unsafe cache filename from template: {cache_filename!r}")
         cache_path = os.path.join(cache_folder, cache_filename)
+        # The filename check above does not cover ``cache_folder`` (config-
+        # supplied): a crafted ``cache_file_path`` could traverse out of the
+        # intended tree before the npz is written. Run the assembled path
+        # through the shared validator (rejects ``..``/null-byte traversal;
+        # absolute paths remain allowed since the user owns their own config).
+        from xpcsjax.utils.path_validation import validate_save_path
+
+        validate_save_path(
+            cache_path, allowed_extensions=(".npz",), require_parent_exists=False
+        )
 
         # If user provided a direct NPZ path, prefer it
         direct_path = os.path.join(data_folder, data_file) if data_file else ""
@@ -1062,6 +1101,7 @@ class XPCSDataLoader:
                 # bit-exact — upcasting here would change the reconstructed bits.
                 _probe_half = c2t_group[c2_keys[int(final_indices[0])]][()]
                 _n_t = _probe_half.shape[0]
+                _check_frame_count(int(_n_t), source="HDF5 correlation dataset")
                 c2_matrices_array = np.empty((n_sel, _n_t, _n_t), dtype=_probe_half.dtype, order="C")
                 # Write the already-read probe matrix into slot 0 (exact same arithmetic
                 # as _reconstruct_full_matrix: c2_half + c2_half.T, diagonal /= 2).
@@ -1271,6 +1311,7 @@ class XPCSDataLoader:
                 # float64 here would change reconstructed bits vs the parity baseline.
                 _first_mat = np.asarray(c2_matrices_for_filtering[int(final_indices[0])])
                 _n_t_u = _first_mat.shape[0]
+                _check_frame_count(int(_n_t_u), source="HDF5 correlation dataset")
                 c2_matrices_array = np.empty(
                     (_n_sel_u, _n_t_u, _n_t_u), dtype=_first_mat.dtype, order="C"
                 )
