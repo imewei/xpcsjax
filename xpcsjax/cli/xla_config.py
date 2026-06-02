@@ -84,15 +84,6 @@ def get_cpu_info() -> dict[str, int | float | str]:
     return info
 
 
-def auto_configure() -> dict[str, str]:
-    """Auto-tune XLA threads to the host's physical-core count."""
-    cpu_info = get_cpu_info()
-    physical = cpu_info.get("physical_cores", 4)
-    if not isinstance(physical, int):
-        physical = 4
-    return configure_xla(num_threads=physical, enable_x64=True)
-
-
 def main() -> None:
     """``xpcsjax-config-xla`` / ``xj-config-xla`` entry point.
 

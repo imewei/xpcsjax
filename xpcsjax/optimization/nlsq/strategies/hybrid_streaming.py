@@ -65,36 +65,6 @@ except ImportError:
     HybridStreamingConfig = None
 
 
-def fit_with_streaming_optimizer_deprecated(
-    residual_fn: Any,
-    xdata: np.ndarray,
-    ydata: np.ndarray,
-    initial_params: np.ndarray,
-    bounds: tuple[np.ndarray, np.ndarray] | None,
-    logger: Any,
-    checkpoint_config: dict | None = None,
-) -> tuple[np.ndarray, np.ndarray, dict]:
-    """Fit using streaming optimizer for large datasets.
-
-    .. deprecated:: 2.9.1
-        The old non-stratified StreamingOptimizer was removed in NLSQ 0.4.0.
-        Use the stratified optimization path with per-angle scaling instead,
-        which automatically uses AdaptiveHybridStreamingOptimizer for large datasets.
-
-    Raises
-    ------
-    RuntimeError
-        Always - this code path is no longer supported
-    """
-    raise RuntimeError(
-        "Non-stratified StreamingOptimizer was removed in NLSQ 0.4.0. "
-        "Use the stratified optimization path with per_angle_scaling=True, "
-        "which automatically switches to AdaptiveHybridStreamingOptimizer "
-        "for memory-constrained datasets. "
-        "See CLAUDE.md section 'NLSQ Adaptive Hybrid Streaming Mode' for details."
-    )
-
-
 def fit_with_hybrid_streaming_optimizer(
     residual_fn: Any,
     xdata: np.ndarray,
@@ -324,64 +294,6 @@ def fit_with_hybrid_streaming_optimizer(
                 f"AdaptiveHybridStreamingOptimizer failed: {str(e)}",
                 error_context={"original_error": type(e).__name__},
             ) from e
-
-
-def fit_with_streaming_optimizer_stratified_deprecated(
-    stratified_data: Any,
-    per_angle_scaling: bool,
-    physical_param_names: list[str],
-    initial_params: np.ndarray,
-    bounds: tuple[np.ndarray, np.ndarray] | None,
-    logger: Any,
-    streaming_config: dict | None = None,
-) -> tuple[np.ndarray, np.ndarray, dict]:
-    """Fit using NLSQ streaming optimizer for memory-constrained large datasets.
-
-    .. deprecated:: 2.9.1
-        The old StreamingOptimizer was removed in NLSQ 0.4.0.
-        This method now delegates to _fit_with_stratified_hybrid_streaming
-        which uses AdaptiveHybridStreamingOptimizer.
-
-    Args:
-        stratified_data: StratifiedData object with flat stratified arrays
-        per_angle_scaling: Whether per-angle parameters are enabled
-        physical_param_names: List of physical parameter names
-        initial_params: Initial parameter guess
-        bounds: Parameter bounds (lower, upper) tuple
-        logger: Logger instance
-        streaming_config: Optional config dict (converted to hybrid_config)
-
-    Returns:
-        (popt, pcov, info) tuple
-
-    Raises:
-        RuntimeError: If AdaptiveHybridStreamingOptimizer is not available
-    """
-    # Delegate to hybrid streaming optimizer (old StreamingOptimizer removed in NLSQ 0.4.0)
-    logger.info(
-        "Note: StreamingOptimizer was removed in NLSQ 0.4.0. "
-        "Using AdaptiveHybridStreamingOptimizer instead."
-    )
-
-    # Convert streaming_config to hybrid_config format
-    hybrid_config = None
-    if streaming_config:
-        hybrid_config = {
-            "chunk_size": streaming_config.get("batch_size", 50000),
-            "warmup_iterations": streaming_config.get("max_epochs", 100),
-            "gauss_newton_tol": streaming_config.get("convergence_tol", 1e-8),
-            "warmup_learning_rate": streaming_config.get("learning_rate", 0.001),
-        }
-
-    return fit_with_stratified_hybrid_streaming(
-        stratified_data=stratified_data,
-        per_angle_scaling=per_angle_scaling,
-        physical_param_names=physical_param_names,
-        initial_params=initial_params,
-        bounds=bounds,
-        logger=logger,
-        hybrid_config=hybrid_config,
-    )
 
 
 def fit_with_stratified_hybrid_streaming(

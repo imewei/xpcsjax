@@ -85,6 +85,29 @@ the rendered documentation.
   See `docs/source/user_guide/analysis_modes.rst` for the full mode
   reference and `docs/MIGRATION.md` for the migration table.
 
+### Removed
+
+- **Dead-code cleanup** — removed code that was unreachable, superseded, or
+  never wired into the NLSQ pipeline. No behavioural change; verified by the
+  full suite (1253 passed, 8 skipped).
+    - `xpcsjax/core/theory.py` — the unused `TheoryEngine` module, ported
+      verbatim from homodyne but never imported by any live path.
+    - Deprecated streaming shims in
+      `optimization/nlsq/strategies/hybrid_streaming.py`
+      (`fit_with_streaming_optimizer_deprecated`,
+      `fit_with_streaming_optimizer_stratified_deprecated`) together with their
+      only (also dead) caller `NLSQWrapper._fit_with_streaming_optimizer`.
+    - `StratifiedResidualFunction._compute_chunk_residuals_raw` — raised
+      `RuntimeError` on call; the live path is `_call_jax_vectorized`.
+    - The duplicate `compute_g2_scaled_with_factors` in
+      `core/physics_nlsq.py` (the live copy lives in `core/jax_backend.py`).
+    - Unused symbols `NLSQCheckpointError`, `FallbackInfo`,
+      `cli/xla_config.auto_configure`,
+      `heterodyne_parameter_names.get_param_index`, and the module-level
+      `heterodyne_parameter_space.clamp_to_open_interval`.
+    - The dangling `xpcsjax.core.theory` Sphinx autodoc stub in
+      `docs/source/api/modules.rst`.
+
 ### Fixed
 
 - Removed dangling Sphinx autodoc reference to

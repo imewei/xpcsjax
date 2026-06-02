@@ -75,8 +75,6 @@ user-visible API surface is covered by the dedicated pages under
 
 .. py:module:: xpcsjax.core.physics_utils
 
-.. py:module:: xpcsjax.core.theory
-
 .. py:module:: xpcsjax.data
 
 .. py:module:: xpcsjax.data.angle_filtering

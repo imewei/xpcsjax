@@ -431,26 +431,3 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
             "initial_parameters: active_parameters set %d params to vary",
             len(active_names),
         )
-
-
-def clamp_to_open_interval(
-    value: float,
-    low: float,
-    high: float,
-    epsilon: float = 1e-6,
-) -> float:
-    """Clamp value to the open interval (low+epsilon, high-epsilon).
-
-    Useful for Beta distribution parameters that must be strictly
-    within their support bounds.
-
-    Args:
-        value: Value to clamp.
-        low: Lower bound of the closed interval.
-        high: Upper bound of the closed interval.
-        epsilon: Margin to inset from the bounds.
-
-    Returns:
-        Clamped value in (low+epsilon, high-epsilon).
-    """
-    return max(low + epsilon, min(value, high - epsilon))

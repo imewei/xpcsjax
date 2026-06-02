@@ -70,6 +70,14 @@ recommended drop-in default is ``static_anisotropic`` (preserves
 angular resolution). See :doc:`/user_guide/analysis_modes` for the
 full description of each mode and the data-preparation distinction.
 
+**Internal dead-code cleanup.** Removed code that was unreachable, superseded,
+or never wired into the NLSQ pipeline — the unused ``xpcsjax.core.theory``
+module, the deprecated streaming shims and their dead wrapper caller, a dead
+``_compute_chunk_residuals_raw`` path, a duplicate
+``compute_g2_scaled_with_factors`` (the live copy stays in
+``xpcsjax.core.jax_backend``), and a handful of unused symbols. No behavioural
+change; the full test suite passes. See ``CHANGELOG.md`` for the itemised list.
+
 v0.1.0 — initial consolidated release
 -------------------------------------
 

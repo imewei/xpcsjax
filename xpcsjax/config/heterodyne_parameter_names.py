@@ -71,24 +71,6 @@ ALL_PARAM_NAMES_WITH_SCALING: tuple[str, ...] = ALL_PARAM_NAMES + SCALING_PARAMS
 PARAM_INDICES: dict[str, int] = {name: i for i, name in enumerate(ALL_PARAM_NAMES)}
 
 
-def get_param_index(name: str) -> int:
-    """Get index of parameter in flattened array.
-
-    Args:
-        name: Parameter name
-
-    Returns:
-        Index (0-13)
-
-    Raises:
-        KeyError: If parameter name is invalid
-    """
-    if name not in PARAM_INDICES:
-        valid = ", ".join(ALL_PARAM_NAMES)
-        raise KeyError(f"Unknown parameter '{name}'. Valid names: {valid}")
-    return PARAM_INDICES[name]
-
-
 def get_group_indices(group: str) -> tuple[int, ...]:
     """Get indices for all parameters in a group.
 

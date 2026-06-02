@@ -150,7 +150,6 @@ from xpcsjax.optimization.nlsq.strategies.hybrid_streaming import (
     estimate_memory_for_stratified_ls,
     fit_with_hybrid_streaming_optimizer,
     fit_with_stratified_hybrid_streaming,
-    fit_with_streaming_optimizer_stratified_deprecated,
     should_use_streaming,
 )
 
@@ -3660,29 +3659,6 @@ class NLSQWrapper(NLSQAdapterBase):
             nlsq_config_dict=nlsq_config_dict,
             analysis_mode=analysis_mode,
         )
-
-    def _fit_with_streaming_optimizer(
-        self,
-        stratified_data: Any,
-        per_angle_scaling: bool,
-        physical_param_names: list[str],
-        initial_params: np.ndarray,
-        bounds: tuple[np.ndarray, np.ndarray] | None,
-        logger: Any,
-        streaming_config: dict | None = None,
-    ) -> tuple[np.ndarray, np.ndarray, dict]:
-        """Deprecated: delegates to fit_with_streaming_optimizer_stratified_deprecated."""
-        return fit_with_streaming_optimizer_stratified_deprecated(
-            stratified_data=stratified_data,
-            per_angle_scaling=per_angle_scaling,
-            physical_param_names=physical_param_names,
-            initial_params=initial_params,
-            bounds=bounds,
-            logger=logger,
-            streaming_config=streaming_config,
-        )
-
-    # NOTE: Dead streaming optimizer code removed (NLSQ 0.4.0+ removed StreamingOptimizer)
 
     def _fit_with_out_of_core_accumulation(
         self,

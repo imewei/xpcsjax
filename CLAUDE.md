@@ -163,7 +163,7 @@ scaling tail and runs L1–L4, mirroring `laminar_flow` streaming:
 
 - **`per_angle_mode` dispatch** (driven by `anti_degeneracy_config.per_angle_mode`):
   `auto` is **the default**, including when `anti_degeneracy_config` is absent/`None`
-  (mirrors laminar `hybrid_streaming.py:550` — no "freeze when unconfigured" special
+  (mirrors laminar `hybrid_streaming.py:462` — no "freeze when unconfigured" special
   case). `auto` → `auto_averaged` (2 averaged scaling params) when
   `n_phi ≥ constant_scaling_threshold` (default 3), else → `individual`
   (2·n_phi per-angle params, activates L2). `fixed_constant` (frozen scaling) is the

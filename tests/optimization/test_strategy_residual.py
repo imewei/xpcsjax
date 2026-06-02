@@ -148,9 +148,6 @@ def test_deprecated_paths_raise() -> None:
 
     with pytest.raises(RuntimeError, match="_call_jax_chunked is unavailable"):
         rf._call_jax_chunked(jnp.zeros(5))
-    z = jnp.zeros(1)
-    with pytest.raises(RuntimeError, match="deprecated"):
-        rf._compute_chunk_residuals_raw(z, z, z, z, z, z, z, z, z, 0.0, 0.0, None)
 
 
 # ---------------------------------------------------------------------------

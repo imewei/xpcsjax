@@ -92,8 +92,6 @@ matters. Run as the ``xpcsjax-config-xla`` console script, it is informational
 
 .. autofunction:: xpcsjax.cli.xla_config.configure_xla
 
-.. autofunction:: xpcsjax.cli.xla_config.auto_configure
-
 .. autofunction:: xpcsjax.cli.xla_config.get_cpu_info
 
 .. autofunction:: xpcsjax.cli.xla_config.main

@@ -241,9 +241,8 @@ class StratifiedResidualFunction:
         This method sets up JIT-compiled versions of the residual computation
         to maximize performance during optimization.
         """
-        # Note: _compute_chunk_residuals_raw is no longer used — the hot path
-        # is _call_jax_vectorized via _setup_vmap_functions.  Skip dead JIT
-        # compilation to save ~0.2-0.5s at init.
+        # The hot path is _call_jax_vectorized via _setup_vmap_functions.
+        # Skip dead JIT compilation to save ~0.2-0.5s at init.
         self.compute_chunk_jit = None
 
     def _preconvert_chunk_arrays(self) -> None:
@@ -475,31 +474,6 @@ class StratifiedResidualFunction:
             )
 
         self._vmap_g2_scalar = jax.vmap(_g2_scalar, in_axes=(None, None, None, 0))
-
-    def _compute_chunk_residuals_raw(
-        self,
-        g2_obs: jnp.ndarray,
-        sigma_full: jnp.ndarray,
-        params_all: jnp.ndarray,
-        phi_unique: jnp.ndarray,
-        t1_unique: jnp.ndarray,
-        t2_unique: jnp.ndarray,
-        flat_indices: jnp.ndarray,
-        t1_indices: jnp.ndarray,
-        t2_indices: jnp.ndarray,
-        q: float,
-        L: float,
-        dt: float | None,
-    ) -> jnp.ndarray:
-        """DEPRECATED: Dead code path -- not called from any live execution path.
-
-        Retained for reference. The live path is _call_jax_vectorized.
-        _call_jax routes exclusively to _call_jax_vectorized, and
-        _call_jax_chunked raises RuntimeError immediately.
-        """
-        raise RuntimeError(
-            "_compute_chunk_residuals_raw is deprecated. Use _call_jax_vectorized."
-        )
 
     def _call_jax(self, params: jnp.ndarray) -> jnp.ndarray:
         """JAX-native residuals for use in JIT/Jacobian contexts.

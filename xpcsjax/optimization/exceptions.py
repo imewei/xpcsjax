@@ -1,8 +1,8 @@
 """Custom exceptions for NLSQ optimization.
 
 This module defines a comprehensive exception hierarchy for handling
-errors specific to NLSQ optimization, including convergence failures,
-numerical instabilities, and checkpoint-related issues.
+errors specific to NLSQ optimization, including convergence failures
+and numerical instabilities.
 
 The exception hierarchy enables fine-grained error handling and recovery
 strategies tailored to specific failure modes.
@@ -10,8 +10,7 @@ strategies tailored to specific failure modes.
 Exception Hierarchy:
     NLSQOptimizationError (base)
     ├── NLSQConvergenceError (convergence failures)
-    ├── NLSQNumericalError (NaN/Inf issues)
-    └── NLSQCheckpointError (checkpoint save/load failures)
+    └── NLSQNumericalError (NaN/Inf issues)
 
 Examples
 --------
@@ -261,92 +260,3 @@ class NLSQNumericalError(NLSQOptimizationError):
         super().__init__(message, context)
         self.detection_point = detection_point
         self.invalid_values = invalid_values or []
-
-
-class NLSQCheckpointError(NLSQOptimizationError):
-    """Raised for checkpoint save/load/resume failures.
-
-    This exception indicates that the streaming optimizer encountered an
-    error while saving checkpoints, loading checkpoints, or resuming from
-    a checkpoint.
-
-    Common Causes
-    -------------
-    - Checkpoint file corrupted
-    - Insufficient disk space
-    - Invalid checkpoint path
-    - HDF5 file lock conflict
-    - Version mismatch in checkpoint format
-    - Missing checkpoint metadata
-
-    Recovery Strategies
-    -------------------
-    1. Disable checkpoints: `config.enable_checkpoints = False`
-    2. Change checkpoint directory: Use different storage location
-    3. Clear old checkpoints: Remove corrupted checkpoint files
-    4. Start fresh: `config.resume_from_checkpoint = False`
-    5. Reduce checkpoint frequency: Save less often to avoid I/O issues
-
-    Attributes
-    ----------
-    checkpoint_path : str
-        Path to the checkpoint file involved
-    operation : str
-        Operation that failed ('save', 'load', 'resume', 'validate')
-    io_error : Exception
-        Original I/O exception if available
-
-    Examples
-    --------
-    >>> try:
-    ...     config = HybridStreamingConfig(enable_checkpoints=True)
-    ...     optimizer = AdaptiveHybridStreamingOptimizer(config)
-    ...     result = optimizer.fit(data, model, p0)
-    ... except NLSQCheckpointError as e:
-    ...     if e.operation == 'load':
-    ...         # Start fresh if checkpoint is corrupted
-    ...         config = HybridStreamingConfig(enable_checkpoints=False)
-    ...         optimizer = AdaptiveHybridStreamingOptimizer(config)
-    ...         result = optimizer.fit(data, model, p0)
-    ...     elif e.operation == 'save':
-    ...         # Continue without checkpoints
-    ...         config = HybridStreamingConfig(enable_checkpoints=False)
-    ...         optimizer = AdaptiveHybridStreamingOptimizer(config)
-    ...         result = optimizer.fit(data, model, p0)
-    """
-
-    def __init__(
-        self,
-        message: str,
-        checkpoint_path: str | None = None,
-        operation: str | None = None,
-        io_error: Exception | None = None,
-        error_context: dict | None = None,
-    ):
-        """Initialize checkpoint error.
-
-        Parameters
-        ----------
-        message : str
-            Detailed error message
-        checkpoint_path : str, optional
-            Path to checkpoint file
-        operation : str, optional
-            Operation that failed
-        io_error : Exception, optional
-            Original I/O exception
-        error_context : dict, optional
-            Additional context
-        """
-        context = error_context or {}
-        if checkpoint_path:
-            context["checkpoint_path"] = checkpoint_path
-        if operation:
-            context["operation"] = operation
-        if io_error:
-            context["io_error_type"] = type(io_error).__name__
-
-        super().__init__(message, context)
-        self.checkpoint_path = checkpoint_path
-        self.operation = operation
-        self.io_error = io_error

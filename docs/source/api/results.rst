@@ -80,10 +80,6 @@ Two convenience properties are exposed:
 Fallback markers
 ----------------
 
-.. autoclass:: xpcsjax.optimization.nlsq.results.FallbackInfo
-
-
-
 .. autoclass:: xpcsjax.optimization.nlsq.results.UseSequentialOptimization
 
 

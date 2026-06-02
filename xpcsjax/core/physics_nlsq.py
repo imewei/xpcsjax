@@ -15,10 +15,8 @@ g₂(φ,t₁,t₂) = offset + contrast × [g₁(φ,t₁,t₂)]²
 g₁_total = g₁_diffusion × g₁_shear
 
 Usage:
-  from xpcsjax.core.jax_backend import compute_g2_scaled, apply_diagonal_correction
+  from xpcsjax.core.physics_nlsq import compute_g2_scaled
 """
-
-from functools import partial
 
 import jax.numpy as jnp
 from jax import jit
@@ -417,58 +415,5 @@ def compute_g2_scaled(
         contrast,
         offset,
         dt_value,
-    )
-    return result
-
-
-@partial(jit, static_argnums=(4, 5, 8))
-def compute_g2_scaled_with_factors(
-    params: jnp.ndarray,
-    t1: jnp.ndarray,
-    t2: jnp.ndarray,
-    phi: jnp.ndarray,
-    wavevector_q_squared_half_dt: float,
-    sinc_prefactor: float,
-    contrast: float,
-    offset: float,
-    dt: float,
-) -> jnp.ndarray:
-    """JIT-optimized g2 computation using pre-computed physics factors.
-
-    This is the hybrid architecture functional core - accepts pre-computed
-    factors directly, avoiding runtime computation. Suitable for use with
-    HomodyneModel where factors are computed once at initialization.
-
-    Args:
-        params: Physical parameters [D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]
-        t1, t2: Time grids for correlation calculation (PHYSICAL TIME in seconds)
-        phi: Scattering angles [degrees]
-        wavevector_q_squared_half_dt: Pre-computed factor (0.5 * q² * dt) [STATIC - dataset-invariant]
-        sinc_prefactor: Pre-computed factor (q * L * dt / 2π) [STATIC - dataset-invariant]
-        contrast: Contrast parameter (β in literature)
-        offset: Baseline offset
-        dt: Time step per frame [seconds] - for frame→time conversion [STATIC - dataset-invariant]
-
-    Returns:
-        g2 correlation function with scaled fitting
-
-    Note:
-        This function is JIT-compiled for maximum performance.
-        Use with HomodyneModel for best results.
-        For NLSQ backend, simply calls _compute_g2_scaled_meshgrid.
-        Static args (4, 5, 8): wavevector_q_squared_half_dt, sinc_prefactor, dt
-        are dataset-invariant and constant across optimization iterations.
-        contrast (6) and offset (7) are NOT static - they are optimized parameters.
-    """
-    result: jnp.ndarray = _compute_g2_scaled_meshgrid(
-        params,
-        t1,
-        t2,
-        phi,
-        wavevector_q_squared_half_dt,
-        sinc_prefactor,
-        contrast,
-        offset,
-        dt,
     )
     return result
