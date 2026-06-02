@@ -1523,6 +1523,14 @@ def _fit_joint_averaged_multi_phi(
 # escape MUST pin it so the global search is bit-reproducible run to run.
 _JOINT_CMAES_SEED = 42
 
+# Per-angle CMA-ES escape seed. Offset by ``angle_idx`` at the call site so each
+# angle's stochastic search is individually reproducible yet decorrelated from
+# the others (mirrors ``_JOINT_CMAES_SEED``'s pinning; a single shared seed would
+# make every angle explore the identical random trajectory). Without this the
+# per-angle ``_fit_cmaes`` path left ``CMAESWrapperConfig.seed=None`` →
+# non-reproducible, unlike the seed-pinned joint escapes.
+_PER_ANGLE_CMAES_SEED = 42
+
 
 def _build_joint_fourier(
     config: NLSQConfig, phi_angles: np.ndarray
@@ -3040,6 +3048,52 @@ def _fit_cmaes(
             e,
         )
 
+    # ------------------------------------------------------------------
+    # Phase 2 auto-skip (parity with homodyne core.py:2296-2362)
+    # ------------------------------------------------------------------
+    # When the NLSQ warm-start already lands a good fit (reduced χ² below
+    # threshold), skip the expensive CMA-ES global search — a warm-started
+    # CMA-ES is a local refinement that rarely improves on a good NLSQ solution.
+    # Honors ``cmaes_warmstart_auto_skip`` / ``cmaes_warmstart_skip_threshold``,
+    # which were previously dropped on the heterodyne per-angle path (only
+    # laminar_flow's core.py honored them), so a "skip when the warm-start is
+    # good" run silently still paid for the full global search.
+    warmstart_auto_skip = bool(getattr(config, "cmaes_warmstart_auto_skip", True))
+    warmstart_skip_threshold = float(
+        getattr(config, "cmaes_warmstart_skip_threshold", 5.0)
+    )
+    if (
+        warmstart_auto_skip
+        and nlsq_result is not None
+        and nlsq_result.success
+        and nlsq_result.reduced_chi_squared is not None
+        and np.isfinite(nlsq_result.reduced_chi_squared)
+        and nlsq_result.reduced_chi_squared < warmstart_skip_threshold
+    ):
+        logger.info(
+            "CMA-ES auto-skip: NLSQ warm-start reduced χ²=%.4f < threshold=%.1f; "
+            "skipping CMA-ES global search.",
+            nlsq_result.reduced_chi_squared,
+            warmstart_skip_threshold,
+        )
+        # ``_fit_local`` already left the model at the warm-start params and set
+        # fitted_correlation / reduced_chi_squared, so the result is complete —
+        # we only re-tag the optimizer metadata to reflect the CMA-ES context.
+        nlsq_result.metadata["optimizer"] = "cmaes"
+        nlsq_result.metadata["cmaes_winner"] = "nlsq_warmstart_auto_skip"
+        nlsq_result.metadata["cmaes_skipped"] = True
+        nlsq_result.metadata["warmstart_skip_threshold"] = warmstart_skip_threshold
+        # Diagnostics-contract symmetry with the joint escapes (which tag
+        # nlsq_diagnostics["global_escape"]). For the per-angle path the tag
+        # rides in per-angle metadata — the only field aggregated into
+        # ``nlsq_diagnostics["per_angle_metadata"]``.
+        nlsq_result.metadata["global_escape"] = "cmaes_warmstart_auto_skip"
+        nlsq_result.metadata["quality_flag"] = classify_quality_flag(
+            nlsq_result.reduced_chi_squared
+        )
+        _log_result(nlsq_result)
+        return nlsq_result
+
     # Ensure model parameters are reset for CMA-ES (NLSQ may have modified them)
     model.set_params(param_manager.expand_varying_to_full(initial_varying))
 
@@ -3086,6 +3140,15 @@ def _fit_cmaes(
     # the cross-class pass; mapping the heterodyne fields by hand is the right
     # answer until the two NLSQConfigs converge in Phase 6.
     cmaes_wrapper_config = CMAESWrapperConfig(
+        # Reproducibility: pin the RNG seed, offset per angle so the N searches
+        # are decorrelated. Without this the per-angle path left seed=None →
+        # non-reproducible, unlike the seed-pinned joint escapes.
+        seed=_PER_ANGLE_CMAES_SEED + angle_idx,
+        # Honor the configured CMA-ES initial step size. NOTE: this is the
+        # ``sigma`` *config field* (initial step, fraction of search range), NOT
+        # the ``sigma=`` argument to fit_with_cmaes below (per-point measurement
+        # uncertainty). cmaes_sigma0 was previously dropped → wrapper used 0.5.
+        sigma=float(getattr(config, "cmaes_sigma0", 0.5)),
         max_generations=getattr(config, "cmaes_max_iterations", None),
         popsize=getattr(config, "cmaes_population_size", None),
         tol_x=float(getattr(config, "cmaes_tolx", 1e-8)),
@@ -3200,6 +3263,14 @@ def _fit_cmaes(
     result.metadata["cmaes_cost"] = cmaes_cost
     result.metadata["nlsq_warmstart_cost"] = nlsq_cost
     result.metadata["quality_flag"] = quality_flag
+    # Diagnostics-contract symmetry with the joint escapes (which tag
+    # nlsq_diagnostics["global_escape"]). For the per-angle path the tag rides
+    # in per-angle metadata: "cmaes" when CMA-ES won Phase 3, else
+    # "cmaes_warmstart_kept" (CMA-ES ran but the NLSQ warm-start was kept) —
+    # mirroring the joint escape's "<kind>" / "<kind>_warmstart_kept" values.
+    result.metadata["global_escape"] = (
+        "cmaes" if winner == "cmaes" else "cmaes_warmstart_kept"
+    )
 
     _log_result(result)
     return result
