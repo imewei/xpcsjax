@@ -830,11 +830,16 @@ def _validate_data(data: dict[str, Any]) -> None:
         raise ValueError("Empty experimental data")
 
 
-def _get_analysis_mode(config: ConfigManager) -> str:
-    """Determine analysis mode from configuration."""
+def _get_analysis_mode(config: ConfigManager) -> AnalysisMode:
+    """Determine analysis mode from configuration.
+
+    Returns the typed :class:`AnalysisMode` (a ``StrEnum``, so it compares equal
+    to its string value everywhere downstream). ``ConfigManager`` validates the
+    mode at construction, so the lookup value is always a recognised member.
+    """
     if hasattr(config, "config") and config.config:
-        return config.config.get("analysis_mode", "static_isotropic")
-    return "static_isotropic"
+        return AnalysisMode(config.config.get("analysis_mode", "static_isotropic"))
+    return AnalysisMode("static_isotropic")
 
 
 def _is_nlsq_diagnostics_enabled(config: ConfigManager | dict[str, Any]) -> bool:
