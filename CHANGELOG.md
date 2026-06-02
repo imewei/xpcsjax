@@ -44,6 +44,11 @@ the rendered documentation.
   `nlsq_diagnostics["global_escape"]` and carry NaN covariance /
   uncertainties with `n_iterations=0` by construction. See
   `docs/source/theory/heterodyne_anti_degeneracy.rst`.
+- **Dedicated heterodyne logging module**
+  (`optimization/nlsq/heterodyne_logging.py`). The `two_component` core and
+  stratified-LS paths now route progress/banner logging through it for
+  structured-logging parity with the `laminar_flow` pipeline (resolves the
+  multi-minute stratified-LS silence).
 
 ### Changed
 
@@ -114,12 +119,44 @@ the rendered documentation.
   `xpcsjax.config.parameter_space.PriorDistribution` (the class was
   deleted during the Phase-7 CMC cleanup but the autodoc directive
   survived, producing a build warning).
+- **Per-angle heterodyne CMA-ES escape now honours its config.** `_fit_cmaes`
+  previously dropped `seed` (non-reproducible), `cmaes_warmstart_auto_skip` /
+  `*_skip_threshold` (paid for a full global search even when the NLSQ
+  warm-start was already good), and `cmaes_sigma0` (always used step `0.5`).
+  Each angle is now seed-pinned (`_PER_ANGLE_CMAES_SEED + angle_idx`), skips
+  below threshold, and threads `sigma0` through — and tags
+  `metadata["global_escape"]` for diagnostics-contract symmetry with the
+  joint escapes.
+- **Heterodyne joint global escapes honour the resolved per-angle scaling
+  mode** instead of forcing Fourier — `effective_mode` is resolved before the
+  global-escape gate, so enabling CMA-ES / multistart never changes the
+  scaling layout (`auto → averaged` at `n_phi ≥ 3`, else `individual`).
+- **Flow-parameter units corrected** in `ParameterRegistry`: `gamma_dot` and
+  `v_offset` were labelled `nm/frame`; the physically correct unit is `Å/s`
+  (metadata-only — bounds, defaults, and log-space flags unchanged).
+- **Noise-normalized stratified-LS reduced χ².**
+  `build_hybrid_streaming_result` now computes `SSR / (σ²_noise · dof)` (the
+  driver threads an estimated far-lag photon-noise variance via
+  `info["sigma2_noise"]`) instead of raw `SSR/dof`, which collapsed to
+  ~0.0024 on normalized C₂ data and mislabelled fits as "good".
+- **Heterodyne visualization reads physics-first parameters.** Heterodyne
+  `result.parameters` is laid out `[physics | contrast | offset]` (vs.
+  homodyne's scaling-first layout); the viz unpackers and uncertainty
+  slicing now use the heterodyne layout, fixing a C044 fitted-C₂ heatmap that
+  rendered ~1e6.
+- **Robustness guards** against non-finite values and a JIT-cache thread race
+  on the heterodyne paths.
 
 ### Documentation
 
 - Added `make docs` target that runs Sphinx with `-W` (warnings treated
   as errors), so dangling autodoc references and broken cross-refs fail
   the build instead of accumulating silently. Wired into `make ci-full`.
+- Reconciled the `api/modules.rst` "All modules" page with the live package:
+  removed the deleted `xpcsjax.core.heterodyne_physics`, registered the
+  modules added since (CLI, runtime, viz, and the new heterodyne NLSQ
+  modules), and fixed stale `:mod:`/`:func:`/`:class:` cross-references in the
+  user-guide and theory pages so the strict `-W` build is warning-clean.
 
 ## [0.1.0]
 

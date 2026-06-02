@@ -113,7 +113,6 @@ Under :mod:`xpcsjax.core` (physics):
 - :mod:`xpcsjax.core.heterodyne_model`
 - :mod:`xpcsjax.core.heterodyne_model_stateful`
 - :mod:`xpcsjax.core.heterodyne_models`
-- :mod:`xpcsjax.core.heterodyne_physics`
 - :mod:`xpcsjax.core.heterodyne_physics_factors`
 - :mod:`xpcsjax.core.heterodyne_physics_kernel`
 - :mod:`xpcsjax.core.heterodyne_physics_utils`

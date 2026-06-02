@@ -1,8 +1,9 @@
 Visualization
 =============
 
-After fitting with :func:`xpcsjax.fit_nlsq`, generate diagnostic plots and
-serialize fitted artifacts with :func:`xpcsjax.generate_nlsq_plots`.
+After fitting with :func:`~xpcsjax.optimization.nlsq.fit_nlsq`, generate
+diagnostic plots and serialize fitted artifacts with
+:func:`~xpcsjax.viz.nlsq_plots.generate_nlsq_plots`.
 
 Quick start
 -----------
@@ -69,7 +70,7 @@ String metadata (parameter names, analysis mode) lives in the JSON sidecar.
 Performance tuning
 ------------------
 
-Two backends are wired into :func:`xpcsjax.generate_nlsq_plots`:
+Two backends are wired into :func:`~xpcsjax.viz.nlsq_plots.generate_nlsq_plots`:
 
 * **Datashader (default fast path)** — used when ``use_datashader=True``
   (default) and the ``[viz-fast]`` extra is installed. Renders the 3-panel
@@ -118,10 +119,10 @@ Low-level API
 For notebook use or custom layouts, the low-level plot functions return
 ``matplotlib.figure.Figure`` instances:
 
-- :func:`xpcsjax.viz.plot_nlsq_fit` — 3-panel comparison
-- :func:`xpcsjax.viz.plot_residual_map` — 4-panel residual diagnostic
-- :func:`xpcsjax.viz.plot_simulated_data` — single-panel fitted heatmap
-- :func:`xpcsjax.viz.compute_diagonal_overlay_stats` — diagonal-trace stats
+- :func:`~xpcsjax.viz.nlsq_plots.plot_nlsq_fit` — 3-panel comparison
+- :func:`~xpcsjax.viz.nlsq_plots.plot_residual_map` — 4-panel residual diagnostic
+- :func:`~xpcsjax.viz.nlsq_plots.plot_simulated_data` — single-panel fitted heatmap
+- :func:`~xpcsjax.viz.diagnostics.compute_diagonal_overlay_stats` — diagonal-trace stats
 
 Pass ``save_path=None`` to keep the Figure open for further customization;
 pass ``save_path=Path(...)`` to save and close.
@@ -129,7 +130,7 @@ pass ``save_path=Path(...)`` to save and close.
 Model support
 -------------
 
-Both :class:`xpcsjax.HomodyneModel` and :class:`xpcsjax.HeterodyneModel`
+Both :class:`~xpcsjax.core.HomodyneModel` and :class:`~xpcsjax.core.HeterodyneModel`
 are supported, with one caveat: heterodyne plotting in v0.1 requires the
 ``individual`` per-angle scaling layout
 

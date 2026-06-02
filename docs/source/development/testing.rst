@@ -29,7 +29,7 @@ Each shard owns a specific class of guarantee:
 ``tests/core/``
     Physics-model unit tests. Covers :class:`xpcsjax.core.HomodyneModel`,
     the heterodyne model variants, and the kernel functions in
-    :mod:`xpcsjax.core.physics` and :mod:`xpcsjax.core.heterodyne_physics`.
+    :mod:`xpcsjax.core.physics` and :mod:`xpcsjax.core.heterodyne_physics_kernel`.
 
 ``tests/optimization/``
     NLSQ engine tests. Covers

@@ -5,11 +5,21 @@ All modules
 
 This page registers every xpcsjax submodule as a :mod: target so that
 internal cross-references resolve in the rendered documentation. It is
-intentionally light: each automodule is members-suppressed because the
-user-visible API surface is covered by the dedicated pages under
-:doc:`index`.
+intentionally light: each ``py:module`` entry is members-suppressed because
+the user-visible API surface is covered by the dedicated pages under
+:doc:`index`. Modules already documented with ``automodule`` on a dedicated
+page (the ``xpcsjax.cli`` submodules and ``xpcsjax.runtime``) are intentionally
+omitted here to avoid duplicate object descriptions.
 
 .. py:module:: xpcsjax
+
+.. py:module:: xpcsjax.cli
+
+.. py:module:: xpcsjax.cli.config_generator
+
+.. py:module:: xpcsjax.cli.main
+
+.. py:module:: xpcsjax.cli.xla_config
 
 .. py:module:: xpcsjax.config
 
@@ -49,8 +59,6 @@ user-visible API surface is covered by the dedicated pages under
 
 .. py:module:: xpcsjax.core.heterodyne_model_stateful
 
-.. py:module:: xpcsjax.core.heterodyne_physics
-
 .. py:module:: xpcsjax.core.heterodyne_physics_factors
 
 .. py:module:: xpcsjax.core.heterodyne_physics_kernel
@@ -62,6 +70,8 @@ user-visible API surface is covered by the dedicated pages under
 .. py:module:: xpcsjax.core.homodyne_model
 
 .. py:module:: xpcsjax.core.jax_backend
+
+.. py:module:: xpcsjax.core.math_primitives
 
 .. py:module:: xpcsjax.core.model_mixins
 
@@ -131,6 +141,8 @@ user-visible API surface is covered by the dedicated pages under
 
 .. py:module:: xpcsjax.optimization.nlsq.anti_degeneracy_controller
 
+.. py:module:: xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics
+
 .. py:module:: xpcsjax.optimization.nlsq.cmaes_wrapper
 
 .. py:module:: xpcsjax.optimization.nlsq.config
@@ -145,6 +157,8 @@ user-visible API surface is covered by the dedicated pages under
 
 .. py:module:: xpcsjax.optimization.nlsq.fourier_reparam
 
+.. py:module:: xpcsjax.optimization.nlsq.gradient_diagnostics
+
 .. py:module:: xpcsjax.optimization.nlsq.gradient_monitor
 
 .. py:module:: xpcsjax.optimization.nlsq.heterodyne_adapter
@@ -153,15 +167,27 @@ user-visible API surface is covered by the dedicated pages under
 
 .. py:module:: xpcsjax.optimization.nlsq.heterodyne_config
 
+.. py:module:: xpcsjax.optimization.nlsq.heterodyne_constant_mode
+
 .. py:module:: xpcsjax.optimization.nlsq.heterodyne_core
 
 .. py:module:: xpcsjax.optimization.nlsq.heterodyne_data_prep
 
+.. py:module:: xpcsjax.optimization.nlsq.heterodyne_logging
+
 .. py:module:: xpcsjax.optimization.nlsq.heterodyne_memory
+
+.. py:module:: xpcsjax.optimization.nlsq.heterodyne_multistart
 
 .. py:module:: xpcsjax.optimization.nlsq.heterodyne_result_builder
 
 .. py:module:: xpcsjax.optimization.nlsq.heterodyne_results
+
+.. py:module:: xpcsjax.optimization.nlsq.heterodyne_stratified_data
+
+.. py:module:: xpcsjax.optimization.nlsq.heterodyne_stratified_ls
+
+.. py:module:: xpcsjax.optimization.nlsq.heterodyne_views
 
 .. py:module:: xpcsjax.optimization.nlsq.hierarchical
 
@@ -193,6 +219,8 @@ user-visible API surface is covered by the dedicated pages under
 
 .. py:module:: xpcsjax.optimization.nlsq.strategies.executors
 
+.. py:module:: xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming
+
 .. py:module:: xpcsjax.optimization.nlsq.strategies.hybrid_streaming
 
 .. py:module:: xpcsjax.optimization.nlsq.strategies.out_of_core
@@ -207,11 +235,25 @@ user-visible API surface is covered by the dedicated pages under
 
 .. py:module:: xpcsjax.optimization.nlsq.transforms
 
+.. py:module:: xpcsjax.optimization.nlsq.validation
+
 .. py:module:: xpcsjax.optimization.nlsq.wrapper
 
 .. py:module:: xpcsjax.optimization.numerical_validation
 
 .. py:module:: xpcsjax.optimization.recovery_strategies
+
+.. py:module:: xpcsjax.post_install
+
+.. py:module:: xpcsjax.runtime.shell
+
+.. py:module:: xpcsjax.runtime.shell.activation
+
+.. py:module:: xpcsjax.runtime.utils
+
+.. py:module:: xpcsjax.runtime.utils.system_validator
+
+.. py:module:: xpcsjax.uninstall_scripts
 
 .. py:module:: xpcsjax.utils
 
@@ -220,4 +262,12 @@ user-visible API surface is covered by the dedicated pages under
 .. py:module:: xpcsjax.utils.logging
 
 .. py:module:: xpcsjax.utils.path_validation
+
+.. py:module:: xpcsjax.viz
+
+.. py:module:: xpcsjax.viz.datashader_backend
+
+.. py:module:: xpcsjax.viz.diagnostics
+
+.. py:module:: xpcsjax.viz.nlsq_plots
 

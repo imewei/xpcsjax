@@ -70,7 +70,7 @@ if any(a in ("latex", "latexpdf") for a in _sys.argv):
 # Ignore unresolved cross-refs for third-party types that would resolve under
 # intersphinx but are noise in offline builds. Keep this list tight — it
 # should only cover stdlib, numpy, jax, scipy, h5py, evosax surface.
-_THIRD_PARTY_PKGS = r"(jax|jaxlib|numpy|np|scipy|h5py|evosax|nlsq|interpax|psutil|cloud[a-z]+|sklearn|jaxopt|optax)"
+_THIRD_PARTY_PKGS = r"(jax|jaxlib|numpy|np|scipy|h5py|evosax|nlsq|interpax|psutil|cloud[a-z]+|sklearn|jaxopt|optax|argparse|matplotlib|PIL|os)"
 nitpick_ignore_regex = [
     (r"py:(class|data|obj|func|attr|exc)", _THIRD_PARTY_PKGS + r"\..*"),
     (r"py:(class|data|obj)", r"typing\..*"),
@@ -90,6 +90,26 @@ nitpick_ignore_regex = [
     (r"py:func", r"xpcsjax\.core\.models\.make_model"),
     # Bare attribute names referenced from inside autodoc'd docstrings.
     (r"py:attr", r"parameter_names|param_names"),
+    # Bare class/func names referenced from CLI/internal docstrings. Same
+    # rationale as the bare-name block above: the symbols are documented at
+    # their canonical paths (or are deliberately internal), but the docstrings
+    # reference them unqualified. Suppress the lookups instead of rewriting
+    # every docstring.
+    (r"py:class", r"ConfigManager|OptimizationResult|GradientCollapseMonitor"),
+    (r"py:func", r"fit_nlsq_jax"),
+    (r"py:func", r"xpcsjax\.(fit_nlsq|load_xpcs_data)"),
+    # Internal enums/classes referenced fully-qualified from type hints and
+    # authored prose but intentionally not autodoc'd (members are suppressed
+    # on the dedicated API pages).
+    (r"py:class", r"xpcsjax\.config\.parameter_registry\.AnalysisMode"),
+    (r"py:class", r"xpcsjax\.config\.physics_validators\.ConstraintSeverity"),
+    (r"py:class", r"xpcsjax\.uninstall_scripts\.CleanupTarget"),
+    (r"py:func", r"xpcsjax\.optimization\.nlsq\.cmaes_wrapper\.fit_with_cmaes"),
+    (
+        r"py:func",
+        r"xpcsjax\.optimization\.nlsq\.anti_degeneracy_diagnostics\."
+        r"assemble_anti_degeneracy_diagnostics",
+    ),
 ]
 source_suffix = {
     ".rst": "restructuredtext",
