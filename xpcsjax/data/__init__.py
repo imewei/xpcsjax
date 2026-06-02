@@ -41,6 +41,9 @@ Example Usage:
 
 from typing import Any
 
+# Typed dataset container (numpy-only; safe to import unconditionally).
+from xpcsjax.data.dataset import XpcsDataset
+
 # Handle imports with graceful fallback for missing dependencies
 try:
     from xpcsjax.data.xpcs_loader import (
@@ -195,6 +198,7 @@ def get_data_module_info() -> dict:
 __all__ = [
     # Core loader
     "XPCSDataLoader",
+    "XpcsDataset",
     "load_xpcs_data",
     "load_xpcs_config",
     # Exceptions

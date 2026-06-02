@@ -35,6 +35,8 @@ from typing import TYPE_CHECKING, Any, TypeVar
 # Handle optional dependencies with graceful fallback
 if TYPE_CHECKING:
     from numpy.typing import NDArray
+
+    from xpcsjax.data.dataset import XpcsDataset
 else:
     NDArray = Any
 
@@ -2212,7 +2214,7 @@ class XPCSDataLoader:
 def load_xpcs_data(
     config_path: str | dict | None = None,
     config_dict: dict | None = None,
-) -> dict[str, Any]:
+) -> "XpcsDataset":
     """Convenience function to load XPCS data from configuration file or dict.
 
     Supports both YAML and JSON configuration files with auto-detection,
@@ -2248,7 +2250,11 @@ def load_xpcs_data(
         config_path = None
 
     loader = XPCSDataLoader(config_path=config_path, config_dict=config_dict)
-    return loader.load_experimental_data()
+    # Wrap in the typed XpcsDataset (a dict subclass): key-indexed access is
+    # unchanged, but callers gain the typed .c2/.phi accessors and schema.
+    from xpcsjax.data.dataset import XpcsDataset
+
+    return XpcsDataset(loader.load_experimental_data())
 
 
 # Export main classes and functions
