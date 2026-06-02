@@ -2214,7 +2214,7 @@ class XPCSDataLoader:
 def load_xpcs_data(
     config_path: str | dict | None = None,
     config_dict: dict | None = None,
-) -> "XpcsDataset":
+) -> XpcsDataset:
     """Convenience function to load XPCS data from configuration file or dict.
 
     Supports both YAML and JSON configuration files with auto-detection,
