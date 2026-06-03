@@ -175,7 +175,10 @@ def log_quantile_scaling(contrast_pa: np.ndarray, offset_pa: np.ndarray) -> None
             "  Offset: mean=%.4f, std=%.4f", float(np.nanmean(o)), float(np.nanstd(o))
         )
     except Exception:
-        logger.debug("log_quantile_scaling skipped (non-finite/empty input)")
+        try:
+            logger.debug("log_quantile_scaling skipped (non-finite/empty input)")
+        except Exception:  # noqa: BLE001 - logging must not mask original
+            pass
 
 
 # ---------------------------------------------------------------------------

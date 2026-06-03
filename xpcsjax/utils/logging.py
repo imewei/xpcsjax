@@ -839,8 +839,11 @@ class MinimalLogger:
         if fmt == "json":
             json_fmt = JSONFormatter()
             for h in root_logger.handlers:
-                h.setFormatter(json_fmt)
+                if getattr(h, "_xpcsjax_managed", False):
+                    h.setFormatter(json_fmt)
         for h in root_logger.handlers:
+            if not getattr(h, "_xpcsjax_managed", False):
+                continue
             if not any(isinstance(f, ContextFilter) for f in h.filters):
                 h.addFilter(ContextFilter())
         # quiet must still win; apply env DEBUG only when not quiet, AFTER the
@@ -1303,9 +1306,12 @@ def log_calls(
                 return result
 
             except Exception as e:
-                resolved_logger.log(
-                    logging.ERROR, "Exception in %s: %s", func_name, e
-                )
+                try:
+                    resolved_logger.log(
+                        logging.ERROR, "Exception in %s: %s", func_name, e
+                    )
+                except Exception:  # noqa: BLE001 - logging must not mask original
+                    pass
                 raise
 
         return wrapper  # type: ignore[return-value]
@@ -1354,13 +1360,16 @@ def log_performance(
 
             except Exception as e:
                 duration = time.perf_counter() - start_time
-                resolved_logger.log(
-                    logging.ERROR,
-                    "Performance: %s failed after %.3fs: %s",
-                    func_name,
-                    duration,
-                    e,
-                )
+                try:
+                    resolved_logger.log(
+                        logging.ERROR,
+                        "Performance: %s failed after %.3fs: %s",
+                        func_name,
+                        duration,
+                        e,
+                    )
+                except Exception:  # noqa: BLE001 - logging must not mask original
+                    pass
                 raise
 
         return wrapper  # type: ignore[return-value]
@@ -1394,13 +1403,16 @@ def log_operation(
         )
     except Exception as e:
         duration = time.perf_counter() - start_time
-        resolved_logger.log(
-            logging.ERROR,
-            "Failed operation: %s after %.3fs: %s",
-            operation_name,
-            duration,
-            e,
-        )
+        try:
+            resolved_logger.log(
+                logging.ERROR,
+                "Failed operation: %s after %.3fs: %s",
+                operation_name,
+                duration,
+                e,
+            )
+        except Exception:  # noqa: BLE001 - logging must not mask original
+            pass
         raise
 
 

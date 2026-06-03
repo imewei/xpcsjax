@@ -31,6 +31,23 @@ def test_log_quantile_scaling_never_raises_on_empty():
     hl.log_quantile_scaling(np.array([]), np.array([]))  # must not raise
 
 
+def test_log_operation_logging_failure_does_not_mask_original_exception():
+    """If the failure-path ``logger.log`` itself raises, the caller's ORIGINAL
+    exception must still propagate unchanged (logging is observational-only)."""
+    logger = MagicMock(spec=logging.Logger)
+
+    def _log(level, *args, **kwargs):
+        # Only the failure-path (ERROR) log explodes; entry/success logs pass.
+        if level == logging.ERROR:
+            raise RuntimeError("logging backend exploded")
+
+    logger.log.side_effect = _log
+
+    with pytest.raises(ValueError, match="original failure"):
+        with lm.log_operation("op", logger=logger):
+            raise ValueError("original failure")
+
+
 def test_log_phase_never_raises_when_memory_probe_fails(monkeypatch):
     monkeypatch.setattr(
         lm, "_get_memory_gb", lambda: (_ for _ in ()).throw(RuntimeError("probe"))
