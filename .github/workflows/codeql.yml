@@ -1,0 +1,36 @@
+name: CodeQL
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly re-scan catches advisories published after the last code change.
+    - cron: "27 4 * * 1"
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (python)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write  # upload SARIF results
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3  # TODO: pin to a verified commit SHA
+        with:
+          languages: python
+          # security-and-quality adds maintainability queries on top of the
+          # default security set; drop to "security-extended" if too noisy.
+          queries: security-and-quality
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3  # TODO: pin to a verified commit SHA
+        with:
+          category: "/language:python"
