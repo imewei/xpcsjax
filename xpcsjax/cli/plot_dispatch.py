@@ -15,12 +15,13 @@ invocations.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from xpcsjax.utils.logging import get_logger
+from xpcsjax.utils.logging import _LOG_CONTEXT, get_logger, log_exception, log_once
 
 if TYPE_CHECKING:
     import argparse
@@ -29,6 +30,17 @@ if TYPE_CHECKING:
     from xpcsjax.optimization.nlsq.results import OptimizationResult
 
 logger = get_logger(__name__)
+
+
+def _current_run_id() -> str | None:
+    """Read the active ``run_id`` from the log-context registry, if any.
+
+    Used to scope ``log_once`` rate-limit keys per analysis run so a per-angle
+    render failure logged once in one fit does not stay silenced for later fits
+    in the same long-lived process. Returns ``None`` when no run is in context.
+    """
+    ctx = _LOG_CONTEXT.get() or {}
+    return ctx.get("run_id")
 
 
 __all__ = [
@@ -142,8 +154,13 @@ def _plot_experimental_data(data: dict[str, Any], plots_dir: Path) -> Path | Non
                 save_path=save_path,
                 title="Experimental C₂(t₁, t₂)",
             )
-        except Exception:
-            logger.exception("Failed to plot experimental data for phi=%s", phi)
+        except Exception as exc:
+            log_exception(
+                logger,
+                exc,
+                context={"operation": "plot_experimental_data", "phi": phi},
+                level=logging.WARNING,
+            )
 
     return plots_dir
 
@@ -182,14 +199,24 @@ def _plot_simulated_from_config(
 
     try:
         model = config_manager.get_model()
-    except Exception:
-        logger.exception("Could not construct model from config; skipping simulated plots")
+    except Exception as exc:
+        log_exception(
+            logger,
+            exc,
+            context={"operation": "simulated_plots_get_model"},
+            level=logging.WARNING,
+        )
         return None
 
     try:
         init_params = config_manager.get_initial_parameters()
-    except Exception:
-        logger.exception("Could not extract initial parameters; skipping simulated plots")
+    except Exception as exc:
+        log_exception(
+            logger,
+            exc,
+            context={"operation": "simulated_plots_get_initial_parameters"},
+            level=logging.WARNING,
+        )
         return None
 
     # Pull physical scalars from the merged config for the model call.
@@ -234,8 +261,13 @@ def _plot_simulated_from_config(
         params_arr = np.array(
             [float(init_params[name]) for name in active], dtype=np.float64
         )
-    except Exception:
-        logger.exception("Could not order init params; skipping simulated plots")
+    except Exception as exc:
+        log_exception(
+            logger,
+            exc,
+            context={"operation": "simulated_plots_order_init_params"},
+            level=logging.WARNING,
+        )
         return None
 
     for phi in phi_angles:
@@ -252,8 +284,17 @@ def _plot_simulated_from_config(
                 offset=offset,
                 dt=dt,
             )
-        except Exception:
-            logger.exception("Could not evaluate model c2 at phi=%s", phi)
+        except Exception as exc:
+            run_id = _current_run_id()
+            log_once(
+                logger,
+                logging.WARNING,
+                f"{run_id}:plot_render_fail:simulated_evaluate_model_c2",
+                "Could not evaluate model c2 at phi=%s: %s (further per-angle "
+                "failures suppressed)",
+                phi,
+                exc,
+            )
             continue
 
         # _evaluate_model_c2 already returns a fully-scaled c2 surface
@@ -274,8 +315,17 @@ def _plot_simulated_from_config(
                 analysis_mode=analysis_mode,
                 save_path=save_path,
             )
-        except Exception:
-            logger.exception("Failed to render simulated plot for phi=%s", phi)
+        except Exception as exc:
+            run_id = _current_run_id()
+            log_once(
+                logger,
+                logging.WARNING,
+                f"{run_id}:plot_render_fail:simulated_plot",
+                "Failed to render simulated plot for phi=%s: %s (further "
+                "per-angle failures suppressed)",
+                phi,
+                exc,
+            )
 
     return plots_dir
 
@@ -383,8 +433,13 @@ def _generate_post_fit_plots(
 
     try:
         model = config_manager.get_model()
-    except Exception:
-        logger.exception("Could not construct model for post-fit plotting")
+    except Exception as exc:
+        log_exception(
+            logger,
+            exc,
+            context={"operation": "post_fit_plots_get_model"},
+            level=logging.WARNING,
+        )
         return None
 
     cfg = config_manager.get_config()
@@ -399,8 +454,13 @@ def _generate_post_fit_plots(
             use_datashader=use_datashader,
             parallel=parallel,
         )
-    except Exception:
-        logger.exception("generate_nlsq_plots failed")
+    except Exception as exc:
+        log_exception(
+            logger,
+            exc,
+            context={"operation": "generate_nlsq_plots"},
+            level=logging.WARNING,
+        )
         return None
 
     return plots_dir
@@ -426,8 +486,13 @@ def _save_fit_comparison_only(
 
     try:
         model = config_manager.get_model()
-    except Exception:
-        logger.exception("Could not construct model for fit-comparison plotting")
+    except Exception as exc:
+        log_exception(
+            logger,
+            exc,
+            context={"operation": "fit_comparison_get_model"},
+            level=logging.WARNING,
+        )
         return None
 
     c2_exp = np.asarray(data.get("c2_exp", data.get("c2")))
@@ -473,8 +538,17 @@ def _save_fit_comparison_only(
                 offset=_offset,
                 dt=_dt,
             )
-        except Exception:
-            logger.exception("Could not evaluate fitted c2 at phi=%s", phi)
+        except Exception as exc:
+            run_id = _current_run_id()
+            log_once(
+                logger,
+                logging.WARNING,
+                f"{run_id}:plot_render_fail:fit_comparison_evaluate_c2",
+                "Could not evaluate fitted c2 at phi=%s: %s (further per-angle "
+                "failures suppressed)",
+                phi,
+                exc,
+            )
             continue
 
         suffix = f"_phi{int(round(float(phi)))}"
@@ -488,8 +562,17 @@ def _save_fit_comparison_only(
                 reduced_chi_squared=result.reduced_chi_squared,
                 save_path=plots_dir / f"nlsq_fit{suffix}.png",
             )
-        except Exception:
-            logger.exception("plot_nlsq_fit failed for phi=%s", phi)
+        except Exception as exc:
+            run_id = _current_run_id()
+            log_once(
+                logger,
+                logging.WARNING,
+                f"{run_id}:plot_render_fail:fit_comparison_nlsq_fit",
+                "plot_nlsq_fit failed for phi=%s: %s (further per-angle "
+                "failures suppressed)",
+                phi,
+                exc,
+            )
 
         try:
             plot_residual_map(
@@ -500,8 +583,17 @@ def _save_fit_comparison_only(
                 phi_deg=float(phi),
                 save_path=plots_dir / f"nlsq_residuals{suffix}.png",
             )
-        except Exception:
-            logger.exception("plot_residual_map failed for phi=%s", phi)
+        except Exception as exc:
+            run_id = _current_run_id()
+            log_once(
+                logger,
+                logging.WARNING,
+                f"{run_id}:plot_render_fail:fit_comparison_residual_map",
+                "plot_residual_map failed for phi=%s: %s (further per-angle "
+                "failures suppressed)",
+                phi,
+                exc,
+            )
 
     return plots_dir
 
@@ -571,8 +663,13 @@ def dispatch_plots(
         if data is not None:
             try:
                 _record(_plot_experimental_data(data, plots_dir))
-            except Exception:
-                logger.exception("Experimental data plot dispatch failed")
+            except Exception as exc:
+                log_exception(
+                    logger,
+                    exc,
+                    context={"operation": "dispatch_experimental_data"},
+                    level=logging.WARNING,
+                )
         else:
             logger.warning("--plot-experimental-data requested but no data was loaded")
 
@@ -587,8 +684,13 @@ def dispatch_plots(
                         config_manager, contrast, offset, phi_str, plots_dir, data
                     )
                 )
-            except Exception:
-                logger.exception("Simulated data plot dispatch failed")
+            except Exception as exc:
+                log_exception(
+                    logger,
+                    exc,
+                    context={"operation": "dispatch_simulated_data"},
+                    level=logging.WARNING,
+                )
         else:
             logger.warning("--plot-simulated-data requested but no config_manager")
 
@@ -597,8 +699,13 @@ def dispatch_plots(
         if save_plots:
             try:
                 _record(_save_fit_comparison_only(config_manager, data, result, plots_dir))
-            except Exception:
-                logger.exception("Fit-comparison plot dispatch failed")
+            except Exception as exc:
+                log_exception(
+                    logger,
+                    exc,
+                    context={"operation": "dispatch_fit_comparison"},
+                    level=logging.WARNING,
+                )
 
         if plot_after_fit and not (plot_exp or plot_sim):
             # Full artifact dump path — only when the user did NOT explicitly
@@ -607,8 +714,13 @@ def dispatch_plots(
                 _record(
                     _generate_post_fit_plots(args, config_manager, data, result, plots_dir)
                 )
-            except Exception:
-                logger.exception("Post-fit plot dispatch failed")
+            except Exception as exc:
+                log_exception(
+                    logger,
+                    exc,
+                    context={"operation": "dispatch_post_fit"},
+                    level=logging.WARNING,
+                )
 
     if written:
         logger.info("Plots written to %s", ", ".join(sorted(str(p) for p in written)))
