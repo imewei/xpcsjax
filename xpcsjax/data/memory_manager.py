@@ -24,6 +24,7 @@ Key Features:
 
 import atexit
 import gc
+import logging
 import mmap
 import os
 import threading
@@ -66,11 +67,18 @@ except ImportError:
 
 # V2 system integration
 try:
-    from xpcsjax.utils.logging import get_logger, log_calls, log_performance
+    from xpcsjax.utils.logging import (
+        get_logger,
+        log_calls,
+        log_exception,
+        log_once,
+        log_performance,
+        logged_errors,
+    )
 
     HAS_V2_LOGGING = True
 except ImportError:
-    import logging
+    from contextlib import contextmanager as _contextmanager
 
     HAS_V2_LOGGING = False
 
@@ -82,6 +90,21 @@ except ImportError:
 
     def log_calls(*args, **kwargs):  # type: ignore[no-untyped-def,misc]
         return lambda f: f
+
+    def log_exception(*args, **kwargs):  # type: ignore[no-untyped-def,misc]
+        return None
+
+    def log_once(*args, **kwargs):  # type: ignore[no-untyped-def,misc]
+        return None
+
+    @_contextmanager  # type: ignore[misc]
+    def logged_errors(*args, **kwargs):  # type: ignore[no-untyped-def,misc]
+        # Fallback when the Phase-1 helper is unavailable: behave as a
+        # pure-swallow guard so control flow is unchanged.
+        try:
+            yield
+        except Exception:
+            pass
 
 
 logger = get_logger(__name__)
@@ -95,10 +118,14 @@ _active_monitors: weakref.WeakSet[Any] = weakref.WeakSet()
 def _cleanup_active_monitors() -> None:
     """Clean up all active memory pressure monitors on interpreter exit."""
     for monitor in list(_active_monitors):
-        try:
+        with logged_errors(
+            logger,
+            "atexit_stop_monitoring",
+            policy="suppress",
+            level=logging.DEBUG,
+            once_key=f"{id(monitor)}:memmgr:atexit_stop_monitoring",
+        ):
             monitor.stop_monitoring()
-        except Exception:
-            pass
 
 
 atexit.register(_cleanup_active_monitors)
@@ -266,21 +293,15 @@ class MemoryPressureMonitor:
         # Register this monitor
         _active_monitors.add(self)
 
-        try:
-            logger.info(
-                f"Memory pressure monitor initialized: warning={warning_threshold}, "
-                f"critical={critical_threshold}",
-            )
-        except Exception:
-            pass
+        logger.info(
+            f"Memory pressure monitor initialized: warning={warning_threshold}, "
+            f"critical={critical_threshold}",
+        )
 
     def start_monitoring(self) -> None:
         """Start background memory pressure monitoring."""
         if self._monitoring_active:
-            try:
-                logger.warning("Memory monitoring already active")
-            except Exception:
-                pass
+            logger.warning("Memory monitoring already active")
             return
 
         self._monitoring_active = True
@@ -296,10 +317,7 @@ class MemoryPressureMonitor:
         )
         self._monitoring_thread.start()
 
-        try:
-            logger.info("Memory pressure monitoring started")
-        except Exception:
-            pass
+        logger.info("Memory pressure monitoring started")
 
     def stop_monitoring(self) -> None:
         """Stop memory pressure monitoring."""
@@ -307,16 +325,13 @@ class MemoryPressureMonitor:
         self._shutdown_event.set()
         _active_monitors.discard(self)
 
-        try:
+        with logged_errors(
+            logger, "join_monitoring_thread", policy="suppress", level=logging.DEBUG
+        ):
             if self._monitoring_thread and self._monitoring_thread.is_alive():
                 self._monitoring_thread.join(timeout=2.0)
-        except Exception:
-            pass
 
-        try:
-            logger.info("Memory pressure monitoring stopped")
-        except Exception:
-            pass
+        logger.info("Memory pressure monitoring stopped")
 
     def _monitoring_loop(self) -> None:
         """Main monitoring loop."""
@@ -325,19 +340,31 @@ class MemoryPressureMonitor:
                 self._update_stats()
                 self._check_pressure_levels()
                 self._shutdown_event.wait(self.monitoring_interval)
-            except Exception as e:
-                try:
-                    logger.error(f"Memory monitoring error: {e}")
-                except Exception:
-                    pass
-                try:
+            except Exception as exc:
+                log_once(
+                    logger,
+                    logging.DEBUG,
+                    f"{id(self)}:memmgr:monitoring_loop",
+                    "Memory monitoring error: %s",
+                    exc,
+                )
+                with logged_errors(
+                    logger,
+                    "monitoring_loop_backoff_wait",
+                    policy="suppress",
+                    level=logging.DEBUG,
+                ):
                     self._shutdown_event.wait(5.0)  # Longer wait on error
-                except Exception:
-                    pass
 
     def _update_stats(self) -> None:
         """Update memory statistics."""
-        try:
+        with logged_errors(
+            logger,
+            "update_stats",
+            policy="suppress",
+            level=logging.DEBUG,
+            once_key=f"{id(self)}:memmgr:update_stats",
+        ):
             self.stats.update_system_stats()
 
             # Add to pressure history
@@ -348,8 +375,6 @@ class MemoryPressureMonitor:
                 "swap_usage_gb": self.stats.swap_usage_gb,
             }
             self._pressure_history.append(pressure_snapshot)
-        except Exception:
-            pass
 
     def _check_pressure_levels(self) -> None:
         """Check memory pressure levels and trigger responses.
@@ -394,52 +419,55 @@ class MemoryPressureMonitor:
 
     def _trigger_warning_response(self) -> None:
         """Trigger warning-level memory pressure response."""
-        try:
-            logger.warning(
-                f"Memory pressure warning: {self.stats.memory_pressure:.1%} "
-                f"(available: {self.stats.available_memory_gb:.1f}GB)",
-            )
-        except Exception:
-            pass
+        logger.warning(
+            f"Memory pressure warning: {self.stats.memory_pressure:.1%} "
+            f"(available: {self.stats.available_memory_gb:.1f}GB)",
+        )
 
         for callback in self._warning_callbacks:
             try:
                 callback(self.stats)
-            except Exception as e:
-                try:
-                    logger.error(f"Warning callback failed: {e}")
-                except Exception:
-                    pass
+            except Exception as exc:
+                log_once(
+                    logger,
+                    logging.DEBUG,
+                    f"{id(self)}:memmgr:warning_callback:{id(callback)}",
+                    "Warning callback failed: %s",
+                    exc,
+                )
 
     def _trigger_critical_response(self) -> None:
         """Trigger critical-level memory pressure response."""
-        try:
-            logger.critical(
-                f"Critical memory pressure: {self.stats.memory_pressure:.1%} "
-                f"(available: {self.stats.available_memory_gb:.1f}GB)",
-            )
-        except Exception:
-            pass
+        logger.critical(
+            f"Critical memory pressure: {self.stats.memory_pressure:.1%} "
+            f"(available: {self.stats.available_memory_gb:.1f}GB)",
+        )
 
         for callback in self._critical_callbacks:
             try:
                 callback(self.stats)
-            except Exception as e:
-                try:
-                    logger.error(f"Critical callback failed: {e}")
-                except Exception:
-                    pass
+            except Exception as exc:
+                log_once(
+                    logger,
+                    logging.DEBUG,
+                    f"{id(self)}:memmgr:critical_callback:{id(callback)}",
+                    "Critical callback failed: %s",
+                    exc,
+                )
 
     def _trigger_recovery_response(self) -> None:
         """Trigger recovery-level response when pressure decreases."""
         for callback in self._recovery_callbacks:
             try:
                 callback(self.stats)
-            except Exception as e:
-                try:
-                    logger.error(f"Recovery callback failed: {e}")
-                except Exception:
-                    pass
+            except Exception as exc:
+                log_once(
+                    logger,
+                    logging.DEBUG,
+                    f"{id(self)}:memmgr:recovery_callback:{id(callback)}",
+                    "Recovery callback failed: %s",
+                    exc,
+                )
 
     def register_warning_callback(
         self,
@@ -502,10 +530,10 @@ class MemoryPressureMonitor:
 
     def __del__(self) -> None:
         """Destructor to ensure cleanup when garbage collected."""
-        try:
+        with logged_errors(
+            logger, "monitor_del_stop", policy="suppress", level=logging.DEBUG
+        ):
             self.stop_monitoring()
-        except Exception:
-            pass
 
 
 class AdvancedMemoryManager:
@@ -812,10 +840,7 @@ class AdvancedMemoryManager:
         free memory (e.g., during JAX/NumPy-heavy workloads where memory
         is actively referenced).
         """
-        try:
-            logger.warning("Memory pressure warning - triggering optimization")
-        except Exception:
-            pass
+        logger.warning("Memory pressure warning - triggering optimization")
 
         # Trigger garbage collection with rate-limiting
         # Skip GC if previous calls consistently freed 0 objects (JAX/NumPy workload)
@@ -823,19 +848,13 @@ class AdvancedMemoryManager:
             # Skip GC if we've had 3+ consecutive zero-result collections
             # This indicates memory is in use by JAX/NumPy, not collectable
             if self._consecutive_zero_gc >= 3:
-                try:
-                    logger.debug(
-                        "Skipping GC - previous calls freed 0 objects "
-                        "(memory likely in JAX/NumPy arrays)"
-                    )
-                except Exception:
-                    pass
+                logger.debug(
+                    "Skipping GC - previous calls freed 0 objects "
+                    "(memory likely in JAX/NumPy arrays)"
+                )
             else:
                 collected = gc.collect()
-                try:
-                    logger.debug(f"Garbage collection freed {collected} objects")
-                except Exception:
-                    pass
+                logger.debug(f"Garbage collection freed {collected} objects")
 
                 # Track consecutive zero-result collections
                 if collected == 0:
@@ -845,86 +864,80 @@ class AdvancedMemoryManager:
                 self._last_gc_freed = collected
 
         # Clean up old pools
-        try:
+        with logged_errors(
+            logger, "cleanup_old_pools", policy="suppress", level=logging.DEBUG
+        ):
             self._cleanup_old_pools()
-        except Exception:
-            pass
 
         # Adjust GC thresholds to be more aggressive
         if self._gc_optimization_enabled:
-            try:
+            with logged_errors(
+                logger, "warning_gc_threshold", policy="suppress", level=logging.DEBUG
+            ):
                 current_thresholds = gc.get_threshold()
                 new_thresholds = tuple(
                     int(t / self._gc_threshold_multiplier) for t in current_thresholds
                 )
                 gc.set_threshold(*new_thresholds)
-            except Exception:
-                pass
 
     def _handle_memory_critical(self, stats: MemoryStats) -> None:
         """Handle critical memory pressure."""
-        try:
-            logger.critical("Critical memory pressure - performing emergency cleanup")
-        except Exception:
-            pass
+        logger.critical("Critical memory pressure - performing emergency cleanup")
 
-        try:
+        with logged_errors(
+            logger, "emergency_cleanup", policy="suppress", level=logging.DEBUG
+        ):
             self._emergency_memory_cleanup()
-        except Exception:
-            pass
 
         # More aggressive GC threshold adjustment
         if self._gc_optimization_enabled:
-            try:
+            with logged_errors(
+                logger, "critical_gc_threshold", policy="suppress", level=logging.DEBUG
+            ):
                 current_thresholds = gc.get_threshold()
                 new_thresholds = tuple(
                     int(t / (self._gc_threshold_multiplier * 2)) for t in current_thresholds
                 )
                 gc.set_threshold(*new_thresholds)
-            except Exception:
-                pass
 
     def _handle_memory_recovery(self, stats: MemoryStats) -> None:
         """Handle memory pressure recovery."""
-        try:
-            logger.info("Memory pressure recovered - restoring normal operation")
-        except Exception:
-            pass
+        logger.info("Memory pressure recovered - restoring normal operation")
 
         # Restore normal GC thresholds
         if self._gc_optimization_enabled:
-            try:
+            with logged_errors(
+                logger, "recovery_gc_threshold", policy="suppress", level=logging.DEBUG
+            ):
                 # Reset to default thresholds
                 gc.set_threshold(700, 10, 10)
-            except Exception:
-                pass
 
     def _emergency_memory_cleanup(self) -> None:
         """Perform emergency memory cleanup."""
-        try:
-            logger.warning("Performing emergency memory cleanup")
-        except Exception:
-            pass
+        logger.warning("Performing emergency memory cleanup")
 
         # Clear all memory pools
-        try:
+        with logged_errors(
+            logger, "emergency_clear_pools", policy="suppress", level=logging.DEBUG
+        ):
             with self._pools_lock:
                 for pool in self._pools.values():
                     pool.buffers.clear()
                 self._pools.clear()
-        except Exception:
-            pass
 
         # Force garbage collection multiple times
         for _ in range(3):
             try:
                 collected = gc.collect()
-                try:
-                    logger.debug(f"Emergency GC collected {collected} objects")
-                except Exception:
-                    pass
-            except Exception:
-                pass
+                logger.debug(f"Emergency GC collected {collected} objects")
+            except Exception as exc:
+                log_once(
+                    logger,
+                    logging.DEBUG,
+                    f"{id(self)}:memmgr:emergency_gc",
+                    "Emergency GC failed: %s",
+                    exc,
+                )
 
         # JAX memory cleanup if available
         if HAS_JAX:
@@ -934,20 +947,16 @@ class AdvancedMemoryManager:
                 # This clears JIT compilation cache and helps release device memory
                 if hasattr(jax, "clear_caches"):
                     jax.clear_caches()
-                    try:
-                        logger.debug("Cleared JAX compilation cache")
-                    except Exception:
-                        pass
+                    logger.debug("Cleared JAX compilation cache")
                 else:
-                    try:
-                        logger.debug("JAX clear_caches() not available (older JAX version)")
-                    except Exception:
-                        pass
-            except Exception as e:
-                try:
-                    logger.warning(f"JAX memory cleanup failed: {e}")
-                except Exception:
-                    pass
+                    logger.debug("JAX clear_caches() not available (older JAX version)")
+            except Exception as exc:
+                log_exception(
+                    logger,
+                    exc,
+                    context={"operation": "jax_memory_cleanup"},
+                    level=logging.DEBUG,
+                )
 
     def _cleanup_old_pools(self) -> None:
         """Clean up old or unused memory pools."""
@@ -966,10 +975,7 @@ class AdvancedMemoryManager:
                 pool = self._pools[pool_id]
                 pool.buffers.clear()
                 del self._pools[pool_id]
-                try:
-                    logger.debug(f"Cleaned up unused pool: {pool_id}")
-                except Exception:
-                    pass
+                logger.debug(f"Cleaned up unused pool: {pool_id}")
 
     def _optimize_garbage_collection(self) -> None:
         """Optimize garbage collection based on current conditions."""
@@ -1102,61 +1108,56 @@ class AdvancedMemoryManager:
                     if file.startswith(os.path.basename(self._virtual_memory_path)):
                         try:
                             os.remove(os.path.join(vm_dir, file))
-                            try:
-                                logger.debug(f"Cleaned up virtual memory file: {file}")
-                            except Exception:
-                                pass
-                        except Exception as e:
-                            try:
-                                logger.warning(
-                                    f"Failed to cleanup virtual memory file {file}: {e}",
-                                )
-                            except Exception:
-                                pass
-        except Exception as e:
-            try:
-                logger.warning(f"Virtual memory cleanup failed: {e}")
-            except Exception:
-                pass
+                            logger.debug(f"Cleaned up virtual memory file: {file}")
+                        except Exception as exc:
+                            log_once(
+                                logger,
+                                logging.DEBUG,
+                                f"{id(self)}:memmgr:cleanup_vm_file",
+                                "Failed to cleanup virtual memory file %s: %s",
+                                file,
+                                exc,
+                            )
+        except Exception as exc:
+            log_exception(
+                logger,
+                exc,
+                context={"operation": "cleanup_virtual_memory"},
+                level=logging.DEBUG,
+            )
 
     def shutdown(self) -> None:
         """Shutdown memory manager and cleanup resources."""
-        try:
-            logger.info("Shutting down advanced memory manager")
-        except Exception:
-            pass
+        logger.info("Shutting down advanced memory manager")
 
         # Stop monitoring
-        try:
+        with logged_errors(
+            logger, "shutdown_stop_monitoring", policy="suppress", level=logging.DEBUG
+        ):
             self.pressure_monitor.stop_monitoring()
-        except Exception:
-            pass
 
         # Clear all pools
-        try:
+        with logged_errors(
+            logger, "shutdown_clear_pools", policy="suppress", level=logging.DEBUG
+        ):
             with self._pools_lock:
                 for pool in self._pools.values():
                     pool.buffers.clear()
                 self._pools.clear()
-        except Exception:
-            pass
 
         # Cleanup virtual memory files
-        try:
+        with logged_errors(
+            logger, "shutdown_cleanup_vm", policy="suppress", level=logging.DEBUG
+        ):
             self.cleanup_virtual_memory()
-        except Exception:
-            pass
 
         # Final garbage collection
-        try:
+        with logged_errors(
+            logger, "shutdown_gc", policy="suppress", level=logging.DEBUG
+        ):
             gc.collect()
-        except Exception:
-            pass
 
-        try:
-            logger.info("Advanced memory manager shutdown complete")
-        except Exception:
-            pass
+        logger.info("Advanced memory manager shutdown complete")
 
     def __enter__(self) -> "AdvancedMemoryManager":
         """Context manager entry."""
@@ -1168,10 +1169,10 @@ class AdvancedMemoryManager:
 
     def __del__(self) -> None:
         """Destructor to ensure cleanup when garbage collected."""
-        try:
+        with logged_errors(
+            logger, "manager_del_shutdown", policy="suppress", level=logging.DEBUG
+        ):
             self.shutdown()
-        except Exception:
-            pass
 
 
 # Export main classes and functions
