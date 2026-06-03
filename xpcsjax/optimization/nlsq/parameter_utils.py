@@ -18,6 +18,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+# Physical floor for an accepted per-angle contrast (beta). Real XPCS contrast
+# is >= ~1e-3; a fitted value below this is a degenerate/noise-floor result and
+# must fall back to the supplied default (see compute_consistent_per_angle_init).
+_MIN_PHYSICAL_CONTRAST = 1e-6
+
 
 def build_parameter_labels(
     per_angle_scaling: bool,
@@ -342,8 +347,14 @@ def compute_consistent_per_angle_init(
                 result = np.linalg.lstsq(A, g2_data, rcond=None)
                 fit_offset, fit_contrast = result[0]
 
-                # Sanity checks
-                if 0.0 < fit_contrast < 2.0 and 0.5 < fit_offset < 1.5:
+                # Sanity checks. The contrast floor is a physical minimum, not
+                # ``> 0``: a degenerate (flat-g2) fit yields a contrast at the
+                # noise floor whose sign is BLAS-dependent — Linux OpenBLAS
+                # returns <= 0 (rejected), macOS Accelerate returns ~1e-11
+                # (a tiny positive that a bare ``> 0`` test wrongly accepts).
+                # Requiring a real minimum makes the fall-back to defaults
+                # platform-independent.
+                if _MIN_PHYSICAL_CONTRAST < fit_contrast < 2.0 and 0.5 < fit_offset < 1.5:
                     contrast_per_angle[i] = fit_contrast
                     offset_per_angle[i] = fit_offset
 

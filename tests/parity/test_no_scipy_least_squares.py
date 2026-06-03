@@ -62,7 +62,7 @@ class TestNoScipyLeastSquares:
         path = PROJECT_ROOT / filepath
         if not path.exists():
             pytest.skip(f"{filepath} not present (optional / future file)")
-        source = path.read_text()
+        source = path.read_text(encoding="utf-8")
         # Both styles are forbidden:
         #   from scipy.optimize import least_squares
         #   from scipy.optimize import least_squares as anything_else
@@ -87,7 +87,7 @@ class TestNoScipyLeastSquares:
         path = PROJECT_ROOT / filepath
         if not path.exists():
             pytest.skip(f"{filepath} not present (optional / future file)")
-        source = path.read_text()
+        source = path.read_text(encoding="utf-8")
         tree = ast.parse(source)
 
         # Collect bare-name aliases pointing at scipy.optimize.least_squares.
@@ -150,7 +150,7 @@ class TestNoScipyLeastSquares:
         """ScipyNLSQAdapter (the retired fallback) must not reappear in adapter.py."""
         candidate = PROJECT_ROOT / "xpcsjax/optimization/nlsq/heterodyne_adapter.py"
         assert candidate.exists()
-        source = candidate.read_text()
+        source = candidate.read_text(encoding="utf-8")
         assert "class ScipyNLSQAdapter" not in source, (
             "ScipyNLSQAdapter is the homodyne-era scipy fallback retired in "
             "v0.1; do not reintroduce."

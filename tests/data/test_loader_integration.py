@@ -22,7 +22,14 @@ HOMODYNE_FIXTURE_CONFIG = Path(__file__).parent / "_fixtures" / "homodyne_static
     reason="homodyne fixture not present on this machine",
 )
 def test_load_static_fixture():
-    data = load_xpcs_data(str(HOMODYNE_FIXTURE_CONFIG))
+    # The fixture config resolves on every machine, but it points at maintainer-
+    # local raw data (absolute /home/.../Projects/data/... paths). When that data
+    # is absent (CI, fresh clones) the loader raises FileNotFoundError — skip
+    # cleanly, mirroring the maintainer-local characterization-oracle pattern.
+    try:
+        data = load_xpcs_data(str(HOMODYNE_FIXTURE_CONFIG))
+    except FileNotFoundError as exc:
+        pytest.skip(f"maintainer-local fixture data not available: {exc}")
     # Sanity invariants for any homodyne XPCS file:
     assert "c2_exp" in data
     assert "phi_angles_list" in data
