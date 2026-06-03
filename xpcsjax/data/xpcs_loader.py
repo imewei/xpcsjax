@@ -24,6 +24,7 @@ Key Features:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import string
@@ -85,6 +86,9 @@ try:
         log_calls as _log_calls,
     )
     from xpcsjax.utils.logging import (
+        log_exception as _log_exception,
+    )
+    from xpcsjax.utils.logging import (
         log_performance as _log_performance,
     )
     from xpcsjax.utils.logging import (
@@ -96,6 +100,7 @@ try:
     log_performance = _log_performance
     log_calls = _log_calls
     log_phase = _log_phase
+    log_exception = _log_exception
 except ImportError:
     # Fallback to standard logging if v2 logging not available
     import logging
@@ -108,6 +113,19 @@ except ImportError:
 
     def get_logger(name: str | None = None, **kwargs: Any) -> logging.Logger:
         return logging.getLogger(name)
+
+    def log_exception(  # type: ignore[misc]
+        logger: Any,
+        exc: BaseException,
+        context: dict[str, Any] | None = None,
+        level: int = logging.ERROR,
+        include_traceback: bool = True,
+    ) -> None:
+        """Fallback log_exception when v2 logging is unavailable."""
+        try:
+            logger.log(level, "Exception: %r (context=%r)", exc, context)
+        except Exception:
+            pass
 
     def log_performance(*args: Any, **kwargs: Any) -> Callable[[F], F]:
         def decorator(func: F) -> F:
@@ -568,7 +586,12 @@ class XPCSDataLoader:
             logger.info("Advanced dataset optimizer initialized")
 
         except Exception as e:
-            logger.warning(f"Performance components initialization failed: {e}")
+            log_exception(
+                logger,
+                e,
+                context={"operation": "init_performance_components"},
+                level=logging.DEBUG,
+            )
             logger.info("Falling back to basic optimization")
             self.performance_engine = None
             self.memory_manager = None

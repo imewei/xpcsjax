@@ -15,6 +15,7 @@ Key Features:
 
 from __future__ import annotations
 
+import logging
 import time
 from collections import deque
 from collections.abc import Iterator
@@ -23,7 +24,7 @@ from typing import Any
 import numpy as np
 
 from xpcsjax.data.types import DatasetInfo, ProcessingStrategy
-from xpcsjax.utils.logging import get_logger, log_performance
+from xpcsjax.utils.logging import get_logger, log_exception, log_performance
 
 # JAX imports with fallback
 try:
@@ -488,7 +489,12 @@ class AdvancedDatasetOptimizer:
             logger.warning(f"Performance engine not available: {e}")
             self.performance_engine = None
         except Exception as e:
-            logger.error(f"Failed to initialize performance engine: {e}")
+            log_exception(
+                logger,
+                e,
+                context={"operation": "init_performance_engine"},
+                level=logging.DEBUG,
+            )
             self.performance_engine = None
 
     def _init_memory_manager(self) -> None:
@@ -502,7 +508,12 @@ class AdvancedDatasetOptimizer:
             logger.warning(f"Advanced memory manager not available: {e}")
             self.memory_manager = None
         except Exception as e:
-            logger.error(f"Failed to initialize advanced memory manager: {e}")
+            log_exception(
+                logger,
+                e,
+                context={"operation": "init_memory_manager"},
+                level=logging.DEBUG,
+            )
             self.memory_manager = None
 
     @log_performance()
@@ -627,7 +638,12 @@ class AdvancedDatasetOptimizer:
                     ] = True
 
             except Exception as e:
-                logger.warning(f"Performance engine optimization failed: {e}")
+                log_exception(
+                    logger,
+                    e,
+                    context={"operation": "performance_engine_optimization"},
+                    level=logging.DEBUG,
+                )
                 advanced_config["advanced_features"]["performance_engine_available"] = (
                     False
                 )
@@ -728,7 +744,12 @@ class AdvancedDatasetOptimizer:
             if dataset_info is None:
                 return
         except Exception as e:
-            logger.warning(f"Background optimization scheduling failed: {e}")
+            log_exception(
+                logger,
+                e,
+                context={"operation": "schedule_background_optimization"},
+                level=logging.DEBUG,
+            )
 
     def get_optimization_statistics(self) -> dict[str, Any]:
         """Get comprehensive optimization statistics."""
@@ -748,7 +769,12 @@ class AdvancedDatasetOptimizer:
                 pe_stats = self.performance_engine.get_performance_report()
                 stats["performance_engine_stats"] = pe_stats
             except Exception as e:
-                logger.warning(f"Failed to get performance engine stats: {e}")
+                log_exception(
+                    logger,
+                    e,
+                    context={"operation": "get_performance_engine_stats"},
+                    level=logging.DEBUG,
+                )
 
         # Add memory manager stats if available
         if self.memory_manager:
@@ -756,7 +782,12 @@ class AdvancedDatasetOptimizer:
                 mem_stats = self.memory_manager.get_memory_stats()
                 stats["memory_manager_stats"] = mem_stats
             except Exception as e:
-                logger.warning(f"Failed to get memory manager stats: {e}")
+                log_exception(
+                    logger,
+                    e,
+                    context={"operation": "get_memory_manager_stats"},
+                    level=logging.DEBUG,
+                )
 
         # Optimization history analysis
         if self._optimization_history:

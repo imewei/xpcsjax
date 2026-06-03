@@ -7,6 +7,7 @@ GIL-safe since HDF5 and numpy release the GIL during I/O.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
@@ -15,12 +16,22 @@ from typing import Any, TypeVar
 
 import numpy as np
 
-from xpcsjax.utils.logging import get_logger
+from xpcsjax.utils.logging import _LOG_CONTEXT, get_logger, log_exception, log_once
 
 logger = get_logger(__name__)
 
 T = TypeVar("T")
 R = TypeVar("R")
+
+
+def _current_run_id() -> str | None:
+    """Read the active ``run_id`` from the log-context registry, if any.
+
+    Used to scope ``log_once`` rate-limit keys per analysis run so a repeated
+    failure in a teardown loop emits once per run rather than once per item.
+    """
+    ctx = _LOG_CONTEXT.get() or {}
+    return ctx.get("run_id")
 
 
 class PrefetchLoader(Iterator[R]):
@@ -59,6 +70,12 @@ class PrefetchLoader(Iterator[R]):
             except StopIteration:
                 self._exhausted = True
             except Exception as e:
+                log_exception(
+                    logger,
+                    e,
+                    context={"operation": "prefetch_load"},
+                    level=logging.WARNING,
+                )
                 self._error = e
                 self._exhausted = True
 
@@ -177,7 +194,15 @@ class AsyncWriter:
                 )
                 # Do NOT mark as completed — keep in _futures so shutdown() sees it
             except Exception as e:
-                logger.warning("Background write failed (%s): %s", type(e).__name__, e)
+                run_id = _current_run_id()
+                log_once(
+                    logger,
+                    logging.WARNING,
+                    f"{run_id}:async_writer_write_fail",
+                    "Background write failed (%s): %s",
+                    type(e).__name__,
+                    e,
+                )
                 logger.debug("Background write traceback:", exc_info=True)
                 errors.append(e)
                 completed.append(future)
