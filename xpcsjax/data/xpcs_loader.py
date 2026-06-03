@@ -257,6 +257,24 @@ def _check_frame_count(n_frames: int, *, source: str) -> None:
         )
 
 
+# Directory/traversal/drive tokens that must never appear in a cache filename.
+# Checked explicitly (not via ``os.sep``) so the guard is identical on POSIX and
+# Windows: on Windows ``os.sep`` is ``\`` only, so ``/`` and ``C:`` drive/ADS
+# specifiers would otherwise slip through.
+_UNSAFE_FILENAME_TOKENS = ("/", "\\", "..", ":", "\x00")
+
+
+def _assert_safe_cache_filename(name: str) -> None:
+    """Reject a cache filename that is not a bare, in-directory file name.
+
+    Raises ``ValueError`` if ``name`` contains a path separator (either
+    platform's), a parent-directory traversal, a drive/ADS ``:`` specifier, or a
+    null byte. Platform-independent by construction.
+    """
+    if any(tok in name for tok in _UNSAFE_FILENAME_TOKENS):
+        raise ValueError(f"Unsafe cache filename from template: {name!r}")
+
+
 def load_xpcs_config(config_path: str | Path) -> dict[str, Any]:
     """Load XPCS configuration from YAML or JSON file.
 
@@ -678,8 +696,7 @@ class XPCSDataLoader:
             end_frame=end_frame,
             wavevector_q=f"{wavevector_q:.4f}",
         )
-        if os.sep in cache_filename or ".." in cache_filename:
-            raise ValueError(f"Unsafe cache filename from template: {cache_filename!r}")
+        _assert_safe_cache_filename(cache_filename)
         cache_path = os.path.join(cache_folder, cache_filename)
         # The filename check above does not cover ``cache_folder`` (config-
         # supplied): a crafted ``cache_file_path`` could traverse out of the
@@ -1888,8 +1905,7 @@ class XPCSDataLoader:
             end_frame=end_frame,
             wavevector_q=f"{wavevector_q:.4f}",
         )
-        if os.sep in cache_filename or ".." in cache_filename:
-            raise ValueError(f"Unsafe cache filename from template: {cache_filename!r}")
+        _assert_safe_cache_filename(cache_filename)
 
         return Path(str(cache_folder)) / cache_filename  # type: ignore[no-any-return]
 
