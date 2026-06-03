@@ -622,8 +622,6 @@ class MinimalLogger:
     _configured: bool
     _root_logger_name: str
     _lock: threading.Lock
-    _pending_json_format: str | None
-    _pending_quiet: bool
 
     def __new__(cls) -> MinimalLogger:
         if cls._instance is None:
@@ -638,11 +636,6 @@ class MinimalLogger:
 
         self._configured = False
         self._root_logger_name = "xpcsjax"
-        # Phase 1b: transient hints consumed by _configure_impl, populated by
-        # configure_from_dict before delegating. Default to no-op so the direct
-        # configure() / configure(force=True) paths keep their prior behavior.
-        self._pending_json_format: str | None = None
-        self._pending_quiet: bool = False
         self._initialized = True
 
     @staticmethod
@@ -679,11 +672,18 @@ class MinimalLogger:
         backup_count: int = 5,
         module_levels: Mapping[str, str | int] | None = None,
         force: bool = False,
+        json_format: str | None = None,
+        quiet: bool = False,
     ) -> Path | None:
         """Configure xpcsjax logging.
 
         Thread-safe configuration of the logging system.
         Returns the file path if a file handler is created.
+
+        ``json_format`` (the resolved YAML ``format`` hint) and ``quiet`` are
+        threaded explicitly into the locked ``_configure_impl`` so the Phase-1b
+        format/env-DEBUG wiring reads them as locals — no transient singleton
+        state that two concurrent callers could clobber.
         """
         with self._lock:
             return self._configure_impl(
@@ -698,6 +698,8 @@ class MinimalLogger:
                 backup_count=backup_count,
                 module_levels=module_levels,
                 force=force,
+                json_format=json_format,
+                quiet=quiet,
             )
 
     def _configure_impl(
@@ -714,6 +716,8 @@ class MinimalLogger:
         backup_count: int = 5,
         module_levels: Mapping[str, str | int] | None = None,
         force: bool = False,
+        json_format: str | None = None,
+        quiet: bool = False,
     ) -> Path | None:
         """Internal implementation of configure (called under lock)."""
         root_logger = logging.getLogger(self._root_logger_name)
@@ -824,11 +828,14 @@ class MinimalLogger:
             root_logger.propagate = not has_managed_handler
 
         # Phase 1b wiring: env/YAML format selection, context filter install,
-        # and env DEBUG override. ``root_logger`` is already in scope here (the
-        # single chokepoint all configure paths flow through); do not re-fetch.
-        # ``XPCSJAX_LOG_FORMAT=json`` (or a YAML ``format: json`` threaded via
-        # ``_pending_json_format``) swaps every managed handler to JSON output.
-        fmt = os.environ.get("XPCSJAX_LOG_FORMAT") or self._pending_json_format
+        # and env DEBUG override. ``root_logger`` and ``console_handler`` are
+        # already in scope here (the single chokepoint all configure paths flow
+        # through); do not re-fetch. The format hint and quiet flag arrive as
+        # explicit locals (``json_format``/``quiet``) — no transient singleton
+        # state — so concurrent callers cannot clobber each other.
+        # ``XPCSJAX_LOG_FORMAT=json`` (or a YAML ``format: json``) swaps every
+        # managed handler to JSON output; env wins over YAML.
+        fmt = os.environ.get("XPCSJAX_LOG_FORMAT") or json_format
         if fmt == "json":
             json_fmt = JSONFormatter()
             for h in root_logger.handlers:
@@ -838,8 +845,13 @@ class MinimalLogger:
                 h.addFilter(ContextFilter())
         # quiet must still win; apply env DEBUG only when not quiet, AFTER the
         # quiet/verbose level handling resolved upstream in configure_from_dict.
-        if not self._pending_quiet and os.environ.get("XPCSJAX_DEBUG") == "1":
+        # Lowering only the root logger is a no-op for console output — the
+        # console handler was pinned to the (higher) console level above and
+        # would drop DEBUG records — so lower the handler level too.
+        if not quiet and os.environ.get("XPCSJAX_DEBUG") == "1":
             root_logger.setLevel(logging.DEBUG)
+            if console_handler is not None:
+                console_handler.setLevel(logging.DEBUG)
 
         self._configured = True
         return created_file
@@ -902,30 +914,27 @@ class MinimalLogger:
             file_path = base_dir / filename
 
         # Phase 1b: seed the context-local run_id (surfaced by ContextFilter)
-        # and thread the YAML format hint + quiet flag down to _configure_impl,
+        # and thread the YAML format hint + quiet flag down to _configure_impl
+        # as EXPLICIT parameters (read as locals under the configure() lock),
         # which performs the format/filter/env-DEBUG wiring with the configured
         # root logger already in scope. Env XPCSJAX_LOG_FORMAT wins over YAML.
         if run_id is not None:
             set_log_context(run_id=run_id)
-        self._pending_json_format = logging_config.get("format")
-        self._pending_quiet = quiet
-        try:
-            return self.configure(
-                level=level,
-                console_level=console_level,
-                console_format=console_cfg.get("format", "detailed"),
-                console_colors=bool(console_cfg.get("colors", False)),
-                file_path=file_path,
-                file_level=file_cfg.get("level", "DEBUG"),
-                file_format=file_cfg.get("format", "detailed"),
-                max_size_mb=int(file_cfg.get("max_size_mb", 10)),
-                backup_count=int(file_cfg.get("backup_count", 5)),
-                module_levels=logging_config.get("modules"),
-                force=True,
-            )
-        finally:
-            self._pending_json_format = None
-            self._pending_quiet = False
+        return self.configure(
+            level=level,
+            console_level=console_level,
+            console_format=console_cfg.get("format", "detailed"),
+            console_colors=bool(console_cfg.get("colors", False)),
+            file_path=file_path,
+            file_level=file_cfg.get("level", "DEBUG"),
+            file_format=file_cfg.get("format", "detailed"),
+            max_size_mb=int(file_cfg.get("max_size_mb", 10)),
+            backup_count=int(file_cfg.get("backup_count", 5)),
+            module_levels=logging_config.get("modules"),
+            force=True,
+            json_format=logging_config.get("format"),
+            quiet=quiet,
+        )
 
     def get_logger(self, name: str) -> logging.Logger:
         """Get or create a logger with hierarchical naming."""

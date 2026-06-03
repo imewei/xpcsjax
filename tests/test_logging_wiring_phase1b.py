@@ -34,6 +34,24 @@ def _managed_logger() -> logging.Logger:
     return logging.getLogger(lm._logger_manager._root_logger_name)
 
 
+def _managed_console_handler() -> logging.Handler:
+    """Return the managed console handler (StreamHandler, not a FileHandler).
+
+    Debug-mode and quiet behavior are only observable at the handler level: the
+    root logger gating is necessary but not sufficient, because a record that
+    passes the root logger is still dropped if the console handler's own level
+    is higher. Tests therefore assert on this handler, not just the root logger.
+    """
+    for h in _managed_logger().handlers:
+        if (
+            isinstance(h, logging.StreamHandler)
+            and not isinstance(h, logging.FileHandler)
+            and getattr(h, "_xpcsjax_managed", False)
+        ):
+            return h
+    raise AssertionError("no managed console handler installed")
+
+
 def test_xpcsjax_log_format_env_selects_json(monkeypatch):
     monkeypatch.setenv("XPCSJAX_LOG_FORMAT", "json")
     lm.configure_logging({**_CFG})
@@ -46,23 +64,39 @@ def test_xpcsjax_log_format_env_selects_json(monkeypatch):
 def test_debug_precedence_env_over_yaml(monkeypatch):
     monkeypatch.setenv("XPCSJAX_DEBUG", "1")
     lm.configure_logging({**_CFG, "level": "WARNING"})
+    # Both the root logger AND the console handler must be DEBUG: lowering only
+    # the root logger is a no-op for console output because the handler was
+    # already pinned to the (higher) console level and would drop DEBUG records.
     assert _managed_logger().level == logging.DEBUG
+    assert _managed_console_handler().level == logging.DEBUG
 
 
 def test_quiet_beats_env_debug(monkeypatch):
-    # Required contract: env XPCSJAX_DEBUG must NOT force DEBUG when quiet=True.
-    # The natural root level under this config is DEBUG anyway (file_level
-    # defaults to "DEBUG" and feeds the root-level min, a pre-existing
-    # behavior independent of Phase 1b), so the literal ">= ERROR" assertion
-    # contradicts real behavior. The load-bearing, env-specific check is that
-    # turning XPCSJAX_DEBUG on under quiet produces the SAME level as with the
-    # env unset — i.e. the env override was a no-op because quiet wins.
-    monkeypatch.delenv("XPCSJAX_DEBUG", raising=False)
-    lm.configure_logging({**_CFG}, quiet=True)
-    level_without_env = _managed_logger().level
+    # Required contract: env XPCSJAX_DEBUG must NOT win over quiet=True. quiet is
+    # observable at the console HANDLER (set to ERROR), so assert the handler
+    # level is NOT DEBUG and is at least ERROR even with XPCSJAX_DEBUG=1 set.
     monkeypatch.setenv("XPCSJAX_DEBUG", "1")
     lm.configure_logging({**_CFG}, quiet=True)
-    assert _managed_logger().level == level_without_env
+    console_level = _managed_console_handler().level
+    assert console_level != logging.DEBUG
+    assert console_level >= logging.ERROR
+
+
+def test_format_does_not_leak_across_configures(monkeypatch):
+    # Thread-safety / state-leak guard: a json configure must not leave a
+    # JSONFormatter behind on a subsequent console (non-json) configure. With
+    # the json hint threaded as an explicit parameter (not transient singleton
+    # state), the second configure rebuilds plain formatters with no residue.
+    monkeypatch.delenv("XPCSJAX_LOG_FORMAT", raising=False)
+    monkeypatch.setenv("XPCSJAX_LOG_FORMAT", "json")
+    lm.configure_logging({**_CFG})
+    assert isinstance(_managed_console_handler().formatter, lm.JSONFormatter)
+    monkeypatch.delenv("XPCSJAX_LOG_FORMAT", raising=False)
+    lm.configure_logging({**_CFG})
+    assert not any(
+        isinstance(h.formatter, lm.JSONFormatter)
+        for h in _managed_logger().handlers
+    )
 
 
 def test_context_filter_installed_once():
