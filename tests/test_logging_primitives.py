@@ -9,6 +9,7 @@ import logging
 from unittest.mock import MagicMock
 
 import numpy as np
+import pytest
 
 import xpcsjax.utils.logging as lm
 from xpcsjax.optimization.nlsq import heterodyne_logging as hl
@@ -74,3 +75,27 @@ def test_log_once_emits_once_per_key(caplog):
         for _ in range(3):
             lm.log_once(lg, logging.WARNING, "k1", "flood %d", 1)
     assert sum("flood" in r.getMessage() for r in caplog.records) == 1
+
+
+def test_logged_errors_reraise_propagates_original_and_logs(caplog):
+    import logging
+
+    import xpcsjax.utils.logging as lm
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(ValueError):
+            with lm.logged_errors(
+                logging.getLogger("t"), "do_thing", policy="reraise", q=0.1
+            ):
+                raise ValueError("boom")
+    assert any(
+        "do_thing" in str(r.__dict__) or "do_thing" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_logged_errors_suppress_swallows():
+    import logging
+
+    import xpcsjax.utils.logging as lm
+    with lm.logged_errors(logging.getLogger("t"), "op", policy="suppress"):
+        raise RuntimeError("ignored")  # reaching the next line == suppressed

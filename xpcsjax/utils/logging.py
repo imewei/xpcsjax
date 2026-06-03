@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 if TYPE_CHECKING:
     from xpcsjax.config.parameter_registry import AnalysisMode
@@ -1323,6 +1323,41 @@ def log_once(logger: Any, level: int, key: str, msg: str, *args: Any) -> None:
             logger.log(level, msg, *args)
         except Exception:  # noqa: BLE001
             pass
+
+
+@contextmanager
+def logged_errors(
+    logger: LoggerType,
+    operation: str,
+    *,
+    policy: Literal["reraise", "suppress"],
+    level: int = logging.ERROR,
+    once_key: str | None = None,
+    **context: Any,
+) -> Generator[None, None, None]:
+    """Log exceptions raised in the enclosed scope with structured context.
+
+    On exception, emits a contextual diagnostic via :func:`log_exception`
+    (de-duplicated by ``once_key`` when provided), then applies ``policy``:
+    ``"reraise"`` re-raises the original exception, ``"suppress"`` swallows it.
+    The diagnostic emission itself is guarded so logging never masks or
+    replaces the original exception.
+    """
+    try:
+        yield
+    except Exception as exc:
+        try:
+            if once_key is None or _should_log_once(once_key):
+                log_exception(
+                    logger,
+                    exc,
+                    context={"operation": operation, **context},
+                    level=level,
+                )
+        except Exception:  # noqa: BLE001 - logging must not mask the original
+            pass
+        if policy == "reraise":
+            raise
 
 
 # Configure default logging on import
