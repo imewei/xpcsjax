@@ -590,13 +590,13 @@ clean-venv:
 # ===================
 build: clean
 	@echo "$(BOLD)$(BLUE)Building distribution packages...$(RESET)"
-	$(PYTHON) -m build
+	$(RUN_CMD) $(PYTHON) -m build
 	@echo "$(BOLD)$(GREEN)✓ Build complete!$(RESET)"
 	@echo "Distributions in dist/"
 
 release: test quality build
 	@echo "$(BOLD)$(BLUE)Checking package...$(RESET)"
-	$(PYTHON) -m twine check dist/* 2>/dev/null || echo "Run 'pip install twine' for package validation"
+	$(RUN_CMD) $(PYTHON) -m twine check dist/* 2>/dev/null || echo "Run 'make dev' (installs twine) for package validation"
 	@echo "$(BOLD)$(GREEN)✓ Package ready for release!$(RESET)"
 
 # ===================
@@ -638,7 +638,7 @@ stats:
 # ===================
 verify-nlsq:
 	@echo "$(BOLD)$(BLUE)Verifying NLSQ integration...$(RESET)"
-	@$(PYTHON) -c "from xpcsjax.optimization import fit_nlsq; print('✓ fit_nlsq imported from xpcsjax.optimization')"
-	@$(PYTHON) -c "import nlsq; print(f'✓ NLSQ version: {nlsq.__version__}')" 2>/dev/null || echo "✗ NLSQ version check failed"
-	@$(PYTHON) -c "import evosax; print(f'✓ evosax version: {evosax.__version__}')" 2>/dev/null || echo "✗ evosax version check failed"
+	@$(RUN_CMD) $(PYTHON) -c "from xpcsjax.optimization import fit_nlsq; print('✓ fit_nlsq imported from xpcsjax.optimization')"
+	@$(RUN_CMD) $(PYTHON) -c "import nlsq; print(f'✓ NLSQ version: {nlsq.__version__}')" 2>/dev/null || echo "✗ NLSQ version check failed"
+	@$(RUN_CMD) $(PYTHON) -c "import evosax; print(f'✓ evosax version: {evosax.__version__}')" 2>/dev/null || echo "✗ evosax version check failed"
 	@echo "$(BOLD)$(GREEN)✓ NLSQ integration verified!$(RESET)"

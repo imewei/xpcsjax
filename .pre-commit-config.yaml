@@ -6,7 +6,9 @@
 #   - Python pinned to 3.12 (xpcsjax requires-python = ">=3.12")
 #   - mypy additional_dependencies tuned for xpcsjax: arviz dropped
 #     (Bayesian/CMC is permanently out of scope), evosax/interpax/jaxopt
-#     added (xpcsjax-specific deps).
+#     added (xpcsjax-specific deps), and homodyne's web/CLI stubs
+#     (types-requests/Pygments/colorama/decorator/setuptools) dropped —
+#     xpcsjax imports none of those modules.
 #   - results exclusion changed to xpcsjax_results/.
 
 repos:
@@ -59,13 +61,10 @@ repos:
       - id: mypy
         args: [--config-file=pyproject.toml]
         additional_dependencies:
+          # Type stubs for the third-party libs xpcsjax actually imports.
           - types-psutil>=7.2
-          - types-requests>=2.31
-          - types-Pygments>=2.16
-          - types-colorama>=0.4
-          - types-decorator>=5.1
-          - types-setuptools>=68.0
           - types-pyyaml>=6.0
+          # Real packages so mypy resolves their (inline) types at import time.
           - numpy>=2.3
           - jax>=0.8.2
           - jaxopt>=0.8.3

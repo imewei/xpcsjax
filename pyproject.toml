@@ -35,11 +35,20 @@ dev = [
     "pytest-env>=1.1",          # inject JAX_ENABLE_X64=1 via [tool.pytest.ini_options] env
     "pytest-mpl>=0.17",
     "pytest-xdist>=3.8",
+    "pytest-benchmark>=5.2",    # tests/benchmarks/test_perf_regression.py + make perf-baseline/perf-compare
+    "pytest-timeout>=2.4",      # --timeout guard in the perf-regression targets (make perf-*)
     "hypothesis>=6",            # property tests (Task 33) — xpcsjax-specific addition
+    "numba>=0.60",              # pytest filterwarnings resolves numba.core.errors.NumbaSystemWarning
+                                # at config load (numba arrives transitively via the [viz-fast]
+                                # datashader stack; declared here so a bare [dev] install can collect)
     "ruff>=0.15.2",
     "mypy>=1.19.1",
     "types-pyyaml>=6.0.12.20250915",
     "pip-audit>=2.7",           # dependency vulnerability scanning (CI step)
+    # Workflow tooling invoked by the Makefile / .pre-commit-config.yaml
+    "pre-commit>=4.0",          # make install-hooks / make pre-commit
+    "build>=1.2",               # make build (python -m build)
+    "twine>=5.0",               # make release (twine check dist/*)
 ]
 docs = [
     "sphinx>=8.0",

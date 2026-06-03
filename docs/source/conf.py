@@ -264,6 +264,17 @@ latex_elements = {
 \vbadness=10001
 \hfuzz=200pt
 \vfuzz=200pt
+% The document-level \hfuzz/\hbadness above do not reach inside table cells:
+% LaTeX runs \@arrayparboxrestore at the start of every tabulary/varwidth cell,
+% which resets paragraph parameters. xpcsjax's API/theory tables hold long
+% inline code literals (e.g. ``static_anisotropic``, ``compute_regularization_jax``)
+% that slightly overflow their auto-sized columns, producing cosmetic
+% "Overfull \hbox" warnings detected during the cell's varwidth packing. Re-apply
+% the tolerances inside the cell restore hook so the suppression actually covers
+% table cells too.
+\makeatletter
+\g@addto@macro\@arrayparboxrestore{\hfuzz=200pt\hbadness=10001\relax}
+\makeatother
 """,
     "figure_align": "H",
 }

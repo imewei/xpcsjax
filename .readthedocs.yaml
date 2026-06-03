@@ -1,14 +1,10 @@
 # Read the Docs configuration file for xpcsjax
 # See https://docs.readthedocs.io/en/stable/config-file/v2.html
 #
-# FOLLOW-UP: This config expects a Sphinx project at `docs/source/conf.py`.
-# That scaffolding does not exist yet — `docs/` currently only contains
-# `superpowers/{plans,specs}` (design documents). Until Sphinx is scaffolded:
-#   1. RTD builds will fail at the sphinx step (expected).
-#   2. To scaffold: `mkdir -p docs/source && cd docs && sphinx-quickstart`,
-#      then add `myst-parser`, `sphinx-autodoc-typehints`, etc. to
-#      pyproject.toml's [project.optional-dependencies] under a `docs` extra,
-#      and switch the `install` block below from `path: .` to extras: [docs].
+# The Sphinx project lives at docs/source/conf.py (furo theme + myst-parser,
+# autodoc/autosummary/napoleon/intersphinx, sphinx-design, sphinx-copybutton,
+# sphinx-autodoc-typehints). RTD installs the package together with its [docs]
+# extra so autodoc can import xpcsjax and every Sphinx extension resolves.
 #
 # Divergences from homodyne/.readthedocs.yaml:
 #   - Python pinned to 3.12 (xpcsjax requires-python = ">=3.12")
@@ -30,14 +26,14 @@ python:
   install:
     - method: pip
       path: .
-      # Once a [project.optional-dependencies].docs group is added in
-      # pyproject.toml, switch to:
-      # extra_requirements:
-      #   - docs
+      extra_requirements:
+        - docs
 
 sphinx:
   configuration: docs/source/conf.py
-  # Allow warnings during build (intersphinx offline, etc.)
+  # `make docs` builds locally with -W (warnings-as-errors); RTD is kept lenient
+  # because intersphinx/inventory differences in the online build can surface
+  # non-actionable warnings (conf.py already tightens nitpick handling).
   fail_on_warning: false
 
 formats:
