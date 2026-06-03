@@ -15,6 +15,7 @@ invocations.
 
 from __future__ import annotations
 
+import itertools
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -30,6 +31,16 @@ if TYPE_CHECKING:
     from xpcsjax.optimization.nlsq.results import OptimizationResult
 
 logger = get_logger(__name__)
+
+
+# Monotonic per-call token so the per-phi ``log_once`` keys never collapse
+# across independent dispatch-function calls when ``run_id`` is None (no
+# configured log context). Mirrors the async_io._WAIT_ALL_CALL_COUNTER defense:
+# without it, two successive calls would share a static ``"None:..."`` key in
+# the process-global dedup cache and the second call's per-angle warning would
+# be silently suppressed. Keeping run_id in the key still scopes by run when
+# one is set; the token scopes by dispatch-function call.
+_PLOT_DISPATCH_CALL_COUNTER = itertools.count()
 
 
 def _current_run_id() -> str | None:
@@ -190,6 +201,10 @@ def _plot_simulated_from_config(
 
     from xpcsjax.viz import plot_simulated_data
 
+    # Per-call token so this call's per-phi log_once keys never collapse with a
+    # later call's when run_id is None (process-global dedup cache).
+    _call_token = next(_PLOT_DISPATCH_CALL_COUNTER)
+
     cfg = config_manager.get_config()
     analysis_mode = cfg.get("analysis_mode", "static_isotropic") if isinstance(cfg, dict) else None
 
@@ -289,7 +304,7 @@ def _plot_simulated_from_config(
             log_once(
                 logger,
                 logging.WARNING,
-                f"{run_id}:plot_render_fail:simulated_evaluate_model_c2",
+                f"{run_id}:{_call_token}:plot_render_fail:simulated_evaluate_model_c2",
                 "Could not evaluate model c2 at phi=%s: %s (further per-angle "
                 "failures suppressed)",
                 phi,
@@ -320,7 +335,7 @@ def _plot_simulated_from_config(
             log_once(
                 logger,
                 logging.WARNING,
-                f"{run_id}:plot_render_fail:simulated_plot",
+                f"{run_id}:{_call_token}:plot_render_fail:simulated_plot",
                 "Failed to render simulated plot for phi=%s: %s (further "
                 "per-angle failures suppressed)",
                 phi,
@@ -484,6 +499,10 @@ def _save_fit_comparison_only(
 
     from xpcsjax.viz import plot_nlsq_fit, plot_residual_map
 
+    # Per-call token so this call's per-phi log_once keys never collapse with a
+    # later call's when run_id is None (process-global dedup cache).
+    _call_token = next(_PLOT_DISPATCH_CALL_COUNTER)
+
     try:
         model = config_manager.get_model()
     except Exception as exc:
@@ -543,7 +562,7 @@ def _save_fit_comparison_only(
             log_once(
                 logger,
                 logging.WARNING,
-                f"{run_id}:plot_render_fail:fit_comparison_evaluate_c2",
+                f"{run_id}:{_call_token}:plot_render_fail:fit_comparison_evaluate_c2",
                 "Could not evaluate fitted c2 at phi=%s: %s (further per-angle "
                 "failures suppressed)",
                 phi,
@@ -567,7 +586,7 @@ def _save_fit_comparison_only(
             log_once(
                 logger,
                 logging.WARNING,
-                f"{run_id}:plot_render_fail:fit_comparison_nlsq_fit",
+                f"{run_id}:{_call_token}:plot_render_fail:fit_comparison_nlsq_fit",
                 "plot_nlsq_fit failed for phi=%s: %s (further per-angle "
                 "failures suppressed)",
                 phi,
@@ -588,7 +607,7 @@ def _save_fit_comparison_only(
             log_once(
                 logger,
                 logging.WARNING,
-                f"{run_id}:plot_render_fail:fit_comparison_residual_map",
+                f"{run_id}:{_call_token}:plot_render_fail:fit_comparison_residual_map",
                 "plot_residual_map failed for phi=%s: %s (further per-angle "
                 "failures suppressed)",
                 phi,

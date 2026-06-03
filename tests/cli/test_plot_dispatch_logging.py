@@ -113,3 +113,61 @@ def test_per_phi_render_failure_logs_once_not_per_angle(
     assert len(resid_warnings) == 1, (
         f"plot_residual_map warning not rate-limited: got {len(resid_warnings)} for {n_phi} angles"
     )
+
+
+def test_second_dispatch_call_is_not_cross_call_suppressed(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    tmp_path,
+) -> None:
+    """A SECOND independent call must emit its own WARNING (no cross-call collapse).
+
+    With no log context set (``run_id is None``), the per-phi ``log_once`` key
+    is scoped by a monotonic per-call token, so a second dispatch-function call
+    with a still-failing renderer must NOT be silenced by the first call's
+    process-global dedup entry. Under the old static ``"None:..."`` key this
+    second call would emit zero warnings.
+    """
+    n_phi = 3
+
+    def _fit_raises(*args, **kwargs):
+        raise RuntimeError("nlsq_fit boom")
+
+    def _resid_raises(*args, **kwargs):
+        raise RuntimeError("residual boom")
+
+    monkeypatch.setattr("xpcsjax.viz.plot_nlsq_fit", _fit_raises, raising=False)
+    monkeypatch.setattr("xpcsjax.viz.plot_residual_map", _resid_raises, raising=False)
+
+    data = _make_data(n_phi)
+
+    # First call — primes the process-global dedup cache.
+    out1 = pd._save_fit_comparison_only(
+        _FakeConfigManager(), data, _FakeResult(), tmp_path
+    )
+    assert out1 == tmp_path
+
+    # Drop the first call's records so we count ONLY the second call's output.
+    caplog.clear()
+
+    # Second, independent call. Capture only its warnings.
+    with caplog.at_level(logging.WARNING, logger="xpcsjax"):
+        out2 = pd._save_fit_comparison_only(
+            _FakeConfigManager(), data, _FakeResult(), tmp_path
+        )
+    assert out2 == tmp_path
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    fit_warnings = [r for r in warnings if "nlsq_fit boom" in r.getMessage()]
+    resid_warnings = [r for r in warnings if "residual boom" in r.getMessage()]
+
+    # The second call emits its OWN one-per-site warning — not suppressed by the
+    # first call's dedup entry.
+    assert len(fit_warnings) == 1, (
+        "second call's plot_nlsq_fit warning was cross-call suppressed "
+        f"(got {len(fit_warnings)})"
+    )
+    assert len(resid_warnings) == 1, (
+        "second call's plot_residual_map warning was cross-call suppressed "
+        f"(got {len(resid_warnings)})"
+    )
