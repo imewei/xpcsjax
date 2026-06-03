@@ -939,10 +939,14 @@ def log_phase(
     resolved_logger = get_logger() if logger is None else logger
     context = PhaseContext(name=name)
 
-    # Track initial memory if requested
+    # Track initial memory if requested. Memory probing is best-effort: a probe
+    # failure must degrade to a memory-less phase, never escape the context.
     memory_start: float | None = None
     if track_memory:
-        memory_start = _get_memory_gb()
+        try:
+            memory_start = _get_memory_gb()
+        except Exception:
+            memory_start = None
 
     # Log phase start (only if no threshold or threshold is 0)
     if threshold_s <= 0:
@@ -956,31 +960,39 @@ def log_phase(
         # Calculate duration
         context.duration = time.perf_counter() - start_time
 
-        # Track memory if requested
+        # Track memory if requested (best-effort; a probe failure here must not
+        # escape the finally block and is degraded to a memory-less message).
         if track_memory:
-            memory_end = _get_memory_gb()
+            try:
+                memory_end = _get_memory_gb()
+            except Exception:
+                memory_end = None
             if memory_end is not None:
                 context.memory_peak_gb = memory_end
                 if memory_start is not None:
                     context.memory_delta_gb = memory_end - memory_start
 
-        # Log phase completion if duration exceeds threshold
-        if context.duration >= threshold_s:
-            if context.memory_peak_gb is not None:
-                resolved_logger.log(
-                    level,
-                    "Phase '%s' completed in %.2fs (peak memory: %.1f GB)",
-                    name,
-                    context.duration,
-                    context.memory_peak_gb,
-                )
-            else:
-                resolved_logger.log(
-                    level,
-                    "Phase '%s' completed in %.2fs",
-                    name,
-                    context.duration,
-                )
+        # Log phase completion if duration exceeds threshold. Emission is
+        # observational only: a logging failure must never escape the context.
+        try:
+            if context.duration >= threshold_s:
+                if context.memory_peak_gb is not None:
+                    resolved_logger.log(
+                        level,
+                        "Phase '%s' completed in %.2fs (peak memory: %.1f GB)",
+                        name,
+                        context.duration,
+                        context.memory_peak_gb,
+                    )
+                else:
+                    resolved_logger.log(
+                        level,
+                        "Phase '%s' completed in %.2fs",
+                        name,
+                        context.duration,
+                    )
+        except Exception:
+            pass
 
 
 def log_exception(

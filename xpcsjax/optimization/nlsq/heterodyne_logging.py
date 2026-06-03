@@ -155,14 +155,27 @@ def log_quantile_scaling(contrast_pa: np.ndarray, offset_pa: np.ndarray) -> None
     """Mirror laminar "Quantile-based per-angle estimation complete" with the
     range AND the mean/std summary (laminar logs both; the old heterodyne path
     logged only the range, and duplicated it three times)."""
-    c = np.asarray(contrast_pa, dtype=np.float64)
-    o = np.asarray(offset_pa, dtype=np.float64)
-    logger.info("Quantile-based per-angle estimation complete:")
-    logger.info("  Contrast range: [%.4f, %.4f]", float(np.nanmin(c)), float(np.nanmax(c)))
-    logger.info("  Offset range: [%.4f, %.4f]", float(np.nanmin(o)), float(np.nanmax(o)))
-    logger.info("  n_phi: %d", c.size)
-    logger.info("  Contrast: mean=%.4f, std=%.4f", float(np.nanmean(c)), float(np.nanstd(c)))
-    logger.info("  Offset: mean=%.4f, std=%.4f", float(np.nanmean(o)), float(np.nanstd(o)))
+    # Logging is observational only: empty / all-NaN inputs make np.nanmin etc.
+    # raise, but a logging failure must never escape into the solver path.
+    try:
+        c = np.asarray(contrast_pa, dtype=np.float64)
+        o = np.asarray(offset_pa, dtype=np.float64)
+        logger.info("Quantile-based per-angle estimation complete:")
+        logger.info(
+            "  Contrast range: [%.4f, %.4f]", float(np.nanmin(c)), float(np.nanmax(c))
+        )
+        logger.info(
+            "  Offset range: [%.4f, %.4f]", float(np.nanmin(o)), float(np.nanmax(o))
+        )
+        logger.info("  n_phi: %d", c.size)
+        logger.info(
+            "  Contrast: mean=%.4f, std=%.4f", float(np.nanmean(c)), float(np.nanstd(c))
+        )
+        logger.info(
+            "  Offset: mean=%.4f, std=%.4f", float(np.nanmean(o)), float(np.nanstd(o))
+        )
+    except Exception:
+        logger.debug("log_quantile_scaling skipped (non-finite/empty input)")
 
 
 # ---------------------------------------------------------------------------
