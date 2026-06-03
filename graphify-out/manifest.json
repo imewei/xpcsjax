@@ -1,27 +1,27 @@
 {
-  "/home/wei/Documents/GitHub/xpcsjax/docs/_build/html/_static/scripts/furo.js": {
-    "mtime": 1778215553.1038508,
-    "hash": "8115f36b8bd7402803751e8cd4055891"
-  },
-  "/home/wei/Documents/GitHub/xpcsjax/docs/_build/html/_static/scripts/furo-extensions.js": {
-    "mtime": 1778215553.0198512,
-    "hash": "d41d8cd98f00b204e9800998ecf8427e"
-  },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/conf.py": {
-    "mtime": 1780286629.6122913,
-    "hash": "3873fd459ab43e52774c39a2fed4683a"
+    "mtime": 1780453162.4100032,
+    "hash": "a2c731dd1d992121cfd0cc46c0f93fbd"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/test_lazy_imports.py": {
     "mtime": 1779286310.7380996,
     "hash": "c24a9855e7c2f48197c157df34c05300"
   },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/test_logging_wiring_phase1b.py": {
+    "mtime": 1780465493.8196285,
+    "hash": "6f2a893550c9f626336a6b4030a6b914"
+  },
   "/home/wei/Documents/GitHub/xpcsjax/tests/test_io.py": {
-    "mtime": 1779734180.4437068,
-    "hash": "0181163f463788cd40065786c6e4992e"
+    "mtime": 1780453162.411003,
+    "hash": "e4692376d6e3b259c40bea733fb83d71"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/__init__.py": {
     "mtime": 1779129698.438998,
     "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/test_logging_primitives.py": {
+    "mtime": 1780465493.8196285,
+    "hash": "2fce714e62bae0a1b7e73fda89b40eee"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/test_logging.py": {
     "mtime": 1779990176.8203597,
@@ -51,6 +51,18 @@
     "mtime": 1779881234.1033127,
     "hash": "3ddb7c9f0b4d32b53d052d39e345cd3e"
   },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_per_angle_scaling_roundtrip.py": {
+    "mtime": 1780449521.7514744,
+    "hash": "aa6b3fbab0a8b5bb963e02133838566d"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_global_escape_contract.py": {
+    "mtime": 1780449521.7514744,
+    "hash": "aff2e6636f41a74736d0d143d7bac4f7"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_result_quality_invariant.py": {
+    "mtime": 1780449521.7514744,
+    "hash": "6ee8ce05528805767ec674a4ae945607"
+  },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_strategy_chunking.py": {
     "mtime": 1779699304.6560185,
     "hash": "a7213399e16774a8ee25434b8371feac"
@@ -71,13 +83,25 @@
     "mtime": 1779699071.5184114,
     "hash": "c69a2f3e8f7bcb467fc8b40547358cc4"
   },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_global_escape_finite_guard.py": {
+    "mtime": 1780449521.7514744,
+    "hash": "3bcec4f96d94530bf8dec37dbe8e305c"
+  },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_gradient_collapse_callback.py": {
     "mtime": 1780148961.5186217,
     "hash": "4d789c72c66c1e7d1f99d3e0af2f04dc"
   },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_result_accessors.py": {
+    "mtime": 1780449521.7514744,
+    "hash": "2de1653a8ff0a05e7876d004e97972fc"
+  },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_heterodyne_stratified_ls.py": {
     "mtime": 1780303768.2572243,
     "hash": "ecb34c11fac620c5899ac52c2c2f67ca"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_heterodyne_cmaes_diagnostics.py": {
+    "mtime": 1780425847.118101,
+    "hash": "3f275b302a294b1640200034aa194360"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_heterodyne_stratification_config.py": {
     "mtime": 1780148961.5186217,
@@ -187,9 +211,17 @@
     "mtime": 1779135339.341918,
     "hash": "02e381547cddb0d5f60b5d6d1bb54f7f"
   },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_escape_mode_routing.py": {
+    "mtime": 1780449521.7514744,
+    "hash": "50191df58e4ef7e1e00ea3816ed123e0"
+  },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_parallel_accumulator.py": {
     "mtime": 1779693100.573614,
     "hash": "3bbf957ee7f5f99063691dad850e510b"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_adapter_cost_default.py": {
+    "mtime": 1780449521.7514744,
+    "hash": "08dddcbf64bc137d6604e07ec44ce61e"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_laminar_streaming_diag.py": {
     "mtime": 1780199813.4032152,
@@ -227,6 +259,10 @@
     "mtime": 1779734180.4357066,
     "hash": "1e0da72994e725a5b69b115e4eb91402"
   },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_heterodyne_cmaes_seed.py": {
+    "mtime": 1780425774.6633654,
+    "hash": "4ad8d9ba7a4e486ffbb2847136bae169"
+  },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_fourier_jit_safety.py": {
     "mtime": 1779985168.8889863,
     "hash": "0e790bdfea84871907c53ecb7595fa63"
@@ -248,12 +284,24 @@
     "hash": "0028920747b3e8a12e5e411901b6097f"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_heterodyne_joint_escapes.py": {
-    "mtime": 1780412874.9831722,
-    "hash": "ae561a797a7a8bdf8835ac47a6462461"
+    "mtime": 1780459224.0768445,
+    "hash": "8a0bfba93edbad9bcfd2ca81d4bff253"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_l4_callback_observational.py": {
     "mtime": 1780148961.5196216,
     "hash": "16473f39c309956b963b85bdeadd4a0d"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/data/test_validation_integrity_logging.py": {
+    "mtime": 1780488354.1341822,
+    "hash": "25b4cf121ceb96e12db80df011d68bda"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/data/test_frame_dimension_guard.py": {
+    "mtime": 1780449521.7514744,
+    "hash": "a97da459f9bff3bfb41116f160210adf"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/data/test_optimization_logging.py": {
+    "mtime": 1780488354.1341822,
+    "hash": "56b95f152c63a4a3e3aa2affefc51cea"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/data/test_quality_controller_smoke.py": {
     "mtime": 1779174019.4153433,
@@ -267,17 +315,29 @@
     "mtime": 1779130755.401376,
     "hash": "881c759ba5f5f073937cc458de1dd3e2"
   },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/data/test_xpcs_dataset.py": {
+    "mtime": 1780449521.7514744,
+    "hash": "b832aaeeba2ff311f08bb72284029dd1"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/data/test_cache_filename_guard.py": {
+    "mtime": 1780450681.6922855,
+    "hash": "26d4a6b607d4c1342831c60dea3b674e"
+  },
   "/home/wei/Documents/GitHub/xpcsjax/tests/data/__init__.py": {
     "mtime": 1779130751.1464303,
     "hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/data/test_loader_integration.py": {
-    "mtime": 1779465019.3489926,
-    "hash": "90f0cfdb2611541658664b7d8805f950"
+    "mtime": 1780455078.2213702,
+    "hash": "5cdd9b1483a8cad4d6a6b93d172fb335"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/data/test_no_pickle_loads.py": {
     "mtime": 1779168109.3496466,
     "hash": "96284ea4dcd3b13750a41c141a35c886"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/data/test_async_io_logging.py": {
+    "mtime": 1780488354.1341822,
+    "hash": "3dd9fd7ce283b1d9a55e807d07b6bb2a"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/data/test_cache_loader_security.py": {
     "mtime": 1779222432.977518,
@@ -287,13 +347,17 @@
     "mtime": 1779167786.8312345,
     "hash": "1106996d86eeced794a56d6bff2bab99"
   },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/data/test_memory_manager_logging.py": {
+    "mtime": 1780488354.1341822,
+    "hash": "6f08115aa26c77ef5543a9131afe2cdf"
+  },
   "/home/wei/Documents/GitHub/xpcsjax/tests/parity/test_mode_taxonomy.py": {
     "mtime": 1780246449.2080557,
     "hash": "1406abfc72f1833d719bb61c014a2ff1"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/parity/test_no_scipy_least_squares.py": {
-    "mtime": 1779459023.9877062,
-    "hash": "7acb0295486d0cfcf6d29a3631467926"
+    "mtime": 1780453162.411003,
+    "hash": "ebc6a86e13590e85bc09ec05065bef52"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/parity/test_defense_layers.py": {
     "mtime": 1780115775.0178707,
@@ -326,6 +390,10 @@
   "/home/wei/Documents/GitHub/xpcsjax/tests/config/test_config_manager_errors.py": {
     "mtime": 1779734180.4327066,
     "hash": "3aa6be706405acd694026a80aaf38d92"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/config/test_config_analysis_mode.py": {
+    "mtime": 1780449521.7514744,
+    "hash": "4f63df8017043e3ba1ecafceed74c830"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/config/test_get_model.py": {
     "mtime": 1779559896.2599955,
@@ -376,8 +444,8 @@
     "hash": "ff0c0fb83728dd88dd6ee4252c53b06a"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/cli/test_post_install.py": {
-    "mtime": 1779685239.4647157,
-    "hash": "6611747531f7637937e3f56035620e7f"
+    "mtime": 1780453162.4100032,
+    "hash": "8a47cfb36efb2a2db6c9cf68adc994dd"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/cli/test_uninstall_scripts.py": {
     "mtime": 1779685220.563576,
@@ -399,6 +467,10 @@
     "mtime": 1779681543.0517616,
     "hash": "9073e0c3140d8d00363359860804fe92"
   },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/cli/test_plot_dispatch_logging.py": {
+    "mtime": 1780488354.1341822,
+    "hash": "ae34115da9c98ddc8c888359eea67be2"
+  },
   "/home/wei/Documents/GitHub/xpcsjax/tests/property/test_parameter_invariants.py": {
     "mtime": 1779559896.2599955,
     "hash": "b630df77e981f783ee160699289b5abc"
@@ -418,6 +490,10 @@
   "/home/wei/Documents/GitHub/xpcsjax/tests/runtime/test_runtime_shell.py": {
     "mtime": 1779685020.898712,
     "hash": "188381c1d1fdd64d756725b1a8737460"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/runtime/test_device_logging.py": {
+    "mtime": 1780488354.1341822,
+    "hash": "8e89347783b84365cbca9688c09a5095"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/runtime/test_system_validator.py": {
     "mtime": 1779685132.2838454,
@@ -454,6 +530,10 @@
   "/home/wei/Documents/GitHub/xpcsjax/tests/core/test_heterodyne_model.py": {
     "mtime": 1779838172.7607212,
     "hash": "97c3427ca3ad0921f629236153a95b82"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/core/test_heterodyne_integral_kernels.py": {
+    "mtime": 1780449521.7514744,
+    "hash": "f258462bdcb046f219cbff59addd8df3"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/viz/test_diagnostics.py": {
     "mtime": 1779341232.9465964,
@@ -520,24 +600,24 @@
     "hash": "13d984644905334ee9a84b47310a466a"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/device/config.py": {
-    "mtime": 1779408426.7017624,
-    "hash": "9b693a99c7b28e5349ae572614e661cf"
+    "mtime": 1780488354.1361823,
+    "hash": "5cd6fe3a2bec141e60c09c3571f31c37"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/device/cpu.py": {
-    "mtime": 1779755957.2639709,
-    "hash": "94cd10d03b1c7159fa5cc95dc8a6a93e"
+    "mtime": 1780488354.1361823,
+    "hash": "7114db7b5d12f3db8c504eec9d0545af"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/utils/logging.py": {
-    "mtime": 1779990176.8223598,
-    "hash": "0c5c788a022a15c937f4acbfc8aace37"
+    "mtime": 1780465493.8206286,
+    "hash": "601a13e4a2ec6ee2ef63e748d3fdfa58"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/utils/__init__.py": {
     "mtime": 1779131468.7172408,
     "hash": "61e4242be6817c3e127db2de591ad113"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/utils/async_io.py": {
-    "mtime": 1780421779.3235245,
-    "hash": "825ad5fdf3a9ed6fef77f350eadbcbdd"
+    "mtime": 1780488354.1371822,
+    "hash": "f027bcb512a7b033dfec46afd9dadb66"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/utils/path_validation.py": {
     "mtime": 1779485912.8742855,
@@ -604,12 +684,12 @@
     "hash": "f206a686759c1d55c6776f675fc4a7ef"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/adapter.py": {
-    "mtime": 1779755957.2639709,
-    "hash": "820f55764c0f31d393dc077db3dc901c"
+    "mtime": 1780449521.7554743,
+    "hash": "e3e404558310f3c26c9d8f6a90a20c4e"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/__init__.py": {
-    "mtime": 1780303768.2572243,
-    "hash": "d6427b64ad2a650fd7334671494513f4"
+    "mtime": 1780488354.1361823,
+    "hash": "e2f0d4058a7f8fe23dc8c76aae1c965d"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/cmaes_wrapper.py": {
     "mtime": 1780254038.9518752,
@@ -620,8 +700,8 @@
     "hash": "794b7882c642137e5689667d3292b51e"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/heterodyne_logging.py": {
-    "mtime": 1780303768.2582245,
-    "hash": "66e9724d0f59b293397795e55459bad2"
+    "mtime": 1780465493.8196285,
+    "hash": "f824e5659e50efc52ad8db5da2da12ba"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/shear_weighting.py": {
     "mtime": 1779134428.9078135,
@@ -656,8 +736,8 @@
     "hash": "4fbcc4e8fde1ff446d80123b7a8e6f0a"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/core.py": {
-    "mtime": 1780421089.251632,
-    "hash": "fc086cdffbec4c9bf5df043da5341a1c"
+    "mtime": 1780449521.7564745,
+    "hash": "58a5e50ea4b8494f387d1ad5e2213509"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/adaptive_regularization.py": {
     "mtime": 1779755957.2639709,
@@ -668,8 +748,8 @@
     "hash": "ad9f726ae8cccda1aa63cea16baab51b"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/results.py": {
-    "mtime": 1780419942.4555097,
-    "hash": "420a7301f6357e9ca2ec0a326f0a6ba2"
+    "mtime": 1780449521.7584743,
+    "hash": "ed6f2563006f42e4bd2c287276c0b70b"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/memory.py": {
     "mtime": 1779216924.0392551,
@@ -692,8 +772,8 @@
     "hash": "c36242b068de69bf2928cba201aa672d"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/heterodyne_core.py": {
-    "mtime": 1780413513.6566956,
-    "hash": "5d23c6313d1dbae9ec746a11b3f855a4"
+    "mtime": 1780488354.1371822,
+    "hash": "d66737bb32d8bbaf48b0232b43fe26b1"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/result_builder.py": {
     "mtime": 1780421059.8847437,
@@ -724,8 +804,8 @@
     "hash": "41d582405430155d0bfbaade1a8f4ee1"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/parameter_utils.py": {
-    "mtime": 1779734180.5097067,
-    "hash": "12e8dd6fd0e862e86daefe59d4e06edb"
+    "mtime": 1780453162.4120033,
+    "hash": "94aad8d0945ed8b1864eb03385bbb367"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/data_prep.py": {
     "mtime": 1779734180.4957068,
@@ -736,8 +816,8 @@
     "hash": "9c433d445c92b76c2637d314a7947caa"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/heterodyne_config.py": {
-    "mtime": 1780085465.0748248,
-    "hash": "03883abb281daf9847e0a347214bd572"
+    "mtime": 1780449521.7564745,
+    "hash": "24db9724c3b16739870a866b12bb3c6e"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/strategies/residual_jit.py": {
     "mtime": 1779134428.9898155,
@@ -788,8 +868,8 @@
     "hash": "44f61597a1e6dd55abf2f8887ee6f6b9"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/data/memory_manager.py": {
-    "mtime": 1780203704.0119083,
-    "hash": "786417cb16eecb490426eefdcda7492b"
+    "mtime": 1780488354.1351821,
+    "hash": "6d02c4bd8e239c09ded5bfaa2f5f1924"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/data/quality_controller.py": {
     "mtime": 1779755957.2639709,
@@ -800,16 +880,20 @@
     "hash": "5b0ddfcf8b2943cb8c831afe4a7ad6c4"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/data/__init__.py": {
-    "mtime": 1779223436.4821086,
-    "hash": "3a912c9219337f6f8912d1a2d03b30d5"
+    "mtime": 1780449521.7544744,
+    "hash": "cd27038b874bae7393e3b9886f424e83"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/data/types.py": {
     "mtime": 1779130985.9165697,
     "hash": "fabbf23f9af4db394a2fbcaeb7df4d09"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/data/optimization.py": {
-    "mtime": 1780422023.31891,
-    "hash": "4c0b748669b20b234647847aceae1551"
+    "mtime": 1780488354.1351821,
+    "hash": "d14d49615b51a84da6f270b18045235a"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/data/dataset.py": {
+    "mtime": 1780449521.7544744,
+    "hash": "98546e990feb01fe33af37e8ba18b242"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/data/config.py": {
     "mtime": 1779130985.9135697,
@@ -820,20 +904,20 @@
     "hash": "091bf7c5724ba52f695aa66a62ddf6a1"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/data/xpcs_loader.py": {
-    "mtime": 1779766805.5163996,
-    "hash": "3a9cdfe77a0da07df18aefe455713a3a"
+    "mtime": 1780488354.1361823,
+    "hash": "7145c64190e00e4ccd96167fde81a70d"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/data/filtering_utils.py": {
     "mtime": 1779224312.0975568,
     "hash": "85129dbda531839d449d81aa510e8627"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/data/validation.py": {
-    "mtime": 1779734180.4717066,
-    "hash": "bd502c4b62bce35e184588e0ae8cc89c"
+    "mtime": 1780488354.1351821,
+    "hash": "87a67c62ef70a3feb6c6d4528ceaf2d3"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/data/performance_engine.py": {
-    "mtime": 1780422005.4209538,
-    "hash": "f5304c0e4143724a369e50a09768abfb"
+    "mtime": 1780453162.411003,
+    "hash": "f7275a1fee97ec52df1ac4e9e95b64ab"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/physics_validators.py": {
     "mtime": 1779734180.4517066,
@@ -860,12 +944,12 @@
     "hash": "0910e7c97f8b1da8dae288ae20b4c4a1"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/types.py": {
-    "mtime": 1779755957.261971,
-    "hash": "be997908992e78963474702259684328"
+    "mtime": 1780449521.7544744,
+    "hash": "47b0e6cebb19174c7f482da27b2fb4ac"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/manager.py": {
-    "mtime": 1779770837.0915854,
-    "hash": "35ebdfb59acf80def73dcfe840973921"
+    "mtime": 1780449521.7544744,
+    "hash": "1647361bf12e2e4e1cff1e07d92fb237"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/parameter_space.py": {
     "mtime": 1779988462.9716666,
@@ -904,8 +988,8 @@
     "hash": "9e900f708fcfecfd37095fa31830f607"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/cli/plot_dispatch.py": {
-    "mtime": 1780001250.664912,
-    "hash": "b80a452e499598e202f9c29e6237cbf0"
+    "mtime": 1780488354.1351821,
+    "hash": "09b4629c0c8897d27840c24811b91ab5"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/cli/__init__.py": {
     "mtime": 1779641036.0799568,
@@ -960,7 +1044,7 @@
     "hash": "626b77766edaa5c764c3006760932717"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/core/jax_backend.py": {
-    "mtime": 1780421844.4553566,
+    "mtime": 1780433932.8434005,
     "hash": "2fa033e62a1fe6bbe7735bf6fc4a3dec"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/core/models.py": {
@@ -976,8 +1060,8 @@
     "hash": "1bf5caa43d780c3224c84f6baa7e176d"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/core/heterodyne_jax_backend.py": {
-    "mtime": 1779967837.0923162,
-    "hash": "c3ce7acccedeb558bc76a86cd9dad35b"
+    "mtime": 1780435579.8140666,
+    "hash": "3a58eb8785f2c3011e78aa52e0d3421d"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/core/homodyne_model.py": {
     "mtime": 1779988462.9716666,
@@ -1059,10 +1143,6 @@
     "mtime": 1780076546.5221941,
     "hash": "b7f722372342be6db9312f5a8d33dc62"
   },
-  "/home/wei/Documents/GitHub/xpcsjax/docs/_build/html/_static/scripts/furo.js.LICENSE.txt": {
-    "mtime": 1778215553.1038508,
-    "hash": "7bbc9f9fc90fbe3bd69de1b43bc8a6be"
-  },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/quickstart.rst": {
     "mtime": 1779237474.1044652,
     "hash": "9fb7b88732159771c0d36da3bb8c12a9"
@@ -1080,8 +1160,8 @@
     "hash": "0183883c5e39210b8914dc9bc18f431d"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/development/porting_notes.rst": {
-    "mtime": 1779237474.0954652,
-    "hash": "d20b5e903c975d77d5e1615bd183fd24"
+    "mtime": 1780427837.4199235,
+    "hash": "4b00e19859dd54b5fc5707212b8d72a4"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/development/nlsq_integration.rst": {
     "mtime": 1779237474.1034653,
@@ -1092,8 +1172,8 @@
     "hash": "79097b778c35f7fc121389c16ecdd6a5"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/development/testing.rst": {
-    "mtime": 1779237474.1054654,
-    "hash": "bdb699b08924d08d27e88bc83e57b5db"
+    "mtime": 1780427847.007928,
+    "hash": "170e3861be62f2a1ab54140e94dfaf2a"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/development/index.rst": {
     "mtime": 1779232789.2716725,
@@ -1160,8 +1240,8 @@
     "hash": "804ff4d6c6e470edfcbcb46e280cfdfa"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/user_guide/visualization.rst": {
-    "mtime": 1779393808.1304297,
-    "hash": "a7cf0140162b1cded34bb3fdb1726728"
+    "mtime": 1780427767.4568834,
+    "hash": "437a109994992e2781ab8376a62022bf"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/user_guide/troubleshooting.rst": {
     "mtime": 1779237545.634737,
@@ -1184,8 +1264,8 @@
     "hash": "608fa86209ab0bc358bf4e0efbf7b029"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/api/modules.rst": {
-    "mtime": 1780419942.4405098,
-    "hash": "d4ec91f40c9c3298ebf5230a6305cc4d"
+    "mtime": 1780427638.8637638,
+    "hash": "0498753ed2348a496d3ceaaf25a12600"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/api/runtime.rst": {
     "mtime": 1779679323.710432,

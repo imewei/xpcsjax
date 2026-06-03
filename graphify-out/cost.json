@@ -79,8 +79,15 @@
       "output_tokens": 0,
       "files": 5,
       "mode": "update-code-only"
+    },
+    {
+      "date": "2026-06-03T13:23:35.501654+00:00",
+      "input_tokens": 386906,
+      "output_tokens": 0,
+      "files": 55,
+      "mode": "update"
     }
   ],
-  "total_input_tokens": 170461,
+  "total_input_tokens": 557367,
   "total_output_tokens": 200925
 }

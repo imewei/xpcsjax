@@ -273,6 +273,9 @@ xpcsjax_results/
 xpcsjax_analysis_results/
 xpcsjax_analysis_results.json
 .xpcsjax_cache/
+# Root-level app-state cache (e.g. cache/projects.json). Anchored with a
+# leading slash so any tracked cache/ deeper in the tree stays unaffected.
+/cache/
 
 # Scientific Computing & Data (results, not test fixtures)
 # Tests fixtures live under tests/characterization/fixtures/ and MUST be
