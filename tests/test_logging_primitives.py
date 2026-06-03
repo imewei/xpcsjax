@@ -35,3 +35,30 @@ def test_log_phase_never_raises_when_memory_probe_fails(monkeypatch):
     )
     with lm.log_phase("p", track_memory=True):
         pass  # must not raise
+
+
+def test_set_and_log_context_inject_run_id():
+    import logging
+
+    import xpcsjax.utils.logging as lm
+    tok = lm.set_log_context(run_id="r1", mode="laminar_flow")
+    try:
+        rec = logging.LogRecord("n", logging.INFO, __file__, 1, "m", None, None)
+        lm.ContextFilter().filter(rec)
+        assert rec.run_id == "r1" and rec.mode == "laminar_flow"
+    finally:
+        lm.reset_log_context(tok)
+
+
+def test_log_context_restores_on_exit():
+    import logging
+
+    import xpcsjax.utils.logging as lm
+    with lm.log_context(run_id="outer"):
+        with lm.log_context(run_id="inner"):
+            rec = logging.LogRecord("n", logging.INFO, __file__, 1, "m", None, None)
+            lm.ContextFilter().filter(rec)
+            assert rec.run_id == "inner"
+        rec2 = logging.LogRecord("n", logging.INFO, __file__, 1, "m", None, None)
+        lm.ContextFilter().filter(rec2)
+        assert rec2.run_id == "outer"

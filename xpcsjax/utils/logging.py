@@ -7,6 +7,7 @@ monitoring.
 
 from __future__ import annotations
 
+import contextvars
 import functools
 import inspect
 import logging
@@ -1229,6 +1230,63 @@ def log_operation(
             e,
         )
         raise
+
+
+_LOG_CONTEXT: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "xpcsjax_log_context", default=None
+)
+_CONTEXT_FIELDS = ("run_id", "phase", "mode", "strategy")
+
+
+def set_log_context(**fields: Any) -> contextvars.Token:
+    """Set context-local log fields, returning a token for restoration.
+
+    Passing a field with value ``None`` removes it from the context. The
+    returned token can be passed to :func:`reset_log_context` to restore the
+    prior context (e.g. on scope exit).
+    """
+    cur = dict(_LOG_CONTEXT.get() or {})
+    for k, v in fields.items():
+        if v is None:
+            cur.pop(k, None)
+        else:
+            cur[k] = v
+    return _LOG_CONTEXT.set(cur)
+
+
+def reset_log_context(token: contextvars.Token) -> None:
+    """Restore the log context to the state captured by ``token``."""
+    _LOG_CONTEXT.reset(token)
+
+
+@contextmanager
+def log_context(**fields: Any) -> Generator[None, None, None]:
+    """Context manager that sets log context fields for the enclosed scope.
+
+    The prior context is restored on exit, so nested ``log_context`` blocks
+    stack and unwind correctly.
+    """
+    token = set_log_context(**fields)
+    try:
+        yield
+    finally:
+        reset_log_context(token)
+
+
+class ContextFilter(logging.Filter):
+    """Logging filter that injects context-local fields onto each record.
+
+    Fields named in ``_CONTEXT_FIELDS`` are read from the context-local
+    registry and attached to the record (without clobbering fields already
+    set on the record). Always returns ``True`` so no record is dropped.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        ctx = _LOG_CONTEXT.get() or {}
+        for f in _CONTEXT_FIELDS:
+            if not hasattr(record, f):
+                setattr(record, f, ctx.get(f))
+        return True
 
 
 # Configure default logging on import
