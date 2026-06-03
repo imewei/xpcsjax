@@ -1941,11 +1941,6 @@ def _cmaes_joint_candidate(
         tol_fun=float(getattr(config, "cmaes_tolfun", 1e-8)),
         restart_strategy=str(getattr(config, "cmaes_restart_strategy", "bipop")),
         max_restarts=int(getattr(config, "cmaes_max_restarts", 9)),
-        # ``sigma`` config field = initial CMA-ES step (fraction of search
-        # range), NOT the ``sigma=`` arg to fit_with_cmaes (per-point weight).
-        # Honour ``cmaes_sigma0`` here as the per-angle path does; omitting it
-        # silently pinned the joint escape to the 0.5 default.
-        sigma=float(getattr(config, "cmaes_sigma0", 0.5)),
     )
     assert fit_with_cmaes is not None, "HAS_CMAES guards entry to the escape"
     cres = fit_with_cmaes(

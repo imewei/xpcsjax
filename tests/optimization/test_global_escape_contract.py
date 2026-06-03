@@ -30,12 +30,11 @@ def test_kept_cmaes_escape_carries_nan_covariance_and_zero_iterations():
     tag = res.global_escape  # typed accessor (F3)
     assert tag is not None and tag.startswith("cmaes")
 
-    if tag == "cmaes":
-        # Escape WON → contract applies: no covariance solve on the kept vector.
-        assert res.iterations == 0
-        assert np.all(np.isnan(np.asarray(res.covariance)))
-        assert np.all(np.isnan(np.asarray(res.uncertainties)))
-    else:
-        # Warm-start kept (tag == "cmaes_warmstart_kept"): the plain joint fit's
-        # finite covariance is retained — the escape contract does not apply.
-        assert np.isfinite(np.asarray(res.covariance)).any()
+    # The escape path does NO covariance solve on the kept vector, so the result
+    # carries NaN covariance/uncertainties and iterations==0 by construction —
+    # whether CMA-ES improved on the warm start ("cmaes") or not
+    # ("cmaes_warmstart_kept"). A stray covariance solve here would surface
+    # finite values and fail this gate.
+    assert res.iterations == 0
+    assert np.all(np.isnan(np.asarray(res.covariance)))
+    assert np.all(np.isnan(np.asarray(res.uncertainties)))
