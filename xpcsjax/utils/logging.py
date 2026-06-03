@@ -1018,35 +1018,48 @@ def log_exception(
         # Traceback (most recent call last):
         #   ...
     """
-    # Extract location info from traceback
-    tb = exc.__traceback__
-    location_info = ""
-    if tb is not None:
-        # Walk to the innermost frame where the exception occurred
-        while tb.tb_next is not None:
-            tb = tb.tb_next
-        frame = tb.tb_frame
-        func_name = frame.f_code.co_name
-        line_no = tb.tb_lineno
-        module_name = frame.f_globals.get("__name__", "unknown")
-        location_info = f" in {module_name}.{func_name}:{line_no}"
+    # Logging is observational only: a failure while formatting/emitting the
+    # diagnostic (e.g. a context value whose __repr__ raises) must never escape
+    # and must never change control flow at the call site.
+    try:
+        # Extract location info from traceback
+        tb = exc.__traceback__
+        location_info = ""
+        if tb is not None:
+            # Walk to the innermost frame where the exception occurred
+            while tb.tb_next is not None:
+                tb = tb.tb_next
+            frame = tb.tb_frame
+            func_name = frame.f_code.co_name
+            line_no = tb.tb_lineno
+            module_name = frame.f_globals.get("__name__", "unknown")
+            location_info = f" in {module_name}.{func_name}:{line_no}"
 
-    # Build the message
-    exc_type = type(exc).__name__
-    exc_msg = str(exc)
-    msg_parts = [f"Exception{location_info}: {exc_type}: {exc_msg}"]
+        # Build the message
+        exc_type = type(exc).__name__
+        exc_msg = str(exc)
+        msg_parts = [f"Exception{location_info}: {exc_type}: {exc_msg}"]
 
-    # Add context if provided
-    if context:
-        context_str = ", ".join(f"{k}={v!r}" for k, v in context.items())
-        msg_parts.append(f"Context: {context_str}")
+        # Add context if provided
+        if context:
+            context_str = ", ".join(f"{k}={v!r}" for k, v in context.items())
+            msg_parts.append(f"Context: {context_str}")
 
-    # Add traceback if requested
-    if include_traceback:
-        tb_str = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-        msg_parts.append(f"Traceback:\n{tb_str}")
+        # Add traceback if requested
+        if include_traceback:
+            tb_str = "".join(
+                traceback.format_exception(type(exc), exc, exc.__traceback__)
+            )
+            msg_parts.append(f"Traceback:\n{tb_str}")
 
-    logger.log(level, "\n".join(msg_parts))
+        logger.log(level, "\n".join(msg_parts))
+    except Exception:
+        # Degrade to a minimal record; the fallback is itself guarded so a
+        # second failure (e.g. exc.__repr__ raising) is swallowed too.
+        try:
+            logger.error("log_exception failed while logging %r", exc)
+        except Exception:
+            pass
 
 
 def log_calls(
