@@ -76,20 +76,40 @@ class _ColorFormatter(logging.Formatter):
             record.levelname = original_levelname
 
 
-_REDACT_KEY = re.compile(r"(?i)(TOKEN|SECRET|PASSWORD|API[_-]?KEY|KEY)$")
+# Redact true secrets only: TOKEN/SECRET/PASSWORD/API_KEY (case-insensitive,
+# optional API[_-] prefix), plus the uppercase ``_KEY`` env-var convention
+# (e.g. STRIPE_KEY). A lowercase ``...key`` suffix is deliberately NOT redacted
+# so benign keys (sort_key, lookup_key) survive for error tracking.
+_REDACT_KEY_CI = re.compile(r"(TOKEN|SECRET|PASSWORD|API[_-]?KEY)$", re.IGNORECASE)
+_REDACT_KEY_UPPER = re.compile(r"_KEY$")
+
+
+def _is_secret_key(key: str) -> bool:
+    """Return True for keys naming a credential that must be redacted."""
+    return bool(_REDACT_KEY_CI.search(key) or _REDACT_KEY_UPPER.search(key))
 _JSON_SCHEMA_VERSION = 1
+_JSON_SAFE_MAX_DEPTH = 20
 
 
-def _json_safe(obj: Any) -> Any:
+def _json_safe(obj: Any, _depth: int = 0) -> Any:
     import math
+
+    # Recursion guard: deeply nested structures degrade to a bounded repr rather
+    # than escaping as a RecursionError (logging is observational only).
+    if _depth > _JSON_SAFE_MAX_DEPTH:
+        return repr(obj)[:500]
 
     if isinstance(obj, dict):
         return {
-            k: ("***REDACTED***" if _REDACT_KEY.search(str(k)) else _json_safe(v))
+            k: (
+                "***REDACTED***"
+                if _is_secret_key(str(k))
+                else _json_safe(v, _depth + 1)
+            )
             for k, v in obj.items()
         }
     if isinstance(obj, (list, tuple)):
-        return [_json_safe(v) for v in obj]
+        return [_json_safe(v, _depth + 1) for v in obj]
     if isinstance(obj, np.generic):
         obj = obj.item()
     if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
@@ -107,29 +127,48 @@ class JSONFormatter(logging.Formatter):
     structured fields ``event``/``phase``/``mode``/``strategy``/``run_id``/
     ``operation``). The optional ``record.context`` mapping is passed through
     :func:`_json_safe`, which coerces numpy scalars, nulls out non-finite
-    floats, and redacts secret-looking keys (TOKEN/SECRET/PASSWORD/API_KEY/KEY);
-    filesystem paths are intentionally NOT redacted.
+    floats, and redacts secret-looking keys (TOKEN/SECRET/PASSWORD/API_KEY and
+    any ``*_KEY``, but not benign ``*key`` such as ``sort_key``); filesystem
+    paths are intentionally NOT redacted. The whole body is exception-guarded so
+    the formatter never raises.
     """
 
     def format(self, record: logging.LogRecord) -> str:
-        out: dict[str, Any] = {
-            "timestamp": self.formatTime(record),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-            "schema_version": _JSON_SCHEMA_VERSION,
-        }
-        for f in ("event", "phase", "mode", "strategy", "run_id", "operation"):
-            out[f] = getattr(record, f, None)
-        if out["event"] is None:
-            out["event"] = out["message"]
-        if record.exc_info:
-            out["exc_type"] = record.exc_info[0].__name__
-            out["exc_message"] = str(record.exc_info[1])
-            out["traceback"] = self.formatException(record.exc_info)
-        ctx = getattr(record, "context", None)
-        out["context"] = _json_safe(ctx) if ctx is not None else None
-        return json.dumps(out, default=lambda o: repr(o)[:500])
+        # Observational only: a formatter that raises is fatal to the logging
+        # machinery, so the entire body is guarded and degrades to a minimal,
+        # always-valid JSON record on any failure (e.g. getMessage() raising on
+        # malformed %-args, or an exotic context value).
+        try:
+            out: dict[str, Any] = {
+                "timestamp": self.formatTime(record),
+                "level": record.levelname,
+                "logger": record.name,
+                "message": record.getMessage(),
+                "schema_version": _JSON_SCHEMA_VERSION,
+            }
+            for f in ("event", "phase", "mode", "strategy", "run_id", "operation"):
+                out[f] = getattr(record, f, None)
+            if out["event"] is None:
+                out["event"] = out["message"]
+            # ``record.exc_info`` is the stdlib triple; the placeholder
+            # ``(None, None, None)`` is truthy but carries no exception, so guard
+            # on the type slot before dereferencing ``__name__``.
+            if record.exc_info and record.exc_info[0] is not None:
+                out["exc_type"] = record.exc_info[0].__name__
+                out["exc_message"] = str(record.exc_info[1])
+                out["traceback"] = self.formatException(record.exc_info)
+            ctx = getattr(record, "context", None)
+            out["context"] = _json_safe(ctx) if ctx is not None else None
+            return json.dumps(out, default=lambda o: repr(o)[:500])
+        except Exception:  # noqa: BLE001 - a formatter must never raise
+            return json.dumps(
+                {
+                    "level": getattr(record, "levelname", "UNKNOWN"),
+                    "logger": getattr(record, "name", "unknown"),
+                    "message": "<format failed>",
+                    "schema_version": _JSON_SCHEMA_VERSION,
+                }
+            )
 
 
 class PhaseLogger:

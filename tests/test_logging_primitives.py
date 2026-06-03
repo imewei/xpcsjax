@@ -140,3 +140,66 @@ def test_phaselogger_banner_widths_and_never_raises(caplog):
     assert any(len(line) == 80 for line in lines)
     assert any(len(line) == 60 for line in lines)
     pl.field("contrast", None)  # malformed value must not raise
+
+
+def test_json_formatter_handles_empty_exc_info_tuple():
+    import logging
+
+    import xpcsjax.utils.logging as lm
+    fmt = lm.JSONFormatter()
+    rec = logging.LogRecord("lg", logging.INFO, __file__, 1, "m", None, None)
+    rec.exc_info = (None, None, None)  # stdlib-truthy but empty
+    out = json.loads(fmt.format(rec))  # must not raise
+    assert "exc_type" not in out
+
+
+def test_json_formatter_never_raises_on_bad_format_args():
+    import logging
+
+    import xpcsjax.utils.logging as lm
+    fmt = lm.JSONFormatter()
+    rec = logging.LogRecord(
+        "lg", logging.INFO, __file__, 1, "val=%s %s", ("only_one",), None
+    )
+    out = json.loads(fmt.format(rec))  # must not raise, must be valid JSON
+    assert out["schema_version"] >= 1
+
+
+def test_json_formatter_redaction_does_not_overredact():
+    import logging
+
+    import xpcsjax.utils.logging as lm
+    fmt = lm.JSONFormatter()
+    rec = logging.LogRecord("lg", logging.INFO, __file__, 1, "m", None, None)
+    rec.context = {
+        "API_KEY": "sk-1",
+        "SECRET": "s",
+        "sort_key": "phi",
+        "data_path": "/home/u/x.h5",
+    }
+    out = json.loads(fmt.format(rec))
+    assert out["context"]["API_KEY"] == "***REDACTED***"
+    assert out["context"]["SECRET"] == "***REDACTED***"
+    assert out["context"]["sort_key"] == "phi"  # benign ...key NOT redacted
+    assert out["context"]["data_path"] == "/home/u/x.h5"  # paths NOT redacted
+
+
+def test_json_safe_recursion_guard_truncates_deep_nesting():
+    import xpcsjax.utils.logging as lm
+
+    deep: dict = {}
+    cur = deep
+    for _ in range(100):
+        nxt: dict = {}
+        cur["child"] = nxt
+        cur = nxt
+    result = lm._json_safe(deep)  # must not raise; must terminate via depth guard
+
+    # Walk down: beyond depth 20 the guard returns a repr string, not a dict.
+    node: object = result
+    depth = 0
+    while isinstance(node, dict) and "child" in node:
+        node = node["child"]
+        depth += 1
+    assert isinstance(node, str)  # truncated to repr
+    assert depth <= 21
