@@ -5,6 +5,7 @@ never change numerical results or control flow. These tests pin that contract
 for ``log_exception``, ``log_phase`` and ``log_quantile_scaling``.
 """
 
+import json
 import logging
 from unittest.mock import MagicMock
 
@@ -99,3 +100,29 @@ def test_logged_errors_suppress_swallows():
     import xpcsjax.utils.logging as lm
     with lm.logged_errors(logging.getLogger("t"), "op", policy="suppress"):
         raise RuntimeError("ignored")  # reaching the next line == suppressed
+
+
+def test_json_formatter_schema_and_jsonsafe():
+    import logging
+
+    import xpcsjax.utils.logging as lm
+    fmt = lm.JSONFormatter()
+    rec = logging.LogRecord("lg", logging.INFO, __file__, 10, "hello", None, None)
+    rec.run_id = "r1"
+    rec.context = {"q": np.float64(0.1), "nan": float("nan")}
+    out = json.loads(fmt.format(rec))
+    assert out["message"] == "hello" and out["level"] == "INFO" and out["run_id"] == "r1"
+    assert out["context"]["q"] == 0.1 and out["context"]["nan"] is None
+    assert out["schema_version"] >= 1
+
+
+def test_json_formatter_redacts_secrets():
+    import logging
+
+    import xpcsjax.utils.logging as lm
+    fmt = lm.JSONFormatter()
+    rec = logging.LogRecord("lg", logging.INFO, __file__, 1, "m", None, None)
+    rec.context = {"API_KEY": "sk-123", "data_path": "/home/u/x.h5"}
+    out = json.loads(fmt.format(rec))
+    assert out["context"]["API_KEY"] == "***REDACTED***"
+    assert out["context"]["data_path"] == "/home/u/x.h5"  # paths NOT redacted

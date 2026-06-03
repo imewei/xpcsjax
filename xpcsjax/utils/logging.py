@@ -10,7 +10,9 @@ from __future__ import annotations
 import contextvars
 import functools
 import inspect
+import json
 import logging
+import re
 import threading
 import time
 import traceback
@@ -21,6 +23,8 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
+
+import numpy as np
 
 if TYPE_CHECKING:
     from xpcsjax.config.parameter_registry import AnalysisMode
@@ -70,6 +74,62 @@ class _ColorFormatter(logging.Formatter):
             return super().format(record)
         finally:
             record.levelname = original_levelname
+
+
+_REDACT_KEY = re.compile(r"(?i)(TOKEN|SECRET|PASSWORD|API[_-]?KEY|KEY)$")
+_JSON_SCHEMA_VERSION = 1
+
+
+def _json_safe(obj: Any) -> Any:
+    import math
+
+    if isinstance(obj, dict):
+        return {
+            k: ("***REDACTED***" if _REDACT_KEY.search(str(k)) else _json_safe(v))
+            for k, v in obj.items()
+        }
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, np.generic):
+        obj = obj.item()
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    if isinstance(obj, (str, int, float, bool)) or obj is None:
+        return obj
+    return repr(obj)[:500]
+
+
+class JSONFormatter(logging.Formatter):
+    """Structured JSON log formatter with a stable schema and key redaction.
+
+    Emits one JSON object per record carrying a fixed set of top-level fields
+    (``timestamp``, ``level``, ``logger``, ``message``, ``schema_version`` plus
+    structured fields ``event``/``phase``/``mode``/``strategy``/``run_id``/
+    ``operation``). The optional ``record.context`` mapping is passed through
+    :func:`_json_safe`, which coerces numpy scalars, nulls out non-finite
+    floats, and redacts secret-looking keys (TOKEN/SECRET/PASSWORD/API_KEY/KEY);
+    filesystem paths are intentionally NOT redacted.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        out: dict[str, Any] = {
+            "timestamp": self.formatTime(record),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "schema_version": _JSON_SCHEMA_VERSION,
+        }
+        for f in ("event", "phase", "mode", "strategy", "run_id", "operation"):
+            out[f] = getattr(record, f, None)
+        if out["event"] is None:
+            out["event"] = out["message"]
+        if record.exc_info:
+            out["exc_type"] = record.exc_info[0].__name__
+            out["exc_message"] = str(record.exc_info[1])
+            out["traceback"] = self.formatException(record.exc_info)
+        ctx = getattr(record, "context", None)
+        out["context"] = _json_safe(ctx) if ctx is not None else None
+        return json.dumps(out, default=lambda o: repr(o)[:500])
 
 
 class _ContextAdapter(logging.LoggerAdapter):
