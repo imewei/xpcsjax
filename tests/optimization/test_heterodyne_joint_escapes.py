@@ -17,8 +17,10 @@ These tests pin:
 from __future__ import annotations
 
 import math
+import sys
 
 import numpy as np
+import pytest
 
 from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
@@ -54,6 +56,17 @@ def test_joint_cmaes_escape_valid_keep_better_and_tagged():
     assert diag.get("global_escape", "").startswith("cmaes")
 
 
+@pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason=(
+        "Cross-run bit/branch determinism of the joint escape relies on a "
+        "bit-reproducible warm-start solve. macOS Accelerate-backed XLA is not "
+        "bit-reproducible across independent fits, which intermittently flips the "
+        "keep-better (win vs warmstart-kept) decision. Determinism is enforced on "
+        "Linux (OpenBLAS) and Windows; the seed-pinned escape itself is "
+        "deterministic (covered by test_heterodyne_cmaes_seed)."
+    ),
+)
 def test_joint_cmaes_escape_deterministic():
     # Fresh model per run: ``HeterodyneModel`` is stateful (the fit mutates
     # ``model.scaling`` / params), and the escape's ``_build_joint_problem``
