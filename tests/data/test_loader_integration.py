@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from xpcsjax.data import load_xpcs_data
+from xpcsjax.utils.path_validation import PathValidationError
 
 # No bundled fixture is available yet (Phase 5 will provide one). Point at a
 # deliberately non-existent path so the test SKIPs cleanly on every machine
@@ -24,11 +25,13 @@ HOMODYNE_FIXTURE_CONFIG = Path(__file__).parent / "_fixtures" / "homodyne_static
 def test_load_static_fixture():
     # The fixture config resolves on every machine, but it points at maintainer-
     # local raw data (absolute /home/.../Projects/data/... paths). When that data
-    # is absent (CI, fresh clones) the loader raises FileNotFoundError — skip
-    # cleanly, mirroring the maintainer-local characterization-oracle pattern.
+    # is absent (CI, fresh clones) the loader raises FileNotFoundError; on Windows
+    # the POSIX-style absolute path is drive-relative, so cache-path validation
+    # rejects it first with PathValidationError. Either way the maintainer-local
+    # data is unavailable — skip, mirroring the characterization-oracle pattern.
     try:
         data = load_xpcs_data(str(HOMODYNE_FIXTURE_CONFIG))
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, PathValidationError) as exc:
         pytest.skip(f"maintainer-local fixture data not available: {exc}")
     # Sanity invariants for any homodyne XPCS file:
     assert "c2_exp" in data
