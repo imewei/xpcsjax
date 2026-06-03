@@ -6,6 +6,7 @@ GIL-safe since HDF5 and numpy release the GIL during I/O.
 
 from __future__ import annotations
 
+import itertools
 import json
 import logging
 from collections.abc import Callable, Iterator
@@ -32,6 +33,15 @@ def _current_run_id() -> str | None:
     """
     ctx = _LOG_CONTEXT.get() or {}
     return ctx.get("run_id")
+
+
+# Per-call token source for wait_all() rate-limiting. AsyncWriter typically runs
+# outside any pipeline run context, so ``run_id`` is ``None``; keying log_once on
+# run_id alone would collapse to a single process-global entry and suppress the
+# WARNING for every later wait_all() call (and leak across tests). A fresh token
+# per invocation makes the key unique per call: one WARNING per wait_all() across
+# all failing futures in that call, with no cross-call suppression.
+_WAIT_ALL_CALL_COUNTER = itertools.count()
 
 
 class PrefetchLoader(Iterator[R]):
@@ -182,6 +192,10 @@ class AsyncWriter:
             pending = list(self._futures)
         errors: list[Exception] = []
         completed: list[Future[None]] = []
+        # Unique token per wait_all() invocation: scopes the rate-limit so the
+        # WARNING fires once per call (not once per process), with no cross-call
+        # or cross-test suppression.
+        call_token = next(_WAIT_ALL_CALL_COUNTER)
         for future in pending:
             try:
                 future.result(timeout=timeout)
@@ -198,7 +212,7 @@ class AsyncWriter:
                 log_once(
                     logger,
                     logging.WARNING,
-                    f"{run_id}:async_writer_write_fail",
+                    f"{run_id}:{call_token}:async_writer_write_fail",
                     "Background write failed (%s): %s",
                     type(e).__name__,
                     e,

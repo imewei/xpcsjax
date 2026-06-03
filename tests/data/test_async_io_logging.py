@@ -51,34 +51,78 @@ def test_background_write_failure_logs_warning(caplog):
         writer.shutdown()
 
 
-def test_shutdown_loop_warning_is_rate_limited_per_run(caplog):
-    """Repeated write failures in one run emit the loop WARNING once, not N times."""
-    with xlog.log_context(run_id="run-rate-limit"):
-        writer = AsyncWriter(max_workers=2)
-        try:
+def test_shutdown_loop_warning_is_rate_limited_per_call(caplog):
+    """A single wait_all with N>=3 failing futures emits exactly one WARNING."""
+    writer = AsyncWriter(max_workers=2)
+    try:
 
-            def _boom() -> None:
-                raise RuntimeError("repeated boom")
+        def _boom() -> None:
+            raise RuntimeError("repeated boom")
 
-            # Submit several failing writes so wait_all iterates the failure
-            # branch multiple times within the same run.
-            for _ in range(4):
-                writer.submit_task(_boom)
+        # Submit several failing writes so wait_all iterates the failure
+        # branch multiple times within the SAME call.
+        for _ in range(4):
+            writer.submit_task(_boom)
 
-            with caplog.at_level(logging.DEBUG, logger="xpcsjax"):
-                errors = writer.wait_all(timeout=10.0)
+        with caplog.at_level(logging.DEBUG, logger="xpcsjax"):
+            errors = writer.wait_all(timeout=10.0)
 
-            # Control flow unchanged: every failure is still collected.
-            assert len(errors) == 4
+        # Control flow unchanged: every failure is still collected.
+        assert len(errors) == 4
 
-            warnings = [
-                r
-                for r in caplog.records
-                if r.levelno == logging.WARNING and "repeated boom" in r.getMessage()
-            ]
-            assert len(warnings) == 1, (
-                "the shutdown-loop write-failure WARNING must be rate-limited to "
-                f"once per run, got {len(warnings)}"
-            )
-        finally:
-            writer.shutdown()
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "repeated boom" in r.getMessage()
+        ]
+        assert len(warnings) == 1, (
+            "the shutdown-loop write-failure WARNING must be rate-limited to "
+            f"once per wait_all() call, got {len(warnings)}"
+        )
+    finally:
+        writer.shutdown()
+
+
+def test_second_wait_all_call_logs_independently(caplog):
+    """A second independent wait_all() call still logs (no cross-call suppression).
+
+    Regression guard for the None-collapsed key: keying log_once on run_id alone
+    (None outside a run context) suppressed the WARNING for every later call. A
+    fresh per-call token must let the second call emit its own WARNING.
+    """
+    writer = AsyncWriter(max_workers=1)
+    try:
+
+        def _boom() -> None:
+            raise RuntimeError("call boom")
+
+        # First call: one failing future -> one WARNING.
+        writer.submit_task(_boom)
+        with caplog.at_level(logging.DEBUG, logger="xpcsjax"):
+            first_errors = writer.wait_all(timeout=10.0)
+        assert len(first_errors) == 1
+        first_warnings = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "call boom" in r.getMessage()
+        ]
+        assert len(first_warnings) == 1
+
+        caplog.clear()
+
+        # Second, independent call: a new failing future must ALSO log a WARNING.
+        writer.submit_task(_boom)
+        with caplog.at_level(logging.DEBUG, logger="xpcsjax"):
+            second_errors = writer.wait_all(timeout=10.0)
+        assert len(second_errors) == 1
+        second_warnings = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "call boom" in r.getMessage()
+        ]
+        assert len(second_warnings) == 1, (
+            "a second independent wait_all() call must emit its own WARNING; "
+            f"got {len(second_warnings)} (cross-call suppression regression)"
+        )
+    finally:
+        writer.shutdown()
