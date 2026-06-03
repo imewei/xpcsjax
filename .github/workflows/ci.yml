@@ -27,8 +27,13 @@ jobs:
           enable-cache: true
       - name: Sync deps
         run: uv sync --extra dev
+      - name: Export locked requirements for audit
+        # uv run pip-audit by itself audits the active venv; exporting first
+        # makes the audited set explicit and lets pip-audit cross-reference
+        # against the uv.lock-pinned versions rather than any installed state.
+        run: uv export --format requirements-txt --no-hashes -o requirements-audit.txt
       - name: Dependency vulnerability scan
-        run: uv run pip-audit
+        run: uv run pip-audit --requirement requirements-audit.txt --desc
       - name: Lint
         run: uv run ruff check .
       - name: Type check

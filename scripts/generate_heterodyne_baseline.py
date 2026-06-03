@@ -1,24 +1,31 @@
 """Generate heterodyne fit baseline for Phase 6/7 validation.
 
-Run INSIDE THE SOURCE HETERODYNE VENV:
+MAINTAINER-LOCAL: Run INSIDE THE SOURCE HETERODYNE VENV.
+Set XPCSJAX_DATA_ROOT to the directory containing C044/ sub-dir.
 
-    cd /home/wei/Documents/GitHub/heterodyne
-    uv run python /home/wei/Documents/GitHub/xpcsjax/scripts/generate_heterodyne_baseline.py
+Example::
+
+    export XPCSJAX_DATA_ROOT=/path/to/Projects/data
+    cd $HETERODYNE_REPO
+    uv run python /path/to/xpcsjax/scripts/generate_heterodyne_baseline.py
 """
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
-XPCSJAX_ROOT = Path("/home/wei/Documents/GitHub/xpcsjax")
+# Repo root: two levels up from this script (scripts/ → xpcsjax/)
+XPCSJAX_ROOT = Path(__file__).resolve().parents[1]
 BASELINES_DIR = XPCSJAX_ROOT / "tests" / "heterodyne" / "fixtures" / "baselines"
 
+# External data directory — set XPCSJAX_DATA_ROOT to override.
+_DATA_ROOT = Path(os.environ.get("XPCSJAX_DATA_ROOT", "/path/to/Projects/data"))
+
 CONFIGS: dict[str, Path] = {
-    "two_component_c044": Path(
-        "/home/wei/Documents/Projects/data/C044/heterodyne_config.yaml"
-    ),
+    "two_component_c044": _DATA_ROOT / "C044" / "heterodyne_config.yaml",
 }
 
 

@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, TypeVar
 
 import numpy as np
 
@@ -37,6 +37,45 @@ LoggerType = logging.Logger | logging.LoggerAdapter[logging.Logger]
 
 DEFAULT_FORMAT_DETAILED = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 DEFAULT_FORMAT_SIMPLE = "%(levelname)-8s | %(message)s"
+
+
+class _LogContext(TypedDict, total=False):
+    """The four context fields propagated through ContextVar to log records.
+
+    Using a TypedDict constrains callers of :func:`set_log_context` and
+    :func:`log_context` to the known keys (run_id, phase, mode, strategy) so
+    typo'd or unknown keys are caught statically rather than silently consumed.
+    """
+
+    run_id: str | None
+    phase: str | None
+    mode: str | None
+    strategy: str | None
+
+
+# Public API — explicit literal list required by Pyright's reportUnsupportedDunderAll
+__all__ = [
+    "LoggerType",
+    "PhaseLogger",
+    "JSONFormatter",
+    "ContextFilter",
+    "AnalysisSummaryLogger",
+    "MinimalLogger",
+    "log_calls",
+    "log_performance",
+    "log_operation",
+    "log_phase",
+    "log_exception",
+    "log_once",
+    "logged_errors",
+    "set_log_context",
+    "reset_log_context",
+    "log_context",
+    "reset_log_once_cache",
+    "configure_logging",
+    "get_logger",
+    "with_context",
+]
 
 
 def _resolve_level(level: str | int | None) -> int | None:
@@ -824,8 +863,11 @@ class MinimalLogger:
 
         if current_test and "disables_propagation" not in current_test:
             root_logger.propagate = True
-        else:
-            root_logger.propagate = not has_managed_handler
+        elif has_managed_handler:
+            # Only suppress propagation when we actually own a handler; never
+            # force propagate=True in the no-handler path — that would duplicate
+            # records for users who already configure the stdlib root logger.
+            root_logger.propagate = False
 
         # Phase 1b wiring: env/YAML format selection, context filter install,
         # and env DEBUG override. ``root_logger`` and ``console_handler`` are
@@ -846,6 +888,12 @@ class MinimalLogger:
                 continue
             if not any(isinstance(f, ContextFilter) for f in h.filters):
                 h.addFilter(ContextFilter())
+        # Also attach a ContextFilter directly to the named logger so context
+        # fields (run_id/phase/mode/strategy) are present on ALL records —
+        # including those emitted before any handler-level configure() call.
+        # Idempotent: only add if not already present.
+        if not any(isinstance(f, ContextFilter) for f in root_logger.filters):
+            root_logger.addFilter(ContextFilter())
         # quiet must still win; apply env DEBUG only when not quiet, AFTER the
         # quiet/verbose level handling resolved upstream in configure_from_dict.
         # Lowering only the root logger is a no-op for console output — the
@@ -1279,29 +1327,35 @@ def log_calls(
             func_name = f"{func.__module__}.{func.__qualname__}"
             log_enabled = resolved_logger.isEnabledFor(level)
 
-            # Log function entry
+            # Log function entry — wrapped so a raising handler never aborts the call
             if log_enabled:
-                if include_args:
-                    args_str = ", ".join([repr(arg) for arg in args])
-                    kwargs_str = ", ".join(
-                        [f"{k}={repr(v)}" for k, v in kwargs.items()]
-                    )
-                    all_args = ", ".join(filter(None, [args_str, kwargs_str]))
-                    resolved_logger.log(level, "Calling %s(%s)", func_name, all_args)
-                else:
-                    resolved_logger.log(level, "Calling %s", func_name)
+                try:
+                    if include_args:
+                        args_str = ", ".join([repr(arg) for arg in args])
+                        kwargs_str = ", ".join(
+                            [f"{k}={repr(v)}" for k, v in kwargs.items()]
+                        )
+                        all_args = ", ".join(filter(None, [args_str, kwargs_str]))
+                        resolved_logger.log(level, "Calling %s(%s)", func_name, all_args)
+                    else:
+                        resolved_logger.log(level, "Calling %s", func_name)
+                except Exception:  # noqa: BLE001 - logging must not abort the decorated call
+                    pass
 
             try:
                 result = func(*args, **kwargs)
 
-                # Log function exit
+                # Log function exit — wrapped so a raising handler never aborts the return
                 if log_enabled:
-                    if include_result:
-                        resolved_logger.log(
-                            level, "Completed %s -> %r", func_name, result
-                        )
-                    else:
-                        resolved_logger.log(level, "Completed %s", func_name)
+                    try:
+                        if include_result:
+                            resolved_logger.log(
+                                level, "Completed %s -> %r", func_name, result
+                            )
+                        else:
+                            resolved_logger.log(level, "Completed %s", func_name)
+                    except Exception:  # noqa: BLE001 - logging must not abort the decorated call
+                        pass
 
                 return result
 
@@ -1348,13 +1402,17 @@ def log_performance(
                 result = func(*args, **kwargs)
                 duration = time.perf_counter() - start_time
 
+                # Wrapped so a raising handler never aborts the decorated return
                 if duration >= threshold:
-                    resolved_logger.log(
-                        level,
-                        "Performance: %s completed in %.3fs",
-                        func_name,
-                        duration,
-                    )
+                    try:
+                        resolved_logger.log(
+                            level,
+                            "Performance: %s completed in %.3fs",
+                            func_name,
+                            duration,
+                        )
+                    except Exception:  # noqa: BLE001 - logging must not abort the decorated call
+                        pass
 
                 return result
 
@@ -1416,25 +1474,41 @@ def log_operation(
         raise
 
 
-_LOG_CONTEXT: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+_LOG_CONTEXT: contextvars.ContextVar[_LogContext | None] = contextvars.ContextVar(
     "xpcsjax_log_context", default=None
 )
 _CONTEXT_FIELDS = ("run_id", "phase", "mode", "strategy")
 
 
-def set_log_context(**fields: Any) -> contextvars.Token:
+def set_log_context(
+    *,
+    run_id: str | None = ...,  # type: ignore[assignment]  # sentinel: not-passed vs None
+    phase: str | None = ...,  # type: ignore[assignment]
+    mode: str | None = ...,  # type: ignore[assignment]
+    strategy: str | None = ...,  # type: ignore[assignment]
+) -> contextvars.Token:
     """Set context-local log fields, returning a token for restoration.
 
-    Passing a field with value ``None`` removes it from the context. The
-    returned token can be passed to :func:`reset_log_context` to restore the
-    prior context (e.g. on scope exit).
+    Only the four known fields (run_id, phase, mode, strategy) are accepted;
+    passing an unknown keyword raises :exc:`TypeError` at call time.
+    Passing a field with value ``None`` removes it from the context.
+    The returned token can be passed to :func:`reset_log_context` to restore
+    the prior context (e.g. on scope exit).
     """
-    cur = dict(_LOG_CONTEXT.get() or {})
-    for k, v in fields.items():
+    cur: _LogContext = dict(_LOG_CONTEXT.get() or {})  # type: ignore[assignment]
+    _sentinel = ...
+    for k, v in (
+        ("run_id", run_id),
+        ("phase", phase),
+        ("mode", mode),
+        ("strategy", strategy),
+    ):
+        if v is _sentinel:
+            continue
         if v is None:
-            cur.pop(k, None)
+            cur.pop(k, None)  # type: ignore[misc]
         else:
-            cur[k] = v
+            cur[k] = v  # type: ignore[literal-required]
     return _LOG_CONTEXT.set(cur)
 
 
@@ -1444,13 +1518,20 @@ def reset_log_context(token: contextvars.Token) -> None:
 
 
 @contextmanager
-def log_context(**fields: Any) -> Generator[None, None, None]:
+def log_context(
+    *,
+    run_id: str | None = ...,  # type: ignore[assignment]  # sentinel: not-passed vs None
+    phase: str | None = ...,  # type: ignore[assignment]
+    mode: str | None = ...,  # type: ignore[assignment]
+    strategy: str | None = ...,  # type: ignore[assignment]
+) -> Generator[None, None, None]:
     """Context manager that sets log context fields for the enclosed scope.
 
+    Only the four known fields (run_id, phase, mode, strategy) are accepted.
     The prior context is restored on exit, so nested ``log_context`` blocks
     stack and unwind correctly.
     """
-    token = set_log_context(**fields)
+    token = set_log_context(run_id=run_id, phase=phase, mode=mode, strategy=strategy)  # type: ignore[arg-type]
     try:
         yield
     finally:
@@ -1496,7 +1577,7 @@ def reset_log_once_cache() -> None:
         _LOG_ONCE_SEEN.clear()
 
 
-def log_once(logger: Any, level: int, key: str, msg: str, *args: Any) -> None:
+def log_once(logger: LoggerType, level: int, key: str, msg: str, *args: Any) -> None:
     """Emit a log record at most once per ``key``.
 
     Observational only: a failure while emitting the record is swallowed and

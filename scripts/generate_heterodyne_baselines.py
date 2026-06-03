@@ -1,9 +1,10 @@
 """Generate heterodyne (two_component) residual-parity baselines.
 
-Run this INSIDE xpcsjax's venv with the upstream ``heterodyne`` package
-installed (it is NOT a declared dependency — install editable first):
+MAINTAINER-LOCAL: Run this INSIDE xpcsjax's venv with the upstream
+``heterodyne`` package installed (it is NOT a declared dependency —
+install editable first):
 
-    uv pip install -e /home/wei/Documents/GitHub/heterodyne --no-deps
+    uv pip install -e /path/to/heterodyne --no-deps
     uv run python scripts/generate_heterodyne_baselines.py
 
 It pins upstream ``compute_multi_angle_residuals`` output on a small, fully

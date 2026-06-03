@@ -20,6 +20,13 @@ from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Upper bound for any *_chunk_size field in NLSQConfig.validate().
+# Typical XPCS datasets are well below 10 M points (a 1 h measurement at
+# 10 kHz with 1 k pixels is ~3.6 M points).  100 M points is already an
+# extremely large run; values above this ceiling almost certainly indicate
+# a mis-typed config (e.g. 10_000_000_000) that would drive a pathological
+# allocation, so we reject them early.
+MAX_CHUNK_SIZE: int = 100_000_000
 
 # =============================================================================
 # Safe Type Conversion Utilities (T094-T096)
@@ -741,9 +748,19 @@ class NLSQConfig:
             errors.append(
                 f"streaming_chunk_size must be positive, got: {self.streaming_chunk_size}"
             )
+        if self.streaming_chunk_size > MAX_CHUNK_SIZE:
+            errors.append(
+                f"streaming_chunk_size exceeds MAX_CHUNK_SIZE ({MAX_CHUNK_SIZE}), "
+                f"got: {self.streaming_chunk_size}"
+            )
         if self.target_chunk_size <= 0:
             errors.append(
                 f"target_chunk_size must be positive, got: {self.target_chunk_size}"
+            )
+        if self.target_chunk_size > MAX_CHUNK_SIZE:
+            errors.append(
+                f"target_chunk_size exceeds MAX_CHUNK_SIZE ({MAX_CHUNK_SIZE}), "
+                f"got: {self.target_chunk_size}"
             )
 
         # Validate recovery attempts
@@ -785,6 +802,11 @@ class NLSQConfig:
         if self.hybrid_chunk_size <= 0:
             errors.append(
                 f"hybrid_chunk_size must be positive, got: {self.hybrid_chunk_size}"
+            )
+        if self.hybrid_chunk_size > MAX_CHUNK_SIZE:
+            errors.append(
+                f"hybrid_chunk_size exceeds MAX_CHUNK_SIZE ({MAX_CHUNK_SIZE}), "
+                f"got: {self.hybrid_chunk_size}"
             )
 
         # Validate 4-Layer Defense parameters
@@ -995,6 +1017,14 @@ class NLSQConfig:
         if self.cmaes_data_chunk_size is not None and self.cmaes_data_chunk_size <= 0:
             errors.append(
                 f"cmaes_data_chunk_size must be positive or None, "
+                f"got: {self.cmaes_data_chunk_size}"
+            )
+        if (
+            self.cmaes_data_chunk_size is not None
+            and self.cmaes_data_chunk_size > MAX_CHUNK_SIZE
+        ):
+            errors.append(
+                f"cmaes_data_chunk_size exceeds MAX_CHUNK_SIZE ({MAX_CHUNK_SIZE}), "
                 f"got: {self.cmaes_data_chunk_size}"
             )
         if self.cmaes_scale_threshold <= 0:

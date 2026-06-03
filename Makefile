@@ -356,9 +356,9 @@ quick: format test-smoke
 # type-narrowing assert in the hot paths trips B101.
 security:
 	@echo "$(BOLD)$(BLUE)Running SAST (bandit) + dependency CVE scan (pip-audit)...$(RESET)"
-	@$(RUN_CMD) pip install --quiet bandit pip-audit 2>/dev/null || true
 	@$(RUN_CMD) bandit -c pyproject.toml -r $(SRC_DIR) -q
-	@$(RUN_CMD) pip-audit --skip-editable
+	@uv export --format requirements-txt --no-hashes -o requirements-audit.txt 2>/dev/null
+	@$(RUN_CMD) pip-audit --requirement requirements-audit.txt --desc --skip-editable
 	@echo "$(BOLD)$(GREEN)✓ Security scan clean!$(RESET)"
 
 # Perf-regression suite. Opt-in via env var so dev smoke stays fast. Saves a

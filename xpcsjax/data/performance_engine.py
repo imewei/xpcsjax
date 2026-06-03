@@ -26,8 +26,9 @@ Key Features:
 from __future__ import annotations
 
 import hashlib
+import io
 import os
-import pickle  # nosec B403: internal cache serialization only
+import sys
 import threading
 import time
 import types
@@ -750,10 +751,28 @@ class MultiLevelCache:
             logger.warning(f"Failed to cache to HDD {key}: {e}")
 
     def _save_to_disk(self, file_path: Path, item: Any) -> float:
-        """Save compressed item to disk and return size in MB."""
+        """Save a compressed array to disk and return size in MB.
+
+        SEC-1: serialization uses ``np.save`` with ``allow_pickle=False``. The
+        disk cache only ever holds correlation-matrix arrays, so arbitrary
+        object pickling is unnecessary — and refusing pickle removes the
+        deserialization arbitrary-code-execution vector entirely, including on
+        platforms without ``os.getuid`` where the ownership/mode gates do not
+        apply. A non-array (object-dtype) payload raises ``ValueError`` rather
+        than silently falling back to a code-execution-capable serializer; the
+        caller skips disk caching and the memory tier still holds the item.
+        """
         try:
-            # Serialize item
-            serialized = pickle.dumps(item, protocol=pickle.HIGHEST_PROTOCOL)
+            arr = np.asarray(item)
+            if arr.dtype == object:
+                raise ValueError(
+                    "disk cache only serializes numeric arrays; got "
+                    f"object-dtype payload ({type(item).__name__})"
+                )
+
+            buffer = io.BytesIO()
+            np.save(buffer, arr, allow_pickle=False)
+            serialized = buffer.getvalue()
 
             # Compress with zstd if available, otherwise save uncompressed
             if HAS_ZSTD:
@@ -776,10 +795,13 @@ class MultiLevelCache:
     def _load_from_disk(self, file_path: Path) -> Any:
         """Load and decompress item from disk.
 
-        Security model: deserialization is unsafe on attacker-controlled
-        input. We mitigate with three defense-in-depth invariants enforced
-        BEFORE the cache item is decoded, so a compromised cache directory
-        cannot escalate to arbitrary code execution:
+        Security model: the primary defense (SEC-1) is that the payload is
+        decoded with ``np.load(..., allow_pickle=False)`` — the deserializer
+        can only reconstruct a NumPy array, never an arbitrary Python object,
+        so there is no code-execution vector even on platforms without
+        ``os.getuid``. The following three invariants remain as
+        defense-in-depth (they also bound *which file* is read), enforced
+        BEFORE the cache item is decoded:
 
         1. **Path containment** — the resolved path must live under
            ``self._cache_base_path``. Stops symlink escapes and
@@ -860,8 +882,9 @@ class MultiLevelCache:
             else:
                 serialized = data  # Fallback to uncompressed
 
-            # Deserialize (trusted internal cache only)
-            item = pickle.loads(serialized)  # nosec B301
+            # SEC-1: allow_pickle=False — a pickle payload (or any non-.npy
+            # bytestream) raises here instead of executing. No RCE vector.
+            item = np.load(io.BytesIO(serialized), allow_pickle=False)
             return item
 
         except (OSError, ValueError) as e:
@@ -885,13 +908,10 @@ class MultiLevelCache:
                 )
             return total_size
         else:
-            # Rough estimate based on pickle size
+            # Rough estimate via shallow object size (no pickle — SEC-1).
             try:
-                return float(
-                    len(pickle.dumps(item, protocol=pickle.HIGHEST_PROTOCOL))
-                    / (1024 * 1024)
-                )
-            except (pickle.PicklingError, TypeError, AttributeError):
+                return float(sys.getsizeof(item) / (1024 * 1024))
+            except (TypeError, AttributeError):
                 return 0.1  # Conservative estimate
 
     def _update_access_stats(self, key: str, current_time: float) -> None:

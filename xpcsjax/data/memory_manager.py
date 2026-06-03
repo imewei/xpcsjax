@@ -99,12 +99,46 @@ except ImportError:
 
     @_contextmanager  # type: ignore[misc]
     def logged_errors(*args, **kwargs):  # type: ignore[no-untyped-def,misc]
-        # Fallback when the Phase-1 helper is unavailable: behave as a
-        # pure-swallow guard so control flow is unchanged.
+        # Fallback when the Phase-1 helper is unavailable.  Matches the real
+        # helper's policy contract: "reraise" re-raises, "suppress" swallows.
+        policy = kwargs.get("policy", "suppress")
         try:
             yield
         except Exception:
-            pass
+            if policy == "reraise":
+                raise
+
+
+# Path validation for secure file operations
+try:
+    from xpcsjax.utils.path_validation import PathValidationError
+    from xpcsjax.utils.path_validation import validate_save_path as _validate_save_path
+
+    def _check_vm_path(path: str) -> None:
+        """Raise PathValidationError if path contains traversal tokens."""
+        _validate_save_path(
+            path,
+            require_parent_exists=False,
+            allow_absolute=True,
+        )
+
+except ImportError:  # pragma: no cover
+    from pathlib import Path as _Path
+
+    class PathValidationError(ValueError):  # type: ignore[no-redef]
+        """Minimal fallback when path_validation is unavailable."""
+
+    def _check_vm_path(path: str) -> None:
+        """Minimal traversal check: reject '..' components and null bytes."""
+        if "\x00" in path:
+            raise PathValidationError(f"Null bytes not allowed in virtual_memory_path: {path!r}")
+        raw_components: set[str] = set(_Path(path).parts)
+        for seg in path.replace("\\", "/").split("/"):
+            raw_components.add(seg)
+        if ".." in raw_components:
+            raise PathValidationError(
+                f"Path traversal detected in virtual_memory_path: {path!r}"
+            )
 
 
 logger = get_logger(__name__)
@@ -704,7 +738,13 @@ class AdvancedMemoryManager:
                             return
                     pool.return_buffer(base_buffer)
             except (ValueError, IndexError):
-                pass
+                log_once(
+                    logger,
+                    logging.DEBUG,
+                    f"{id(self)}:memmgr:return_pool_parse:{pool_id}",
+                    "Failed to parse pool_id %r for buffer return — buffer leaked from pool",
+                    pool_id,
+                )
 
     def _allocate_buffer(self, size: int, dtype: np.dtype) -> np.ndarray:
         """Allocate new memory buffer with tracking."""
@@ -783,6 +823,10 @@ class AdvancedMemoryManager:
             if total_bytes == 0:
                 logger.warning("Zero-size virtual memory allocation requested")
                 return np.empty(0, dtype=dtype)
+
+            # Validate the configured path before any filesystem mutation.
+            # Rejects path traversal (e.g. "../../etc") and null bytes.
+            _check_vm_path(self._virtual_memory_path)
 
             # Ensure virtual memory directory exists
             os.makedirs(os.path.dirname(self._virtual_memory_path), exist_ok=True)

@@ -36,7 +36,7 @@ def test_write_npz_lzma_roundtrip(tmp_path: Path) -> None:
     out = tmp_path / "fit.npz"
     _write_npz_compressed(out, arrays, compression="lzma")
     assert out.exists()
-    loaded = np.load(out)
+    loaded = np.load(out, allow_pickle=False)
     for key, val in arrays.items():
         np.testing.assert_array_equal(loaded[key], val)
 
@@ -54,7 +54,7 @@ def test_write_npz_deflate_compression(tmp_path: Path) -> None:
     arrays = _sample_arrays()
     out = tmp_path / "fit.npz"
     _write_npz_compressed(out, arrays, compression="deflate")
-    loaded = np.load(out)
+    loaded = np.load(out, allow_pickle=False)
     np.testing.assert_array_equal(loaded["c2_exp"], arrays["c2_exp"])
     with zipfile.ZipFile(out, "r") as zf:
         for info in zf.infolist():
@@ -65,7 +65,7 @@ def test_write_npz_none_compression(tmp_path: Path) -> None:
     arrays = _sample_arrays()
     out = tmp_path / "fit.npz"
     _write_npz_compressed(out, arrays, compression="none")
-    loaded = np.load(out)
+    loaded = np.load(out, allow_pickle=False)
     np.testing.assert_array_equal(loaded["c2_exp"], arrays["c2_exp"])
 
 
@@ -119,7 +119,7 @@ def test_save_artifacts_writes_npz_and_json(tmp_path: Path) -> None:
 
 def test_save_artifacts_npz_schema(tmp_path: Path) -> None:
     _save_fit_artifacts(**_sample_artifact_inputs(tmp_path))
-    loaded = np.load(tmp_path / "c2_fitted_data.npz")
+    loaded = np.load(tmp_path / "c2_fitted_data.npz", allow_pickle=False)
     expected = {
         "c2_exp",
         "c2_fitted",

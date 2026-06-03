@@ -55,7 +55,7 @@ def test_orchestrator_npz_shapes_consistent(
         config=minimal_homodyne_config,
         output_dir=tmp_path,
     )
-    npz = np.load(tmp_path / "simulated_data" / "c2_fitted_data.npz")
+    npz = np.load(tmp_path / "simulated_data" / "c2_fitted_data.npz", allow_pickle=False)
     n_phi = synthetic_multi_angle_data["phi_angles_list"].size
     n = synthetic_multi_angle_data["t1"].size
     assert npz["c2_exp"].shape == (n_phi, n, n)
@@ -269,7 +269,7 @@ def test_orchestrator_fail_soft_on_bad_angle(
         config=minimal_homodyne_config,
         output_dir=tmp_path,
     )
-    loaded = np.load(tmp_path / "simulated_data" / "c2_fitted_data.npz")
+    loaded = np.load(tmp_path / "simulated_data" / "c2_fitted_data.npz", allow_pickle=False)
     assert np.all(np.isnan(loaded["c2_fitted"][1]))
     for i in [0, 2, 3]:
         assert np.all(np.isfinite(loaded["c2_fitted"][i]))

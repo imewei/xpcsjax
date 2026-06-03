@@ -1,9 +1,14 @@
 """Generate homodyne fit baselines for the Phase 5 characterization gate.
 
-Run this script INSIDE THE SOURCE HOMODYNE VENV:
+MAINTAINER-LOCAL: Run this script INSIDE THE SOURCE HOMODYNE VENV.
+Set XPCSJAX_DATA_ROOT to the directory containing Simon/ and C020/ sub-dirs.
+Set HOMODYNE_REPO to the homodyne source repo root (for the venv / uv run).
 
-    cd /home/wei/Documents/GitHub/homodyne
-    uv run python /home/wei/Documents/GitHub/xpcsjax/scripts/generate_homodyne_baselines.py
+Example::
+
+    export XPCSJAX_DATA_ROOT=/path/to/Projects/data
+    cd $HOMODYNE_REPO
+    uv run python /path/to/xpcsjax/scripts/generate_homodyne_baselines.py
 
 It runs the canonical xpcsjax fixture configs through the SOURCE homodyne
 package and pins the fit results as frozen JSON baselines under
@@ -17,20 +22,21 @@ fixtures under tests/characterization/fixtures/configs/ proper.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
-XPCSJAX_ROOT = Path("/home/wei/Documents/GitHub/xpcsjax")
+# Repo root: two levels up from this script (scripts/ → xpcsjax/)
+XPCSJAX_ROOT = Path(__file__).resolve().parents[1]
 BASELINES_DIR = XPCSJAX_ROOT / "tests" / "characterization" / "fixtures" / "baselines"
 
+# External data directory — set XPCSJAX_DATA_ROOT to override.
+_DATA_ROOT = Path(os.environ.get("XPCSJAX_DATA_ROOT", "/path/to/Projects/data"))
+
 CONFIGS: dict[str, Path] = {
-    "static_simon": Path(
-        "/home/wei/Documents/Projects/data/Simon/homodyne_static_config.yaml"
-    ),
-    "laminar_c020": Path(
-        "/home/wei/Documents/Projects/data/C020/homodyne_laminar_flow_config.yaml"
-    ),
+    "static_simon": _DATA_ROOT / "Simon" / "homodyne_static_config.yaml",
+    "laminar_c020": _DATA_ROOT / "C020" / "homodyne_laminar_flow_config.yaml",
 }
 
 

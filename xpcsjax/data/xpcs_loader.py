@@ -253,6 +253,105 @@ class XPCSConfigurationError(Exception):
 # before any other validation runs.
 MAX_CORRELATION_FRAMES = 100_000
 
+# Upper bound on the *total* in-memory correlation buffer. ``_check_frame_count``
+# bounds only the time axis; the real allocation is ``(n_matrices, n_t, n_t)``
+# and a crafted file with a legal ``n_t`` but a huge matrix count can still
+# demand hundreds of GB (SEC-2 / DoS). This caps the product in bytes. Datasets
+# that legitimately exceed this go through the streaming/stratified path, not the
+# in-memory loader, so a generous fixed ceiling is safe.
+MAX_CORRELATION_ALLOC_BYTES = 64 * 1024**3  # 64 GiB
+
+
+def _check_allocation_budget(
+    n_matrices: int, n_t: int, itemsize: int, *, source: str
+) -> None:
+    """Reject an ``(n_matrices, n_t, n_t)`` buffer that exceeds the byte ceiling.
+
+    The per-axis :func:`_check_frame_count` cap is necessary but not sufficient:
+    the quantity that actually drives the allocation is the product
+    ``n_matrices * n_t * n_t * itemsize``. A file declaring a legal ``n_t`` but
+    tens of thousands of correlation matrices still triggers a multi-hundred-GB
+    allocation. Raises ``XPCSDataFormatError`` when the requested buffer exceeds
+    :data:`MAX_CORRELATION_ALLOC_BYTES`.
+    """
+    if n_matrices < 0:
+        raise XPCSDataFormatError(
+            f"Invalid correlation matrix count {n_matrices} from {source!r} "
+            "(must be non-negative)."
+        )
+    total_bytes = n_matrices * n_t * n_t * itemsize
+    if total_bytes > MAX_CORRELATION_ALLOC_BYTES:
+        raise XPCSDataFormatError(
+            f"Refusing to allocate {total_bytes / 1024**3:.1f} GiB for "
+            f"{n_matrices}x{n_t}x{n_t} correlation matrices from {source!r} "
+            f"(exceeds the {MAX_CORRELATION_ALLOC_BYTES / 1024**3:.0f} GiB cap). "
+            "Use the streaming/stratified path for legitimately huge datasets, "
+            "or raise MAX_CORRELATION_ALLOC_BYTES."
+        )
+
+
+def _check_square_matrix(shape: tuple[int, ...], *, source: str) -> None:
+    """Validate that a stored half-matrix is 2-D and square before allocation.
+
+    The allocation derives ``(n_t, n_t)`` from ``shape[0]`` only; a non-square
+    (or non-2-D) stored dataset would otherwise drive a buffer sized purely on
+    the first axis and fail later inside the ``c2_half + c2_half.T``
+    reconstruction. Reject it cheaply at the I/O boundary (SEC-2).
+    """
+    if len(shape) != 2 or shape[0] != shape[1]:
+        raise XPCSDataFormatError(
+            f"Correlation dataset from {source!r} has shape {shape}; expected a "
+            "square 2-D half-matrix (n_t, n_t)."
+        )
+
+
+def _validate_loaded_arrays(data: dict[str, Any], *, source: str) -> None:
+    """Hard-fail (DATA-2) on corrupt loaded correlation arrays at the I/O boundary.
+
+    Enforces the project's I/O contract *unconditionally*, rather than behind an
+    opt-in flag:
+
+    * **Finite values** — no NaN/inf in any loaded array. Corrupt data must stop
+      the run, not silently drive a numerically wrong fit.
+    * **Bounded buffer** — a 3-D ``c2_exp`` is re-checked for square trailing
+      axes, frame count, and total allocation budget. This also guards the
+      ``.npz`` cache path (threat-03), which otherwise bypasses the HDF5
+      allocation guard.
+    * **Monotonic time axes** — ``t1``/``t2`` are ``[0, dt, 2*dt, ...]`` by
+      construction and must be non-decreasing. (Monotonicity is intentionally
+      NOT asserted on ``wavevector_q_list``: in XPCS the q-list holds one entry
+      per (q, phi) pair and is legitimately non-monotonic.)
+
+    Raises ``XPCSDataFormatError`` on any violation.
+    """
+    for key in ("c2_exp", "t1", "t2", "wavevector_q_list", "phi_angles_list"):
+        if key not in data:
+            continue
+        arr = np.asarray(data[key])
+        if arr.size and not np.all(np.isfinite(arr)):
+            raise XPCSDataFormatError(
+                f"{key} from {source!r} contains NaN/inf values; refusing to "
+                "proceed with corrupt correlation data."
+            )
+
+    c2 = np.asarray(data.get("c2_exp"))
+    if c2.ndim == 3:
+        _check_square_matrix((int(c2.shape[-2]), int(c2.shape[-1])), source=source)
+        _check_frame_count(int(c2.shape[-1]), source=source)
+        _check_allocation_budget(
+            int(c2.shape[0]), int(c2.shape[-1]), c2.dtype.itemsize, source=source
+        )
+
+    for key in ("t1", "t2"):
+        if key not in data:
+            continue
+        t = np.asarray(data[key])
+        if t.ndim == 1 and t.size > 1 and not np.all(np.diff(t) >= 0):
+            raise XPCSDataFormatError(
+                f"{key} from {source!r} is not non-decreasing; the correlation "
+                "time axis must be monotonic."
+            )
+
 
 def _check_frame_count(n_frames: int, *, source: str) -> None:
     """Validate a correlation-matrix time dimension before allocating on it.
@@ -391,6 +490,11 @@ class XPCSDataLoader:
 
         # Store whether to generate quality reports (only for --plot-experimental-data)
         self.generate_quality_reports = generate_quality_reports
+
+        # DATA-1: detectable record of degraded fallbacks (filtering/preprocessing
+        # crashes that silently substitute the optimizer's input). Downstream code
+        # can inspect this to tell a crash-fallback from an intended no-op.
+        self.load_degradations: list[str] = []
 
         if config_path and config_dict:
             raise ValueError("Provide either config_path or config_dict, not both")
@@ -743,7 +847,10 @@ class XPCSDataLoader:
             os.path.exists(cache_path)
             and self.v2_config.get("cache_strategy", "intelligent") != "none"
         ):
-            logger.info(f"Loading cached data from: {cache_path}")
+            # A09-1: log only the basename at INFO; full path at DEBUG so log
+            # artifacts don't disclose the user's home/dataset directory layout.
+            logger.info(f"Loading cached data from: {Path(cache_path).name}")
+            logger.debug(f"Cache full path: {cache_path}")
             data = self._load_from_cache(cache_path)
         else:
             # Load from raw HDF file
@@ -753,12 +860,13 @@ class XPCSDataLoader:
                     f"Neither cache file {cache_path} nor HDF file {hdf_path} exists",
                 )
 
-            logger.info(f"Loading raw data from: {hdf_path}")
+            logger.info(f"Loading raw data from: {Path(hdf_path).name}")
+            logger.debug(f"HDF full path: {hdf_path}")
             data = self._load_from_hdf(hdf_path)
 
             # Save to cache if caching enabled
             if self.v2_config.get("cache_strategy", "intelligent") != "none":
-                logger.info(f"Saving processed data to cache: {cache_path}")
+                logger.info(f"Saving processed data to cache: {Path(cache_path).name}")
                 self._save_to_cache(data, cache_path)
 
             # Generate text files
@@ -890,6 +998,26 @@ class XPCSDataLoader:
             # surface that as a clearer error rather than letting numpy's
             # internal message leak.
             try:
+                # threat-03: validate the cached correlation shape BEFORE copying
+                # it into RAM. With mmap_mode="r" the member's shape/dtype are
+                # known cheaply; the .npz path otherwise bypasses the HDF
+                # allocation guard, so a crafted cache could OOM the process on
+                # the np.array() copy. (Inside the try so an object-dtype member
+                # still surfaces the friendly allow_pickle message below.)
+                _cached_c2 = data["c2_exp"]
+                if getattr(_cached_c2, "ndim", 0) == 3:
+                    _check_square_matrix(
+                        (int(_cached_c2.shape[-2]), int(_cached_c2.shape[-1])),
+                        source=cache_path,
+                    )
+                    _check_frame_count(int(_cached_c2.shape[-1]), source=cache_path)
+                    _check_allocation_budget(
+                        int(_cached_c2.shape[0]),
+                        int(_cached_c2.shape[-1]),
+                        _cached_c2.dtype.itemsize,
+                        source=cache_path,
+                    )
+
                 c2_exp = np.array(data["c2_exp"])
                 t1 = np.array(data["t1"])
                 t2 = np.array(data["t2"])
@@ -910,13 +1038,15 @@ class XPCSDataLoader:
                     "New cache format uses 1D time arrays."
                 )
 
-            return {
+            result = {
                 "wavevector_q_list": wavevector_q_list,
                 "phi_angles_list": phi_angles_list,
                 "t1": t1,  # 1D array: [0, dt, 2*dt, ...]
                 "t2": t2,  # 1D array: [0, dt, 2*dt, ...]
                 "c2_exp": c2_exp,
             }
+            _validate_loaded_arrays(result, source=cache_path)
+            return result
 
     @log_performance(threshold=1.0)
     def _load_from_hdf(self, hdf_path: str) -> dict[str, Any]:
@@ -942,6 +1072,10 @@ class XPCSDataLoader:
             if phase.memory_peak_gb
             else f"HDF5 loading completed in {phase.duration:.2f}s"
         )
+        # DATA-2: unconditional finite/monotonic/shape validation at the I/O
+        # boundary — corrupt data hard-fails here rather than silently driving
+        # a numerically wrong fit.
+        _validate_loaded_arrays(data, source=hdf_path)
         return data
 
     @log_performance(threshold=0.1)
@@ -1142,8 +1276,13 @@ class XPCSDataLoader:
                 # did the c2_half + c2_half.T arithmetic in the stored dtype, and parity is
                 # bit-exact — upcasting here would change the reconstructed bits.
                 _probe_half = c2t_group[c2_keys[int(final_indices[0])]][()]
+                _check_square_matrix(_probe_half.shape, source="HDF5 correlation dataset")
                 _n_t = _probe_half.shape[0]
                 _check_frame_count(int(_n_t), source="HDF5 correlation dataset")
+                _check_allocation_budget(
+                    int(n_sel), int(_n_t), _probe_half.dtype.itemsize,
+                    source="HDF5 correlation dataset",
+                )
                 c2_matrices_array = np.empty((n_sel, _n_t, _n_t), dtype=_probe_half.dtype, order="C")
                 # Write the already-read probe matrix into slot 0 (exact same arithmetic
                 # as _reconstruct_full_matrix: c2_half + c2_half.T, diagonal /= 2).
@@ -1352,8 +1491,13 @@ class XPCSDataLoader:
                 # Preserve source dtype (original was np.array(c2_matrices)); forcing
                 # float64 here would change reconstructed bits vs the parity baseline.
                 _first_mat = np.asarray(c2_matrices_for_filtering[int(final_indices[0])])
+                _check_square_matrix(_first_mat.shape, source="HDF5 correlation dataset")
                 _n_t_u = _first_mat.shape[0]
                 _check_frame_count(int(_n_t_u), source="HDF5 correlation dataset")
+                _check_allocation_budget(
+                    int(_n_sel_u), int(_n_t_u), _first_mat.dtype.itemsize,
+                    source="HDF5 correlation dataset",
+                )
                 c2_matrices_array = np.empty(
                     (_n_sel_u, _n_t_u, _n_t_u), dtype=_first_mat.dtype, order="C"
                 )
@@ -1648,10 +1792,26 @@ class XPCSDataLoader:
             # Check if we should fallback or raise
             fallback_on_empty = filtering_config.get("fallback_on_empty", True)
             if fallback_on_empty:
-                logger.warning("Falling back to no filtering due to error")
+                # DATA-1: record the degraded substitution (all angles used)
+                # instead of a bare WARNING the caller cannot distinguish.
+                self._record_degradation(
+                    f"angle filtering crashed ({e}); fell back to all angles"
+                )
                 return None
             else:
                 raise XPCSDataFormatError(f"Data filtering failed: {e}") from e
+
+    def _record_degradation(self, reason: str) -> None:
+        """Record a degraded-fallback event so it is detectable downstream (DATA-1).
+
+        When filtering or preprocessing crashes and the loader silently
+        substitutes the optimizer's input, this leaves a programmatic signal on
+        ``self.load_degradations`` and logs at ERROR (the same severity as the
+        originating failure) so an automated pipeline can gate on it rather than
+        proceeding blind with degraded data.
+        """
+        self.load_degradations.append(reason)
+        logger.error("Load degradation: %s", reason)
 
     def _integrate_with_phi_filtering(
         self,
@@ -1869,7 +2029,8 @@ class XPCSDataLoader:
 
         # Log cache statistics
         file_size_mb = os.path.getsize(cache_path) / (1024 * 1024)
-        logger.info(f"Cache saved: {cache_path}")
+        logger.info(f"Cache saved: {Path(cache_path).name}")
+        logger.debug(f"Cache full path: {cache_path}")
         logger.info(
             f"Cache size: {file_size_mb:.2f} MB, Q-vectors: {cache_metadata['q_count']}, Phi angles: {cache_metadata['phi_count']}",
         )
@@ -2198,9 +2359,13 @@ class XPCSDataLoader:
 
                 # Return original data if fallback is enabled
                 if preprocessing_config.get("fallback_on_failure", True):
-                    logger.warning(
-                        "Falling back to original data after preprocessing failure",
+                    # DATA-1: degraded path — the fit runs on un-preprocessed
+                    # data. Record it and tag the result so it is detectable.
+                    self._record_degradation(
+                        "preprocessing pipeline failed; fell back to original data"
                     )
+                    if isinstance(data, dict):
+                        data["_preprocessing_degraded"] = True
                     return data
                 else:
                     raise XPCSDataFormatError(
@@ -2221,9 +2386,12 @@ class XPCSDataLoader:
             # Check fallback setting
             preprocessing_config = self.config.get("preprocessing", {})
             if preprocessing_config.get("fallback_on_failure", True):
-                logger.warning(
-                    "Falling back to original data after preprocessing error",
+                # DATA-1: degraded path — record and tag so it is detectable.
+                self._record_degradation(
+                    f"preprocessing pipeline crashed ({e}); fell back to original data"
                 )
+                if isinstance(data, dict):
+                    data["_preprocessing_degraded"] = True
                 return data
             else:
                 raise XPCSDataFormatError(f"Preprocessing pipeline failed: {e}") from e

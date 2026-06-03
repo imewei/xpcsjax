@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 
 
@@ -45,7 +46,9 @@ def _write_via_engine(engine: Any, key: str, item: Any) -> Path:
 
     Using ``_save_to_disk`` (rather than constructing the on-disk format by
     hand) guarantees the test exercises the same write contract the loader
-    expects — including 0o600 mode, zstd framing, and pickle protocol.
+    expects — including 0o600 mode, zstd framing, and the
+    ``np.save(allow_pickle=False)`` serialization (SEC-1). The disk tier only
+    stores numeric arrays, so fixtures use arrays rather than dicts.
     """
     target = engine._ssd_cache_path / f"{key}.zstd"
     engine._save_to_disk(target, item)
@@ -63,9 +66,10 @@ def test_round_trip_through_engine_loads_ok(cache_engine: Any) -> None:
     If this fails, the hardening broke the happy path — likely the mode or
     ownership check is too strict for the file the engine just wrote.
     """
-    target = _write_via_engine(cache_engine, "ok", {"hello": "world"})
+    payload = np.array([1.0, 2.0, 3.0])
+    target = _write_via_engine(cache_engine, "ok", payload)
     got = cache_engine._load_from_disk(target)
-    assert got == {"hello": "world"}
+    np.testing.assert_array_equal(np.asarray(got), payload)
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +87,7 @@ def test_symlink_escape_outside_cache_root_is_refused(
     """
     # Write a legitimate cache file, then symlink-redirect a fake key to it
     # in a location outside the cache root.
-    legit = _write_via_engine(cache_engine, "real", {"x": 1})
+    legit = _write_via_engine(cache_engine, "real", np.array([1, 2, 3]))
     outside = tmp_path / "elsewhere" / "outside.zstd"
     outside.parent.mkdir(parents=True, exist_ok=True)
     outside.write_bytes(legit.read_bytes())
@@ -104,7 +108,7 @@ def test_traversal_path_is_refused(cache_engine: Any, tmp_path: Path) -> None:
     """
     # Write a legitimate file outside the cache root the traversal points at.
     outside = tmp_path / "outside.zstd"
-    legit = _write_via_engine(cache_engine, "real", {"x": 1})
+    legit = _write_via_engine(cache_engine, "real", np.array([1, 2, 3]))
     outside.write_bytes(legit.read_bytes())
     outside.chmod(0o600)
 
@@ -129,7 +133,7 @@ def test_world_writable_mode_is_refused(cache_engine: Any) -> None:
     ``_save_to_disk`` writes 0o600. A cache file ``chmod 666``'d after
     creation can no longer be trusted — refusing to load is the safe default.
     """
-    target = _write_via_engine(cache_engine, "world_writable", {"x": 1})
+    target = _write_via_engine(cache_engine, "world_writable", np.array([1, 2, 3]))
     target.chmod(0o666)  # world-writable — the gate must reject this
 
     with pytest.raises(OSError, match=r"group/world access"):
@@ -146,7 +150,7 @@ def test_group_readable_mode_is_refused(cache_engine: Any) -> None:
     Anything wider than 0o600 means *something* changed the mode after
     ``_save_to_disk`` wrote it — refuse to load.
     """
-    target = _write_via_engine(cache_engine, "group_readable", {"x": 1})
+    target = _write_via_engine(cache_engine, "group_readable", np.array([1, 2, 3]))
     target.chmod(0o640)  # owner rw, group r — still a mode-drift signal
 
     with pytest.raises(OSError, match=r"group/world access"):

@@ -91,7 +91,7 @@ def test_heterodyne_multi_angle_matches_source(baseline):
     # Build the heterodyne-style data dict directly from the cache.
     # The source pipeline drops the leading time point.
     # ------------------------------------------------------------------
-    cache = np.load(C044_C2_CACHE)
+    cache = np.load(C044_C2_CACHE, allow_pickle=False)
     c2_all = np.asarray(cache["c2"], dtype=np.float64)  # (n_phi, 1001, 1001)
     phi_all = np.asarray(cache["phi"], dtype=np.float64)
 

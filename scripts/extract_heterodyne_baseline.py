@@ -1,14 +1,17 @@
 """Extract heterodyne C044 baseline from existing CLI outputs.
 
-The source heterodyne CLI was already run against
-``/home/wei/Documents/Projects/data/C044/heterodyne_config.yaml`` and produced
+MAINTAINER-LOCAL: The source heterodyne CLI must have already been run
+against ``$XPCSJAX_DATA_ROOT/C044/heterodyne_config.yaml`` and produced
 ``nlsq_parameters.json`` + ``nlsq_metadata.json`` under
 ``heterodyne_results/output/``. This script repackages those outputs into the
 xpcsjax baseline JSON format (mirroring
 ``tests/characterization/fixtures/baselines/*.json``).
 
+Set XPCSJAX_DATA_ROOT to the directory containing the C044/ sub-dir.
+
 Usage::
 
+    export XPCSJAX_DATA_ROOT=/path/to/Projects/data
     uv run python scripts/extract_heterodyne_baseline.py
 
 The result is written to
@@ -21,15 +24,18 @@ result is already on disk.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
-XPCSJAX_ROOT = Path("/home/wei/Documents/GitHub/xpcsjax")
+# Repo root: two levels up from this script (scripts/ → xpcsjax/)
+XPCSJAX_ROOT = Path(__file__).resolve().parents[1]
 BASELINES_DIR = XPCSJAX_ROOT / "tests" / "heterodyne" / "fixtures" / "baselines"
 
-CONFIG_PATH = Path("/home/wei/Documents/Projects/data/C044/heterodyne_config.yaml")
-HET_OUTPUT_DIR = (
-    Path("/home/wei/Documents/Projects/data/C044") / "heterodyne_results" / "output"
-)
+# External data directory — set XPCSJAX_DATA_ROOT to override.
+_DATA_ROOT = Path(os.environ.get("XPCSJAX_DATA_ROOT", "/path/to/Projects/data"))
+
+CONFIG_PATH = _DATA_ROOT / "C044" / "heterodyne_config.yaml"
+HET_OUTPUT_DIR = _DATA_ROOT / "C044" / "heterodyne_results" / "output"
 
 LABEL = "two_component_c044"
 

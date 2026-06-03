@@ -353,7 +353,7 @@ def _validate_array_shapes(data: dict[str, Any], report: DataQualityReport) -> N
                     ),
                 )
 
-    except Exception as exc:
+    except (ValueError, TypeError, KeyError, IndexError, RuntimeError) as exc:
         log_exception(
             logger,
             exc,
@@ -466,7 +466,7 @@ def _validate_physics_parameters(
                 "q_max": None,
             }
 
-    except Exception as exc:
+    except (ValueError, TypeError, KeyError, IndexError, RuntimeError) as exc:
         log_exception(
             logger,
             exc,
@@ -526,7 +526,7 @@ def _validate_correlation_matrices(
                     ),
                 )
 
-    except Exception as exc:
+    except (ValueError, TypeError, KeyError, IndexError, RuntimeError) as exc:
         log_exception(
             logger,
             exc,
@@ -579,7 +579,7 @@ def _validate_statistical_properties(
                 ),
             )
 
-    except Exception as exc:
+    except (ValueError, TypeError, KeyError, IndexError, RuntimeError) as exc:
         log_exception(
             logger,
             exc,
@@ -635,7 +635,7 @@ def _compute_data_statistics(data: dict[str, Any], report: DataQualityReport) ->
 
         report.data_statistics = stats
 
-    except Exception as exc:
+    except (ValueError, TypeError, KeyError, IndexError, RuntimeError) as exc:
         log_exception(
             logger,
             exc,

@@ -7,7 +7,9 @@
 # reads it directly via _load_from_cache (bypasses the HDF5 path).
 
 experimental_data:
-  data_folder_path: /home/wei/Documents/Projects/data/Simon
+  # MAINTAINER-LOCAL path — set XPCSJAX_DATA_ROOT env var or override locally.
+  # On any other machine this path is absent, and test_load_static_fixture skips.
+  data_folder_path: ${XPCSJAX_DATA_ROOT}/Simon
   data_file_name: cached_c2_100pa_q0.0237_frames_401_1000.npz
 
 analyzer_parameters:
