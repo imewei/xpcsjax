@@ -155,7 +155,11 @@ autodoc_default_options = {
 }
 
 # Heavy or optional deps that may not be installed when autodoc runs in CI.
-autodoc_mock_imports: list[str] = []
+# The ``viz-fast`` datashader backend (xpcsjax.viz.datashader_backend) imports
+# datashader/xarray/Pillow only when that extra is installed; mock them so
+# autodoc can introspect the backend without the optional stack (otherwise the
+# import fails and the strict ``-W`` build errors on the autodoc warning).
+autodoc_mock_imports: list[str] = ["datashader", "xarray", "PIL"]
 
 # Napoleon (NumPy-style docstrings, like the upstream homodyne / heterodyne
 # packages this code was ported from).

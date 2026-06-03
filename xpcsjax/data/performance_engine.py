@@ -838,13 +838,17 @@ class MultiLevelCache:
             )
 
         # Mode check — group/world must have no permissions. ``_save_to_disk``
-        # writes 0o600; if the mode drifted, refuse to load.
-        permissive_bits = st.st_mode & 0o077
-        if permissive_bits:
-            raise OSError(
-                f"refusing to load {resolved}: mode={st.st_mode:#o} grants "
-                f"group/world access ({permissive_bits:#o}). Possible tamper."
-            )
+        # writes 0o600; if the mode drifted, refuse to load. POSIX-only: Windows
+        # does not represent ACLs in ``st_mode`` (it always reports 0o666), so
+        # the check would false-positive on every Windows cache file. Gated with
+        # the same ``getuid`` proxy as the ownership check above.
+        if hasattr(os, "getuid"):
+            permissive_bits = st.st_mode & 0o077
+            if permissive_bits:
+                raise OSError(
+                    f"refusing to load {resolved}: mode={st.st_mode:#o} grants "
+                    f"group/world access ({permissive_bits:#o}). Possible tamper."
+                )
 
         try:
             with open(resolved, "rb") as f:

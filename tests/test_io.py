@@ -79,7 +79,9 @@ class TestJsonSafeEdgeCases:
 
     def test_path_converts_to_str(self) -> None:
         p = Path("/tmp/xpcsjax/output")
-        assert json_safe(p) == "/tmp/xpcsjax/output"
+        # Compare to str(p), not a hardcoded POSIX string: json_safe stringifies
+        # via str(), which uses the platform separator (\\ on Windows).
+        assert json_safe(p) == str(p)
 
     def test_plain_int_passes_through(self) -> None:
         assert json_safe(42) == 42
@@ -233,25 +235,27 @@ class TestSaveNlsqNpzFile:
         arrays = _make_npz_arrays()
         with tempfile.TemporaryDirectory() as tmp:
             save_nlsq_npz_file(**arrays, output_dir=Path(tmp))
-            npz = np.load(Path(tmp) / "fitted_data.npz")
-            assert "phi_angles" in npz
-            assert "c2_exp" in npz
-            assert "q" in npz
+            # ``with`` so the lazy NpzFile handle is closed before the temp dir
+            # is removed — on Windows an open handle blocks deletion (WinError 32).
+            with np.load(Path(tmp) / "fitted_data.npz") as npz:
+                assert "phi_angles" in npz
+                assert "c2_exp" in npz
+                assert "q" in npz
 
     def test_array_count_without_solver(self) -> None:
         arrays = _make_npz_arrays()
         with tempfile.TemporaryDirectory() as tmp:
             save_nlsq_npz_file(**arrays, output_dir=Path(tmp))
-            npz = np.load(Path(tmp) / "fitted_data.npz")
-            assert len(npz.files) == 11
+            with np.load(Path(tmp) / "fitted_data.npz") as npz:
+                assert len(npz.files) == 11
 
     def test_array_count_with_solver(self) -> None:
         arrays = _make_npz_arrays()
         arrays["c2_solver"] = np.zeros((3, 5, 5))
         with tempfile.TemporaryDirectory() as tmp:
             save_nlsq_npz_file(**arrays, output_dir=Path(tmp))
-            npz = np.load(Path(tmp) / "fitted_data.npz")
-            assert len(npz.files) == 12
+            with np.load(Path(tmp) / "fitted_data.npz") as npz:
+                assert len(npz.files) == 12
 
     def test_shape_mismatch_raises(self) -> None:
         arrays = _make_npz_arrays()
@@ -270,8 +274,8 @@ class TestSaveNlsqNpzFile:
         arrays["c2_exp"] = jnp.array(arrays["c2_exp"])
         with tempfile.TemporaryDirectory() as tmp:
             save_nlsq_npz_file(**arrays, output_dir=Path(tmp))
-            npz = np.load(Path(tmp) / "fitted_data.npz")
-            assert isinstance(npz["c2_exp"], np.ndarray)
+            with np.load(Path(tmp) / "fitted_data.npz") as npz:
+                assert isinstance(npz["c2_exp"], np.ndarray)
 
     def test_creates_directory_if_missing(self) -> None:
         arrays = _make_npz_arrays()
@@ -284,6 +288,6 @@ class TestSaveNlsqNpzFile:
         arrays = _make_npz_arrays()
         with tempfile.TemporaryDirectory() as tmp:
             save_nlsq_npz_file(**arrays, output_dir=Path(tmp))
-            npz = np.load(Path(tmp) / "fitted_data.npz")
-            assert npz["q"].shape == (1,)
-            assert math.isclose(float(npz["q"][0]), arrays["q"])
+            with np.load(Path(tmp) / "fitted_data.npz") as npz:
+                assert npz["q"].shape == (1,)
+                assert math.isclose(float(npz["q"][0]), arrays["q"])

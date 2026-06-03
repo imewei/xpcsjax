@@ -39,6 +39,11 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
+    # Path.home() reads USERPROFILE (then HOMEDRIVE+HOMEPATH) on Windows, not
+    # HOME — sandbox those too so the fixture isolates the home dir on every OS.
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("HOMEDRIVE", home.drive or "")
+    monkeypatch.setenv("HOMEPATH", str(home)[len(home.drive) :] if home.drive else str(home))
     monkeypatch.delenv("VIRTUAL_ENV", raising=False)
     monkeypatch.delenv("CONDA_PREFIX", raising=False)
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)

@@ -882,7 +882,12 @@ class PhaseContext:
 
 
 def _get_memory_gb() -> float | None:
-    """Get current process memory usage in GB, or None if unavailable."""
+    """Get current process memory usage in GB, or None if unavailable.
+
+    Prefers the stdlib ``resource`` module (POSIX). On Windows, where
+    ``resource`` does not exist, falls back to ``psutil`` so memory diagnostics
+    stay available cross-platform.
+    """
     try:
         import resource
 
@@ -894,6 +899,13 @@ def _get_memory_gb() -> float | None:
         scale = (1024**3) if sys.platform == "darwin" else (1024**2)
         return rusage.ru_maxrss / scale
     except (ImportError, AttributeError):
+        pass
+    # Windows (no ``resource``): use psutil's RSS if it is installed.
+    try:
+        import psutil
+
+        return psutil.Process().memory_info().rss / (1024**3)
+    except Exception:
         return None
 
 
