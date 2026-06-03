@@ -132,6 +132,33 @@ class JSONFormatter(logging.Formatter):
         return json.dumps(out, default=lambda o: repr(o)[:500])
 
 
+class PhaseLogger:
+    """Mode-agnostic named-phase/banner logger; all methods exception-safe.
+
+    A thin, observational-only wrapper around a stdlib logger that emits
+    fixed-width banners and indented ``name: value`` fields. Every method
+    swallows exceptions so logging never escapes to or changes control flow at
+    the call site.
+    """
+
+    def __init__(self, logger: logging.Logger):
+        self._log = logger
+
+    def banner(self, title: str, *, width: int = 80, level: int = logging.INFO) -> None:
+        try:
+            self._log.log(level, "=" * width)
+            self._log.log(level, title)
+            self._log.log(level, "=" * width)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def field(self, name: str, value: Any) -> None:
+        try:
+            self._log.info("  %s: %s", name, value)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 class _ContextAdapter(logging.LoggerAdapter):
     """Logger adapter that prefixes messages with structured context."""
 

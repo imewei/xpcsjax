@@ -126,3 +126,17 @@ def test_json_formatter_redacts_secrets():
     out = json.loads(fmt.format(rec))
     assert out["context"]["API_KEY"] == "***REDACTED***"
     assert out["context"]["data_path"] == "/home/u/x.h5"  # paths NOT redacted
+
+
+def test_phaselogger_banner_widths_and_never_raises(caplog):
+    import logging
+
+    import xpcsjax.utils.logging as lm
+    pl = lm.PhaseLogger(logging.getLogger("p"))
+    with caplog.at_level(logging.INFO):
+        pl.banner("OPTIMIZATION RESULTS", width=80)
+        pl.banner("ANTI-DEGENERACY", width=60)
+    lines = [r.getMessage() for r in caplog.records]
+    assert any(len(line) == 80 for line in lines)
+    assert any(len(line) == 60 for line in lines)
+    pl.field("contrast", None)  # malformed value must not raise
