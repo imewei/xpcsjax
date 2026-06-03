@@ -55,13 +55,13 @@ except ImportError:
     HAS_PHYSICS = False
     PhysicsConstants = None  # type: ignore
 
+import logging
+
 try:
-    from xpcsjax.utils.logging import get_logger
+    from xpcsjax.utils.logging import get_logger, log_exception
 
     HAS_V2_LOGGING = True
 except ImportError:
-    import logging
-
     HAS_V2_LOGGING = False
 
     # Fallback shim. The real ``xpcsjax.utils.logging.get_logger`` has a
@@ -71,6 +71,22 @@ except ImportError:
     # the signature delta with the try-branch import.
     def get_logger(name: str) -> logging.Logger:  # type: ignore[misc]
         return logging.getLogger(name)
+
+    def log_exception(  # type: ignore[misc]
+        logger: logging.Logger,
+        exc: BaseException,
+        context: dict[str, Any] | None = None,
+        level: int = logging.ERROR,
+        include_traceback: bool = True,
+    ) -> None:
+        """Fallback: emit the exception via the stdlib logger.
+
+        Mirrors the real ``xpcsjax.utils.logging.log_exception`` contract
+        closely enough for the ERROR-level data-integrity path; observational
+        only, never re-raises.
+        """
+        suffix = f" (context: {context})" if context else ""
+        logger.log(level, f"{type(exc).__name__}: {exc}{suffix}", exc_info=include_traceback)
 
 
 logger = get_logger(__name__)
@@ -337,12 +353,18 @@ def _validate_array_shapes(data: dict[str, Any], report: DataQualityReport) -> N
                     ),
                 )
 
-    except Exception as e:
+    except Exception as exc:
+        log_exception(
+            logger,
+            exc,
+            context={"operation": "_validate_array_shapes"},
+            level=logging.ERROR,
+        )
         report.add_issue(
             ValidationIssue(
-                severity="warning",
+                severity="error",
                 category="validation",
-                message=f"Could not validate array shapes: {str(e)}",
+                message=f"validation crashed: {exc}",
             ),
         )
 
@@ -444,12 +466,18 @@ def _validate_physics_parameters(
                 "q_max": None,
             }
 
-    except Exception as e:
+    except Exception as exc:
+        log_exception(
+            logger,
+            exc,
+            context={"operation": "_validate_physics_parameters"},
+            level=logging.ERROR,
+        )
         report.add_issue(
             ValidationIssue(
-                severity="warning",
+                severity="error",
                 category="physics",
-                message=f"Physics validation failed: {str(e)}",
+                message=f"validation crashed: {exc}",
             ),
         )
 
@@ -498,12 +526,18 @@ def _validate_correlation_matrices(
                     ),
                 )
 
-    except Exception as e:
+    except Exception as exc:
+        log_exception(
+            logger,
+            exc,
+            context={"operation": "_validate_correlation_matrices"},
+            level=logging.ERROR,
+        )
         report.add_issue(
             ValidationIssue(
-                severity="warning",
+                severity="error",
                 category="validation",
-                message=f"Correlation matrix validation failed: {str(e)}",
+                message=f"validation crashed: {exc}",
             ),
         )
 
@@ -545,12 +579,18 @@ def _validate_statistical_properties(
                 ),
             )
 
-    except Exception as e:
+    except Exception as exc:
+        log_exception(
+            logger,
+            exc,
+            context={"operation": "_validate_statistical_properties"},
+            level=logging.ERROR,
+        )
         report.add_issue(
             ValidationIssue(
-                severity="warning",
+                severity="error",
                 category="validation",
-                message=f"Statistical validation failed: {str(e)}",
+                message=f"validation crashed: {exc}",
             ),
         )
 
@@ -595,8 +635,20 @@ def _compute_data_statistics(data: dict[str, Any], report: DataQualityReport) ->
 
         report.data_statistics = stats
 
-    except Exception as e:
-        logger.warning(f"Could not compute data statistics: {e}")
+    except Exception as exc:
+        log_exception(
+            logger,
+            exc,
+            context={"operation": "_compute_data_statistics"},
+            level=logging.ERROR,
+        )
+        report.add_issue(
+            ValidationIssue(
+                severity="error",
+                category="validation",
+                message=f"validation crashed: {exc}",
+            ),
+        )
 
 
 def _compute_quality_score(report: DataQualityReport) -> float:
