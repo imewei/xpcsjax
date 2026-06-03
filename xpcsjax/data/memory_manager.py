@@ -1113,7 +1113,7 @@ class AdvancedMemoryManager:
                             log_once(
                                 logger,
                                 logging.DEBUG,
-                                f"{id(self)}:memmgr:cleanup_vm_file",
+                                f"{id(self)}:memmgr:cleanup_vm_file:{file}",
                                 "Failed to cleanup virtual memory file %s: %s",
                                 file,
                                 exc,
