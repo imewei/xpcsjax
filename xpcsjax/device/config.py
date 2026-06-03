@@ -5,6 +5,7 @@ and exposes them via :class:`HardwareConfig`. Used for NLSQ thread and memory
 budget decisions.
 """
 
+import logging
 import multiprocessing
 import os
 from dataclasses import dataclass
@@ -17,7 +18,7 @@ try:
 except ImportError:
     HAS_PSUTIL = False
 
-from xpcsjax.utils.logging import get_logger
+from xpcsjax.utils.logging import get_logger, log_exception
 
 logger = get_logger(__name__)
 
@@ -144,7 +145,15 @@ def detect_hardware() -> HardwareConfig:
         num_devices = len(devices)
         logger.info(f"JAX devices detected: {num_devices} {platform} device(s)")
     except Exception as e:
-        logger.warning(f"JAX device detection failed: {e}. Falling back to CPU.")
+        log_exception(
+            logger,
+            e,
+            context={
+                "operation": "jax_device_detection",
+                "fallback": "cpu",
+            },
+            level=logging.WARNING,
+        )
         platform = "cpu"
         num_devices = 1
 
@@ -174,7 +183,16 @@ def detect_hardware() -> HardwareConfig:
                     )
                 logger.info(f"PBS cluster detected: {num_nodes} nodes")
             except Exception as e:
-                logger.warning(f"Failed to parse PBS_NODEFILE: {e}")
+                log_exception(
+                    logger,
+                    e,
+                    context={
+                        "operation": "parse_pbs_nodefile",
+                        "nodefile": nodefile,
+                        "fallback_num_nodes": 1,
+                    },
+                    level=logging.WARNING,
+                )
                 num_nodes = 1
         else:
             logger.debug("PBS_JOBID present but PBS_NODEFILE not found")

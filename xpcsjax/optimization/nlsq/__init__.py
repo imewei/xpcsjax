@@ -858,6 +858,7 @@ def _fit_nlsq_heterodyne(
             )
             _safe_log_heterodyne_completion(result, model, len(phi))
             return result
+        # Phase-2: intentionally left — implements the keep-better/fallback contract; conversion would risk parity.
         except Exception as exc:  # best-effort: never let stratification break a fit
             from xpcsjax.utils.logging import get_logger as _get_logger
 

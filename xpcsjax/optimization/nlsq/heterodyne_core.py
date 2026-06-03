@@ -9,6 +9,7 @@ Unified entry point for NLSQ optimization with:
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -29,7 +30,7 @@ from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig, ResolvedPerA
 from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
 from xpcsjax.optimization.nlsq.results import OptimizationResult
 from xpcsjax.optimization.nlsq.validation import classify_quality_flag
-from xpcsjax.utils.logging import get_logger
+from xpcsjax.utils.logging import get_logger, log_exception
 
 if TYPE_CHECKING:
     # The runtime object the fitter receives is the stateful dataclass in
@@ -1690,6 +1691,7 @@ def _fit_joint_cmaes_multi_phi(
             weights,
             global_escape=escape,
         )
+    # Phase-2: intentionally left — implements the keep-better/fallback contract; conversion would risk parity.
     except Exception as exc:  # noqa: BLE001 - best-effort escape, fall back to plain fit
         logger.warning(
             "Joint CMA-ES escape failed (%s: %s); falling back to plain joint fit",
@@ -1832,6 +1834,7 @@ def _fit_joint_multistart(
             weights,
             global_escape=escape,
         )
+    # Phase-2: intentionally left — implements the keep-better/fallback contract; conversion would risk parity.
     except Exception as exc:  # noqa: BLE001 - best-effort escape, fall back to plain fit
         logger.warning(
             "Joint multistart escape failed (%s: %s); falling back to plain joint fit",
@@ -2075,6 +2078,7 @@ def _apply_global_escape(
             )
         else:  # pragma: no cover — unknown kind treated as no escape
             return x_warm, None
+    # Phase-2: intentionally left — implements the keep-better/fallback contract; conversion would risk parity.
     except Exception as exc:  # noqa: BLE001 - best-effort escape; keep warm-start
         logger.warning(
             "Joint %s escape failed (%s: %s); keeping warm-start fit",
@@ -3226,12 +3230,18 @@ def _fit_cmaes(
             )
             cmaes_cost = 0.5 * float(jnp.sum(_off_diag_res**2))
         except Exception as exc:
-            logger.warning(
-                "Phase 3: CMA-ES cost computation failed (%s); treating as inf so "
-                "the NLSQ result wins by default. Inspect the off-diagonal residual "
-                "block if this recurs.",
+            log_exception(
+                logger,
                 exc,
-                exc_info=True,
+                context={
+                    "operation": "phase3_cmaes_cost_recompute",
+                    "note": (
+                        "treating as inf so the NLSQ result wins by default; "
+                        "inspect the off-diagonal residual block if this recurs"
+                    ),
+                    "fallback_cmaes_cost": "inf",
+                },
+                level=logging.WARNING,
             )
             cmaes_cost = float("inf")
     else:

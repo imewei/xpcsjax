@@ -21,6 +21,7 @@ HPC Environment Support:
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import shutil
@@ -29,7 +30,7 @@ from typing import Any
 
 import psutil
 
-from xpcsjax.utils.logging import get_logger
+from xpcsjax.utils.logging import get_logger, log_exception
 
 logger = get_logger(__name__)
 
@@ -46,9 +47,18 @@ def _jax_backend_initialized() -> bool:
         from jax._src import xla_bridge
 
         return bool(getattr(xla_bridge, "_backends", None))
-    except Exception:
+    except Exception as exc:
         import sys
 
+        log_exception(
+            logger,
+            exc,
+            context={
+                "operation": "jax_backend_live_probe",
+                "fallback": "sys.modules",
+            },
+            level=logging.DEBUG,
+        )
         return "jax" in sys.modules
 
 # JAX imports with fallback
