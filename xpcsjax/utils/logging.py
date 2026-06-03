@@ -1289,5 +1289,41 @@ class ContextFilter(logging.Filter):
         return True
 
 
+_LOG_ONCE_SEEN: set[str] = set()
+_LOG_ONCE_LOCK = threading.Lock()
+
+
+def _should_log_once(key: str) -> bool:
+    """Return True the first time ``key`` is seen, False thereafter.
+
+    Thread-safe keyed de-duplication primitive shared by :func:`log_once` and
+    :func:`logged_errors`.
+    """
+    with _LOG_ONCE_LOCK:
+        if key in _LOG_ONCE_SEEN:
+            return False
+        _LOG_ONCE_SEEN.add(key)
+        return True
+
+
+def reset_log_once_cache() -> None:
+    """Clear the keyed de-dup cache (primarily for tests)."""
+    with _LOG_ONCE_LOCK:
+        _LOG_ONCE_SEEN.clear()
+
+
+def log_once(logger: Any, level: int, key: str, msg: str, *args: Any) -> None:
+    """Emit a log record at most once per ``key``.
+
+    Observational only: a failure while emitting the record is swallowed and
+    never escapes to the call site.
+    """
+    if _should_log_once(key):
+        try:
+            logger.log(level, msg, *args)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 # Configure default logging on import
 _logger_manager.configure()

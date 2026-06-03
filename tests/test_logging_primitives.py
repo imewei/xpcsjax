@@ -62,3 +62,15 @@ def test_log_context_restores_on_exit():
         rec2 = logging.LogRecord("n", logging.INFO, __file__, 1, "m", None, None)
         lm.ContextFilter().filter(rec2)
         assert rec2.run_id == "outer"
+
+
+def test_log_once_emits_once_per_key(caplog):
+    import logging
+
+    import xpcsjax.utils.logging as lm
+    lm.reset_log_once_cache()
+    lg = logging.getLogger("once")
+    with caplog.at_level(logging.WARNING):
+        for _ in range(3):
+            lm.log_once(lg, logging.WARNING, "k1", "flood %d", 1)
+    assert sum("flood" in r.getMessage() for r in caplog.records) == 1
