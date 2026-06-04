@@ -13,20 +13,32 @@ contrast, offset)`` onto the kernel's ``(params, t1, t2, phi, ...)`` order and
 supplies the per-evaluator ``q``/``L``/``dt`` constants. Threading it through the
 engine therefore preserves homodyne (``laminar_flow``) behavior exactly.
 
-:class:`HeterodynePointEvaluator` is the ``two_component`` counterpart. The
-heterodyne kernel (``compute_c2_heterodyne_pointwise``) is *index*-based and uses
-*per-angle* scaling, so the heterodyne evaluator carries the static grids plus
-per-angle ``contrast_arr``/``offset_arr`` and converts the Protocol's *value*
-arguments into kernel indices inside ``eval_points`` (the value->index bridge).
-This adapter is created here in Phase 2.1 but is **not** yet wired into the
-stratification engine — that is a later task.
+:class:`HeterodynePointEvaluator` is the ``two_component`` counterpart and is
+the exact structural parallel of the homodyne adapter. It is a thin pass-through
+to the heterodyne **meshgrid** kernel
+``compute_c2_heterodyne(params, t, q, dt, phi_angle, contrast, offset) -> (N, N)``,
+re-mapping ``eval_points``'s ``(params, phi, t1, t2, contrast, offset)`` onto the
+kernel's ``(params, t, q, dt, phi, contrast, offset)`` order. Exactly like
+``HomodynePointEvaluator``, it returns the **full per-angle ``(n_t, n_t)``
+meshgrid** for a single ``phi`` over the engine's time grid, and it **uses the
+engine-supplied per-angle ``contrast``/``offset``** so the optimizer can drive
+scaling (Phase 2.1 correction — the prior pointwise/index-based version returned
+a diagonal and ignored the passed scaling, which is wrong for engine use).
+
+Single-time-axis assumption: ``StratifiedResidualFunctionJIT`` evaluates a
+two-time correlation over one time axis — it calls
+``eval_points(..., self.t1_unique, self.t2_unique, ...)`` and then gathers from a
+``(n_phi, n_t1, n_t2)`` grid. The heterodyne kernel takes a single time array
+``t`` and returns ``(N, N)`` indexed ``[t1, t2]``; this adapter therefore uses
+``t1`` as the kernel's time axis and returns ``(len(t1), len(t1))``. In this
+engine ``t1_unique`` and ``t2_unique`` are the same time grid, so this is exact.
+If a caller ever passed differing ``t1``/``t2`` grids, the heterodyne kernel has
+no two-axis form to honour the distinction — ``t1`` is authoritative.
 """
 
 from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
-
-import jax.numpy as jnp
 
 from xpcsjax.core.physics_nlsq import compute_g2_scaled
 
@@ -97,43 +109,30 @@ class HomodynePointEvaluator:
 
 
 class HeterodynePointEvaluator:
-    """Heterodyne (``two_component``) adapter over the pointwise kernel.
+    """Heterodyne (``two_component``) adapter over the meshgrid kernel.
 
-    Bridges the *value*-based :class:`PointEvaluator` Protocol onto the
-    *index*-based ``compute_c2_heterodyne_pointwise`` kernel. The kernel wants
-    integer indices into the static ``phi_unique`` / ``t`` grids plus *per-angle*
-    ``contrast``/``offset`` arrays of shape ``(n_phi,)`` (one per unique phi),
-    whereas the Protocol hands ``eval_points`` physical ``(phi, t1, t2)`` values
-    per scattered point and *per-point* scaling.
+    Exact structural parallel of :class:`HomodynePointEvaluator`: a thin
+    pass-through to the heterodyne **meshgrid** kernel
+    ``compute_c2_heterodyne(params, t, q, dt, phi_angle, contrast, offset)`` which
+    returns the full two-time ``(N, N)`` matrix indexed ``[t1, t2]``.
 
-    The evaluator resolves this by holding the static grids and the per-angle
-    scaling at construction, then deriving ``phi_idx``/``t1_idx``/``t2_idx``
-    inside :meth:`eval_points` (value -> nearest-grid-index). Because heterodyne
-    scaling is per-angle (not per-point), the per-point ``contrast``/``offset``
-    arguments of the Protocol are **deliberately ignored**: the evaluator carries
-    its own ``contrast_arr``/``offset_arr`` and lets the kernel gather them by
-    ``phi_idx``. This is the deliberate value->index bridge.
+    The stratification engine (``StratifiedResidualFunctionJIT``) calls
+    :meth:`eval_points` with a **scalar** ``phi``, the FULL ``t1``/``t2`` time
+    grids, and a **scalar** per-angle ``contrast``/``offset`` sliced from the
+    optimizer's parameter vector, then ``squeeze``\\s axis 0 and gathers from the
+    resulting ``(n_phi, n_t, n_t)`` grid. So :meth:`eval_points` must (a) return
+    the full per-angle ``(n_t, n_t)`` meshgrid and (b) **use** the supplied
+    ``contrast``/``offset`` so the optimizer can drive scaling.
+
+    Holds only the per-fit constants (``q``, ``dt``); ``analysis_mode`` is carried
+    for parity with the homodyne adapter. There is no static ``contrast_arr`` /
+    ``offset_arr`` — scaling is engine-supplied per call.
     """
 
-    def __init__(
-        self,
-        *,
-        analysis_mode: str,
-        t: Any,
-        q: float,
-        dt: float,
-        phi_unique: Any,
-        contrast_arr: Any,
-        offset_arr: Any,
-    ) -> None:
+    def __init__(self, *, analysis_mode: str, q: float, dt: float) -> None:
         self.analysis_mode = analysis_mode
-        self.t = jnp.asarray(t)
-        self.q = q
-        self.dt = dt
-        self.phi_unique = jnp.asarray(phi_unique)
-        # Per-angle scaling, shape (n_phi,) — gathered by phi_idx in the kernel.
-        self.contrast_arr = jnp.asarray(contrast_arr)
-        self.offset_arr = jnp.asarray(offset_arr)
+        self.q = float(q)
+        self.dt = float(dt)
 
     def eval_points(
         self,
@@ -144,41 +143,35 @@ class HeterodynePointEvaluator:
         contrast: Any,
         offset: Any,
     ) -> Any:
-        """Bridge value ``(phi, t1, t2)`` to the index-based pointwise kernel.
+        """Pass through to ``compute_c2_heterodyne`` (meshgrid path).
 
-        ``contrast``/``offset`` (per-point) are ignored on purpose — heterodyne
-        scaling is per-angle, so the evaluator uses its own ``contrast_arr`` /
-        ``offset_arr`` gathered by ``phi_idx`` inside the kernel.
+        The engine supplies a scalar ``phi`` + full time grid (``t1``) + scalar
+        per-angle ``contrast``/``offset``. The heterodyne two-time grid uses a
+        single time axis, so ``t1`` IS the kernel's time array and the returned
+        ``(n_t, n_t)`` matrix is indexed ``[t1, t2]`` — matching the engine's
+        ``t1_idx * n_t2 + t2_idx`` gather. ``t2`` is unused (single-time-axis
+        kernel; ``t1_unique == t2_unique`` in this engine).
+
+        Shape contract: the homodyne kernel returns ``(1, n_t, n_t)`` for a
+        scalar ``phi`` (a length-1 phi axis), and the engine peels it with
+        ``squeeze(axis=0)``. The heterodyne meshgrid kernel returns a bare
+        ``(n_t, n_t)`` matrix, so we prepend a length-1 phi axis here to keep the
+        engine's ``squeeze(axis=0)`` contract identical across both adapters.
         """
-        # Local import mirrors the kernel module's own lazy-import discipline and
-        # keeps the homodyne default path free of the heterodyne backend.
-        from xpcsjax.core.heterodyne_jax_backend import compute_c2_heterodyne_pointwise
+        # Local import keeps the homodyne default path free of the heterodyne
+        # backend, mirroring the kernel module's own lazy-import discipline.
+        from xpcsjax.core.heterodyne_jax_backend import compute_c2_heterodyne
 
-        phi_idx = self._nearest_index(jnp.asarray(phi), self.phi_unique)
-        t1_idx = self._nearest_index(jnp.asarray(t1), self.t)
-        t2_idx = self._nearest_index(jnp.asarray(t2), self.t)
-
-        return compute_c2_heterodyne_pointwise(
+        del t2  # single time axis: t1 is authoritative (see class docstring)
+        grid = compute_c2_heterodyne(
             params,
-            self.t,
+            t1,
             self.q,
             self.dt,
-            phi_unique=self.phi_unique,
-            phi_idx=phi_idx,
-            t1_idx=t1_idx,
-            t2_idx=t2_idx,
-            contrast=self.contrast_arr,
-            offset=self.offset_arr,
+            phi,
+            contrast,
+            offset,
         )
-
-    @staticmethod
-    def _nearest_index(values: Any, grid: Any) -> Any:
-        """Map each value to the int32 index of its nearest grid entry.
-
-        Detector angles and grid times are discrete, so an exact value lands on
-        its grid index; nearest-match makes the bridge robust to float noise in
-        the scattered values without changing the exact-membership result.
-        """
-        # (P, 1) vs (1, G) -> (P, G) distance; argmin over the grid axis.
-        dist = jnp.abs(values[:, None] - grid[None, :])
-        return jnp.argmin(dist, axis=1).astype(jnp.int32)
+        # Prepend the length-1 phi axis so the engine's squeeze(axis=0) yields
+        # (n_t, n_t), matching HomodynePointEvaluator's (1, n_t, n_t) shape.
+        return grid[None, :, :]
