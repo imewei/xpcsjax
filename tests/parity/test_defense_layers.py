@@ -330,13 +330,11 @@ def test_l4_gradient_monitor_records_real_observations() -> None:
         # (finite / +inf / NaN) plus the legacy descriptive keys.
         if result.convergence_status == "converged":
             assert np.isfinite(ratio) or ratio == float("inf"), (
-                f"converged fit must yield finite or +inf max_gradient_ratio, "
-                f"got {ratio!r}"
+                f"converged fit must yield finite or +inf max_gradient_ratio, got {ratio!r}"
             )
         else:
             assert np.isnan(ratio) or np.isfinite(ratio) or ratio == float("inf"), (
-                f"max_gradient_ratio must be NaN, finite, or +inf for failed fit, "
-                f"got {ratio!r}"
+                f"max_gradient_ratio must be NaN, finite, or +inf for failed fit, got {ratio!r}"
             )
         # trigger_count is 0 or 1 (one-shot post-solve observation):
         assert monitor.get("trigger_count") in (0, 1)
@@ -352,9 +350,7 @@ def test_l4_gradient_monitor_records_real_observations() -> None:
         if np.isnan(ratio):
             expected_collapse = False
         else:
-            expected_collapse = (
-                np.isfinite(ratio) and ratio >= 100.0
-            ) or ratio == float("inf")
+            expected_collapse = (np.isfinite(ratio) and ratio >= 100.0) or ratio == float("inf")
         assert monitor["collapse_detected"] == expected_collapse, (
             f"collapse_detected ({monitor['collapse_detected']}) must equal "
             f"(NaN→False, finite>=threshold→True, +inf→True): "

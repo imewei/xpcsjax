@@ -62,9 +62,7 @@ def test_fit_quality_acceptable_band_logged() -> None:
 
 
 def test_fit_quality_high_chi2_default_sigma_warning() -> None:
-    report = v.validate_fit_quality(
-        _result(reduced_chi_squared=50.0, sigma_is_default=True)
-    )
+    report = v.validate_fit_quality(_result(reduced_chi_squared=50.0, sigma_is_default=True))
     assert report.passed is False
     assert any("sigma was not provided" in w for w in report.warnings)
 
@@ -148,9 +146,7 @@ def test_fit_quality_only_scaling_at_bounds_passes() -> None:
 
 
 def test_fit_quality_convergence_failed() -> None:
-    report = v.validate_fit_quality(
-        _result(reduced_chi_squared=1.0, convergence_status="max_iter")
-    )
+    report = v.validate_fit_quality(_result(reduced_chi_squared=1.0, convergence_status="max_iter"))
     assert report.checks_performed["convergence_status"] is False
     assert report.passed is False
 

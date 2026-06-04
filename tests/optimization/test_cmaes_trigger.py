@@ -4,6 +4,7 @@ XPCS multi-scale problems span >3 orders of magnitude (e.g., D0 ~ 1e4 vs
 gamma_dot ~ 1e-3 → ratio ~ 1e7). This is the documented escape hatch; we
 verify it directly so a regression localizes to the trigger function rather
 than only surfacing via characterization."""
+
 import inspect
 
 import numpy as np
@@ -47,8 +48,11 @@ def test_default_threshold_is_1000():
     """The documented default scale_threshold is 1000.0."""
     sig = inspect.signature(CMAESWrapper.should_use_cmaes)
     threshold_param = next(
-        (p for name, p in sig.parameters.items()
-         if "threshold" in name.lower() or "scale_thr" in name.lower()),
+        (
+            p
+            for name, p in sig.parameters.items()
+            if "threshold" in name.lower() or "scale_thr" in name.lower()
+        ),
         None,
     )
     assert threshold_param is not None, (
@@ -56,8 +60,7 @@ def test_default_threshold_is_1000():
         "homodyne's documented API has scale_threshold=1000.0 by default."
     )
     assert threshold_param.default == pytest.approx(1000.0), (
-        f"default scale_threshold drifted from documented 1000.0 to "
-        f"{threshold_param.default}"
+        f"default scale_threshold drifted from documented 1000.0 to {threshold_param.default}"
     )
 
 

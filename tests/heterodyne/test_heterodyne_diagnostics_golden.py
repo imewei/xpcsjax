@@ -16,6 +16,7 @@ when ``n_phi >= constant_scaling_threshold``; valid regularization modes are
 ``per_angle_mode="auto"`` (n_phi=3 >= threshold 3) and uses
 ``regularization_mode="adaptive"``.
 """
+
 from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
@@ -110,9 +111,7 @@ def test_constant_path_always_emits_activation_keys():
 
 def test_individual_path_always_emits_activation_keys():
     model, c2, phi = make_synthetic_two_component(n_phi=2, n_t=20)
-    cfg = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": "individual"}
-    )
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "individual"})
     d = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None).nlsq_diagnostics
     for k in _ACTIVATION:
         assert k in d, f"individual disabled path must still emit {k!r}"

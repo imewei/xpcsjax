@@ -72,18 +72,12 @@ class ParameterSpace:
     @property
     def varying_names(self) -> list[str]:
         """Names of parameters that vary (physics + scaling)."""
-        return [
-            name for name in ALL_PARAM_NAMES_WITH_SCALING if self.vary.get(name, False)
-        ]
+        return [name for name in ALL_PARAM_NAMES_WITH_SCALING if self.vary.get(name, False)]
 
     @property
     def fixed_names(self) -> list[str]:
         """Names of parameters that are fixed."""
-        return [
-            name
-            for name in ALL_PARAM_NAMES_WITH_SCALING
-            if not self.vary.get(name, False)
-        ]
+        return [name for name in ALL_PARAM_NAMES_WITH_SCALING if not self.vary.get(name, False)]
 
     @property
     def varying_physics_names(self) -> list[str]:
@@ -118,9 +112,7 @@ class ParameterSpace:
         return {
             "initial_parameters": {
                 "parameter_names": list(ALL_PARAM_NAMES_WITH_SCALING),
-                "values": [
-                    float(self.values[name]) for name in ALL_PARAM_NAMES_WITH_SCALING
-                ],
+                "values": [float(self.values[name]) for name in ALL_PARAM_NAMES_WITH_SCALING],
                 "active_parameters": list(self.varying_names),
             }
         }
@@ -166,8 +158,7 @@ class ParameterSpace:
         for name, value in params.items():
             if name not in self.values:
                 raise ValueError(
-                    f"Unknown parameter '{name}'. "
-                    f"Valid parameters: {list(ALL_PARAM_NAMES)}"
+                    f"Unknown parameter '{name}'. Valid parameters: {list(ALL_PARAM_NAMES)}"
                 )
             self.values[name] = value
 
@@ -409,9 +400,7 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
     for name, value in zip(param_names, param_values, strict=True):
         if name in space.values:
             space.values[name] = float(value)
-            logger.debug(
-                "initial_parameters: set %s = %.6g (flat-format override)", name, value
-            )
+            logger.debug("initial_parameters: set %s = %.6g (flat-format override)", name, value)
         else:
             logger.warning("initial_parameters: unknown parameter '%s', skipping", name)
 

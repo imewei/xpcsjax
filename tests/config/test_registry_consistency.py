@@ -66,6 +66,5 @@ def test_manager_bounds_match_registry_for_all_modes() -> None:
             mgr_bounds = pm.get_bounds_as_tuples([name])[0]
             reg_bounds = get_bounds(name)
             assert mgr_bounds == reg_bounds, (
-                f"mismatch for {mode}.{name}: "
-                f"manager={mgr_bounds}, registry={reg_bounds}"
+                f"mismatch for {mode}.{name}: manager={mgr_bounds}, registry={reg_bounds}"
             )

@@ -55,10 +55,7 @@ def _managed_console_handler() -> logging.Handler:
 def test_xpcsjax_log_format_env_selects_json(monkeypatch):
     monkeypatch.setenv("XPCSJAX_LOG_FORMAT", "json")
     lm.configure_logging({**_CFG})
-    assert any(
-        isinstance(h.formatter, lm.JSONFormatter)
-        for h in _managed_logger().handlers
-    )
+    assert any(isinstance(h.formatter, lm.JSONFormatter) for h in _managed_logger().handlers)
 
 
 def test_debug_precedence_env_over_yaml(monkeypatch):
@@ -93,10 +90,7 @@ def test_format_does_not_leak_across_configures(monkeypatch):
     assert isinstance(_managed_console_handler().formatter, lm.JSONFormatter)
     monkeypatch.delenv("XPCSJAX_LOG_FORMAT", raising=False)
     lm.configure_logging({**_CFG})
-    assert not any(
-        isinstance(h.formatter, lm.JSONFormatter)
-        for h in _managed_logger().handlers
-    )
+    assert not any(isinstance(h.formatter, lm.JSONFormatter) for h in _managed_logger().handlers)
 
 
 def test_context_filter_installed_once():
@@ -125,6 +119,4 @@ def test_default_behavior_unchanged_without_optins(monkeypatch):
     # Phase-1b env override (it equals the natural computed level), and (b) no
     # JSON formatter is installed without the format opt-in.
     assert root.level == logging.DEBUG
-    assert not any(
-        isinstance(h.formatter, lm.JSONFormatter) for h in root.handlers
-    )
+    assert not any(isinstance(h.formatter, lm.JSONFormatter) for h in root.handlers)

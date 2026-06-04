@@ -173,8 +173,7 @@ def analyze_angle_distribution(phi: jnp.ndarray | np.ndarray) -> AngleDistributi
 
     # Build statistics dictionaries
     counts_dict = {
-        float(angle): int(count)
-        for angle, count in zip(unique_angles, counts, strict=False)
+        float(angle): int(count) for angle, count in zip(unique_angles, counts, strict=False)
     }
     fractions_dict = {
         float(angle): float(count) / total_points
@@ -402,9 +401,7 @@ def estimate_nlsq_optimization_memory(
 
     # Total with 20% safety margin
     safety_margin = 0.20
-    total_mb = (data_mb + jacobian_mb + jax_overhead_mb + optimizer_mb) * (
-        1 + safety_margin
-    )
+    total_mb = (data_mb + jacobian_mb + jax_overhead_mb + optimizer_mb) * (1 + safety_margin)
     peak_gb = total_mb / 1000
 
     # Check against available memory
@@ -542,9 +539,7 @@ def calculate_adaptive_chunk_size(
 
             available_bytes = psutil.virtual_memory().available
             available_memory_gb = available_bytes / (1024**3)
-            logger.debug(
-                f"Auto-detected available memory: {available_memory_gb:.1f} GB"
-            )
+            logger.debug(f"Auto-detected available memory: {available_memory_gb:.1f} GB")
         except ImportError:
             # Fallback: try os.sysconf for total memory, then estimate 50% available
             try:
@@ -614,9 +609,7 @@ def calculate_adaptive_chunk_size(
     )
 
     # Warn if total dataset would still cause memory pressure
-    estimated_jacobian_gb = (
-        total_points * jacobian_bytes_per_point * safety_factor
-    ) / (1024**3)
+    estimated_jacobian_gb = (total_points * jacobian_bytes_per_point * safety_factor) / (1024**3)
     if estimated_jacobian_gb > available_memory_gb * 0.70:
         logger.warning(
             f"WARNING: Dataset may still cause memory pressure!\n"
@@ -719,9 +712,7 @@ def create_angle_stratified_data(
     # Calculate number of chunks based on total points (no expansion)
     n_chunks = max(1, int(np.ceil(n_points / target_chunk_size)))
 
-    logger.debug(
-        f"Target chunk size: {target_chunk_size:,}, Number of chunks: {n_chunks}"
-    )
+    logger.debug(f"Target chunk size: {target_chunk_size:,}, Number of chunks: {n_chunks}")
 
     # For each angle, calculate how many points go to each chunk
     # Using round-robin distribution to spread points evenly
@@ -731,9 +722,7 @@ def create_angle_stratified_data(
         base_per_chunk = group_size // n_chunks
         remainder = group_size % n_chunks
         # Earlier chunks get one extra point if there's remainder
-        allocations = [
-            base_per_chunk + (1 if i < remainder else 0) for i in range(n_chunks)
-        ]
+        allocations = [base_per_chunk + (1 if i < remainder else 0) for i in range(n_chunks)]
         angle_chunk_allocations[angle] = allocations
 
     logger.info(
@@ -744,9 +733,7 @@ def create_angle_stratified_data(
 
     # Build stratified chunks by interleaving angle groups
     stratified_chunks = []
-    angle_offsets = dict.fromkeys(
-        stats.unique_angles, 0
-    )  # Track position in each angle
+    angle_offsets = dict.fromkeys(stats.unique_angles, 0)  # Track position in each angle
 
     for chunk_idx in range(n_chunks):
         # Each value is a list of ndarray slices that get concatenated below.
@@ -790,9 +777,7 @@ def create_angle_stratified_data(
     # cast to int (we know "size" is the ``sum(len(...))`` int written above).
     from typing import cast as _cast
 
-    chunk_sizes: list[int] = [
-        _cast(int, chunk["size"]) for chunk in stratified_chunks
-    ]
+    chunk_sizes: list[int] = [_cast(int, chunk["size"]) for chunk in stratified_chunks]
 
     # Flatten back to single arrays using pre-allocated buffers.
     # B1: Avoids four np.concatenate() intermediate copies followed by
@@ -895,9 +880,7 @@ def create_angle_stratified_indices(
     # Calculate number of chunks based on total points (no expansion)
     n_chunks = max(1, int(np.ceil(n_points / target_chunk_size)))
 
-    logger.debug(
-        f"Target chunk size: {target_chunk_size:,}, Number of chunks: {n_chunks}"
-    )
+    logger.debug(f"Target chunk size: {target_chunk_size:,}, Number of chunks: {n_chunks}")
 
     # For each angle, calculate how many points go to each chunk
     # Using round-robin distribution to spread points evenly
@@ -907,16 +890,12 @@ def create_angle_stratified_indices(
         base_per_chunk = group_size // n_chunks
         remainder = group_size % n_chunks
         # Earlier chunks get one extra point if there's remainder
-        allocations = [
-            base_per_chunk + (1 if i < remainder else 0) for i in range(n_chunks)
-        ]
+        allocations = [base_per_chunk + (1 if i < remainder else 0) for i in range(n_chunks)]
         angle_chunk_allocations[angle] = allocations
 
     # Build stratified index array by interleaving angle groups
     stratified_indices = []
-    angle_offsets = dict.fromkeys(
-        stats.unique_angles, 0
-    )  # Track position in each angle
+    angle_offsets = dict.fromkeys(stats.unique_angles, 0)  # Track position in each angle
 
     for chunk_idx in range(n_chunks):
         chunk_indices = []
@@ -1047,8 +1026,7 @@ def should_use_stratification(
     if imbalance_ratio > 5.0:
         return (
             False,
-            f"High imbalance ratio ({imbalance_ratio:.1f} > 5.0), "
-            "use sequential per-angle instead",
+            f"High imbalance ratio ({imbalance_ratio:.1f} > 5.0), use sequential per-angle instead",
         )
 
     # All conditions met: use stratification
@@ -1141,9 +1119,7 @@ def compute_stratification_diagnostics(
         "std": float(np.std(chunk_sizes_arr)),
         "min": int(np.min(chunk_sizes_arr)),
         "max": int(np.max(chunk_sizes_arr)),
-        "cv": float(
-            np.std(chunk_sizes_arr) / np.mean(chunk_sizes_arr)
-        ),  # Coefficient of variation
+        "cv": float(np.std(chunk_sizes_arr) / np.mean(chunk_sizes_arr)),  # Coefficient of variation
     }
 
     # Angle coverage statistics
@@ -1158,9 +1134,7 @@ def compute_stratification_diagnostics(
     }
 
     # Memory overhead estimation
-    mem_stats = estimate_stratification_memory(
-        n_points, use_index_based=use_index_based
-    )
+    mem_stats = estimate_stratification_memory(n_points, use_index_based=use_index_based)
     memory_overhead_mb = mem_stats["peak_memory_mb"] - mem_stats["original_memory_mb"]
     memory_efficiency = mem_stats["original_memory_mb"] / mem_stats["peak_memory_mb"]
 

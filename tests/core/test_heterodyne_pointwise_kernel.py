@@ -1,4 +1,5 @@
 """Pointwise heterodyne kernel must exactly match the meshgrid path."""
+
 from __future__ import annotations
 
 import jax.numpy as jnp
@@ -35,15 +36,20 @@ def test_pointwise_matches_meshgrid(phi_angle):
     t1_idx = ii.reshape(-1).astype(np.int32)
     t2_idx = jj.reshape(-1).astype(np.int32)
 
-    pw = np.asarray(compute_c2_heterodyne_pointwise(
-        p, t, q, dt,
-        phi_unique=phi_unique,
-        phi_idx=jnp.asarray(t1_idx * 0),  # all zeros -> single phi
-        t1_idx=jnp.asarray(t1_idx),
-        t2_idx=jnp.asarray(t2_idx),
-        contrast=jnp.asarray([contrast], dtype=jnp.float64),
-        offset=jnp.asarray([offset], dtype=jnp.float64),
-    )).reshape(n_t, n_t)
+    pw = np.asarray(
+        compute_c2_heterodyne_pointwise(
+            p,
+            t,
+            q,
+            dt,
+            phi_unique=phi_unique,
+            phi_idx=jnp.asarray(t1_idx * 0),  # all zeros -> single phi
+            t1_idx=jnp.asarray(t1_idx),
+            t2_idx=jnp.asarray(t2_idx),
+            contrast=jnp.asarray([contrast], dtype=jnp.float64),
+            offset=jnp.asarray([offset], dtype=jnp.float64),
+        )
+    ).reshape(n_t, n_t)
 
     max_diff = np.max(np.abs(mesh - pw))
     assert max_diff < 1e-10, f"phi={phi_angle}: max diff = {max_diff:.3e}"
@@ -74,14 +80,19 @@ def test_pointwise_multi_phi_gather():
     i_arr = np.array([r[1] for r in rows], dtype=np.int32)
     j_arr = np.array([r[2] for r in rows], dtype=np.int32)
 
-    pw = np.asarray(compute_c2_heterodyne_pointwise(
-        p, t, q, dt,
-        phi_unique=jnp.asarray(phis, dtype=jnp.float64),
-        phi_idx=jnp.asarray(a_arr),
-        t1_idx=jnp.asarray(i_arr),
-        t2_idx=jnp.asarray(j_arr),
-        contrast=jnp.asarray(contrasts, dtype=jnp.float64),
-        offset=jnp.asarray(offsets, dtype=jnp.float64),
-    ))
+    pw = np.asarray(
+        compute_c2_heterodyne_pointwise(
+            p,
+            t,
+            q,
+            dt,
+            phi_unique=jnp.asarray(phis, dtype=jnp.float64),
+            phi_idx=jnp.asarray(a_arr),
+            t1_idx=jnp.asarray(i_arr),
+            t2_idx=jnp.asarray(j_arr),
+            contrast=jnp.asarray(contrasts, dtype=jnp.float64),
+            offset=jnp.asarray(offsets, dtype=jnp.float64),
+        )
+    )
     expected = np.array([meshes[a][i, j] for a, i, j in rows])
     assert np.max(np.abs(pw - expected)) < 1e-10

@@ -112,9 +112,7 @@ def compute_weights(
         if sigma is None:
             raise ValueError("sigma required for inverse_variance weighting")
         if sigma.shape != c2_data.shape:
-            raise ValueError(
-                f"sigma shape {sigma.shape} doesn't match data shape {c2_data.shape}"
-            )
+            raise ValueError(f"sigma shape {sigma.shape} doesn't match data shape {c2_data.shape}")
         # Clamp sigma to avoid division by zero
         sigma_safe = np.maximum(np.abs(sigma), 1e-30)
         weights = 1.0 / (sigma_safe**2)
@@ -203,9 +201,7 @@ def compute_degrees_of_freedom(
     """
     dof = max(n_data - n_params, 1)
     if n_data <= n_params:
-        logger.warning(
-            "Underdetermined system: %d data points, %d parameters", n_data, n_params
-        )
+        logger.warning("Underdetermined system: %d data points, %d parameters", n_data, n_params)
     return dof
 
 

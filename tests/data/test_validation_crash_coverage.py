@@ -49,9 +49,7 @@ def _raise_boom(*_args, **_kwargs):
 # ---------------------------------------------------------------------------
 
 
-def test_physics_parameters_crash_logs_error_and_invalidates_report(
-    caplog, monkeypatch
-) -> None:
+def test_physics_parameters_crash_logs_error_and_invalidates_report(caplog, monkeypatch) -> None:
     """A crash inside ``_validate_physics_parameters`` must log ERROR and fail the report."""
     report = _fresh_report()
 
@@ -76,9 +74,7 @@ def test_physics_parameters_crash_logs_error_and_invalidates_report(
 # ---------------------------------------------------------------------------
 
 
-def test_correlation_matrices_crash_logs_error_and_invalidates_report(
-    caplog, monkeypatch
-) -> None:
+def test_correlation_matrices_crash_logs_error_and_invalidates_report(caplog, monkeypatch) -> None:
     """A crash inside ``_validate_correlation_matrices`` must log ERROR and fail the report."""
     report = _fresh_report()
 

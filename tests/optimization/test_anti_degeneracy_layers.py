@@ -3,6 +3,7 @@
 Task 29 tests the Layer-5 model-lineage gating. This test catches a different
 regression: did the dead-code removal refactoring accidentally cut into the
 anti-degeneracy controller's layer wiring?"""
+
 import inspect
 from typing import Any
 
@@ -61,8 +62,7 @@ def test_module_exports_all_5_layer_classes():
 
     missing = [name for name in LAYER_NAMES if name not in found]
     assert not missing, (
-        f"Layer classes not importable from any of the candidate modules: {missing}. "
-        f"Found: {found}"
+        f"Layer classes not importable from any of the candidate modules: {missing}. Found: {found}"
     )
 
 

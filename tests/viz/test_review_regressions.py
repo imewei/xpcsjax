@@ -596,18 +596,14 @@ def test_heterodyne_averaged_mode_does_not_raise(tmp_path):
     config = _make_heterodyne_config()
 
     # The shared contrast/offset must be replicated across all angles.
-    contrasts, offsets, phys, n = _unpack_heterodyne_scaling(
-        model, result, n_phi_expected=n_phi
-    )
+    contrasts, offsets, phys, n = _unpack_heterodyne_scaling(model, result, n_phi_expected=n_phi)
     assert n == n_phi
     np.testing.assert_allclose(contrasts, 0.2)
     np.testing.assert_allclose(offsets, 1.0)
     np.testing.assert_allclose(phys, physical)
 
     # End-to-end: must not raise (previously raised NotImplementedError).
-    generate_nlsq_plots(
-        model=model, result=result, data=data, config=config, output_dir=tmp_path
-    )
+    generate_nlsq_plots(model=model, result=result, data=data, config=config, output_dir=tmp_path)
 
 
 def test_laminar_flow_combined_model_does_not_raise(tmp_path):
@@ -650,9 +646,7 @@ def test_laminar_flow_combined_model_does_not_raise(tmp_path):
     config = _make_heterodyne_config()
     config["analysis_mode"] = "laminar_flow"
 
-    generate_nlsq_plots(
-        model=model, result=result, data=data, config=config, output_dir=tmp_path
-    )
+    generate_nlsq_plots(model=model, result=result, data=data, config=config, output_dir=tmp_path)
 
 
 def test_heterodyne_constant_mode_with_diag_does_not_raise(tmp_path):
@@ -683,13 +677,9 @@ def test_heterodyne_constant_mode_with_diag_does_not_raise(tmp_path):
     data = _make_heterodyne_data(n_phi=n_phi)
     config = _make_heterodyne_config()
 
-    contrasts, offsets, phys, _ = _unpack_heterodyne_scaling(
-        model, result, n_phi_expected=n_phi
-    )
+    contrasts, offsets, phys, _ = _unpack_heterodyne_scaling(model, result, n_phi_expected=n_phi)
     np.testing.assert_allclose(contrasts, 0.2)
     np.testing.assert_allclose(offsets, 1.0)
     np.testing.assert_allclose(phys, physical)
 
-    generate_nlsq_plots(
-        model=model, result=result, data=data, config=config, output_dir=tmp_path
-    )
+    generate_nlsq_plots(model=model, result=result, data=data, config=config, output_dir=tmp_path)

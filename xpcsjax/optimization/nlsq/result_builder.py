@@ -60,9 +60,7 @@ def compute_quality_metrics(
     # Count parameters at bounds
     n_at_bounds = 0
     if parameter_status:
-        n_at_bounds = sum(
-            1 for s in parameter_status if s in ("at_lower_bound", "at_upper_bound")
-        )
+        n_at_bounds = sum(1 for s in parameter_status if s in ("at_lower_bound", "at_upper_bound"))
 
     # Determine quality flag
     if reduced_chi_squared < 2.0 and n_at_bounds == 0:
@@ -130,8 +128,7 @@ def normalize_nlsq_result(
         popt_raw = result.get("x", result.get("popt"))
         if popt_raw is None:
             raise KeyError(
-                f"Result dict has neither 'x' nor 'popt' key. "
-                f"Available keys: {list(result.keys())}"
+                f"Result dict has neither 'x' nor 'popt' key. Available keys: {list(result.keys())}"
             )
         popt = np.asarray(popt_raw)
         pcov = np.asarray(result.get("pcov", np.eye(len(popt))))
@@ -152,21 +149,15 @@ def normalize_nlsq_result(
             popt, pcov = result
             info = {}
             if logger:
-                logger.debug(
-                    f"Normalized (popt, pcov) tuple (strategy: {strategy_name})"
-                )
+                logger.debug(f"Normalized (popt, pcov) tuple (strategy: {strategy_name})")
         elif len(result) == 3:
             popt, pcov, info = result
             if not isinstance(info, dict):
                 if logger:
-                    logger.warning(
-                        f"Info object is not a dict: {type(info)}. Converting to dict."
-                    )
+                    logger.warning(f"Info object is not a dict: {type(info)}. Converting to dict.")
                 info = {"raw_info": info}
             if logger:
-                logger.debug(
-                    f"Normalized (popt, pcov, info) tuple (strategy: {strategy_name})"
-                )
+                logger.debug(f"Normalized (popt, pcov, info) tuple (strategy: {strategy_name})")
         else:
             raise TypeError(
                 f"Unexpected tuple length: {len(result)}. "
@@ -187,9 +178,7 @@ def normalize_nlsq_result(
         pcov_raw = getattr(result, "pcov", None)
         if pcov_raw is None:
             _logger = logger or get_logger(__name__)
-            _logger.warning(
-                "No pcov attribute in result object. Using identity matrix."
-            )
+            _logger.warning("No pcov attribute in result object. Using identity matrix.")
             pcov = np.eye(len(popt))
         else:
             pcov = np.asarray(pcov_raw)
@@ -371,17 +360,13 @@ class ResultBuilder:
         # [J_contrast  0        0      ]
         # [0          J_offset  0      ]
         # [0          0         I_phys ]
-        full_jacobian = np.zeros(
-            (n_per_angle_total + n_physical, n_fourier_total + n_physical)
-        )
+        full_jacobian = np.zeros((n_per_angle_total + n_physical, n_fourier_total + n_physical))
 
         # Contrast block: J (n_phi × n_fourier_coeffs)
         full_jacobian[:n_phi, :n_fourier_coeffs] = jacobian
 
         # Offset block: J (n_phi × n_fourier_coeffs)
-        full_jacobian[n_phi:n_per_angle_total, n_fourier_coeffs:n_fourier_total] = (
-            jacobian
-        )
+        full_jacobian[n_phi:n_per_angle_total, n_fourier_coeffs:n_fourier_total] = jacobian
 
         # T038: Physical block: Identity (preserve physical covariance)
         full_jacobian[n_per_angle_total:, n_fourier_total:] = np.eye(n_physical)
@@ -446,8 +431,7 @@ class ResultBuilder:
                 chi_sq_fallback = fun_val * 2.0
                 quality = QualityMetrics(
                     chi_squared=chi_sq_fallback,
-                    reduced_chi_squared=chi_sq_fallback
-                    / max(self.n_data - n_params, 1),
+                    reduced_chi_squared=chi_sq_fallback / max(self.n_data - n_params, 1),
                     quality_flag="unknown",
                 )
         else:
@@ -467,9 +451,7 @@ class ResultBuilder:
         return {
             "parameters": self.parameters,
             "uncertainties": uncertainties,
-            "covariance": self.covariance
-            if self.covariance is not None
-            else np.eye(n_params),
+            "covariance": self.covariance if self.covariance is not None else np.eye(n_params),
             "chi_squared": quality.chi_squared,
             "reduced_chi_squared": quality.reduced_chi_squared,
             "convergence_status": convergence_status,

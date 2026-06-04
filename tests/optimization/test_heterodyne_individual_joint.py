@@ -77,9 +77,7 @@ def _reevaluate_joint_ssr(
 def test_individual_mode_is_joint_params_reproduce_chi2():
     """A joint individual fit's parameters MUST reproduce its reported chi_squared."""
     model, c2, phi = make_synthetic_two_component(n_phi=4, n_t=20)
-    cfg = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": "individual"}
-    )
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "individual"})
     res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
     diag = res.nlsq_diagnostics
     assert diag is not None
@@ -96,9 +94,7 @@ def test_individual_mode_is_joint_params_reproduce_chi2():
     assert res.parameters.shape == (n_physics + 2 * len(phi),)
 
     # SSR conservation: chi2_per_angle.sum() == chi_squared (joint invariant).
-    np.testing.assert_allclose(
-        np.asarray(diag["chi2_per_angle"]).sum(), res.chi_squared, rtol=1e-6
-    )
+    np.testing.assert_allclose(np.asarray(diag["chi2_per_angle"]).sum(), res.chi_squared, rtol=1e-6)
 
     # CONSISTENCY: re-evaluating the joint residual at res.parameters
     # reproduces chi_squared. The sequential aggregate (mean physics) breaks
@@ -110,9 +106,7 @@ def test_individual_mode_is_joint_params_reproduce_chi2():
 def test_individual_single_angle_still_falls_back_to_sequential():
     """Single-angle individual stays on the sequential aggregate (legit fallback)."""
     model, c2, phi = make_synthetic_two_component(n_phi=1, n_t=20)
-    cfg = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": "individual"}
-    )
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "individual"})
     res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
     diag = res.nlsq_diagnostics
     assert diag is not None

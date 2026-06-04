@@ -248,9 +248,7 @@ def apply_forward_shear_transforms_to_vector(
         if idx is not None:
             value = vector[idx]
             if value <= 0:
-                raise ValueError(
-                    "gamma_dot_t0 must be > 0 when enable_gamma_dot_log is true"
-                )
+                raise ValueError("gamma_dot_t0 must be > 0 when enable_gamma_dot_log is true")
             vector[idx] = np.log(value)
             state["gamma_log_idx"] = idx
 
@@ -293,9 +291,7 @@ def apply_forward_shear_transforms_to_bounds(
     gamma_idx = state.get("gamma_log_idx")
     if gamma_idx is not None:
         if lower[gamma_idx] <= 0 or upper[gamma_idx] <= 0:
-            raise ValueError(
-                "gamma_dot_t0 bounds must be > 0 when enable_gamma_dot_log is true"
-            )
+            raise ValueError("gamma_dot_t0 bounds must be > 0 when enable_gamma_dot_log is true")
         lower[gamma_idx] = np.log(lower[gamma_idx])
         upper[gamma_idx] = np.log(upper[gamma_idx])
     beta_idx = state.get("beta_center_idx")
@@ -399,9 +395,7 @@ def wrap_model_function_with_transforms(
         return model_fn
 
     def wrapped_model(xdata: np.ndarray, *solver_params: float) -> np.ndarray:
-        physical = apply_inverse_shear_transforms_to_vector(
-            np.asarray(solver_params), state
-        )
+        physical = apply_inverse_shear_transforms_to_vector(np.asarray(solver_params), state)
         result: np.ndarray = model_fn(xdata, *physical)
         return result
 

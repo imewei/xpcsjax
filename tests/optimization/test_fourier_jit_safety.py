@@ -6,6 +6,7 @@ on the (traced) coefficient slice, raising ``TracerArrayConversionError`` and
 silently degrading the fourier fit. These tests pin the JIT-safe variant and
 verify the heterodyne fourier joint path no longer leaks the tracer error.
 """
+
 from __future__ import annotations
 
 import jax
@@ -57,7 +58,9 @@ def test_heterodyne_fourier_joint_fit_has_no_tracer_error(caplog):
     contrast, offset = model.scaling.get_for_angle(0)
     c2 = np.stack(
         [
-            np.asarray(compute_c2_heterodyne(full, model.t, model.q, model.dt, float(p), contrast, offset))
+            np.asarray(
+                compute_c2_heterodyne(full, model.t, model.q, model.dt, float(p), contrast, offset)
+            )
             for p in phi
         ]
     )
@@ -96,7 +99,9 @@ def test_heterodyne_fourier_fit_with_regularization_no_tracer_error(caplog):
     contrast, offset = model.scaling.get_for_angle(0)
     c2 = _np.stack(
         [
-            _np.asarray(compute_c2_heterodyne(full, model.t, model.q, model.dt, float(p), contrast, offset))
+            _np.asarray(
+                compute_c2_heterodyne(full, model.t, model.q, model.dt, float(p), contrast, offset)
+            )
             for p in phi
         ]
     )

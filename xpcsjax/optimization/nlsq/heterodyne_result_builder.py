@@ -61,9 +61,7 @@ def build_result_from_scipy(
     reduced_chi2 = cost / dof
 
     # Map scipy status to success
-    success = (
-        opt_result.status > 0 if hasattr(opt_result, "status") else opt_result.success
-    )
+    success = opt_result.status > 0 if hasattr(opt_result, "status") else opt_result.success
     message = getattr(opt_result, "message", str(opt_result.get("message", "")))
 
     result = NLSQResult(
@@ -343,9 +341,7 @@ def build_failed_result(
         NLSQResult with success=False
     """
     logger.warning("NLSQ failed: %s", message)
-    params = (
-        initial_params if initial_params is not None else np.zeros(len(parameter_names))
-    )
+    params = initial_params if initial_params is not None else np.zeros(len(parameter_names))
     return NLSQResult(
         parameters=np.asarray(params, dtype=np.float64),
         parameter_names=parameter_names,
@@ -411,9 +407,7 @@ def _compute_covariance(
         # Regularize if near-singular
         cond = np.linalg.cond(jtj)
         if cond > 1e14:
-            logger.warning(
-                "J^T J condition number %.2e; adding Tikhonov regularization", cond
-            )
+            logger.warning("J^T J condition number %.2e; adding Tikhonov regularization", cond)
             jtj += 1e-10 * np.eye(n_params)
 
         jtj_inv = np.linalg.inv(jtj)
@@ -584,9 +578,7 @@ def build_hybrid_streaming_result(
     # Classify from the REAL noise-normalized reduced chi^2 (parity with the
     # in-memory joint paths) rather than a hardcoded 1.0 — a converged-but-poor
     # fit must not advertise "good". A failed solve is forced to "poor".
-    quality_flag = (
-        classify_quality_flag(reduced_chi2=reduced_chi2) if success else "poor"
-    )
+    quality_flag = classify_quality_flag(reduced_chi2=reduced_chi2) if success else "poor"
 
     # Coerce to valid ConvergenceStatus literal
     if convergence_status not in ("converged", "max_iter", "failed", "partial"):

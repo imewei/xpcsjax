@@ -250,9 +250,7 @@ def select_nlsq_strategy(
 
     # 1. Extreme scale — even the index array blows memory
     if index_gb > threshold_gb:
-        reason = (
-            f"Index array ({index_gb:.2f} GB) exceeds threshold ({threshold_gb:.2f} GB)"
-        )
+        reason = f"Index array ({index_gb:.2f} GB) exceeds threshold ({threshold_gb:.2f} GB)"
         logger.info("Auto-selecting STREAMING: %s", reason)
         return StrategyDecision(
             strategy=NLSQStrategy.STREAMING,
@@ -263,9 +261,7 @@ def select_nlsq_strategy(
 
     # 2. Large scale — Jacobian doesn't fit
     if peak_gb > threshold_gb:
-        reason = (
-            f"Peak memory ({peak_gb:.2f} GB) exceeds threshold ({threshold_gb:.2f} GB)"
-        )
+        reason = f"Peak memory ({peak_gb:.2f} GB) exceeds threshold ({threshold_gb:.2f} GB)"
         logger.info("Auto-selecting LARGE: %s", reason)
         return StrategyDecision(
             strategy=NLSQStrategy.LARGE,

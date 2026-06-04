@@ -26,9 +26,7 @@ from xpcsjax.optimization.nlsq.heterodyne_core import (
 
 def test_build_joint_problem_shapes_and_residual_finite():
     model, c2, phi = make_synthetic_two_component(n_phi=4, n_t=20)
-    cfg = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": "individual"}
-    )
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "individual"})
     prob = _build_joint_problem(model, c2, phi, cfg, weights=None)
     x0 = np.asarray(prob.x0, dtype=np.float64)
     lb = np.asarray(prob.lb, dtype=np.float64)
@@ -42,11 +40,7 @@ def test_build_joint_problem_shapes_and_residual_finite():
 
 def test_plain_joint_fit_unchanged_after_extraction():
     model, c2, phi = make_synthetic_two_component(n_phi=4, n_t=20)
-    cfg = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": "individual"}
-    )
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "individual"})
     res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
     diag = res.nlsq_diagnostics
-    assert np.isclose(
-        float(np.sum(diag["chi2_per_angle"])), res.chi_squared, rtol=1e-6
-    )
+    assert np.isclose(float(np.sum(diag["chi2_per_angle"])), res.chi_squared, rtol=1e-6)

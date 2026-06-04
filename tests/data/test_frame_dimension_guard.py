@@ -46,9 +46,7 @@ def test_accepts_realistic_frame_count():
 def test_rejects_huge_matrix_count_even_with_legal_frame_count():
     # n_t is well under MAX_CORRELATION_FRAMES, but the product is petabytes.
     with pytest.raises(XPCSDataFormatError, match="GiB"):
-        _check_allocation_budget(
-            n_matrices=10_000, n_t=10_000, itemsize=8, source="evil.h5"
-        )
+        _check_allocation_budget(n_matrices=10_000, n_t=10_000, itemsize=8, source="evil.h5")
 
 
 def test_rejects_negative_matrix_count():
@@ -58,12 +56,7 @@ def test_rejects_negative_matrix_count():
 
 def test_accepts_realistic_allocation():
     # 500 matrices x 1000 x 1000 x 8 bytes = 4 GB, well under the ceiling.
-    assert (
-        _check_allocation_budget(
-            n_matrices=500, n_t=1000, itemsize=8, source="ok.h5"
-        )
-        is None
-    )
+    assert _check_allocation_budget(n_matrices=500, n_t=1000, itemsize=8, source="ok.h5") is None
 
 
 def test_budget_ceiling_is_a_sane_positive_value():

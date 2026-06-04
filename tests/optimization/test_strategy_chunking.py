@@ -84,9 +84,7 @@ def test_estimate_stratification_memory_index_based() -> None:
 def test_estimate_stratification_memory_expansion() -> None:
     base = ck.estimate_stratification_memory(1000, estimated_expansion=1.0)
     expanded = ck.estimate_stratification_memory(1000, estimated_expansion=2.0)
-    assert expanded["stratified_memory_mb"] == pytest.approx(
-        2 * base["stratified_memory_mb"]
-    )
+    assert expanded["stratified_memory_mb"] == pytest.approx(2 * base["stratified_memory_mb"])
 
 
 def test_estimate_nlsq_optimization_memory_jacobian_dominant() -> None:
@@ -148,9 +146,7 @@ def _balanced_dataset(n_per_angle: int = 100):
 
 def test_stratified_data_is_permutation() -> None:
     phi, t1, t2, g2 = _balanced_dataset(100)  # 300 points, 3 angles
-    phi_s, t1_s, t2_s, g2_s, chunk_sizes = _stratify(
-        phi, t1, t2, g2, target_chunk_size=100
-    )
+    phi_s, t1_s, t2_s, g2_s, chunk_sizes = _stratify(phi, t1, t2, g2, target_chunk_size=100)
     phi_s = np.asarray(phi_s)
     assert len(phi_s) == 300  # no expansion
     np.testing.assert_array_equal(np.sort(phi_s), np.sort(phi))  # permutation
@@ -233,9 +229,7 @@ def test_should_use_stratification(
 
 def test_compute_diagnostics_with_chunk_sizes() -> None:
     phi, t1, t2, g2 = _balanced_dataset(100)
-    phi_s, *_rest, chunk_sizes = _stratify(
-        phi, t1, t2, g2, target_chunk_size=100
-    )
+    phi_s, *_rest, chunk_sizes = _stratify(phi, t1, t2, g2, target_chunk_size=100)
     diag = ck.compute_stratification_diagnostics(
         phi, np.asarray(phi_s), execution_time_ms=10.0, chunk_sizes=chunk_sizes
     )
@@ -257,9 +251,7 @@ def test_compute_diagnostics_fallback_slicing() -> None:
 
 def test_format_diagnostics_report() -> None:
     phi, t1, t2, g2 = _balanced_dataset(50)
-    phi_s, *_rest, chunk_sizes = _stratify(
-        phi, t1, t2, g2, target_chunk_size=50
-    )
+    phi_s, *_rest, chunk_sizes = _stratify(phi, t1, t2, g2, target_chunk_size=50)
     diag = ck.compute_stratification_diagnostics(
         phi, np.asarray(phi_s), execution_time_ms=2.0, chunk_sizes=chunk_sizes
     )

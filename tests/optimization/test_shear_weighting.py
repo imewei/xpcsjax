@@ -29,7 +29,14 @@ def test_config_defaults() -> None:
 
 def test_config_from_config_dict() -> None:
     cfg = sw.ShearWeightingConfig.from_config(
-        {"shear_weighting": {"enable": False, "min_weight": 0.5, "alpha": 2.0, "initial_phi0": 10.0}}
+        {
+            "shear_weighting": {
+                "enable": False,
+                "min_weight": 0.5,
+                "alpha": 2.0,
+                "initial_phi0": 10.0,
+            }
+        }
     )
     assert cfg.enable is False
     assert cfg.min_weight == 0.5
@@ -49,7 +56,11 @@ def test_config_from_config_initial_phi0_none() -> None:
 
 def _weighter(normalize: bool = False, **kw: object) -> sw.ShearSensitivityWeighting:
     cfg = sw.ShearWeightingConfig(
-        min_weight=0.3, alpha=1.0, normalize=normalize, initial_phi0=0.0, **kw  # type: ignore[arg-type]
+        min_weight=0.3,
+        alpha=1.0,
+        normalize=normalize,
+        initial_phi0=0.0,
+        **kw,  # type: ignore[arg-type]
     )
     return sw.ShearSensitivityWeighting(
         np.array([0.0, 90.0, 180.0, 270.0]), n_physical=7, phi0_index=6, config=cfg

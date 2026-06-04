@@ -30,6 +30,7 @@ from xpcsjax.core.physics_utils import create_time_integral_matrix, safe_sinc
 # T1: Meshgrid cache — same endpoints, different interior must not collide
 # ---------------------------------------------------------------------------
 
+
 class TestMeshgridCacheCollision:
     """After BUG1 fix the hash key includes interior quartile samples."""
 
@@ -47,9 +48,7 @@ class TestMeshgridCacheCollision:
         g2, _ = get_cached_meshgrid(t_skewed, t_skewed)
 
         # The two grids must differ — midpoint row differs (0.5 vs 0.9)
-        assert not jnp.allclose(g1, g2), (
-            "meshgrids for uniform vs skewed arrays must be distinct"
-        )
+        assert not jnp.allclose(g1, g2), "meshgrids for uniform vs skewed arrays must be distinct"
 
     def test_same_array_returns_cached_hit(self) -> None:
         """Identical array inputs must return the same meshgrid object (cache hit)."""
@@ -63,9 +62,7 @@ class TestMeshgridCacheCollision:
         """For N=8 arrays, uniform vs non-uniform spacing at same endpoints differ."""
         t_uniform = jnp.linspace(0.0, 7.0, 8, dtype=jnp.float64)
         # Scramble interior while keeping endpoints identical
-        t_nonuniform = jnp.array(
-            [0.0, 0.1, 0.3, 2.0, 3.5, 5.0, 6.8, 7.0], dtype=jnp.float64
-        )
+        t_nonuniform = jnp.array([0.0, 0.1, 0.3, 2.0, 3.5, 5.0, 6.8, 7.0], dtype=jnp.float64)
         clear_meshgrid_cache()
         g1, _ = get_cached_meshgrid(t_uniform, t_uniform)
         g2, _ = get_cached_meshgrid(t_nonuniform, t_nonuniform)
@@ -75,6 +72,7 @@ class TestMeshgridCacheCollision:
 # ---------------------------------------------------------------------------
 # T2: compute_chi_squared — sigma=0 must not produce Inf
 # ---------------------------------------------------------------------------
+
 
 class TestChiSquaredZeroSigma:
     """After BUG2 fix, zero-sigma pixels are excluded (contribute 0), not Inf."""
@@ -96,8 +94,17 @@ class TestChiSquaredZeroSigma:
         phi = jnp.array([0.0], dtype=jnp.float64)
 
         chi2 = compute_chi_squared(
-            minimal_params, data, sigma, t1, t2, phi,
-            0.01, 1e6, 0.5, 1.0, 1e-3,
+            minimal_params,
+            data,
+            sigma,
+            t1,
+            t2,
+            phi,
+            0.01,
+            1e6,
+            0.5,
+            1.0,
+            1e-3,
         )
         assert jnp.isfinite(chi2), f"chi-squared with zero sigma must be finite, got {chi2}"
 
@@ -109,8 +116,17 @@ class TestChiSquaredZeroSigma:
         phi = jnp.array([0.0], dtype=jnp.float64)
 
         chi2 = compute_chi_squared(
-            minimal_params, data, sigma, t1, t2, phi,
-            0.01, 1e6, 0.5, 1.0, 1e-3,
+            minimal_params,
+            data,
+            sigma,
+            t1,
+            t2,
+            phi,
+            0.01,
+            1e6,
+            0.5,
+            1.0,
+            1e-3,
         )
         assert float(chi2) == pytest.approx(0.0, abs=1e-10), (
             "all-zero sigma → all pixels excluded → chi-squared must be 0"
@@ -124,8 +140,17 @@ class TestChiSquaredZeroSigma:
         phi = jnp.array([0.0], dtype=jnp.float64)
 
         chi2 = compute_chi_squared(
-            minimal_params, data, sigma, t1, t2, phi,
-            0.01, 1e6, 0.5, 1.0, 1e-3,
+            minimal_params,
+            data,
+            sigma,
+            t1,
+            t2,
+            phi,
+            0.01,
+            1e6,
+            0.5,
+            1.0,
+            1e-3,
         )
         assert jnp.isfinite(chi2) and chi2 >= 0.0
 
@@ -133,6 +158,7 @@ class TestChiSquaredZeroSigma:
 # ---------------------------------------------------------------------------
 # T3: compute_g2_scaled_with_factors vs compute_g2_scaled parity
 # ---------------------------------------------------------------------------
+
 
 class TestG2ScaledFactorsParity:
     """The pre-computed-factors hot path must produce bit-identical output to
@@ -151,10 +177,18 @@ class TestG2ScaledFactorsParity:
         ref = compute_g2_scaled(params, t1, t2, phi, q, L, contrast, offset, dt)
 
         # Pre-computed-factors path
-        q2h_dt = 0.5 * q**2 * dt          # wavevector_q_squared_half_dt
+        q2h_dt = 0.5 * q**2 * dt  # wavevector_q_squared_half_dt
         sinc_pf = q * L * dt / (2 * math.pi)  # sinc_prefactor
         fast = compute_g2_scaled_with_factors(
-            params, t1, t2, phi, q2h_dt, sinc_pf, contrast, offset, dt,
+            params,
+            t1,
+            t2,
+            phi,
+            q2h_dt,
+            sinc_pf,
+            contrast,
+            offset,
+            dt,
         )
 
         assert jnp.allclose(ref, fast, rtol=1e-10, atol=1e-12), (
@@ -165,6 +199,7 @@ class TestG2ScaledFactorsParity:
 # ---------------------------------------------------------------------------
 # T4: compute_g2_scaled with contrast=0 → pure offset surface
 # ---------------------------------------------------------------------------
+
 
 class TestG2ScaledContrastZero:
     """Physics identity: g₂ = offset + 0·g₁² = offset when contrast=0."""
@@ -197,14 +232,13 @@ class TestG2ScaledContrastZero:
         # g2 shape is (n_phi=1, N, N); diagonal vs far-off-diagonal must differ
         diag_val = float(g2[0, 0, 0])
         corner_val = float(g2[0, 0, -1])
-        assert diag_val > corner_val, (
-            "correlation surface must decay away from diagonal"
-        )
+        assert diag_val > corner_val, "correlation surface must decay away from diagonal"
 
 
 # ---------------------------------------------------------------------------
 # T5: create_time_integral_matrix with N=1 → finite (1,1) matrix
 # ---------------------------------------------------------------------------
+
 
 class TestTimeIntegralMatrixN1:
     """N=1 single-point time array must not crash and must return finite (1,1)."""
@@ -220,7 +254,7 @@ class TestTimeIntegralMatrixN1:
         t = jnp.array([5.0], dtype=jnp.float64)
         mat = create_time_integral_matrix(t)
         # Value should be small (smooth_abs of 0 = sqrt(1e-12) ≈ 1e-6)
-        assert float(mat[0, 0]) < 0.1, f"N=1 self-integral should be ~eps, got {float(mat[0,0])}"
+        assert float(mat[0, 0]) < 0.1, f"N=1 self-integral should be ~eps, got {float(mat[0, 0])}"
 
     def test_n2_returns_2x2_matrix(self) -> None:
         """Sanity check: N=2 also works."""
@@ -245,6 +279,7 @@ class TestDiagonalCorrectionBatchN1:
 # ---------------------------------------------------------------------------
 # T6: safe_sinc continuity across Taylor / sin(x)/x threshold at 1e-4
 # ---------------------------------------------------------------------------
+
 
 class TestSafeSincContinuity:
     """safe_sinc must be continuous and well-valued at the Taylor threshold."""
@@ -282,6 +317,7 @@ class TestSafeSincContinuity:
     def test_gradient_continuous_near_zero(self) -> None:
         """Gradient at x just below threshold must match gradient just above."""
         import jax
+
         threshold = 1e-4
         grad_fn = jax.grad(lambda x: safe_sinc(x))
         g_in = float(grad_fn(jnp.float64(threshold * 0.5)))

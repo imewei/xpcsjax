@@ -193,12 +193,7 @@ def test_validate_bounds_consistency_accepts_sorted_bounds():
 
 def test_validate_bounds_consistency_rejects_inverted_or_misshaped():
     # Inverted bounds (lower > upper)
-    assert (
-        validate_bounds_consistency(
-            (np.array([2.0]), np.array([1.0])), np.array([1.5])
-        )
-        is False
-    )
+    assert validate_bounds_consistency((np.array([2.0]), np.array([1.0])), np.array([1.5])) is False
     # Length mismatch
     assert (
         validate_bounds_consistency(
@@ -262,12 +257,7 @@ def test_validate_optimized_params_rejects_non_finite():
 
 
 def test_validate_optimized_params_rejects_out_of_bounds():
-    assert (
-        validate_optimized_params(
-            np.array([1.5]), (np.array([0.0]), np.array([1.0]))
-        )
-        is False
-    )
+    assert validate_optimized_params(np.array([1.5]), (np.array([0.0]), np.array([1.0]))) is False
 
 
 def test_validate_covariance_accepts_symmetric_finite_positive_diag():
@@ -299,18 +289,14 @@ def test_validate_result_consistency_rejects_negative_chi_squared():
 
 
 def test_validate_result_consistency_rejects_non_finite_chi_squared():
-    assert (
-        validate_result_consistency(np.array([0.1]), chi_squared=float("nan")) is False
-    )
+    assert validate_result_consistency(np.array([0.1]), chi_squared=float("nan")) is False
 
 
 def test_validate_result_consistency_rejects_empty_or_nan_params():
     # Empty
     assert validate_result_consistency(np.array([]), chi_squared=1.0) is False
     # NaN in params
-    assert (
-        validate_result_consistency(np.array([1.0, np.nan]), chi_squared=1.0) is False
-    )
+    assert validate_result_consistency(np.array([1.0, np.nan]), chi_squared=1.0) is False
 
 
 def test_result_validator_records_warnings_for_bad_covariance():

@@ -108,24 +108,18 @@ def build_heterodyne_stratified_data(
 
     n_phi_data, n_t_data, n_t2 = c2_arr.shape
     if n_t_data != n_t2:
-        raise ValueError(
-            f"c2 must be square in the time dimensions, got ({n_t_data}, {n_t2})"
-        )
+        raise ValueError(f"c2 must be square in the time dimensions, got ({n_t_data}, {n_t2})")
 
     phi_arr = np.asarray(phi, dtype=np.float64).ravel()
     if phi_arr.shape[0] != n_phi_data:
-        raise ValueError(
-            f"phi length ({phi_arr.shape[0]}) must match c2 first dim ({n_phi_data})"
-        )
+        raise ValueError(f"phi length ({phi_arr.shape[0]}) must match c2 first dim ({n_phi_data})")
 
     # ------------------------------------------------------------------ #
     # 2. Sync model time axis if necessary                                #
     # ------------------------------------------------------------------ #
     t_model = np.asarray(model.t, dtype=np.float64)
     if len(t_model) != n_t_data:
-        model.sync_time_axis(
-            np.arange(1, n_t_data + 1, dtype=np.float64) * model.dt
-        )
+        model.sync_time_axis(np.arange(1, n_t_data + 1, dtype=np.float64) * model.dt)
         t_model = np.asarray(model.t, dtype=np.float64)
 
     n_phi = n_phi_data

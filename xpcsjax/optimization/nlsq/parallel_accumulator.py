@@ -133,9 +133,7 @@ def accumulate_chunks_parallel(
         return accumulate_chunks_sequential(chunks)
 
     # Partition chunks across workers
-    partitions: list[list[tuple[np.ndarray, np.ndarray, float]]] = [
-        [] for _ in range(n_workers)
-    ]
+    partitions: list[list[tuple[np.ndarray, np.ndarray, float]]] = [[] for _ in range(n_workers)]
     for i, chunk in enumerate(chunks):
         partitions[i % n_workers].append(chunk)
 
@@ -168,9 +166,7 @@ def accumulate_chunks_parallel(
         return total_JtJ, total_Jtr, total_chi2, total_count
 
     except (OSError, RuntimeError, pickle.PicklingError, FuturesTimeoutError) as e:
-        logger.warning(
-            "Parallel chunk accumulation failed (%s), falling back to sequential", e
-        )
+        logger.warning("Parallel chunk accumulation failed (%s), falling back to sequential", e)
         return accumulate_chunks_sequential(chunks)
 
 
@@ -329,9 +325,7 @@ def create_ooc_kernels(
         return J.T @ J, J.T @ r, jnp.sum(r**2)
 
     @jax.jit
-    def compute_chunk_chi2(
-        p: Any, phi_c: Any, t1_c: Any, t2_c: Any, g2_c: Any, sigma: Any
-    ) -> Any:
+    def compute_chunk_chi2(p: Any, phi_c: Any, t1_c: Any, t2_c: Any, g2_c: Any, sigma: Any) -> Any:
         """Compute chi2 for a chunk (no Jacobian)."""
         if per_angle_scaling:
             contrast_arr = p[:n_phi]
@@ -475,9 +469,7 @@ def _ooc_worker_init(
     _w_shm_handles = []
     arrays: dict[str, np.ndarray] = {}
     for name, ref in shm_refs.items():
-        shm = multiprocessing.shared_memory.SharedMemory(
-            name=ref["shm_name"], create=False
-        )
+        shm = multiprocessing.shared_memory.SharedMemory(name=ref["shm_name"], create=False)
         _w_shm_handles.append(shm)
         arrays[name] = np.ndarray(ref["shape"], dtype=ref["dtype"], buffer=shm.buf)
 
@@ -751,8 +743,7 @@ class OOCComputePool:
 
         chunk_ids = list(range(0, self._n_chunks, stride))
         futures = [
-            self._executor.submit(_ooc_compute_chi2_chunk, (params, cid))
-            for cid in chunk_ids
+            self._executor.submit(_ooc_compute_chi2_chunk, (params, cid)) for cid in chunk_ids
         ]
 
         total_chi2 = 0.0

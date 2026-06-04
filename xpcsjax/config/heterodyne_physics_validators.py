@@ -57,9 +57,7 @@ class ConstraintRule:
 
 PHYSICS_CONSTRAINTS: dict[str, list[ConstraintRule]] = {
     "D0_ref": [
-        ConstraintRule(
-            lambda v: v < 0, "must be non-negative", ConstraintSeverity.ERROR
-        ),
+        ConstraintRule(lambda v: v < 0, "must be non-negative", ConstraintSeverity.ERROR),
         ConstraintRule(
             lambda v: v < 1e-12 and v >= 0,
             "near zero; may cause degenerate diffusion",
@@ -72,9 +70,7 @@ PHYSICS_CONSTRAINTS: dict[str, list[ConstraintRule]] = {
         ),
     ],
     "D0_sample": [
-        ConstraintRule(
-            lambda v: v < 0, "must be non-negative", ConstraintSeverity.ERROR
-        ),
+        ConstraintRule(lambda v: v < 0, "must be non-negative", ConstraintSeverity.ERROR),
         ConstraintRule(
             lambda v: v < 1e-12 and v >= 0,
             "near zero; may cause degenerate diffusion",
@@ -92,9 +88,7 @@ PHYSICS_CONSTRAINTS: dict[str, list[ConstraintRule]] = {
             "strongly subdiffusive (alpha < -1.5)",
             ConstraintSeverity.WARNING,
         ),
-        ConstraintRule(
-            lambda v: v > 1.0, "superdiffusive regime", ConstraintSeverity.INFO
-        ),
+        ConstraintRule(lambda v: v > 1.0, "superdiffusive regime", ConstraintSeverity.INFO),
         ConstraintRule(
             lambda v: abs(v) > 2,
             "unusual magnitude (|alpha| > 2)",
@@ -107,9 +101,7 @@ PHYSICS_CONSTRAINTS: dict[str, list[ConstraintRule]] = {
             "strongly subdiffusive (alpha < -1.5)",
             ConstraintSeverity.WARNING,
         ),
-        ConstraintRule(
-            lambda v: v > 1.0, "superdiffusive regime", ConstraintSeverity.INFO
-        ),
+        ConstraintRule(lambda v: v > 1.0, "superdiffusive regime", ConstraintSeverity.INFO),
         ConstraintRule(
             lambda v: abs(v) > 2,
             "unusual magnitude (|alpha| > 2)",
@@ -117,22 +109,14 @@ PHYSICS_CONSTRAINTS: dict[str, list[ConstraintRule]] = {
         ),
     ],
     "v0": [
-        ConstraintRule(
-            lambda v: v < 0, "negative velocity", ConstraintSeverity.WARNING
-        ),
-        ConstraintRule(
-            lambda v: v > 1e3, "large velocity (> 1e3 Å/s)", ConstraintSeverity.WARNING
-        ),
+        ConstraintRule(lambda v: v < 0, "negative velocity", ConstraintSeverity.WARNING),
+        ConstraintRule(lambda v: v > 1e3, "large velocity (> 1e3 Å/s)", ConstraintSeverity.WARNING),
     ],
     "f0": [
-        ConstraintRule(
-            lambda v: not (0 <= v <= 1), "must be in [0, 1]", ConstraintSeverity.ERROR
-        ),
+        ConstraintRule(lambda v: not (0 <= v <= 1), "must be in [0, 1]", ConstraintSeverity.ERROR),
     ],
     "f3": [
-        ConstraintRule(
-            lambda v: not (0 <= v <= 1), "must be in [0, 1]", ConstraintSeverity.ERROR
-        ),
+        ConstraintRule(lambda v: not (0 <= v <= 1), "must be in [0, 1]", ConstraintSeverity.ERROR),
     ],
     "f1": [
         ConstraintRule(
@@ -248,11 +232,7 @@ def validate_cross_parameter_constraints(
             )
 
     # D_offset_sample / D0_sample ratio
-    if (
-        "D_offset_sample" in params
-        and "D0_sample" in params
-        and params["D0_sample"] > 0
-    ):
+    if "D_offset_sample" in params and "D0_sample" in params and params["D0_sample"] > 0:
         ratio = params["D_offset_sample"] / params["D0_sample"]
         if ratio > 0.5 and severity_order[ConstraintSeverity.WARNING] >= min_level:
             violations.append(
@@ -339,9 +319,7 @@ def validate_parameters(params: np.ndarray | dict[str, float]) -> ValidationResu
     violations = validate_all_parameters(param_dict)
 
     errors = [v.message for v in violations if v.severity == ConstraintSeverity.ERROR]
-    warnings = [
-        v.message for v in violations if v.severity == ConstraintSeverity.WARNING
-    ]
+    warnings = [v.message for v in violations if v.severity == ConstraintSeverity.WARNING]
     info = [v.message for v in violations if v.severity == ConstraintSeverity.INFO]
 
     return ValidationResult(
@@ -378,18 +356,14 @@ def validate_time_integral_safety(
         errors.append(f"alpha={alpha:.3f} < 0 requires t_min > 0, got t_min={t_min}")
 
     if alpha < -1:
-        warnings.append(
-            f"alpha={alpha:.3f} < -1 may cause numerical instability near t=0"
-        )
+        warnings.append(f"alpha={alpha:.3f} < -1 may cause numerical instability near t=0")
 
     if alpha > 3:
         # t^alpha can overflow for large t
         try:
             power_val = t_max**alpha
             if power_val > 1e15:
-                warnings.append(
-                    f"t_max^alpha = {t_max}^{alpha} = {power_val:.2e} may overflow"
-                )
+                warnings.append(f"t_max^alpha = {t_max}^{alpha} = {power_val:.2e} may overflow")
         except OverflowError:
             warnings.append(f"t_max^alpha = {t_max}^{alpha:.1f} overflows float range")
 
@@ -422,8 +396,7 @@ def validate_correlation_inputs(
     expected_shape = (len(t1), len(t2))
     if c2_data.shape != expected_shape:
         errors.append(
-            f"c2_data shape {c2_data.shape} doesn't match time grids "
-            f"({len(t1)}, {len(t2)})"
+            f"c2_data shape {c2_data.shape} doesn't match time grids ({len(t1)}, {len(t2)})"
         )
 
     # NaN/Inf checks
@@ -440,9 +413,7 @@ def validate_correlation_inputs(
         warnings.append("c2_data contains negative values (unusual for correlation)")
 
     if np.any(c2_data > 2):
-        warnings.append(
-            "c2_data contains values > 2 (unusual for normalized correlation)"
-        )
+        warnings.append("c2_data contains values > 2 (unusual for normalized correlation)")
 
     # Monotonicity of time axes
     if not np.all(np.diff(t1) > 0):

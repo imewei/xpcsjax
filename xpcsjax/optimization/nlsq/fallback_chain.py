@@ -124,9 +124,7 @@ def handle_nlsq_result(
             "best_loss": result.get("best_loss", None),
             "final_epoch": result.get("final_epoch", None),
         }
-        _logger.debug(
-            f"Normalized StreamingOptimizer dict result (strategy: {strategy.value})"
-        )
+        _logger.debug(f"Normalized StreamingOptimizer dict result (strategy: {strategy.value})")
         return popt, pcov, info
 
     # Case 2: Tuple with 2 or 3 elements
@@ -141,13 +139,9 @@ def handle_nlsq_result(
             popt, pcov, info = result
             # Ensure info is a dict
             if not isinstance(info, dict):
-                _logger.warning(
-                    f"Info object is not a dict: {type(info)}. Converting to dict."
-                )
+                _logger.warning(f"Info object is not a dict: {type(info)}. Converting to dict.")
                 info = {"raw_info": info}
-            _logger.debug(
-                f"Normalized (popt, pcov, info) tuple (strategy: {strategy.value})"
-            )
+            _logger.debug(f"Normalized (popt, pcov, info) tuple (strategy: {strategy.value})")
         else:
             raise TypeError(
                 f"Unexpected tuple length: {len(result)}. "
@@ -171,9 +165,7 @@ def handle_nlsq_result(
         pcov_raw = getattr(result, "pcov", None)
         if pcov_raw is None:
             # No covariance available, create identity matrix
-            _logger.warning(
-                "No pcov attribute in result object. Using identity matrix."
-            )
+            _logger.warning("No pcov attribute in result object. Using identity matrix.")
             pcov = np.eye(len(popt))
         else:
             pcov = np.asarray(pcov_raw)
@@ -242,17 +234,10 @@ def execute_optimization_with_fallback(
     while current_strategy is not None:
         try:
             strategy_info = _get_strategy_info(current_strategy)
-            log.info(
-                f"Attempting optimization with {current_strategy.value} strategy..."
-            )
+            log.info(f"Attempting optimization with {current_strategy.value} strategy...")
 
-            if (
-                current_strategy == OptimizationStrategy.STREAMING
-                and streaming_available
-            ):
-                log.info(
-                    "Using NLSQ AdaptiveHybridStreamingOptimizer for large datasets..."
-                )
+            if current_strategy == OptimizationStrategy.STREAMING and streaming_available:
+                log.info("Using NLSQ AdaptiveHybridStreamingOptimizer for large datasets...")
 
                 popt, pcov, info = fit_with_hybrid_streaming_fn(
                     residual_fn=wrapped_residual_fn,
@@ -264,24 +249,20 @@ def execute_optimization_with_fallback(
                     nlsq_config=config,
                 )
                 recovery_actions = info.get("recovery_actions", [])
-                convergence_status = (
-                    "converged" if info.get("success", False) else "partial"
-                )
+                convergence_status = "converged" if info.get("success", False) else "partial"
 
             elif enable_recovery:
-                popt, pcov, info, recovery_actions, convergence_status = (
-                    execute_with_recovery_fn(
-                        residual_fn=wrapped_residual_fn,
-                        xdata=xdata,
-                        ydata=ydata,
-                        initial_params=validated_params,
-                        bounds=nlsq_bounds,
-                        strategy=current_strategy,
-                        logger=log,
-                        loss_name=loss_name,
-                        x_scale_value=x_scale_value,
-                        callback=callback,
-                    )
+                popt, pcov, info, recovery_actions, convergence_status = execute_with_recovery_fn(
+                    residual_fn=wrapped_residual_fn,
+                    xdata=xdata,
+                    ydata=ydata,
+                    initial_params=validated_params,
+                    bounds=nlsq_bounds,
+                    strategy=current_strategy,
+                    logger=log,
+                    loss_name=loss_name,
+                    x_scale_value=x_scale_value,
+                    callback=callback,
                 )
             else:
                 use_large = current_strategy != OptimizationStrategy.STANDARD
@@ -292,9 +273,7 @@ def execute_optimization_with_fallback(
                         xdata,
                         ydata,
                         p0=validated_params.tolist(),
-                        bounds=nlsq_bounds
-                        if nlsq_bounds is not None
-                        else (-np.inf, np.inf),
+                        bounds=nlsq_bounds if nlsq_bounds is not None else (-np.inf, np.inf),
                         loss=loss_name,
                         x_scale=x_scale_value,
                         gtol=1e-6,
@@ -342,17 +321,11 @@ def execute_optimization_with_fallback(
                 log.info("NLSQ Result Analysis:")
                 log.info(f"  p0 (initial):  {validated_params}")
                 log.info(f"  popt (fitted): {popt}")
-                log.info(
-                    f"  bounds lower:  {nlsq_bounds[0] if nlsq_bounds else 'None'}"
-                )
-                log.info(
-                    f"  bounds upper:  {nlsq_bounds[1] if nlsq_bounds else 'None'}"
-                )
+                log.info(f"  bounds lower:  {nlsq_bounds[0] if nlsq_bounds else 'None'}")
+                log.info(f"  bounds upper:  {nlsq_bounds[1] if nlsq_bounds else 'None'}")
                 log.info(f"  pcov diagonal: {np.diag(pcov)}")
 
-                params_unchanged = np.allclose(
-                    popt, validated_params, rtol=1e-10, atol=1e-14
-                )
+                params_unchanged = np.allclose(popt, validated_params, rtol=1e-10, atol=1e-14)
                 uncertainties_zero = np.any(np.abs(np.diag(pcov)) < 1e-15)
 
                 if params_unchanged:
@@ -375,9 +348,7 @@ def execute_optimization_with_fallback(
                 convergence_status = "converged"
 
             if strategy_attempts:
-                recovery_actions.append(
-                    f"strategy_fallback_to_{current_strategy.value}"
-                )
+                recovery_actions.append(f"strategy_fallback_to_{current_strategy.value}")
                 log.info(
                     f"Successfully optimized with fallback strategy: {current_strategy.value}\n"
                     f"  Previous attempts: {[s.value for s in strategy_attempts]}"

@@ -48,9 +48,7 @@ def test_compute_weights_inverse_variance_requires_sigma() -> None:
 
 def test_compute_weights_inverse_variance_shape_mismatch() -> None:
     with pytest.raises(ValueError, match="doesn't match"):
-        compute_weights(
-            np.ones((3, 3)), method="inverse_variance", sigma=np.ones((2, 2))
-        )
+        compute_weights(np.ones((3, 3)), method="inverse_variance", sigma=np.ones((2, 2)))
 
 
 def test_compute_weights_unknown_method() -> None:

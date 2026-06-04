@@ -63,9 +63,7 @@ def test_config_from_dict_watch_parameters_none() -> None:
 
 def _monitor(**cfg_kw: object) -> gm.GradientCollapseMonitor:
     cfg = gm.GradientMonitorConfig(**cfg_kw)  # type: ignore[arg-type]
-    return gm.GradientCollapseMonitor(
-        cfg, physical_indices=[2, 3], per_angle_indices=[0, 1]
-    )
+    return gm.GradientCollapseMonitor(cfg, physical_indices=[2, 3], per_angle_indices=[0, 1])
 
 
 # Physical grad tiny, per-angle grad large -> ratio << threshold.
@@ -168,9 +166,7 @@ def test_get_response_dict_after_collapse() -> None:
 
 def test_compute_reset_params_resets_to_mean() -> None:
     cfg = gm.GradientMonitorConfig()
-    mon = gm.GradientCollapseMonitor(
-        cfg, physical_indices=[4], per_angle_indices=[0, 1, 2, 3]
-    )
+    mon = gm.GradientCollapseMonitor(cfg, physical_indices=[4], per_angle_indices=[0, 1, 2, 3])
     params = np.array([0.2, 0.4, 1.0, 1.2, 5.0])  # contrast[0:2], offset[2:4], physical
     out = mon.compute_reset_params(params, n_phi=2)
     np.testing.assert_allclose(out[:2], 0.3)  # contrast mean

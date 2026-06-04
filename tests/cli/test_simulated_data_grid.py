@@ -9,6 +9,7 @@ qualitatively wrong C2 surface (axis 0..63 instead of 0..100 s, fanning
 fringes lost). The grid must mirror ``heterodyne.HeterodyneModel.from_config``:
 ``t = arange(n_times) * dt + dt`` with ``n_times = end_frame - start_frame + 1``.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -54,8 +55,12 @@ def test_simulated_grid_uses_elapsed_time(tmp_path, monkeypatch):
     monkeypatch.setattr(viz, "plot_simulated_data", lambda *a, **k: None)
 
     plot_dispatch._plot_simulated_from_config(
-        cm, contrast=0.5, offset=1.0, phi_angles_str="0",
-        plots_dir=Path(tmp_path), data=None,
+        cm,
+        contrast=0.5,
+        offset=1.0,
+        phi_angles_str="0",
+        plots_dir=Path(tmp_path),
+        data=None,
     )
 
     # n_times = end_frame - start_frame + 1 = 10; t_start = dt = 0.5.

@@ -7,6 +7,7 @@ the SAME top-level ``nlsq_diagnostics`` key set for the L2/L3/L4/L5 layers.
 Diagnostics-only: nothing here reads or writes solve state, so routing a mode
 through it never changes a fit value.
 """
+
 from __future__ import annotations
 
 from typing import Any

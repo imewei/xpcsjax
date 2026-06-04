@@ -83,9 +83,7 @@ def find_cleanup_targets() -> list[CleanupTarget]:
     venv_path = get_venv_path()
     if venv_path:
         # Bash completion
-        bash_completion = (
-            venv_path / "etc" / "bash_completion.d" / "xpcsjax-completion.sh"
-        )
+        bash_completion = venv_path / "etc" / "bash_completion.d" / "xpcsjax-completion.sh"
         targets.append(
             CleanupTarget(
                 path=bash_completion,
@@ -105,9 +103,7 @@ def find_cleanup_targets() -> list[CleanupTarget]:
         )
 
         # Fish completion (user-facing CLI completions)
-        fish_completion = (
-            venv_path / "share" / "fish" / "vendor_completions.d" / "xpcsjax.fish"
-        )
+        fish_completion = venv_path / "share" / "fish" / "vendor_completions.d" / "xpcsjax.fish"
         targets.append(
             CleanupTarget(
                 path=fish_completion,
@@ -135,9 +131,7 @@ def find_cleanup_targets() -> list[CleanupTarget]:
             )
         )
 
-        xla_fish_vendor = (
-            venv_path / "share" / "fish" / "vendor_conf.d" / "xpcsjax-xla.fish"
-        )
+        xla_fish_vendor = venv_path / "share" / "fish" / "vendor_conf.d" / "xpcsjax-xla.fish"
         targets.append(
             CleanupTarget(
                 path=xla_fish_vendor,
@@ -165,9 +159,7 @@ def find_cleanup_targets() -> list[CleanupTarget]:
                 )
 
     # User-level completion directories
-    local_bash = (
-        home / ".local" / "share" / "bash-completion" / "completions" / "xpcsjax"
-    )
+    local_bash = home / ".local" / "share" / "bash-completion" / "completions" / "xpcsjax"
     targets.append(
         CleanupTarget(
             path=local_bash,
@@ -252,11 +244,7 @@ def cleanup_xla_config(
                 venv_path / "etc" / "xpcsjax" / "xla_config.bash",
                 venv_path / "etc" / "xpcsjax" / "xla_config.fish",
                 venv_path / "etc" / "xpcsjax" / "xla_mode",
-                venv_path
-                / "share"
-                / "fish"
-                / "vendor_conf.d"
-                / "xpcsjax-xla.fish",
+                venv_path / "share" / "fish" / "vendor_conf.d" / "xpcsjax-xla.fish",
             ]
         )
 
@@ -463,9 +451,7 @@ def show_dry_run(verbose: bool = True) -> None:
                 print("    (remove xpcsjax configuration block)")
 
         fish_activate = venv_path / "bin" / "activate.fish"
-        if fish_activate.exists() and "xpcsjax" in fish_activate.read_text(
-            encoding="utf-8"
-        ):
+        if fish_activate.exists() and "xpcsjax" in fish_activate.read_text(encoding="utf-8"):
             print(f"  {fish_activate} (would modify)")
             if verbose:
                 print("    (remove xpcsjax configuration block)")
@@ -500,9 +486,7 @@ def interactive_cleanup() -> None:
             print(f"  - {activate} contains xpcsjax configuration")
             has_activation_mods = True
         fish_activate = venv_path / "bin" / "activate.fish"
-        if fish_activate.exists() and "xpcsjax" in fish_activate.read_text(
-            encoding="utf-8"
-        ):
+        if fish_activate.exists() and "xpcsjax" in fish_activate.read_text(encoding="utf-8"):
             print(f"  - {fish_activate} contains xpcsjax configuration")
             has_activation_mods = True
 

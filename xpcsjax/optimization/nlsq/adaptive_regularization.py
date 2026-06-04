@@ -92,9 +92,7 @@ class AdaptiveRegularizationConfig:
             ),
             lambda_base=safe_float(config_dict.get("lambda"), 1.0),
             target_cv=safe_float(config_dict.get("target_cv"), 0.10),
-            target_contribution=safe_float(
-                config_dict.get("target_contribution"), 0.10
-            ),
+            target_contribution=safe_float(config_dict.get("target_contribution"), 0.10),
             auto_tune_lambda=bool(config_dict.get("auto_tune_lambda", True)),
             max_cv=safe_float(config_dict.get("max_cv"), 0.20),
             group_indices=config_dict.get("group_indices"),
@@ -192,9 +190,7 @@ class AdaptiveRegularizer:
         self._last_cv_values: dict[int, float] = {}
         self._last_reg_contribution: float = 0.0
 
-    def compute_regularization(
-        self, params: np.ndarray, mse: float, n_points: int
-    ) -> float:
+    def compute_regularization(self, params: np.ndarray, mse: float, n_points: int) -> float:
         """Compute regularization term to add to loss.
 
         Parameters
@@ -233,8 +229,7 @@ class AdaptiveRegularizer:
         for group_idx, (start, end) in enumerate(self.group_indices):
             if start >= len(params) or end > len(params):
                 logger.warning(
-                    f"Group indices ({start}, {end}) out of bounds "
-                    f"for params length {len(params)}"
+                    f"Group indices ({start}, {end}) out of bounds for params length {len(params)}"
                 )
                 continue
 
@@ -248,9 +243,7 @@ class AdaptiveRegularizer:
                 )
                 continue
 
-            if self.config.mode == "relative" or (
-                self.config.mode == "auto" and self.n_phi > 5
-            ):
+            if self.config.mode == "relative" or (self.config.mode == "auto" and self.n_phi > 5):
                 # CV-based regularization (NaN-safe: degenerate optimizer steps can yield NaN params)
                 mean_val = np.nanmean(group_params)
                 std_val = np.nanstd(group_params)
@@ -322,9 +315,7 @@ class AdaptiveRegularizer:
             if n_group < 2:
                 continue
 
-            if self.config.mode == "relative" or (
-                self.config.mode == "auto" and self.n_phi > 5
-            ):
+            if self.config.mode == "relative" or (self.config.mode == "auto" and self.n_phi > 5):
                 # CV-based regularization using JAX operations
                 mean_val = jnp.mean(group_params)
                 std_val = jnp.std(group_params)
@@ -386,9 +377,7 @@ class AdaptiveRegularizer:
             mean_val = np.nanmean(group_params)
             std_val = np.nanstd(group_params)
 
-            if self.config.mode == "relative" or (
-                self.config.mode == "auto" and self.n_phi > 5
-            ):
+            if self.config.mode == "relative" or (self.config.mode == "auto" and self.n_phi > 5):
                 # CV-based gradient
                 if abs(mean_val) > 1e-10 and std_val > 1e-10:
                     cv = std_val / abs(mean_val)
@@ -407,9 +396,7 @@ class AdaptiveRegularizer:
                         if mean_val >= 0:
                             d_cv = (d_std * mean_val - std_val * d_mean) / (mean_val**2)
                         else:
-                            d_cv = (d_std * (-mean_val) - std_val * (-d_mean)) / (
-                                mean_val**2
-                            )
+                            d_cv = (d_std * (-mean_val) - std_val * (-d_mean)) / (mean_val**2)
 
                         d_cv_sq = 2 * cv * d_cv
 
@@ -419,9 +406,7 @@ class AdaptiveRegularizer:
                 # Absolute variance gradient
                 # ∂Var/∂p_i = 2(p_i - mean) / n
                 for i, p_i in enumerate(group_params):
-                    grad[start + i] = (
-                        self.lambda_value * 2 * (p_i - mean_val) / n_group * n_points
-                    )
+                    grad[start + i] = self.lambda_value * 2 * (p_i - mean_val) / n_group * n_points
 
         return grad
 

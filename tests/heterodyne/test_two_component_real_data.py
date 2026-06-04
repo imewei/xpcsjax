@@ -37,16 +37,12 @@ C044_CONFIG = C044_DATA_DIR / "heterodyne_config.yaml"
 C044_C2_CACHE = C044_DATA_DIR / "cached_c2_q0.0054_frames_1000_2000.npz"
 C044_PHI_LIST = C044_DATA_DIR / "phi_list.txt"
 BASELINE_JSON = (
-    Path(__file__).resolve().parent
-    / "fixtures"
-    / "baselines"
-    / "two_component_c044.json"
+    Path(__file__).resolve().parent / "fixtures" / "baselines" / "two_component_c044.json"
 )
 
 _SLOW_GATE = pytest.mark.skipif(
     os.environ.get("XPCSJAX_RUN_CHARACTERIZATION") != "1",
-    reason="Slow real-data heterodyne fit; "
-    "set XPCSJAX_RUN_CHARACTERIZATION=1 to enable.",
+    reason="Slow real-data heterodyne fit; set XPCSJAX_RUN_CHARACTERIZATION=1 to enable.",
 )
 
 
@@ -62,19 +58,13 @@ def baseline() -> dict[str, object]:
     return json.loads(BASELINE_JSON.read_text())
 
 
-def _select_baseline_angles(
-    phi_all: np.ndarray, baseline_meta: dict[str, object]
-) -> np.ndarray:
+def _select_baseline_angles(phi_all: np.ndarray, baseline_meta: dict[str, object]) -> np.ndarray:
     """Return indices into the cache's phi axis for the 3 baseline angles."""
     target = np.asarray(baseline_meta["phi_angles"], dtype=np.float64)
-    idxs = np.array(
-        [int(np.argmin(np.abs(phi_all - t))) for t in target], dtype=np.int64
-    )
+    idxs = np.array([int(np.argmin(np.abs(phi_all - t))) for t in target], dtype=np.int64)
     # Sanity: each picked angle should be < 1° from the baseline target.
     deltas = np.abs(phi_all[idxs] - target)
-    assert np.all(deltas < 1.0), (
-        f"could not match baseline phi angles within 1°; deltas={deltas}"
-    )
+    assert np.all(deltas < 1.0), f"could not match baseline phi angles within 1°; deltas={deltas}"
     return idxs
 
 
@@ -111,10 +101,7 @@ def test_heterodyne_multi_angle_matches_source(baseline):
     results = fit_nlsq(data, str(C044_CONFIG))
     wall = time.perf_counter() - t0
 
-    print(
-        f"\n[heterodyne multi-angle] wall={wall:.1f}s "
-        f"n_angles={len(phi)} c2.shape={c2.shape}"
-    )
+    print(f"\n[heterodyne multi-angle] wall={wall:.1f}s n_angles={len(phi)} c2.shape={c2.shape}")
 
     # After Phase-6 C2-C6 + C5b, ``fit_nlsq_multi_phi`` returns a single
     # :class:`OptimizationResult` for every dispatch mode (constant /
@@ -127,20 +114,15 @@ def test_heterodyne_multi_angle_matches_source(baseline):
     )
     diag = results.nlsq_diagnostics or {}
     assert "parameter_names" in diag, (
-        "OptimizationResult.nlsq_diagnostics must carry parameter_names "
-        "for joint heterodyne fits"
+        "OptimizationResult.nlsq_diagnostics must carry parameter_names for joint heterodyne fits"
     )
     first_names = list(diag["parameter_names"])
     # The optimizer parameter vector is
     # ``[physics_varying | per-angle scaling tail]``. Slice the physics
     # block out so the baseline-parity comparison below sees the same
     # layout that the source heterodyne CLI produces (14 physics params).
-    first_params = np.asarray(results.parameters, dtype=np.float64)[
-        : len(first_names)
-    ]
-    assert np.all(np.isfinite(first_params)), (
-        f"NaN/Inf in parameters: {first_params}"
-    )
+    first_params = np.asarray(results.parameters, dtype=np.float64)[: len(first_names)]
+    assert np.all(np.isfinite(first_params)), f"NaN/Inf in parameters: {first_params}"
 
     # ------------------------------------------------------------------
     # Parity comparison — by IDENTIFIABLE quantity, not by individual params.

@@ -61,6 +61,7 @@ def _jax_backend_initialized() -> bool:
         )
         return "jax" in sys.modules
 
+
 # JAX imports with fallback
 try:
     import jax
@@ -105,9 +106,7 @@ def detect_cpu_info() -> dict[str, Any]:
                         if not info["supports_avx"]:
                             info["supports_avx"] = "avx" in flags
                         if not info["supports_avx512"]:
-                            info["supports_avx512"] = any(
-                                "avx512" in flag for flag in flags
-                            )
+                            info["supports_avx512"] = any("avx512" in flag for flag in flags)
 
         # Detect NUMA topology
         try:
@@ -131,9 +130,7 @@ def detect_cpu_info() -> dict[str, Any]:
         cpu_brand = info["cpu_brand"]
         optimization_flags = info["optimization_flags"]
         if not isinstance(cpu_brand, str):
-            raise TypeError(
-                f"Expected str for cpu_brand, got {type(cpu_brand).__name__}"
-            )
+            raise TypeError(f"Expected str for cpu_brand, got {type(cpu_brand).__name__}")
         if not isinstance(optimization_flags, list):
             raise TypeError(
                 f"Expected list for optimization_flags, got {type(optimization_flags).__name__}"
@@ -368,9 +365,7 @@ def _configure_jax_cpu(
                     "Benchmark to verify performance improvements."
                 )
             else:
-                logger.warning(
-                    "oneDNN requested but CPU is not Intel. Skipping oneDNN."
-                )
+                logger.warning("oneDNN requested but CPU is not Intel. Skipping oneDNN.")
                 jax_config["onednn"] = "skipped_non_intel"
         else:
             jax_config["onednn"] = "disabled"
@@ -477,8 +472,7 @@ def get_optimal_batch_size(
     optimal_batch_size = max(min(optimal_batch_size, data_size), 1000)
 
     logger.info(
-        f"Optimal batch size: {optimal_batch_size} "
-        f"(memory: {available_memory_gb:.1f}GB)",
+        f"Optimal batch size: {optimal_batch_size} (memory: {available_memory_gb:.1f}GB)",
     )
 
     return optimal_batch_size

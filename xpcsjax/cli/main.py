@@ -58,10 +58,7 @@ def _bootstrap_xla_env(argv: list[str] | None) -> None:
 
     if threads is not None:
         existing = os.environ.get("XLA_FLAGS", "")
-        tflags = (
-            "--xla_cpu_multi_thread_eigen=true"
-            f" --intra_op_parallelism_threads={threads}"
-        )
+        tflags = f"--xla_cpu_multi_thread_eigen=true --intra_op_parallelism_threads={threads}"
         if tflags not in existing:
             os.environ["XLA_FLAGS"] = f"{existing} {tflags}".strip()
         os.environ.setdefault("OMP_NUM_THREADS", str(threads))

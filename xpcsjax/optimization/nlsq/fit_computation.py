@@ -444,17 +444,14 @@ def compute_theoretical_fits(
     exp_batch_flat = jnp.array(c2_exp.reshape(n_angles, -1))
 
     # Solve all angles at once
-    contrasts_lstsq, offsets_lstsq = solve_lstsq_batch(
-        theory_batch_flat, exp_batch_flat
-    )
+    contrasts_lstsq, offsets_lstsq = solve_lstsq_batch(theory_batch_flat, exp_batch_flat)
     contrasts_lstsq = np.asarray(contrasts_lstsq)
     offsets_lstsq = np.asarray(offsets_lstsq)
 
     # Apply scaling: c2_scaled = contrast * c2_raw + offset
     # Broadcasting: (n_angles, 1, 1) * (n_angles, n_t1, n_t2) + (n_angles, 1, 1)
     c2_theoretical_fitted = (
-        contrasts_lstsq[:, None, None] * c2_theoretical_raw
-        + offsets_lstsq[:, None, None]
+        contrasts_lstsq[:, None, None] * c2_theoretical_raw + offsets_lstsq[:, None, None]
     )
 
     # Build per-angle scaling array

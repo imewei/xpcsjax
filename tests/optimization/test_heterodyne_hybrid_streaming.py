@@ -1,4 +1,5 @@
 """Tests for heterodyne stratified hybrid-streaming pipeline (Phase 2)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -39,6 +40,7 @@ def _make_synthetic_heterodyne(n_phi: int = 2, n_t: int = 8, seed: int = 0):
 
     return model, c2, phi
 
+
 def test_model_fn_pointwise_matches_kernel():
     """model_fn must reproduce the meshgrid c2 per point using the SAME per-angle
     scaling it computed (decoupled from scaling estimation accuracy)."""
@@ -55,7 +57,8 @@ def test_model_fn_pointwise_matches_kernel():
     model, c2, phi = _make_synthetic_heterodyne(n_phi=2, n_t=8)
     strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
     model_fn, x_data, y_data, p0, meta = build_heterodyne_pointwise_model(
-        stratified_data=strat, model=model,
+        stratified_data=strat,
+        model=model,
         physical_param_names=list(model.param_manager.varying_names),
     )
     phi_unique = np.asarray(meta["phi_unique"])
@@ -66,11 +69,26 @@ def test_model_fn_pointwise_matches_kernel():
     pred = np.asarray(model_fn(jnp.asarray(x_data), *[jnp.asarray(v) for v in p0]))
 
     # Expected: per-point meshgrid c2 with the SAME scaling meta reports.
-    meshes = [np.asarray(compute_c2_heterodyne(jnp.asarray(full), model.t, model.q, model.dt,
-                                               float(phi_unique[a]), float(contrast_arr[a]), float(offset_arr[a])))
-              for a in range(len(phi_unique))]
-    expected = np.array([meshes[int(x_data[k, 0])][int(x_data[k, 1]), int(x_data[k, 2])]
-                         for k in range(x_data.shape[0])])
+    meshes = [
+        np.asarray(
+            compute_c2_heterodyne(
+                jnp.asarray(full),
+                model.t,
+                model.q,
+                model.dt,
+                float(phi_unique[a]),
+                float(contrast_arr[a]),
+                float(offset_arr[a]),
+            )
+        )
+        for a in range(len(phi_unique))
+    ]
+    expected = np.array(
+        [
+            meshes[int(x_data[k, 0])][int(x_data[k, 1]), int(x_data[k, 2])]
+            for k in range(x_data.shape[0])
+        ]
+    )
     assert np.max(np.abs(pred - expected)) < 1e-6, f"max diff {np.max(np.abs(pred - expected)):.3e}"
 
 
@@ -90,7 +108,13 @@ def test_fit_with_stratified_hybrid_streaming_heterodyne_dispatch(monkeypatch):
             captured["n_params"] = len(p0)
             captured["has_func"] = callable(func)
             n = len(p0)
-            return {"x": np.zeros(n), "pcov": np.eye(n), "perr": np.zeros(n), "nit": 5, "success": True}
+            return {
+                "x": np.zeros(n),
+                "pcov": np.eye(n),
+                "perr": np.zeros(n),
+                "nit": 5,
+                "success": True,
+            }
 
     monkeypatch.setattr(hs, "AdaptiveHybridStreamingOptimizer", _FakeOpt)
 
@@ -98,7 +122,8 @@ def test_fit_with_stratified_hybrid_streaming_heterodyne_dispatch(monkeypatch):
     strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
     lower, upper = model.param_manager.get_bounds()
     popt, pcov, info = hs.fit_with_stratified_hybrid_streaming_heterodyne(
-        stratified_data=strat, model=model,
+        stratified_data=strat,
+        model=model,
         physical_param_names=list(model.param_manager.varying_names),
         initial_params=np.asarray(model.param_manager.get_initial_values()),
         bounds=(np.asarray(lower), np.asarray(upper)),
@@ -121,7 +146,9 @@ def test_build_hybrid_streaming_result():
     model, c2, phi = _make_synthetic_heterodyne()
     n = model.param_manager.n_varying
     res = build_hybrid_streaming_result(
-        model=model, popt=np.zeros(n), pcov=np.eye(n),
+        model=model,
+        popt=np.zeros(n),
+        pcov=np.eye(n),
         info={"nit": 4, "success": True, "hybrid_streaming_diagnostics": {"phase": "done"}},
         phi_angles=phi,
     )
@@ -147,9 +174,16 @@ def test_build_hybrid_streaming_result_noise_normalized_reduced_chi2():
     n_data = 1000
     sigma2 = 0.01
     res = build_hybrid_streaming_result(
-        model=model, popt=np.zeros(n), pcov=np.eye(n),
-        info={"nit": 4, "success": True, "cost": 0.5 * ssr,
-              "n_data_points": n_data, "sigma2_noise": sigma2},
+        model=model,
+        popt=np.zeros(n),
+        pcov=np.eye(n),
+        info={
+            "nit": 4,
+            "success": True,
+            "cost": 0.5 * ssr,
+            "n_data_points": n_data,
+            "sigma2_noise": sigma2,
+        },
         phi_angles=phi,
     )
     n_dof = max(1, n_data - n)
@@ -169,9 +203,10 @@ def test_build_hybrid_streaming_result_mse_fallback_without_sigma2():
     ssr = 100.0
     n_data = 1000
     res = build_hybrid_streaming_result(
-        model=model, popt=np.zeros(n), pcov=np.eye(n),
-        info={"nit": 4, "success": True, "cost": 0.5 * ssr,
-              "n_data_points": n_data},
+        model=model,
+        popt=np.zeros(n),
+        pcov=np.eye(n),
+        info={"nit": 4, "success": True, "cost": 0.5 * ssr, "n_data_points": n_data},
         phi_angles=phi,
     )
     n_dof = max(1, n_data - n)
@@ -192,9 +227,16 @@ def test_build_hybrid_streaming_result_quality_reflects_reduced_chi2():
     n_data = 1000
     sigma2 = 1e-4  # -> reduced_chi2 ~ 1e6/(n_data-n) >> 5 (poor band)
     res = build_hybrid_streaming_result(
-        model=model, popt=np.zeros(n), pcov=np.eye(n),
-        info={"nit": 4, "success": True, "cost": 0.5 * ssr,
-              "n_data_points": n_data, "sigma2_noise": sigma2},
+        model=model,
+        popt=np.zeros(n),
+        pcov=np.eye(n),
+        info={
+            "nit": 4,
+            "success": True,
+            "cost": 0.5 * ssr,
+            "n_data_points": n_data,
+            "sigma2_noise": sigma2,
+        },
         phi_angles=phi,
     )
     assert res.reduced_chi_squared > 5.0
@@ -244,16 +286,28 @@ def test_hybrid_fires_on_streaming_tier(monkeypatch):
     called = {}
     monkeypatch.setattr(
         "xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming.fit_with_stratified_hybrid_streaming_heterodyne",
-        lambda **k: (called.setdefault("yes", True), (__import__("numpy").zeros(model.param_manager.n_varying),
-                     __import__("numpy").eye(model.param_manager.n_varying), {"nit": 1, "success": True}))[1],
+        lambda **k: (
+            called.setdefault("yes", True),
+            (
+                __import__("numpy").zeros(model.param_manager.n_varying),
+                __import__("numpy").eye(model.param_manager.n_varying),
+                {"nit": 1, "success": True},
+            ),
+        )[1],
     )
     monkeypatch.setattr(
         "xpcsjax.optimization.nlsq.heterodyne_core.fit_nlsq_multi_phi",
-        lambda *a, **k: (_ for _ in ()).throw(AssertionError("joint path must not run when hybrid fires")),
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("joint path must not run when hybrid fires")
+        ),
     )
 
-    cfg = _Cfg({"analysis_mode": "two_component",
-                "optimization": {"nlsq": {"hybrid_streaming": {"enable": True}}}})
+    cfg = _Cfg(
+        {
+            "analysis_mode": "two_component",
+            "optimization": {"nlsq": {"hybrid_streaming": {"enable": True}}},
+        }
+    )
     data = {"c2_exp": c2, "phi_angles_list": phi}
     nlsq_pkg.fit_nlsq(data, cfg)
     assert called.get("yes") is True
@@ -293,8 +347,12 @@ def test_hybrid_does_not_fire_on_standard_tier(monkeypatch):
         lambda *a, **k: joint.setdefault("yes", True) or _R(),
     )
 
-    cfg = _Cfg({"analysis_mode": "two_component",
-                "optimization": {"nlsq": {"hybrid_streaming": {"enable": True}}}})
+    cfg = _Cfg(
+        {
+            "analysis_mode": "two_component",
+            "optimization": {"nlsq": {"hybrid_streaming": {"enable": True}}},
+        }
+    )
     data = {"c2_exp": c2, "phi_angles_list": phi}
     nlsq_pkg.fit_nlsq(data, cfg)
     assert joint.get("yes") is True  # fell through to the normal joint fit
@@ -333,9 +391,14 @@ def test_cmaes_precedence_over_hybrid(monkeypatch):
         "xpcsjax.optimization.nlsq.heterodyne_core.fit_nlsq_multi_phi",
         lambda *a, **k: joint.setdefault("yes", True) or _R(),
     )
-    cfg = _Cfg({"analysis_mode": "two_component",
-                "optimization": {"nlsq": {"cmaes": {"enable": True},
-                                          "hybrid_streaming": {"enable": True}}}})
+    cfg = _Cfg(
+        {
+            "analysis_mode": "two_component",
+            "optimization": {
+                "nlsq": {"cmaes": {"enable": True}, "hybrid_streaming": {"enable": True}}
+            },
+        }
+    )
     data = {"c2_exp": c2, "phi_angles_list": phi}
     nlsq_pkg.fit_nlsq(data, cfg)
     assert joint.get("yes") is True
@@ -350,11 +413,13 @@ def test_pointwise_data_excludes_t0_and_diagonal():
     from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
         build_heterodyne_pointwise_model,
     )
+
     n_phi, n_t = 2, 8
     model, c2, phi = _make_synthetic_heterodyne(n_phi=n_phi, n_t=n_t)
     strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
     _fn, x_data, y_data, _p0, meta = build_heterodyne_pointwise_model(
-        stratified_data=strat, model=model,
+        stratified_data=strat,
+        model=model,
         physical_param_names=list(model.param_manager.varying_names),
     )
     t1 = x_data[:, 1]
@@ -371,22 +436,30 @@ def test_initial_params_override_is_honored(monkeypatch):
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
         build_heterodyne_stratified_data,
     )
+
     seen = {}
+
     class _FakeOpt:
-        def __init__(self, config): pass
+        def __init__(self, config):
+            pass
+
         def fit(self, data_source, func, p0, bounds=None, sigma=None, **kw):
             seen["p0"] = np.asarray(p0).copy()
             n = len(p0)
             return {"x": np.zeros(n), "pcov": np.eye(n), "nit": 1, "success": True}
+
     monkeypatch.setattr(hs, "AdaptiveHybridStreamingOptimizer", _FakeOpt)
     model, c2, phi = _make_synthetic_heterodyne()
     strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
     n = model.param_manager.n_varying
     custom = np.arange(1, n + 1, dtype=np.float64) * 1.5
     hs.fit_with_stratified_hybrid_streaming_heterodyne(
-        stratified_data=strat, model=model,
+        stratified_data=strat,
+        model=model,
         physical_param_names=list(model.param_manager.varying_names),
-        initial_params=custom, bounds=None, hybrid_config={"enable": True},
+        initial_params=custom,
+        bounds=None,
+        hybrid_config={"enable": True},
         # Pin fixed_constant so p0 stays physics-only (this test checks the
         # initial_params override, not the scaling mode). Default is now 'auto'.
         anti_degeneracy_config={"per_angle_mode": "constant"},
@@ -396,17 +469,26 @@ def test_initial_params_override_is_honored(monkeypatch):
 
 def test_reduced_chi_squared_uses_data_dof():
     from xpcsjax.optimization.nlsq.heterodyne_result_builder import build_hybrid_streaming_result
+
     model, c2, phi = _make_synthetic_heterodyne()
     n = model.param_manager.n_varying
     res = build_hybrid_streaming_result(
-        model=model, popt=np.zeros(n), pcov=np.eye(n),
-        info={"nit": 1, "success": True, "n_data_points": 100_000,
-              "hybrid_streaming_diagnostics": {}},
+        model=model,
+        popt=np.zeros(n),
+        pcov=np.eye(n),
+        info={
+            "nit": 1,
+            "success": True,
+            "n_data_points": 100_000,
+            "hybrid_streaming_diagnostics": {},
+        },
         phi_angles=phi,
     )
     # dof must reflect n_data - n_params (~100k), not n_params (~14). With chi2 ~ O(n_data),
     # reduced should not be astronomically inflated. Just assert it's finite and the result is built.
-    assert np.isfinite(res.reduced_chi_squared) or res.reduced_chi_squared != res.reduced_chi_squared  # finite or NaN ok
+    assert (
+        np.isfinite(res.reduced_chi_squared) or res.reduced_chi_squared != res.reduced_chi_squared
+    )  # finite or NaN ok
 
 
 def test_pointwise_model_auto_averaged_param_layout():
@@ -535,8 +617,12 @@ def test_streaming_auto_threshold_routing():
         physical_param_names=list(model.param_manager.varying_names),
         initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
         bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
-        hybrid_config={"warmup_iterations": 5, "max_warmup_iterations": 10,
-                       "gauss_newton_max_iterations": 5, "verbose": 0},
+        hybrid_config={
+            "warmup_iterations": 5,
+            "max_warmup_iterations": 10,
+            "gauss_newton_max_iterations": 5,
+            "verbose": 0,
+        },
     )
     # n_phi=2 < default threshold 3 -> individual (activates L2 hierarchical)
     info_ind = fit_fn(**common, anti_degeneracy_config={"per_angle_mode": "auto"})[2]
@@ -624,8 +710,12 @@ def test_streaming_auto_averaged_real_run_ssr_not_worse():
         physical_param_names=list(model.param_manager.varying_names),
         initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
         bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
-        hybrid_config={"warmup_iterations": 10, "max_warmup_iterations": 20,
-                       "gauss_newton_max_iterations": 10, "verbose": 0},
+        hybrid_config={
+            "warmup_iterations": 10,
+            "max_warmup_iterations": 20,
+            "gauss_newton_max_iterations": 10,
+            "verbose": 0,
+        },
         # threshold=2 pins auto->auto_averaged at n_phi=2 (this test targets the
         # averaged path; sub-threshold auto->individual is covered separately).
         anti_degeneracy_config={"per_angle_mode": "auto", "constant_scaling_threshold": 2},
@@ -674,7 +764,7 @@ def test_pointwise_model_individual_fourier_layout(mode):
 
     if mode == "individual":
         assert meta["n_scaling"] == 2 * n_phi, (
-            f"individual: expected n_scaling=2*{n_phi}={2*n_phi}, got {meta['n_scaling']}"
+            f"individual: expected n_scaling=2*{n_phi}={2 * n_phi}, got {meta['n_scaling']}"
         )
         # Non-fourier modes must expose meta["fourier"] as None so Task 6's
         # HierarchicalOptimizer(..., fourier_reparameterizer=meta.get("fourier"))
@@ -1094,8 +1184,7 @@ def test_streaming_l2_individual_ssr_not_worse():
     # Optimizing the per-angle scaling tail cannot worsen the data objective
     # versus the frozen per-angle quantile baseline (shared fitted physics).
     assert info["ssr"] <= info["ssr_frozen_baseline"] + 1e-6, (
-        f"ssr={info['ssr']:.6e} > ssr_frozen_baseline="
-        f"{info['ssr_frozen_baseline']:.6e}"
+        f"ssr={info['ssr']:.6e} > ssr_frozen_baseline={info['ssr_frozen_baseline']:.6e}"
     )
 
 
@@ -1131,16 +1220,26 @@ def test_streaming_result_surfaces_anti_degeneracy_block():
         physical_param_names=list(model.param_manager.varying_names),
         initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
         bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
-        hybrid_config={"warmup_iterations": 5, "max_warmup_iterations": 10,
-                       "gauss_newton_max_iterations": 5, "verbose": 0},
-        anti_degeneracy_config={"per_angle_mode": "individual",
-                                "hierarchical": {"enable": True, "max_outer_iterations": 3}},
+        hybrid_config={
+            "warmup_iterations": 5,
+            "max_warmup_iterations": 10,
+            "gauss_newton_max_iterations": 5,
+            "verbose": 0,
+        },
+        anti_degeneracy_config={
+            "per_angle_mode": "individual",
+            "hierarchical": {"enable": True, "max_outer_iterations": 3},
+        },
     )
     ad = info["anti_degeneracy"]
     assert ad["hierarchical_active"] is True  # sanity: individual ran L2
 
     result = build_hybrid_streaming_result(
-        model=model, popt=popt, pcov=pcov, info=info, phi_angles=phi,
+        model=model,
+        popt=popt,
+        pcov=pcov,
+        info=info,
+        phi_angles=phi,
     )
     diag = result.nlsq_diagnostics
     # The public result must carry the SAME activation keys as the raw info.

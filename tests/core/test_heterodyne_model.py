@@ -41,28 +41,20 @@ def test_param_names_match_registry() -> None:
         "phi0_het",
     )
     # Adapt to whatever attribute the base class uses (parameter_names vs param_names)
-    names = getattr(model, "parameter_names", None) or getattr(
-        model, "param_names", None
-    )
-    assert names is not None, (
-        "HeterodyneModel must expose parameter_names or param_names"
-    )
+    names = getattr(model, "parameter_names", None) or getattr(model, "param_names", None)
+    assert names is not None, "HeterodyneModel must expose parameter_names or param_names"
     assert tuple(names) == expected, f"got {tuple(names)}"
 
 
 def test_param_bounds_match_docs() -> None:
     """Spot-check three bounds against heterodyne docs/registry."""
     model = HeterodyneModel()
-    names = getattr(model, "parameter_names", None) or getattr(
-        model, "param_names", None
-    )
+    names = getattr(model, "parameter_names", None) or getattr(model, "param_names", None)
     # Try get_parameter_bounds() method (PhysicsModelBase contract) first
     if hasattr(model, "get_parameter_bounds"):
         bounds = model.get_parameter_bounds()
     else:
-        bounds = getattr(model, "parameter_bounds", None) or getattr(
-            model, "param_bounds", None
-        )
+        bounds = getattr(model, "parameter_bounds", None) or getattr(model, "param_bounds", None)
     assert bounds is not None
     names_list = list(names)
     assert bounds[names_list.index("D0_ref")] == (0.0, 1e6)

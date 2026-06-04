@@ -421,9 +421,7 @@ class AdaptiveChunker:
             actual_size = end_idx - start_idx
 
             # Estimate memory size (assuming 8 bytes per data point plus overhead)
-            memory_size_mb = (actual_size * 8 * 4) / (
-                1024 * 1024
-            )  # 4x overhead for processing
+            memory_size_mb = (actual_size * 8 * 4) / (1024 * 1024)  # 4x overhead for processing
 
             # Calculate complexity score (simplified - could be enhanced with data analysis)
             complexity_score = 1.0
@@ -440,9 +438,7 @@ class AdaptiveChunker:
 
             # Estimate processing time based on size and complexity
             base_processing_rate = 50000  # points per second
-            estimated_processing_time = (
-                actual_size * complexity_score
-            ) / base_processing_rate
+            estimated_processing_time = (actual_size * complexity_score) / base_processing_rate
 
             chunk_info = ChunkInfo(
                 index=i,
@@ -1190,11 +1186,7 @@ class PerformanceEngine:
             with self.cache._lock:
                 total_requests = sum(self.cache._access_counts.values())
                 cache_hits = len(
-                    [
-                        k
-                        for k in self.cache._memory_cache.keys()
-                        if k in self.cache._access_counts
-                    ],
+                    [k for k in self.cache._memory_cache.keys() if k in self.cache._access_counts],
                 )
             cache_hit_rate = cache_hits / max(total_requests, 1)
             self.metrics.update(cache_hit_rate=cache_hit_rate)
@@ -1248,13 +1240,9 @@ class PerformanceEngine:
             # Use memory-mapped access for large files
             with self.memory_manager.open_memory_mapped_hdf5(hdf_path) as hdf_file:
                 # Determine if we need chunked processing
-                estimated_memory_mb = (
-                    len(data_keys) * 64 * 64 * 8 / (1024 * 1024)
-                )  # Rough estimate
+                estimated_memory_mb = len(data_keys) * 64 * 64 * 8 / (1024 * 1024)  # Rough estimate
 
-                if (
-                    chunk_info or estimated_memory_mb > 1024
-                ):  # Use chunking for large datasets
+                if chunk_info or estimated_memory_mb > 1024:  # Use chunking for large datasets
                     logger.info(
                         f"Using chunked processing for {len(data_keys)} correlation matrices",
                     )
@@ -1281,9 +1269,7 @@ class PerformanceEngine:
                 correlation_matrices = jnp.array(correlation_matrices)
 
             # Cache the result
-            cache_priority = (
-                3 if len(data_keys) > 100 else 5
-            )  # High priority for large datasets
+            cache_priority = 3 if len(data_keys) > 100 else 5  # High priority for large datasets
             self.cache.put(cache_key, correlation_matrices, priority=cache_priority)
 
             # Update performance metrics
@@ -1417,9 +1403,7 @@ class PerformanceEngine:
 
         return matrices
 
-    def _reconstruct_full_matrix(
-        self, c2_half: Any
-    ) -> Any:  # Takes and returns np.ndarray
+    def _reconstruct_full_matrix(self, c2_half: Any) -> Any:  # Takes and returns np.ndarray
         """Reconstruct full correlation matrix from half matrix."""
         c2_full = c2_half + c2_half.T
         diag_indices = np.diag_indices(c2_half.shape[0])
@@ -1435,9 +1419,7 @@ class PerformanceEngine:
         # Hash the data keys for shorter cache key
         keys_hash = hashlib.sha256(",".join(sorted(data_keys)).encode()).hexdigest()[:8]
 
-        return (
-            f"corr_matrices_{keys_hash}_{file_info.replace('/', '_').replace(':', '_')}"
-        )
+        return f"corr_matrices_{keys_hash}_{file_info.replace('/', '_').replace(':', '_')}"
 
     def prefetch_data(
         self,

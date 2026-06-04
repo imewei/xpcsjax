@@ -10,6 +10,7 @@ The fix records every degraded fallback on ``loader.load_degradations`` (and
 logs at ERROR, same severity as the failure), so the degradation is
 programmatically detectable downstream.
 """
+
 from __future__ import annotations
 
 import logging

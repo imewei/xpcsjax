@@ -136,9 +136,7 @@ except ImportError:  # pragma: no cover
         for seg in path.replace("\\", "/").split("/"):
             raw_components.add(seg)
         if ".." in raw_components:
-            raise PathValidationError(
-                f"Path traversal detected in virtual_memory_path: {path!r}"
-            )
+            raise PathValidationError(f"Path traversal detected in virtual_memory_path: {path!r}")
 
 
 logger = get_logger(__name__)
@@ -151,6 +149,15 @@ _active_monitors: weakref.WeakSet[Any] = weakref.WeakSet()
 
 def _cleanup_active_monitors() -> None:
     """Clean up all active memory pressure monitors on interpreter exit."""
+    # Runs only at interpreter shutdown (atexit). By now a test harness or host
+    # application may have already closed the stream backing the root logger's
+    # handlers, so the best-effort log calls reached below (e.g. stop_monitoring's
+    # "monitoring stopped" info line) would trip logging.Handler.handleError and
+    # print a spurious "--- Logging error --- / I/O operation on closed file" to
+    # stderr. There is no consumer for log records during shutdown, so silence
+    # that exception reporting for the remainder of the process. Deliberately not
+    # restored: the interpreter is exiting and this handler has no other caller.
+    logging.raiseExceptions = False
     for monitor in list(_active_monitors):
         with logged_errors(
             logger,
@@ -438,10 +445,7 @@ class MemoryPressureMonitor:
         elif current_pressure < self.warning_threshold * 0.8:  # Recovery threshold
             new_state = "normal"
             # Only trigger recovery callback on state transition (not every cycle)
-            if (
-                self._last_pressure_state in ("warning", "critical")
-                and not self._recovery_logged
-            ):
+            if self._last_pressure_state in ("warning", "critical") and not self._recovery_logged:
                 self._trigger_recovery_response()
                 self._recovery_logged = True
             # Reset warning/critical flags when recovered
@@ -538,9 +542,7 @@ class MemoryPressureMonitor:
 
         cutoff_time = time.time() - (window_minutes * 60)
         recent_pressures = [
-            h["pressure"]
-            for h in self._pressure_history
-            if h["timestamp"] > cutoff_time
+            h["pressure"] for h in self._pressure_history if h["timestamp"] > cutoff_time
         ]
 
         if len(recent_pressures) < 5:
@@ -564,9 +566,7 @@ class MemoryPressureMonitor:
 
     def __del__(self) -> None:
         """Destructor to ensure cleanup when garbage collected."""
-        with logged_errors(
-            logger, "monitor_del_stop", policy="suppress", level=logging.DEBUG
-        ):
+        with logged_errors(logger, "monitor_del_stop", policy="suppress", level=logging.DEBUG):
             self.stop_monitoring()
 
 
@@ -623,9 +623,7 @@ class AdvancedMemoryManager:
 
         # Virtual memory support
         self._virtual_memory_enabled = self.memory_config.get("virtual_memory", True)
-        default_vm_path = str(
-            Path(os.path.expanduser("~/.cache/xpcsjax/vm")) / "xpcsjax_vm"
-        )
+        default_vm_path = str(Path(os.path.expanduser("~/.cache/xpcsjax/vm")) / "xpcsjax_vm")
         self._virtual_memory_path = self.memory_config.get(
             "virtual_memory_path",
             default_vm_path,
@@ -724,10 +722,7 @@ class AdvancedMemoryManager:
                     base_buffer = buffer.base if buffer.base is not None else buffer
                     if base_buffer.size != pool_size:
                         # Try one more level up (view of view)
-                        if (
-                            base_buffer.base is not None
-                            and base_buffer.base.size == pool_size
-                        ):
+                        if base_buffer.base is not None and base_buffer.base.size == pool_size:
                             base_buffer = base_buffer.base
                         else:
                             # Cannot recover original buffer; do not corrupt pool
@@ -832,9 +827,7 @@ class AdvancedMemoryManager:
             os.makedirs(os.path.dirname(self._virtual_memory_path), exist_ok=True)
 
             # Create unique filename
-            vm_file = (
-                f"{self._virtual_memory_path}_{int(time.time())}_{os.getpid()}.dat"
-            )
+            vm_file = f"{self._virtual_memory_path}_{int(time.time())}_{os.getpid()}.dat"
 
             # Create sparse file: seek to the last byte and write one zero.
             # This avoids allocating total_bytes in RAM just to populate zeros —
@@ -908,9 +901,7 @@ class AdvancedMemoryManager:
                 self._last_gc_freed = collected
 
         # Clean up old pools
-        with logged_errors(
-            logger, "cleanup_old_pools", policy="suppress", level=logging.DEBUG
-        ):
+        with logged_errors(logger, "cleanup_old_pools", policy="suppress", level=logging.DEBUG):
             self._cleanup_old_pools()
 
         # Adjust GC thresholds to be more aggressive
@@ -928,9 +919,7 @@ class AdvancedMemoryManager:
         """Handle critical memory pressure."""
         logger.critical("Critical memory pressure - performing emergency cleanup")
 
-        with logged_errors(
-            logger, "emergency_cleanup", policy="suppress", level=logging.DEBUG
-        ):
+        with logged_errors(logger, "emergency_cleanup", policy="suppress", level=logging.DEBUG):
             self._emergency_memory_cleanup()
 
         # More aggressive GC threshold adjustment
@@ -961,9 +950,7 @@ class AdvancedMemoryManager:
         logger.warning("Performing emergency memory cleanup")
 
         # Clear all memory pools
-        with logged_errors(
-            logger, "emergency_clear_pools", policy="suppress", level=logging.DEBUG
-        ):
+        with logged_errors(logger, "emergency_clear_pools", policy="suppress", level=logging.DEBUG):
             with self._pools_lock:
                 for pool in self._pools.values():
                     pool.buffers.clear()
@@ -1181,24 +1168,18 @@ class AdvancedMemoryManager:
             self.pressure_monitor.stop_monitoring()
 
         # Clear all pools
-        with logged_errors(
-            logger, "shutdown_clear_pools", policy="suppress", level=logging.DEBUG
-        ):
+        with logged_errors(logger, "shutdown_clear_pools", policy="suppress", level=logging.DEBUG):
             with self._pools_lock:
                 for pool in self._pools.values():
                     pool.buffers.clear()
                 self._pools.clear()
 
         # Cleanup virtual memory files
-        with logged_errors(
-            logger, "shutdown_cleanup_vm", policy="suppress", level=logging.DEBUG
-        ):
+        with logged_errors(logger, "shutdown_cleanup_vm", policy="suppress", level=logging.DEBUG):
             self.cleanup_virtual_memory()
 
         # Final garbage collection
-        with logged_errors(
-            logger, "shutdown_gc", policy="suppress", level=logging.DEBUG
-        ):
+        with logged_errors(logger, "shutdown_gc", policy="suppress", level=logging.DEBUG):
             gc.collect()
 
         logger.info("Advanced memory manager shutdown complete")
@@ -1213,9 +1194,7 @@ class AdvancedMemoryManager:
 
     def __del__(self) -> None:
         """Destructor to ensure cleanup when garbage collected."""
-        with logged_errors(
-            logger, "manager_del_shutdown", policy="suppress", level=logging.DEBUG
-        ):
+        with logged_errors(logger, "manager_del_shutdown", policy="suppress", level=logging.DEBUG):
             self.shutdown()
 
 

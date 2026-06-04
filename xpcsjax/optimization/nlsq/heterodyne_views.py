@@ -3,6 +3,7 @@
 These are pure functions of (OptimizationResult, layout, phi_angles).
 They reconstruct per-angle quantities that aren't stored in the result.
 """
+
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -96,9 +97,7 @@ def reconstruct_per_angle_scaling(
     raise ValueError(f"unknown mode: {mode!r}")
 
 
-def _evaluate_fourier_basis(
-    coeffs: np.ndarray, phi_deg: np.ndarray, K: int
-) -> np.ndarray:
+def _evaluate_fourier_basis(coeffs: np.ndarray, phi_deg: np.ndarray, K: int) -> np.ndarray:
     """Evaluate the truncated Fourier series at ``phi`` (degrees).
 
     Uses the canonical **interleaved** coefficient layout that matches
@@ -134,7 +133,5 @@ def per_angle_chi2(result: OptimizationResult) -> np.ndarray:
     """
     diag = result.nlsq_diagnostics or {}
     if "chi2_per_angle" not in diag:
-        raise ValueError(
-            "chi2_per_angle not in nlsq_diagnostics — was this a heterodyne fit?"
-        )
+        raise ValueError("chi2_per_angle not in nlsq_diagnostics — was this a heterodyne fit?")
     return np.asarray(diag["chi2_per_angle"])

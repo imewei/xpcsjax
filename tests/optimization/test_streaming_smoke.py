@@ -25,6 +25,7 @@ This module closes that gap with three smoke checks:
    "select_nlsq_strategy is defined but orphaned" regression that the
    /double-check report originally suspected.
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -81,9 +82,7 @@ def test_hybrid_streaming_triggers_when_index_exceeds_threshold() -> None:
     min_threshold_gb = max(0.1 * total_gb, 1.0)
     n_points = _streaming_size_for_threshold(min_threshold_gb, factor=2.0)
 
-    decision = homodyne_select_strategy(
-        n_points=n_points, n_params=11, memory_fraction=0.1
-    )
+    decision = homodyne_select_strategy(n_points=n_points, n_params=11, memory_fraction=0.1)
     assert decision.strategy is HomodyneNLSQStrategy.HYBRID_STREAMING, (
         f"expected HYBRID_STREAMING for n_points={n_points:,} on a "
         f"{total_gb:.1f} GB host with memory_fraction=0.1, got "
@@ -180,9 +179,7 @@ def test_select_strategy_is_reached_from_production_code(
     that at least one non-defining module imports the symbol.
     """
     files = _grep_callers(call_site_symbol)
-    non_test_files = [
-        p for p in files if "tests" not in p.parts and "__pycache__" not in p.parts
-    ]
+    non_test_files = [p for p in files if "tests" not in p.parts and "__pycache__" not in p.parts]
     assert len(non_test_files) >= min_non_definition_callers, (
         f"{module_label}: only {len(non_test_files)} non-test file(s) mention "
         f"{call_site_symbol!r}: {[p.name for p in non_test_files]}. "

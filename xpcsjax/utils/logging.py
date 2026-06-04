@@ -126,6 +126,8 @@ _REDACT_KEY_UPPER = re.compile(r"_KEY$")
 def _is_secret_key(key: str) -> bool:
     """Return True for keys naming a credential that must be redacted."""
     return bool(_REDACT_KEY_CI.search(key) or _REDACT_KEY_UPPER.search(key))
+
+
 _JSON_SCHEMA_VERSION = 1
 _JSON_SAFE_MAX_DEPTH = 20
 
@@ -140,11 +142,7 @@ def _json_safe(obj: Any, _depth: int = 0) -> Any:
 
     if isinstance(obj, dict):
         return {
-            k: (
-                "***REDACTED***"
-                if _is_secret_key(str(k))
-                else _json_safe(v, _depth + 1)
-            )
+            k: ("***REDACTED***" if _is_secret_key(str(k)) else _json_safe(v, _depth + 1))
             for k, v in obj.items()
         }
     if isinstance(obj, (list, tuple)):
@@ -591,9 +589,7 @@ class AnalysisSummaryLogger:
         # Add warning/error counts
         if self._warning_count > 0 or self._error_count > 0:
             lines.append("")
-            lines.append(
-                f"Warnings: {self._warning_count}, Errors: {self._error_count}"
-            )
+            lines.append(f"Warnings: {self._warning_count}, Errors: {self._error_count}")
 
         lines.append("=" * 60)
 
@@ -682,14 +678,8 @@ class MinimalLogger:
         format_name: str = "detailed",
         use_color: bool = False,
     ) -> logging.Formatter:
-        fmt = (
-            DEFAULT_FORMAT_SIMPLE
-            if format_name == "simple"
-            else DEFAULT_FORMAT_DETAILED
-        )
-        return _ColorFormatter(
-            fmt=fmt, datefmt="%Y-%m-%d %H:%M:%S", use_color=use_color
-        )
+        fmt = DEFAULT_FORMAT_SIMPLE if format_name == "simple" else DEFAULT_FORMAT_DETAILED
+        return _ColorFormatter(fmt=fmt, datefmt="%Y-%m-%d %H:%M:%S", use_color=use_color)
 
     def _clear_managed_handlers(self, logger: logging.Logger) -> None:
         for handler in list(logger.handlers):
@@ -823,13 +813,9 @@ class MinimalLogger:
                 file_handler._xpcsjax_managed = True  # type: ignore[attr-defined]
                 file_handler.setLevel(_resolve_level(file_level) or root_level)
                 file_fmt = (
-                    DEFAULT_FORMAT_SIMPLE
-                    if file_format == "simple"
-                    else DEFAULT_FORMAT_DETAILED
+                    DEFAULT_FORMAT_SIMPLE if file_format == "simple" else DEFAULT_FORMAT_DETAILED
                 )
-                file_handler.setFormatter(
-                    logging.Formatter(file_fmt, datefmt="%Y-%m-%d %H:%M:%S")
-                )
+                file_handler.setFormatter(logging.Formatter(file_fmt, datefmt="%Y-%m-%d %H:%M:%S"))
                 root_logger.addHandler(file_handler)
 
         # Default suppression for external libraries (FR-005)
@@ -849,16 +835,14 @@ class MinimalLogger:
         # Module-specific overrides (user overrides win over defaults)
         if module_levels:
             for module_name, module_level in module_levels.items():
-                logging.getLogger(module_name).setLevel(
-                    _resolve_level(module_level) or root_level
-                )
+                logging.getLogger(module_name).setLevel(_resolve_level(module_level) or root_level)
 
         import os
+
         current_test = os.environ.get("PYTEST_CURRENT_TEST", "")
 
         has_managed_handler = any(
-            getattr(handler, "_xpcsjax_managed", False)
-            for handler in root_logger.handlers
+            getattr(handler, "_xpcsjax_managed", False) for handler in root_logger.handlers
         )
 
         if current_test and "disables_propagation" not in current_test:
@@ -1283,9 +1267,7 @@ def log_exception(
 
         # Add traceback if requested
         if include_traceback:
-            tb_str = "".join(
-                traceback.format_exception(type(exc), exc, exc.__traceback__)
-            )
+            tb_str = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
             msg_parts.append(f"Traceback:\n{tb_str}")
 
         logger.log(level, "\n".join(msg_parts))
@@ -1332,9 +1314,7 @@ def log_calls(
                 try:
                     if include_args:
                         args_str = ", ".join([repr(arg) for arg in args])
-                        kwargs_str = ", ".join(
-                            [f"{k}={repr(v)}" for k, v in kwargs.items()]
-                        )
+                        kwargs_str = ", ".join([f"{k}={repr(v)}" for k, v in kwargs.items()])
                         all_args = ", ".join(filter(None, [args_str, kwargs_str]))
                         resolved_logger.log(level, "Calling %s(%s)", func_name, all_args)
                     else:
@@ -1349,9 +1329,7 @@ def log_calls(
                 if log_enabled:
                     try:
                         if include_result:
-                            resolved_logger.log(
-                                level, "Completed %s -> %r", func_name, result
-                            )
+                            resolved_logger.log(level, "Completed %s -> %r", func_name, result)
                         else:
                             resolved_logger.log(level, "Completed %s", func_name)
                     except Exception:  # noqa: BLE001 - logging must not abort the decorated call
@@ -1361,9 +1339,7 @@ def log_calls(
 
             except Exception as e:
                 try:
-                    resolved_logger.log(
-                        logging.ERROR, "Exception in %s: %s", func_name, e
-                    )
+                    resolved_logger.log(logging.ERROR, "Exception in %s: %s", func_name, e)
                 except Exception:  # noqa: BLE001 - logging must not mask original
                     pass
                 raise
@@ -1456,9 +1432,7 @@ def log_operation(
     try:
         yield resolved_logger
         duration = time.perf_counter() - start_time
-        resolved_logger.log(
-            level, "Completed operation: %s in %.3fs", operation_name, duration
-        )
+        resolved_logger.log(level, "Completed operation: %s in %.3fs", operation_name, duration)
     except Exception as e:
         duration = time.perf_counter() - start_time
         try:

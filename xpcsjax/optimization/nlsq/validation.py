@@ -73,9 +73,7 @@ class FitQualityConfig:
     bounds_tolerance: float = 1e-9
 
     @classmethod
-    def from_validation_config(
-        cls, validation_config: dict[str, Any] | None
-    ) -> FitQualityConfig:
+    def from_validation_config(cls, validation_config: dict[str, Any] | None) -> FitQualityConfig:
         """Create FitQualityConfig from an NLSQValidationConfig dict.
 
         Parameters
@@ -93,12 +91,8 @@ class FitQualityConfig:
             return cls()
         return cls(
             chi2_good_threshold=validation_config.get("chi2_good_threshold", 2.0),
-            chi2_acceptable_threshold=validation_config.get(
-                "chi2_acceptable_threshold", 5.0
-            ),
-            min_parameter_significance=validation_config.get(
-                "min_parameter_significance", 2.0
-            ),
+            chi2_acceptable_threshold=validation_config.get("chi2_acceptable_threshold", 5.0),
+            min_parameter_significance=validation_config.get("min_parameter_significance", 2.0),
             max_condition_number=validation_config.get("max_condition_number", 1e12),
         )
 
@@ -204,9 +198,7 @@ def classify_quality_flag(
     QualityFlag
         One of ``"good"``, ``"marginal"``, ``"poor"``, ``"unknown"``.
     """
-    return _BAND_TO_QUALITY_FLAG.get(
-        classify_fit_quality(reduced_chi2, config), "unknown"
-    )
+    return _BAND_TO_QUALITY_FLAG.get(classify_fit_quality(reduced_chi2, config), "unknown")
 
 
 def _classify_parameter_status(
@@ -233,8 +225,7 @@ def _is_physical_param(label: str) -> bool:
 
     scaling = ParameterRegistry().scaling_names
     return not any(
-        label.startswith(f"{s}_") or label.startswith(f"{s}[") or label == s
-        for s in scaling
+        label.startswith(f"{s}_") or label.startswith(f"{s}[") or label == s for s in scaling
     )
 
 
@@ -329,9 +320,7 @@ def validate_fit_quality(
             if params_arr.shape == uncert_arr.shape and len(params_arr) > 0:
                 finite_mask = np.isfinite(uncert_arr) & (uncert_arr > 0) & np.isfinite(params_arr)
                 if np.any(finite_mask):
-                    significance = (
-                        np.abs(params_arr[finite_mask]) / uncert_arr[finite_mask]
-                    )
+                    significance = np.abs(params_arr[finite_mask]) / uncert_arr[finite_mask]
                     insignificant = significance < config.min_parameter_significance
                     if np.any(insignificant):
                         n_insig = int(np.sum(insignificant))
@@ -396,9 +385,7 @@ def validate_fit_quality(
         if params is not None and len(params) > 0:
             lower, upper = bounds
             if len(params) == len(lower) == len(upper):
-                statuses = _classify_parameter_status(
-                    params, lower, upper, config.bounds_tolerance
-                )
+                statuses = _classify_parameter_status(params, lower, upper, config.bounds_tolerance)
 
                 at_bounds = []
                 for i, status in enumerate(statuses):
@@ -417,9 +404,7 @@ def validate_fit_quality(
                 report.checks_performed["physical_bounds"] = len(at_bounds) == 0
 
                 if at_bounds:
-                    params_str = ", ".join(
-                        f"{label} ({status})" for label, status in at_bounds
-                    )
+                    params_str = ", ".join(f"{label} ({status})" for label, status in at_bounds)
                     warning = (
                         f"Physical parameters at bounds: {params_str}. "
                         "Consider expanding bounds or reviewing initial parameters."
@@ -438,9 +423,7 @@ def validate_fit_quality(
             report.checks_performed["convergence_status"] = passed
 
             if not passed:
-                warning = (
-                    f"Optimization did not converge successfully (status: {status})."
-                )
+                warning = f"Optimization did not converge successfully (status: {status})."
                 report.warnings.append(warning)
                 logger.warning(f"[FitQuality] {warning}")
                 report.passed = False
@@ -449,9 +432,7 @@ def validate_fit_quality(
     if report.passed:
         logger.info("[FitQuality] All quality checks passed")
     else:
-        logger.warning(
-            f"[FitQuality] {len(report.warnings)} quality warning(s) generated"
-        )
+        logger.warning(f"[FitQuality] {len(report.warnings)} quality warning(s) generated")
 
     return report
 
@@ -501,18 +482,14 @@ class InputValidator:
 
         if bounds is not None:
             if not validate_bounds_consistency(bounds, initial_params):
-                self._validation_errors.append(
-                    "Bounds are inconsistent with initial parameters"
-                )
+                self._validation_errors.append("Bounds are inconsistent with initial parameters")
 
         if not _validate_initial_params_within_bounds(initial_params, bounds):
             self._validation_errors.append("Initial parameters outside bounds")
 
         if self._validation_errors:
             if self.strict_mode:
-                raise ValueError(
-                    f"Input validation failed: {'; '.join(self._validation_errors)}"
-                )
+                raise ValueError(f"Input validation failed: {'; '.join(self._validation_errors)}")
             for error in self._validation_errors:
                 logger.warning(f"Input validation warning: {error}")
             return False
@@ -581,14 +558,10 @@ def validate_bounds_consistency(
     lower, upper = bounds
 
     if len(lower) != len(initial_params):
-        logger.warning(
-            f"Lower bounds length {len(lower)} != params length {len(initial_params)}"
-        )
+        logger.warning(f"Lower bounds length {len(lower)} != params length {len(initial_params)}")
         return False
     if len(upper) != len(initial_params):
-        logger.warning(
-            f"Upper bounds length {len(upper)} != params length {len(initial_params)}"
-        )
+        logger.warning(f"Upper bounds length {len(upper)} != params length {len(initial_params)}")
         return False
 
     if not np.all(lower <= upper):
@@ -726,9 +699,7 @@ def validate_optimized_params(
 def validate_covariance(covariance: np.ndarray, n_params: int) -> bool:
     """Validate covariance matrix properties."""
     if covariance.shape != (n_params, n_params):
-        logger.warning(
-            f"Covariance shape {covariance.shape} != expected ({n_params}, {n_params})"
-        )
+        logger.warning(f"Covariance shape {covariance.shape} != expected ({n_params}, {n_params})")
         return False
 
     if not np.all(np.isfinite(covariance)):
@@ -745,9 +716,7 @@ def validate_covariance(covariance: np.ndarray, n_params: int) -> bool:
     diag = np.diag(covariance)
     if np.any(diag < 0):
         neg_indices = np.where(diag < 0)[0]
-        logger.warning(
-            f"Covariance has negative diagonal at indices: {neg_indices.tolist()}"
-        )
+        logger.warning(f"Covariance has negative diagonal at indices: {neg_indices.tolist()}")
         return False
 
     return True

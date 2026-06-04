@@ -2,6 +2,7 @@
 
 These tests guard the parameter-handling layer against drift between
 ParameterInfo, the registry, and the analysis-mode normalizer."""
+
 from __future__ import annotations
 
 import math
@@ -26,6 +27,7 @@ KNOWN_MODES: tuple[AnalysisMode, ...] = (
 # ----------------------------------------------------------------------
 # clip_value invariants
 # ----------------------------------------------------------------------
+
 
 @given(st.floats(allow_nan=False, allow_infinity=False, min_value=-1e8, max_value=1e8))
 @settings(max_examples=50)
@@ -61,6 +63,7 @@ def test_validate_value_matches_clip_behavior(value: float):
 # Registry lookup symmetry
 # ----------------------------------------------------------------------
 
+
 @given(st.sampled_from(KNOWN_MODES))
 @settings(max_examples=20)
 def test_get_param_names_returns_valid_registry_keys(mode: AnalysisMode):
@@ -87,8 +90,19 @@ def test_param_lists_have_non_empty_unique_names(mode: AnalysisMode):
 # Mode normalization
 # ----------------------------------------------------------------------
 
-@given(st.sampled_from(["two_component", "two-component", "TWO_COMPONENT",
-                       "heterodyne", "Heterodyne", "HETERODYNE"]))
+
+@given(
+    st.sampled_from(
+        [
+            "two_component",
+            "two-component",
+            "TWO_COMPONENT",
+            "heterodyne",
+            "Heterodyne",
+            "HETERODYNE",
+        ]
+    )
+)
 @settings(max_examples=10)
 def test_heterodyne_synonyms_all_normalize(synonym: str):
     """Every heterodyne synonym must resolve to the 14-param two_component list."""

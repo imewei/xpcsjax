@@ -405,9 +405,7 @@ class DataQualityController:
             result.metrics.overall_score = self._compute_overall_quality_score(result)
 
             # Determine pass/fail status
-            result.passed = (
-                result.metrics.overall_score >= self.quality_config.pass_threshold
-            )
+            result.passed = result.metrics.overall_score >= self.quality_config.pass_threshold
 
             # Generate recommendations
             result.recommendations = self._generate_recommendations(result)
@@ -496,9 +494,7 @@ class DataQualityController:
         # Use existing validation system if available
         if HAS_VALIDATION:
             validation_level = (
-                "basic"
-                if self.quality_config.validation_level in ["none", "basic"]
-                else "full"
+                "basic" if self.quality_config.validation_level in ["none", "basic"] else "full"
             )
             validation_report = validate_xpcs_data(data, self.config, validation_level)
 
@@ -535,20 +531,14 @@ class DataQualityController:
             if isinstance(current_shape, tuple) and isinstance(previous_shape, tuple):
                 if len(current_shape) > 0 and len(previous_shape) > 0:
                     try:
-                        current_size = (
-                            current_shape[0] if isinstance(current_shape[0], int) else 1
-                        )
+                        current_size = current_shape[0] if isinstance(current_shape[0], int) else 1
                         previous_size = (
-                            previous_shape[0]
-                            if isinstance(previous_shape[0], int)
-                            else 1
+                            previous_shape[0] if isinstance(previous_shape[0], int) else 1
                         )
 
                         if previous_size > 0:
                             retention_fraction = current_size / previous_size
-                            result.metrics.filtering_efficiency = (
-                                retention_fraction * 100
-                            )
+                            result.metrics.filtering_efficiency = retention_fraction * 100
 
                             if retention_fraction < 0.1:  # Less than 10% data retained
                                 result.issues.append(
@@ -614,9 +604,7 @@ class DataQualityController:
             if fidelity is None:
                 # No usable baseline — skip the gate rather than compare against
                 # a fabricated value (M-3).
-                logger.info(
-                    "No usable transformation-fidelity baseline; skipping fidelity check."
-                )
+                logger.info("No usable transformation-fidelity baseline; skipping fidelity check.")
             else:
                 result.metrics.transformation_fidelity = fidelity
                 if fidelity < 0.8:  # Less than 80% fidelity
@@ -658,18 +646,14 @@ class DataQualityController:
                 [
                     issue
                     for issue in validation_report.errors + validation_report.warnings
-                    if not any(
-                        existing.message == issue.message for existing in result.issues
-                    )
+                    if not any(existing.message == issue.message for existing in result.issues)
                 ],
             )
 
             # Update metrics with physics validation
             if validation_report.physics_checks:
                 result.metrics.q_range_validity = (
-                    100.0
-                    if validation_report.physics_checks.get("q_range_valid", False)
-                    else 50.0
+                    100.0 if validation_report.physics_checks.get("q_range_valid", False) else 50.0
                 )
 
         # Analysis readiness check
@@ -707,9 +691,7 @@ class DataQualityController:
             if hasattr(value, "shape") or isinstance(value, (list, tuple, np.ndarray)):
                 try:
                     arr = np.asarray(value)
-                    finite_fraction = (
-                        np.sum(np.isfinite(arr)) / arr.size if arr.size > 0 else 0.0
-                    )
+                    finite_fraction = np.sum(np.isfinite(arr)) / arr.size if arr.size > 0 else 0.0
                     result.metrics.finite_fraction = max(
                         result.metrics.finite_fraction,
                         finite_fraction,
@@ -718,9 +700,7 @@ class DataQualityController:
                     if finite_fraction < 0.95:
                         result.issues.append(
                             ValidationIssue(
-                                severity=(
-                                    "warning" if finite_fraction > 0.8 else "error"
-                                ),
+                                severity=("warning" if finite_fraction > 0.8 else "error"),
                                 category="data_quality",
                                 message=f"Non-finite values in {key}: {(1 - finite_fraction) * 100:.1f}%",
                                 recommendation="Check data preprocessing and source quality",
@@ -815,9 +795,7 @@ class DataQualityController:
                     if matrix.ndim == 2:
                         diag = np.diag(matrix)
                         if len(diag) > 10 and diag[0] > 0:
-                            decay_rate = (
-                                diag[0] - diag[min(10, len(diag) - 1)]
-                            ) / diag[0]
+                            decay_rate = (diag[0] - diag[min(10, len(diag) - 1)]) / diag[0]
                             if 0 <= decay_rate <= 1:
                                 decay_rates.append(decay_rate)
 
@@ -846,11 +824,7 @@ class DataQualityController:
                 "t2",
                 "c2_exp",
             ]
-            completeness = (
-                sum(1 for key in required_keys if key in data)
-                / len(required_keys)
-                * 100
-            )
+            completeness = sum(1 for key in required_keys if key in data) / len(required_keys) * 100
 
             if completeness < 100:
                 result.issues.append(
@@ -879,11 +853,7 @@ class DataQualityController:
             t1 = data.get("t1", [])
             t2 = data.get("t2", [])
 
-            if (
-                hasattr(c2_exp, "shape")
-                and hasattr(t1, "shape")
-                and hasattr(t2, "shape")
-            ):
+            if hasattr(c2_exp, "shape") and hasattr(t1, "shape") and hasattr(t2, "shape"):
                 c2_shape = c2_exp.shape
                 t1_shape = t1.shape
                 t2_shape = t2.shape
@@ -956,8 +926,7 @@ class DataQualityController:
                     # Simple fidelity measure
                     return min(
                         1.0,
-                        current_finite_fraction
-                        / max(0.1, previous_result.metrics.finite_fraction),
+                        current_finite_fraction / max(0.1, previous_result.metrics.finite_fraction),
                     )
 
             return None  # No usable baseline — caller skips the fidelity gate
@@ -989,8 +958,7 @@ class DataQualityController:
 
         # Physics validity (weight: 0.2)
         physics_score = (
-            result.metrics.q_range_validity
-            + (100 if result.metrics.time_consistency else 0)
+            result.metrics.q_range_validity + (100 if result.metrics.time_consistency else 0)
         ) / 2
         readiness_factors.append((physics_score, 0.2))
 
@@ -1055,19 +1023,13 @@ class DataQualityController:
             # Update repair metrics
             result.repairs_applied = repairs_applied
             result.metrics.issues_detected = len(
-                [
-                    issue
-                    for issue in result.issues
-                    if issue.severity in ["error", "warning"]
-                ],
+                [issue for issue in result.issues if issue.severity in ["error", "warning"]],
             )
             result.metrics.issues_repaired = len(repairs_applied)
 
             if result.metrics.issues_detected > 0:
                 result.metrics.repair_success_rate = (
-                    result.metrics.issues_repaired
-                    / result.metrics.issues_detected
-                    * 100
+                    result.metrics.issues_repaired / result.metrics.issues_detected * 100
                 )
 
             if repairs_applied:
@@ -1256,9 +1218,7 @@ class DataQualityController:
         for repair in repairs_applied:
             for _issue_type, keywords in issue_keywords.items():
                 if any(keyword.lower() in repair.lower() for keyword in keywords):
-                    if any(
-                        keyword.lower() in issue.message.lower() for keyword in keywords
-                    ):
+                    if any(keyword.lower() in issue.message.lower() for keyword in keywords):
                         return True
 
         return False
@@ -1276,12 +1236,8 @@ class DataQualityController:
         ]
 
         # Apply issue penalties
-        error_penalty = (
-            len([issue for issue in result.issues if issue.severity == "error"]) * 10
-        )
-        warning_penalty = (
-            len([issue for issue in result.issues if issue.severity == "warning"]) * 5
-        )
+        error_penalty = len([issue for issue in result.issues if issue.severity == "error"]) * 10
+        warning_penalty = len([issue for issue in result.issues if issue.severity == "warning"]) * 5
 
         # Weighted score
         weighted_score = sum(score * weight for score, weight in score_components)
@@ -1396,9 +1352,7 @@ class DataQualityController:
 
         if hasattr(validation_report, "quality_score"):
             # Use existing quality score as baseline
-            existing_score = (
-                validation_report.quality_score * 100
-            )  # Convert to 0-100 scale
+            existing_score = validation_report.quality_score * 100  # Convert to 0-100 scale
             metrics.overall_score = max(metrics.overall_score, existing_score)
 
     @log_performance(threshold=0.05)
@@ -1487,18 +1441,11 @@ class DataQualityController:
 
         # Overall status determination
         if final_result:
-            if (
-                final_result.metrics.overall_score
-                >= self.quality_config.excellent_threshold
-            ):
+            if final_result.metrics.overall_score >= self.quality_config.excellent_threshold:
                 status = "excellent"
-            elif (
-                final_result.metrics.overall_score >= self.quality_config.warn_threshold
-            ):
+            elif final_result.metrics.overall_score >= self.quality_config.warn_threshold:
                 status = "good"
-            elif (
-                final_result.metrics.overall_score >= self.quality_config.pass_threshold
-            ):
+            elif final_result.metrics.overall_score >= self.quality_config.pass_threshold:
                 status = "acceptable"
             else:
                 status = "poor"
@@ -1512,9 +1459,7 @@ class DataQualityController:
 
         return {
             "status": status,
-            "overall_score": (
-                final_result.metrics.overall_score if final_result else 0.0
-            ),
+            "overall_score": (final_result.metrics.overall_score if final_result else 0.0),
             "total_stages_processed": len(results),
             "total_issues_found": total_issues,
             "total_repairs_applied": total_repairs,
@@ -1570,10 +1515,7 @@ class DataQualityController:
         final_result = results[-1]
 
         # Overall quality recommendations
-        if (
-            final_result.metrics.overall_score
-            >= self.quality_config.excellent_threshold
-        ):
+        if final_result.metrics.overall_score >= self.quality_config.excellent_threshold:
             recommendations.append(
                 "Excellent data quality achieved - ready for analysis",
             )

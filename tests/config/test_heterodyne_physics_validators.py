@@ -32,10 +32,7 @@ def test_single_parameter_min_severity_filters_warnings() -> None:
     assert len(validate_single_parameter("D0_ref", near_zero)) >= 1
     # Raising the floor to ERROR filters the warning out.
     assert (
-        validate_single_parameter(
-            "D0_ref", near_zero, min_severity=ConstraintSeverity.ERROR
-        )
-        == []
+        validate_single_parameter("D0_ref", near_zero, min_severity=ConstraintSeverity.ERROR) == []
     )
 
 

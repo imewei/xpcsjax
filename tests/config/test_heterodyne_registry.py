@@ -7,25 +7,26 @@ Note: two parameter renames to avoid collisions with homodyne:
 - heterodyne docs' `phi0` → `phi0_het` (renamed to avoid colliding with
   homodyne's `phi0`; both share the same unit and bounds: degrees, [-10, 10])
 """
+
 import pytest
 
 from xpcsjax.config.parameter_registry import get_param_names, get_registry
 
 EXPECTED_HETERODYNE = {
-    "D0_ref":          {"default": 1e4,  "bounds": (0.0,  1e6),     "log_space": True},
-    "alpha_ref":       {"default": 0.0,  "bounds": (-2.0, 2.0),     "log_space": False},
-    "D_offset_ref":    {"default": 0.0,  "bounds": (-1e4, 1e4),     "log_space": False},
-    "D0_sample":       {"default": 1e4,  "bounds": (0.0,  1e6),     "log_space": True},
-    "alpha_sample":    {"default": 0.0,  "bounds": (-2.0, 2.0),     "log_space": False},
-    "D_offset_sample": {"default": 0.0,  "bounds": (-1e4, 1e4),     "log_space": False},
-    "v0":              {"default": 1e3,  "bounds": (0.0,  1e6),     "log_space": True},
-    "v_beta":          {"default": 1.0,  "bounds": (0.0,  2.0),     "log_space": False},
-    "v_offset":        {"default": 0.0,  "bounds": (-100.0, 100.0), "log_space": False},
-    "f0":              {"default": 0.5,  "bounds": (0.0,  1.0),     "log_space": False},
-    "f1":              {"default": 0.0,  "bounds": (-1.0, 1.0),     "log_space": False},
-    "f2":              {"default": 0.0,  "bounds": (-1.0, 1.0),     "log_space": False},
-    "f3":              {"default": 0.0,  "bounds": (-1.0, 1.0),     "log_space": False},
-    "phi0_het":        {"default": 0.0,  "bounds": (-10.0, 10.0),   "log_space": False},
+    "D0_ref": {"default": 1e4, "bounds": (0.0, 1e6), "log_space": True},
+    "alpha_ref": {"default": 0.0, "bounds": (-2.0, 2.0), "log_space": False},
+    "D_offset_ref": {"default": 0.0, "bounds": (-1e4, 1e4), "log_space": False},
+    "D0_sample": {"default": 1e4, "bounds": (0.0, 1e6), "log_space": True},
+    "alpha_sample": {"default": 0.0, "bounds": (-2.0, 2.0), "log_space": False},
+    "D_offset_sample": {"default": 0.0, "bounds": (-1e4, 1e4), "log_space": False},
+    "v0": {"default": 1e3, "bounds": (0.0, 1e6), "log_space": True},
+    "v_beta": {"default": 1.0, "bounds": (0.0, 2.0), "log_space": False},
+    "v_offset": {"default": 0.0, "bounds": (-100.0, 100.0), "log_space": False},
+    "f0": {"default": 0.5, "bounds": (0.0, 1.0), "log_space": False},
+    "f1": {"default": 0.0, "bounds": (-1.0, 1.0), "log_space": False},
+    "f2": {"default": 0.0, "bounds": (-1.0, 1.0), "log_space": False},
+    "f3": {"default": 0.0, "bounds": (-1.0, 1.0), "log_space": False},
+    "phi0_het": {"default": 0.0, "bounds": (-10.0, 10.0), "log_space": False},
 }
 
 

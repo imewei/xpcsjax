@@ -332,9 +332,7 @@ class MultiStartResult:
                 if best.covariance is not None
                 else np.zeros(n_params)
             ),
-            covariance=(
-                best.covariance if best.covariance is not None else np.eye(n_params)
-            ),
+            covariance=(best.covariance if best.covariance is not None else np.eye(n_params)),
             chi_squared=best.chi_squared,
             reduced_chi_squared=best.reduced_chi_squared,
             convergence_status=convergence_status,
@@ -554,9 +552,7 @@ def generate_random_starts(
     upper = bounds[:, 1]
     samples = rng.uniform(lower, upper, size=(n_starts, n_params))
 
-    logger.debug(
-        f"Generated {n_starts} random starting points for {n_params} parameters"
-    )
+    logger.debug(f"Generated {n_starts} random starting points for {n_params} parameters")
     return samples
 
 
@@ -675,9 +671,7 @@ def screen_starts(
             with ThreadPoolExecutor(max_workers=n_workers) as executor:
                 costs = np.array(list(executor.map(cost_func, starts)))
         except (RuntimeError, OSError, ValueError) as e:
-            logger.warning(
-                f"Parallel screening failed, falling back to sequential: {e}"
-            )
+            logger.warning(f"Parallel screening failed, falling back to sequential: {e}")
             costs = np.array([cost_func(start) for start in starts])
     else:
         costs = np.array([cost_func(start) for start in starts])
@@ -946,14 +940,10 @@ def run_multistart_nlsq(
     logger.info("PHASE 1: Generating starting points")
     logger.info("-" * 40)
     if config.sampling_strategy == "latin_hypercube":
-        logger.info(
-            f"Using Latin Hypercube Sampling (n={config.n_starts}, seed={config.seed})"
-        )
+        logger.info(f"Using Latin Hypercube Sampling (n={config.n_starts}, seed={config.seed})")
         starts = generate_lhs_starts(bounds, config.n_starts, config.seed)
     else:
-        logger.info(
-            f"Using random uniform sampling (n={config.n_starts}, seed={config.seed})"
-        )
+        logger.info(f"Using random uniform sampling (n={config.n_starts}, seed={config.seed})")
         starts = generate_random_starts(bounds, config.n_starts, config.seed)
     logger.info(f"Generated {len(starts)} starting points")
 
@@ -972,9 +962,7 @@ def run_multistart_nlsq(
         logger.info("PHASE 2: Screening starting points")
         logger.info("-" * 40)
         n_before_screen = len(starts)
-        starts, screening_costs = screen_starts(
-            cost_func, starts, config.screen_keep_fraction
-        )
+        starts, screening_costs = screen_starts(cost_func, starts, config.screen_keep_fraction)
         n_filtered = n_before_screen - len(starts)
         logger.info(f"Screening filtered {n_filtered} starts, keeping {len(starts)}")
     else:
@@ -1063,9 +1051,7 @@ def run_multistart_nlsq(
     logger.info(f"Best reduced chi2: {best.reduced_chi_squared:.6f}")
     logger.info(f"Unique basins found: {n_unique_basins}")
     if degeneracy_detected:
-        logger.warning(
-            f"DEGENERACY DETECTED: {n_unique_basins} distinct minima with similar chi2"
-        )
+        logger.warning(f"DEGENERACY DETECTED: {n_unique_basins} distinct minima with similar chi2")
     logger.info(f"Total wall time: {total_time:.1f}s")
     logger.info("=" * 60)
 
@@ -1099,9 +1085,7 @@ class _OptimizeWorker:
     def __init__(
         self,
         data: dict[str, Any],
-        single_fit_func: Callable[
-            [dict[str, Any], NDArray[np.float64]], SingleStartResult
-        ],
+        single_fit_func: Callable[[dict[str, Any], NDArray[np.float64]], SingleStartResult],
     ) -> None:
         self.data = data
         self.single_fit_func = single_fit_func
@@ -1210,9 +1194,7 @@ def _run_full_strategy(
         return results
 
     # Parallel mode - progress bar updated as results complete
-    logger.info(
-        f"Running {n_starts} optimizations in parallel with {n_workers} workers"
-    )
+    logger.info(f"Running {n_starts} optimizations in parallel with {n_workers} workers")
     with MultiStartProgressTracker(
         n_starts=n_starts,
         enable_progress_bar=enable_progress_bar,
@@ -1260,19 +1242,15 @@ def _run_parallel_with_progress(
 
     try:
         logger.info(
-            f"Launching parallel execution: {n_workers} workers, "
-            f"{len(starts)} tasks, spawn context"
+            f"Launching parallel execution: {n_workers} workers, {len(starts)} tasks, spawn context"
         )
         logger.debug(f"Worker timeout: {_WORKER_TIMEOUT}s per task")
 
         parallel_start_time = time.perf_counter()
 
-        with ProcessPoolExecutor(
-            max_workers=n_workers, mp_context=mp_context
-        ) as executor:
+        with ProcessPoolExecutor(max_workers=n_workers, mp_context=mp_context) as executor:
             futures = {
-                executor.submit(optimize_func, idx, start): idx
-                for idx, start in enumerate(starts)
+                executor.submit(optimize_func, idx, start): idx for idx, start in enumerate(starts)
             }
             logger.debug(f"Submitted {len(futures)} tasks to executor")
 
@@ -1299,9 +1277,7 @@ def _run_parallel_with_progress(
                         f"time={result.wall_time:.1f}s ({completed_count}/{total_count})"
                     )
                 except TimeoutError:
-                    logger.warning(
-                        f"Worker {idx} timed out after 60s waiting for result"
-                    )
+                    logger.warning(f"Worker {idx} timed out after 60s waiting for result")
                     logger.info("Falling back to sequential execution")
                     fallback_to_sequential = True
                     fallback_reason = f"Worker {idx} timeout"

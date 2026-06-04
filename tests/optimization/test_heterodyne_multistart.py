@@ -1,4 +1,5 @@
 """Tests for heterodyne joint multistart wiring (Phase 1)."""
+
 from __future__ import annotations
 
 import sys
@@ -55,7 +56,9 @@ def test_fit_nlsq_multistart_heterodyne_runs_and_annotates(monkeypatch):
 
     captured: dict = {}
 
-    def _fake_run_multistart(data, bounds, config, single_fit_func, cost_func=None, custom_starts=None):
+    def _fake_run_multistart(
+        data, bounds, config, single_fit_func, cost_func=None, custom_starts=None
+    ):
         captured["bounds"] = bounds
         captured["config"] = config
         captured["custom_starts"] = custom_starts
@@ -87,7 +90,9 @@ def test_fit_nlsq_multistart_heterodyne_runs_and_annotates(monkeypatch):
     monkeypatch.setattr(hm, "fit_nlsq_multi_phi", _fake_fit_nlsq_multi_phi)
 
     ms_cfg = hm.build_multistart_config({"enable": True, "n_starts": 5})
-    out = hm.fit_nlsq_multistart_heterodyne(model, c2, phi, nlsq_cfg=object(), weights=None, ms_cfg=ms_cfg)
+    out = hm.fit_nlsq_multistart_heterodyne(
+        model, c2, phi, nlsq_cfg=object(), weights=None, ms_cfg=ms_cfg
+    )
 
     assert captured["bounds"].shape == (2, 2)
     assert captured["custom_starts"] == [[1000.0, 1.0]]
@@ -106,7 +111,9 @@ def test_multistart_metadata_attached_when_diagnostics_is_none(monkeypatch):
     # still be attached (initialised) rather than silently dropped.
     model = _StubModel()
 
-    def _fake_run_multistart(data, bounds, config, single_fit_func, cost_func=None, custom_starts=None):
+    def _fake_run_multistart(
+        data, bounds, config, single_fit_func, cost_func=None, custom_starts=None
+    ):
         best = SingleStartResult(
             start_idx=0,
             initial_params=np.array([1500.0, 0.7]),
@@ -215,10 +222,12 @@ def test_dispatch_routes_to_multistart_when_enabled(monkeypatch):
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("joint path should not run")),
     )
 
-    cfg = _CfgMgr({
-        "analysis_mode": "two_component",
-        "optimization": {"nlsq": {"multi_start": {"enable": True, "n_starts": 4}}},
-    })
+    cfg = _CfgMgr(
+        {
+            "analysis_mode": "two_component",
+            "optimization": {"nlsq": {"multi_start": {"enable": True, "n_starts": 4}}},
+        }
+    )
     data = {"c2_exp": np.ones((1, 4, 4)), "phi_angles_list": np.array([0.0])}
 
     nlsq_pkg.fit_nlsq(data, cfg)
@@ -232,7 +241,9 @@ def test_dispatch_cmaes_takes_precedence_over_multistart(monkeypatch):
 
     monkeypatch.setattr(
         "xpcsjax.optimization.nlsq.heterodyne_multistart.fit_nlsq_multistart_heterodyne",
-        lambda *a, **k: (_ for _ in ()).throw(AssertionError("multistart must not run when cmaes on")),
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("multistart must not run when cmaes on")
+        ),
     )
     joint_called = {}
     monkeypatch.setattr(
@@ -240,13 +251,17 @@ def test_dispatch_cmaes_takes_precedence_over_multistart(monkeypatch):
         lambda *a, **k: joint_called.setdefault("yes", True) or _StubResult([1.0], 0.1),
     )
 
-    cfg = _CfgMgr({
-        "analysis_mode": "two_component",
-        "optimization": {"nlsq": {
-            "cmaes": {"enable": True},
-            "multi_start": {"enable": True},
-        }},
-    })
+    cfg = _CfgMgr(
+        {
+            "analysis_mode": "two_component",
+            "optimization": {
+                "nlsq": {
+                    "cmaes": {"enable": True},
+                    "multi_start": {"enable": True},
+                }
+            },
+        }
+    )
     data = {"c2_exp": np.ones((1, 4, 4)), "phi_angles_list": np.array([0.0])}
 
     nlsq_pkg.fit_nlsq(data, cfg)

@@ -90,12 +90,8 @@ class GradientMonitorConfig:
     # For laminar_flow: index 2*n_phi + 3 is gamma_dot_t0
     watch_parameters: list[int] | None = None
     watch_threshold: float = 1e-8  # Gradient magnitude below this triggers warning
-    watch_consecutive_triggers: int = (
-        3  # Must trigger N consecutive times (like ratio-based)
-    )
-    watch_min_iteration: int = (
-        5  # Skip checks before this iteration (warmup grace period)
-    )
+    watch_consecutive_triggers: int = 3  # Must trigger N consecutive times (like ratio-based)
+    watch_min_iteration: int = 5  # Skip checks before this iteration (warmup grace period)
 
     @classmethod
     def from_dict(cls, config_dict: dict) -> GradientMonitorConfig:
@@ -117,18 +113,14 @@ class GradientMonitorConfig:
                 Literal["warn", "hierarchical", "reset", "abort"],
                 config_dict.get("response", "hierarchical"),
             ),
-            reset_per_angle_to_mean=bool(
-                config_dict.get("reset_per_angle_to_mean", True)
-            ),
+            reset_per_angle_to_mean=bool(config_dict.get("reset_per_angle_to_mean", True)),
             lambda_multiplier_on_collapse=safe_float(
                 config_dict.get("lambda_multiplier_on_collapse"), 10.0
             ),
             check_interval=safe_int(config_dict.get("check_interval"), 1),
             watch_parameters=watch_parameters,
             watch_threshold=safe_float(config_dict.get("watch_threshold"), 1e-8),
-            watch_consecutive_triggers=safe_int(
-                config_dict.get("watch_consecutive_triggers"), 3
-            ),
+            watch_consecutive_triggers=safe_int(config_dict.get("watch_consecutive_triggers"), 3),
             watch_min_iteration=safe_int(config_dict.get("watch_min_iteration"), 5),
         )
 
@@ -235,15 +227,11 @@ class GradientCollapseMonitor:
         # Use numpy arrays for indices to support both NumPy and JAX array indexing
         # JAX arrays don't support Python list indexing (non-tuple sequence error)
         self.physical_indices: np.ndarray = np.asarray(physical_indices, dtype=np.intp)
-        self.per_angle_indices: np.ndarray = np.asarray(
-            per_angle_indices, dtype=np.intp
-        )
+        self.per_angle_indices: np.ndarray = np.asarray(per_angle_indices, dtype=np.intp)
 
         # Use a deque with bounded maxlen so that appending automatically
         # drops the oldest entry — O(1) on both ends vs O(n) list.pop(0).
-        self.history: collections.deque[dict] = collections.deque(
-            maxlen=self.MAX_HISTORY_SIZE
-        )
+        self.history: collections.deque[dict] = collections.deque(maxlen=self.MAX_HISTORY_SIZE)
         self.consecutive_count: int = 0
         self.collapse_detected: bool = False
         self.collapse_events: list[CollapseEvent] = []
@@ -457,8 +445,7 @@ class GradientCollapseMonitor:
             reset_params[offset_indices] = offset_mean
 
             logger.info(
-                f"Reset per-angle params: contrast={contrast_mean:.4f}, "
-                f"offset={offset_mean:.4f}"
+                f"Reset per-angle params: contrast={contrast_mean:.4f}, offset={offset_mean:.4f}"
             )
 
         return reset_params

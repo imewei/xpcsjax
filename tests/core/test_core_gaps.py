@@ -22,6 +22,7 @@ from xpcsjax.core.models import make_model
 # T2: HeterodyneModel.compute_g1 — multi-phi vmap path
 # ---------------------------------------------------------------------------
 
+
 class TestHeterodyneComputeG1MultiPhi:
     """HeterodyneModel.compute_g1 with a phi array exercises jax.vmap."""
 
@@ -102,6 +103,7 @@ class TestHeterodyneComputeG1MultiPhi:
 # T3: HeterodyneModel.compute_residual — end-to-end flat residual
 # ---------------------------------------------------------------------------
 
+
 class TestHeterodyneComputeResidual:
     """HeterodyneModel.compute_residual returns a flat 1-D residual array."""
 
@@ -167,9 +169,7 @@ class TestHeterodyneComputeResidual:
             "offset": 0.0,
         }
         residual = model.compute_residual(params, data)
-        assert jnp.allclose(residual, 0.0, atol=1e-10), (
-            "perfect-fit residual must be zero"
-        )
+        assert jnp.allclose(residual, 0.0, atol=1e-10), "perfect-fit residual must be zero"
 
     def test_residual_uses_phi_angle_fallback_key(self, model: HeterodyneModel) -> None:
         """compute_residual accepts 'phi_angle' (singular) as well as 'phi_angles_list'."""
@@ -191,6 +191,7 @@ class TestHeterodyneComputeResidual:
 # ---------------------------------------------------------------------------
 # T8: HomodyneModel.__init__ — negative end_frame sentinel
 # ---------------------------------------------------------------------------
+
 
 class TestHomodyneModelInitValidation:
     """HomodyneModel must reject negative end_frame before constructing."""
@@ -233,6 +234,7 @@ class TestHomodyneModelInitValidation:
 # ---------------------------------------------------------------------------
 # T10: make_model — "heterodyne" synonym and non-string analysis_mode
 # ---------------------------------------------------------------------------
+
 
 class TestMakeModelDispatch:
     """make_model dispatches correctly for edge-case mode strings."""

@@ -4,6 +4,7 @@ Task 28: validates that :meth:`ConfigManager.get_model` routes
 ``analysis_mode: two_component`` to :class:`HeterodyneModel` and the homodyne
 modes (``static`` / ``laminar_flow``) to the legacy ``CombinedModel`` path.
 """
+
 from __future__ import annotations
 
 
@@ -39,8 +40,7 @@ def test_two_component_dispatches_to_heterodyne(tmp_path):
     model = cfg.get_model()
 
     assert isinstance(model, HeterodyneModel), (
-        f"expected HeterodyneModel for analysis_mode='two_component', "
-        f"got {type(model).__name__}"
+        f"expected HeterodyneModel for analysis_mode='two_component', got {type(model).__name__}"
     )
     assert isinstance(model, PhysicsModelBase)
 

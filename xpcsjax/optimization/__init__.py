@@ -47,6 +47,7 @@ try:
         optimize_per_angle_sequential,
         should_use_stratification,
     )
+
     NLSQ_AVAILABLE = True
 except ImportError as e:
     _logger.warning("Could not import NLSQ optimization: %s", e)

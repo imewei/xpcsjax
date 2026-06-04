@@ -46,8 +46,10 @@ def test_update_frequency_throttles_grad_evals():
 
 def test_callback_swallows_grad_fn_errors():
     mon = _monitor()
+
     def boom(p):
         raise RuntimeError("grad failed")
+
     cb = build_gradient_collapse_callback(mon, boom)
     assert cb(0, 1.0, np.zeros(4)) is None
     assert len(mon.history) == 0
@@ -63,9 +65,16 @@ def test_diagnostics_block_shape_and_mechanism():
     for it in range(4):
         cb(it, 1.0, np.zeros(4))
     d = gradient_monitor_diagnostics(mon)
-    assert set(d) >= {"collapse_detected", "trigger_count", "min_gradient_ratio",
-                      "max_gradient_ratio", "n_observations", "ratio_threshold",
-                      "consecutive_triggers", "mechanism"}
+    assert set(d) >= {
+        "collapse_detected",
+        "trigger_count",
+        "min_gradient_ratio",
+        "max_gradient_ratio",
+        "n_observations",
+        "ratio_threshold",
+        "consecutive_triggers",
+        "mechanism",
+    }
     assert d["n_observations"] == 4
     assert d["mechanism"] == "per_iteration_gradient_ratio"
     assert np.isfinite(d["max_gradient_ratio"])

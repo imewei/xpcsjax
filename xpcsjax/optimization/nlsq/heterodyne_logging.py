@@ -25,6 +25,7 @@ Pure logging: every function reads its arguments and emits log records only.
 None mutate solver state or influence numerics — log text is invisible to the
 ``rtol=1e-10`` parity gates.
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -128,9 +129,7 @@ def log_anti_degeneracy_defense(diagnostics: dict[str, Any] | None) -> None:
     logger.info("  per_angle_mode: %s", diag.get("per_angle_mode", "?"))
     logger.info("  L1 reparameterization: %s", _layer_state(diag, "per_angle_mode"))
     logger.info("  L2 hierarchical_active: %s", bool(diag.get("hierarchical_active", False)))
-    logger.info(
-        "  L3 regularization_active: %s", bool(diag.get("regularization_active", False))
-    )
+    logger.info("  L3 regularization_active: %s", bool(diag.get("regularization_active", False)))
     gm = diag.get("gradient_monitor")
     if gm is not None:
         mech = gm.get("mechanism", "?") if isinstance(gm, dict) else "?"
@@ -161,19 +160,11 @@ def log_quantile_scaling(contrast_pa: np.ndarray, offset_pa: np.ndarray) -> None
         c = np.asarray(contrast_pa, dtype=np.float64)
         o = np.asarray(offset_pa, dtype=np.float64)
         logger.info("Quantile-based per-angle estimation complete:")
-        logger.info(
-            "  Contrast range: [%.4f, %.4f]", float(np.nanmin(c)), float(np.nanmax(c))
-        )
-        logger.info(
-            "  Offset range: [%.4f, %.4f]", float(np.nanmin(o)), float(np.nanmax(o))
-        )
+        logger.info("  Contrast range: [%.4f, %.4f]", float(np.nanmin(c)), float(np.nanmax(c)))
+        logger.info("  Offset range: [%.4f, %.4f]", float(np.nanmin(o)), float(np.nanmax(o)))
         logger.info("  n_phi: %d", c.size)
-        logger.info(
-            "  Contrast: mean=%.4f, std=%.4f", float(np.nanmean(c)), float(np.nanstd(c))
-        )
-        logger.info(
-            "  Offset: mean=%.4f, std=%.4f", float(np.nanmean(o)), float(np.nanstd(o))
-        )
+        logger.info("  Contrast: mean=%.4f, std=%.4f", float(np.nanmean(c)), float(np.nanstd(c)))
+        logger.info("  Offset: mean=%.4f, std=%.4f", float(np.nanmean(o)), float(np.nanstd(o)))
     except Exception:
         try:
             logger.debug("log_quantile_scaling skipped (non-finite/empty input)")
@@ -184,9 +175,7 @@ def log_quantile_scaling(contrast_pa: np.ndarray, offset_pa: np.ndarray) -> None
 # ---------------------------------------------------------------------------
 # Stratification diagnostics (wrapper-parity)
 # ---------------------------------------------------------------------------
-def log_stratification_diagnostics(
-    diag: Any, *, n_chunks: int, n_points: int, n_phi: int
-) -> None:
+def log_stratification_diagnostics(diag: Any, *, n_chunks: int, n_points: int, n_phi: int) -> None:
     """Mirror laminar "Stratified Residual Function Diagnostics" block.
 
     ``diag`` may be a ``StratificationDiagnostics`` dataclass (from

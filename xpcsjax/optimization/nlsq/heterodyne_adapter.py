@@ -303,14 +303,11 @@ class NLSQAdapter(NLSQAdapterBase):
                 method = "trf"
 
             logger.info(
-                "NLSQAdapter settings: method=%s loss=%s gtol=%.2e "
-                "max_nfev=%s x_scale=%s",
+                "NLSQAdapter settings: method=%s loss=%s gtol=%.2e max_nfev=%s x_scale=%s",
                 method,
                 config.loss,
                 config.gtol,
-                config.max_nfev
-                if config.max_nfev is not None
-                else f"auto({100 * n_params})",
+                config.max_nfev if config.max_nfev is not None else f"auto({100 * n_params})",
                 config.x_scale,
             )
             fit_kwargs = _optimizer_kwargs(config, method)
@@ -411,9 +408,7 @@ class NLSQAdapter(NLSQAdapterBase):
         initial_params = np.clip(initial_params, lower_bounds, upper_bounds)
         n_params = len(initial_params)
 
-        logger.info(
-            "NLSQAdapter.fit_jax: %d parameters, %d data points", n_params, n_data
-        )
+        logger.info("NLSQAdapter.fit_jax: %d parameters, %d data points", n_params, n_data)
 
         try:
             xdata = np.arange(n_data, dtype=np.float64)
@@ -435,14 +430,11 @@ class NLSQAdapter(NLSQAdapterBase):
                 method = "trf"
 
             logger.info(
-                "NLSQAdapter.fit_jax settings: method=%s loss=%s gtol=%.2e "
-                "max_nfev=%s x_scale=%s",
+                "NLSQAdapter.fit_jax settings: method=%s loss=%s gtol=%.2e max_nfev=%s x_scale=%s",
                 method,
                 config.loss,
                 config.gtol,
-                config.max_nfev
-                if config.max_nfev is not None
-                else f"auto({100 * n_params})",
+                config.max_nfev if config.max_nfev is not None else f"auto({100 * n_params})",
                 config.x_scale,
             )
             fit_kwargs = _optimizer_kwargs(config, method)
@@ -483,9 +475,7 @@ class NLSQAdapter(NLSQAdapterBase):
                     "fit_jax: optimizer did not expose final residuals; "
                     "re-evaluating residual function"
                 )
-                final_residuals_jax = jax_residual_fn(
-                    jnp.arange(n_data), *base.parameters
-                )
+                final_residuals_jax = jax_residual_fn(jnp.arange(n_data), *base.parameters)
                 final_residuals = np.asarray(final_residuals_jax)
             final_cost = 0.5 * float(np.sum(final_residuals**2))
             n_dof = n_data - n_params
@@ -645,9 +635,7 @@ class NLSQWrapper(NLSQAdapterBase):
             config.ftol,
             config.xtol,
             config.gtol,
-            config.max_nfev
-            if config.max_nfev is not None
-            else f"auto({100 * n_params})",
+            config.max_nfev if config.max_nfev is not None else f"auto({100 * n_params})",
             config.x_scale,
             loss,
         )
@@ -674,9 +662,7 @@ class NLSQWrapper(NLSQAdapterBase):
             if result is not None:
                 return result
             # Result is None → this tier exhausted all retries; try next
-            last_exc = RuntimeError(
-                f"Tier {tier.value} failed after {self._max_retries} retries"
-            )
+            last_exc = RuntimeError(f"Tier {tier.value} failed after {self._max_retries} retries")
             if not self._enable_recovery:
                 break
 

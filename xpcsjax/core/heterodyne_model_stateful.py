@@ -80,9 +80,7 @@ class HeterodyneModel:
             t_start = float(temporal.get("t_start", dt))
 
         ap_scat = ap.get("scattering", {})
-        q = float(
-            ap_scat.get("wavevector_q", scattering.get("wavevector_q", 0.01))
-        )
+        q = float(ap_scat.get("wavevector_q", scattering.get("wavevector_q", 0.01)))
 
         factors = create_physics_factors(
             n_times=n_times,
@@ -105,9 +103,7 @@ class HeterodyneModel:
                 initial_contrast=float(
                     scaling_cfg.get("initial_contrast", space_scaling["contrast"])
                 ),
-                initial_offset=float(
-                    scaling_cfg.get("initial_offset", space_scaling["offset"])
-                ),
+                initial_offset=float(scaling_cfg.get("initial_offset", space_scaling["offset"])),
             )
         )
 
@@ -188,7 +184,7 @@ class HeterodyneModel:
             raise ValueError("Model time axis not initialized; call from_config first")
         n_model = len(self._t)
         if n_data < n_model:
-            self._t = self._t[n_model - n_data:]
+            self._t = self._t[n_model - n_data :]
         elif n_data > n_model:
             # More data points than model — expand using the model's dt spacing
             extra = jnp.arange(1, n_data - n_model + 1, dtype=jnp.float64) * self.dt
@@ -361,9 +357,7 @@ class HeterodyneModel:
             Callable that maps varying params -> residuals
         """
         c2_jax = jnp.asarray(c2_data)
-        weights_jax = (
-            jnp.asarray(weights) if weights is not None else jnp.ones_like(c2_jax)
-        )
+        weights_jax = jnp.asarray(weights) if weights is not None else jnp.ones_like(c2_jax)
         t = self.t
         q = self.q
         dt = self.dt
@@ -379,8 +373,15 @@ class HeterodyneModel:
             full_params = fixed_values_jax.at[varying_idx_jax].set(varying_params)
 
             return compute_residuals(
-                full_params, t, q, dt, phi_angle, c2_jax, weights_jax,
-                contrast_val, offset_val,
+                full_params,
+                t,
+                q,
+                dt,
+                phi_angle,
+                c2_jax,
+                weights_jax,
+                contrast_val,
+                offset_val,
             )
 
         return residual_fn

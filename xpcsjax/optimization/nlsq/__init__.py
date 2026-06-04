@@ -724,9 +724,7 @@ def _fit_nlsq_heterodyne(
                 fit_with_stratified_hybrid_streaming_heterodyne,
             )
 
-            _log_strategy(
-                "hybrid_streaming", f"memory tier {decision.strategy.name}"
-            )
+            _log_strategy("hybrid_streaming", f"memory tier {decision.strategy.name}")
             strat = build_heterodyne_stratified_data(model, c2, phi, weights)
             lower, upper = model.param_manager.get_bounds()
             popt, pcov, info = fit_with_stratified_hybrid_streaming_heterodyne(
@@ -810,8 +808,7 @@ def _fit_nlsq_heterodyne(
         from xpcsjax.utils.logging import get_logger as _get_logger
 
         _get_logger(__name__).debug(
-            "angle imbalance %.2f > configured max_imbalance_ratio %.2f; "
-            "stratified-LS skipped",
+            "angle imbalance %.2f > configured max_imbalance_ratio %.2f; stratified-LS skipped",
             imbalance,
             strat_cfg.max_imbalance_ratio,
         )
@@ -897,9 +894,7 @@ def _fit_nlsq_heterodyne(
         log_strategy_selection as _log_strategy,
     )
 
-    _log_strategy(
-        "standard", f"{int(n_points):,} points (in-memory joint fit)"
-    )
+    _log_strategy("standard", f"{int(n_points):,} points (in-memory joint fit)")
     result = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
     if _stratified_ls_fallback and result.nlsq_diagnostics is not None:
         result.nlsq_diagnostics["stratified_ls_fallback"] = True

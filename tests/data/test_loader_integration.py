@@ -4,6 +4,7 @@ This test depends on a fixture homodyne config; we don't bundle the HDF5 with
 xpcsjax — instead we point at the file in the source homodyne repo for now.
 The Phase 5 characterization-test infra makes this a permanent fixture.
 """
+
 from pathlib import Path
 
 import numpy as np

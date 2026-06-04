@@ -11,6 +11,7 @@ Public API (lazy-loaded — heavy deps like JAX import on first use):
 
 Env setup at import time is mirrored verbatim from homodyne/__init__.py.
 """
+
 from __future__ import annotations
 
 # ============================================================================

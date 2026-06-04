@@ -209,8 +209,8 @@ logger = get_logger(__name__)
 _HDF5_RDCC_N_MATRICES: int = 12
 _HDF5_RDCC_MATRIX_BYTES: int = 1000 * 1000 * 8  # float64, n_t=1000 worst-case
 _HDF5_RDCC_NBYTES: int = _HDF5_RDCC_N_MATRICES * _HDF5_RDCC_MATRIX_BYTES  # 96 MB
-_HDF5_RDCC_NSLOTS: int = 6257   # prime; ≥ 100 × _HDF5_RDCC_N_MATRICES
-_HDF5_RDCC_W0: float = 0.75     # prefer evicting chunks not likely to be re-read
+_HDF5_RDCC_NSLOTS: int = 6257  # prime; ≥ 100 × _HDF5_RDCC_N_MATRICES
+_HDF5_RDCC_W0: float = 0.75  # prefer evicting chunks not likely to be re-read
 
 # Regex to detect old str.format()-style placeholders: {var} or {var:.4f}
 _OLD_FORMAT_RE = re.compile(r"\{(\w+)(?::[^}]*)?\}")
@@ -262,9 +262,7 @@ MAX_CORRELATION_FRAMES = 100_000
 MAX_CORRELATION_ALLOC_BYTES = 64 * 1024**3  # 64 GiB
 
 
-def _check_allocation_budget(
-    n_matrices: int, n_t: int, itemsize: int, *, source: str
-) -> None:
+def _check_allocation_budget(n_matrices: int, n_t: int, itemsize: int, *, source: str) -> None:
     """Reject an ``(n_matrices, n_t, n_t)`` buffer that exceeds the byte ceiling.
 
     The per-axis :func:`_check_frame_count` cap is necessary but not sufficient:
@@ -276,8 +274,7 @@ def _check_allocation_budget(
     """
     if n_matrices < 0:
         raise XPCSDataFormatError(
-            f"Invalid correlation matrix count {n_matrices} from {source!r} "
-            "(must be non-negative)."
+            f"Invalid correlation matrix count {n_matrices} from {source!r} (must be non-negative)."
         )
     total_bytes = n_matrices * n_t * n_t * itemsize
     if total_bytes > MAX_CORRELATION_ALLOC_BYTES:
@@ -362,8 +359,7 @@ def _check_frame_count(n_frames: int, *, source: str) -> None:
     """
     if n_frames <= 0:
         raise XPCSDataFormatError(
-            f"Invalid correlation frame count {n_frames} from {source!r} "
-            "(must be positive)."
+            f"Invalid correlation frame count {n_frames} from {source!r} (must be positive)."
         )
     if n_frames > MAX_CORRELATION_FRAMES:
         raise XPCSDataFormatError(
@@ -514,6 +510,14 @@ class XPCSDataLoader:
 
         # Extract main configuration sections
         self.exp_config = self.config.get("experimental_data", {})
+        # Resolve ${ENV_VAR} and a leading ~ in the data folder path so configs
+        # can stay machine-independent (e.g. fixtures point at ${XPCSJAX_DATA_ROOT}).
+        # expandvars/expanduser are no-ops on plain absolute paths, so this cannot
+        # perturb any existing config or the rtol=1e-10 parity baselines. The
+        # traversal/security checks downstream run on the *expanded* value.
+        _folder = self.exp_config.get("data_folder_path")
+        if isinstance(_folder, str) and _folder:
+            self.exp_config["data_folder_path"] = os.path.expanduser(os.path.expandvars(_folder))
         self.analyzer_config = self.config.get("analyzer_parameters", {})
         self.v2_config = self.config.get("v2_features", {})
 
@@ -724,9 +728,7 @@ class XPCSDataLoader:
             self.exp_config["data_file_name"],
         )
         if ".." in str(data_file_path) or "\x00" in str(data_file_path):
-            raise ValueError(
-                f"Path traversal detected in data file path: {data_file_path}"
-            )
+            raise ValueError(f"Path traversal detected in data file path: {data_file_path}")
 
         if not os.path.exists(data_file_path):
             logger.warning(f"Data file not found: {data_file_path}")
@@ -832,9 +834,7 @@ class XPCSDataLoader:
         # absolute paths remain allowed since the user owns their own config).
         from xpcsjax.utils.path_validation import validate_save_path
 
-        validate_save_path(
-            cache_path, allowed_extensions=(".npz",), require_parent_exists=False
-        )
+        validate_save_path(cache_path, allowed_extensions=(".npz",), require_parent_exists=False)
 
         # If user provided a direct NPZ path, prefer it
         direct_path = os.path.join(data_folder, data_file) if data_file else ""
@@ -1191,9 +1191,7 @@ class XPCSDataLoader:
             if quality_filtering_enabled:
                 # Two-pass optimization: metadata filter first, then load + quality filter
                 # Pass 1: phi/q filtering without loading matrices (metadata only)
-                logger.debug(
-                    "Quality filtering enabled - running metadata-only pre-filter"
-                )
+                logger.debug("Quality filtering enabled - running metadata-only pre-filter")
                 metadata_indices = self._get_selected_indices(
                     dqlist,
                     dphilist,
@@ -1202,9 +1200,7 @@ class XPCSDataLoader:
 
                 # Narrow to candidates via q + phi intersection
                 if metadata_indices is not None:
-                    candidate_indices = np.intersect1d(
-                        q_matching_indices, metadata_indices
-                    )
+                    candidate_indices = np.intersect1d(q_matching_indices, metadata_indices)
                 else:
                     candidate_indices = q_matching_indices
 
@@ -1231,9 +1227,7 @@ class XPCSDataLoader:
                 # Map quality filter results back to original indices
                 if quality_indices is not None:
                     final_indices = candidate_indices[quality_indices]
-                    selected_c2_matrices = [
-                        candidate_matrices[i] for i in quality_indices
-                    ]
+                    selected_c2_matrices = [candidate_matrices[i] for i in quality_indices]
                     logger.debug(
                         f"After quality filtering: {len(candidate_indices)} -> {len(final_indices)} matrices",
                     )
@@ -1280,10 +1274,14 @@ class XPCSDataLoader:
                 _n_t = _probe_half.shape[0]
                 _check_frame_count(int(_n_t), source="HDF5 correlation dataset")
                 _check_allocation_budget(
-                    int(n_sel), int(_n_t), _probe_half.dtype.itemsize,
+                    int(n_sel),
+                    int(_n_t),
+                    _probe_half.dtype.itemsize,
                     source="HDF5 correlation dataset",
                 )
-                c2_matrices_array = np.empty((n_sel, _n_t, _n_t), dtype=_probe_half.dtype, order="C")
+                c2_matrices_array = np.empty(
+                    (n_sel, _n_t, _n_t), dtype=_probe_half.dtype, order="C"
+                )
                 # Write the already-read probe matrix into slot 0 (exact same arithmetic
                 # as _reconstruct_full_matrix: c2_half + c2_half.T, diagonal /= 2).
                 c2_matrices_array[0] = _probe_half + _probe_half.T
@@ -1337,9 +1335,7 @@ class XPCSDataLoader:
 
             # Load the q and phi lists
             q_values = f["xpcs/qmap/dynamic_v_list_dim0"][()]  # All q values
-            phi_values = f["xpcs/qmap/dynamic_v_list_dim1"][
-                ()
-            ]  # All phi values available
+            phi_values = f["xpcs/qmap/dynamic_v_list_dim1"][()]  # All phi values available
 
             n_q = len(q_values)
             n_phi = len(phi_values)
@@ -1446,9 +1442,7 @@ class XPCSDataLoader:
             )
 
             # Find all (q,phi) pairs matching the selected q-vector
-            q_matching_indices = np.where(np.abs(filtered_dqlist - selected_q) < 1e-10)[
-                0
-            ]
+            q_matching_indices = np.where(np.abs(filtered_dqlist - selected_q) < 1e-10)[0]
             logger.debug(
                 f"Found {len(q_matching_indices)} (q,phi) pairs matching selected q-vector",
             )
@@ -1495,7 +1489,9 @@ class XPCSDataLoader:
                 _n_t_u = _first_mat.shape[0]
                 _check_frame_count(int(_n_t_u), source="HDF5 correlation dataset")
                 _check_allocation_budget(
-                    int(_n_sel_u), int(_n_t_u), _first_mat.dtype.itemsize,
+                    int(_n_sel_u),
+                    int(_n_t_u),
+                    _first_mat.dtype.itemsize,
                     source="HDF5 correlation dataset",
                 )
                 c2_matrices_array = np.empty(
@@ -1504,9 +1500,7 @@ class XPCSDataLoader:
                 c2_matrices_array[0] = _first_mat
                 del _first_mat
                 for _out_j, _sel_i in enumerate(final_indices[1:], start=1):
-                    c2_matrices_array[_out_j] = np.asarray(
-                        c2_matrices_for_filtering[int(_sel_i)]
-                    )
+                    c2_matrices_array[_out_j] = np.asarray(c2_matrices_for_filtering[int(_sel_i)])
 
             # Apply frame slicing to the selected q-vector data
             c2_exp = self._apply_frame_slicing_to_selected_q(c2_matrices_array)
@@ -1754,9 +1748,7 @@ class XPCSDataLoader:
             if filtering_result.selected_indices is not None:
                 selected_count = len(filtering_result.selected_indices)
                 total_count = len(dqlist)
-                selection_fraction = (
-                    selected_count / total_count if total_count > 0 else 0.0
-                )
+                selection_fraction = selected_count / total_count if total_count > 0 else 0.0
 
                 logger.info(
                     f"Data filtering completed: {selected_count}/{total_count} "
@@ -1794,9 +1786,7 @@ class XPCSDataLoader:
             if fallback_on_empty:
                 # DATA-1: record the degraded substitution (all angles used)
                 # instead of a bare WARNING the caller cannot distinguish.
-                self._record_degradation(
-                    f"angle filtering crashed ({e}); fell back to all angles"
-                )
+                self._record_degradation(f"angle filtering crashed ({e}); fell back to all angles")
                 return None
             else:
                 raise XPCSDataFormatError(f"Data filtering failed: {e}") from e
@@ -1924,9 +1914,7 @@ class XPCSDataLoader:
         if end_frame > max_frames:
             original_end_frame = end_frame
             end_frame = max_frames
-            logger.warning(
-                f"end_frame adjusted to {max_frames} (was {original_end_frame})"
-            )
+            logger.warning(f"end_frame adjusted to {max_frames} (was {original_end_frame})")
 
         # Apply frame slicing if needed
         if start_frame > 0 or end_frame < max_frames:
@@ -2007,9 +1995,7 @@ class XPCSDataLoader:
                 self.analyzer_config.get("end_frame")
                 if self.analyzer_config.get("end_frame", -1) != -1
                 else (
-                    cache_data["c2_exp"].shape[-1]
-                    + self.analyzer_config.get("start_frame", 1)
-                    - 1
+                    cache_data["c2_exp"].shape[-1] + self.analyzer_config.get("start_frame", 1) - 1
                 )
             ),
             "phi_count": len(cache_data["phi_angles_list"]),
@@ -2101,14 +2087,8 @@ class XPCSDataLoader:
         data_folder = self.exp_config.get("data_folder_path", "./")
 
         # Convert JAX arrays to numpy for text file saving
-        phi_angles = (
-            np.array(data["phi_angles_list"]) if HAS_JAX else data["phi_angles_list"]
-        )
-        q_values = (
-            np.array(data["wavevector_q_list"])
-            if HAS_JAX
-            else data["wavevector_q_list"]
-        )
+        phi_angles = np.array(data["phi_angles_list"]) if HAS_JAX else data["phi_angles_list"]
+        q_values = np.array(data["wavevector_q_list"]) if HAS_JAX else data["wavevector_q_list"]
 
         # Save phi angles list
         phi_file = os.path.join(phi_folder, "phi_angles_list.txt")
@@ -2168,11 +2148,7 @@ class XPCSDataLoader:
             return
 
         # Validate q-range
-        q_values = (
-            np.array(data["wavevector_q_list"])
-            if HAS_JAX
-            else data["wavevector_q_list"]
-        )
+        q_values = np.array(data["wavevector_q_list"]) if HAS_JAX else data["wavevector_q_list"]
         if np.any(q_values < PhysicsConstants.Q_MIN_TYPICAL):
             logger.warning(
                 f"Some q-values below typical range: {PhysicsConstants.Q_MIN_TYPICAL}",
@@ -2323,14 +2299,10 @@ class XPCSDataLoader:
 
                 # Quality control validation after preprocessing
                 if quality_controller and quality_results:
-                    preprocessing_validation_result = (
-                        quality_controller.validate_data_stage(
-                            result.data,
-                            quality_controller.QualityControlStage.PREPROCESSED_DATA,
-                            previous_result=(
-                                quality_results[-1] if quality_results else None
-                            ),
-                        )
+                    preprocessing_validation_result = quality_controller.validate_data_stage(
+                        result.data,
+                        quality_controller.QualityControlStage.PREPROCESSED_DATA,
+                        previous_result=(quality_results[-1] if quality_results else None),
                     )
                     quality_results.append(preprocessing_validation_result)
 
@@ -2410,9 +2382,7 @@ class XPCSDataLoader:
         data_file_base = os.path.splitext(data_file)[0]
         timestamp = int(time.time())
 
-        provenance_filename = (
-            f"{data_file_base}_preprocessing_provenance_{timestamp}.json"
-        )
+        provenance_filename = f"{data_file_base}_preprocessing_provenance_{timestamp}.json"
         return os.path.join(provenance_dir, provenance_filename)
 
 
@@ -2450,9 +2420,7 @@ def load_xpcs_data(
     # Backward compatibility: if config_path is a dict, treat it as config_dict
     if isinstance(config_path, dict):
         if config_dict is not None:
-            raise ValueError(
-                "Cannot provide both config_path as dict and config_dict parameter"
-            )
+            raise ValueError("Cannot provide both config_path as dict and config_dict parameter")
         config_dict = config_path
         config_path = None
 

@@ -217,9 +217,7 @@ def compute_consistent_per_angle_init(
     # Extract data by angle
     if hasattr(stratified_data, "chunks"):
         phi_unique = np.array(
-            sorted(
-                {phi for chunk in stratified_data.chunks for phi in chunk.phi.tolist()}
-            )
+            sorted({phi for chunk in stratified_data.chunks for phi in chunk.phi.tolist()})
         )
         n_phi = len(phi_unique)
         # Get metadata from first chunk
@@ -440,9 +438,7 @@ def compute_quantile_per_angle_scaling(
     if hasattr(stratified_data, "chunks"):
         # ChunkedData format
         phi_unique = np.array(
-            sorted(
-                {phi for chunk in stratified_data.chunks for phi in chunk.phi.tolist()}
-            )
+            sorted({phi for chunk in stratified_data.chunks for phi in chunk.phi.tolist()})
         )
         n_phi = len(phi_unique)
 
@@ -539,9 +535,7 @@ def compute_quantile_per_angle_scaling(
         contrast_est = c2_ceiling - offset_est
 
         # Clip contrast to bounds
-        contrast_est = float(
-            np.clip(contrast_est, contrast_bounds[0], contrast_bounds[1])
-        )
+        contrast_est = float(np.clip(contrast_est, contrast_bounds[0], contrast_bounds[1]))
 
         contrast_per_angle[i] = contrast_est
         offset_per_angle[i] = offset_est

@@ -131,9 +131,7 @@ class ParameterSpace:
 
         config_bounds = param_space_config.get("bounds", [])
         if not isinstance(config_bounds, list):
-            logger.warning(
-                "parameter_space.bounds must be a list, using package defaults"
-            )
+            logger.warning("parameter_space.bounds must be a list, using package defaults")
             config_bounds = []
 
         # Build lookup dict from config bounds
@@ -149,9 +147,7 @@ class ParameterSpace:
             # Apply name mapping. ``.get(name, name)`` returns the mapped str
             # or falls back to the original ``name`` — never None. Coerce so
             # mypy doesn't lose the str invariant through ``dict[str, str].get``.
-            canonical_name: str = str(
-                PARAMETER_NAME_MAPPING.get(param_name, param_name)
-            )
+            canonical_name: str = str(PARAMETER_NAME_MAPPING.get(param_name, param_name))
             config_bounds_lookup[canonical_name] = bound_entry
 
         # Load bounds for each parameter
@@ -176,9 +172,7 @@ class ParameterSpace:
                 if default_bounds:
                     min_val = default_bounds[0]["min"]
                     max_val = default_bounds[0]["max"]
-                    logger.debug(
-                        f"Using default bounds for '{param_name}': [{min_val}, {max_val}]"
-                    )
+                    logger.debug(f"Using default bounds for '{param_name}': [{min_val}, {max_val}]")
                 else:
                     # Ultimate fallback: use registry bounds if known
                     from xpcsjax.config.parameter_registry import ParameterRegistry
@@ -244,9 +238,7 @@ class ParameterSpace:
         >>> param_space.parameter_names
         ['D0', 'alpha', 'D_offset']
         """
-        logger.info(
-            f"Creating ParameterSpace from package defaults (mode={analysis_mode})"
-        )
+        logger.info(f"Creating ParameterSpace from package defaults (mode={analysis_mode})")
 
         # Create empty config and let from_config handle defaults
         empty_config: dict[str, Any] = {"analysis_mode": analysis_mode}
@@ -357,22 +349,18 @@ class ParameterSpace:
 
         for param_name, value in values.items():
             if param_name not in self.bounds:
-                violations.append(
-                    f"Unknown parameter '{param_name}' (not in parameter space)"
-                )
+                violations.append(f"Unknown parameter '{param_name}' (not in parameter space)")
                 continue
 
             min_val, max_val = self.bounds[param_name]
 
             if value < min_val - tolerance:
                 violations.append(
-                    f"{param_name} = {value:.3e} < min ({min_val:.3e}) "
-                    f"by {min_val - value:.3e}"
+                    f"{param_name} = {value:.3e} < min ({min_val:.3e}) by {min_val - value:.3e}"
                 )
             elif value > max_val + tolerance:
                 violations.append(
-                    f"{param_name} = {value:.3e} > max ({max_val:.3e}) "
-                    f"by {value - max_val:.3e}"
+                    f"{param_name} = {value:.3e} > max ({max_val:.3e}) by {value - max_val:.3e}"
                 )
 
         is_valid = len(violations) == 0
@@ -411,9 +399,7 @@ class ParameterSpace:
         log_center_scale = float(max(0.25, np.log1p(center_sigma / center_mu)))
 
         target_delta = float(np.clip(d0_mid / center_mu, 1e-3, 5.0))
-        delta_loc = (
-            float(np.log(np.expm1(target_delta))) if target_delta >= 1e-3 else -5.0
-        )
+        delta_loc = float(np.log(np.expm1(target_delta))) if target_delta >= 1e-3 else -5.0
         delta_scale = float(max(0.5, d0_half_width / center_mu))
 
         return {
@@ -433,9 +419,7 @@ class ParameterSpace:
             f"params={self.parameter_names})"
         )
 
-    def clamp_to_open_interval(
-        self, param_name: str, value: float, epsilon: float = 1e-6
-    ) -> float:
+    def clamp_to_open_interval(self, param_name: str, value: float, epsilon: float = 1e-6) -> float:
         """Clamp parameter value to strictly inside bounds (open interval).
 
         TruncatedNormal transforms require values strictly inside (min, max)
@@ -494,10 +478,6 @@ class ParameterSpace:
             min_val, max_val = self.bounds[param_name]
             unit = self.units.get(param_name, "")
 
-            lines.append(
-                f"    {param_name:20s}: "
-                f"[{min_val:10.3e}, {max_val:10.3e}] "
-                f"{unit}"
-            )
+            lines.append(f"    {param_name:20s}: [{min_val:10.3e}, {max_val:10.3e}] {unit}")
 
         return "\n".join(lines)

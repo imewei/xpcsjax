@@ -33,9 +33,7 @@ def test_performance_engine_init_failure_logs_debug_and_degrades(caplog, monkeyp
 
     # The helper imports PerformanceEngine lazily; force the construction path to
     # raise a non-ImportError so the general fallback branch runs.
-    monkeypatch.setattr(
-        "xpcsjax.data.performance_engine.PerformanceEngine", _boom, raising=False
-    )
+    monkeypatch.setattr("xpcsjax.data.performance_engine.PerformanceEngine", _boom, raising=False)
 
     with caplog.at_level(logging.DEBUG, logger="xpcsjax"):
         # Must NOT raise — the init failure stays non-fatal.
@@ -46,8 +44,7 @@ def test_performance_engine_init_failure_logs_debug_and_degrades(caplog, monkeyp
 
     # The swallowed init failure is logged at DEBUG with context.
     assert any(
-        r.levelno == logging.DEBUG and "engine boom" in r.getMessage()
-        for r in caplog.records
+        r.levelno == logging.DEBUG and "engine boom" in r.getMessage() for r in caplog.records
     ), "performance-engine init failure must be logged at DEBUG with context"
 
 
@@ -62,15 +59,12 @@ def test_memory_manager_init_failure_logs_debug_and_degrades(caplog, monkeypatch
     def _boom(*_args, **_kwargs):
         raise RuntimeError("memory boom")
 
-    monkeypatch.setattr(
-        "xpcsjax.data.memory_manager.AdvancedMemoryManager", _boom, raising=False
-    )
+    monkeypatch.setattr("xpcsjax.data.memory_manager.AdvancedMemoryManager", _boom, raising=False)
 
     with caplog.at_level(logging.DEBUG, logger="xpcsjax"):
         optimizer._init_memory_manager()
 
     assert optimizer.memory_manager is None
     assert any(
-        r.levelno == logging.DEBUG and "memory boom" in r.getMessage()
-        for r in caplog.records
+        r.levelno == logging.DEBUG and "memory boom" in r.getMessage() for r in caplog.records
     ), "memory-manager init failure must be logged at DEBUG with context"

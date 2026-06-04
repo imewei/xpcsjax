@@ -28,9 +28,7 @@ from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
 
 
 def _plain_ssr(model, c2, phi) -> float:
-    cfg = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": "averaged"}
-    )
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged"})
     return float(fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None).chi_squared)
 
 
@@ -47,9 +45,7 @@ def test_joint_cmaes_escape_valid_keep_better_and_tagged():
     res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
     diag = res.nlsq_diagnostics
     # SSR conservation
-    assert np.isclose(
-        float(np.sum(diag["chi2_per_angle"])), res.chi_squared, rtol=1e-6
-    )
+    assert np.isclose(float(np.sum(diag["chi2_per_angle"])), res.chi_squared, rtol=1e-6)
     # keep-better: escape never worse than the plain fit
     assert res.chi_squared <= plain * (1 + 1e-6)
     # the real escape ran (tagged)
@@ -91,9 +87,7 @@ def test_joint_cmaes_escape_deterministic():
     # so an exact array_equal is platform-fragile while reproducibility is the
     # real contract. The escape branch must still be the same (same tag).
     assert r1.global_escape == r2.global_escape
-    assert np.allclose(
-        np.asarray(r1.parameters), np.asarray(r2.parameters), rtol=1e-6, atol=1e-8
-    )
+    assert np.allclose(np.asarray(r1.parameters), np.asarray(r2.parameters), rtol=1e-6, atol=1e-8)
     assert math.isclose(r1.chi_squared, r2.chi_squared, rel_tol=1e-6, abs_tol=1e-9)
 
 
@@ -141,9 +135,7 @@ def test_joint_multistart_escape_runs_multiangle_keep_better_tagged():
     res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)  # n_phi=3 -> multi-angle
     diag = res.nlsq_diagnostics
     # SSR conservation
-    assert np.isclose(
-        float(np.sum(diag["chi2_per_angle"])), res.chi_squared, rtol=1e-6
-    )
+    assert np.isclose(float(np.sum(diag["chi2_per_angle"])), res.chi_squared, rtol=1e-6)
     # keep-better: escape never worse than the plain fit
     assert res.chi_squared <= plain * (1 + 1e-6)
     # the real escape ran (tagged)
@@ -162,9 +154,7 @@ def test_joint_multistart_escape_deterministic():
 
     def run():
         model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
-        return fit_nlsq_multi_phi(
-            model, c2, phi, NLSQConfig.from_dict(cfg_kw), weights=None
-        )
+        return fit_nlsq_multi_phi(model, c2, phi, NLSQConfig.from_dict(cfg_kw), weights=None)
 
     r1, r2 = run(), run()
     assert np.array_equal(np.asarray(r1.parameters), np.asarray(r2.parameters))
@@ -201,9 +191,7 @@ def test_joint_multistart_escape_falls_back_on_failure(monkeypatch):
 # ---------------------------------------------------------------------------
 def _plain_diag_and_size(per_angle_mode: str):
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
-    cfg = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": per_angle_mode}
-    )
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": per_angle_mode})
     res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
     return res.nlsq_diagnostics, int(np.asarray(res.parameters).size)
 

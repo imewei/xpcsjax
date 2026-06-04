@@ -164,9 +164,7 @@ class TestPropagateInversion:
 
         root = logging.getLogger(lm._logger_manager._root_logger_name)
         # Strip all managed handlers so has_managed_handler == False
-        root.handlers = [
-            h for h in root.handlers if not getattr(h, "_xpcsjax_managed", False)
-        ]
+        root.handlers = [h for h in root.handlers if not getattr(h, "_xpcsjax_managed", False)]
         root.propagate = False  # set a known start state
 
         # configure with console disabled → no managed handler will be added
@@ -218,14 +216,12 @@ class TestContextFilterOnLogger:
         # Set a context value
         tok = lm.set_log_context(run_id="pre-configure-test", phase="init")
         try:
-            rec = logging.LogRecord(
-                "xpcsjax.test", logging.INFO, __file__, 1, "msg", None, None
-            )
+            rec = logging.LogRecord("xpcsjax.test", logging.INFO, __file__, 1, "msg", None, None)
             # Apply the filter manually — this simulates the filter on the logger
             lm.ContextFilter().filter(rec)
             assert rec.run_id == "pre-configure-test"
             assert rec.phase == "init"
-            assert rec.mode is None   # not set → None
+            assert rec.mode is None  # not set → None
             assert rec.strategy is None  # not set → None
         finally:
             lm.reset_log_context(tok)
@@ -364,9 +360,7 @@ class TestJSONFormatterCircularRef:
         d: dict[str, Any] = {}
         d["self"] = d
 
-        rec = logging.LogRecord(
-            "circ_test", logging.INFO, __file__, 1, "circular test", None, None
-        )
+        rec = logging.LogRecord("circ_test", logging.INFO, __file__, 1, "circular test", None, None)
         # Attach the circular dict as extra context
         rec.context = d  # type: ignore[attr-defined]
 

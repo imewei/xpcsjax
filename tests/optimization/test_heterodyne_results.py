@@ -9,6 +9,7 @@ If the dataclass shape drifts (a renamed field, a flipped optional default,
 a missing factory) the consequence is silent: results still build, but
 they're missing or mis-keyed. These tests fence the contract.
 """
+
 from __future__ import annotations
 
 import numpy as np

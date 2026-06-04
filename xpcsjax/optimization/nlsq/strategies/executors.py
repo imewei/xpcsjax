@@ -221,9 +221,7 @@ class LargeDatasetExecutor(OptimizationExecutor):
         # Use parameter magnitude-based scaling
         if isinstance(x_scale_value, (int, float)):
             x_scale = np.abs(initial_params) + 1e-3
-            logger.info(
-                f"Replacing scalar x_scale={x_scale_value} with magnitude-based scaling"
-            )
+            logger.info(f"Replacing scalar x_scale={x_scale_value} with magnitude-based scaling")
         elif isinstance(x_scale_value, np.ndarray):
             x_scale = x_scale_value
         else:
@@ -290,9 +288,7 @@ class LargeDatasetExecutor(OptimizationExecutor):
                 pcov=np.asarray(pcov),
                 info=info,
                 recovery_actions=[],
-                convergence_status="converged"
-                if info.get("success", False)
-                else "partial",
+                convergence_status="converged" if info.get("success", False) else "partial",
             )
 
         except (ValueError, RuntimeError, TypeError, OSError, MemoryError) as e:
@@ -350,17 +346,13 @@ class StreamingExecutor(OptimizationExecutor):
         config = HybridStreamingConfig(
             chunk_size=self.checkpoint_config.get("chunk_size", 10000),
             warmup_iterations=self.checkpoint_config.get("warmup_iterations", 200),
-            max_warmup_iterations=self.checkpoint_config.get(
-                "max_warmup_iterations", 500
-            ),
+            max_warmup_iterations=self.checkpoint_config.get("max_warmup_iterations", 500),
             gauss_newton_max_iterations=self.checkpoint_config.get(
                 "gauss_newton_max_iterations", 100
             ),
             gauss_newton_tol=self.checkpoint_config.get("gauss_newton_tol", 1e-8),
             normalize=self.checkpoint_config.get("normalize", True),
-            normalization_strategy=self.checkpoint_config.get(
-                "normalization_strategy", "bounds"
-            ),
+            normalization_strategy=self.checkpoint_config.get("normalization_strategy", "bounds"),
         )
 
         optimizer = AdaptiveHybridStreamingOptimizer(config)
@@ -430,9 +422,7 @@ def get_executor(
     }
 
     if strategy_name not in executors:
-        raise ValueError(
-            f"Unknown strategy: {strategy_name}. Available: {list(executors.keys())}"
-        )
+        raise ValueError(f"Unknown strategy: {strategy_name}. Available: {list(executors.keys())}")
 
     executor_class = executors[strategy_name]
     if callable(executor_class) and not isinstance(executor_class, type):

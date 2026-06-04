@@ -57,7 +57,9 @@ def test_config_from_nlsq_config() -> None:
 def test_config_to_nlsq_global_config() -> None:
     pytest.importorskip("nlsq.global_optimization")
     cfg = ms.MultiStartConfig(
-        n_starts=8, sampling_strategy="latin_hypercube", use_screening=True,
+        n_starts=8,
+        sampling_strategy="latin_hypercube",
+        use_screening=True,
         screen_keep_fraction=0.5,
     )
     goc = cfg.to_nlsq_global_config()
@@ -230,9 +232,7 @@ def test_include_custom_starts_all_out_of_bounds_returns_generated() -> None:
 
 def test_screen_starts_keeps_lowest_cost_sequential() -> None:
     starts = np.array([[3.0], [1.0], [2.0]])  # n_starts=3 -> sequential path
-    filtered, costs = ms.screen_starts(
-        lambda p: float(p[0]), starts, keep_fraction=0.5, min_keep=2
-    )
+    filtered, costs = ms.screen_starts(lambda p: float(p[0]), starts, keep_fraction=0.5, min_keep=2)
     assert len(costs) == 3  # all costs returned
     assert len(filtered) == 2  # min_keep
     assert sorted(filtered[:, 0].tolist()) == [1.0, 2.0]  # two lowest kept
@@ -269,9 +269,7 @@ def test_detect_degeneracy_single_basin() -> None:
 def test_detect_degeneracy_multiple_basins() -> None:
     a = ms.SingleStartResult(0, np.zeros(2), np.array([1.0, 1.0]), 1.0, success=True)
     b = ms.SingleStartResult(1, np.zeros(2), np.array([5.0, 5.0]), 1.02, success=True)
-    detected, n_basins, _ = ms.detect_degeneracy(
-        [a, b], chi_sq_threshold=0.1, param_threshold=0.2
-    )
+    detected, n_basins, _ = ms.detect_degeneracy([a, b], chi_sq_threshold=0.1, param_threshold=0.2)
     assert detected is True
     assert n_basins == 2
 
@@ -319,9 +317,7 @@ def _fit_factory(success: bool = True):
 def test_run_multistart_sequential_happy_path() -> None:
     data = {"phi": np.zeros(8)}
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]])
-    cfg = ms.MultiStartConfig(
-        enable=True, n_starts=4, seed=1, n_workers=1, use_screening=False
-    )
+    cfg = ms.MultiStartConfig(enable=True, n_starts=4, seed=1, n_workers=1, use_screening=False)
     result = ms.run_multistart_nlsq(data, bounds, cfg, _fit_factory(success=True))
     assert result.strategy_used == "full"
     assert result.n_successful == 4
@@ -333,11 +329,18 @@ def test_run_multistart_with_screening() -> None:
     data = {"phi": np.zeros(8)}
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]])
     cfg = ms.MultiStartConfig(
-        enable=True, n_starts=6, seed=1, n_workers=1,
-        use_screening=True, screen_keep_fraction=0.5,
+        enable=True,
+        n_starts=6,
+        seed=1,
+        n_workers=1,
+        use_screening=True,
+        screen_keep_fraction=0.5,
     )
     result = ms.run_multistart_nlsq(
-        data, bounds, cfg, _fit_factory(success=True),
+        data,
+        bounds,
+        cfg,
+        _fit_factory(success=True),
         cost_func=lambda p: float(np.sum(np.asarray(p) ** 2)),
     )
     assert result.screening_costs is not None

@@ -103,8 +103,7 @@ def get_parameter_names(analysis_mode: AnalysisMode) -> list[str]:
         return LAMINAR_FLOW_PARAMS.copy()
     else:
         raise ValueError(
-            f"Unknown analysis mode: {analysis_mode}. "
-            f"Expected 'static_isotropic' or 'laminar_flow'"
+            f"Unknown analysis mode: {analysis_mode}. Expected 'static_isotropic' or 'laminar_flow'"
         )
 
 

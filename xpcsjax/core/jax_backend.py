@@ -62,9 +62,7 @@ except ImportError:
     def vmap(func: Callable, *args: object, **kwargs: object) -> Callable:  # type: ignore[no-redef,misc,unused-ignore]
         """Simple vectorization fallback using Python loops."""
 
-        def vectorized_func(
-            inputs: object, *vargs: object, **vkwargs: object
-        ) -> object:
+        def vectorized_func(inputs: object, *vargs: object, **vkwargs: object) -> object:
             if hasattr(inputs, "__iter__") and not isinstance(inputs, str):
                 return [func(inp, *vargs, **vkwargs) for inp in inputs]
             return func(inputs, *vargs, **vkwargs)
@@ -493,19 +491,13 @@ def _compute_g1_diffusion_core(
         grid_size = time_grid_used.shape[0]
 
         # Compute D(t) on grid and build cumulative trapezoid
-        D_grid = _calculate_diffusion_coefficient_impl_jax(
-            time_grid_used, D0, alpha, D_offset
-        )
+        D_grid = _calculate_diffusion_coefficient_impl_jax(time_grid_used, D0, alpha, D_offset)
         D_cumsum = _trapezoid_cumsum(D_grid)
 
         # Map times to grid indices using searchsorted (FR-007: clamp to valid range)
         max_index = grid_size - 1
-        idx1 = jnp.clip(
-            jnp.searchsorted(time_grid_used, t1_arr, side="left"), 0, max_index
-        )
-        idx2 = jnp.clip(
-            jnp.searchsorted(time_grid_used, t2_arr, side="left"), 0, max_index
-        )
+        idx1 = jnp.clip(jnp.searchsorted(time_grid_used, t1_arr, side="left"), 0, max_index)
+        idx2 = jnp.clip(jnp.searchsorted(time_grid_used, t2_arr, side="left"), 0, max_index)
 
         # Lookup integrals with smooth abs for gradient stability (FR-008).
         # P0-2: epsilon_abs=1e-12 (was 1e-20, below float32 precision).
@@ -645,19 +637,13 @@ def _compute_g1_shear_core(
 
         # Map times to grid indices using searchsorted (FR-007: clamp to valid range)
         max_index = grid_size - 1
-        idx1 = jnp.clip(
-            jnp.searchsorted(time_grid_used, t1_arr, side="left"), 0, max_index
-        )
-        idx2 = jnp.clip(
-            jnp.searchsorted(time_grid_used, t2_arr, side="left"), 0, max_index
-        )
+        idx1 = jnp.clip(jnp.searchsorted(time_grid_used, t1_arr, side="left"), 0, max_index)
+        idx2 = jnp.clip(jnp.searchsorted(time_grid_used, t2_arr, side="left"), 0, max_index)
 
         # Lookup integrals with smooth abs for gradient stability (FR-008).
         # P0-2: epsilon_abs=1e-12 (was 1e-20, below float32 precision).
         epsilon_abs = 1e-12
-        gamma_integral = jnp.sqrt(
-            (gamma_cumsum[idx2] - gamma_cumsum[idx1]) ** 2 + epsilon_abs
-        )
+        gamma_integral = jnp.sqrt((gamma_cumsum[idx2] - gamma_cumsum[idx1]) ** 2 + epsilon_abs)
         n_times = t1_arr.shape[0]
 
     else:
@@ -775,9 +761,7 @@ def _compute_g1_total_core(
     )
 
     # Compute shear contribution
-    g1_shear = _compute_g1_shear_core(
-        params, t1, t2, phi, sinc_prefactor, dt, time_grid=time_grid
-    )
+    g1_shear = _compute_g1_shear_core(params, t1, t2, phi, sinc_prefactor, dt, time_grid=time_grid)
 
     # CRITICAL FIX (Nov 2025): Handle element-wise vs matrix mode
     # Element-wise mode: both g1_diff and g1_shear are 1D (shape (n,))
@@ -910,9 +894,7 @@ def compute_g1_diffusion(
     if dt is None:
         # FALLBACK: Estimate from 2D meshgrid (first column = unique t1 values)
         time_array = t1[:, 0]
-        dt_value = (
-            float(time_array[1] - time_array[0]) if time_array.shape[0] > 1 else 1.0
-        )
+        dt_value = float(time_array[1] - time_array[0]) if time_array.shape[0] > 1 else 1.0
     else:
         dt_value = dt
 
@@ -920,9 +902,7 @@ def compute_g1_diffusion(
     wavevector_q_squared_half_dt = 0.5 * (q**2) * dt_value
 
     return jnp.asarray(
-        _compute_g1_diffusion_core(
-            params, t1, t2, wavevector_q_squared_half_dt, dt_value
-        )
+        _compute_g1_diffusion_core(params, t1, t2, wavevector_q_squared_half_dt, dt_value)
     )
 
 
@@ -1265,9 +1245,7 @@ def vectorized_g2_computation(
         # Simple loop fallback
         results = []
         for params in params_batch:
-            result = compute_g2_scaled(
-                params, t1, t2, phi, q, L, contrast, offset, dt_value
-            )
+            result = compute_g2_scaled(params, t1, t2, phi, q, L, contrast, offset, dt_value)
             results.append(result)
         return jnp.stack(results)
 
@@ -1403,14 +1381,10 @@ def validate_backend() -> dict[str, Any]:
             grad_func = grad(compute_g1_diffusion, argnums=0)
             grad_func(test_params, test_t1, test_t2, test_q)
             results["gradient_support"] = True
-            cast(dict[str, str], results["test_results"])["gradient_computation"] = (
-                "success"
-            )
+            cast(dict[str, str], results["test_results"])["gradient_computation"] = "success"
 
             if not JAX_AVAILABLE:
-                cast(dict[str, str], results["test_results"])["gradient_method"] = (
-                    "numpy_fallback"
-                )
+                cast(dict[str, str], results["test_results"])["gradient_method"] = "numpy_fallback"
 
         except ImportError as e:
             cast(dict[str, str], results["test_results"])["gradient_computation"] = (
@@ -1428,14 +1402,10 @@ def validate_backend() -> dict[str, Any]:
             hess_func = hessian(compute_g1_diffusion, argnums=0)
             hess_func(test_params, test_t1, test_t2, test_q)
             results["hessian_support"] = True
-            cast(dict[str, str], results["test_results"])["hessian_computation"] = (
-                "success"
-            )
+            cast(dict[str, str], results["test_results"])["hessian_computation"] = "success"
 
             if not JAX_AVAILABLE:
-                cast(dict[str, str], results["test_results"])["hessian_method"] = (
-                    "numpy_fallback"
-                )
+                cast(dict[str, str], results["test_results"])["hessian_method"] = "numpy_fallback"
 
         except ImportError as e:
             cast(dict[str, str], results["test_results"])["hessian_computation"] = (
@@ -1452,9 +1422,7 @@ def validate_backend() -> dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Basic computation test failed: {e}")
-        cast(dict[str, str], results["test_results"])["forward_computation"] = (
-            f"failed: {str(e)}"
-        )
+        cast(dict[str, str], results["test_results"])["forward_computation"] = f"failed: {str(e)}"
 
     return results
 
@@ -1467,9 +1435,7 @@ def get_device_info() -> dict[str, Any]:
             "devices": cast(list[str], []),
             "backend": "numpy_fallback" if numpy_gradients_available else "none",
             "fallback_active": True,
-            "performance_impact": (
-                "10-50x slower" if numpy_gradients_available else "unavailable"
-            ),
+            "performance_impact": ("10-50x slower" if numpy_gradients_available else "unavailable"),
             "recommendations": cast(list[str], []),
         }
 
@@ -1522,9 +1488,7 @@ def get_performance_summary() -> dict[str, Any]:
         "numpy_gradients_available": numpy_gradients_available,
         "fallback_stats": _fallback_stats.copy(),
         "performance_multiplier": (
-            "1x"
-            if JAX_AVAILABLE
-            else ("10-50x" if numpy_gradients_available else "N/A")
+            "1x" if JAX_AVAILABLE else ("10-50x" if numpy_gradients_available else "N/A")
         ),
         "recommendations": _get_performance_recommendations(),
     }

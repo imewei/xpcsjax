@@ -223,8 +223,7 @@ class PhysicsFactors:
         # Check derived factors
         if not np.isfinite(self.wavevector_q_squared_half_dt):
             raise ValueError(
-                "Computed wavevector_q_squared_half_dt is not finite. "
-                "Check q and dt values.",
+                "Computed wavevector_q_squared_half_dt is not finite. Check q and dt values.",
             )
         if not np.isfinite(self.sinc_prefactor):
             raise ValueError(

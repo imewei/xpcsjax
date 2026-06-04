@@ -305,11 +305,7 @@ class HomodyneModel:
         if mode:
             mode_lower = str(mode).lower()
             if "static" in mode_lower:
-                return (
-                    "static_isotropic"
-                    if "isotropic" in mode_lower
-                    else "static_anisotropic"
-                )
+                return "static_isotropic" if "isotropic" in mode_lower else "static_anisotropic"
             if mode_lower in {"laminar", "laminar_flow"}:
                 return "laminar_flow"
 

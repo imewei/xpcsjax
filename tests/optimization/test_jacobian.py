@@ -10,6 +10,7 @@ These tests pin the contract: each function returns sensible values for a
 well-conditioned polynomial fit, and degrades gracefully (returns None or
 empty dict) when the inputs make the math undefined.
 """
+
 from __future__ import annotations
 
 import jax.numpy as jnp
@@ -50,9 +51,7 @@ def test_compute_jacobian_stats_returns_jtj_and_norms(
     """Happy path: well-conditioned polynomial returns a (3,3) J^T J and
     a length-3 column-norm vector. Both are finite."""
     xdata, params = fixture_data
-    jtj, col_norms = compute_jacobian_stats(
-        _polynomial_residual, xdata, params, scaling_factor=1.0
-    )
+    jtj, col_norms = compute_jacobian_stats(_polynomial_residual, xdata, params, scaling_factor=1.0)
 
     assert jtj is not None and col_norms is not None
     assert jtj.shape == (3, 3)
@@ -67,6 +66,7 @@ def test_compute_jacobian_stats_handles_broken_residual() -> None:
     """A residual function that raises must yield (None, None) rather than
     propagating the exception. The diagnostics path is best-effort, not
     fatal — a None return lets the caller fall through to a default."""
+
     def broken(xdata, *params):  # noqa: ARG001
         raise RuntimeError("intentional")
 

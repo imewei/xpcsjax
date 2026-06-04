@@ -68,9 +68,7 @@ def test_perturb_parameters_reproducible_and_shaped() -> None:
 def test_perturb_zero_param_uses_additive_fallback() -> None:
     # Zero-valued params must move (multiplicative scaling would leave them at 0).
     err = NLSQConvergenceError("x")
-    out = RecoveryStrategyApplicator(seed=1).get_recovery_strategy(
-        err, np.array([0.0, 5.0]), 0
-    )
+    out = RecoveryStrategyApplicator(seed=1).get_recovery_strategy(err, np.array([0.0, 5.0]), 0)
     assert out is not None
     assert out[1][0] != 0.0
 
@@ -79,9 +77,7 @@ def test_tighten_bounds_clips_params() -> None:
     err = NLSQNumericalError("x")
     bounds = (np.array([0.0]), np.array([10.0]))
     # attempt 1 -> tighten_bounds (0.9): tightened range is [0.5, 9.5].
-    out = RecoveryStrategyApplicator().get_recovery_strategy(
-        err, np.array([0.2]), 1, bounds=bounds
-    )
+    out = RecoveryStrategyApplicator().get_recovery_strategy(err, np.array([0.2]), 1, bounds=bounds)
     assert out is not None
     assert out[0] == "tighten_bounds"
     assert out[1][0] == pytest.approx(0.5)  # clipped up to tightened lower

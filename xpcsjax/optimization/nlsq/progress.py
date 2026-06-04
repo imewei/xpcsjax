@@ -131,9 +131,7 @@ class HomodyneIterationLogger:
         if self._start_time is None:
             self._start_time = time.perf_counter()
             if self.verbose >= 1:
-                self._logger.info(
-                    f"NLSQ optimization started | initial cost: {cost:.6e}"
-                )
+                self._logger.info(f"NLSQ optimization started | initial cost: {cost:.6e}")
 
         # Update best cost
         if cost < self._best_cost:
@@ -142,10 +140,7 @@ class HomodyneIterationLogger:
         elapsed = time.perf_counter() - self._start_time
 
         # Verbose = 2: Log at regular intervals
-        if (
-            self.verbose >= 2
-            and iteration - self._last_logged_iter >= self.log_interval
-        ):
+        if self.verbose >= 2 and iteration - self._last_logged_iter >= self.log_interval:
             grad_norm = info.get("gradient_norm", float("nan"))
             nfev = info.get("nfev", iteration + 1)
             self._logger.info(
@@ -314,8 +309,7 @@ class MultiStartProgressTracker:
                 logger.debug(f"Progress bar initialized: {n_starts} starts")
             except ImportError:
                 logger.warning(
-                    "tqdm not available for progress bar display. "
-                    "Install with: pip install tqdm"
+                    "tqdm not available for progress bar display. Install with: pip install tqdm"
                 )
             except (AttributeError, RuntimeError, ValueError) as e:
                 logger.warning(f"Failed to initialize progress bar: {e}")
@@ -391,8 +385,7 @@ class MultiStartProgressTracker:
         elif self.verbose >= 1 and is_new_best:
             # Log new best even at verbose=1
             logger.info(
-                f"New best at start {start_idx + 1}/{self.n_starts}: "
-                f"chi2={chi_squared:.4e}"
+                f"New best at start {start_idx + 1}/{self.n_starts}: chi2={chi_squared:.4e}"
             )
 
         # Log failures at verbose >= 1
@@ -409,9 +402,7 @@ class MultiStartProgressTracker:
         avg_time = elapsed / self._completed if self._completed > 0 else 0
 
         if self.verbose >= 1:
-            success_rate = (
-                self._successful / self._completed * 100 if self._completed > 0 else 0
-            )
+            success_rate = self._successful / self._completed * 100 if self._completed > 0 else 0
             logger.info(
                 f"Multi-start summary: {self._successful}/{self._completed} successful "
                 f"({success_rate:.0f}%), {self._failed} failed"

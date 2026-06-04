@@ -312,9 +312,7 @@ class StratifiedResidualFunction:
         self._diag_mask = self.t1_indices_all != self.t2_indices_all
 
         # Compute chunk boundaries for index lookup
-        chunk_sizes = [
-            len(cast(jnp.ndarray, chunk_jax["g2"])) for chunk_jax in self.chunks_jax
-        ]
+        chunk_sizes = [len(cast(jnp.ndarray, chunk_jax["g2"])) for chunk_jax in self.chunks_jax]
         boundaries = [0]
         for size in chunk_sizes:
             boundaries.append(boundaries[-1] + size)
@@ -556,9 +554,7 @@ class StratifiedResidualFunction:
         EPS = 1e-10
         valid_sigma = sigma_all > EPS
         safe_sigma = jnp.where(valid_sigma, sigma_all, 1.0)
-        residuals = jnp.where(
-            valid_sigma, (self.g2_all - g2_theory_all) / safe_sigma, 0.0
-        )
+        residuals = jnp.where(valid_sigma, (self.g2_all - g2_theory_all) / safe_sigma, 0.0)
 
         # v2.14.2+ / A2: Mask diagonal points (t1 == t2) to zero. Diagonal
         # points are autocorrelation artifacts, not physics. The mask is
@@ -609,9 +605,7 @@ class StratifiedResidualFunction:
             # Chunks were freed by _concatenate_chunk_data() after inline validation
             # (_validate_chunk_structure_inline) already ran during __init__.
             # Return the cached result — True means construction succeeded.
-            self.logger.info(
-                "Chunk structure validation passed (cached -- validated during build)"
-            )
+            self.logger.info("Chunk structure validation passed (cached -- validated during build)")
             return getattr(self, "_chunk_structure_valid", True)
 
         # Chunks still live (unusual path, e.g. external test bypass): validate now.

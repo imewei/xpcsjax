@@ -218,9 +218,7 @@ def fit_with_stratified_least_squares(
                     f"Transforming parameters: Fourier mode ({len(initial_params)} -> "
                     f"{ad_controller.n_per_angle_params + n_physical})"
                 )
-                initial_params, _ = ad_controller.transform_params_to_fourier(
-                    initial_params
-                )
+                initial_params, _ = ad_controller.transform_params_to_fourier(initial_params)
                 if bounds is not None:
                     # Transform bounds for Fourier mode
                     lower, upper = bounds
@@ -229,23 +227,15 @@ def fit_with_stratified_least_squares(
                     # Use the mean of bounds for Fourier coefficients
                     lower_fourier = np.concatenate(
                         [
-                            np.full(
-                                n_coeffs, np.mean(lower[:n_phi])
-                            ),  # contrast coeffs
-                            np.full(
-                                n_coeffs, np.mean(lower[n_phi : 2 * n_phi])
-                            ),  # offset coeffs
+                            np.full(n_coeffs, np.mean(lower[:n_phi])),  # contrast coeffs
+                            np.full(n_coeffs, np.mean(lower[n_phi : 2 * n_phi])),  # offset coeffs
                             lower[2 * n_phi :],  # physical lower
                         ]
                     )
                     upper_fourier = np.concatenate(
                         [
-                            np.full(
-                                n_coeffs, np.mean(upper[:n_phi])
-                            ),  # contrast coeffs
-                            np.full(
-                                n_coeffs, np.mean(upper[n_phi : 2 * n_phi])
-                            ),  # offset coeffs
+                            np.full(n_coeffs, np.mean(upper[:n_phi])),  # contrast coeffs
+                            np.full(n_coeffs, np.mean(upper[n_phi : 2 * n_phi])),  # offset coeffs
                             upper[2 * n_phi :],  # physical upper
                         ]
                     )
@@ -253,9 +243,7 @@ def fit_with_stratified_least_squares(
                     log.debug(f"Transformed bounds to Fourier mode: {bounds[0].shape}")
 
     # Convert stratified flat arrays into chunks
-    log.info(
-        f"Creating chunks from stratified data (target size: {target_chunk_size:,})..."
-    )
+    log.info(f"Creating chunks from stratified data (target size: {target_chunk_size:,})...")
     chunked_data = create_stratified_chunks(stratified_data, target_chunk_size)
     log.info(f"Created {len(chunked_data.chunks)} chunks")
 
@@ -275,9 +263,7 @@ def fit_with_stratified_least_squares(
         # from quantiles. Per-angle values are FIXED (not optimized).
         # Result: 7 physical params only.
         log.info("=" * 60)
-        log.info(
-            "FIXED_CONSTANT MODE: Computing fixed per-angle scaling from quantiles"
-        )
+        log.info("FIXED_CONSTANT MODE: Computing fixed per-angle scaling from quantiles")
         log.info("=" * 60)
 
         # Get contrast/offset bounds from initial bounds
@@ -310,9 +296,7 @@ def fit_with_stratified_least_squares(
             # Original format was [contrast(n_phi), offset(n_phi), physical(n_physical)]
             # New format is [physical(n_physical)]
             initial_params = initial_params[2 * n_phi :]
-            log.info(
-                f"Reduced initial parameters to physical only: {len(initial_params)} params"
-            )
+            log.info(f"Reduced initial parameters to physical only: {len(initial_params)} params")
 
             # Update bounds to contain ONLY physical parameter bounds
             if bounds is not None:
@@ -330,10 +314,7 @@ def fit_with_stratified_least_squares(
                 f"range=[{np.nanmin(fixed_offset):.4f}, {np.nanmax(fixed_offset):.4f}]"
             )
         else:
-            log.warning(
-                "Failed to compute fixed per-angle scaling, "
-                "falling back to standard mode"
-            )
+            log.warning("Failed to compute fixed per-angle scaling, falling back to standard mode")
             effective_per_angle_scaling = False
 
     elif ad_controller is not None and ad_controller.use_averaged_scaling:
@@ -374,9 +355,7 @@ def fit_with_stratified_least_squares(
 
             # Build 9-param initial_params: [contrast_avg, offset_avg, physical(7)]
             physical_params_init = initial_params[2 * n_phi :]
-            initial_params = np.concatenate(
-                [[avg_contrast, avg_offset], physical_params_init]
-            )
+            initial_params = np.concatenate([[avg_contrast, avg_offset], physical_params_init])
             log.info(
                 f"Averaged initial parameters: {len(initial_params)} params "
                 f"(contrast={avg_contrast:.4f}, offset={avg_offset:.4f})"
@@ -386,12 +365,8 @@ def fit_with_stratified_least_squares(
             if bounds is not None:
                 lower, upper = bounds
                 bounds = (
-                    np.concatenate(
-                        [[contrast_bounds[0], offset_bounds[0]], lower[2 * n_phi :]]
-                    ),
-                    np.concatenate(
-                        [[contrast_bounds[1], offset_bounds[1]], upper[2 * n_phi :]]
-                    ),
+                    np.concatenate([[contrast_bounds[0], offset_bounds[0]], lower[2 * n_phi :]]),
+                    np.concatenate([[contrast_bounds[1], offset_bounds[1]], upper[2 * n_phi :]]),
                 )
                 log.info(f"Updated bounds for averaged mode: {len(bounds[0])} params")
 
@@ -417,18 +392,12 @@ def fit_with_stratified_least_squares(
             avg_contrast = float(np.nanmean(initial_params[:n_phi]))
             avg_offset = float(np.nanmean(initial_params[n_phi : 2 * n_phi]))
             physical_params_init = initial_params[2 * n_phi :]
-            initial_params = np.concatenate(
-                [[avg_contrast, avg_offset], physical_params_init]
-            )
+            initial_params = np.concatenate([[avg_contrast, avg_offset], physical_params_init])
             if bounds is not None:
                 lower, upper = bounds
                 bounds = (
-                    np.concatenate(
-                        [[contrast_bounds[0], offset_bounds[0]], lower[2 * n_phi :]]
-                    ),
-                    np.concatenate(
-                        [[contrast_bounds[1], offset_bounds[1]], upper[2 * n_phi :]]
-                    ),
+                    np.concatenate([[contrast_bounds[0], offset_bounds[0]], lower[2 * n_phi :]]),
+                    np.concatenate([[contrast_bounds[1], offset_bounds[1]], upper[2 * n_phi :]]),
                 )
             effective_per_angle_scaling = False
 
@@ -494,9 +463,7 @@ def fit_with_stratified_least_squares(
             log.error("=" * 80)
             log.error(f"Gradient estimate: {gradient_estimate:.6e} (expected > 1e-10)")
             log.error("This indicates:")
-            log.error(
-                "  - Parameter initialization issue (likely wrong parameter count)"
-            )
+            log.error("  - Parameter initialization issue (likely wrong parameter count)")
             log.error("  - Residual function not sensitive to parameter changes")
             log.error("  - Optimization will fail with 0 iterations")
             log.error("")
@@ -521,9 +488,7 @@ def fit_with_stratified_least_squares(
                 f"(expected > 1e-10). Optimization cannot proceed with zero gradients."
             )
 
-        log.info(
-            f"Gradient sanity check passed (gradient magnitude: {gradient_estimate:.6e})"
-        )
+        log.info(f"Gradient sanity check passed (gradient magnitude: {gradient_estimate:.6e})")
 
     except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
         if "Gradient sanity check FAILED" in str(e):
@@ -624,9 +589,7 @@ def fit_with_stratified_least_squares(
                         )
                 else:
                     param_name = (
-                        physical_param_names[i]
-                        if i < len(physical_param_names)
-                        else f"param_{i}"
+                        physical_param_names[i] if i < len(physical_param_names) else f"param_{i}"
                     )
 
                 log.warning(
@@ -642,9 +605,7 @@ def fit_with_stratified_least_squares(
             log.warning("One or more parameters violated physical bounds.")
             log.warning("Parameters have been clipped to valid ranges.")
             log.warning("This may indicate:")
-            log.warning(
-                "  - Poor initial conditions (check config initial_parameters.values)"
-            )
+            log.warning("  - Poor initial conditions (check config initial_parameters.values)")
             log.warning("  - Insufficient constraints (consider constrained optimizer)")
             log.warning("  - Optimizer exploring unphysical parameter space")
             log.warning("=" * 80)
@@ -666,9 +627,7 @@ def fit_with_stratified_least_squares(
         n_params_effective = n_params
 
     # Use actual data point count, not padded length from StratifiedResidualFunction
-    n_data_real = (
-        residual_fn.n_total_points if hasattr(residual_fn, "n_total_points") else n_data
-    )
+    n_data_real = residual_fn.n_total_points if hasattr(residual_fn, "n_total_points") else n_data
 
     # Compute covariance matrix from Jacobian
     if "pcov" in result and result["pcov"] is not None:
@@ -712,9 +671,7 @@ def fit_with_stratified_least_squares(
     # Determine if optimization actually improved
     initial_residuals = residual_fn(initial_params)
     initial_cost = float(np.sum(initial_residuals**2))
-    cost_reduction = (
-        (initial_cost - final_cost) / initial_cost if initial_cost > 0 else 0
-    )
+    cost_reduction = (initial_cost - final_cost) / initial_cost if initial_cost > 0 else 0
     params_changed = not np.allclose(popt, initial_params, rtol=1e-8)
 
     # Log results
@@ -776,18 +733,12 @@ def fit_with_stratified_least_squares(
 
                 popt = popt_expanded
                 pcov = pcov_expanded
-                log.info(
-                    f"Expanded to {len(popt)} parameters with fixed per-angle scaling"
-                )
+                log.info(f"Expanded to {len(popt)} parameters with fixed per-angle scaling")
                 anti_degeneracy_info["mode"] = "fixed_constant_quantile"
                 anti_degeneracy_info["original_n_params"] = n_physical
                 anti_degeneracy_info["expanded_n_params"] = len(popt)
-                anti_degeneracy_info["fixed_contrast_mean"] = float(
-                    np.nanmean(fixed_contrast)
-                )
-                anti_degeneracy_info["fixed_offset_mean"] = float(
-                    np.nanmean(fixed_offset)
-                )
+                anti_degeneracy_info["fixed_contrast_mean"] = float(np.nanmean(fixed_contrast))
+                anti_degeneracy_info["fixed_offset_mean"] = float(np.nanmean(fixed_offset))
             else:
                 log.warning(
                     "Fixed constant mode but no fixed scaling available. "
@@ -804,18 +755,12 @@ def fit_with_stratified_least_squares(
 
             pcov_expanded = np.zeros((len(popt_expanded), len(popt_expanded)))
             pcov_expanded[:n_phi, :n_phi] = np.eye(n_phi) * pcov[0, 0]
-            pcov_expanded[n_phi : 2 * n_phi, n_phi : 2 * n_phi] = (
-                np.eye(n_phi) * pcov[1, 1]
-            )
+            pcov_expanded[n_phi : 2 * n_phi, n_phi : 2 * n_phi] = np.eye(n_phi) * pcov[1, 1]
             pcov_expanded[2 * n_phi :, 2 * n_phi :] = pcov[2:, 2:]
             pcov_expanded[2 * n_phi :, :n_phi] = np.tile(pcov[2:, 0:1], (1, n_phi))
             pcov_expanded[:n_phi, 2 * n_phi :] = np.tile(pcov[0:1, 2:], (n_phi, 1))
-            pcov_expanded[2 * n_phi :, n_phi : 2 * n_phi] = np.tile(
-                pcov[2:, 1:2], (1, n_phi)
-            )
-            pcov_expanded[n_phi : 2 * n_phi, 2 * n_phi :] = np.tile(
-                pcov[1:2, 2:], (n_phi, 1)
-            )
+            pcov_expanded[2 * n_phi :, n_phi : 2 * n_phi] = np.tile(pcov[2:, 1:2], (1, n_phi))
+            pcov_expanded[n_phi : 2 * n_phi, 2 * n_phi :] = np.tile(pcov[1:2, 2:], (n_phi, 1))
 
             popt = popt_expanded
             pcov = pcov_expanded
@@ -826,8 +771,7 @@ def fit_with_stratified_least_squares(
 
         elif ad_controller.use_fourier:
             log.info(
-                f"Expanding parameters from Fourier mode ({len(popt)} -> "
-                f"{2 * n_phi + n_physical})"
+                f"Expanding parameters from Fourier mode ({len(popt)} -> {2 * n_phi + n_physical})"
             )
             popt_expanded = ad_controller.transform_params_from_fourier(popt)
 
@@ -844,15 +788,9 @@ def fit_with_stratified_least_squares(
             pcov_expanded[n_phi : 2 * n_phi, n_phi : 2 * n_phi] = (
                 B_offset @ pcov_offset @ B_offset.T
             )
-            pcov_expanded[2 * n_phi :, 2 * n_phi :] = pcov[
-                2 * n_coeffs :, 2 * n_coeffs :
-            ]
-            pcov_expanded[2 * n_phi :, :n_phi] = (
-                pcov[2 * n_coeffs :, :n_coeffs] @ B_contrast.T
-            )
-            pcov_expanded[:n_phi, 2 * n_phi :] = (
-                B_contrast @ pcov[:n_coeffs, 2 * n_coeffs :]
-            )
+            pcov_expanded[2 * n_phi :, 2 * n_phi :] = pcov[2 * n_coeffs :, 2 * n_coeffs :]
+            pcov_expanded[2 * n_phi :, :n_phi] = pcov[2 * n_coeffs :, :n_coeffs] @ B_contrast.T
+            pcov_expanded[:n_phi, 2 * n_phi :] = B_contrast @ pcov[:n_coeffs, 2 * n_coeffs :]
             pcov_expanded[2 * n_phi :, n_phi : 2 * n_phi] = (
                 pcov[2 * n_coeffs :, n_coeffs : 2 * n_coeffs] @ B_offset.T
             )
@@ -902,15 +840,9 @@ def fit_with_stratified_least_squares(
             if abs(gamma_dot_t0_value) < 1e-5:
                 log.warning("=" * 80)
                 log.warning("SHEAR COLLAPSE WARNING")
-                log.warning(
-                    f"gamma_dot_t0 = {gamma_dot_t0_value:.2e} s^-1 is effectively zero"
-                )
-                log.warning(
-                    "The model has effectively collapsed to static_isotropic mode."
-                )
-                log.warning(
-                    "RECOMMENDED: Use phi_filtering for angles near 0 and 90 deg"
-                )
+                log.warning(f"gamma_dot_t0 = {gamma_dot_t0_value:.2e} s^-1 is effectively zero")
+                log.warning("The model has effectively collapsed to static_isotropic mode.")
+                log.warning("RECOMMENDED: Use phi_filtering for angles near 0 and 90 deg")
                 log.warning("=" * 80)
                 info["shear_collapse_warning"] = {
                     "gamma_dot_t0": float(gamma_dot_t0_value),

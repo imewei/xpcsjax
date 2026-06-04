@@ -16,6 +16,7 @@ These tests pin the security property directly:
 If these fail, do not loosen them — the deserializer regressed back to a
 code-execution sink.
 """
+
 from __future__ import annotations
 
 import pickle  # noqa: S403 — needed only to construct the hostile fixture

@@ -10,6 +10,7 @@ the same contract.
 Diagnostics-only: the helper reads ``info['anti_degeneracy']`` sub-key presence
 and never touches popt/pcov/chi2.
 """
+
 from __future__ import annotations
 
 import numpy as np

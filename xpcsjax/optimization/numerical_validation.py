@@ -138,8 +138,7 @@ class NumericalValidator:
             invalid_indices = jnp.where(invalid_mask)[0]
 
             invalid_values = [
-                f"param[{int(idx)}]={float(param_array[idx])}"
-                for idx in invalid_indices[:5]
+                f"param[{int(idx)}]={float(param_array[idx])}" for idx in invalid_indices[:5]
             ]
 
             raise NLSQNumericalError(
@@ -165,9 +164,7 @@ class NumericalValidator:
             violations_upper = param_array > upper
 
             if jnp.any(violations_lower) or jnp.any(violations_upper):
-                n_violations = int(
-                    jnp.sum(violations_lower) + jnp.sum(violations_upper)
-                )
+                n_violations = int(jnp.sum(violations_lower) + jnp.sum(violations_upper))
 
                 # Collect violation indices via vectorized jnp.where, then do a
                 # single device-to-host transfer rather than one per element.

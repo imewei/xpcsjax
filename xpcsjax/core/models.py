@@ -129,17 +129,14 @@ class PhysicsModelBase(ABC):
         try:
             # Try converting to float - will fail if in JIT context
             return {
-                name: float(val)
-                for name, val in zip(self.parameter_names, params_np, strict=False)
+                name: float(val) for name, val in zip(self.parameter_names, params_np, strict=False)
             }
         except (TypeError, ValueError, AttributeError):
             # In JIT context, keep as JAX arrays
             return dict(zip(self.parameter_names, params_np, strict=False))
 
     def __repr__(self) -> str:
-        return (
-            f"{self.__class__.__name__}(name='{self.name}', n_params={self.n_params})"
-        )
+        return f"{self.__class__.__name__}(name='{self.name}', n_params={self.n_params})"
 
 
 class DiffusionModel(PhysicsModelBase):
@@ -456,9 +453,7 @@ class CombinedModel(
                 in_axes=(None, 0, 0, 0, None, None, None),
             )
 
-        result: jnp.ndarray = self._cached_g1_vmap(
-            params, t1_batch, t2_batch, phi_batch, q, L, dt
-        )
+        result: jnp.ndarray = self._cached_g1_vmap(params, t1_batch, t2_batch, phi_batch, q, L, dt)
         return result
 
     @log_calls(include_args=False)
@@ -646,15 +641,12 @@ def make_model(config_or_manager: Any) -> PhysicsModelBase:
         cfg = config_or_manager
     else:
         raise ValueError(
-            "make_model expects a ConfigManager or dict, got "
-            f"{type(config_or_manager).__name__}"
+            f"make_model expects a ConfigManager or dict, got {type(config_or_manager).__name__}"
         )
 
     raw_mode = cfg.get("analysis_mode", "static_anisotropic")
     if not isinstance(raw_mode, str):
-        raise ValueError(
-            f"analysis_mode must be a string, got {type(raw_mode).__name__}"
-        )
+        raise ValueError(f"analysis_mode must be a string, got {type(raw_mode).__name__}")
     mode_lower = raw_mode.lower()
 
     # Heterodyne / two-component dispatch.

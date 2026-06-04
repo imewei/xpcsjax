@@ -11,6 +11,7 @@ not behavioural assertions on the solvers. The point is to fence the
 constants module so a refactor that touches it cannot pass CI without
 acknowledging the change.
 """
+
 from __future__ import annotations
 
 
@@ -68,8 +69,6 @@ def test_scaling_and_physical_blocks_are_disjoint() -> None:
     physical = set(STATIC_PHYSICAL_PARAMS)
     flow = set(FLOW_PARAMS)
 
-    assert scaling.isdisjoint(physical), (
-        f"scaling/physical overlap: {scaling & physical}"
-    )
+    assert scaling.isdisjoint(physical), f"scaling/physical overlap: {scaling & physical}"
     assert scaling.isdisjoint(flow), f"scaling/flow overlap: {scaling & flow}"
     assert physical.isdisjoint(flow), f"physical/flow overlap: {physical & flow}"

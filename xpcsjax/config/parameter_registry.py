@@ -78,8 +78,7 @@ class AnalysisMode(StrEnum):
                 "'static') or 'static_isotropic' (angle-collapsed) explicitly."
             )
         raise ValueError(
-            f"Unknown analysis mode: {raw!r}. Expected one of "
-            f"{[e.value for e in cls]}."
+            f"Unknown analysis mode: {raw!r}. Expected one of {[e.value for e in cls]}."
         )
 
 
@@ -512,9 +511,7 @@ class ParameterRegistry:
         try:
             return self._scaling_names_cache
         except AttributeError:
-            result = tuple(
-                name for name, info in self._PARAMETERS.items() if info.is_scaling
-            )
+            result = tuple(name for name, info in self._PARAMETERS.items() if info.is_scaling)
             self._scaling_names_cache: tuple[str, ...] = result
             return result
 
@@ -545,8 +542,7 @@ class ParameterRegistry:
 
         if base_name not in self._PARAMETERS:
             raise KeyError(
-                f"Unknown parameter: {name}. "
-                f"Valid parameters: {list(self._PARAMETERS.keys())}"
+                f"Unknown parameter: {name}. Valid parameters: {list(self._PARAMETERS.keys())}"
             )
         return self._PARAMETERS[base_name]
 
@@ -683,9 +679,7 @@ class ParameterRegistry:
             upper.append(ub)
 
         # T055: Log parameter bounds at DEBUG level
-        logger.debug(
-            f"Parameter bounds for {analysis_mode} mode ({len(names)} params):"
-        )
+        logger.debug(f"Parameter bounds for {analysis_mode} mode ({len(names)} params):")
         # Log physical parameters (not per-angle scaling) for clarity
         physical_params = self.get_param_names(analysis_mode)
         for name in physical_params:
@@ -722,9 +716,7 @@ class ParameterRegistry:
         defaults = [self.get_param_info(name).default for name in names]
 
         # T055: Log initial values at DEBUG level
-        logger.debug(
-            f"Default initial values for {analysis_mode} mode ({len(names)} params):"
-        )
+        logger.debug(f"Default initial values for {analysis_mode} mode ({len(names)} params):")
         physical_params = self.get_param_names(analysis_mode)
         for name in physical_params:
             info = self.get_param_info(name)
@@ -789,18 +781,14 @@ class ParameterRegistry:
                     continue  # Skip unknown parameters
                 lb, ub = self.get_bounds(name)
                 if value < lb or value > ub:
-                    raise ValueError(
-                        f"Parameter {name}={value} out of bounds [{lb}, {ub}]"
-                    )
+                    raise ValueError(f"Parameter {name}={value} out of bounds [{lb}, {ub}]")
         else:
             if len(values) != len(names):
                 raise ValueError(f"Expected {len(names)} values, got {len(values)}")
             for name, value in zip(names, values, strict=True):
                 lb, ub = self.get_bounds(name)
                 if value < lb or value > ub:
-                    raise ValueError(
-                        f"Parameter {name}={value} out of bounds [{lb}, {ub}]"
-                    )
+                    raise ValueError(f"Parameter {name}={value} out of bounds [{lb}, {ub}]")
 
     def expand_initial_values(
         self,

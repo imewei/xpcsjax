@@ -167,8 +167,7 @@ def _resolve_parameter_names(config_manager: ConfigManager | None) -> list[str] 
             return list(config_manager.get_active_parameters())
         except Exception:
             logger.warning(
-                "Could not resolve parameter names from ConfigManager; "
-                "output will be unlabeled.",
+                "Could not resolve parameter names from ConfigManager; output will be unlabeled.",
                 exc_info=True,
             )
     return None

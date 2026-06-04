@@ -169,9 +169,7 @@ def analyze_parameter_sensitivity(
     else:
         normalized = np.zeros_like(col_norms)
 
-    return {
-        name: float(norm) for name, norm in zip(param_names, normalized, strict=False)
-    }
+    return {name: float(norm) for name, norm in zip(param_names, normalized, strict=False)}
 
 
 def estimate_gradient_noise(
@@ -223,11 +221,7 @@ def estimate_gradient_noise(
 
         for _ in range(n_samples):
             # Add small perturbation
-            noise = (
-                rng.standard_normal(len(params_base))
-                * perturbation
-                * np.abs(params_base)
-            )
+            noise = rng.standard_normal(len(params_base)) * perturbation * np.abs(params_base)
             params_perturbed = params_base + noise
 
             params_jnp = jnp.asarray(params_perturbed)

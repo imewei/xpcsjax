@@ -555,16 +555,13 @@ class PreprocessingPipeline:
         logger.debug(f"Applying enhanced diagonal correction: {method}")
 
         corrected_data = {
-            k: (np.array(v) if hasattr(v, "shape") else copy.deepcopy(v))
-            for k, v in data.items()
+            k: (np.array(v) if hasattr(v, "shape") else copy.deepcopy(v)) for k, v in data.items()
         }
 
         # Use unified module if available
         if HAS_DIAGONAL_CORRECTION and apply_diagonal_correction is not None:
             extra_kwargs = {
-                k: v
-                for k, v in config.items()
-                if k not in ("method", "enabled", "backend")
+                k: v for k, v in config.items() if k not in ("method", "enabled", "backend")
             }
             for i in range(len(c2_exp)):
                 corrected_data["c2_exp"][i] = apply_diagonal_correction(
@@ -577,9 +574,7 @@ class PreprocessingPipeline:
             # Fallback to local implementations
             if method == "basic":
                 for i in range(len(c2_exp)):
-                    corrected_data["c2_exp"][i] = self._basic_diagonal_correction(
-                        c2_exp[i]
-                    )
+                    corrected_data["c2_exp"][i] = self._basic_diagonal_correction(c2_exp[i])
             elif method == "statistical":
                 for i in range(len(c2_exp)):
                     corrected_data["c2_exp"][i] = self._statistical_diagonal_correction(
@@ -588,11 +583,9 @@ class PreprocessingPipeline:
                     )
             elif method == "interpolation":
                 for i in range(len(c2_exp)):
-                    corrected_data["c2_exp"][i] = (
-                        self._interpolation_diagonal_correction(
-                            c2_exp[i],
-                            config,
-                        )
+                    corrected_data["c2_exp"][i] = self._interpolation_diagonal_correction(
+                        c2_exp[i],
+                        config,
                     )
             else:
                 logger.warning(
@@ -675,9 +668,7 @@ class PreprocessingPipeline:
                         # Filter NaN before trim_mean (scipy has no NaN-safe variant)
                         finite_neighbors = neighbors_arr[np.isfinite(neighbors_arr)]
                         if finite_neighbors.size > 0:
-                            c2_corrected[i, i] = stats.trim_mean(
-                                finite_neighbors, trim_fraction
-                            )
+                            c2_corrected[i, i] = stats.trim_mean(finite_neighbors, trim_fraction)
                         else:
                             c2_corrected[i, i] = np.nan
                     else:
@@ -743,8 +734,7 @@ class PreprocessingPipeline:
         # hasattr(v, 'shape') catches both numpy and JAX arrays; deepcopy of a JAX
         # array returns the same immutable object, so subsequent item-assignment fails.
         normalized_data = {
-            k: (np.array(v) if hasattr(v, "shape") else copy.deepcopy(v))
-            for k, v in data.items()
+            k: (np.array(v) if hasattr(v, "shape") else copy.deepcopy(v)) for k, v in data.items()
         }
 
         if method == NormalizationMethod.BASELINE:
@@ -782,9 +772,7 @@ class PreprocessingPipeline:
                 min_val = np.nanmin(c2_matrix)
                 max_val = np.nanmax(c2_matrix)
                 if max_val - min_val > np.finfo(float).eps * max(abs(max_val), 1.0):
-                    normalized_data["c2_exp"][i] = (c2_matrix - min_val) / (
-                        max_val - min_val
-                    )
+                    normalized_data["c2_exp"][i] = (c2_matrix - min_val) / (max_val - min_val)
                 else:
                     logger.warning(
                         f"Constant values at matrix {i}, skipping normalization",
@@ -798,9 +786,7 @@ class PreprocessingPipeline:
                 q25, q75 = np.nanpercentile(c2_matrix, percentile_range)
                 if q75 - q25 > np.finfo(float).eps * max(abs(q75), 1.0):
                     median_val = np.nanmedian(c2_matrix)
-                    normalized_data["c2_exp"][i] = (c2_matrix - median_val) / (
-                        q75 - q25
-                    )
+                    normalized_data["c2_exp"][i] = (c2_matrix - median_val) / (q75 - q25)
                 else:
                     logger.warning(
                         f"No variance in percentile range at matrix {i}, skipping normalization",
@@ -821,9 +807,7 @@ class PreprocessingPipeline:
                     t0_correlation = normalized_matrix[0, 0]
                     if t0_correlation < 1.0:
                         # Rescale to ensure t=0 correlation = 1
-                        normalized_data["c2_exp"][i] = (
-                            normalized_matrix / t0_correlation
-                        )
+                        normalized_data["c2_exp"][i] = normalized_matrix / t0_correlation
                     else:
                         normalized_data["c2_exp"][i] = normalized_matrix
                 else:
@@ -849,8 +833,7 @@ class PreprocessingPipeline:
         logger.debug(f"Applying noise reduction: {method.value}")
 
         denoised_data = {
-            k: (np.array(v) if hasattr(v, "shape") else copy.deepcopy(v))
-            for k, v in data.items()
+            k: (np.array(v) if hasattr(v, "shape") else copy.deepcopy(v)) for k, v in data.items()
         }
 
         if method == NoiseReductionMethod.MEDIAN:
@@ -939,8 +922,7 @@ class PreprocessingPipeline:
         logger.debug("Standardizing data format")
 
         standardized_data = {
-            k: (np.array(v) if hasattr(v, "shape") else copy.deepcopy(v))
-            for k, v in data.items()
+            k: (np.array(v) if hasattr(v, "shape") else copy.deepcopy(v)) for k, v in data.items()
         }
 
         # Ensure consistent data types

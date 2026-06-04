@@ -35,8 +35,11 @@ def _resid(x: np.ndarray, *p: float) -> np.ndarray:  # pragma: no cover - dummy
 
 def test_execution_result_dataclass() -> None:
     r = ex.ExecutionResult(
-        popt=np.array([1.0]), pcov=np.eye(1), info={"a": 1},
-        recovery_actions=["x"], convergence_status="converged",
+        popt=np.array([1.0]),
+        pcov=np.eye(1),
+        info={"a": 1},
+        recovery_actions=["x"],
+        convergence_status="converged",
     )
     assert r.convergence_status == "converged"
     assert r.info == {"a": 1}
@@ -112,9 +115,7 @@ def test_standard_executor_reraises_on_failure(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_large_executor_two_tuple(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        ex, "curve_fit_large", lambda *a, **k: (np.array([1.0, 2.0]), np.eye(2))
-    )
+    monkeypatch.setattr(ex, "curve_fit_large", lambda *a, **k: (np.array([1.0, 2.0]), np.eye(2)))
     bounds = (np.array([0.0, 0.0]), np.array([10.0, 10.0]))
     res = ex.LargeDatasetExecutor().execute(
         _resid, np.zeros(3), np.zeros(3), np.array([1.0, 2.0]), bounds, "soft_l1", 1.0, _logger()
@@ -125,7 +126,8 @@ def test_large_executor_two_tuple(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_large_executor_three_tuple_with_info(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        ex, "curve_fit_large",
+        ex,
+        "curve_fit_large",
         lambda *a, **k: (np.array([1.0]), np.eye(1), {"success": False, "nfev": 9}),
     )
     res = ex.LargeDatasetExecutor().execute(

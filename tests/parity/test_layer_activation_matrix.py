@@ -9,7 +9,6 @@ Diagnostics key/value assertions are derived directly from
 ``heterodyne_core.py`` — do NOT relax them to mere key-presence checks.
 """
 
-
 from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
@@ -161,9 +160,7 @@ def test_laminar_l1_l4_active_l5_present():
     from tests.optimization.test_l4_callback_observational import _build_laminar_fit
 
     fit_nlsq, data, cfg = _build_laminar_fit()
-    cfg.config["optimization"]["nlsq"]["anti_degeneracy"]["gradient_monitoring"] = {
-        "enable": True
-    }
+    cfg.config["optimization"]["nlsq"]["anti_degeneracy"]["gradient_monitoring"] = {"enable": True}
     diag = fit_nlsq(data, cfg).nlsq_diagnostics
     assert diag is not None, "laminar result carries no nlsq_diagnostics"
 

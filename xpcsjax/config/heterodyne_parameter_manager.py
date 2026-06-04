@@ -49,9 +49,7 @@ class ParameterManager:
     _cache_enabled: bool = field(default=True, init=False, repr=False)
 
     # B006: cached index lists (invalidated by set_vary)
-    _varying_indices_cache: list[int] | None = field(
-        default=None, init=False, repr=False
-    )
+    _varying_indices_cache: list[int] | None = field(default=None, init=False, repr=False)
     _fixed_indices_cache: list[int] | None = field(default=None, init=False, repr=False)
     _varying_names_cache: list[str] | None = field(default=None, init=False, repr=False)
 
@@ -62,9 +60,7 @@ class ParameterManager:
     # never mutated by update_values/set_params. get_initial_values() reads from here
     # so that each phi-angle optimization starts from config values regardless of
     # what a previous fit stored in space.values.
-    _initial_values_snapshot: dict[str, float] = field(
-        default_factory=dict, init=False, repr=False
-    )
+    _initial_values_snapshot: dict[str, float] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Build default bounds lookup from the registry, then merge config overrides."""
@@ -143,9 +139,7 @@ class ParameterManager:
         """Indices of varying parameters in the 14-element physics array."""
         if self._varying_indices_cache is None:
             self._varying_indices_cache = [
-                i
-                for i, name in enumerate(ALL_PARAM_NAMES)
-                if self.space.vary.get(name, False)
+                i for i, name in enumerate(ALL_PARAM_NAMES) if self.space.vary.get(name, False)
             ]
         return list(self._varying_indices_cache)
 
@@ -154,9 +148,7 @@ class ParameterManager:
         """Indices of fixed parameters in the 14-element physics array."""
         if self._fixed_indices_cache is None:
             self._fixed_indices_cache = [
-                i
-                for i, name in enumerate(ALL_PARAM_NAMES)
-                if not self.space.vary.get(name, False)
+                i for i, name in enumerate(ALL_PARAM_NAMES) if not self.space.vary.get(name, False)
             ]
         return list(self._fixed_indices_cache)
 
@@ -171,10 +163,12 @@ class ParameterManager:
         Returns:
             Array of shape (n_varying,) with initial values for varying params.
         """
-        full = np.array([
-            self._initial_values_snapshot.get(name, self.space.values.get(name, 0.0))
-            for name in ALL_PARAM_NAMES
-        ])
+        full = np.array(
+            [
+                self._initial_values_snapshot.get(name, self.space.values.get(name, 0.0))
+                for name in ALL_PARAM_NAMES
+            ]
+        )
         return full[self.varying_indices]
 
     def get_full_values(self) -> np.ndarray:
@@ -359,9 +353,7 @@ class ParameterManager:
         cache_key = tuple(parameter_names)
 
         if self._cache_enabled and cache_key in self._bounds_cache:
-            logger.debug(
-                "Returning cached bounds for %d parameters", len(parameter_names)
-            )
+            logger.debug("Returning cached bounds for %d parameters", len(parameter_names))
             return [b.copy() for b in self._bounds_cache[cache_key]]  # type: ignore[return-value]
 
         bounds_list: list[BoundDict] = []
@@ -376,9 +368,7 @@ class ParameterManager:
                         self._default_bounds[name]["max"],
                     ),
                 )
-                bounds_list.append(
-                    BoundDict(name=name, min=lo, max=hi, type="TruncatedNormal")
-                )
+                bounds_list.append(BoundDict(name=name, min=lo, max=hi, type="TruncatedNormal"))
             else:
                 raise KeyError(
                     f"Unknown parameter '{name}': not in ParameterRegistry "
@@ -406,9 +396,7 @@ class ParameterManager:
         Returns:
             List of (min, max) tuples, one per parameter.
         """
-        return [
-            (b["min"], b["max"]) for b in self.get_parameter_bounds(parameter_names)
-        ]
+        return [(b["min"], b["max"]) for b in self.get_parameter_bounds(parameter_names)]
 
     def get_bounds_as_arrays(
         self,
@@ -560,9 +548,7 @@ class ParameterManager:
         elif isinstance(params, dict):
             arr = self.get_full_values().copy()
             param_dict_full = self.space.array_to_dict(arr)
-            param_dict_full.update(
-                {k: v for k, v in params.items() if k in param_dict_full}
-            )
+            param_dict_full.update({k: v for k, v in params.items() if k in param_dict_full})
             arr = np.array([param_dict_full[name] for name in ALL_PARAM_NAMES])
         else:
             arr = np.asarray(params, dtype=float)
@@ -587,9 +573,7 @@ class ParameterManager:
         """Concise string representation of manager state."""
         n_active = len(self.get_active_parameters())
         n_fixed = len(self.get_fixed_parameters())
-        n_varying_scaling = sum(
-            1 for name in SCALING_PARAMS if self.space.vary.get(name, False)
-        )
+        n_varying_scaling = sum(1 for name in SCALING_PARAMS if self.space.vary.get(name, False))
         return (
             f"ParameterManager("
             f"n_physics={self.n_params}, "

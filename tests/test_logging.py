@@ -183,8 +183,12 @@ def test_summary_logger_records_and_logs() -> None:
     summary.increment_warning_count()
     summary.increment_error_count()
     summary.set_config_summary(
-        optimizer="nlsq", n_params=7, n_data_points=2_000_000, n_phi_angles=4,
-        data_file="d.h5", extra="z",
+        optimizer="nlsq",
+        n_params=7,
+        n_data_points=2_000_000,
+        n_phi_angles=4,
+        data_file="d.h5",
+        extra="z",
     )
 
     mock_logger = MagicMock()
@@ -274,15 +278,12 @@ def test_configure_plain_file_handler_when_no_rotation(tmp_path: Path) -> None:
     file_handlers = [
         h
         for h in root.handlers
-        if isinstance(h, logging.FileHandler)
-        and not isinstance(h, RotatingFileHandler)
+        if isinstance(h, logging.FileHandler) and not isinstance(h, RotatingFileHandler)
     ]
     assert file_handlers
 
 
-def test_configure_handles_mkdir_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_configure_handles_mkdir_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def _boom(self: Path, *a: object, **k: object) -> None:
         raise OSError("no permission")
 
@@ -500,7 +501,9 @@ def test_log_calls_logs_entry_exit_with_args_and_result() -> None:
         return a + b
 
     assert add(1, b=3) == 4
-    messages = [c.args[1] % c.args[2:] if len(c.args) > 2 else c.args[1] for c in mock.log.call_args_list]
+    messages = [
+        c.args[1] % c.args[2:] if len(c.args) > 2 else c.args[1] for c in mock.log.call_args_list
+    ]
     joined = " ".join(str(m) for m in messages)
     assert "Calling" in joined
     assert "Completed" in joined

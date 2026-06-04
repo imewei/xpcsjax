@@ -86,9 +86,7 @@ def save_nlsq_json_files(
             + analysis_file.stat().st_size
             + convergence_file.stat().st_size
         ) / 1024
-        logger.info(
-            f"Saved 3 JSON files to {output_dir} (total: {total_size_kb:.1f} KB)"
-        )
+        logger.info(f"Saved 3 JSON files to {output_dir} (total: {total_size_kb:.1f} KB)")
     except OSError as e:
         raise OSError(f"Failed to write NLSQ JSON files to {output_dir}: {e}") from e
 
@@ -182,8 +180,7 @@ def save_nlsq_npz_file(
             )
     if per_angle_scaling.shape[0] != n_angles:
         raise ValueError(
-            f"per_angle_scaling.shape[0]={per_angle_scaling.shape[0]} "
-            f"!= n_angles={n_angles}"
+            f"per_angle_scaling.shape[0]={per_angle_scaling.shape[0]} != n_angles={n_angles}"
         )
     if per_angle_scaling_solver.shape[0] != n_angles:
         raise ValueError(

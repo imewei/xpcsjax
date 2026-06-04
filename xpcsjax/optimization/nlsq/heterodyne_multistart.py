@@ -10,6 +10,7 @@ Heterodyne multistart runs **sequentially**: the single-fit worker closes over a
 JAX ``HeterodyneModel`` that is not process-picklable, so parallel workers
 (``n_workers > 1``) are deferred to a follow-up.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -122,9 +123,7 @@ def fit_nlsq_multistart_heterodyne(model, c2, phi, nlsq_cfg, weights, ms_cfg):
     )
 
     best_start = np.asarray(ms_result.best.initial_params, dtype=np.float64)
-    pm.update_values(
-        {name: float(v) for name, v in zip(varying_names, best_start, strict=True)}
-    )
+    pm.update_values({name: float(v) for name, v in zip(varying_names, best_start, strict=True)})
     final = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
 
     # Attach multistart provenance. nlsq_diagnostics defaults to None on

@@ -264,9 +264,7 @@ def apply_angle_filtering_for_optimization(
     normalized_result = normalize_angle_to_symmetric_range(phi_angles)
     # Cast to ndarray since we pass ndarray input (function returns float | ndarray)
     phi_angles = np.asarray(normalized_result)
-    logger.info(
-        "Normalized phi angles to [-180, 180] deg range (flow direction at 0 deg)"
-    )
+    logger.info("Normalized phi angles to [-180, 180] deg range (flow direction at 0 deg)")
     logger.debug(f"Original angles: {original_phi_angles}")
     logger.debug(f"Normalized angles: {phi_angles}")
 

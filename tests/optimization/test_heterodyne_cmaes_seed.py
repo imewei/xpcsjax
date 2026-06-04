@@ -103,9 +103,7 @@ def test_per_angle_cmaes_sigma0_is_honored(monkeypatch) -> None:
     default (0.5) can't make a broken mapping pass.
     """
     model, c2, phi = make_synthetic_two_component(n_phi=1, n_t=8)
-    config = NLSQConfig(
-        enable_cmaes=True, cmaes_sigma0=0.17, cmaes_warmstart_auto_skip=False
-    )
+    config = NLSQConfig(enable_cmaes=True, cmaes_sigma0=0.17, cmaes_warmstart_auto_skip=False)
     captured = _install_capturing_spy(monkeypatch)
 
     with pytest.raises(_CaptureAndStopError):
@@ -178,9 +176,7 @@ def test_per_angle_cmaes_is_bit_reproducible() -> None:
     for _ in range(2):
         # Fresh model each run; identical data (fixture uses a fixed RNG seed).
         model, c2, phi = make_synthetic_two_component(n_phi=1, n_t=10)
-        result = _fit_cmaes(
-            model, c2[0], float(phi[0]), config, weights=None, angle_idx=0
-        )
+        result = _fit_cmaes(model, c2[0], float(phi[0]), config, weights=None, angle_idx=0)
         params.append(np.asarray(result.parameters, dtype=np.float64))
 
     np.testing.assert_array_equal(

@@ -71,9 +71,7 @@ def test_legacy_object_metadata_is_refused(tmp_path: Path):
         t2=np.arange(4, dtype=np.float64),
         wavevector_q_list=np.array([0.0054], dtype=np.float64),
         phi_angles_list=np.array([0.0], dtype=np.float64),
-        cache_metadata=np.array(
-            {"config_wavevector_q": 0.0054, "q_count": 1}, dtype=object
-        ),
+        cache_metadata=np.array({"config_wavevector_q": 0.0054, "q_count": 1}, dtype=object),
     )
 
     loader = _bare_loader()
@@ -91,9 +89,7 @@ def test_object_dtype_under_data_key_is_refused(tmp_path: Path):
         t2=np.arange(4, dtype=np.float64),
         wavevector_q_list=np.array([0.0054], dtype=np.float64),
         phi_angles_list=np.array([0.0], dtype=np.float64),
-        cache_metadata_json=np.asarray(
-            json.dumps({"config_wavevector_q": 0.0054, "q_count": 1})
-        ),
+        cache_metadata_json=np.asarray(json.dumps({"config_wavevector_q": 0.0054, "q_count": 1})),
     )
 
     loader = _bare_loader()

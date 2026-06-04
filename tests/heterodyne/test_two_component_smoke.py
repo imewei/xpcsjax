@@ -11,6 +11,7 @@ a converged result on every phi angle and that the fitted parameters stay
 within a loose envelope of the truth. The tight golden-value comparison is
 covered by the C044 real-data test in Phase 7.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -122,8 +123,7 @@ def test_heterodyne_smoke_fit_recovers_truth(tmp_path):
     )
     diag = results.nlsq_diagnostics or {}
     assert "parameter_names" in diag, (
-        "OptimizationResult.nlsq_diagnostics must carry parameter_names "
-        "for joint heterodyne fits"
+        "OptimizationResult.nlsq_diagnostics must carry parameter_names for joint heterodyne fits"
     )
     assert "chi2_per_angle" in diag, (
         "OptimizationResult must carry chi2_per_angle in nlsq_diagnostics"
@@ -138,12 +138,8 @@ def test_heterodyne_smoke_fit_recovers_truth(tmp_path):
     # to ``len(parameter_names)`` so we don't accidentally pick up any
     # mode-specific tail (Fourier coefficients in fourier mode, etc.).
     first_names = list(diag["parameter_names"])
-    first_params = np.asarray(results.parameters, dtype=np.float64)[
-        : len(first_names)
-    ]
-    assert np.all(np.isfinite(first_params)), (
-        f"NaN/Inf in fitted parameters: {first_params}"
-    )
+    first_params = np.asarray(results.parameters, dtype=np.float64)[: len(first_names)]
+    assert np.all(np.isfinite(first_params)), f"NaN/Inf in fitted parameters: {first_params}"
 
     # ---- Recovery envelope ----------------------------------------------
     # Heterodyne's 14-parameter model has well-documented internal degeneracies

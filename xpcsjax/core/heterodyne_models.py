@@ -16,9 +16,7 @@ from xpcsjax.core.heterodyne_jax_backend import compute_c2_heterodyne
 # parameter registry so the ordering tracks Tasks 24/25 renames
 # (``v_beta``, ``phi0_het``) instead of the upstream heterodyne names
 # (``beta``, ``phi0``) that would collide with the homodyne flow params.
-ALL_PARAM_NAMES: tuple[str, ...] = tuple(
-    get_registry().get_param_names(AnalysisMode.TWO_COMPONENT)
-)
+ALL_PARAM_NAMES: tuple[str, ...] = tuple(get_registry().get_param_names(AnalysisMode.TWO_COMPONENT))
 
 if TYPE_CHECKING:
     pass
@@ -166,9 +164,7 @@ class TwoComponentModel(HeterodyneModelBase):
         Returns:
             Parameter array, shape (14,)
         """
-        return np.array(
-            [param_dict.get(name, self._defaults[name]) for name in ALL_PARAM_NAMES]
-        )
+        return np.array([param_dict.get(name, self._defaults[name]) for name in ALL_PARAM_NAMES])
 
     def compute_g1_reference(
         self,
@@ -289,8 +285,7 @@ class ReducedModel(HeterodyneModelBase):
         invalid = [n for n in self._active_params if n not in ALL_PARAM_NAMES]
         if invalid:
             raise ValueError(
-                f"Unknown parameter names: {invalid}. "
-                f"Valid names: {list(ALL_PARAM_NAMES)}"
+                f"Unknown parameter names: {invalid}. Valid names: {list(ALL_PARAM_NAMES)}"
             )
         # Precompute template and index mapping for _expand_to_full
         object.__setattr__(

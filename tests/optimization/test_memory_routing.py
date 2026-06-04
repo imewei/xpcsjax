@@ -1,6 +1,7 @@
 """Direct unit tests for memory-aware NLSQ strategy routing.
 
 Localizes router regressions ahead of the Phase 5 characterization gate."""
+
 import pytest
 
 from xpcsjax.optimization.nlsq.memory import select_nlsq_strategy
@@ -35,9 +36,7 @@ def test_large_data_with_tight_threshold_escalates():
     # Peak Jacobian = n_points * 14 * 8 bytes. Want peak > 2× threshold.
     n_points = max(100_000_000, int(2 * threshold_gb * 1e9 / (14 * 8)))
 
-    decision = select_nlsq_strategy(
-        n_points=n_points, n_params=14, memory_fraction=0.1
-    )
+    decision = select_nlsq_strategy(n_points=n_points, n_params=14, memory_fraction=0.1)
     name = _strategy_name(decision)
     assert any(token in name for token in ("OUT_OF_CORE", "CHUNK", "STREAM", "HYBRID")), (
         f"expected escalation beyond STANDARD on n_points={n_points} with mem_fraction=0.1, "
@@ -48,9 +47,7 @@ def test_large_data_with_tight_threshold_escalates():
 def test_memory_fraction_clamped_to_valid_range():
     """memory_fraction below 0.1 or above 0.9 is clamped (with a warning)."""
     with pytest.warns(UserWarning, match="clamped"):
-        decision = select_nlsq_strategy(
-            n_points=2_000_000, n_params=3, memory_fraction=0.001
-        )
+        decision = select_nlsq_strategy(n_points=2_000_000, n_params=3, memory_fraction=0.001)
     name = _strategy_name(decision)
     assert name in {"STANDARD", "OUT_OF_CORE", "HYBRID_STREAMING"}
 
@@ -75,9 +72,7 @@ def test_out_of_core_isolated_from_hybrid_streaming():
     # index ~ 0.5 * threshold (< threshold); peak ~ n_points * 50 * 8 >> threshold.
     n_points = int(threshold_points / 2)
 
-    decision = select_nlsq_strategy(
-        n_points=n_points, n_params=50, memory_fraction=0.1
-    )
+    decision = select_nlsq_strategy(n_points=n_points, n_params=50, memory_fraction=0.1)
     assert _strategy_name(decision) == "OUT_OF_CORE", (
         f"expected OUT_OF_CORE for index<threshold<peak, got {_strategy_name(decision)}"
     )

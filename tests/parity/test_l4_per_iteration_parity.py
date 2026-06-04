@@ -99,9 +99,7 @@ def test_homodyne_l4_is_diagnostic_only():
     r_on = fit_nlsq(data, cfg_on)
     r_off = fit_nlsq(data_off, cfg_off)
 
-    assert np.array_equal(
-        _homodyne_result_params(r_on), _homodyne_result_params(r_off)
-    )
+    assert np.array_equal(_homodyne_result_params(r_on), _homodyne_result_params(r_off))
     assert _homodyne_result_chi2(r_on) == _homodyne_result_chi2(r_off)
     # Covariance (pcov) bit-identity is part of the same hard gate as popt + chi2.
     cov_on = getattr(r_on, "covariance", None)
@@ -116,9 +114,7 @@ def test_homodyne_l4_is_per_iteration_block():
     from tests.optimization.test_l4_callback_observational import _build_laminar_fit
 
     fit_nlsq, data, cfg = _build_laminar_fit()
-    cfg.config["optimization"]["nlsq"]["anti_degeneracy"]["gradient_monitoring"] = {
-        "enable": True
-    }
+    cfg.config["optimization"]["nlsq"]["anti_degeneracy"]["gradient_monitoring"] = {"enable": True}
 
     res = fit_nlsq(data, cfg)
     gm = _homodyne_gradient_monitor_block(res)
@@ -133,8 +129,13 @@ def test_homodyne_l4_is_per_iteration_block():
 
 def test_heterodyne_l4_is_per_iteration_block():
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
-    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged",
-                                "enable_gradient_monitoring": True})
+    cfg = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "averaged",
+            "enable_gradient_monitoring": True,
+        }
+    )
     res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
     gm = res.nlsq_diagnostics["gradient_monitor"]
     assert "collapse_detected" in gm and "max_gradient_ratio" in gm
@@ -150,10 +151,20 @@ def test_heterodyne_l4_is_per_iteration_block():
 
 def test_heterodyne_l4_is_diagnostic_only():
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
-    on = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged",
-                               "enable_gradient_monitoring": True})
-    off = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged",
-                                "enable_gradient_monitoring": False})
+    on = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "averaged",
+            "enable_gradient_monitoring": True,
+        }
+    )
+    off = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "averaged",
+            "enable_gradient_monitoring": False,
+        }
+    )
     r_on = fit_nlsq_multi_phi(model, c2, phi, on, weights=None)
     r_off = fit_nlsq_multi_phi(model, c2, phi, off, weights=None)
     assert np.array_equal(np.asarray(r_on.parameters), np.asarray(r_off.parameters))
@@ -210,9 +221,7 @@ def test_both_modes_emit_same_l4_block_keys():
     from tests.optimization.test_l4_callback_observational import _build_laminar_fit
 
     fit_nlsq, data, cfg = _build_laminar_fit()
-    cfg.config["optimization"]["nlsq"]["anti_degeneracy"]["gradient_monitoring"] = {
-        "enable": True
-    }
+    cfg.config["optimization"]["nlsq"]["anti_degeneracy"]["gradient_monitoring"] = {"enable": True}
     lam = fit_nlsq(data, cfg)
     lam_keys = set(lam.nlsq_diagnostics["gradient_monitor"])
     assert lam_keys == het_keys

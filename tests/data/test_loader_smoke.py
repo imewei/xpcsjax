@@ -1,4 +1,5 @@
 """Smoke test: xpcs_loader module imports cleanly with no homodyne references."""
+
 import xpcsjax.data.xpcs_loader as loader
 
 

@@ -175,8 +175,7 @@ class DatasetOptimizer:
             batch_size=batch_size,
             memory_limit_mb=self.memory_limit_mb,
             use_caching=dataset_info.use_progressive_loading,
-            use_compression=self.enable_compression
-            and dataset_info.category == "large",
+            use_compression=self.enable_compression and dataset_info.category == "large",
             parallel_workers=workers,
             jax_config=jax_config,
         )
@@ -578,9 +577,7 @@ class AdvancedDatasetOptimizer:
             if basic_config["dataset_info"].category == "large":
                 workload_type = "batch"  # Large datasets typically batch processed
             elif basic_config["dataset_info"].category == "medium":
-                workload_type = (
-                    "interactive"  # Medium datasets for interactive analysis
-                )
+                workload_type = "interactive"  # Medium datasets for interactive analysis
             else:
                 workload_type = "streaming"  # Small datasets for streaming
 
@@ -615,9 +612,7 @@ class AdvancedDatasetOptimizer:
                         )
 
                     advanced_config["advanced_features"]["chunk_plan"] = chunk_info
-                    advanced_config["advanced_features"][
-                        "performance_engine_available"
-                    ] = True
+                    advanced_config["advanced_features"]["performance_engine_available"] = True
 
                     # Schedule prefetching if enabled
                     if self._prefetch_enabled and len(data_keys) > 50:
@@ -626,16 +621,12 @@ class AdvancedDatasetOptimizer:
                             data_keys[: len(data_keys) // 2],
                             priority=3,
                         )
-                        advanced_config["advanced_features"]["prefetch_future"] = (
-                            prefetch_future
-                        )
+                        advanced_config["advanced_features"]["prefetch_future"] = prefetch_future
                         logger.info(
                             f"Scheduled prefetching for {len(data_keys) // 2} correlation matrices",
                         )
                 else:
-                    advanced_config["advanced_features"][
-                        "performance_engine_available"
-                    ] = True
+                    advanced_config["advanced_features"]["performance_engine_available"] = True
 
             except Exception as e:
                 log_exception(
@@ -644,9 +635,7 @@ class AdvancedDatasetOptimizer:
                     context={"operation": "performance_engine_optimization"},
                     level=logging.DEBUG,
                 )
-                advanced_config["advanced_features"]["performance_engine_available"] = (
-                    False
-                )
+                advanced_config["advanced_features"]["performance_engine_available"] = False
         else:
             advanced_config["advanced_features"]["performance_engine_available"] = False
 
@@ -803,9 +792,7 @@ class AdvancedDatasetOptimizer:
                 "dataset_sizes_range": {
                     "min": min(h["dataset_size"] for h in recent_optimizations),
                     "max": max(h["dataset_size"] for h in recent_optimizations),
-                    "avg": np.nanmean(
-                        [h["dataset_size"] for h in recent_optimizations]
-                    ),
+                    "avg": np.nanmean([h["dataset_size"] for h in recent_optimizations]),
                 },
             }
 

@@ -102,10 +102,7 @@ Exit codes:
         "--mode",
         choices=_VALID_MODES,
         default=None,
-        help=(
-            "Force ``analysis_mode`` (overrides YAML). Must be one of "
-            f"{_VALID_MODES}."
-        ),
+        help=(f"Force ``analysis_mode`` (overrides YAML). Must be one of {_VALID_MODES}."),
     )
     parser.add_argument(
         "--phi",
@@ -118,9 +115,7 @@ Exit codes:
     # ------------------------------------------------------------------
     # NLSQ options
     # ------------------------------------------------------------------
-    nlsq_group = parser.add_argument_group(
-        "NLSQ options", "Solver and multistart controls."
-    )
+    nlsq_group = parser.add_argument_group("NLSQ options", "Solver and multistart controls.")
     # store_const with default=None (not store_true) so the override layer
     # can distinguish "user did not pass --multistart" (None → leave YAML
     # untouched) from "user passed it" (True). store_true's False default
@@ -171,62 +166,104 @@ Exit codes:
     )
     # Core transport (all modes)
     param_group.add_argument(
-        "--initial-D0", type=float, default=None, metavar="VAL",
+        "--initial-D0",
+        type=float,
+        default=None,
+        metavar="VAL",
         help="Diffusion prefactor D0 [Å²/s^α].",
     )
     param_group.add_argument(
-        "--initial-alpha", type=float, default=None, metavar="VAL",
+        "--initial-alpha",
+        type=float,
+        default=None,
+        metavar="VAL",
         help="Transport exponent alpha.",
     )
     param_group.add_argument(
-        "--initial-D-offset", type=float, default=None, metavar="VAL",
+        "--initial-D-offset",
+        type=float,
+        default=None,
+        metavar="VAL",
         help="Transport offset D_offset [Å²/s].",
     )
     # Laminar flow / two-component velocity
     param_group.add_argument(
-        "--initial-gamma-dot-t0", type=float, default=None, metavar="VAL",
+        "--initial-gamma-dot-t0",
+        type=float,
+        default=None,
+        metavar="VAL",
         help="Shear rate prefactor (laminar_flow).",
     )
     param_group.add_argument(
-        "--initial-gamma-dot-t-offset", type=float, default=None, metavar="VAL",
+        "--initial-gamma-dot-t-offset",
+        type=float,
+        default=None,
+        metavar="VAL",
         help="Shear rate offset (laminar_flow).",
     )
     param_group.add_argument(
-        "--initial-beta", type=float, default=None, metavar="VAL",
+        "--initial-beta",
+        type=float,
+        default=None,
+        metavar="VAL",
         help="Velocity exponent beta (laminar_flow).",
     )
     param_group.add_argument(
-        "--initial-v-beta", type=float, default=None, metavar="VAL",
+        "--initial-v-beta",
+        type=float,
+        default=None,
+        metavar="VAL",
         help="Velocity exponent v_beta (two_component).",
     )
     param_group.add_argument(
-        "--initial-v0", type=float, default=None, metavar="VAL",
+        "--initial-v0",
+        type=float,
+        default=None,
+        metavar="VAL",
         help="Velocity prefactor v0 (two_component).",
     )
     param_group.add_argument(
-        "--initial-v-offset", type=float, default=None, metavar="VAL",
+        "--initial-v-offset",
+        type=float,
+        default=None,
+        metavar="VAL",
         help="Velocity offset v_offset (two_component).",
     )
     # Angle parameters
     param_group.add_argument(
-        "--initial-phi0", type=float, default=None, metavar="VAL",
+        "--initial-phi0",
+        type=float,
+        default=None,
+        metavar="VAL",
         help="Flow angle offset phi0 [degrees].",
     )
     # Two-component Fourier amplitudes (per-angle fraction)
     param_group.add_argument(
-        "--initial-f0", type=float, default=None, metavar="VAL",
+        "--initial-f0",
+        type=float,
+        default=None,
+        metavar="VAL",
         help="Sample fraction amplitude f0 (two_component).",
     )
     param_group.add_argument(
-        "--initial-f1", type=float, default=None, metavar="VAL",
+        "--initial-f1",
+        type=float,
+        default=None,
+        metavar="VAL",
         help="Fourier coefficient f1 (two_component).",
     )
     param_group.add_argument(
-        "--initial-f2", type=float, default=None, metavar="VAL",
+        "--initial-f2",
+        type=float,
+        default=None,
+        metavar="VAL",
         help="Fourier coefficient f2 (two_component).",
     )
     param_group.add_argument(
-        "--initial-f3", type=float, default=None, metavar="VAL",
+        "--initial-f3",
+        type=float,
+        default=None,
+        metavar="VAL",
         help="Fourier coefficient f3 (two_component).",
     )
     # Note: per-angle scaling (contrast/offset) is not a single-value CLI
@@ -237,13 +274,15 @@ Exit codes:
     # Verbosity
     # ------------------------------------------------------------------
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="count",
         default=0,
         help="Increase verbosity (-v, -vv).",
     )
     parser.add_argument(
-        "--quiet", "-q",
+        "--quiet",
+        "-q",
         action="store_true",
         help="Suppress all output except errors.",
     )
@@ -268,11 +307,16 @@ Exit codes:
     # ------------------------------------------------------------------
     plot_group = parser.add_mutually_exclusive_group()
     plot_group.add_argument(
-        "--plot", dest="plot", action="store_true", default=True,
+        "--plot",
+        dest="plot",
+        action="store_true",
+        default=True,
         help="Generate plots after fitting (default).",
     )
     plot_group.add_argument(
-        "--no-plot", dest="plot", action="store_false",
+        "--no-plot",
+        dest="plot",
+        action="store_false",
         help="Skip plot generation.",
     )
     parser.add_argument(
@@ -298,10 +342,7 @@ Exit codes:
         "--phi-angles",
         type=str,
         default=None,
-        help=(
-            "Comma-separated phi angles in degrees for simulated data "
-            "(e.g. '0,45,90,135')."
-        ),
+        help=("Comma-separated phi angles in degrees for simulated data (e.g. '0,45,90,135')."),
     )
 
     # Standalone plot modes (skip optimization)
@@ -380,8 +421,7 @@ def validate_args(args: argparse.Namespace) -> list[str]:
 
     if args.plot_experimental_data and args.plot_simulated_data:
         warnings.append(
-            "Both --plot-experimental-data and --plot-simulated-data given; "
-            "running both passes."
+            "Both --plot-experimental-data and --plot-simulated-data given; running both passes."
         )
 
     if args.multistart_n is not None and args.multistart_n <= 0:

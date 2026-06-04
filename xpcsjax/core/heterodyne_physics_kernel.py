@@ -139,15 +139,11 @@ def compute_c2_unified(
     """
     if eval_strategy == "meshgrid":
         if t is None:
-            raise ValueError(
-                "compute_c2_unified(eval_strategy='meshgrid', ...) requires t"
-            )
+            raise ValueError("compute_c2_unified(eval_strategy='meshgrid', ...) requires t")
         return _compute_c2_meshgrid(params, t, q, dt, phi_angle, contrast, offset)
     if eval_strategy == "pointwise":
         if t is None:
-            raise ValueError(
-                "compute_c2_unified(eval_strategy='pointwise', ...) requires t"
-            )
+            raise ValueError("compute_c2_unified(eval_strategy='pointwise', ...) requires t")
         if phi_unique is None or phi_idx is None or t1_idx is None or t2_idx is None:
             raise ValueError(
                 "compute_c2_unified(eval_strategy='pointwise', ...) requires "
@@ -159,12 +155,18 @@ def compute_c2_unified(
                 "contrast_arr and offset_arr"
             )
         return _compute_c2_pointwise(
-            params, t, q, dt, phi_unique, phi_idx, t1_idx, t2_idx,
-            contrast_arr, offset_arr,
+            params,
+            t,
+            q,
+            dt,
+            phi_unique,
+            phi_idx,
+            t1_idx,
+            t2_idx,
+            contrast_arr,
+            offset_arr,
         )
-    raise ValueError(
-        f"eval_strategy must be 'meshgrid' or 'pointwise', got {eval_strategy!r}"
-    )
+    raise ValueError(f"eval_strategy must be 'meshgrid' or 'pointwise', got {eval_strategy!r}")
 
 
 def _compute_c2_pointwise(
@@ -231,7 +233,7 @@ def _compute_c2_pointwise(
     fr_t2 = 1.0 - fs_t2
 
     # --- Per-point phi and cross term ---
-    phi_vals = phi_unique[phi_idx]          # shape (P,)
+    phi_vals = phi_unique[phi_idx]  # shape (P,)
     total_phi = phi_vals + phi0
     phi_rad = jnp.deg2rad(total_phi)
     phase = q * jnp.cos(phi_rad) * v_integral
@@ -275,9 +277,7 @@ def _compute_c2_meshgrid(
     phi0 = params[13]
 
     half_tr_ref = _half_transport_meshgrid(t, D0_ref, alpha_ref, D_offset_ref, q, dt)
-    half_tr_sample = _half_transport_meshgrid(
-        t, D0_sample, alpha_sample, D_offset_sample, q, dt
-    )
+    half_tr_sample = _half_transport_meshgrid(t, D0_sample, alpha_sample, D_offset_sample, q, dt)
 
     f_sample = _fraction(t, f0, f1, f2, f3)
     f_ref = 1.0 - f_sample

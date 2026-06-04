@@ -15,6 +15,7 @@ Tests deliberately avoid importing ``pickle`` directly — fixtures are written
 through the engine's own ``_save_to_disk`` so the test mirrors the real
 write-then-read flow that hardens the loader.
 """
+
 from __future__ import annotations
 
 import os
@@ -77,9 +78,7 @@ def test_round_trip_through_engine_loads_ok(cache_engine: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_symlink_escape_outside_cache_root_is_refused(
-    cache_engine: Any, tmp_path: Path
-) -> None:
+def test_symlink_escape_outside_cache_root_is_refused(cache_engine: Any, tmp_path: Path) -> None:
     """Path-containment gate: a symlink pointing outside the cache root fails.
 
     Simulates a poisoned cache that tries to redirect the loader to an

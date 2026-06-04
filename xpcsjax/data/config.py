@@ -472,9 +472,7 @@ def _validate_parameter_values_fallback(config: dict[str, Any]) -> list[str]:
     end_frame = analyzer.get("end_frame")
     if start_frame is not None and end_frame is not None:
         if end_frame != -1 and start_frame >= end_frame:
-            errors.append(
-                f"start_frame ({start_frame}) must be less than end_frame ({end_frame})"
-            )
+            errors.append(f"start_frame ({start_frame}) must be less than end_frame ({end_frame})")
         if start_frame < 1:
             errors.append(f"start_frame ({start_frame}) must be >= 1")
 
@@ -493,9 +491,7 @@ def _validate_parameter_values_fallback(config: dict[str, Any]) -> list[str]:
             if q_max is not None and q_max <= 0:
                 errors.append(f"q_range.max ({q_max}) must be positive")
             if q_min is not None and q_max is not None and q_min >= q_max:
-                errors.append(
-                    f"q_range.min ({q_min}) must be less than q_range.max ({q_max})"
-                )
+                errors.append(f"q_range.min ({q_min}) must be less than q_range.max ({q_max})")
 
         phi_range = data_filtering.get("phi_range", {})
         if phi_range:
@@ -509,13 +505,9 @@ def _validate_parameter_values_fallback(config: dict[str, Any]) -> list[str]:
                     f"phi_range [{phi_min}, {phi_max}] is a wrapped range across +/-180 degrees"
                 )
             if phi_min is not None and not (-360 <= phi_min <= 360):
-                errors.append(
-                    f"phi_range.min ({phi_min}) should be in range [-360, 360]"
-                )
+                errors.append(f"phi_range.min ({phi_min}) should be in range [-360, 360]")
             if phi_max is not None and not (-360 <= phi_max <= 360):
-                errors.append(
-                    f"phi_range.max ({phi_max}) should be in range [-360, 360]"
-                )
+                errors.append(f"phi_range.max ({phi_max}) should be in range [-360, 360]")
 
         quality_threshold = data_filtering.get("quality_threshold")
         if quality_threshold is not None and quality_threshold <= 0:
@@ -523,9 +515,7 @@ def _validate_parameter_values_fallback(config: dict[str, Any]) -> list[str]:
 
         combine_criteria = data_filtering.get("combine_criteria", "AND")
         if combine_criteria not in ["AND", "OR"]:
-            errors.append(
-                f"combine_criteria must be one of: AND, OR (got: {combine_criteria})"
-            )
+            errors.append(f"combine_criteria must be one of: AND, OR (got: {combine_criteria})")
 
         validation_level = data_filtering.get("validation_level", "basic")
         if validation_level not in ["basic", "strict"]:
@@ -536,9 +526,7 @@ def _validate_parameter_values_fallback(config: dict[str, Any]) -> list[str]:
     # v2_features validation
     output_format = v2_features.get("output_format", "auto")
     if output_format not in ["numpy", "jax", "auto"]:
-        errors.append(
-            f"output_format must be one of: numpy, jax, auto (got: {output_format})"
-        )
+        errors.append(f"output_format must be one of: numpy, jax, auto (got: {output_format})")
 
     validation_level = v2_features.get("validation_level", "basic")
     if validation_level not in ["none", "basic", "full"]:
@@ -682,9 +670,7 @@ def save_yaml_config(config: dict[str, Any], output_path: str | Path) -> None:
 
     try:
         with open(output_path, "w", encoding="utf-8") as f:
-            yaml_module.dump(
-                config, f, default_flow_style=False, indent=2, sort_keys=False
-            )
+            yaml_module.dump(config, f, default_flow_style=False, indent=2, sort_keys=False)
 
         logger.info(f"Saved YAML configuration to: {output_path}")
 

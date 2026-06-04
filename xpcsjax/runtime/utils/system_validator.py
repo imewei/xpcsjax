@@ -391,9 +391,7 @@ class SystemValidator:
                 severity=Severity.ERROR,
                 message=f"{len(missing)} of {len(REQUIRED_TEMPLATES)} templates missing",
                 name="Config Templates",
-                details=(
-                    f"Templates directory: {templates_dir}\nMissing: " + ", ".join(missing)
-                ),
+                details=(f"Templates directory: {templates_dir}\nMissing: " + ", ".join(missing)),
             )
 
         return ValidationResult(
@@ -422,10 +420,7 @@ class SystemValidator:
         return ValidationResult(
             success=True,
             severity=Severity.INFO,
-            message=(
-                f"{physical} physical / {logical} logical cores, "
-                f"{ram_gb:.1f} GiB RAM"
-            ),
+            message=(f"{physical} physical / {logical} logical cores, {ram_gb:.1f} GiB RAM"),
             name="CPU Info",
             details=f"Platform: {platform.system()} {platform.release()} ({platform.machine()})",
         )

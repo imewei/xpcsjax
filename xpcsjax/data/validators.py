@@ -65,9 +65,7 @@ def validate_frame_range(
 
     if start_frame is not None and end_frame is not None:
         if end_frame != -1 and start_frame >= end_frame:
-            errors.append(
-                f"start_frame ({start_frame}) must be less than end_frame ({end_frame})"
-            )
+            errors.append(f"start_frame ({start_frame}) must be less than end_frame ({end_frame})")
         if start_frame < min_frame:
             errors.append(f"start_frame ({start_frame}) must be >= {min_frame}")
 
@@ -137,12 +135,7 @@ def validate_numeric_range(
         if max_val is not None and max_val <= 0:
             errors.append(f"{field_name}.max ({max_val}) must be positive")
 
-    if (
-        min_val is not None
-        and max_val is not None
-        and min_val >= max_val
-        and not allow_wrapped
-    ):
+    if min_val is not None and max_val is not None and min_val >= max_val and not allow_wrapped:
         errors.append(
             f"{field_name}.min ({min_val}) must be less than {field_name}.max ({max_val})"
         )
@@ -150,13 +143,9 @@ def validate_numeric_range(
     if value_bounds is not None:
         lower, upper = value_bounds
         if min_val is not None and not (lower <= min_val <= upper):
-            errors.append(
-                f"{field_name}.min ({min_val}) should be in range [{lower}, {upper}]"
-            )
+            errors.append(f"{field_name}.min ({min_val}) should be in range [{lower}, {upper}]")
         if max_val is not None and not (lower <= max_val <= upper):
-            errors.append(
-                f"{field_name}.max ({max_val}) should be in range [{lower}, {upper}]"
-            )
+            errors.append(f"{field_name}.max ({max_val}) should be in range [{lower}, {upper}]")
 
     return errors
 
@@ -185,9 +174,7 @@ def validate_enum_value(
 
     if actual_value is not None and actual_value not in allowed_values:
         allowed_str = ", ".join(allowed_values)
-        errors.append(
-            f"{field_name} must be one of: {allowed_str} (got: {actual_value})"
-        )
+        errors.append(f"{field_name} must be one of: {allowed_str} (got: {actual_value})")
 
     return errors
 

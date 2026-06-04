@@ -45,7 +45,6 @@ if TYPE_CHECKING:
     pass
 
 
-
 @jax.jit
 def compute_fraction_jit(
     t: jnp.ndarray,
@@ -486,9 +485,7 @@ def compute_multi_angle_residuals(
         return residuals[rows, cols]  # type: ignore[no-any-return]
 
     compute_all = jax.vmap(single_angle_residual, in_axes=(0, 0, 0, 0, 0))
-    residuals_batch = compute_all(
-        phi_angles, c2_data_batch, weights_batch, contrasts, offsets
-    )
+    residuals_batch = compute_all(phi_angles, c2_data_batch, weights_batch, contrasts, offsets)
     return residuals_batch.ravel()
 
 

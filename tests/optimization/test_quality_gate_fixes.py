@@ -107,9 +107,7 @@ def test_parse_rejects_bare_static_by_default() -> None:
 
 
 def test_parse_allows_bare_static_when_opted_in() -> None:
-    assert AnalysisMode.parse("static", allow_bare_static=True) == (
-        AnalysisMode.STATIC_ANISOTROPIC
-    )
+    assert AnalysisMode.parse("static", allow_bare_static=True) == (AnalysisMode.STATIC_ANISOTROPIC)
 
 
 def test_parse_rejects_unknown_mode() -> None:

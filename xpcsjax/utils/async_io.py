@@ -102,9 +102,7 @@ class PrefetchLoader(Iterator[R]):
             if self._thread.is_alive():
                 self._exhausted = True
                 self._thread = None
-                timeout_err = RuntimeError(
-                    "Prefetch thread did not complete within 120s timeout"
-                )
+                timeout_err = RuntimeError("Prefetch thread did not complete within 120s timeout")
                 # Store so any future (invalid) call also surfaces the error
                 self._error = timeout_err
                 raise timeout_err
@@ -240,9 +238,7 @@ class AsyncWriter:
             self._shutdown = True
         errors = self.wait_all(timeout=300.0)
         if errors:
-            logger.error(
-                "AsyncWriter.shutdown: %d background write(s) failed", len(errors)
-            )
+            logger.error("AsyncWriter.shutdown: %d background write(s) failed", len(errors))
         self._executor.shutdown(wait=True)
 
     def __del__(self) -> None:
@@ -250,8 +246,7 @@ class AsyncWriter:
             import warnings
 
             warnings.warn(
-                "AsyncWriter garbage-collected without shutdown(); "
-                "background writes may be lost",
+                "AsyncWriter garbage-collected without shutdown(); background writes may be lost",
                 ResourceWarning,
                 stacklevel=2,
             )

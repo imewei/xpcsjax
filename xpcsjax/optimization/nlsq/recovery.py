@@ -81,9 +81,7 @@ def execute_with_recovery(
     current_params = initial_params.copy()
 
     # Compute initial cost for optimization success tracking
-    if hasattr(residual_fn, "n_total_points") or isinstance(
-        residual_fn, FunctionEvaluationCounter
-    ):
+    if hasattr(residual_fn, "n_total_points") or isinstance(residual_fn, FunctionEvaluationCounter):
         initial_residuals = residual_fn(initial_params)
     else:
         initial_residuals = residual_fn(xdata, *initial_params)
@@ -131,9 +129,7 @@ def execute_with_recovery(
                     show_progress=show_progress,
                     stability="auto",
                 )
-                popt, pcov, info = handle_nlsq_result_fn(
-                    result, OptimizationStrategy.LARGE
-                )
+                popt, pcov, info = handle_nlsq_result_fn(result, OptimizationStrategy.LARGE)
                 info["initial_cost"] = initial_cost
             else:
                 x_scale_array = np.abs(current_params) + 1e-3
@@ -193,9 +189,7 @@ def execute_with_recovery(
                 log.info("=" * 80)
                 log.info(f"  Initial params (p0):  {current_params}")
                 log.info(f"  Fitted params (popt): {popt}")
-                log.info(
-                    f"  Params changed: {not np.allclose(popt, current_params, rtol=1e-10)}"
-                )
+                log.info(f"  Params changed: {not np.allclose(popt, current_params, rtol=1e-10)}")
                 log.info(f"  pcov shape: {pcov.shape}")
                 log.info(f"  pcov diagonal (uncertainties^2): {np.diag(pcov)}")
                 log.info(f"  pcov condition number: {np.linalg.cond(pcov):.2e}")
@@ -206,12 +200,8 @@ def execute_with_recovery(
                     log.warning(
                         f"ZERO UNCERTAINTIES detected for parameters at indices: {zero_indices}"
                     )
-                    log.warning(
-                        "   This indicates singular/ill-conditioned Jacobian matrix!"
-                    )
-                    log.warning(
-                        "   Affected parameters were likely NOT optimized by NLSQ."
-                    )
+                    log.warning("   This indicates singular/ill-conditioned Jacobian matrix!")
+                    log.warning("   Affected parameters were likely NOT optimized by NLSQ.")
                 log.info("=" * 80)
 
             # Validate result
@@ -231,9 +221,7 @@ def execute_with_recovery(
                     log.info("Retrying with perturbed parameters...")
                     _rng = np.random.default_rng(seed=42 + attempt)
                     perturbation = (
-                        0.05
-                        * current_params
-                        * _rng.uniform(-1, 1, size=len(current_params))
+                        0.05 * current_params * _rng.uniform(-1, 1, size=len(current_params))
                     )
                     current_params = current_params + perturbation
                     if bounds is not None:
@@ -246,9 +234,7 @@ def execute_with_recovery(
                     )
 
             # Success!
-            convergence_status = (
-                "converged" if attempt == 0 else "converged_with_recovery"
-            )
+            convergence_status = "converged" if attempt == 0 else "converged_with_recovery"
             log.info(f"Optimization converged on attempt {attempt + 1}")
             return popt, pcov, info, recovery_actions, convergence_status
 
@@ -389,9 +375,7 @@ def diagnose_error(
         ]
 
         if attempt == 0:
-            perturbation = (
-                np.random.default_rng(seed=42).standard_normal(params.shape) * 0.1
-            )
+            perturbation = np.random.default_rng(seed=42).standard_normal(params.shape) * 0.1
             new_params = params * (1.0 + perturbation)
             if bounds is not None:
                 new_params = np.clip(new_params, bounds[0], bounds[1])
@@ -400,9 +384,7 @@ def diagnose_error(
                 "new_params": new_params,
             }
         else:
-            perturbation = (
-                np.random.default_rng(seed=123).standard_normal(params.shape) * 0.2
-            )
+            perturbation = np.random.default_rng(seed=123).standard_normal(params.shape) * 0.2
             new_params = params * (1.0 + perturbation)
             if bounds is not None:
                 new_params = np.clip(new_params, bounds[0], bounds[1])
@@ -476,9 +458,7 @@ def diagnose_error(
             "Verify NLSQ package installation",
             "Consult error message for details",
         ]
-        perturbation = (
-            np.random.default_rng(seed=99 + attempt).standard_normal(params.shape) * 0.05
-        )
+        perturbation = np.random.default_rng(seed=99 + attempt).standard_normal(params.shape) * 0.05
         new_params = params * (1.0 + perturbation)
         if bounds is not None:
             new_params = np.clip(new_params, bounds[0], bounds[1])

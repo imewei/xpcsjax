@@ -201,9 +201,7 @@ def _unpack_result_params(
     # this helper's summary contract; the per-angle arrays are used directly by
     # _evaluate_c2_per_angle.
     if _is_homodyne_family(model):
-        contrasts, offsets, physical_params, names = _homodyne_scaling_arrays(
-            model, result
-        )
+        contrasts, offsets, physical_params, names = _homodyne_scaling_arrays(model, result)
         contrast_scalar = float(contrasts.mean()) if contrasts.size else 0.0
         offset_scalar = float(offsets.mean()) if offsets.size else 0.0
         return contrast_scalar, offset_scalar, physical_params, names
@@ -219,12 +217,8 @@ def _unpack_result_params(
         # single fitted pair (physics is the leading 14-vector).
         if mode == "averaged":
             physical_params = params[:n_physical].copy()
-            contrast_scalar = float(
-                diagnostics.get("averaged_contrast", params[n_physical])
-            )
-            offset_scalar = float(
-                diagnostics.get("averaged_offset", params[n_physical + 1])
-            )
+            contrast_scalar = float(diagnostics.get("averaged_contrast", params[n_physical]))
+            offset_scalar = float(diagnostics.get("averaged_offset", params[n_physical + 1]))
             return contrast_scalar, offset_scalar, physical_params, physical_names
         # Constant mode: [physical...] only; scaling frozen in diagnostics.
         if mode == "constant":
@@ -341,9 +335,7 @@ def _unpack_heterodyne_scaling(
     # frozen pre-fit and is carried in diagnostics.
     if mode == "constant":
         physical_params = params[:n_physical].copy()
-        contrasts = np.asarray(
-            diagnostics["contrast_per_angle_fixed"], dtype=float
-        ).ravel()
+        contrasts = np.asarray(diagnostics["contrast_per_angle_fixed"], dtype=float).ravel()
         offsets = np.asarray(diagnostics["offset_per_angle_fixed"], dtype=float).ravel()
         if contrasts.size != n_phi_expected or offsets.size != n_phi_expected:
             raise ValueError(
@@ -445,9 +437,7 @@ def _evaluate_c2_per_angle(
         if dt_raw is None:
             dt_raw = ap.get("temporal", {}).get("dt")
         if dt_raw is None:
-            raise ValueError(
-                "Missing analyzer_parameters: 'dt' or 'temporal.dt' is required"
-            )
+            raise ValueError("Missing analyzer_parameters: 'dt' or 'temporal.dt' is required")
         t1 = jnp.asarray(data["t1"], dtype=jnp.float64)
         t2 = jnp.asarray(data["t2"], dtype=jnp.float64)
         g2 = model.compute_g2(
@@ -495,9 +485,7 @@ def _evaluate_c2_per_angle(
         if dt_raw is None:
             dt_raw = ap.get("temporal", {}).get("dt")
         if dt_raw is None:
-            raise ValueError(
-                "Missing analyzer_parameters: 'dt' or 'temporal.dt' is required"
-            )
+            raise ValueError("Missing analyzer_parameters: 'dt' or 'temporal.dt' is required")
         dt = float(dt_raw)
         t1 = jnp.asarray(data["t1"], dtype=jnp.float64)
         t2 = jnp.asarray(data["t2"], dtype=jnp.float64)
@@ -578,7 +566,11 @@ def plot_nlsq_fit(
 
     n_t1, n_t2 = c2_exp.shape
     t_y = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
-    t_x = np.asarray(t2) if t2 is not None else (t_y if t is not None else np.arange(n_t2, dtype=float))
+    t_x = (
+        np.asarray(t2)
+        if t2 is not None
+        else (t_y if t is not None else np.arange(n_t2, dtype=float))
+    )
     extent = (float(t_x[0]), float(t_x[-1]), float(t_y[0]), float(t_y[-1]))
 
     combined = np.concatenate([c2_exp.ravel(), c2_fit.ravel()])
@@ -708,7 +700,11 @@ def plot_residual_map(
     residuals = c2_exp - c2_fit
     n_t1, n_t2 = residuals.shape
     t_y = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
-    t_x = np.asarray(t2) if t2 is not None else (t_y if t is not None else np.arange(n_t2, dtype=float))
+    t_x = (
+        np.asarray(t2)
+        if t2 is not None
+        else (t_y if t is not None else np.arange(n_t2, dtype=float))
+    )
     extent = (float(t_x[0]), float(t_x[-1]), float(t_y[0]), float(t_y[-1]))
 
     # [0,0] Residual Map
@@ -851,7 +847,11 @@ def plot_simulated_data(
 
     n_t1, n_t2 = c2_sim.shape
     t1_vec = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
-    t2_vec = np.asarray(t2) if t2 is not None else (t1_vec if t is not None else np.arange(n_t2, dtype=float))
+    t2_vec = (
+        np.asarray(t2)
+        if t2 is not None
+        else (t1_vec if t is not None else np.arange(n_t2, dtype=float))
+    )
     # No transpose — rows=y=t1, cols=x=t2, consistent with plot_nlsq_fit and
     # plot_residual_map. The previous .T + swapped extent was inconsistent with
     # those functions on non-square grids (n_t1 ≠ n_t2).
@@ -1191,13 +1191,9 @@ def _generate_plots_datashader(
         try:
             ctx = multiprocessing.get_context("spawn")
             n_workers = min(multiprocessing.cpu_count(), n_phi)
-            args_list = [
-                _args_for(i) for i in range(n_phi) if not np.all(np.isnan(c2_fitted[i]))
-            ]
+            args_list = [_args_for(i) for i in range(n_phi) if not np.all(np.isnan(c2_fitted[i]))]
             if not args_list:
-                logger.warning(
-                    "Datashader path: all angles have NaN c2_fitted; nothing to render"
-                )
+                logger.warning("Datashader path: all angles have NaN c2_fitted; nothing to render")
                 return
             timeout_s = (60 * n_phi / max(n_workers, 1)) + 120
             with ctx.Pool(processes=n_workers, initializer=_worker_init_cpu_only) as pool:
@@ -1426,9 +1422,7 @@ def generate_nlsq_plots(
             "config.analyzer_parameters must contain scattering.wavevector_q, "
             "geometry.stator_rotor_gap, and dt (or temporal.dt)"
         )
-    analysis_mode = AnalysisMode.parse(
-        str(config_dict.get("analysis_mode") or "laminar_flow")
-    )
+    analysis_mode = AnalysisMode.parse(str(config_dict.get("analysis_mode") or "laminar_flow"))
 
     # Output dirs
     output_dir = Path(output_dir)

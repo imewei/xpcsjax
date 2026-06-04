@@ -245,9 +245,7 @@ def _validate_data_structure(data: dict[str, Any], report: DataQualityReport) ->
 def _validate_data_integrity(data: dict[str, Any], report: DataQualityReport) -> None:
     """Validate data integrity (finite values, reasonable ranges)."""
     for key, value in data.items():
-        if isinstance(value, (np.ndarray, list)) or (
-            HAS_JAX and hasattr(value, "shape")
-        ):
+        if isinstance(value, (np.ndarray, list)) or (HAS_JAX and hasattr(value, "shape")):
             # Convert to numpy for validation
             arr = np.asarray(value)
 
@@ -601,9 +599,7 @@ def _compute_data_statistics(data: dict[str, Any], report: DataQualityReport) ->
         stats = {}
 
         for key, value in data.items():
-            if isinstance(value, (np.ndarray, list)) or (
-                HAS_JAX and hasattr(value, "shape")
-            ):
+            if isinstance(value, (np.ndarray, list)) or (HAS_JAX and hasattr(value, "shape")):
                 arr = np.asarray(value)
 
                 stats[key] = {
@@ -622,14 +618,10 @@ def _compute_data_statistics(data: dict[str, Any], report: DataQualityReport) ->
                     # np.nan != np.nan is True → cache miss on every call).
                     "sum": float(np.nansum(arr)) if arr.size > 0 else 0.0,
                     "first": (
-                        float(arr.flat[0])
-                        if arr.size > 0 and np.isfinite(arr.flat[0])
-                        else 0.0
+                        float(arr.flat[0]) if arr.size > 0 and np.isfinite(arr.flat[0]) else 0.0
                     ),
                     "last": (
-                        float(arr.flat[-1])
-                        if arr.size > 0 and np.isfinite(arr.flat[-1])
-                        else 0.0
+                        float(arr.flat[-1]) if arr.size > 0 and np.isfinite(arr.flat[-1]) else 0.0
                     ),
                 }
 
@@ -684,9 +676,7 @@ def _compute_quality_score(report: DataQualityReport) -> float:
         if report.physics_checks.get("q_range_valid", False):
             physics_bonus += 0.1
 
-    final_score = (
-        base_score - error_penalty - warning_penalty + integrity_bonus + physics_bonus
-    )
+    final_score = base_score - error_penalty - warning_penalty + integrity_bonus + physics_bonus
 
     return max(0.0, min(1.0, final_score))
 
@@ -1112,10 +1102,7 @@ def _identify_changed_components(
 ) -> list[str]:
     """Identify which data components have changed since last validation."""
     # For now, simple implementation - in production could use more sophisticated change detection
-    if (
-        not hasattr(previous_report, "data_statistics")
-        or not previous_report.data_statistics
-    ):
+    if not hasattr(previous_report, "data_statistics") or not previous_report.data_statistics:
         return list(data.keys())  # First time validation
 
     changed = []

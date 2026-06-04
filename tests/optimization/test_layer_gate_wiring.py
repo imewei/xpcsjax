@@ -10,6 +10,7 @@ upstream ``is_laminar_flow`` guard at both call sites (``core.py`` and
 relaxed (e.g. to let Layers 1-4 fire for heterodyne), Layer 5 would silently
 fire too without this wiring.
 """
+
 from __future__ import annotations
 
 import numpy as np

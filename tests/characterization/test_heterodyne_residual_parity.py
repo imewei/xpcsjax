@@ -21,12 +21,7 @@ from typing import Any
 
 import numpy as np
 
-FIXTURE = (
-    Path(__file__).resolve().parent
-    / "fixtures"
-    / "baselines"
-    / "heterodyne_residuals.json"
-)
+FIXTURE = Path(__file__).resolve().parent / "fixtures" / "baselines" / "heterodyne_residuals.json"
 
 
 def _build_inputs(spec: dict[str, Any]) -> dict[str, np.ndarray]:

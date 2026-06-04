@@ -47,10 +47,7 @@ def test_nonfinite_in_correlation_is_error() -> None:
     data["c2_exp"][0, 0, 0] = np.nan
     report = validate_xpcs_data(data)
     assert report.is_valid is False
-    assert any(
-        i.severity == "error" and "non-finite" in i.message.lower()
-        for i in report.errors
-    )
+    assert any(i.severity == "error" and "non-finite" in i.message.lower() for i in report.errors)
 
 
 def test_missing_required_key_is_error() -> None:
@@ -86,17 +83,13 @@ def test_quality_score_drops_with_issues() -> None:
 
 def test_report_add_issue_flips_is_valid_on_error() -> None:
     report = DataQualityReport(is_valid=True, validation_level="basic", total_issues=0)
-    report.add_issue(
-        ValidationIssue(severity="error", category="test", message="boom")
-    )
+    report.add_issue(ValidationIssue(severity="error", category="test", message="boom"))
     assert report.is_valid is False
 
 
 def test_report_warning_does_not_invalidate() -> None:
     report = DataQualityReport(is_valid=True, validation_level="basic", total_issues=0)
-    report.add_issue(
-        ValidationIssue(severity="warning", category="test", message="heads up")
-    )
+    report.add_issue(ValidationIssue(severity="warning", category="test", message="heads up"))
     assert report.is_valid is True
     assert report.total_issues == 1
 

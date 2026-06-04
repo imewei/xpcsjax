@@ -258,6 +258,7 @@ def build_heterodyne_pointwise_model(
             FourierReparamConfig,
             FourierReparameterizer,
         )
+
         fourier_config = FourierReparamConfig(
             mode="fourier",
             fourier_order=fourier_order,
@@ -289,17 +290,14 @@ def build_heterodyne_pointwise_model(
         n_scaling = 0
     else:
         raise NotImplementedError(
-            f"per_angle_mode={per_angle_mode!r} not supported in "
-            "build_heterodyne_pointwise_model."
+            f"per_angle_mode={per_angle_mode!r} not supported in build_heterodyne_pointwise_model."
         )
 
     # ------------------------------------------------------------------
     # 7. Prepare JAX-side fixed tensors for the closure
     # ------------------------------------------------------------------
     fixed_full_jax = jnp.asarray(model.param_manager.get_full_values(), dtype=jnp.float64)
-    varying_indices_jax = jnp.array(
-        list(model.param_manager.varying_indices), dtype=jnp.int32
-    )
+    varying_indices_jax = jnp.array(list(model.param_manager.varying_indices), dtype=jnp.int32)
     t_jax = jnp.asarray(t_unique, dtype=jnp.float64)
     q_val = float(model.q)
     dt_val = float(model.dt)
@@ -591,7 +589,8 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
 
     logger.info(
         "anti_degeneracy_config: mode_actual=%r (ad_config_provided=%s)",
-        mode_actual, bool(ad_config),
+        mode_actual,
+        bool(ad_config),
     )
 
     # ------------------------------------------------------------------
@@ -661,9 +660,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     # fixed_constant: _group_indices stays None (nothing to regularize)
 
     regularization_active = (
-        (n_scaling > 0)
-        and (_group_indices is not None)
-        and reg_cfg_dict.get("enable", True)
+        (n_scaling > 0) and (_group_indices is not None) and reg_cfg_dict.get("enable", True)
     )
 
     adaptive_regularizer: AdaptiveRegularizer | None = None
@@ -738,7 +735,8 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         logger.info(
             "L4 gradient-collapse monitor enabled (heterodyne streaming): "
             "n_physics=%d, n_scaling=%d",
-            base_idx, n_scaling_params,
+            base_idx,
+            n_scaling_params,
         )
 
     # ------------------------------------------------------------------
@@ -807,7 +805,9 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
             logger.warning(
                 "initial_params length %d matches neither physics (%d) nor "
                 "full (%d); using model default.",
-                len(ip), n_phys, len(p0_arr),
+                len(ip),
+                n_phys,
+                len(p0_arr),
             )
 
     # ------------------------------------------------------------------
@@ -867,10 +867,12 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         n_scal_h = meta["n_scaling"]
 
         # Permutation: heterodyne [physics | scaling] -> hier [scaling | physics]
-        perm = np.concatenate([
-            np.arange(n_phys_h, n_phys_h + n_scal_h, dtype=np.intp),  # scaling tail first
-            np.arange(n_phys_h, dtype=np.intp),                         # then physics
-        ])
+        perm = np.concatenate(
+            [
+                np.arange(n_phys_h, n_phys_h + n_scal_h, dtype=np.intp),  # scaling tail first
+                np.arange(n_phys_h, dtype=np.intp),  # then physics
+            ]
+        )
         unperm = np.empty_like(perm)
         unperm[perm] = np.arange(len(perm), dtype=np.intp)
 
@@ -890,7 +892,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
             params_native = jnp.asarray(params_hier)[unperm]
             pred = model_fn(x_data_jax, *params_native)
             residuals = y_data_jax - pred
-            wl = jnp.mean(residuals ** 2) * y_data.shape[0]
+            wl = jnp.mean(residuals**2) * y_data.shape[0]
             if adaptive_regularizer is not None:
                 mse = wl / y_data.shape[0]
                 wl = wl + adaptive_regularizer.compute_regularization_jax(
@@ -905,7 +907,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
             params_native = ph[unperm]
             pred = model_fn(x_data_jax, *params_native)
             residuals = y_data_jax - pred
-            wl = jnp.mean(residuals ** 2) * y_data.shape[0]
+            wl = jnp.mean(residuals**2) * y_data.shape[0]
             if adaptive_regularizer is not None:
                 mse = wl / y_data.shape[0]
                 wl = wl + adaptive_regularizer.compute_regularization_jax(
@@ -998,9 +1000,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
 
     # Ensure hybrid_streaming_diagnostics key is always present
     if "hybrid_streaming_diagnostics" not in info:
-        info["hybrid_streaming_diagnostics"] = {
-            k: info[k] for k in ("nit", "success") if k in info
-        }
+        info["hybrid_streaming_diagnostics"] = {k: info[k] for k in ("nit", "success") if k in info}
 
     # Thread data-point count for reduced-chi dof (Finding 3)
     info["n_data_points"] = meta["n_data_points"]
@@ -1030,7 +1030,9 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
             frozen_tail = _contrast_arr.tolist() + _offset_arr.tolist()
         elif _mode == "fourier" and meta.get("fourier") is not None:
             _fp = meta["fourier"]
-            _coeffs = np.asarray(_fp.per_angle_to_fourier(_contrast_arr, _offset_arr), dtype=np.float64)
+            _coeffs = np.asarray(
+                _fp.per_angle_to_fourier(_contrast_arr, _offset_arr), dtype=np.float64
+            )
             frozen_tail = _coeffs.tolist()
         else:
             # fixed_constant or unexpected mode: no scaling tail to freeze

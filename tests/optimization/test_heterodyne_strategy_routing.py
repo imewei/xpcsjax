@@ -331,8 +331,7 @@ def test_ge_1M_unsupported_mode_warns(monkeypatch, caplog):  # noqa: N802 - "1M"
     matching = [
         r
         for r in warnings
-        if "individual" in r.getMessage()
-        and "stratified-LS skipped" in r.getMessage()
+        if "individual" in r.getMessage() and "stratified-LS skipped" in r.getMessage()
     ]
     assert matching, (
         "Expected a WARNING that names per_angle_mode=individual and reports "

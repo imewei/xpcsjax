@@ -205,9 +205,7 @@ def plot_c2_heatmap_fast(
     vmax_use = auto_vmax if auto_vmax is not None else 1.5
 
     # c2[t1_idx, t2_idx] → c2.T so display axes match x=t1, y=t2.
-    img_pil = renderer.rasterize_heatmap(
-        c2_data.T, t1, t2, cmap=cmap, vmin=vmin_use, vmax=vmax_use
-    )
+    img_pil = renderer.rasterize_heatmap(c2_data.T, t1, t2, cmap=cmap, vmin=vmin_use, vmax=vmax_use)
     img_array = np.array(img_pil)
     # Datashader y=0 at top, matplotlib origin='lower' y=0 at bottom.
     img_array = np.flipud(img_array)
@@ -280,10 +278,12 @@ def plot_c2_comparison_fast(
     # Shared color limits from combined finite values — prevents NaN limits when
     # one or both arrays are all-NaN (nanpercentile on all-NaN returns NaN, which
     # bypasses the 1.0/1.5 defaults because the variable is no longer None).
-    combined_finite = np.concatenate([
-        c2_exp[np.isfinite(c2_exp)],
-        c2_fit[np.isfinite(c2_fit)],
-    ])
+    combined_finite = np.concatenate(
+        [
+            c2_exp[np.isfinite(c2_exp)],
+            c2_fit[np.isfinite(c2_fit)],
+        ]
+    )
     vmin_shared = vmin
     vmax_shared = vmax
     if adaptive and combined_finite.size > 0:

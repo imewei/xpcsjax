@@ -92,9 +92,7 @@ def fit_with_out_of_core_accumulation(
     import jax.numpy as jnp
 
     _start_time = time.perf_counter()  # noqa: F841
-    log.info(
-        "Initializing Out-of-Core Global Stratified Optimization (Full Physics)..."
-    )
+    log.info("Initializing Out-of-Core Global Stratified Optimization (Full Physics)...")
 
     # 1. Setup Chunking
     # Use StratifiedIndices if available (Zero-Copy)
@@ -169,9 +167,7 @@ def fit_with_out_of_core_accumulation(
     params_curr = jnp.array(initial_params)
 
     cfg_dict = (
-        config.config
-        if hasattr(config, "config")
-        else (config if isinstance(config, dict) else {})
+        config.config if hasattr(config, "config") else (config if isinstance(config, dict) else {})
     )
 
     # Extract physics constants from data (v2.14.1+: Full homodyne physics)
@@ -278,9 +274,7 @@ def fit_with_out_of_core_accumulation(
             t2_ordered = np.asarray(t2_flat)[all_indices_arr]
             g2_ordered = np.asarray(g2_flat)[all_indices_arr]
             sigma_ordered = (
-                np.asarray(sigma_flat)[all_indices_arr]
-                if sigma_flat is not None
-                else None
+                np.asarray(sigma_flat)[all_indices_arr] if sigma_flat is not None else None
             )
 
             ooc_shared = OOCSharedArrays(
@@ -387,15 +381,11 @@ def fit_with_out_of_core_accumulation(
                     t1_c = t1_flat[indices_chunk]
                     t2_c = t2_flat[indices_chunk]
                     g2_c = g2_flat[indices_chunk]
-                    sigma_c = (
-                        sigma_flat[indices_chunk] if sigma_flat is not None else 1.0
-                    )
+                    sigma_c = sigma_flat[indices_chunk] if sigma_flat is not None else 1.0
                     JtJ, Jtr, chi2 = compute_chunk_accumulators(
                         params_curr, phi_c, t1_c, t2_c, g2_c, sigma_c
                     )
-                    chunk_results_local.append(
-                        (np.asarray(JtJ), np.asarray(Jtr), float(chi2))
-                    )
+                    chunk_results_local.append((np.asarray(JtJ), np.asarray(Jtr), float(chi2)))
                     count += len(indices_chunk)
                 chunk_results = chunk_results_local
 
@@ -423,8 +413,8 @@ def fit_with_out_of_core_accumulation(
                         "Sequential chunk reduction: %d chunks",
                         n_chunks,
                     )
-                total_JtJ_np, total_Jtr_np, total_chi2, _ = (
-                    accumulate_chunks_sequential(chunk_results)
+                total_JtJ_np, total_Jtr_np, total_chi2, _ = accumulate_chunks_sequential(
+                    chunk_results
                 )
                 total_JtJ = jnp.asarray(total_JtJ_np)
                 total_Jtr = jnp.asarray(total_Jtr_np)
@@ -442,15 +432,11 @@ def fit_with_out_of_core_accumulation(
             diag_idx = jnp.diag_indices_from(total_JtJ)
 
             for _lm_iter in range(10):  # Max dampings per iter
-                solver_matrix = total_JtJ.at[diag_idx].add(
-                    lm_lambda * jnp.diag(total_JtJ)
-                )
+                solver_matrix = total_JtJ.at[diag_idx].add(lm_lambda * jnp.diag(total_JtJ))
 
                 try:
                     # use lstsq for robustness against singular matrices
-                    step, _, _, _ = jnp.linalg.lstsq(
-                        solver_matrix, -total_Jtr, rcond=1e-5
-                    )
+                    step, _, _, _ = jnp.linalg.lstsq(solver_matrix, -total_Jtr, rcond=1e-5)
                 except (ValueError, RuntimeError, FloatingPointError):
                     step = jnp.full_like(total_Jtr, jnp.nan)  # Signal fail
 
@@ -467,9 +453,7 @@ def fit_with_out_of_core_accumulation(
                 # Clip
                 if bounds is not None:
                     lower, upper = bounds
-                    params_new = jnp.clip(
-                        params_new, jnp.asarray(lower), jnp.asarray(upper)
-                    )
+                    params_new = jnp.clip(params_new, jnp.asarray(lower), jnp.asarray(upper))
 
                 # Evaluate New Cost
                 try:

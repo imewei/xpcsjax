@@ -178,18 +178,10 @@ class AntiDegeneracyConfig:
             constant_scaling_threshold=config_dict.get("constant_scaling_threshold", 3),
             # Hierarchical
             hierarchical_enable=hierarchical.get("enable", True),
-            hierarchical_max_outer_iterations=hierarchical.get(
-                "max_outer_iterations", 5
-            ),
-            hierarchical_outer_tolerance=float(
-                hierarchical.get("outer_tolerance", 1e-6)
-            ),
-            hierarchical_physical_max_iterations=hierarchical.get(
-                "physical_max_iterations", 100
-            ),
-            hierarchical_per_angle_max_iterations=hierarchical.get(
-                "per_angle_max_iterations", 50
-            ),
+            hierarchical_max_outer_iterations=hierarchical.get("max_outer_iterations", 5),
+            hierarchical_outer_tolerance=float(hierarchical.get("outer_tolerance", 1e-6)),
+            hierarchical_physical_max_iterations=hierarchical.get("physical_max_iterations", 100),
+            hierarchical_per_angle_max_iterations=hierarchical.get("per_angle_max_iterations", 50),
             # Regularization
             regularization_mode=regularization.get("mode", "relative"),
             regularization_lambda=float(regularization.get("lambda", 1.0)),
@@ -200,20 +192,14 @@ class AntiDegeneracyConfig:
             regularization_max_cv=float(regularization.get("max_cv", 0.20)),
             # Gradient monitoring
             gradient_monitoring_enable=gradient_monitoring.get("enable", True),
-            gradient_ratio_threshold=float(
-                gradient_monitoring.get("ratio_threshold", 0.01)
-            ),
-            gradient_consecutive_triggers=gradient_monitoring.get(
-                "consecutive_triggers", 5
-            ),
+            gradient_ratio_threshold=float(gradient_monitoring.get("ratio_threshold", 0.01)),
+            gradient_consecutive_triggers=gradient_monitoring.get("consecutive_triggers", 5),
             gradient_response_mode=gradient_monitoring.get("response", "hierarchical"),
             # Shear weighting
             shear_weighting_enable=shear_weighting.get("enable", True),
             shear_weighting_min_weight=float(shear_weighting.get("min_weight", 0.3)),
             shear_weighting_alpha=float(shear_weighting.get("alpha", 1.0)),
-            shear_weighting_update_frequency=int(
-                shear_weighting.get("update_frequency", 1)
-            ),
+            shear_weighting_update_frequency=int(shear_weighting.get("update_frequency", 1)),
             shear_weighting_normalize=shear_weighting.get("normalize", True),
         )
 
@@ -364,21 +350,16 @@ class AntiDegeneracyController:
             # Only 7 physical params are optimized; scaling is FIXED
             self.per_angle_mode_actual = "fixed_constant"
             logger.info("=" * 60)
-            logger.info(
-                "ANTI-DEGENERACY: Using explicit 'constant' mode -> fixed_constant"
-            )
+            logger.info("ANTI-DEGENERACY: Using explicit 'constant' mode -> fixed_constant")
             logger.info(f"  n_phi: {self.n_phi}")
-            logger.info(
-                "  Behavior: Quantile estimates -> per-angle values FIXED (NOT optimized)"
-            )
+            logger.info("  Behavior: Quantile estimates -> per-angle values FIXED (NOT optimized)")
             logger.info("  Parameters: 7 physical only (scaling FIXED from quantiles)")
             logger.info("=" * 60)
         else:
             # Other explicit modes (fourier or individual)
             self.per_angle_mode_actual = config.per_angle_mode
             logger.debug(
-                f"ANTI-DEGENERACY: Using explicit per_angle_mode: "
-                f"{self.per_angle_mode_actual}"
+                f"ANTI-DEGENERACY: Using explicit per_angle_mode: {self.per_angle_mode_actual}"
             )
 
         # T021: Determine use_constant flag for mapper
@@ -397,9 +378,7 @@ class AntiDegeneracyController:
             logger.info("ANTI-DEGENERACY: Layer 1 - Fourier Reparameterization")
             logger.info(f"  Mode: {self.per_angle_mode_actual}")
             logger.info(f"  n_phi: {self.n_phi}, Fourier order: {config.fourier_order}")
-            logger.info(
-                f"  Parameter reduction: {2 * self.n_phi} -> {self.fourier.n_coeffs}"
-            )
+            logger.info(f"  Parameter reduction: {2 * self.n_phi} -> {self.fourier.n_coeffs}")
             logger.info("=" * 60)
         # Note: auto_averaged and fixed_constant logging already done in mode selection above
 
@@ -433,9 +412,7 @@ class AntiDegeneracyController:
             logger.info("=" * 60)
             logger.info("ANTI-DEGENERACY: Layer 2 - Hierarchical Optimization")
             logger.info("  Enabled: True")
-            logger.info(
-                f"  Max outer iterations: {config.hierarchical_max_outer_iterations}"
-            )
+            logger.info(f"  Max outer iterations: {config.hierarchical_max_outer_iterations}")
             logger.info(f"  Outer tolerance: {config.hierarchical_outer_tolerance}")
             logger.info("=" * 60)
 
@@ -444,9 +421,7 @@ class AntiDegeneracyController:
         # This fixes the dimension mismatch when Fourier reparameterization is active
         reg_config = AdaptiveRegularizationConfig(
             enable=True,
-            mode=cast(
-                Literal["absolute", "relative", "auto"], config.regularization_mode
-            ),
+            mode=cast(Literal["absolute", "relative", "auto"], config.regularization_mode),
             lambda_base=config.regularization_lambda,
             target_cv=config.regularization_target_cv,
             target_contribution=config.regularization_target_contribution,
@@ -789,9 +764,7 @@ class AntiDegeneracyController:
                 "get_group_variance_indices called but neither mapper nor fourier is initialized. "
                 "This can occur with per_angle_mode='constant' where group variance is not applicable."
             )
-        n_per_group = (
-            self.fourier.n_coeffs_per_param if self.use_fourier else self.n_phi
-        )
+        n_per_group = self.fourier.n_coeffs_per_param if self.use_fourier else self.n_phi
         return [(0, n_per_group), (n_per_group, 2 * n_per_group)]
 
     def get_diagnostics(self) -> dict[str, Any]:
@@ -822,9 +795,7 @@ class AntiDegeneracyController:
         # Add fixed per-angle scaling info if available
         if self.has_fixed_per_angle_scaling():
             # Ensure arrays are not None before computing statistics
-            assert self._fixed_contrast_per_angle is not None, (
-                "Fixed contrast must be set"
-            )
+            assert self._fixed_contrast_per_angle is not None, "Fixed contrast must be set"
             assert self._fixed_offset_per_angle is not None, "Fixed offset must be set"
             diag["fixed_per_angle_scaling"] = {
                 "contrast_mean": float(np.nanmean(self._fixed_contrast_per_angle)),
@@ -962,10 +933,7 @@ class AntiDegeneracyController:
         tuple[np.ndarray, np.ndarray] | None
             (contrast_per_angle, offset_per_angle) if computed, None otherwise.
         """
-        if (
-            self._fixed_contrast_per_angle is None
-            or self._fixed_offset_per_angle is None
-        ):
+        if self._fixed_contrast_per_angle is None or self._fixed_offset_per_angle is None:
             return None
         return self._fixed_contrast_per_angle, self._fixed_offset_per_angle
 
@@ -978,8 +946,7 @@ class AntiDegeneracyController:
             True if fixed scaling is available.
         """
         return (
-            self._fixed_contrast_per_angle is not None
-            and self._fixed_offset_per_angle is not None
+            self._fixed_contrast_per_angle is not None and self._fixed_offset_per_angle is not None
         )
 
     def create_nlsq_callbacks(self) -> dict[str, Any]:
@@ -1030,9 +997,7 @@ class AntiDegeneracyController:
                 mse = float(np.nanmean(residuals**2))
                 n_points = len(residuals)
                 assert self.regularizer is not None
-                return float(
-                    self.regularizer.compute_regularization(params, mse, n_points)
-                )
+                return float(self.regularizer.compute_regularization(params, mse, n_points))
 
             callbacks["loss_augmentation"] = loss_augmentation
 

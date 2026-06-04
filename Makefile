@@ -6,7 +6,7 @@
         test test-smoke test-fast test-ci test-ci-full test-coverage test-coverage-parallel \
         test-parallel test-all-parallel test-parallel-fast \
         test-core test-optimization test-heterodyne test-characterization test-property \
-        test-viz test-nlsq test-quick \
+        test-viz test-nlsq test-quick test-full-local \
         format lint type-check check quality quick pre-commit install-hooks \
         security perf-baseline perf-compare \
         benchmark profile-nlsq \
@@ -24,6 +24,12 @@ SRC_DIR := xpcsjax
 TEST_DIR := tests
 DOCS_DIR := docs
 VENV := .venv
+
+# Maintainer-local data root for the env-gated live-oracle suite (test-full-local).
+# Holds the upstream datasets (C020/, Simon/, C044/) the characterization, A/B
+# parity, and real-data heterodyne gates read. Override on the CLI or via the
+# environment:  make test-full-local XPCSJAX_DATA_ROOT=/path/to/Projects/data
+XPCSJAX_DATA_ROOT ?= /home/wei/Documents/Projects/data
 
 # Platform detection
 UNAME_S := $(shell uname -s 2>/dev/null || echo "Windows")
@@ -115,6 +121,7 @@ help:
 	@echo "  $(CYAN)test-viz$(RESET)               Run viz tests with pytest-mpl snapshot comparison"
 	@echo "  $(CYAN)test-nlsq$(RESET)              Alias for test-optimization"
 	@echo "  $(CYAN)test-quick$(RESET)             Quick tests with minimal output"
+	@echo "  $(CYAN)test-full-local$(RESET)        Maintainer-local FULL run, zero skips (live oracles; needs upstream + data)"
 	@echo ""
 	@echo "$(BOLD)$(GREEN)CODE QUALITY$(RESET)"
 	@echo "  $(CYAN)format$(RESET)           Format code with ruff"
@@ -322,6 +329,27 @@ test-nlsq: test-optimization
 test-quick:
 	@echo "$(BOLD)$(BLUE)Running quick tests...$(RESET)"
 	$(RUN_CMD) $(PYTEST) $(TEST_DIR) -v -x --tb=no -q
+
+# Maintainer-local FULL run with ZERO skips. Enables the env-gated live oracles
+# that the default suite intentionally skips (CLAUDE.md: "never enable in CI"):
+#   * XPCSJAX_RUN_CHARACTERIZATION=1 — homodyne-equivalence + L4 bit-parity +
+#     real-data two_component oracles (live fits vs upstream, ~6 min each)
+#   * XPCSJAX_RUN_AB_PARITY=1        — live A/B parity vs upstream homodyne NLSQ
+#   * XPCSJAX_DATA_ROOT              — the maintainer datasets the gates read
+# Requires the upstream `homodyne` package installed and the datasets on disk;
+# DO NOT wire these into `test`/`verify`/CI — fresh clones lack both and would
+# fail loudly. `-rs` reports anything that still skips so zero-skip is verifiable.
+test-full-local:
+	@echo "$(BOLD)$(BLUE)Running FULL maintainer-local suite (live oracles, zero skips)...$(RESET)"
+	@test -d "$(XPCSJAX_DATA_ROOT)" || { \
+		echo "$(BOLD)$(RED)XPCSJAX_DATA_ROOT not found: $(XPCSJAX_DATA_ROOT)$(RESET)"; \
+		echo "Set it to the directory holding C020/ Simon/ C044/ — e.g."; \
+		echo "  make test-full-local XPCSJAX_DATA_ROOT=/path/to/Projects/data"; \
+		exit 1; }
+	@XPCSJAX_RUN_CHARACTERIZATION=1 XPCSJAX_RUN_AB_PARITY=1 \
+		XPCSJAX_DATA_ROOT="$(XPCSJAX_DATA_ROOT)" \
+		$(RUN_CMD) $(PYTEST) $(TEST_DIR) -rs --tb=short
+	@echo "$(BOLD)$(GREEN)✓ Full maintainer-local suite complete$(RESET)"
 
 # ===================
 # Code quality targets

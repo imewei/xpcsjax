@@ -33,6 +33,7 @@ Output:
 
     to fail CI on a >25% mean regression.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -67,9 +68,7 @@ def test_perf_select_strategy_10m_points(benchmark) -> None:
     """
     from xpcsjax.optimization.nlsq.memory import select_nlsq_strategy
 
-    result = benchmark(
-        select_nlsq_strategy, n_points=10_000_000, n_params=14, memory_fraction=0.1
-    )
+    result = benchmark(select_nlsq_strategy, n_points=10_000_000, n_params=14, memory_fraction=0.1)
     assert result.strategy.name in {"STANDARD", "OUT_OF_CORE", "HYBRID_STREAMING"}
 
 
@@ -148,5 +147,7 @@ def test_perf_heterodyne_per_angle_local_fit(benchmark, tmp_path: Path) -> None:
     # fit_nlsq returns a single OptimizationResult (not a list) — per-angle
     # data lives in result.nlsq_diagnostics for all dispatch modes.
     result = benchmark(fit_nlsq, data, cfg)
-    assert isinstance(result, OptimizationResult), f"expected OptimizationResult, got {type(result)}"
+    assert isinstance(result, OptimizationResult), (
+        f"expected OptimizationResult, got {type(result)}"
+    )
     assert np.all(np.isfinite(np.asarray(result.parameters, dtype=np.float64)))

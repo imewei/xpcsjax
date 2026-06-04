@@ -18,9 +18,7 @@ def test_stratified_ls_emits_laminar_parity_banners(caplog):
     )
 
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
-    cfg = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": "averaged"}
-    )
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged"})
 
     with caplog.at_level(logging.INFO, logger="xpcsjax.optimization.nlsq.heterodyne_logging"):
         fit_heterodyne_stratified_least_squares(
@@ -54,9 +52,7 @@ def test_completion_emits_honest_anti_degeneracy_defense(caplog):
     )
 
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
-    cfg = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": "averaged"}
-    )
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged"})
     result = fit_heterodyne_stratified_least_squares(
         model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False
     )

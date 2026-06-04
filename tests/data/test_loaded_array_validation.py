@@ -15,6 +15,7 @@ Monotonicity is asserted on the *time* axes (t1/t2 = [0, dt, 2dt, ...], which
 are monotonic by construction), NOT on ``wavevector_q_list`` — in XPCS the
 q-list holds one entry per (q, phi) pair and is legitimately non-monotonic.
 """
+
 from __future__ import annotations
 
 import numpy as np

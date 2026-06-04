@@ -123,9 +123,7 @@ def test_jacobian_stats_failure_returns_none() -> None:
     def bad_residual(x: np.ndarray, *p: float) -> jnp.ndarray:
         raise ValueError("synthetic residual failure")
 
-    jtj, col_norms = pu.compute_jacobian_stats(
-        bad_residual, np.array([1.0]), np.array([1.0]), 1.0
-    )
+    jtj, col_norms = pu.compute_jacobian_stats(bad_residual, np.array([1.0]), np.array([1.0]), 1.0)
     assert jtj is None
     assert col_norms is None
 
@@ -136,8 +134,14 @@ def test_jacobian_stats_failure_returns_none() -> None:
 
 
 def _static_g1_sq(
-    t1: np.ndarray, t2: np.ndarray, t_unique: np.ndarray, q: float, dt: float,
-    D0: float, alpha: float, D_offset: float,
+    t1: np.ndarray,
+    t2: np.ndarray,
+    t_unique: np.ndarray,
+    q: float,
+    dt: float,
+    D0: float,
+    alpha: float,
+    D_offset: float,
 ) -> np.ndarray:
     """Mirror the diffusion-only g1^2 the estimator computes, for self-consistency."""
     d_t = calculate_diffusion_coefficient(t_unique, D0, alpha, D_offset)
@@ -150,12 +154,11 @@ def _static_g1_sq(
     return g1**2
 
 
-def _static_stratified(g2: np.ndarray, t1: np.ndarray, t2: np.ndarray, phi: np.ndarray,
-                       q: float, dt: float) -> SimpleNamespace:
+def _static_stratified(
+    g2: np.ndarray, t1: np.ndarray, t2: np.ndarray, phi: np.ndarray, q: float, dt: float
+) -> SimpleNamespace:
     # No 'chunks' attribute -> the flat-array code path is used.
-    return SimpleNamespace(
-        phi_flat=phi, g2_flat=g2, t1_flat=t1, t2_flat=t2, q=q, L=1.0, dt=dt
-    )
+    return SimpleNamespace(phi_flat=phi, g2_flat=g2, t1_flat=t1, t2_flat=t2, q=q, L=1.0, dt=dt)
 
 
 def test_consistent_init_recovers_known_scaling_static() -> None:
@@ -172,9 +175,7 @@ def test_consistent_init_recovers_known_scaling_static() -> None:
 
     # Two angles sharing identical (phi-independent) diffusion structure.
     phi = np.concatenate([np.zeros(100), np.full(100, 45.0)])
-    data = _static_stratified(
-        np.tile(g2, 2), np.tile(t1, 2), np.tile(t2, 2), phi, q, dt
-    )
+    data = _static_stratified(np.tile(g2, 2), np.tile(t1, 2), np.tile(t2, 2), phi, q, dt)
 
     contrast, offset = pu.compute_consistent_per_angle_init(
         data, np.array([D0, alpha, D_offset]), ["D0", "alpha", "D_offset"]
@@ -193,8 +194,11 @@ def test_consistent_init_falls_back_to_defaults_on_flat_data() -> None:
     g2 = np.full(100, 1.2)
     data = _static_stratified(g2, t1, t2, np.zeros(100), 0.01, 1.0)
     contrast, offset = pu.compute_consistent_per_angle_init(
-        data, np.array([1e-3, 1.0, 0.0]), ["D0", "alpha", "D_offset"],
-        default_contrast=0.5, default_offset=1.0,
+        data,
+        np.array([1e-3, 1.0, 0.0]),
+        ["D0", "alpha", "D_offset"],
+        default_contrast=0.5,
+        default_offset=1.0,
     )
     assert contrast[0] == pytest.approx(0.5)
     assert offset[0] == pytest.approx(1.0)
@@ -205,9 +209,7 @@ def test_consistent_init_chunks_format_smoke() -> None:
     t1 = np.repeat(t_grid, 8)
     t2 = np.tile(t_grid, 8)
     g2 = 1.0 + 0.3 * np.linspace(1.0, 0.0, t1.size)
-    chunk = SimpleNamespace(
-        phi=np.zeros(t1.size), g2=g2, t1=t1, t2=t2, q=0.01, L=1.0, dt=1.0
-    )
+    chunk = SimpleNamespace(phi=np.zeros(t1.size), g2=g2, t1=t1, t2=t2, q=0.01, L=1.0, dt=1.0)
     data = SimpleNamespace(chunks=[chunk])
     contrast, offset = pu.compute_consistent_per_angle_init(
         data, np.array([1e-3, 1.0, 0.0]), ["D0", "alpha", "D_offset"]

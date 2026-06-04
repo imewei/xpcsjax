@@ -164,9 +164,7 @@ def test_multistart_path_runs() -> None:
     # (_fit_multistart). Two starts is enough to exercise the orchestration.
     model = _build_model()
     c2 = _synthetic_stack(model, n_phi=1)[0]
-    config = NLSQConfig(
-        multistart=True, multistart_n=2, enable_cmaes=False, max_nfev=30
-    )
+    config = NLSQConfig(multistart=True, multistart_n=2, enable_cmaes=False, max_nfev=30)
     result = fit_nlsq_jax(model, c2, phi_angle=float(_PHI_ANGLES[0]), config=config)
     assert isinstance(result, NLSQResult)
     assert np.all(np.isfinite(result.parameters))
@@ -183,6 +181,4 @@ def test_multi_phi_ssr_conservation() -> None:
     diag = result.nlsq_diagnostics
     assert diag is not None
     assert diag["chi2_per_angle"].shape == (n_phi,)
-    np.testing.assert_allclose(
-        diag["chi2_per_angle"].sum(), result.chi_squared, rtol=1e-6
-    )
+    np.testing.assert_allclose(diag["chi2_per_angle"].sum(), result.chi_squared, rtol=1e-6)

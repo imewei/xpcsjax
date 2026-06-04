@@ -24,6 +24,7 @@ reproduce its reported chi-squared). The sequential per-angle aggregate
 "block_diagonal_sequential"``) survives only as the ``config is None`` /
 single-angle fallback.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -70,9 +71,7 @@ def test_heterodyne_param_dim_matches_homodyne_formula(
     K = 2
 
     config = NLSQConfig(per_angle_mode=mode, fourier_order=K, max_nfev=30)
-    c2 = _build_synthetic_c2_stack_for_fourier(
-        n_phi=n_phi, n_t=_C2_N_TIMES, model=model
-    )
+    c2 = _build_synthetic_c2_stack_for_fourier(n_phi=n_phi, n_t=_C2_N_TIMES, model=model)
     phi = np.linspace(0.0, 150.0, n_phi, dtype=np.float64)
 
     result = fit_nlsq_multi_phi(model, c2, phi, config, weights=None)

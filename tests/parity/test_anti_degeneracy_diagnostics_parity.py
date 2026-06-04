@@ -13,6 +13,7 @@ The laminar fixture used here is ``_build_laminar_fit`` from
 does not exist in this tree, so the real in-memory STANDARD curve_fit fixture is
 reused and gradient-monitoring is enabled on it explicitly.
 """
+
 from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
 from tests.optimization.test_l4_callback_observational import _build_laminar_fit
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
@@ -23,9 +24,7 @@ _ACTIVATION = {"hierarchical_active", "regularization_active", "shear_weighting"
 
 def _laminar_diagnostics():
     fit_nlsq, data, cfg = _build_laminar_fit()
-    cfg.config["optimization"]["nlsq"]["anti_degeneracy"]["gradient_monitoring"] = {
-        "enable": True
-    }
+    cfg.config["optimization"]["nlsq"]["anti_degeneracy"]["gradient_monitoring"] = {"enable": True}
     return fit_nlsq(data, cfg).nlsq_diagnostics
 
 

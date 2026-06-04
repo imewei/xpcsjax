@@ -131,9 +131,7 @@ class StratifiedResidualFunctionJIT:
         # (n_chunks * max_chunk_size), so JAX cannot reuse the buffer.
         self.logger.info("JIT-compiling residual function...")
         # T035: Add log_phase for JIT compilation timing with memory tracking
-        with log_phase(
-            "jit_residual_compilation", logger=self.logger, track_memory=True
-        ) as phase:
+        with log_phase("jit_residual_compilation", logger=self.logger, track_memory=True) as phase:
             self._residual_fn_jit = jax.jit(self._compute_all_residuals)
         self.logger.info(f"JIT compilation setup complete in {phase.duration:.3f}s")
 
@@ -141,9 +139,7 @@ class StratifiedResidualFunctionJIT:
         """Extract q, L, dt from chunks (should be same for all chunks)."""
         q_values = [float(chunk.q) for chunk in self.chunks]
         L_values = [float(chunk.L) for chunk in self.chunks]
-        dt_values = [
-            float(chunk.dt) if chunk.dt is not None else None for chunk in self.chunks
-        ]
+        dt_values = [float(chunk.dt) if chunk.dt is not None else None for chunk in self.chunks]
 
         # Validate consistency
         if not all(abs(q - q_values[0]) < 1e-9 for q in q_values):
@@ -196,9 +192,7 @@ class StratifiedResidualFunctionJIT:
 
     def _create_padded_arrays(
         self,
-    ) -> tuple[
-        jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, int, int
-    ]:
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, int, int]:
         """
         Create padded arrays with uniform size across all chunks.
 
@@ -394,9 +388,7 @@ class StratifiedResidualFunctionJIT:
         EPS = 1e-10
         valid_sigma = sigma_chunk > EPS
         safe_sigma = jnp.where(valid_sigma, sigma_chunk, 1.0)
-        residuals_raw = jnp.where(
-            valid_sigma, (g2_obs_chunk - g2_theory_chunk) / safe_sigma, 0.0
-        )
+        residuals_raw = jnp.where(valid_sigma, (g2_obs_chunk - g2_theory_chunk) / safe_sigma, 0.0)
 
         # v2.14.2+: Mask out both padded values AND diagonal values (t1 == t2)
         # Diagonal points are autocorrelation artifacts, not physics
@@ -443,9 +435,7 @@ class StratifiedResidualFunctionJIT:
         )  # Shape: (n_chunks, max_chunk_size)
 
         # Flatten residuals (padding is already masked to zero in _compute_single_chunk_residuals)
-        residuals_flat = (
-            residuals_padded.flatten()
-        )  # Shape: (n_chunks * max_chunk_size,)
+        residuals_flat = residuals_padded.flatten()  # Shape: (n_chunks * max_chunk_size,)
 
         # Return full array (filtering happens in __call__ to avoid JIT boolean indexing)
         return residuals_flat
@@ -472,9 +462,7 @@ class StratifiedResidualFunctionJIT:
             )
         params_jax = jnp.asarray(params, dtype=jnp.float64)
         residuals_jax = self._residual_fn_jit(params_jax)
-        return cast(
-            jnp.ndarray, residuals_jax
-        )  # Keep as JAX array for JIT compatibility
+        return cast(jnp.ndarray, residuals_jax)  # Keep as JAX array for JIT compatibility
 
     def validate_chunk_structure(self) -> bool:
         """
@@ -486,9 +474,7 @@ class StratifiedResidualFunctionJIT:
         Raises:
             ValueError: If validation fails
         """
-        expected_angles = set(
-            np.unique(np.round(np.asarray(self.phi_unique), decimals=6))
-        )
+        expected_angles = set(np.unique(np.round(np.asarray(self.phi_unique), decimals=6)))
         n_expected = len(expected_angles)
 
         self.logger.info(
@@ -521,9 +507,7 @@ class StratifiedResidualFunctionJIT:
             "n_chunks": self.n_chunks,
             "max_chunk_size": self.max_chunk_size,
             "n_real_points": self.n_real_points,
-            "padding_overhead_pct": (
-                1 - self.n_real_points / (self.n_chunks * self.max_chunk_size)
-            )
+            "padding_overhead_pct": (1 - self.n_real_points / (self.n_chunks * self.max_chunk_size))
             * 100,
             "n_phi": self.n_phi,
             "n_t1": len(self.t1_unique),

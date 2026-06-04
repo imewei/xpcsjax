@@ -130,18 +130,12 @@ class HierarchicalConfig:
             enable=bool(config_dict.get("enable", True)),
             max_outer_iterations=safe_int(config_dict.get("max_outer_iterations"), 5),
             outer_tolerance=safe_float(config_dict.get("outer_tolerance"), 1e-6),
-            physical_max_iterations=safe_int(
-                config_dict.get("physical_max_iterations"), 100
-            ),
+            physical_max_iterations=safe_int(config_dict.get("physical_max_iterations"), 100),
             physical_ftol=safe_float(config_dict.get("physical_ftol"), 1e-8),
-            per_angle_max_iterations=safe_int(
-                config_dict.get("per_angle_max_iterations"), 50
-            ),
+            per_angle_max_iterations=safe_int(config_dict.get("per_angle_max_iterations"), 50),
             per_angle_ftol=safe_float(config_dict.get("per_angle_ftol"), 1e-6),
             log_stage_transitions=bool(config_dict.get("log_stage_transitions", True)),
-            save_intermediate_results=bool(
-                config_dict.get("save_intermediate_results", False)
-            ),
+            save_intermediate_results=bool(config_dict.get("save_intermediate_results", False)),
         )
 
 
@@ -429,10 +423,7 @@ class HierarchicalOptimizer:
         logger.info("HIERARCHICAL OPTIMIZATION")
         logger.info("=" * 60)
         logger.info(f"Initial loss: {initial_loss:.6e}")
-        logger.info(
-            f"Parameter split: {self.n_per_angle} per-angle + "
-            f"{self.n_physical} physical"
-        )
+        logger.info(f"Parameter split: {self.n_per_angle} per-angle + {self.n_physical} physical")
 
         converged = False
 
@@ -456,8 +447,7 @@ class HierarchicalOptimizer:
 
             if self.config.log_stage_transitions:
                 logger.info(
-                    f"  Stage 1 (physical): loss={stage1_result.fun:.6e}, "
-                    f"iters={stage1_result.nit}"
+                    f"  Stage 1 (physical): loss={stage1_result.fun:.6e}, iters={stage1_result.nit}"
                 )
 
             # Stage 2: Fit per-angle parameters
@@ -491,9 +481,7 @@ class HierarchicalOptimizer:
             physical_change = np.linalg.norm(
                 current_params[self.physical_indices] - previous_physical
             )
-            relative_change = physical_change / (
-                np.linalg.norm(previous_physical) + 1e-10
-            )
+            relative_change = physical_change / (np.linalg.norm(previous_physical) + 1e-10)
 
             if self.config.log_stage_transitions:
                 logger.info(
@@ -586,9 +574,7 @@ class HierarchicalOptimizer:
         if physical_grad is not None:
             # jaxopt expects (value, grad) when value_and_grad=True
             def value_and_grad_fn(x: jnp.ndarray) -> tuple[float, jnp.ndarray]:
-                return physical_loss(np.asarray(x)), jnp.asarray(
-                    physical_grad(np.asarray(x))
-                )
+                return physical_loss(np.asarray(x)), jnp.asarray(physical_grad(np.asarray(x)))
 
             solver = LBFGSB(
                 fun=value_and_grad_fn,
@@ -682,9 +668,7 @@ class HierarchicalOptimizer:
         if per_angle_grad is not None:
             # jaxopt expects (value, grad) when value_and_grad=True
             def value_and_grad_fn(x: jnp.ndarray) -> tuple[float, jnp.ndarray]:
-                return per_angle_loss(np.asarray(x)), jnp.asarray(
-                    per_angle_grad(np.asarray(x))
-                )
+                return per_angle_loss(np.asarray(x)), jnp.asarray(per_angle_grad(np.asarray(x)))
 
             solver = LBFGSB(
                 fun=value_and_grad_fn,

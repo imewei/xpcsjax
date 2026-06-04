@@ -77,9 +77,7 @@ class HeterodyneModel(PhysicsModelBase):
         registry = get_registry()
         names = list(get_param_names(self.analysis_mode))
         super().__init__(name="heterodyne_two_component", parameter_names=names)
-        self._info: dict[str, ParameterInfo] = {
-            n: registry.get_param_info(n) for n in names
-        }
+        self._info: dict[str, ParameterInfo] = {n: registry.get_param_info(n) for n in names}
 
     # ------------------------------------------------------------------
     # Required PhysicsModelBase abstract methods
@@ -175,8 +173,7 @@ class HeterodyneModel(PhysicsModelBase):
     def get_parameter_bounds(self) -> list[tuple[float, float]]:
         """Get parameter bounds for the 14 heterodyne params (registry order)."""
         return [
-            (self._info[n].lower_bound, self._info[n].upper_bound)
-            for n in self.parameter_names
+            (self._info[n].lower_bound, self._info[n].upper_bound) for n in self.parameter_names
         ]
 
     def get_default_parameters(self) -> jnp.ndarray:

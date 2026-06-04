@@ -861,8 +861,7 @@ def fit_nlsq_multi_phi(
                 use_joint = True
             except ImportError:
                 logger.warning(
-                    "fourier_reparam not available, falling back to sequential "
-                    "individual fits"
+                    "fourier_reparam not available, falling back to sequential individual fits"
                 )
 
         # ``config is None`` / single-angle (len(phi_angles) <= 1) never reach
@@ -1535,9 +1534,7 @@ _JOINT_CMAES_SEED = 42
 _PER_ANGLE_CMAES_SEED = 42
 
 
-def _build_joint_fourier(
-    config: NLSQConfig, phi_angles: np.ndarray
-) -> Any:
+def _build_joint_fourier(config: NLSQConfig, phi_angles: np.ndarray) -> Any:
     """Build the mode-appropriate :class:`FourierReparameterizer` for the joint fit.
 
     Mirrors the per-mode dispatch in :func:`fit_nlsq_multi_phi`: ``individual``
@@ -1590,9 +1587,7 @@ def _fit_joint_cmaes_multi_phi(
     """
     try:
         fourier = _build_joint_fourier(config, phi_angles)
-        prob = _build_joint_problem(
-            model, c2_data, phi_angles, config, weights, fourier=fourier
-        )
+        prob = _build_joint_problem(model, c2_data, phi_angles, config, weights, fourier=fourier)
 
         # Phase 1: warm-start via the plain joint fit over the SAME problem.
         warm = _fit_joint_multi_phi(
@@ -1739,9 +1734,7 @@ def _fit_joint_multistart(
     """
     try:
         fourier = _build_joint_fourier(config, phi_angles)
-        prob = _build_joint_problem(
-            model, c2_data, phi_angles, config, weights, fourier=fourier
-        )
+        prob = _build_joint_problem(model, c2_data, phi_angles, config, weights, fourier=fourier)
         bounds2 = np.stack([prob.lb, prob.ub], axis=1)  # (n_params, 2)
 
         # Data-only SSR (excludes any L3 penalty rows) — the keep-better unit,
@@ -1996,7 +1989,12 @@ def _multistart_joint_candidate(
 
     def single_fit_func(_data: dict[str, Any], x_start: np.ndarray) -> Any:
         x_fit = _solve_residual_nlsq(
-            base_residual_fn, np.asarray(x_start, dtype=np.float64), lb, ub, solver_config, param_names
+            base_residual_fn,
+            np.asarray(x_start, dtype=np.float64),
+            lb,
+            ub,
+            solver_config,
+            param_names,
         )
         return SingleStartResult(
             start_idx=0,
@@ -2074,7 +2072,14 @@ def _apply_global_escape(
             cand = _cmaes_joint_candidate(base_residual_fn, x_warm, lb, ub, config)
         elif escape_kind == "multistart":
             cand = _multistart_joint_candidate(
-                base_residual_fn, x_warm, lb, ub, solver_config, param_names, config, multistart_data
+                base_residual_fn,
+                x_warm,
+                lb,
+                ub,
+                solver_config,
+                param_names,
+                config,
+                multistart_data,
             )
         else:  # pragma: no cover — unknown kind treated as no escape
             return x_warm, None
@@ -3087,9 +3092,7 @@ def _fit_cmaes(
     # laminar_flow's core.py honored them), so a "skip when the warm-start is
     # good" run silently still paid for the full global search.
     warmstart_auto_skip = bool(getattr(config, "cmaes_warmstart_auto_skip", True))
-    warmstart_skip_threshold = float(
-        getattr(config, "cmaes_warmstart_skip_threshold", 5.0)
-    )
+    warmstart_skip_threshold = float(getattr(config, "cmaes_warmstart_skip_threshold", 5.0))
     if (
         warmstart_auto_skip
         and nlsq_result is not None
@@ -3302,9 +3305,7 @@ def _fit_cmaes(
     # in per-angle metadata: "cmaes" when CMA-ES won Phase 3, else
     # "cmaes_warmstart_kept" (CMA-ES ran but the NLSQ warm-start was kept) —
     # mirroring the joint escape's "<kind>" / "<kind>_warmstart_kept" values.
-    result.metadata["global_escape"] = (
-        "cmaes" if winner == "cmaes" else "cmaes_warmstart_kept"
-    )
+    result.metadata["global_escape"] = "cmaes" if winner == "cmaes" else "cmaes_warmstart_kept"
 
     _log_result(result)
     return result
@@ -3820,14 +3821,10 @@ def log_heterodyne_completion(
     if n_physics > 0 and params.size >= n_physics:
         if mode == "hybrid_streaming":
             phys_vals = params[-n_physics:]
-            phys_unc = (
-                unc[-n_physics:] if unc is not None and unc.size >= n_physics else None
-            )
+            phys_unc = unc[-n_physics:] if unc is not None and unc.size >= n_physics else None
         else:
             phys_vals = params[:n_physics]
-            phys_unc = (
-                unc[:n_physics] if unc is not None and unc.size >= n_physics else None
-            )
+            phys_unc = unc[:n_physics] if unc is not None and unc.size >= n_physics else None
 
         logger.info("Fitted parameters (%d physical, %d angles):", n_physics, n_phi)
         logger.info("  Physical parameters:")
@@ -3837,9 +3834,7 @@ def log_heterodyne_completion(
 
     mean_contrast, mean_offset = _mean_scaling_from_diagnostics(diag)
     if mean_contrast is not None and mean_offset is not None:
-        logger.info(
-            "  Mean scaling: contrast=%.4f, offset=%.4f", mean_contrast, mean_offset
-        )
+        logger.info("  Mean scaling: contrast=%.4f, offset=%.4f", mean_contrast, mean_offset)
 
     logger.info("=" * 60)
 

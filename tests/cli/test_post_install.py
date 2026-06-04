@@ -273,9 +273,7 @@ def test_install_xla_config_scripts(fake_venv: Path) -> None:
     assert pi.install_xla_config_scripts(fake_venv, verbose=True) is True
     assert (fake_venv / "etc" / "xpcsjax" / "xla_config.bash").is_file()
     assert (fake_venv / "etc" / "xpcsjax" / "xla_config.fish").is_file()
-    assert (
-        fake_venv / "share" / "fish" / "vendor_conf.d" / "xpcsjax-xla.fish"
-    ).is_file()
+    assert (fake_venv / "share" / "fish" / "vendor_conf.d" / "xpcsjax-xla.fish").is_file()
 
 
 def test_install_xla_bash_activation_injection_and_idempotency(fake_venv: Path) -> None:
@@ -343,9 +341,7 @@ def test_migrate_legacy_xla_mode(isolated_env: Path, tmp_path: Path) -> None:
     assert not legacy.exists()
 
 
-def test_migrate_legacy_noop_when_new_exists(
-    isolated_env: Path, tmp_path: Path
-) -> None:
+def test_migrate_legacy_noop_when_new_exists(isolated_env: Path, tmp_path: Path) -> None:
     legacy = isolated_env / ".xpcsjax_xla_mode"
     legacy.write_text("nlsq", encoding="utf-8")
     new_path = tmp_path / "cfg" / "xla_mode"

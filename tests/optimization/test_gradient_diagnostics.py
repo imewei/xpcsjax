@@ -32,9 +32,7 @@ def _make_data(n_phi: int = 3, n_t: int = 8) -> SimpleNamespace:
     t1 = np.tile(np.repeat(np.arange(n_t, dtype=float), n_t), n_phi)
     t2 = np.tile(np.tile(np.arange(n_t, dtype=float), n_t), n_phi)
     # g2 in the physically meaningful range [1.0, 1.5]; small noise.
-    g2 = 1.0 + 0.4 * np.exp(-0.05 * np.abs(t2 - t1)) + 0.01 * rng.standard_normal(
-        phi.shape
-    )
+    g2 = 1.0 + 0.4 * np.exp(-0.05 * np.abs(t2 - t1)) + 0.01 * rng.standard_normal(phi.shape)
     return SimpleNamespace(
         phi=phi,
         t1=t1,

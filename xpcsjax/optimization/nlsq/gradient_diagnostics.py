@@ -148,8 +148,7 @@ def compute_gradient_norms(
     gradients = grad_fn(param_array)
 
     gradient_norms = {
-        name: float(abs(grad))
-        for name, grad in zip(param_names, gradients, strict=False)
+        name: float(abs(grad)) for name, grad in zip(param_names, gradients, strict=False)
     }
 
     return gradient_norms
@@ -194,13 +193,9 @@ def compute_optimal_x_scale(
 
     gradient_norms = compute_gradient_norms(parameters, data, config, analysis_mode)
 
-    baseline_grads = [
-        gradient_norms[name] for name in baseline_params if name in gradient_norms
-    ]
+    baseline_grads = [gradient_norms[name] for name in baseline_params if name in gradient_norms]
     if not baseline_grads:
-        logger.warning(
-            f"No baseline parameters found in gradient norms: {baseline_params}"
-        )
+        logger.warning(f"No baseline parameters found in gradient norms: {baseline_params}")
         baseline_grads = [1.0]
 
     baseline_grad = np.exp(np.mean(np.log(np.maximum(baseline_grads, 1e-10))))

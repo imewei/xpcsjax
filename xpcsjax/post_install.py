@@ -205,9 +205,7 @@ def install_zsh_completion(venv_path: Path, verbose: bool = False) -> bool:
 
     try:
         # Ensure the bash completion is installed first (prerequisite)
-        installed_bash = (
-            venv_path / "etc" / "bash_completion.d" / "xpcsjax-completion.sh"
-        )
+        installed_bash = venv_path / "etc" / "bash_completion.d" / "xpcsjax-completion.sh"
         if not installed_bash.exists():
             install_bash_completion(venv_path, verbose=False)
 
@@ -713,9 +711,7 @@ def _migrate_legacy_xla_mode(new_path: Path) -> None:
             pass  # Best-effort migration
 
 
-def configure_xla_mode(
-    mode: str = "auto", verbose: bool = False, force: bool = False
-) -> bool:
+def configure_xla_mode(mode: str = "auto", verbose: bool = False, force: bool = False) -> bool:
     """Configure the XLA mode.
 
     Stores in the virtual environment (if active) or XDG config directory.
@@ -822,9 +818,7 @@ def interactive_setup() -> None:
                 print("Shell completion installed (activate hook failed).")
                 env_var = "$CONDA_PREFIX" if is_conda else "$VIRTUAL_ENV"
                 if shell == "zsh":
-                    print(
-                        f"Add to ~/.zshrc: source {env_var}/etc/zsh/xpcsjax-completion.sh"
-                    )
+                    print(f"Add to ~/.zshrc: source {env_var}/etc/zsh/xpcsjax-completion.sh")
                 elif shell == "bash":
                     print(
                         f"Add to ~/.bashrc: source {env_var}/etc/bash_completion.d/xpcsjax-completion.sh"
@@ -851,9 +845,7 @@ def interactive_setup() -> None:
         print(f"XLA mode set to '{mode}'")
 
     # Install XLA activation
-    response = (
-        input("\nAdd XLA config to venv activate script? [Y/n]: ").strip().lower()
-    )
+    response = input("\nAdd XLA config to venv activate script? [Y/n]: ").strip().lower()
     if response != "n":
         success = install_xla_activation(shell, verbose=True)
         if success:
@@ -931,10 +923,7 @@ Examples:
 
     # Run interactive setup if no specific options given
     if args.interactive or (
-        not args.no_completion
-        and not args.no_xla
-        and not args.shell
-        and not args.xla_mode
+        not args.no_completion and not args.no_xla and not args.shell and not args.xla_mode
     ):
         interactive_setup()
         return 0

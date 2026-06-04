@@ -1,4 +1,5 @@
 """Tests for heterodyne per-angle mode vocabulary parity with homodyne."""
+
 from __future__ import annotations
 
 import pytest
@@ -31,9 +32,7 @@ def test_averaged_function_renamed() -> None:
     """The averaged-scaling joint solver uses the corrected name."""
     from xpcsjax.optimization.nlsq import heterodyne_core
 
-    assert hasattr(heterodyne_core, "_fit_joint_averaged_multi_phi"), (
-        "expected renamed function"
-    )
+    assert hasattr(heterodyne_core, "_fit_joint_averaged_multi_phi"), "expected renamed function"
     assert not hasattr(heterodyne_core, "_fit_joint_constant_multi_phi"), (
         "old mislabeled name must be removed — "
         "true 'constant' mode lands in Sub-PR B with its own dedicated function"
@@ -61,8 +60,7 @@ def test_constant_mode_dispatches_to_constant_fit() -> None:
     phi = np.array([0.0, 45.0])
 
     with patch(
-        "xpcsjax.optimization.nlsq.heterodyne_constant_mode."
-        "_fit_joint_constant_multi_phi"
+        "xpcsjax.optimization.nlsq.heterodyne_constant_mode._fit_joint_constant_multi_phi"
     ) as mock_fit:
         sentinel = object()
         mock_fit.return_value = sentinel
@@ -159,9 +157,7 @@ def test_auto_never_selects_constant_or_fourier() -> None:
     from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
     from xpcsjax.optimization.nlsq.heterodyne_core import _resolve_effective_mode
 
-    auto = NLSQConfig(
-        per_angle_mode="auto", constant_scaling_threshold=3, fourier_auto_threshold=6
-    )
+    auto = NLSQConfig(per_angle_mode="auto", constant_scaling_threshold=3, fourier_auto_threshold=6)
     for n_phi in (1, 2, 3, 4, 5, 6, 10, 23, 100):
         mode = _resolve_effective_mode(auto, n_phi)
         assert mode in ("individual", "averaged"), (

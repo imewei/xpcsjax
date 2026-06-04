@@ -172,9 +172,7 @@ def _warn_nlsq_bound_saturation(result: OptimizationResult) -> None:
                     hint = " [DEGENERATE JACOBIAN]"
             except (KeyError, AttributeError):
                 pass
-        logger.warning(
-            "NLSQ bound saturation: %s = %.4g +/- 0%s", name, val, hint
-        )
+        logger.warning("NLSQ bound saturation: %s = %.4g +/- 0%s", name, val, hint)
         saturated.append(name)
 
     if saturated:

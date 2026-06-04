@@ -1,6 +1,7 @@
 """Tests for heterodyne post-hoc per-angle view helpers
 (reconstruct_per_angle_scaling, per_angle_chi2).
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -76,11 +77,13 @@ def test_reconstruct_per_angle_scaling_fourier_matches_canonical_basis() -> None
     contrast_coeffs = np.array([0.40, 0.05, 0.03, -0.02, 0.01])  # [c0, c1, s1, c2, s2]
     offset_coeffs = np.array([1.00, 0.10, -0.05, 0.02, -0.03])
 
-    params = np.concatenate([
-        np.array([0.5, 0.1, 0.01]),  # physics
-        contrast_coeffs,
-        offset_coeffs,
-    ])
+    params = np.concatenate(
+        [
+            np.array([0.5, 0.1, 0.01]),  # physics
+            contrast_coeffs,
+            offset_coeffs,
+        ]
+    )
 
     result = OptimizationResult(
         parameters=params,
@@ -115,9 +118,7 @@ def test_reconstruct_per_angle_scaling_fourier_matches_canonical_basis() -> None
     # phi in *degrees* and deg2rads internally — so we feed the radian form
     # to the reparameterizer for an apples-to-apples comparison.
     config = FourierReparamConfig(mode="fourier", fourier_order=K)
-    reparam = FourierReparameterizer(
-        phi_angles=np.deg2rad(phi_deg), config=config
-    )
+    reparam = FourierReparameterizer(phi_angles=np.deg2rad(phi_deg), config=config)
     assert reparam.use_fourier, "expected Fourier mode to be active"
     B = reparam.get_basis_matrix()
     assert B is not None
@@ -132,11 +133,13 @@ def test_reconstruct_per_angle_scaling_individual_mode() -> None:
     from xpcsjax.optimization.nlsq.heterodyne_views import reconstruct_per_angle_scaling
 
     n_physics = 3
-    params = np.concatenate([
-        np.array([0.5, 0.1, 0.01]),       # physics
-        np.array([0.4, 0.42, 0.38]),       # contrast per angle
-        np.array([1.0, 1.0, 1.0]),         # offset per angle
-    ])
+    params = np.concatenate(
+        [
+            np.array([0.5, 0.1, 0.01]),  # physics
+            np.array([0.4, 0.42, 0.38]),  # contrast per angle
+            np.array([1.0, 1.0, 1.0]),  # offset per angle
+        ]
+    )
     result = OptimizationResult(
         parameters=params,
         uncertainties=np.zeros_like(params),
@@ -352,13 +355,9 @@ def _build_minimal_heterodyne_model_for_fourier():
         return HeterodyneModel.from_config(cfg.config)
 
 
-def _build_synthetic_c2_stack_for_fourier(
-    n_phi: int, n_t: int, model
-) -> np.ndarray:
+def _build_synthetic_c2_stack_for_fourier(n_phi: int, n_t: int, model) -> np.ndarray:
     """Forward-evaluate the model at each phi to build a (n_phi, N, N) stack."""
-    assert model.n_times == n_t, (
-        f"model.n_times={model.n_times} does not match requested n_t={n_t}"
-    )
+    assert model.n_times == n_t, f"model.n_times={model.n_times} does not match requested n_t={n_t}"
     rng = np.random.default_rng(seed=20260520)
     c2_stack = np.empty((n_phi, n_t, n_t), dtype=np.float64)
     for i, phi in enumerate(_C2_PHI_ANGLES[:n_phi]):
@@ -383,13 +382,9 @@ def test_fourier_mode_returns_single_optimization_result() -> None:
 
     model = _build_minimal_heterodyne_model_for_fourier()
     K = 2
-    config = NLSQConfig(
-        per_angle_mode="fourier", fourier_order=K, max_nfev=30
-    )
+    config = NLSQConfig(per_angle_mode="fourier", fourier_order=K, max_nfev=30)
     n_phi = len(_C2_PHI_ANGLES)
-    c2 = _build_synthetic_c2_stack_for_fourier(
-        n_phi=n_phi, n_t=_C2_N_TIMES, model=model
-    )
+    c2 = _build_synthetic_c2_stack_for_fourier(n_phi=n_phi, n_t=_C2_N_TIMES, model=model)
     phi = _C2_PHI_ANGLES
 
     result = fit_nlsq_multi_phi(model, c2, phi, config, weights=None)
@@ -451,9 +446,7 @@ def test_averaged_path_returns_single_optimization_result() -> None:
         max_nfev=30,
     )
     n_phi = 4  # in the averaged window (3 <= n_phi < 6)
-    c2 = _build_synthetic_c2_stack_for_fourier(
-        n_phi=n_phi, n_t=_C2_N_TIMES, model=model
-    )
+    c2 = _build_synthetic_c2_stack_for_fourier(n_phi=n_phi, n_t=_C2_N_TIMES, model=model)
     phi = _C2_PHI_ANGLES[:n_phi]
 
     result = fit_nlsq_multi_phi(model, c2, phi, config, weights=None)
@@ -515,13 +508,9 @@ def test_cmaes_path_returns_single_optimization_result() -> None:
     from xpcsjax.optimization.nlsq.heterodyne_core import _fit_joint_cmaes_multi_phi
 
     model = _build_minimal_heterodyne_model_for_fourier()
-    config = NLSQConfig(
-        per_angle_mode="fourier", fourier_order=2, enable_cmaes=True, max_nfev=30
-    )
+    config = NLSQConfig(per_angle_mode="fourier", fourier_order=2, enable_cmaes=True, max_nfev=30)
     n_phi = len(_C2_PHI_ANGLES)
-    c2 = _build_synthetic_c2_stack_for_fourier(
-        n_phi=n_phi, n_t=_C2_N_TIMES, model=model
-    )
+    c2 = _build_synthetic_c2_stack_for_fourier(n_phi=n_phi, n_t=_C2_N_TIMES, model=model)
     phi = _C2_PHI_ANGLES
 
     result = _fit_joint_cmaes_multi_phi(
@@ -549,9 +538,7 @@ def test_multistart_path_returns_single_optimization_result() -> None:
     model = _build_minimal_heterodyne_model_for_fourier()
     config = NLSQConfig(per_angle_mode="fourier", fourier_order=2, max_nfev=30)
     n_phi = len(_C2_PHI_ANGLES)
-    c2_stack = _build_synthetic_c2_stack_for_fourier(
-        n_phi=n_phi, n_t=_C2_N_TIMES, model=model
-    )
+    c2_stack = _build_synthetic_c2_stack_for_fourier(n_phi=n_phi, n_t=_C2_N_TIMES, model=model)
 
     # Per-angle entry: pick a single c2 matrix and a scalar phi.
     result = _fit_multistart(
@@ -613,9 +600,7 @@ def test_fit_nlsq_multi_phi_top_level_returns_optimization_result(
     if fourier_order is not None:
         kwargs["fourier_order"] = fourier_order
     config = NLSQConfig(**kwargs)
-    c2 = _build_synthetic_c2_stack_for_fourier(
-        n_phi=n_phi, n_t=_C2_N_TIMES, model=model
-    )
+    c2 = _build_synthetic_c2_stack_for_fourier(n_phi=n_phi, n_t=_C2_N_TIMES, model=model)
     phi = _C2_PHI_ANGLES[:n_phi]
 
     result = fit_nlsq_multi_phi(model, c2, phi, config, weights=None)
@@ -625,9 +610,7 @@ def test_fit_nlsq_multi_phi_top_level_returns_optimization_result(
     assert "chi2_per_angle" in diag
     assert diag["chi2_per_angle"].shape == (n_phi,)
     # SSR conservation across all modes
-    np.testing.assert_allclose(
-        diag["chi2_per_angle"].sum(), result.chi_squared, rtol=1e-6
-    )
+    np.testing.assert_allclose(diag["chi2_per_angle"].sum(), result.chi_squared, rtol=1e-6)
 
 
 # ---------------------------------------------------------------------------
@@ -664,8 +647,6 @@ def test_no_list_indexed_consumers_remain() -> None:
             if pattern.search(line):
                 matches.append(f"{path.relative_to(src_dir.parent)}:{line_num}: {line.strip()}")
 
-    assert not matches, (
-        "found direct list-indexed consumers of fit_nlsq_multi_phi:\n"
-        + "\n".join(matches)
+    assert not matches, "found direct list-indexed consumers of fit_nlsq_multi_phi:\n" + "\n".join(
+        matches
     )
-

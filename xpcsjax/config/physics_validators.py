@@ -273,9 +273,7 @@ def get_constraint_summary() -> dict[str, Any]:
     return {
         "parameters_covered": list(PHYSICS_CONSTRAINTS.keys()),
         "total_constraints": sum(len(rules) for rules in PHYSICS_CONSTRAINTS.values()),
-        "by_parameter": {
-            param: len(rules) for param, rules in PHYSICS_CONSTRAINTS.items()
-        },
+        "by_parameter": {param: len(rules) for param, rules in PHYSICS_CONSTRAINTS.items()},
     }
 
 

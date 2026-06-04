@@ -191,9 +191,7 @@ def test_forward_rejects_nonpositive_gamma() -> None:
     idx = _laminar_index_map()
     params = np.array([0.3, 1.0, 1e-3, 0.9, 1e-4, 0.0, 2.0, 5.0])
     with pytest.raises(ValueError, match="gamma_dot_t0 must be > 0"):
-        tr.apply_forward_shear_transforms_to_vector(
-            params, idx, {"enable_gamma_dot_log": True}
-        )
+        tr.apply_forward_shear_transforms_to_vector(params, idx, {"enable_gamma_dot_log": True})
 
 
 def test_inverse_with_empty_state_is_identity() -> None:
@@ -221,9 +219,7 @@ def test_forward_bounds_roundtrip() -> None:
 
     lower = np.full(8, 0.1)
     upper = np.full(8, 200.0)
-    transformed_bounds = tr.apply_forward_shear_transforms_to_bounds(
-        (lower, upper), state
-    )
+    transformed_bounds = tr.apply_forward_shear_transforms_to_bounds((lower, upper), state)
     assert transformed_bounds is not None
     tl, tu = transformed_bounds
     g = idx["gamma_dot_t0"]
@@ -243,9 +239,7 @@ def test_forward_bounds_none_or_empty_state_passthrough() -> None:
 def test_forward_bounds_rejects_nonpositive_gamma() -> None:
     state = {"gamma_log_idx": 0, "beta_center_idx": None, "beta_reference": 0.0}
     with pytest.raises(ValueError, match="bounds must be > 0"):
-        tr.apply_forward_shear_transforms_to_bounds(
-            (np.array([-1.0]), np.array([1.0])), state
-        )
+        tr.apply_forward_shear_transforms_to_bounds((np.array([-1.0]), np.array([1.0])), state)
 
 
 # ---------------------------------------------------------------------------

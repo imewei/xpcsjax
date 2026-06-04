@@ -39,14 +39,10 @@ def test_stratification_enabled_false_disables(monkeypatch: pytest.MonkeyPatch) 
     import xpcsjax.optimization.nlsq as nlsq_pkg
     from xpcsjax.optimization.nlsq import heterodyne_stratified_ls as hsl
 
-    cfg, data = make_cfgmgr_and_data(
-        n_phi=3, n_t=8, stratification={"enabled": False}
-    )
+    cfg, data = make_cfgmgr_and_data(n_phi=3, n_t=8, stratification={"enabled": False})
 
     # Force the gate past its 1M threshold regardless of the tiny fixture.
-    monkeypatch.setattr(
-        nlsq_pkg, "_estimate_heterodyne_points", lambda c2, phi: 2_000_000
-    )
+    monkeypatch.setattr(nlsq_pkg, "_estimate_heterodyne_points", lambda c2, phi: 2_000_000)
 
     called = {"hit": False}
 
@@ -67,13 +63,9 @@ def test_stratification_target_chunk_size_flows(monkeypatch: pytest.MonkeyPatch)
     import xpcsjax.optimization.nlsq as nlsq_pkg
     from xpcsjax.optimization.nlsq import heterodyne_stratified_ls as hsl
 
-    cfg, data = make_cfgmgr_and_data(
-        n_phi=3, n_t=8, stratification={"target_chunk_size": 50_000}
-    )
+    cfg, data = make_cfgmgr_and_data(n_phi=3, n_t=8, stratification={"target_chunk_size": 50_000})
 
-    monkeypatch.setattr(
-        nlsq_pkg, "_estimate_heterodyne_points", lambda c2, phi: 2_000_000
-    )
+    monkeypatch.setattr(nlsq_pkg, "_estimate_heterodyne_points", lambda c2, phi: 2_000_000)
 
     captured: dict[str, object] = {}
 
@@ -85,9 +77,7 @@ def test_stratification_target_chunk_size_flows(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(hsl, "fit_heterodyne_stratified_least_squares", _capture)
     # Completion logging expects a real result; stub it out (best-effort already
     # guards, but keep the test focused on the kwarg).
-    monkeypatch.setattr(
-        nlsq_pkg, "_safe_log_heterodyne_completion", lambda *a, **k: None
-    )
+    monkeypatch.setattr(nlsq_pkg, "_safe_log_heterodyne_completion", lambda *a, **k: None)
 
     result = fit_nlsq(data, cfg)
     assert result == "sentinel-result"
@@ -119,13 +109,9 @@ def test_max_imbalance_ratio_disables_stratification(monkeypatch: pytest.MonkeyP
     from xpcsjax.optimization.nlsq.strategies.chunking import AngleDistributionStats
 
     # Configure a tight max_imbalance_ratio (1.5); force a measured imbalance of 4.0.
-    cfg, data = make_cfgmgr_and_data(
-        n_phi=3, n_t=8, stratification={"max_imbalance_ratio": 1.5}
-    )
+    cfg, data = make_cfgmgr_and_data(n_phi=3, n_t=8, stratification={"max_imbalance_ratio": 1.5})
 
-    monkeypatch.setattr(
-        nlsq_pkg, "_estimate_heterodyne_points", lambda c2, phi: 2_000_000
-    )
+    monkeypatch.setattr(nlsq_pkg, "_estimate_heterodyne_points", lambda c2, phi: 2_000_000)
 
     def _fake_dist(phi):
         # imbalance_ratio=4.0 is below chunking's hard 5.0 (so
@@ -170,13 +156,9 @@ def test_max_imbalance_ratio_can_loosen_above_5(monkeypatch: pytest.MonkeyPatch)
 
     # Loose max_imbalance_ratio (10.0); force a measured imbalance of 6.0 — above
     # chunking's hard 5.0 (old behavior would reject) but within the configured 10.0.
-    cfg, data = make_cfgmgr_and_data(
-        n_phi=3, n_t=8, stratification={"max_imbalance_ratio": 10.0}
-    )
+    cfg, data = make_cfgmgr_and_data(n_phi=3, n_t=8, stratification={"max_imbalance_ratio": 10.0})
 
-    monkeypatch.setattr(
-        nlsq_pkg, "_estimate_heterodyne_points", lambda c2, phi: 2_000_000
-    )
+    monkeypatch.setattr(nlsq_pkg, "_estimate_heterodyne_points", lambda c2, phi: 2_000_000)
 
     def _fake_dist(phi):
         return AngleDistributionStats(

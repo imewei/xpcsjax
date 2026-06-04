@@ -25,7 +25,7 @@ import unittest.mock
 
 import pytest
 
-from xpcsjax.data.memory_manager import AdvancedMemoryManager, MemoryStats
+from xpcsjax.data.memory_manager import AdvancedMemoryManager, AllocationError, MemoryStats
 from xpcsjax.utils import logging as xlog
 
 
@@ -65,8 +65,7 @@ def test_cleanup_failure_is_logged_at_debug_and_does_not_escape(caplog, monkeypa
             manager._handle_memory_warning(stats)
 
         assert any(
-            r.levelno == logging.DEBUG and "cleanup boom" in r.getMessage()
-            for r in caplog.records
+            r.levelno == logging.DEBUG and "cleanup boom" in r.getMessage() for r in caplog.records
         ), "the swallowed cleanup failure must be logged at DEBUG with context"
 
         # The manager is still usable after the swallowed failure.
@@ -78,6 +77,7 @@ def test_cleanup_failure_is_logged_at_debug_and_does_not_escape(caplog, monkeypa
 # ---------------------------------------------------------------------------
 # REL-1: _return_to_pool malformed pool_id must log DEBUG, never raise
 # ---------------------------------------------------------------------------
+
 
 def test_return_to_pool_malformed_id_does_not_raise_and_logs_debug(caplog, monkeypatch):
     """REL-1: malformed pool_id in _return_to_pool must log DEBUG, not raise.
@@ -99,7 +99,8 @@ def test_return_to_pool_malformed_id_does_not_raise_and_logs_debug(caplog, monke
             manager._return_to_pool(buf, malformed_pool_id)
 
         debug_records = [
-            r for r in caplog.records
+            r
+            for r in caplog.records
             if r.levelno == logging.DEBUG and malformed_pool_id in r.getMessage()
         ]
         assert debug_records, (
@@ -125,7 +126,8 @@ def test_return_to_pool_malformed_id_logged_once_per_distinct_id(caplog, monkeyp
             manager._return_to_pool(buf, malformed_pool_id)
 
         matching = [
-            r for r in caplog.records
+            r
+            for r in caplog.records
             if r.levelno == logging.DEBUG and malformed_pool_id in r.getMessage()
         ]
         assert len(matching) == 1, (
@@ -138,6 +140,7 @@ def test_return_to_pool_malformed_id_logged_once_per_distinct_id(caplog, monkeyp
 # ---------------------------------------------------------------------------
 # logged_errors fallback shim: policy="reraise" must propagate
 # ---------------------------------------------------------------------------
+
 
 def test_logged_errors_fallback_reraise_policy_propagates():
     """The HAS_V2_LOGGING=False fallback shim must re-raise when policy='reraise'.
@@ -186,7 +189,6 @@ def test_logged_errors_fallback_shim_reraise_direct():
     real helper imported successfully, to guarantee the shim itself is correct.
     """
     import contextlib
-    from xpcsjax.data import memory_manager as mm_mod
 
     # Build the shim exactly as defined in the module's except ImportError block.
     @contextlib.contextmanager
@@ -214,6 +216,7 @@ def test_logged_errors_fallback_shim_reraise_direct():
 # ---------------------------------------------------------------------------
 # virtual_memory_path traversal check
 # ---------------------------------------------------------------------------
+
 
 def test_virtual_memory_path_traversal_rejected_before_makedirs(tmp_path, monkeypatch):
     """A virtual_memory_path containing '..' must be rejected before any directory is created.
@@ -244,8 +247,10 @@ def test_virtual_memory_path_traversal_rejected_before_makedirs(tmp_path, monkey
 
         monkeypatch.setattr(os, "makedirs", _spy_makedirs)
 
-        with pytest.raises(Exception):
-            # Should raise (PathValidationError or ValueError) BEFORE makedirs
+        # The traversal check raises PathValidationError (a ValueError), which
+        # _allocate_virtual_memory wraps into AllocationError before it escapes.
+        with pytest.raises(AllocationError):
+            # Should raise BEFORE makedirs (traversal check happens first)
             manager._allocate_virtual_memory(1024, np.float64)
 
         assert not makedirs_called, (
@@ -260,6 +265,7 @@ def test_virtual_memory_path_traversal_rejected_before_makedirs(tmp_path, monkey
 # TEST-1 GAP-6: two different VM files each emit their own cleanup DEBUG record
 # ---------------------------------------------------------------------------
 
+
 def test_cleanup_vm_file_log_once_key_is_per_file(caplog, monkeypatch):
     """GAP-6 regression: two different VM files each get their own DEBUG log.
 
@@ -268,8 +274,6 @@ def test_cleanup_vm_file_log_once_key_is_per_file(caplog, monkeypatch):
     This means the FIRST file's failure must not suppress the SECOND file's
     failure log (different keys → both should appear).
     """
-    import os
-
     manager = _make_manager()
     try:
         vm_dir_path = "/fake/vm/dir"
@@ -279,9 +283,7 @@ def test_cleanup_vm_file_log_once_key_is_per_file(caplog, monkeypatch):
         # Make os.path.exists return True for the vm_dir
         # and os.listdir return our two fake files
         # os.remove raises OSError for both to trigger the log_once path
-        monkeypatch.setattr(
-            manager, "_virtual_memory_path", f"{vm_dir_path}/xpcsjax_vm"
-        )
+        monkeypatch.setattr(manager, "_virtual_memory_path", f"{vm_dir_path}/xpcsjax_vm")
 
         with (
             unittest.mock.patch("os.path.exists", return_value=True),
@@ -297,7 +299,8 @@ def test_cleanup_vm_file_log_once_key_is_per_file(caplog, monkeypatch):
         # Both files should have generated a DEBUG record (different log_once keys)
         for fake_file in fake_files:
             matching = [
-                r for r in caplog.records
+                r
+                for r in caplog.records
                 if r.levelno == logging.DEBUG and fake_file in r.getMessage()
             ]
             assert matching, (
@@ -305,4 +308,63 @@ def test_cleanup_vm_file_log_once_key_is_per_file(caplog, monkeypatch):
                 f"Records: {[r.getMessage() for r in caplog.records]}"
             )
     finally:
+        manager.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Interpreter-shutdown noise: the atexit monitor cleanup must not let logging's
+# handler-error reporter print "--- Logging error --- / I/O operation on closed
+# file" to stderr after a test harness has closed the log stream.
+# ---------------------------------------------------------------------------
+
+
+def test_atexit_cleanup_silences_closed_stream_logging_errors(capsys):
+    """The atexit monitor cleanup must not emit logging-handler error noise.
+
+    At interpreter shutdown pytest (or an application) may have already closed
+    the stream backing a root-logger handler. The best-effort ``logger.info``
+    inside ``stop_monitoring`` then trips ``logging.Handler.handleError``, which
+    — while ``logging.raiseExceptions`` is True — prints a spurious
+    ``--- Logging error ---`` / ``ValueError: I/O operation on closed file`` to
+    stderr. ``_cleanup_active_monitors`` must suppress that reporting so the
+    process exits cleanly.
+
+    We reproduce the closed-stream condition directly: attach a handler whose
+    stream is already closed to the root logger, register a live monitor, then
+    run the atexit cleanup and assert no logging-error noise reached stderr. The
+    global ``logging.raiseExceptions`` flag is saved and restored so this test
+    cannot poison the visibility of logging errors in other tests.
+    """
+    import io
+
+    from xpcsjax.data import memory_manager as mm_mod
+
+    original_raise = logging.raiseExceptions
+    root = logging.getLogger()
+    closed_stream = io.StringIO()
+    closed_stream.close()
+    bad_handler = logging.StreamHandler(closed_stream)
+
+    # A real manager with monitoring on registers a monitor in _active_monitors,
+    # so the atexit cleanup will call stop_monitoring() -> logger.info(...).
+    manager = AdvancedMemoryManager(config={"memory": {"enable_monitoring": True}})
+    root.addHandler(bad_handler)
+    try:
+        logging.raiseExceptions = True  # default; would print on emit failure
+        # Drain anything captured so far, then exercise the shutdown path.
+        capsys.readouterr()
+        mm_mod._cleanup_active_monitors()
+        err = capsys.readouterr().err
+        assert "--- Logging error ---" not in err, (
+            f"atexit cleanup leaked a logging-handler error to stderr:\n{err}"
+        )
+        assert "I/O operation on closed file" not in err, (
+            f"atexit cleanup leaked a closed-stream error to stderr:\n{err}"
+        )
+        # The fix works by disabling logging's exception reporting for the rest
+        # of shutdown — confirm the mechanism is in place.
+        assert logging.raiseExceptions is False
+    finally:
+        root.removeHandler(bad_handler)
+        logging.raiseExceptions = original_raise
         manager.shutdown()

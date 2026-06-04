@@ -510,9 +510,7 @@ class ConfigManager:
         # Get initial_parameters section
         initial_params = self.config.get("initial_parameters", {})
         if not initial_params:
-            logger.info(
-                "No initial_parameters section in config, using mid-point defaults"
-            )
+            logger.info("No initial_parameters section in config, using mid-point defaults")
             return self._calculate_midpoint_defaults()
 
         # Get parameter names from config
@@ -540,9 +538,7 @@ class ConfigManager:
 
         # Validate that values is a list
         if not isinstance(param_values, list):
-            raise ValueError(
-                f"initial_parameters.values must be a list, got {type(param_values)}"
-            )
+            raise ValueError(f"initial_parameters.values must be a list, got {type(param_values)}")
 
         # Validate length match
         if len(param_values) != len(param_names_config):
@@ -617,26 +613,20 @@ class ConfigManager:
                     # Multi-angle: use per-angle contrast_0, contrast_1, ...
                     for idx, val in enumerate(contrast_values):
                         initial_params_dict[f"contrast_{idx}"] = float(val)
-                    logger.info(
-                        f"Loaded {len(contrast_values)} per-angle contrast values"
-                    )
+                    logger.info(f"Loaded {len(contrast_values)} per-angle contrast values")
 
             if offset_values is not None and isinstance(offset_values, list):
                 if len(offset_values) == 1:
                     # Single-angle: use scalar offset
                     initial_params_dict["offset"] = float(offset_values[0])
-                    logger.info(
-                        f"Loaded scalar offset from per_angle_scaling: {offset_values[0]}"
-                    )
+                    logger.info(f"Loaded scalar offset from per_angle_scaling: {offset_values[0]}")
                 else:
                     # Multi-angle: use per-angle offset_0, offset_1, ...
                     for idx, val in enumerate(offset_values):
                         initial_params_dict[f"offset_{idx}"] = float(val)
                     logger.info(f"Loaded {len(offset_values)} per-angle offset values")
 
-        logger.info(
-            f"Loaded initial parameters from config: {list(initial_params_dict.keys())}"
-        )
+        logger.info(f"Loaded initial parameters from config: {list(initial_params_dict.keys())}")
 
         return initial_params_dict
 
@@ -671,9 +661,7 @@ class ConfigManager:
             midpoint = (min_val + max_val) / 2.0
             midpoint_dict[param_name] = midpoint
 
-        logger.info(
-            f"Calculated mid-point defaults for {len(midpoint_dict)} parameters"
-        )
+        logger.info(f"Calculated mid-point defaults for {len(midpoint_dict)} parameters")
         logger.debug(f"Mid-point values: {midpoint_dict}")
 
         return midpoint_dict
@@ -808,9 +796,7 @@ class ConfigManager:
         # Warn about unknown top-level keys (possible typos)
         unknown_keys = set(self.config.keys()) - _KNOWN_TOP_LEVEL_KEYS
         if unknown_keys:
-            logger.warning(
-                "Unknown top-level config keys (possible typo): %s", unknown_keys
-            )
+            logger.warning("Unknown top-level config keys (possible typo): %s", unknown_keys)
 
         # Check for required sections
         required_sections = ["analysis_mode"]
@@ -993,17 +979,13 @@ class ConfigManager:
         # authority (M-8). Unknown values are lowercased and deferred to
         # construction-time mode validation rather than raised here.
         try:
-            normalized_mode = AnalysisMode.parse(
-                mode, allow_bare_static=True
-            ).value
+            normalized_mode = AnalysisMode.parse(mode, allow_bare_static=True).value
         except ValueError:
             normalized_mode = mode.lower()
 
         if normalized_mode != original_mode:
             self.config["analysis_mode"] = normalized_mode
-            logger.debug(
-                f"Normalized analysis_mode: '{original_mode}' -> '{normalized_mode}'"
-            )
+            logger.debug(f"Normalized analysis_mode: '{original_mode}' -> '{normalized_mode}'")
 
     def _validate_config_version(self) -> None:
         """Validate config_version against package version.

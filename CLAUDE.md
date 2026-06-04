@@ -240,9 +240,11 @@ Use the project Makefile rather than reinventing pytest/ruff invocations — the
 | Format | `make format` (ruff format + `ruff check --fix`) |
 | Verify NLSQ integration end-to-end | `make verify-nlsq` |
 | Generate homodyne baselines | `make run-example` (= `python scripts/generate_homodyne_baselines.py`) |
+| Maintainer-local FULL run (zero skips) | `make test-full-local` (enables the env-gated live oracles) |
 
 Notes:
 - `pytest` auto-loads `JAX_ENABLE_X64=1` from `[tool.pytest.ini_options]` — no need to set it manually for tests.
+- **`make test-full-local` is the only way to run the suite with *zero* skips.** The default `make test`/`make verify` intentionally skip ~9 env-gated **live oracles** (homodyne-equivalence, A/B parity, L4 bit-parity, real-data `two_component`, and the `${XPCSJAX_DATA_ROOT}` loader fixture). `test-full-local` sets `XPCSJAX_RUN_CHARACTERIZATION=1`, `XPCSJAX_RUN_AB_PARITY=1`, and `XPCSJAX_DATA_ROOT` (default `/home/wei/Documents/Projects/data`, override on the CLI) and runs them. It needs the upstream `homodyne` package installed and the maintainer datasets (`C020/`, `Simon/`, `C044/`) on disk — so it is **maintainer-local only; never wire these env vars into `test`/`verify`/CI** (fresh clones lack both and would fail loudly). Config `data_folder_path` now resolves `${ENV_VAR}`/`~` (no-op on plain absolute paths), which is what lets the loader fixture point at `${XPCSJAX_DATA_ROOT}`.
 - `make type-check` will surface many findings because `strict = false`; `make verify` runs mypy in **advisory** mode (`| tail -1 || true`) so type findings don't block push.
 - Python 3.12+ required (per `pyproject.toml`).
 

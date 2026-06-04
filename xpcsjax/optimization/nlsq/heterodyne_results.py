@@ -54,10 +54,7 @@ class NLSQResult:
     @property
     def params_dict(self) -> dict[str, float]:
         """Parameters as dictionary."""
-        return {
-            name: float(self.parameters[i])
-            for i, name in enumerate(self.parameter_names)
-        }
+        return {name: float(self.parameters[i]) for i, name in enumerate(self.parameter_names)}
 
     def get_param(self, name: str) -> float:
         """Get parameter value by name.
@@ -122,22 +119,16 @@ class NLSQResult:
 
         if self.reduced_chi_squared is not None:
             if self.reduced_chi_squared > 2.0:
-                warnings.append(
-                    f"Poor fit: χ²_red = {self.reduced_chi_squared:.2f} > 2"
-                )
+                warnings.append(f"Poor fit: χ²_red = {self.reduced_chi_squared:.2f} > 2")
             elif self.reduced_chi_squared < 0.5:
-                warnings.append(
-                    f"Possible overfit: χ²_red = {self.reduced_chi_squared:.2f} < 0.5"
-                )
+                warnings.append(f"Possible overfit: χ²_red = {self.reduced_chi_squared:.2f} < 0.5")
 
         if self.uncertainties is not None:
             for name, val, unc in zip(
                 self.parameter_names, self.parameters, self.uncertainties, strict=True
             ):
                 if val != 0 and abs(unc / val) > 1.0:
-                    warnings.append(
-                        f"Large uncertainty: {name} = {val:.3e} ± {unc:.3e}"
-                    )
+                    warnings.append(f"Large uncertainty: {name} = {val:.3e} ± {unc:.3e}")
 
         # Check for highly correlated parameters
         corr = self.get_correlation_matrix()

@@ -140,8 +140,7 @@ def apply_diagonal_correction(
     if actual_backend == "jax":
         if method != "basic":
             logger.warning(
-                f"JAX backend only supports 'basic' method, got '{method}'. "
-                "Using 'basic' method."
+                f"JAX backend only supports 'basic' method, got '{method}'. Using 'basic' method."
             )
         return _diagonal_correction_jax(c2_mat)
     else:
@@ -187,8 +186,7 @@ def apply_diagonal_correction_batch(
     if actual_backend == "jax":
         if method != "basic":
             logger.warning(
-                f"JAX backend only supports 'basic' method, got '{method}'. "
-                "Using 'basic' method."
+                f"JAX backend only supports 'basic' method, got '{method}'. Using 'basic' method."
             )
         return _diagonal_correction_batch_jax(c2_matrices)
     else:
@@ -353,9 +351,7 @@ def _diagonal_correction_batch_numpy(
         for i in range(n_phi):
             c2_mat = c2_np[i]
             # Extract side band values (average both diagonals for symmetry)
-            side_band = 0.5 * (
-                c2_mat[idx_upper, idx_lower] + c2_mat[idx_lower, idx_upper]
-            )
+            side_band = 0.5 * (c2_mat[idx_upper, idx_lower] + c2_mat[idx_lower, idx_upper])
 
             # Compute diagonal values
             diag_val = np.zeros(size)
@@ -449,9 +445,7 @@ def _statistical_correction_numpy(
                     # Remove NaN before trimmed mean — scipy trim_mean propagates NaN
                     finite_neighbors = neighbors_arr[np.isfinite(neighbors_arr)]
                     if finite_neighbors.size > 0:
-                        c2_corrected[i, i] = stats.trim_mean(
-                            finite_neighbors, trim_fraction
-                        )
+                        c2_corrected[i, i] = stats.trim_mean(finite_neighbors, trim_fraction)
                     else:
                         c2_corrected[i, i] = np.nan
                 else:

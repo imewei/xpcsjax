@@ -7,6 +7,7 @@ and plots ran on all angles. ``load_and_validate_data`` now mirrors upstream
 homodyne by calling ``apply_angle_filtering_for_optimization`` so both the
 optimizer and the experimental-data plots see only the selected angles.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -49,9 +50,31 @@ phi_filtering:
 def _fake_loader_data() -> dict:
     """23-angle synthetic dataset mirroring the C044 azimuthal sweep."""
     phi = np.array(
-        [-25.5, -16.4, -5.8, 4.9, 15.5, 26.1, 36.8, 47.0, 58.6, 68.7, 79.4,
-         90.0, 100.6, 111.3, 121.6, 132.9, 143.2, 153.9, 164.5, 175.1, 185.8,
-         196.4, 205.5]
+        [
+            -25.5,
+            -16.4,
+            -5.8,
+            4.9,
+            15.5,
+            26.1,
+            36.8,
+            47.0,
+            58.6,
+            68.7,
+            79.4,
+            90.0,
+            100.6,
+            111.3,
+            121.6,
+            132.9,
+            143.2,
+            153.9,
+            164.5,
+            175.1,
+            185.8,
+            196.4,
+            205.5,
+        ]
     )
     return {
         "phi_angles_list": phi,
@@ -64,9 +87,7 @@ def _fake_loader_data() -> dict:
 
 def test_load_and_validate_data_subsets_to_filtered_angles(tmp_path, monkeypatch):
     cfg = ConfigManager(_write_config(tmp_path))
-    monkeypatch.setattr(
-        data_pipeline, "load_xpcs_data", lambda **_kw: _fake_loader_data()
-    )
+    monkeypatch.setattr(data_pipeline, "load_xpcs_data", lambda **_kw: _fake_loader_data())
 
     args = argparse.Namespace(phi=None, phi_angles=None)
     out = data_pipeline.load_and_validate_data(args, cfg)
@@ -80,9 +101,7 @@ def test_load_and_validate_data_subsets_to_filtered_angles(tmp_path, monkeypatch
 def test_phi_filtering_disabled_keeps_all_angles(tmp_path, monkeypatch):
     cfg = ConfigManager(_write_config(tmp_path))
     cfg.config["phi_filtering"]["enabled"] = False
-    monkeypatch.setattr(
-        data_pipeline, "load_xpcs_data", lambda **_kw: _fake_loader_data()
-    )
+    monkeypatch.setattr(data_pipeline, "load_xpcs_data", lambda **_kw: _fake_loader_data())
 
     args = argparse.Namespace(phi=None, phi_angles=None)
     out = data_pipeline.load_and_validate_data(args, cfg)

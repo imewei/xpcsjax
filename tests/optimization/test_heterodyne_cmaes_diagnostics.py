@@ -41,9 +41,7 @@ def test_warmstart_auto_skip_gates_off_cmaes() -> None:
     import pytest as _pytest
 
     def _explode(**_kwargs):
-        raise AssertionError(
-            "fit_with_cmaes must NOT be called when warm-start auto-skip fires"
-        )
+        raise AssertionError("fit_with_cmaes must NOT be called when warm-start auto-skip fires")
 
     with _pytest.MonkeyPatch.context() as mp:
         mp.setattr(heterodyne_core, "fit_with_cmaes", _explode)
@@ -54,9 +52,7 @@ def test_warmstart_auto_skip_gates_off_cmaes() -> None:
             cmaes_warmstart_auto_skip=True,
             cmaes_warmstart_skip_threshold=1e9,  # any finite reduced χ² qualifies
         )
-        result = _fit_cmaes(
-            model, c2[0], float(phi[0]), config, weights=None, angle_idx=0
-        )
+        result = _fit_cmaes(model, c2[0], float(phi[0]), config, weights=None, angle_idx=0)
 
     assert result.success, "warm-start must succeed for auto-skip to be meaningful"
     assert result.metadata.get("cmaes_skipped") is True

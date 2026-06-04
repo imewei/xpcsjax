@@ -238,8 +238,7 @@ def detect_hardware() -> HardwareConfig:
         recommended_backend = "multiprocessing"
         max_parallel_shards = cores_per_node
         logger.info(
-            f"Recommended backend: multiprocessing "
-            f"(max {max_parallel_shards} parallel shards)"
+            f"Recommended backend: multiprocessing (max {max_parallel_shards} parallel shards)"
         )
 
     # Construct and return HardwareConfig

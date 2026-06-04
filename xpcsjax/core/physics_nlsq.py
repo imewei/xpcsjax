@@ -265,9 +265,7 @@ def _compute_g1_total_meshgrid(
         Total g1 correlation function (3D array: (n_phi, n_times, n_times))
     """
     # Compute diffusion contribution: shape (n_times, n_times)
-    g1_diff = _compute_g1_diffusion_meshgrid(
-        params, t1, t2, wavevector_q_squared_half_dt, dt
-    )
+    g1_diff = _compute_g1_diffusion_meshgrid(params, t1, t2, wavevector_q_squared_half_dt, dt)
 
     # Compute shear contribution: shape (n_phi, n_times, n_times)
     g1_shear = _compute_g1_shear_meshgrid(params, t1, t2, phi, sinc_prefactor, dt)

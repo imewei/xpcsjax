@@ -110,8 +110,7 @@ def test_homodyne_nlsq_live_ab_parity(label: str) -> None:
     h_params = np.asarray(_extract_params(h_result), dtype=np.float64)
 
     assert x_params.shape == h_params.shape, (
-        f"{label}: parameter-count mismatch "
-        f"(xpcsjax={x_params.shape}, homodyne={h_params.shape})"
+        f"{label}: parameter-count mismatch (xpcsjax={x_params.shape}, homodyne={h_params.shape})"
     )
 
     np.testing.assert_allclose(

@@ -130,9 +130,7 @@ def test_build_from_scipy_with_jacobian() -> None:
 
 
 def test_build_from_scipy_without_jacobian() -> None:
-    opt = OptimizeResult(
-        x=np.array([1.0]), fun=np.array([0.0]), status=0, message="maxfev"
-    )
+    opt = OptimizeResult(x=np.array([1.0]), fun=np.array([0.0]), status=0, message="maxfev")
     res = rb.build_result_from_scipy(opt, ["a"], n_data=10)
     assert res.covariance is None
     assert res.uncertainties is None
@@ -165,8 +163,15 @@ def test_build_from_arrays_with_and_without_jacobian() -> None:
 
 def test_build_from_nlsq_dict() -> None:
     res = rb.build_result_from_nlsq(
-        {"x": np.array([1.0, 2.0]), "pcov": np.eye(2), "fun": np.array([0.1, 0.1]),
-         "success": True, "message": "ok", "nit": 4, "nfev": 9},
+        {
+            "x": np.array([1.0, 2.0]),
+            "pcov": np.eye(2),
+            "fun": np.array([0.1, 0.1]),
+            "success": True,
+            "message": "ok",
+            "nit": 4,
+            "nfev": 9,
+        },
         ["a", "b"],
         n_data=20,
     )
@@ -181,9 +186,7 @@ def test_build_from_nlsq_dict_missing_keys_raises() -> None:
 
 
 def test_build_from_nlsq_two_tuple() -> None:
-    res = rb.build_result_from_nlsq(
-        (np.array([1.0, 2.0]), np.eye(2)), ["a", "b"], n_data=20
-    )
+    res = rb.build_result_from_nlsq((np.array([1.0, 2.0]), np.eye(2)), ["a", "b"], n_data=20)
     assert res.covariance is not None
     assert res.final_cost is None  # no residuals in a 2-tuple
 
@@ -205,8 +208,13 @@ def test_build_from_nlsq_bad_tuple_length_raises() -> None:
 
 def test_build_from_nlsq_object() -> None:
     obj = OptimizeResult(
-        x=np.array([1.0, 2.0]), pcov=np.eye(2), fun=np.array([0.2, 0.2]),
-        message="obj ok", success=True, nfev=5, nit=2,
+        x=np.array([1.0, 2.0]),
+        pcov=np.eye(2),
+        fun=np.array([0.2, 0.2]),
+        message="obj ok",
+        success=True,
+        nfev=5,
+        nit=2,
     )
     res = rb.build_result_from_nlsq(obj, ["a", "b"], n_data=30)
     assert res.uncertainties is not None

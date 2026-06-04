@@ -115,9 +115,7 @@ class PhiAngleFilter:
 
         # Use provided parameters or fall back to configured/default values
         ranges = target_ranges if target_ranges is not None else self.target_ranges
-        fallback = (
-            fallback_enabled if fallback_enabled is not None else self.fallback_enabled
-        )
+        fallback = fallback_enabled if fallback_enabled is not None else self.fallback_enabled
 
         # Convert to numpy array for vectorized operations
         phi_angles_array = np.asarray(phi_angles)
@@ -138,14 +136,10 @@ class PhiAngleFilter:
                     f"Wrapped range [{min_angle}, {max_angle}] detected - "
                     "applying split mask across +/-180 deg boundary"
                 )
-                range_mask = (phi_angles_array >= min_angle) | (
-                    phi_angles_array <= max_angle
-                )
+                range_mask = (phi_angles_array >= min_angle) | (phi_angles_array <= max_angle)
             else:
                 # Normal (non-wrapped) range
-                range_mask = (phi_angles_array >= min_angle) & (
-                    phi_angles_array <= max_angle
-                )
+                range_mask = (phi_angles_array >= min_angle) & (phi_angles_array <= max_angle)
             optimization_mask |= range_mask
 
             angles_in_range = np.sum(range_mask)
@@ -245,9 +239,7 @@ class PhiAngleFilter:
             else:
                 mask = (phi_angles_array >= min_angle) & (phi_angles_array <= max_angle)
             count = np.sum(mask)
-            angles_in_range: np.ndarray | list[float] = (
-                phi_angles_array[mask] if count > 0 else []
-            )
+            angles_in_range: np.ndarray | list[float] = phi_angles_array[mask] if count > 0 else []
 
             range_stats = {
                 "range": (min_angle, max_angle),
@@ -364,13 +356,9 @@ if HAS_JAX:
             # Handle wrapped ranges (e.g., [170, -170]) spanning ±180° boundary,
             # mirroring the logic in filter_angles_for_optimization.
             if min_angle > max_angle:
-                range_mask = (phi_angles_jax >= min_angle) | (
-                    phi_angles_jax <= max_angle
-                )
+                range_mask = (phi_angles_jax >= min_angle) | (phi_angles_jax <= max_angle)
             else:
-                range_mask = (phi_angles_jax >= min_angle) & (
-                    phi_angles_jax <= max_angle
-                )
+                range_mask = (phi_angles_jax >= min_angle) & (phi_angles_jax <= max_angle)
             optimization_mask = optimization_mask | range_mask
 
         # Get indices and filtered angles. NOTE: single-argument jnp.where and

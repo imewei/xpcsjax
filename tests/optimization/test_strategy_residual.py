@@ -64,8 +64,9 @@ _DIAG_IDX = [0, 3, 4, 7]
 
 
 def test_per_angle_residuals_shape_finite_and_diagonal_masked() -> None:
-    rf = StratifiedResidualFunction(_stratified(), per_angle_scaling=True,
-                                    physical_param_names=_PHYSICAL)
+    rf = StratifiedResidualFunction(
+        _stratified(), per_angle_scaling=True, physical_param_names=_PHYSICAL
+    )
     # [c0, c1, o0, o1, D0, alpha, D_offset]
     params = np.array([0.3, 0.3, 1.0, 1.0, 1e-3, 1.0, 0.0])
     res = rf(params)
@@ -75,8 +76,9 @@ def test_per_angle_residuals_shape_finite_and_diagonal_masked() -> None:
 
 
 def test_scalar_residuals_run() -> None:
-    rf = StratifiedResidualFunction(_stratified(), per_angle_scaling=False,
-                                    physical_param_names=_PHYSICAL)
+    rf = StratifiedResidualFunction(
+        _stratified(), per_angle_scaling=False, physical_param_names=_PHYSICAL
+    )
     params = np.array([0.3, 1.0, 1e-3, 1.0, 0.0])  # [contrast, offset, *physical]
     res = rf(params)
     assert res.shape == (8,)
@@ -85,8 +87,9 @@ def test_scalar_residuals_run() -> None:
 
 
 def test_jax_residual_matches_call() -> None:
-    rf = StratifiedResidualFunction(_stratified(), per_angle_scaling=False,
-                                    physical_param_names=_PHYSICAL)
+    rf = StratifiedResidualFunction(
+        _stratified(), per_angle_scaling=False, physical_param_names=_PHYSICAL
+    )
     params = np.array([0.3, 1.0, 1e-3, 1.0, 0.0])
     import jax.numpy as jnp
 
@@ -98,16 +101,18 @@ def test_zero_sigma_point_is_masked_no_nan() -> None:
     # not NaN/Inf from division by zero.
     sigma = np.ones((len(_PHI), len(_T), len(_T)))
     sigma[0, 0, 1] = 0.0  # flat index 1 -> point (phi=0, t1=1, t2=2), off-diagonal
-    rf = StratifiedResidualFunction(_stratified(sigma), per_angle_scaling=False,
-                                    physical_param_names=_PHYSICAL)
+    rf = StratifiedResidualFunction(
+        _stratified(sigma), per_angle_scaling=False, physical_param_names=_PHYSICAL
+    )
     res = rf(np.array([0.3, 1.0, 1e-3, 1.0, 0.0]))
     assert np.all(np.isfinite(res))
     assert res[1] == pytest.approx(0.0, abs=1e-12)  # masked by zero sigma
 
 
 def test_residuals_are_deterministic() -> None:
-    rf = StratifiedResidualFunction(_stratified(), per_angle_scaling=True,
-                                    physical_param_names=_PHYSICAL)
+    rf = StratifiedResidualFunction(
+        _stratified(), per_angle_scaling=True, physical_param_names=_PHYSICAL
+    )
     params = np.array([0.3, 0.4, 1.0, 1.1, 1e-3, 1.0, 0.0])
     np.testing.assert_array_equal(rf(params), rf(params))
 
@@ -118,8 +123,9 @@ def test_residuals_are_deterministic() -> None:
 
 
 def test_get_diagnostics_uses_cached_values() -> None:
-    rf = StratifiedResidualFunction(_stratified(), per_angle_scaling=True,
-                                    physical_param_names=_PHYSICAL)
+    rf = StratifiedResidualFunction(
+        _stratified(), per_angle_scaling=True, physical_param_names=_PHYSICAL
+    )
     diag = rf.get_diagnostics()
     assert diag["n_chunks"] == 1
     assert diag["n_total_points"] == 8
@@ -129,21 +135,24 @@ def test_get_diagnostics_uses_cached_values() -> None:
 
 
 def test_log_diagnostics_runs() -> None:
-    rf = StratifiedResidualFunction(_stratified(), per_angle_scaling=False,
-                                    physical_param_names=_PHYSICAL)
+    rf = StratifiedResidualFunction(
+        _stratified(), per_angle_scaling=False, physical_param_names=_PHYSICAL
+    )
     rf.log_diagnostics()  # should not raise
 
 
 def test_validate_chunk_structure_cached_true() -> None:
-    rf = StratifiedResidualFunction(_stratified(), per_angle_scaling=False,
-                                    physical_param_names=_PHYSICAL)
+    rf = StratifiedResidualFunction(
+        _stratified(), per_angle_scaling=False, physical_param_names=_PHYSICAL
+    )
     # chunks were freed after inline validation -> returns cached True.
     assert rf.validate_chunk_structure() is True
 
 
 def test_deprecated_paths_raise() -> None:
-    rf = StratifiedResidualFunction(_stratified(), per_angle_scaling=False,
-                                    physical_param_names=_PHYSICAL)
+    rf = StratifiedResidualFunction(
+        _stratified(), per_angle_scaling=False, physical_param_names=_PHYSICAL
+    )
     import jax.numpy as jnp
 
     with pytest.raises(RuntimeError, match="_call_jax_chunked is unavailable"):
@@ -168,8 +177,13 @@ def test_inconsistent_angles_across_chunks_raises() -> None:
     good = _full_grid_chunk()
     # Second chunk missing the 90-degree angle entirely.
     bad = SimpleNamespace(
-        phi=np.zeros(2), t1=np.array(_T), t2=np.array(_T),
-        g2=np.ones(2), q=0.01, L=1.0, dt=1.0,
+        phi=np.zeros(2),
+        t1=np.array(_T),
+        t2=np.array(_T),
+        g2=np.ones(2),
+        q=0.01,
+        L=1.0,
+        dt=1.0,
     )
     data = SimpleNamespace(chunks=[good, bad], sigma=np.ones((2, 2, 2)))
     with pytest.raises(ValueError, match="inconsistent angles"):

@@ -96,10 +96,7 @@ def test_find_cleanup_targets_flags_empty_parent_dir(venv_env: Path) -> None:
     empty_dir = venv_env / "etc" / "xpcsjax"
     empty_dir.mkdir(parents=True)
     targets = us.find_cleanup_targets()
-    assert any(
-        t.description.startswith("Empty directory") and t.path == empty_dir
-        for t in targets
-    )
+    assert any(t.description.startswith("Empty directory") and t.path == empty_dir for t in targets)
 
 
 # ---------------------------------------------------------------------------
@@ -187,7 +184,7 @@ def test_remove_blocks_legacy_bash_with_nested_if() -> None:
         "keep1\n"
         "# xpcsjax XLA configuration\n"
         'if [ -f "a" ]; then\n'
-        "    if [ -n \"$Z\" ]; then\n"
+        '    if [ -n "$Z" ]; then\n'
         "        source a\n"
         "    fi\n"
         "fi\n"
@@ -205,7 +202,7 @@ def test_remove_blocks_legacy_fish_with_nested_if() -> None:
         "keep1\n"
         "# xpcsjax XLA configuration (auto-added by xpcsjax-post-install)\n"
         "if test -f a\n"
-        "    if test -n \"$Z\"\n"
+        '    if test -n "$Z"\n'
         "        source a\n"
         "    end\n"
         "end\n"
@@ -268,9 +265,7 @@ def test_cleanup_activation_scripts_no_venv(monkeypatch: pytest.MonkeyPatch) -> 
 # ---------------------------------------------------------------------------
 
 
-def test_show_dry_run_no_files(
-    venv_env: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_show_dry_run_no_files(venv_env: Path, capsys: pytest.CaptureFixture[str]) -> None:
     us.show_dry_run()
     assert "No xpcsjax files found" in capsys.readouterr().out
 
@@ -339,9 +334,7 @@ def test_main_force(venv_env: Path) -> None:
     assert not comp.exists()
 
 
-def test_main_default_interactive(
-    venv_env: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_main_default_interactive(venv_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     called: list[bool] = []
     monkeypatch.setattr(us, "interactive_cleanup", lambda: called.append(True))
     assert us.main([]) == 0

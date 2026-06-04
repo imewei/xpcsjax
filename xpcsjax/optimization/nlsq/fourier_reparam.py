@@ -166,9 +166,7 @@ class FourierReparameterizer:
             # based on matrix dimensions and machine precision, rather than letting numpy
             # use its default which may be overly conservative or vary between versions.
             # rcond = max(m, n) * eps is the standard recommendation.
-            self._rcond = (
-                max(self.n_phi, self.n_coeffs_per_param) * np.finfo(np.float64).eps
-            )
+            self._rcond = max(self.n_phi, self.n_coeffs_per_param) * np.finfo(np.float64).eps
 
             logger.info(
                 f"Fourier reparameterization enabled: "
@@ -182,8 +180,7 @@ class FourierReparameterizer:
             self._basis_matrix = None
 
             logger.info(
-                f"Independent per-angle mode: {self.n_coeffs} parameters "
-                f"for {self.n_phi} angles"
+                f"Independent per-angle mode: {self.n_coeffs} parameters for {self.n_phi} angles"
             )
 
     def _determine_mode(self) -> bool:
@@ -211,9 +208,7 @@ class FourierReparameterizer:
         else:  # auto
             # Use Fourier when n_phi > threshold AND feasible
             min_angles = 1 + 2 * self.config.fourier_order
-            use_fourier = (
-                self.n_phi > self.config.auto_threshold and self.n_phi >= min_angles
-            )
+            use_fourier = self.n_phi > self.config.auto_threshold and self.n_phi >= min_angles
             if use_fourier:
                 logger.debug(
                     f"Auto mode: using Fourier (n_phi={self.n_phi} > "
@@ -275,9 +270,7 @@ class FourierReparameterizer:
         """
         return self.config.fourier_order
 
-    def fourier_to_per_angle(
-        self, fourier_coeffs: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def fourier_to_per_angle(self, fourier_coeffs: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Convert Fourier coefficients to per-angle contrast/offset.
 
         Parameters
@@ -300,9 +293,7 @@ class FourierReparameterizer:
         # Validate input array bounds
         fourier_coeffs = np.asarray(fourier_coeffs, dtype=np.float64)
         if fourier_coeffs.ndim != 1:
-            raise ValueError(
-                f"fourier_coeffs must be 1D array, got shape {fourier_coeffs.shape}"
-            )
+            raise ValueError(f"fourier_coeffs must be 1D array, got shape {fourier_coeffs.shape}")
         if len(fourier_coeffs) != self.n_coeffs:
             raise ValueError(
                 f"Expected {self.n_coeffs} Fourier coefficients, got {len(fourier_coeffs)}"
@@ -345,9 +336,7 @@ class FourierReparameterizer:
         offset = basis @ coeffs[n_half:]
         return contrast, offset
 
-    def per_angle_to_fourier(
-        self, contrast: np.ndarray, offset: np.ndarray
-    ) -> np.ndarray:
+    def per_angle_to_fourier(self, contrast: np.ndarray, offset: np.ndarray) -> np.ndarray:
         """Convert per-angle values to Fourier coefficients.
 
         Uses least squares fitting when n_phi > n_coeffs_per_param.
@@ -378,9 +367,7 @@ class FourierReparameterizer:
         if offset.ndim != 1:
             raise ValueError(f"offset must be 1D array, got shape {offset.shape}")
         if len(contrast) != self.n_phi:
-            raise ValueError(
-                f"Expected {self.n_phi} contrast values, got {len(contrast)}"
-            )
+            raise ValueError(f"Expected {self.n_phi} contrast values, got {len(contrast)}")
         if len(offset) != self.n_phi:
             raise ValueError(f"Expected {self.n_phi} offset values, got {len(offset)}")
 
@@ -570,9 +557,7 @@ class FourierReparameterizer:
                 f"per_angle_values must be 1D array, got shape {per_angle_values.shape}"
             )
         if len(per_angle_values) != self.n_phi:
-            raise ValueError(
-                f"Expected {self.n_phi} values, got {len(per_angle_values)}"
-            )
+            raise ValueError(f"Expected {self.n_phi} values, got {len(per_angle_values)}")
 
         if not self.use_fourier:
             # Independent mode: return as-is
@@ -586,9 +571,7 @@ class FourierReparameterizer:
 
         # Least squares fit
         # Performance Optimization (Spec 001 - FR-009, T047): Use precomputed rcond
-        coeffs, _, _, _ = np.linalg.lstsq(
-            self._basis_matrix, per_angle_values, rcond=self._rcond
-        )
+        coeffs, _, _, _ = np.linalg.lstsq(self._basis_matrix, per_angle_values, rcond=self._rcond)
         return coeffs
 
     def from_fourier(self, fourier_coeffs: np.ndarray) -> np.ndarray:
@@ -615,9 +598,7 @@ class FourierReparameterizer:
         # Validate input array bounds
         fourier_coeffs = np.asarray(fourier_coeffs, dtype=np.float64)
         if fourier_coeffs.ndim != 1:
-            raise ValueError(
-                f"fourier_coeffs must be 1D array, got shape {fourier_coeffs.shape}"
-            )
+            raise ValueError(f"fourier_coeffs must be 1D array, got shape {fourier_coeffs.shape}")
         if len(fourier_coeffs) != self.n_coeffs_per_param:
             raise ValueError(
                 f"Expected {self.n_coeffs_per_param} coefficients, got {len(fourier_coeffs)}"
@@ -645,9 +626,7 @@ class FourierReparameterizer:
             "n_coeffs": self.n_coeffs,
             "n_coeffs_per_param": self.n_coeffs_per_param,
             "fourier_order": self.config.fourier_order if self.use_fourier else None,
-            "reduction_ratio": (
-                self.n_coeffs / (2 * self.n_phi) if self.use_fourier else 1.0
-            ),
+            "reduction_ratio": (self.n_coeffs / (2 * self.n_phi) if self.use_fourier else 1.0),
         }
 
 

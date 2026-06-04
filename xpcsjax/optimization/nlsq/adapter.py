@@ -360,8 +360,7 @@ def get_or_create_model(
     if analysis_mode == "two_component" or analysis_mode == "heterodyne":
         if t is None or dt is None:
             raise ValueError(
-                f"Heterodyne (two_component) routing requires `t` and `dt`; "
-                f"got t={t!r}, dt={dt!r}"
+                f"Heterodyne (two_component) routing requires `t` and `dt`; got t={t!r}, dt={dt!r}"
             )
         return _get_or_create_heterodyne_model(
             phi_angles=phi_angles,
@@ -835,9 +834,7 @@ class NLSQAdapter(NLSQAdapterBase):
                     contrast_vals = np.full(n_phi, c0)
                     offset_vals = np.full(n_phi, o0)
                     default_phys = np.array([1000.0, 0.5, 10.0])
-                    physical_params = (
-                        params_array[2:] if len(params_array) > 2 else default_phys
-                    )
+                    physical_params = params_array[2:] if len(params_array) > 2 else default_phys
 
                 # Vectorized g2 computation (single JAX dispatch)
                 import jax.numpy as jnp
@@ -878,10 +875,7 @@ class NLSQAdapter(NLSQAdapterBase):
                 else:
                     g1_per_point = g1_arr.ravel()
 
-                g2_pred = (
-                    offset_vals[phi_idx_all]
-                    + contrast_vals[phi_idx_all] * g1_per_point**2
-                )
+                g2_pred = offset_vals[phi_idx_all] + contrast_vals[phi_idx_all] * g1_per_point**2
                 return g2_pred
 
             return model_func, False, False
@@ -1003,9 +997,7 @@ class NLSQAdapter(NLSQAdapterBase):
         n_params = len(popt)
 
         # Compute uncertainties from covariance diagonal
-        uncertainties = (
-            np.sqrt(np.diag(pcov)) if pcov is not None else np.zeros(n_params)
-        )
+        uncertainties = np.sqrt(np.diag(pcov)) if pcov is not None else np.zeros(n_params)
 
         # Compute chi-squared from info.
         # NLSQ/scipy cost = 0.5 * sum(rho(r²)), so chi² = 2 * cost for linear loss.
@@ -1177,9 +1169,7 @@ class NLSQAdapter(NLSQAdapterBase):
                 callbacks = anti_degeneracy_controller.create_nlsq_callbacks()
                 if callbacks:
                     fit_kwargs.update(callbacks)
-                    logger.debug(
-                        "Injected anti-degeneracy callbacks: %s", list(callbacks.keys())
-                    )
+                    logger.debug("Injected anti-degeneracy callbacks: %s", list(callbacks.keys()))
 
         # Run optimization via CurveFit
         try:

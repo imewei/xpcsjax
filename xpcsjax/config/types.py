@@ -363,7 +363,6 @@ class HomodyneConfig(TypedDict, total=False):
 XpcsConfig = HomodyneConfig
 
 
-
 # Parameter names for different modes
 STATIC_PARAM_NAMES: list[str] = ["D0", "alpha", "D_offset"]
 LAMINAR_FLOW_PARAM_NAMES: list[str] = [

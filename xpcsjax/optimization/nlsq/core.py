@@ -324,9 +324,7 @@ def fit_nlsq_jax(
         logger.debug("Using NLSQAdapter (CurveFit class) for optimization")
     else:
         if use_adapter and not HAS_NLSQ_ADAPTER:
-            logger.warning(
-                "NLSQAdapter requested but not available, falling back to NLSQWrapper"
-            )
+            logger.warning("NLSQAdapter requested but not available, falling back to NLSQWrapper")
         if not HAS_NLSQ_WRAPPER:
             raise ImportError(
                 "NLSQWrapper is required for NLSQ optimization. "
@@ -346,9 +344,7 @@ def fit_nlsq_jax(
     # ==========================================================================
     if not _skip_global_selection:
         # Handle both ConfigManager objects and plain dicts
-        config_dict: dict[str, Any] = (
-            config.config if hasattr(config, "config") else config
-        )  # type: ignore[assignment]
+        config_dict: dict[str, Any] = config.config if hasattr(config, "config") else config  # type: ignore[assignment]
         nlsq_dict = config_dict.get("optimization", {}).get("nlsq", {})
 
         # CMA-ES has highest priority (for multi-scale problems)
@@ -412,8 +408,8 @@ def fit_nlsq_jax(
     per_angle_scaling_initial: dict[str, list[float]] | None = None
     if initial_params is None:
         # Try to load from config first (pass data for contrast/offset estimation)
-        initial_params_temp, per_angle_scaling_initial_temp = (
-            _load_initial_params_from_config(config, analysis_mode, data)
+        initial_params_temp, per_angle_scaling_initial_temp = _load_initial_params_from_config(
+            config, analysis_mode, data
         )
         initial_params = initial_params_temp
         per_angle_scaling_initial = per_angle_scaling_initial_temp
@@ -545,9 +541,7 @@ def fit_nlsq_jax(
             # T023: Add fallback info to device_info
             result.device_info["adapter"] = "NLSQWrapper"
             result.device_info["fallback_occurred"] = fallback_occurred
-            result.device_info["fallback_reason"] = (
-                str(adapter_error) if adapter_error else None
-            )
+            result.device_info["fallback_reason"] = str(adapter_error) if adapter_error else None
             if fallback_occurred:
                 logger.info("NLSQWrapper fallback optimization succeeded")
             else:
@@ -625,9 +619,7 @@ def _log_optimization_results(
             logger.info("  Physical parameters:")
             physical_start_idx = 2 * n_angles
 
-            unc_array = (
-                result.uncertainties if hasattr(result, "uncertainties") else None
-            )
+            unc_array = result.uncertainties if hasattr(result, "uncertainties") else None
             unc_size = len(unc_array) if unc_array is not None else 0
             if unc_array is not None and unc_size != n_params:
                 logger.warning(
@@ -639,11 +631,7 @@ def _log_optimization_results(
             for i, name in enumerate(physical_param_names):
                 idx = physical_start_idx + i
                 param_val = result.parameters[idx]
-                unc_val = (
-                    unc_array[idx]
-                    if unc_array is not None and idx < len(unc_array)
-                    else 0.0
-                )
+                unc_val = unc_array[idx] if unc_array is not None and idx < len(unc_array) else 0.0
                 logger.info(f"    {name}: {param_val:.6g} +/- {unc_val:.6g}")
 
             contrast_vals = result.parameters[:n_angles]
@@ -874,9 +862,7 @@ def _extract_shear_transform_config(
     if not config_dict:
         return {}
 
-    return (
-        config_dict.get("optimization", {}).get("nlsq", {}).get("shear_transforms", {})
-    )
+    return config_dict.get("optimization", {}).get("nlsq", {}).get("shear_transforms", {})
 
 
 def _load_initial_params_from_config(
@@ -958,14 +944,10 @@ def _load_initial_params_from_config(
 
         if "contrast" not in params:
             params["contrast"] = contrast_default
-            logger.info(
-                f"Using default contrast={contrast_default:.3f} (typical homodyne XPCS)"
-            )
+            logger.info(f"Using default contrast={contrast_default:.3f} (typical homodyne XPCS)")
         if "offset" not in params:
             params["offset"] = offset_default
-            logger.info(
-                f"Using default offset={offset_default:.3f} (typical homodyne XPCS)"
-            )
+            logger.info(f"Using default offset={offset_default:.3f} (typical homodyne XPCS)")
 
     # Validate parameter count matches analysis mode
     expected_count = 5 if "static" in analysis_mode.lower() else 9
@@ -988,9 +970,7 @@ def _load_initial_params_from_config(
                 else None
             )
             offset_array = (
-                [float(x) for x in offset_vals]
-                if isinstance(offset_vals, (list, tuple))
-                else None
+                [float(x) for x in offset_vals] if isinstance(offset_vals, (list, tuple)) else None
             )
         except (TypeError, ValueError):
             contrast_array = offset_array = None
@@ -1353,9 +1333,7 @@ class _SingleFitWorker:
         self.per_angle_scaling = per_angle_scaling
         self.analysis_mode = analysis_mode
 
-    def __call__(
-        self, fit_data: dict[str, Any], start_params: np.ndarray
-    ) -> SingleStartResult:
+    def __call__(self, fit_data: dict[str, Any], start_params: np.ndarray) -> SingleStartResult:
         """Run a single NLSQ fit.
 
         Parameters
@@ -1385,9 +1363,7 @@ class _SingleFitWorker:
 
         # Convert array to dict
         param_names = _get_param_names(self.analysis_mode)
-        params_dict = {
-            name: float(start_params[i]) for i, name in enumerate(param_names)
-        }
+        params_dict = {name: float(start_params[i]) for i, name in enumerate(param_names)}
 
         try:
             result = fit_nlsq_jax(
@@ -1518,13 +1494,9 @@ def fit_nlsq_multistart(
     # the known-good solution is explored, especially for laminar_flow mode where
     # LHS starting points may not converge to the correct physical parameters
     if initial_params is None:
-        initial_params, _ = _load_initial_params_from_config(
-            config, analysis_mode, data
-        )
+        initial_params, _ = _load_initial_params_from_config(config, analysis_mode, data)
         if initial_params is not None:
-            logger.info(
-                "Loaded initial parameters from configuration for multi-start optimization"
-            )
+            logger.info("Loaded initial parameters from configuration for multi-start optimization")
 
     # Get bounds
     if HAS_PARAMETER_MANAGER:
@@ -1554,9 +1526,7 @@ def fit_nlsq_multistart(
         """
         try:
             # Check if params are at bounds (return large cost)
-            for i, (low, high) in enumerate(
-                zip(lower_bounds, upper_bounds, strict=True)
-            ):
+            for i, (low, high) in enumerate(zip(lower_bounds, upper_bounds, strict=True)):
                 if params[i] <= low or params[i] >= high:
                     return 1e20
 
@@ -1688,9 +1658,7 @@ def fit_nlsq_cmaes(
 
     # Set up initial parameters
     if initial_params is None:
-        initial_params, _ = _load_initial_params_from_config(
-            config, analysis_mode, data
-        )
+        initial_params, _ = _load_initial_params_from_config(config, analysis_mode, data)
         if initial_params is None:
             initial_params = _get_default_initial_params(analysis_mode)
             logger.info("Using default initial parameters")
@@ -1866,9 +1834,7 @@ def fit_nlsq_cmaes(
 
                     if use_fixed_scaling:
                         logger.info("=" * 60)
-                        logger.info(
-                            "ANTI-DEGENERACY: Enabled for CMA-ES (Fixed Constant Mode)"
-                        )
+                        logger.info("ANTI-DEGENERACY: Enabled for CMA-ES (Fixed Constant Mode)")
                         logger.info(
                             f"  Quantile estimation: N={n_phi} contrast + N={n_phi} offset values"
                         )
@@ -1877,16 +1843,12 @@ def fit_nlsq_cmaes(
                         logger.info("=" * 60)
                     else:
                         logger.info("=" * 60)
-                        logger.info(
-                            "ANTI-DEGENERACY: Enabled for CMA-ES (Auto Averaged Mode)"
-                        )
+                        logger.info("ANTI-DEGENERACY: Enabled for CMA-ES (Auto Averaged Mode)")
                         logger.info(
                             f"  Quantile estimation: N={n_phi} contrast + N={n_phi} offset values"
                         )
                         logger.info("  Averaged to: 1 contrast + 1 offset (OPTIMIZED)")
-                        logger.info(
-                            "  Total parameters: 7 physical + 2 averaged scaling = 9"
-                        )
+                        logger.info("  Total parameters: 7 physical + 2 averaged scaling = 9")
                         logger.info("=" * 60)
 
         # Handle parameter expansion based on anti-degeneracy mode
@@ -1941,9 +1903,7 @@ def fit_nlsq_cmaes(
 
             # Create simple data container for quantile estimation
             class SimpleStratifiedData:
-                def __init__(
-                    self, g2_flat: Any, phi_flat: Any, t1_flat: Any, t2_flat: Any
-                ) -> None:
+                def __init__(self, g2_flat: Any, phi_flat: Any, t1_flat: Any, t2_flat: Any) -> None:
                     self.g2_flat = g2_flat
                     self.phi_flat = phi_flat
                     self.t1_flat = t1_flat
@@ -1961,13 +1921,11 @@ def fit_nlsq_cmaes(
             offset_bounds = (float(lower_bounds[1]), float(upper_bounds[1]))
 
             # Compute per-angle scaling from quantiles
-            fixed_contrast_per_angle, fixed_offset_per_angle = (
-                compute_quantile_per_angle_scaling(
-                    stratified_data=stratified_for_quantile,
-                    contrast_bounds=contrast_bounds,
-                    offset_bounds=offset_bounds,
-                    logger=logger,
-                )
+            fixed_contrast_per_angle, fixed_offset_per_angle = compute_quantile_per_angle_scaling(
+                stratified_data=stratified_for_quantile,
+                contrast_bounds=contrast_bounds,
+                offset_bounds=offset_bounds,
+                logger=logger,
             )
 
             logger.info(
@@ -2276,10 +2234,7 @@ def fit_nlsq_cmaes(
                     bounds=bounds,
                     sigma=sigma_flat,
                 )
-                if (
-                    warmstart_result["success"]
-                    and warmstart_result["chi_squared"] is not None
-                ):
+                if warmstart_result["success"] and warmstart_result["chi_squared"] is not None:
                     nlsq_warmstart_chi2 = warmstart_result["chi_squared"]
                     nlsq_warmstart_params = warmstart_result["popt"]
                     nlsq_warmstart_cov = warmstart_result["pcov"]
@@ -2384,10 +2339,7 @@ def fit_nlsq_cmaes(
         # use the NLSQ result instead. This ensures CMA-ES never degrades
         # the solution quality compared to direct NLSQ.
         # ======================================================================
-        if (
-            nlsq_warmstart_params is not None
-            and nlsq_warmstart_chi2 < cmaes_result.chi_squared
-        ):
+        if nlsq_warmstart_params is not None and nlsq_warmstart_chi2 < cmaes_result.chi_squared:
             logger.info(
                 f"[CMA-ES] NLSQ warm-start result is better: "
                 f"NLSQ chi2={nlsq_warmstart_chi2:.4e} < "
@@ -2485,12 +2437,8 @@ def fit_nlsq_cmaes(
                 for i in range(n_physical):
                     expanded_cov[:n_phi, 2 * n_phi + i] = final_covariance[0, 2 + i]
                     expanded_cov[2 * n_phi + i, :n_phi] = final_covariance[0, 2 + i]
-                    expanded_cov[n_phi : 2 * n_phi, 2 * n_phi + i] = final_covariance[
-                        1, 2 + i
-                    ]
-                    expanded_cov[2 * n_phi + i, n_phi : 2 * n_phi] = final_covariance[
-                        1, 2 + i
-                    ]
+                    expanded_cov[n_phi : 2 * n_phi, 2 * n_phi + i] = final_covariance[1, 2 + i]
+                    expanded_cov[2 * n_phi + i, n_phi : 2 * n_phi] = final_covariance[1, 2 + i]
 
                 final_covariance = expanded_cov
 
@@ -2517,9 +2465,7 @@ def fit_nlsq_cmaes(
                 if final_covariance is not None
                 else np.zeros(n_params)
             ),
-            covariance=(
-                final_covariance if final_covariance is not None else np.eye(n_params)
-            ),
+            covariance=(final_covariance if final_covariance is not None else np.eye(n_params)),
             chi_squared=cmaes_result.chi_squared,
             reduced_chi_squared=reduced_chi_squared,
             convergence_status="converged" if cmaes_result.success else "failed",

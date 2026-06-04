@@ -34,9 +34,7 @@ def test_orchestrator_writes_all_files_homodyne(
     for i, phi in enumerate(synthetic_multi_angle_data["phi_angles_list"]):
         assert (tmp_path / _phi_filename(i, phi, "c2_heatmaps")).exists()
         assert (tmp_path / _phi_filename(i, phi, "residuals")).exists()
-        assert (
-            tmp_path / "simulated_data" / _phi_filename(i, phi, "simulated_c2_fitted")
-        ).exists()
+        assert (tmp_path / "simulated_data" / _phi_filename(i, phi, "simulated_c2_fitted")).exists()
     assert (tmp_path / "simulated_data" / "c2_fitted_data.npz").exists()
     assert (tmp_path / "simulated_data" / "simulation_config_fitted.json").exists()
 

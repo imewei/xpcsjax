@@ -16,11 +16,11 @@ from xpcsjax.data.xpcs_loader import _assert_safe_cache_filename
     "bad",
     [
         "../escape.npz",
-        "sub/dir.npz",      # POSIX separator
-        "sub\\dir.npz",     # Windows separator
-        "C:evil.npz",       # Windows drive specifier
-        "a:stream.npz",     # NTFS alternate data stream
-        "x\x00.npz",        # null byte
+        "sub/dir.npz",  # POSIX separator
+        "sub\\dir.npz",  # Windows separator
+        "C:evil.npz",  # Windows drive specifier
+        "a:stream.npz",  # NTFS alternate data stream
+        "x\x00.npz",  # null byte
     ],
 )
 def test_rejects_unsafe_cache_filenames(bad):

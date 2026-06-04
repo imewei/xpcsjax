@@ -9,6 +9,7 @@ Parameter packing is physics-first ([physics | scaling]) to match the rest of
 the heterodyne result handling. The objective equals the in-memory joint fit's
 objective; the only intended behavioral change is the seed-42 pre-shuffle.
 """
+
 from __future__ import annotations
 
 import time
@@ -104,15 +105,13 @@ def make_scaling_expander(
     if per_angle_mode == "individual":
 
         def expand(s: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
-            return s[:n_phi], s[n_phi:2 * n_phi]
+            return s[:n_phi], s[n_phi : 2 * n_phi]
 
         return expand, 2 * n_phi
 
     if per_angle_mode == "fourier":
         if fourier is None:
-            raise ValueError(
-                "fourier mode requires a FourierReparameterizer (fourier=...)"
-            )
+            raise ValueError("fourier mode requires a FourierReparameterizer (fourier=...)")
         # The scaling vector IS the full Fourier coefficient vector
         # [contrast_coeffs (n_coeffs_per_param) | offset_coeffs (n_coeffs_per_param)].
         # fourier_to_per_angle_jax splits and maps both halves to per-angle
@@ -209,9 +208,7 @@ def build_joint_pointwise_residual(
     expander, n_scaling = make_scaling_expander(per_angle_mode, n_phi, fourier=fourier)
 
     fixed_full_jax = jnp.asarray(model.param_manager.get_full_values(), dtype=jnp.float64)
-    varying_indices_jax = jnp.array(
-        list(model.param_manager.varying_indices), dtype=jnp.int32
-    )
+    varying_indices_jax = jnp.array(list(model.param_manager.varying_indices), dtype=jnp.int32)
     # Use the SAME time grid the pointwise kernel was indexed against (the
     # t1_idx/t2_idx in x_data address THIS array, not necessarily model.t).
     t_jax = jnp.asarray(meta["t_unique"], dtype=jnp.float64)
@@ -463,9 +460,7 @@ def fit_heterodyne_stratified_least_squares(
     # ``parameter_names`` align 1:1 with the full popt length.
     joint_param_names = [*model.param_manager.varying_names, *scaling_names]
     adapter = NLSQAdapter(parameter_names=joint_param_names)
-    _hlog.log_fit_start(
-        int(p0_full.size), int(meta["n_data_points"]), n_chunks=len(chunk_sizes)
-    )
+    _hlog.log_fit_start(int(p0_full.size), int(meta["n_data_points"]), n_chunks=len(chunk_sizes))
     fit = adapter.fit(
         # residual_fn returns a jnp Array; NLSQAdapter types its residual as
         # numpy-returning. JAX arrays are numpy-compatible at runtime, so this is
@@ -507,9 +502,7 @@ def fit_heterodyne_stratified_least_squares(
     # so the logged value and the OptimizationResult agree.
     _sigma2_noise = far_lag_noise_variance(c2)
     _n_dof = max(1, _n_data - int(popt.size))
-    _reduced_chi2 = (
-        ssr / (_sigma2_noise * _n_dof) if _sigma2_noise > 1e-12 else ssr / _n_dof
-    )
+    _reduced_chi2 = ssr / (_sigma2_noise * _n_dof) if _sigma2_noise > 1e-12 else ssr / _n_dof
     _hlog.log_optimization_results(
         success=bool(fit.success),
         message=getattr(fit, "message", None),

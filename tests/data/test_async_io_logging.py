@@ -44,8 +44,7 @@ def test_background_write_failure_logs_warning(caplog):
         assert isinstance(errors[0], RuntimeError)
 
         assert any(
-            r.levelno == logging.WARNING and "write boom" in r.getMessage()
-            for r in caplog.records
+            r.levelno == logging.WARNING and "write boom" in r.getMessage() for r in caplog.records
         ), "a failed background write must be logged at WARNING"
     finally:
         writer.shutdown()

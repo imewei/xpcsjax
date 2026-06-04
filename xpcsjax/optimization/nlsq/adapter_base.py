@@ -132,9 +132,7 @@ class NLSQAdapterBase(ABC):
             raise ValueError(f"t1 and g2 must have same length: {n} vs {len(g2)}")
 
         if weights is not None and len(weights) != n:
-            raise ValueError(
-                f"weights must have same length as data: {n} vs {len(weights)}"
-            )
+            raise ValueError(f"weights must have same length as data: {n} vs {len(weights)}")
 
         # Check for NaN/Inf values
         if np.any(~np.isfinite(t1)):

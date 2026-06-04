@@ -134,9 +134,7 @@ def calculate_diffusion_coefficient(
     # Avoid Python `if shape[0] > 1` which causes JIT recompilation per unique
     # array length. Instead compute dt unconditionally: for n==1, time_array[0]
     # is used twice and the difference is 0, so we fall back to the 1e-8 floor.
-    dt_inferred = jnp.abs(
-        time_array[jnp.minimum(1, time_array.shape[0] - 1)] - time_array[0]
-    )
+    dt_inferred = jnp.abs(time_array[jnp.minimum(1, time_array.shape[0] - 1)] - time_array[0])
     epsilon = jnp.where(dt_inferred * 0.5 > 1e-8, dt_inferred * 0.5, 1e-8)
     time_safe = jnp.where(time_array > epsilon, time_array, epsilon)
 
@@ -177,8 +175,7 @@ def calculate_shear_rate(
     # array length. For n==1, index 0 is used twice → inferred dt=0, but the
     # jnp.where guard below keeps it safe with a 1e-8 floor.
     dt = jnp.where(
-        jnp.abs(time_array[jnp.minimum(1, time_array.shape[0] - 1)] - time_array[0])
-        > 1e-8,
+        jnp.abs(time_array[jnp.minimum(1, time_array.shape[0] - 1)] - time_array[0]) > 1e-8,
         jnp.abs(time_array[jnp.minimum(1, time_array.shape[0] - 1)] - time_array[0]),
         1e-8,
     )
@@ -243,9 +240,7 @@ def create_time_integral_matrix(
     # the unified path is used unconditionally.
     trap_avg = 0.5 * (time_dependent_array[:-1] + time_dependent_array[1:])
     cumsum_trap = jnp.cumsum(trap_avg)
-    cumsum = jnp.concatenate(
-        [jnp.array([0.0], dtype=time_dependent_array.dtype), cumsum_trap]
-    )
+    cumsum = jnp.concatenate([jnp.array([0.0], dtype=time_dependent_array.dtype), cumsum_trap])
 
     # Step 2: Create the pairwise integral matrix.
     #

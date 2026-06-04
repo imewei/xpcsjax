@@ -513,8 +513,7 @@ def compute_averaged_scaling(
     offset_avg = float(np.nanmean(offset_per_angle))
 
     log.info(
-        "Averaged scaling for constant mode: "
-        "contrast=%.4f [%.4f, %.4f], offset=%.4f [%.4f, %.4f]",
+        "Averaged scaling for constant mode: contrast=%.4f [%.4f, %.4f], offset=%.4f [%.4f, %.4f]",
         contrast_avg,
         float(np.nanmin(contrast_per_angle)),
         float(np.nanmax(contrast_per_angle)),
@@ -606,8 +605,7 @@ def estimate_per_angle_scaling_from_quantile(
     phi_flat = np.asarray(phi_indices).ravel().astype(np.intp)
     if int(phi_flat.max()) >= n_phi:
         raise ValueError(
-            f"phi_indices contains values >= n_phi={n_phi}; "
-            f"max index = {int(phi_flat.max())}"
+            f"phi_indices contains values >= n_phi={n_phi}; max index = {int(phi_flat.max())}"
         )
     delta_t_flat = np.abs(t1_flat - t2_flat)
 

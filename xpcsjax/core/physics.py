@@ -385,9 +385,7 @@ def get_default_parameters(model_type: str) -> np.ndarray:
     return defaults[model_type]
 
 
-def validate_experimental_setup(
-    q: float, L: float, wavelength: float | None = None
-) -> bool:
+def validate_experimental_setup(q: float, L: float, wavelength: float | None = None) -> bool:
     """Validate experimental setup parameters for physical reasonableness.
 
     Args:

@@ -92,8 +92,7 @@ def load_and_validate_data(
     c2 = _pick(data, _C2_KEYS)
     if c2 is None:
         raise ValueError(
-            "load_xpcs_data returned no correlation matrix; "
-            f"expected one of {_C2_KEYS}"
+            f"load_xpcs_data returned no correlation matrix; expected one of {_C2_KEYS}"
         )
     data_phi = _pick(data, _PHI_KEYS)
     t1 = _pick(data, _T1_KEYS)
@@ -108,9 +107,7 @@ def load_and_validate_data(
         None if t2 is None else np.asarray(t2).shape,
     )
 
-    data_phi_arr = (
-        None if data_phi is None else np.asarray(data_phi, dtype=float).ravel()
-    )
+    data_phi_arr = None if data_phi is None else np.asarray(data_phi, dtype=float).ravel()
 
     # When the user explicitly passes --phi, actually subset the data so
     # the fit and plots see only those angles. Slice defensively: only when
@@ -229,16 +226,10 @@ def resolve_phi_angles(
         cli_phi_str = getattr(args, "phi_angles", None)
         if isinstance(cli_phi_str, str) and cli_phi_str.strip():
             try:
-                phi_angles = [
-                    float(tok.strip())
-                    for tok in cli_phi_str.split(",")
-                    if tok.strip()
-                ]
+                phi_angles = [float(tok.strip()) for tok in cli_phi_str.split(",") if tok.strip()]
                 logger.debug("Phi angles from CLI --phi-angles: %s", phi_angles)
             except ValueError as exc:
-                raise ValueError(
-                    f"Could not parse --phi-angles={cli_phi_str!r}: {exc}"
-                ) from exc
+                raise ValueError(f"Could not parse --phi-angles={cli_phi_str!r}: {exc}") from exc
 
     cfg: dict[str, Any] = config_manager.get_config()
 

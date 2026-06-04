@@ -171,9 +171,7 @@ def get_adaptive_memory_threshold(
 
     # Step 2: Clamp fraction to safe range
     original_fraction = effective_fraction
-    effective_fraction = max(
-        MIN_MEMORY_FRACTION, min(effective_fraction, MAX_MEMORY_FRACTION)
-    )
+    effective_fraction = max(MIN_MEMORY_FRACTION, min(effective_fraction, MAX_MEMORY_FRACTION))
 
     if effective_fraction != original_fraction:
         warnings.warn(
@@ -224,9 +222,7 @@ def get_adaptive_memory_threshold(
     info["total_memory_gb"] = 0.0
     info["detection_method"] = "fallback"
 
-    logger.warning(
-        f"Memory detection failed. Using fallback threshold: {FALLBACK_THRESHOLD_GB} GB"
-    )
+    logger.warning(f"Memory detection failed. Using fallback threshold: {FALLBACK_THRESHOLD_GB} GB")
 
     return FALLBACK_THRESHOLD_GB, info
 
@@ -406,9 +402,7 @@ def select_nlsq_strategy(
             threshold_gb=threshold_gb,
             index_memory_gb=index_memory_gb,
             peak_memory_gb=peak_memory_gb,
-            reason=(
-                f"Memory fits: {peak_memory_gb:.2f} GB < {threshold_gb:.2f} GB threshold"
-            ),
+            reason=(f"Memory fits: {peak_memory_gb:.2f} GB < {threshold_gb:.2f} GB threshold"),
         )
 
 

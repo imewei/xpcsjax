@@ -52,9 +52,7 @@ def _find_violations(path: Path) -> list[tuple[int, str]]:
                 if value.value is True:
                     violations.append((node.lineno, "allow_pickle=True literal"))
             else:
-                violations.append(
-                    (node.lineno, f"allow_pickle=<non-literal: {ast.dump(value)}>")
-                )
+                violations.append((node.lineno, f"allow_pickle=<non-literal: {ast.dump(value)}>"))
     return violations
 
 
@@ -85,9 +83,7 @@ def test_guard_can_detect_a_violation(tmp_path: Path):
     """Sanity: the AST walker actually flags ``allow_pickle=True``."""
     sample = tmp_path / "sample.py"
     sample.write_text(
-        "import numpy as np\n"
-        "def f(p):\n"
-        "    return np.load(p, allow_pickle=True)\n",
+        "import numpy as np\ndef f(p):\n    return np.load(p, allow_pickle=True)\n",
         encoding="utf-8",
     )
     violations = _find_violations(sample)
@@ -112,9 +108,7 @@ def test_guard_flags_nonliteral_allow_pickle(tmp_path: Path):
     """Sanity: variable-smuggled allow_pickle is flagged."""
     sample = tmp_path / "sneaky.py"
     sample.write_text(
-        "import numpy as np\n"
-        "def f(p, flag):\n"
-        "    return np.load(p, allow_pickle=flag)\n",
+        "import numpy as np\ndef f(p, flag):\n    return np.load(p, allow_pickle=flag)\n",
         encoding="utf-8",
     )
     violations = _find_violations(sample)

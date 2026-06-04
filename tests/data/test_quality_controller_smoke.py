@@ -7,6 +7,7 @@ instantiation, validate_data_stage at each stage, and the disabled-mode short
 circuit — so a regression in any of those is caught without needing the
 full real-data characterization run.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -116,12 +117,8 @@ def test_validate_data_stage_returns_result(stage):
 def test_validate_data_stage_disabled_short_circuits():
     """When the controller is disabled, every stage must return a minimal
     result without running the full validation pipeline."""
-    controller = DataQualityController(
-        {"quality_control": {"enabled": False}}
-    )
-    result = controller.validate_data_stage(
-        _minimal_data(), QualityControlStage.RAW_DATA
-    )
+    controller = DataQualityController({"quality_control": {"enabled": False}})
+    result = controller.validate_data_stage(_minimal_data(), QualityControlStage.RAW_DATA)
     assert isinstance(result, QualityControlResult)
     # Minimal results carry the stage but don't run quality checks.
     assert result.stage == QualityControlStage.RAW_DATA

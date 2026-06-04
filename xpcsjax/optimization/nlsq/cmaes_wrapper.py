@@ -346,9 +346,7 @@ class CMAESWrapperConfig:
             normalization_epsilon=getattr(config, "cmaes_normalization_epsilon", 1e-12),
         )
 
-    def to_cmaes_config(
-        self, n_params: int, *, sigma_override: float | None = None
-    ) -> Any:
+    def to_cmaes_config(self, n_params: int, *, sigma_override: float | None = None) -> Any:
         """Convert to NLSQ CMAESConfig.
 
         Parameters
@@ -399,9 +397,7 @@ class CMAESWrapperConfig:
         # cast is safe; mypy can't see the runtime guard.
         from typing import Literal, cast
 
-        restart_strategy_literal = cast(
-            Literal["none", "bipop"], self.restart_strategy
-        )
+        restart_strategy_literal = cast(Literal["none", "bipop"], self.restart_strategy)
         # Forward the deterministic seed only when set. NLSQ's CMAESConfig
         # defaults ``seed=None`` (non-deterministic); pinning it makes the
         # CMA-ES search reproducible (used by the joint global escape).
@@ -669,8 +665,7 @@ class CMAESWrapper:
             chi_squared = float(np.sum(residuals**2))
 
             logger.info(
-                f"[CMA-ES] Refinement completed: chi2={chi_squared:.4e}, "
-                f"time={phase.duration:.1f}s"
+                f"[CMA-ES] Refinement completed: chi2={chi_squared:.4e}, time={phase.duration:.1f}s"
             )
 
             return {
@@ -844,8 +839,7 @@ class CMAESWrapper:
             f"n_data={n_data:,}, preset={self.config.preset}"
         )
         logger.info(
-            f"[CMA-ES] Problem characteristics: scale_ratio={scale_ratio:.2e}, "
-            f"{bounds_summary}"
+            f"[CMA-ES] Problem characteristics: scale_ratio={scale_ratio:.2e}, {bounds_summary}"
         )
 
         # Log bounds for debugging (v2.20.0)
@@ -876,9 +870,7 @@ class CMAESWrapper:
         pop_batch, data_chunk = self._configure_memory(n_data, n_params)
 
         # Build CMAESConfig with memory settings
-        cmaes_config = self.config.to_cmaes_config(
-            n_params, sigma_override=effective_sigma
-        )
+        cmaes_config = self.config.to_cmaes_config(n_params, sigma_override=effective_sigma)
 
         # When warm-start is active, override BIPOP -> none (v2.21.0)
         # BIPOP large-population restarts are designed for global exploration,
@@ -986,9 +978,7 @@ class CMAESWrapper:
             norm_scale_jax = jnp.array(norm_scale)
             norm_offset_jax = jnp.array(norm_offset)
 
-            def normalized_model_func(
-                xdata: np.ndarray, *params_norm: float
-            ) -> np.ndarray:
+            def normalized_model_func(xdata: np.ndarray, *params_norm: float) -> np.ndarray:
                 # Use jnp.stack to preserve JAX tracers during JIT tracing
                 params_norm_jax = jnp.stack(params_norm)
                 # Denormalize: x = x_norm / scale + offset = x_norm * range + lower
@@ -1011,9 +1001,7 @@ class CMAESWrapper:
         # - Optional BIPOP restarts (configured via cmaes_config.restart_strategy)
         logger.info("[CMA-ES] Global search phase starting...")
 
-        with log_phase(
-            "CMA-ES global search", logger, track_memory=True
-        ) as search_phase:
+        with log_phase("CMA-ES global search", logger, track_memory=True) as search_phase:
             result = optimizer.fit(
                 f=fit_model_func,
                 xdata=xdata,
@@ -1037,9 +1025,7 @@ class CMAESWrapper:
             cmaes_covariance = _adjust_covariance_for_normalization(
                 cmaes_covariance, norm_state["range"]
             )
-            logger.debug(
-                "[CMA-ES] Parameters denormalized from [0,1] to physical space"
-            )
+            logger.debug("[CMA-ES] Parameters denormalized from [0,1] to physical space")
 
         # Build CMA-ES diagnostics
         # NLSQ 0.6.4+ stores diagnostics under 'cmaes_diagnostics' dict
@@ -1075,9 +1061,7 @@ class CMAESWrapper:
         cmaes_chi_squared = float(np.sum(residuals**2))
 
         # Calculate evaluations per second for performance insight
-        evals_per_sec = (
-            evaluations / search_phase.duration if search_phase.duration > 0 else 0
-        )
+        evals_per_sec = evaluations / search_phase.duration if search_phase.duration > 0 else 0
 
         logger.info(
             f"[CMA-ES] Global search completed: chi2={cmaes_chi_squared:.4e}, "
@@ -1122,18 +1106,14 @@ class CMAESWrapper:
                 nlsq_refined = True
 
                 # Update diagnostics with refinement info
-                diagnostics["refinement_nfev"] = refinement_result["infodict"].get(
-                    "nfev", 0
-                )
+                diagnostics["refinement_nfev"] = refinement_result["infodict"].get("nfev", 0)
                 diagnostics["refinement_message"] = refinement_result["mesg"]
                 diagnostics["cmaes_chi_squared"] = cmaes_chi_squared
                 diagnostics["refined_chi_squared"] = best_chi_squared
 
                 # Calculate improvement percentage
                 if cmaes_chi_squared > 0.0:
-                    improvement = (
-                        cmaes_chi_squared - best_chi_squared
-                    ) / cmaes_chi_squared
+                    improvement = (cmaes_chi_squared - best_chi_squared) / cmaes_chi_squared
                 else:
                     improvement = 0.0
                 diagnostics["chi_squared_improvement"] = improvement
@@ -1165,9 +1145,7 @@ class CMAESWrapper:
             best_covariance = cmaes_covariance
             best_chi_squared = cmaes_chi_squared
             nlsq_refined = False
-            logger.debug(
-                "[CMA-ES] Post-refinement disabled, using global search result"
-            )
+            logger.debug("[CMA-ES] Post-refinement disabled, using global search result")
 
         # Calculate total time
         total_time = search_phase.duration
@@ -1201,8 +1179,7 @@ class CMAESWrapper:
             message = f"CMA-ES converged: {convergence_reason}"
         elif nlsq_refined:
             message = (
-                f"CMA-ES did not converge (reason={convergence_reason}); "
-                "result refined by NLSQ"
+                f"CMA-ES did not converge (reason={convergence_reason}); result refined by NLSQ"
             )
         else:
             message = f"CMA-ES did not converge (reason={convergence_reason})"

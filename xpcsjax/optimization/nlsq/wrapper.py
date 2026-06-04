@@ -298,9 +298,7 @@ def _build_homodyne_l4_callback(
     (NLSQ forms residuals internally), so the monitored loss reconstructs the
     least-squares objective ``0.5 * sum((model(xdata, *p) - ydata) ** 2)``.
     """
-    enabled, ratio_threshold, consecutive_triggers = _homodyne_l4_monitoring_enabled(
-        config
-    )
+    enabled, ratio_threshold, consecutive_triggers = _homodyne_l4_monitoring_enabled(config)
     if not enabled:
         return None, None
 
@@ -522,9 +520,7 @@ def create_multistart_warmup_func(
             final_loss = warmup_diag.get("final_loss", float("inf"))
 
             # Convert loss to chi-squared (loss = 0.5 * chi_sq for LSQ)
-            chi_squared = (
-                2.0 * final_loss if final_loss != float("inf") else float("inf")
-            )
+            chi_squared = 2.0 * final_loss if final_loss != float("inf") else float("inf")
 
             wall_time = time.perf_counter() - start_time
 
@@ -759,8 +755,7 @@ class NLSQWrapper(NLSQAdapterBase):
 
         strategy_decision = select_nlsq_strategy(n_est_points, n_params)
         logger.info(
-            f"Strategy selection: {strategy_decision.strategy.value} "
-            f"({strategy_decision.reason})"
+            f"Strategy selection: {strategy_decision.strategy.value} ({strategy_decision.reason})"
         )
 
         # Handle HYBRID_STREAMING (extreme scale - index array > 75% RAM)
@@ -820,9 +815,7 @@ class NLSQWrapper(NLSQAdapterBase):
             _ooc_init_n_params_effective: int | None = None
             if per_angle_scaling and config is not None and hasattr(config, "config"):
                 _ooc_init_ad = (
-                    config.config.get("optimization", {})
-                    .get("nlsq", {})
-                    .get("anti_degeneracy", {})
+                    config.config.get("optimization", {}).get("nlsq", {}).get("anti_degeneracy", {})
                 )
                 _ooc_init_mode = _ooc_init_ad.get("per_angle_mode", "auto")
                 _ooc_init_thresh = _ooc_init_ad.get("constant_scaling_threshold", 3)
@@ -835,9 +828,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 _ooc_init_n_phi = len(np.unique(np.asarray(data.phi)))
                 _ooc_init_n_physical = len(physical_param_names)
                 if _ooc_init_mode == "auto" and _ooc_init_n_phi >= _ooc_init_thresh:
-                    _ooc_init_n_params_effective = (
-                        2 * _ooc_init_n_phi + _ooc_init_n_physical
-                    )
+                    _ooc_init_n_params_effective = 2 * _ooc_init_n_phi + _ooc_init_n_physical
                 elif _ooc_init_mode == "constant":
                     _ooc_init_n_params_effective = _ooc_init_n_physical
             _ooc_init_dof = (
@@ -845,9 +836,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 if _ooc_init_n_params_effective is not None
                 else len(popt)
             )
-            reduced_chi2 = info.get("chi_squared", 0.0) / max(
-                1, n_est_points - _ooc_init_dof
-            )
+            reduced_chi2 = info.get("chi_squared", 0.0) / max(1, n_est_points - _ooc_init_dof)
             # Derive quality_flag from reduced chi-squared (same thresholds
             # as _create_fit_result) instead of hardcoding "good".
             if reduced_chi2 < 1.5:
@@ -896,9 +885,7 @@ class NLSQWrapper(NLSQAdapterBase):
         transform_state: dict[str, Any] | None = None
 
         if isinstance(stratified_data, UseSequentialOptimization):
-            logger.info(
-                f"Using sequential per-angle optimization: {stratified_data.reason}"
-            )
+            logger.info(f"Using sequential per-angle optimization: {stratified_data.reason}")
             return self._run_sequential_optimization(
                 stratified_data.data,
                 config,
@@ -958,9 +945,7 @@ class NLSQWrapper(NLSQAdapterBase):
 
             # Get physical parameter names for this analysis mode
             physical_param_names = self._get_physical_param_names(analysis_mode)
-            logger.info(
-                f"Physical parameters for {analysis_mode}: {physical_param_names}"
-            )
+            logger.info(f"Physical parameters for {analysis_mode}: {physical_param_names}")
 
             # FIX: Expand scaling parameters for per-angle scaling
             # When per_angle_scaling=True with N angles, we need:
@@ -985,9 +970,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 )
 
                 # Validate input parameter count
-                expected_input = (
-                    n_physical + 2
-                )  # Physical params + single contrast + single offset
+                expected_input = n_physical + 2  # Physical params + single contrast + single offset
                 if len(validated_params) != expected_input:
                     raise ValueError(
                         f"Parameter count mismatch for per-angle scaling: "
@@ -1027,9 +1010,7 @@ class NLSQWrapper(NLSQAdapterBase):
                     f"n_angles={n_angles})"
                 )
 
-            logger.info(
-                f"Parameter validation passed: {len(validated_params)} parameters"
-            )
+            logger.info(f"Parameter validation passed: {len(validated_params)} parameters")
 
             # Step: Re-run unified strategy selection with EFFECTIVE parameter count
             # (v2.14.0, v2.22.0 fix: anti-degeneracy pre-check)
@@ -1110,12 +1091,8 @@ class NLSQWrapper(NLSQAdapterBase):
                 # Extract anti-degeneracy config (will warn that it's not supported for out-of-core)
                 recheck_anti_degeneracy_config = None
                 if config is not None and hasattr(config, "config"):
-                    recheck_nlsq_config = config.config.get("optimization", {}).get(
-                        "nlsq", {}
-                    )
-                    recheck_anti_degeneracy_config = recheck_nlsq_config.get(
-                        "anti_degeneracy", {}
-                    )
+                    recheck_nlsq_config = config.config.get("optimization", {}).get("nlsq", {})
+                    recheck_anti_degeneracy_config = recheck_nlsq_config.get("anti_degeneracy", {})
 
                 popt, pcov, info = self._fit_with_out_of_core_accumulation(
                     stratified_data=stratified_data,
@@ -1136,11 +1113,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 # optimizer works on a compressed param vector but the true model
                 # DOF is 2*n_phi + n_physical (one contrast+offset per angle).
                 _ooc_n_params_effective: int | None = None
-                if (
-                    per_angle_scaling
-                    and config is not None
-                    and hasattr(config, "config")
-                ):
+                if per_angle_scaling and config is not None and hasattr(config, "config"):
                     _ooc_ad = (
                         config.config.get("optimization", {})
                         .get("nlsq", {})
@@ -1153,13 +1126,9 @@ class NLSQWrapper(NLSQAdapterBase):
                     elif _ooc_mode == "constant":
                         _ooc_n_params_effective = n_physical
                 _ooc_dof = (
-                    _ooc_n_params_effective
-                    if _ooc_n_params_effective is not None
-                    else len(popt)
+                    _ooc_n_params_effective if _ooc_n_params_effective is not None else len(popt)
                 )
-                reduced_chi2 = info.get("chi_squared", 0.0) / max(
-                    1, n_total_points - _ooc_dof
-                )
+                reduced_chi2 = info.get("chi_squared", 0.0) / max(1, n_total_points - _ooc_dof)
                 # Derive quality_flag from reduced chi-squared (same thresholds
                 # as _create_fit_result) instead of hardcoding "good".
                 if reduced_chi2 < 1.5:
@@ -1217,9 +1186,7 @@ class NLSQWrapper(NLSQAdapterBase):
             memory_threshold_gb: float | None = None  # Will be computed adaptively
 
             if config is not None and hasattr(config, "config"):
-                strat_config = config.config.get("optimization", {}).get(
-                    "stratification", {}
-                )
+                strat_config = config.config.get("optimization", {}).get("stratification", {})
                 target_chunk_size = strat_config.get("target_chunk_size", 100_000)
 
                 # Extract streaming configuration
@@ -1331,12 +1298,8 @@ class NLSQWrapper(NLSQAdapterBase):
                         # but the true model DOF is 2*n_phi + n_physical (e.g. 53).
                         _hs_n_params_effective: int | None = None
                         if per_angle_scaling and anti_degeneracy_config:
-                            _hs_ad_mode = anti_degeneracy_config.get(
-                                "per_angle_mode", "auto"
-                            )
-                            _hs_thresh = anti_degeneracy_config.get(
-                                "constant_scaling_threshold", 3
-                            )
+                            _hs_ad_mode = anti_degeneracy_config.get("per_angle_mode", "auto")
+                            _hs_thresh = anti_degeneracy_config.get("constant_scaling_threshold", 3)
                             if _hs_ad_mode == "auto" and n_angles_check >= _hs_thresh:
                                 _hs_n_params_effective = 2 * n_angles_check + n_physical
                             elif _hs_ad_mode == "constant":
@@ -1354,9 +1317,7 @@ class NLSQWrapper(NLSQAdapterBase):
                                 "converged" if info.get("success", False) else "failed"
                             ),
                             recovery_actions=["hybrid_streaming_optimizer_method"],
-                            streaming_diagnostics=info.get(
-                                "hybrid_streaming_diagnostics"
-                            ),
+                            streaming_diagnostics=info.get("hybrid_streaming_diagnostics"),
                             stratification_diagnostics=stratification_diagnostics,
                             diagnostics_payload=None,
                             n_params_effective=_hs_n_params_effective,
@@ -1418,9 +1379,7 @@ class NLSQWrapper(NLSQAdapterBase):
 
                 # Compute final residuals for result creation
                 # We need to recreate the residual function to compute final residuals
-                chunked_data = self._create_stratified_chunks(
-                    stratified_data, target_chunk_size
-                )
+                chunked_data = self._create_stratified_chunks(stratified_data, target_chunk_size)
                 residual_fn = create_stratified_residual_function(
                     stratified_data=chunked_data,
                     per_angle_scaling=per_angle_scaling,
@@ -1440,9 +1399,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 _sls_n_params_effective: int | None = None
                 if per_angle_scaling and anti_degeneracy_config:
                     _sls_ad_mode = anti_degeneracy_config.get("per_angle_mode", "auto")
-                    _sls_thresh = anti_degeneracy_config.get(
-                        "constant_scaling_threshold", 3
-                    )
+                    _sls_thresh = anti_degeneracy_config.get("constant_scaling_threshold", 3)
                     if _sls_ad_mode == "auto" and n_angles_check >= _sls_thresh:
                         _sls_n_params_effective = 2 * n_angles_check + n_physical
                     elif _sls_ad_mode == "constant":
@@ -1456,9 +1413,7 @@ class NLSQWrapper(NLSQAdapterBase):
                     n_data=n_data,
                     iterations=info.get("nit", 0),
                     execution_time=execution_time,
-                    convergence_status=(
-                        "converged" if info.get("success", False) else "failed"
-                    ),
+                    convergence_status=("converged" if info.get("success", False) else "failed"),
                     recovery_actions=["stratified_least_squares_method"],
                     streaming_diagnostics=None,
                     stratification_diagnostics=stratification_diagnostics,
@@ -1497,9 +1452,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 f"NLSQ will use memory-efficient strategies automatically."
             )
         elif n_data > 1_000_000:
-            logger.info(
-                f"Large dataset: {n_data:,} points. Memory managed automatically."
-            )
+            logger.info(f"Large dataset: {n_data:,} points. Memory managed automatically.")
 
         # Step 3: Validate initial parameters
         if initial_params is None:
@@ -1524,9 +1477,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 )
 
         # Step 6: Create residual function with per-angle scaling
-        logger.info(
-            f"Creating residual function (per_angle_scaling={per_angle_scaling})..."
-        )
+        logger.info(f"Creating residual function (per_angle_scaling={per_angle_scaling})...")
         residual_fn = self._create_residual_function(
             stratified_data, analysis_mode, per_angle_scaling
         )
@@ -1598,15 +1549,13 @@ class NLSQWrapper(NLSQAdapterBase):
                     "Computing consistent per-angle initialization for laminar_flow mode..."
                 )
                 try:
-                    contrast_per_angle, offset_per_angle = (
-                        _compute_consistent_per_angle_init(
-                            stratified_data=stratified_data,
-                            physical_params=physical_params,
-                            physical_param_names=physical_param_names,
-                            default_contrast=contrast_single,
-                            default_offset=offset_single,
-                            logger=logger,
-                        )
+                    contrast_per_angle, offset_per_angle = _compute_consistent_per_angle_init(
+                        stratified_data=stratified_data,
+                        physical_params=physical_params,
+                        physical_param_names=physical_param_names,
+                        default_contrast=contrast_single,
+                        default_offset=offset_single,
+                        logger=logger,
                     )
                 except (
                     ValueError,
@@ -1721,16 +1670,10 @@ class NLSQWrapper(NLSQAdapterBase):
             x_scale_value = per_param_x_scale
 
         if diagnostics_enabled:
-            diagnostics_payload = diagnostics_payload or {
-                "solver_settings": {"loss": loss_name}
-            }
-            solver_settings = diagnostics_payload.setdefault(
-                "solver_settings", {"loss": loss_name}
-            )
+            diagnostics_payload = diagnostics_payload or {"solver_settings": {"loss": loss_name}}
+            solver_settings = diagnostics_payload.setdefault("solver_settings", {"loss": loss_name})
             solver_settings["x_scale"] = (
-                x_scale_value.tolist()
-                if isinstance(x_scale_value, np.ndarray)
-                else x_scale_value
+                x_scale_value.tolist() if isinstance(x_scale_value, np.ndarray) else x_scale_value
             )
             logger.info(
                 "Diagnostics enabled: loss=%s, x_scale=%s, sample_size=%d",
@@ -1762,9 +1705,7 @@ class NLSQWrapper(NLSQAdapterBase):
                     "Initial Jacobian column norms: %s",
                     ", ".join(
                         f"{label}={norm:.3e}"
-                        for label, norm in diagnostics_payload[
-                            "initial_jacobian_norms"
-                        ].items()
+                        for label, norm in diagnostics_payload["initial_jacobian_norms"].items()
                     ),
                 )
 
@@ -1809,9 +1750,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 strategy = OptimizationStrategy(strategy_override)
                 logger.info(f"Using overridden strategy: {strategy.value}")
             except ValueError:
-                logger.warning(
-                    f"Invalid strategy override '{strategy_override}', using auto"
-                )
+                logger.warning(f"Invalid strategy override '{strategy_override}', using auto")
                 strategy_override = None
 
         if not strategy_override:
@@ -2045,9 +1984,7 @@ class NLSQWrapper(NLSQAdapterBase):
 
         # Count function evaluations
         reported_nfev: int = cast(int, info.get("nfev", -1))
-        corrected_nfev = (
-            residual_counter.count if residual_counter is not None else reported_nfev
-        )
+        corrected_nfev = residual_counter.count if residual_counter is not None else reported_nfev
         if diagnostics_enabled:
             diagnostics_payload = diagnostics_payload or {}
             diagnostics_payload["nfev_reported"] = reported_nfev
@@ -2097,9 +2034,7 @@ class NLSQWrapper(NLSQAdapterBase):
                     "Final Jacobian column norms: %s",
                     ", ".join(
                         f"{label}={norm:.3e}"
-                        for label, norm in diagnostics_payload[
-                            "final_jacobian_norms"
-                        ].items()
+                        for label, norm in diagnostics_payload["final_jacobian_norms"].items()
                     ),
                 )
             if nlsq_bounds is not None:
@@ -2128,12 +2063,8 @@ class NLSQWrapper(NLSQAdapterBase):
                 # model DOF: 2*n_phi + n_physical >> len(popt)).  Falling back to
                 # len(popt) would underestimate s² and produce artificially tight
                 # diagnostic covariances.
-                n_diag_params = (
-                    n_dof_effective if n_dof_effective is not None else len(popt)
-                )
-                s2_diag = float(np.sum(final_residuals**2)) / max(
-                    n_diag_data - n_diag_params, 1
-                )
+                n_diag_params = n_dof_effective if n_dof_effective is not None else len(popt)
+                s2_diag = float(np.sum(final_residuals**2)) / max(n_diag_data - n_diag_params, 1)
                 pcov = s2_diag * np.linalg.pinv(final_jtj, rcond=1e-10)
                 diagnostics_payload["jtj_condition"] = (
                     float(np.linalg.cond(final_jtj)) if final_jtj.size > 0 else None
@@ -2144,9 +2075,7 @@ class NLSQWrapper(NLSQAdapterBase):
         final_cost = np.sum(final_residuals**2)
 
         function_evals = iterations
-        cost_reduction = (
-            (initial_cost - final_cost) / initial_cost if initial_cost > 0 else 0
-        )
+        cost_reduction = (initial_cost - final_cost) / initial_cost if initial_cost > 0 else 0
         params_changed = not np.allclose(popt, validated_params, rtol=1e-8)
 
         optimization_ran = function_evals > 10 or params_changed
@@ -2384,9 +2313,7 @@ class NLSQWrapper(NLSQAdapterBase):
         log_diagnostics = strat_config.get("log_diagnostics", False)
 
         # Check if explicitly disabled
-        if enabled is False or (
-            isinstance(enabled, str) and enabled.lower() == "false"
-        ):
+        if enabled is False or (isinstance(enabled, str) and enabled.lower() == "false"):
             logger.info("Stratification disabled via configuration")
             return data
 
@@ -2413,9 +2340,7 @@ class NLSQWrapper(NLSQAdapterBase):
             # t1_2d[i, j] = time[i] (constant along j), extract first column
             if t1.size > 0:
                 t1 = t1[:, 0]
-                logger.debug(
-                    f"Extracted 1D t1 array from 2D meshgrid: shape {t1.shape}"
-                )
+                logger.debug(f"Extracted 1D t1 array from 2D meshgrid: shape {t1.shape}")
             else:
                 t1 = np.array([])
                 logger.debug("Empty 2D t1 array converted to empty 1D array")
@@ -2423,9 +2348,7 @@ class NLSQWrapper(NLSQAdapterBase):
             # t2_2d[i, j] = time[j] (constant along i), extract first row
             if t2.size > 0:
                 t2 = t2[0, :]
-                logger.debug(
-                    f"Extracted 1D t2 array from 2D meshgrid: shape {t2.shape}"
-                )
+                logger.debug(f"Extracted 1D t2 array from 2D meshgrid: shape {t2.shape}")
             else:
                 t2 = np.array([])
                 logger.debug("Empty 2D t2 array converted to empty 1D array")
@@ -2457,9 +2380,7 @@ class NLSQWrapper(NLSQAdapterBase):
             )
 
         # Handle "auto" mode
-        if enabled == "auto" or (
-            isinstance(enabled, str) and enabled.lower() == "auto"
-        ):
+        if enabled == "auto" or (isinstance(enabled, str) and enabled.lower() == "auto"):
             should_stratify = should_stratify_auto
         else:
             # enabled is True (force on)
@@ -2481,9 +2402,7 @@ class NLSQWrapper(NLSQAdapterBase):
 
         # Check memory safety (if enabled in config)
         if check_memory:
-            mem_stats = estimate_stratification_memory(
-                n_points, use_index_based=use_index_based
-            )
+            mem_stats = estimate_stratification_memory(n_points, use_index_based=use_index_based)
             if not mem_stats["is_safe"]:
                 logger.warning(
                     f"Stratification may use significant memory: "
@@ -2646,9 +2565,7 @@ class NLSQWrapper(NLSQAdapterBase):
             chunk_sizes,  # CRITICAL FIX: Pass chunk sizes for boundary-aware re-chunking
         )
 
-        logger.info(
-            f"Stratification complete: {len(g2_stratified):,} points reorganized"
-        )
+        logger.info(f"Stratification complete: {len(g2_stratified):,} points reorganized")
 
         return stratified_data
 
@@ -2723,9 +2640,7 @@ class NLSQWrapper(NLSQAdapterBase):
         # Load initial parameters if not provided
         if initial_params is None:
             initial_params = param_manager.get_initial_values()
-            logger.info(
-                f"Loaded initial parameters from config: {len(initial_params)} parameters"
-            )
+            logger.info(f"Loaded initial parameters from config: {len(initial_params)} parameters")
 
         # Load bounds if not provided
         if bounds is None:
@@ -2782,9 +2697,7 @@ class NLSQWrapper(NLSQAdapterBase):
                             n_phi_total,
                         )
                 except (TypeError, ValueError):
-                    logger.warning(
-                        "Invalid sequential per-angle contrast override; ignoring"
-                    )
+                    logger.warning("Invalid sequential per-angle contrast override; ignoring")
             offset_override = per_angle_scaling_initial.get("offset")
             if offset_override is not None:
                 try:
@@ -2798,9 +2711,7 @@ class NLSQWrapper(NLSQAdapterBase):
                             n_phi_total,
                         )
                 except (TypeError, ValueError):
-                    logger.warning(
-                        "Invalid sequential per-angle offset override; ignoring"
-                    )
+                    logger.warning("Invalid sequential per-angle offset override; ignoring")
 
         scalar_layout_len = len(physical_param_names) + 2
         expected_per_angle_len = 2 * n_phi_total + len(physical_param_names)
@@ -2809,10 +2720,7 @@ class NLSQWrapper(NLSQAdapterBase):
             """Replicate scalar contrast/offset entries across all angles."""
 
             arr = np.asarray(vector, dtype=np.float64)
-            if (
-                expected_per_angle_len == scalar_layout_len
-                or arr.size == expected_per_angle_len
-            ):
+            if expected_per_angle_len == scalar_layout_len or arr.size == expected_per_angle_len:
                 return arr
             if n_phi_total == 0 or arr.size != scalar_layout_len:
                 return arr
@@ -2854,16 +2762,11 @@ class NLSQWrapper(NLSQAdapterBase):
                     expected_per_angle_len,
                 )
 
-        if (
-            solver_per_angle_scaling
-            and solver_initial_params.size == expected_per_angle_len
-        ):
+        if solver_per_angle_scaling and solver_initial_params.size == expected_per_angle_len:
             if per_angle_contrast_override is not None:
                 solver_initial_params[:n_phi_total] = per_angle_contrast_override
             if per_angle_offset_override is not None:
-                solver_initial_params[n_phi_total : 2 * n_phi_total] = (
-                    per_angle_offset_override
-                )
+                solver_initial_params[n_phi_total : 2 * n_phi_total] = per_angle_offset_override
 
         param_lower_bounds = config_lower_bounds.copy()
         param_upper_bounds = config_upper_bounds.copy()
@@ -2899,10 +2802,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 return float(array)
             if array.size == expected_per_angle_len:
                 return array
-            if (
-                expected_per_angle_len > scalar_layout_len
-                and array.size == scalar_layout_len
-            ):
+            if expected_per_angle_len > scalar_layout_len and array.size == scalar_layout_len:
                 return _expand_compact_layout(array)
             return value
 
@@ -2916,9 +2816,7 @@ class NLSQWrapper(NLSQAdapterBase):
         else:
             sigma_array = np.asarray(sigma_source, dtype=np.float64)
             if not np.all(np.isfinite(sigma_array)):
-                raise ValueError(
-                    "sigma values must be finite; received NaN/inf entries"
-                )
+                raise ValueError("sigma values must be finite; received NaN/inf entries")
             if np.any(sigma_array <= 0):
                 non_positive = float(np.count_nonzero(sigma_array <= 0))
                 raise ValueError(
@@ -2943,12 +2841,10 @@ class NLSQWrapper(NLSQAdapterBase):
 
         transform_state: dict[str, Any] = {}
         if transform_cfg:
-            solver_initial_params, transform_state = (
-                apply_forward_shear_transforms_to_vector(
-                    solver_initial_params,
-                    physical_index_map,
-                    transform_cfg,
-                )
+            solver_initial_params, transform_state = apply_forward_shear_transforms_to_vector(
+                solver_initial_params,
+                physical_index_map,
+                transform_cfg,
             )
             if bounds is not None:
                 bounds = apply_forward_shear_transforms_to_bounds(
@@ -3020,9 +2916,7 @@ class NLSQWrapper(NLSQAdapterBase):
             # unique arrays (phi_flat, t1, t2), so all values are guaranteed to be in range.
             # The clip was causing optimization to converge to wrong local minima.
             # See: stratified LS fix in residual.py (D0=91342 vs 19253 issue).
-            phi_indices = np.searchsorted(
-                phi_unique_all, np.round(phi_section, decimals=6)
-            )
+            phi_indices = np.searchsorted(phi_unique_all, np.round(phi_section, decimals=6))
             t1_indices = np.searchsorted(t1_unique_all, t1_section)
             t2_indices = np.searchsorted(t2_unique_all, t2_section)
 
@@ -3062,9 +2956,7 @@ class NLSQWrapper(NLSQAdapterBase):
         weighting = seq_config.get("weighting", "inverse_variance")
 
         # Run sequential optimization
-        logger.info(
-            f"Starting per-angle optimization with {len(np.unique(phi_flat))} angles..."
-        )
+        logger.info(f"Starting per-angle optimization with {len(np.unique(phi_flat))} angles...")
 
         least_squares_kwargs: dict[str, Any] = {
             "max_nfev": nlsq_config.get("max_iterations", 1000),
@@ -3110,9 +3002,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 transform_state,
             )
 
-        final_residuals = residual_func(
-            combined_physical, phi_flat, t1_flat, t2_flat, g2_flat
-        )
+        final_residuals = residual_func(combined_physical, phi_flat, t1_flat, t2_flat, g2_flat)
         chi_squared = float(np.sum(final_residuals**2))
         n_data = len(phi_flat)
         n_params = len(sequential_result.combined_parameters)
@@ -3153,9 +3043,7 @@ class NLSQWrapper(NLSQAdapterBase):
                     for idx, name in enumerate(param_names)
                 }
 
-        total_nfev = sum(
-            r.get("n_iterations", 0) for r in sequential_result.per_angle_results
-        )
+        total_nfev = sum(r.get("n_iterations", 0) for r in sequential_result.per_angle_results)
 
         diagnostics_payload = {
             "solver_settings": {
@@ -3167,12 +3055,8 @@ class NLSQWrapper(NLSQAdapterBase):
             "nfev_reported": total_nfev,
             "nfev_actual": total_nfev,
             "parameter_status": param_status,
-            "initial_jacobian_norms": _norm_array_to_dict(
-                sequential_result.initial_jacobian_norms
-            ),
-            "final_jacobian_norms": _norm_array_to_dict(
-                sequential_result.final_jacobian_norms
-            ),
+            "initial_jacobian_norms": _norm_array_to_dict(sequential_result.initial_jacobian_norms),
+            "final_jacobian_norms": _norm_array_to_dict(sequential_result.final_jacobian_norms),
             "per_angle_jacobian_norms": per_angle_jac,
             "solver_per_angle_expanded": solver_per_angle_expanded,
             "chi_squared": chi_squared,
@@ -3199,9 +3083,7 @@ class NLSQWrapper(NLSQAdapterBase):
         # Determine convergence status
         if sequential_result.success_rate >= min_success_rate:
             convergence_status = "converged"
-            quality_flag = (
-                "good" if sequential_result.success_rate > 0.8 else "marginal"
-            )
+            quality_flag = "good" if sequential_result.success_rate > 0.8 else "marginal"
             if failed_angle_indices:
                 logger.warning(
                     "Sequential fit marked converged at %.0f%% success, but %d "
@@ -3250,9 +3132,7 @@ class NLSQWrapper(NLSQAdapterBase):
             chi_squared=chi_squared,
             reduced_chi_squared=reduced_chi_squared,
             convergence_status=convergence_status,
-            iterations=sum(
-                r["n_iterations"] for r in sequential_result.per_angle_results
-            ),
+            iterations=sum(r["n_iterations"] for r in sequential_result.per_angle_results),
             execution_time=execution_time,
             device_info=device_info,
             recovery_actions=[
@@ -3487,9 +3367,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 # Note: clip removed - phi_requested is a subset of phi which was used to
                 # build phi_unique, so all values are guaranteed to be in range.
                 # The clip was causing optimization to converge to wrong local minima.
-                phi_idx = jnp.searchsorted(
-                    phi_unique, phi_requested
-                )  # Shape: (chunk_size,)
+                phi_idx = jnp.searchsorted(phi_unique, phi_requested)  # Shape: (chunk_size,)
 
                 # Select per-angle contrast and offset for each data point
                 contrast_requested = contrast[phi_idx]  # Shape: (chunk_size,)
@@ -3599,8 +3477,7 @@ class NLSQWrapper(NLSQAdapterBase):
             self.best_loss = loss
             self.best_batch_idx = batch_idx
             logger.info(
-                f"New best loss: {loss:.6e} at batch {batch_idx} "
-                f"(improved from {prev_best:.6e})"
+                f"New best loss: {loss:.6e} at batch {batch_idx} (improved from {prev_best:.6e})"
             )
 
     def _fit_with_hybrid_streaming_optimizer(
@@ -3788,9 +3665,7 @@ class NLSQWrapper(NLSQAdapterBase):
         # optimistic quality_flag ("good" when the fit is "marginal" or "poor").
         n_params = n_params_effective if n_params_effective is not None else len(popt)
         degrees_of_freedom = n_data - n_params
-        reduced_chi_squared = (
-            chi_squared / degrees_of_freedom if degrees_of_freedom > 0 else np.inf
-        )
+        reduced_chi_squared = chi_squared / degrees_of_freedom if degrees_of_freedom > 0 else np.inf
 
         # Get device information
         devices = jax.devices()
@@ -3816,10 +3691,7 @@ class NLSQWrapper(NLSQAdapterBase):
             enhanced_streaming_diagnostics = streaming_diagnostics.copy()
 
             # Add batch statistics if available
-            if (
-                hasattr(self, "batch_statistics")
-                and self.batch_statistics.total_batches > 0
-            ):
+            if hasattr(self, "batch_statistics") and self.batch_statistics.total_batches > 0:
                 batch_stats = self.batch_statistics.get_statistics()
 
                 # Extract key metrics for enhanced diagnostics
@@ -3832,9 +3704,7 @@ class NLSQWrapper(NLSQAdapterBase):
                             if not b["success"]
                         ],
                         "error_type_distribution": batch_stats["error_distribution"],
-                        "average_iterations_per_batch": batch_stats[
-                            "average_iterations"
-                        ],
+                        "average_iterations_per_batch": batch_stats["average_iterations"],
                         "total_batches_processed": batch_stats["total_batches"],
                     }
                 )

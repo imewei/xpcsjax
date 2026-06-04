@@ -101,18 +101,14 @@ def expand_per_angle_parameters(
         logger.info("Expanding scaling parameters for per-angle scaling:")
         logger.info(f"  Angles: {n_angles}")
         logger.info(f"  Physical parameters: {n_physical}")
-        logger.info(
-            f"  Base scaling: contrast={base_contrast:.4f}, offset={base_offset:.4f}"
-        )
+        logger.info(f"  Base scaling: contrast={base_contrast:.4f}, offset={base_offset:.4f}")
 
     # Expand to per-angle
     contrast_per_angle = np.full(n_angles, base_contrast)
     offset_per_angle = np.full(n_angles, base_offset)
 
     # Concatenate: [contrast_per_angle, offset_per_angle, physical_params]
-    expanded_params = np.concatenate(
-        [contrast_per_angle, offset_per_angle, physical_params]
-    )
+    expanded_params = np.concatenate([contrast_per_angle, offset_per_angle, physical_params])
 
     # Expand bounds if provided
     expanded_bounds = None
@@ -146,9 +142,7 @@ def expand_per_angle_parameters(
 
     if logger:
         logger.info(f"  Expanded to {len(expanded_params)} parameters:")
-        logger.info(
-            f"    - Contrast per angle: {n_angles} (indices 0 to {n_angles - 1})"
-        )
+        logger.info(f"    - Contrast per angle: {n_angles} (indices 0 to {n_angles - 1})")
         logger.info(
             f"    - Offset per angle: {n_angles} (indices {n_angles} to {2 * n_angles - 1})"
         )

@@ -7,6 +7,7 @@ peak, which only exists when the kernel has a shear rate. So L5 is active for
 - ``static_isotropic`` / ``static_anisotropic`` -> Layer 5 disabled (no flow, no shear peak)
 - ``two_component`` (heterodyne) -> Layer 5 disabled (no shear rate to weight)
 """
+
 import numpy as np
 import pytest
 
@@ -23,7 +24,10 @@ def _make_controller(analysis_mode: str | None = None):
     if analysis_mode is not None:
         kwargs["analysis_mode"] = analysis_mode
     return AntiDegeneracyController(
-        config={}, n_phi=n_phi, n_physical=n_physical, phi_angles=phi_angles,
+        config={},
+        n_phi=n_phi,
+        n_physical=n_physical,
+        phi_angles=phi_angles,
         **kwargs,
     )
 

@@ -101,9 +101,7 @@ def validate_save_path(
 
     # Check absolute path permission
     if path.is_absolute() and not allow_absolute:
-        raise PathValidationError(
-            f"Absolute paths not allowed: {_sanitize_log_path(path_str)}"
-        )
+        raise PathValidationError(f"Absolute paths not allowed: {_sanitize_log_path(path_str)}")
 
     # Resolve the path (normalize)
     if base_dir is None:
@@ -141,8 +139,7 @@ def validate_save_path(
         suffix = resolved_path.suffix.lower()
         if suffix not in allowed_extensions:
             raise PathValidationError(
-                f"Invalid file extension '{suffix}'. "
-                f"Allowed: {', '.join(allowed_extensions)}"
+                f"Invalid file extension '{suffix}'. Allowed: {', '.join(allowed_extensions)}"
             )
 
     # Check parent directory exists
@@ -275,8 +272,7 @@ def get_safe_output_dir(
         raw_components.add(segment)
     if ".." in raw_components:
         raise PathValidationError(
-            f"Path traversal detected in output directory: "
-            f"{_sanitize_log_path(path_str)}"
+            f"Path traversal detected in output directory: {_sanitize_log_path(path_str)}"
         )
 
     # Resolve and create if needed
@@ -285,9 +281,7 @@ def get_safe_output_dir(
     if not resolved.exists():
         try:
             resolved.mkdir(parents=True, exist_ok=True)
-            logger.debug(
-                "Created output directory: %s", _sanitize_log_path(str(resolved))
-            )
+            logger.debug("Created output directory: %s", _sanitize_log_path(str(resolved)))
         except OSError as e:
             raise OSError(
                 f"Cannot create output directory: {_sanitize_log_path(str(resolved))}"
@@ -295,8 +289,7 @@ def get_safe_output_dir(
 
     if not resolved.is_dir():
         raise PathValidationError(
-            f"Output path exists but is not a directory: "
-            f"{_sanitize_log_path(str(resolved))}"
+            f"Output path exists but is not a directory: {_sanitize_log_path(str(resolved))}"
         )
 
     return resolved

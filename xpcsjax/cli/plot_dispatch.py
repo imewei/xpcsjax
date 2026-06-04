@@ -273,9 +273,7 @@ def _plot_simulated_from_config(
     # Order the dict-form init params per the active-parameter list.
     try:
         active = config_manager.get_active_parameters()
-        params_arr = np.array(
-            [float(init_params[name]) for name in active], dtype=np.float64
-        )
+        params_arr = np.array([float(init_params[name]) for name in active], dtype=np.float64)
     except Exception as exc:
         log_exception(
             logger,
@@ -305,8 +303,7 @@ def _plot_simulated_from_config(
                 logger,
                 logging.WARNING,
                 f"{run_id}:{_call_token}:plot_render_fail:simulated_evaluate_model_c2",
-                "Could not evaluate model c2 at phi=%s: %s (further per-angle "
-                "failures suppressed)",
+                "Could not evaluate model c2 at phi=%s: %s (further per-angle failures suppressed)",
                 phi,
                 exc,
             )
@@ -399,9 +396,7 @@ def _evaluate_model_c2(
         # match the viz layer's HeterodyneModel branch.
         g1_method = getattr(model, "compute_g1", None)
         if g1_method is None:
-            raise AttributeError(
-                f"{type(model).__name__} has neither compute_g2 nor compute_g1"
-            )
+            raise AttributeError(f"{type(model).__name__} has neither compute_g2 nor compute_g1")
         g1_sq = np.asarray(g1_method(p_arr, t1_j, t2_j, phi_arr, q, L, dt))
         arr = offset + contrast * g1_sq
     if arr.ndim == 3 and arr.shape[0] == 1:
@@ -587,8 +582,7 @@ def _save_fit_comparison_only(
                 logger,
                 logging.WARNING,
                 f"{run_id}:{_call_token}:plot_render_fail:fit_comparison_nlsq_fit",
-                "plot_nlsq_fit failed for phi=%s: %s (further per-angle "
-                "failures suppressed)",
+                "plot_nlsq_fit failed for phi=%s: %s (further per-angle failures suppressed)",
                 phi,
                 exc,
             )
@@ -608,8 +602,7 @@ def _save_fit_comparison_only(
                 logger,
                 logging.WARNING,
                 f"{run_id}:{_call_token}:plot_render_fail:fit_comparison_residual_map",
-                "plot_residual_map failed for phi=%s: %s (further per-angle "
-                "failures suppressed)",
+                "plot_residual_map failed for phi=%s: %s (further per-angle failures suppressed)",
                 phi,
                 exc,
             )
@@ -730,9 +723,7 @@ def dispatch_plots(
             # Full artifact dump path — only when the user did NOT explicitly
             # request a standalone plot mode (those skip the fit entirely).
             try:
-                _record(
-                    _generate_post_fit_plots(args, config_manager, data, result, plots_dir)
-                )
+                _record(_generate_post_fit_plots(args, config_manager, data, result, plots_dir))
             except Exception as exc:
                 log_exception(
                     logger,

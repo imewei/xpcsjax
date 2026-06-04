@@ -137,9 +137,7 @@ class GradientCapabilityMixin:
             performance_warning = None
         elif backend_info["numpy_gradients_available"]:
             best_method = "NumPy (numerical differentiation)"
-            performance_warning = (
-                "Using NumPy fallback - expect 10-50x performance degradation"
-            )
+            performance_warning = "Using NumPy fallback - expect 10-50x performance degradation"
         else:
             best_method = "None available"
             performance_warning = "No gradient computation backend available"
@@ -166,9 +164,7 @@ class GradientCapabilityMixin:
         """Generate human-readable backend summary."""
         if backend_info["jax_available"]:
             devices = device_info.get("devices", ["unknown"])
-            device_str = (
-                f", {len(devices)} device(s) available" if len(devices) > 1 else ""
-            )
+            device_str = f", {len(devices)} device(s) available" if len(devices) > 1 else ""
             return f"JAX backend active{device_str}, optimal performance"
         elif backend_info["numpy_gradients_available"]:
             return "NumPy numerical differentiation active, reduced performance"
@@ -232,9 +228,7 @@ class BenchmarkingMixin:
             )
 
         if not methods_to_test:
-            benchmark_results["error"] = (
-                "No gradient methods available for benchmarking"
-            )
+            benchmark_results["error"] = "No gradient methods available for benchmarking"
             return benchmark_results
 
         # Test each available method
@@ -276,9 +270,7 @@ class BenchmarkingMixin:
                     "name": method_name,
                     "computation_time": computation_time,
                     "success": True,
-                    "forward_shape": (
-                        g2_result.shape if hasattr(g2_result, "shape") else "scalar"
-                    ),
+                    "forward_shape": (g2_result.shape if hasattr(g2_result, "shape") else "scalar"),
                     "gradient_shape": (
                         grad_result.shape if grad_result is not None else "not_computed"
                     ),
@@ -310,9 +302,7 @@ class BenchmarkingMixin:
             best_time = best_method_info["computation_time"]
             for _, method_info in benchmark_results["methods"].items():
                 if method_info["success"]:
-                    method_info["performance_ratio"] = (
-                        method_info["computation_time"] / best_time
-                    )
+                    method_info["performance_ratio"] = method_info["computation_time"] / best_time
 
         logger.info("Gradient performance benchmark completed")
         return benchmark_results

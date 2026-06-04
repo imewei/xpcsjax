@@ -220,9 +220,7 @@ def fit_with_hybrid_streaming_optimizer(
         # Extract results
         popt = np.asarray(result["x"])
         pcov = np.asarray(result.get("pcov", np.eye(len(popt))))
-        perr = np.asarray(
-            result.get("perr", safe_uncertainties_from_pcov(pcov, len(popt)))
-        )
+        perr = np.asarray(result.get("perr", safe_uncertainties_from_pcov(pcov, len(popt))))
 
         # Build info dict with phase diagnostics
         info = {
@@ -233,9 +231,7 @@ def fit_with_hybrid_streaming_optimizer(
             "sigma_sq": result.get("streaming_diagnostics", {})
             .get("gauss_newton_diagnostics", {})
             .get("final_cost"),
-            "phase_timings": result.get("streaming_diagnostics", {}).get(
-                "phase_timings", {}
-            ),
+            "phase_timings": result.get("streaming_diagnostics", {}).get("phase_timings", {}),
         }
 
         logger.info("Hybrid streaming optimization completed successfully")
@@ -244,15 +240,11 @@ def fit_with_hybrid_streaming_optimizer(
             logger.info(
                 f"  Phase 0 (normalization): {phase_timings.get('phase0_normalization', 0):.3f}s"
             )
-            logger.info(
-                f"  Phase 1 (L-BFGS warmup): {phase_timings.get('phase1_warmup', 0):.3f}s"
-            )
+            logger.info(f"  Phase 1 (L-BFGS warmup): {phase_timings.get('phase1_warmup', 0):.3f}s")
             logger.info(
                 f"  Phase 2 (Gauss-Newton): {phase_timings.get('phase2_gauss_newton', 0):.3f}s"
             )
-            logger.info(
-                f"  Phase 3 (covariance): {phase_timings.get('phase3_finalize', 0):.3f}s"
-            )
+            logger.info(f"  Phase 3 (covariance): {phase_timings.get('phase3_finalize', 0):.3f}s")
 
         return popt, pcov, info
 
@@ -390,9 +382,7 @@ def fit_with_stratified_hybrid_streaming(
 
     # Learning rate scheduling
     use_learning_rate_schedule = config_dict.get("use_learning_rate_schedule", False)
-    lr_schedule_warmup_steps = config_dict.get(
-        "lr_schedule_warmup_steps", warmup_iterations
-    )
+    lr_schedule_warmup_steps = config_dict.get("lr_schedule_warmup_steps", warmup_iterations)
     lr_schedule_decay_steps = config_dict.get(
         "lr_schedule_decay_steps", max_warmup_iterations - warmup_iterations
     )
@@ -482,9 +472,7 @@ def fit_with_stratified_hybrid_streaming(
                 f"constant_scaling_threshold ({constant_scaling_threshold})"
             )
             logger.info("  Behavior: Quantile estimates -> AVERAGED -> OPTIMIZED")
-            logger.info(
-                "  Parameters: 7 physical + 2 averaged (contrast, offset) = 9 total"
-            )
+            logger.info("  Parameters: 7 physical + 2 averaged (contrast, offset) = 9 total")
             logger.info("=" * 60)
         else:
             # Use individual per-angle parameters for few angles (N < 3)
@@ -495,9 +483,7 @@ def fit_with_stratified_hybrid_streaming(
                 f"  Reason: n_phi ({n_phi}) < "
                 f"constant_scaling_threshold ({constant_scaling_threshold})"
             )
-            logger.info(
-                f"  Parameters: 7 physical + {2 * n_phi} per-angle = {7 + 2 * n_phi} total"
-            )
+            logger.info(f"  Parameters: 7 physical + {2 * n_phi} per-angle = {7 + 2 * n_phi} total")
             logger.info("=" * 60)
     elif per_angle_mode == "constant":
         # EXPLICIT constant mode: FIXED per-angle scaling (7 params)
@@ -505,21 +491,15 @@ def fit_with_stratified_hybrid_streaming(
         # Only 7 physical params are optimized; scaling is FIXED
         per_angle_mode_actual = "fixed_constant"
         logger.info("=" * 60)
-        logger.info(
-            "ANTI-DEGENERACY DEFENSE: Explicit 'constant' mode -> fixed_constant"
-        )
+        logger.info("ANTI-DEGENERACY DEFENSE: Explicit 'constant' mode -> fixed_constant")
         logger.info(f"  n_phi: {n_phi}")
-        logger.info(
-            "  Behavior: Quantile estimates -> per-angle values FIXED (NOT optimized)"
-        )
+        logger.info("  Behavior: Quantile estimates -> per-angle values FIXED (NOT optimized)")
         logger.info("  Parameters: 7 physical only (scaling FIXED from quantiles)")
         logger.info("=" * 60)
     else:
         # Other explicit modes (fourier or individual)
         per_angle_mode_actual = per_angle_mode
-        logger.debug(
-            f"ANTI-DEGENERACY: Using explicit per_angle_mode: {per_angle_mode_actual}"
-        )
+        logger.debug(f"ANTI-DEGENERACY: Using explicit per_angle_mode: {per_angle_mode_actual}")
 
     # T031: Determine mode flags
     # use_constant: True for both auto_averaged and fixed_constant (constant-style mapping)
@@ -548,8 +528,7 @@ def fit_with_stratified_hybrid_streaming(
                 # Extract offset bounds from first offset element
                 o0_bounds = (float(lower_bounds[n_phi]), float(upper_bounds[n_phi]))
                 logger.debug(
-                    f"  Using user-configured Fourier bounds: "
-                    f"c0={c0_bounds}, o0={o0_bounds}"
+                    f"  Using user-configured Fourier bounds: c0={c0_bounds}, o0={o0_bounds}"
                 )
 
         fourier_config = FourierReparamConfig(
@@ -566,9 +545,7 @@ def fit_with_stratified_hybrid_streaming(
         logger.info(f"  n_phi: {n_phi}, Fourier order: {fourier_order}")
         logger.info(f"  Contrast bounds (c0): {c0_bounds}")
         logger.info(f"  Offset bounds (o0): {o0_bounds}")
-        logger.info(
-            f"  Parameter reduction: {2 * n_phi} -> {fourier_reparameterizer.n_coeffs}"
-        )
+        logger.info(f"  Parameter reduction: {2 * n_phi} -> {fourier_reparameterizer.n_coeffs}")
         logger.info("=" * 60)
     elif per_angle_mode_actual == "fixed_constant" and per_angle_scaling:
         # fixed_constant mode: per-angle scaling is FIXED, not optimized
@@ -577,9 +554,7 @@ def fit_with_stratified_hybrid_streaming(
         logger.info(f"  Mode: {per_angle_mode_actual}")
         logger.info(f"  n_phi: {n_phi}")
         logger.info("  Method: Quantile-based per-angle scaling (FIXED, not optimized)")
-        logger.info(
-            "  Per-angle contrast/offset will be estimated from c2 data quantiles"
-        )
+        logger.info("  Per-angle contrast/offset will be estimated from c2 data quantiles")
         logger.info("  These values are FIXED (not optimized) during fitting")
         logger.info(f"  Parameter reduction: {2 * n_phi} -> 0 (physical only)")
         logger.info("=" * 60)
@@ -591,9 +566,7 @@ def fit_with_stratified_hybrid_streaming(
         logger.info(f"  n_phi: {n_phi}")
         logger.info("  Method: Quantile estimates -> averaged -> OPTIMIZED")
         logger.info("  Initial values: averaged from per-angle quantile estimates")
-        logger.info(
-            f"  Parameter reduction: {2 * n_phi} -> 2 (averaged contrast + offset)"
-        )
+        logger.info(f"  Parameter reduction: {2 * n_phi} -> 2 (averaged contrast + offset)")
         logger.info("=" * 60)
 
     # =====================================================================
@@ -630,28 +603,21 @@ def fit_with_stratified_hybrid_streaming(
                     )
 
             # Compute quantile-based per-angle scaling
-            fixed_contrast_per_angle, fixed_offset_per_angle = (
-                _compute_quantile_per_angle_scaling(
-                    stratified_data=stratified_data,
-                    contrast_bounds=contrast_bounds,
-                    offset_bounds=offset_bounds,
-                    logger=logger,
-                )
+            fixed_contrast_per_angle, fixed_offset_per_angle = _compute_quantile_per_angle_scaling(
+                stratified_data=stratified_data,
+                contrast_bounds=contrast_bounds,
+                offset_bounds=offset_bounds,
+                logger=logger,
             )
 
-            if (
-                fixed_contrast_per_angle is not None
-                and fixed_offset_per_angle is not None
-            ):
+            if fixed_contrast_per_angle is not None and fixed_offset_per_angle is not None:
                 if per_angle_mode_actual == "fixed_constant":
                     # fixed_constant: Use per-angle values DIRECTLY as FIXED
                     use_fixed_scaling = True
                     fixed_contrast_jax = jnp.asarray(fixed_contrast_per_angle)
                     fixed_offset_jax = jnp.asarray(fixed_offset_per_angle)
 
-                    logger.info(
-                        "Fixed per-angle scaling computed (FIXED, not optimized):"
-                    )
+                    logger.info("Fixed per-angle scaling computed (FIXED, not optimized):")
                     logger.info(
                         f"  Contrast: mean={np.nanmean(fixed_contrast_per_angle):.4f}, "
                         f"range=[{np.nanmin(fixed_contrast_per_angle):.4f}, "
@@ -667,14 +633,10 @@ def fit_with_stratified_hybrid_streaming(
                     averaged_contrast_init = float(np.nanmean(fixed_contrast_per_angle))
                     averaged_offset_init = float(np.nanmean(fixed_offset_per_angle))
 
-                    logger.info(
-                        "Averaged scaling computed (initial values for optimization):"
-                    )
+                    logger.info("Averaged scaling computed (initial values for optimization):")
                     logger.info(f"  Averaged contrast: {averaged_contrast_init:.4f}")
                     logger.info(f"  Averaged offset: {averaged_offset_init:.4f}")
-                    logger.info(
-                        "  These will be OPTIMIZED along with 7 physical params (9 total)"
-                    )
+                    logger.info("  These will be OPTIMIZED along with 7 physical params (9 total)")
 
                     # Do NOT set use_fixed_scaling = True for auto_averaged
                     # The averaged values are just initial guesses for optimization
@@ -703,9 +665,7 @@ def fit_with_stratified_hybrid_streaming(
     # =====================================================================
     shear_weighting_config_early = ad_config.get("shear_weighting", {})
     shear_weighting_will_be_enabled = (
-        shear_weighting_config_early.get("enable", True)
-        and is_laminar_flow
-        and n_phi > 3
+        shear_weighting_config_early.get("enable", True) and is_laminar_flow and n_phi > 3
     )
 
     enable_hierarchical = hierarchical_config.get("enable", True)
@@ -713,15 +673,9 @@ def fit_with_stratified_hybrid_streaming(
     # Override: shear weighting requires hierarchical optimization to function
     if shear_weighting_will_be_enabled and not enable_hierarchical:
         logger.warning("=" * 60)
-        logger.warning(
-            "ANTI-DEGENERACY: Shear weighting enabled but hierarchical disabled!"
-        )
-        logger.warning(
-            "  Auto-enabling hierarchical optimization to apply shear weights."
-        )
-        logger.warning(
-            "  Without this, gradient cancellation will collapse gamma_dot_t0."
-        )
+        logger.warning("ANTI-DEGENERACY: Shear weighting enabled but hierarchical disabled!")
+        logger.warning("  Auto-enabling hierarchical optimization to apply shear weights.")
+        logger.warning("  Without this, gradient cancellation will collapse gamma_dot_t0.")
         logger.warning("=" * 60)
         enable_hierarchical = True
 
@@ -736,12 +690,8 @@ def fit_with_stratified_hybrid_streaming(
             enable=True,
             max_outer_iterations=hierarchical_config.get("max_outer_iterations", 5),
             outer_tolerance=float(hierarchical_config.get("outer_tolerance", 1e-6)),
-            physical_max_iterations=hierarchical_config.get(
-                "physical_max_iterations", 100
-            ),
-            per_angle_max_iterations=hierarchical_config.get(
-                "per_angle_max_iterations", 50
-            ),
+            physical_max_iterations=hierarchical_config.get("physical_max_iterations", 100),
+            per_angle_max_iterations=hierarchical_config.get("per_angle_max_iterations", 50),
         )
         hierarchical_optimizer = HierarchicalOptimizer(
             config=hier_config,
@@ -755,20 +705,14 @@ def fit_with_stratified_hybrid_streaming(
         logger.info(f"  Max outer iterations: {hier_config.max_outer_iterations}")
         logger.info(f"  Outer tolerance: {hier_config.outer_tolerance}")
         if shear_weighting_will_be_enabled:
-            logger.info(
-                "  Shear weighting: WILL BE APPLIED via hierarchical loss function"
-            )
+            logger.info("  Shear weighting: WILL BE APPLIED via hierarchical loss function")
         logger.info("=" * 60)
     elif use_constant and enable_hierarchical and per_angle_scaling:
         # Log that hierarchical is skipped due to constant scaling mode
         logger.info("=" * 60)
         logger.info("ANTI-DEGENERACY DEFENSE: Layer 2 - Hierarchical Optimization")
-        logger.info(
-            "  Skipped: constant scaling mode already prevents per-angle absorption"
-        )
-        logger.info(
-            "  Reason: Only 2 per-angle DoF (vs 46), no need for hierarchical alternation"
-        )
+        logger.info("  Skipped: constant scaling mode already prevents per-angle absorption")
+        logger.info("  Reason: Only 2 per-angle DoF (vs 46), no need for hierarchical alternation")
         logger.info("=" * 60)
 
     # Layer 3: Adaptive Relative Regularization Configuration
@@ -786,19 +730,14 @@ def fit_with_stratified_hybrid_streaming(
         if use_fixed_scaling:
             # fixed_constant: No scaling params to regularize (7 physical only)
             mode_group_indices = []
-            logger.debug(
-                "Fixed-constant mode: No per-angle regularization (scaling is fixed)"
-            )
+            logger.debug("Fixed-constant mode: No per-angle regularization (scaling is fixed)")
         elif use_averaged_scaling:
             # auto_averaged: 2 per-angle params (1 contrast + 1 offset) to regularize
             mode_group_indices = [(0, 1), (1, 2)]
             logger.debug(
-                f"Auto-averaged regularization groups: {mode_group_indices} "
-                f"(1 contrast + 1 offset)"
+                f"Auto-averaged regularization groups: {mode_group_indices} (1 contrast + 1 offset)"
             )
-        elif (
-            fourier_reparameterizer is not None and fourier_reparameterizer.use_fourier
-        ):
+        elif fourier_reparameterizer is not None and fourier_reparameterizer.use_fourier:
             n_coeffs_per_param = fourier_reparameterizer.n_coeffs_per_param
             mode_group_indices = [
                 (0, n_coeffs_per_param),  # contrast Fourier coefficients
@@ -864,9 +803,7 @@ def fit_with_stratified_hybrid_streaming(
         # n_physical defined unconditionally above
         # Use numpy arrays for indices (JAX compatibility)
         per_angle_indices = np.arange(n_per_angle, dtype=np.intp)
-        physical_indices = np.arange(
-            n_per_angle, n_per_angle + n_physical, dtype=np.intp
-        )
+        physical_indices = np.arange(n_per_angle, n_per_angle + n_physical, dtype=np.intp)
 
         # Compute gamma_dot_t0 index for watch_parameters
         # In laminar_flow, physical params are [D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]
@@ -875,19 +812,13 @@ def fit_with_stratified_hybrid_streaming(
 
         monitor_config = GradientMonitorConfig(
             enable=True,
-            ratio_threshold=float(
-                gradient_monitoring_config.get("ratio_threshold", 0.01)
-            ),
-            consecutive_triggers=gradient_monitoring_config.get(
-                "consecutive_triggers", 5
-            ),
+            ratio_threshold=float(gradient_monitoring_config.get("ratio_threshold", 0.01)),
+            consecutive_triggers=gradient_monitoring_config.get("consecutive_triggers", 5),
             response_mode=gradient_monitoring_config.get("response", "hierarchical"),
             # NEW (Dec 2025): Watch gamma_dot_t0 specifically for gradient collapse
             # This detects when shear parameter gradient vanishes during L-BFGS warmup
             watch_parameters=[gamma_dot_t0_idx],
-            watch_threshold=float(
-                gradient_monitoring_config.get("watch_threshold", 1e-8)
-            ),
+            watch_threshold=float(gradient_monitoring_config.get("watch_threshold", 1e-8)),
         )
         gradient_monitor = GradientCollapseMonitor(
             config=monitor_config,
@@ -1156,9 +1087,7 @@ def fit_with_stratified_hybrid_streaming(
         n_per_angle = 2 * n_phi
 
     @jax.jit
-    def model_fn_pointwise(
-        x_batch: jnp.ndarray, *params_tuple: jnp.ndarray
-    ) -> jnp.ndarray:
+    def model_fn_pointwise(x_batch: jnp.ndarray, *params_tuple: jnp.ndarray) -> jnp.ndarray:
         """Point-wise model function for hybrid streaming optimizer."""
         # Handle both single points (1D) and batches (2D)
         # The optimizer may call with single points during Jacobian computation
@@ -1215,9 +1144,7 @@ def fit_with_stratified_hybrid_streaming(
             phi0 = physical_params[6]
 
             # Compute shear
-            gamma_t = calculate_shear_rate(
-                t1_unique_jax, gamma_dot_0, beta, gamma_dot_offset
-            )
+            gamma_t = calculate_shear_rate(t1_unique_jax, gamma_dot_0, beta, gamma_dot_offset)
             gamma_cumsum = trapezoid_cumsum(gamma_t)
             gamma_diff = gamma_cumsum[t1_idx] - gamma_cumsum[t2_idx]
             # P0-2: epsilon_abs=1e-12 (was 1e-20, below float32 precision)
@@ -1375,18 +1302,14 @@ def fit_with_stratified_hybrid_streaming(
         fit_initial_params = physical_params
 
         logger.info(f"  Original params: {len(initial_params)}")
-        logger.info(
-            f"  Fixed scaling params: {len(fit_initial_params)} (physical only)"
-        )
+        logger.info(f"  Fixed scaling params: {len(fit_initial_params)} (physical only)")
         logger.info(f"  Per-angle reduction: {2 * n_phi} -> 0 (using fixed arrays)")
 
         # Transform bounds to physical only
         if bounds is not None:
             lower_bounds, upper_bounds = bounds
             fit_bounds = (lower_bounds[2 * n_phi :], upper_bounds[2 * n_phi :])
-            logger.info(
-                f"  Bounds reduced to physical only: {len(fit_bounds[0])} params"
-            )
+            logger.info(f"  Bounds reduced to physical only: {len(fit_bounds[0])} params")
         logger.info("=" * 60)
     elif use_averaged_scaling:
         logger.info("=" * 60)
@@ -1410,9 +1333,7 @@ def fit_with_stratified_hybrid_streaming(
             logger.info("  Using parameter-based averaged initial values (OPTIMIZED)")
 
         # New parameter layout: [contrast_const, offset_const, physical_params]
-        fit_initial_params = np.concatenate(
-            [[contrast_mean], [offset_mean], physical_params]
-        )
+        fit_initial_params = np.concatenate([[contrast_mean], [offset_mean], physical_params])
 
         logger.info(f"  Original params: {len(initial_params)}")
         logger.info(f"  Constant params: {len(fit_initial_params)}")
@@ -1460,9 +1381,7 @@ def fit_with_stratified_hybrid_streaming(
         offset_coeffs = fourier_reparameterizer.to_fourier(offset_per_angle)
 
         # New parameter layout: [contrast_coeffs, offset_coeffs, physical_params]
-        fit_initial_params = np.concatenate(
-            [contrast_coeffs, offset_coeffs, physical_params]
-        )
+        fit_initial_params = np.concatenate([contrast_coeffs, offset_coeffs, physical_params])
 
         logger.info(f"  Original params: {len(initial_params)}")
         logger.info(f"  Fourier params: {len(fit_initial_params)}")
@@ -1504,12 +1423,8 @@ def fit_with_stratified_hybrid_streaming(
                 ]
             )
 
-            fit_lower = np.concatenate(
-                [contrast_lower, offset_lower, lower_bounds[2 * n_phi :]]
-            )
-            fit_upper = np.concatenate(
-                [contrast_upper, offset_upper, upper_bounds[2 * n_phi :]]
-            )
+            fit_lower = np.concatenate([contrast_lower, offset_lower, lower_bounds[2 * n_phi :]])
+            fit_upper = np.concatenate([contrast_upper, offset_upper, upper_bounds[2 * n_phi :]])
             fit_bounds = (fit_lower, fit_upper)
         logger.info("=" * 60)
 
@@ -1523,9 +1438,7 @@ def fit_with_stratified_hybrid_streaming(
         _fourier_basis_matrix = fourier_reparameterizer._basis_matrix
 
         @jax.jit
-        def model_fn_fourier(
-            x_batch: jnp.ndarray, *params_tuple: jnp.ndarray
-        ) -> jnp.ndarray:
+        def model_fn_fourier(x_batch: jnp.ndarray, *params_tuple: jnp.ndarray) -> jnp.ndarray:
             """Model function with Fourier coefficient inputs."""
             # Handle both single points (1D) and batches (2D)
             x_batch_2d = jnp.atleast_2d(x_batch)
@@ -1573,9 +1486,7 @@ def fit_with_stratified_hybrid_streaming(
                 phi0 = physical_params[6]
 
                 # Compute shear
-                gamma_t = calculate_shear_rate(
-                    t1_unique_jax, gamma_dot_0, beta, gamma_dot_offset
-                )
+                gamma_t = calculate_shear_rate(t1_unique_jax, gamma_dot_0, beta, gamma_dot_offset)
                 gamma_cumsum = trapezoid_cumsum(gamma_t)
                 gamma_diff = gamma_cumsum[t1_idx] - gamma_cumsum[t2_idx]
                 # P0-2: epsilon_abs=1e-12 (was 1e-20, below float32 precision)
@@ -1684,9 +1595,7 @@ def fit_with_stratified_hybrid_streaming(
 
             # Layer 4: Gradient monitoring
             if gradient_monitor is not None:
-                gradient_monitor.check(
-                    grad, iteration_counter[0], params, loss_fn(params)
-                )
+                gradient_monitor.check(grad, iteration_counter[0], params, loss_fn(params))
                 iteration_counter[0] += 1
 
             return grad
@@ -1720,9 +1629,7 @@ def fit_with_stratified_hybrid_streaming(
             popt_jax = jnp.asarray(hier_result.x)
             H = np.asarray(jax.hessian(loss_fn)(popt_jax))
         except Exception as e:
-            logger.warning(
-                f"Could not compute Hessian: {e}. Using identity placeholder."
-            )
+            logger.warning(f"Could not compute Hessian: {e}. Using identity placeholder.")
             H = None
 
         covariance_is_placeholder = False
@@ -1734,9 +1641,7 @@ def fit_with_stratified_hybrid_streaming(
                     f"(n_data={n_hier_data}, n_params={n_hier_params})"
                 )
             except np.linalg.LinAlgError:
-                logger.warning(
-                    "Singular Hessian in hierarchical path, using pseudo-inverse"
-                )
+                logger.warning("Singular Hessian in hierarchical path, using pseudo-inverse")
                 pcov_hier = 2.0 * s2_hier * np.linalg.pinv(H)
         else:
             # H-5: an identity covariance is fabricated, not measured. Reported
@@ -1831,17 +1736,11 @@ def fit_with_stratified_hybrid_streaming(
         physical_params_opt = popt[2 * n_half :]
 
         # Transform back to per-angle parameters
-        contrast_per_angle_opt = fourier_reparameterizer.from_fourier(
-            fourier_contrast_coeffs
-        )
-        offset_per_angle_opt = fourier_reparameterizer.from_fourier(
-            fourier_offset_coeffs
-        )
+        contrast_per_angle_opt = fourier_reparameterizer.from_fourier(fourier_contrast_coeffs)
+        offset_per_angle_opt = fourier_reparameterizer.from_fourier(fourier_offset_coeffs)
 
         # Reconstruct full parameter vector in original layout
-        popt = np.concatenate(
-            [contrast_per_angle_opt, offset_per_angle_opt, physical_params_opt]
-        )
+        popt = np.concatenate([contrast_per_angle_opt, offset_per_angle_opt, physical_params_opt])
 
         logger.info(f"  Fourier params: {2 * n_half + len(physical_params_opt)}")
         logger.info(f"  Restored per-angle params: {len(popt)}")
@@ -1883,9 +1782,7 @@ def fit_with_stratified_hybrid_streaming(
                 result["pcov_transformed"] = pcov_transformed
                 logger.info("  Covariance transformed from Fourier to per-angle space")
             except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
-                logger.warning(
-                    f"  Covariance transformation failed: {e}. Using identity fallback."
-                )
+                logger.warning(f"  Covariance transformation failed: {e}. Using identity fallback.")
                 result["pcov_transformed"] = None
         else:
             pcov_shape = pcov_fourier.shape if pcov_fourier is not None else None
@@ -1901,14 +1798,10 @@ def fit_with_stratified_hybrid_streaming(
     # v2.17.0: Fixed scaling mode inverse transformation
     # Expand physical-only params back to per-angle format using fixed scaling arrays
     elif use_fixed_scaling:
-        assert (
-            fixed_contrast_per_angle is not None
-        )  # set when use_fixed_scaling is True
+        assert fixed_contrast_per_angle is not None  # set when use_fixed_scaling is True
         assert fixed_offset_per_angle is not None  # set when use_fixed_scaling is True
         logger.info("=" * 60)
-        logger.info(
-            "ANTI-DEGENERACY EXECUTION: Inverse Fixed Scaling Transform (v2.17.0)"
-        )
+        logger.info("ANTI-DEGENERACY EXECUTION: Inverse Fixed Scaling Transform (v2.17.0)")
         # Layout: [physical_params] - popt contains ONLY physical parameters
         physical_params_opt = popt
 
@@ -1917,9 +1810,7 @@ def fit_with_stratified_hybrid_streaming(
         offset_per_angle_opt = fixed_offset_per_angle
 
         # Reconstruct full parameter vector in original layout
-        popt = np.concatenate(
-            [contrast_per_angle_opt, offset_per_angle_opt, physical_params_opt]
-        )
+        popt = np.concatenate([contrast_per_angle_opt, offset_per_angle_opt, physical_params_opt])
 
         logger.info(f"  Physical params: {len(physical_params_opt)}")
         logger.info(f"  Fixed per-angle scaling restored: {len(popt)} total params")
@@ -1956,18 +1847,14 @@ def fit_with_stratified_hybrid_streaming(
                 # Physical params covariance block
                 pcov_full[2 * n_phi :, 2 * n_phi :] = pcov_physical
                 result["pcov_transformed"] = pcov_full
-                logger.info(
-                    "  Covariance expanded: per-angle=0 (fixed), physical=preserved"
-                )
+                logger.info("  Covariance expanded: per-angle=0 (fixed), physical=preserved")
             except (
                 ValueError,
                 RuntimeError,
                 MemoryError,
                 np.linalg.LinAlgError,
             ) as e:
-                logger.warning(
-                    f"  Covariance expansion failed: {e}. Using identity fallback."
-                )
+                logger.warning(f"  Covariance expansion failed: {e}. Using identity fallback.")
                 result["pcov_transformed"] = None
         else:
             pcov_shape = pcov_physical.shape if pcov_physical is not None else None
@@ -2038,9 +1925,7 @@ def fit_with_stratified_hybrid_streaming(
                 result["pcov_transformed"] = pcov_transformed
                 logger.info("  Covariance transformed from constant to per-angle space")
             except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
-                logger.warning(
-                    f"  Covariance transformation failed: {e}. Using identity fallback."
-                )
+                logger.warning(f"  Covariance transformation failed: {e}. Using identity fallback.")
                 result["pcov_transformed"] = None
         else:
             pcov_shape = pcov_constant.shape if pcov_constant is not None else None
@@ -2059,13 +1944,9 @@ def fit_with_stratified_hybrid_streaming(
         if gradient_monitor.collapse_detected:
             logger.warning("=" * 60)
             logger.warning("GRADIENT COLLAPSE WAS DETECTED DURING OPTIMIZATION")
-            logger.warning(
-                f"  Collapse events: {len(gradient_monitor.collapse_events)}"
-            )
+            logger.warning(f"  Collapse events: {len(gradient_monitor.collapse_events)}")
             for event in gradient_monitor.collapse_events:
-                logger.warning(
-                    f"    Iteration {event.iteration}: ratio={event.ratio:.6f}"
-                )
+                logger.warning(f"    Iteration {event.iteration}: ratio={event.ratio:.6f}")
             logger.warning("=" * 60)
 
     # Get covariance (properly transformed from normalized space)
@@ -2090,9 +1971,7 @@ def fit_with_stratified_hybrid_streaming(
     bound_stuck_warning = None
     if bounds is not None and is_laminar_flow:
         perr = safe_uncertainties_from_pcov(pcov, len(popt))
-        param_statuses = _classify_parameter_status(
-            popt, lower_bounds, upper_bounds, atol=1e-6
-        )
+        param_statuses = _classify_parameter_status(popt, lower_bounds, upper_bounds, atol=1e-6)
 
         # Map indices to physical parameter names for laminar_flow mode
         # Layout: [n_phi contrasts] + [n_phi offsets] + [7 physical params]
@@ -2118,20 +1997,14 @@ def fit_with_stratified_hybrid_streaming(
                         if i < len(physical_param_names_local)
                         else f"param[{idx}]"
                     )
-                    bound_stuck_params.append(
-                        (param_name, status, popt[idx], uncertainty)
-                    )
+                    bound_stuck_params.append((param_name, status, popt[idx], uncertainty))
 
         if bound_stuck_params:
             logger.warning("=" * 80)
             logger.warning("PARAMETER BOUNDS WARNING")
-            logger.warning(
-                "The following parameters are stuck at bounds with zero uncertainty:"
-            )
+            logger.warning("The following parameters are stuck at bounds with zero uncertainty:")
             for param_name, status, value, unc in bound_stuck_params:
-                logger.warning(
-                    f"  {param_name}: {value:.6e} ({status}, uncertainty={unc:.2e})"
-                )
+                logger.warning(f"  {param_name}: {value:.6e} ({status}, uncertainty={unc:.2e})")
             logger.warning("")
             logger.warning("This may indicate:")
             logger.warning(
@@ -2146,12 +2019,8 @@ def fit_with_stratified_hybrid_streaming(
             logger.warning(
                 "  - Enable phi_filtering to use only angles near 0 and 90 deg for laminar flow"
             )
-            logger.warning(
-                "  - Use multi-start optimization to explore multiple parameter basins"
-            )
-            logger.warning(
-                "  - Check if gamma_dot_t0 ~ 0 means shear contribution is missing"
-            )
+            logger.warning("  - Use multi-start optimization to explore multiple parameter basins")
+            logger.warning("  - Check if gamma_dot_t0 ~ 0 means shear contribution is missing")
             logger.warning("=" * 80)
 
             # Store for info dict
@@ -2173,9 +2042,7 @@ def fit_with_stratified_hybrid_streaming(
         "message": result.get("message", "Hybrid streaming optimization completed"),
         "nfev": result.get("function_evaluations", 0),
         "nit": lbfgs_epochs + gn_iterations,
-        "final_loss": final_gn_cost
-        if final_gn_cost != float("inf")
-        else final_lbfgs_loss,
+        "final_loss": final_gn_cost if final_gn_cost != float("inf") else final_lbfgs_loss,
         "lbfgs_epochs": lbfgs_epochs,
         "gauss_newton_iterations": gn_iterations,
         "optimization_time": opt_time,
@@ -2205,9 +2072,7 @@ def fit_with_stratified_hybrid_streaming(
     # T048: Add constant mode diagnostics
     if use_fixed_scaling:
         # v2.18.0: Fixed scaling mode - per-angle values are fixed, not optimized
-        assert (
-            fixed_contrast_per_angle is not None
-        )  # set when use_fixed_scaling is True
+        assert fixed_contrast_per_angle is not None  # set when use_fixed_scaling is True
         assert fixed_offset_per_angle is not None  # set when use_fixed_scaling is True
         info["anti_degeneracy"]["fixed_scaling"] = {
             "param_reduction": f"{2 * n_phi} -> 0 (physical only)",
@@ -2233,13 +2098,9 @@ def fit_with_stratified_hybrid_streaming(
             "offset_optimized": float(popt[n_phi]) if len(popt) > n_phi else None,
         }
     if hierarchical_optimizer is not None:
-        info["anti_degeneracy"]["hierarchical"] = (
-            hierarchical_optimizer.get_diagnostics()
-        )
+        info["anti_degeneracy"]["hierarchical"] = hierarchical_optimizer.get_diagnostics()
     if adaptive_regularizer is not None:
-        info["anti_degeneracy"]["regularization"] = (
-            adaptive_regularizer.get_diagnostics()
-        )
+        info["anti_degeneracy"]["regularization"] = adaptive_regularizer.get_diagnostics()
     if gradient_monitor is not None:
         info["anti_degeneracy"]["gradient_monitor"] = gradient_monitor.get_diagnostics()
     if shear_weighter is not None:
@@ -2257,38 +2118,24 @@ def fit_with_stratified_hybrid_streaming(
         if abs(gamma_dot_t0_value) < 1e-5:
             logger.warning("=" * 80)
             logger.warning("SHEAR COLLAPSE WARNING")
-            logger.warning(
-                f"gamma_dot_t0 = {gamma_dot_t0_value:.2e} s^-1 is effectively zero"
-            )
+            logger.warning(f"gamma_dot_t0 = {gamma_dot_t0_value:.2e} s^-1 is effectively zero")
             logger.warning("")
             logger.warning("This means the shear contribution to g1 is negligible.")
-            logger.warning(
-                "The model has effectively collapsed to static_isotropic mode."
-            )
+            logger.warning("The model has effectively collapsed to static_isotropic mode.")
             logger.warning("")
             logger.warning("POSSIBLE CAUSES:")
             logger.warning("  1. Per-angle contrast/offset absorbed the shear signal")
-            logger.warning(
-                "  2. Inconsistent initialization of per-angle vs physical params"
-            )
-            logger.warning(
-                "  3. Physical parameters at bounds with weak gradient signal"
-            )
+            logger.warning("  2. Inconsistent initialization of per-angle vs physical params")
+            logger.warning("  3. Physical parameters at bounds with weak gradient signal")
             logger.warning("  4. The data may genuinely have no measurable shear")
             logger.warning("")
             logger.warning("RECOMMENDED ACTIONS:")
-            logger.warning(
-                "  - Enable multi-start optimization to explore parameter basins"
-            )
+            logger.warning("  - Enable multi-start optimization to explore parameter basins")
             logger.warning(
                 "  - Check reduced chi-squared: if worse than expected, re-run optimization"
             )
-            logger.warning(
-                "  - Verify per-angle contrast/offset are not varying excessively"
-            )
-            logger.warning(
-                "  - Consider static_isotropic mode if shear is truly absent"
-            )
+            logger.warning("  - Verify per-angle contrast/offset are not varying excessively")
+            logger.warning("  - Consider static_isotropic mode if shear is truly absent")
             logger.warning("=" * 80)
             info["shear_collapse_warning"] = {
                 "gamma_dot_t0": float(gamma_dot_t0_value),

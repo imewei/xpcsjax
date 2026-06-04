@@ -173,9 +173,12 @@ def test_jacobian_transform_independent_is_identity() -> None:
 
 def test_get_bounds_fourier() -> None:
     cfg = fr.FourierReparamConfig(
-        mode="fourier", fourier_order=2,
-        c0_bounds=(0.1, 0.8), ck_bounds=(-0.2, 0.2),
-        o0_bounds=(0.5, 1.5), ok_bounds=(-0.3, 0.3),
+        mode="fourier",
+        fourier_order=2,
+        c0_bounds=(0.1, 0.8),
+        ck_bounds=(-0.2, 0.2),
+        o0_bounds=(0.5, 1.5),
+        ok_bounds=(-0.3, 0.3),
     )
     f = fr.FourierReparameterizer(_PHI, cfg)
     lower, upper = f.get_bounds()

@@ -94,9 +94,7 @@ def test_per_phi_render_failure_logs_once_not_per_angle(
     data = _make_data(n_phi)
 
     with caplog.at_level(logging.WARNING, logger="xpcsjax"):
-        out = pd._save_fit_comparison_only(
-            _FakeConfigManager(), data, _FakeResult(), tmp_path
-        )
+        out = pd._save_fit_comparison_only(_FakeConfigManager(), data, _FakeResult(), tmp_path)
 
     # Control flow unchanged: the loop skipped every failing angle and the
     # function still returned its normal fallback (the plots dir).
@@ -142,9 +140,7 @@ def test_second_dispatch_call_is_not_cross_call_suppressed(
     data = _make_data(n_phi)
 
     # First call — primes the process-global dedup cache.
-    out1 = pd._save_fit_comparison_only(
-        _FakeConfigManager(), data, _FakeResult(), tmp_path
-    )
+    out1 = pd._save_fit_comparison_only(_FakeConfigManager(), data, _FakeResult(), tmp_path)
     assert out1 == tmp_path
 
     # Drop the first call's records so we count ONLY the second call's output.
@@ -152,9 +148,7 @@ def test_second_dispatch_call_is_not_cross_call_suppressed(
 
     # Second, independent call. Capture only its warnings.
     with caplog.at_level(logging.WARNING, logger="xpcsjax"):
-        out2 = pd._save_fit_comparison_only(
-            _FakeConfigManager(), data, _FakeResult(), tmp_path
-        )
+        out2 = pd._save_fit_comparison_only(_FakeConfigManager(), data, _FakeResult(), tmp_path)
     assert out2 == tmp_path
 
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
@@ -164,8 +158,7 @@ def test_second_dispatch_call_is_not_cross_call_suppressed(
     # The second call emits its OWN one-per-site warning — not suppressed by the
     # first call's dedup entry.
     assert len(fit_warnings) == 1, (
-        "second call's plot_nlsq_fit warning was cross-call suppressed "
-        f"(got {len(fit_warnings)})"
+        f"second call's plot_nlsq_fit warning was cross-call suppressed (got {len(fit_warnings)})"
     )
     assert len(resid_warnings) == 1, (
         "second call's plot_residual_map warning was cross-call suppressed "

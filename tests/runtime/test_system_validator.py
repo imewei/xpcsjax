@@ -121,9 +121,7 @@ def test_cpu_info_probe_reports() -> None:
 
 
 def test_xla_config_probe_present(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(
-        "XLA_FLAGS", "--xla_force_host_platform_device_count=4 --foo=bar"
-    )
+    monkeypatch.setenv("XLA_FLAGS", "--xla_force_host_platform_device_count=4 --foo=bar")
     r = SystemValidator().test_xla_config()
     assert r.success is True
     assert "parallel CPU paths" in r.message

@@ -1,6 +1,7 @@
 """Phase-0 gate: NLSQ's curve_fit callback must be observational (cannot perturb a
 fit) AND fired per-iteration. Standing guard that the L4 monitor callback can never
 change a solve trajectory."""
+
 import numpy as np
 
 
@@ -21,9 +22,7 @@ def test_heterodyne_curve_fit_callback_is_observational_and_per_iteration():
     from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
 
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
-    cfg = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": "averaged"}
-    )
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged"})
     base = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
 
     cb, seen = _recording_callback()

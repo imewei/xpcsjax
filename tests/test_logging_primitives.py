@@ -49,9 +49,7 @@ def test_log_operation_logging_failure_does_not_mask_original_exception():
 
 
 def test_log_phase_never_raises_when_memory_probe_fails(monkeypatch):
-    monkeypatch.setattr(
-        lm, "_get_memory_gb", lambda: (_ for _ in ()).throw(RuntimeError("probe"))
-    )
+    monkeypatch.setattr(lm, "_get_memory_gb", lambda: (_ for _ in ()).throw(RuntimeError("probe")))
     with lm.log_phase("p", track_memory=True):
         pass  # must not raise
 
@@ -60,6 +58,7 @@ def test_set_and_log_context_inject_run_id():
     import logging
 
     import xpcsjax.utils.logging as lm
+
     tok = lm.set_log_context(run_id="r1", mode="laminar_flow")
     try:
         rec = logging.LogRecord("n", logging.INFO, __file__, 1, "m", None, None)
@@ -73,6 +72,7 @@ def test_log_context_restores_on_exit():
     import logging
 
     import xpcsjax.utils.logging as lm
+
     with lm.log_context(run_id="outer"):
         with lm.log_context(run_id="inner"):
             rec = logging.LogRecord("n", logging.INFO, __file__, 1, "m", None, None)
@@ -87,6 +87,7 @@ def test_log_once_emits_once_per_key(caplog):
     import logging
 
     import xpcsjax.utils.logging as lm
+
     lm.reset_log_once_cache()
     lg = logging.getLogger("once")
     with caplog.at_level(logging.WARNING):
@@ -99,15 +100,13 @@ def test_logged_errors_reraise_propagates_original_and_logs(caplog):
     import logging
 
     import xpcsjax.utils.logging as lm
+
     with caplog.at_level(logging.ERROR):
         with pytest.raises(ValueError):
-            with lm.logged_errors(
-                logging.getLogger("t"), "do_thing", policy="reraise", q=0.1
-            ):
+            with lm.logged_errors(logging.getLogger("t"), "do_thing", policy="reraise", q=0.1):
                 raise ValueError("boom")
     assert any(
-        "do_thing" in str(r.__dict__) or "do_thing" in r.getMessage()
-        for r in caplog.records
+        "do_thing" in str(r.__dict__) or "do_thing" in r.getMessage() for r in caplog.records
     )
 
 
@@ -115,6 +114,7 @@ def test_logged_errors_suppress_swallows():
     import logging
 
     import xpcsjax.utils.logging as lm
+
     with lm.logged_errors(logging.getLogger("t"), "op", policy="suppress"):
         raise RuntimeError("ignored")  # reaching the next line == suppressed
 
@@ -123,6 +123,7 @@ def test_json_formatter_schema_and_jsonsafe():
     import logging
 
     import xpcsjax.utils.logging as lm
+
     fmt = lm.JSONFormatter()
     rec = logging.LogRecord("lg", logging.INFO, __file__, 10, "hello", None, None)
     rec.run_id = "r1"
@@ -137,6 +138,7 @@ def test_json_formatter_redacts_secrets():
     import logging
 
     import xpcsjax.utils.logging as lm
+
     fmt = lm.JSONFormatter()
     rec = logging.LogRecord("lg", logging.INFO, __file__, 1, "m", None, None)
     rec.context = {"API_KEY": "sk-123", "data_path": "/home/u/x.h5"}
@@ -149,6 +151,7 @@ def test_phaselogger_banner_widths_and_never_raises(caplog):
     import logging
 
     import xpcsjax.utils.logging as lm
+
     pl = lm.PhaseLogger(logging.getLogger("p"))
     with caplog.at_level(logging.INFO):
         pl.banner("OPTIMIZATION RESULTS", width=80)
@@ -163,6 +166,7 @@ def test_json_formatter_handles_empty_exc_info_tuple():
     import logging
 
     import xpcsjax.utils.logging as lm
+
     fmt = lm.JSONFormatter()
     rec = logging.LogRecord("lg", logging.INFO, __file__, 1, "m", None, None)
     rec.exc_info = (None, None, None)  # stdlib-truthy but empty
@@ -174,10 +178,9 @@ def test_json_formatter_never_raises_on_bad_format_args():
     import logging
 
     import xpcsjax.utils.logging as lm
+
     fmt = lm.JSONFormatter()
-    rec = logging.LogRecord(
-        "lg", logging.INFO, __file__, 1, "val=%s %s", ("only_one",), None
-    )
+    rec = logging.LogRecord("lg", logging.INFO, __file__, 1, "val=%s %s", ("only_one",), None)
     out = json.loads(fmt.format(rec))  # must not raise, must be valid JSON
     assert out["schema_version"] >= 1
 
@@ -186,6 +189,7 @@ def test_json_formatter_redaction_does_not_overredact():
     import logging
 
     import xpcsjax.utils.logging as lm
+
     fmt = lm.JSONFormatter()
     rec = logging.LogRecord("lg", logging.INFO, __file__, 1, "m", None, None)
     rec.context = {

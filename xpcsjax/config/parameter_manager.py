@@ -246,20 +246,18 @@ class ParameterManager:
         """
         if HAS_PHYSICS_VALIDATORS:
             # Use registry-driven validation (reduced complexity)
-            physics_violations = validate_all_parameters(
-                params, ConstraintSeverity(severity_level)
-            )
+            physics_violations = validate_all_parameters(params, ConstraintSeverity(severity_level))
             violations = [v.format() for v in physics_violations]
         else:
             # Fallback to inline validation
-            violations = self._validate_physical_constraints_fallback(
-                params, severity_level
-            )
+            violations = self._validate_physical_constraints_fallback(params, severity_level)
 
         # Create validation result
         is_valid = len(violations) == 0
         if is_valid:
-            message = f"Physics constraints validated successfully ({len(params)} parameters checked)"
+            message = (
+                f"Physics constraints validated successfully ({len(params)} parameters checked)"
+            )
         else:
             message = f"Physics validation found {len(violations)} issue(s)"
 
@@ -280,9 +278,7 @@ class ParameterManager:
         severity_priority = {"error": 3, "warning": 2, "info": 1}
         min_priority = severity_priority.get(severity_level, 2)
 
-        def add_violation(
-            param: str, value: float, message: str, severity: str
-        ) -> None:
+        def add_violation(param: str, value: float, message: str, severity: str) -> None:
             if severity_priority.get(severity, 0) >= min_priority:
                 violations.append(f"{param} = {value:.3e}: {message} [{severity}]")
 
@@ -292,9 +288,7 @@ class ParameterManager:
             if D0 <= 0:
                 add_violation("D0", D0, "non-positive diffusion coefficient", "error")
             elif D0 > 1e7:
-                add_violation(
-                    "D0", D0, "extremely large diffusion coefficient", "warning"
-                )
+                add_violation("D0", D0, "extremely large diffusion coefficient", "warning")
 
         if "alpha" in params:
             alpha = params["alpha"]
@@ -314,21 +308,15 @@ class ParameterManager:
             if gamma_dot < 0:
                 add_violation("gamma_dot_t0", gamma_dot, "negative shear rate", "error")
             elif gamma_dot > 0.5:
-                add_violation(
-                    "gamma_dot_t0", gamma_dot, "very high shear rate", "warning"
-                )
+                add_violation("gamma_dot_t0", gamma_dot, "very high shear rate", "warning")
             elif 0 < gamma_dot < 1e-6:
                 add_violation("gamma_dot_t0", gamma_dot, "very low shear rate", "info")
 
         if "beta" in params and (params["beta"] < -2.0 or params["beta"] > 2.0):
-            add_violation(
-                "beta", params["beta"], "time exponent outside range", "warning"
-            )
+            add_violation("beta", params["beta"], "time exponent outside range", "warning")
 
         if "phi0" in params and abs(params["phi0"]) > 10.0:
-            add_violation(
-                "phi0", params["phi0"], "flow angle outside [-10, 10] deg", "info"
-            )
+            add_violation("phi0", params["phi0"], "flow angle outside [-10, 10] deg", "info")
 
         # Scaling parameters
         if "contrast" in params:
@@ -399,9 +387,7 @@ class ParameterManager:
             return self._bounds_cache[cache_key].copy()
 
         # Apply name mapping
-        mapped_names = [
-            self._param_name_mapping.get(name, name) for name in parameter_names
-        ]
+        mapped_names = [self._param_name_mapping.get(name, name) for name in parameter_names]
 
         # Get bounds for each parameter
         bounds_list = []
@@ -476,8 +462,7 @@ class ParameterManager:
                 # None. mypy can't see the fallback guarantee through
                 # ``dict.get``'s typing, so coerce to str explicitly.
                 active_params = [
-                    str(self._param_name_mapping.get(name, name))
-                    for name in active_params_config
+                    str(self._param_name_mapping.get(name, name)) for name in active_params_config
                 ]
             else:
                 # Fall back to parameter_names from initial_parameters
@@ -485,8 +470,7 @@ class ParameterManager:
                 if param_names and isinstance(param_names, list):
                     # Apply name mapping (see comment above on the str() coerce).
                     active_params = [
-                        str(self._param_name_mapping.get(name, name))
-                        for name in param_names
+                        str(self._param_name_mapping.get(name, name)) for name in param_names
                     ]
                 else:
                     # Ultimate fallback to mode defaults
@@ -602,9 +586,7 @@ class ParameterManager:
         bounds_list_dict = self.get_parameter_bounds(param_names)
 
         # Convert to tuple format for validation
-        bounds_tuples = [
-            (bound_dict["min"], bound_dict["max"]) for bound_dict in bounds_list_dict
-        ]
+        bounds_tuples = [(bound_dict["min"], bound_dict["max"]) for bound_dict in bounds_list_dict]
 
         # Use the detailed validation from physics module
         result = validate_parameters_detailed(

@@ -26,9 +26,7 @@ def _make(
     enable: bool = True,
     n_params: int | None = None,
 ) -> AdaptiveRegularizer:
-    cfg = AdaptiveRegularizationConfig(
-        enable=enable, mode=mode, group_indices=group_indices
-    )
+    cfg = AdaptiveRegularizationConfig(enable=enable, mode=mode, group_indices=group_indices)
     return AdaptiveRegularizer(cfg, n_phi=n_phi, n_params=n_params)
 
 
@@ -68,9 +66,9 @@ def test_singleton_group_is_skipped() -> None:
 
 def test_auto_and_absolute_modes_both_finite() -> None:
     params = np.array([0.2, 0.5, 0.8, 1.0, 1.1, 1.2])
-    out_auto = _make(
-        group_indices=[(0, 3), (3, 6)], mode="auto", n_phi=6
-    ).compute_regularization(params, mse=0.04, n_points=1000)
+    out_auto = _make(group_indices=[(0, 3), (3, 6)], mode="auto", n_phi=6).compute_regularization(
+        params, mse=0.04, n_points=1000
+    )
     out_abs = _make(
         group_indices=[(0, 3), (3, 6)], mode="absolute", n_phi=6
     ).compute_regularization(params, mse=0.04, n_points=1000)

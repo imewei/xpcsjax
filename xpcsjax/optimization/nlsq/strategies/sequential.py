@@ -104,13 +104,10 @@ def _coerce_mapping_to_array(
             idx = int(key)
         except (TypeError, ValueError) as exc:
             raise ValueError(
-                f"Cannot align {label} mapping without parameter names; "
-                f"invalid key: {key}"
+                f"Cannot align {label} mapping without parameter names; invalid key: {key}"
             ) from exc
         if idx < 0 or idx >= n_params:
-            raise ValueError(
-                f"{label} mapping index {idx} out of range for {n_params} parameters"
-            )
+            raise ValueError(f"{label} mapping index {idx} out of range for {n_params} parameters")
         array[idx] = float(value)
     return array
 
@@ -126,9 +123,7 @@ def _coerce_numeric_array(
     if arr.ndim == 0:
         arr = np.full(n_params, float(arr), dtype=np.float64)
     elif arr.size != n_params:
-        raise ValueError(
-            f"{label} must have {n_params} entries (got shape {arr.shape})"
-        )
+        raise ValueError(f"{label} must have {n_params} entries (got shape {arr.shape})")
     if not np.all(np.isfinite(arr)):
         raise ValueError(f"{label} must contain finite float64 values")
     return arr.reshape(n_params)
@@ -157,9 +152,7 @@ def _normalize_least_squares_kwargs(
                     x_scale_value, n_params, parameter_names, "x_scale"
                 )
             else:
-                normalized["x_scale"] = _coerce_numeric_array(
-                    x_scale_value, n_params, "x_scale"
-                )
+                normalized["x_scale"] = _coerce_numeric_array(x_scale_value, n_params, "x_scale")
         except (TypeError, ValueError) as exc:
             logger.warning(
                 "Dropping non-numeric x_scale due to %s; reverting to default",
@@ -181,9 +174,7 @@ def _normalize_least_squares_kwargs(
                 if arr.ndim == 0:
                     normalized[scalar_key] = float(arr)
                 elif arr.size == n_params:
-                    normalized[scalar_key] = _coerce_numeric_array(
-                        arr, n_params, scalar_key
-                    )
+                    normalized[scalar_key] = _coerce_numeric_array(arr, n_params, scalar_key)
                 else:
                     raise ValueError(
                         f"{scalar_key} must be scalar or length {n_params}, got {arr.shape}"
@@ -520,9 +511,7 @@ def optimize_single_angle(
     -----
     Uses NLSQ LeastSquares for JAX-accelerated optimization.
     """
-    logger.debug(
-        f"Optimizing angle {subset.phi_angle:.2f} deg ({subset.n_points:,} points)"
-    )
+    logger.debug(f"Optimizing angle {subset.phi_angle:.2f} deg ({subset.n_points:,} points)")
 
     try:
         # Sanitize dtypes: enforce float64 arrays
@@ -545,9 +534,7 @@ def optimize_single_angle(
             and np.all(np.isfinite(lower_bounds))
             and np.all(np.isfinite(upper_bounds))
         ):
-            raise ValueError(
-                "Initial parameters and bounds must be finite float64 values"
-            )
+            raise ValueError("Initial parameters and bounds must be finite float64 values")
 
         # TRF method requires non-degenerate intervals (lower < upper) for all parameters.
         # Fixed parameters (lower == upper) must be handled by the caller before passing to sequential.
@@ -596,9 +583,7 @@ def optimize_single_angle(
 
         # Extract Jacobian for diagnostics (NLSQ returns 'jac' key)
         jac = result.get("jac")
-        final_jacobian_norms = _compute_final_jacobian_norms(
-            jac, jac_sample, subset.n_points
-        )
+        final_jacobian_norms = _compute_final_jacobian_norms(jac, jac_sample, subset.n_points)
 
         # Compute covariance if possible
         try:
@@ -609,26 +594,20 @@ def optimize_single_angle(
                 residuals_final = residuals(result["x"])
                 n_residuals = len(residuals_final)
                 n_params = len(initial_params)
-                s2 = (residuals_final @ residuals_final) / max(
-                    n_residuals - n_params, 1
-                )
+                s2 = (residuals_final @ residuals_final) / max(n_residuals - n_params, 1)
                 try:
                     cov = np.linalg.inv(jac.T @ jac) * s2
                 except np.linalg.LinAlgError:
                     try:
                         cov = np.linalg.pinv(jac.T @ jac) * s2
-                        logger.warning(
-                            "Singular J^T J - used pinv fallback for covariance"
-                        )
+                        logger.warning("Singular J^T J - used pinv fallback for covariance")
                     except np.linalg.LinAlgError:
                         cov = np.eye(len(initial_params))
             else:
                 raise ValueError("No Jacobian available")
         except (np.linalg.LinAlgError, ValueError):
             # Fallback to identity if singular
-            logger.warning(
-                f"Could not compute covariance for angle {subset.phi_angle:.2f} deg"
-            )
+            logger.warning(f"Could not compute covariance for angle {subset.phi_angle:.2f} deg")
             cov = np.eye(len(initial_params))
 
         # NLSQ result has different key names
@@ -725,9 +704,7 @@ def combine_angle_results(
         weights = np.zeros_like(mean_vars)
         weights[finite] = 1.0 / np.maximum(mean_vars[finite], min_var)
         if not np.any(weights > 0):
-            raise ValueError(
-                "All angle covariances are non-finite; cannot inverse-variance weight"
-            )
+            raise ValueError("All angle covariances are non-finite; cannot inverse-variance weight")
     elif weighting == "n_points":
         # Weight by number of data points
         weights = np.array([r["n_points"] for r in successful], dtype=float)

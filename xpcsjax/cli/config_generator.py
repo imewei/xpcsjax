@@ -64,9 +64,7 @@ def get_template_path(mode: str) -> Path:
         FileNotFoundError: If the template file is missing from the package.
     """
     if mode not in _MODE_TO_TEMPLATE:
-        raise ValueError(
-            f"Invalid mode '{mode}'. Must be one of: {', '.join(_VALID_MODES)}"
-        )
+        raise ValueError(f"Invalid mode '{mode}'. Must be one of: {', '.join(_VALID_MODES)}")
 
     filename = _MODE_TO_TEMPLATE[mode]
     # importlib.resources.files returns a Traversable; cast through Path for
@@ -109,15 +107,11 @@ def generate_config(
         FileExistsError: If *output_path* exists and *overwrite* is False.
     """
     if mode not in _VALID_MODES:
-        raise ValueError(
-            f"Invalid mode '{mode}'. Must be one of: {', '.join(_VALID_MODES)}"
-        )
+        raise ValueError(f"Invalid mode '{mode}'. Must be one of: {', '.join(_VALID_MODES)}")
 
     output_path = Path(output_path)
     if output_path.exists() and not overwrite:
-        raise FileExistsError(
-            f"File exists: {output_path}. Use --overwrite to replace."
-        )
+        raise FileExistsError(f"File exists: {output_path}. Use --overwrite to replace.")
 
     template_path = get_template_path(mode)
     with open(template_path, encoding="utf-8") as f:
@@ -278,9 +272,7 @@ def interactive_builder(mode: str) -> dict[str, Any]:
         Configuration dictionary suitable for ``yaml.safe_dump``.
     """
     if mode not in _VALID_MODES:
-        raise ValueError(
-            f"Invalid mode '{mode}'. Must be one of: {', '.join(_VALID_MODES)}"
-        )
+        raise ValueError(f"Invalid mode '{mode}'. Must be one of: {', '.join(_VALID_MODES)}")
 
     print(f"=== xpcsjax Config Builder (mode={mode}) ===\n")
 
@@ -350,10 +342,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=str,
         default="static_anisotropic",
         choices=list(_VALID_MODES),
-        help=(
-            "Analysis mode (default: static_anisotropic). "
-            "Selects which template to populate."
-        ),
+        help=("Analysis mode (default: static_anisotropic). Selects which template to populate."),
     )
     parser.add_argument(
         "--output",
