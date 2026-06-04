@@ -547,6 +547,152 @@ def _safe_log_heterodyne_start(nlsq_cfg: Any, analysis_mode: str, n_phi: int) ->
         pass
 
 
+def _safe_configure_cpu_threading() -> None:
+    """Best-effort CPU/HPC threading configuration for the heterodyne path.
+
+    Mirrors the homodyne ``fit_nlsq_jax`` call (``core.py``) so ``two_component``
+    fits emit the same ``xpcsjax.device.cpu`` configuration banner as
+    ``laminar_flow``. The call is numerically inert — it only configures thread
+    counts and logs — and is guarded so a missing optional dependency or an
+    already-initialised JAX backend never breaks a fit.
+    """
+    try:
+        from xpcsjax.device.cpu import configure_cpu_threading
+
+        configure_cpu_threading()
+    except Exception:  # nosec B110 # pragma: no cover - setup/logging is non-critical
+        pass
+
+
+def _safe_log_memory_strategy() -> None:
+    """Best-effort ``memory_strategy_selection`` phase + adaptive-threshold log.
+
+    Emits the same ``xpcsjax.optimization.nlsq.memory`` block the homodyne path
+    logs (the ``Phase 'memory_strategy_selection'`` banner plus the
+    ``Adaptive memory threshold`` line) so ``two_component`` matches
+    ``laminar_flow``. Only the *threshold* is computed and logged — no strategy
+    decision is taken here (heterodyne routing uses its own ``heterodyne_memory``
+    module), which deliberately avoids emitting a misleading ``Auto-switching``
+    line. Guarded so it never breaks a fit.
+    """
+    try:
+        from xpcsjax.optimization.nlsq import memory as _memory
+        from xpcsjax.utils.logging import log_phase
+
+        with log_phase("memory_strategy_selection", logger=_memory.logger):
+            _memory.get_adaptive_memory_threshold(_memory.DEFAULT_MEMORY_FRACTION)
+    except Exception:  # nosec B110 # pragma: no cover - logging is non-critical
+        pass
+
+
+def _safe_log_heterodyne_initial_params(yaml_dict: Any) -> None:
+    """Log the homodyne-parity ``Using initial parameters from configuration`` line.
+
+    Only emitted when the merged config actually carries a non-empty
+    ``initial_parameters`` block (which the heterodyne flat-format override path
+    consumes), so the line is never logged untruthfully. Logged under the
+    ``heterodyne_core`` namespace — the heterodyne analogue of homodyne's
+    ``nlsq.core`` preamble. Guarded so it never breaks a fit.
+    """
+    try:
+        if not (isinstance(yaml_dict, dict) and yaml_dict.get("initial_parameters")):
+            return
+        from xpcsjax.utils.logging import get_logger
+
+        get_logger("xpcsjax.optimization.nlsq.heterodyne_core").info(
+            "Using initial parameters from configuration"
+        )
+    except Exception:  # nosec B110 # pragma: no cover - logging is non-critical
+        pass
+
+
+def _seed42_angle_reorder(
+    c2: Any, phi: Any, weights: Any, n_points: int
+) -> tuple[Any, Any, Any, Any]:
+    """Apply the homodyne-parity seed-42 angle-stratified pre-shuffle.
+
+    Mirrors ``laminar_flow``'s 100k–1M regime (``wrapper.py``): a per-angle fit
+    of >100k points that stays in-memory reorganizes and seed-42 pre-shuffles its
+    data *before* the solve. Heterodyne data is batched by angle
+    (``(n_phi, N, N)``), so the **angle axis** is the natural stratification unit;
+    permuting it is **objective-invariant** — the joint SSR is a sum over angles,
+    so the fit *objective* is unchanged. The fitted parameter vector is unchanged
+    up to floating-point summation order; at a degenerate minimum equi-objective
+    parameter sets may still differ (the same property laminar_flow's shuffle
+    has). Returns the reordered ``(c2, phi, weights)`` plus the inverse
+    permutation used by :func:`_restore_angle_order` to map per-angle outputs
+    back to the caller's angle order.
+    """
+    import numpy as _np
+
+    from xpcsjax.utils.logging import get_logger as _get_logger
+
+    log = _get_logger("xpcsjax.optimization.nlsq.heterodyne_logging")
+    phi_arr = _np.asarray(phi)
+    n_phi = int(phi_arr.shape[0])
+    perm = _np.random.default_rng(42).permutation(n_phi)
+    inv = _np.empty_like(perm)
+    inv[perm] = _np.arange(n_phi)
+
+    log.info(
+        "Applying angle-stratified reordering: %s points across %d angles "
+        "(heterodyne 100k–1M in-memory regime, mirrors laminar_flow)",
+        f"{int(n_points):,}",
+        n_phi,
+    )
+    log.info("Pre-shuffled angle order (seed=42) — objective-invariant reorder")
+
+    c2_r = _np.asarray(c2)[perm]
+    phi_r = phi_arr[perm]
+    # Only per-angle (3-D ``(n_phi, N, N)``) weights are angle-indexed. A shared
+    # 2-D ``(N, N)`` weight array broadcasts across angles and must NOT be
+    # permuted — doing so would permute its time axis (and IndexError when
+    # n_phi > N). ``None`` and 2-D pass through unchanged.
+    if weights is not None and _np.asarray(weights).ndim == 3:
+        weights_r = _np.asarray(weights)[perm]
+    else:
+        weights_r = weights
+
+    log.info("Angle-stratified reorder complete: %d angles reorganized", n_phi)
+    return c2_r, phi_r, weights_r, inv
+
+
+def _restore_angle_order(result: Any, inv_perm: Any) -> None:
+    """Restore per-angle result fields to the caller's original angle order.
+
+    The fit ran on seed-42-reordered angles, so every angle-indexed diagnostic
+    (``chi2_per_angle``, ``phi_angles``, and any ``*_per_angle*`` array such as
+    the per-angle scaling estimates) comes back in shuffled order. Inverting the
+    permutation realigns them all with the caller's input angle order. Only used
+    for the ``averaged`` mode, whose fitted vector is two GLOBAL scaling params
+    (no angle-ordered parameter/covariance tail), so realigning the diagnostics
+    is sufficient and no parameter or covariance un-permutation is needed.
+    Best-effort: never raises.
+    """
+    try:
+        import numpy as _np
+
+        diag = getattr(result, "nlsq_diagnostics", None)
+        if not isinstance(diag, dict):
+            return
+        inv = _np.asarray(inv_perm)
+        n = int(inv.shape[0])
+        for key, val in list(diag.items()):
+            # Realign every angle-indexed diagnostic, not just chi2/phi.
+            if key not in ("chi2_per_angle", "phi_angles") and "per_angle" not in key:
+                continue
+            if val is None:
+                continue
+            try:
+                arr = _np.asarray(val)
+            except Exception:  # noqa: BLE001 - non-array diagnostic value; skip
+                continue
+            if arr.ndim >= 1 and arr.shape[0] == n and arr.dtype != object:
+                diag[key] = arr[inv]
+    except Exception:  # nosec B110 # pragma: no cover - diagnostics realignment is non-critical
+        pass
+
+
 def _safe_log_heterodyne_completion(result: Any, model: Any, n_phi: int) -> None:
     """Best-effort homodyne-parity completion logging for the heterodyne path.
 
@@ -654,6 +800,15 @@ def _fit_nlsq_heterodyne(
         str(getattr(nlsq_cfg, "analysis_mode", "two_component") or "two_component"),
         len(phi),
     )
+
+    # Setup-log parity with the homodyne/laminar path (``core.fit_nlsq_jax``):
+    # configure CPU/HPC threading, note config-sourced initial parameters, and
+    # emit the adaptive memory-threshold + ``memory_strategy_selection`` phase.
+    # All three are best-effort and numerically inert — heterodyne routing is
+    # unchanged; this only restores the matching log narrative.
+    _safe_configure_cpu_threading()
+    _safe_log_heterodyne_initial_params(yaml_dict)
+    _safe_log_memory_strategy()
 
     # Sync the model's internal time axis with the data shape (the source
     # heterodyne pipeline drops the leading time point, shrinking N by 1).
@@ -895,7 +1050,28 @@ def _fit_nlsq_heterodyne(
     )
 
     _log_strategy("standard", f"{int(n_points):,} points (in-memory joint fit)")
+
+    # Homodyne-parity 100k–1M shuffle regime: laminar_flow reorganizes + seed-42
+    # pre-shuffles >=100k-point per-angle fits that stay in-memory (stratified-LS
+    # only engages at >=1M). Mirror it on the heterodyne in-memory path via an
+    # OBJECTIVE-invariant angle-axis reorder, scoped to the **averaged** mode
+    # ONLY: it collapses scaling to two GLOBAL params, so the fit objective is
+    # unchanged by angle order and the only angle-indexed outputs are diagnostics
+    # (realigned to the caller's order after the fit). 'constant' freezes
+    # PER-ANGLE scaling and writes model.scaling in angle order; individual/
+    # fourier carry an angle-ordered param+covariance tail — those are
+    # intentionally NOT reordered here (they would need per-angle state /
+    # covariance un-permutation; deferred).
+    _angle_inv = None
+    if use_strat and 100_000 <= n_points < 1_000_000 and not cmaes_on:
+        from xpcsjax.optimization.nlsq.heterodyne_core import _resolve_effective_mode
+
+        if _resolve_effective_mode(nlsq_cfg, len(phi)) == "averaged":
+            c2, phi, weights, _angle_inv = _seed42_angle_reorder(c2, phi, weights, n_points)
+
     result = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
+    if _angle_inv is not None:
+        _restore_angle_order(result, _angle_inv)
     if _stratified_ls_fallback and result.nlsq_diagnostics is not None:
         result.nlsq_diagnostics["stratified_ls_fallback"] = True
     _safe_log_heterodyne_completion(result, model, len(phi))
