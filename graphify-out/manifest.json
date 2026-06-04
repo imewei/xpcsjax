@@ -455,6 +455,10 @@
     "mtime": 1780196154.652622,
     "hash": "93ec0ea2bb83d4430945d2f21691c356"
   },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/heterodyne/test_logging_parity.py": {
+    "mtime": 1780583044.2324264,
+    "hash": "351435aeb019db55009c7471c69dfc74"
+  },
   "/home/wei/Documents/GitHub/xpcsjax/tests/heterodyne/__init__.py": {
     "mtime": 1779129698.438998,
     "hash": "d41d8cd98f00b204e9800998ecf8427e"
@@ -466,6 +470,10 @@
   "/home/wei/Documents/GitHub/xpcsjax/tests/heterodyne/test_two_component_smoke.py": {
     "mtime": 1780525312.7933493,
     "hash": "dab5ca7925fefaef3cd8173202651b2f"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/heterodyne/test_shuffle_regime_parity.py": {
+    "mtime": 1780585861.1741755,
+    "hash": "5d890b4a4930a82e9b73334a19e4d7f8"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/cli/test_logging_wiring.py": {
     "mtime": 1779858478.8245406,
@@ -724,8 +732,8 @@
     "hash": "6ec4b5f8514b1f60e04088d59669027c"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/__init__.py": {
-    "mtime": 1780525312.7953494,
-    "hash": "d35864e39a241f81416cd0f74adb7987"
+    "mtime": 1780585771.4325218,
+    "hash": "452722165f696a4728753f7315d3297c"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/cmaes_wrapper.py": {
     "mtime": 1780525312.825349,
@@ -984,7 +992,7 @@
     "hash": "24ec7df0e47c3e6f1f50133ee6dae28b"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/manager.py": {
-    "mtime": 1780580189.8196266,
+    "mtime": 1780581477.3077853,
     "hash": "a48c30ca54ec5ad0a51497b4611dc5d9"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/parameter_space.py": {
@@ -1312,7 +1320,7 @@
     "hash": "458be7161c5e726700eb4aa59af89b7e"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/api/config.rst": {
-    "mtime": 1780580205.8256092,
+    "mtime": 1780581477.3077853,
     "hash": "67816fc9880bfff615352750e53b254c"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/api/viz.rst": {
@@ -1320,7 +1328,7 @@
     "hash": "2cd5891a490aabd58f74d33ca113f552"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/api/data.rst": {
-    "mtime": 1780580229.3525836,
+    "mtime": 1780581477.3277853,
     "hash": "3681ad02a1488c1668374b3a012dac51"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/api/results.rst": {
