@@ -289,6 +289,8 @@ xpcsjax_analysis_results.json
 !tests/characterization/fixtures/**/*.hdf5
 !tests/characterization/fixtures/**/*.npy
 !tests/characterization/fixtures/**/*.npz
+# Committed golden snapshots for the Phase-1.0 homodyne engine preservation suite
+!tests/parity/_golden/**/*.npz
 
 # Run artifacts
 phi_angles_list.txt
