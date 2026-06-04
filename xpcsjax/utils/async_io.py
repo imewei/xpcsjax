@@ -207,10 +207,14 @@ class AsyncWriter:
                 # Do NOT mark as completed — keep in _futures so shutdown() sees it
             except Exception as e:
                 run_id = _current_run_id()
+                # Key on the call token PLUS the error type+message so DISTINCT
+                # failures in one wait_all() each surface once (a bare per-call key
+                # collapsed N different errors into a single record, hiding all but
+                # the first). Identical repeats within the call still dedup.
                 log_once(
                     logger,
                     logging.WARNING,
-                    f"{run_id}:{call_token}:async_writer_write_fail",
+                    f"{run_id}:{call_token}:async_writer_write_fail:{type(e).__name__}:{e}",
                     "Background write failed (%s): %s",
                     type(e).__name__,
                     e,

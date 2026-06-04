@@ -33,7 +33,7 @@ import hashlib
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -92,6 +92,22 @@ except ImportError:
 logger = get_logger(__name__)
 
 
+# Closed value sets for ValidationIssue. add_issue() triages on `severity`, so a
+# typo (e.g. "err") would silently land an error in the info bucket without
+# flipping is_valid. Pinning these as Literal makes such a typo a type error.
+SeverityLevel = Literal["error", "warning", "info"]
+IssueCategory = Literal[
+    "physics",
+    "data_quality",
+    "statistics",
+    "format",
+    "validation",
+    "completeness",
+    "consistency",
+    "preprocessing",
+]
+
+
 class ValidationLevel(Enum):
     """Validation level enumeration."""
 
@@ -105,8 +121,8 @@ class ValidationLevel(Enum):
 class ValidationIssue:
     """Individual validation issue."""
 
-    severity: str  # "error", "warning", "info"
-    category: str  # "physics", "data_quality", "statistics", "format"
+    severity: SeverityLevel
+    category: IssueCategory
     message: str
     parameter: str | None = None
     value: Any | None = None
@@ -351,7 +367,15 @@ def _validate_array_shapes(data: dict[str, Any], report: DataQualityReport) -> N
                     ),
                 )
 
-    except (ValueError, TypeError, KeyError, IndexError, RuntimeError) as exc:
+    except (
+        ValueError,
+        TypeError,
+        KeyError,
+        IndexError,
+        RuntimeError,
+        AttributeError,
+        ArithmeticError,
+    ) as exc:
         log_exception(
             logger,
             exc,
@@ -464,7 +488,15 @@ def _validate_physics_parameters(
                 "q_max": None,
             }
 
-    except (ValueError, TypeError, KeyError, IndexError, RuntimeError) as exc:
+    except (
+        ValueError,
+        TypeError,
+        KeyError,
+        IndexError,
+        RuntimeError,
+        AttributeError,
+        ArithmeticError,
+    ) as exc:
         log_exception(
             logger,
             exc,
@@ -524,7 +556,15 @@ def _validate_correlation_matrices(
                     ),
                 )
 
-    except (ValueError, TypeError, KeyError, IndexError, RuntimeError) as exc:
+    except (
+        ValueError,
+        TypeError,
+        KeyError,
+        IndexError,
+        RuntimeError,
+        AttributeError,
+        ArithmeticError,
+    ) as exc:
         log_exception(
             logger,
             exc,
@@ -577,7 +617,15 @@ def _validate_statistical_properties(
                 ),
             )
 
-    except (ValueError, TypeError, KeyError, IndexError, RuntimeError) as exc:
+    except (
+        ValueError,
+        TypeError,
+        KeyError,
+        IndexError,
+        RuntimeError,
+        AttributeError,
+        ArithmeticError,
+    ) as exc:
         log_exception(
             logger,
             exc,
@@ -627,7 +675,15 @@ def _compute_data_statistics(data: dict[str, Any], report: DataQualityReport) ->
 
         report.data_statistics = stats
 
-    except (ValueError, TypeError, KeyError, IndexError, RuntimeError) as exc:
+    except (
+        ValueError,
+        TypeError,
+        KeyError,
+        IndexError,
+        RuntimeError,
+        AttributeError,
+        ArithmeticError,
+    ) as exc:
         log_exception(
             logger,
             exc,

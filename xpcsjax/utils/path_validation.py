@@ -104,6 +104,7 @@ def validate_save_path(
         raise PathValidationError(f"Absolute paths not allowed: {_sanitize_log_path(path_str)}")
 
     # Resolve the path (normalize)
+    base_dir_explicit = base_dir is not None
     if base_dir is None:
         base_dir = Path.cwd()
     else:
@@ -111,8 +112,19 @@ def validate_save_path(
 
     if path.is_absolute():
         resolved_path = path.resolve()
-        # For explicitly allowed absolute paths, skip base_dir containment check
-        # The ".." check above already prevents traversal attacks
+        # An absolute path is normally trusted (the caller opted into allow_absolute).
+        # BUT if the caller ALSO supplied an explicit base_dir, they are asking for
+        # containment — enforce it even for absolute paths so a symlink or an
+        # out-of-tree absolute path cannot escape the sandbox the caller declared.
+        if base_dir_explicit:
+            try:
+                resolved_path.relative_to(base_dir)
+            except ValueError as e:
+                raise PathValidationError(
+                    f"Path resolves outside allowed directory: "
+                    f"{_sanitize_log_path(str(resolved_path))} is not within "
+                    f"{_sanitize_log_path(str(base_dir))}"
+                ) from e
     else:
         resolved_path = (base_dir / path).resolve()
         # For relative paths, verify resolved path is within base_dir

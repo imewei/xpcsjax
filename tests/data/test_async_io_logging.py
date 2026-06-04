@@ -50,6 +50,45 @@ def test_background_write_failure_logs_warning(caplog):
         writer.shutdown()
 
 
+def test_wait_all_distinct_failures_each_logged(caplog):
+    """#8: DISTINCT failures in one wait_all() must each surface a WARNING.
+
+    Rate-limiting keyed only on the call previously collapsed every failure in a
+    call to a single record, hiding all but the first when futures failed with
+    different errors. The key now includes the error type+message so distinct
+    failure modes are each visible (identical repeats still collapse — see the
+    rate-limit test below).
+    """
+    writer = AsyncWriter(max_workers=2)
+    try:
+
+        def _boom_a() -> None:
+            raise RuntimeError("failure alpha")
+
+        def _boom_b() -> None:
+            raise ValueError("failure beta")
+
+        writer.submit_task(_boom_a)
+        writer.submit_task(_boom_b)
+
+        with caplog.at_level(logging.WARNING, logger="xpcsjax"):
+            errors = writer.wait_all(timeout=10.0)
+
+        assert len(errors) == 2
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "Background write failed" in r.getMessage()
+        ]
+        joined = " ".join(r.getMessage() for r in warnings)
+        assert "failure alpha" in joined and "failure beta" in joined, (
+            "each distinct write failure must surface its own WARNING, not be collapsed"
+        )
+        assert len(warnings) == 2
+    finally:
+        writer.shutdown()
+
+
 def test_shutdown_loop_warning_is_rate_limited_per_call(caplog):
     """A single wait_all with N>=3 failing futures emits exactly one WARNING."""
     writer = AsyncWriter(max_workers=2)

@@ -370,6 +370,34 @@ def _check_frame_count(n_frames: int, *, source: str) -> None:
         )
 
 
+def _guard_aps_u_intermediate_allocation(
+    corr_group: Any, c2_keys: list[str], valid_bin_indices: Any, *, source: str
+) -> None:
+    """Bound the APS-U intermediate matrix list BEFORE it is accumulated.
+
+    The APS-U loader reconstructs and appends every valid correlation matrix to a
+    Python list (``c2_matrices_for_filtering``) prior to the post-selection
+    allocation guard on the final stacked buffer. A crafted file with many large
+    bins could therefore exhaust RAM during that accumulation, defeating
+    :data:`MAX_CORRELATION_ALLOC_BYTES`. Probe the first valid matrix's shape via
+    h5py metadata (``.shape``/``.dtype`` only — no full array read) and apply the
+    same square/frame/budget guards used on the final buffer, scaled by the number
+    of matrices that will be loaded. Mirrors the APS-old probe-then-guard ordering
+    (SEC-2 parity). A no-op when no valid bin index is in range.
+    """
+    in_range = [bi for bi in valid_bin_indices if bi < len(c2_keys)]
+    if not in_range:
+        return
+    probe = corr_group[c2_keys[in_range[0]]]
+    probe_shape = tuple(int(d) for d in probe.shape)
+    itemsize = np.dtype(probe.dtype).itemsize
+    # Reconstructed matrix is square (c2_half + c2_half.T), so the half-matrix is
+    # square (n_t, n_t) and bounds the per-matrix reconstructed size.
+    _check_square_matrix(probe_shape, source=source)
+    _check_frame_count(probe_shape[-1], source=source)
+    _check_allocation_budget(len(in_range), probe_shape[-1], itemsize, source=source)
+
+
 # Directory/traversal/drive tokens that must never appear in a cache filename.
 # Checked explicitly (not via ``os.sep``) so the guard is identical on POSIX and
 # Windows: on Windows ``os.sep`` is ``\`` only, so ``/`` and ``C:`` drive/ADS
@@ -418,7 +446,9 @@ def load_xpcs_config(config_path: str | Path) -> dict[str, Any]:
             # Native YAML loading
             with open(config_path, encoding="utf-8") as f:
                 config: dict[str, Any] = yaml.safe_load(f)
-            logger.info(f"Loaded YAML configuration: {config_path}")
+            # A09-1: basename only at INFO; full path at DEBUG (no dir-layout disclosure).
+            logger.info(f"Loaded YAML configuration: {Path(config_path).name}")
+            logger.debug(f"Config full path: {config_path}")
             return config
 
         elif config_path.suffix.lower() == ".json":
@@ -426,7 +456,10 @@ def load_xpcs_config(config_path: str | Path) -> dict[str, Any]:
             with open(config_path, encoding="utf-8") as f:
                 json_config: dict[str, Any] = json.load(f)
 
-            logger.info(f"Loaded JSON configuration (converted to YAML): {config_path}")
+            logger.info(
+                f"Loaded JSON configuration (converted to YAML): {Path(config_path).name}"
+            )
+            logger.debug(f"Config full path: {config_path}")
             logger.info("Consider migrating to YAML format for better readability")
 
             # Convert JSON structure to YAML-style (for now, keep identical structure)
@@ -731,7 +764,8 @@ class XPCSDataLoader:
             raise ValueError(f"Path traversal detected in data file path: {data_file_path}")
 
         if not os.path.exists(data_file_path):
-            logger.warning(f"Data file not found: {data_file_path}")
+            logger.warning(f"Data file not found: {Path(data_file_path).name}")
+            logger.debug(f"Full path checked: {data_file_path}")
             logger.info("File will be checked again during data loading")
 
     def _get_output_format(self) -> str:
@@ -839,7 +873,8 @@ class XPCSDataLoader:
         # If user provided a direct NPZ path, prefer it
         direct_path = os.path.join(data_folder, data_file) if data_file else ""
         if direct_path.endswith(".npz") and os.path.exists(direct_path):
-            logger.info(f"Loading data from NPZ override: {direct_path}")
+            logger.info(f"Loading data from NPZ override: {Path(direct_path).name}")
+            logger.debug(f"NPZ full path: {direct_path}")
             data = self._load_from_cache(direct_path)
 
         # Otherwise, try cache then raw HDF
@@ -947,6 +982,16 @@ class XPCSDataLoader:
         logger.info(
             f"Data loaded successfully - shapes: q{data['wavevector_q_list'].shape}, "
             f"phi{data['phi_angles_list'].shape}, c2{data['c2_exp'].shape}",
+        )
+
+        # DATA-1: surface the accumulated degradation signal on the returned dict so
+        # a programmatic caller can gate on it rather than only watching ERROR logs.
+        # `load_degradations` carries the per-event reasons (angle-filter fallbacks,
+        # preprocessing crashes); `_degraded` is the single boolean to branch on.
+        if self.load_degradations:
+            data["load_degradations"] = list(self.load_degradations)
+        data["_degraded"] = bool(self.load_degradations) or bool(
+            data.get("_preprocessing_degraded", False)
         )
 
         return data
@@ -1395,6 +1440,17 @@ class XPCSDataLoader:
                 f"Loading {len(valid_bin_indices)} correlation matrices corresponding to valid (q,phi) pairs",
             )
             c2_matrices_for_filtering = []
+
+            # SEC-2 (parity with APS-old): bound the intermediate accumulation up
+            # front. Probe the first valid matrix and reject an oversized/over-budget
+            # file BEFORE the list is built, so a crafted APS-U file cannot exhaust
+            # RAM ahead of the post-selection guard on the final buffer.
+            _guard_aps_u_intermediate_allocation(
+                corr_group,
+                c2_keys,
+                valid_bin_indices,
+                source="HDF5 correlation dataset (APS-U intermediate)",
+            )
 
             # Load only the correlation matrices that correspond to valid (q,phi) pairs
             for bin_idx in valid_bin_indices:
@@ -2090,13 +2146,15 @@ class XPCSDataLoader:
         phi_angles = np.array(data["phi_angles_list"]) if HAS_JAX else data["phi_angles_list"]
         q_values = np.array(data["wavevector_q_list"]) if HAS_JAX else data["wavevector_q_list"]
 
-        # Save phi angles list
-        phi_file = os.path.join(phi_folder, "phi_angles_list.txt")
-        phi_dir = os.path.dirname(phi_file)
-        if phi_dir:
-            os.makedirs(phi_dir, exist_ok=True)
+        # Route the config-controlled output directories through get_safe_output_dir
+        # so a phi_angles_path / data_folder_path containing '..' cannot write these
+        # side-output files outside the intended tree. Filenames are fixed. Text-file
+        # writing remains non-fatal: a traversal rejection or filesystem error is
+        # logged and skipped rather than aborting the data load.
+        from xpcsjax.utils.path_validation import PathValidationError, get_safe_output_dir
 
         try:
+            phi_file = get_safe_output_dir(phi_folder) / "phi_angles_list.txt"
             np.savetxt(
                 phi_file,
                 phi_angles,
@@ -2106,7 +2164,7 @@ class XPCSDataLoader:
             )
 
             # Save wavevector q list
-            q_file = os.path.join(data_folder, "wavevector_q_list.txt")
+            q_file = get_safe_output_dir(data_folder) / "wavevector_q_list.txt"
             np.savetxt(
                 q_file,
                 q_values,
@@ -2115,8 +2173,8 @@ class XPCSDataLoader:
                 comments="# ",
             )
 
-            logger.debug(f"Text files saved: {phi_file}, {q_file}")
-        except OSError as e:
+            logger.debug(f"Text files saved: {phi_file.name}, {q_file.name}")
+        except (OSError, PathValidationError) as e:
             logger.warning(f"Could not save text files (non-fatal): {e}")
 
     def _validate_loaded_data(

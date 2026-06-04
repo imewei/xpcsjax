@@ -382,10 +382,17 @@ class MemoryPressureMonitor:
                 self._check_pressure_levels()
                 self._shutdown_event.wait(self.monitoring_interval)
             except Exception as exc:
+                # Time-windowed key (one record per ~5-min window per instance) at
+                # WARNING, not a single stable DEBUG key. A stable key permanently
+                # silenced the loop after its first error — a persistently broken
+                # monitor (stuck psutil, repeatedly-raising callback) then went
+                # invisible at every default log level. The window re-surfaces a
+                # continuing fault while still bounding log volume.
+                _window = int(time.monotonic()) // 300
                 log_once(
                     logger,
-                    logging.DEBUG,
-                    f"{id(self)}:memmgr:monitoring_loop",
+                    logging.WARNING,
+                    f"{id(self)}:memmgr:monitoring_loop:{_window}",
                     "Memory monitoring error: %s",
                     exc,
                 )
@@ -849,12 +856,25 @@ class AdvancedMemoryManager:
 
             # Memory map the file — keep fh open for mmap lifetime
             fh = open(vm_file, "r+b")
-            mm = mmap.mmap(fh.fileno(), 0)
+            mm = None
+            try:
+                mm = mmap.mmap(fh.fileno(), 0)
 
-            # Create numpy array from memory map
-            buffer = np.ndarray(
-                shape=(total_bytes // np.dtype(dtype).itemsize,), dtype=dtype, buffer=mm
-            )
+                # Create numpy array from memory map
+                buffer = np.ndarray(
+                    shape=(total_bytes // np.dtype(dtype).itemsize,), dtype=dtype, buffer=mm
+                )
+            except BaseException:
+                # mmap()/ndarray construction failed: close the mapping and fd we just
+                # opened before unwinding. Otherwise — in the exact OOM conditions that
+                # drive this path — every failed allocation leaks one fd plus its mapping.
+                if mm is not None:
+                    try:
+                        mm.close()
+                    except (OSError, ValueError):
+                        pass
+                fh.close()
+                raise
 
             # Store references to keep mmap and file handle alive
             buffer._xpcsjax_mmap = mm  # type: ignore[attr-defined]

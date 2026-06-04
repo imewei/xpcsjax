@@ -15,7 +15,7 @@ dependencies = [
     "jaxlib>=0.8.2",
     "jaxopt>=0.8.3",            # L-BFGS warmup for HYBRID_STREAMING strategy
     "interpax>=0.3.12",         # JIT-safe interpolation (per CLAUDE.md prohibition)
-    "nlsq>=0.6.10",             # JAX-native trf + CMA-ES + memory routing
+    "nlsq>=0.6.10,<1.0",        # JAX-native trf + CMA-ES + memory routing (cap next major; mirrors h5py)
     "evosax>=0.2.0",            # CMA-ES JAX backend (BIPOP restart)
     # Data handling
     "h5py>=3.15,<4.0",

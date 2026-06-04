@@ -492,7 +492,7 @@ class AdvancedDatasetOptimizer:
                 logger,
                 e,
                 context={"operation": "init_performance_engine"},
-                level=logging.DEBUG,
+                level=logging.WARNING,
             )
             self.performance_engine = None
 
@@ -511,7 +511,7 @@ class AdvancedDatasetOptimizer:
                 logger,
                 e,
                 context={"operation": "init_memory_manager"},
-                level=logging.DEBUG,
+                level=logging.WARNING,
             )
             self.memory_manager = None
 
@@ -633,7 +633,7 @@ class AdvancedDatasetOptimizer:
                     logger,
                     e,
                     context={"operation": "performance_engine_optimization"},
-                    level=logging.DEBUG,
+                    level=logging.WARNING,
                 )
                 advanced_config["advanced_features"]["performance_engine_available"] = False
         else:
@@ -737,7 +737,7 @@ class AdvancedDatasetOptimizer:
                 logger,
                 e,
                 context={"operation": "schedule_background_optimization"},
-                level=logging.DEBUG,
+                level=logging.WARNING,
             )
 
     def get_optimization_statistics(self) -> dict[str, Any]:
@@ -762,7 +762,7 @@ class AdvancedDatasetOptimizer:
                     logger,
                     e,
                     context={"operation": "get_performance_engine_stats"},
-                    level=logging.DEBUG,
+                    level=logging.WARNING,
                 )
 
         # Add memory manager stats if available
@@ -775,7 +775,7 @@ class AdvancedDatasetOptimizer:
                     logger,
                     e,
                     context={"operation": "get_memory_manager_stats"},
-                    level=logging.DEBUG,
+                    level=logging.WARNING,
                 )
 
         # Optimization history analysis

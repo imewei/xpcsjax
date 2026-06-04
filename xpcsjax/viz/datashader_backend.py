@@ -40,6 +40,7 @@ except ImportError as e:
     ) from e
 
 from xpcsjax.utils.logging import get_logger
+from xpcsjax.utils.path_validation import validate_plot_save_path
 
 logger = get_logger(__name__)
 
@@ -228,10 +229,12 @@ def plot_c2_heatmap_fast(
         cbar.ax.tick_params(labelsize=9)
 
         fig.tight_layout()
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
+        # Validate the save path (traversal / extension / null-byte) before writing.
+        validated_path = validate_plot_save_path(output_path, require_parent_exists=False)
+        fig.savefig(validated_path, dpi=150, bbox_inches="tight")
     finally:
         plt.close(fig)
-    logger.debug("Saved Datashader plot: %s", output_path)
+    logger.debug("Saved Datashader plot: %s", Path(output_path).name)
 
 
 def plot_c2_comparison_fast(
@@ -353,7 +356,9 @@ def plot_c2_comparison_fast(
         fig.colorbar(sm_res, ax=axes[2], label="ΔC₂").ax.tick_params(labelsize=8)
 
         fig.tight_layout()
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
+        # Validate the save path (traversal / extension / null-byte) before writing.
+        validated_path = validate_plot_save_path(output_path, require_parent_exists=False)
+        fig.savefig(validated_path, dpi=150, bbox_inches="tight")
     finally:
         plt.close(fig)
-    logger.debug("Saved Datashader 3-panel plot: %s", output_path)
+    logger.debug("Saved Datashader 3-panel plot: %s", Path(output_path).name)

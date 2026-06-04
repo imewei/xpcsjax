@@ -23,6 +23,7 @@ import numpy as np
 from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.io.json_utils import json_serializer
 from xpcsjax.utils.logging import get_logger
+from xpcsjax.utils.path_validation import validate_plot_save_path
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
@@ -79,19 +80,28 @@ def _resolve_color_limits(
 def _save_fig(fig: Figure, save_path: Path | str | None, dpi: int = 150) -> None:
     """Save figure to disk and close. No-op when ``save_path`` is None.
 
-    Creates parent directories as needed. The figure is closed even if
-    ``savefig`` raises, so renderer/filesystem errors don't leak Figure
-    handles. Logs the saved path at INFO level.
+    The path is validated (traversal / null-byte / image-extension checks) via
+    ``validate_plot_save_path`` before any directory is created or written, so a
+    caller- or config-supplied path cannot escape to an arbitrary filesystem
+    location. Creates parent directories as needed. The figure is closed even if
+    ``savefig`` raises, so renderer/filesystem errors don't leak Figure handles.
+    Logs the saved path (basename only) at INFO level.
     """
     if save_path is None:
         return
-    p = Path(save_path)
-    p.parent.mkdir(parents=True, exist_ok=True)
+    # Validate, mkdir, and savefig are all inside the try so the figure is closed
+    # even when validation rejects the path (no Figure-handle leak on any failure).
+    # require_parent_exists=False because we create the parent ourselves below.
     try:
+        p = validate_plot_save_path(save_path, require_parent_exists=False)
+        if p is None:  # pragma: no cover - save_path is not None here
+            return
+        p.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(p, dpi=dpi, bbox_inches="tight")
     finally:
         plt.close(fig)
-    logger.info("Figure saved: %s", p)
+    logger.info("Figure saved: %s", p.name)
+    logger.debug("Figure full path: %s", p)
 
 
 def _is_homodyne_family(model: Any) -> bool:

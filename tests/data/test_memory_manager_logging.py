@@ -261,6 +261,54 @@ def test_virtual_memory_path_traversal_rejected_before_makedirs(tmp_path, monkey
         manager.shutdown()
 
 
+def test_allocate_virtual_memory_closes_handle_on_failure(tmp_path, monkeypatch):
+    """#4: a failure after the backing file is opened must close the fd/mapping.
+
+    Between ``open(vm_file, 'r+b')`` and the successful ``np.ndarray`` construction,
+    any exception (mmap error, ndarray error) previously left the file handle open —
+    one leaked fd per failed allocation, in the exact OOM conditions that trigger
+    this path. The fix closes the handle in an inner except before unwinding.
+    """
+    import numpy as np
+
+    from xpcsjax.data import memory_manager as mm_mod
+
+    manager = AdvancedMemoryManager(
+        config={
+            "memory": {
+                "enable_monitoring": False,
+                "virtual_memory_path": str(tmp_path / "vm" / "xpcsjax_vm"),
+            }
+        }
+    )
+    try:
+        opened = []
+        real_open = open
+
+        def _tracking_open(path, mode="r", *a, **k):
+            fh = real_open(path, mode, *a, **k)
+            if "r+b" in mode:
+                opened.append(fh)
+            return fh
+
+        monkeypatch.setattr("builtins.open", _tracking_open)
+
+        def _boom(*a, **k):
+            raise OSError("simulated mmap failure")
+
+        monkeypatch.setattr(mm_mod.mmap, "mmap", _boom)
+
+        with pytest.raises(AllocationError):
+            manager._allocate_virtual_memory(1024, np.float64)
+
+        assert opened, "expected an r+b backing-file handle to be opened"
+        assert all(fh.closed for fh in opened), (
+            "backing-file handle must be closed when allocation fails (no fd leak)"
+        )
+    finally:
+        manager.shutdown()
+
+
 # ---------------------------------------------------------------------------
 # TEST-1 GAP-6: two different VM files each emit their own cleanup DEBUG record
 # ---------------------------------------------------------------------------
