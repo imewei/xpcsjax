@@ -75,6 +75,7 @@ from xpcsjax.optimization.nlsq.heterodyne_layout import (
     physics_first_to_scaling_first,
 )
 from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+    HeterodyneStratifiedData,
     build_heterodyne_stratified_data,
 )
 from xpcsjax.optimization.nlsq.model_adapter import HeterodynePointEvaluator
@@ -308,4 +309,229 @@ def test_engine_routes_heterodyne_residual_matches_objective(mode):
         f"{ref_ssr!r} (rel_diff={rel:.3e}). The shared engine's residual "
         "convention does not reconcile with the heterodyne objective on this "
         "mode — a Step-1 finding (likely a sigma/masking/ordering mismatch)."
+    )
+
+
+# ===========================================================================
+# Phase 2.3a — PRODUCTION-parity proof (frame-0 reconciled)
+# ===========================================================================
+# Step 1 above compared the engine against a reference computed on the ENGINE's
+# OWN masked support (diagonal-only, frame-0 KEPT -> ``n_t*(n_t-1)`` per angle).
+# That proves the engine evaluates the correct heterodyne physics, but it is NOT
+# the production objective: the production heterodyne residual
+# ``compute_multi_angle_residuals`` excludes BOTH the diagonal (``t1==t2``) AND
+# the t=0 boundary (``t1_idx==0 OR t2_idx==0``) via ``_offdiag_indices`` ->
+# ``(n_t-1)*(n_t-2)`` support per angle. Step 1's larger support means its SSR is
+# strictly above production's; the two are not bit-comparable by construction.
+#
+# THE RECONCILIATION (the whole point of Phase 2.3a)
+# --------------------------------------------------
+# Build the engine's stratified chunks EXCLUDING frame-0 — keep only pairs with
+# both ``t1 > t[0]`` and ``t2 > t[0]`` (``keep = (t1_idx>0) & (t2_idx>0)``) — but
+# KEEP the on-grid diagonal (the engine's own ``non_diagonal`` mask zeros it).
+# The engine then sees a reduced ``(n_t-1) x (n_t-1)`` time grid; after its
+# diagonal masking the contributing support is ``(n_t-1)*(n_t-2)`` per angle —
+# EXACTLY the production support. So the engine objective must equal the
+# production objective ``sum(compute_multi_angle_residuals(...)**2)`` to machine
+# epsilon.
+#
+# Why dropping frame-0 from the flat data is physics-safe here: the heterodyne
+# kernel's transport/velocity terms are ``cumsum(...,dt)`` DIFFERENCES
+# (``create_signed_integral_matrix`` -> ``cumsum[j]-cumsum[i]``). Removing the
+# frame-0 row/col shifts the cumsum anchor by a constant that cancels in every
+# interior ``(i>0, j>0)`` pair difference; verified empirically to ~4e-15 rel.
+# (Step 1's docstring note "dropping frame-0 would change the physics" referred
+# to a NAIVE float32 pass; under the mandatory ``JAX_ENABLE_X64=1`` the kept-pair
+# kernel values are anchor-independent at machine precision.)
+#
+# If a mode does NOT reconcile against PRODUCTION, that is a real finding — the
+# assertion must NOT be loosened and production code must NOT be touched.
+
+
+def _drop_frame0_stratified_data(
+    strat: HeterodyneStratifiedData,
+    *,
+    t: np.ndarray,
+    n_phi: int,
+) -> HeterodyneStratifiedData:
+    """Return a copy of ``strat`` with every (t1, t2) pair touching frame-0
+    (``t1 == t[0]`` OR ``t2 == t[0]``) removed from the flat arrays.
+
+    The on-grid diagonal is KEPT (the engine masks it). The reduced time grid is
+    ``t[1:]`` (length ``n_t-1``), so ``sigma`` is rebuilt as ones of shape
+    ``(n_phi, n_t-1, n_t-1)`` to stay index-aligned with the engine's
+    ``searchsorted`` gather over the shrunken ``t1_unique``/``t2_unique``.
+    """
+    t = np.asarray(t, dtype=np.float64)
+    t0 = float(t[0])
+    eps = float(strat.dt) * 1e-6
+    keep = (strat.t1_flat > t0 + eps) & (strat.t2_flat > t0 + eps)
+
+    # Rebuild per-angle chunk_sizes from the filtered mask (angle slabs are
+    # contiguous in the flat layout, in chunk_sizes order).
+    new_sizes: list[int] = []
+    cursor = 0
+    for size in strat.chunk_sizes:
+        new_sizes.append(int(np.sum(keep[cursor : cursor + size])))
+        cursor += size
+
+    n_t_reduced = len(t) - 1
+    return HeterodyneStratifiedData(
+        phi_flat=strat.phi_flat[keep].copy(),
+        t1_flat=strat.t1_flat[keep].copy(),
+        t2_flat=strat.t2_flat[keep].copy(),
+        g2_flat=strat.g2_flat[keep].copy(),
+        sigma=np.ones((n_phi, n_t_reduced, n_t_reduced), dtype=np.float64),
+        q=strat.q,
+        L=strat.L,
+        dt=strat.dt,
+        chunk_sizes=new_sizes,
+        n_phi=strat.n_phi,
+        n_t=n_t_reduced,
+        angle_indices=list(strat.angle_indices),
+    )
+
+
+def _production_reference_ssr(
+    *,
+    model,
+    c2: np.ndarray,
+    phi: np.ndarray,
+    physics_vec: np.ndarray,
+    contrasts: np.ndarray,
+    offsets: np.ndarray,
+) -> float:
+    """PRODUCTION heterodyne objective: ``sum(compute_multi_angle_residuals**2)``.
+
+    ``compute_multi_angle_residuals`` excludes the diagonal AND frame-0 via
+    ``_offdiag_indices`` -> support ``(n_t-1)*(n_t-2)`` per angle. ``weights`` are
+    ones (so ``sqrt(w) == 1`` and the residual is the raw model-minus-data),
+    matching the engine's ``sigma = 1``.
+
+    ``contrasts``/``offsets`` are per-angle ``(n_phi,)`` in sorted phi_unique
+    order; the data batch is assembled in that same order so the production
+    vmap (which consumes ``phi_angles`` positionally) sees a consistent layout.
+    """
+    import jax.numpy as jnp
+
+    from xpcsjax.core.heterodyne_jax_backend import compute_multi_angle_residuals
+
+    phi = np.asarray(phi, dtype=np.float64)
+    phi_unique = np.array(sorted(set(phi.tolist())), dtype=np.float64)
+    t = np.asarray(model.t, dtype=np.float64)
+
+    full = np.asarray(model.param_manager.get_full_values(), dtype=np.float64).copy()
+    full[np.asarray(model.param_manager.varying_indices)] = np.asarray(physics_vec)
+
+    # Reorder the (caller-ordered) c2 rows into sorted phi_unique order so that
+    # row k corresponds to phi_unique[k] / contrasts[k] / offsets[k].
+    rows_for_unique = [int(np.where(phi == pv)[0][0]) for pv in phi_unique]
+    c2_batch = np.stack([np.asarray(c2[r], dtype=np.float64) for r in rows_for_unique])
+    weights_batch = np.ones_like(c2_batch)
+
+    residuals = np.asarray(
+        compute_multi_angle_residuals(
+            jnp.asarray(full),
+            jnp.asarray(t),
+            float(model.q),
+            float(model.dt),
+            jnp.asarray(phi_unique),
+            jnp.asarray(c2_batch),
+            jnp.asarray(weights_batch),
+            jnp.asarray(np.asarray(contrasts, dtype=np.float64)),
+            jnp.asarray(np.asarray(offsets, dtype=np.float64)),
+        )
+    )
+    return float(np.sum(residuals**2))
+
+
+@pytest.mark.parametrize("mode", _MODES)
+def test_engine_route_matches_production_objective_frame0_reconciled(mode):
+    """Engine SSR over the FRAME-0-EXCLUDED chunks == the PRODUCTION heterodyne
+    objective ``sum(compute_multi_angle_residuals**2)``, at a fixed p0.
+
+    This is the production-parity proof: after dropping frame-0 from the engine
+    chunks, the engine's effective support (``(n_t-1)*(n_t-2)`` per angle, after
+    its own diagonal masking) equals the production support, so the two
+    objectives must agree to machine epsilon.
+    """
+    import jax.numpy as jnp
+
+    model, c2, phi = _make_case()
+    phys_names = list(model.param_manager.varying_names)
+    n_varying = len(phys_names)
+    n_phi = len(phi)
+    t = np.asarray(model.t, dtype=np.float64)
+    n_t = len(t)
+
+    # FULL stratified data first (so build_heterodyne_pointwise_model resolves the
+    # canonical physics-first p0 + quantile scaling exactly as production would),
+    # then drop frame-0 from the engine's chunks.
+    strat_full = build_heterodyne_stratified_data(model, c2, np.asarray(phi))
+    strat = _drop_frame0_stratified_data(strat_full, t=t, n_phi=n_phi)
+    chunked = create_stratified_chunks(strat, target_chunk_size=100_000)
+
+    _model_fn, _x, _y, p0, meta = build_heterodyne_pointwise_model(
+        stratified_data=strat_full,
+        model=model,
+        physical_param_names=phys_names,
+        per_angle_mode=mode,
+    )
+    p0 = np.asarray(p0, dtype=np.float64)
+    physics = p0[:n_varying]
+
+    contrasts, offsets = _effective_scaling_in_phi_unique_order(
+        mode, p0, meta, n_phi, n_varying
+    )
+
+    # PRODUCTION objective (excludes diagonal + frame-0 -> (n_t-1)*(n_t-2)).
+    ssr_prod = _production_reference_ssr(
+        model=model,
+        c2=c2,
+        phi=phi,
+        physics_vec=physics,
+        contrasts=contrasts,
+        offsets=offsets,
+    )
+
+    engine, engine_vec = _build_engine_for_mode(
+        mode=mode,
+        chunked=chunked,
+        phys_names=phys_names,
+        n_varying=n_varying,
+        n_phi=n_phi,
+        p0=p0,
+        meta=meta,
+    )
+
+    residual = np.asarray(engine(jnp.asarray(engine_vec)), dtype=np.float64)
+    ssr_engine = float(np.sum(residual**2))
+
+    # Guard: frame-0 was ACTUALLY excluded. The engine keeps the reduced-grid
+    # diagonal in ``mask`` (real points = (n_t-1)^2 per angle) and zeros it at
+    # residual-compute time, so the CONTRIBUTING support is the nonzero residual
+    # count = (n_t-1)*(n_t-2) per angle == production. If frame-0 had NOT been
+    # excluded these would instead be n_t^2 and n_t*(n_t-1) -> the test would be
+    # silently measuring the wrong (larger) support.
+    n_mask_real = int(np.sum(engine.mask))
+    n_contributing = int(np.sum(residual != 0.0))
+    assert n_mask_real == (n_t - 1) ** 2 * n_phi, (
+        f"mode={mode}: engine real-point count {n_mask_real} != "
+        f"(n_t-1)^2 * n_phi = {(n_t - 1) ** 2 * n_phi} — frame-0 not excluded "
+        "from the chunks (the reduced grid should be (n_t-1) x (n_t-1))."
+    )
+    assert n_contributing == (n_t - 1) * (n_t - 2) * n_phi, (
+        f"mode={mode}: contributing support {n_contributing} != "
+        f"(n_t-1)*(n_t-2) * n_phi = {(n_t - 1) * (n_t - 2) * n_phi} — does not "
+        "match the production (diagonal + frame-0 excluded) support."
+    )
+
+    rel = abs(ssr_engine - ssr_prod) / max(abs(ssr_prod), 1e-300)
+    assert np.isclose(ssr_engine, ssr_prod, rtol=1e-8, atol=0.0), (
+        f"mode={mode}: engine SSR {ssr_engine!r} != PRODUCTION heterodyne SSR "
+        f"{ssr_prod!r} (rel_diff={rel:.3e}). Routing two_component through the "
+        "shared engine with frame-0 reconciliation does NOT reproduce the "
+        "production compute_multi_angle_residuals objective on this mode — a "
+        "real Phase 2.3a finding. Do NOT loosen this assertion or fall back to "
+        "the engine-support reference; diagnose the mismatch."
     )
