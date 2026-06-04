@@ -211,6 +211,20 @@ sentinel split (`not_applicable_heterodyne` on heterodyne public surfaces vs
 `heterodyne_result_builder.py`) is a deliberate two-value design pinned by ~12
 tests, not a cosmetic asymmetry to unify. (Reviewed 2026-06-01.)
 
+> **SUPERSEDED by Phase 1 (model-agnostic engine, 2026-06-04).** The
+> stratification engine (`StratifiedResidualFunctionJIT` in
+> `strategies/residual_jit.py`) is now **model-agnostic** via a `PointEvaluator`
+> seam (`xpcsjax/optimization/nlsq/model_adapter.py`): homodyne injects
+> `compute_g2_scaled` through the default `HomodynePointEvaluator`, and the engine
+> calls `evaluator.eval_points(...)` instead of hard-coding the kernel. The
+> threading is behavior-preserving (guarded bit-identical by
+> `tests/parity/test_homodyne_engine_preservation.py` at `rtol=1e-10`). With this
+> seam in place, the **new goal is full _procedural_ parity** — running heterodyne
+> through the same shared engine — which **supersedes** the "Gap A is not a parity
+> gap" and "heterodyne uses its own memory module" stances above. Those stances
+> remain accurate for the *pre-Phase-1* inline paths; do not treat them as a
+> reason to block the procedural-parity convergence work.
+
 ### Heterodyne memory strategy and angle stratification
 
 Heterodyne mirrors homodyne's angle-stratification mechanism (mechanism parity, not numerical parity — heterodyne fits a different model). The dispatch inside `_fit_nlsq_heterodyne` is: cmaes → multi_start → hybrid_streaming → stratified-LS (≥ 1 M points) → in-memory joint fit.

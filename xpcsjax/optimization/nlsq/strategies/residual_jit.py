@@ -24,7 +24,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from xpcsjax.core.physics_nlsq import compute_g2_scaled
+from xpcsjax.optimization.nlsq.model_adapter import (
+    HomodynePointEvaluator,
+    PointEvaluator,
+)
 from xpcsjax.utils.logging import get_logger, log_phase
 
 
@@ -59,6 +62,7 @@ class StratifiedResidualFunctionJIT:
         logger: logging.Logger | None = None,
         fixed_contrast_per_angle: np.ndarray | None = None,
         fixed_offset_per_angle: np.ndarray | None = None,
+        evaluator: PointEvaluator | None = None,
     ) -> None:
         """
         Initialize JIT-compatible stratified residual function.
@@ -72,6 +76,10 @@ class StratifiedResidualFunctionJIT:
                 When provided, contrast is NOT included in the parameter vector.
             fixed_offset_per_angle: Fixed per-angle offset values (for constant mode).
                 When provided, offset is NOT included in the parameter vector.
+            evaluator: Optional model-agnostic point evaluator. When None (the
+                default), a HomodynePointEvaluator wrapping compute_g2_scaled is
+                constructed from this class's own q/L/dt — preserving homodyne
+                (laminar_flow) behavior exactly.
         """
         self.logger = logger or get_logger(__name__)
         self.chunks = stratified_data.chunks
@@ -100,6 +108,20 @@ class StratifiedResidualFunctionJIT:
 
         # Extract global metadata (same across all chunks)
         self.q, self.L, self.dt = self._extract_global_metadata()
+
+        # Model-agnostic point evaluator. The engine evaluates the physics surface
+        # through self._evaluator.eval_points(...) instead of hard-coding
+        # compute_g2_scaled. When no evaluator is injected we build the homodyne
+        # default from THIS object's q/L/dt. dt uses the SAME 0.001 fallback the
+        # call sites applied (dt_value), so threading is bit-identical.
+        dt_value = self.dt if self.dt is not None else 0.001
+        self._evaluator: PointEvaluator = evaluator or HomodynePointEvaluator(
+            analysis_mode="laminar_flow",
+            q=self.q,
+            L=self.L,
+            dt=dt_value,
+        )
+
         self.phi_unique, self.t1_unique, self.t2_unique = self._extract_unique_values()
         self.n_phi = len(self.phi_unique)
 
@@ -301,23 +323,20 @@ class StratifiedResidualFunctionJIT:
 
         # Compute theoretical g2 using vectorized computation
         # NOTE: Warning for dt=None is emitted in __call__ (outside JIT trace)
-        dt_value = self.dt if self.dt is not None else 0.001
+        # dt is sourced via self._evaluator (built with the same 0.001 fallback).
         if self.use_fixed_scaling or self.per_angle_scaling:
             # Vectorize over phi with corresponding contrast/offset
             def compute_for_angle(
                 phi_val: float, contrast_val: float, offset_val: float
             ) -> jnp.ndarray:
                 return jnp.squeeze(
-                    compute_g2_scaled(
-                        params=physical_params,
-                        t1=self.t1_unique,
-                        t2=self.t2_unique,
-                        phi=jnp.asarray(phi_val),
-                        q=self.q,
-                        L=self.L,
-                        contrast=contrast_val,
-                        offset=offset_val,
-                        dt=dt_value,
+                    self._evaluator.eval_points(
+                        physical_params,
+                        jnp.asarray(phi_val),
+                        self.t1_unique,
+                        self.t2_unique,
+                        contrast_val,
+                        offset_val,
                     ),
                     axis=0,
                 )
@@ -332,16 +351,13 @@ class StratifiedResidualFunctionJIT:
                 from typing import cast  # noqa: F811 — intentional re-import in closure
 
                 return jnp.squeeze(
-                    compute_g2_scaled(
-                        params=physical_params,
-                        t1=self.t1_unique,
-                        t2=self.t2_unique,
-                        phi=jnp.asarray(phi_val),
-                        q=self.q,
-                        L=self.L,
-                        contrast=cast(float, contrast),
-                        offset=cast(float, offset),
-                        dt=dt_value,
+                    self._evaluator.eval_points(
+                        physical_params,
+                        jnp.asarray(phi_val),
+                        self.t1_unique,
+                        self.t2_unique,
+                        cast(float, contrast),
+                        cast(float, offset),
                     ),
                     axis=0,
                 )
