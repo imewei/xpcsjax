@@ -21,6 +21,20 @@ Loader class
 
 
 
+Dataset schema
+--------------
+
+.. autoclass:: xpcsjax.data.dataset.XpcsDataset
+
+   The typed ``dict`` subclass returned by
+   :func:`xpcsjax.data.xpcs_loader.load_xpcs_data`. Key-indexed access works
+   as on a plain ``dict``; the subclass adds named-array validation and
+   raises a descriptive error when a required correlation array is missing.
+   The full key contract is tabulated in the *Returned dictionary contract*
+   section below.
+
+
+
 Exceptions
 ----------
 
