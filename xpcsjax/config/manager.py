@@ -108,7 +108,8 @@ class ConfigManager:
 
     @property
     def analysis_mode(self) -> "AnalysisMode":
-        """Validated analysis mode as the typed :class:`AnalysisMode` enum.
+        """Validated analysis mode as the typed
+        :class:`~xpcsjax.config.parameter_registry.AnalysisMode` enum.
 
         Centralises the scattered ``config.get("analysis_mode", ...)`` string
         lookups behind one typed accessor. ``AnalysisMode`` is a ``StrEnum`` so

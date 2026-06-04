@@ -32,6 +32,17 @@ ConfigManager
 Parameter registry and space
 ----------------------------
 
+.. autoclass:: xpcsjax.config.parameter_registry.AnalysisMode
+
+   The ``StrEnum`` single source of truth for the four analysis modes
+   (``static_isotropic``, ``static_anisotropic``, ``laminar_flow``,
+   ``two_component``). Returned by
+   :attr:`xpcsjax.config.ConfigManager.analysis_mode`. Because it is a
+   ``StrEnum``, members compare equal to their string values, so existing
+   string-based mode checks keep working.
+
+
+
 .. autoclass:: xpcsjax.config.parameter_registry.ParameterRegistry
 
 
