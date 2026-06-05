@@ -171,14 +171,31 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP", "N"]
+select = ["E", "F", "W", "I", "B", "UP", "N", "D"]
 # E501 — line length handled by formatter, not enforced.
 # N806/N803 — scientific code uses uppercase math-convention names
 #   (D0, JTJ, L, P, Q, R, X, Y) in function/argument scope. Enforcing
 #   snake_case here would degrade readability against the physics literature.
+# D — pydocstyle docstring linting (numpy convention, see [tool.ruff.lint.pydocstyle]).
+#   The xpcsjax/ surface is held at zero D-violations; this gate keeps docstrings
+#   consistent (numpydoc sections, imperative summaries) and prevents drift back
+#   to the mixed Google-style the codebase started from. Enforced on xpcsjax/
+#   only — tests/ and scripts/ are exempt below (their docstrings are not part of
+#   the public / Sphinx-rendered API).
 ignore = ["E501", "N806", "N803"]
 
+[tool.ruff.lint.pydocstyle]
+# numpydoc sections (Parameters/Returns/Raises/...), rendered via Sphinx napoleon
+# + sphinx_autodoc_typehints (types come from signatures, so docstrings omit them).
+convention = "numpy"
+
 [tool.ruff.lint.per-file-ignores]
+# tests/ and scripts/ are not part of the rendered API surface; do not enforce the
+# pydocstyle (D) gate there. (They carry pre-existing Google-style/undocumented
+# docstrings; converting them is out of scope and the D406/D407 autofix would
+# half-convert Google sections into a broken hybrid.)
+"tests/**" = ["D"]
+"scripts/**" = ["D"]
 # These modules intentionally execute code before their module-level imports:
 # the package __init__ sets JAX env vars (JAX_ENABLE_X64, XLA_FLAGS) before any
 # JAX import, and the viz module probes optional deps before importing them. So
