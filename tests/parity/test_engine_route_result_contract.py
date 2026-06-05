@@ -76,7 +76,9 @@ def _run_both(mode: str):
     production_mode = _MODE_TO_PRODUCTION[mode]
 
     ref = fit_nlsq_multi_phi(model, c2, list(phi), _make_config(production_mode), None)
-    eng = fit_two_component_via_engine(model, c2, np.asarray(phi), _make_config(production_mode), None)
+    eng = fit_two_component_via_engine(
+        model, c2, np.asarray(phi), _make_config(production_mode), None
+    )
     return ref, eng, len(phi)
 
 

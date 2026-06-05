@@ -38,9 +38,7 @@ def test_safe_log_memory_strategy_emits_phase_and_threshold(caplog):
         _safe_log_memory_strategy()  # must not raise
 
     text = "\n".join(
-        r.getMessage()
-        for r in caplog.records
-        if r.name == "xpcsjax.optimization.nlsq.memory"
+        r.getMessage() for r in caplog.records if r.name == "xpcsjax.optimization.nlsq.memory"
     )
     assert "Adaptive memory threshold" in text, text
     assert "memory_strategy_selection" in text, text

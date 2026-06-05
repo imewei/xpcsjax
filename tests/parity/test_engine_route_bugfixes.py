@@ -160,9 +160,7 @@ def test_individual_mode_keeps_per_angle_scaling_dof(monkeypatch):
     n_varying = len(model.param_manager.varying_names)
 
     captured = _spy_adapter_initial_params(monkeypatch)
-    fit_two_component_via_engine(
-        model, c2, np.asarray(phi), _make_config("individual"), None
-    )
+    fit_two_component_via_engine(model, c2, np.asarray(phi), _make_config("individual"), None)
     assert captured["x0_len"] == n_varying + 2 * n_phi
 
 
@@ -257,9 +255,7 @@ def test_single_angle_2d_c2_equivalent_to_3d():
         f"2D c2 chi2 {eng_2d.chi_squared!r} != 3D c2 chi2 {eng_3d.chi_squared!r}; "
         "a 2D single-angle input must be normalized to (1, N, N) (Bug 2)."
     )
-    np.testing.assert_allclose(
-        eng_2d.parameters, eng_3d.parameters, rtol=1e-7, atol=1e-9
-    )
+    np.testing.assert_allclose(eng_2d.parameters, eng_3d.parameters, rtol=1e-7, atol=1e-9)
 
 
 def test_single_angle_2d_c2_no_worse_than_production():
@@ -279,6 +275,5 @@ def test_single_angle_2d_c2_no_worse_than_production():
     # meaningless when production lands at ~1e-19. The atol still catches a
     # genuinely worse engine (e.g. trapped at SSR ~1e-1).
     assert eng.chi_squared <= ref.chi_squared * (1.0 + 1e-3) + 1e-9, (
-        f"engine 2D chi2 {eng.chi_squared!r} strictly worse than production "
-        f"{ref.chi_squared!r}"
+        f"engine 2D chi2 {eng.chi_squared!r} strictly worse than production {ref.chi_squared!r}"
     )

@@ -269,9 +269,7 @@ def test_engine_routes_heterodyne_residual_matches_objective(mode):
     p0 = np.asarray(p0, dtype=np.float64)
     physics = p0[:n_varying]
 
-    contrasts, offsets = _effective_scaling_in_phi_unique_order(
-        mode, p0, meta, n_phi, n_varying
-    )
+    contrasts, offsets = _effective_scaling_in_phi_unique_order(mode, p0, meta, n_phi, n_varying)
 
     # Reference objective on the engine's support (diagonal-masked, sigma=1).
     ref_ssr = _reference_ssr_on_engine_support(
@@ -480,9 +478,7 @@ def test_engine_route_matches_production_objective_frame0_reconciled(mode):
     p0 = np.asarray(p0, dtype=np.float64)
     physics = p0[:n_varying]
 
-    contrasts, offsets = _effective_scaling_in_phi_unique_order(
-        mode, p0, meta, n_phi, n_varying
-    )
+    contrasts, offsets = _effective_scaling_in_phi_unique_order(mode, p0, meta, n_phi, n_varying)
 
     # PRODUCTION objective (excludes diagonal + frame-0 -> (n_t-1)*(n_t-2)).
     ssr_prod = _production_reference_ssr(

@@ -336,15 +336,20 @@ def test_laminar_flow_end_to_end_golden():
 
     # --- numerical: params + objective at rtol=1e-10 ---
     assert params.shape == tuple(golden["parameters"].shape), (
-        f"parameter vector length changed: {params.shape} != "
-        f"{tuple(golden['parameters'].shape)}"
+        f"parameter vector length changed: {params.shape} != {tuple(golden['parameters'].shape)}"
     )
     np.testing.assert_allclose(
-        params, golden["parameters"], rtol=1e-10, atol=0.0,
+        params,
+        golden["parameters"],
+        rtol=1e-10,
+        atol=0.0,
         err_msg="laminar_flow fitted parameters drifted from golden.",
     )
     np.testing.assert_allclose(
-        chi_squared, float(golden["chi_squared"]), rtol=1e-10, atol=0.0,
+        chi_squared,
+        float(golden["chi_squared"]),
+        rtol=1e-10,
+        atol=0.0,
         err_msg="laminar_flow chi_squared drifted from golden.",
     )
 

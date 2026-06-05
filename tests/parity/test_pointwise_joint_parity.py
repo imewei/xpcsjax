@@ -169,9 +169,7 @@ def test_pointwise_joint_ssr_matches_batched_fourier_true_basis():
     order = np.array([2, 5, 0, 4, 3, 1])  # non-monotonic angle order
     c2, phi = c2[order], phi[order]
 
-    meta = _assert_pointwise_matches_batched(
-        model, c2, phi, "fourier", fourier_order=fourier_order
-    )
+    meta = _assert_pointwise_matches_batched(model, c2, phi, "fourier", fourier_order=fourier_order)
 
     # Guard 1 (coefficient count): confirm the TRUE Fourier basis path is active.
     # At n_phi=6 the scaling tail is the Fourier coefficient vector of length

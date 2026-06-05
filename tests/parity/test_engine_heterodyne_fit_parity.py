@@ -292,9 +292,7 @@ def _build_engine(
     dt: float,
 ) -> StratifiedResidualFunctionJIT:
     """Construct the frame-0-excluded engine for ``mode`` (mirrors Phase 2.3a)."""
-    evaluator = HeterodynePointEvaluator(
-        analysis_mode="two_component", q=float(q), dt=float(dt)
-    )
+    evaluator = HeterodynePointEvaluator(analysis_mode="two_component", q=float(q), dt=float(dt))
     if mode == "fixed_constant":
         return StratifiedResidualFunctionJIT(
             stratified_data=chunked,
@@ -436,9 +434,7 @@ def _run_reference_and_engine(mode: str):
     resid_at_opt = np.asarray(engine(jnp.asarray(popt_sf)), dtype=np.float64)
     chi2_engine = float(np.sum(resid_at_opt**2))
 
-    popt_pf = scaling_first_to_physics_first(
-        popt_sf, n_physics=n_varying, mode=mode, n_phi=n_phi
-    )
+    popt_pf = scaling_first_to_physics_first(popt_sf, n_physics=n_varying, mode=mode, n_phi=n_phi)
 
     return {
         "chi2_ref": chi2_ref,

@@ -39,6 +39,7 @@ BASELINE_JSON = (
     Path(__file__).resolve().parent / "fixtures" / "baselines" / "two_component_c044.json"
 )
 
+
 def _require_fixture(path: Path) -> None:
     if not path.exists():
         pytest.skip(f"Missing C044 fixture: {path}")

@@ -68,11 +68,7 @@ _SKIP_REASON = (
 
 # Import the script helpers by path (the script lives under scripts/, not a
 # package) so we do not duplicate the engine-route construction.
-_SCRIPT = (
-    Path(__file__).resolve().parents[2]
-    / "scripts"
-    / "realdata_engine_fit_parity_c044.py"
-)
+_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "realdata_engine_fit_parity_c044.py"
 
 
 def _load_helpers():
@@ -95,9 +91,7 @@ _NO_WORSE_RTOL = 1e-3
 @pytest.fixture(scope="module")
 def _realdata_results():
     mod = _load_helpers()
-    model, c2, phi, info = mod.load_real_subset(
-        str(_C044_CONFIG), n_t=_N_T, n_phi=0
-    )
+    model, c2, phi, info = mod.load_real_subset(str(_C044_CONFIG), n_t=_N_T, n_phi=0)
     out = {}
     for mode in ("fixed_constant", "individual"):
         out[mode] = mod.run_reference_and_engine(model, c2, phi, mode=mode, nfev=_NFEV)

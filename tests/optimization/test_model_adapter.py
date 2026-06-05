@@ -33,9 +33,7 @@ def test_homodyne_evaluator_matches_compute_g2_scaled():
     offset = jnp.array([1.0, 1.0, 1.0])
 
     got = np.asarray(ev.eval_points(params, phi, t1, t2, contrast, offset))
-    want = np.asarray(
-        compute_g2_scaled(params, t1, t2, phi, q, L, contrast, offset, dt)
-    )
+    want = np.asarray(compute_g2_scaled(params, t1, t2, phi, q, L, contrast, offset, dt))
     np.testing.assert_allclose(got, want, rtol=1e-12, atol=0.0)
 
 
@@ -82,12 +80,15 @@ def test_heterodyne_evaluator_returns_per_angle_meshgrid():
     phi_scalar = phi_unique[1]
     contrast_scalar = contrast_arr[1]
     offset_scalar = offset_arr[1]
-    got_single = ev.eval_points(
-        params, phi_scalar, t, t, contrast_scalar, offset_scalar
-    )
+    got_single = ev.eval_points(params, phi_scalar, t, t, contrast_scalar, offset_scalar)
     want_single = compute_c2_heterodyne(
-        params, t, float(model.q), float(model.dt),
-        phi_scalar, contrast_scalar, offset_scalar,
+        params,
+        t,
+        float(model.q),
+        float(model.dt),
+        phi_scalar,
+        contrast_scalar,
+        offset_scalar,
     )
     assert got_single.shape == (1, n_t, n_t)
     assert want_single.shape == (n_t, n_t)
@@ -100,13 +101,9 @@ def test_heterodyne_evaluator_returns_per_angle_meshgrid():
 
     # (4) Engine-convention test: replicate the engine's exact vmap call pattern.
     def engine_call(ph, c, o):
-        return jnp.squeeze(
-            ev.eval_points(params, jnp.asarray(ph), t, t, c, o), axis=0
-        )
+        return jnp.squeeze(ev.eval_points(params, jnp.asarray(ph), t, t, c, o), axis=0)
 
-    grid = jax.vmap(engine_call, in_axes=(0, 0, 0))(
-        phi_unique, contrast_arr, offset_arr
-    )
+    grid = jax.vmap(engine_call, in_axes=(0, 0, 0))(phi_unique, contrast_arr, offset_arr)
     assert grid.shape == (n_phi, n_t, n_t)
 
     # ...and it matches a per-angle loop over the meshgrid kernel.
@@ -114,8 +111,13 @@ def test_heterodyne_evaluator_returns_per_angle_meshgrid():
         [
             np.asarray(
                 compute_c2_heterodyne(
-                    params, t, float(model.q), float(model.dt),
-                    phi_unique[i], contrast_arr[i], offset_arr[i],
+                    params,
+                    t,
+                    float(model.q),
+                    float(model.dt),
+                    phi_unique[i],
+                    contrast_arr[i],
+                    offset_arr[i],
                 )
             )
             for i in range(n_phi)
@@ -124,12 +126,8 @@ def test_heterodyne_evaluator_returns_per_angle_meshgrid():
     np.testing.assert_allclose(np.asarray(grid), want_grid, rtol=1e-12, atol=0.0)
 
     # (5) The optimizer drives scaling: two different contrasts -> different output.
-    out_a = np.asarray(
-        ev.eval_points(params, phi_scalar, t, t, jnp.asarray(0.10), offset_scalar)
-    )
-    out_b = np.asarray(
-        ev.eval_points(params, phi_scalar, t, t, jnp.asarray(0.40), offset_scalar)
-    )
+    out_a = np.asarray(ev.eval_points(params, phi_scalar, t, t, jnp.asarray(0.10), offset_scalar))
+    out_b = np.asarray(ev.eval_points(params, phi_scalar, t, t, jnp.asarray(0.40), offset_scalar))
     assert not np.allclose(out_a, out_b), "contrast must affect the output"
 
 

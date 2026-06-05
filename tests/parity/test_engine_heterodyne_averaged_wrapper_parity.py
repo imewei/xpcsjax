@@ -149,9 +149,7 @@ def _run_averaged_wrapper_case():
     ub_c = np.concatenate([np.asarray(physics_upper, dtype=np.float64), [cb[1], ob[1]]])
 
     # The wrapper makes the optimizer vary ONLY the compressed (n_physics + 2) vector.
-    wrapped = wrap_engine_averaged_residual(
-        lambda v: engine(v), n_physics=n_varying, n_phi=n_phi
-    )
+    wrapped = wrap_engine_averaged_residual(lambda v: engine(v), n_physics=n_varying, n_phi=n_phi)
 
     # Fidelity check (investigation-first): wrapped residual at p0 == engine
     # residual at the broadcast scaling-first vector built by the numpy helper.
