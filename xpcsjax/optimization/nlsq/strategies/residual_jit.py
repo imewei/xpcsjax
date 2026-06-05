@@ -212,25 +212,37 @@ class StratifiedResidualFunctionJIT:
         all_t1 = np.concatenate([chunk.t1 for chunk in self.chunks])
         all_t2 = np.concatenate([chunk.t2 for chunk in self.chunks])
 
-        # Extract unique values across all chunks
-        phi_unique = jnp.sort(jnp.unique(jnp.asarray(all_phi)))
-        t1_unique = jnp.sort(jnp.unique(jnp.asarray(all_t1)))
-        t2_unique = jnp.sort(jnp.unique(jnp.asarray(all_t2)))
+        # Extract unique values across all chunks.
+        # Host-side (NumPy): this is a one-time __init__ grid/metadata
+        # computation that never needs to be on-device or JIT-lowered. np.unique
+        # returns sorted unique values, so it reproduces the prior
+        # jnp.sort(jnp.unique(...)) exactly. The three GLOBAL unique arrays are
+        # stored on self and consumed inside the JIT'd warm kernel
+        # (_compute_single_chunk_residuals -> eval_points / searchsorted), so
+        # they are converted back to JAX once below with jnp.asarray.
+        phi_unique_np = np.unique(all_phi)
+        t1_unique_np = np.unique(all_t1)
+        t2_unique_np = np.unique(all_t2)
+
+        phi_unique = jnp.asarray(phi_unique_np)
+        t1_unique = jnp.asarray(t1_unique_np)
+        t2_unique = jnp.asarray(t2_unique_np)
 
         self.logger.debug(
-            f"Unique values (from all chunks): {len(phi_unique)} phi, {len(t1_unique)} t1, {len(t2_unique)} t2"
+            f"Unique values (from all chunks): {len(phi_unique_np)} phi, {len(t1_unique_np)} t1, {len(t2_unique_np)} t2"
         )
 
-        # Validation: check if we missed any values by comparing with first chunk
+        # Validation: check if we missed any values by comparing with first chunk.
+        # Pure host-side comparison (only len() is consumed), so these stay NumPy.
         first_chunk = self.chunks[0]
-        _phi_first = jnp.sort(jnp.unique(jnp.asarray(first_chunk.phi)))  # noqa: F841
-        t1_first = jnp.sort(jnp.unique(jnp.asarray(first_chunk.t1)))
-        t2_first = jnp.sort(jnp.unique(jnp.asarray(first_chunk.t2)))
+        _phi_first = np.unique(first_chunk.phi)  # noqa: F841
+        t1_first = np.unique(first_chunk.t1)
+        t2_first = np.unique(first_chunk.t2)
 
-        if len(t1_unique) != len(t1_first) or len(t2_unique) != len(t2_first):
+        if len(t1_unique_np) != len(t1_first) or len(t2_unique_np) != len(t2_first):
             self.logger.debug(
                 f"Stratified chunking: chunks have different time point subsets "
-                f"(first chunk: {len(t1_first)} t1, all chunks: {len(t1_unique)} t1) - "
+                f"(first chunk: {len(t1_first)} t1, all chunks: {len(t1_unique_np)} t1) - "
                 f"using complete set from all chunks"
             )
 

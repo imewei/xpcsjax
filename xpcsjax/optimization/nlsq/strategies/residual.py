@@ -152,17 +152,29 @@ class StratifiedResidualFunction:
         all_t1 = np.concatenate([chunk.t1 for chunk in self.chunks])
         all_t2 = np.concatenate([chunk.t2 for chunk in self.chunks])
 
-        global_phi_unique = jnp.sort(jnp.unique(jnp.asarray(all_phi)))
-        global_t1_unique = jnp.sort(jnp.unique(jnp.asarray(all_t1)))
-        global_t2_unique = jnp.sort(jnp.unique(jnp.asarray(all_t2)))
+        # Host-side (NumPy) unique: this is a one-time, integer-exact index/grid
+        # computation that never needs to be on-device or JIT-lowered. np.unique
+        # returns sorted unique values (so the prior jnp.sort(jnp.unique(...)) is
+        # reproduced exactly), and the host-resident arrays feed np.searchsorted
+        # in _compute_flat_indices without a device round-trip. Only the final
+        # results are converted back to JAX (see below) for the warm kernel.
+        global_phi_unique_np = np.unique(all_phi)
+        global_t1_unique_np = np.unique(all_t1)
+        global_t2_unique_np = np.unique(all_t2)
+
+        # JAX copies for the warm path (compute_g2_scaled consumes these as
+        # jnp float64 arrays); identical dtype/value to the old jnp.unique result.
+        global_phi_unique = jnp.asarray(global_phi_unique_np)
+        global_t1_unique = jnp.asarray(global_t1_unique_np)
+        global_t2_unique = jnp.asarray(global_t2_unique_np)
 
         # Store global dimensions for flat index computation
-        self._n_t1_global = len(global_t1_unique)
-        self._n_t2_global = len(global_t2_unique)
+        self._n_t1_global = len(global_t1_unique_np)
+        self._n_t2_global = len(global_t2_unique_np)
 
         self.logger.debug(
             f"Global unique values extracted from all chunks: "
-            f"{len(global_phi_unique)} phi, "
+            f"{len(global_phi_unique_np)} phi, "
             f"{self._n_t1_global} t1, "
             f"{self._n_t2_global} t2"
         )
@@ -185,9 +197,9 @@ class StratifiedResidualFunction:
                 phi=chunk.phi,
                 t1=chunk.t1,
                 t2=chunk.t2,
-                phi_unique=global_phi_unique,
-                t1_unique=global_t1_unique,
-                t2_unique=global_t2_unique,
+                phi_unique=global_phi_unique_np,
+                t1_unique=global_t1_unique_np,
+                t2_unique=global_t2_unique_np,
             )
             self._precomputed_flat_indices.append(flat_indices)
             self._precomputed_t1_indices.append(t1_indices)
@@ -202,9 +214,9 @@ class StratifiedResidualFunction:
         phi: np.ndarray,
         t1: np.ndarray,
         t2: np.ndarray,
-        phi_unique: jnp.ndarray,
-        t1_unique: jnp.ndarray,
-        t2_unique: jnp.ndarray,
+        phi_unique: np.ndarray,
+        t1_unique: np.ndarray,
+        t2_unique: np.ndarray,
     ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         """
         Compute flat indices for mapping chunk points to global grid positions.
@@ -227,12 +239,12 @@ class StratifiedResidualFunction:
             t1 values for this chunk
         t2 : np.ndarray
             t2 values for this chunk
-        phi_unique : jnp.ndarray
-            Global unique phi values (sorted)
-        t1_unique : jnp.ndarray
-            Global unique t1 values (sorted)
-        t2_unique : jnp.ndarray
-            Global unique t2 values (sorted)
+        phi_unique : np.ndarray
+            Global unique phi values (sorted), host-resident NumPy array
+        t1_unique : np.ndarray
+            Global unique t1 values (sorted), host-resident NumPy array
+        t2_unique : np.ndarray
+            Global unique t2 values (sorted), host-resident NumPy array
 
         Returns
         -------
@@ -241,24 +253,36 @@ class StratifiedResidualFunction:
             - t1_indices: t1 indices for diagonal masking
             - t2_indices: t2 indices for diagonal masking
         """
-        # Convert to JAX arrays for searchsorted
-        phi_jax = jnp.asarray(phi)
-        t1_jax = jnp.asarray(t1)
-        t2_jax = jnp.asarray(t2)
-
-        # Find indices in the sorted unique arrays.
+        # Host-side (NumPy) index computation. searchsorted is integer-exact and
+        # this runs ONCE per fit during __init__, so there is no reason to lower
+        # it to XLA or round-trip through the device. np.searchsorted returns the
+        # SAME insertion indices as jnp.searchsorted for the same sorted array.
+        # Only the final int64 results are moved back to JAX (single jnp.asarray
+        # each), matching the dtype the warm gather path expects.
+        #
         # Cast to int64 BEFORE multiplication to prevent int32 overflow.
-        # jnp.searchsorted returns int32; for large datasets (n_phi=100,
-        # n_t1=5000, n_t2=5000) the product 99*25_000_000=2.475B exceeds
-        # int32 max (2.147B), silently wrapping to a negative index.
-        phi_indices = jnp.searchsorted(phi_unique, phi_jax).astype(jnp.int64)
-        t1_indices = jnp.searchsorted(t1_unique, t1_jax).astype(jnp.int64)
-        t2_indices = jnp.searchsorted(t2_unique, t2_jax).astype(jnp.int64)
+        # searchsorted returns a platform int (int64 on 64-bit hosts), but the
+        # explicit np.int64 cast keeps the overflow guard honest regardless of
+        # platform: for large datasets (n_phi=100, n_t1=5000, n_t2=5000) the
+        # product 99*25_000_000=2.475B exceeds int32 max (2.147B), silently
+        # wrapping to a negative index.
+        phi_indices_np = np.searchsorted(phi_unique, phi).astype(np.int64)
+        t1_indices_np = np.searchsorted(t1_unique, t1).astype(np.int64)
+        t2_indices_np = np.searchsorted(t2_unique, t2).astype(np.int64)
 
         # Convert to flat grid indices: phi * (n_t1 * n_t2) + t1 * n_t2 + t2
         n_t1 = len(t1_unique)
         n_t2 = len(t2_unique)
-        flat_indices = phi_indices * (n_t1 * n_t2) + t1_indices * n_t2 + t2_indices
+        flat_indices_np = (
+            phi_indices_np * (n_t1 * n_t2) + t1_indices_np * n_t2 + t2_indices_np
+        )
+
+        # Move the finished int64 index arrays onto the device once; the warm
+        # residual gathers theory/sigma values with flat_indices_all and masks
+        # the diagonal with t1/t2 indices, all expecting jnp int64 arrays.
+        flat_indices = jnp.asarray(flat_indices_np)
+        t1_indices = jnp.asarray(t1_indices_np)
+        t2_indices = jnp.asarray(t2_indices_np)
 
         return flat_indices, t1_indices, t2_indices
 
