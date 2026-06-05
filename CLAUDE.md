@@ -256,6 +256,7 @@ Use the project Makefile rather than reinventing pytest/ruff invocations — the
 | Verify NLSQ integration end-to-end | `make verify-nlsq` |
 | Generate homodyne baselines | `make run-example` (= `python scripts/generate_homodyne_baselines.py`) |
 | Maintainer-local FULL run (zero skips) | `make test-full-local` (enables the env-gated live oracles) |
+| Run heavy live-fit oracles serially | `make test-heavy-serial` |
 
 Notes:
 - `pytest` auto-loads `JAX_ENABLE_X64=1` from `[tool.pytest.ini_options]` — no need to set it manually for tests.
@@ -263,6 +264,7 @@ Notes:
 - **The remaining live oracles are still env-gated; `make test-full-local` runs them with *zero* skips.** The default `make test`/`make verify` still skip the env-gated set — the homodyne-equivalence characterization suite (`tests/characterization/test_homodyne_equivalence.py`, `XPCSJAX_RUN_CHARACTERIZATION=1`), A/B parity (`XPCSJAX_RUN_AB_PARITY=1`), and the `${XPCSJAX_DATA_ROOT}` loader fixture. `test-full-local` sets all three env vars (`XPCSJAX_DATA_ROOT` default `/home/wei/Documents/Projects/data`, override on the CLI) and runs them. They need the upstream `homodyne` package installed and the maintainer datasets (`C020/`, `Simon/`, `C044/`) on disk — so it is **maintainer-local only; never wire these env vars into `test`/`verify`/CI** (fresh clones lack both and would fail loudly). Config `data_folder_path` now resolves `${ENV_VAR}`/`~` (no-op on plain absolute paths), which is what lets the loader fixture point at `${XPCSJAX_DATA_ROOT}`.
 - `make type-check` will surface many findings because `strict = false`; `make verify` runs mypy in **advisory** mode (`| tail -1 || true`) so type findings don't block push.
 - Python 3.12+ required (per `pyproject.toml`).
+- **Heavy live-fit oracles are serial-routed out of every `-n auto` target.** Running the suite under pytest-xdist `-n auto` (one worker per CPU) concurrently with the availability-gated live-fit oracles overcommits RAM and triggers a kernel OOM-kill (SIGKILL/returncode -9). So `PARALLEL_DESELECT` (top of the Makefile) `--deselect`s/`--ignore`s those heavy tests from **all** parallel targets, and they run serially via `make test-heavy-serial` (availability-gated: the L4 nested-pytest oracle + the two real-data C044 files) or `make test-full-local` (also the env-gated characterization/A-B parity). `make test-all-parallel` chains `test-heavy-serial` after its parallel pass. Do **not** re-add these tests to a bare `-n auto` invocation, and do **not** `--ignore` a file that also holds cheap tests (use `--deselect` on the specific node instead).
 
 ## Workflow conventions
 

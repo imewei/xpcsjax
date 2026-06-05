@@ -4,7 +4,7 @@
 
 .PHONY: help install dev dev-install env-info deps-check version info \
         test test-smoke test-fast test-ci test-ci-full test-coverage test-coverage-parallel \
-        test-parallel test-all-parallel test-parallel-fast \
+        test-parallel test-all-parallel test-parallel-fast test-heavy-serial \
         test-core test-optimization test-heterodyne test-characterization test-property \
         test-viz test-nlsq test-quick test-full-local \
         format lint type-check check quality quick pre-commit install-hooks \
@@ -23,12 +23,36 @@ PACKAGE_NAME := xpcsjax
 SRC_DIR := xpcsjax
 TEST_DIR := tests
 
-# Tests deselected from the PARALLEL smoke/verify gates (-n auto). This gated
-# oracle spawns its OWN full pytest subprocess (the homodyne characterization
-# suite); under -n auto's 14-worker memory load the kernel OOM-kills that
-# subprocess (returncode -9), which is a resource artifact, not a real failure.
-# It still runs serially via `make test-characterization` / a direct invocation.
-PARALLEL_DESELECT := --deselect "tests/parity/test_l4_per_iteration_parity.py::test_homodyne_characterization_bit_identical_with_monitor"
+# Heavy LIVE-FIT oracles that overcommit RAM under `-n auto` (one worker/CPU):
+# they run real fits on maintainer datasets — or spawn a nested pytest that does —
+# allocating multi-GB working sets. Landing on a busy worker tips the box past
+# available RAM -> kernel OOM-kill (SIGKILL / returncode -9). All are EXCLUDED
+# from every parallel pass and run via `make test-heavy-serial`
+# (availability-gated) or `make test-full-local` (also the env-gated ones).
+# They still execute & assert there, and self-skip on CI / fresh clones.
+#
+# (a) Availability-gated — run automatically when datasets are present (no env
+#     var), so they fire the OOM TODAY. The L4 oracle shares a file with cheap
+#     tests -> deselect just its node. The two real-data files are heavy
+#     wholesale (module-scoped fixtures) -> ignore them entirely.
+#     NOTE: --ignore drops EVERY test in these files from all parallel targets;
+#     add any future non-heavy test to a separate file to keep it in `-n auto`.
+HEAVY_NODES := \
+  tests/parity/test_l4_per_iteration_parity.py::test_homodyne_characterization_bit_identical_with_monitor
+HEAVY_FILES := \
+  tests/heterodyne/test_two_component_real_data.py \
+  tests/parity/test_engine_heterodyne_realdata_c044.py
+#
+# (b) Env-gated — self-skip under `-n auto` (no XPCSJAX_RUN_* set), so they do
+#     NOT fire today; ignored purely as insurance against an accidental
+#     `XPCSJAX_RUN_*=1 make test-parallel`. Live coverage = `make test-full-local`.
+ENV_GATED_FILES := \
+  tests/characterization/test_homodyne_equivalence.py \
+  tests/characterization/test_homodyne_nlsq_ab_parity.py
+#
+PARALLEL_DESELECT := \
+  $(foreach n,$(HEAVY_NODES),--deselect "$(n)") \
+  $(foreach f,$(HEAVY_FILES) $(ENV_GATED_FILES),--ignore=$(f))
 DOCS_DIR := docs
 VENV := .venv
 
@@ -118,6 +142,7 @@ help:
 	@echo "  $(CYAN)test-parallel$(RESET)          Run tests in parallel (2-4x faster)"
 	@echo "  $(CYAN)test-all-parallel$(RESET)      Run full test suite in parallel"
 	@echo "  $(CYAN)test-parallel-fast$(RESET)     Run fast tests in parallel"
+	@echo "  $(CYAN)test-heavy-serial$(RESET)      Run heavy live-fit oracles serially (no xdist)"
 	@echo "  $(CYAN)test-coverage$(RESET)          Run tests with coverage report"
 	@echo "  $(CYAN)test-coverage-parallel$(RESET) Run coverage with parallel execution"
 	@echo "  $(CYAN)test-core$(RESET)              Run core/model tests only"
@@ -270,29 +295,41 @@ test-smoke:
 
 test-fast:
 	@echo "$(BOLD)$(BLUE)Running fast tests (excluding slow tests)...$(RESET)"
-	$(RUN_CMD) $(PYTEST) $(TEST_DIR) -n auto -m "not slow" -v --tb=short
+	$(RUN_CMD) $(PYTEST) $(TEST_DIR) -n auto -m "not slow" -v --tb=short $(PARALLEL_DESELECT)
 
 test-parallel:
 	@echo "$(BOLD)$(BLUE)Running tests in parallel (2-4x speedup)...$(RESET)"
-	$(RUN_CMD) $(PYTEST) $(TEST_DIR) -n auto -v --tb=short
+	$(RUN_CMD) $(PYTEST) $(TEST_DIR) -n auto -v --tb=short $(PARALLEL_DESELECT)
 
 test-all-parallel:
 	@echo "$(BOLD)$(BLUE)Running full test suite in parallel...$(RESET)"
-	$(RUN_CMD) $(PYTEST) $(TEST_DIR) -n auto -v --tb=short
+	$(RUN_CMD) $(PYTEST) $(TEST_DIR) -n auto -v --tb=short $(PARALLEL_DESELECT)
+	@$(MAKE) test-heavy-serial
 	@echo "$(BOLD)$(GREEN)✓ Full test suite passed!$(RESET)"
+
+# Availability-gated heavy oracles, run SERIALLY (never under xdist) so they
+# never overlap the parallel pass. NO env vars forced -> safe on CI / fresh
+# clones (each self-skips via its own availability gate when datasets/homodyne
+# are absent). The env-gated oracles (A/B parity, direct characterization) are
+# NOT here — their live coverage is `make test-full-local`. The L4 node already
+# drives the homodyne-equivalence suite via its own nested subprocess, so that
+# file is not listed (avoids a double run).
+test-heavy-serial:
+	@echo "$(BOLD)$(BLUE)Running availability-gated heavy oracles SERIALLY (no xdist)...$(RESET)"
+	$(RUN_CMD) $(PYTEST) $(HEAVY_NODES) $(HEAVY_FILES) -p no:xdist -v --tb=short -rs
 
 test-parallel-fast:
 	@echo "$(BOLD)$(BLUE)Running fast tests in parallel...$(RESET)"
-	$(RUN_CMD) $(PYTEST) $(TEST_DIR) -n auto -m "not slow" -v --tb=short
+	$(RUN_CMD) $(PYTEST) $(TEST_DIR) -n auto -m "not slow" -v --tb=short $(PARALLEL_DESELECT)
 
 test-ci:
 	@echo "$(BOLD)$(BLUE)Running CI test suite (matches GitHub Actions)...$(RESET)"
-	$(RUN_CMD) $(PYTEST) $(TEST_DIR) -n auto -v --tb=short
+	$(RUN_CMD) $(PYTEST) $(TEST_DIR) -n auto -v --tb=short $(PARALLEL_DESELECT)
 	@echo "$(BOLD)$(GREEN)✓ CI test suite passed!$(RESET)"
 
 test-ci-full:
 	@echo "$(BOLD)$(BLUE)Running full CI test suite with coverage...$(RESET)"
-	$(RUN_CMD) $(PYTEST) $(TEST_DIR) -n auto -v --cov=$(PACKAGE_NAME) --cov-report=html --cov-report=term
+	$(RUN_CMD) $(PYTEST) $(TEST_DIR) -n auto -v --cov=$(PACKAGE_NAME) --cov-report=html --cov-report=term $(PARALLEL_DESELECT)
 	@echo "$(BOLD)$(GREEN)✓ Full CI test suite passed!$(RESET)"
 
 test-coverage:
@@ -303,7 +340,7 @@ test-coverage:
 
 test-coverage-parallel:
 	@echo "$(BOLD)$(BLUE)Running tests with coverage in parallel...$(RESET)"
-	$(RUN_CMD) $(PYTEST) $(TEST_DIR) -n auto --cov=$(PACKAGE_NAME) --cov-report=term-missing --cov-report=html --cov-report=xml
+	$(RUN_CMD) $(PYTEST) $(TEST_DIR) -n auto --cov=$(PACKAGE_NAME) --cov-report=term-missing --cov-report=html --cov-report=xml $(PARALLEL_DESELECT)
 	@echo "$(BOLD)$(GREEN)✓ Coverage report generated!$(RESET)"
 	@echo "View HTML report: open htmlcov/index.html"
 
