@@ -17,10 +17,27 @@ logger = get_logger(__name__)
 
 @dataclass
 class PhysicsFactors:
-    """Pre-computed factors that don't depend on fit parameters.
+    """Pre-computed physics factors that do not depend on fit parameters.
 
-    These are computed once from experimental setup and reused across
-    all optimization iterations for efficiency.
+    These are computed once from the experimental setup and reused across all
+    optimization iterations for efficiency. This is the heterodyne-specific
+    ``PhysicsFactors``, distinct from the homodyne
+    :class:`xpcsjax.core.physics_factors.PhysicsFactors`.
+
+    Attributes
+    ----------
+    t : jnp.ndarray
+        Time array, shape ``(N,)``.
+    q : float
+        Scattering wavevector magnitude.
+    q_squared : float
+        Pre-computed ``q**2``.
+    dt : float
+        Time step.
+    n_times : int
+        Number of time points.
+    phi_angle : float
+        Detector phi angle in degrees.
     """
 
     # Time arrays
@@ -38,7 +55,7 @@ class PhysicsFactors:
     phi_angle: float  # Detector phi angle (degrees)
 
     def __post_init__(self) -> None:
-        """Validate factors."""
+        """Validate that ``q`` and ``dt`` are strictly positive."""
         if self.q <= 0:
             raise ValueError(f"q must be positive, got {self.q}")
         if self.dt <= 0:
@@ -50,13 +67,18 @@ class PhysicsFactors:
         return float(self.t[-1] - self.t[0])
 
     def get_q_cosine(self, phi0: float = 0.0) -> jnp.ndarray:
-        """Get q * cos(phi_total) for cross-term phase.
+        """Return ``q * cos(phi_total)`` for the cross-term phase.
 
-        Args:
-            phi0: Additional angle from fit parameters
+        Parameters
+        ----------
+        phi0 : float, optional
+            Additional angle (degrees) from fit parameters; corresponds to
+            the registry ``phi0_het``.
 
-        Returns:
-            q * cos(phi_angle + phi0) as JAX scalar
+        Returns
+        -------
+        jnp.ndarray
+            ``q * cos(phi_angle + phi0)`` as a JAX scalar.
         """
         total_phi_rad = jnp.deg2rad(self.phi_angle + phi0)
         return self.q * jnp.cos(total_phi_rad)
@@ -71,15 +93,23 @@ def create_physics_factors(
 ) -> PhysicsFactors:
     """Create physics factors from experimental parameters.
 
-    Args:
-        n_times: Number of time points
-        dt: Time step
-        q: Scattering wavevector magnitude
-        phi_angle: Detector phi angle (degrees)
-        t_start: Starting time (default 0)
+    Parameters
+    ----------
+    n_times : int
+        Number of time points.
+    dt : float
+        Time step.
+    q : float
+        Scattering wavevector magnitude.
+    phi_angle : float, optional
+        Detector phi angle in degrees, default ``0.0``.
+    t_start : float, optional
+        Starting time, default ``0.0``.
 
-    Returns:
-        PhysicsFactors instance
+    Returns
+    -------
+    PhysicsFactors
+        A populated physics-factors instance.
     """
     # Create time array
     t = jnp.arange(n_times) * dt + t_start
@@ -98,14 +128,19 @@ def create_physics_factors_from_config(config: dict) -> PhysicsFactors:
     """Create physics factors from configuration dictionary.
 
     Reads from ``analyzer_parameters`` (canonical) with fallback to legacy
-    ``temporal``/``scattering`` top-level sections for backwards compatibility.
+    ``temporal`` / ``scattering`` top-level sections for backwards
+    compatibility.
 
-    Args:
-        config: Configuration with ``analyzer_parameters`` or legacy
-            ``temporal``/``scattering`` sections.
+    Parameters
+    ----------
+    config : dict
+        Configuration with ``analyzer_parameters`` or legacy ``temporal`` /
+        ``scattering`` sections.
 
-    Returns:
-        PhysicsFactors instance
+    Returns
+    -------
+    PhysicsFactors
+        A populated physics-factors instance (``phi_angle`` is set per fit).
     """
     ap = config.get("analyzer_parameters", {})
     temporal = config.get("temporal", {})
@@ -144,9 +179,20 @@ def create_physics_factors_from_config(config: dict) -> PhysicsFactors:
 
 @dataclass
 class CachedMatrices:
-    """Cached matrices that depend only on time grid.
+    """Cached matrices that depend only on the time grid.
 
-    These are expensive to recompute and don't change during fitting.
+    These are expensive to recompute and do not change during fitting.
+
+    Attributes
+    ----------
+    time_diff : jnp.ndarray
+        Absolute time-difference matrix ``|t1 - t2|``.
+    mean_time : jnp.ndarray
+        Mean-time (age) matrix ``(t1 + t2) / 2``.
+    triu_indices : tuple of jnp.ndarray
+        Upper-triangular index arrays.
+    tril_indices : tuple of jnp.ndarray
+        Lower-triangular index arrays.
     """
 
     # Time difference matrix: |t1 - t2|
@@ -163,11 +209,15 @@ class CachedMatrices:
 def create_cached_matrices(factors: PhysicsFactors) -> CachedMatrices:
     """Create cached matrices from physics factors.
 
-    Args:
-        factors: PhysicsFactors instance
+    Parameters
+    ----------
+    factors : PhysicsFactors
+        Source physics-factors instance providing the time grid.
 
-    Returns:
-        CachedMatrices instance
+    Returns
+    -------
+    CachedMatrices
+        Cached time-difference, mean-time, and triangular-index arrays.
     """
     t1, t2 = jnp.meshgrid(factors.t, factors.t, indexing="ij")
     n = factors.n_times

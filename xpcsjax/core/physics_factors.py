@@ -1,4 +1,5 @@
-"""Physics Factors Pre-computation Module
+"""Pre-computation and caching of physics factors for XPCS calculations.
+
 ========================================
 
 Pre-computes and caches physics factors for efficient XPCS calculations.

@@ -48,25 +48,35 @@ class HeterodyneModelBase(ABC):
         contrast: float = 1.0,
         offset: float = 1.0,
     ) -> jnp.ndarray:
-        """Compute model correlation matrix.
+        """Compute the model two-time correlation matrix.
 
-        Args:
-            params: Parameter array
-            t: Time array
-            q: Wavevector
-            dt: Time step
-            phi_angle: Detector phi angle (degrees)
-            contrast: Speckle contrast (beta), default 1.0
-            offset: Baseline offset, default 1.0
+        Parameters
+        ----------
+        params : jnp.ndarray
+            Parameter array.
+        t : jnp.ndarray
+            Time array.
+        q : float
+            Scattering wavevector magnitude.
+        dt : float
+            Time step.
+        phi_angle : float
+            Detector phi angle in degrees.
+        contrast : float, optional
+            Speckle contrast (the kernel-internal ``beta``), default ``1.0``.
+        offset : float, optional
+            Baseline offset, default ``1.0``.
 
-        Returns:
-            Correlation matrix
+        Returns
+        -------
+        jnp.ndarray
+            Correlation matrix.
         """
         ...
 
     @abstractmethod
     def get_default_params(self) -> np.ndarray:
-        """Get default parameter values."""
+        """Return the default parameter values."""
         ...
 
 
@@ -74,12 +84,28 @@ class HeterodyneModelBase(ABC):
 class TwoComponentModel(HeterodyneModelBase):
     """Two-component heterodyne correlation model.
 
-    Implements the 14-parameter model:
-    - Reference transport (3): D0_ref, alpha_ref, D_offset_ref
-    - Sample transport (3): D0_sample, alpha_sample, D_offset_sample
-    - Velocity (3): v0, v_beta, v_offset
-    - Fraction (4): f0, f1, f2, f3
-    - Angle (1): phi0_het
+    Implements the canonical 14-parameter model, in registry order
+    ``[D0_ref, alpha_ref, D_offset_ref, D0_sample, alpha_sample,
+    D_offset_sample, v0, v_beta, v_offset, f0, f1, f2, f3, phi0_het]``:
+
+    - Reference transport (3): ``D0_ref``, ``alpha_ref``, ``D_offset_ref``
+    - Sample transport (3): ``D0_sample``, ``alpha_sample``, ``D_offset_sample``
+    - Velocity (3): ``v0``, ``v_beta``, ``v_offset``
+    - Fraction (4): ``f0``, ``f1``, ``f2``, ``f3``
+    - Angle (1): ``phi0_het``
+
+    Notes
+    -----
+    The parameter registry (``xpcsjax.config.parameter_registry``) is the
+    authoritative source for names, ordering, and bounds. The config-facing
+    names ``v_beta`` / ``phi0_het`` map to the kernel-internal ``beta`` /
+    ``phi0``; both name the same quantities.
+
+    Examples
+    --------
+    >>> model = TwoComponentModel()
+    >>> params = model.get_default_params()
+    >>> c2 = model.compute_correlation(params, t, q=0.01, dt=0.1, phi_angle=45.0)
     """
 
     _defaults: dict[str, float] = field(default_factory=dict)
@@ -124,45 +150,65 @@ class TwoComponentModel(HeterodyneModelBase):
         contrast: float = 1.0,
         offset: float = 1.0,
     ) -> jnp.ndarray:
-        """Compute two-time heterodyne correlation.
+        """Compute the two-time heterodyne correlation matrix.
 
-        Args:
-            params: Parameter array, shape (14,)
-            t: Time array
-            q: Scattering wavevector
-            dt: Time step
-            phi_angle: Detector phi angle (degrees)
-            contrast: Speckle contrast (beta), default 1.0
-            offset: Baseline offset, default 1.0
+        Parameters
+        ----------
+        params : jnp.ndarray
+            Parameter array, shape ``(14,)`` in canonical registry order.
+        t : jnp.ndarray
+            Time array.
+        q : float
+            Scattering wavevector magnitude.
+        dt : float
+            Time step.
+        phi_angle : float
+            Detector phi angle in degrees.
+        contrast : float, optional
+            Speckle contrast (the kernel-internal ``beta``), default ``1.0``.
+        offset : float, optional
+            Baseline offset, default ``1.0``.
 
-        Returns:
-            Correlation matrix c2(t1, t2), shape (N, N)
+        Returns
+        -------
+        jnp.ndarray
+            Correlation matrix ``c2(t1, t2)``, shape ``(N, N)``.
         """
         return compute_c2_heterodyne(params, t, q, dt, phi_angle, contrast, offset)  # type: ignore[no-any-return]
 
     def get_default_params(self) -> np.ndarray:
-        """Get default parameter values as array."""
+        """Return the default parameter values as an array."""
         return np.array([self._defaults[name] for name in ALL_PARAM_NAMES])
 
     def params_to_dict(self, params: np.ndarray | jnp.ndarray) -> dict[str, float]:
-        """Convert parameter array to dictionary.
+        """Convert a parameter array to a name-keyed dictionary.
 
-        Args:
-            params: Parameter array, shape (14,)
+        Parameters
+        ----------
+        params : np.ndarray or jnp.ndarray
+            Parameter array, shape ``(14,)``.
 
-        Returns:
-            Dict mapping names to values
+        Returns
+        -------
+        dict of str to float
+            Mapping from canonical parameter names to values.
         """
         return {name: float(params[i]) for i, name in enumerate(ALL_PARAM_NAMES)}
 
     def dict_to_params(self, param_dict: dict[str, float]) -> np.ndarray:
-        """Convert parameter dictionary to array.
+        """Convert a name-keyed parameter dictionary to an array.
 
-        Args:
-            param_dict: Dict with parameter names as keys
+        Missing names fall back to the canonical default value.
 
-        Returns:
-            Parameter array, shape (14,)
+        Parameters
+        ----------
+        param_dict : dict of str to float
+            Mapping with parameter names as keys.
+
+        Returns
+        -------
+        np.ndarray
+            Parameter array, shape ``(14,)`` in canonical registry order.
         """
         return np.array([param_dict.get(name, self._defaults[name]) for name in ALL_PARAM_NAMES])
 
@@ -172,20 +218,27 @@ class TwoComponentModel(HeterodyneModelBase):
         t: jnp.ndarray,
         q: float,
     ) -> jnp.ndarray:
-        """Compute reference g1 correlation only (1D visualization helper).
+        """Compute the reference g1 correlation only (1D visualization helper).
 
-        .. note::
-            Uses pointwise g1(t) = exp(-q²J(t)), which does not represent
-            the two-time integral physics. For production correlation, use
-            compute_correlation which uses the integral formulation.
+        Parameters
+        ----------
+        params : np.ndarray or jnp.ndarray
+            Full parameter array (the reference transport triple is used).
+        t : jnp.ndarray
+            Time array.
+        q : float
+            Scattering wavevector magnitude.
 
-        Args:
-            params: Full parameter array
-            t: Time array
-            q: Wavevector
+        Returns
+        -------
+        jnp.ndarray
+            Reference ``g1`` array.
 
-        Returns:
-            g1_ref array
+        Notes
+        -----
+        Uses the pointwise form ``g1(t) = exp(-q**2 J(t))``, which does not
+        represent the two-time integral physics. For production correlation
+        use :meth:`compute_correlation`, which uses the integral formulation.
         """
         D0, alpha, offset = params[0], params[1], params[2]
         # Use jnp.where instead of jnp.maximum to preserve gradients at the
@@ -203,20 +256,27 @@ class TwoComponentModel(HeterodyneModelBase):
         t: jnp.ndarray,
         q: float,
     ) -> jnp.ndarray:
-        """Compute sample g1 correlation only (1D visualization helper).
+        """Compute the sample g1 correlation only (1D visualization helper).
 
-        .. note::
-            Uses pointwise g1(t) = exp(-q²J(t)), which does not represent
-            the two-time integral physics. For production correlation, use
-            compute_correlation which uses the integral formulation.
+        Parameters
+        ----------
+        params : np.ndarray or jnp.ndarray
+            Full parameter array (the sample transport triple is used).
+        t : jnp.ndarray
+            Time array.
+        q : float
+            Scattering wavevector magnitude.
 
-        Args:
-            params: Full parameter array
-            t: Time array
-            q: Wavevector
+        Returns
+        -------
+        jnp.ndarray
+            Sample ``g1`` array.
 
-        Returns:
-            g1_sample array
+        Notes
+        -----
+        Uses the pointwise form ``g1(t) = exp(-q**2 J(t))``, which does not
+        represent the two-time integral physics. For production correlation
+        use :meth:`compute_correlation`, which uses the integral formulation.
         """
         D0, alpha, offset = params[3], params[4], params[5]
         # Use jnp.where instead of jnp.maximum to preserve gradients at the
@@ -233,14 +293,19 @@ class TwoComponentModel(HeterodyneModelBase):
         params: np.ndarray | jnp.ndarray,
         t: jnp.ndarray,
     ) -> jnp.ndarray:
-        """Compute sample fraction only.
+        """Compute the sample fraction only.
 
-        Args:
-            params: Full parameter array
-            t: Time array
+        Parameters
+        ----------
+        params : np.ndarray or jnp.ndarray
+            Full parameter array (the fraction parameters ``f0..f3`` are used).
+        t : jnp.ndarray
+            Time array.
 
-        Returns:
-            f_sample array in [0, 1]
+        Returns
+        -------
+        jnp.ndarray
+            Sample fraction array clipped to ``[0, 1]``.
         """
         f0, f1, f2, f3 = params[9], params[10], params[11], params[12]
         exponent = jnp.clip(f1 * (t - f2), -100, 100)
@@ -252,10 +317,12 @@ class ReducedModel(HeterodyneModelBase):
     """Reduced heterodyne model with a subset of active parameters.
 
     Inactive parameters are held fixed at their canonical default values.
-    Useful for simplified analysis modes (e.g., reference-only diffusion).
+    Useful for simplified analysis modes (e.g. reference-only diffusion).
 
-    Args:
-        _active_params: Ordered tuple of parameter names that are free to vary.
+    Parameters
+    ----------
+    _active_params : tuple of str
+        Ordered tuple of parameter names that are free to vary.
     """
 
     _active_params: tuple[str, ...]
@@ -316,16 +383,20 @@ class ReducedModel(HeterodyneModelBase):
         return np.array([self._FULL_DEFAULTS[name] for name in self._active_params])
 
     def _expand_to_full(self, params: jnp.ndarray) -> jnp.ndarray:
-        """Expand active-parameter array to full 14-element array.
+        """Expand an active-parameter array to the full 14-element array.
 
-        Uses precomputed template and index mapping for efficiency.
-        Inactive parameters retain their canonical defaults.
+        Uses a precomputed template and index mapping for efficiency;
+        inactive parameters retain their canonical defaults.
 
-        Args:
-            params: Active-parameter array, shape (n_params,)
+        Parameters
+        ----------
+        params : jnp.ndarray
+            Active-parameter array, shape ``(n_params,)``.
 
-        Returns:
-            Full parameter array, shape (14,)
+        Returns
+        -------
+        jnp.ndarray
+            Full parameter array, shape ``(14,)``.
         """
         return self._template.at[self._active_indices_array].set(params)  # type: ignore[attr-defined,no-any-return]
 
@@ -339,21 +410,31 @@ class ReducedModel(HeterodyneModelBase):
         contrast: float = 1.0,
         offset: float = 1.0,
     ) -> jnp.ndarray:
-        """Compute model correlation from reduced parameter set.
+        """Compute the model correlation from the reduced parameter set.
 
-        Inactive parameters are held at canonical defaults.
+        Inactive parameters are held at their canonical defaults.
 
-        Args:
-            params: Active-parameter array, shape (n_params,)
-            t: Time array
-            q: Scattering wavevector
-            dt: Time step
-            phi_angle: Detector phi angle (degrees)
-            contrast: Speckle contrast (beta), default 1.0
-            offset: Baseline offset, default 1.0
+        Parameters
+        ----------
+        params : jnp.ndarray
+            Active-parameter array, shape ``(n_params,)``.
+        t : jnp.ndarray
+            Time array.
+        q : float
+            Scattering wavevector magnitude.
+        dt : float
+            Time step.
+        phi_angle : float
+            Detector phi angle in degrees.
+        contrast : float, optional
+            Speckle contrast (the kernel-internal ``beta``), default ``1.0``.
+        offset : float, optional
+            Baseline offset, default ``1.0``.
 
-        Returns:
-            Correlation matrix c2(t1, t2), shape (N, N)
+        Returns
+        -------
+        jnp.ndarray
+            Correlation matrix ``c2(t1, t2)``, shape ``(N, N)``.
         """
         full_params = self._expand_to_full(params)
         return compute_c2_heterodyne(full_params, t, q, dt, phi_angle, contrast, offset)  # type: ignore[no-any-return]
@@ -378,17 +459,23 @@ ANALYSIS_MODES: dict[str, tuple[str, ...]] = {
 
 
 def create_model(mode: str) -> HeterodyneModelBase:
-    """Factory function that returns a model for the requested analysis mode.
+    """Return a model instance for the requested analysis mode.
 
-    Args:
-        mode: One of ``"static_ref"``, ``"static_both"``, ``"two_component"``.
+    Parameters
+    ----------
+    mode : str
+        One of ``"static_ref"``, ``"static_both"``, or ``"two_component"``.
 
-    Returns:
-        ``TwoComponentModel`` for ``"two_component"``;
-        ``ReducedModel`` for all other recognised modes.
+    Returns
+    -------
+    HeterodyneModelBase
+        A :class:`TwoComponentModel` for ``"two_component"``; a
+        :class:`ReducedModel` for all other recognised modes.
 
-    Raises:
-        ValueError: If *mode* is not a recognised analysis mode.
+    Raises
+    ------
+    ValueError
+        If ``mode`` is not a recognised analysis mode.
     """
     if mode not in ANALYSIS_MODES:
         valid = ", ".join(sorted(ANALYSIS_MODES))

@@ -1,4 +1,5 @@
-"""NLSQ Physics Backend - Meshgrid Computations Only
+"""NLSQ physics backend providing meshgrid-only g1/g2 computations.
+
 ======================================================
 
 This module provides meshgrid physics computations specifically for
@@ -60,20 +61,30 @@ def _compute_g1_diffusion_meshgrid(
     Computes g1_diffusion for 2D meshgrid (all combinations of t1[i], t2[j]).
     This is the ONLY diffusion function for NLSQ - no element-wise mode.
 
-    Args:
-        params: Physical parameters [D0, alpha, D_offset, ...]
-        t1: Time meshgrid (2D) or 1D time array (PHYSICAL TIME in seconds)
-        t2: Time meshgrid (2D) or 1D time array (PHYSICAL TIME in seconds)
-        wavevector_q_squared_half_dt: Pre-computed factor 0.5 * q² * dt
-        dt: Time step [seconds] - used ONLY for wavevector_q_squared_half_dt calculation
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Physical parameters ``[D0, alpha, D_offset, ...]``.
+    t1, t2 : jnp.ndarray
+        Time meshgrid (2D) or 1D time array (physical time in seconds).
+    wavevector_q_squared_half_dt : float
+        Pre-computed factor ``0.5 * q² * dt``.
+    dt : float
+        Time step [seconds]. Used only for the
+        ``wavevector_q_squared_half_dt`` factor; the time grid is already in
+        physical seconds and is not rescaled by ``dt`` here.
 
-    Returns:
-        Diffusion contribution to g1 (2D array: (n_times, n_times))
+    Returns
+    -------
+    jnp.ndarray
+        Diffusion contribution to g1 (2D array of shape ``(n_times, n_times)``).
 
-    Note:
-        The data loader (xpcs_loader.py) converts frame indices to physical time:
-        time_1d = np.linspace(0, dt * (end_frame - start_frame), matrix_size)
-        So t1/t2 arrays contain physical time [0.0, 0.1, 0.2, ...], NOT frame indices.
+    Notes
+    -----
+    The data loader (``xpcs_loader.py``) converts frame indices to physical
+    time via ``time_1d = np.linspace(0, dt * (end_frame - start_frame),
+    matrix_size)``, so ``t1``/``t2`` contain physical time
+    ``[0.0, 0.1, 0.2, ...]``, not frame indices.
     """
     D0, alpha, D_offset = params[0], params[1], params[2]
 
@@ -140,20 +151,33 @@ def _compute_g1_shear_meshgrid(
     Computes g1_shear for 2D meshgrid (all combinations of t1[i], t2[j])
     across all phi angles. This is the ONLY shear function for NLSQ - no element-wise mode.
 
-    Args:
-        params: Physical parameters [D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]
-        t1: Time meshgrid (2D) or 1D time array (PHYSICAL TIME in seconds)
-        t2: Time meshgrid (2D) or 1D time array (PHYSICAL TIME in seconds)
-        phi: Scattering angles (1D array)
-        sinc_prefactor: Pre-computed factor 0.5/π * q * L * dt
-        dt: Time step [seconds] - used ONLY for sinc_prefactor calculation
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Physical parameters
+        ``[D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]``.
+        Fewer than 7 entries selects the static (no-shear) branch returning
+        ones.
+    t1, t2 : jnp.ndarray
+        Time meshgrid (2D) or 1D time array (physical time in seconds).
+    phi : jnp.ndarray
+        Scattering angles (1D array) [degrees].
+    sinc_prefactor : float
+        Pre-computed factor ``0.5/π * q * L * dt``.
+    dt : float
+        Time step [seconds]. Used only for the ``sinc_prefactor`` factor.
 
-    Returns:
-        Shear contribution to g1 (3D array: (n_phi, n_times, n_times))
+    Returns
+    -------
+    jnp.ndarray
+        Shear contribution to g1 (3D array of shape
+        ``(n_phi, n_times, n_times)``).
 
-    Note:
-        The data loader (xpcs_loader.py) converts frame indices to physical time.
-        So t1/t2 arrays contain physical time [0.0, 0.1, 0.2, ...], NOT frame indices.
+    Notes
+    -----
+    The data loader (``xpcs_loader.py``) converts frame indices to physical
+    time, so ``t1``/``t2`` contain physical time ``[0.0, 0.1, 0.2, ...]``, not
+    frame indices.
     """
     # Check params length - if < 7, we're in static mode (no shear)
     if params.shape[0] < 7:
@@ -252,17 +276,27 @@ def _compute_g1_total_meshgrid(
     Computes g1_total = g1_diffusion × g1_shear for 2D meshgrid.
     This is the ONLY g1_total function for NLSQ - no element-wise mode.
 
-    Args:
-        params: Physical parameters [D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]
-        t1: Time meshgrid (2D) or 1D time array (PHYSICAL TIME in seconds)
-        t2: Time meshgrid (2D) or 1D time array (PHYSICAL TIME in seconds)
-        phi: Scattering angles
-        wavevector_q_squared_half_dt: Pre-computed factor 0.5 * q² * dt
-        sinc_prefactor: Pre-computed factor 0.5/π * q * L * dt
-        dt: Time step [seconds]
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Physical parameters
+        ``[D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]``.
+    t1, t2 : jnp.ndarray
+        Time meshgrid (2D) or 1D time array (physical time in seconds).
+    phi : jnp.ndarray
+        Scattering angles [degrees].
+    wavevector_q_squared_half_dt : float
+        Pre-computed factor ``0.5 * q² * dt``.
+    sinc_prefactor : float
+        Pre-computed factor ``0.5/π * q * L * dt``.
+    dt : float
+        Time step [seconds].
 
-    Returns:
-        Total g1 correlation function (3D array: (n_phi, n_times, n_times))
+    Returns
+    -------
+    jnp.ndarray
+        Total g1 correlation function (3D array of shape
+        ``(n_phi, n_times, n_times)``), floored at ``1e-10`` for log-safety.
     """
     # Compute diffusion contribution: shape (n_times, n_times)
     g1_diff = _compute_g1_diffusion_meshgrid(params, t1, t2, wavevector_q_squared_half_dt, dt)
@@ -311,21 +345,34 @@ def _compute_g2_scaled_meshgrid(
     is the constant background. In our implementation, this baseline is included
     in the offset parameter (offset ≈ 1.0 for physical measurements).
 
-    For theoretical fits: Use offset=1.0, contrast=1.0 to get g₂ = 1 + g₁²
-    For experimental fits: offset and contrast are free parameters centered around 1.0 and 0.5
+    For theoretical fits: Use offset=1.0, contrast=1.0 to get g₂ = 1 + g₁².
+    For experimental fits: offset and contrast are free parameters centered around 1.0 and 0.5.
 
-    Args:
-        params: Physical parameters [D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]
-        t1, t2: Time points for correlation calculation (PHYSICAL TIME in seconds)
-        phi: Scattering angles
-        wavevector_q_squared_half_dt: Pre-computed factor 0.5 * q² * dt
-        sinc_prefactor: Pre-computed factor 0.5/π * q * L * dt
-        contrast: Contrast parameter (β in literature) - typically [0, 1]
-        offset: Baseline level (includes the "1" from physics) - typically ~1.0
-        dt: Time step [seconds]
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Physical parameters
+        ``[D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]``.
+    t1, t2 : jnp.ndarray
+        Time points for correlation calculation (physical time in seconds).
+    phi : jnp.ndarray
+        Scattering angles [degrees].
+    wavevector_q_squared_half_dt : float
+        Pre-computed factor ``0.5 * q² * dt``.
+    sinc_prefactor : float
+        Pre-computed factor ``0.5/π * q * L * dt``.
+    contrast : float
+        Contrast parameter (β in literature), typically in ``[0, 1]``.
+    offset : float
+        Baseline level (includes the "1" from physics), typically ~1.0.
+    dt : float
+        Time step [seconds].
 
-    Returns:
-        g2 correlation function with scaled fitting and physical bounds applied
+    Returns
+    -------
+    jnp.ndarray
+        g2 correlation function with the per-angle scaling applied. Bounds are
+        enforced via NLSQ parameter bounds, not by clipping g2 here.
     """
     g1 = _compute_g1_total_meshgrid(
         params,
@@ -373,21 +420,35 @@ def compute_g2_scaled(
 ) -> jnp.ndarray:
     """Compute g2 for NLSQ using meshgrid 2D matrices.
 
-    NLSQ-specific function - creates meshgrid for 2D correlation matrices.
-    No element-wise mode, direct meshgrid computation only.
+    NLSQ-specific function — creates a meshgrid for 2D correlation matrices.
+    No element-wise mode; direct meshgrid computation only.
 
-    Args:
-        params: Physical parameters [D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]
-        t1, t2: Time points for correlation calculation (1D arrays will be converted to meshgrid)
-        phi: Scattering angles
-        q: Scattering wave vector magnitude
-        L: Sample-detector distance (stator_rotor_gap)
-        contrast: Contrast parameter (β in literature)
-        offset: Baseline offset
-        dt: Time step from configuration [s] (REQUIRED)
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Physical parameters
+        ``[D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]``.
+    t1, t2 : jnp.ndarray
+        Time points for correlation calculation. 1D arrays are converted to a
+        meshgrid via ``meshgrid(t, t, indexing="ij")``.
+    phi : float or jnp.ndarray
+        Scattering angles [degrees].
+    q : float
+        Scattering wave vector magnitude [Å⁻¹].
+    L : float
+        Sample-detector distance (stator_rotor_gap) [Å].
+    contrast : float or jnp.ndarray
+        Contrast parameter (β in literature).
+    offset : float or jnp.ndarray
+        Baseline offset.
+    dt : float
+        Time step from configuration [s] (required; callers must validate that
+        it is not None before calling).
 
-    Returns:
-        g2 correlation function with scaled fitting and physical bounds applied
+    Returns
+    -------
+    jnp.ndarray
+        g2 correlation function with the per-angle scaling applied.
     """
     # Handle 1D time arrays by creating meshgrids
     if t1.ndim == 1 and t2.ndim == 1:

@@ -1,31 +1,28 @@
-"""HomodyneModel - Hybrid Architecture Wrapper
-============================================
+"""Hybrid stateful/functional wrapper for homodyne XPCS analysis.
 
-Hybrid architecture combining stateful robustness with functional JIT performance.
+Combines stateful robustness with functional JIT performance. Configuration is
+validated once and stored on the instance, physics factors are pre-computed at
+initialization, and a high-level API delegates to JIT-compiled functional cores:
 
-This module implements the long-term architectural recommendation from the
-architectural comparison analysis, providing:
+1. **Stateful storage**: configuration validated once, stored on the instance.
+2. **Pre-computed factors**: physics factors computed once at initialization.
+3. **High-level API**: simple methods that use the stored configuration.
+4. **JIT performance**: calls functional cores for optimal performance.
 
-1. **Stateful Storage**: Configuration validated once, stored in instance
-2. **Pre-computed Factors**: Physics factors computed once at initialization
-3. **High-level API**: Simple methods using stored configuration
-4. **JIT Performance**: Calls functional cores for optimal performance
+See Also
+--------
+xpcsjax.core.heterodyne_model.HeterodyneModel : Two-component heterodyne analog.
 
-Best of both worlds: Robustness + Performance
-
-Usage Example
--------------
+Examples
+--------
 >>> from xpcsjax.core.homodyne_model import HomodyneModel
->>>
->>> # Create model from configuration
+>>> import numpy as np
 >>> config = load_config("config.yaml")
 >>> model = HomodyneModel(config)
->>>
->>> # Compute C2 - NO dt parameter needed!
+>>> # Compute C2 - no dt parameter needed; it comes from the stored config.
 >>> params = np.array([100.0, 0.0, 10.0, 1e-4, 0.0, 0.0, 0.0])
 >>> phi_angles = np.array([0, 30, 45, 60, 90])
 >>> c2 = model.compute_c2(params, phi_angles)
->>>
 >>> # For plotting, use the viz module:
 >>> from xpcsjax.viz import plot_simulated_data
 >>> plot_simulated_data(c2, phi_angles, output_dir="./results")
@@ -43,59 +40,72 @@ logger = get_logger(__name__)
 
 
 class HomodyneModel:
-    """Hybrid architecture wrapper for homodyne XPCS analysis.
+    """Hybrid stateful/functional wrapper for homodyne XPCS analysis.
 
-    This class combines the robustness of stateful object-oriented design
-    with the performance of functional JAX programming. It:
+    Combines the robustness of stateful object-oriented design with the
+    performance of functional JAX programming:
 
-    1. Stores configuration (dt, q, L) as instance state
-    2. Pre-computes physics factors once at initialization
-    3. Provides high-level methods that use stored state
-    4. Calls JIT-compiled functional cores for performance
+    1. Stores configuration (``dt``, ``q``, ``L``) as instance state.
+    2. Pre-computes physics factors once at initialization.
+    3. Provides high-level methods that use the stored state.
+    4. Calls JIT-compiled functional cores for performance.
 
-    Benefits
-    --------
-    - **Robustness**: Configuration validated once at initialization
-    - **Performance**: Physics factors pre-computed, JIT-compiled cores
-    - **Usability**: Simple API, no dt parameter passing needed
-    - **Safety**: No dt estimation errors possible
-    - **Efficiency**: Factors computed once, reused for all calculations
+    Because ``dt`` and the physics factors are taken from the stored
+    configuration, callers never pass ``dt`` to :meth:`compute_c2`, which
+    eliminates a class of ``dt``-estimation errors and lets the pre-computed
+    factors be reused across every correlation calculation.
+
+    Parameters
+    ----------
+    config : dict
+        Homodyne configuration dictionary (see :meth:`__init__`).
 
     Attributes
     ----------
     physics_factors : PhysicsFactors
-        Pre-computed physics factors (q²dt/2, qLdt/2π)
+        Pre-computed physics factors (q²dt/2, qLdt/2π).
     time_array : jnp.ndarray
-        Time array for correlation calculations [s]
-    t1_grid, t2_grid : jnp.ndarray
-        2D time grids for correlation matrices
+        Time array for correlation calculations [s].
+    t1_grid : jnp.ndarray
+        2D first-time grid for correlation matrices (``indexing="ij"``).
+    t2_grid : jnp.ndarray
+        2D second-time grid for correlation matrices (``indexing="ij"``).
     model : xpcsjax.core.models.CombinedModel
-        Underlying physics model (for backward compatibility)
+        Underlying physics model, retained for backward compatibility.
     dt : float
-        Time step [s]
+        Time step [s].
     wavevector_q : float
-        Scattering wave vector magnitude [Å⁻¹]
+        Scattering wave vector magnitude [Å⁻¹].
     stator_rotor_gap : float
-        Sample-detector distance [Å]
+        Geometric gap / sample length L [Å].
+    start_frame : int
+        First frame index of the analyzed range.
+    end_frame : int
+        Last frame index of the analyzed range (already resolved; the ``-1``
+        sentinel is rejected at construction).
     analysis_mode : str
-        Analysis mode ("static_anisotropic", "static_isotropic", "laminar_flow")
+        One of ``"static_anisotropic"``, ``"static_isotropic"``, or
+        ``"laminar_flow"``.
+
+    See Also
+    --------
+    compute_c2 : Primary entry point for computing correlation surfaces.
+    xpcsjax.core.heterodyne_model.HeterodyneModel : Two-component heterodyne analog.
 
     Examples
     --------
-    Basic usage:
-
     >>> model = HomodyneModel(config)
     >>> c2 = model.compute_c2(params, phi_angles)
-
-    Access configuration:
-
     >>> print(model.config_summary)
     >>> print(f"dt = {model.dt} s")
-    >>> print(f"Pre-computed factors: {model.physics_factors}")
     """
 
     def __init__(self, config: dict):
-        """Initialize HomodyneModel from configuration dictionary.
+        """Initialize the model from a configuration dictionary.
+
+        Extracts and validates the temporal/scattering/geometry configuration,
+        pre-computes the physics factors, and builds the time array and the two
+        2D time grids used by every correlation calculation.
 
         Parameters
         ----------
@@ -111,12 +121,19 @@ class HomodyneModel:
                     'analysis_settings': {...}  # Optional
                 }
 
+            The analysis mode is derived from ``analysis_settings``
+            (``static_mode`` / ``isotropic_mode``) when present, otherwise from
+            a top-level ``analysis_mode`` string, defaulting to
+            ``"laminar_flow"``.
+
         Raises
         ------
         KeyError
-            If required configuration keys are missing
+            If a required ``analyzer_parameters`` key is missing.
         ValueError
-            If configuration values are invalid
+            If ``end_frame`` is still the ``-1`` sentinel (it must be resolved
+            to a concrete frame index by :class:`XPCSDataLoader` before
+            constructing the model).
         """
         logger.info("Initializing HomodyneModel with hybrid architecture")
 
@@ -170,33 +187,37 @@ class HomodyneModel:
         contrast: float = 0.5,
         offset: float = 1.0,
     ) -> np.ndarray:
-        """Compute C2 correlation function using stored configuration.
+        """Compute the C2 correlation surfaces for all phi angles.
 
-        This high-level method:
-        - Uses pre-computed time grids (self.t1_grid, self.t2_grid)
-        - Uses pre-computed physics factors (self.physics_factors)
-        - Calls JIT-compiled functional core for performance
-        - Returns C2 for all phi angles
-
-        NO dt parameter needed - uses stored configuration!
+        Uses the pre-computed time grids and physics factors stored on the
+        instance and dispatches to the JIT-compiled functional core. All phi
+        angles are handled in a single vectorized call (no Python loop), and
+        ``dt`` is taken from the stored configuration rather than passed in.
 
         Parameters
         ----------
         params : np.ndarray
-            Physical parameters:
-            - For laminar_flow (7 params): [D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]
-            - For static (3 params): [D0, alpha, D_offset]
+            Physical parameters in registry order. For ``laminar_flow`` (7
+            params): ``[D0, alpha, D_offset, gamma_dot_t0, beta,
+            gamma_dot_t_offset, phi0]``. For the static modes (3 params):
+            ``[D0, alpha, D_offset]``.
         phi_angles : np.ndarray
-            Scattering angles [degrees], shape (n_phi,)
+            Scattering angles in degrees, shape ``(n_phi,)``.
         contrast : float, default=0.5
-            Contrast parameter (β in literature)
+            Speckle contrast (β in the literature).
         offset : float, default=1.0
-            Baseline offset
+            Baseline offset.
 
         Returns
         -------
         np.ndarray
-            C2 correlation matrices, shape (n_phi, n_time, n_time)
+            C2 correlation matrices, shape ``(n_phi, n_time, n_time)``, where
+            ``n_time = end_frame - start_frame + 1``. Returned as a NumPy array
+            (the JAX result is materialized on the host).
+
+        See Also
+        --------
+        compute_c2_single_angle : Convenience wrapper for a single phi angle.
 
         Examples
         --------
@@ -204,7 +225,8 @@ class HomodyneModel:
         >>> params = np.array([100.0, 0.0, 10.0, 1e-4, 0.0, 0.0, 0.0])
         >>> phi_angles = np.array([0, 30, 45, 60, 90])
         >>> c2 = model.compute_c2(params, phi_angles)
-        >>> print(c2.shape)  # (5, 100, 100) for 5 angles, 100 time points
+        >>> c2.shape  # (5, 100, 100) for 5 angles, 100 time points
+        (5, 100, 100)
         """
         # Convert to JAX arrays
         params_jax = jnp.array(params)
@@ -243,25 +265,31 @@ class HomodyneModel:
         contrast: float = 0.5,
         offset: float = 1.0,
     ) -> np.ndarray:
-        """Compute C2 correlation function for a single angle.
+        """Compute the C2 correlation surface for a single phi angle.
 
-        Convenience method for single-angle calculations.
+        Convenience wrapper around :meth:`compute_c2` that accepts a scalar
+        angle and returns the single correlation matrix (the leading phi axis
+        is dropped).
 
         Parameters
         ----------
         params : np.ndarray
-            Physical parameters
+            Physical parameters in registry order (see :meth:`compute_c2`).
         phi : float
-            Scattering angle [degrees]
+            Scattering angle in degrees.
         contrast : float, default=0.5
-            Contrast parameter
+            Speckle contrast (β in the literature).
         offset : float, default=1.0
-            Baseline offset
+            Baseline offset.
 
         Returns
         -------
         np.ndarray
-            C2 correlation matrix, shape (n_time, n_time)
+            C2 correlation matrix, shape ``(n_time, n_time)``.
+
+        See Also
+        --------
+        compute_c2 : Multi-angle entry point.
         """
         c2 = self.compute_c2(params, np.array([phi]), contrast, offset)
         result: np.ndarray = c2[0]
@@ -313,12 +341,15 @@ class HomodyneModel:
 
     @property
     def config_summary(self) -> dict:
-        """Get configuration summary for logging/debugging.
+        """Summarize the stored configuration for logging/debugging.
 
         Returns
         -------
         dict
-            Configuration summary with all key parameters
+            Summary of the key configuration values: ``dt``, ``time_length``,
+            ``time_range``, ``wavevector_q``, ``stator_rotor_gap``,
+            ``analysis_mode``, ``physics_factors`` (as a dict), ``start_frame``,
+            and ``end_frame``.
         """
         return {
             "dt": self.dt,
@@ -333,7 +364,7 @@ class HomodyneModel:
         }
 
     def __repr__(self) -> str:
-        """String representation of HomodyneModel."""
+        """Return a human-readable summary of the model configuration."""
         return (
             f"HomodyneModel(\n"
             f"  analysis_mode='{self.analysis_mode}',\n"

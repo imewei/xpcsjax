@@ -41,11 +41,16 @@ def safe_exp(x: jnp.ndarray | np.ndarray, limit: float = 700.0) -> jnp.ndarray:
     old heterodyne value of 500) silently truncates valid exponents in
     ``(500, 709.78)``.
 
-    Args:
-        x: Input array (NumPy or JAX).
-        limit: Symmetric clipping threshold; keep at 700 for float64.
+    Parameters
+    ----------
+    x : jnp.ndarray or np.ndarray
+        Input array (NumPy or JAX).
+    limit : float, default=700.0
+        Symmetric clipping threshold; keep at 700 for float64.
 
-    Returns:
+    Returns
+    -------
+    jnp.ndarray
         ``exp(clip(x, -limit, limit))``, same shape as ``x``.
     """
     x = jnp.asarray(x)

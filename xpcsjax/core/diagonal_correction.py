@@ -10,21 +10,26 @@ Diagonal correction removes the bright autocorrelation peak at t₁=t₂ by
 interpolating diagonal values from adjacent off-diagonal elements. This is
 a critical preprocessing step for XPCS analysis.
 
-Usage:
-    # Single matrix (auto-detect backend)
+Examples
+--------
+Single matrix (auto-detect backend)::
+
     from xpcsjax.core.diagonal_correction import apply_diagonal_correction
     c2_corrected = apply_diagonal_correction(c2_matrix)
 
-    # Batch processing (auto-detect backend)
+Batch processing (auto-detect backend)::
+
     from xpcsjax.core.diagonal_correction import apply_diagonal_correction_batch
     c2_batch_corrected = apply_diagonal_correction_batch(c2_matrices)
 
-    # Force specific backend or method
+Force a specific backend or method::
+
     c2_corrected = apply_diagonal_correction(c2_matrix, method="statistical", backend="numpy")
 
-References:
-    - pyXPCSViewer: https://github.com/AdvancedPhotonSource/pyXPCSViewer
-    - XPCS Analysis: He et al. PNAS 2024, doi:10.1073/pnas.2401162121
+References
+----------
+- pyXPCSViewer: https://github.com/AdvancedPhotonSource/pyXPCSViewer
+- XPCS Analysis: He et al. PNAS 2024, doi:10.1073/pnas.2401162121
 
 Version: 2.14.2
 """
@@ -94,44 +99,59 @@ def apply_diagonal_correction(
     values from adjacent off-diagonal elements, removing the autocorrelation
     peak and isolating cross-correlation dynamics.
 
-    Args:
-        c2_mat: Two-time correlation matrix with shape (N, N).
-                Must be square matrix with N >= 2.
-        method: Correction method.
-            - "basic": Adjacent off-diagonal interpolation (default, fastest)
-            - "statistical": Robust estimators with configurable window
-            - "interpolation": Linear interpolation
-        backend: Array backend.
-            - "auto": Detect from input type (default)
-            - "numpy": Force NumPy operations
-            - "jax": Force JAX operations (JIT-compiled)
-        **config: Method-specific configuration options.
+    Parameters
+    ----------
+    c2_mat : ArrayLike
+        Two-time correlation matrix with shape ``(N, N)``. Must be square with
+        ``N >= 2``.
+    method : {"basic", "statistical", "interpolation"}, default="basic"
+        Correction method.
 
-            For "statistical":
+        - ``"basic"``: Adjacent off-diagonal interpolation (fastest).
+        - ``"statistical"``: Robust estimators with configurable window.
+        - ``"interpolation"``: Linear interpolation.
+    backend : {"auto", "numpy", "jax"}, default="auto"
+        Array backend.
 
-            - window_size (int): Window size for neighbor collection. Default: 3
-            - estimator (str): "mean", "median", or "trimmed_mean". Default: "median"
-            - trim_fraction (float): Trim fraction for trimmed_mean. Default: 0.2
+        - ``"auto"``: Detect from input type.
+        - ``"numpy"``: Force NumPy operations.
+        - ``"jax"``: Force JAX operations (JIT-compiled, ``"basic"`` only).
+    **config
+        Method-specific configuration options.
 
-            For "interpolation":
+        For ``"statistical"``:
 
-            - interpolation_method (str): "linear" (only supported option). Default: "linear"
+        - ``window_size`` (int): Window size for neighbor collection. Default 3.
+        - ``estimator`` (str): ``"mean"``, ``"median"``, or ``"trimmed_mean"``.
+          Default ``"median"``.
+        - ``trim_fraction`` (float): Trim fraction for ``trimmed_mean``.
+          Default 0.2.
 
-    Returns:
-        Corrected correlation matrix with same shape and backend as input.
+        For ``"interpolation"``:
 
-    Example:
-        >>> import numpy as np
-        >>> c2 = np.array([[5.0, 1.2, 1.1],
-        ...                [1.2, 5.0, 1.3],
-        ...                [1.1, 1.3, 5.0]])
-        >>> c2_corrected = apply_diagonal_correction(c2)
-        >>> # Diagonal now contains interpolated values, not 5.0
+        - ``interpolation_method`` (str): ``"linear"`` (only supported option).
+          Default ``"linear"``.
 
-    Note:
-        The "basic" method is fastest and recommended for optimization loops.
-        Use "statistical" or "interpolation" for data preprocessing where
-        robustness to outliers is more important than speed.
+    Returns
+    -------
+    np.ndarray or jnp.ndarray
+        Corrected correlation matrix with the same shape and backend as input.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> c2 = np.array([[5.0, 1.2, 1.1],
+    ...                [1.2, 5.0, 1.3],
+    ...                [1.1, 1.3, 5.0]])
+    >>> c2_corrected = apply_diagonal_correction(c2)
+    >>> # Diagonal now contains interpolated values, not 5.0
+
+    Notes
+    -----
+    The ``"basic"`` method is fastest and recommended for optimization loops.
+    Use ``"statistical"`` or ``"interpolation"`` for data preprocessing where
+    robustness to outliers is more important than speed. The JAX backend only
+    supports ``"basic"``; other methods fall back with a warning.
     """
     # Determine backend
     actual_backend = _resolve_backend(c2_mat, backend)
@@ -158,26 +178,38 @@ def apply_diagonal_correction_batch(
     Efficiently processes multiple correlation matrices, using vectorized
     operations (vmap) for JAX backend or pre-allocated arrays for NumPy.
 
-    Args:
-        c2_matrices: Batch of correlation matrices with shape (n_phi, N, N).
-        method: Correction method (same as apply_diagonal_correction).
-        backend: Array backend (same as apply_diagonal_correction).
-        **config: Method-specific configuration (same as apply_diagonal_correction).
+    Parameters
+    ----------
+    c2_matrices : ArrayLike
+        Batch of correlation matrices with shape ``(n_phi, N, N)``.
+    method : {"basic", "statistical", "interpolation"}, default="basic"
+        Correction method (same as :func:`apply_diagonal_correction`).
+    backend : {"auto", "numpy", "jax"}, default="auto"
+        Array backend (same as :func:`apply_diagonal_correction`).
+    **config
+        Method-specific configuration (same as
+        :func:`apply_diagonal_correction`).
 
-    Returns:
-        Corrected matrices with same shape (n_phi, N, N) and backend as input.
+    Returns
+    -------
+    np.ndarray or jnp.ndarray
+        Corrected matrices with the same shape ``(n_phi, N, N)`` and backend as
+        input.
 
-    Example:
-        >>> import numpy as np
-        >>> # 3 angles, each with 100x100 correlation matrix
-        >>> c2_batch = np.random.randn(3, 100, 100)
-        >>> c2_corrected = apply_diagonal_correction_batch(c2_batch)
-        >>> c2_corrected.shape
-        (3, 100, 100)
+    Examples
+    --------
+    >>> import numpy as np
+    >>> # 3 angles, each with 100x100 correlation matrix
+    >>> c2_batch = np.random.randn(3, 100, 100)
+    >>> c2_corrected = apply_diagonal_correction_batch(c2_batch)
+    >>> c2_corrected.shape
+    (3, 100, 100)
 
-    Performance:
-        - JAX backend: Uses jax.vmap for parallel processing (2-4x speedup)
-        - NumPy backend: Pre-allocates output array, reuses index arrays
+    Notes
+    -----
+    The JAX backend uses :func:`jax.vmap` for parallel processing (2-4x
+    speedup); the NumPy backend pre-allocates the output array and reuses index
+    arrays.
     """
     # Determine backend
     actual_backend = _resolve_backend(c2_matrices, backend)
@@ -375,7 +407,7 @@ def _diagonal_correction_batch_numpy(
 
 
 def _basic_correction_numpy(c2_mat: np.ndarray) -> np.ndarray:
-    """Basic diagonal correction using adjacent off-diagonal interpolation.
+    """Correct the diagonal via adjacent off-diagonal interpolation.
 
     This is the fastest method and matches pyXPCSViewer's implementation.
     """

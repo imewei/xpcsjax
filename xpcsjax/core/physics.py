@@ -1,4 +1,5 @@
-"""Physical Constants and Parameter Validation for Homodyne
+"""Physical constants and parameter validation for homodyne XPCS analysis.
+
 ===========================================================
 
 Centralized physical constants, parameter bounds, and validation functions
@@ -45,7 +46,7 @@ class ValidationResult:
     message: str = ""
 
     def __str__(self) -> str:
-        """String representation for logging."""
+        """Return a human-readable representation for logging."""
         if self.valid:
             return f"OK {self.message}"
         else:
@@ -111,8 +112,11 @@ class PhysicsConstants:
 def parameter_bounds() -> dict[str, list[tuple[float, float]]]:
     """Get standard parameter bounds for all model types.
 
-    Returns:
-        Dictionary mapping model types to parameter bounds
+    Returns
+    -------
+    dict
+        Mapping of model type (``"diffusion"``, ``"shear"``, ``"combined"``) to
+        the ordered list of ``(min, max)`` bounds tuples for that model.
     """
     return {
         "diffusion": [
@@ -315,12 +319,22 @@ def clip_parameters(
 ) -> np.ndarray:
     """Clip parameters to stay within bounds.
 
-    Args:
-        params: Parameter array to clip
-        bounds: List of (min, max) tuples for each parameter
+    Parameters
+    ----------
+    params : np.ndarray
+        Parameter array to clip.
+    bounds : list of tuple
+        List of ``(min, max)`` tuples, one per parameter.
 
-    Returns:
-        Clipped parameter array
+    Returns
+    -------
+    np.ndarray
+        Clipped parameter array.
+
+    Raises
+    ------
+    ValueError
+        If the parameter count does not match the number of bounds.
     """
     if len(params) != len(bounds):
         raise ValueError(
@@ -340,11 +354,20 @@ def clip_parameters(
 def get_default_parameters(model_type: str) -> np.ndarray:
     """Get sensible default parameters for a model type.
 
-    Args:
-        model_type: "diffusion", "shear", or "combined"
+    Parameters
+    ----------
+    model_type : str
+        One of ``"diffusion"``, ``"shear"``, or ``"combined"``.
 
-    Returns:
-        Array of default parameter values
+    Returns
+    -------
+    np.ndarray
+        Array of default parameter values for the requested model.
+
+    Raises
+    ------
+    ValueError
+        If ``model_type`` is not recognized.
     """
     defaults = {
         "diffusion": np.array(
@@ -388,13 +411,21 @@ def get_default_parameters(model_type: str) -> np.ndarray:
 def validate_experimental_setup(q: float, L: float, wavelength: float | None = None) -> bool:
     """Validate experimental setup parameters for physical reasonableness.
 
-    Args:
-        q: Scattering wave vector magnitude (Å⁻¹)
-        L: Sample-detector distance (mm)
-        wavelength: X-ray wavelength (Å), optional
+    Parameters
+    ----------
+    q : float
+        Scattering wave vector magnitude [Å⁻¹].
+    L : float
+        Sample-detector distance [Å] (checked against the ``[1e5, 1e8]`` Å
+        range, i.e. 10 µm to 10 mm).
+    wavelength : float, optional
+        X-ray wavelength [Å]. Checked against ``[0.1, 10.0]`` Å when provided.
 
-    Returns:
-        True if setup is physically reasonable
+    Returns
+    -------
+    bool
+        True if the setup is physically reasonable; False (with a logged
+        warning) if any value is outside its expected range.
     """
     # Check q-range
     if not (PhysicsConstants.Q_MIN_TYPICAL <= q <= PhysicsConstants.Q_MAX_TYPICAL):
@@ -427,16 +458,24 @@ def validate_experimental_setup(q: float, L: float, wavelength: float | None = N
 def estimate_correlation_time(D0: float, alpha: float, q: float) -> float:
     """Estimate characteristic correlation time for diffusion process.
 
-    For normal diffusion (alpha=0): τ ≈ 1/(q²D₀)
-    For anomalous diffusion: scaling is more complex
+    For normal diffusion (alpha=0): τ ≈ 1/(q²D₀).
+    For anomalous diffusion the scaling is more complex; a rough correction
+    factor ``(1 + |alpha|)`` is applied.
 
-    Args:
-        D0: Reference diffusion coefficient (Å²/s)
-        alpha: Diffusion exponent
-        q: Scattering wave vector (Å⁻¹)
+    Parameters
+    ----------
+    D0 : float
+        Reference diffusion coefficient [Å²/s].
+    alpha : float
+        Diffusion exponent. ``|alpha| < 1e-12`` selects the normal-diffusion
+        branch.
+    q : float
+        Scattering wave vector [Å⁻¹].
 
-    Returns:
-        Estimated correlation time (seconds)
+    Returns
+    -------
+    float
+        Estimated correlation time [s], or ``inf`` when ``D0 <= 0``.
     """
     # P2-R6-02: Use epsilon tolerance instead of exact float equality.
     # NLSQ parameters are rarely exactly 0.0; alpha=1e-15 from an
@@ -454,11 +493,21 @@ def estimate_correlation_time(D0: float, alpha: float, q: float) -> float:
 def get_parameter_info(model_type: str) -> dict[str, Any]:
     """Get comprehensive parameter information for a model type.
 
-    Args:
-        model_type: "diffusion", "shear", or "combined"
+    Parameters
+    ----------
+    model_type : str
+        One of ``"diffusion"``, ``"shear"``, or ``"combined"``.
 
-    Returns:
-        Dictionary with parameter names, bounds, defaults, and descriptions
+    Returns
+    -------
+    dict
+        Parameter metadata: ``names``, ``descriptions``, ``physical_meaning``,
+        ``bounds``, ``defaults``, and ``n_parameters``.
+
+    Raises
+    ------
+    ValueError
+        If ``model_type`` is not recognized.
     """
     info: dict[str, dict[str, list[str]]] = {
         "diffusion": {

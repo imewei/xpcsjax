@@ -71,13 +71,18 @@ logger = get_logger(__name__)
 class ScalingConfig:
     """Configuration for per-angle scaling behavior.
 
-    Attributes:
-        n_angles: Number of detector angles.
-        mode: Scaling mode — one of:
-            - "constant": Same contrast/offset for all angles (default).
-            - "individual": Independent contrast/offset per angle.
-        initial_contrast: Starting contrast value(s).
-        initial_offset: Starting offset value(s).
+    Attributes
+    ----------
+    n_angles : int
+        Number of detector angles.
+    mode : str
+        Scaling mode — one of ``"constant"`` (same contrast/offset for all
+        angles, the default), ``"individual"`` (independent per angle),
+        ``"auto"``, or ``"constant_averaged"``.
+    initial_contrast : float
+        Starting contrast value.
+    initial_offset : float
+        Starting offset value.
     """
 
     n_angles: int = 1
@@ -90,9 +95,22 @@ class ScalingConfig:
 class PerAngleScaling:
     """Per-angle contrast and offset parameter manager.
 
-    Manages arrays of contrast_i and offset_i values (one per angle),
-    tracks which are varying in optimization, and provides
-    expand/compress operations for the optimizer interface.
+    Manages arrays of ``contrast_i`` and ``offset_i`` values (one per angle),
+    tracks which are varying in optimization, and provides expand/compress
+    operations for the optimizer interface.
+
+    Attributes
+    ----------
+    n_angles : int
+        Number of detector angles.
+    contrast : np.ndarray
+        Per-angle contrast values, shape ``(n_angles,)``.
+    offset : np.ndarray
+        Per-angle offset values, shape ``(n_angles,)``.
+    vary_contrast : np.ndarray
+        Boolean mask of which contrast entries vary, shape ``(n_angles,)``.
+    vary_offset : np.ndarray
+        Boolean mask of which offset entries vary, shape ``(n_angles,)``.
     """
 
     n_angles: int = 1
@@ -103,7 +121,25 @@ class PerAngleScaling:
 
     @classmethod
     def from_config(cls, config: ScalingConfig) -> PerAngleScaling:
-        """Create from ScalingConfig."""
+        """Create a manager from a :class:`ScalingConfig`.
+
+        Parameters
+        ----------
+        config : ScalingConfig
+            Per-angle scaling configuration.
+
+        Returns
+        -------
+        PerAngleScaling
+            A manager with contrast/offset arrays and vary-masks set per the
+            requested mode and clipped to registry bounds.
+
+        Raises
+        ------
+        ValueError
+            If ``config.mode`` is not one of ``"constant"``, ``"individual"``,
+            ``"auto"``, or ``"constant_averaged"``.
+        """
         n = config.n_angles
         contrast_info = SCALING_PARAMS["contrast"]
         offset_info = SCALING_PARAMS["offset"]
@@ -170,27 +206,34 @@ class PerAngleScaling:
         return np.concatenate([c_indices, o_indices])
 
     def get_scaling_array(self) -> np.ndarray:
-        """Get full scaling parameter array.
+        """Return the full scaling parameter array.
 
-        Returns:
-            Array of shape (2 * n_angles,): [contrast_0...n, offset_0...n]
+        Returns
+        -------
+        np.ndarray
+            Array of shape ``(2 * n_angles,)`` laid out as
+            ``[contrast_0..n, offset_0..n]``.
         """
         return np.concatenate([self.contrast, self.offset])
 
     def get_varying_values(self) -> np.ndarray:
-        """Get only the varying scaling parameter values.
+        """Return only the varying scaling parameter values.
 
-        Returns:
-            Array of shape (n_varying_scaling,)
+        Returns
+        -------
+        np.ndarray
+            Array of shape ``(n_varying_scaling,)``.
         """
         full = self.get_scaling_array()
         return full[self.varying_indices]  # type: ignore[no-any-return]
 
     def get_bounds(self) -> tuple[np.ndarray, np.ndarray]:
-        """Get bounds for varying scaling parameters.
+        """Return bounds for the varying scaling parameters.
 
-        Returns:
-            (lower, upper) each of shape (n_varying_scaling,)
+        Returns
+        -------
+        tuple of np.ndarray
+            ``(lower, upper)``, each of shape ``(n_varying_scaling,)``.
         """
         contrast_info = SCALING_PARAMS["contrast"]
         offset_info = SCALING_PARAMS["offset"]
@@ -214,8 +257,10 @@ class PerAngleScaling:
     def update_from_varying(self, varying_values: np.ndarray) -> None:
         """Update scaling parameters from optimizer output.
 
-        Args:
-            varying_values: Array of shape (n_varying_scaling,)
+        Parameters
+        ----------
+        varying_values : np.ndarray
+            Array of shape ``(n_varying_scaling,)``.
         """
         full = self.get_scaling_array()
         full[self.varying_indices] = varying_values
@@ -230,13 +275,17 @@ class PerAngleScaling:
             self.offset[:] = self.offset[0]
 
     def get_for_angle(self, angle_idx: int) -> tuple[float, float]:
-        """Get contrast and offset for a specific angle.
+        """Return the contrast and offset for a specific angle.
 
-        Args:
-            angle_idx: Angle index (0-based)
+        Parameters
+        ----------
+        angle_idx : int
+            Angle index (0-based).
 
-        Returns:
-            (contrast, offset) for that angle
+        Returns
+        -------
+        tuple of float
+            ``(contrast, offset)`` for that angle.
         """
         return float(self.contrast[angle_idx]), float(self.offset[angle_idx])
 
@@ -249,15 +298,20 @@ class PerAngleScaling:
     ) -> None:
         """Initialize scaling values from data using quantile estimation.
 
-        Only meaningful for 'auto' and 'constant_averaged' modes.
-        For 'auto', sets per-angle initial values.
-        For 'constant_averaged', sets averaged initial value for first angle.
+        Only meaningful for ``"auto"`` and ``"constant_averaged"`` modes. For
+        ``"auto"`` it sets per-angle initial values; for
+        ``"constant_averaged"`` it collapses to a single averaged value.
 
-        Args:
-            c2_data: Pooled C2 correlation values.
-            t1: Pooled first time coordinates.
-            t2: Pooled second time coordinates.
-            phi_indices: Index mapping each point to its angle (0-based).
+        Parameters
+        ----------
+        c2_data : np.ndarray
+            Pooled C2 correlation values.
+        t1 : np.ndarray
+            Pooled first time coordinates.
+        t2 : np.ndarray
+            Pooled second time coordinates.
+        phi_indices : np.ndarray
+            Index mapping each point to its angle (0-based).
         """
         contrast_bounds = (
             SCALING_PARAMS["contrast"].min_bound,
@@ -302,24 +356,35 @@ def estimate_contrast_offset_from_quantiles(
 ) -> tuple[float, float]:
     """Estimate contrast and offset from C2 data using quantile analysis.
 
-    Uses the correlation decay structure:
-        C2 = offset + contrast × [correlation] / normalization
+    Uses the correlation decay structure
+    ``C2 = offset + contrast * [correlation] / normalization``. At large time
+    lags the correlation tends to 0, so ``C2`` tends to ``offset`` (the
+    "floor"); at small time lags the correlation is near 1, so ``C2`` is near
+    ``contrast + offset`` (the "ceiling").
 
-    At large time lags, correlation → 0, so C2 → offset (the "floor").
-    At small time lags, correlation ≈ 1, so C2 ≈ contrast + offset (the "ceiling").
+    Parameters
+    ----------
+    c2_data : np.ndarray
+        C2 correlation values (1D).
+    delta_t : np.ndarray
+        Time-lag values ``|t1 - t2|``, same shape as ``c2_data``.
+    contrast_bounds : tuple of float, optional
+        Valid bounds for contrast.
+    offset_bounds : tuple of float, optional
+        Valid bounds for offset.
+    lag_floor_quantile : float, optional
+        Quantile threshold for the "large lag" region (top 20%).
+    lag_ceiling_quantile : float, optional
+        Quantile threshold for the "small lag" region (bottom 20%).
+    value_quantile_low : float, optional
+        Quantile for robust floor estimation.
+    value_quantile_high : float, optional
+        Quantile for robust ceiling estimation.
 
-    Args:
-        c2_data: C2 correlation values (1D).
-        delta_t: Time lag values |t1 - t2| (same shape as c2_data).
-        contrast_bounds: Valid bounds for contrast.
-        offset_bounds: Valid bounds for offset.
-        lag_floor_quantile: Quantile threshold for "large lag" region (top 20%).
-        lag_ceiling_quantile: Quantile threshold for "small lag" region (bottom 20%).
-        value_quantile_low: Quantile for robust floor estimation.
-        value_quantile_high: Quantile for robust ceiling estimation.
-
-    Returns:
-        (contrast_est, offset_est) clipped to bounds.
+    Returns
+    -------
+    tuple of float
+        ``(contrast_est, offset_est)`` clipped to the supplied bounds.
     """
     c2 = np.asarray(c2_data)
     dt = np.asarray(delta_t)
@@ -376,21 +441,33 @@ def estimate_per_angle_scaling(
 ) -> dict[str, float]:
     """Estimate contrast and offset initial values for each phi angle.
 
-    Uses vectorized grouped operations with searchsorted for efficient
+    Uses vectorized grouped operations with ``searchsorted`` for efficient
     per-angle estimation.
 
-    Args:
-        c2_data: Pooled C2 correlation values.
-        t1: Pooled first time coordinates.
-        t2: Pooled second time coordinates.
-        phi_indices: Index mapping each data point to its phi angle (0 to n_phi-1).
-        n_phi: Number of unique phi angles.
-        contrast_bounds: Valid bounds for contrast.
-        offset_bounds: Valid bounds for offset.
-        log: Logger for diagnostic messages.
+    Parameters
+    ----------
+    c2_data : np.ndarray
+        Pooled C2 correlation values.
+    t1 : np.ndarray
+        Pooled first time coordinates.
+    t2 : np.ndarray
+        Pooled second time coordinates.
+    phi_indices : np.ndarray
+        Index mapping each data point to its phi angle (``0`` to ``n_phi-1``).
+    n_phi : int
+        Number of unique phi angles.
+    contrast_bounds : tuple of float
+        Valid bounds for contrast.
+    offset_bounds : tuple of float
+        Valid bounds for offset.
+    log : logging.Logger or logging.LoggerAdapter, optional
+        Logger for diagnostic messages; falls back to the module logger.
 
-    Returns:
-        Dictionary with keys 'contrast_0', 'offset_0', 'contrast_1', etc.
+    Returns
+    -------
+    dict of str to float
+        Dictionary keyed by ``"contrast_0"``, ``"offset_0"``,
+        ``"contrast_1"``, and so on.
     """
     if log is None:
         log = logger
@@ -476,21 +553,32 @@ def compute_averaged_scaling(
 ) -> tuple[float, float, np.ndarray, np.ndarray]:
     """Compute averaged contrast and offset for constant mode.
 
-    Estimates per-angle values via quantile analysis, then averages
-    to produce single values for constant mode optimization.
+    Estimates per-angle values via quantile analysis, then averages them to
+    produce single values for constant-mode optimization.
 
-    Args:
-        c2_data: Pooled C2 correlation values.
-        t1: Pooled first time coordinates.
-        t2: Pooled second time coordinates.
-        phi_indices: Index mapping each data point to its phi angle.
-        n_phi: Number of unique phi angles.
-        contrast_bounds: Valid bounds for contrast.
-        offset_bounds: Valid bounds for offset.
-        log: Logger for diagnostic messages.
+    Parameters
+    ----------
+    c2_data : np.ndarray
+        Pooled C2 correlation values.
+    t1 : np.ndarray
+        Pooled first time coordinates.
+    t2 : np.ndarray
+        Pooled second time coordinates.
+    phi_indices : np.ndarray
+        Index mapping each data point to its phi angle.
+    n_phi : int
+        Number of unique phi angles.
+    contrast_bounds : tuple of float
+        Valid bounds for contrast.
+    offset_bounds : tuple of float
+        Valid bounds for offset.
+    log : logging.Logger or logging.LoggerAdapter, optional
+        Logger for diagnostic messages; falls back to the module logger.
 
-    Returns:
-        (contrast_avg, offset_avg, contrast_per_angle, offset_per_angle)
+    Returns
+    -------
+    tuple
+        ``(contrast_avg, offset_avg, contrast_per_angle, offset_per_angle)``.
     """
     if log is None:
         log = logger

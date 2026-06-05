@@ -1,4 +1,5 @@
 """Homodyne NLSQ parameter space.
+
 =================================
 
 Defines :class:`ParameterSpace`, the bounds container consumed by the NLSQ

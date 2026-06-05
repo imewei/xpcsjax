@@ -1,4 +1,5 @@
-"""Physical Models for XPCS Homodyne Analysis
+"""Physical models for XPCS homodyne analysis.
+
 =============================================
 
 Object-oriented interface to the physical models implemented in the JAX backend.
@@ -75,11 +76,14 @@ class PhysicsModelBase(ABC):
     """
 
     def __init__(self, name: str, parameter_names: list[str]):
-        """Initialize base model.
+        """Initialize the base model.
 
-        Args:
-            name: Model name for identification
-            parameter_names: List of parameter names in order
+        Parameters
+        ----------
+        name : str
+            Model name for identification.
+        parameter_names : list of str
+            Parameter names in optimization order.
         """
         self.name = name
         self.parameter_names = parameter_names
@@ -136,22 +140,25 @@ class PhysicsModelBase(ABC):
             return dict(zip(self.parameter_names, params_np, strict=False))
 
     def __repr__(self) -> str:
+        """Return ``ClassName(name=..., n_params=...)``."""
         return f"{self.__class__.__name__}(name='{self.name}', n_params={self.n_params})"
 
 
 class DiffusionModel(PhysicsModelBase):
-    """Anomalous diffusion model: D(t) = D₀ t^α + D_offset
+    """Anomalous diffusion model with D(t) = D₀ t^α + D_offset.
 
-    Parameters:
-    - D₀: Reference diffusion coefficient [Å²/s]
-    - α: Diffusion time-dependence exponent [-]
-    - D_offset: Baseline diffusion [Å²/s]
+    The three physical parameters (in order) are:
 
-    Physical interpretation:
-    - α = 0: Normal diffusion (Brownian motion)
-    - α > 0: Super-diffusion (enhanced mobility)
-    - α < 0: Sub-diffusion (restricted mobility)
-    - D_offset: Residual diffusion at t=0
+    - ``D0``: Reference diffusion coefficient [Å²/s].
+    - ``alpha``: Diffusion time-dependence exponent [-].
+    - ``D_offset``: Baseline diffusion [Å²/s].
+
+    Physical interpretation of the exponent:
+
+    - ``alpha = 0``: Normal diffusion (Brownian motion).
+    - ``alpha > 0``: Super-diffusion (enhanced mobility).
+    - ``alpha < 0``: Sub-diffusion (restricted mobility).
+    - ``D_offset``: Residual diffusion at t=0.
     """
 
     def __init__(self) -> None:
@@ -185,7 +192,7 @@ class DiffusionModel(PhysicsModelBase):
         return compute_g1_diffusion(params, t1, t2, q, dt)
 
     def get_parameter_bounds(self) -> list[tuple[float, float]]:
-        """Standard bounds for diffusion parameters."""
+        """Return the standard bounds for the diffusion parameters."""
         return [
             (100.0, 1e5),  # D0: 100 to 1e5 Å²/s
             (-2.0, 2.0),  # alpha: -2 to 2
@@ -198,19 +205,21 @@ class DiffusionModel(PhysicsModelBase):
 
 
 class ShearModel(PhysicsModelBase):
-    """Time-dependent shear model: γ̇(t) = γ̇₀ t^β + γ̇_offset
+    """Time-dependent shear model with γ̇(t) = γ̇₀ t^β + γ̇_offset.
 
-    Parameters:
-    - γ̇₀: Reference shear rate [s⁻¹]
-    - β: Shear rate time-dependence exponent [-]
-    - γ̇_offset: Baseline shear rate [s⁻¹]
-    - φ₀: Angular offset parameter [degrees]
+    The four physical parameters (in order) are:
 
-    Physical interpretation:
-    - β = 0: Constant shear rate (steady shear)
-    - β > 0: Increasing shear rate with time
-    - β < 0: Decreasing shear rate with time
-    - φ₀: Preferred flow direction angle
+    - ``gamma_dot_t0``: Reference shear rate [s⁻¹].
+    - ``beta``: Shear rate time-dependence exponent [-].
+    - ``gamma_dot_t_offset``: Baseline shear rate [s⁻¹].
+    - ``phi0``: Angular offset / flow direction [degrees].
+
+    Physical interpretation of the exponent:
+
+    - ``beta = 0``: Constant shear rate (steady shear).
+    - ``beta > 0``: Increasing shear rate with time.
+    - ``beta < 0``: Decreasing shear rate with time.
+    - ``phi0``: Preferred flow direction angle.
     """
 
     def __init__(self) -> None:
@@ -246,7 +255,7 @@ class ShearModel(PhysicsModelBase):
         return compute_g1_shear(full_params, t1, t2, phi, q, L, dt)  # type: ignore[arg-type]
 
     def get_parameter_bounds(self) -> list[tuple[float, float]]:
-        """Standard bounds for shear parameters."""
+        """Return the standard bounds for the shear parameters."""
         return [
             (1e-6, 0.5),  # gamma_dot_t0: 1e-6 to 0.5 s⁻¹
             (-2.0, 2.0),  # beta: -2 to 2
@@ -284,10 +293,14 @@ class CombinedModel(
     """
 
     def __init__(self, analysis_mode: AnalysisMode = AnalysisMode.LAMINAR_FLOW):
-        """Initialize combined model.
+        """Initialize the combined diffusion + shear model.
 
-        Args:
-            analysis_mode: "static_anisotropic", "static_isotropic", or "laminar_flow"
+        Parameters
+        ----------
+        analysis_mode : AnalysisMode
+            One of ``"static_anisotropic"``, ``"static_isotropic"`` (both use
+            the 3 diffusion parameters), or ``"laminar_flow"`` (all 7
+            parameters). Defaults to ``AnalysisMode.LAMINAR_FLOW``.
         """
         self.analysis_mode = analysis_mode
 
@@ -469,7 +482,7 @@ class CombinedModel(
         offset: float,
         dt: float,
     ) -> jnp.ndarray:
-        """Compute g2 with scaled fitting: g₂ = offset + contrast × [g₁]²
+        r"""Compute g2 with scaled fitting g₂ = offset + contrast × [g₁]².
 
         Parameters
         ----------
@@ -573,13 +586,23 @@ class CombinedModel(
 
 # Factory functions for easy model creation
 def create_model(analysis_mode: AnalysisMode) -> CombinedModel:
-    """Factory function to create appropriate model for analysis mode.
+    """Create the appropriate :class:`CombinedModel` for an analysis mode.
 
-    Args:
-        analysis_mode: "static_anisotropic", "static_isotropic", or "laminar_flow"
+    Parameters
+    ----------
+    analysis_mode : AnalysisMode
+        One of ``"static_anisotropic"``, ``"static_isotropic"``, or
+        ``"laminar_flow"``.
 
-    Returns:
-        Configured CombinedModel instance
+    Returns
+    -------
+    CombinedModel
+        Configured model instance for the requested mode.
+
+    Raises
+    ------
+    ValueError
+        If ``analysis_mode`` is not one of the supported homodyne modes.
     """
     valid_modes = ["static_anisotropic", "static_isotropic", "laminar_flow"]
     if analysis_mode not in valid_modes:

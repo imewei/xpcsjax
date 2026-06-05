@@ -37,17 +37,23 @@ from xpcsjax.core.math_primitives import safe_exp  # noqa: F401
 
 
 def safe_power(base: jnp.ndarray | np.ndarray, exponent: float) -> jnp.ndarray:
-    """Power function safe for non-positive bases.
+    """Compute a power function that is safe for non-positive bases.
 
-    For base ≤ 0, returns 0.0 (the physical limit for t^α transport).
-    For base > 0, returns base^exponent normally.
+    For ``base <= 0`` this returns ``0.0`` (the physical limit for the
+    ``t**alpha`` transport term); for ``base > 0`` it returns
+    ``base ** exponent`` normally.
 
-    Args:
-        base: Base array (typically time values)
-        exponent: Power exponent
+    Parameters
+    ----------
+    base : jnp.ndarray or np.ndarray
+        Base array, typically time values.
+    exponent : float
+        Power exponent.
 
-    Returns:
-        Safe power result, same shape as base
+    Returns
+    -------
+    jnp.ndarray
+        Safe power result, same shape as ``base``.
     """
     base = jnp.asarray(base)
     # Use jnp.where instead of jnp.maximum to preserve gradients below the
@@ -64,16 +70,23 @@ def safe_divide(
     fill: float = 0.0,
     min_denom: float = 1e-30,
 ) -> jnp.ndarray:
-    """Division with protection against zero/near-zero denominators.
+    """Divide with protection against zero or near-zero denominators.
 
-    Args:
-        numerator: Dividend array
-        denominator: Divisor array
-        fill: Value to return where denominator is too small
-        min_denom: Minimum absolute denominator value
+    Parameters
+    ----------
+    numerator : jnp.ndarray or np.ndarray
+        Dividend array.
+    denominator : jnp.ndarray or np.ndarray
+        Divisor array.
+    fill : float, optional
+        Value to return where the denominator is too small.
+    min_denom : float, optional
+        Minimum absolute denominator magnitude treated as non-zero.
 
-    Returns:
-        Safe quotient, same shape as inputs
+    Returns
+    -------
+    jnp.ndarray
+        Safe quotient, broadcast to the shape of the inputs.
     """
     num = jnp.asarray(numerator)
     den = jnp.asarray(denominator)
@@ -87,14 +100,19 @@ def safe_divide(
 
 
 def safe_log(x: jnp.ndarray | np.ndarray, floor: float = 1e-30) -> jnp.ndarray:
-    """Logarithm with protection against non-positive arguments.
+    """Compute a logarithm with protection against non-positive arguments.
 
-    Args:
-        x: Input array
-        floor: Minimum value before taking log
+    Parameters
+    ----------
+    x : jnp.ndarray or np.ndarray
+        Input array.
+    floor : float, optional
+        Minimum value substituted before taking the logarithm.
 
-    Returns:
-        log(max(x, floor)), same shape as x
+    Returns
+    -------
+    jnp.ndarray
+        ``log(max(x, floor))``, same shape as ``x``.
     """
     x = jnp.asarray(x)
     # Use jnp.where to preserve gradients: jnp.maximum zeros the gradient
@@ -103,13 +121,17 @@ def safe_log(x: jnp.ndarray | np.ndarray, floor: float = 1e-30) -> jnp.ndarray:
 
 
 def safe_sqrt(x: jnp.ndarray | np.ndarray) -> jnp.ndarray:
-    """Square root with protection against negative arguments.
+    """Compute a square root with protection against negative arguments.
 
-    Args:
-        x: Input array
+    Parameters
+    ----------
+    x : jnp.ndarray or np.ndarray
+        Input array.
 
-    Returns:
-        sqrt(max(x, 0)), same shape as x
+    Returns
+    -------
+    jnp.ndarray
+        ``sqrt(max(x, 0))``, same shape as ``x``.
     """
     x = jnp.asarray(x)
     # Use jnp.where to preserve gradients: jnp.maximum zeros the gradient
@@ -121,17 +143,23 @@ def compute_relative_difference(
     a: jnp.ndarray | np.ndarray,
     b: jnp.ndarray | np.ndarray,
 ) -> jnp.ndarray:
-    """Compute element-wise relative difference ``|a - b|`` / max(``|a|``, ``|b|``, 1e-10).
+    """Compute the element-wise relative difference between two arrays.
 
-    Useful for comparing correlation matrices or parameter arrays
-    where absolute differences may mislead at different scales.
+    Defined as ``|a - b| / max(|a|, |b|, 1e-10)``. Useful for comparing
+    correlation matrices or parameter arrays where absolute differences may
+    mislead across different scales.
 
-    Args:
-        a: First array
-        b: Second array
+    Parameters
+    ----------
+    a : jnp.ndarray or np.ndarray
+        First array.
+    b : jnp.ndarray or np.ndarray
+        Second array.
 
-    Returns:
-        Relative difference array, values in [0, 2]
+    Returns
+    -------
+    jnp.ndarray
+        Relative-difference array with values in ``[0, 2]``.
     """
     a, b = jnp.asarray(a), jnp.asarray(b)
     max_abs = jnp.maximum(jnp.maximum(jnp.abs(a), jnp.abs(b)), 1e-10)
@@ -139,13 +167,17 @@ def compute_relative_difference(
 
 
 def symmetrize(matrix: jnp.ndarray | np.ndarray) -> jnp.ndarray:
-    """Force a matrix to be exactly symmetric: (M + M^T) / 2.
+    """Force a matrix to be exactly symmetric via ``(M + M.T) / 2``.
 
-    Args:
-        matrix: Square matrix
+    Parameters
+    ----------
+    matrix : jnp.ndarray or np.ndarray
+        Square matrix.
 
-    Returns:
-        Symmetric matrix
+    Returns
+    -------
+    jnp.ndarray
+        Symmetrized matrix.
     """
     m = jnp.asarray(matrix)
     return 0.5 * (m + m.T)
@@ -157,19 +189,30 @@ def symmetrize(matrix: jnp.ndarray | np.ndarray) -> jnp.ndarray:
 
 
 def smooth_abs(x: jnp.ndarray, eps: float = 1e-12) -> jnp.ndarray:
-    """Gradient-safe absolute value: sqrt(x² + ε).
+    """Compute a gradient-safe absolute value ``sqrt(x**2 + eps)``.
 
-    ``jnp.abs(x)`` has undefined gradient at x=0, which causes NaN
-    in NUTS backpropagation on matrix diagonals where integrals are
-    zero.  This smooth approximation matches ``|x|`` to O(√ε) and
-    has well-defined gradients everywhere.
+    ``jnp.abs(x)`` has an undefined gradient at ``x = 0``, which produces
+    NaN gradients on matrix diagonals where integrals vanish. This smooth
+    approximation matches ``|x|`` to ``O(sqrt(eps))`` and has well-defined
+    gradients everywhere.
 
-    Args:
-        x: Input array.
-        eps: Smoothing parameter. 1e-12 gives ~1e-6 bias on diagonal.
+    Parameters
+    ----------
+    x : jnp.ndarray
+        Input array.
+    eps : float, optional
+        Smoothing parameter; ``1e-12`` gives a ~``1e-6`` bias on the diagonal.
 
-    Returns:
-        Smooth ``|x|``, same shape as x.
+    Returns
+    -------
+    jnp.ndarray
+        Smooth ``|x|``, same shape as ``x``.
+
+    Notes
+    -----
+    Although named ``safe_exp`` is canonical elsewhere, this is a heterodyne-
+    specific gradient-safe primitive. The bias is the price paid for a finite
+    gradient at the origin.
     """
     return jnp.sqrt(x**2 + eps)
 
@@ -187,21 +230,27 @@ def smooth_clip(
     [0, 1]) where a hard ``jnp.clip`` would zero the gradient and stall
     NUTS leapfrog integration or NLSQ Jacobian descent (CLAUDE.md rule #7).
 
-    The boundary smear scales as ``1/sharpness`` — at the default value
-    ``sharpness=50`` the boundary lands within ~``(high-low)/50`` of the
-    target (≈2% of the range), with monotonic identity in the interior.
-    Raise ``sharpness`` for a tighter approximation at the cost of
-    gradient magnitude near the boundary; lower it for stronger
-    regularisation.
+    The boundary smear scales as ``1 / sharpness`` — at the default value
+    ``sharpness=50`` the boundary lands within ~``(high - low) / 50`` of the
+    target (about 2% of the range), with monotonic identity in the interior.
+    Raise ``sharpness`` for a tighter approximation at the cost of gradient
+    magnitude near the boundary; lower it for stronger regularisation.
 
-    Args:
-        x: Input array (any shape).
-        low: Lower physical bound (inclusive in the limit).
-        high: Upper physical bound (inclusive in the limit).
-        sharpness: Softplus sharpness; default 50 gives ~2% boundary smear.
+    Parameters
+    ----------
+    x : jnp.ndarray
+        Input array of any shape.
+    low : float
+        Lower physical bound (inclusive in the limit).
+    high : float
+        Upper physical bound (inclusive in the limit).
+    sharpness : float, optional
+        Softplus sharpness; default ``50`` gives a ~2% boundary smear.
 
-    Returns:
-        Smoothly bounded array, asymptotically in (low, high), with
+    Returns
+    -------
+    jnp.ndarray
+        Smoothly bounded array, asymptotically within ``(low, high)``, with
         well-defined gradients everywhere.
     """
     k = sharpness
@@ -212,20 +261,26 @@ def smooth_clip(
 
 
 def trapezoid_cumsum(f: jnp.ndarray, dt: float | jnp.ndarray) -> jnp.ndarray:
-    """Trapezoidal cumulative integral with O(dt²) accuracy.
+    """Compute a trapezoidal cumulative integral with ``O(dt**2)`` accuracy.
 
-    Computes cumsum[0] = 0, cumsum[k] = Σ_{i=0}^{k-1} (f[i]+f[i+1])/2 × dt.
+    Yields ``cumsum[0] = 0`` and
+    ``cumsum[k] = sum_{i=0}^{k-1} (f[i] + f[i+1]) / 2 * dt``.
 
-    This matches homodyne's ``trapezoid_cumsum`` pattern.  The dt factor
-    is included in the returned values (unlike homodyne which factors it
-    out into the wavevector prefactor).
+    This matches the homodyne ``trapezoid_cumsum`` pattern, except the ``dt``
+    factor is folded into the returned values here (homodyne factors it out
+    into the wavevector prefactor); do not merge the two implementations.
 
-    Args:
-        f: Function values at uniformly spaced time points, shape (N,).
-        dt: Time step.
+    Parameters
+    ----------
+    f : jnp.ndarray
+        Function values at uniformly spaced time points, shape ``(N,)``.
+    dt : float or jnp.ndarray
+        Time step.
 
-    Returns:
-        Cumulative integral, shape (N,).  cumsum[0] = 0 always.
+    Returns
+    -------
+    jnp.ndarray
+        Cumulative integral, shape ``(N,)``; ``cumsum[0]`` is always ``0``.
     """
     midpoints = (f[:-1] + f[1:]) / 2.0
     return jnp.concatenate([jnp.zeros(1), jnp.cumsum(midpoints) * dt])
@@ -245,14 +300,23 @@ def create_signed_integral_matrix(cumsum_values: jnp.ndarray) -> jnp.ndarray:
     values — hence the rename.
 
     For transport integrals, call ``smooth_abs`` on the result to get
-    direction-independent decay.  For velocity integrals, use the signed
-    result directly (it feeds into ``cos(q cos(φ) ∫v dt)``).
+    direction-independent decay. For velocity integrals, use the signed
+    result directly (it feeds into ``cos(q cos(phi) integral(v) dt)``).
 
-    Args:
-        cumsum_values: Cumulative integral, shape (N,).
+    Parameters
+    ----------
+    cumsum_values : jnp.ndarray
+        Cumulative integral, shape ``(N,)``.
 
-    Returns:
-        Signed integral matrix, shape (N, N).
+    Returns
+    -------
+    jnp.ndarray
+        Signed integral matrix ``M[i, j] = cumsum[j] - cumsum[i]``,
+        shape ``(N, N)``.
+
+    See Also
+    --------
+    smooth_abs : Gradient-safe absolute value applied to transport integrals.
     """
     return cumsum_values[None, :] - cumsum_values[:, None]
 
@@ -263,18 +327,25 @@ def compute_transport_rate(
     alpha: float | jnp.ndarray,
     offset: float | jnp.ndarray,
 ) -> jnp.ndarray:
-    """Transport rate function J(t) = D0·t^α + offset.
+    """Evaluate the transport rate ``J(t) = D0 * t**alpha + offset``.
 
     Used by the NLSQ path for integral evaluation.
 
-    Args:
-        t: Time array, shape (N,).
-        D0: Transport prefactor (Å²/s^α).
-        alpha: Transport exponent (dimensionless).
-        offset: Constant rate offset (Å²/s).
+    Parameters
+    ----------
+    t : jnp.ndarray
+        Time array, shape ``(N,)``.
+    D0 : float or jnp.ndarray
+        Transport prefactor in ``Angstrom**2 / s**alpha``.
+    alpha : float or jnp.ndarray
+        Transport exponent (dimensionless).
+    offset : float or jnp.ndarray
+        Constant rate offset in ``Angstrom**2 / s``.
 
-    Returns:
-        Rate values, shape (N,), floored at 0.
+    Returns
+    -------
+    jnp.ndarray
+        Rate values, shape ``(N,)``, floored at ``0``.
     """
     # t_safe: prevent NaN in jnp.power when t=0 with negative alpha.
     # t is a data array (not a parameter), so jnp.where here does not affect
@@ -294,20 +365,28 @@ def compute_velocity_rate(
     beta: float | jnp.ndarray,
     v_offset: float | jnp.ndarray,
 ) -> jnp.ndarray:
-    """Velocity rate function v(t) = v0·t^β + v_offset.
+    """Evaluate the velocity rate ``v(t) = v0 * t**beta + v_offset``.
 
-    Unlike transport rate, the velocity is NOT floored at 0 because
-    the velocity integral enters as cos(q·cos(φ)·∫v dt) which is
-    naturally bounded.
+    Unlike the transport rate, the velocity is not floored at ``0`` because
+    the velocity integral enters as ``cos(q cos(phi) integral(v) dt)``, which
+    is naturally bounded.
 
-    Args:
-        t: Time array, shape (N,).
-        v0: Velocity prefactor (Å/s^β).
-        beta: Velocity exponent (dimensionless).
-        v_offset: Constant velocity offset (Å/s).
+    Parameters
+    ----------
+    t : jnp.ndarray
+        Time array, shape ``(N,)``.
+    v0 : float or jnp.ndarray
+        Velocity prefactor in ``Angstrom / s**beta``.
+    beta : float or jnp.ndarray
+        Velocity exponent (dimensionless). This is the kernel-internal name
+        for the registry parameter ``v_beta``.
+    v_offset : float or jnp.ndarray
+        Constant velocity offset in ``Angstrom / s``.
 
-    Returns:
-        Velocity values, shape (N,).
+    Returns
+    -------
+    jnp.ndarray
+        Velocity values, shape ``(N,)``.
     """
     # Use jnp.where instead of jnp.maximum to preserve gradients below the
     # t=0 floor (jnp.maximum zeros the gradient there).
@@ -318,15 +397,21 @@ def compute_velocity_rate(
 
 @jax.jit
 def safe_sinc(x: jnp.ndarray) -> jnp.ndarray:
-    """Unnormalized sinc function sin(x)/x, safe at x=0.
+    """Evaluate the unnormalized sinc ``sin(x) / x``, safe at ``x = 0``.
 
-    Returns 1.0 at x=0 (the mathematical limit).
+    Returns ``1.0`` at ``x = 0`` (the mathematical limit). This intentionally
+    differs from the homodyne Taylor-expansion variant; see the
+    ``math_primitives`` module docstring.
 
-    Args:
-        x: Input array (radians, unnormalized).
+    Parameters
+    ----------
+    x : jnp.ndarray
+        Input array in radians (unnormalized).
 
-    Returns:
-        sin(x)/x with sinc(0) = 1.
+    Returns
+    -------
+    jnp.ndarray
+        ``sin(x) / x`` with ``sinc(0) = 1``.
     """
     x = jnp.asarray(x)
     x_safe = jnp.where(jnp.abs(x) > 1e-10, x, 1.0)

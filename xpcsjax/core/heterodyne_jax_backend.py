@@ -53,19 +53,27 @@ def compute_fraction_jit(
     f2: float,
     f3: float,
 ) -> jnp.ndarray:
-    """JIT-compiled sample fraction computation.
+    """Compute the sample fraction (JIT-compiled).
 
-    f_s(t) = f0 * exp(f1 * (t - f2)) + f3, clipped to [0, 1]
+    Evaluates ``f_s(t) = f0 * exp(f1 * (t - f2)) + f3``, clipped to ``[0, 1]``.
 
-    Args:
-        t: Time array
-        f0: Amplitude
-        f1: Exponential rate
-        f2: Time shift
-        f3: Baseline
+    Parameters
+    ----------
+    t : jnp.ndarray
+        Time array.
+    f0 : float
+        Amplitude.
+    f1 : float
+        Exponential rate.
+    f2 : float
+        Time shift.
+    f3 : float
+        Baseline.
 
-    Returns:
-        Fraction array in [0, 1]
+    Returns
+    -------
+    jnp.ndarray
+        Fraction array clipped to ``[0, 1]``.
     """
     # ``safe_exp`` + ``smooth_clip`` preserve gradient at the [0, 1] boundary
     # so NLSQ Jacobian descent does not stall when f(t) saturates (CLAUDE.md
@@ -82,25 +90,32 @@ def compute_velocity_integral_matrix(
     v_offset: float,
     dt: float,
 ) -> jnp.ndarray:
-    """JIT-compiled velocity integral matrix (NLSQ meshgrid path).
+    """Compute the velocity integral matrix (NLSQ meshgrid path, JIT-compiled).
 
-    Computes M[i,j] = ∫_{t_i}^{t_j} v(t') dt'
-    where v(t) = v0 * t^beta + v_offset
+    Computes ``M[i, j] = integral_{t_i}^{t_j} v(t') dt'`` where
+    ``v(t) = v0 * t**beta + v_offset``, using the shared
+    ``trapezoid_cumsum`` then ``create_signed_integral_matrix`` pipeline for
+    ``O(N)`` efficiency and ``O(dt**2)`` accuracy. The velocity integral is
+    *signed* (not absolute-valued) because it feeds the phase factor
+    ``cos(q cos(phi) integral(v) dt)``.
 
-    Uses shared ``trapezoid_cumsum`` → ``create_signed_integral_matrix``
-    pipeline for O(N) efficiency and O(dt²) accuracy.
-    The velocity integral is *signed* (not absolute-valued) because it
-    feeds into the phase factor ``cos(q cos(φ) ∫v dt)``.
+    Parameters
+    ----------
+    t : jnp.ndarray
+        Time array, shape ``(N,)``.
+    v0 : float
+        Velocity prefactor.
+    beta : float
+        Velocity exponent (kernel-internal name for the registry ``v_beta``).
+    v_offset : float
+        Velocity offset.
+    dt : float
+        Time step.
 
-    Args:
-        t: Time array, shape (N,)
-        v0: Velocity prefactor
-        beta: Velocity exponent
-        v_offset: Velocity offset
-        dt: Time step
-
-    Returns:
-        Signed integral matrix, shape (N, N)
+    Returns
+    -------
+    jnp.ndarray
+        Signed integral matrix, shape ``(N, N)``.
     """
     velocity = compute_velocity_rate(t, v0, beta, v_offset)
     cumsum = trapezoid_cumsum(velocity, dt)
@@ -115,23 +130,30 @@ def compute_transport_integral_matrix(
     offset: float,
     dt: float,
 ) -> jnp.ndarray:
-    """JIT-compiled transport integral matrix (NLSQ meshgrid path).
+    """Compute the transport integral matrix (NLSQ meshgrid path, JIT-compiled).
 
-    Computes ``M[i,j] = |∫_{t_i}^{t_j} J_rate(t') dt'|``
-    where J_rate(t) = D0 * t^alpha + offset
+    Computes ``M[i, j] = |integral_{t_i}^{t_j} J_rate(t') dt'|`` where
+    ``J_rate(t) = D0 * t**alpha + offset``, using the shared
+    ``compute_transport_rate`` then ``trapezoid_cumsum`` then
+    ``create_signed_integral_matrix`` then ``smooth_abs`` pipeline.
 
-    Uses shared ``compute_transport_rate`` → ``trapezoid_cumsum`` →
-    ``create_signed_integral_matrix`` → ``smooth_abs`` pipeline.
+    Parameters
+    ----------
+    t : jnp.ndarray
+        Time array, shape ``(N,)``.
+    D0 : float
+        Transport prefactor.
+    alpha : float
+        Transport exponent.
+    offset : float
+        Transport rate offset.
+    dt : float
+        Time step.
 
-    Args:
-        t: Time array, shape (N,)
-        D0: Transport prefactor
-        alpha: Transport exponent
-        offset: Transport rate offset
-        dt: Time step
-
-    Returns:
-        Transport integral matrix, shape (N, N)
+    Returns
+    -------
+    jnp.ndarray
+        Transport integral matrix, shape ``(N, N)``.
     """
     J_rate = compute_transport_rate(t, D0, alpha, offset)
     cumsum = trapezoid_cumsum(J_rate, dt)
@@ -148,27 +170,48 @@ def compute_c2_heterodyne(
     contrast: float = 1.0,
     offset: float = 1.0,
 ) -> jnp.ndarray:
-    """JIT-compiled two-time heterodyne correlation (meshgrid path).
+    """Compute the two-time heterodyne correlation (meshgrid path, JIT-compiled).
 
-    Thin shim around :func:`xpcsjax.core.heterodyne_physics_kernel.compute_c2_unified`
-    with ``eval_strategy="meshgrid"``.  Codex/Gemini G1: the physics math
-    lives in the unified kernel; this function preserves the legacy import
-    path for all NLSQ call sites (``compute_residuals``, ``compute_jacobian``,
-    multi-angle stratified fits, etc.) without behavioural change.
+    Thin shim around
+    :func:`xpcsjax.core.heterodyne_physics_kernel.compute_c2_unified` with
+    ``eval_strategy="meshgrid"``. The physics math lives in the unified
+    kernel; this function preserves the legacy import path for all NLSQ call
+    sites (``compute_residuals``, ``compute_residuals_jacobian``, multi-angle
+    stratified fits, etc.) without behavioural change. The kernel evaluates a
+    meshgrid over the full per-angle time grid.
 
-    Args:
-        params: Parameter array of shape ``(14,)`` in canonical order:
-            ``[D0_ref, alpha_ref, D_offset_ref, D0_sample, alpha_sample,
-            D_offset_sample, v0, beta, v_offset, f0, f1, f2, f3, phi0]``.
-        t: Time array, shape (N,)
-        q: Scattering wavevector magnitude
-        dt: Time step
-        phi_angle: Detector phi angle (degrees)
-        contrast: Speckle contrast (beta), default 1.0
-        offset: Baseline offset, default 1.0
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Parameter array of shape ``(14,)`` in canonical registry order:
+        ``[D0_ref, alpha_ref, D_offset_ref, D0_sample, alpha_sample,
+        D_offset_sample, v0, v_beta, v_offset, f0, f1, f2, f3, phi0_het]``.
+        The kernel-internal names ``beta`` / ``phi0`` correspond to the
+        registry ``v_beta`` / ``phi0_het``.
+    t : jnp.ndarray
+        Time array, shape ``(N,)``.
+    q : float
+        Scattering wavevector magnitude.
+    dt : float
+        Time step.
+    phi_angle : float
+        Detector phi angle in degrees.
+    contrast : float, optional
+        Speckle contrast (the kernel-internal ``beta`` of the prefactor),
+        default ``1.0``.
+    offset : float, optional
+        Baseline offset, default ``1.0``.
 
-    Returns:
-        Correlation matrix c2, shape (N, N).
+    Returns
+    -------
+    jnp.ndarray
+        Correlation matrix ``c2``, shape ``(N, N)``.
+
+    Examples
+    --------
+    >>> c2 = compute_c2_heterodyne(params, t, q=0.01, dt=0.1, phi_angle=45.0)
+    >>> c2.shape
+    (N, N)
     """
     # Local import to avoid a cycle: physics_kernel.py imports nothing from
     # this module, but importing at module load would chain into JAX init
@@ -213,20 +256,33 @@ def compute_c2_heterodyne_pointwise(
     ``compute_c2_heterodyne(params, t, q, dt, phi_unique[phi_idx[p]],
       contrast[phi_idx[p]], offset[phi_idx[p]])[t1_idx[p], t2_idx[p]]``.
 
-    Args:
-        params: Parameter array of shape ``(14,)`` in canonical order.
-        t: Time array, shape ``(N,)``.
-        q: Scattering wavevector magnitude.
-        dt: Time step.
-        phi_unique: Shape ``(n_phi,)`` unique phi angles in degrees.
-        phi_idx: Shape ``(P,)`` int32 index into ``phi_unique`` per point.
-        t1_idx: Shape ``(P,)`` int32 time-1 indices into ``t``.
-        t2_idx: Shape ``(P,)`` int32 time-2 indices into ``t``.
-        contrast: Shape ``(n_phi,)`` per-angle speckle contrast.
-        offset: Shape ``(n_phi,)`` per-angle baseline offset.
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Parameter array of shape ``(14,)`` in canonical registry order.
+    t : jnp.ndarray
+        Time array, shape ``(N,)``.
+    q : float
+        Scattering wavevector magnitude.
+    dt : float
+        Time step.
+    phi_unique : jnp.ndarray
+        Unique phi angles in degrees, shape ``(n_phi,)``.
+    phi_idx : jnp.ndarray
+        int32 index into ``phi_unique`` per point, shape ``(P,)``.
+    t1_idx : jnp.ndarray
+        int32 time-1 indices into ``t``, shape ``(P,)``.
+    t2_idx : jnp.ndarray
+        int32 time-2 indices into ``t``, shape ``(P,)``.
+    contrast : jnp.ndarray
+        Per-angle speckle contrast, shape ``(n_phi,)``.
+    offset : jnp.ndarray
+        Per-angle baseline offset, shape ``(n_phi,)``.
 
-    Returns:
-        Flat ``(P,)`` array of c2 values.
+    Returns
+    -------
+    jnp.ndarray
+        Flat ``(P,)`` array of ``c2`` values.
     """
     from xpcsjax.core.heterodyne_physics_kernel import compute_c2_unified
 
@@ -258,19 +314,31 @@ def compute_residuals(
 ) -> jnp.ndarray:
     """Compute weighted residuals between model and data.
 
-    Args:
-        params: Parameter array, shape (14,)
-        t: Time array
-        q: Scattering wavevector
-        dt: Time step
-        phi_angle: Detector phi angle
-        c2_data: Experimental correlation data
-        weights: Optional weights (1/uncertainty²)
-        contrast: Speckle contrast (beta), default 1.0
-        offset: Baseline offset, default 1.0
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Parameter array, shape ``(14,)``.
+    t : jnp.ndarray
+        Time array.
+    q : float
+        Scattering wavevector magnitude.
+    dt : float
+        Time step.
+    phi_angle : float
+        Detector phi angle in degrees.
+    c2_data : jnp.ndarray
+        Experimental correlation data.
+    weights : jnp.ndarray, optional
+        Weights (``1 / uncertainty**2``). Defaults to ones when ``None``.
+    contrast : float, optional
+        Speckle contrast (the kernel-internal ``beta``), default ``1.0``.
+    offset : float, optional
+        Baseline offset, default ``1.0``.
 
-    Returns:
-        Flattened residual array
+    Returns
+    -------
+    jnp.ndarray
+        Flattened residual array (off-diagonal, frame-0-excluded support).
     """
     if weights is None:
         weights = jnp.ones_like(c2_data)
@@ -355,23 +423,35 @@ def compute_chi_squared(
     contrast: float,
     offset: float,
 ) -> jnp.ndarray:
-    """JIT-compiled chi-squared computation.
+    """Compute chi-squared (JIT-compiled).
 
-    chi² = sum((c2_model - c2_data)² × weights)
+    Evaluates ``chi2 = sum((c2_model - c2_data)**2 * weights)``.
 
-    Args:
-        params: Parameter array, shape (14,)
-        t: Time array
-        q: Scattering wavevector
-        dt: Time step
-        phi_angle: Detector phi angle
-        c2_data: Experimental correlation data
-        weights: Weights (1/uncertainty²)
-        contrast: Speckle contrast
-        offset: Baseline offset
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Parameter array, shape ``(14,)``.
+    t : jnp.ndarray
+        Time array.
+    q : float
+        Scattering wavevector magnitude.
+    dt : float
+        Time step.
+    phi_angle : float
+        Detector phi angle in degrees.
+    c2_data : jnp.ndarray
+        Experimental correlation data.
+    weights : jnp.ndarray
+        Weights (``1 / uncertainty**2``).
+    contrast : float
+        Speckle contrast.
+    offset : float
+        Baseline offset.
 
-    Returns:
-        Chi-squared scalar
+    Returns
+    -------
+    jnp.ndarray
+        Chi-squared scalar.
     """
     c2_model = compute_c2_heterodyne(params, t, q, dt, phi_angle, contrast, offset)
     return jnp.sum((c2_model - c2_data) ** 2 * weights)
@@ -389,28 +469,41 @@ def batch_chi_squared(
     offset: float = 1.0,
     chunk_size: int | None = None,
 ) -> jnp.ndarray:
-    """Vectorized chi-squared over a batch of parameter sets.
+    """Compute chi-squared over a batch of parameter sets (vectorized).
 
-    Uses ``jax.vmap`` for efficient parallel evaluation.  For large batches
-    or large time grids, ``chunk_size`` limits simultaneous N×N allocations
-    to prevent XLA memory exhaustion (each vmap'd evaluation allocates
-    multiple N×N intermediate matrices).
+    Uses ``jax.vmap`` for efficient parallel evaluation. For large batches
+    or large time grids, ``chunk_size`` limits simultaneous ``N x N``
+    allocations to prevent XLA memory exhaustion (each vmap'd evaluation
+    allocates multiple ``N x N`` intermediate matrices).
 
-    Args:
-        params_batch: Parameter sets, shape ``(n_sets, 14)``.
-        t: Time array, shape ``(N,)``.
-        q: Scattering wavevector.
-        dt: Time step.
-        phi_angle: Detector phi angle.
-        c2_data: Experimental data.
-        weights: Weights.
-        contrast: Speckle contrast.
-        offset: Baseline offset.
-        chunk_size: Max batch elements to vmap simultaneously.  ``None``
-            (default) auto-selects based on time-grid size: ``max(1,
-            200 // (N // 100))`` to keep peak memory under ~1.6 GB.
+    Parameters
+    ----------
+    params_batch : jnp.ndarray
+        Parameter sets, shape ``(n_sets, 14)``.
+    t : jnp.ndarray
+        Time array, shape ``(N,)``.
+    q : float
+        Scattering wavevector magnitude.
+    dt : float
+        Time step.
+    phi_angle : float
+        Detector phi angle in degrees.
+    c2_data : jnp.ndarray
+        Experimental data.
+    weights : jnp.ndarray
+        Weights.
+    contrast : float, optional
+        Speckle contrast, default ``1.0``.
+    offset : float, optional
+        Baseline offset, default ``1.0``.
+    chunk_size : int, optional
+        Max batch elements to vmap simultaneously. When ``None`` (default),
+        auto-selects from the time-grid size to keep peak memory under
+        ~1.6 GB.
 
-    Returns:
+    Returns
+    -------
+    jnp.ndarray
         Chi-squared values, shape ``(n_sets,)``.
     """
     n_sets = params_batch.shape[0]
@@ -452,21 +545,33 @@ def compute_multi_angle_residuals(
     contrasts: jnp.ndarray,
     offsets: jnp.ndarray,
 ) -> jnp.ndarray:
-    """JIT-compiled residuals for multiple phi angles simultaneously.
+    """Compute residuals for multiple phi angles simultaneously (JIT-compiled).
 
-    Args:
-        params: Parameter array, shape (14,)
-        t: Time array, shape (N,)
-        q: Scattering wavevector
-        dt: Time step
-        phi_angles: Phi angles, shape (n_phi,)
-        c2_data_batch: Experimental data, shape (n_phi, N, N)
-        weights_batch: Weights, shape (n_phi, N, N)
-        contrasts: Per-angle contrasts, shape (n_phi,)
-        offsets: Per-angle offsets, shape (n_phi,)
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Parameter array, shape ``(14,)``.
+    t : jnp.ndarray
+        Time array, shape ``(N,)``.
+    q : float
+        Scattering wavevector magnitude.
+    dt : float
+        Time step.
+    phi_angles : jnp.ndarray
+        Phi angles in degrees, shape ``(n_phi,)``.
+    c2_data_batch : jnp.ndarray
+        Experimental data, shape ``(n_phi, N, N)``.
+    weights_batch : jnp.ndarray
+        Weights, shape ``(n_phi, N, N)``.
+    contrasts : jnp.ndarray
+        Per-angle contrasts, shape ``(n_phi,)``.
+    offsets : jnp.ndarray
+        Per-angle offsets, shape ``(n_phi,)``.
 
-    Returns:
-        Stacked flattened residuals, shape (n_phi × (N-1) × (N-2),)
+    Returns
+    -------
+    jnp.ndarray
+        Stacked flattened residuals, shape ``(n_phi * (N-1) * (N-2),)``.
     """
 
     def single_angle_residual(
@@ -513,21 +618,33 @@ def compute_residuals_jacobian(
     contrast: float = 1.0,
     offset: float = 1.0,
 ) -> jnp.ndarray:
-    """Compute Jacobian of residuals with respect to parameters.
+    """Compute the Jacobian of residuals with respect to parameters.
 
-    Args:
-        params: Parameter array, shape (14,)
-        t: Time array
-        q: Scattering wavevector
-        dt: Time step
-        phi_angle: Detector phi angle
-        c2_data: Experimental correlation data
-        weights: Optional weights (1/uncertainty²)
-        contrast: Speckle contrast (beta), default 1.0
-        offset: Baseline offset, default 1.0
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Parameter array, shape ``(14,)``.
+    t : jnp.ndarray
+        Time array.
+    q : float
+        Scattering wavevector magnitude.
+    dt : float
+        Time step.
+    phi_angle : float
+        Detector phi angle in degrees.
+    c2_data : jnp.ndarray
+        Experimental correlation data.
+    weights : jnp.ndarray, optional
+        Weights (``1 / uncertainty**2``). Defaults to ones when ``None``.
+    contrast : float, optional
+        Speckle contrast (the kernel-internal ``beta``), default ``1.0``.
+    offset : float, optional
+        Baseline offset, default ``1.0``.
 
-    Returns:
-        Jacobian matrix
+    Returns
+    -------
+    jnp.ndarray
+        Jacobian matrix of residuals with respect to the 14 parameters.
     """
     if weights is None:
         weights = jnp.ones_like(c2_data)

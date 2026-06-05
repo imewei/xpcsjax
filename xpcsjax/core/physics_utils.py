@@ -1,4 +1,5 @@
-"""Shared Physics Utility Functions for Homodyne
+"""Shared physics utility functions for homodyne XPCS analysis.
+
 ================================================
 
 This module provides common utility functions and physics helpers used by
@@ -39,13 +40,18 @@ EPS = 1e-12  # Numerical stability epsilon
 
 
 def safe_len(obj: object) -> int:
-    """JAX-safe length function that handles scalars, arrays, and JAX objects.
+    """Return a JAX-safe length for scalars, arrays, and JAX objects.
 
-    Args:
-        obj: Any object that might have a length or shape
+    Parameters
+    ----------
+    obj : object
+        Any object that might have a length or shape.
 
-    Returns:
-        int: Length of the object, or 1 for scalars
+    Returns
+    -------
+    int
+        Length of the object (first-dimension size for arrays), or 1 for
+        scalars and unsized objects.
     """
     # Handle JAX arrays and numpy arrays with shape attribute
     if hasattr(obj, "shape"):
@@ -88,11 +94,16 @@ def safe_sinc(x: jnp.ndarray) -> jnp.ndarray:
     created a gradient discontinuity that caused spurious NUTS rejections near
     gamma_dot_t0 ≈ 0.
 
-    Args:
-        x: Input array
+    Parameters
+    ----------
+    x : jnp.ndarray
+        Input array.
 
-    Returns:
-        sin(x)/x for ``|x|`` >= 1e-4, Taylor approximation for ``|x|`` < 1e-4
+    Returns
+    -------
+    jnp.ndarray
+        ``sin(x)/x`` for ``|x|`` >= 1e-4, Taylor approximation for
+        ``|x|`` < 1e-4.
     """
     x2 = x * x
     near_zero = 1.0 - x2 / 6.0 + x2 * x2 / 120.0
@@ -114,17 +125,26 @@ def calculate_diffusion_coefficient(
 ) -> jnp.ndarray:
     """Calculate time-dependent diffusion coefficient using discrete evaluation.
 
-    Follows reference v1 implementation: D_t[i] = D0 * (time_array[i] ** alpha) + D_offset
-    Physical constraint: D(t) should be positive and finite
+    Follows reference v1 implementation: D_t[i] = D0 * (time_array[i] ** alpha) + D_offset.
+    Physical constraint: D(t) should be positive and finite.
 
-    Args:
-        time_array: Array of time points
-        D0: Diffusion coefficient amplitude
-        alpha: Anomalous diffusion exponent
-        D_offset: Baseline diffusion offset
+    Parameters
+    ----------
+    time_array : jnp.ndarray
+        Array of time points [s].
+    D0 : float
+        Diffusion coefficient amplitude.
+    alpha : float
+        Anomalous diffusion exponent.
+    D_offset : float
+        Baseline diffusion offset.
 
-    Returns:
-        D(t) evaluated at each time point with physical bounds applied
+    Returns
+    -------
+    jnp.ndarray
+        D(t) evaluated at each time point, floored at ``1e-10`` (via
+        ``jnp.where`` to preserve gradients) and with near-zero times clamped
+        to avoid the ``t^alpha`` singularity for negative ``alpha``.
     """
     # CRITICAL FIX: Replace near-zero values to prevent t=0 with negative alpha causing Inf/NaN
     # When alpha < 0: t^alpha = 1/t^|alpha|, so t=0 → infinity
@@ -155,16 +175,25 @@ def calculate_shear_rate(
 ) -> jnp.ndarray:
     """Calculate time-dependent shear rate using discrete evaluation.
 
-    Follows reference v1 implementation: γ̇_t[i] = γ̇₀ * (time_array[i] ** β) + γ̇_offset
+    Follows reference v1 implementation: γ̇_t[i] = γ̇₀ * (time_array[i] ** β) + γ̇_offset.
 
-    Args:
-        time_array: Array of time points
-        gamma_dot_0: Shear rate amplitude
-        beta: Shear rate exponent
-        gamma_dot_offset: Baseline shear rate offset
+    Parameters
+    ----------
+    time_array : jnp.ndarray
+        Array of time points [s].
+    gamma_dot_0 : float
+        Shear rate amplitude.
+    beta : float
+        Shear rate exponent.
+    gamma_dot_offset : float
+        Baseline shear rate offset.
 
-    Returns:
-        γ̇(t) evaluated at each time point
+    Returns
+    -------
+    jnp.ndarray
+        γ̇(t) evaluated at each time point, floored at ``1e-10`` (via
+        ``jnp.where`` to preserve gradients) and with near-zero times clamped
+        to avoid the ``t^beta`` singularity for negative ``beta``.
     """
     # CRITICAL FIX: Replace t=0 with dt to prevent singularity when beta < 0
     # When beta < 0: t^beta = 1/t^|beta|, so t=0 → infinity
@@ -216,11 +245,17 @@ def create_time_integral_matrix(
     - Second-order accuracy (O(dt^2)) vs. first-order (O(dt))
     - Eliminates checkerboard artifacts in diagonal-corrected results
 
-    Args:
-        time_dependent_array: f(t) evaluated at discrete time points
+    Parameters
+    ----------
+    time_dependent_array : jnp.ndarray
+        f(t) evaluated at discrete time points.
 
-    Returns:
-        Time integral matrix (in units of integration steps)
+    Returns
+    -------
+    jnp.ndarray
+        Pairwise time integral matrix ``(n, n)`` in units of integration steps,
+        with an exact zero diagonal and a smooth absolute value off-diagonal
+        for gradient stability.
     """
     # Handle scalar input by converting to array
     time_dependent_array = jnp.atleast_1d(time_dependent_array)
@@ -278,11 +313,17 @@ def trapezoid_cumsum(values: jnp.ndarray) -> jnp.ndarray:
 
     This is used by the element-wise computation path.
 
-    Args:
-        values: 1D array of values to integrate
+    Parameters
+    ----------
+    values : jnp.ndarray
+        1D array of values to integrate.
 
-    Returns:
-        Cumulative trapezoidal sums
+    Returns
+    -------
+    jnp.ndarray
+        Cumulative trapezoidal sums, with a leading ``0.0`` so that
+        ``cumsum[j] - cumsum[i]`` equals the trapezoidal integral over
+        intervals ``i..j``.
     """
     # Unconditional trapezoidal path — avoids JIT retracing when array size
     # changes. For n==1, values[:-1] and values[1:] are both empty, so

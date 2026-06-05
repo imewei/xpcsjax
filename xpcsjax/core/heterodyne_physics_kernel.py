@@ -46,11 +46,31 @@ def _half_transport_meshgrid(
     q: float,
     dt: float,
 ) -> jnp.ndarray:
-    """Full ``(N, N)`` half-transport matrix: exp(-½ q² |∫J dt|).
+    r"""Build the full ``(N, N)`` half-transport matrix.
 
-    The ``jnp.exp(jnp.clip(...))`` idiom is intentional: clipping the
-    exponent at -700 prevents overflow while preserving gradients
-    elsewhere.
+    Computes ``exp(-0.5 q**2 |\int J dt|)`` over the meshgrid. The
+    ``jnp.exp(jnp.clip(...))`` idiom is intentional: clipping the exponent at
+    ``-700`` prevents overflow while preserving gradients elsewhere.
+
+    Parameters
+    ----------
+    t : jnp.ndarray
+        Time array, shape ``(N,)``.
+    D0 : jnp.ndarray
+        Transport prefactor.
+    alpha : jnp.ndarray
+        Transport exponent.
+    D_offset : jnp.ndarray
+        Transport rate offset.
+    q : float
+        Scattering wavevector magnitude.
+    dt : float
+        Time step.
+
+    Returns
+    -------
+    jnp.ndarray
+        Half-transport matrix, shape ``(N, N)``.
     """
     rate = compute_transport_rate(t, D0, alpha, D_offset)
     cumsum = trapezoid_cumsum(rate, dt)
@@ -65,7 +85,26 @@ def _velocity_integral_meshgrid(
     v_offset: jnp.ndarray,
     dt: float,
 ) -> jnp.ndarray:
-    """Full ``(N, N)`` signed velocity integral."""
+    """Build the full ``(N, N)`` signed velocity integral matrix.
+
+    Parameters
+    ----------
+    t : jnp.ndarray
+        Time array, shape ``(N,)``.
+    v0 : jnp.ndarray
+        Velocity prefactor.
+    beta : jnp.ndarray
+        Velocity exponent (kernel-internal name for the registry ``v_beta``).
+    v_offset : jnp.ndarray
+        Velocity offset.
+    dt : float
+        Time step.
+
+    Returns
+    -------
+    jnp.ndarray
+        Signed velocity-integral matrix, shape ``(N, N)``.
+    """
     velocity = compute_velocity_rate(t, v0, beta, v_offset)
     v_cumsum = trapezoid_cumsum(velocity, dt)
     return create_signed_integral_matrix(v_cumsum)
@@ -78,10 +117,28 @@ def _fraction(
     f2: jnp.ndarray,
     f3: jnp.ndarray,
 ) -> jnp.ndarray:
-    """Sample-fraction f_s(t), smoothly bounded to [0, 1].
+    """Compute the sample fraction ``f_s(t)``, smoothly bounded to ``[0, 1]``.
 
-    ``safe_exp`` caps the exponent and ``smooth_clip`` preserves Jacobian
+    ``safe_exp`` caps the exponent and ``smooth_clip`` preserves the Jacobian
     gradient at the boundary.
+
+    Parameters
+    ----------
+    t_vals : jnp.ndarray
+        Time array.
+    f0 : jnp.ndarray
+        Fraction amplitude.
+    f1 : jnp.ndarray
+        Exponential rate.
+    f2 : jnp.ndarray
+        Time shift.
+    f3 : jnp.ndarray
+        Baseline.
+
+    Returns
+    -------
+    jnp.ndarray
+        Sample fraction smoothly clipped to ``[0, 1]``.
     """
     return smooth_clip(f0 * safe_exp(f1 * (t_vals - f2)) + f3, 0.0, 1.0)
 
@@ -105,37 +162,68 @@ def compute_c2_unified(
     contrast_arr: jnp.ndarray | None = None,
     offset_arr: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
-    """Two-component heterodyne c2 via the shared kernel.
+    """Compute the two-component heterodyne ``c2`` via the shared kernel.
 
-    Args:
-        params: 14-parameter array.
-        q: Scattering wavevector magnitude.
-        dt: Time step.
-        phi_angle: Detector phi angle (degrees) — used by ``"meshgrid"`` only.
-        contrast: Speckle contrast (β) — used by ``"meshgrid"`` only.
-        offset: Baseline offset — used by ``"meshgrid"`` only.
-        eval_strategy: ``"meshgrid"`` for full ``(N, N)`` output;
-            ``"pointwise"`` for scattered ``(P,)`` output.
-        t: Time array shape ``(N,)`` — required for both strategies.
-        phi_unique: Shape ``(n_phi,)`` unique phi angles in degrees —
-            required for ``"pointwise"``.
-        phi_idx: Shape ``(P,)`` int32 index into ``phi_unique`` per point —
-            required for ``"pointwise"``.
-        t1_idx: Shape ``(P,)`` int32 time-1 indices — required for
-            ``"pointwise"``.
-        t2_idx: Shape ``(P,)`` int32 time-2 indices — required for
-            ``"pointwise"``.
-        contrast_arr: Shape ``(n_phi,)`` per-angle contrast —
-            required for ``"pointwise"``.
-        offset_arr: Shape ``(n_phi,)`` per-angle offset —
-            required for ``"pointwise"``.
+    A single JIT-compiled entry point whose ``eval_strategy`` static argument
+    selects between a full meshgrid evaluation and a scattered pointwise
+    evaluation; both compute identical physics.
 
-    Returns:
-        For ``"meshgrid"``: ``(N, N)`` array.
-        For ``"pointwise"``: ``(P,)`` array.
+    Parameters
+    ----------
+    params : jnp.ndarray
+        14-parameter array in canonical registry order
+        ``[D0_ref, alpha_ref, D_offset_ref, D0_sample, alpha_sample,
+        D_offset_sample, v0, v_beta, v_offset, f0, f1, f2, f3, phi0_het]``.
+        The kernel uses the internal names ``beta`` / ``phi0`` for the
+        registry ``v_beta`` / ``phi0_het``.
+    q : float
+        Scattering wavevector magnitude.
+    dt : float
+        Time step.
+    phi_angle : float, optional
+        Detector phi angle in degrees; used by ``"meshgrid"`` only.
+    contrast : float, optional
+        Speckle contrast (the prefactor ``beta``); used by ``"meshgrid"``
+        only.
+    offset : float, optional
+        Baseline offset; used by ``"meshgrid"`` only.
+    eval_strategy : {"meshgrid", "pointwise"}, optional
+        ``"meshgrid"`` for full ``(N, N)`` output; ``"pointwise"`` for
+        scattered ``(P,)`` output. Static JIT argument.
+    t : jnp.ndarray, optional
+        Time array, shape ``(N,)``; required for both strategies.
+    phi_unique : jnp.ndarray, optional
+        Unique phi angles in degrees, shape ``(n_phi,)``; required for
+        ``"pointwise"``.
+    phi_idx : jnp.ndarray, optional
+        int32 index into ``phi_unique`` per point, shape ``(P,)``; required
+        for ``"pointwise"``.
+    t1_idx : jnp.ndarray, optional
+        int32 time-1 indices, shape ``(P,)``; required for ``"pointwise"``.
+    t2_idx : jnp.ndarray, optional
+        int32 time-2 indices, shape ``(P,)``; required for ``"pointwise"``.
+    contrast_arr : jnp.ndarray, optional
+        Per-angle contrast, shape ``(n_phi,)``; required for ``"pointwise"``.
+    offset_arr : jnp.ndarray, optional
+        Per-angle offset, shape ``(n_phi,)``; required for ``"pointwise"``.
 
-    Raises:
-        ValueError: Wrong combination of strategy-input arguments.
+    Returns
+    -------
+    jnp.ndarray
+        For ``"meshgrid"``, an ``(N, N)`` array; for ``"pointwise"``, a
+        ``(P,)`` array.
+
+    Raises
+    ------
+    ValueError
+        If the strategy-input arguments are missing or inconsistent with the
+        selected ``eval_strategy``.
+
+    Examples
+    --------
+    >>> c2 = compute_c2_unified(params, q=0.01, dt=0.1, t=t, phi_angle=45.0)
+    >>> c2.shape
+    (N, N)
     """
     if eval_strategy == "meshgrid":
         if t is None:
@@ -181,19 +269,45 @@ def _compute_c2_pointwise(
     contrast_arr: jnp.ndarray,
     offset_arr: jnp.ndarray,
 ) -> jnp.ndarray:
-    """Pointwise evaluation — produces shape ``(P,)`` from scattered index triples.
+    """Evaluate ``c2`` pointwise, producing ``(P,)`` from scattered index triples.
 
-    Computes EXACTLY the same physics as ``_compute_c2_meshgrid`` but instead
-    of forming full ``(N, N)`` matrices it gathers per-point values using
-    ``t1_idx`` / ``t2_idx``.
+    Computes exactly the same physics as :func:`_compute_c2_meshgrid` but,
+    instead of forming full ``(N, N)`` matrices, gathers per-point values
+    using ``t1_idx`` / ``t2_idx``.
 
-    The gather identity that guarantees exact parity with the meshgrid branch:
-        ``create_signed_integral_matrix(cumsum)[i, j]
-          = cumsum[j] - cumsum[i]``
-    so pointwise: ``signed_diff = cumsum[t2_idx] - cumsum[t1_idx]``.
+    The gather identity that guarantees exact parity with the meshgrid branch
+    is ``create_signed_integral_matrix(cumsum)[i, j] = cumsum[j] - cumsum[i]``,
+    so pointwise ``signed_diff = cumsum[t2_idx] - cumsum[t1_idx]``. For
+    transport (abs-valued) terms ``smooth_abs`` is applied after gathering; for
+    velocity (signed) terms the raw difference is used directly.
 
-    For transport (abs-valued): apply ``smooth_abs`` after gathering.
-    For velocity (signed): use the raw difference directly.
+    Parameters
+    ----------
+    params : jnp.ndarray
+        14-parameter array in canonical registry order.
+    t : jnp.ndarray
+        Time array, shape ``(N,)``.
+    q : float
+        Scattering wavevector magnitude.
+    dt : float
+        Time step.
+    phi_unique : jnp.ndarray
+        Unique phi angles in degrees, shape ``(n_phi,)``.
+    phi_idx : jnp.ndarray
+        int32 index into ``phi_unique`` per point, shape ``(P,)``.
+    t1_idx : jnp.ndarray
+        int32 time-1 indices, shape ``(P,)``.
+    t2_idx : jnp.ndarray
+        int32 time-2 indices, shape ``(P,)``.
+    contrast_arr : jnp.ndarray
+        Per-angle contrast, shape ``(n_phi,)``.
+    offset_arr : jnp.ndarray
+        Per-angle offset, shape ``(n_phi,)``.
+
+    Returns
+    -------
+    jnp.ndarray
+        Flat ``(P,)`` array of ``c2`` values.
     """
     D0_ref, alpha_ref, D_offset_ref = params[0], params[1], params[2]
     D0_sample, alpha_sample, D_offset_sample = params[3], params[4], params[5]
@@ -269,7 +383,30 @@ def _compute_c2_meshgrid(
     contrast: float,
     offset: float,
 ) -> jnp.ndarray:
-    """Meshgrid evaluation — produces ``(N, N)`` matrix."""
+    """Evaluate ``c2`` over the meshgrid, producing an ``(N, N)`` matrix.
+
+    Parameters
+    ----------
+    params : jnp.ndarray
+        14-parameter array in canonical registry order.
+    t : jnp.ndarray
+        Time array, shape ``(N,)``.
+    q : float
+        Scattering wavevector magnitude.
+    dt : float
+        Time step.
+    phi_angle : float
+        Detector phi angle in degrees.
+    contrast : float
+        Speckle contrast (the prefactor ``beta``).
+    offset : float
+        Baseline offset.
+
+    Returns
+    -------
+    jnp.ndarray
+        Correlation matrix ``c2``, shape ``(N, N)``.
+    """
     D0_ref, alpha_ref, D_offset_ref = params[0], params[1], params[2]
     D0_sample, alpha_sample, D_offset_sample = params[3], params[4], params[5]
     v0, beta, v_offset = params[6], params[7], params[8]

@@ -25,15 +25,24 @@ class HeterodyneModel:
     """Main heterodyne correlation model with stateful parameter management.
 
     This class provides a convenient interface for:
-    - Managing model parameters through ParameterManager
+
+    - Managing model parameters through :class:`ParameterManager`
     - Computing correlation matrices
     - Computing residuals for fitting
     - Accessing pre-computed physics factors
 
-    Example:
-        >>> model = HeterodyneModel.from_config(config)
-        >>> c2 = model.compute_correlation(phi_angle=45.0)
-        >>> residuals = model.compute_residuals(c2_data, phi_angle=45.0)
+    Notes
+    -----
+    This is the public ``HeterodyneModel`` lazy export. A
+    ``result.parameters`` vector produced by the heterodyne fit is
+    physics-first, ``[physics | contrast | offset]`` (homodyne is
+    scaling-first), so do not assume the homodyne layout when reading it.
+
+    Examples
+    --------
+    >>> model = HeterodyneModel.from_config(config)
+    >>> c2 = model.compute_correlation(phi_angle=45.0)
+    >>> residuals = model.compute_residuals(c2_data, phi_angle=45.0)
     """
 
     # Core model
@@ -53,13 +62,17 @@ class HeterodyneModel:
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> HeterodyneModel:
-        """Create model from configuration dictionary.
+        """Create a model from a configuration dictionary.
 
-        Args:
-            config: Configuration with temporal, scattering, and parameters sections
+        Parameters
+        ----------
+        config : dict
+            Configuration with temporal, scattering, and parameters sections.
 
-        Returns:
-            Configured HeterodyneModel
+        Returns
+        -------
+        HeterodyneModel
+            A configured model instance.
         """
         param_manager = ParameterManager.from_config(config)
 
@@ -191,22 +204,27 @@ class HeterodyneModel:
             self._t = jnp.concatenate([self._t, self._t[-1:] + extra])
 
     def get_params(self) -> np.ndarray:
-        """Get current full parameter array.
+        """Return the current full parameter array.
 
-        Returns:
-            Array of shape (14,)
+        Returns
+        -------
+        np.ndarray
+            Parameter array of shape ``(14,)``.
         """
         return self.param_manager.get_full_values()
 
     def get_params_dict(self) -> dict[str, float]:
-        """Get current parameters as dictionary."""
+        """Return the current parameters as a name-keyed dictionary."""
         return self.param_manager.get_parameter_dict()
 
     def set_params(self, params: np.ndarray | dict[str, float]) -> None:
         """Set parameter values.
 
-        Args:
-            params: Either array of shape (14,) or dict with param names
+        Parameters
+        ----------
+        params : np.ndarray or dict of str to float
+            Either an array of shape ``(14,)`` or a dict keyed by parameter
+            name.
         """
         self.param_manager.update_values(params)
 
@@ -218,17 +236,25 @@ class HeterodyneModel:
         offset: float | None = None,
         angle_idx: int = 0,
     ) -> jnp.ndarray:
-        """Compute two-time correlation matrix.
+        """Compute the two-time correlation matrix.
 
-        Args:
-            phi_angle: Detector phi angle (degrees)
-            params: Optional parameter array (uses stored values if None)
-            contrast: Speckle contrast override. If None, uses per-angle scaling.
-            offset: Baseline offset override. If None, uses per-angle scaling.
-            angle_idx: Angle index for per-angle scaling lookup (0-based).
+        Parameters
+        ----------
+        phi_angle : float, optional
+            Detector phi angle in degrees, default ``0.0``.
+        params : np.ndarray, optional
+            Parameter array; uses the stored values when ``None``.
+        contrast : float, optional
+            Speckle contrast override; uses per-angle scaling when ``None``.
+        offset : float, optional
+            Baseline offset override; uses per-angle scaling when ``None``.
+        angle_idx : int, optional
+            Angle index for the per-angle scaling lookup (0-based).
 
-        Returns:
-            Correlation matrix c2(t1, t2), shape (N, N)
+        Returns
+        -------
+        jnp.ndarray
+            Correlation matrix ``c2(t1, t2)``, shape ``(N, N)``.
         """
         if params is None:
             params = self.get_params()
@@ -263,17 +289,27 @@ class HeterodyneModel:
     ) -> jnp.ndarray:
         """Compute residuals between model and data.
 
-        Args:
-            c2_data: Experimental correlation data
-            phi_angle: Detector phi angle
-            params: Optional parameter array
-            weights: Optional weights (1/sigma²)
-            contrast: Speckle contrast override. If None, uses per-angle scaling.
-            offset: Baseline offset override. If None, uses per-angle scaling.
-            angle_idx: Angle index for per-angle scaling lookup (0-based).
+        Parameters
+        ----------
+        c2_data : np.ndarray or jnp.ndarray
+            Experimental correlation data.
+        phi_angle : float, optional
+            Detector phi angle in degrees, default ``0.0``.
+        params : np.ndarray, optional
+            Parameter array; uses the stored values when ``None``.
+        weights : np.ndarray or jnp.ndarray, optional
+            Weights (``1 / sigma**2``); defaults to ones when ``None``.
+        contrast : float, optional
+            Speckle contrast override; uses per-angle scaling when ``None``.
+        offset : float, optional
+            Baseline offset override; uses per-angle scaling when ``None``.
+        angle_idx : int, optional
+            Angle index for the per-angle scaling lookup (0-based).
 
-        Returns:
-            Flattened residual array
+        Returns
+        -------
+        jnp.ndarray
+            Flattened residual array.
         """
         if params is None:
             params = self.get_params()
@@ -298,39 +334,51 @@ class HeterodyneModel:
         )
 
     def compute_g1_reference(self, params: np.ndarray | None = None) -> jnp.ndarray:
-        """Compute reference g1 correlation.
+        """Compute the reference g1 correlation.
 
-        Args:
-            params: Optional parameter array
+        Parameters
+        ----------
+        params : np.ndarray, optional
+            Parameter array; uses the stored values when ``None``.
 
-        Returns:
-            g1_ref array, shape (N,)
+        Returns
+        -------
+        jnp.ndarray
+            Reference ``g1`` array, shape ``(N,)``.
         """
         if params is None:
             params = self.get_params()
         return self._model.compute_g1_reference(params, self.t, self.q)
 
     def compute_g1_sample(self, params: np.ndarray | None = None) -> jnp.ndarray:
-        """Compute sample g1 correlation.
+        """Compute the sample g1 correlation.
 
-        Args:
-            params: Optional parameter array
+        Parameters
+        ----------
+        params : np.ndarray, optional
+            Parameter array; uses the stored values when ``None``.
 
-        Returns:
-            g1_sample array, shape (N,)
+        Returns
+        -------
+        jnp.ndarray
+            Sample ``g1`` array, shape ``(N,)``.
         """
         if params is None:
             params = self.get_params()
         return self._model.compute_g1_sample(params, self.t, self.q)
 
     def compute_fraction(self, params: np.ndarray | None = None) -> jnp.ndarray:
-        """Compute sample fraction evolution.
+        """Compute the sample fraction evolution.
 
-        Args:
-            params: Optional parameter array
+        Parameters
+        ----------
+        params : np.ndarray, optional
+            Parameter array; uses the stored values when ``None``.
 
-        Returns:
-            f_sample array, shape (N,)
+        Returns
+        -------
+        jnp.ndarray
+            Sample fraction array, shape ``(N,)``.
         """
         if params is None:
             params = self.get_params()
@@ -345,16 +393,24 @@ class HeterodyneModel:
     ) -> Any:
         """Create a residual function for optimization.
 
-        Returns a function that takes varying parameters and returns residuals.
+        Returns a function that takes the varying parameters and returns
+        residuals (the fixed parameters are baked in).
 
-        Args:
-            c2_data: Experimental correlation data
-            phi_angle: Detector phi angle
-            weights: Optional weights
-            angle_idx: Index into per-angle scaling for contrast/offset lookup.
+        Parameters
+        ----------
+        c2_data : np.ndarray or jnp.ndarray
+            Experimental correlation data.
+        phi_angle : float
+            Detector phi angle in degrees.
+        weights : np.ndarray or jnp.ndarray, optional
+            Weights; defaults to ones when ``None``.
+        angle_idx : int, optional
+            Index into per-angle scaling for the contrast/offset lookup.
 
-        Returns:
-            Callable that maps varying params -> residuals
+        Returns
+        -------
+        callable
+            A JIT-compiled function mapping varying params to residuals.
         """
         c2_jax = jnp.asarray(c2_data)
         weights_jax = jnp.asarray(weights) if weights is not None else jnp.ones_like(c2_jax)
@@ -387,10 +443,12 @@ class HeterodyneModel:
         return residual_fn
 
     def summary(self) -> str:
-        """Return summary of model configuration.
+        """Return a summary of the model configuration.
 
-        Returns:
-            Multi-line summary string
+        Returns
+        -------
+        str
+            Multi-line summary string.
         """
         lines = [
             "HeterodyneModel Summary",

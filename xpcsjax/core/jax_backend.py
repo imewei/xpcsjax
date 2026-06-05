@@ -1,4 +1,5 @@
-"""JAX Computational Backend for Homodyne
+"""JAX computational backend for homodyne XPCS analysis.
+
 ==========================================
 
 High-performance JAX-based implementation of the core mathematical operations
@@ -60,7 +61,7 @@ except ImportError:
         return func
 
     def vmap(func: Callable, *args: object, **kwargs: object) -> Callable:  # type: ignore[no-redef,misc,unused-ignore]
-        """Simple vectorization fallback using Python loops."""
+        """Vectorize a function with Python loops (NumPy fallback for vmap)."""
 
         def vectorized_func(inputs: object, *vargs: object, **vkwargs: object) -> object:
             if hasattr(inputs, "__iter__") and not isinstance(inputs, str):
@@ -205,12 +206,19 @@ def get_cached_meshgrid(t1: "jnp.ndarray", t2: "jnp.ndarray") -> tuple:
     Performance Optimization (Spec 006 - FR-010, T041):
     Increments hit/miss counters for cache monitoring.
 
-    Args:
-        t1: First time array (1D)
-        t2: Second time array (1D)
+    Parameters
+    ----------
+    t1 : jnp.ndarray
+        First time array (1D).
+    t2 : jnp.ndarray
+        Second time array (1D).
 
-    Returns:
-        Tuple of (t1_grid, t2_grid) with indexing="ij"
+    Returns
+    -------
+    tuple of jnp.ndarray
+        ``(t1_grid, t2_grid)`` built with ``indexing="ij"``. When ``t1``/``t2``
+        are not 1D, or are too large to cache, or are traced inside JIT, the
+        inputs (or a freshly built meshgrid) are returned without caching.
     """
     global _meshgrid_cache, _cache_stats
 
@@ -280,15 +288,19 @@ def get_cache_stats() -> dict[str, int | float]:
     Performance Optimization (Spec 006 - FR-010, T042):
     Returns cache hit/miss statistics for monitoring and optimization.
 
-    Returns:
-        Dictionary with cache statistics:
-        - hits: Number of cache hits
-        - misses: Number of cache misses
-        - evictions: Number of cache evictions
-        - skipped_large: Arrays too large for caching
-        - skipped_traced: Skipped due to JIT tracing
-        - hit_rate: Cache hit rate (hits / total lookups)
-        - cache_size: Current number of cached entries
+    Returns
+    -------
+    dict
+        Cache statistics with keys:
+
+        - ``hits``: Number of cache hits.
+        - ``misses``: Number of cache misses.
+        - ``evictions``: Number of cache evictions.
+        - ``skipped_large``: Arrays too large for caching.
+        - ``skipped_traced``: Skipped due to JIT tracing.
+        - ``hit_rate``: Cache hit rate (``hits / total lookups``).
+        - ``cache_size``: Current number of cached entries.
+        - ``max_cache_size``: Maximum number of entries the cache holds.
     """
     total_lookups = _cache_stats["hits"] + _cache_stats["misses"]
     hit_rate = _cache_stats["hits"] / total_lookups if total_lookups > 0 else 0.0
@@ -448,17 +460,26 @@ def _compute_g1_diffusion_core(
     Reference: self.wavevector_q_squared_half_dt = 0.5 * self.wavevector_q_squared * self.dt
     Which is: wavevector_q_squared_half_dt = 0.5 * (q²) * dt
 
-    Args:
-        params: Physical parameters [D0, alpha, D_offset, ...]
-        t1, t2: Time grids (should be identical: t1 = t2 = t)
-        wavevector_q_squared_half_dt: Pre-computed factor 0.5 * q² * dt from configuration
-        dt: Time step from experimental configuration (time per frame)
-        time_grid: Caller-provided time grid for cumulative trapezoid integration.
-            When provided, used directly instead of building an internal grid.
-            Required for element-wise mode to cover the full data time range.
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Physical parameters ``[D0, alpha, D_offset, ...]``.
+    t1, t2 : jnp.ndarray
+        Time grids (should be identical: ``t1 = t2 = t``). A 1D ``t1`` selects
+        element-wise mode; a 2D ``t1`` selects matrix (meshgrid) mode.
+    wavevector_q_squared_half_dt : float
+        Pre-computed factor ``0.5 * q² * dt`` from configuration.
+    dt : float
+        Time step from experimental configuration (time per frame).
+    time_grid : jnp.ndarray, optional
+        Caller-provided time grid for cumulative trapezoid integration. When
+        provided, used directly instead of building an internal grid. Required
+        for element-wise mode to cover the full data time range.
 
-    Returns:
-        Diffusion contribution to g1 correlation function
+    Returns
+    -------
+    jnp.ndarray
+        Diffusion contribution to the g1 correlation function.
     """
     D0, alpha, D_offset = params[0], params[1], params[2]
 
@@ -578,15 +599,31 @@ def _compute_g1_shear_core(
     Which is: sinc_prefactor = 0.5/π * q * L * dt
     Where L = stator_rotor_gap (sample-detector distance)
 
-    Args:
-        params: Physical parameters [D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]
-        t1, t2: Time grids (should be identical: t1 = t2 = t)
-        phi: Scattering angles
-        sinc_prefactor: Pre-computed factor 0.5/π * q * L * dt from configuration
-        dt: Time step from experimental configuration (time per frame)
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Physical parameters
+        ``[D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]``.
+        When fewer than 7 entries are present the static (no-shear) branch
+        returns ones.
+    t1, t2 : jnp.ndarray
+        Time grids (should be identical: ``t1 = t2 = t``).
+    phi : jnp.ndarray
+        Scattering angles [degrees].
+    sinc_prefactor : float
+        Pre-computed factor ``0.5/π * q * L * dt`` from configuration.
+    dt : float
+        Time step from experimental configuration (time per frame).
+    time_grid : jnp.ndarray, optional
+        Caller-provided time grid for element-wise cumulative trapezoid
+        integration; built internally when omitted.
 
-    Returns:
-        Shear contribution to g1 correlation function (sinc² values)
+    Returns
+    -------
+    jnp.ndarray
+        Shear contribution to the g1 correlation function (sinc² values).
+        Shape ``(n,)`` in element-wise mode, ``(n_phi, n_times, n_times)`` in
+        matrix mode.
     """
     # Check params length - if < 7, we're in static mode (no shear)
     if params.shape[0] < 7:
@@ -741,19 +778,31 @@ def _compute_g1_total_core(
 
     Physical constraint: 0 < g₁(t) ≤ 1
 
-    Args:
-        params: Physical parameters [D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]
-        t1, t2: Time grids (should be identical: t1 = t2 = t)
-        phi: Scattering angles
-        wavevector_q_squared_half_dt: Pre-computed factor 0.5 * q² * dt from configuration
-        sinc_prefactor: Pre-computed factor 0.5/π * q * L * dt from configuration
-        dt: Time step from experimental configuration (time per frame)
-        time_grid: Caller-provided time grid for element-wise cumulative trapezoid.
-            Threaded through to diffusion/shear core functions.
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Physical parameters
+        ``[D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]``.
+    t1, t2 : jnp.ndarray
+        Time grids (should be identical: ``t1 = t2 = t``).
+    phi : jnp.ndarray
+        Scattering angles [degrees].
+    wavevector_q_squared_half_dt : float
+        Pre-computed factor ``0.5 * q² * dt`` from configuration.
+    sinc_prefactor : float
+        Pre-computed factor ``0.5/π * q * L * dt`` from configuration.
+    dt : float
+        Time step from experimental configuration (time per frame).
+    time_grid : jnp.ndarray, optional
+        Caller-provided time grid for element-wise cumulative trapezoid;
+        threaded through to the diffusion/shear core functions.
 
-    Returns:
-        Total g1 correlation function with shape (n_phi, n_times, n_times)
-        or (n_total,) in element-wise mode.
+    Returns
+    -------
+    jnp.ndarray
+        Total g1 correlation function with shape ``(n_phi, n_times, n_times)``
+        in matrix mode or ``(n_total,)`` in element-wise mode, with a lower
+        floor of ``1e-10`` applied for log-safety.
     """
     # Compute diffusion contribution
     g1_diff = _compute_g1_diffusion_core(
@@ -807,29 +856,42 @@ def _compute_g2_scaled_core(
     offset: float,
     dt: float,
 ) -> jnp.ndarray:
-    """Core homodyne equation: g₂ = offset + contrast × [g₁]²
+    r"""Evaluate the core homodyne equation g₂ = offset + contrast × [g₁]².
 
     The homodyne scattering equation is g₂ = 1 + β×g₁², where the baseline "1"
     is the constant background. In our implementation, this baseline is included
     in the offset parameter (offset ≈ 1.0 for physical measurements).
 
-    For theoretical fits: Use offset=1.0, contrast=1.0 to get g₂ = 1 + g₁²
-    For experimental fits: offset and contrast are free parameters centered around 1.0 and 0.5
+    For theoretical fits: Use offset=1.0, contrast=1.0 to get g₂ = 1 + g₁².
+    For experimental fits: offset and contrast are free parameters centered around 1.0 and 0.5.
 
-    Physical constraint: 0.5 < g2 ≤ 2.5
+    Physical constraint: 0.5 < g2 ≤ 2.5 (enforced via parameter bounds, not by
+    clipping g2 here — a hard clip would kill gradients at the boundaries).
 
-    Args:
-        params: Physical parameters [D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]
-        t1, t2: Time points for correlation calculation
-        phi: Scattering angles
-        wavevector_q_squared_half_dt: Pre-computed factor 0.5 * q² * dt from configuration
-        sinc_prefactor: Pre-computed factor 0.5/π * q * L * dt from configuration
-        contrast: Contrast parameter (β in literature) - typically [0, 1]
-        offset: Baseline level (includes the "1" from physics) - typically ~1.0
-        dt: Time step from experimental configuration (time per frame) [seconds]
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Physical parameters
+        ``[D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]``.
+    t1, t2 : jnp.ndarray
+        Time points for correlation calculation.
+    phi : jnp.ndarray
+        Scattering angles [degrees].
+    wavevector_q_squared_half_dt : float
+        Pre-computed factor ``0.5 * q² * dt`` from configuration.
+    sinc_prefactor : float
+        Pre-computed factor ``0.5/π * q * L * dt`` from configuration.
+    contrast : float
+        Contrast parameter (β in literature), typically in ``[0, 1]``.
+    offset : float
+        Baseline level (includes the "1" from physics), typically ~1.0.
+    dt : float
+        Time step from experimental configuration (time per frame) [seconds].
 
-    Returns:
-        g2 correlation function with scaled fitting and physical bounds applied
+    Returns
+    -------
+    jnp.ndarray
+        g2 correlation function with the per-angle scaling applied.
     """
     g1 = _compute_g1_total_core(
         params,
@@ -870,18 +932,30 @@ def compute_g1_diffusion(
     q: float,
     dt: float | None = None,
 ) -> jnp.ndarray:
-    """Wrapper function that computes g1 diffusion using configuration dt.
+    """Compute the g1 diffusion contribution using a configuration ``dt``.
 
-    IMPORTANT: The dt parameter should come from configuration, not be computed.
+    Wraps :func:`_compute_g1_diffusion_core`, building (and caching) the time
+    meshgrid and the ``0.5 * q² * dt`` factor before delegating.
 
-    Args:
-        params: Physical parameters [D0, alpha, D_offset, ...]
-        t1, t2: Time grids (should be identical: t1 = t2 = t)
-        q: Scattering wave vector magnitude
-        dt: Time step from configuration (REQUIRED for correct physics)
+    IMPORTANT: The ``dt`` parameter should come from configuration, not be
+    computed. When ``dt`` is None it is estimated from the time array spacing.
 
-    Returns:
-        Diffusion contribution to g1 correlation function
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Physical parameters ``[D0, alpha, D_offset, ...]``.
+    t1, t2 : jnp.ndarray
+        Time grids (should be identical: ``t1 = t2 = t``).
+    q : float
+        Scattering wave vector magnitude [Å⁻¹].
+    dt : float, optional
+        Time step from configuration. Required for correct physics; estimated
+        from the time array when omitted.
+
+    Returns
+    -------
+    jnp.ndarray
+        Diffusion contribution to the g1 correlation function.
     """
     # Handle 1D time arrays by creating meshgrids (cached for performance)
     # The cache avoids recreating the same meshgrid ~23 times per iteration (once per phi)
@@ -915,25 +989,46 @@ def compute_g1_shear(
     L: float,
     dt: float,
 ) -> jnp.ndarray:
-    """Wrapper function that computes g1 shear using configuration dt.
+    """Compute the g1 shear contribution using a configuration ``dt``.
 
-    IMPORTANT: The dt parameter MUST come from configuration.
-    No fallback estimation - explicit dt is required for correct physics.
+    Wraps :func:`_compute_g1_shear_core`, building (and caching) the time
+    meshgrid and the ``0.5/π * q * L * dt`` sinc prefactor before delegating.
 
-    Args:
-        params: Physical parameters [D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]
-        t1, t2: Time grids (should be identical: t1 = t2 = t)
-        phi: Scattering angles
-        q: Scattering wave vector magnitude
-        L: Sample-detector distance (stator_rotor_gap)
-        dt: Time step from configuration [s] (REQUIRED)
+    IMPORTANT: The ``dt`` parameter MUST come from configuration. There is no
+    fallback estimation — explicit ``dt`` is required for correct physics.
 
-    Returns:
-        Shear contribution to g1 correlation function (sinc² values)
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Physical parameters
+        ``[D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]``.
+    t1, t2 : jnp.ndarray
+        Time grids (should be identical: ``t1 = t2 = t``).
+    phi : jnp.ndarray
+        Scattering angles [degrees].
+    q : float
+        Scattering wave vector magnitude [Å⁻¹].
+    L : float
+        Sample-detector distance (stator_rotor_gap) [Å].
+    dt : float
+        Time step from configuration [s] (required).
 
-    Raises:
-        TypeError: If dt is None (no longer accepts None)
-        ValueError: If dt <= 0 or not finite
+    Returns
+    -------
+    jnp.ndarray
+        Shear contribution to the g1 correlation function (sinc² values).
+
+    Raises
+    ------
+    TypeError
+        If ``dt`` is None (no longer accepted).
+    ValueError
+        If ``dt <= 0`` or not finite.
+
+    Notes
+    -----
+    ``dt`` validation is performed by the caller (the residual function)
+    before JIT compilation to avoid JAX tracing issues.
     """
     # Note: dt validation moved to caller to avoid JAX tracing issues.
     # The residual function validates dt before JIT compilation.
@@ -957,25 +1052,40 @@ def compute_g1_total(
     L: float,
     dt: float | None,
 ) -> jnp.ndarray:
-    """Wrapper function that computes total g1 using configuration dt.
+    """Compute the total g1 (diffusion × shear) using a configuration ``dt``.
 
-    IMPORTANT: The dt parameter MUST come from configuration.
-    No fallback estimation - explicit dt is required for correct physics.
+    Wraps :func:`_compute_g1_total_core`, building (and caching) the time
+    meshgrid and both physics factors before delegating.
 
-    Args:
-        params: Physical parameters [D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]
-        t1, t2: Time grids (should be identical: t1 = t2 = t)
-        phi: Scattering angles
-        q: Scattering wave vector magnitude
-        L: Sample-detector distance (stator_rotor_gap)
-        dt: Time step from configuration [s] (REQUIRED)
+    IMPORTANT: The ``dt`` parameter MUST come from configuration. There is no
+    fallback estimation — explicit ``dt`` is required for correct physics.
 
-    Returns:
-        Total g1 correlation function with shape (n_phi, n_times, n_times)
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Physical parameters
+        ``[D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]``.
+    t1, t2 : jnp.ndarray
+        Time grids (should be identical: ``t1 = t2 = t``).
+    phi : jnp.ndarray
+        Scattering angles [degrees].
+    q : float
+        Scattering wave vector magnitude [Å⁻¹].
+    L : float
+        Sample-detector distance (stator_rotor_gap) [Å].
+    dt : float or None
+        Time step from configuration [s] (required; None raises).
 
-    Raises:
-        TypeError: If dt is None (no longer accepts None)
-        ValueError: If dt <= 0 or not finite
+    Returns
+    -------
+    jnp.ndarray
+        Total g1 correlation function with shape ``(n_phi, n_times, n_times)``.
+
+    Raises
+    ------
+    ValueError
+        If ``dt`` is None — physics factors are dt-dependent and there is no
+        safe default frame rate.
     """
     # Note: dt validation moved to caller to avoid JAX tracing issues.
     # The residual function validates dt before JIT compilation.
@@ -1022,27 +1132,56 @@ def compute_g2_scaled(
     offset: float,
     dt: float | None,
 ) -> jnp.ndarray:
-    """Wrapper function that computes g2 using configuration dt.
+    """Compute the scaled g2 correlation using a configuration ``dt``.
 
-    IMPORTANT: The dt parameter MUST come from configuration.
-    No fallback estimation - explicit dt is required for correct physics.
+    Wraps :func:`_compute_g2_scaled_core`, building (and caching) the time
+    meshgrid and both physics factors before delegating. This is the public
+    homodyne forward model entry point.
 
-    Args:
-        params: Physical parameters [D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]
-        t1, t2: Time points for correlation calculation
-        phi: Scattering angles
-        q: Scattering wave vector magnitude
-        L: Sample-detector distance (stator_rotor_gap)
-        contrast: Contrast parameter (β in literature)
-        offset: Baseline offset
-        dt: Time step from configuration [s] (REQUIRED)
+    IMPORTANT: The ``dt`` parameter MUST come from configuration. There is no
+    fallback estimation — explicit ``dt`` is required for correct physics.
 
-    Returns:
-        g2 correlation function with scaled fitting and physical bounds applied
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Physical parameters
+        ``[D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]``.
+    t1, t2 : jnp.ndarray
+        Time points for correlation calculation.
+    phi : jnp.ndarray
+        Scattering angles [degrees].
+    q : float
+        Scattering wave vector magnitude [Å⁻¹].
+    L : float
+        Sample-detector distance (stator_rotor_gap) [Å].
+    contrast : float
+        Contrast parameter (β in literature).
+    offset : float
+        Baseline offset.
+    dt : float or None
+        Time step from configuration [s] (required; None raises).
 
-    Raises:
-        TypeError: If dt is None (no longer accepts None)
-        ValueError: If dt <= 0 or not finite
+    Returns
+    -------
+    jnp.ndarray
+        g2 correlation function with the per-angle scaling applied.
+
+    Raises
+    ------
+    ValueError
+        If ``dt`` is None — physics factors are dt-dependent and there is no
+        safe default frame rate.
+
+    Examples
+    --------
+    >>> import jax.numpy as jnp
+    >>> params = jnp.array([100.0, 0.0, 10.0])  # static diffusion
+    >>> t = jnp.array([0.0, 0.1, 0.2])
+    >>> phi = jnp.array([0.0])
+    >>> g2 = compute_g2_scaled(params, t, t, phi, q=0.01, L=2e6,
+    ...                        contrast=0.5, offset=1.0, dt=0.1)
+    >>> g2.shape
+    (1, 3, 3)
     """
     # Note: dt validation moved to caller to avoid JAX tracing issues.
     # The residual function validates dt before JIT compilation.
@@ -1102,22 +1241,35 @@ def compute_g2_scaled_with_factors(
     factors directly, avoiding runtime computation. Suitable for use with
     HomodyneModel where factors are computed once at initialization.
 
-    Args:
-        params: Physical parameters [D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]
-        t1, t2: Time grids for correlation calculation
-        phi: Scattering angles [degrees]
-        wavevector_q_squared_half_dt: Pre-computed factor (0.5 * q² * dt)
-        sinc_prefactor: Pre-computed factor (q * L * dt / 2π)
-        contrast: Contrast parameter (β in literature)
-        offset: Baseline offset
-        dt: Time step from experimental configuration (time per frame) [seconds]
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Physical parameters
+        ``[D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]``.
+    t1, t2 : jnp.ndarray
+        Time grids for correlation calculation.
+    phi : jnp.ndarray
+        Scattering angles [degrees].
+    wavevector_q_squared_half_dt : float
+        Pre-computed factor ``0.5 * q² * dt``.
+    sinc_prefactor : float
+        Pre-computed factor ``q * L * dt / 2π``.
+    contrast : float
+        Contrast parameter (β in literature).
+    offset : float
+        Baseline offset.
+    dt : float
+        Time step from experimental configuration (time per frame) [seconds].
 
-    Returns:
-        g2 correlation function with scaled fitting
+    Returns
+    -------
+    jnp.ndarray
+        g2 correlation function with the per-angle scaling applied.
 
-    Note:
-        This function is JIT-compiled for maximum performance.
-        Use with HomodyneModel for best results.
+    Notes
+    -----
+    This function is JIT-compiled for maximum performance. Use with
+    HomodyneModel for best results.
     """
     # Handle 1D time arrays by creating meshgrids.
     # This function is only called from the NLSQ path (HomodyneModel), which
@@ -1160,19 +1312,34 @@ def compute_chi_squared(
 
     χ² = Σᵢ [(data_i - theory_i) / σᵢ]²
 
-    Args:
-        params: Physical parameters
-        data: Experimental correlation data
-        sigma: Measurement uncertainties
-        t1, t2: Time grids
-        phi: Angle grid
-        q: Wave vector magnitude
-        L: Sample-detector distance
-        contrast, offset: Scaling parameters
-        dt: Time step from configuration
+    Parameters
+    ----------
+    params : jnp.ndarray
+        Physical parameters.
+    data : jnp.ndarray
+        Experimental correlation data.
+    sigma : jnp.ndarray
+        Measurement uncertainties. Non-positive entries are treated as masked
+        (replaced with ``inf``) so they contribute zero to the sum.
+    t1, t2 : jnp.ndarray
+        Time grids.
+    phi : jnp.ndarray
+        Angle grid [degrees].
+    q : float
+        Wave vector magnitude [Å⁻¹].
+    L : float
+        Sample-detector distance [Å].
+    contrast : float
+        Contrast scaling parameter.
+    offset : float
+        Baseline offset scaling parameter.
+    dt : float
+        Time step from configuration [s].
 
-    Returns:
-        Chi-squared value
+    Returns
+    -------
+    jnp.ndarray
+        Scalar chi-squared value.
     """
     theory = compute_g2_scaled(params, t1, t2, phi, q, L, contrast, offset, dt)
     # Guard against zero sigma: replace with inf so residual becomes 0 for masked pixels
@@ -1220,15 +1387,35 @@ def vectorized_g2_computation(
 
     Uses JAX vmap for efficient parallel computation.
 
-    Args:
-        params_batch: Batch of parameter arrays, shape (n_batch, n_params)
-        t1, t2: Time arrays for correlation calculation
-        phi: Scattering angles
-        q: Wavevector magnitude [Å⁻¹]
-        L: Beam width [Å]
-        contrast: Contrast parameter
-        offset: Baseline offset
-        dt: Time step from configuration [seconds]. MUST be provided for correct physics.
+    Parameters
+    ----------
+    params_batch : jnp.ndarray
+        Batch of parameter arrays, shape ``(n_batch, n_params)``.
+    t1, t2 : jnp.ndarray
+        Time arrays for correlation calculation.
+    phi : jnp.ndarray
+        Scattering angles [degrees].
+    q : float
+        Wavevector magnitude [Å⁻¹].
+    L : float
+        Sample-detector distance (stator_rotor_gap) [Å].
+    contrast : float
+        Contrast parameter.
+    offset : float
+        Baseline offset.
+    dt : float, optional
+        Time step from configuration [seconds]. Must be provided for correct
+        physics; None raises ``ValueError``.
+
+    Returns
+    -------
+    jnp.ndarray
+        Stacked g2 results, one per parameter set in ``params_batch``.
+
+    Raises
+    ------
+    ValueError
+        If ``dt`` is None — physics factors are dt-dependent.
     """
     # dt is REQUIRED for correct physics factors; there is no safe default frame
     # rate. Raise on a Python-level None before vmap tracing rather than silently
@@ -1269,17 +1456,39 @@ def batch_chi_squared(
 ) -> jnp.ndarray:
     """Compute chi-squared for multiple parameter sets efficiently.
 
-    Args:
-        params_batch: Batch of parameter arrays, shape (n_batch, n_params)
-        data: Experimental g2 data
-        sigma: Uncertainty in data
-        t1, t2: Time arrays for correlation calculation
-        phi: Scattering angles
-        q: Wavevector magnitude [Å⁻¹]
-        L: Beam width [Å]
-        contrast: Contrast parameter
-        offset: Baseline offset
-        dt: Time step from configuration [seconds]. MUST be provided for correct physics.
+    Parameters
+    ----------
+    params_batch : jnp.ndarray
+        Batch of parameter arrays, shape ``(n_batch, n_params)``.
+    data : jnp.ndarray
+        Experimental g2 data.
+    sigma : jnp.ndarray
+        Uncertainty in data.
+    t1, t2 : jnp.ndarray
+        Time arrays for correlation calculation.
+    phi : jnp.ndarray
+        Scattering angles [degrees].
+    q : float
+        Wavevector magnitude [Å⁻¹].
+    L : float
+        Sample-detector distance (stator_rotor_gap) [Å].
+    contrast : float
+        Contrast parameter.
+    offset : float
+        Baseline offset.
+    dt : float, optional
+        Time step from configuration [seconds]. Must be provided for correct
+        physics; None raises ``ValueError``.
+
+    Returns
+    -------
+    jnp.ndarray
+        Chi-squared value per parameter set in ``params_batch``.
+
+    Raises
+    ------
+    ValueError
+        If ``dt`` is None — physics factors are dt-dependent.
     """
     # dt is REQUIRED for correct physics factors; there is no safe default frame
     # rate. Raise on a Python-level None before vmap tracing rather than silently
