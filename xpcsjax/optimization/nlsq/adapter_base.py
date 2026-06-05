@@ -267,7 +267,7 @@ class NLSQAdapterBase(ABC):
         bounds_dict: dict[str, tuple[float, float]] | None = None,
         default_bounds: tuple[float, float] | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Setup parameter bounds arrays.
+        """Set up parameter bounds arrays.
 
         Parameters
         ----------

@@ -209,6 +209,11 @@ class ShearSensitivityWeighting:
         phi0_index: int,
         config: ShearWeightingConfig | None = None,
     ):
+        """Initialize the weighter and precompute weights for the initial phi0.
+
+        See the class docstring for the parameter semantics. ``config`` defaults
+        to a :class:`ShearWeightingConfig` with library defaults when ``None``.
+        """
         self.phi_angles = np.asarray(phi_angles, dtype=np.float64)
         self.n_phi = len(self.phi_angles)
         self.n_physical = n_physical
@@ -409,7 +414,7 @@ def create_shear_weighting(
     config: Mapping | None = None,
     physical_param_names: list[str] | None = None,
 ) -> ShearSensitivityWeighting | None:
-    """Factory function to create shear weighting if enabled.
+    """Create a shear-weighting instance from config, if enabled.
 
     Parameters
     ----------

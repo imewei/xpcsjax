@@ -66,14 +66,18 @@ def get_fallback_strategy(
 ) -> OptimizationStrategy | None:
     """Get fallback strategy when current strategy fails.
 
-    Implements degradation chain:
-    STREAMING -> CHUNKED -> LARGE -> STANDARD -> None
+    Implements the degradation chain
+    ``STREAMING -> CHUNKED -> LARGE -> STANDARD -> None``.
 
-    Args:
-        current_strategy: Strategy that failed
+    Parameters
+    ----------
+    current_strategy : OptimizationStrategy
+        Strategy that failed.
 
-    Returns:
-        Next strategy to try, or None if no fallback available
+    Returns
+    -------
+    OptimizationStrategy | None
+        Next strategy to try, or None if no fallback is available.
     """
     fallback_chain = {
         OptimizationStrategy.STREAMING: OptimizationStrategy.CHUNKED,
@@ -95,21 +99,30 @@ def handle_nlsq_result(
     - curve_fit_large: Returns tuple (popt, pcov) OR OptimizeResult object
     - StreamingOptimizer.fit: Returns dict with 'x', 'pcov', 'streaming_diagnostics'
 
-    This function normalizes all these formats to a consistent tuple:
-    (popt, pcov, info)
+    This function normalizes all these formats to a consistent
+    ``(popt, pcov, info)`` tuple.
 
-    Args:
-        result: Return value from NLSQ optimization call
-        strategy: Optimization strategy used (for logging/diagnostics)
+    Parameters
+    ----------
+    result : Any
+        Return value from an NLSQ optimization call.
+    strategy : OptimizationStrategy
+        Optimization strategy used (for logging/diagnostics).
 
-    Returns:
-        tuple: (popt, pcov, info) where:
-            - popt: np.ndarray of optimized parameters
-            - pcov: np.ndarray covariance matrix
-            - info: dict with additional information (empty if not available)
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray, dict]
+        ``(popt, pcov, info)`` where ``popt`` is the optimized parameters,
+        ``pcov`` is the covariance matrix (identity if missing), and ``info``
+        is a dict of additional information (empty if not available).
 
-    Raises:
-        TypeError: If result format is unrecognized
+    Raises
+    ------
+    AttributeError
+        If an object result has neither an ``x`` nor a ``popt`` attribute.
+    TypeError
+        If the result format is unrecognized or a tuple has an unexpected
+        length.
     """
     _logger = get_logger(__name__)
 
@@ -223,10 +236,59 @@ def execute_optimization_with_fallback(
     fast_mode: bool = False,
     callback: Callable | None = None,
 ) -> tuple[np.ndarray, np.ndarray | None, dict[str, Any], list[str], str]:
-    """Execute optimization with strategy fallback.
+    """Execute optimization with automatic strategy fallback.
 
-    Tries selected strategy first, then falls back to simpler strategies
-    if needed. Returns (popt, pcov, info, recovery_actions, convergence_status).
+    Tries the selected strategy first, then degrades to simpler strategies via
+    :func:`get_fallback_strategy` until one succeeds or all are exhausted.
+
+    Parameters
+    ----------
+    strategy : OptimizationStrategy
+        Initial strategy to attempt.
+    wrapped_residual_fn : Callable
+        Residual function passed to the NLSQ solvers.
+    xdata, ydata : np.ndarray
+        Independent and dependent data arrays.
+    validated_params : np.ndarray
+        Validated initial parameter guess.
+    nlsq_bounds : tuple[np.ndarray, np.ndarray] | None
+        Parameter bounds as ``(lower, upper)``, or None.
+    loss_name : str
+        Loss function name.
+    x_scale_value : float | str
+        Parameter scaling value (or ``"jac"``-style string) for NLSQ.
+    config : Any
+        NLSQ configuration object.
+    start_time : float
+        Optimization start time (for elapsed-time reporting on failure).
+    log : logging.Logger | logging.LoggerAdapter
+        Logger instance.
+    enable_recovery : bool
+        Whether to route through ``execute_with_recovery_fn``.
+    execute_with_recovery_fn : Callable
+        Recovery-enabled execution function.
+    fit_with_hybrid_streaming_fn : Callable
+        Hybrid-streaming fit function (used for the STREAMING strategy).
+    streaming_available : bool
+        Whether the streaming backend is available.
+    curve_fit_fn : Callable
+        NLSQ standard ``curve_fit`` callable.
+    curve_fit_large_fn : Callable
+        NLSQ large-dataset ``curve_fit`` callable.
+    fast_mode : bool, optional
+        Reserved fast-mode flag.
+    callback : Callable | None, optional
+        Per-iteration L4 monitor callback (strictly observational).
+
+    Returns
+    -------
+    tuple
+        ``(popt, pcov, info, recovery_actions, convergence_status)``.
+
+    Raises
+    ------
+    RuntimeError
+        If every strategy in the fallback chain fails.
     """
     current_strategy = strategy
     strategy_attempts: list[OptimizationStrategy] = []

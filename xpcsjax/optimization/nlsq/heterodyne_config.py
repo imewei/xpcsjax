@@ -37,12 +37,18 @@ _SENTINEL = object()
 def safe_float(value: Any, default: float) -> float:
     """Convert *value* to float, returning *default* on failure.
 
-    Args:
-        value: Arbitrary input that should be numeric.
-        default: Fallback value when conversion fails.
+    Parameters
+    ----------
+    value
+        Arbitrary input that should be numeric.
+    default
+        Fallback value used when conversion fails.
 
-    Returns:
-        ``float(value)`` on success, *default* otherwise.
+    Returns
+    -------
+    float
+        ``float(value)`` on success, *default* otherwise (a failed conversion
+        is logged as a warning).
     """
     if value is None:
         return default
@@ -60,12 +66,18 @@ def safe_float(value: Any, default: float) -> float:
 def safe_int(value: Any, default: int) -> int:
     """Convert *value* to int, returning *default* on failure.
 
-    Args:
-        value: Arbitrary input that should be integral.
-        default: Fallback value when conversion fails.
+    Parameters
+    ----------
+    value
+        Arbitrary input that should be integral.
+    default
+        Fallback value used when conversion fails.
 
-    Returns:
-        ``int(value)`` on success, *default* otherwise.
+    Returns
+    -------
+    int
+        ``int(value)`` on success, *default* otherwise (a failed conversion is
+        logged as a warning).
     """
     if value is None:
         return default
@@ -102,17 +114,23 @@ class HybridRecoveryConfig:
     - regularisation : ``lambda_growth ** k``
     - trust radius   : ``trust_decay ** k``
 
-    Attributes:
-        max_retries: Maximum number of recovery attempts before giving up.
-        lr_decay: Multiplicative factor applied to the learning rate per retry
-            (< 1 shrinks the effective step size).
-        lambda_growth: Multiplicative factor applied to the regularisation
-            strength per retry (> 1 increases damping).
-        trust_decay: Multiplicative factor applied to the trust-region radius
-            per retry (< 1 tightens the constraint).
-        perturb_scale: Standard deviation of the Gaussian perturbation added
-            to the starting parameters before each retry, expressed as a
-            fraction of the parameter range.
+    Attributes
+    ----------
+    max_retries : int
+        Maximum number of recovery attempts before giving up.
+    lr_decay : float
+        Multiplicative factor applied to the learning rate per retry
+        (``< 1`` shrinks the effective step size).
+    lambda_growth : float
+        Multiplicative factor applied to the regularisation strength per retry
+        (``> 1`` increases damping).
+    trust_decay : float
+        Multiplicative factor applied to the trust-region radius per retry
+        (``< 1`` tightens the constraint).
+    perturb_scale : float
+        Standard deviation of the Gaussian perturbation added to the starting
+        parameters before each retry, expressed as a fraction of the parameter
+        range.
     """
 
     max_retries: int = 3
@@ -124,14 +142,23 @@ class HybridRecoveryConfig:
     def get_retry_settings(self, attempt: int) -> dict[str, float]:
         """Return scaled optimiser settings for a given retry attempt.
 
-        Args:
-            attempt: 0-based retry index.  ``attempt=0`` returns the
-                unscaled baseline (scale factor = 1).
+        Parameters
+        ----------
+        attempt
+            0-based retry index. ``attempt=0`` returns the unscaled baseline
+            (scale factor 1).
 
-        Returns:
-            Dictionary with keys ``"lr_scale"``, ``"lambda_scale"``, and
-            ``"trust_radius_scale"``, each a multiplicative factor to apply
-            to the corresponding optimiser hyperparameter.
+        Returns
+        -------
+        dict of str to float
+            Mapping with keys ``"lr_scale"``, ``"lambda_scale"``, and
+            ``"trust_radius_scale"``, each a multiplicative factor to apply to
+            the corresponding optimiser hyperparameter.
+
+        Raises
+        ------
+        ValueError
+            If *attempt* is negative.
         """
         if attempt < 0:
             raise ValueError(f"attempt must be >= 0, got {attempt}")
@@ -151,18 +178,22 @@ class HybridRecoveryConfig:
 class NLSQValidationConfig:
     """Thresholds used when validating post-fit quality metrics.
 
-    Attributes:
-        chi2_warn_low: Reduced chi-squared below this value triggers a
-            warning (possible over-fitting or under-estimated errors).
-        chi2_warn_high: Reduced chi-squared above this value triggers a
-            warning (possible under-fitting or under-estimated model).
-        chi2_fail_high: Reduced chi-squared above this value is treated as a
-            hard failure.
-        max_relative_uncertainty: Maximum acceptable relative uncertainty
-            (sigma / ``|param|``) for any fitted parameter.  Value of 1.0 means
-            100 %.
-        correlation_warn: Off-diagonal correlation coefficient magnitude above
-            this threshold triggers a collinearity warning.
+    Attributes
+    ----------
+    chi2_warn_low : float
+        Reduced chi-squared below this value triggers a warning (possible
+        over-fitting or under-estimated errors).
+    chi2_warn_high : float
+        Reduced chi-squared above this value triggers a warning (possible
+        under-fitting or an under-estimated model).
+    chi2_fail_high : float
+        Reduced chi-squared above this value is treated as a hard failure.
+    max_relative_uncertainty : float
+        Maximum acceptable relative uncertainty (``sigma / |param|``) for any
+        fitted parameter; ``1.0`` means 100%.
+    correlation_warn : float
+        Off-diagonal correlation-coefficient magnitude above this threshold
+        triggers a collinearity warning.
     """
 
     # Reduced chi-squared thresholds
@@ -192,35 +223,42 @@ class StratificationConfig:
     -- a SIBLING of ``optimization.nlsq``, not nested inside it.  Field names and
     defaults match homodyne 1:1.
 
-    Attributes:
-        enabled: ``False`` disables stratification entirely. ``"auto"`` (default)
-            and ``True`` are equivalent for heterodyne: both defer to
-            ``should_use_stratification`` plus the ``>=1M`` solver gate. There is
-            no separate force-on path -- the ``>=1M`` gate is the real control
-            (stratification only swaps the solver, which engages at ``>=1M``
-            regardless of this flag).
-        target_chunk_size: Target scalar count per stratified chunk, forwarded to
-            ``fit_heterodyne_stratified_least_squares(target_chunk_size=...)``.
-        max_imbalance_ratio: Maximum tolerated angle-count imbalance before the
-            stratified path is skipped. This is the SOLE imbalance gate in
-            ``_fit_nlsq_heterodyne``: ``should_use_stratification`` is called with
-            ``imbalance_ratio=0.0`` so its internal hard-coded 5.0 cutoff cannot
-            pre-empt this value, which therefore moves the cutoff in either
-            direction (tighten below 5.0 or loosen above it).
-        force_sequential_fallback: Accepted for homodyne-config compatibility but
-            **inert for heterodyne.** With ``individual`` mode scoped out of
-            stratified-LS (it already uses the sequential per-angle path in
-            ``heterodyne_core``), there is no heterodyne behavior this knob maps
-            to. Parsed so a shared homodyne/heterodyne config does not trip the
-            "unrecognised key" warning; it has no effect on the heterodyne path.
-        check_memory_safety: When True, the heterodyne stratified-LS driver
-            consults the memory estimate's ``is_safe`` flag and logs a
-            (non-fatal) warning if the projected peak exceeds the safe RAM
-            fraction. When False, the warning is suppressed.
-        use_index_based: Threaded into the stratified-LS driver's diagnostics and
-            memory estimate. Heterodyne is structurally index-based, so the value
-            is informational, but the recorded diagnostic reflects this config
-            setting rather than a hard-coded literal.
+    Attributes
+    ----------
+    enabled : bool or str
+        ``False`` disables stratification entirely. ``"auto"`` (default) and
+        ``True`` are equivalent for heterodyne: both defer to
+        ``should_use_stratification`` plus the ``>=1M`` solver gate. There is no
+        separate force-on path -- the ``>=1M`` gate is the real control
+        (stratification only swaps the solver, which engages at ``>=1M``
+        regardless of this flag).
+    target_chunk_size : int
+        Target scalar count per stratified chunk, forwarded to
+        ``fit_heterodyne_stratified_least_squares(target_chunk_size=...)``.
+    max_imbalance_ratio : float
+        Maximum tolerated angle-count imbalance before the stratified path is
+        skipped. This is the SOLE imbalance gate in ``_fit_nlsq_heterodyne``:
+        ``should_use_stratification`` is called with ``imbalance_ratio=0.0`` so
+        its internal hard-coded 5.0 cutoff cannot pre-empt this value, which
+        therefore moves the cutoff in either direction (tighten below 5.0 or
+        loosen above it).
+    force_sequential_fallback : bool
+        Accepted for homodyne-config compatibility but **inert for
+        heterodyne.** With ``individual`` mode scoped out of stratified-LS (it
+        already uses the sequential per-angle path in ``heterodyne_core``),
+        there is no heterodyne behavior this knob maps to. Parsed so a shared
+        homodyne/heterodyne config does not trip the "unrecognised key"
+        warning; it has no effect on the heterodyne path.
+    check_memory_safety : bool
+        When ``True``, the heterodyne stratified-LS driver consults the memory
+        estimate's ``is_safe`` flag and logs a (non-fatal) warning if the
+        projected peak exceeds the safe RAM fraction. When ``False``, the
+        warning is suppressed.
+    use_index_based : bool
+        Threaded into the stratified-LS driver's diagnostics and memory
+        estimate. Heterodyne is structurally index-based, so the value is
+        informational, but the recorded diagnostic reflects this config setting
+        rather than a hard-coded literal.
     """
 
     enabled: bool | str = "auto"
@@ -238,11 +276,15 @@ class StratificationConfig:
         and resolves homodyne-mirrored defaults for any missing fields.  A missing
         or non-dict ``stratification`` entry yields all defaults.
 
-        Args:
-            opt_block: The ``config.config["optimization"]`` mapping, or ``None``.
+        Parameters
+        ----------
+        opt_block
+            The ``config.config["optimization"]`` mapping, or ``None``.
 
-        Returns:
-            A fully resolved :class:`StratificationConfig`.
+        Returns
+        -------
+        StratificationConfig
+            A fully resolved configuration.
         """
         strat: dict[str, Any] = {}
         if isinstance(opt_block, dict):
@@ -283,88 +325,132 @@ class NLSQConfig:
     the full pipeline: solver hyperparameters, multi-start, streaming /
     chunking, recovery on failure, and post-fit diagnostics.
 
-    Attributes:
-        max_iterations: Maximum number of optimiser iterations per fit.
-        tolerance: Convergence tolerance for the cost function.
-        method: Trust-region algorithm variant passed to the
-            ``nlsq CurveFit optimizer``.  Note that ``dogbox`` is coerced
-            to ``trf`` by the strategy layer.
-        multistart: Whether to run multi-start optimisation to avoid local
-            minima.
-        multistart_n: Number of random starting points when *multistart* is
-            enabled.
-        verbose: Verbosity level forwarded to the solver (0 = silent,
-            1 = summary, 2 = detailed).
-        use_jac: Whether to supply an analytic Jacobian to the solver.
-        x_scale: Parameter scaling strategy.  ``"jac"`` uses the Jacobian
-            diagonal; a list of floats provides explicit per-parameter scales.
-        ftol: Relative tolerance on the cost function change.
-        xtol: Relative tolerance on the parameter step norm.
-        gtol: Absolute tolerance on the projected gradient norm.
-        loss: Robust loss function kernel.
-        diff_step: Finite-difference step size.  ``None`` selects the
-            solver default.
-        max_nfev: Per-angle cap on function evaluations passed to the
-            underlying solver.  ``None`` is unlimited.
+    Notes
+    -----
+    Only the most load-bearing fields are documented below; the additional
+    Fourier-reparameterization, hierarchical, regularization, gradient-monitor,
+    CMA-ES, hybrid-streaming, and multi-start knobs are grouped inline at their
+    declarations. The ``per_angle_mode`` field accepts the user-facing tokens
+    ``"individual"``, ``"fourier"``, ``"auto"``, and ``"constant"``
+    (``"independent"`` is a deprecated alias for ``"individual"``, normalised in
+    :meth:`__post_init__`); ``"averaged"`` is *not* a user input — it is an
+    internally resolved mode that ``auto`` produces when
+    ``n_phi >= constant_scaling_threshold`` (default 3), falling back to
+    ``"individual"`` below that threshold.
 
-            .. important::
-               For the multi-angle joint-fit paths
-               (``_fit_joint_constant_multi_phi`` in
-               ``heterodyne_constant_mode.py``, ``_fit_joint_averaged_multi_phi``
-               and ``_fit_joint_multi_phi`` in ``heterodyne_core.py``) the
-               effective solver budget is ``max_nfev * n_phi`` — those paths
-               run a single combined least-squares problem whose residual
-               vector concatenates all angles, so the per-call cap is scaled
-               by ``n_phi`` to give each angle the same iteration budget it
-               would have under independent fits.  Single-angle paths
-               (``_fit_local``, ``_fit_multistart``) pass ``max_nfev``
-               through unchanged.
-        chunk_size: Number of q-points per processing chunk.  ``None`` means
-            auto-select based on available memory.
+    This is the NLSQ-only solver config: there is intentionally no Bayesian /
+    MCMC pathway, so no sampler fields exist here.
 
-        workflow: High-level workflow preset.  One of ``"auto"``,
-            ``"auto_global"``, ``"hpc"``.
-        goal: Optimisation goal preset controlling the balance between speed,
-            robustness, and solution quality.  One of ``"fast"``,
-            ``"robust"``, ``"quality"``, ``"memory_efficient"``.
+    Attributes
+    ----------
+    max_iterations : int
+        Maximum number of optimiser iterations per fit.
+    tolerance : float
+        Convergence tolerance for the cost function.
+    method : {"trf", "lm", "dogbox"}
+        Trust-region algorithm variant passed to the ``nlsq CurveFit``
+        optimizer. ``dogbox`` is coerced to ``trf`` by the strategy layer.
+    multistart : bool
+        Whether to run multi-start optimisation to avoid local minima.
+    multistart_n : int
+        Number of random starting points when *multistart* is enabled.
+    verbose : int
+        Verbosity level forwarded to the solver (0 = silent, 1 = summary,
+        2 = detailed).
+    use_jac : bool
+        Whether to supply an analytic Jacobian to the solver.
+    x_scale : str or list of float
+        Parameter scaling strategy. ``"jac"`` uses the Jacobian diagonal; a
+        list of floats provides explicit per-parameter scales.
+    ftol : float
+        Relative tolerance on the cost-function change.
+    xtol : float
+        Relative tolerance on the parameter step norm.
+    gtol : float
+        Absolute tolerance on the projected gradient norm.
+    loss : {"linear", "soft_l1", "huber", "cauchy", "arctan"}
+        Robust loss-function kernel.
+    diff_step : float or None
+        Finite-difference step size. ``None`` selects the solver default.
+    max_nfev : int or None
+        Per-angle cap on function evaluations passed to the underlying solver.
+        ``None`` is unlimited.
 
-        enable_streaming: Process data in a streaming fashion (chunk-by-chunk)
-            rather than loading all q-points at once.
-        streaming_chunk_size: Number of q-points per streaming chunk when
-            *enable_streaming* is ``True``.
-        enable_stratified: Use stratified sampling across q-point subsets.
-        target_chunk_size: Target number of data points per stratified chunk.
-
-        enable_recovery: Automatically retry failed fits with more aggressive
-            regularisation (see *recovery_config*).
-        max_recovery_attempts: Maximum retries before a fit is declared failed.
-        recovery_config: Per-retry scaling parameters.
-
-        enable_diagnostics: Emit structured convergence / quality diagnostics
-            after each fit.
-        enable_anti_degeneracy: Apply anti-degeneracy constraints to prevent
-            parameter collapse (e.g. two identical relaxation modes).
-
-        x_scale_map: Per-parameter scale overrides keyed by parameter name.
-            Entries here are merged into (and override) the default
-            Jacobian-based scaling.
-        loss_weights: Per-data-point loss weights.  ``None`` uses uniform
-            weighting.
-        loss_scale: Global scale factor applied to the loss function value
-            before passing to the solver.
-        tr_solver: Trust-region sub-problem solver override (``"exact"``,
-            ``"lsmr"``, or ``None`` for solver default).
-        step_bound: Upper bound on the step norm relative to the trust radius.
-            ``0.0`` defers to the solver default.
-
-        use_nlsq_library: Prefer the ``nlsq`` library over the scipy fallback.
-        n_params: Number of model parameters.  Fixed at 14 for heterodyne.
-        analysis_mode: Which physical model variant to use.  One of
-            ``"static_ref"`` (reference beam treated as static background),
-            ``"static_both"`` (both beams treated as static),
-            ``"two_component"`` (full two-component model, default).
-
-        validation: Post-fit validation thresholds.
+        .. important::
+           For the multi-angle joint-fit paths
+           (``_fit_joint_constant_multi_phi`` in
+           ``heterodyne_constant_mode.py``, ``_fit_joint_averaged_multi_phi``
+           and ``_fit_joint_multi_phi`` in ``heterodyne_core.py``) the
+           effective solver budget is ``max_nfev * n_phi`` — those paths run a
+           single combined least-squares problem whose residual vector
+           concatenates all angles, so the per-call cap is scaled by ``n_phi``
+           to give each angle the same iteration budget it would have under
+           independent fits. Single-angle paths (``_fit_local``,
+           ``_fit_multistart``) pass ``max_nfev`` through unchanged.
+    chunk_size : int or None
+        Number of q-points per processing chunk. ``None`` means auto-select
+        based on available memory.
+    workflow : str
+        High-level workflow preset; one of ``"auto"``, ``"auto_global"``,
+        ``"hpc"``.
+    goal : str
+        Optimisation goal preset controlling the balance between speed,
+        robustness, and solution quality; one of ``"fast"``, ``"robust"``,
+        ``"quality"``, ``"memory_efficient"``.
+    enable_streaming : bool
+        Process data in a streaming fashion (chunk-by-chunk) rather than
+        loading all q-points at once.
+    streaming_chunk_size : int
+        Number of q-points per streaming chunk when *enable_streaming* is
+        ``True``.
+    enable_stratified : bool
+        Use stratified sampling across q-point subsets.
+    target_chunk_size : int
+        Target number of data points per stratified chunk.
+    enable_recovery : bool
+        Automatically retry failed fits with more aggressive regularisation
+        (see *recovery_config*).
+    max_recovery_attempts : int
+        Maximum retries before a fit is declared failed.
+    recovery_config : HybridRecoveryConfig
+        Per-retry scaling parameters.
+    enable_diagnostics : bool
+        Emit structured convergence / quality diagnostics after each fit.
+    enable_anti_degeneracy : bool
+        Apply anti-degeneracy constraints to prevent parameter collapse (e.g.
+        two identical relaxation modes).
+    x_scale_map : dict of str to float
+        Per-parameter scale overrides keyed by parameter name. Entries here are
+        merged into (and override) the default Jacobian-based scaling.
+    loss_weights : list of float or None
+        Per-data-point loss weights. ``None`` uses uniform weighting.
+    loss_scale : float
+        Global scale factor applied to the loss-function value before passing
+        to the solver.
+    tr_solver : str or None
+        Trust-region sub-problem solver override (``"exact"``, ``"lsmr"``, or
+        ``None`` for the solver default).
+    step_bound : float
+        Upper bound on the step norm relative to the trust radius. ``0.0``
+        defers to the solver default.
+    per_angle_mode : {"individual", "fourier", "auto", "constant", "independent"}
+        Per-angle scaling layout (see Notes). ``"independent"`` is a deprecated
+        alias for ``"individual"``.
+    constant_scaling_threshold : int
+        ``n_phi`` threshold (default 3) at or above which ``auto`` resolves to
+        the ``"averaged"`` scaling layout; below it ``auto`` uses
+        ``"individual"``.
+    use_nlsq_library : bool
+        Prefer the ``nlsq`` library over the scipy fallback.
+    n_params : int
+        Number of model parameters. Fixed at 14 for heterodyne.
+    analysis_mode : AnalysisMode
+        Which physical model variant to use — one of ``"static_ref"``
+        (reference beam treated as static background), ``"static_both"`` (both
+        beams treated as static), or ``"two_component"`` (full two-component
+        model, default).
+    validation : NLSQValidationConfig
+        Post-fit validation thresholds.
     """
 
     # ------------------------------------------------------------------
@@ -612,8 +698,10 @@ class NLSQConfig:
         An empty list means the configuration is consistent.  Callers should
         treat a non-empty list as a hard error before launching a fit.
 
-        Returns:
-            List of human-readable error strings, one per violation found.
+        Returns
+        -------
+        list of str
+            Human-readable error strings, one per violation found.
         """
         errors: list[str] = []
 
@@ -745,12 +833,16 @@ class NLSQConfig:
         are automatically parsed into their respective dataclasses.
         Unrecognised top-level keys are logged as warnings and ignored.
 
-        Args:
-            config: Flat or nested configuration dictionary, e.g. loaded from
-                a YAML file.
+        Parameters
+        ----------
+        config
+            Flat or nested configuration dictionary, e.g. loaded from a YAML
+            file.
 
-        Returns:
-            Fully populated ``NLSQConfig`` instance.
+        Returns
+        -------
+        NLSQConfig
+            A fully populated instance.
         """
         known_scalar_fields: dict[str, str] = {
             # Core solver
@@ -1111,8 +1203,10 @@ class NLSQConfig:
         Nested dataclasses are serialised as nested dicts, making the output
         suitable for round-tripping through YAML / JSON.
 
-        Returns:
-            Fully populated dictionary representation.
+        Returns
+        -------
+        dict
+            A fully populated dictionary representation.
         """
         return {
             # Core solver

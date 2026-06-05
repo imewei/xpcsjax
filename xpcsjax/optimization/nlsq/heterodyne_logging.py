@@ -141,8 +141,11 @@ def log_anti_degeneracy_defense(diagnostics: dict[str, Any] | None) -> None:
 
 
 def _layer_state(diag: dict[str, Any], mode_key: str) -> str:
-    """L1 (Fourier/constant reparam) is active for every optimized mode and
-    skipped only for the frozen ``fixed_constant`` mode (laminar parity)."""
+    """Report the L1 reparameterization state for the resolved per-angle mode.
+
+    L1 (Fourier/constant reparam) is active for every optimized mode and
+    skipped only for the frozen ``fixed_constant`` mode (laminar parity).
+    """
     mode = str(diag.get(mode_key, ""))
     return "inactive (fixed_constant)" if mode == "fixed_constant" else "active"
 
@@ -151,9 +154,11 @@ def _layer_state(diag: dict[str, Any], mode_key: str) -> str:
 # Quantile scaling (controller-parity)
 # ---------------------------------------------------------------------------
 def log_quantile_scaling(contrast_pa: np.ndarray, offset_pa: np.ndarray) -> None:
-    """Mirror laminar "Quantile-based per-angle estimation complete" with the
-    range AND the mean/std summary (laminar logs both; the old heterodyne path
-    logged only the range, and duplicated it three times)."""
+    """Mirror laminar "Quantile-based per-angle estimation complete" log block.
+
+    Logs both the range AND the mean/std summary (laminar logs both; the old
+    heterodyne path logged only the range, and duplicated it three times).
+    """
     # Logging is observational only: empty / all-NaN inputs make np.nanmin etc.
     # raise, but a logging failure must never escape into the solver path.
     try:

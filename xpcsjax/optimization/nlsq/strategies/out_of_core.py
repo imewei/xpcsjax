@@ -69,25 +69,50 @@ def fit_with_out_of_core_accumulation(
 
     Guarantees identical convergence to standard NLSQ but with minimal memory.
 
-    Note (v2.14.1+):
-        This method now uses FULL homodyne physics via compute_g2_scaled(),
-        identical to stratified least-squares. Anti-Degeneracy Defense System
-        support is planned for a future release.
+    Parameters
+    ----------
+    stratified_data : Any
+        Stratified data object (unused, kept for API compatibility).
+    data : Any
+        Original XPCS data object exposing ``.phi``, ``.t1``, ``.t2``, ``.g2``,
+        ``.q``, ``.L``.
+    per_angle_scaling : bool
+        Whether per-angle scaling is enabled.
+    physical_param_names : list[str]
+        Names of the physical parameters.
+    initial_params : np.ndarray
+        Initial parameter guess.
+    bounds : tuple of np.ndarray or None
+        Parameter bounds ``(lower, upper)`` or ``None`` for unbounded.
+    log : logging.Logger or logging.LoggerAdapter
+        Logger instance.
+    config : Any
+        Configuration object or dict (read for ``dt`` and ``max_iterations``).
+    fast_chi2_mode : bool, optional
+        If ``True``, subsample chunks (stride 10) for chi-squared evaluation
+        during the line search (default: ``False``).
+    anti_degeneracy_config : dict, optional
+        Anti-degeneracy configuration. Only its ``per_angle_mode`` /
+        ``constant_scaling_threshold`` keys are consulted, to pick the effective
+        parameter count used for covariance DOF; the anti-degeneracy *layers*
+        are not run on this path.
 
-    Args:
-        stratified_data: Stratified data object (unused, kept for API compat)
-        data: Original XPCS data object with .phi, .t1, .t2, .g2, .q, .L
-        per_angle_scaling: Whether per-angle scaling is enabled
-        physical_param_names: Names of physical parameters
-        initial_params: Initial parameter guess
-        bounds: Parameter bounds (lower, upper) or None
-        log: Logger instance
-        config: Configuration object or dict
-        fast_chi2_mode: If True, subsample chunks for chi2 evaluation
-        anti_degeneracy_config: Anti-degeneracy configuration (reserved)
+    Returns
+    -------
+    popt : np.ndarray
+        Optimized parameters.
+    pcov : np.ndarray
+        Parameter covariance matrix ``s^2 (J^T J)^{-1}``, falling back to the
+        pseudo-inverse when ``J^T J`` is singular.
+    info : dict
+        Optimization information (``chi_squared``, ``iterations``,
+        ``convergence_status``, ``message``).
 
-    Returns:
-        (popt, pcov, info) tuple
+    Notes
+    -----
+    Since v2.14.1 this method uses the full homodyne physics via
+    ``compute_g2_scaled()``, identical to stratified least-squares. The
+    Anti-Degeneracy Defense System layers are not yet wired on this path.
     """
     import jax.numpy as jnp
 

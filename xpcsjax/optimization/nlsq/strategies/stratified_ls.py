@@ -58,12 +58,28 @@ def create_stratified_chunks(
 ) -> Any:
     """Convert stratified flat arrays into chunks for StratifiedResidualFunction.
 
-    Args:
-        stratified_data: StratifiedData object with flat stratified arrays
-        target_chunk_size: Target size for each chunk
+    Parameters
+    ----------
+    stratified_data : Any
+        StratifiedData object with flat stratified arrays (``phi_flat``,
+        ``t1_flat``, ``t2_flat``, ``g2_flat``) plus shared ``sigma``, ``q``,
+        ``L``, and optional ``dt`` / ``chunk_sizes`` metadata.
+    target_chunk_size : int, optional
+        Target size for each chunk (default: 100,000). Used only on the
+        sequential fallback when ``chunk_sizes`` is absent.
 
-    Returns:
-        Object with .chunks attribute containing list of chunk objects
+    Returns
+    -------
+    StratifiedChunkedData
+        Container exposing the chunk list via ``.chunks`` plus the shared
+        ``.sigma``.
+
+    Notes
+    -----
+    When ``stratified_data.chunk_sizes`` is present, the original
+    stratification boundaries are reused so every chunk keeps all phi angles.
+    The sequential-slicing fallback (no ``chunk_sizes``) may leave a chunk with
+    incomplete angle coverage.
     """
     # Get flat stratified arrays
     phi_flat = stratified_data.phi_flat
@@ -147,19 +163,50 @@ def fit_with_stratified_least_squares(
     over chunking, ensuring angle completeness in each chunk for proper per-angle
     parameter gradients.
 
-    Args:
-        stratified_data: StratifiedData object with flat stratified arrays
-        per_angle_scaling: Whether per-angle parameters are enabled
-        physical_param_names: List of physical parameter names
-        initial_params: Initial parameter guess
-        bounds: Parameter bounds (lower, upper) tuple
-        log: Logger instance
-        target_chunk_size: Target size for each chunk (default: 100k points)
-        anti_degeneracy_config: Optional config dict for Anti-Degeneracy Defense System
-        nlsq_config_dict: Optional NLSQ convergence config dict
+    Parameters
+    ----------
+    stratified_data : Any
+        StratifiedData object with flat stratified arrays.
+    per_angle_scaling : bool
+        Whether per-angle parameters are enabled.
+    physical_param_names : list[str]
+        Names of the physical parameters.
+    initial_params : np.ndarray
+        Initial parameter guess.
+    bounds : tuple of np.ndarray or None
+        Parameter bounds ``(lower, upper)`` or ``None`` for unbounded.
+    log : logging.Logger or logging.LoggerAdapter
+        Logger instance.
+    target_chunk_size : int, optional
+        Target size for each chunk (default: 100,000 points).
+    anti_degeneracy_config : dict, optional
+        Config dict for the Anti-Degeneracy Defense System. When provided (with
+        per-angle scaling and ``laminar_flow``), an :class:`AntiDegeneracyController`
+        is instantiated; this path therefore runs L2/L3 according to the resolved
+        per-angle mode (``fixed_constant`` / ``auto_averaged`` / ``individual`` /
+        ``fourier``).
+    nlsq_config_dict : dict, optional
+        NLSQ convergence config dict (``ftol``, ``xtol``, ``gtol``,
+        ``max_iterations``).
+    analysis_mode : AnalysisMode, optional
+        Analysis mode passed through to the controller for layer gating.
 
-    Returns:
-        (popt, pcov, info) tuple
+    Returns
+    -------
+    popt : np.ndarray
+        Optimized parameters (expanded back to the per-angle layout when the
+        controller used a reduced parameterization).
+    pcov : np.ndarray
+        Parameter covariance matrix.
+    info : dict
+        Optimization information, including an ``anti_degeneracy`` block when
+        the controller was active.
+
+    Notes
+    -----
+    The L4 gradient-collapse monitor wired via the debug callback is strictly
+    diagnostic (monitor-on vs monitor-off is bit-identical). L5 shear weighting
+    applies to ``laminar_flow`` only.
     """
     log.info("=" * 80)
     log.info("STRATIFIED LEAST-SQUARES OPTIMIZATION")

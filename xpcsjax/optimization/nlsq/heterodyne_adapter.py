@@ -110,16 +110,24 @@ def get_or_create_fitter(
 ) -> tuple[object, bool]:
     """Get a CurveFit instance from cache or create a new one.
 
-    Args:
-        n_data: Number of data points (flength).
-        n_params: Number of parameters.
-        phi_angles: Tuple of azimuthal angles (distinguishes multi-angle configs).
-        scaling_mode: Contrast/offset scaling mode (e.g. "auto", "individual").
-        callable_scope: Optional residual/model callable that must not share a
-            stateful fitter with different residual closures.
+    Parameters
+    ----------
+    n_data : int
+        Number of data points (CurveFit ``flength``).
+    n_params : int
+        Number of parameters.
+    phi_angles : tuple of float, optional
+        Azimuthal angles (distinguishes multi-angle configs).
+    scaling_mode : str
+        Contrast/offset scaling mode (e.g. ``"auto"``, ``"individual"``).
+    callable_scope : object, optional
+        Residual/model callable that must not share a stateful fitter with
+        different residual closures.
 
-    Returns:
-        Tuple of (CurveFit fitter, cache_hit: bool).
+    Returns
+    -------
+    tuple of (object, bool)
+        The ``CurveFit`` fitter and whether it was a cache hit.
     """
     key = ModelCacheKey(
         n_data=n_data,
@@ -179,8 +187,22 @@ def _assess_convergence(
 ) -> tuple[bool, str, str]:
     """Apply post-fit convergence heuristics.
 
-    Returns:
-        (success, message, convergence_reason)
+    Flags non-finite parameters, an extreme reduced chi-squared (poor fit), and
+    a solution unchanged from the initial guess (no progress).
+
+    Parameters
+    ----------
+    fitted_params : np.ndarray
+        Parameter vector returned by the optimizer.
+    initial_params : np.ndarray
+        Starting parameter values.
+    reduced_chi2 : float or None
+        Reduced chi-squared of the fit, if available.
+
+    Returns
+    -------
+    tuple of (bool, str, str)
+        ``(success, message, convergence_reason)``.
     """
     if not np.all(np.isfinite(fitted_params)):
         return False, "Non-finite parameters in result", "failed"
@@ -215,19 +237,24 @@ class NLSQAdapter(NLSQAdapterBase):
     def __init__(self, parameter_names: list[str]) -> None:
         """Initialise the adapter.
 
-        Args:
-            parameter_names: Names of parameters being optimised, in order.
+        Parameters
+        ----------
+        parameter_names : list of str
+            Names of parameters being optimised, in order.
         """
         self._parameter_names = parameter_names
 
     @property
     def name(self) -> str:
+        """Adapter name (``"nlsq.CurveFit"``)."""
         return "nlsq.CurveFit"
 
     def supports_bounds(self) -> bool:
+        """Return whether the adapter supports box bounds (always ``True``)."""
         return True
 
     def supports_jacobian(self) -> bool:
+        """Return whether the adapter accepts an analytic Jacobian (always ``True``)."""
         return True
 
     def fit(
@@ -245,21 +272,29 @@ class NLSQAdapter(NLSQAdapterBase):
         expected by ``CurveFit.curve_fit`` and normalises the result via
         ``build_result_from_nlsq``.
 
-        Args:
-            residual_fn: Callable ``(params: ndarray) -> residuals: ndarray``.
-            initial_params: Starting parameter values.
-            bounds: ``(lower, upper)`` bound arrays.
-            config: Optimisation configuration.
-            jacobian_fn: Optional analytic Jacobian (unused by CurveFit; kept
-                for API compatibility).
-            callback: Optional per-iteration ``curve_fit`` callback
-                ``(iteration, cost, params, info=None, **kwargs) -> None``.
-                Strictly observational — must not mutate solve state. Forwarded
-                to ``CurveFit.curve_fit`` when provided; takes precedence over
-                the Task-0 debug seam, which remains as a secondary fallback.
+        Parameters
+        ----------
+        residual_fn : callable
+            ``(params: ndarray) -> residuals: ndarray``.
+        initial_params : np.ndarray
+            Starting parameter values.
+        bounds : tuple of np.ndarray
+            ``(lower, upper)`` bound arrays.
+        config : NLSQConfig
+            Optimisation configuration.
+        jacobian_fn : callable, optional
+            Analytic Jacobian (unused by CurveFit; kept for API compatibility).
+        callback : callable, optional
+            Per-iteration ``curve_fit`` callback
+            ``(iteration, cost, params, info=None, **kwargs) -> None``. Strictly
+            observational — must not mutate solve state. Forwarded to
+            ``CurveFit.curve_fit`` when provided; takes precedence over the
+            Task-0 debug seam, which remains as a secondary fallback.
 
-        Returns:
-            NLSQResult with fit results.
+        Returns
+        -------
+        NLSQResult
+            Normalised fit result.
         """
         start_time = time.perf_counter()
 
@@ -388,20 +423,28 @@ class NLSQAdapter(NLSQAdapterBase):
         This method accepts a function with the signature
         ``(xdata, *params) -> residuals`` that nlsq can trace through JAX.
 
-        Args:
-            jax_residual_fn: JAX-compatible callable ``(x, *params) -> residuals``.
-            initial_params: Starting parameter values.
-            bounds: ``(lower, upper)`` bound arrays.
-            config: Optimisation configuration.
-            n_data: Number of data points (used as CurveFit ``flength``).
-            callback: Optional per-iteration ``curve_fit`` callback (strictly
-                observational). Forwarded to ``CurveFit.curve_fit`` when
-                provided; takes precedence over the Task-0 debug seam.
+        Parameters
+        ----------
+        jax_residual_fn : callable
+            JAX-compatible ``(x, *params) -> residuals``.
+        initial_params : np.ndarray
+            Starting parameter values.
+        bounds : tuple of np.ndarray
+            ``(lower, upper)`` bound arrays.
+        config : NLSQConfig
+            Optimisation configuration.
+        n_data : int
+            Number of data points (used as CurveFit ``flength``).
+        callback : callable, optional
+            Per-iteration ``curve_fit`` callback (strictly observational).
+            Forwarded to ``CurveFit.curve_fit`` when provided; takes precedence
+            over the Task-0 debug seam.
 
-        Returns:
-            NLSQResult with fit results.
+        Returns
+        -------
+        NLSQResult
+            Normalised fit result.
         """
-
         start_time = time.perf_counter()
 
         lower_bounds, upper_bounds = bounds
@@ -545,11 +588,16 @@ class NLSQWrapper(NLSQAdapterBase):
     ) -> None:
         """Initialise the wrapper.
 
-        Args:
-            parameter_names: Names of parameters being optimised, in order.
-            enable_large_dataset: Allow the LARGE tier when memory warrants it.
-            enable_recovery: Enable cross-tier fallback on failure.
-            max_retries: Maximum per-tier retries before falling back.
+        Parameters
+        ----------
+        parameter_names : list of str
+            Names of parameters being optimised, in order.
+        enable_large_dataset : bool
+            Allow the LARGE tier when memory warrants it.
+        enable_recovery : bool
+            Enable cross-tier fallback on failure.
+        max_retries : int
+            Maximum per-tier retries before falling back.
         """
         self._parameter_names = parameter_names
         self._enable_large_dataset = enable_large_dataset
@@ -558,12 +606,15 @@ class NLSQWrapper(NLSQAdapterBase):
 
     @property
     def name(self) -> str:
+        """Adapter name (``"nlsq.NLSQWrapper"``)."""
         return "nlsq.NLSQWrapper"
 
     def supports_bounds(self) -> bool:
+        """Return whether the adapter supports box bounds (always ``True``)."""
         return True
 
     def supports_jacobian(self) -> bool:
+        """Return whether the adapter accepts an analytic Jacobian (always ``True``)."""
         return True
 
     def fit(
@@ -576,15 +627,23 @@ class NLSQWrapper(NLSQAdapterBase):
     ) -> NLSQResult:
         """Run NLSQ optimisation with automatic memory-based strategy routing.
 
-        Args:
-            residual_fn: Callable ``(params: ndarray) -> residuals: ndarray``.
-            initial_params: Starting parameter values.
-            bounds: ``(lower, upper)`` bound arrays.
-            config: Optimisation configuration.
-            jacobian_fn: Optional analytic Jacobian (for API compatibility).
+        Parameters
+        ----------
+        residual_fn : callable
+            ``(params: ndarray) -> residuals: ndarray``.
+        initial_params : np.ndarray
+            Starting parameter values.
+        bounds : tuple of np.ndarray
+            ``(lower, upper)`` bound arrays.
+        config : NLSQConfig
+            Optimisation configuration.
+        jacobian_fn : callable, optional
+            Analytic Jacobian (for API compatibility).
 
-        Returns:
-            NLSQResult with fit results.
+        Returns
+        -------
+        NLSQResult
+            Normalised fit result.
         """
         start_time = time.perf_counter()
 
@@ -710,10 +769,12 @@ class NLSQWrapper(NLSQAdapterBase):
         start_time: float,
         config: NLSQConfig | None = None,
     ) -> NLSQResult | None:
-        """Attempt a single tier up to max_retries times.
+        """Attempt a single tier up to ``max_retries`` times.
 
-        Returns:
-            NLSQResult on success, or None if all retries failed.
+        Returns
+        -------
+        NLSQResult or None
+            The result on success, or ``None`` if all retries failed.
         """
         lower_bounds, upper_bounds = bounds
         for attempt in range(self._max_retries):

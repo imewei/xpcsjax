@@ -13,9 +13,17 @@ if TYPE_CHECKING:
 
 @dataclass
 class NLSQResult:
-    """Result of NLSQ optimization.
+    """Result of a heterodyne NLSQ optimization.
 
-    Contains fitted parameters, uncertainties, and fit quality metrics.
+    Container for fitted parameters, their uncertainties, and fit-quality
+    metrics produced by the heterodyne ``two_component`` solver adapters.
+
+    Notes
+    -----
+    For heterodyne fits the ``parameters`` array is physics-first, laid out as
+    ``[physics | contrast | offset]`` — the reverse of the homodyne-side
+    :class:`xpcsjax.optimization.nlsq.results.OptimizationResult`, whose vector
+    is scaling-first. Consumers that index by position must account for this.
     """
 
     # Core results
@@ -57,16 +65,22 @@ class NLSQResult:
         return {name: float(self.parameters[i]) for i, name in enumerate(self.parameter_names)}
 
     def get_param(self, name: str) -> float:
-        """Get parameter value by name.
+        """Return a fitted parameter value by name.
 
-        Args:
-            name: Parameter name
+        Parameters
+        ----------
+        name
+            Parameter name to look up in :attr:`parameter_names`.
 
-        Returns:
-            Parameter value
+        Returns
+        -------
+        float
+            The fitted value of the named parameter.
 
-        Raises:
-            KeyError: If parameter not found
+        Raises
+        ------
+        KeyError
+            If *name* is not among :attr:`parameter_names`.
         """
         try:
             idx = self.parameter_names.index(name)
@@ -75,13 +89,18 @@ class NLSQResult:
             raise KeyError(f"Parameter '{name}' not found") from None
 
     def get_uncertainty(self, name: str) -> float | None:
-        """Get uncertainty for parameter by name.
+        """Return the 1-sigma uncertainty for a parameter by name.
 
-        Args:
-            name: Parameter name
+        Parameters
+        ----------
+        name
+            Parameter name to look up in :attr:`parameter_names`.
 
-        Returns:
-            Uncertainty or None if not available
+        Returns
+        -------
+        float or None
+            The standard uncertainty, or ``None`` when uncertainties were not
+            computed or *name* is not found.
         """
         if self.uncertainties is None:
             return None
@@ -92,10 +111,14 @@ class NLSQResult:
             return None
 
     def get_correlation_matrix(self) -> np.ndarray | None:
-        """Compute correlation matrix from covariance.
+        """Compute the parameter correlation matrix from the covariance.
 
-        Returns:
-            Correlation matrix or None if covariance not available
+        Returns
+        -------
+        numpy.ndarray or None
+            The correlation matrix (covariance normalised by the outer product
+            of the marginal standard deviations), or ``None`` when
+            :attr:`covariance` is unavailable.
         """
         if self.covariance is None:
             return None
@@ -107,10 +130,17 @@ class NLSQResult:
         return self.covariance / std_outer
 
     def validate(self) -> list[str]:
-        """Validate result quality.
+        """Inspect the result and collect fit-quality warnings.
 
-        Returns:
-            List of warning/error messages
+        Flags a failed solve, reduced chi-squared outside the
+        ``[0.5, 2.0]`` band (possible overfit / poor fit), parameters whose
+        relative uncertainty exceeds 100%, and pairs of highly correlated
+        parameters (``|r| > 0.95``).
+
+        Returns
+        -------
+        list of str
+            Human-readable warning messages; empty when no issues are found.
         """
         warnings = []
 
@@ -145,10 +175,13 @@ class NLSQResult:
         return warnings
 
     def summary(self) -> str:
-        """Generate summary string.
+        """Render a human-readable multi-line summary of the fit.
 
-        Returns:
-            Multi-line summary
+        Returns
+        -------
+        str
+            A formatted block listing success status, each parameter with its
+            uncertainty (when available), and the fit statistics.
         """
         lines = [
             "NLSQ Fit Result",

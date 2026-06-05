@@ -641,9 +641,11 @@ class OOCSharedArrays:
         self._shm_blocks.clear()
 
     def __enter__(self) -> OOCSharedArrays:
+        """Enter the context manager, returning self."""
         return self
 
     def __exit__(self, *exc: object) -> None:
+        """Exit the context manager, unlinking all shared memory blocks."""
         self.cleanup()
 
 
@@ -763,7 +765,9 @@ class OOCComputePool:
         logger.info("OOCComputePool shut down")
 
     def __enter__(self) -> OOCComputePool:
+        """Enter the context manager, returning self."""
         return self
 
     def __exit__(self, *exc: object) -> None:
+        """Exit the context manager, shutting down the worker pool."""
         self.shutdown()

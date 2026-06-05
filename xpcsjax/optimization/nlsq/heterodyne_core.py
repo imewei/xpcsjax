@@ -371,20 +371,35 @@ def fit_nlsq_jax(
     3. Otherwise → runs local trust-region optimization
 
     The adapter is tried first; on failure the wrapper provides automatic
-    retry with progressive recovery (HybridRecoveryConfig).
+    retry with progressive recovery (``HybridRecoveryConfig``).
 
-    Args:
-        model: HeterodyneModel instance with parameters configured.
-        c2_data: Experimental correlation data, shape (N, N).
-        phi_angle: Detector phi angle (degrees).
-        config: NLSQ configuration (default if None).
-        weights: Optional weights (1/sigma²) for weighted least squares.
-        use_nlsq_library: Whether to prefer nlsq library over scipy.
-        _skip_global_selection: Internal flag — skip CMA-ES / multi-start check.
-        angle_idx: Per-angle scaling index for the fixed contrast/offset values.
+    Parameters
+    ----------
+    model : HeterodyneModel
+        Model instance with parameters configured.
+    c2_data : np.ndarray or jnp.ndarray
+        Experimental correlation data, shape ``(N, N)``.
+    phi_angle : float, optional
+        Detector phi angle in degrees.
+    config : NLSQConfig, optional
+        NLSQ configuration; a default :class:`NLSQConfig` is used when ``None``.
+    weights : np.ndarray or jnp.ndarray, optional
+        Weights (``1/sigma**2``) for weighted least squares.
+    use_nlsq_library : bool, optional
+        Prefer the ``nlsq`` library over the SciPy fallback when ``True``.
+    _skip_global_selection : bool, optional
+        Internal flag — skip the CMA-ES / multi-start global selection gate.
+    angle_idx : int, optional
+        Per-angle scaling index for the fixed contrast/offset values.
 
-    Returns:
-        NLSQResult with fitted parameters and diagnostics.
+    Returns
+    -------
+    NLSQResult
+        Fitted parameters and diagnostics.
+
+    See Also
+    --------
+    fit_nlsq_multi_phi : Multi-angle public dispatcher for the joint fit.
     """
     if config is None:
         config = NLSQConfig()
@@ -688,6 +703,27 @@ def fit_nlsq_multi_phi(
     ``model.scaling`` (mutated by every prior fit), so "same seed → same result"
     holds for the same inputs on a freshly constructed :class:`HeterodyneModel`,
     not across repeated fits that reuse (and mutate) one model instance.
+
+    The returned ``result.parameters`` is **physics-first** —
+    ``[physics | contrast | offset]`` — which is the opposite of homodyne's
+    scaling-first layout. The per-angle scaling tail is recovered with
+    :func:`xpcsjax.optimization.nlsq.heterodyne_views.reconstruct_per_angle_scaling`.
+
+    This package is NLSQ-only: there is no Bayesian / MCMC dispatch branch here.
+
+    See Also
+    --------
+    fit_nlsq_jax : Single-angle NLSQ entry point.
+    fit_two_component_via_engine : Shared-engine in-memory route used by
+        ``_fit_nlsq_heterodyne`` for the in-scope per-angle modes.
+
+    Examples
+    --------
+    >>> from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    >>> config = NLSQConfig(per_angle_mode="auto")
+    >>> result = fit_nlsq_multi_phi(model, c2_data, phi_angles, config)
+    >>> result.nlsq_diagnostics["per_angle_mode"]  # resolved dispatch token
+    'averaged'
     """
     phi_angles = np.asarray(phi_angles)
 
@@ -934,19 +970,25 @@ def _compute_per_angle_chi2(
     """Compute per-angle cost and noise-normalised reduced chi-squared.
 
     Joint fits produce one aggregated cost and chi2 for all angles. This
-    helper reconstructs the per-angle statistics so each NLSQResult carries
+    helper reconstructs the per-angle statistics so each ``NLSQResult`` carries
     its own diagnostics rather than a copy of the joint value.
 
-    Args:
-        residuals: Flat off-diagonal residual vector from compute_residuals,
-            length n*(n-1).
-        c2_matrix: Per-angle experimental C2 matrix, shape (n, n).
-        n_params: Number of varying physics parameters.
+    Parameters
+    ----------
+    residuals : np.ndarray
+        Flat off-diagonal residual vector from ``compute_residuals``, length
+        ``n * (n - 1)``.
+    c2_matrix : np.ndarray
+        Per-angle experimental C2 matrix, shape ``(n, n)``.
+    n_params : int
+        Number of varying physics parameters.
 
-    Returns:
-        ``(per_angle_cost, reduced_chi_squared)`` where ``per_angle_cost``
-        is ``0.5*SSR`` and ``reduced_chi_squared`` is noise-normalised
-        (target ≈ 1.0 for a good fit; MSE fallback when noise is degenerate).
+    Returns
+    -------
+    tuple of float
+        ``(per_angle_cost, reduced_chi_squared)`` where ``per_angle_cost`` is
+        ``0.5 * SSR`` and ``reduced_chi_squared`` is noise-normalised (target
+        ``approx 1.0`` for a good fit; MSE fallback when noise is degenerate).
     """
     ssr = float(np.sum(residuals**2))
     per_angle_cost = 0.5 * ssr
@@ -1584,6 +1626,18 @@ def _fit_joint_cmaes_multi_phi(
     The plain joint fit is NOT modified — this path is reached only when
     ``config.enable_cmaes`` is True. On any failure the escape falls back to the
     plain joint fit (best-effort).
+
+    Notes
+    -----
+    The escape **honours the resolved per-angle scaling mode** — it builds the
+    :class:`JointProblem` through :func:`_build_joint_fourier`, which uses
+    ``"independent"`` for ``individual`` and the Fourier basis otherwise. It does
+    NOT force a Fourier layout.
+
+    When CMA-ES is kept, the returned :class:`OptimizationResult` is tagged via
+    ``nlsq_diagnostics["global_escape"]`` and, by construction, carries NaN
+    covariance / uncertainties and ``n_iterations == 0`` (no covariance solve is
+    run on the kept vector). Read ``global_escape`` to detect an escape result.
     """
     try:
         fourier = _build_joint_fourier(config, phi_angles)
@@ -1731,6 +1785,14 @@ def _fit_joint_multistart(
     escape falls back to the plain joint fit (best-effort), exactly like the
     CMA-ES escape. Runs SEQUENTIALLY (``n_workers=1``): the single-fit worker
     closes over a JAX ``HeterodyneModel`` that is not process-picklable.
+
+    Notes
+    -----
+    Like the CMA-ES escape, this **honours the resolved per-angle scaling mode**
+    (via :func:`_build_joint_fourier`) and never forces a Fourier layout. A kept
+    multistart result is tagged ``nlsq_diagnostics["global_escape"]`` and, by
+    construction, carries NaN covariance / uncertainties and ``n_iterations == 0``
+    (no covariance solve on the kept vector).
     """
     try:
         fourier = _build_joint_fourier(config, phi_angles)
@@ -3317,9 +3379,10 @@ def _cmaes_to_nlsq_result(
     *,
     parameter_names: list[str],
 ) -> NLSQResult:
-    """Pack a :class:`CMAESResult` into the :class:`NLSQResult` shape so
-    downstream consumers (DOF correction, post-fit logging, multi-phi joining)
-    see a uniform structure regardless of which optimizer won Phase 3.
+    """Pack a :class:`CMAESResult` into the :class:`NLSQResult` shape.
+
+    Downstream consumers (DOF correction, post-fit logging, multi-phi joining)
+    then see a uniform structure regardless of which optimizer won Phase 3.
 
     Naming convention: ``final_cost = 0.5 * SSR`` matches NLSQ's least-squares
     convention; CMA-ES reports ``chi_squared = SSR`` so the caller already
@@ -3458,7 +3521,6 @@ def _fit_local(
     # Capture constants
     fixed_values = jnp.asarray(param_manager.get_full_values(), dtype=jnp.float64)
     varying_indices = jnp.array(param_manager.varying_indices)
-    n_data = c2_jax.size
     t, q, dt = model.t, model.q, model.dt
 
     # Per-angle scaling — fixed during local optimization (constant mode parity)
@@ -3484,6 +3546,18 @@ def _fit_local(
     numpy_residual_fn = _make_numpy_residual_fn(
         model, c2_data, phi_angle, weights, contrast_val, offset_val
     )
+
+    # The adapter (NLSQ ``CurveFit``) sizes its ``ydata`` zero-target by
+    # ``n_data``, so it MUST equal the length of the residual vector
+    # ``compute_residuals`` actually returns — the off-diagonal, t=0-boundary
+    # -excluded vector of length ``(n_time - 1) * (n_time - 2)``, NOT the full
+    # ``c2_jax.size`` (= n_time²). Using ``c2_jax.size`` makes NLSQ broadcast a
+    # 256-long ``ydata`` against a 210-long residual and raise; the adapter then
+    # silently falls back to the wrapper. Derive ``n_data`` from the residual
+    # function itself so the adapter path is correct and stays in sync with the
+    # kernel's masking convention (matches ``n_per_angle`` at heterodyne_core
+    # line ~1361).
+    n_data = int(np.asarray(jax_residual_fn(jnp.arange(c2_jax.size), *initial_varying)).size)
 
     # ------------------------------------------------------------------
     # Adapter → wrapper fallback chain
@@ -3743,8 +3817,11 @@ _OFFSET_DIAG_KEYS = (
 def _mean_scaling_from_diagnostics(
     diagnostics: dict[str, Any] | None,
 ) -> tuple[float | None, float | None]:
-    """Return ``(mean_contrast, mean_offset)`` from whichever per-angle scaling
-    key the active mode populated, or ``(None, None)`` if none is present."""
+    """Return ``(mean_contrast, mean_offset)`` from the per-angle scaling.
+
+    Reads whichever per-angle scaling key the active mode populated, returning
+    ``(None, None)`` when none is present.
+    """
     if not diagnostics:
         return None, None
 

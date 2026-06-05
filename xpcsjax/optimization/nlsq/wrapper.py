@@ -64,7 +64,8 @@ Production Status:
 - Sub-linear performance scaling with dataset size
 - Per-angle scaling compatible with large datasets (v2.2+)
 
-References:
+References
+----------
 - NLSQ Package: https://github.com/imewei/NLSQ
 - Validation: See tests/validation/test_scientific_validation.py (T036-T041)
 - Documentation: See CHANGELOG.md and CLAUDE.md for detailed status
@@ -211,9 +212,9 @@ _LAMINAR_L5_INACTIVE = "laminar_flow_inactive"
 
 
 def _laminar_anti_degeneracy_block(anti_degeneracy_info: "dict | None") -> dict:
-    """Build the symmetric anti-degeneracy diagnostics block for a laminar result
-    from the solver's ``info['anti_degeneracy']`` dict (or None).
+    """Build the symmetric anti-degeneracy diagnostics block for a laminar result.
 
+    Reads from the solver's ``info['anti_degeneracy']`` dict (or ``None``).
     Presence-based and honest: a layer is reported active only when its optimizer
     actually ran and set its sub-key in ``info['anti_degeneracy']``; otherwise the
     laminar inactive marker. This single rule is correct for every non-in-memory
@@ -557,18 +558,27 @@ def _safe_uncertainties_from_pcov(pcov: np.ndarray, n_params: int) -> np.ndarray
 
 
 class NLSQWrapper(NLSQAdapterBase):
-    """Adapter class for NLSQ package integration with homodyne optimization.
+    """Adapter for NLSQ-package integration with homodyne optimization.
 
-    This class translates between homodyne's optimization API and the NLSQ
-    package's curve_fit interface, handling:
-    - Data format transformations
-    - Parameter validation and bounds checking
-    - Automatic strategy selection for large datasets
-    - Hybrid error handling and recovery
+    Translates between homodyne's optimization API and the NLSQ package's
+    ``curve_fit`` interface. This is xpcsjax's standard (inline) optimization
+    path: it calls NLSQ's ``CurveFit`` directly and owns the surrounding
+    strategy (memory-aware routing via
+    :func:`~xpcsjax.optimization.nlsq.strategies.select_nlsq_strategy`, bounds
+    and transforms, chunking, error recovery). It does NOT instantiate the
+    :class:`~xpcsjax.optimization.nlsq.anti_degeneracy_controller.AntiDegeneracyController`
+    — that controller is path-specific to the CMA-ES and stratified-LS paths —
+    and the in-memory path runs no L2/L3 layers. Responsibilities handled here:
 
-    Usage:
-        wrapper = NLSQWrapper(enable_large_dataset=True)
-        result = wrapper.fit(data, config, initial_params, bounds, analysis_mode)
+    - Data format transformations.
+    - Parameter validation and bounds checking.
+    - Automatic strategy selection for large datasets.
+    - Hybrid error handling and recovery.
+
+    Examples
+    --------
+    >>> wrapper = NLSQWrapper(enable_large_dataset=True)
+    >>> result = wrapper.fit(data, config, initial_params, bounds, analysis_mode)
     """
 
     def __init__(
@@ -581,12 +591,18 @@ class NLSQWrapper(NLSQAdapterBase):
     ) -> None:
         """Initialize NLSQWrapper.
 
-        Args:
-            enable_large_dataset: Use curve_fit_large for datasets >1M points
-            enable_recovery: Enable automatic error recovery strategies
-            enable_numerical_validation: Enable NaN/Inf validation at 3 critical points
-            max_retries: Maximum retry attempts per batch (default: 2)
-            fast_mode: Disable non-essential checks for < 1% overhead (Task 5.5)
+        Parameters
+        ----------
+        enable_large_dataset : bool, default True
+            Use ``curve_fit_large`` for datasets >1M points.
+        enable_recovery : bool, default True
+            Enable automatic error-recovery strategies.
+        enable_numerical_validation : bool, default True
+            Enable NaN/Inf validation at 3 critical points.
+        max_retries : int, default 2
+            Maximum retry attempts per batch.
+        fast_mode : bool, default False
+            Disable non-essential checks for <1% overhead (Task 5.5).
         """
         self.enable_large_dataset = enable_large_dataset
         self.enable_recovery = enable_recovery
@@ -610,14 +626,21 @@ class NLSQWrapper(NLSQAdapterBase):
     def _get_physical_param_names(analysis_mode: AnalysisMode) -> list[str]:
         """Get physical parameter names for a given analysis mode.
 
-        Args:
-            analysis_mode: 'static_isotropic' or 'laminar_flow'
+        Parameters
+        ----------
+        analysis_mode : AnalysisMode
+            One of ``static_anisotropic``, ``static_isotropic``, or
+            ``laminar_flow``.
 
-        Returns:
-            List of physical parameter names (excludes scaling parameters)
+        Returns
+        -------
+        list of str
+            Physical parameter names (excludes scaling parameters).
 
-        Raises:
-            ValueError: If analysis_mode is not recognized
+        Raises
+        ------
+        ValueError
+            If ``analysis_mode`` is not recognized.
         """
         normalized_mode = analysis_mode.lower()
 
@@ -642,7 +665,6 @@ class NLSQWrapper(NLSQAdapterBase):
     @staticmethod
     def _extract_nlsq_settings(config: Any) -> dict[str, Any]:
         """Return NLSQ-specific settings from the config tree (if present)."""
-
         config_dict = None
         if hasattr(config, "config") and isinstance(config.config, dict):
             config_dict = config.config
@@ -687,23 +709,54 @@ class NLSQWrapper(NLSQAdapterBase):
         shear_transforms: dict[str, Any] | None = None,
         per_angle_scaling_initial: dict[str, list[float]] | None = None,
     ) -> OptimizationResult:
-        """Execute NLSQ optimization with automatic strategy selection and per-angle scaling.
+        """Execute NLSQ optimization with automatic strategy selection.
 
-        Args:
-            data: XPCS experimental data
-            config: Configuration manager with optimization settings
-            initial_params: Initial parameter guess (auto-loaded if None)
-            bounds: Parameter bounds as (lower, upper) tuple
-            analysis_mode: 'static_isotropic' or 'laminar_flow'
-            per_angle_scaling: MUST be True. Per-angle contrast/offset parameters are physically correct
-                             as each scattering angle has different optical properties and detector responses.
-                             Legacy scalar mode (False) is no longer supported.
+        Primary public entry point of :class:`NLSQWrapper`. Selects a
+        memory-aware strategy, prepares bounds and transforms, runs the NLSQ
+        trust-region solve (with error recovery), and assembles an
+        :class:`~xpcsjax.optimization.nlsq.results.OptimizationResult`.
 
-        Returns:
-            OptimizationResult with converged parameters and diagnostics
+        Parameters
+        ----------
+        data : Any
+            XPCS experimental data.
+        config : Any
+            Configuration manager with optimization settings.
+        initial_params : np.ndarray, optional
+            Initial parameter guess (auto-loaded if ``None``).
+        bounds : tuple of np.ndarray, optional
+            Parameter bounds as a ``(lower, upper)`` tuple.
+        analysis_mode : AnalysisMode, default ``AnalysisMode.STATIC_ISOTROPIC``
+            Analysis mode (e.g. ``static_isotropic`` or ``laminar_flow``).
+        per_angle_scaling : bool, default True
+            MUST be ``True``. Per-angle contrast/offset parameters are
+            physically correct because each scattering angle has different
+            optical properties and detector responses. Legacy scalar mode
+            (``False``) is no longer supported and raises.
+        diagnostics_enabled : bool, default False
+            Emit the ``nlsq_diagnostics`` block when ``True`` (or when enabled
+            in config).
+        shear_transforms : dict, optional
+            Shear-transform configuration (laminar flow).
+        per_angle_scaling_initial : dict, optional
+            Initial per-angle scaling values keyed by parameter name.
 
-        Raises:
-            ValueError: If bounds are invalid (lower > upper) or if per_angle_scaling=False
+        Returns
+        -------
+        OptimizationResult
+            Converged parameters and diagnostics.
+
+        Raises
+        ------
+        ValueError
+            If bounds are invalid (lower > upper) or if ``per_angle_scaling`` is
+            ``False``.
+
+        Examples
+        --------
+        >>> wrapper = NLSQWrapper()
+        >>> result = wrapper.fit(data, config, initial_params, bounds,
+        ...                      analysis_mode=AnalysisMode.LAMINAR_FLOW)
         """
         import time
 
@@ -2204,11 +2257,17 @@ class NLSQWrapper(NLSQAdapterBase):
         single data object and returns flattened ``(xdata, ydata)``. The two
         are different operations, so this is intentionally not an override.
 
-        Args:
-            data: XPCSData with shape (n_phi, n_t1, n_t2) OR StratifiedData (already flattened)
+        Parameters
+        ----------
+        data : Any
+            ``XPCSData`` with shape ``(n_phi, n_t1, n_t2)``, or
+            ``StratifiedData`` (already flattened).
 
-        Returns:
-            (xdata, ydata): Flattened independent variables and observations
+        Returns
+        -------
+        tuple of np.ndarray
+            ``(xdata, ydata)`` — flattened independent variables and
+            observations.
         """
         # Validate data has required attributes
         if (
@@ -2281,20 +2340,28 @@ class NLSQWrapper(NLSQAdapterBase):
         Solution: Reorganize data so every chunk contains all phi angles, ensuring
         gradients are always well-defined.
 
-        Args:
-            data: XPCSData object with phi, t1, t2, g2 attributes
-            per_angle_scaling: Whether per-angle parameters are enabled
-            config: Configuration manager with stratification settings
-            logger: Logger instance for diagnostics
+        Parameters
+        ----------
+        data : Any
+            ``XPCSData`` object with ``phi``, ``t1``, ``t2``, ``g2`` attributes.
+        per_angle_scaling : bool
+            Whether per-angle parameters are enabled.
+        config : Any
+            Configuration manager with stratification settings.
+        logger : Any
+            Logger instance for diagnostics.
 
-        Returns:
-            Data object (original or stratified copy) ready for optimization
+        Returns
+        -------
+        Any
+            Data object (original or stratified copy) ready for optimization.
 
-        Notes:
-            - No-op if conditions don't require stratification
-            - Creates temporary 2x memory overhead during reorganization
-            - <1% performance overhead (0.15s for 3M points)
-            - Respects configuration overrides in optimization.stratification
+        Notes
+        -----
+        - No-op if conditions don't require stratification.
+        - Creates temporary 2x memory overhead during reorganization.
+        - <1% performance overhead (0.15 s for 3M points).
+        - Respects configuration overrides in ``optimization.stratification``.
         """
         # Extract stratification configuration with defaults
         strat_config = {}
@@ -2592,21 +2659,42 @@ class NLSQWrapper(NLSQAdapterBase):
         - force_sequential_fallback=true in configuration
         - Stratification cannot be applied
 
-        Args:
-            data: Original XPCS data object
-            config: Configuration manager
-            initial_params: Initial parameter guess
-            bounds: Parameter bounds (lower, upper)
-            analysis_mode: 'static_isotropic' or 'laminar_flow'
-            per_angle_scaling: Whether per-angle parameters enabled
-            logger: Logger instance
-            start_time: Start time for execution timing
+        Parameters
+        ----------
+        data : Any
+            Original XPCS data object.
+        config : Any
+            Configuration manager.
+        initial_params : np.ndarray or None
+            Initial parameter guess.
+        bounds : tuple of np.ndarray or None
+            Parameter bounds ``(lower, upper)``.
+        analysis_mode : AnalysisMode
+            Analysis mode (e.g. ``static_isotropic`` or ``laminar_flow``).
+        per_angle_scaling : bool
+            Whether per-angle parameters are enabled.
+        logger : Any
+            Logger instance.
+        start_time : float
+            Start time for execution timing.
+        x_scale_value : Any
+            ``x_scale`` value forwarded to the NLSQ solver.
+        transform_cfg : dict
+            Parsed shear-transform configuration.
+        physical_param_names : list of str
+            Physical parameter names.
+        per_angle_scaling_initial : dict, optional
+            Initial per-angle scaling values keyed by parameter name.
 
-        Returns:
-            OptimizationResult with combined parameters from all angles
+        Returns
+        -------
+        OptimizationResult
+            Combined parameters from all angles.
 
-        Raises:
-            RuntimeError: If too few angles converge (<50% by default)
+        Raises
+        ------
+        RuntimeError
+            If too few angles converge (<50% by default).
         """
         import time
 
@@ -2718,7 +2806,6 @@ class NLSQWrapper(NLSQAdapterBase):
 
         def _expand_compact_layout(vector: np.ndarray) -> np.ndarray:
             """Replicate scalar contrast/offset entries across all angles."""
-
             arr = np.asarray(vector, dtype=np.float64)
             if expected_per_angle_len == scalar_layout_len or arr.size == expected_per_angle_len:
                 return arr
@@ -2891,7 +2978,6 @@ class NLSQWrapper(NLSQAdapterBase):
             g2_vals: np.ndarray,
         ) -> np.ndarray:
             """Residual function compatible with sequential optimization."""
-
             params_np = np.asarray(params, dtype=np.float64)
             if transform_state:
                 params_np = apply_inverse_shear_transforms_to_vector(
@@ -3149,15 +3235,22 @@ class NLSQWrapper(NLSQAdapterBase):
     ) -> np.ndarray:
         """Validate initial parameters are within bounds, clip if necessary.
 
-        Args:
-            params: Initial parameter guess
-            bounds: (lower, upper) bounds tuple or None
+        Parameters
+        ----------
+        params : np.ndarray
+            Initial parameter guess.
+        bounds : tuple of np.ndarray or None
+            ``(lower, upper)`` bounds tuple, or ``None``.
 
-        Returns:
-            Validated/clipped parameter array
+        Returns
+        -------
+        np.ndarray
+            Validated/clipped parameter array.
 
-        Raises:
-            ValueError: If params shape doesn't match bounds
+        Raises
+        ------
+        ValueError
+            If ``params`` shape doesn't match bounds.
         """
         params = np.asarray(params)
 
@@ -3195,14 +3288,21 @@ class NLSQWrapper(NLSQAdapterBase):
     ) -> tuple[np.ndarray, np.ndarray] | None:
         """Convert homodyne bounds format to NLSQ format.
 
-        Args:
-            homodyne_bounds: (lower_array, upper_array) tuple or None
+        Parameters
+        ----------
+        homodyne_bounds : tuple of np.ndarray or None
+            ``(lower_array, upper_array)`` tuple, or ``None``.
 
-        Returns:
-            NLSQ-compatible bounds tuple or None for unbounded optimization
+        Returns
+        -------
+        tuple of np.ndarray or None
+            NLSQ-compatible bounds tuple, or ``None`` for unbounded
+            optimization.
 
-        Raises:
-            ValueError: If bounds are invalid (lower > upper)
+        Raises
+        ------
+        ValueError
+            If bounds are invalid (lower > upper).
         """
         # Handle None bounds (unbounded optimization)
         if homodyne_bounds is None:
@@ -3232,22 +3332,31 @@ class NLSQWrapper(NLSQAdapterBase):
     ) -> Any:
         """Create JAX-compatible model function for NLSQ with per-angle scaling support.
 
-        IMPORTANT: NLSQ's curve_fit_large expects a MODEL FUNCTION f(x, *params) -> y,
-        NOT a residual function. NLSQ internally computes residuals = data - model.
+        IMPORTANT: NLSQ's ``curve_fit_large`` expects a MODEL FUNCTION
+        ``f(x, *params) -> y``, NOT a residual function. NLSQ internally computes
+        ``residuals = data - model``.
 
-        Args:
-            data: XPCS experimental data
-            analysis_mode: Analysis mode determining model computation
-            per_angle_scaling: If True (default), use per-angle contrast/offset parameters.
-                             This is the physically correct behavior.
-                             If False, use legacy single contrast/offset for all angles.
+        Parameters
+        ----------
+        data : Any
+            XPCS experimental data.
+        analysis_mode : AnalysisMode
+            Analysis mode determining model computation.
+        per_angle_scaling : bool, default True
+            If ``True``, use per-angle contrast/offset parameters (physically
+            correct). If ``False``, use legacy single contrast/offset for all
+            angles.
 
-        Returns:
-            Model function with signature f(xdata, *params) -> ydata_theory
-            where xdata is a dummy variable for NLSQ compatibility
+        Returns
+        -------
+        Any
+            Model function with signature ``f(xdata, *params) -> ydata_theory``,
+            where ``xdata`` is a dummy variable for NLSQ compatibility.
 
-        Raises:
-            AttributeError: If data is missing required attributes
+        Raises
+        ------
+        AttributeError
+            If data is missing required attributes.
         """
         # Import NLSQ physics backend for g2 computation
         from xpcsjax.core.physics_nlsq import compute_g2_scaled
@@ -3328,16 +3437,22 @@ class NLSQWrapper(NLSQAdapterBase):
 
             NLSQ will internally compute residuals as: (ydata - model) / sigma
 
-            Args:
-                xdata: Array of indices into flattened g2 array.
-                       Full dataset: [0, 1, ..., n-1]
-                       Chunked: [0, 1, ..., chunk_size-1] (subset)
-                *params_tuple: Unpacked parameters (per-angle scaling only)
-                    - Format: [contrast_0, ..., contrast_{n_phi-1},
-                              offset_0, ..., offset_{n_phi-1}, *physical]
+            Parameters
+            ----------
+            xdata : jnp.ndarray
+                Array of indices into the flattened g2 array. Full dataset:
+                ``[0, 1, ..., n-1]``; chunked: ``[0, 1, ..., chunk_size-1]``
+                (subset).
+            *params_tuple : float
+                Unpacked parameters (per-angle scaling only), with format
+                ``[contrast_0, ..., contrast_{n_phi-1}, offset_0, ...,
+                offset_{n_phi-1}, *physical]``.
 
-            Returns:
-                Theoretical g2 values at requested indices (size matches xdata)
+            Returns
+            -------
+            jnp.ndarray
+                Theoretical g2 values at the requested indices (size matches
+                ``xdata``).
             """
             # Convert params tuple to array (stack avoids retracing vs asarray)
             params_array = jnp.stack(params_tuple)
@@ -3631,21 +3746,41 @@ class NLSQWrapper(NLSQAdapterBase):
     ) -> OptimizationResult:
         """Convert NLSQ output to OptimizationResult.
 
-        Args:
-            popt: Optimized parameters
-            pcov: Parameter covariance matrix
-            residuals: Final residuals
-            n_data: Number of data points
-            iterations: Optimization iterations
-            execution_time: Execution time in seconds
-            convergence_status: Convergence status string
-            recovery_actions: List of recovery actions taken
-            streaming_diagnostics: Enhanced diagnostics for streaming optimization (Task 5.4)
+        Parameters
+        ----------
+        popt : np.ndarray
+            Optimized parameters.
+        pcov : np.ndarray
+            Parameter covariance matrix.
+        residuals : np.ndarray
+            Final residuals.
+        n_data : int
+            Number of data points.
+        iterations : int
+            Optimization iterations.
+        execution_time : float
+            Execution time in seconds.
+        convergence_status : str, default "converged"
+            Convergence status string.
+        recovery_actions : list of str, optional
+            Recovery actions taken.
+        streaming_diagnostics : dict, optional
+            Enhanced diagnostics for streaming optimization (Task 5.4).
+        stratification_diagnostics : StratificationDiagnostics, optional
+            Diagnostics from angle-stratified chunking.
+        diagnostics_payload : dict, optional
+            Pre-assembled ``nlsq_diagnostics`` payload.
+        n_params_effective : int, optional
+            Effective parameter count for reduced-chi-squared (used when the
+            compressed optimizer vector has fewer entries than the model DOF).
+        anti_degeneracy_info : dict, optional
+            Anti-degeneracy activation/diagnostics block.
 
-        Returns:
-            Complete OptimizationResult dataclass
+        Returns
+        -------
+        OptimizationResult
+            Complete result dataclass.
         """
-
         # Convert to numpy arrays
         popt = np.asarray(popt)
         pcov = np.asarray(pcov)

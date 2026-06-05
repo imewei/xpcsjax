@@ -18,12 +18,18 @@ import numpy as np
 class PreparedData:
     """Container for prepared optimization data.
 
-    Attributes:
-        xdata: Flattened independent variable data
-        ydata: Flattened dependent variable data (observations)
-        n_data: Total number of data points
-        n_phi: Number of unique phi angles
-        phi_unique: Unique phi angle values
+    Attributes
+    ----------
+    xdata : np.ndarray
+        Flattened independent-variable data.
+    ydata : np.ndarray
+        Flattened dependent-variable data (observations).
+    n_data : int
+        Total number of data points.
+    n_phi : int
+        Number of unique phi angles.
+    phi_unique : np.ndarray
+        Unique phi angle values.
     """
 
     xdata: np.ndarray
@@ -37,12 +43,18 @@ class PreparedData:
 class ExpandedParameters:
     """Container for expanded per-angle parameters.
 
-    Attributes:
-        params: Expanded parameter array
-        bounds: Expanded bounds tuple (lower, upper)
-        n_params: Total number of parameters
-        n_physical: Number of physical parameters
-        n_angles: Number of angles
+    Attributes
+    ----------
+    params : np.ndarray
+        Expanded parameter array.
+    bounds : tuple[np.ndarray, np.ndarray] | None
+        Expanded bounds tuple ``(lower, upper)``, or None.
+    n_params : int
+        Total number of parameters.
+    n_physical : int
+        Number of physical parameters.
+    n_angles : int
+        Number of angles.
     """
 
     params: np.ndarray
@@ -66,21 +78,33 @@ def expand_per_angle_parameters(
     - N offset parameters (one per angle)
     - n_physical physical parameters
 
-    Input (compact): [contrast, offset, physical_params...]
-    Output (expanded): [c0, c1, ..., cN-1, o0, o1, ..., oN-1, physical_params...]
+    Input (compact): ``[contrast, offset, physical_params...]``
+    Output (expanded):
+    ``[c0, c1, ..., cN-1, o0, o1, ..., oN-1, physical_params...]``
 
-    Args:
-        compact_params: Compact parameter array (n_physical + 2 elements)
-        compact_bounds: Compact bounds tuple or None
-        n_angles: Number of phi angles
-        n_physical: Number of physical parameters
-        logger: Optional logger for diagnostics
+    Parameters
+    ----------
+    compact_params : np.ndarray
+        Compact parameter array (``n_physical + 2`` elements).
+    compact_bounds : tuple[np.ndarray, np.ndarray] | None
+        Compact bounds tuple, or None.
+    n_angles : int
+        Number of phi angles.
+    n_physical : int
+        Number of physical parameters.
+    logger : Any, optional
+        Optional logger for diagnostics.
 
-    Returns:
-        ExpandedParameters with per-angle parameters and bounds
+    Returns
+    -------
+    ExpandedParameters
+        Per-angle parameters and bounds.
 
-    Raises:
-        ValueError: If parameter count doesn't match expected
+    Raises
+    ------
+    ValueError
+        If the parameter count does not match the expected
+        ``n_physical + 2``.
     """
     expected_compact = n_physical + 2
     if len(compact_params) != expected_compact:
@@ -166,16 +190,25 @@ def validate_bounds(
 ) -> tuple[np.ndarray, np.ndarray] | None:
     """Validate parameter bounds.
 
-    Args:
-        bounds: Bounds tuple (lower, upper) or None
-        n_params: Expected number of parameters
-        logger: Optional logger for diagnostics
+    Parameters
+    ----------
+    bounds : tuple[np.ndarray, np.ndarray] | None
+        Bounds tuple ``(lower, upper)``, or None.
+    n_params : int
+        Expected number of parameters.
+    logger : Any, optional
+        Optional logger for diagnostics.
 
-    Returns:
-        Validated bounds or None
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray] | None
+        Validated bounds (as float64 arrays), or None.
 
-    Raises:
-        ValueError: If bounds are invalid
+    Raises
+    ------
+    ValueError
+        If the bounds dimensions mismatch ``n_params`` or if any
+        ``lower > upper``. Equal bounds (fixed parameters) are allowed.
     """
     if bounds is None:
         return None
@@ -208,13 +241,19 @@ def validate_initial_params(
 ) -> np.ndarray:
     """Validate and clip initial parameters to bounds.
 
-    Args:
-        params: Initial parameter guess
-        bounds: Parameter bounds or None
-        logger: Optional logger for diagnostics
+    Parameters
+    ----------
+    params : np.ndarray
+        Initial parameter guess.
+    bounds : tuple[np.ndarray, np.ndarray] | None
+        Parameter bounds, or None.
+    logger : Any, optional
+        Optional logger for diagnostics.
 
-    Returns:
-        Validated parameters (clipped to bounds if needed)
+    Returns
+    -------
+    np.ndarray
+        Validated parameters, clipped to bounds if needed.
     """
     params = np.asarray(params, dtype=float)
 
@@ -237,13 +276,17 @@ def convert_bounds_to_nlsq_format(
 ) -> tuple[np.ndarray, np.ndarray] | None:
     """Convert bounds to NLSQ-compatible format.
 
-    NLSQ expects bounds as (lower_array, upper_array) with float64 dtype.
+    NLSQ expects bounds as ``(lower_array, upper_array)`` with float64 dtype.
 
-    Args:
-        bounds: Input bounds in various formats
+    Parameters
+    ----------
+    bounds : tuple[np.ndarray, np.ndarray] | tuple[list, list] | None
+        Input bounds in various formats.
 
-    Returns:
-        Bounds as (lower, upper) numpy arrays or None
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray] | None
+        Bounds as ``(lower, upper)`` float64 numpy arrays, or None.
     """
     if bounds is None:
         return None
@@ -264,13 +307,24 @@ def build_parameter_labels(
 ) -> list[str]:
     """Build human-readable parameter labels.
 
-    Args:
-        per_angle_scaling: Whether per-angle scaling is enabled
-        n_phi: Number of phi angles
-        physical_param_names: Names of physical parameters
+    Parameters
+    ----------
+    per_angle_scaling : bool
+        Whether per-angle scaling is enabled.
+    n_phi : int
+        Number of phi angles.
+    physical_param_names : list[str]
+        Names of physical parameters.
 
-    Returns:
-        List of parameter labels
+    Returns
+    -------
+    list[str]
+        List of parameter labels.
+
+    See Also
+    --------
+    xpcsjax.optimization.nlsq.parameter_utils.build_parameter_labels
+        The single canonical implementation this function delegates to.
     """
     # Delegate to the single canonical implementation in parameter_utils. The two
     # copies previously diverged on the non-per-angle case (this one emitted
@@ -292,14 +346,22 @@ def classify_parameter_status(
 ) -> list[str]:
     """Classify parameter status relative to bounds.
 
-    Args:
-        values: Parameter values
-        lower: Lower bounds or None
-        upper: Upper bounds or None
-        atol: Absolute tolerance for bound comparison
+    Parameters
+    ----------
+    values : np.ndarray
+        Parameter values.
+    lower : np.ndarray | None
+        Lower bounds, or None.
+    upper : np.ndarray | None
+        Upper bounds, or None.
+    atol : float, optional
+        Absolute tolerance for bound comparison.
 
-    Returns:
-        List of status strings: 'active', 'at_lower_bound', 'at_upper_bound'
+    Returns
+    -------
+    list[str]
+        Status for each parameter: ``"active"``, ``"at_lower_bound"``, or
+        ``"at_upper_bound"``. All ``"active"`` when bounds are None.
     """
     if lower is None or upper is None:
         return ["active"] * len(values)

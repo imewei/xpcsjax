@@ -283,6 +283,7 @@ class HierarchicalOptimizer:
         buffer[self.per_angle_indices] = frozen_per_angle
 
         def physical_loss(physical_params: np.ndarray) -> float:
+            """Evaluate the full loss over physical params with per-angle frozen."""
             buffer[self.physical_indices] = physical_params
             return loss_fn(buffer)
 
@@ -314,6 +315,7 @@ class HierarchicalOptimizer:
         buffer[self.per_angle_indices] = frozen_per_angle
 
         def physical_grad(physical_params: np.ndarray) -> np.ndarray:
+            """Return the gradient restricted to the physical-parameter block."""
             buffer[self.physical_indices] = physical_params
             full_grad = grad_fn(buffer)
             return full_grad[self.physical_indices]
@@ -346,6 +348,7 @@ class HierarchicalOptimizer:
         buffer[self.physical_indices] = frozen_physical
 
         def per_angle_loss(per_angle_params: np.ndarray) -> float:
+            """Evaluate the full loss over per-angle params with physical frozen."""
             buffer[self.per_angle_indices] = per_angle_params
             return loss_fn(buffer)
 
@@ -377,6 +380,7 @@ class HierarchicalOptimizer:
         buffer[self.physical_indices] = frozen_physical
 
         def per_angle_grad(per_angle_params: np.ndarray) -> np.ndarray:
+            """Return the gradient restricted to the per-angle-parameter block."""
             buffer[self.per_angle_indices] = per_angle_params
             full_grad = grad_fn(buffer)
             return full_grad[self.per_angle_indices]
@@ -574,6 +578,7 @@ class HierarchicalOptimizer:
         if physical_grad is not None:
             # jaxopt expects (value, grad) when value_and_grad=True
             def value_and_grad_fn(x: jnp.ndarray) -> tuple[float, jnp.ndarray]:
+                """Return ``(loss, grad)`` for the physical block (jaxopt adapter)."""
                 return physical_loss(np.asarray(x)), jnp.asarray(physical_grad(np.asarray(x)))
 
             solver = LBFGSB(
@@ -586,6 +591,7 @@ class HierarchicalOptimizer:
         else:
             # Let jaxopt compute gradients via autodiff
             def jax_loss_fn(x: jnp.ndarray) -> float:
+                """Return the physical-block loss for jaxopt autodiff."""
                 return physical_loss(np.asarray(x))
 
             solver = LBFGSB(
@@ -668,6 +674,7 @@ class HierarchicalOptimizer:
         if per_angle_grad is not None:
             # jaxopt expects (value, grad) when value_and_grad=True
             def value_and_grad_fn(x: jnp.ndarray) -> tuple[float, jnp.ndarray]:
+                """Return ``(loss, grad)`` for the per-angle block (jaxopt adapter)."""
                 return per_angle_loss(np.asarray(x)), jnp.asarray(per_angle_grad(np.asarray(x)))
 
             solver = LBFGSB(
@@ -680,6 +687,7 @@ class HierarchicalOptimizer:
         else:
             # Let jaxopt compute gradients via autodiff
             def jax_loss_fn(x: jnp.ndarray) -> float:
+                """Return the per-angle-block loss for jaxopt autodiff."""
                 return per_angle_loss(np.asarray(x))
 
             solver = LBFGSB(

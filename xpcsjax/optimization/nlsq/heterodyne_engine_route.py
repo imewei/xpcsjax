@@ -155,9 +155,7 @@ def _build_engine(
         StratifiedResidualFunctionJIT,
     )
 
-    evaluator = HeterodynePointEvaluator(
-        analysis_mode="two_component", q=float(q), dt=float(dt)
-    )
+    evaluator = HeterodynePointEvaluator(analysis_mode="two_component", q=float(q), dt=float(dt))
     if mode == "fixed_constant":
         return StratifiedResidualFunctionJIT(
             stratified_data=chunked,
@@ -228,9 +226,9 @@ def _quantile_frozen_scaling(
     contrast_fixed = np.clip(
         contrast_fixed, contrast_info.min_bound, contrast_info.max_bound
     ).astype(np.float64)
-    offset_fixed = np.clip(
-        offset_fixed, offset_info.min_bound, offset_info.max_bound
-    ).astype(np.float64)
+    offset_fixed = np.clip(offset_fixed, offset_info.min_bound, offset_info.max_bound).astype(
+        np.float64
+    )
     return contrast_fixed, offset_fixed
 
 
@@ -356,7 +354,11 @@ def fit_two_component_via_engine(
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
         build_heterodyne_stratified_data,
     )
-    from xpcsjax.optimization.nlsq.results import OptimizationResult
+    from xpcsjax.optimization.nlsq.results import (
+        ConvergenceStatus,
+        OptimizationResult,
+        QualityFlag,
+    )
     from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
         build_heterodyne_pointwise_model,
     )
@@ -412,7 +414,7 @@ def fit_two_component_via_engine(
         physical_param_names=phys_names,
         per_angle_mode=mode,
     )
-    p0 = np.asarray(p0, dtype=np.float64)
+    p0_arr = np.asarray(p0, dtype=np.float64)
 
     # -- Frozen scaling for fixed_constant: production quantile estimator ---
     if mode == "fixed_constant":
@@ -447,19 +449,17 @@ def fit_two_component_via_engine(
         # (n_varying + 2*n_phi DOF) would over-parameterize the averaged fit and
         # then discard all but angle-0's fitted scalar — an inconsistent result.
         # p0 and the physics-first bounds are already the compressed form.
-        x0_opt = np.asarray(p0, dtype=np.float64)
+        x0_opt = np.asarray(p0_arr, dtype=np.float64)
         lb_opt = np.asarray(lb_pf, dtype=np.float64)
         ub_opt = np.asarray(ub_pf, dtype=np.float64)
-        wrapped = wrap_engine_averaged_residual(
-            engine, n_physics=n_varying, n_phi=n_phi
-        )
+        wrapped = wrap_engine_averaged_residual(engine, n_physics=n_varying, n_phi=n_phi)
 
         def residual_fn(x: np.ndarray) -> Any:
             return wrapped(jnp.asarray(x, dtype=jnp.float64))
     else:
         # fixed_constant (identity) / individual (block permutation): pure layout
         # permutations onto the engine scaling-first vector — no DOF change.
-        x0_opt = physics_first_to_scaling_first(p0, n_physics=n_varying, mode=mode, n_phi=n_phi)
+        x0_opt = physics_first_to_scaling_first(p0_arr, n_physics=n_varying, mode=mode, n_phi=n_phi)
         lb_opt = physics_first_to_scaling_first(lb_pf, n_physics=n_varying, mode=mode, n_phi=n_phi)
         ub_opt = physics_first_to_scaling_first(ub_pf, n_physics=n_varying, mode=mode, n_phi=n_phi)
 
@@ -474,7 +474,12 @@ def fit_two_component_via_engine(
         xtol=config.xtol,
         gtol=config.gtol,
         x_scale=config.x_scale,
-        max_nfev=config.max_nfev * n_phi,
+        # NOTE: when ``config.max_nfev`` is None this raises ``TypeError`` here by
+        # design — caught by the documented best-effort guard in ``_fit_nlsq_heterodyne``,
+        # which falls back to ``fit_nlsq_multi_phi`` (whose diagnostics several tests
+        # depend on). Do NOT pass None through: that makes the engine route run instead
+        # of falling back and regresses test_hybrid_does_not_fire_on_standard_tier.
+        max_nfev=config.max_nfev * n_phi,  # type: ignore[operator]
         n_params=len(x0_opt),
     )
     adapter = NLSQAdapter(parameter_names=[f"p{i}" for i in range(len(x0_opt))])
@@ -544,15 +549,13 @@ def fit_two_component_via_engine(
         covariance = np.asarray(res.covariance, dtype=np.float64)
     else:
         covariance = np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
-    if res.uncertainties is not None and np.asarray(res.uncertainties).shape == (
-        n_total_params,
-    ):
+    if res.uncertainties is not None and np.asarray(res.uncertainties).shape == (n_total_params,):
         uncertainties = np.asarray(res.uncertainties, dtype=np.float64)
     else:
         uncertainties = np.sqrt(np.clip(np.diag(covariance), 0.0, None))
 
-    convergence_status = "converged" if res.success else "failed"
-    quality_flag = "good" if res.success else "marginal"
+    convergence_status: ConvergenceStatus = "converged" if res.success else "failed"
+    quality_flag: QualityFlag = "good" if res.success else "marginal"
 
     # ``n_physics``: mirror production EXACTLY. The constant path
     # (``_fit_joint_constant_multi_phi``) does NOT pass ``n_physics`` to
@@ -597,9 +600,7 @@ def fit_two_component_via_engine(
     )
 
 
-def _engine_joint_param_names(
-    mode: str, phys_names: list[str], n_phi: int
-) -> list[str]:
+def _engine_joint_param_names(mode: str, phys_names: list[str], n_phi: int) -> list[str]:
     """Physics-first joint parameter-name list matching ``parameters`` length."""
     if mode == "fixed_constant":
         return list(phys_names)

@@ -23,11 +23,16 @@ logger = get_logger(__name__)
 class QualityMetrics:
     """Quality metrics for optimization results.
 
-    Attributes:
-        chi_squared: Sum of squared residuals
-        reduced_chi_squared: chi_squared / degrees of freedom
-        quality_flag: 'good', 'marginal', or 'poor'
-        n_at_bounds: Number of parameters at bounds
+    Attributes
+    ----------
+    chi_squared : float
+        Sum of squared residuals.
+    reduced_chi_squared : float
+        ``chi_squared`` divided by the degrees of freedom.
+    quality_flag : str
+        Quality flag: ``"good"``, ``"marginal"``, or ``"poor"``.
+    n_at_bounds : int
+        Number of parameters resting at a bound.
     """
 
     chi_squared: float
@@ -44,14 +49,22 @@ def compute_quality_metrics(
 ) -> QualityMetrics:
     """Compute quality metrics from residuals.
 
-    Args:
-        residuals: Array of residuals
-        n_data: Number of data points
-        n_params: Number of parameters
-        parameter_status: List of parameter statuses (optional)
+    Parameters
+    ----------
+    residuals : np.ndarray
+        Array of residuals.
+    n_data : int
+        Number of data points.
+    n_params : int
+        Number of parameters.
+    parameter_status : list[str] | None, optional
+        List of parameter statuses, used to count parameters at bounds.
 
-    Returns:
-        QualityMetrics with computed values
+    Returns
+    -------
+    QualityMetrics
+        Computed chi-squared, reduced chi-squared, quality flag, and the
+        count of parameters at bounds.
     """
     chi_squared = float(np.sum(residuals**2))
     dof = max(n_data - n_params, 1)  # Avoid division by zero
@@ -79,13 +92,18 @@ def compute_quality_metrics(
 
 
 def compute_uncertainties(covariance: np.ndarray) -> np.ndarray:
-    """Extract parameter uncertainties from covariance matrix.
+    """Extract parameter uncertainties from a covariance matrix.
 
-    Args:
-        covariance: Covariance matrix
+    Parameters
+    ----------
+    covariance : np.ndarray
+        Covariance matrix.
 
-    Returns:
-        Array of standard deviations (square root of diagonal)
+    Returns
+    -------
+    np.ndarray
+        Standard deviations (square root of the diagonal). Non-finite or
+        negative variances are zeroed out before the square root.
     """
     if covariance is None or covariance.size == 0:
         return np.array([])
@@ -110,18 +128,32 @@ def normalize_nlsq_result(
     """Normalize various NLSQ result formats to standard format.
 
     NLSQ can return results in different formats depending on the function
-    and version used. This normalizes them to (popt, pcov, info).
+    and version used. This normalizes them to ``(popt, pcov, info)``.
 
-    Args:
-        result: NLSQ result in any format
-        strategy_name: Name of strategy for logging
-        logger: Optional logger
+    Parameters
+    ----------
+    result : Any
+        NLSQ result in any supported format (dict, 2/3-tuple, or an object
+        exposing ``x``/``popt``).
+    strategy_name : str, optional
+        Name of the strategy, for logging.
+    logger : Any, optional
+        Optional logger.
 
-    Returns:
-        Tuple of (popt, pcov, info)
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray, dict[str, Any]]
+        ``(popt, pcov, info)``.
 
-    Raises:
-        TypeError: If result format is unrecognized
+    Raises
+    ------
+    KeyError
+        If a dict result has neither an ``"x"`` nor a ``"popt"`` key.
+    AttributeError
+        If an object result has neither an ``x`` nor a ``popt`` attribute.
+    TypeError
+        If the result format is unrecognized or a tuple has an unexpected
+        length.
     """
     # Case 1: Dict (from StreamingOptimizer or advanced functions)
     if isinstance(result, dict):
@@ -211,12 +243,18 @@ def determine_convergence_status(
 ) -> str:
     """Determine convergence status from optimization info.
 
-    Args:
-        info: Optimization info dict
-        quality_metrics: Quality metrics
+    Parameters
+    ----------
+    info : dict[str, Any]
+        Optimization info dict.
+    quality_metrics : QualityMetrics
+        Quality metrics, used to infer status when no explicit ``success``
+        flag is present.
 
-    Returns:
-        Convergence status: 'converged', 'max_iter', or 'failed'
+    Returns
+    -------
+    str
+        Convergence status: ``"converged"``, ``"max_iter"``, or ``"failed"``.
     """
     # Check explicit success flag
     if "success" in info:
@@ -392,15 +430,24 @@ class ResultBuilder:
     ) -> dict[str, Any]:
         """Build the result dictionary.
 
-        Args:
-            residual_fn: Residual function for computing chi-squared
-            xdata: X data for residual computation
+        Parameters
+        ----------
+        residual_fn : Any, optional
+            Residual function for computing chi-squared. When provided
+            together with ``xdata``, quality metrics are computed from fresh
+            residuals; otherwise they fall back to the optimizer ``info``.
+        xdata : np.ndarray | None, optional
+            X data for residual computation.
 
-        Returns:
-            Dictionary with all result fields
+        Returns
+        -------
+        dict[str, Any]
+            Dictionary with all result fields.
 
-        Raises:
-            ValueError: If required fields are missing
+        Raises
+        ------
+        ValueError
+            If ``parameters`` has not been set before building.
         """
         if self.parameters is None:
             raise ValueError("Parameters must be set before building result")

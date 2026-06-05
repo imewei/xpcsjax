@@ -208,8 +208,21 @@ class AntiDegeneracyConfig:
 class AntiDegeneracyController:
     """Orchestrator for the 5-Layer Anti-Degeneracy Defense System.
 
-    This controller provides a clean interface for initializing and
-    coordinating all anti-degeneracy components.
+    Owns and coordinates the five defense layers as a single object: it resolves
+    the per-angle scaling mode, builds the layer components that the resolved mode
+    enables, and exposes the parameter transforms, callbacks, and diagnostics the
+    NLSQ solver paths consume.
+
+    The five layers, in order, are L1 Fourier/constant reparameterization
+    (:class:`~xpcsjax.optimization.nlsq.fourier_reparam.FourierReparameterizer`),
+    L2 hierarchical optimization
+    (:class:`~xpcsjax.optimization.nlsq.hierarchical.HierarchicalOptimizer`),
+    L3 adaptive CV-based regularization
+    (:class:`~xpcsjax.optimization.nlsq.adaptive_regularization.AdaptiveRegularizer`),
+    L4 gradient-collapse monitoring
+    (:class:`~xpcsjax.optimization.nlsq.gradient_monitor.GradientCollapseMonitor`),
+    and L5 shear-sensitivity weighting
+    (:class:`~xpcsjax.optimization.nlsq.shear_weighting.ShearSensitivityWeighting`).
 
     Attributes
     ----------
@@ -221,18 +234,34 @@ class AntiDegeneracyController:
         Number of physical parameters.
     phi_angles : np.ndarray
         Array of phi angles in radians.
-    fourier : FourierReparameterizer | None
+    fourier : FourierReparameterizer or None
         Layer 1: Fourier reparameterization component.
-    hierarchical : HierarchicalOptimizer | None
+    hierarchical : HierarchicalOptimizer or None
         Layer 2: Hierarchical optimization component.
-    regularizer : AdaptiveRegularizer | None
+    regularizer : AdaptiveRegularizer or None
         Layer 3: Adaptive regularization component.
-    monitor : GradientCollapseMonitor | None
-        Layer 4: Gradient collapse monitoring component.
-    shear_weighter : ShearSensitivityWeighting | None
-        Layer 5: Shear-sensitivity weighting component.
+    monitor : GradientCollapseMonitor or None
+        Layer 4: Gradient-collapse monitoring component (strictly diagnostic).
+    shear_weighter : ShearSensitivityWeighting or None
+        Layer 5: Shear-sensitivity weighting component (``laminar_flow`` only).
     per_angle_mode_actual : str
         Actual mode used ("constant", "fourier", or "independent").
+
+    Notes
+    -----
+    L5 is gated to ``laminar_flow`` via ``_LAYER_GATES``; every other layer is
+    default-active for all modes (see :meth:`is_layer_active`). When
+    ``analysis_mode`` is ``None`` (the homodyne characterization gate path),
+    :meth:`is_layer_active` returns ``True`` for every layer. L4 is strictly
+    diagnostic -- enabling the monitor is bit-identical to disabling it.
+
+    Examples
+    --------
+    >>> controller = AntiDegeneracyController.from_config(
+    ...     config_dict, n_phi, phi_angles, n_physical
+    ... )
+    >>> if controller.is_enabled:
+    ...     transformed = controller.transform_params_to_fourier(initial_params)
     """
 
     config: AntiDegeneracyConfig
@@ -567,10 +596,9 @@ class AntiDegeneracyController:
         return m
 
     def is_layer_active(self, layer_name: str) -> bool:
-        """Return whether a named anti-degeneracy layer is active for this
-        controller's ``analysis_mode``.
+        """Report whether a named layer is active for this ``analysis_mode``.
 
-        Task 29 — model-lineage gating of the 5-layer defense system.
+        Task 29 -- model-lineage gating of the 5-layer defense system.
 
         Backward-compatible: if ``analysis_mode`` was not provided at
         construction, all layers are active (preserves the homodyne
@@ -602,11 +630,16 @@ class AntiDegeneracyController:
     def n_per_angle_params(self) -> int:
         """Get the number of per-angle parameters (optimized scaling params).
 
-        Returns:
-        - fixed_constant: 0 (scaling is FIXED, not optimized)
-        - auto_averaged: 2 (one contrast, one offset - OPTIMIZED)
-        - fourier: n_coeffs (Fourier coefficients - OPTIMIZED)
-        - individual: 2*n_phi (per-angle contrast + offset - OPTIMIZED)
+        Returns
+        -------
+        int
+            The count of scaling parameters that participate in the optimization,
+            which depends on the resolved per-angle scaling mode:
+
+            - ``fixed_constant``: ``0`` (scaling is frozen, not optimized)
+            - ``auto_averaged``: ``2`` (one contrast, one offset)
+            - ``fourier``: ``n_coeffs`` (Fourier coefficients)
+            - ``individual``: ``2 * n_phi`` (per-angle contrast + offset)
         """
         if self.use_fixed_scaling:
             return 0  # Scaling is FIXED, not part of optimization

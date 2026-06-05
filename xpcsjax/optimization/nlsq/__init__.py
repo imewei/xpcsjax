@@ -1,38 +1,38 @@
-"""NLSQ Optimization Subpackage for xpcsjax.
+"""NLSQ (non-linear least squares) optimization subpackage for xpcsjax.
 
-This subpackage contains all NLSQ (Non-Linear Least Squares) optimization
-components organized into logical modules.
+Houses the entire NLSQ curve-fitting stack and exposes
+:func:`fit_nlsq`, the v0.1 single-entry public wrapper that fits both the
+homodyne and heterodyne physics models. xpcsjax is NLSQ-only by design; no
+Bayesian / MCMC pathway exists here.
 
-Structure:
-- core.py: Main fit_nlsq_jax function and NLSQResult class
-- wrapper.py: NLSQWrapper adapter class (legacy)
-- adapter.py: NLSQAdapter using NLSQ's CurveFit class (v2.11.0+)
-- memory.py: Memory management utilities (extracted Jan 2026)
-- parameter_utils.py: Parameter utilities (extracted Jan 2026)
-- jacobian.py: Jacobian computation utilities
-- results.py: OptimizationResult and related dataclasses
-- transforms.py: Parameter transformation utilities
-- data_prep.py: Data preparation utilities
-- result_builder.py: Result building utilities
-- fit_computation.py: Fit computation utilities
-- multistart.py: Multi-start optimization with LHS (v2.6.0)
-- anti_degeneracy_adapter.py: NLSQ integration for anti-degeneracy (v2.11.0+)
-- strategies/: Optimization strategy modules
-  - chunking.py: Angle-stratified chunking for large datasets
-  - residual.py: StratifiedResidualFunction for per-angle optimization
-  - residual_jit.py: JIT-compiled stratified residual function
-  - sequential.py: Sequential per-angle optimization
-  - executors.py: Strategy pattern executors
+The package owns the fit *strategy* (memory-aware routing, the anti-degeneracy
+defense layers, CMA-ES / LHS-multistart global escapes, bounds and parameter
+transforms, angle-stratified chunking) while delegating the trust-region solve
+and JIT cache to the upstream ``nlsq`` library. xpcsjax calls ``nlsq``'s
+``curve_fit()`` / ``CurveFit`` directly rather than its higher-level ``fit()``
+API, and routes memory itself via :func:`select_nlsq_strategy` instead of
+``nlsq``'s ``MemoryBudgetSelector``.
 
-NLSQ Integration (v2.11.0+):
-- Uses NLSQ's CurveFit class for JIT compilation caching
-- Uses xpcsjax's select_nlsq_strategy() for memory-aware strategy selection
-- Integrates with MultiStartOrchestrator for global optimization
-- Anti-degeneracy layers remain in xpcsjax (physics-specific)
+Notes
+-----
+Module map:
 
-Note: xpcsjax uses NLSQ's curve_fit() directly, not the fit() unified API.
-Memory strategy selection is handled by xpcsjax's own select_nlsq_strategy()
-function rather than NLSQ's MemoryBudgetSelector.
+- ``core.py`` — :func:`fit_nlsq_jax` (homodyne entry point) and ``NLSQResult``.
+- ``wrapper.py`` — ``NLSQWrapper`` adapter (legacy).
+- ``adapter.py`` — ``NLSQAdapter`` over ``nlsq``'s ``CurveFit`` for JIT caching.
+- ``memory.py`` — memory estimation and :func:`select_nlsq_strategy`.
+- ``parameter_utils.py`` — parameter labelling, per-angle init, Jacobian stats.
+- ``results.py`` — :class:`~results.OptimizationResult` and result dataclasses.
+- ``transforms.py`` — parameter transformation utilities.
+- ``data_prep.py`` — data validation and per-angle parameter expansion.
+- ``result_builder.py`` — result assembly and quality-metric computation.
+- ``fit_computation.py`` — theoretical-fit and parameter-extraction helpers.
+- ``multistart.py`` — LHS multistart global optimization (no subsampling).
+- ``anti_degeneracy_controller.py`` — the 5-layer anti-degeneracy controller.
+- ``cmaes_wrapper.py`` — CMA-ES global-optimization escape.
+- ``heterodyne_*`` — the ``two_component`` model fit orchestration.
+- ``strategies/`` — chunking, stratified residual functions, sequential
+  per-angle optimization, and strategy-pattern executors.
 """
 
 # =============================================================================
@@ -462,36 +462,79 @@ def fit_nlsq(
     data: dict[str, Any],
     config: "ConfigManager | str | _Path",
 ) -> "OptimizationResult":
-    """Single-entry NLSQ fit for both physics models.
+    """Run the xpcsjax v0.1 NLSQ fit for either physics model.
+
+    Single public entry point for non-linear least squares curve fitting in
+    xpcsjax. It reads ``analysis_mode`` from ``config`` and dispatches:
+    ``two_component`` / ``heterodyne`` modes go to the heterodyne orchestration,
+    everything else (``laminar_flow``, ``static_anisotropic``,
+    ``static_isotropic``) goes to the homodyne path
+    (:func:`xpcsjax.optimization.nlsq.core.fit_nlsq_jax`). Within each path,
+    memory-aware strategy routing, the anti-degeneracy controller, and any
+    configured global escapes (CMA-ES / multistart) are selected automatically
+    from the config — there is no second optimizer pathway and no Bayesian /
+    MCMC route (out of scope for xpcsjax by design).
 
     Parameters
     ----------
     data : dict
-        XPCS data dict returned by ``xpcsjax.data.load_xpcs_data`` (homodyne)
-        or a heterodyne-style dict with keys ``c2_exp`` / ``c2`` and
-        ``phi_angles_list`` / ``phi_angles`` (heterodyne).
-    config : str | Path | ConfigManager
-        Path to a YAML config file or a pre-built ConfigManager.
+        XPCS data dict. For the homodyne path, the dict returned by
+        :func:`xpcsjax.data.load_xpcs_data`. For the heterodyne path, a dict
+        carrying the correlation stack under ``c2_exp`` or ``c2`` (a
+        ``(n_phi, N, N)`` stack or a single-angle ``(N, N)`` matrix) and the
+        detector angles under ``phi_angles_list``, ``phi_angles``, or ``phi``
+        (degrees). An optional ``weights`` array enables weighted least squares.
+    config : ConfigManager or str or pathlib.Path
+        A pre-built :class:`xpcsjax.config.ConfigManager`, or a path to a YAML
+        config file (coerced to a ``ConfigManager``).
 
     Returns
     -------
     OptimizationResult
-        Homodyne path returns ``OptimizationResult``.
+        The completed fit. Both paths return the same
+        :class:`~xpcsjax.optimization.nlsq.results.OptimizationResult` type.
 
-        Heterodyne path returns ``OptimizationResult`` for every
-        ``per_angle_mode`` (``"constant"``, ``"averaged"``, ``"fourier"``,
-        ``"individual"``, ``"auto"``). Mode-specific per-angle data
+        The heterodyne path returns one for every per-angle scaling mode —
+        ``"constant"``, ``"fourier"``, ``"individual"``, and ``"auto"`` (which
+        resolves internally to ``"averaged"`` for ``n_phi >= 3`` or
+        ``"individual"`` otherwise). Mode-specific per-angle data
         (``chi2_per_angle``, ``parameter_names``,
         ``contrast_per_angle`` / ``offset_per_angle``, etc.) lives under
-        ``result.nlsq_diagnostics``. The ``individual`` mode additionally
-        carries ``covariance_structure="block_diagonal_sequential"`` to
-        signal that off-diagonal covariance entries are zero **by
-        construction** (sequential per-angle fits with held-fixed
-        scaling) rather than by fit.
+        :attr:`result.nlsq_diagnostics <OptimizationResult.nlsq_diagnostics>`.
+        The ``individual`` mode additionally carries
+        ``covariance_structure="block_diagonal_sequential"`` to signal that
+        off-diagonal covariance entries are zero **by construction**
+        (sequential per-angle fits with held-fixed scaling) rather than by fit.
 
-        See :mod:`xpcsjax.optimization.nlsq.heterodyne_views` for post-hoc
-        per-angle reconstruction helpers (``reconstruct_per_angle_scaling``,
+    Raises
+    ------
+    KeyError
+        If the heterodyne path is selected but the ``data`` dict lacks a
+        correlation stack (``c2_exp`` / ``c2``) or an angle array
+        (``phi_angles_list`` / ``phi_angles`` / ``phi``).
+
+    See Also
+    --------
+    OptimizationResult : The result type returned by this function.
+    xpcsjax.optimization.nlsq.core.fit_nlsq_jax : Homodyne fit entry point.
+    xpcsjax.optimization.nlsq.heterodyne_views : Post-hoc per-angle
+        reconstruction helpers (``reconstruct_per_angle_scaling``,
         ``per_angle_chi2``).
+
+    Notes
+    -----
+    Mode dispatch is case- and separator-insensitive: ``"two-component"`` is
+    normalized to ``"two_component"`` before routing.
+
+    Examples
+    --------
+    >>> from xpcsjax import fit_nlsq, load_xpcs_data
+    >>> data = load_xpcs_data("config_laminar.yaml")  # doctest: +SKIP
+    >>> result = fit_nlsq(data, "config_laminar.yaml")  # doctest: +SKIP
+    >>> result.success  # doctest: +SKIP
+    True
+    >>> result.reduced_chi_squared  # doctest: +SKIP
+    1.07
     """
     if isinstance(config, (str, _Path)):
         from xpcsjax.config import ConfigManager
@@ -996,8 +1039,7 @@ def _fit_nlsq_heterodyne(
         from xpcsjax.utils.logging import get_logger as _get_logger
 
         _get_logger(__name__).warning(
-            "Engine-route two_component fit failed (%s: %s); falling back "
-            "to fit_nlsq_multi_phi.",
+            "Engine-route two_component fit failed (%s: %s); falling back to fit_nlsq_multi_phi.",
             type(_engine_exc).__name__,
             _engine_exc,
         )

@@ -109,7 +109,7 @@ class HomodynePointEvaluator:
 
 
 class HeterodynePointEvaluator:
-    """Heterodyne (``two_component``) adapter over the meshgrid kernel.
+    r"""Heterodyne (``two_component``) adapter over the meshgrid kernel.
 
     Exact structural parallel of :class:`HomodynePointEvaluator`: a thin
     pass-through to the heterodyne **meshgrid** kernel

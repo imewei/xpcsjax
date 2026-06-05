@@ -446,8 +446,10 @@ def _fit_joint_constant_multi_phi(
 def _flatten_inputs(
     model: HeterodyneModel, c2_data: np.ndarray, n_phi: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Convert a ``(n_phi, N, N)`` c2 stack to flattened ``(c2, t1, t2, phi_idx)``
-    arrays expected by :func:`estimate_per_angle_scaling_from_quantile`.
+    """Flatten a ``(n_phi, N, N)`` c2 stack into per-angle ``(c2, t1, t2, phi_idx)`` arrays.
+
+    Produces the flattened arrays expected by
+    :func:`estimate_per_angle_scaling_from_quantile`.
 
     Mirrors the flattening block at the top of
     :func:`xpcsjax.optimization.nlsq.heterodyne_core._fit_joint_averaged_multi_phi`.

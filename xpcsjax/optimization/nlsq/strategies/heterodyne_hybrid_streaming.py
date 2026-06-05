@@ -52,7 +52,7 @@ except ImportError:
 
 
 def _bin_to_grid(values: np.ndarray, grid: np.ndarray, axis_name: str) -> np.ndarray:
-    """searchsorted + boundary clip, warning on out-of-grid points.
+    """Bin values to grid indices via ``searchsorted`` + boundary clip.
 
     Mirrors homodyne ``_bin_to_grid`` in ``hybrid_streaming.py`` exactly.
     An unguarded clip silently routes data lying outside the fitted grid to

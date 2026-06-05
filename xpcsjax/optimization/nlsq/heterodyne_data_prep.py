@@ -25,16 +25,26 @@ def flatten_upper_triangle(
 ) -> np.ndarray:
     """Flatten the upper triangle of a symmetric matrix.
 
-    For a two-time correlation matrix C2(t1, t2), only the upper triangle
-    (t2 >= t1) contains independent data. This extracts those elements
-    in row-major order for residual computation.
+    For a two-time correlation matrix ``C2(t1, t2)``, only the upper triangle
+    (``t2 >= t1``) contains independent data. This extracts those elements in
+    row-major order for residual computation.
 
-    Args:
-        matrix: Square matrix of shape (N, N)
-        include_diagonal: Whether to include diagonal elements
+    Parameters
+    ----------
+    matrix
+        Square matrix of shape ``(N, N)``.
+    include_diagonal
+        Whether to include the diagonal elements (``k=0`` vs ``k=1``).
 
-    Returns:
-        1D array of upper-triangle values
+    Returns
+    -------
+    numpy.ndarray
+        1-D array of the upper-triangle values.
+
+    Raises
+    ------
+    ValueError
+        If *matrix* is not square (2-D with equal dimensions).
     """
     if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
         raise ValueError(f"Expected square matrix, got shape {matrix.shape}")
@@ -53,15 +63,30 @@ def unflatten_upper_triangle(
     n: int,
     include_diagonal: bool = True,
 ) -> np.ndarray:
-    """Reconstruct symmetric matrix from upper-triangle values.
+    """Reconstruct a symmetric matrix from its upper-triangle values.
 
-    Args:
-        flat: 1D array of upper-triangle values
-        n: Matrix size
-        include_diagonal: Whether flat includes diagonal
+    Inverse of :func:`flatten_upper_triangle`: places *flat* back into the
+    upper triangle and mirrors it into the lower triangle.
 
-    Returns:
-        Symmetric matrix of shape (n, n)
+    Parameters
+    ----------
+    flat
+        1-D array of upper-triangle values.
+    n
+        Side length of the reconstructed square matrix.
+    include_diagonal
+        Whether *flat* includes the diagonal (must match how it was flattened).
+
+    Returns
+    -------
+    numpy.ndarray
+        Symmetric matrix of shape ``(n, n)``.
+
+    Raises
+    ------
+    ValueError
+        If ``len(flat)`` does not match the expected upper-triangle count for
+        *n* and *include_diagonal*.
     """
     matrix = np.zeros((n, n))
     if include_diagonal:
@@ -91,19 +116,34 @@ def compute_weights(
     sigma: np.ndarray | None = None,
     exclude_diagonal: bool = False,
 ) -> np.ndarray:
-    """Compute weight array for NLSQ fitting.
+    """Compute a weight array for NLSQ fitting.
 
-    Args:
-        c2_data: Correlation data, shape (N, N)
-        method: Weight method:
-            - 'uniform': Equal weights (1.0)
-            - 'inverse_variance': 1/sigma² from provided sigma
-            - 'data_amplitude': 1/|data| for heteroscedastic data
-        sigma: Standard deviation array for 'inverse_variance' method
-        exclude_diagonal: Zero out diagonal weights (diagonal often noisy)
+    Parameters
+    ----------
+    c2_data
+        Correlation data of shape ``(N, N)``.
+    method
+        Weighting scheme:
 
-    Returns:
-        Weight array of shape (N, N) where weights = 1/sigma²
+        - ``"uniform"`` — equal weights (1.0).
+        - ``"inverse_variance"`` — ``1 / sigma**2`` from the provided *sigma*.
+        - ``"data_amplitude"`` — ``1 / |data|`` for heteroscedastic data.
+    sigma
+        Standard-deviation array, required for the ``"inverse_variance"``
+        method and ignored otherwise.
+    exclude_diagonal
+        Zero out the diagonal weights (the diagonal is often noisy).
+
+    Returns
+    -------
+    numpy.ndarray
+        Weight array of shape ``(N, N)``.
+
+    Raises
+    ------
+    ValueError
+        If *sigma* is missing or mis-shaped for ``"inverse_variance"``, or if
+        *method* is not one of the recognised schemes.
     """
     if method == "uniform":
         weights = np.ones_like(c2_data)
@@ -138,21 +178,31 @@ def prepare_fit_data(
 ) -> tuple[np.ndarray, np.ndarray, int]:
     """Prepare correlation data and weights for least-squares fitting.
 
-    Flattens data and weights into 1D arrays suitable for
-    nlsq.CurveFit (JAX-native trust-region), optionally using only the
-    upper triangle of the symmetric matrix.
+    Flattens the data and weights into 1-D arrays suitable for
+    ``nlsq.CurveFit`` (the JAX-native trust-region solver), optionally using
+    only the upper triangle of the symmetric matrix. Weights are returned as
+    their square roots so that ``sum(residual**2)`` equals the weighted
+    sum-of-squares ``sum(w * (model - data)**2)``.
 
-    Args:
-        c2_data: Correlation matrix, shape (N, N)
-        weights: Optional weight matrix, shape (N, N). Defaults to uniform.
-        use_upper_triangle: Use only upper triangle (recommended for symmetry)
-        exclude_diagonal: Exclude diagonal from fit
+    Parameters
+    ----------
+    c2_data
+        Correlation matrix of shape ``(N, N)``.
+    weights
+        Optional weight matrix of shape ``(N, N)``; defaults to uniform.
+    use_upper_triangle
+        Use only the upper triangle (recommended, exploits symmetry).
+    exclude_diagonal
+        Exclude the diagonal from the fit by zeroing its weights.
 
-    Returns:
-        Tuple of:
-        - data_flat: 1D flattened data
-        - weights_flat: 1D flattened weights (sqrt for residual scaling)
-        - n_data: Number of data points
+    Returns
+    -------
+    data_flat : numpy.ndarray
+        1-D flattened data.
+    weights_flat : numpy.ndarray
+        1-D flattened square-root weights for residual scaling.
+    n_data : int
+        Number of data points with non-zero weight.
     """
     if weights is None:
         weights = np.ones_like(c2_data)
@@ -190,14 +240,20 @@ def compute_degrees_of_freedom(
     n_data: int,
     n_params: int,
 ) -> int:
-    """Compute degrees of freedom for chi-squared calculation.
+    """Compute the degrees of freedom for a chi-squared calculation.
 
-    Args:
-        n_data: Number of data points with non-zero weight
-        n_params: Number of varying parameters
+    Parameters
+    ----------
+    n_data
+        Number of data points with non-zero weight.
+    n_params
+        Number of varying parameters.
 
-    Returns:
-        Degrees of freedom (n_data - n_params), minimum 1
+    Returns
+    -------
+    int
+        ``n_data - n_params``, clamped to a minimum of 1. An underdetermined
+        system (``n_data <= n_params``) is logged as a warning.
     """
     dof = max(n_data - n_params, 1)
     if n_data <= n_params:
@@ -218,12 +274,21 @@ def far_lag_noise_variance(c2_data: np.ndarray) -> float:
     :func:`heterodyne_core._compute_per_angle_chi2` so the single-angle and
     joint multi-angle paths share one noise convention.
 
-    Args:
-        c2_data: Per-angle C2 matrix ``(n_time, n_time)`` or batched
-            ``(n_phi, n_time, n_time)``.
+    Parameters
+    ----------
+    c2_data
+        Per-angle C2 matrix ``(n_time, n_time)`` or batched
+        ``(n_phi, n_time, n_time)``. Far-lag entries are pooled across angles
+        in the batched case.
 
-    Returns:
-        ``var(far_lag_values)``; ``0.0`` when too few far-lag points exist.
+    Returns
+    -------
+    float
+        ``var(far_lag_values)``, or ``0.0`` when too few far-lag points exist.
+
+    See Also
+    --------
+    noise_normalized_reduced_chi2 : Consumes this estimate to rescale chi-squared.
     """
     c2_np = np.asarray(c2_data, dtype=np.float64)
     n_time = c2_np.shape[-1]
@@ -254,17 +319,28 @@ def noise_normalized_reduced_chi2(
     Falls back to plain MSE (``SSR / dof``) when the noise estimate is
     degenerate, matching the fallback used elsewhere.
 
-    Args:
-        ssr: Data-only sum of squared residuals.
-        c2_data: Per-angle C2 matrix or batched ``(n_phi, n_time, n_time)``;
-            used only to estimate ``σ²_noise``.
-        n_data_valid: Number of residuals actually fit (off-diagonal,
-            t=0-boundary excluded) — i.e. ``len(data_only_residual)``.
-        n_params: Number of fitted parameters.
+    Parameters
+    ----------
+    ssr
+        Data-only sum of squared residuals.
+    c2_data
+        Per-angle C2 matrix or batched ``(n_phi, n_time, n_time)``; used only
+        to estimate ``sigma**2_noise``.
+    n_data_valid
+        Number of residuals actually fit (off-diagonal, ``t=0`` boundary
+        excluded) — i.e. ``len(data_only_residual)``.
+    n_params
+        Number of fitted parameters.
 
-    Returns:
-        Noise-normalised reduced chi-squared (MSE fallback when noise is
-        degenerate).
+    Returns
+    -------
+    float
+        Noise-normalised reduced chi-squared, with an MSE fallback when the
+        noise estimate is degenerate.
+
+    See Also
+    --------
+    far_lag_noise_variance : Supplies the ``sigma**2_noise`` estimate used here.
     """
     n_dof = max(int(n_data_valid) - int(n_params), 1)
     sigma2_noise = far_lag_noise_variance(c2_data)

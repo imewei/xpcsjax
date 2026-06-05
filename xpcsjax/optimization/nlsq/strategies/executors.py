@@ -45,12 +45,18 @@ except ImportError:
 class ExecutionResult:
     """Result from optimization execution.
 
-    Attributes:
-        popt: Optimized parameters
-        pcov: Parameter covariance matrix
-        info: Additional optimization information
-        recovery_actions: List of recovery actions taken
-        convergence_status: 'converged', 'partial', or 'failed'
+    Attributes
+    ----------
+    popt : np.ndarray
+        Optimized parameters.
+    pcov : np.ndarray
+        Parameter covariance matrix.
+    info : dict
+        Additional optimization information.
+    recovery_actions : list of str
+        Recovery actions taken during the solve.
+    convergence_status : str
+        One of ``'converged'``, ``'partial'``, or ``'failed'``.
     """
 
     popt: np.ndarray
@@ -81,18 +87,29 @@ class OptimizationExecutor(ABC):
     ) -> ExecutionResult:
         """Execute optimization with the specific strategy.
 
-        Args:
-            residual_fn: Residual function to minimize
-            xdata: Independent variable data
-            ydata: Dependent variable data (observations)
-            initial_params: Initial parameter guess
-            bounds: Parameter bounds as (lower, upper) tuple
-            loss_name: Loss function name (e.g., 'soft_l1')
-            x_scale_value: Parameter scaling for trust region
-            logger: Logger instance
+        Parameters
+        ----------
+        residual_fn : callable
+            Residual function to minimize.
+        xdata : np.ndarray
+            Independent variable data.
+        ydata : np.ndarray
+            Dependent variable data (observations).
+        initial_params : np.ndarray
+            Initial parameter guess.
+        bounds : tuple of np.ndarray or None
+            Parameter bounds as ``(lower, upper)``.
+        loss_name : str
+            Loss function name (e.g. ``'soft_l1'``).
+        x_scale_value : float or np.ndarray or str
+            Parameter scaling for the trust region.
+        logger : Any
+            Logger instance.
 
-        Returns:
-            ExecutionResult with optimized parameters and diagnostics
+        Returns
+        -------
+        ExecutionResult
+            Optimized parameters and diagnostics.
         """
         pass
 
@@ -118,10 +135,12 @@ class StandardExecutor(OptimizationExecutor):
 
     @property
     def name(self) -> str:
+        """Strategy name for logging."""
         return "standard"
 
     @property
     def supports_progress(self) -> bool:
+        """Whether this strategy supports progress bars (it does not)."""
         return False
 
     def execute(
@@ -198,10 +217,12 @@ class LargeDatasetExecutor(OptimizationExecutor):
 
     @property
     def name(self) -> str:
+        """Strategy name for logging."""
         return "large"
 
     @property
     def supports_progress(self) -> bool:
+        """Whether this strategy supports progress bars (it does)."""
         return True
 
     def execute(
@@ -310,17 +331,22 @@ class StreamingExecutor(OptimizationExecutor):
     def __init__(self, checkpoint_config: dict[str, Any] | None = None):
         """Initialize streaming executor.
 
-        Args:
-            checkpoint_config: Configuration for checkpointing and hybrid streaming
+        Parameters
+        ----------
+        checkpoint_config : dict, optional
+            Configuration for checkpointing and hybrid streaming. ``None``
+            defaults to an empty dict.
         """
         self.checkpoint_config = checkpoint_config or {}
 
     @property
     def name(self) -> str:
+        """Strategy name for logging."""
         return "streaming"
 
     @property
     def supports_progress(self) -> bool:
+        """Whether this strategy supports progress bars (it does)."""
         return True
 
     def execute(
@@ -402,17 +428,32 @@ def get_executor(
     strategy_name: str,
     checkpoint_config: dict[str, Any] | None = None,
 ) -> OptimizationExecutor:
-    """Factory function to get the appropriate executor.
+    """Get the executor instance for a named optimization strategy.
 
-    Args:
-        strategy_name: Name of strategy ('standard', 'large', 'streaming')
-        checkpoint_config: Configuration for streaming checkpoints
+    Parameters
+    ----------
+    strategy_name : str
+        Name of the strategy: ``'standard'``, ``'large'``, ``'chunked'`` (an
+        alias of ``'large'``), or ``'streaming'``.
+    checkpoint_config : dict, optional
+        Configuration for streaming checkpoints (passed only to the streaming
+        executor).
 
-    Returns:
-        OptimizationExecutor instance for the strategy
+    Returns
+    -------
+    OptimizationExecutor
+        Executor instance for the requested strategy.
 
-    Raises:
-        ValueError: If strategy name is unknown
+    Raises
+    ------
+    ValueError
+        If ``strategy_name`` is not a recognized strategy.
+
+    Examples
+    --------
+    >>> executor = get_executor("standard")
+    >>> executor.name
+    'standard'
     """
     executors = {
         "standard": StandardExecutor,

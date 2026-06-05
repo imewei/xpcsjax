@@ -1,3 +1,15 @@
+"""Angle-stratified residual function (non-padded, concatenated-array path).
+
+Defines :class:`StratifiedResidualFunction`, the eager (non-JIT-padded)
+counterpart of
+:class:`~xpcsjax.optimization.nlsq.strategies.residual_jit.StratifiedResidualFunctionJIT`.
+Both serve the same role for NLSQ's ``least_squares`` solve — evaluating
+angle-stratified residuals so per-angle scaling parameters keep non-zero
+gradients — but this implementation concatenates all chunk data into single
+device-side arrays and uses pre-computed flat indices rather than padded
+``vmap``.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -19,17 +31,25 @@ class StratifiedResidualFunction:
     ensuring that each chunk contains all phi angles. This is critical for per-angle
     scaling parameters to have non-zero gradients.
 
-    The function is designed to work with NLSQ's least_squares() function, which calls
-    the residual function at each optimization iteration.
+    The function is designed to work with NLSQ's ``least_squares()`` function,
+    which calls the residual function at each optimization iteration.
 
-    Attributes:
-        chunks: List of angle-stratified data chunks
-        model: TheoryEngine instance for computing residuals
-        per_angle_scaling: Whether per-angle scaling is enabled
-        logger: Logger instance for diagnostics
-        n_chunks: Number of stratified chunks
-        n_total_points: Total number of data points across all chunks
-        compute_chunk_jit: JIT-compiled chunk residual computation
+    Attributes
+    ----------
+    chunks : list
+        Angle-stratified data chunks (freed after concatenation in
+        :meth:`_concatenate_chunk_data`).
+    per_angle_scaling : bool
+        Whether per-angle scaling is enabled.
+    logger : logging.Logger
+        Logger instance for diagnostics.
+    n_chunks : int
+        Number of stratified chunks.
+    n_total_points : int
+        Total number of data points across all chunks.
+    compute_chunk_jit : Any
+        JIT-compiled chunk residual computation (set to ``None``; the hot path
+        is :meth:`_call_jax_vectorized`).
     """
 
     def __init__(
@@ -42,16 +62,24 @@ class StratifiedResidualFunction:
         """
         Initialize the stratified residual function.
 
-        Args:
-            stratified_data: Object with .chunks attribute containing angle-stratified chunks.
-                Each chunk must have: phi, t1, t2, g2, q, L, dt attributes.
-                stratified_data.sigma contains the full 3D sigma array (metadata).
-            per_angle_scaling: Whether per-angle scaling parameters are used.
-            physical_param_names: List of physical parameter names (e.g., ['D0', 'alpha', 'D_offset'])
-            logger: Optional logger for diagnostics.
+        Parameters
+        ----------
+        stratified_data : Any
+            Object with a ``.chunks`` attribute holding angle-stratified chunks.
+            Each chunk must have ``phi``, ``t1``, ``t2``, ``g2``, ``q``, ``L``,
+            ``dt`` attributes. ``stratified_data.sigma`` holds the full 3D sigma
+            array (metadata).
+        per_angle_scaling : bool
+            Whether per-angle scaling parameters are used.
+        physical_param_names : list of str
+            Physical parameter names (e.g. ``['D0', 'alpha', 'D_offset']``).
+        logger : logging.Logger, optional
+            Logger for diagnostics.
 
-        Raises:
-            ValueError: If stratified_data.chunks is empty or invalid.
+        Raises
+        ------
+        ValueError
+            If ``stratified_data.chunks`` is empty or invalid.
         """
         self.chunks = stratified_data.chunks
         sigma_array = np.asarray(stratified_data.sigma, dtype=np.float64)
@@ -502,11 +530,15 @@ class StratifiedResidualFunction:
         2. Redundant g2 theory grid computation (was computed per-chunk)
         3. Multiple small kernel launches
 
-        Args:
-            params: Parameter array [scaling_params, physical_params]
+        Parameters
+        ----------
+        params : jnp.ndarray
+            Parameter array ``[scaling_params, physical_params]``.
 
-        Returns:
-            Weighted residuals for ALL data points
+        Returns
+        -------
+        jnp.ndarray
+            Weighted residuals for ALL data points.
         """
         # A3: params already arrives as a jnp array on the JIT/Jacobian hot path
         # (the only entry points are jax_residual and __call__, the latter doing
@@ -580,9 +612,33 @@ class StratifiedResidualFunction:
         )
 
     def jax_residual(self, params: jnp.ndarray) -> jnp.ndarray:
+        """Return JAX-native residuals (for JIT / Jacobian contexts).
+
+        Parameters
+        ----------
+        params : jnp.ndarray
+            Parameter array ``[scaling_params, physical_params]``.
+
+        Returns
+        -------
+        jnp.ndarray
+            Weighted residuals for all data points, kept as a JAX array.
+        """
         return self._call_jax(params)
 
     def __call__(self, params: np.ndarray) -> np.ndarray:
+        """Compute residuals, returning a NumPy array (NLSQ interface).
+
+        Parameters
+        ----------
+        params : np.ndarray
+            Parameter array ``[scaling_params, physical_params]``.
+
+        Returns
+        -------
+        np.ndarray
+            Weighted residuals for all data points, materialized to host.
+        """
         params_jax = jnp.asarray(params)
         residuals_jax = self._call_jax(params_jax)
         return np.asarray(residuals_jax)
@@ -595,11 +651,16 @@ class StratifiedResidualFunction:
         will be non-zero. If any chunk is missing an angle, the gradient for
         that angle's parameters will be zero, causing optimization failure.
 
-        Returns:
-            True if validation passes
+        Returns
+        -------
+        bool
+            ``True`` if validation passes (or the cached result when chunks were
+            already freed after the inline build-time validation).
 
-        Raises:
-            ValueError: If any chunk is missing angles or has inconsistent structure
+        Raises
+        ------
+        ValueError
+            If any chunk is missing angles or has inconsistent structure.
         """
         if not hasattr(self, "chunks"):
             # Chunks were freed by _concatenate_chunk_data() after inline validation
@@ -654,17 +715,13 @@ class StratifiedResidualFunction:
         """
         Get diagnostic information about the residual function.
 
-        Returns:
-            Dictionary containing:
-                - n_chunks: Number of chunks
-                - n_total_points: Total data points
-                - n_angles: Number of unique phi angles
-                - per_angle_scaling: Whether per-angle scaling is enabled
-                - chunk_sizes: List of points per chunk
-                - chunk_angle_counts: List of angles per chunk
-                - min_chunk_size: Minimum chunk size
-                - max_chunk_size: Maximum chunk size
-                - mean_chunk_size: Mean chunk size
+        Returns
+        -------
+        dict[str, Any]
+            Dictionary containing ``n_chunks``, ``n_total_points``,
+            ``n_angles``, ``per_angle_scaling``, ``chunk_sizes``,
+            ``chunk_angle_counts``, ``min_chunk_size``, ``max_chunk_size``, and
+            ``mean_chunk_size``.
         """
         # Use cached arrays when chunks have been freed (normal post-init path).
         # _cached_chunk_sizes and _cached_chunk_angle_counts are set in
@@ -716,32 +773,43 @@ def create_stratified_residual_function(
     validate: bool = True,
 ) -> StratifiedResidualFunction:
     """
-    Factory function to create and validate a stratified residual function.
+    Create and validate a stratified residual function.
 
-    This is a convenience function that creates a StratifiedResidualFunction,
-    optionally validates its structure, and logs diagnostics.
+    Convenience factory that constructs a :class:`StratifiedResidualFunction`,
+    optionally validates its chunk structure, and logs diagnostics.
 
-    Args:
-        stratified_data: Object with .chunks attribute containing angle-stratified chunks
-        per_angle_scaling: Whether per-angle scaling parameters are used
-        physical_param_names: List of physical parameter names (e.g., ['D0', 'alpha', 'D_offset'])
-        logger: Optional logger for diagnostics
-        validate: Whether to validate chunk structure (recommended)
+    Parameters
+    ----------
+    stratified_data : Any
+        Object with a ``.chunks`` attribute holding angle-stratified chunks.
+    per_angle_scaling : bool
+        Whether per-angle scaling parameters are used.
+    physical_param_names : list of str
+        Physical parameter names (e.g. ``['D0', 'alpha', 'D_offset']``).
+    logger : logging.Logger, optional
+        Logger for diagnostics.
+    validate : bool, default True
+        Whether to validate chunk structure (recommended).
 
-    Returns:
-        Validated StratifiedResidualFunction instance
+    Returns
+    -------
+    StratifiedResidualFunction
+        Validated residual function instance.
 
-    Raises:
-        ValueError: If validation fails
+    Raises
+    ------
+    ValueError
+        If validation fails.
 
-    Example:
-        >>> residual_fn = create_stratified_residual_function(
-        ...     stratified_data=stratified_data,
-        ...     per_angle_scaling=True,
-        ...     physical_param_names=['D0', 'alpha', 'D_offset'],
-        ...     validate=True
-        ... )
-        >>> residual_fn.log_diagnostics()
+    Examples
+    --------
+    >>> residual_fn = create_stratified_residual_function(
+    ...     stratified_data=stratified_data,
+    ...     per_angle_scaling=True,
+    ...     physical_param_names=['D0', 'alpha', 'D_offset'],
+    ...     validate=True,
+    ... )
+    >>> residual_fn.log_diagnostics()
     """
     residual_fn = StratifiedResidualFunction(
         stratified_data=stratified_data,

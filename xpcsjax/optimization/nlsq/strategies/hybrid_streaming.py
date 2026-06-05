@@ -318,38 +318,58 @@ def fit_with_stratified_hybrid_streaming(
     3. Crude covariance: Fixed via exact J^T J accumulation
     4. Structural degeneracy: Fixed via anti-degeneracy defense layers
 
-    Args:
-        stratified_data: StratifiedData object with flat stratified arrays
-        per_angle_scaling: Whether per-angle parameters are enabled
-        physical_param_names: List of physical parameter names
-        initial_params: Initial parameter guess
-        bounds: Parameter bounds (lower, upper) tuple
-        logger: Logger instance
-        hybrid_config: Optional config dict with keys:
-            - normalize: Enable parameter normalization (default: True)
-            - normalization_strategy: "bounds" or "scale" (default: "bounds")
-            - warmup_iterations: L-BFGS warmup iterations (default: 100)
-            - max_warmup_iterations: Max L-BFGS iterations (default: 500)
-            - warmup_learning_rate: L-BFGS line search scale (default: 0.001)
-            - gauss_newton_max_iterations: GN iterations (default: 50)
-            - gauss_newton_tol: Convergence tolerance (default: 1e-8)
-            - chunk_size: Points per chunk for streaming (default: 50000)
-        anti_degeneracy_config: Optional config dict for Anti-Degeneracy Defense:
-            - per_angle_mode: "independent", "fourier", or "auto" (default: "auto")
-            - fourier_order: Fourier harmonic order (default: 2)
-            - fourier_auto_threshold: n_phi threshold for auto mode (default: 6)
-            - hierarchical.enable: Enable hierarchical optimization (default: True)
-            - regularization.mode: "absolute", "relative", or "auto" (default: "relative")
-            - regularization.lambda: Base regularization strength (default: 1.0)
-            - gradient_monitoring.enable: Enable gradient collapse detection (default: True)
+    Parameters
+    ----------
+    stratified_data : Any
+        StratifiedData object with flat stratified arrays.
+    per_angle_scaling : bool
+        Whether per-angle parameters are enabled.
+    physical_param_names : list[str]
+        Names of the physical parameters.
+    initial_params : np.ndarray
+        Initial parameter guess.
+    bounds : tuple of np.ndarray or None
+        Parameter bounds ``(lower, upper)`` or ``None`` for unbounded.
+    logger : Any
+        Logger instance.
+    hybrid_config : dict, optional
+        Hybrid-streaming config dict. Recognized keys include ``normalize``,
+        ``normalization_strategy``, ``warmup_iterations``,
+        ``max_warmup_iterations``, ``warmup_learning_rate``,
+        ``gauss_newton_max_iterations``, ``gauss_newton_tol``, and
+        ``chunk_size``.
+    anti_degeneracy_config : dict, optional
+        Anti-Degeneracy Defense config dict. Recognized keys include
+        ``per_angle_mode`` (``"individual"``, ``"fourier"``, ``"constant"``, or
+        ``"auto"`` — **the default, including when this config is absent/None**;
+        there is no "freeze when unconfigured" special case), ``fourier_order``,
+        ``fourier_auto_threshold``, ``constant_scaling_threshold``,
+        ``hierarchical.enable``, ``regularization.mode``, ``regularization.lambda``,
+        and ``gradient_monitoring.enable``.
 
-    Returns:
-        (popt, pcov, info) tuple
+    Returns
+    -------
+    popt : np.ndarray
+        Optimized parameters (expanded to the per-angle layout).
+    pcov : np.ndarray
+        Parameter covariance matrix.
+    info : dict
+        Optimization information including an ``anti_degeneracy`` diagnostics
+        block.
 
-    Raises:
-        RuntimeError: If AdaptiveHybridStreamingOptimizer is not available
+    Raises
+    ------
+    RuntimeError
+        If ``AdaptiveHybridStreamingOptimizer`` is not available.
+
+    Notes
+    -----
+    Layers L1-L4 (Fourier reparameterization, hierarchical optimization,
+    adaptive CV regularization, gradient-collapse monitoring) gate on
+    ``per_angle_scaling`` and fire for all analysis modes. L4 is strictly
+    diagnostic (monitor-on vs monitor-off is bit-identical). L5 shear weighting
+    is gated additionally on ``laminar_flow`` (shear present).
     """
-
     if not HYBRID_STREAMING_AVAILABLE:
         raise RuntimeError(
             "AdaptiveHybridStreamingOptimizer not available. "
@@ -1202,7 +1222,7 @@ def fit_with_stratified_hybrid_streaming(
     # NOTE: Both t1 and t2 index into t1_unique because XPCS correlation
     # matrices use a shared time grid (t1_unique == t2_unique).
     def _bin_to_grid(values: np.ndarray, grid: np.ndarray, axis_name: str) -> np.ndarray:
-        """searchsorted + boundary clip, warning on out-of-grid points.
+        """Bin values onto a grid via searchsorted, warning on out-of-grid points.
 
         An unguarded clip silently routes data lying outside the fitted grid to
         the boundary bin, mis-associating it with the wrong (phi, t1, t2) cell —
@@ -2159,13 +2179,19 @@ def estimate_memory_for_stratified_ls(
     3. JAX autodiff intermediates: ~3× Jacobian size for backprop
     4. JAX compilation cache: ~5-10 GB
 
-    Args:
-        n_points: Total number of data points
-        n_params: Number of parameters
-        n_chunks: Number of stratified chunks
+    Parameters
+    ----------
+    n_points : int
+        Total number of data points.
+    n_params : int
+        Number of parameters.
+    n_chunks : int
+        Number of stratified chunks.
 
-    Returns:
-        Estimated peak memory in bytes
+    Returns
+    -------
+    float
+        Estimated peak memory in bytes.
     """
     bytes_per_float = 8
 
@@ -2202,17 +2228,29 @@ def should_use_streaming(
     Uses adaptive memory thresholding (v2.7.0+) to automatically compute
     an appropriate threshold based on total system memory.
 
-    Args:
-        n_points: Total number of data points
-        n_params: Number of parameters
-        n_chunks: Number of stratified chunks
-        memory_threshold_gb: Memory threshold in GB above which to use streaming.
-            If None (default), computes adaptive threshold as 75% of total memory.
-        memory_fraction: Fraction of total memory for adaptive threshold (0.1-0.9).
-            Only used if memory_threshold_gb is None.
+    Parameters
+    ----------
+    n_points : int
+        Total number of data points.
+    n_params : int
+        Number of parameters.
+    n_chunks : int
+        Number of stratified chunks.
+    memory_threshold_gb : float, optional
+        Memory threshold in GB above which to use streaming. If ``None``
+        (default), an adaptive threshold (75% of total memory) is computed.
+    memory_fraction : float, optional
+        Fraction of total memory for the adaptive threshold (0.1-0.9). Only
+        used when ``memory_threshold_gb`` is ``None``.
 
-    Returns:
-        (use_streaming, estimated_gb, reason) tuple
+    Returns
+    -------
+    use_streaming : bool
+        Whether streaming should be used.
+    estimated_gb : float
+        Estimated peak memory in GB.
+    reason : str
+        Human-readable explanation of the decision.
     """
     try:
         import psutil

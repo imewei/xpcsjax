@@ -1,43 +1,42 @@
-"""NLSQ: Primary Optimization Method for Homodyne
-==================================================
+"""NLSQ trust-region solver: the primary optimization method for homodyne.
 
-NLSQ package-based trust-region nonlinear least squares solver for the scaled
-optimization process. This is the primary optimization method providing
-fast, reliable parameter estimation for homodyne analysis.
+NLSQ-package-based trust-region nonlinear least squares solver for the scaled
+optimization process. This is the primary optimization method, providing fast,
+reliable parameter estimation for homodyne analysis.
 
-Core Equation: c₂(φ,t₁,t₂) = 1 + contrast × [c₁(φ,t₁,t₂)]²
+xpcsjax owns the strategy around this solve (memory-aware routing, the
+anti-degeneracy controller, CMA-ES escape, LHS multistart, bounds/transforms,
+and chunking); the upstream NLSQ package owns the ``CurveFit`` JIT cache,
+``curve_fit()``, and the trust-region (Levenberg-Marquardt) solve itself.
 
-Key Features:
-- NLSQ trust-region solver (TRF/Levenberg-Marquardt) for robust optimization
-- JAX JIT compilation for high performance
-- Intelligent error recovery with 3-attempt retry strategy (T022-T024)
-- Compatible with existing ParameterSpace and FitResult classes
-- HPC-optimized for 36/128-core CPU nodes
-- CPU-only (no GPU support since v2.3.0)
-- Dataset size-aware optimization strategies
+Core equation: ``c₂(φ, t₁, t₂) = 1 + contrast × [c₁(φ, t₁, t₂)]²``.
 
-Performance (Validated T036-T041):
-- Parameter recovery accuracy: 2-14% on core parameters
-- Sub-linear time scaling: ~1.5s for 500-9,375 point datasets
-- Numerical stability: <4% deviation across initial conditions
-- Throughput: 317-5,977 points/second
-- 100% convergence rate across all validation tests
+Key features
+------------
+- NLSQ trust-region solver (TRF / Levenberg-Marquardt) for robust optimization.
+- JAX JIT compilation for high performance.
+- Intelligent error recovery with a 3-attempt retry strategy (T022-T024).
+- Compatible with the existing ``ParameterSpace`` and ``FitResult`` classes.
+- HPC-optimized for 36/128-core CPU nodes.
+- CPU-only (no GPU support since v2.3.0).
+- Dataset size-aware optimization strategies.
 
-Production Status:
-- Scientifically validated (7/7 tests passed)
-- Production-ready with error recovery
-- Approved for scientific research and deployment
+Notes
+-----
+Performance (validated T036-T041): parameter recovery accuracy 2-14% on core
+parameters; sub-linear time scaling (~1.5 s for 500-9,375 point datasets);
+numerical stability <4% deviation across initial conditions; throughput
+317-5,977 points/second; 100% convergence rate across validation tests.
+Scientifically validated (7/7 tests passed) and production-ready with error
+recovery. This module migrated from Optimistix to the NLSQ package; the
+``NLSQWrapper`` provides a unified interface with error recovery and maintains
+backward API compatibility.
 
-Migration from Optimistix:
-- Replaced Optimistix with NLSQ package (github.com/imewei/NLSQ)
-- NLSQWrapper provides unified interface with error recovery
-- Maintains backward API compatibility
-- User-facing Optimistix references removed from public APIs
-
-References:
-- NLSQ Package: https://github.com/imewei/NLSQ
-- Validation Report: SCIENTIFIC_VALIDATION_REPORT.md
-- Production Report: PRODUCTION_READINESS_REPORT.md
+References
+----------
+- NLSQ package: https://github.com/imewei/NLSQ
+- Validation report: ``SCIENTIFIC_VALIDATION_REPORT.md``
+- Production report: ``PRODUCTION_READINESS_REPORT.md``
 """
 
 from __future__ import annotations
@@ -61,12 +60,15 @@ except ImportError:
     jnp: types.ModuleType = np  # type: ignore[no-redef]
 
     def jit(f: F) -> F:  # type: ignore[no-redef]  # noqa: UP047
+        """Identity fallback for ``jax.jit`` when JAX is unavailable."""
         return f
 
     def vmap(f: Any, **kwargs: Any) -> Any:  # type: ignore[misc]
+        """Identity fallback for ``jax.vmap`` when JAX is unavailable."""
         return f
 
     def grad(f: Callable[..., Any]) -> Callable[..., Any]:  # type: ignore[misc]
+        """Zero-gradient fallback for ``jax.grad`` when JAX is unavailable."""
         return lambda x: np.zeros_like(x)
 
 
@@ -87,6 +89,7 @@ except ImportError:
     def get_logger(
         name: str | None = None, *, context: Mapping[str, Any] | None = None
     ) -> Logger | LoggerAdapter[Logger]:
+        """Stdlib-logging fallback for ``get_logger`` when core modules are absent."""
         return logging.getLogger(name or __name__)
 
     def log_performance(
@@ -94,6 +97,8 @@ except ImportError:
         level: int = logging.INFO,
         threshold: float = 0.0,
     ) -> Callable[[F], F]:
+        """No-op fallback for the ``log_performance`` decorator when core modules are absent."""
+
         def decorator(func: F) -> F:
             return func
 
@@ -831,8 +836,7 @@ def _get_analysis_mode(config: ConfigManager) -> AnalysisMode:
 
 
 def _is_nlsq_diagnostics_enabled(config: ConfigManager | dict[str, Any]) -> bool:
-    """Return True if optimization.nlsq.diagnostics.enabled is truthy."""
-
+    """Return True if ``optimization.nlsq.diagnostics.enabled`` is truthy."""
     config_dict: dict[str, Any] | None = None
     if hasattr(config, "config") and config.config:
         config_dict = config.config

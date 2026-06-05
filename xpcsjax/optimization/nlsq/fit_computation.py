@@ -188,15 +188,28 @@ def normalize_analysis_mode(
     n_params: int,
     n_angles: int,
 ) -> str:
-    """Resolve analysis mode, inferring from parameter counts if needed.
+    """Resolve the analysis mode, inferring from parameter counts if needed.
 
-    Args:
-        mode: Explicit mode or None
-        n_params: Number of parameters
-        n_angles: Number of angles
+    Parameters
+    ----------
+    mode : str | None
+        Explicit mode, or None to infer.
+    n_params : int
+        Number of parameters.
+    n_angles : int
+        Number of angles.
 
-    Returns:
-        Normalized mode: 'static_anisotropic', 'static_isotropic', or 'laminar_flow'
+    Returns
+    -------
+    str
+        Normalized mode: ``"static_anisotropic"``, ``"static_isotropic"``,
+        or ``"laminar_flow"``.
+
+    Notes
+    -----
+    The 3-physical-parameter signature is shared by ``static_isotropic`` and
+    ``static_anisotropic``; these cannot be distinguished from the parameter
+    count alone, so the angle-resolved ``static_anisotropic`` is the default.
     """
     if mode:
         mode_lower = mode.lower()
@@ -228,16 +241,24 @@ def normalize_analysis_mode(
 
 
 def get_physical_param_count(analysis_mode: AnalysisMode) -> int:
-    """Get number of physical parameters for analysis mode.
+    """Get the number of physical parameters for an analysis mode.
 
-    Args:
-        analysis_mode: 'static_anisotropic', 'static_isotropic', or 'laminar_flow'
+    Parameters
+    ----------
+    analysis_mode : AnalysisMode
+        One of ``"static_anisotropic"``, ``"static_isotropic"``, or
+        ``"laminar_flow"``.
 
-    Returns:
-        Number of physical parameters
+    Returns
+    -------
+    int
+        Number of physical parameters (3 for static modes, 7 for
+        ``laminar_flow``).
 
-    Raises:
-        ValueError: If mode is unknown
+    Raises
+    ------
+    ValueError
+        If the mode is unknown.
     """
     if analysis_mode in ("static_anisotropic", "static_isotropic"):
         return 3  # D0, alpha, D_offset
@@ -259,16 +280,29 @@ def extract_parameters_from_result(
 
     Handles both per-angle and scalar parameter layouts.
 
-    Args:
-        parameters: Full parameter array from optimization
-        n_angles: Number of phi angles
-        analysis_mode: 'static_anisotropic', 'static_isotropic', or 'laminar_flow'
+    Parameters
+    ----------
+    parameters : np.ndarray
+        Full parameter array from optimization.
+    n_angles : int
+        Number of phi angles.
+    analysis_mode : AnalysisMode
+        One of ``"static_anisotropic"``, ``"static_isotropic"``, or
+        ``"laminar_flow"``.
 
-    Returns:
-        Tuple of (contrasts, offsets, physical_params, scalar_expansion_used)
+    Returns
+    -------
+    tuple
+        ``(contrasts, offsets, physical_params, scalar_expansion_used)``. When
+        the solver returned scalar contrast/offset, they are broadcast across
+        ``n_angles`` and ``scalar_expansion_used`` is ``True``.
 
-    Raises:
-        ValueError: If parameter count doesn't match expected
+    Raises
+    ------
+    ValueError
+        If the parameter count matches neither the per-angle layout
+        (``2 * n_angles + n_physical``) nor the scalar layout
+        (``n_physical + 2``).
     """
     n_params = len(parameters)
     n_physical = get_physical_param_count(analysis_mode)
@@ -316,28 +350,49 @@ def compute_theoretical_fits(
     """Compute theoretical fits with per-angle least squares scaling.
 
     Generates theoretical correlation functions using optimized parameters,
-    then applies per-angle scaling (contrast, offset) via least squares fitting
+    then applies per-angle scaling (contrast, offset) via least-squares fitting
     to match experimental intensities.
 
-    Args:
-        result: NLSQ optimization result with physical parameters
-        data: Experimental data with phi_angles_list, c2_exp, t1, t2
-        metadata: Metadata with L, dt, q for theoretical computation
-        analysis_mode: Optional analysis mode override
-        include_solver_surface: Whether to include solver surface in output
+    Parameters
+    ----------
+    result : Any
+        NLSQ optimization result with physical parameters.
+    data : dict[str, Any]
+        Experimental data with ``phi_angles_list``, ``c2_exp``, ``t1``, ``t2``.
+    metadata : dict[str, Any]
+        Metadata with ``L``, ``dt``, ``q`` for theoretical computation.
+    analysis_mode : AnalysisMode | None, optional
+        Optional analysis-mode override.
+    include_solver_surface : bool, optional
+        Whether to include the solver surface in the output.
 
-    Returns:
+    Returns
+    -------
+    dict[str, Any]
         Dictionary with keys:
-        - 'c2_theoretical_raw': Raw theoretical fits (n_angles, n_t1, n_t2)
-        - 'c2_theoretical_scaled': Scaled fits (n_angles, n_t1, n_t2)
-        - 'c2_solver_scaled': Solver surface (if requested)
-        - 'per_angle_scaling': Post-hoc lstsq scaling params (n_angles, 2)
-        - 'per_angle_scaling_solver': Original solver scaling params
-        - 'residuals': Exp - scaled fit (n_angles, n_t1, n_t2)
-        - 'scalar_per_angle_expansion': Whether scalar expansion was used
 
-    Raises:
-        ValueError: If q is missing or parameter count is invalid
+        - ``"c2_theoretical_raw"`` : raw theoretical fits
+          ``(n_angles, n_t1, n_t2)``.
+        - ``"c2_theoretical_scaled"`` : scaled fits ``(n_angles, n_t1, n_t2)``.
+        - ``"c2_solver_scaled"`` : solver surface (None if not requested).
+        - ``"per_angle_scaling"`` : post-hoc lstsq scaling params
+          ``(n_angles, 2)``.
+        - ``"per_angle_scaling_solver"`` : original solver scaling params.
+        - ``"residuals"`` : experiment minus scaled fit
+          ``(n_angles, n_t1, n_t2)``.
+        - ``"scalar_per_angle_expansion"`` : whether scalar expansion was used.
+
+    Raises
+    ------
+    ValueError
+        If ``dt`` or ``q`` is missing from metadata, or the parameter count is
+        invalid.
+
+    Notes
+    -----
+    The lstsq contrast/offset values may differ from the NLSQ-optimized values:
+    lstsq re-fits scaling to the raw theory post-hoc, whereas the NLSQ values
+    are jointly optimized with the physical parameters and are authoritative.
     """
     phi_angles = np.asarray(data["phi_angles_list"])
     c2_exp = np.asarray(data["c2_exp"])

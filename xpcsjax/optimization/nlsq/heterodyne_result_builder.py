@@ -29,17 +29,28 @@ def build_result_from_scipy(
     wall_time: float | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> NLSQResult:
-    """Construct NLSQResult from nlsq.CurveFit (JAX-native trust-region) output.
+    """Construct an NLSQResult from ``nlsq.CurveFit`` (JAX-native trust-region) output.
 
-    Args:
-        opt_result: Raw scipy OptimizeResult
-        parameter_names: Names for each fitted parameter
-        n_data: Number of data points (for reduced chi²)
-        wall_time: Wall-clock time in seconds
-        metadata: Additional metadata to attach
+    Covariance is estimated from the Jacobian when present, and the reduced
+    chi-squared is computed against the supplied data-point count.
 
-    Returns:
-        Populated NLSQResult
+    Parameters
+    ----------
+    opt_result
+        Raw scipy-style ``OptimizeResult`` returned by the solver.
+    parameter_names
+        Names for each fitted parameter, in order.
+    n_data
+        Number of data points (used for the reduced chi-squared).
+    wall_time
+        Wall-clock time in seconds, or ``None`` if not measured.
+    metadata
+        Additional metadata to attach to the result.
+
+    Returns
+    -------
+    NLSQResult
+        The populated result.
     """
     params = np.asarray(opt_result.x, dtype=np.float64)
     n_params = len(params)
@@ -105,23 +116,37 @@ def build_result_from_arrays(
     wall_time: float | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> NLSQResult:
-    """Construct NLSQResult from raw arrays (for non-scipy backends).
+    """Construct an NLSQResult from raw arrays (for non-scipy backends).
 
-    Args:
-        parameters: Fitted parameter values
-        parameter_names: Names in order
-        residuals: Residual vector
-        n_data: Number of data points
-        success: Whether optimization converged
-        message: Status message
-        jacobian: Optional Jacobian at solution
-        n_iterations: Number of iterations
-        n_function_evals: Number of function evaluations
-        wall_time: Wall-clock time in seconds
-        metadata: Additional metadata
+    Parameters
+    ----------
+    parameters
+        Fitted parameter values.
+    parameter_names
+        Names in order.
+    residuals
+        Residual vector at the solution.
+    n_data
+        Number of data points (used for the reduced chi-squared).
+    success
+        Whether the optimization converged.
+    message
+        Status message.
+    jacobian
+        Optional Jacobian at the solution, used to estimate covariance.
+    n_iterations
+        Number of solver iterations.
+    n_function_evals
+        Number of residual-function evaluations.
+    wall_time
+        Wall-clock time in seconds, or ``None`` if not measured.
+    metadata
+        Additional metadata to attach to the result.
 
-    Returns:
-        Populated NLSQResult
+    Returns
+    -------
+    NLSQResult
+        The populated result.
     """
     params = np.asarray(parameters, dtype=np.float64)
     residuals = np.asarray(residuals, dtype=np.float64)
@@ -164,26 +189,39 @@ def build_result_from_nlsq(
     wall_time: float = 0.0,
     metadata: dict[str, Any] | None = None,
 ) -> NLSQResult:
-    """Normalize any NLSQ package return format to NLSQResult.
+    """Normalize any NLSQ-package return format into an NLSQResult.
 
-    Handles 4 return formats:
-    - dict with 'x'/'popt', 'pcov' keys (AdaptiveHybridStreamingOptimizer)
-    - (popt, pcov) tuple (curve_fit)
-    - (popt, pcov, info) tuple (curve_fit with full_output)
-    - object with .x/.popt, .pcov attributes (CurveFit result)
+    Handles the four return shapes the NLSQ backends may produce:
 
-    Args:
-        nlsq_result: Raw return value from an NLSQ optimization call
-        parameter_names: Names for each fitted parameter
-        n_data: Number of data points (for reduced chi-squared)
-        wall_time: Wall-clock time in seconds
-        metadata: Additional metadata to attach
+    - a dict with ``'x'``/``'popt'`` and ``'pcov'`` keys
+      (``AdaptiveHybridStreamingOptimizer``);
+    - a ``(popt, pcov)`` tuple (``curve_fit``);
+    - a ``(popt, pcov, info)`` tuple (``curve_fit`` with ``full_output``);
+    - an object exposing ``.x``/``.popt`` and ``.pcov`` attributes
+      (``CurveFit`` result).
 
-    Returns:
-        Populated NLSQResult
+    Parameters
+    ----------
+    nlsq_result
+        Raw return value from an NLSQ optimization call.
+    parameter_names
+        Names for each fitted parameter, in order.
+    n_data
+        Number of data points (used for the reduced chi-squared).
+    wall_time
+        Wall-clock time in seconds.
+    metadata
+        Additional metadata to attach to the result.
 
-    Raises:
-        TypeError: If result format is unrecognized
+    Returns
+    -------
+    NLSQResult
+        The populated result.
+
+    Raises
+    ------
+    TypeError
+        If the result format is not one of the four recognised shapes.
     """
     merged_meta: dict[str, Any] = dict(metadata) if metadata else {}
     popt: np.ndarray
@@ -330,15 +368,24 @@ def build_failed_result(
 ) -> NLSQResult:
     """Construct a failed NLSQResult.
 
-    Args:
-        parameter_names: Names for parameters
-        message: Failure description
-        initial_params: Initial guess (returned as "best" params)
-        wall_time: Wall-clock time before failure
-        metadata: Additional metadata
+    Parameters
+    ----------
+    parameter_names
+        Names for the parameters.
+    message
+        Description of the failure.
+    initial_params
+        Initial guess, returned as the "best" parameters; defaults to zeros
+        when ``None``.
+    wall_time
+        Wall-clock time elapsed before the failure, or ``None``.
+    metadata
+        Additional metadata to attach to the result.
 
-    Returns:
-        NLSQResult with success=False
+    Returns
+    -------
+    NLSQResult
+        A result with ``success=False``.
     """
     logger.warning("NLSQ failed: %s", message)
     params = initial_params if initial_params is not None else np.zeros(len(parameter_names))
@@ -369,10 +416,12 @@ class TimedContext:
         self._start: float = 0.0
 
     def __enter__(self) -> TimedContext:
+        """Start the timer and return the context manager."""
         self._start = time.perf_counter()
         return self
 
     def __exit__(self, *args: object) -> None:
+        """Stop the timer, recording the elapsed seconds on :attr:`elapsed`."""
         self.elapsed = time.perf_counter() - self._start
 
 
@@ -382,20 +431,29 @@ def _compute_covariance(
     n_data: int,
     n_params: int,
 ) -> np.ndarray | None:
-    """Compute parameter covariance from Jacobian.
+    r"""Compute the parameter covariance from the Jacobian.
 
-    Uses the Gauss-Newton approximation:
-        cov = s² * (J^T J)^{-1}
-    where s² = sum(residuals²) / (n_data - n_params).
+    Uses the Gauss-Newton approximation
+    :math:`\mathrm{cov} = s^2 (J^T J)^{-1}` with
+    :math:`s^2 = \sum r^2 / (n_\mathrm{data} - n_\mathrm{params})`. A
+    near-singular :math:`J^T J` is stabilised with a small Tikhonov term.
 
-    Args:
-        jacobian: Jacobian matrix at solution, shape (n_residuals, n_params)
-        residuals: Residual vector at solution
-        n_data: Number of independent data points
-        n_params: Number of parameters
+    Parameters
+    ----------
+    jacobian
+        Jacobian matrix at the solution, shape ``(n_residuals, n_params)``.
+    residuals
+        Residual vector at the solution.
+    n_data
+        Number of independent data points.
+    n_params
+        Number of parameters.
 
-    Returns:
-        Covariance matrix of shape (n_params, n_params), or None on failure
+    Returns
+    -------
+    numpy.ndarray or None
+        Covariance matrix of shape ``(n_params, n_params)``, or ``None`` if the
+        linear solve fails.
     """
     try:
         jac = np.asarray(jacobian, dtype=np.float64)

@@ -32,23 +32,37 @@ class HeterodyneStratifiedData:
     ``phi_flat``, ``t1_flat``, ``t2_flat``, ``g2_flat``, ``sigma``,
     ``q``, ``L``, ``dt``, ``chunk_sizes``.
 
-    Attributes:
-        phi_flat: Flattened phi labels for every (t1, t2) pair, shape (N_total,).
-        t1_flat:  Flattened t1 values, shape (N_total,).
-        t2_flat:  Flattened t2 values, shape (N_total,).
-        g2_flat:  Flattened observed C2 values, shape (N_total,).
-        sigma:    Uncertainty array — stored as a 3-D (n_phi, n_t, n_t) array
-                  for compatibility with the ``StratifiedResidualFunction``
-                  interface which expects a 3-D sigma. Uniform (all ones) when
-                  ``weights=None``.
-        q:        Scattering wavevector magnitude (float).
-        L:        Path-length placeholder (float, 0.0 — not used by heterodyne
-                  kernel, but required by ``create_stratified_chunks``).
-        dt:       Time step (float).
-        chunk_sizes: List giving the number of flat points per angle slab.
-                     Each slab is one angle × n_t × n_t off-diagonal points.
-        n_phi:    Number of phi angles.
-        n_t:      Number of time points.
+    Attributes
+    ----------
+    phi_flat : np.ndarray
+        Flattened phi labels for every ``(t1, t2)`` pair, shape ``(N_total,)``.
+    t1_flat : np.ndarray
+        Flattened t1 values, shape ``(N_total,)``.
+    t2_flat : np.ndarray
+        Flattened t2 values, shape ``(N_total,)``.
+    g2_flat : np.ndarray
+        Flattened observed C2 values, shape ``(N_total,)``.
+    sigma : np.ndarray
+        Uncertainty array — stored as a 3-D ``(n_phi, n_t, n_t)`` array for
+        compatibility with the ``StratifiedResidualFunction`` interface, which
+        expects a 3-D sigma. Uniform (all ones) when ``weights=None``.
+    q : float
+        Scattering wavevector magnitude.
+    L : float
+        Path-length placeholder (``0.0`` — not used by the heterodyne kernel,
+        but required by ``create_stratified_chunks``).
+    dt : float
+        Time step.
+    chunk_sizes : list of int
+        Number of flat points per angle slab. Each slab is one
+        angle × n_t × n_t off-diagonal points.
+    n_phi : int
+        Number of phi angles.
+    n_t : int
+        Number of time points.
+    angle_indices : list of int
+        Per-angle mapping ``chunk index -> angle index`` (identity with the phi
+        index here).
     """
 
     phi_flat: np.ndarray
@@ -75,27 +89,42 @@ def build_heterodyne_stratified_data(
 ) -> HeterodyneStratifiedData:
     """Build a :class:`HeterodyneStratifiedData` from model + raw C2 data.
 
-    Args:
-        model:   Configured :class:`HeterodyneModel` — provides ``t``, ``q``,
-                 ``dt``.  ``model.t`` must already be synced to the data time
-                 axis (call ``model.sync_time_axis(t)`` before calling here if
-                 necessary).
-        c2:      Observed two-time correlation matrices.  Accepted shapes:
+    Flattens the per-angle two-time matrices into the contiguous slab layout
+    that :func:`create_stratified_chunks` consumes, syncing ``model.t`` to the
+    data time axis and deriving per-angle uncertainties from optional weights.
 
-                 * ``(n_phi, n_t, n_t)`` — multi-angle (standard)
-                 * ``(n_t, n_t)``        — single angle; a leading axis is added
+    Parameters
+    ----------
+    model : HeterodyneModel
+        Configured model — provides ``t``, ``q``, ``dt``. ``model.t`` is synced
+        to the data time axis here if its length does not match ``c2``.
+    c2 : np.ndarray
+        Observed two-time correlation matrices. Accepted shapes:
 
-        phi:     Phi angles in degrees, shape ``(n_phi,)``.
-        weights: Optional inverse-variance weights, same shape as ``c2``
-                 (broadcastable).  ``None`` → uniform sigma = 1.
+        * ``(n_phi, n_t, n_t)`` — multi-angle (standard)
+        * ``(n_t, n_t)`` — single angle; a leading axis is added.
+    phi : np.ndarray
+        Phi angles in degrees, shape ``(n_phi,)``.
+    weights : np.ndarray, optional
+        Inverse-variance weights, same shape as ``c2`` (broadcastable). ``None``
+        yields uniform ``sigma = 1``; otherwise ``sigma = 1 / sqrt(weight)``
+        (zeros are guarded to ``1``).
 
-    Returns:
-        :class:`HeterodyneStratifiedData` ready for ``create_stratified_chunks``.
+    Returns
+    -------
+    HeterodyneStratifiedData
+        Flat stratified data ready for ``create_stratified_chunks``.
 
-    Raises:
-        ValueError: On shape mismatch between ``c2``, ``phi``, and ``model.t``.
+    Raises
+    ------
+    ValueError
+        On shape mismatch between ``c2``, ``phi``, and ``model.t``.
+
+    Examples
+    --------
+    >>> data = build_heterodyne_stratified_data(model, c2, phi)
+    >>> chunks = create_stratified_chunks(data)  # doctest: +SKIP
     """
-
     # ------------------------------------------------------------------ #
     # 1. Normalise c2 to (n_phi, n_t, n_t)                               #
     # ------------------------------------------------------------------ #

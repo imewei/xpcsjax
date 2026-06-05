@@ -1,5 +1,4 @@
 """JAX-First Optimization for xpcsjax.
-==========================================
 
 JAX-native NLSQ-only optimization system for robust parameter estimation
 in XPCS analysis.

@@ -42,13 +42,23 @@ _DEBUG_CURVEFIT_CALLBACK = None
 
 
 def _set_debug_curvefit_callback(cb):
-    """TEST SEAM: inject a callback into solve paths to verify NLSQ forwarding.
-    Not used in production wiring (later phases pass the real callback explicitly)."""
+    """Inject a debug callback into the solve paths (test seam).
+
+    Used by tests to verify that the solver forwards a per-iteration callback
+    to NLSQ. Not used in production wiring -- the real callback is passed
+    explicitly there.
+
+    Parameters
+    ----------
+    cb : callable
+        Callback to install as the global debug hook.
+    """
     global _DEBUG_CURVEFIT_CALLBACK
     _DEBUG_CURVEFIT_CALLBACK = cb
 
 
 def _get_debug_curvefit_callback():
+    """Return the currently installed debug curve-fit callback, or ``None``."""
     return _DEBUG_CURVEFIT_CALLBACK
 
 
@@ -552,6 +562,7 @@ def create_gradient_function_with_monitoring(
     iteration_counter = [0]  # Mutable counter
 
     def monitored_grad_fn(params: np.ndarray) -> np.ndarray:
+        """Compute the gradient, record it to the monitor, and return it unchanged."""
         gradients = grad_fn(params)
         monitor.check(gradients, iteration_counter[0], params=params)
         iteration_counter[0] += 1
@@ -590,6 +601,11 @@ def build_gradient_collapse_callback(monitor, grad_fn, *, update_frequency=None)
     )
 
     def callback(iteration, cost, params, info=None, **kwargs):
+        """Feed the current iterate to the monitor (NLSQ per-iteration callback).
+
+        Best-effort and strictly diagnostic: throttled by ``freq``, swallows any
+        ``grad_fn`` error, and always returns ``None`` so it cannot abort a fit.
+        """
         if freq > 1 and int(iteration) % freq != 0:
             return None
         try:

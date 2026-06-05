@@ -452,8 +452,7 @@ def calculate_adaptive_chunk_size(
     min_chunk_size: int = 10_000,
     max_chunk_size: int = 500_000,
 ) -> int:
-    """
-    Calculate optimal chunk size based on available system memory and parameter count.
+    """Calculate optimal chunk size from available memory and parameter count.
 
     This function addresses the root cause of memory pressure in NLSQ optimization:
     the fixed 100K chunk size doesn't account for available memory or the number
@@ -940,6 +939,7 @@ class StratifiedIndexIterator:
     chunk_sizes: list[int]
 
     def __iter__(self) -> Iterator[np.ndarray]:
+        """Yield each stratified chunk's index slice in order."""
         start = 0
         for size in self.chunk_sizes:
             end = start + size
@@ -947,6 +947,7 @@ class StratifiedIndexIterator:
             start = end
 
     def __len__(self) -> int:
+        """Return the number of stratified chunks."""
         return len(self.chunk_sizes)
 
 
@@ -956,12 +957,22 @@ def get_stratified_chunk_iterator(
 ) -> StratifiedIndexIterator:
     """Create an iterator yielding stratified index chunks.
 
-    Args:
-        phi: Array of phi angles
-        target_chunk_size: Desired chunk size
+    Parameters
+    ----------
+    phi : jnp.ndarray or np.ndarray
+        Array of phi angles, shape (n_points,).
+    target_chunk_size : int, optional
+        Desired chunk size (default: 100,000).
 
-    Returns:
-        StratifiedIndexIterator yielding index chunks
+    Returns
+    -------
+    StratifiedIndexIterator
+        Iterator yielding stratified index chunks one at a time without
+        materializing the full stratified data copy.
+
+    See Also
+    --------
+    create_angle_stratified_indices : Underlying zero-copy index builder.
     """
     indices, chunk_sizes = create_angle_stratified_indices(phi, target_chunk_size)
     return StratifiedIndexIterator(indices, chunk_sizes)

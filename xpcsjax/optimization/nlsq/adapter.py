@@ -55,7 +55,8 @@ Migration Guide:
 - Set use_adapter=True in fit_nlsq_jax() (default in v2.11.0+)
 - Anti-degeneracy layers work unchanged
 
-References:
+References
+----------
 - NLSQ Package: https://github.com/imewei/NLSQ
 - Architecture: See CLAUDE.md for NLSQ integration details
 """
@@ -102,14 +103,19 @@ logger = get_logger(__name__)
 class ModelCacheKey:
     """Immutable key for model cache lookup.
 
-    Hashable tuple of (analysis_mode, phi_angles_tuple, q, per_angle_scaling).
-    NumPy arrays converted to tuples for hashability.
+    A hashable tuple of ``(analysis_mode, phi_angles, q, per_angle_scaling)``.
+    NumPy arrays are converted to tuples for hashability.
 
-    Attributes:
-        analysis_mode: "static_isotropic" or "laminar_flow"
-        phi_angles: Unique phi angles (sorted) as tuple
-        q: Scattering wavevector magnitude
-        per_angle_scaling: Whether per-angle contrast/offset is used
+    Attributes
+    ----------
+    analysis_mode : AnalysisMode
+        Analysis mode, e.g. ``"static_isotropic"`` or ``"laminar_flow"``.
+    phi_angles : tuple of float
+        Unique phi angles, sorted, as a tuple.
+    q : float
+        Scattering wavevector magnitude.
+    per_angle_scaling : bool
+        Whether per-angle contrast/offset is used.
     """
 
     analysis_mode: AnalysisMode
@@ -123,15 +129,23 @@ class ModelCacheKey:
 # =============================================================================
 @dataclass
 class CachedModel:
-    """Cached model instance with JIT-compiled prediction function.
+    """Cached model instance with its prediction function.
 
-    Stored in dict with LRU eviction - oldest entries removed when cache is full.
+    Stored in a dict with LRU eviction: the oldest entry is removed when the
+    cache reaches its size limit.
 
-    Attributes:
-        model: CombinedModel instance for computing g1/g2 values
-        model_func: Model prediction function (NumPy-compatible wrapper)
-        created_at: time.time() for diagnostics
-        n_hits: Cache hit counter for monitoring
+    Attributes
+    ----------
+    model : Any
+        Model instance (``CombinedModel`` or ``HeterodyneModel``) for computing
+        g1/g2 values.
+    model_func : Callable
+        Model prediction function (NumPy-compatible wrapper for NLSQ curve_fit).
+    created_at : float
+        Creation timestamp (``time.time()``), used for LRU eviction and
+        diagnostics.
+    n_hits : int
+        Cache-hit counter for monitoring.
     """
 
     model: Any  # CombinedModel or other model type
@@ -162,16 +176,24 @@ def _make_cache_key(
     q: float,
     per_angle_scaling: bool,
 ) -> ModelCacheKey:
-    """Create hashable cache key from parameters.
+    """Create a hashable cache key from the experimental setup.
 
-    Args:
-        analysis_mode: 'static_isotropic' or 'laminar_flow'
-        phi_angles: Unique phi angles in radians (np.ndarray)
-        q: Scattering wavevector magnitude
-        per_angle_scaling: Whether per-angle contrast/offset is used
+    Parameters
+    ----------
+    analysis_mode : AnalysisMode
+        Analysis mode, e.g. ``"static_isotropic"`` or ``"laminar_flow"``.
+    phi_angles : np.ndarray
+        Unique phi angles in radians.
+    q : float
+        Scattering wavevector magnitude.
+    per_angle_scaling : bool
+        Whether per-angle contrast/offset is used.
 
-    Returns:
-        ModelCacheKey: Hashable, immutable key for cache lookup
+    Returns
+    -------
+    ModelCacheKey
+        Hashable, immutable key for cache lookup. ``q`` is rounded to 10
+        decimal places to avoid floating-point precision mismatches.
     """
     return ModelCacheKey(
         analysis_mode=analysis_mode,
@@ -321,37 +343,52 @@ def get_or_create_model(
     :func:`_get_or_create_heterodyne_model` — see that function's docstring
     for the parameter-layout convention and the ``t``/``dt`` requirement.
 
-    Args:
-        analysis_mode: 'static_anisotropic', 'static_isotropic', 'laminar_flow',
-            or 'two_component'
-        phi_angles: Unique phi angles in radians (homodyne) or degrees
-            (heterodyne — convention matches the source heterodyne kernel)
-        q: Scattering wavevector magnitude
-        per_angle_scaling: Whether per-angle contrast/offset is used
-        config: Optional config dict for model initialization
-        enable_jit: Whether to JIT-compile the model function
-        t: Time array (required when ``analysis_mode='two_component'``;
-            ignored for homodyne modes which read ``t1``/``t2`` from the data
-            dict at fit time).
-        dt: Time step (required when ``analysis_mode='two_component'``).
+    Parameters
+    ----------
+    analysis_mode : AnalysisMode
+        One of ``"static_anisotropic"``, ``"static_isotropic"``,
+        ``"laminar_flow"``, or ``"two_component"``.
+    phi_angles : np.ndarray
+        Unique phi angles in radians (homodyne) or degrees (heterodyne —
+        convention matches the source heterodyne kernel).
+    q : float
+        Scattering wavevector magnitude.
+    per_angle_scaling : bool, optional
+        Whether per-angle contrast/offset is used.
+    config : dict[str, Any] | None, optional
+        Optional config dict for model initialization.
+    enable_jit : bool, optional
+        Whether to JIT-compile the model function.
+    t : np.ndarray | None, optional
+        Time array. Required when ``analysis_mode='two_component'``; ignored
+        for homodyne modes, which read ``t1``/``t2`` from the data dict at
+        fit time.
+    dt : float | None, optional
+        Time step. Required when ``analysis_mode='two_component'``.
 
-    Returns:
-        Tuple of (model, model_func, cache_hit) where:
-            - model: CombinedModel or HeterodyneModel instance
-            - model_func: Prediction function (JIT-compiled if enable_jit=True)
-            - cache_hit: True if model was retrieved from cache
+    Returns
+    -------
+    tuple
+        ``(model, model_func, cache_hit)`` where ``model`` is a
+        ``CombinedModel`` or ``HeterodyneModel`` instance, ``model_func`` is
+        the prediction function (JIT-compiled if ``enable_jit=True``), and
+        ``cache_hit`` is ``True`` if the model was retrieved from cache.
 
-    Raises:
-        ValueError: If analysis_mode is invalid, phi_angles is empty, or q <= 0
+    Raises
+    ------
+    ValueError
+        If ``analysis_mode`` is invalid, ``phi_angles`` is empty, or
+        ``q <= 0``.
 
-    Example:
-        >>> model, model_func, hit = get_or_create_model(
-        ...     "laminar_flow",
-        ...     np.array([0.0, 0.5, 1.0]),
-        ...     0.001,
-        ... )
-        >>> if hit:
-        ...     logger.debug("Model cache hit")
+    Examples
+    --------
+    >>> model, model_func, hit = get_or_create_model(
+    ...     "laminar_flow",
+    ...     np.array([0.0, 0.5, 1.0]),
+    ...     0.001,
+    ... )
+    >>> if hit:
+    ...     logger.debug("Model cache hit")
     """
     global _cache_stats
 
@@ -442,24 +479,31 @@ def get_or_create_model(
     _xdata_cache: dict[int, tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]] = {}
 
     def model_func(xdata: np.ndarray, *params: float) -> np.ndarray:
-        """Model function compatible with NLSQ curve_fit.
+        """Compute predicted g2 values for NLSQ curve_fit.
 
-        This function is designed to be JAX-traceable for CMA-ES JIT compilation.
-        All operations use JAX primitives to preserve tracers during tracing.
+        Designed to be JAX-traceable for CMA-ES JIT compilation: all operations
+        use JAX primitives to preserve tracers during tracing.
 
-        Args:
-            xdata: Independent variables [n_points, 3] with columns [t1, t2, phi_idx]
-                   where phi_idx is the PRECOMPUTED phi angle index (v2.17.0+)
-            *params: Parameter values (may be JAX tracers during JIT)
+        Parameters
+        ----------
+        xdata : np.ndarray
+            Independent variables of shape ``[n_points, 3]`` with columns
+            ``[t1, t2, phi_idx]``, where ``phi_idx`` is the precomputed phi
+            angle index (v2.17.0+).
+        *params : float
+            Parameter values (may be JAX tracers during JIT).
 
-        Returns:
-            Predicted g2 values [n_points]
+        Returns
+        -------
+        np.ndarray
+            Predicted g2 values, shape ``[n_points]``.
 
-        Note:
-            As of v2.17.0, xdata[:, 2] contains precomputed phi indices (integers
-            stored as float64) to avoid expensive argmin/gather operations inside
-            the JIT-compiled function. This eliminates XLA slow_operation_alarm
-            warnings for large datasets (23M+ points).
+        Notes
+        -----
+        As of v2.17.0, ``xdata[:, 2]`` holds precomputed phi indices (integers
+        stored as float64) to avoid expensive argmin/gather operations inside
+        the JIT-compiled function. This eliminates XLA ``slow_operation_alarm``
+        warnings for large datasets (23M+ points).
         """
         # Use jnp.stack to preserve JAX tracers during JIT tracing
         params_array = jnp.stack(params)
@@ -560,11 +604,14 @@ def get_or_create_model(
 def clear_model_cache() -> int:
     """Clear all cached models.
 
-    Returns:
-        Number of models removed from cache
+    Returns
+    -------
+    int
+        Number of models removed from the cache.
 
-    Notes:
-        Useful for testing or when configuration changes require fresh models.
+    Notes
+    -----
+    Useful for testing or when configuration changes require fresh models.
     """
     global _cache_stats
     n_cleared = len(_model_cache)
@@ -579,11 +626,11 @@ def clear_model_cache() -> int:
 def get_cache_stats() -> dict[str, int]:
     """Get cache statistics.
 
-    Returns:
-        Dictionary with:
-            - "hits": Cache hit count
-            - "misses": Cache miss count
-            - "size": Current cache size
+    Returns
+    -------
+    dict[str, int]
+        Dictionary with keys ``"hits"`` (cache-hit count), ``"misses"``
+        (cache-miss count), and ``"size"`` (current cache size).
     """
     return {
         "hits": _cache_stats["hits"],
@@ -594,15 +641,23 @@ def get_cache_stats() -> dict[str, int]:
 
 @dataclass
 class AdapterConfig:
-    """Configuration for NLSQAdapter.
+    """Configuration for :class:`NLSQAdapter`.
 
-    Attributes:
-        enable_cache: Enable model instance caching (new in v2.11.0)
-        enable_jit: Enable JIT compilation of model functions (new in v2.11.0)
-        enable_recovery: Enable NLSQ's built-in recovery system
-        enable_stability: Enable NLSQ's numerical stability guard
-        goal: Optimization goal (fast, robust, quality, memory_efficient)
-        workflow: Workflow tier override (auto, standard, streaming)
+    Attributes
+    ----------
+    enable_cache : bool
+        Enable model instance caching (new in v2.11.0).
+    enable_jit : bool
+        Enable JIT compilation of model functions (new in v2.11.0).
+    enable_recovery : bool
+        Enable NLSQ's built-in recovery system.
+    enable_stability : bool
+        Enable NLSQ's numerical stability guard.
+    goal : str
+        Optimization goal: ``"fast"``, ``"robust"``, ``"quality"``, or
+        ``"memory_efficient"``.
+    workflow : str
+        Workflow tier override: ``"auto"``, ``"standard"``, or ``"streaming"``.
     """
 
     # T005: New fields for model caching and JIT
@@ -617,35 +672,40 @@ class AdapterConfig:
 class NLSQAdapter(NLSQAdapterBase):
     """Adapter for NLSQ package using CurveFit class.
 
-    Uses NLSQ's CurveFit for JIT compilation caching and xpcsjax's own
-    memory-aware strategy selection. This is the modern integration
-    path for NLSQ v0.4+ with improved performance and reliability.
+    Uses NLSQ's ``CurveFit`` for JIT compilation caching and xpcsjax's own
+    memory-aware strategy selection. This is the modern integration path for
+    NLSQ v0.4+ with improved performance and reliability.
 
-    Usage:
-        adapter = NLSQAdapter()
-        result = adapter.fit(data, config, initial_params, bounds, analysis_mode)
+    Compared to ``NLSQWrapper`` this adapter uses the ``CurveFit`` class for
+    JIT compilation caching, delegates recovery to NLSQ's built-in systems,
+    and keeps a simpler codebase with less custom logic.
 
-    Compared to NLSQWrapper:
-        - Uses CurveFit class for JIT compilation caching
-        - Delegates recovery to NLSQ's built-in systems
-        - Simpler codebase with less custom logic
+    Notes
+    -----
+    Anti-degeneracy layers (hierarchical, shear-weighting, etc.) remain in
+    xpcsjax as they are physics-specific to XPCS analysis.
 
-    Note:
-        Anti-degeneracy layers (hierarchical, shear_weighting, etc.) remain
-        in homodyne as they are physics-specific to XPCS analysis.
+    Examples
+    --------
+    >>> adapter = NLSQAdapter()
+    >>> result = adapter.fit(data, config, initial_params, bounds, analysis_mode)
     """
 
     def __init__(
         self,
         config: AdapterConfig | None = None,
     ) -> None:
-        """Initialize NLSQAdapter.
+        """Initialize the adapter and its NLSQ ``CurveFit`` backend.
 
-        Args:
-            config: Adapter configuration. If None, uses defaults.
+        Parameters
+        ----------
+        config : AdapterConfig | None, optional
+            Adapter configuration. If None, defaults are used.
 
-        Raises:
-            ImportError: If NLSQ CurveFit class is not available.
+        Raises
+        ------
+        ImportError
+            If the NLSQ ``CurveFit`` class is not available.
         """
         if not NLSQ_CURVEFIT_AVAILABLE:
             raise ImportError(
@@ -712,22 +772,30 @@ class NLSQAdapter(NLSQAdapterBase):
         n_points: int,
         n_params: int,
     ) -> dict[str, Any]:
-        """Select workflow configuration based on dataset size.
+        """Select an internal memory strategy based on dataset size.
 
-        This method determines the memory strategy for optimization.
-        Since homodyne uses curve_fit() directly (not NLSQ's fit() unified API),
-        these are internal homodyne strategy names, not NLSQ workflow presets.
+        Since xpcsjax calls ``CurveFit`` directly (never NLSQ's higher-level
+        ``fit()`` unified API), the returned names are xpcsjax-internal
+        strategy labels for logging/diagnostics, not NLSQ workflow presets.
 
-        Note: NLSQ 0.6.3+ simplified workflows to 3 presets: "auto", "auto_global", "hpc"
-        The old presets ("streaming", "standard", etc.) were removed from NLSQ.
-        Homodyne maintains its own strategy selection via select_nlsq_strategy().
+        Parameters
+        ----------
+        n_points : int
+            Number of data points.
+        n_params : int
+            Number of parameters.
 
-        Args:
-            n_points: Number of data points
-            n_params: Number of parameters
+        Returns
+        -------
+        dict[str, Any]
+            Dict with internal strategy info (not passed to NLSQ).
 
-        Returns:
-            Dict with internal strategy info (not passed to NLSQ)
+        Notes
+        -----
+        NLSQ 0.6.3+ simplified its own workflows to three presets
+        (``"auto"``, ``"auto_global"``, ``"hpc"``); the old presets
+        (``"streaming"``, ``"standard"``, etc.) were removed. xpcsjax keeps
+        its own strategy selection via ``select_nlsq_strategy()``.
         """
         # These are xpcsjax-internal strategy names for logging/diagnostics
         if n_points > 10_000_000:
@@ -752,21 +820,30 @@ class NLSQAdapter(NLSQAdapterBase):
     ) -> tuple[Callable[[np.ndarray, Any], np.ndarray], bool, bool]:
         """Build the model function for NLSQ optimization.
 
-        This creates a callable that computes g2 predictions given parameters.
-        Uses model caching (T011) and JIT compilation for performance.
+        Creates a callable that computes g2 predictions given parameters,
+        using model caching and JIT compilation for performance.
 
-        Args:
-            data: XPCS experimental data
-            config: Configuration manager
-            analysis_mode: 'static_anisotropic', 'static_isotropic', or 'laminar_flow'
-            per_angle_scaling: Whether per-angle contrast/offset is used
-            n_phi: Number of phi angles
+        Parameters
+        ----------
+        data : dict[str, Any]
+            XPCS experimental data.
+        config : Any
+            Configuration manager.
+        analysis_mode : AnalysisMode
+            One of ``"static_anisotropic"``, ``"static_isotropic"``, or
+            ``"laminar_flow"``.
+        per_angle_scaling : bool
+            Whether per-angle contrast/offset is used.
+        n_phi : int
+            Number of phi angles.
 
-        Returns:
-            Tuple of (model_func, cache_hit, jit_compiled) where:
-                - model_func: Callable for curve_fit
-                - cache_hit: True if model was retrieved from cache
-                - jit_compiled: True if JIT compilation was applied
+        Returns
+        -------
+        tuple
+            ``(model_func, cache_hit, jit_compiled)`` where ``model_func`` is
+            the callable for ``curve_fit``, ``cache_hit`` is ``True`` if the
+            model was retrieved from cache, and ``jit_compiled`` is ``True`` if
+            JIT compilation was applied.
         """
         # Extract wavevector q
         q = self._get_attr(data, "q")
@@ -893,22 +970,26 @@ class NLSQAdapter(NLSQAdapterBase):
     ) -> tuple[np.ndarray, np.ndarray, int]:
         """Flatten XPCS data for NLSQ optimization.
 
-        Args:
-            data: XPCS experimental data (dict or object) with attributes:
-                - t1, t2: Time coordinates (1D or 2D)
-                - phi: Phi angles
-                - g2 or c2_exp: Experimental g2 values
+        Parameters
+        ----------
+        data : Any
+            XPCS experimental data (dict or object) with ``t1``/``t2`` time
+            coordinates (1-D or 2-D), ``phi`` angles, and ``g2`` (or
+            ``c2_exp``) experimental values.
 
-        Returns:
-            Tuple of (xdata, ydata, n_phi) where:
-                - xdata: Flattened independent variables [t1, t2, phi_idx]
-                         where phi_idx is the precomputed phi angle index
-                - ydata: Flattened g2 observations
-                - n_phi: Number of unique phi angles
+        Returns
+        -------
+        tuple
+            ``(xdata, ydata, n_phi)`` where ``xdata`` holds the flattened
+            independent variables ``[t1, t2, phi_idx]`` (``phi_idx`` is the
+            precomputed phi angle index), ``ydata`` holds the flattened g2
+            observations, and ``n_phi`` is the number of unique phi angles.
 
-        Note:
-            As of v2.17.0, phi_idx is precomputed here to avoid expensive
-            gather operations inside JIT-compiled functions (XLA slow_operation_alarm).
+        Notes
+        -----
+        As of v2.17.0, ``phi_idx`` is precomputed here to avoid expensive
+        gather operations inside JIT-compiled functions (which trigger XLA
+        ``slow_operation_alarm``).
         """
         # Get time coordinates (works with both dict and object)
         t1 = self._get_attr(data, "t1")
@@ -980,19 +1061,31 @@ class NLSQAdapter(NLSQAdapterBase):
         cache_hit: bool = False,
         jit_compiled: bool = False,
     ) -> OptimizationResult:
-        """Convert NLSQ result to homodyne OptimizationResult.
+        """Convert an NLSQ result into an :class:`OptimizationResult`.
 
-        Args:
-            popt: Optimized parameters
-            pcov: Covariance matrix
-            info: Additional info from NLSQ
-            n_data: Number of data points
-            execution_time: Optimization time in seconds
-            cache_hit: Whether model was retrieved from cache (T012)
-            jit_compiled: Whether model function is JIT-compiled (T017)
+        Parameters
+        ----------
+        popt : np.ndarray
+            Optimized parameters.
+        pcov : np.ndarray
+            Covariance matrix.
+        info : dict[str, Any]
+            Additional info returned by NLSQ.
+        n_data : int
+            Number of data points.
+        execution_time : float
+            Optimization time in seconds.
+        cache_hit : bool, optional
+            Whether the model was retrieved from cache.
+        jit_compiled : bool, optional
+            Whether the model function is JIT-compiled.
 
-        Returns:
-            OptimizationResult dataclass
+        Returns
+        -------
+        OptimizationResult
+            Converted result with chi-squared, quality flag, and diagnostics.
+            A missing objective surfaces as a non-finite chi-squared rather
+            than masquerading as a perfect fit.
         """
         n_params = len(popt)
 
@@ -1075,29 +1168,51 @@ class NLSQAdapter(NLSQAdapterBase):
         per_angle_scaling_initial: dict[str, list[float]] | None = None,
         anti_degeneracy_controller: Any | None = None,
     ) -> OptimizationResult:
-        """Execute NLSQ optimization using CurveFit class.
+        """Execute NLSQ optimization using the ``CurveFit`` class.
 
-        This method provides the same interface as NLSQWrapper.fit() for
-        backward compatibility while using NLSQ's modern CurveFit class.
+        Provides the same interface as ``NLSQWrapper.fit()`` for backward
+        compatibility while using NLSQ's ``CurveFit`` class directly.
 
-        Args:
-            data: XPCS experimental data
-            config: Configuration manager with optimization settings
-            initial_params: Initial parameter guess (required)
-            bounds: Parameter bounds as (lower, upper) tuple
-            analysis_mode: 'static_anisotropic', 'static_isotropic', or 'laminar_flow'
-            per_angle_scaling: Must be True (per-angle is physically correct)
-            diagnostics_enabled: Enable extended diagnostics
-            shear_transforms: Shear parameter transformations
-            per_angle_scaling_initial: Initial per-angle contrast/offset
-            anti_degeneracy_controller: Anti-degeneracy controller (physics-specific)
+        Parameters
+        ----------
+        data : Any
+            XPCS experimental data.
+        config : Any
+            Configuration manager with optimization settings.
+        initial_params : np.ndarray | None, optional
+            Initial parameter guess (required — None raises ``ValueError``).
+        bounds : tuple[np.ndarray, np.ndarray] | None, optional
+            Parameter bounds as a ``(lower, upper)`` tuple.
+        analysis_mode : AnalysisMode, optional
+            One of ``"static_anisotropic"``, ``"static_isotropic"``, or
+            ``"laminar_flow"``.
+        per_angle_scaling : bool, optional
+            Must be ``True`` (per-angle scaling is physically correct);
+            ``False`` raises ``ValueError``.
+        diagnostics_enabled : bool, optional
+            Enable extended diagnostics.
+        shear_transforms : dict[str, Any] | None, optional
+            Shear parameter transformations.
+        per_angle_scaling_initial : dict[str, list[float]] | None, optional
+            Initial per-angle contrast/offset.
+        anti_degeneracy_controller : Any | None, optional
+            Anti-degeneracy controller (physics-specific). When it exposes
+            ``create_nlsq_callbacks()``, the returned callbacks are injected
+            into the solve.
 
-        Returns:
-            OptimizationResult with converged parameters and diagnostics
+        Returns
+        -------
+        OptimizationResult
+            Result with converged parameters and diagnostics. On a caught
+            solver failure, a failed result (infinite chi-squared) is returned
+            rather than raised.
 
-        Raises:
-            ValueError: If bounds are invalid or per_angle_scaling=False
-            ImportError: If NLSQ CurveFit is not available
+        Raises
+        ------
+        ValueError
+            If ``initial_params`` is None or ``per_angle_scaling`` is ``False``.
+        ImportError
+            If NLSQ ``CurveFit`` is not available.
         """
         start_time = time.time()
 
@@ -1250,24 +1365,32 @@ class NLSQAdapter(NLSQAdapterBase):
 
 
 def get_adapter(config: AdapterConfig | None = None) -> NLSQAdapter:
-    """Factory function to get NLSQAdapter instance.
+    """Construct an :class:`NLSQAdapter` instance.
 
-    Args:
-        config: Adapter configuration
+    Parameters
+    ----------
+    config : AdapterConfig | None, optional
+        Adapter configuration.
 
-    Returns:
-        NLSQAdapter instance
+    Returns
+    -------
+    NLSQAdapter
+        A new adapter instance.
 
-    Raises:
-        ImportError: If NLSQ CurveFit is not available
+    Raises
+    ------
+    ImportError
+        If NLSQ ``CurveFit`` is not available.
     """
     return NLSQAdapter(config=config)
 
 
 def is_adapter_available() -> bool:
-    """Check if NLSQAdapter can be used.
+    """Check whether :class:`NLSQAdapter` can be used.
 
-    Returns:
-        True if NLSQ CurveFit class is available
+    Returns
+    -------
+    bool
+        ``True`` if the NLSQ ``CurveFit`` class is available.
     """
     return NLSQ_CURVEFIT_AVAILABLE

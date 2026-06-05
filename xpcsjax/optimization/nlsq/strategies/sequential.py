@@ -1,18 +1,19 @@
-"""
-Sequential Per-Angle Optimization Module
+"""Sequential per-angle optimization strategy.
 
-Provides fallback optimization strategy when angle-stratified chunking cannot be used.
-Optimizes each phi angle independently and combines results.
+Provides a fallback optimization strategy for when angle-stratified chunking
+cannot be used. Each phi angle is optimized independently and the per-angle
+results are combined (by default via inverse-variance weighting).
 
-Use Cases:
-- Extreme angle imbalance (ratio > 5.0)
-- Stratification explicitly disabled
-- Debugging and validation
-- Memory-constrained environments
+Use cases
+---------
+- Extreme angle imbalance (ratio > 5.0).
+- Stratification explicitly disabled.
+- Debugging and validation.
+- Memory-constrained environments.
 
-Author: Homodyne Development Team
-Version: 2.3.0
-Date: 2026-01-14
+Notes
+-----
+Author: Homodyne Development Team. Version: 2.3.0. Date: 2026-01-14.
 """
 
 from collections.abc import Callable, Mapping, Sequence
@@ -82,7 +83,6 @@ def _coerce_mapping_to_array(
     label: str,
 ) -> np.ndarray:
     """Convert a parameter mapping to a float64 array aligned with solver order."""
-
     if parameter_names and len(parameter_names) == n_params:
         index_map = {name: idx for idx, name in enumerate(parameter_names)}
         array = np.ones(n_params, dtype=np.float64)
@@ -118,7 +118,6 @@ def _coerce_numeric_array(
     label: str,
 ) -> np.ndarray:
     """Ensure a numeric array of length n_params."""
-
     arr = np.asarray(value, dtype=np.float64)
     if arr.ndim == 0:
         arr = np.full(n_params, float(arr), dtype=np.float64)
@@ -135,7 +134,6 @@ def _normalize_least_squares_kwargs(
     parameter_names: Sequence[str] | None,
 ) -> dict[str, Any]:
     """Normalize NLSQ least_squares kwargs to numeric-friendly forms."""
-
     if not optimizer_kwargs:
         return {}
 
@@ -294,7 +292,6 @@ JAC_SAMPLE_SIZE = 4096
 
 def _select_jacobian_sample(subset: AngleSubset, sample_size: int) -> dict[str, Any]:
     """Select a representative subset of rows for Jacobian diagnostics."""
-
     size = min(sample_size, subset.n_points)
     if size <= 0:
         return {
@@ -331,7 +328,6 @@ def _estimate_initial_jacobian_norms(
     sample: dict[str, Any],
 ) -> np.ndarray | None:
     """Estimate column norms at the starting point via JAX autodiff."""
-
     if sample["phi"].size == 0:
         return None
 
@@ -358,7 +354,6 @@ def _compute_final_jacobian_norms(
     total_rows: int,
 ) -> np.ndarray | None:
     """Compute column norms from NLSQ's final Jacobian, using subsampling."""
-
     if jacobian is None:
         return None
 

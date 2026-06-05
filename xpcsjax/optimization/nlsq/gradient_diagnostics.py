@@ -55,14 +55,20 @@ def _create_residual_function(
     data: Any,
     analysis_mode: AnalysisMode,
 ) -> tuple[Callable, list[str]]:
-    """Create residual function for gradient computation.
+    """Create a residual function for gradient computation.
 
-    Args:
-        data: Data object with phi, t1, t2, g2, q, L, dt attributes
-        analysis_mode: "static_isotropic" or "laminar_flow"
+    Parameters
+    ----------
+    data : Any
+        Data object with ``phi``, ``t1``, ``t2``, ``g2``, ``q``, ``L``, ``dt``
+        attributes.
+    analysis_mode : AnalysisMode
+        ``"static_isotropic"`` or ``"laminar_flow"``.
 
-    Returns:
-        (residual_fn, param_names): Residual function and parameter names
+    Returns
+    -------
+    tuple[Callable, list[str]]
+        The JIT-compiled residual function and the list of parameter names.
     """
     from xpcsjax.core.jax_backend import compute_g1_total
 
@@ -124,16 +130,24 @@ def compute_gradient_norms(
     config: Any,
     analysis_mode: AnalysisMode,
 ) -> dict[str, float]:
-    """Compute gradient L2 norms for each parameter at the given point.
+    """Compute per-parameter gradient norms at the given point.
 
-    Args:
-        parameters: Dictionary of parameter values
-        data: Data object with experimental data
-        config: Configuration object
-        analysis_mode: "static_isotropic" or "laminar_flow"
+    Parameters
+    ----------
+    parameters : dict[str, float]
+        Dictionary of parameter values.
+    data : Any
+        Data object with experimental data.
+    config : Any
+        Configuration object (accepted for API symmetry; unused).
+    analysis_mode : AnalysisMode
+        ``"static_isotropic"`` or ``"laminar_flow"``.
 
-    Returns:
-        Dictionary mapping parameter names to gradient norms
+    Returns
+    -------
+    dict[str, float]
+        Mapping from parameter name to the absolute gradient of the
+        sum-of-squared-residuals with respect to that parameter.
     """
     del config  # accepted for API symmetry with the public callers
     residual_fn, param_names = _create_residual_function(data, analysis_mode)
@@ -166,24 +180,35 @@ def compute_optimal_x_scale(
 ) -> dict[str, float]:
     """Compute optimal x_scale map based on gradient norms.
 
-    The x_scale values are inversely proportional to gradient magnitudes,
+    The ``x_scale`` values are inversely proportional to gradient magnitudes,
     normalised so that baseline parameters have ``x_scale=1.0``.
 
-    Args:
-        parameters: Dictionary of parameter values
-        data: Data object with experimental data
-        config: Configuration object
-        analysis_mode: "static_isotropic" or "laminar_flow"
-        baseline_params: Parameters to use as baseline (x_scale=1.0).
-            Default: ``["D0", "D_offset", "phi0"]`` (laminar) or
-            ``["D0", "D_offset"]`` (static).
-        safety_factor: Multiplicative safety factor (default: 1.0). Increase
-            to make optimisation more conservative.
-        min_scale: Minimum allowed x_scale value (prevents division by zero)
-        max_scale: Maximum allowed x_scale value (prevents extreme values)
+    Parameters
+    ----------
+    parameters : dict[str, float]
+        Dictionary of parameter values.
+    data : Any
+        Data object with experimental data.
+    config : Any
+        Configuration object.
+    analysis_mode : AnalysisMode
+        ``"static_isotropic"`` or ``"laminar_flow"``.
+    baseline_params : list[str] | None, optional
+        Parameters to use as the baseline (``x_scale=1.0``). Defaults to
+        ``["D0", "D_offset", "phi0"]`` (laminar) or ``["D0", "D_offset"]``
+        (static).
+    safety_factor : float, optional
+        Multiplicative safety factor. Increase to make optimisation more
+        conservative.
+    min_scale : float, optional
+        Minimum allowed ``x_scale`` value (prevents division by zero).
+    max_scale : float, optional
+        Maximum allowed ``x_scale`` value (prevents extreme values).
 
-    Returns:
-        Dictionary mapping parameter names to x_scale values
+    Returns
+    -------
+    dict[str, float]
+        Mapping from parameter name to its clipped ``x_scale`` value.
     """
     if baseline_params is None:
         if "static" in analysis_mode.lower():

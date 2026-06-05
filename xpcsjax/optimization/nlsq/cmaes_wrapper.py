@@ -1205,7 +1205,7 @@ def fit_with_cmaes(
     sigma: np.ndarray | None = None,
     config: CMAESWrapperConfig | None = None,
 ) -> CMAESResult:
-    """Convenience function for CMA-ES optimization.
+    """Run CMA-ES optimization with default wrapper configuration.
 
     Parameters
     ----------

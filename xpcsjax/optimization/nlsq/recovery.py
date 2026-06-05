@@ -54,27 +54,50 @@ def execute_with_recovery(
 ) -> tuple[np.ndarray, np.ndarray, dict, list[str], str]:
     """Execute optimization with automatic error recovery (T022-T024).
 
-    Implements intelligent retry strategies:
-    - Attempt 1: Original parameters with selected strategy
-    - Attempt 2: Perturbed parameters (+/-10%)
-    - Attempt 3: Relaxed convergence tolerance
-    - Final failure: Comprehensive diagnostics
+    Implements intelligent retry strategies across up to three attempts:
+    the first uses the original parameters, and subsequent attempts apply
+    recovery actions chosen by :func:`diagnose_error` (e.g. parameter
+    perturbation). Parameter stagnation or identity covariance triggers a
+    perturbed retry. On exhaustion, a ``RuntimeError`` carries comprehensive
+    diagnostics.
 
-    Args:
-        residual_fn: Residual function
-        xdata, ydata: Data arrays
-        initial_params: Initial parameter guess
-        bounds: Parameter bounds tuple
-        strategy: Optimization strategy to use
-        log: Logger instance
-        loss_name: Loss function name
-        x_scale_value: Scaling value for parameters
-        handle_nlsq_result_fn: Function to normalize NLSQ results
-        curve_fit_fn: Standard curve_fit function
-        curve_fit_large_fn: Large dataset curve_fit function
+    Parameters
+    ----------
+    residual_fn : Callable
+        Residual function.
+    xdata, ydata : np.ndarray
+        Data arrays.
+    initial_params : np.ndarray
+        Initial parameter guess.
+    bounds : tuple[np.ndarray, np.ndarray] | None
+        Parameter bounds, or None.
+    strategy : OptimizationStrategy
+        Optimization strategy to use.
+    log : logging.Logger | logging.LoggerAdapter
+        Logger instance.
+    loss_name : str
+        Loss function name.
+    x_scale_value : float | str | np.ndarray
+        Scaling value for parameters.
+    handle_nlsq_result_fn : Callable
+        Function to normalize NLSQ results.
+    curve_fit_fn : Callable
+        Standard ``curve_fit`` function.
+    curve_fit_large_fn : Callable
+        Large-dataset ``curve_fit`` function.
+    callback : Callable | None, optional
+        Per-iteration L4 monitor callback (strictly observational).
 
-    Returns:
-        (popt, pcov, info, recovery_actions, convergence_status)
+    Returns
+    -------
+    tuple
+        ``(popt, pcov, info, recovery_actions, convergence_status)``.
+
+    Raises
+    ------
+    RuntimeError
+        If optimization fails after all retry attempts or the error is
+        diagnosed as unrecoverable.
     """
     recovery_actions = []
     max_retries = 3
@@ -323,16 +346,29 @@ def diagnose_error(
     bounds: tuple[np.ndarray, np.ndarray] | None,
     attempt: int,
 ) -> dict[str, Any]:
-    """Diagnose optimization error and provide actionable recovery strategy (T023).
+    """Diagnose an optimization error and propose a recovery strategy.
 
-    Args:
-        error: Exception raised during optimization
-        params: Current parameter values
-        bounds: Parameter bounds
-        attempt: Current attempt number (0-indexed)
+    Classifies the error (out-of-memory, convergence failure, bounds
+    violation, ill-conditioned Jacobian, numerical instability, or unknown)
+    and returns actionable suggestions plus a concrete recovery action.
 
-    Returns:
-        Diagnostic dictionary with error analysis and recovery strategy
+    Parameters
+    ----------
+    error : Exception
+        Exception raised during optimization.
+    params : np.ndarray
+        Current parameter values.
+    bounds : tuple[np.ndarray, np.ndarray] | None
+        Parameter bounds, or None.
+    attempt : int
+        Current attempt number (0-indexed).
+
+    Returns
+    -------
+    dict[str, Any]
+        Diagnostic dictionary with ``error_type``, ``message``,
+        ``suggestions``, and a ``recovery_strategy`` (which may carry
+        ``new_params`` or signal ``no_recovery_available``).
     """
     error_str = str(error).lower()
     error_type = type(error).__name__

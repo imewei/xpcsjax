@@ -36,22 +36,36 @@ class StratifiedResidualFunctionJIT:
     JIT-compatible stratified residual function using padded vmap.
 
     This class solves the JAX JIT incompatibility by:
+
     1. Padding all chunks to uniform size (static shapes)
-    2. Using jax.vmap for vectorized parallel processing
+    2. Using ``jax.vmap`` for vectorized parallel processing
     3. Masking padded values in the final residuals
 
     The function maintains angle stratification (all chunks contain all angles)
-    while being fully JIT-compilable.
+    while being fully JIT-compilable. It is the model-agnostic stratification
+    engine: it evaluates the physics surface through an injected
+    :class:`~xpcsjax.optimization.nlsq.model_adapter.PointEvaluator` rather than
+    hard-coding a kernel, so the same engine serves homodyne (``laminar_flow``)
+    and heterodyne (``two_component``) fits.
 
-    Attributes:
-        phi_padded: Padded phi arrays (n_chunks, max_chunk_size)
-        t1_padded: Padded t1 arrays (n_chunks, max_chunk_size)
-        t2_padded: Padded t2 arrays (n_chunks, max_chunk_size)
-        g2_padded: Padded g2 observations (n_chunks, max_chunk_size)
-        mask: Boolean mask for real vs padded data (n_chunks, max_chunk_size)
-        n_chunks: Number of stratified chunks
-        max_chunk_size: Maximum points per chunk (for padding)
-        n_real_points: Total number of real (non-padded) data points
+    Attributes
+    ----------
+    phi_padded : jnp.ndarray
+        Padded phi arrays, shape ``(n_chunks, max_chunk_size)``.
+    t1_padded : jnp.ndarray
+        Padded t1 arrays, shape ``(n_chunks, max_chunk_size)``.
+    t2_padded : jnp.ndarray
+        Padded t2 arrays, shape ``(n_chunks, max_chunk_size)``.
+    g2_padded : jnp.ndarray
+        Padded g2 observations, shape ``(n_chunks, max_chunk_size)``.
+    mask : jnp.ndarray
+        Boolean mask for real vs padded data, shape ``(n_chunks, max_chunk_size)``.
+    n_chunks : int
+        Number of stratified chunks.
+    max_chunk_size : int
+        Maximum points per chunk (the uniform padded size).
+    n_real_points : int
+        Total number of real (non-padded) data points.
     """
 
     def __init__(
@@ -67,19 +81,29 @@ class StratifiedResidualFunctionJIT:
         """
         Initialize JIT-compatible stratified residual function.
 
-        Args:
-            stratified_data: Object with .chunks attribute containing angle-stratified chunks
-            per_angle_scaling: Whether per-angle scaling parameters are used
-            physical_param_names: List of physical parameter names
-            logger: Optional logger for diagnostics
-            fixed_contrast_per_angle: Fixed per-angle contrast values (for constant mode).
-                When provided, contrast is NOT included in the parameter vector.
-            fixed_offset_per_angle: Fixed per-angle offset values (for constant mode).
-                When provided, offset is NOT included in the parameter vector.
-            evaluator: Optional model-agnostic point evaluator. When None (the
-                default), a HomodynePointEvaluator wrapping compute_g2_scaled is
-                constructed from this class's own q/L/dt — preserving homodyne
-                (laminar_flow) behavior exactly.
+        Parameters
+        ----------
+        stratified_data : Any
+            Object with a ``.chunks`` attribute holding angle-stratified chunks
+            and a ``.sigma`` array.
+        per_angle_scaling : bool
+            Whether per-angle scaling parameters are used.
+        physical_param_names : list of str
+            Physical parameter names.
+        logger : logging.Logger, optional
+            Logger for diagnostics; defaults to the module logger.
+        fixed_contrast_per_angle : np.ndarray, optional
+            Fixed per-angle contrast values (constant mode). When provided,
+            contrast is NOT included in the parameter vector.
+        fixed_offset_per_angle : np.ndarray, optional
+            Fixed per-angle offset values (constant mode). When provided,
+            offset is NOT included in the parameter vector.
+        evaluator : PointEvaluator, optional
+            Model-agnostic point evaluator. When ``None`` (the default), a
+            :class:`~xpcsjax.optimization.nlsq.model_adapter.HomodynePointEvaluator`
+            wrapping ``compute_g2_scaled`` is constructed from this class's own
+            ``q``/``L``/``dt`` — preserving homodyne (``laminar_flow``) behavior
+            exactly.
         """
         self.logger = logger or get_logger(__name__)
         self.chunks = stratified_data.chunks
@@ -218,8 +242,11 @@ class StratifiedResidualFunctionJIT:
         """
         Create padded arrays with uniform size across all chunks.
 
-        Returns:
-            phi_padded, t1_padded, t2_padded, g2_padded, mask, max_chunk_size, n_real_points
+        Returns
+        -------
+        tuple
+            ``(phi_padded, t1_padded, t2_padded, g2_padded, mask,
+            max_chunk_size, n_real_points)``.
         """
         # Determine max chunk size
         chunk_sizes = [len(chunk.phi) for chunk in self.chunks]
@@ -285,19 +312,28 @@ class StratifiedResidualFunctionJIT:
         """
         Compute residuals for a single padded chunk.
 
-        This function is designed to be vmapped over the chunk dimension.
+        This function is designed to be ``vmap``-ped over the chunk dimension.
 
-        Args:
-            phi_chunk: Phi values for this chunk (max_chunk_size,)
-            t1_chunk: T1 values for this chunk (max_chunk_size,)
-            t2_chunk: T2 values for this chunk (max_chunk_size,)
-            g2_obs_chunk: Observed g2 for this chunk (max_chunk_size,)
-            mask_chunk: Mask for real vs padded data (max_chunk_size,)
-            params_all: All parameters [scaling_params, physical_params] or just [physical_params]
-                when use_fixed_scaling=True
+        Parameters
+        ----------
+        phi_chunk : jnp.ndarray
+            Phi values for this chunk, shape ``(max_chunk_size,)``.
+        t1_chunk : jnp.ndarray
+            t1 values for this chunk, shape ``(max_chunk_size,)``.
+        t2_chunk : jnp.ndarray
+            t2 values for this chunk, shape ``(max_chunk_size,)``.
+        g2_obs_chunk : jnp.ndarray
+            Observed g2 for this chunk, shape ``(max_chunk_size,)``.
+        mask_chunk : jnp.ndarray
+            Mask for real vs padded data, shape ``(max_chunk_size,)``.
+        params_all : jnp.ndarray
+            All parameters ``[scaling_params, physical_params]``, or just
+            ``[physical_params]`` when ``use_fixed_scaling=True``.
 
-        Returns:
-            Masked residuals (max_chunk_size,) - padded values are zeros
+        Returns
+        -------
+        jnp.ndarray
+            Masked residuals, shape ``(max_chunk_size,)``; padded values are zero.
         """
         # Extract scaling and physical parameters
         # Three modes:
@@ -418,14 +454,19 @@ class StratifiedResidualFunctionJIT:
 
     def _compute_all_residuals(self, params: jnp.ndarray) -> jnp.ndarray:
         """
-        Compute residuals for all chunks using vmap (JIT-compiled).
+        Compute residuals for all chunks using ``vmap`` (JIT-compiled).
 
-        Args:
-            params: All parameters (scaling + physical)
+        Parameters
+        ----------
+        params : jnp.ndarray
+            All parameters (scaling + physical).
 
-        Returns:
-            Flattened residuals INCLUDING padding (will be filtered in __call__)
-            Shape: (n_chunks * max_chunk_size,) with zeros for padded values
+        Returns
+        -------
+        jnp.ndarray
+            Flattened residuals INCLUDING padding, shape
+            ``(n_chunks * max_chunk_size,)`` with zeros for padded values.
+            Filtering happens in :meth:`__call__`.
         """
         # Cache vmap'd function to avoid JIT retrace on every call.
         # params is passed as an explicit unbatched argument (in_axes=None for the
@@ -458,18 +499,23 @@ class StratifiedResidualFunctionJIT:
 
     def __call__(self, params: np.ndarray | jnp.ndarray) -> jnp.ndarray:
         """
-        Compute residuals (interface for NLSQ least_squares).
+        Compute residuals (interface for NLSQ ``least_squares``).
 
         This method is JIT-traced by NLSQ, so it must use JAX operations only.
-        Padded values are already masked to zero, so they don't contribute to
+        Padded values are already masked to zero, so they do not contribute to
         the optimization objective (sum of squared residuals).
 
-        Args:
-            params: Parameters (numpy or JAX array)
+        Parameters
+        ----------
+        params : np.ndarray or jnp.ndarray
+            Parameters.
 
-        Returns:
-            Residuals as JAX array (n_chunks * max_chunk_size,) with zeros for padding
-            Note: Padding zeros don't affect optimization but increase array size
+        Returns
+        -------
+        jnp.ndarray
+            Residuals, shape ``(n_chunks * max_chunk_size,)`` with zeros for
+            padding. Padding zeros do not affect the optimization but increase
+            the array size.
         """
         if self.dt is None:
             self.logger.warning(
@@ -484,11 +530,15 @@ class StratifiedResidualFunctionJIT:
         """
         Validate that all chunks contain all phi angles.
 
-        Returns:
-            True if validation passes
+        Returns
+        -------
+        bool
+            ``True`` if validation passes.
 
-        Raises:
-            ValueError: If validation fails
+        Raises
+        ------
+        ValueError
+            If any chunk's angle distribution does not match the expected set.
         """
         expected_angles = set(np.unique(np.round(np.asarray(self.phi_unique), decimals=6)))
         n_expected = len(expected_angles)
