@@ -1,24 +1,41 @@
-"""XPCS Data Loader for Homodyne
-================================
+"""Load XPCS correlation data from APS / APS-U HDF5 files into JAX-ready arrays.
 
-Enhanced XPCS data loader supporting both APS (old) and APS-U (new) HDF5 formats
-with YAML-first configuration system, JAX compatibility, and modern architecture integration.
+The :class:`XPCSDataLoader` and the :func:`load_xpcs_data` convenience wrapper read
+homodyne / heterodyne XPCS correlation matrices from disk, reconstruct the full
+correlation matrix from its stored half, apply mandatory diagonal correction, and
+return float64 JAX arrays (with a NumPy fallback) ready to hand to
+:func:`xpcsjax.fit_nlsq`.
 
-This module provides:
-- YAML-first configuration with JSON support
-- Smart NPZ caching to avoid reloading large HDF5 files
-- Auto-detection of APS vs APS-U format
-- Half-matrix reconstruction for correlation matrices
-- Mandatory diagonal correction applied post-load
-- JAX array output with numpy fallback
-- Integration with v2 logging and physics validation
+Notes
+-----
+The loader supports two on-disk formats, auto-detected from the HDF5 layout and
+selected by the ``experimental_data.data_type`` config key:
 
-Key Features:
-- Format Support: APS old format and APS-U new format
-- Configuration: YAML primary, JSON via converter
-- Caching: Intelligent NPZ caching with compression
-- Output: JAX arrays when available, numpy fallback
-- Validation: Optional physics-based data quality checks
+* ``"aps_old"`` -- legacy APS format.
+* ``"aps_u"`` -- unified (APS-U) format.
+
+No other ``data_type`` strings are accepted.
+
+Capabilities:
+
+* YAML-first configuration with JSON support (see :func:`load_xpcs_config`).
+* Smart NPZ caching to avoid reloading large HDF5 files.
+* Auto-detection of APS vs APS-U format.
+* Half-matrix reconstruction for correlation matrices.
+* Mandatory diagonal correction applied post-load.
+* JAX array output (float64) with NumPy fallback.
+* Integration with structured logging and physics validation.
+
+Runtime validation runs unconditionally at the I/O boundary: loaded arrays are
+checked for finite values (no NaN/inf), square 2-D correlation matrices, bounded
+allocation size, and monotonic time axes. Any violation raises
+:class:`XPCSDataFormatError`.
+
+See Also
+--------
+load_xpcs_data : Convenience wrapper returning a typed dataset.
+load_xpcs_config : Load a YAML/JSON configuration file.
+xpcsjax.fit_nlsq : Fit the loaded correlation data.
 """
 
 from __future__ import annotations
@@ -417,19 +434,35 @@ def _assert_safe_cache_filename(name: str) -> None:
 
 
 def load_xpcs_config(config_path: str | Path) -> dict[str, Any]:
-    """Load XPCS configuration from YAML or JSON file.
+    """Load an XPCS configuration from a YAML or JSON file.
 
-    Primary format: YAML
-    JSON support: Automatically converted to YAML format
+    YAML is the primary format; JSON files are loaded and returned with the same
+    nested structure (no schema conversion is performed). The file extension
+    selects the parser: ``.yaml`` / ``.yml`` use PyYAML's safe loader, ``.json``
+    uses :mod:`json`.
 
-    Args:
-        config_path: Path to YAML or JSON configuration file
+    Parameters
+    ----------
+    config_path : str or pathlib.Path
+        Path to a YAML (``.yaml`` / ``.yml``) or JSON (``.json``) configuration
+        file.
 
-    Returns:
-        Configuration dictionary with YAML-style structure
+    Returns
+    -------
+    dict
+        The parsed configuration dictionary.
 
-    Raises:
-        XPCSConfigurationError: If configuration format is unsupported or invalid
+    Raises
+    ------
+    XPCSConfigurationError
+        If the file does not exist, has an unsupported extension, or fails to
+        parse.
+    XPCSDependencyError
+        If a YAML file is given but PyYAML is not installed.
+
+    See Also
+    --------
+    XPCSDataLoader : Consumes the returned configuration dictionary.
     """
     config_path = Path(config_path)
 
@@ -456,9 +489,7 @@ def load_xpcs_config(config_path: str | Path) -> dict[str, Any]:
             with open(config_path, encoding="utf-8") as f:
                 json_config: dict[str, Any] = json.load(f)
 
-            logger.info(
-                f"Loaded JSON configuration (converted to YAML): {Path(config_path).name}"
-            )
+            logger.info(f"Loaded JSON configuration (converted to YAML): {Path(config_path).name}")
             logger.debug(f"Config full path: {config_path}")
             logger.info("Consider migrating to YAML format for better readability")
 
@@ -502,17 +533,33 @@ class XPCSDataLoader:
         configure_logging: bool = True,
         generate_quality_reports: bool = False,  # Only generate reports when explicitly requested
     ):
-        """Initialize XPCS data loader with YAML-first configuration.
+        """Initialize the loader from a config file path or an in-memory dict.
 
-        Args:
-            config_path: Path to YAML or JSON configuration file
-            config_dict: Configuration dictionary (alternative to config_path)
-            configure_logging: Whether to apply logging configuration from config
-            generate_quality_reports: Whether to generate quality reports (default: False)
+        Exactly one of ``config_path`` or ``config_dict`` must be provided.
 
-        Raises:
-            XPCSDependencyError: If required dependencies are not available
-            XPCSConfigurationError: If configuration is invalid
+        Parameters
+        ----------
+        config_path : str, optional
+            Path to a YAML or JSON configuration file. Mutually exclusive with
+            ``config_dict``.
+        config_dict : dict, optional
+            Configuration dictionary, used in place of ``config_path`` for
+            programmatic use. Mutually exclusive with ``config_path``.
+        configure_logging : bool, default True
+            Whether to apply the logging configuration found in the config.
+        generate_quality_reports : bool, default False
+            Whether to write data-quality reports during loading. Reports are
+            only generated when explicitly requested (e.g. when plotting
+            experimental data), never during normal optimization runs.
+
+        Raises
+        ------
+        ValueError
+            If both or neither of ``config_path`` and ``config_dict`` are given.
+        XPCSDependencyError
+            If a required dependency (e.g. ``h5py``) is unavailable.
+        XPCSConfigurationError
+            If the configuration is invalid.
         """
         # Check for required dependencies
         self._check_dependencies()
@@ -787,13 +834,17 @@ class XPCSDataLoader:
         self,
         data: dict[str, NDArray],
     ) -> dict[str, Any]:
-        """Convert arrays to target format based on configuration.
+        """Convert arrays to the target format based on configuration.
 
-        Args:
-            data: Dictionary with numpy arrays
+        Parameters
+        ----------
+        data
+            Dictionary with numpy arrays.
 
-        Returns:
-            Dictionary with arrays in target format (JAX or numpy)
+        Returns
+        -------
+        dict
+            Dictionary with arrays in the target format (JAX or numpy).
         """
         output_format = self._get_output_format()
 
@@ -822,15 +873,40 @@ class XPCSDataLoader:
 
     @log_performance(threshold=0.5)
     def load_experimental_data(self) -> dict[str, Any]:
-        """Load experimental data with priority: cache NPZ → raw HDF → error.
+        """Load experimental correlation data, resolving cache then raw HDF5.
 
-        Returns:
-            Dictionary containing:
-            - wavevector_q_list: Array of q values
-            - phi_angles_list: Array of phi angles
-            - t1: Time array for first dimension
-            - t2: Time array for second dimension
-            - c2_exp: Experimental correlation data
+        Resolution order: a direct ``.npz`` override, then the NPZ cache (when
+        caching is enabled), then the raw HDF5 file. The loaded data passes
+        through optional quality control, the preprocessing pipeline, conversion
+        to the target array backend (JAX or NumPy), and mandatory diagonal
+        correction before being returned.
+
+        Returns
+        -------
+        dict
+            Mapping with at least the following keys:
+
+            ``wavevector_q_list``
+                Array of scattering wavevector ``q`` values (one entry per
+                ``(q, phi)`` pair; intentionally not monotonic).
+            ``phi_angles_list``
+                Array of azimuthal ``phi`` angles.
+            ``t1``, ``t2``
+                1-D monotonic correlation time axes.
+            ``c2_exp``
+                Experimental correlation data, diagonal-corrected.
+
+            When a degraded fallback occurred during loading, ``_degraded`` is
+            ``True`` and ``load_degradations`` lists the per-event reasons.
+
+        Raises
+        ------
+        FileNotFoundError
+            If neither the cache file nor the raw HDF5 file exists.
+        XPCSDataFormatError
+            If the loaded arrays fail I/O-boundary validation (non-finite
+            values, non-square matrices, oversized allocation, or a
+            non-monotonic time axis).
         """
         # Construct file paths
         data_folder = self.exp_config.get("data_folder_path", "./")
@@ -1125,12 +1201,13 @@ class XPCSDataLoader:
 
     @log_performance(threshold=0.1)
     def _detect_format(self, hdf_path: str) -> str:
-        """Detect whether HDF5 file is APS old or APS-U new format.
+        """Detect whether an HDF5 file is APS old or APS-U new format.
 
-        Returns:
-            "aps_u" for APS-U format
-            "aps_old" for APS old format
-            "unknown" for unrecognized or empty files
+        Returns
+        -------
+        str
+            ``"aps_u"`` for APS-U format, ``"aps_old"`` for APS old format, or
+            ``"unknown"`` for unrecognized or empty files.
         """
         with h5py.File(hdf_path, "r") as f:
             # Check for APS-U format keys
@@ -1633,21 +1710,24 @@ class XPCSDataLoader:
 
     # Performance Optimization (Spec 006 - FR-006, FR-006a): Batch diagonal correction
     def _correct_diagonal_batch(self, c2_matrices: NDArray) -> NDArray:
-        """Apply diagonal correction to all matrices in batch.
+        """Apply diagonal correction to all matrices in a batch.
 
         .. deprecated:: 2.16.0
             Use :func:`xpcsjax.core.diagonal_correction.apply_diagonal_correction_batch`
             instead. This method is kept for backward compatibility only.
 
-        Performance Optimization (Spec 006 - FR-006):
-        Pre-allocates output array and uses direct assignment instead of
-        list append pattern. Expected memory reduction: 30%.
+        Pre-allocates the output array and uses direct assignment instead of a
+        list-append pattern (Spec 006 - FR-006); expected memory reduction 30%.
 
-        Args:
-            c2_matrices: Correlation matrices, shape (n_phi, n_t1, n_t2)
+        Parameters
+        ----------
+        c2_matrices
+            Correlation matrices, shape ``(n_phi, n_t1, n_t2)``.
 
-        Returns:
-            Corrected matrices with same shape
+        Returns
+        -------
+        numpy.ndarray
+            Corrected matrices with the same shape as the input.
         """
         if not HAS_NUMPY:
             raise RuntimeError("NumPy is required for diagonal correction")
@@ -1688,17 +1768,20 @@ class XPCSDataLoader:
             return c2_corrected
 
     def _correct_diagonal_batch_jax(self, c2_matrices: Any) -> Any:
-        """Vectorized diagonal correction using JAX vmap.
+        """Apply vectorized diagonal correction using JAX ``vmap``.
 
-        Performance Optimization (Spec 006 - FR-006a):
-        Uses jax.vmap for parallel diagonal correction across all angles.
-        Expected speedup: 2-4x for diagonal correction.
+        Uses :func:`jax.vmap` for parallel diagonal correction across all
+        angles (Spec 006 - FR-006a); expected speedup 2-4x.
 
-        Args:
-            c2_matrices: JAX array of shape (n_phi, n_t1, n_t2)
+        Parameters
+        ----------
+        c2_matrices
+            JAX array of shape ``(n_phi, n_t1, n_t2)``.
 
-        Returns:
-            Corrected matrices with same shape
+        Returns
+        -------
+        Any
+            Corrected matrices with the same shape as the input.
         """
         if not HAS_JAX:
             raise RuntimeError("JAX is required for JAX diagonal correction")
@@ -1739,19 +1822,26 @@ class XPCSDataLoader:
         """Get indices for comprehensive data filtering based on configuration.
 
         Implements multi-criteria filtering including:
-        - Q-range filtering based on wavevector values
-        - Phi angle filtering (integrates with existing phi_filtering.py)
-        - Quality-based filtering using correlation matrix properties
-        - Frame-based filtering with configurable criteria
-        - Combined filtering with AND/OR logic
 
-        Args:
-            dqlist: Array of q-values (wavevector magnitudes)
-            dphilist: Array of phi angles in degrees
-            correlation_matrices: Optional list of correlation matrices for quality filtering
+        - Q-range filtering based on wavevector values.
+        - Phi angle filtering (integrates with ``phi_filtering.py``).
+        - Quality-based filtering using correlation matrix properties.
+        - Frame-based filtering with configurable criteria.
+        - Combined filtering with AND/OR logic.
 
-        Returns:
-            Array of selected indices, or None if no filtering is applied
+        Parameters
+        ----------
+        dqlist
+            Array of q-values (wavevector magnitudes).
+        dphilist
+            Array of phi angles in degrees.
+        correlation_matrices
+            Optional list of correlation matrices used for quality filtering.
+
+        Returns
+        -------
+        numpy.ndarray or None
+            Array of selected indices, or ``None`` if no filtering is applied.
         """
         try:
             # Import filtering utilities
@@ -1917,13 +2007,17 @@ class XPCSDataLoader:
             return selected_indices
 
     def _select_optimal_wavevector(self, dqlist: NDArray) -> int:
-        """Select q-vector index closest to config value (no tolerance).
+        """Select the q-vector index closest to the config value (no tolerance).
 
-        Args:
-            dqlist: Array of available q-vector values
+        Parameters
+        ----------
+        dqlist
+            Array of available q-vector values.
 
-        Returns:
-            Index of selected q-vector in dqlist
+        Returns
+        -------
+        int
+            Index of the selected q-vector within ``dqlist``.
         """
         if not HAS_NUMPY:
             raise RuntimeError("NumPy is required for wavevector selection")
@@ -1947,11 +2041,17 @@ class XPCSDataLoader:
     def _apply_frame_slicing_to_selected_q(self, c2_matrices: NDArray) -> NDArray:
         """Apply frame slicing to already q-filtered correlation matrices.
 
-        Args:
-            c2_matrices: Correlation matrices for selected q-vector, shape (n_phi, full_frames, full_frames)
+        Parameters
+        ----------
+        c2_matrices
+            Correlation matrices for the selected q-vector, shape
+            ``(n_phi, full_frames, full_frames)``.
 
-        Returns:
-            Frame-sliced correlation matrices, shape (n_phi, sliced_frames, sliced_frames)
+        Returns
+        -------
+        numpy.ndarray
+            Frame-sliced correlation matrices, shape
+            ``(n_phi, sliced_frames, sliced_frames)``.
         """
         raw_start_frame = self.analyzer_config.get("start_frame", 1)
         if raw_start_frame < 1:
@@ -1989,19 +2089,24 @@ class XPCSDataLoader:
         return c2_exp
 
     def _calculate_time_arrays(self, matrix_size: int) -> NDArray:
-        """Calculate 1D time array for correlation analysis.
+        r"""Calculate the 1D time array for correlation analysis.
 
-        Returns 1D array that is converted to 2D meshgrids by the NLSQ wrapper
-        as needed.
+        Returns a 1D array that is converted to 2D meshgrids by the NLSQ
+        wrapper as needed.
 
-        Time starts from 0 (frame 0 corresponds to t=0). The t=0 exclusion
-        for D(t) singularity prevention is handled during analysis, not caching.
+        Time starts from 0 (frame 0 corresponds to ``t=0``). The ``t=0``
+        exclusion for D(t) singularity prevention is handled during analysis,
+        not caching.
 
-        Args:
-            matrix_size: Number of time points (frames after slicing)
+        Parameters
+        ----------
+        matrix_size
+            Number of time points (frames after slicing).
 
-        Returns:
-            1D time array: [0, dt, 2*dt, ..., (N-1)*dt]
+        Returns
+        -------
+        numpy.ndarray
+            1D time array ``[0, dt, 2*dt, ..., (N-1)*dt]``.
         """
         dt = self.analyzer_config.get("dt", 1.0)
 
@@ -2322,13 +2427,22 @@ class XPCSDataLoader:
         quality_controller: Any | None = None,
         quality_results: list | None = None,
     ) -> dict[str, Any]:
-        """Apply preprocessing pipeline to loaded data if enabled.
+        """Apply the preprocessing pipeline to loaded data if enabled.
 
-        Args:
-            data: Raw data loaded from HDF5 files
+        Parameters
+        ----------
+        data
+            Raw data loaded from HDF5 files.
+        quality_controller
+            Optional quality controller used during preprocessing.
+        quality_results
+            Optional list collecting quality-check results.
 
-        Returns:
-            Processed data after applying preprocessing pipeline
+        Returns
+        -------
+        dict
+            Processed data after applying the preprocessing pipeline (returned
+            unchanged when preprocessing is disabled).
         """
         try:
             # Check if preprocessing is enabled
@@ -2450,30 +2564,70 @@ def load_xpcs_data(
     config_path: str | dict | None = None,
     config_dict: dict | None = None,
 ) -> XpcsDataset:
-    """Convenience function to load XPCS data from configuration file or dict.
+    """Load XPCS data from a configuration file or dictionary.
 
-    Supports both YAML and JSON configuration files with auto-detection,
-    or direct configuration dictionary for programmatic use (backward compatible).
+    Thin convenience wrapper over :class:`XPCSDataLoader`: it builds the loader,
+    runs :meth:`XPCSDataLoader.load_experimental_data`, and wraps the result in a
+    typed :class:`~xpcsjax.data.dataset.XpcsDataset`. The result is ready to pass
+    to :func:`xpcsjax.fit_nlsq`.
 
-    Args:
-        config_path: Path to YAML/JSON config file, OR dict for backward compatibility
-        config_dict: Configuration dictionary (alternative to config_path)
+    Exactly one configuration source must be supplied. For backward
+    compatibility, a ``dict`` passed positionally as ``config_path`` is treated
+    as ``config_dict``.
 
-    Returns:
-        Dictionary containing loaded experimental data with JAX arrays when available
+    Parameters
+    ----------
+    config_path : str or dict, optional
+        Path to a YAML/JSON configuration file. A ``dict`` may be passed here for
+        backward compatibility, in which case it is treated as ``config_dict``.
+        Mutually exclusive with ``config_dict``.
+    config_dict : dict, optional
+        Configuration dictionary, for programmatic use. Mutually exclusive with a
+        non-``None`` ``config_path``.
 
-    Example:
-        >>> # From config file
-        >>> data = load_xpcs_data(config_path="xpcs_config.yaml")
-        >>> print(data.keys())
-        dict_keys(['wavevector_q_list', 'phi_angles_list', 't1', 't2', 'c2_exp'])
+    Returns
+    -------
+    xpcsjax.data.dataset.XpcsDataset
+        A ``dict`` subclass holding the loaded experimental data (float64 JAX
+        arrays when JAX is available, otherwise NumPy). Key-indexed access is
+        unchanged; the typed ``.c2`` / ``.phi`` / ``.t1`` / ``.t2`` accessors are
+        also available. Keys include ``wavevector_q_list``, ``phi_angles_list``,
+        ``t1``, ``t2``, and ``c2_exp``.
 
-        >>> # From dict (backward compatible - positional)
-        >>> config = {"data_file": "experiment.h5", "analysis_mode": "static_isotropic"}
-        >>> data = load_xpcs_data(config)
+    Raises
+    ------
+    ValueError
+        If both ``config_path`` (as a dict) and ``config_dict`` are provided, or
+        if neither configuration source is given.
+    FileNotFoundError
+        If the configured data file cannot be found.
+    XPCSDataFormatError
+        If the loaded data fails I/O-boundary validation.
 
-        >>> # From dict (keyword argument)
-        >>> data = load_xpcs_data(config_dict=config)
+    See Also
+    --------
+    XPCSDataLoader : The underlying loader class.
+    load_xpcs_config : Load a YAML/JSON configuration file.
+    xpcsjax.fit_nlsq : Fit the loaded correlation data with NLSQ.
+
+    Examples
+    --------
+    Load from a config file:
+
+    >>> data = load_xpcs_data(config_path="xpcs_config.yaml")
+    >>> sorted(data.keys())
+    ['c2_exp', 'phi_angles_list', 't1', 't2', 'wavevector_q_list']
+    >>> data.c2.shape  # typed accessor for c2_exp
+    (1, 100, 100)
+
+    Load from a dictionary (positional, backward compatible):
+
+    >>> config = {"data_file": "experiment.h5", "analysis_mode": "static_isotropic"}
+    >>> data = load_xpcs_data(config)
+
+    Load from a dictionary (keyword argument):
+
+    >>> data = load_xpcs_data(config_dict=config)
     """
     # Backward compatibility: if config_path is a dict, treat it as config_dict
     if isinstance(config_path, dict):

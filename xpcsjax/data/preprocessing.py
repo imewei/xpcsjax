@@ -1,40 +1,42 @@
-"""Advanced Data Preprocessing Pipeline for Homodyne
-======================================================
+r"""Advanced data preprocessing pipeline for the homodyne data layer.
 
-Intelligent data transformation system that builds on config-based filtering to provide
-sophisticated preprocessing capabilities for XPCS correlation data.
+Intelligent data transformation system that builds on config-based filtering to
+provide sophisticated preprocessing capabilities for XPCS correlation data.
 
-Architecture: Load → Filter → Transform → Normalize → Validate
+The pipeline architecture is Load -> Filter -> Transform -> Normalize ->
+Validate.
 
-Key Features:
-- Multi-stage configurable preprocessing pipeline
-- Enhanced diagonal correction with statistical methods
-- Multiple normalization approaches (baseline, statistical, physics-based)
-- Noise reduction algorithms (median filtering, gaussian smoothing)
-- Data standardization across APS vs APS-U formats
-- Outlier detection and treatment
-- Complete transformation audit trail and reproducibility
-- JAX-accelerated performance with numpy fallback
-- Memory-efficient chunked processing for large datasets
+Key Features
+------------
+- Multi-stage configurable preprocessing pipeline.
+- Enhanced diagonal correction with statistical methods.
+- Multiple normalization approaches (baseline, statistical, physics-based).
+- Noise reduction algorithms (median filtering, gaussian smoothing).
+- Data standardization across APS vs APS-U formats.
+- Outlier detection and treatment.
+- Complete transformation audit trail and reproducibility.
+- JAX-accelerated performance with numpy fallback.
+- Memory-efficient chunked processing for large datasets.
 
-Pipeline Stages:
-1. load_raw: Load raw data (handled by xpcs_loader.py)
-2. apply_filtering: Use config-based filtering from filtering_utils.py
-3. correct_diagonal: Enhanced diagonal correction methods
-4. normalize_data: Multiple normalization strategies
-5. reduce_noise: Optional denoising algorithms
-6. standardize_format: Ensure consistent data formats
-7. validate_output: Final data integrity and physics validation
+Notes
+-----
+Pipeline stages:
 
-Performance Features:
-- In-place operations to minimize memory copying
-- Chunked processing for large correlation matrices
-- Progress reporting for user feedback
-- Intelligent caching of intermediate results
-- JAX JIT compilation for hot paths
+1. ``load_raw``: Load raw data (handled by ``xpcs_loader.py``).
+2. ``apply_filtering``: Use config-based filtering from ``filtering_utils.py``.
+3. ``correct_diagonal``: Enhanced diagonal correction methods.
+4. ``normalize_data``: Multiple normalization strategies.
+5. ``reduce_noise``: Optional denoising algorithms.
+6. ``standardize_format``: Ensure consistent data formats.
+7. ``validate_output``: Final data integrity and physics validation.
 
-Authors: Homodyne Development Team
-Institution: Argonne National Laboratory
+Performance features:
+
+- In-place operations to minimize memory copying.
+- Chunked processing for large correlation matrices.
+- Progress reporting for user feedback.
+- Intelligent caching of intermediate results.
+- JAX JIT compilation for hot paths.
 """
 
 import copy
@@ -245,13 +247,17 @@ class PreprocessingPipeline:
 
     @log_calls(include_args=False)
     def __init__(self, config: dict[str, Any]):
-        """Initialize preprocessing pipeline with configuration.
+        """Initialize the preprocessing pipeline with configuration.
 
-        Args:
-            config: Configuration dictionary containing preprocessing settings
+        Parameters
+        ----------
+        config
+            Configuration dictionary containing preprocessing settings.
 
-        Raises:
-            PreprocessingConfigurationError: If configuration is invalid
+        Raises
+        ------
+        PreprocessingConfigurationError
+            If the configuration is invalid.
         """
         self.config = config
         self.preprocessing_config = config.get("preprocessing", {})
@@ -359,11 +365,15 @@ class PreprocessingPipeline:
     def process(self, data: dict[str, Any]) -> PreprocessingResult:
         """Execute the full preprocessing pipeline on input data.
 
-        Args:
-            data: Input data dictionary from XPCS loader
+        Parameters
+        ----------
+        data
+            Input data dictionary from the XPCS loader.
 
-        Returns:
-            PreprocessingResult containing processed data and provenance
+        Returns
+        -------
+        PreprocessingResult
+            Result holding the processed data and its provenance.
         """
         start_time = time.time()
 
@@ -599,7 +609,7 @@ class PreprocessingPipeline:
         return corrected_data
 
     def _basic_diagonal_correction(self, c2_mat: np.ndarray) -> np.ndarray:
-        """Basic diagonal correction as implemented in xpcs_loader.py.
+        """Apply the basic diagonal correction as implemented in xpcs_loader.py.
 
         .. deprecated:: 2.16.0
             Use :func:`xpcsjax.core.diagonal_correction.apply_diagonal_correction`
@@ -1047,13 +1057,17 @@ class PreprocessingPipeline:
         logger.info(f"Preprocessing provenance saved to: {filepath}")
 
     def load_provenance(self, filepath: str | Path) -> PreprocessingProvenance:
-        """Load preprocessing provenance from file.
+        """Load preprocessing provenance from a file.
 
-        Args:
-            filepath: Path to provenance file
+        Parameters
+        ----------
+        filepath
+            Path to the provenance file.
 
-        Returns:
-            PreprocessingProvenance object
+        Returns
+        -------
+        PreprocessingProvenance
+            The reconstructed provenance object.
         """
         with open(filepath, encoding="utf-8") as f:
             data = json.load(f)
@@ -1090,10 +1104,12 @@ class PreprocessingPipeline:
 
 
 def create_default_preprocessing_config() -> dict[str, Any]:
-    """Create default preprocessing configuration.
+    """Create the default preprocessing configuration.
 
-    Returns:
-        Dictionary with default preprocessing settings
+    Returns
+    -------
+    dict
+        Dictionary with default preprocessing settings.
     """
     return {
         "preprocessing": {
@@ -1126,14 +1142,28 @@ def preprocess_xpcs_data(
     data: dict[str, Any],
     config: dict[str, Any] | None = None,
 ) -> PreprocessingResult:
-    """Convenience function for preprocessing XPCS data.
+    """Preprocess XPCS data using a one-shot convenience wrapper.
 
-    Args:
-        data: Input data dictionary from XPCS loader
-        config: Optional preprocessing configuration (uses defaults if None)
+    Builds a :class:`PreprocessingPipeline` and runs it over ``data``, using the
+    default configuration when ``config`` is ``None``.
 
-    Returns:
-        PreprocessingResult containing processed data and provenance
+    Parameters
+    ----------
+    data
+        Input data dictionary from the XPCS loader.
+    config
+        Optional preprocessing configuration; defaults from
+        :func:`create_default_preprocessing_config` are used when ``None``.
+
+    Returns
+    -------
+    PreprocessingResult
+        Result holding the processed data and its provenance.
+
+    Examples
+    --------
+    >>> result = preprocess_xpcs_data(data)
+    >>> processed = result.data
     """
     if config is None:
         config = create_default_preprocessing_config()

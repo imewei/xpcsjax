@@ -32,6 +32,27 @@ class XpcsDataset(dict):
     """A loaded XPCS dataset: a ``dict`` with typed, alias-resolving accessors."""
 
     def _first(self, keys: tuple[str, ...], what: str) -> NDArray[Any]:
+        """Return the first present alias key as a NumPy array.
+
+        Parameters
+        ----------
+        keys : tuple of str
+            Candidate key spellings in resolution order; the first one present
+            in the dataset wins.
+        what : str
+            Human-readable name of the field, used only in the error message.
+
+        Returns
+        -------
+        numpy.ndarray
+            The value stored under the first matching key, coerced via
+            :func:`numpy.asarray`.
+
+        Raises
+        ------
+        KeyError
+            If none of ``keys`` are present in the dataset.
+        """
         for key in keys:
             if key in self:
                 return np.asarray(self[key])

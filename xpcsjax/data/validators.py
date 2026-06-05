@@ -1,13 +1,14 @@
-"""Configuration Validators for XPCS Data Loading
-================================================
+"""Configuration validators for XPCS data loading.
 
-Focused validator functions for configuration parameter validation.
-Extracted from config.py to reduce cyclomatic complexity and improve testability.
+Focused validator functions for configuration parameter validation. Extracted
+from :mod:`xpcsjax.data.config` to reduce cyclomatic complexity and improve
+testability.
 
 Each validator function:
-- Takes specific parameters to validate
-- Returns a list of error messages (empty if valid)
-- Has single responsibility
+
+- Takes specific parameters to validate.
+- Returns a list of error messages (empty if valid).
+- Has a single responsibility.
 """
 
 import os
@@ -23,14 +24,21 @@ def validate_file_path(
 ) -> list[str]:
     """Validate file path existence.
 
-    Args:
-        folder: Directory path
-        filename: File name within the directory
-        check_folder: Whether to validate folder existence
-        check_file: Whether to validate file existence
+    Parameters
+    ----------
+    folder
+        Directory path.
+    filename
+        File name within the directory.
+    check_folder
+        Whether to validate folder existence.
+    check_file
+        Whether to validate file existence.
 
-    Returns:
-        List of error messages (empty if valid)
+    Returns
+    -------
+    list of str
+        Error messages (empty if valid).
     """
     errors: list[str] = []
 
@@ -53,13 +61,20 @@ def validate_frame_range(
 ) -> list[str]:
     """Validate frame range parameters.
 
-    Args:
-        start_frame: Starting frame index
-        end_frame: Ending frame index
-        min_frame: Minimum allowed frame value
+    Parameters
+    ----------
+    start_frame
+        Starting frame index.
+    end_frame
+        Ending frame index. The sentinel ``-1`` disables the
+        ``start < end`` ordering check.
+    min_frame
+        Minimum allowed frame value.
 
-    Returns:
-        List of error messages (empty if valid)
+    Returns
+    -------
+    list of str
+        Error messages (empty if valid).
     """
     errors: list[str] = []
 
@@ -80,13 +95,19 @@ def validate_positive_value(
 ) -> list[str]:
     """Validate that a value is positive.
 
-    Args:
-        value: Value to validate
-        field_name: Name of the field for error messages
-        allow_zero: Whether zero is allowed
+    Parameters
+    ----------
+    value
+        Value to validate.
+    field_name
+        Name of the field, used in error messages.
+    allow_zero
+        Whether zero is allowed (treats the check as non-negative).
 
-    Returns:
-        List of error messages (empty if valid)
+    Returns
+    -------
+    list of str
+        Error messages (empty if valid).
     """
     errors: list[str] = []
 
@@ -111,15 +132,23 @@ def validate_numeric_range(
 ) -> list[str]:
     """Validate a min/max range dictionary.
 
-    Args:
-        range_dict: Dictionary with 'min' and 'max' keys
-        field_name: Name of the field for error messages
-        require_positive: Whether values must be positive
-        value_bounds: Optional (min, max) bounds for allowed values
-        allow_wrapped: Whether to allow min >= max (for wrapped ranges like phi)
+    Parameters
+    ----------
+    range_dict
+        Dictionary with ``'min'`` and ``'max'`` keys.
+    field_name
+        Name of the field, used in error messages.
+    require_positive
+        Whether values must be positive.
+    value_bounds
+        Optional ``(min, max)`` bounds for allowed values.
+    allow_wrapped
+        Whether to allow ``min >= max`` (for wrapped ranges like phi).
 
-    Returns:
-        List of error messages (empty if valid)
+    Returns
+    -------
+    list of str
+        Error messages (empty if valid).
     """
     errors: list[str] = []
 
@@ -159,14 +188,21 @@ def validate_enum_value(
 ) -> list[str]:
     """Validate that a value is one of the allowed enum values.
 
-    Args:
-        value: Value to validate
-        field_name: Name of the field for error messages
-        allowed_values: List of allowed values
-        default: Default value (used if value is None)
+    Parameters
+    ----------
+    value
+        Value to validate.
+    field_name
+        Name of the field, used in error messages.
+    allowed_values
+        List of allowed values.
+    default
+        Default value used when ``value`` is ``None``.
 
-    Returns:
-        List of error messages (empty if valid)
+    Returns
+    -------
+    list of str
+        Error messages (empty if valid).
     """
     errors: list[str] = []
 
@@ -222,15 +258,21 @@ def validate_by_rules(
     section: str,
     rules: dict[str, dict[str, Any]] | None = None,
 ) -> list[str]:
-    """Validate configuration section using predefined rules.
+    """Validate a configuration section using predefined rules.
 
-    Args:
-        config: Full configuration dictionary
-        section: Section to validate (e.g., 'data_filtering')
-        rules: Optional custom rules (defaults to VALIDATION_RULES)
+    Parameters
+    ----------
+    config
+        Full configuration dictionary.
+    section
+        Section to validate (e.g. ``'data_filtering'``).
+    rules
+        Optional custom rules; defaults to :data:`VALIDATION_RULES`.
 
-    Returns:
-        List of error messages (empty if valid)
+    Returns
+    -------
+    list of str
+        Error messages (empty if valid).
     """
     errors: list[str] = []
     rules = rules or VALIDATION_RULES

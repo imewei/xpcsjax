@@ -1,16 +1,23 @@
-"""Dataset Size Optimization for Homodyne
-==========================================
+"""Dataset size-aware optimization for the NLSQ pipeline.
 
 Memory-efficient data processing strategies for different dataset sizes.
 Implements chunked processing, progressive loading, and batch optimization
 for NLSQ optimization.
 
-Key Features:
+Key features
+------------
 - Size-aware processing strategies (<1M, 1-10M, >20M points)
 - Memory-efficient chunked processing for large datasets
 - Progressive loading with intelligent caching
 - JAX-optimized batch processing
 - Integration with NLSQ pipelines
+
+Notes
+-----
+xpcsjax v0.1 is NLSQ-only by design. The ``method`` argument threaded through
+this module exists so the public boundary can *reject* non-NLSQ methods
+(Bayesian sampling: CMC / MCMC) with a clear :class:`ValueError`; those
+pathways are permanently out of scope (see ``CLAUDE.md``).
 """
 
 from __future__ import annotations
@@ -54,12 +61,17 @@ class DatasetOptimizer:
         enable_compression: bool = True,
         max_workers: int | None = None,
     ):
-        """Initialize dataset optimizer.
+        """Initialize the dataset optimizer.
 
-        Args:
-            memory_limit_mb: Maximum memory usage in MB
-            enable_compression: Enable data compression for large datasets
-            max_workers: Maximum parallel workers (None for auto-detection)
+        Parameters
+        ----------
+        memory_limit_mb : float, optional
+            Maximum memory usage in MB.
+        enable_compression : bool, optional
+            Enable data compression for large datasets.
+        max_workers : int or None, optional
+            Maximum parallel workers; ``None`` auto-detects via
+            :meth:`_detect_optimal_workers`.
         """
         self.memory_limit_mb = memory_limit_mb
         self.enable_compression = enable_compression
@@ -78,14 +90,24 @@ class DatasetOptimizer:
         data: np.ndarray,
         sigma: np.ndarray | None = None,
     ) -> DatasetInfo:
-        """Analyze dataset characteristics and recommend processing strategy.
+        """Analyze dataset characteristics and recommend a processing strategy.
 
-        Args:
-            data: Primary data array
-            sigma: Optional uncertainty array
+        Categorizes the dataset by point count (``small`` < 1M, ``medium`` <
+        10M, ``large`` otherwise), derives chunk and batch sizes, then scales
+        them down with a 20% safety margin if the estimated memory usage
+        exceeds :attr:`memory_limit_mb`.
 
-        Returns:
-            DatasetInfo with analysis results and recommendations
+        Parameters
+        ----------
+        data : numpy.ndarray
+            Primary data array.
+        sigma : numpy.ndarray or None, optional
+            Optional uncertainty array.
+
+        Returns
+        -------
+        DatasetInfo
+            Analysis results and processing-size recommendations.
         """
         # Calculate memory usage
         memory_usage = self._calculate_memory_usage(data, sigma)
@@ -136,14 +158,24 @@ class DatasetOptimizer:
         dataset_info: DatasetInfo,
         method: str = "nlsq",
     ) -> ProcessingStrategy:
-        """Get optimized processing strategy for the NLSQ method.
+        """Build an optimized processing strategy for the NLSQ method.
 
-        Args:
-            dataset_info: Dataset analysis results
-            method: ``"nlsq"`` (xpcsjax v0.1 is NLSQ-only).
+        Results are memoized in :attr:`_strategy_cache` keyed by dataset size,
+        method, and memory limit.
 
-        Returns:
-            ProcessingStrategy optimized for the dataset.
+        Parameters
+        ----------
+        dataset_info : DatasetInfo
+            Dataset analysis results from :meth:`analyze_dataset`.
+        method : str, optional
+            ``"nlsq"`` (xpcsjax v0.1 is NLSQ-only). Used only as part of the
+            cache key and in log messages here.
+
+        Returns
+        -------
+        ProcessingStrategy
+            Strategy (chunk/batch sizes, worker count, JAX config) optimized
+            for the dataset.
         """
         cache_key = hash((dataset_info.size, method, self.memory_limit_mb))
 
@@ -200,14 +232,31 @@ class DatasetOptimizer:
         phi: np.ndarray,
         chunk_size: int,
     ) -> Iterator[tuple[np.ndarray, ...]]:
-        """Create memory-efficient chunked iterator for large datasets.
+        """Create a memory-efficient chunked iterator for large datasets.
 
-        Args:
-            data, sigma, t1, t2, phi: Input arrays
-            chunk_size: Size of each chunk
+        The ``data``, ``sigma``, and ``phi`` arrays are sliced along the data
+        axis; ``t1`` and ``t2`` are 2D time meshgrids and are emitted whole on
+        every chunk. Chunks are converted to JAX arrays when JAX is available.
 
-        Yields:
-            Tuple of chunked arrays
+        Parameters
+        ----------
+        data : numpy.ndarray
+            Primary data array, sliced per chunk.
+        sigma : numpy.ndarray
+            Uncertainty array, sliced per chunk (may be ``None``).
+        t1 : numpy.ndarray
+            First time meshgrid, emitted whole on each chunk.
+        t2 : numpy.ndarray
+            Second time meshgrid, emitted whole on each chunk.
+        phi : numpy.ndarray
+            Phi-angle array, sliced per chunk when it has more than one entry.
+        chunk_size : int
+            Number of data points per chunk.
+
+        Yields
+        ------
+        tuple of numpy.ndarray
+            ``(data_chunk, sigma_chunk, t1, t2, phi_chunk)`` for each chunk.
         """
         n_data = len(data)
         n_chunks = (n_data + chunk_size - 1) // chunk_size
@@ -253,12 +302,35 @@ class DatasetOptimizer:
     ) -> dict[str, Any]:
         """Optimize data processing specifically for NLSQ.
 
-        Args:
-            data, sigma, t1, t2, phi: Input arrays
-            **kwargs: Additional optimization parameters
+        Analyzes the dataset, resolves the NLSQ strategy, applies the JAX
+        environment configuration, and (for ``large`` datasets only) attaches a
+        chunked iterator.
 
-        Returns:
-            Dictionary with optimized processing configuration
+        Parameters
+        ----------
+        data : numpy.ndarray
+            Primary data array.
+        sigma : numpy.ndarray
+            Uncertainty array.
+        t1 : numpy.ndarray
+            First time meshgrid.
+        t2 : numpy.ndarray
+            Second time meshgrid.
+        phi : numpy.ndarray
+            Phi-angle array.
+        **kwargs : Any
+            Additional optimization parameters (forwarded for API symmetry).
+
+        Returns
+        -------
+        dict
+            Optimized processing configuration with keys ``dataset_info``,
+            ``strategy``, ``chunked_iterator``, and ``preprocessing_time``.
+
+        Notes
+        -----
+        The JAX environment variables are only honored before JAX's first
+        import; if JAX is already imported they are effectively ignored.
         """
         dataset_info = self.analyze_dataset(data, sigma)
         strategy = self.get_processing_strategy(dataset_info, "nlsq")
@@ -305,14 +377,20 @@ class DatasetOptimizer:
         dataset_info: DatasetInfo,
         method: str = "nlsq",
     ) -> dict[str, float]:
-        """Estimate processing time for different methods.
+        """Estimate processing time from empirical throughput rates.
 
-        Args:
-            dataset_info: Dataset analysis results
-            method: Processing method ("nlsq")
+        Parameters
+        ----------
+        dataset_info : DatasetInfo
+            Dataset analysis results.
+        method : str, optional
+            Processing method; ``"nlsq"`` uses the fast JAX-accelerated rate.
 
-        Returns:
-            Dictionary with time estimates
+        Returns
+        -------
+        dict
+            Time estimates with keys ``estimated_seconds``,
+            ``estimated_minutes``, ``effective_rate``, and ``efficiency``.
         """
         # Base processing rates (points per second) based on empirical measurements
         if method.lower() == "nlsq":
@@ -343,7 +421,23 @@ class DatasetOptimizer:
         data: np.ndarray,
         sigma: np.ndarray | None = None,
     ) -> float:
-        """Calculate memory usage in MB."""
+        """Estimate working-set memory usage in MB.
+
+        Sums the byte sizes of ``data`` (and ``sigma`` when given) and applies a
+        factor of 4 to account for intermediate computations.
+
+        Parameters
+        ----------
+        data : numpy.ndarray
+            Primary data array.
+        sigma : numpy.ndarray or None, optional
+            Optional uncertainty array.
+
+        Returns
+        -------
+        float
+            Estimated memory usage in megabytes.
+        """
         memory_bytes = data.nbytes
         if sigma is not None:
             memory_bytes += sigma.nbytes
@@ -354,7 +448,13 @@ class DatasetOptimizer:
         return memory_bytes / (1024 * 1024)  # Convert to MB
 
     def _detect_optimal_workers(self) -> int:
-        """Detect optimal number of parallel workers."""
+        """Detect the optimal number of parallel workers.
+
+        Returns
+        -------
+        int
+            CPU count capped at 8, or 4 if the count cannot be determined.
+        """
         try:
             import os
 
@@ -365,7 +465,20 @@ class DatasetOptimizer:
 
 # Convenience functions for integration with existing codebase
 def create_dataset_optimizer(**kwargs: Any) -> DatasetOptimizer:
-    """Create dataset optimizer with sensible defaults."""
+    """Create a :class:`DatasetOptimizer` with sensible defaults.
+
+    Parameters
+    ----------
+    **kwargs : Any
+        Forwarded to :class:`DatasetOptimizer`; only ``memory_limit_mb``,
+        ``enable_compression``, and ``max_workers`` are retained, other keys
+        are silently dropped.
+
+    Returns
+    -------
+    DatasetOptimizer
+        A configured optimizer instance.
+    """
     # Filter kwargs to only include valid parameters for DatasetOptimizer
     valid_params = {"memory_limit_mb", "enable_compression", "max_workers"}
     filtered_kwargs = {k: v for k, v in kwargs.items() if k in valid_params}
@@ -381,15 +494,38 @@ def optimize_for_method(
     method: str = "nlsq",
     **kwargs: Any,
 ) -> dict[str, Any]:
-    """One-shot optimization for specific method.
+    """Run one-shot optimization for a given method.
 
-    Args:
-        data, sigma, t1, t2, phi: Input arrays
-        method: ``"nlsq"`` (xpcsjax v0.1 is NLSQ-only; see CLAUDE.md).
-        **kwargs: Additional optimization parameters
+    Parameters
+    ----------
+    data : numpy.ndarray
+        Primary data array.
+    sigma : numpy.ndarray
+        Uncertainty array.
+    t1 : numpy.ndarray
+        First time meshgrid.
+    t2 : numpy.ndarray
+        Second time meshgrid.
+    phi : numpy.ndarray
+        Phi-angle array.
+    method : str, optional
+        Must be ``"nlsq"`` (xpcsjax v0.1 is NLSQ-only; see ``CLAUDE.md``).
+    **kwargs : Any
+        Additional optimization parameters forwarded to
+        :func:`create_dataset_optimizer`.
 
-    Returns:
-        Optimization configuration dictionary
+    Returns
+    -------
+    dict
+        Optimization configuration dictionary.
+
+    Raises
+    ------
+    ValueError
+        If ``method`` is not ``"nlsq"``. This is an intentional defensive
+        guard: Bayesian sampling methods (CMC / MCMC) are permanently out of
+        scope for xpcsjax and are rejected at this boundary rather than
+        silently routed.
     """
     optimizer = create_dataset_optimizer(**kwargs)
 
@@ -402,11 +538,12 @@ def optimize_for_method(
 
 
 class AdvancedDatasetOptimizer:
-    """Advanced dataset optimizer that builds upon DatasetOptimizer with
-    performance engine integration, memory-mapped I/O, and intelligent caching.
+    """Dataset optimizer with performance-engine and memory-manager integration.
 
-    This class extends the basic optimization.py with advanced features:
-    - Integration with PerformanceEngine for memory-mapped I/O
+    Extends :class:`DatasetOptimizer` with advanced features:
+
+    - Integration with :class:`~xpcsjax.data.performance_engine.PerformanceEngine`
+      for memory-mapped I/O
     - Advanced memory management with pressure monitoring
     - Multi-level caching with intelligent eviction
     - Background prefetching and parallel processing
@@ -419,12 +556,18 @@ class AdvancedDatasetOptimizer:
         performance_engine: Any | None = None,
         memory_manager: Any | None = None,
     ):
-        """Initialize advanced dataset optimizer.
+        """Initialize the advanced dataset optimizer.
 
-        Args:
-            config: Configuration dictionary with performance settings
-            performance_engine: Optional PerformanceEngine instance
-            memory_manager: Optional AdvancedMemoryManager instance
+        Parameters
+        ----------
+        config : dict or None, optional
+            Configuration dictionary with performance settings.
+        performance_engine : PerformanceEngine or None, optional
+            Existing performance engine; auto-initialized from ``config`` when
+            ``None`` and auto-init is enabled.
+        memory_manager : AdvancedMemoryManager or None, optional
+            Existing memory manager; auto-initialized from ``config`` when
+            ``None`` and auto-init is enabled.
         """
         self.config = config or {}
 
@@ -468,17 +611,21 @@ class AdvancedDatasetOptimizer:
         )
 
     def _should_init_performance_engine(self) -> bool:
-        """Check if performance engine should be automatically initialized."""
+        """Return whether the performance engine should be auto-initialized."""
         advanced_features = self.config.get("advanced_features", {})
         return bool(advanced_features.get("auto_init_performance_engine", True))
 
     def _should_init_memory_manager(self) -> bool:
-        """Check if memory manager should be automatically initialized."""
+        """Return whether the memory manager should be auto-initialized."""
         advanced_features = self.config.get("advanced_features", {})
         return bool(advanced_features.get("auto_init_memory_manager", True))
 
     def _init_performance_engine(self) -> None:
-        """Initialize performance engine with configuration."""
+        """Initialize the performance engine from configuration.
+
+        Failures (missing dependency or unexpected error) are logged as
+        warnings and leave :attr:`performance_engine` set to ``None``.
+        """
         try:
             from xpcsjax.data.performance_engine import PerformanceEngine
 
@@ -497,7 +644,11 @@ class AdvancedDatasetOptimizer:
             self.performance_engine = None
 
     def _init_memory_manager(self) -> None:
-        """Initialize advanced memory manager with configuration."""
+        """Initialize the advanced memory manager from configuration.
+
+        Failures (missing dependency or unexpected error) are logged as
+        warnings and leave :attr:`memory_manager` set to ``None``.
+        """
         try:
             from xpcsjax.data.memory_manager import AdvancedMemoryManager
 
@@ -529,21 +680,50 @@ class AdvancedDatasetOptimizer:
     ) -> dict[str, Any]:
         """Optimize processing for massive datasets with advanced features.
 
-        This method provides advanced optimization beyond the basic optimizer:
-        - Memory-mapped I/O for datasets too large to fit in memory
-        - Intelligent chunking with adaptive sizing
-        - Multi-level caching for repeated operations
-        - Background prefetching for predictive loading
-        - Real-time performance monitoring and adaptation
+        Beyond the basic optimizer this method layers on memory-mapped I/O,
+        adaptive chunking, multi-level caching, background prefetching, and
+        real-time performance monitoring on top of the NLSQ base strategy.
 
-        Args:
-            data, sigma, t1, t2, phi: Input arrays
-            hdf_path: Optional path to HDF5 file for memory-mapped access
-            method: Processing method ("nlsq")
-            **kwargs: Additional optimization parameters
+        Parameters
+        ----------
+        data : numpy.ndarray
+            Primary data array.
+        sigma : numpy.ndarray
+            Uncertainty array.
+        t1 : numpy.ndarray
+            First time meshgrid.
+        t2 : numpy.ndarray
+            Second time meshgrid.
+        phi : numpy.ndarray
+            Phi-angle array.
+        hdf_path : str or None, optional
+            Path to an HDF5 file for memory-mapped access; enables
+            performance-engine chunk planning and prefetching when given.
+        method : str, optional
+            Must be ``"nlsq"`` (xpcsjax v0.1 is NLSQ-only).
+        **kwargs : Any
+            Additional optimization parameters; ``correlation_keys`` is read
+            for chunk planning and prefetching.
 
-        Returns:
-            Advanced optimization configuration with performance engine integration
+        Returns
+        -------
+        dict
+            The base optimization configuration enriched with an
+            ``advanced_features`` block and ``performance_metrics``.
+
+        Raises
+        ------
+        ValueError
+            If ``method`` is not ``"nlsq"``. This is an intentional defensive
+            guard rejecting out-of-scope Bayesian sampling (CMC / MCMC) at the
+            data boundary.
+
+        Examples
+        --------
+        >>> with create_advanced_dataset_optimizer() as opt:
+        ...     cfg = opt.optimize_massive_dataset(data, sigma, t1, t2, phi)
+        >>> cfg["dataset_info"].category
+        'large'
         """
         start_time = time.time()
 
@@ -687,7 +867,27 @@ class AdvancedDatasetOptimizer:
         method: str,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Create advanced chunking configuration beyond basic optimization."""
+        """Build an advanced chunking configuration beyond basic optimization.
+
+        Adds adaptive sizing, NLSQ-specific overlap, and history-driven
+        adjustments (more aggressive chunking when recent optimizations were
+        slow, larger chunks when they were fast).
+
+        Parameters
+        ----------
+        dataset_info : DatasetInfo
+            Dataset analysis results.
+        method : str
+            Processing method; ``"nlsq"`` adds chunk-overlap and CPU-memory
+            tuning.
+        **kwargs : Any
+            Reserved for future chunking parameters.
+
+        Returns
+        -------
+        dict
+            Advanced chunking configuration.
+        """
         chunking_config = {
             "strategy": "adaptive",
             "base_chunk_size": dataset_info.recommended_chunk_size,
@@ -723,7 +923,16 @@ class AdvancedDatasetOptimizer:
         return chunking_config
 
     def _schedule_background_optimization(self, config: dict[str, Any]) -> None:
-        """Schedule background optimization tasks."""
+        """Schedule background optimization tasks.
+
+        A no-op when no performance engine is attached or the configuration
+        lacks ``dataset_info``. Exceptions are caught and logged as warnings.
+
+        Parameters
+        ----------
+        config : dict
+            Optimization configuration used to drive cache warming.
+        """
         if not self.performance_engine:
             return
 
@@ -741,7 +950,15 @@ class AdvancedDatasetOptimizer:
             )
 
     def get_optimization_statistics(self) -> dict[str, Any]:
-        """Get comprehensive optimization statistics."""
+        """Return comprehensive optimization statistics.
+
+        Returns
+        -------
+        dict
+            Optimization history size, feature-availability flags, and (when
+            available) nested performance-engine, memory-manager, and
+            recent-performance summaries.
+        """
         stats = {
             "optimization_history": len(self._optimization_history),
             "advanced_features_status": {
@@ -799,7 +1016,11 @@ class AdvancedDatasetOptimizer:
         return stats
 
     def cleanup(self) -> None:
-        """Cleanup advanced optimizer resources."""
+        """Release advanced optimizer resources.
+
+        Shuts down the performance engine and memory manager (when they expose
+        a ``shutdown`` method) and clears the optimization history.
+        """
         logger.info("Cleaning up advanced dataset optimizer")
 
         # Cleanup performance engine
@@ -816,11 +1037,17 @@ class AdvancedDatasetOptimizer:
         logger.info("Advanced dataset optimizer cleanup complete")
 
     def __enter__(self) -> AdvancedDatasetOptimizer:
-        """Context manager entry."""
+        """Enter the context manager.
+
+        Returns
+        -------
+        AdvancedDatasetOptimizer
+            This instance.
+        """
         return self
 
     def __exit__(self, exc_type: Any, _exc_val: Any, _exc_tb: Any) -> None:
-        """Context manager exit."""
+        """Exit the context manager, releasing resources via :meth:`cleanup`."""
         self.cleanup()
 
 
@@ -829,7 +1056,21 @@ def create_advanced_dataset_optimizer(
     config: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> AdvancedDatasetOptimizer:
-    """Create advanced dataset optimizer with performance engine integration."""
+    """Create an :class:`AdvancedDatasetOptimizer`.
+
+    Parameters
+    ----------
+    config : dict or None, optional
+        Configuration dictionary with performance settings.
+    **kwargs : Any
+        Forwarded to :class:`AdvancedDatasetOptimizer` (e.g.
+        ``performance_engine``, ``memory_manager``).
+
+    Returns
+    -------
+    AdvancedDatasetOptimizer
+        A configured advanced optimizer instance.
+    """
     return AdvancedDatasetOptimizer(config=config, **kwargs)
 
 
@@ -844,23 +1085,43 @@ def optimize_for_method_advanced(
     config: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
-    """Advanced one-shot optimization with performance engine integration.
+    """Run advanced one-shot optimization with performance-engine integration.
 
-    This function provides all the advanced features beyond basic optimization:
-    - Memory-mapped I/O for massive datasets
-    - Intelligent chunking and parallel processing
-    - Multi-level caching and prefetching
-    - Real-time performance monitoring
+    Wraps :meth:`AdvancedDatasetOptimizer.optimize_massive_dataset` in a
+    managed optimizer, exposing memory-mapped I/O, adaptive chunking, caching,
+    prefetching, and performance monitoring in a single call.
 
-    Args:
-        data, sigma, t1, t2, phi: Input arrays
-        method: "nlsq"
-        hdf_path: Optional HDF5 file path for memory-mapped access
-        config: Advanced optimization configuration
-        **kwargs: Additional optimization parameters
+    Parameters
+    ----------
+    data : numpy.ndarray
+        Primary data array.
+    sigma : numpy.ndarray
+        Uncertainty array.
+    t1 : numpy.ndarray
+        First time meshgrid.
+    t2 : numpy.ndarray
+        Second time meshgrid.
+    phi : numpy.ndarray
+        Phi-angle array.
+    method : str, optional
+        Must be ``"nlsq"`` (xpcsjax v0.1 is NLSQ-only).
+    hdf_path : str or None, optional
+        Optional HDF5 file path for memory-mapped access.
+    config : dict or None, optional
+        Advanced optimization configuration.
+    **kwargs : Any
+        Additional optimization parameters.
 
-    Returns:
-        Advanced optimization configuration dictionary
+    Returns
+    -------
+    dict
+        Advanced optimization configuration dictionary.
+
+    Raises
+    ------
+    ValueError
+        If ``method`` is not ``"nlsq"`` (out-of-scope Bayesian methods are
+        rejected downstream by :meth:`optimize_massive_dataset`).
     """
     with create_advanced_dataset_optimizer(config) as optimizer:
         result = optimizer.optimize_massive_dataset(

@@ -1,11 +1,15 @@
-"""Shared Data Types for Homodyne Data Layer
-=============================================
+"""Shared data types for the homodyne data layer.
 
 Common dataclasses and type definitions shared across the data module.
-Extracted to prevent circular imports between optimization.py and performance_engine.py.
+Extracted to prevent circular imports between :mod:`xpcsjax.data.optimization`
+and :mod:`xpcsjax.data.performance_engine`.
 
 This module provides foundation types that both modules need without
 creating import cycles.
+
+The valid ``data_type`` strings recognized across the data layer are
+``"aps_old"`` (legacy APS format) and ``"aps_u"`` (unified APS format); the
+canonical ``DataType`` literal is defined in :mod:`xpcsjax.config.types`.
 """
 
 from dataclasses import dataclass

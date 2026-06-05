@@ -1,23 +1,27 @@
-"""Data Filtering Utilities for XPCS Data Loader
-=============================================
+"""Data filtering utilities for the XPCS data loader.
 
-Comprehensive filtering utilities supporting q-range, quality-based, and frame-based filtering
-for XPCS correlation matrices. Integrates with the existing phi_filtering system and provides
-unified filtering logic for the data loader.
+Comprehensive filtering utilities supporting q-range, quality-based, and
+frame-based filtering for XPCS correlation matrices. Integrates with the
+existing :mod:`xpcsjax.data.phi_filtering` system and provides unified
+filtering logic for the data loader.
 
-Key Features:
-- Q-range filtering based on wavevector values
-- Quality-based filtering using correlation matrix properties
-- Frame-based filtering beyond basic start/end limits
-- Integration with existing phi angle filtering
-- Flexible combination criteria (AND/OR logic)
-- Comprehensive error handling and validation
+Key Features
+------------
+- Q-range filtering based on wavevector values.
+- Quality-based filtering using correlation matrix properties.
+- Frame-based filtering beyond basic start/end limits.
+- Integration with existing phi angle filtering.
+- Flexible combination criteria (AND/OR logic).
+- Comprehensive error handling and validation.
 
-Performance optimizations:
-- Vectorized operations using numpy/JAX
-- Smart caching of filtering results
-- Early termination for empty filter results
-- Memory-efficient mask operations
+Notes
+-----
+Performance optimizations applied throughout this module:
+
+- Vectorized operations using numpy.
+- Smart caching of filtering results.
+- Early termination for empty filter results.
+- Memory-efficient mask operations.
 """
 
 from dataclasses import dataclass
@@ -136,13 +140,19 @@ class XPCSDataFilter:
     ) -> FilteringResult:
         """Apply comprehensive filtering to XPCS data indices.
 
-        Args:
-            dqlist: Array of q-values (wavevector magnitudes)
-            dphilist: Array of phi angles in degrees
-            correlation_matrices: Optional list of correlation matrices for quality filtering
+        Parameters
+        ----------
+        dqlist
+            Array of q-values (wavevector magnitudes).
+        dphilist
+            Array of phi angles in degrees.
+        correlation_matrices
+            Optional list of correlation matrices used for quality filtering.
 
-        Returns:
-            FilteringResult containing selected indices and filtering statistics
+        Returns
+        -------
+        FilteringResult
+            Result holding the selected indices and filtering statistics.
         """
         total_available = len(dqlist)
         logger.info(f"Starting data filtering on {total_available} data points")
@@ -586,16 +596,32 @@ def apply_data_filtering(
     config: dict[str, Any],
     correlation_matrices: list[np.ndarray] | None = None,
 ) -> np.ndarray | None:
-    """Convenience function for applying data filtering.
+    """Apply data filtering using a one-shot convenience wrapper.
 
-    Args:
-        dqlist: Array of q-values
-        dphilist: Array of phi angles
-        config: Configuration dictionary
-        correlation_matrices: Optional correlation matrices for quality filtering
+    Builds an :class:`XPCSDataFilter` from ``config`` and applies it, raising
+    :class:`DataFilteringError` if filtering errors occur and no fallback was
+    used.
 
-    Returns:
-        Array of selected indices, or None if no filtering applied
+    Parameters
+    ----------
+    dqlist
+        Array of q-values.
+    dphilist
+        Array of phi angles.
+    config
+        Configuration dictionary controlling the filtering behavior.
+    correlation_matrices
+        Optional correlation matrices used for quality filtering.
+
+    Returns
+    -------
+    numpy.ndarray or None
+        Array of selected indices, or ``None`` if no filtering was applied.
+
+    Raises
+    ------
+    DataFilteringError
+        If filtering reports errors and no fallback was used.
     """
     filter_obj = XPCSDataFilter(config)
     result = filter_obj.apply_filtering(dqlist, dphilist, correlation_matrices)

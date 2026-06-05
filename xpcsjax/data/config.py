@@ -1,20 +1,24 @@
-"""Configuration System for XPCS Data Loading
-==========================================
+"""Configuration system for XPCS data loading.
 
 YAML-first configuration system with JSON support for XPCS data loading.
-Provides configuration validation, schema definitions, and format conversion utilities.
+Provides configuration validation, schema definitions, and format conversion
+utilities.
 
 This module supports:
-- YAML configuration loading and validation
-- JSON configuration support
-- Configuration schema validation
-- Migration utilities from JSON to YAML
-- Integration with modern configuration management
 
-Configuration Structure:
-- experimental_data: File paths and data parameters
-- analyzer_parameters: Analysis settings (time, frames)
-- enhanced_features: Enhanced features and optimizations
+- YAML configuration loading and validation.
+- JSON configuration support.
+- Configuration schema validation.
+- Migration utilities from JSON to YAML.
+- Integration with modern configuration management.
+
+Notes
+-----
+Configuration structure:
+
+- ``experimental_data``: File paths and data parameters.
+- ``analyzer_parameters``: Analysis settings (time, frames).
+- ``enhanced_features``: Enhanced features and optimizations.
 """
 
 import json
@@ -168,16 +172,23 @@ XPCS_CONFIG_SCHEMA = {
 
 
 def load_yaml_config(config_path: str | Path) -> dict[str, Any]:
-    """Load YAML configuration file.
+    """Load a YAML configuration file.
 
-    Args:
-        config_path: Path to YAML configuration file
+    Parameters
+    ----------
+    config_path
+        Path to the YAML configuration file.
 
-    Returns:
-        Configuration dictionary
+    Returns
+    -------
+    dict
+        Configuration dictionary.
 
-    Raises:
-        XPCSConfigurationError: If YAML loading fails
+    Raises
+    ------
+    XPCSConfigurationError
+        If PyYAML is unavailable, the file is missing, the file is empty or
+        unparseable, or the root node is not a mapping.
     """
     if not HAS_YAML or yaml_module is None:
         raise XPCSConfigurationError("PyYAML required for YAML configuration files")
@@ -211,16 +222,23 @@ def load_yaml_config(config_path: str | Path) -> dict[str, Any]:
 
 
 def load_json_config(config_path: str | Path) -> dict[str, Any]:
-    """Load JSON configuration file with automatic YAML conversion.
+    """Load a JSON configuration file with automatic YAML conversion.
 
-    Args:
-        config_path: Path to JSON configuration file
+    Parameters
+    ----------
+    config_path
+        Path to the JSON configuration file.
 
-    Returns:
-        Configuration dictionary
+    Returns
+    -------
+    dict
+        Configuration dictionary.
 
-    Raises:
-        XPCSConfigurationError: If JSON loading fails
+    Raises
+    ------
+    XPCSConfigurationError
+        If the file is missing, the file is unparseable, or the root node is
+        not an object.
     """
     config_path = Path(config_path)
 
@@ -252,14 +270,19 @@ def validate_config_schema(
     config: dict[str, Any],
     schema: dict[str, Any] | None = None,
 ) -> ConfigValidationResult:
-    """Validate configuration against schema.
+    """Validate a configuration against a schema.
 
-    Args:
-        config: Configuration dictionary to validate
-        schema: Schema to validate against (defaults to XPCS_CONFIG_SCHEMA)
+    Parameters
+    ----------
+    config
+        Configuration dictionary to validate.
+    schema
+        Schema to validate against; defaults to ``XPCS_CONFIG_SCHEMA``.
 
-    Returns:
-        Validation result with errors and warnings
+    Returns
+    -------
+    ConfigValidationResult
+        Validation result holding errors and warnings.
     """
     if schema is None:
         schema = XPCS_CONFIG_SCHEMA
@@ -571,14 +594,19 @@ def apply_config_defaults(
     config: dict[str, Any],
     schema: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Apply default values to configuration.
+    """Apply default values to a configuration.
 
-    Args:
-        config: Configuration dictionary
-        schema: Schema with default values (defaults to XPCS_CONFIG_SCHEMA)
+    Parameters
+    ----------
+    config
+        Configuration dictionary.
+    schema
+        Schema carrying default values; defaults to ``XPCS_CONFIG_SCHEMA``.
 
-    Returns:
-        Configuration with defaults applied
+    Returns
+    -------
+    dict
+        Configuration with defaults applied.
     """
     if schema is None:
         schema = XPCS_CONFIG_SCHEMA
@@ -619,14 +647,19 @@ def migrate_json_to_yaml_config(
     json_config: dict[str, Any],
     yaml_output_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Migrate JSON configuration to YAML format.
+    """Migrate a JSON configuration to YAML format.
 
-    Args:
-        json_config: JSON configuration dictionary
-        yaml_output_path: Optional path to save YAML configuration
+    Parameters
+    ----------
+    json_config
+        JSON configuration dictionary.
+    yaml_output_path
+        Optional path to which the YAML configuration is saved.
 
-    Returns:
-        YAML configuration dictionary
+    Returns
+    -------
+    dict
+        YAML configuration dictionary.
     """
     # Structure is already suitable, so just copy
     # In the future, this could include more sophisticated transformations
@@ -651,14 +684,19 @@ def migrate_json_to_yaml_config(
 
 
 def save_yaml_config(config: dict[str, Any], output_path: str | Path) -> None:
-    """Save configuration to YAML file.
+    """Save a configuration to a YAML file.
 
-    Args:
-        config: Configuration dictionary
-        output_path: Path to save YAML file
+    Parameters
+    ----------
+    config
+        Configuration dictionary.
+    output_path
+        Path to which the YAML file is written.
 
-    Raises:
-        XPCSConfigurationError: If YAML saving fails
+    Raises
+    ------
+    XPCSConfigurationError
+        If PyYAML is unavailable or writing the file fails.
     """
     if not HAS_YAML or yaml_module is None:
         raise XPCSConfigurationError("PyYAML required to save YAML configuration files")

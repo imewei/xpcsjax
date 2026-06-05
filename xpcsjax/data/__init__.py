@@ -1,42 +1,48 @@
-"""Data Loading and Management for Homodyne
-=============================================
+"""Data loading and management for the homodyne data layer.
 
 Comprehensive data loading infrastructure supporting XPCS experimental data
 from multiple synchrotron sources with YAML-first configuration, intelligent
 caching, and JAX integration.
 
-Key Features:
-- YAML-first configuration with JSON support
-- Support for APS old format and APS-U new format HDF5 files
-- Intelligent NPZ caching system
-- JAX array output with numpy fallback
-- Physics-based data validation
-- Integration with modern core architecture
+Key Features
+------------
+- YAML-first configuration with JSON support.
+- Support for APS old format (``"aps_old"``) and APS-U unified format
+  (``"aps_u"``) HDF5 files.
+- Intelligent NPZ caching system.
+- JAX array output with numpy fallback.
+- Physics-based data validation.
+- Integration with the modern core architecture.
 
-Primary Components:
-- XPCSDataLoader: Main class for loading XPCS data
-- load_xpcs_data: Convenience function for simple data loading
-- PhiAngleFilter: Intelligent angle filtering for optimization performance
-- Configuration system with YAML/JSON support
-- Data validation and quality checks
+Primary Components
+------------------
+- :class:`~xpcsjax.data.xpcs_loader.XPCSDataLoader`: Main class for loading
+  XPCS data.
+- :func:`~xpcsjax.data.xpcs_loader.load_xpcs_data`: Convenience function for
+  simple data loading.
+- :class:`~xpcsjax.data.phi_filtering.PhiAngleFilter`: Intelligent angle
+  filtering for optimization performance.
+- Configuration system with YAML/JSON support.
+- Data validation and quality checks.
 
-Example Usage:
-    >>> from xpcsjax.data import XPCSDataLoader, load_xpcs_data, filter_phi_angles
-    >>>
-    >>> # Using YAML configuration
-    >>> data = load_xpcs_data("xpcs_config.yaml")
-    >>>
-    >>> # Using loader class
-    >>> loader = XPCSDataLoader(config_path="config.yaml")
-    >>> data = loader.load_experimental_data()
-    >>>
-    >>> # Apply phi angle filtering for performance
-    >>> angles = data['phi_angles_list']
-    >>> indices, filtered_angles = filter_phi_angles(angles)
-    >>>
-    >>> # Check data structure
-    >>> print(data.keys())
-    >>> dict_keys(['wavevector_q_list', 'phi_angles_list', 't1', 't2', 'c2_exp'])
+Examples
+--------
+>>> from xpcsjax.data import XPCSDataLoader, load_xpcs_data, filter_phi_angles
+>>>
+>>> # Using YAML configuration
+>>> data = load_xpcs_data("xpcs_config.yaml")
+>>>
+>>> # Using loader class
+>>> loader = XPCSDataLoader(config_path="config.yaml")
+>>> data = loader.load_experimental_data()
+>>>
+>>> # Apply phi angle filtering for performance
+>>> angles = data['phi_angles_list']
+>>> indices, filtered_angles = filter_phi_angles(angles)
+>>>
+>>> # Check data structure
+>>> print(data.keys())
+>>> dict_keys(['wavevector_q_list', 'phi_angles_list', 't1', 't2', 'c2_exp'])
 """
 
 from typing import Any
@@ -68,22 +74,27 @@ except ImportError as e:
     # so all real call sites raise the same ImportError. The ``no-redef`` /
     # ``misc`` (signature mismatch) ignores acknowledge that contract.
     class XPCSDataLoader:  # type: ignore[no-redef]
+        """Placeholder loader that raises when the real loader is unavailable."""
+
         def __init__(self, *args, **kwargs):  # noqa: ARG002
+            """Raise :class:`ImportError` describing the missing dependency."""
             raise ImportError(f"XPCS loader not available: {_loader_error}")
 
     class XPCSDataFormatError(Exception):  # type: ignore[no-redef]
-        pass
+        """Placeholder for the data-format error when the loader is absent."""
 
     class XPCSDependencyError(Exception):  # type: ignore[no-redef]
-        pass
+        """Placeholder for the dependency error when the loader is absent."""
 
     class XPCSConfigurationError(Exception):  # type: ignore[no-redef]
-        pass
+        """Placeholder for the configuration error when the loader is absent."""
 
     def load_xpcs_data(*args, **kwargs):  # type: ignore[no-redef]  # noqa: ARG001
+        """Raise :class:`ImportError` describing the missing dependency."""
         raise ImportError(f"XPCS loader not available: {_loader_error}")
 
     def load_xpcs_config(*args, **kwargs):  # type: ignore[no-redef,misc]  # noqa: ARG001
+        """Raise :class:`ImportError` describing the missing dependency."""
         raise ImportError(f"XPCS loader not available: {_loader_error}")
 
 
@@ -173,10 +184,14 @@ __features__ = {
 
 
 def get_data_module_info() -> dict:
-    """Get information about data module capabilities.
+    """Return information about data module capabilities.
 
-    Returns:
-        Dictionary with feature availability and version info
+    Returns
+    -------
+    dict
+        Mapping with feature-availability flags, the data-layer version, and
+        the supported XPCS / configuration formats. Includes a
+        ``"loader_error"`` entry only when the XPCS loader failed to import.
     """
     # Annotated ``dict[str, Any]`` because the value types intentionally mix
     # ``str`` (version), ``list[str]`` (features, formats), and optionally

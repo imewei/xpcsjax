@@ -1,10 +1,11 @@
-"""Advanced Performance Engine for Massive XPCS Datasets - Homodyne
-===================================================================
+"""Advanced performance engine for massive XPCS datasets.
 
-High-performance data processing engine for handling massive XPCS datasets (>1GB)
-with memory-mapped I/O, intelligent chunking, parallel processing, and multi-level caching.
+High-performance data processing engine for handling massive XPCS datasets
+(>1 GB) with memory-mapped I/O, intelligent chunking, parallel processing, and
+multi-level caching.
 
-This module provides advanced performance optimizations beyond the basic optimization.py:
+This module provides advanced performance optimizations beyond
+``optimization.py``:
 
 - Memory-mapped HDF5 access for files too large to fit in memory
 - Adaptive chunking based on memory pressure and data characteristics
@@ -14,7 +15,8 @@ This module provides advanced performance optimizations beyond the basic optimiz
 - Performance monitoring and bottleneck identification
 - Graceful degradation when optimizations fail
 
-Key Features:
+Key features
+------------
 - Progressive loading of correlation matrices without loading entire datasets
 - Intelligent buffer management for large correlation matrix collections
 - Cross-chunk correlation analysis for maintaining data integrity
@@ -148,7 +150,14 @@ class PerformanceMetrics:
     _history: deque = field(default_factory=lambda: deque(maxlen=100), init=False)
 
     def update(self, **kwargs: Any) -> None:
-        """Update metrics and maintain history."""
+        """Update named metric fields and append a history snapshot.
+
+        Parameters
+        ----------
+        **kwargs : Any
+            Metric name/value pairs; only keys matching existing attributes are
+            applied.
+        """
         for key, value in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, value)
@@ -164,7 +173,24 @@ class PerformanceMetrics:
         self._history.append(snapshot)
 
     def get_trend(self, metric: str, window: int = 10) -> float:
-        """Get trend for a specific metric (-1.0 to 1.0, negative=declining)."""
+        """Compute the recent linear trend for a metric.
+
+        Fits a line to the last ``window`` history snapshots and normalizes the
+        slope by the value range.
+
+        Parameters
+        ----------
+        metric : str
+            History key to analyze.
+        window : int, optional
+            Number of recent snapshots to fit.
+
+        Returns
+        -------
+        float
+            Normalized slope in ``[-1.0, 1.0]`` (negative means declining);
+            ``0.0`` when there is insufficient or flat data.
+        """
         if len(self._history) < window:
             return 0.0
 
@@ -208,11 +234,14 @@ class MemoryMapManager:
     """
 
     def __init__(self, max_open_files: int = 64, buffer_size_mb: float = 512.0):
-        """Initialize memory map manager.
+        """Initialize the memory map manager.
 
-        Args:
-            max_open_files: Maximum number of simultaneously open memory maps
-            buffer_size_mb: Size of internal buffers in MB
+        Parameters
+        ----------
+        max_open_files : int, optional
+            Maximum number of simultaneously open memory maps.
+        buffer_size_mb : float, optional
+            Size of the per-file HDF5 chunk cache in MB.
         """
         self.max_open_files = max_open_files
         self.buffer_size_mb = buffer_size_mb
@@ -228,14 +257,30 @@ class MemoryMapManager:
 
     @contextmanager
     def open_memory_mapped_hdf5(self, file_path: str, mode: str = "r") -> Iterator[Any]:
-        """Context manager for memory-mapped HDF5 file access.
+        """Yield a (re)used memory-mapped HDF5 file handle.
 
-        Args:
-            file_path: Path to HDF5 file
-            mode: File access mode
+        Reuses an already-open handle when present, otherwise opens a new one
+        (after evicting old mappings if at the file limit). The lock is released
+        before yielding so callers do not block others during I/O.
 
-        Yields:
-            Memory-mapped h5py.File object
+        Parameters
+        ----------
+        file_path : str
+            Path to the HDF5 file.
+        mode : str, optional
+            File access mode passed to :class:`h5py.File`.
+
+        Yields
+        ------
+        h5py.File
+            The memory-mapped file object.
+
+        Raises
+        ------
+        PerformanceEngineError
+            If ``h5py`` is not installed.
+        OSError
+            If the file cannot be opened.
         """
         if not HAS_H5PY:
             raise PerformanceEngineError("h5py required for memory-mapped access")
@@ -319,12 +364,16 @@ class AdaptiveChunker:
         memory_threshold: float = 0.8,
         performance_feedback_window: int = 10,
     ):
-        """Initialize adaptive chunker.
+        """Initialize the adaptive chunker.
 
-        Args:
-            base_chunk_size: Base chunk size for normal conditions
-            memory_threshold: Memory usage threshold for adaptation (0.0-1.0)
-            performance_feedback_window: Number of chunks to consider for performance feedback
+        Parameters
+        ----------
+        base_chunk_size : int, optional
+            Base chunk size used under normal conditions.
+        memory_threshold : float, optional
+            Memory usage fraction (0.0-1.0) above which chunk sizes shrink.
+        performance_feedback_window : int, optional
+            Number of recent chunks considered when adapting the chunk size.
         """
         self.base_chunk_size = base_chunk_size
         self.memory_threshold = memory_threshold
@@ -347,15 +396,25 @@ class AdaptiveChunker:
         data_complexity: float = 1.0,
         available_memory_mb: float | None = None,
     ) -> int:
-        """Calculate optimal chunk size based on current conditions.
+        """Calculate the optimal chunk size for current conditions.
 
-        Args:
-            total_size: Total size of data to be chunked
-            data_complexity: Complexity score (1.0=normal, >1.0=complex)
-            available_memory_mb: Available memory in MB
+        Scales the current optimal size down under memory pressure and for
+        higher data complexity, then clamps to per-dataset minimum and maximum
+        bounds.
 
-        Returns:
-            Optimal chunk size for current conditions
+        Parameters
+        ----------
+        total_size : int
+            Total size of the data to be chunked.
+        data_complexity : float, optional
+            Complexity score (``1.0`` normal, ``> 1.0`` more complex).
+        available_memory_mb : float or None, optional
+            Available memory in MB; queried from the system when ``None``.
+
+        Returns
+        -------
+        int
+            Chunk size for the current conditions.
         """
         # Get current memory status
         if available_memory_mb is None:
@@ -403,14 +462,23 @@ class AdaptiveChunker:
         return chunk_size
 
     def create_chunk_plan(self, total_size: int, chunk_size: int) -> list[ChunkInfo]:
-        """Create intelligent chunk processing plan.
+        """Create an intelligent chunk processing plan.
 
-        Args:
-            total_size: Total size of data
-            chunk_size: Size of each chunk
+        Splits the data into chunks and annotates each with estimated memory,
+        complexity, priority, and processing time (edge chunks get higher
+        complexity and priority).
 
-        Returns:
-            List of ChunkInfo objects with processing plan
+        Parameters
+        ----------
+        total_size : int
+            Total size of the data.
+        chunk_size : int
+            Size of each chunk.
+
+        Returns
+        -------
+        list of ChunkInfo
+            Per-chunk processing plan.
         """
         num_chunks = (total_size + chunk_size - 1) // chunk_size
         chunks = []
@@ -467,12 +535,20 @@ class AdaptiveChunker:
         actual_processing_time: float,
         success: bool = True,
     ) -> None:
-        """Update performance feedback for adaptive optimization.
+        """Record chunk processing feedback and adapt when warranted.
 
-        Args:
-            chunk_info: Information about processed chunk
-            actual_processing_time: Actual time taken to process chunk
-            success: Whether processing was successful
+        Stores the estimated-vs-actual performance ratio and triggers
+        :meth:`_adapt_chunk_size` once enough samples are gathered and the
+        adaptation cooldown has elapsed.
+
+        Parameters
+        ----------
+        chunk_info : ChunkInfo
+            Information about the processed chunk.
+        actual_processing_time : float
+            Wall-clock time taken to process the chunk, in seconds.
+        success : bool, optional
+            Whether processing succeeded.
         """
         performance_ratio = chunk_info.estimated_processing_time / max(
             actual_processing_time,
@@ -551,13 +627,19 @@ class MultiLevelCache:
         hdd_cache_mb: float = 32768.0,
         compression_level: int = 3,
     ):
-        """Initialize multi-level cache system.
+        """Initialize the multi-level cache system.
 
-        Args:
-            memory_cache_mb: Memory cache size in MB
-            ssd_cache_mb: SSD cache size in MB
-            hdd_cache_mb: HDD cache size in MB
-            compression_level: Compression level for caching (1-22, higher=better compression)
+        Parameters
+        ----------
+        memory_cache_mb : float, optional
+            Memory (tier 1) cache size in MB.
+        ssd_cache_mb : float, optional
+            SSD (tier 2) cache size in MB.
+        hdd_cache_mb : float, optional
+            HDD (tier 3) cache size in MB.
+        compression_level : int, optional
+            zstd compression level (1-22; higher = better compression). Ignored
+            when ``zstd`` is unavailable (payloads are stored uncompressed).
         """
         self.memory_cache_mb = memory_cache_mb
         self.ssd_cache_mb = ssd_cache_mb
@@ -599,13 +681,19 @@ class MultiLevelCache:
         )
 
     def get(self, key: str) -> Any | None:
-        """Get item from cache hierarchy (memory -> SSD -> HDD).
+        """Fetch an item from the cache hierarchy (memory then SSD then HDD).
 
-        Args:
-            key: Cache key
+        A hit on a lower tier is promoted toward memory.
 
-        Returns:
-            Cached item or None if not found
+        Parameters
+        ----------
+        key : str
+            Cache key.
+
+        Returns
+        -------
+        Any or None
+            The cached item, or ``None`` on a miss across all tiers.
         """
         with self._lock:
             current_time = time.time()
@@ -649,12 +737,20 @@ class MultiLevelCache:
             return None
 
     def put(self, key: str, item: Any, priority: int = 5) -> None:
-        """Put item in cache hierarchy with intelligent placement.
+        """Store an item, choosing tiers by priority and access frequency.
 
-        Args:
-            key: Cache key
-            item: Item to cache
-            priority: Priority level (1=highest, 10=lowest)
+        Always populated in the memory tier; SSD/HDD promotion is decided under
+        the lock and the disk writes happen outside it.
+
+        Parameters
+        ----------
+        key : str
+            Cache key.
+        item : Any
+            Item to cache (only numeric arrays are written to disk tiers).
+        priority : int, optional
+            Priority level (``1`` highest, ``10`` lowest); lower values bias
+            toward the SSD and HDD tiers.
         """
         # Determine promotion decisions while holding the lock
         with self._lock:
@@ -691,7 +787,19 @@ class MultiLevelCache:
         current_time: float,
         priority: int = 5,
     ) -> None:
-        """Put item in memory cache with size management."""
+        """Insert an item into the memory tier, evicting to fit if needed.
+
+        Parameters
+        ----------
+        key : str
+            Cache key.
+        item : Any
+            Item to store.
+        current_time : float
+            Timestamp used to update access statistics.
+        priority : int, optional
+            Priority level (currently advisory for the memory tier).
+        """
         # Calculate item size
         item_size_mb = self._estimate_size_mb(item)
 
@@ -715,7 +823,15 @@ class MultiLevelCache:
             self._update_access_stats(key, current_time)
 
     def _put_ssd(self, key: str, item: Any) -> None:
-        """Put item in SSD cache with size management."""
+        """Write an item to the SSD tier, evicting to stay within the limit.
+
+        Parameters
+        ----------
+        key : str
+            Cache key.
+        item : Any
+            Item to store.
+        """
         try:
             ssd_path = self._ssd_cache_path / f"{key}.zstd"
             item_size_mb = self._save_to_disk(ssd_path, item)
@@ -731,7 +847,15 @@ class MultiLevelCache:
             logger.warning(f"Failed to cache to SSD {key}: {e}")
 
     def _put_hdd(self, key: str, item: Any) -> None:
-        """Put item in HDD cache with size management."""
+        """Write an item to the HDD tier, evicting to stay within the limit.
+
+        Parameters
+        ----------
+        key : str
+            Cache key.
+        item : Any
+            Item to store.
+        """
         try:
             hdd_path = self._hdd_cache_path / f"{key}.zstd"
             item_size_mb = self._save_to_disk(hdd_path, item)
@@ -747,8 +871,29 @@ class MultiLevelCache:
             logger.warning(f"Failed to cache to HDD {key}: {e}")
 
     def _save_to_disk(self, file_path: Path, item: Any) -> float:
-        """Save a compressed array to disk and return size in MB.
+        """Save a compressed array to disk and return its size in MB.
 
+        Parameters
+        ----------
+        file_path : pathlib.Path
+            Destination file path (written ``0o600``).
+        item : Any
+            Payload to serialize; must be (or coerce to) a numeric array.
+
+        Returns
+        -------
+        float
+            On-disk size of the written (possibly compressed) payload in MB.
+
+        Raises
+        ------
+        ValueError
+            If the payload is an object-dtype (non-numeric) array.
+        OSError
+            If the file cannot be written.
+
+        Notes
+        -----
         SEC-1: serialization uses ``np.save`` with ``allow_pickle=False``. The
         disk cache only ever holds correlation-matrix arrays, so arbitrary
         object pickling is unnecessary — and refusing pickle removes the
@@ -789,8 +934,28 @@ class MultiLevelCache:
             raise
 
     def _load_from_disk(self, file_path: Path) -> Any:
-        """Load and decompress item from disk.
+        """Load and decompress a cached array from disk.
 
+        Parameters
+        ----------
+        file_path : pathlib.Path
+            Cache file to read.
+
+        Returns
+        -------
+        numpy.ndarray
+            The decoded array.
+
+        Raises
+        ------
+        OSError
+            If the path escapes the cache root, the file is missing, or it
+            fails an ownership or permission-mode check.
+        ValueError
+            If decompression or array decoding fails.
+
+        Notes
+        -----
         Security model: the primary defense (SEC-1) is that the payload is
         decoded with ``np.load(..., allow_pickle=False)`` — the deserializer
         can only reconstruct a NumPy array, never an arbitrary Python object,
@@ -888,7 +1053,21 @@ class MultiLevelCache:
             raise
 
     def _estimate_size_mb(self, item: Any) -> float:
-        """Estimate memory size of item in MB."""
+        """Estimate the in-memory size of an item in MB.
+
+        Recurses into lists, tuples, and dicts; uses ``nbytes`` for arrays and
+        falls back to :func:`sys.getsizeof` otherwise.
+
+        Parameters
+        ----------
+        item : Any
+            Object to measure.
+
+        Returns
+        -------
+        float
+            Estimated size in MB.
+        """
         if hasattr(item, "nbytes"):  # numpy array
             return float(item.nbytes / (1024 * 1024))
         elif isinstance(item, (list, tuple)):
@@ -911,7 +1090,15 @@ class MultiLevelCache:
                 return 0.1  # Conservative estimate
 
     def _update_access_stats(self, key: str, current_time: float) -> None:
-        """Update access statistics for intelligent caching decisions."""
+        """Record an access for intelligent caching and eviction decisions.
+
+        Parameters
+        ----------
+        key : str
+            Accessed cache key.
+        current_time : float
+            Access timestamp.
+        """
         self._access_counts[key] = self._access_counts.get(key, 0) + 1
         self._access_times[key] = current_time
 
@@ -921,7 +1108,19 @@ class MultiLevelCache:
         self._access_frequencies[key].append(current_time)
 
     def _get_access_frequency(self, key: str) -> float:
-        """Get access frequency (accesses per minute) for a key."""
+        """Return the recent access frequency for a key in accesses per minute.
+
+        Parameters
+        ----------
+        key : str
+            Cache key to query.
+
+        Returns
+        -------
+        float
+            Accesses per minute over the tracked window, or ``0.0`` with too
+            few samples.
+        """
         if key not in self._access_frequencies:
             return 0.0
 
@@ -1007,7 +1206,14 @@ class MultiLevelCache:
             logger.warning(f"Error evicting from HDD cache: {e}")
 
     def get_cache_stats(self) -> dict[str, Any]:
-        """Get comprehensive cache statistics."""
+        """Return comprehensive cache statistics across all tiers.
+
+        Returns
+        -------
+        dict
+            Per-tier item counts, usage, limits, and utilization, plus a
+            ``total_items`` count.
+        """
         # Perform disk I/O outside the lock to avoid blocking other threads.
         # glob() can be slow (network filesystems, large directories).
         ssd_items = len(list(self._ssd_cache_path.glob("*.zstd")))
@@ -1053,10 +1259,17 @@ class PerformanceEngine:
 
     @log_calls(include_args=False)
     def __init__(self, config: dict[str, Any] | None = None):
-        """Initialize performance engine with configuration.
+        """Initialize the performance engine from configuration.
 
-        Args:
-            config: Performance configuration dictionary
+        Builds the memory-map manager, adaptive chunker, multi-level cache, and
+        thread-pool executor, then starts monitoring and background processing
+        unless those are disabled in ``config``.
+
+        Parameters
+        ----------
+        config : dict or None, optional
+            Performance configuration dictionary; the ``"performance"`` sub-dict
+            holds component settings.
         """
         self.config = config or {}
         self.performance_config = self.config.get("performance", {})
@@ -1157,7 +1370,11 @@ class PerformanceEngine:
         logger.debug("Background processing started")
 
     def _performance_monitoring_loop(self) -> None:
-        """Main performance monitoring loop."""
+        """Run the background performance-monitoring loop until shutdown.
+
+        Refreshes metrics and detects bottlenecks roughly once per second,
+        backing off after errors.
+        """
         while not self._shutdown_event.is_set():
             try:
                 self._update_performance_metrics()
@@ -1217,13 +1434,37 @@ class PerformanceEngine:
     ) -> Any:  # Returns np.ndarray or jax.Array
         """Load correlation matrices with full performance optimization.
 
-        Args:
-            hdf_path: Path to HDF5 file
-            data_keys: List of correlation matrix keys to load
-            chunk_info: Optional chunk information for processing
+        Checks the cache first, then loads via memory-mapped HDF5 access using
+        chunked parallel processing for large requests or direct loading
+        otherwise, optionally converting to JAX arrays and caching the result.
 
-        Returns:
-            Array of correlation matrices
+        Parameters
+        ----------
+        hdf_path : str
+            Path to the HDF5 file.
+        data_keys : list of str
+            Correlation-matrix keys to load.
+        chunk_info : list of ChunkInfo or None, optional
+            Precomputed chunk plan; forces chunked processing when provided.
+
+        Returns
+        -------
+        numpy.ndarray or jax.Array
+            Stacked correlation matrices.
+
+        Raises
+        ------
+        PerformanceEngineError
+            If loading fails (I/O error, missing key, or malformed file).
+
+        Examples
+        --------
+        >>> engine = PerformanceEngine()
+        >>> mats = engine.load_correlation_matrices_optimized(
+        ...     "data.h5", ["q0000", "q0001"]
+        ... )
+        >>> mats.shape[0]
+        2
         """
         start_time = time.time()
 
@@ -1301,7 +1542,22 @@ class PerformanceEngine:
         data_keys: list[str],
         chunk_info: list[ChunkInfo] | None = None,
     ) -> Any:  # Returns np.ndarray
-        """Load correlation matrices using chunked parallel processing."""
+        """Load correlation matrices via chunked parallel processing.
+
+        Parameters
+        ----------
+        hdf_file : Any
+            Open HDF5 file handle.
+        data_keys : list of str
+            Correlation-matrix keys to load.
+        chunk_info : list of ChunkInfo or None, optional
+            Chunk plan; computed automatically when ``None``.
+
+        Returns
+        -------
+        numpy.ndarray
+            Stacked correlation matrices in chunk-completion order.
+        """
         if chunk_info is None:
             # Create chunk plan
             chunk_size = self.chunker.calculate_optimal_chunk_size(len(data_keys))
@@ -1352,7 +1608,25 @@ class PerformanceEngine:
     def _load_matrices_direct(
         self, hdf_file: Any, data_keys: list[str]
     ) -> Any:  # Returns np.ndarray
-        """Load correlation matrices directly without chunking."""
+        """Load correlation matrices directly, without chunking.
+
+        Parameters
+        ----------
+        hdf_file : Any
+            Open HDF5 file handle (APS-old or APS-U layout).
+        data_keys : list of str
+            Correlation-matrix keys to load.
+
+        Returns
+        -------
+        numpy.ndarray
+            Stacked, fully reconstructed correlation matrices.
+
+        Raises
+        ------
+        PerformanceEngineError
+            If the correlation-matrix group cannot be located.
+        """
         matrices = []
 
         # Determine the HDF5 group structure
@@ -1382,7 +1656,27 @@ class PerformanceEngine:
         chunk_keys: list[str],
         chunk_info: ChunkInfo,
     ) -> list[Any]:  # Returns list[np.ndarray]
-        """Load a chunk of correlation matrices."""
+        """Load a single chunk of correlation matrices.
+
+        Parameters
+        ----------
+        hdf_file : Any
+            Open HDF5 file handle (APS-old or APS-U layout).
+        chunk_keys : list of str
+            Keys belonging to this chunk.
+        chunk_info : ChunkInfo
+            Metadata for the chunk being loaded.
+
+        Returns
+        -------
+        list of numpy.ndarray
+            Reconstructed matrices for the chunk's keys.
+
+        Raises
+        ------
+        PerformanceEngineError
+            If the correlation-matrix group cannot be located.
+        """
         matrices = []
 
         # Determine the HDF5 group structure
@@ -1404,14 +1698,38 @@ class PerformanceEngine:
         return matrices
 
     def _reconstruct_full_matrix(self, c2_half: Any) -> Any:  # Takes and returns np.ndarray
-        """Reconstruct full correlation matrix from half matrix."""
+        """Reconstruct a full correlation matrix from its half-matrix form.
+
+        Parameters
+        ----------
+        c2_half : numpy.ndarray
+            Upper- (or lower-) triangular half matrix.
+
+        Returns
+        -------
+        numpy.ndarray
+            Symmetrized full matrix (diagonal corrected for double counting).
+        """
         c2_full = c2_half + c2_half.T
         diag_indices = np.diag_indices(c2_half.shape[0])
         c2_full[diag_indices] /= 2
         return c2_full
 
     def _generate_cache_key(self, hdf_path: str, data_keys: list[str]) -> str:
-        """Generate cache key for correlation matrices."""
+        """Build a cache key from the file identity and the requested keys.
+
+        Parameters
+        ----------
+        hdf_path : str
+            Path to the HDF5 file (contributes path, mtime, and size).
+        data_keys : list of str
+            Correlation-matrix keys (hashed into the key).
+
+        Returns
+        -------
+        str
+            A deterministic cache key.
+        """
         # Use file path, modification time, and hash of data keys
         file_stat = os.stat(hdf_path)
         file_info = f"{hdf_path}:{file_stat.st_mtime}:{file_stat.st_size}"
@@ -1427,15 +1745,24 @@ class PerformanceEngine:
         data_keys: list[str],
         priority: int = 5,
     ) -> Future:
-        """Schedule data for background prefetching.
+        """Schedule a background prefetch of correlation matrices.
 
-        Args:
-            hdf_path: Path to HDF5 file
-            data_keys: List of data keys to prefetch
-            priority: Priority level for prefetching
+        Returns an already-completed future when prefetching is disabled or the
+        data is already cached.
 
-        Returns:
-            Future object for tracking prefetch operation
+        Parameters
+        ----------
+        hdf_path : str
+            Path to the HDF5 file.
+        data_keys : list of str
+            Data keys to prefetch.
+        priority : int, optional
+            Cache priority for the prefetched result.
+
+        Returns
+        -------
+        concurrent.futures.Future
+            Future tracking the prefetch operation.
         """
         if not self._prefetch_enabled or not self._background_executor:
             # Return a dummy future that immediately returns None
@@ -1470,7 +1797,19 @@ class PerformanceEngine:
         cache_key: str,
         priority: int,
     ) -> None:
-        """Background data loading for prefetching."""
+        """Load and cache data on a background thread for prefetching.
+
+        Parameters
+        ----------
+        hdf_path : str
+            Path to the HDF5 file.
+        data_keys : list of str
+            Data keys to load.
+        cache_key : str
+            Cache key under which to store the result.
+        priority : int
+            Cache priority for the stored result.
+        """
         try:
             # Load data using optimized loading
             correlation_matrices = self.load_correlation_matrices_optimized(
@@ -1489,7 +1828,14 @@ class PerformanceEngine:
             logger.warning(f"Background prefetch failed: {e}")
 
     def get_performance_report(self) -> dict[str, Any]:
-        """Get comprehensive performance report."""
+        """Return a comprehensive performance report.
+
+        Returns
+        -------
+        dict
+            Current performance metrics (with trends), cache statistics,
+            chunker status, and system info.
+        """
         cache_stats = self.cache.get_cache_stats()
 
         report = {
@@ -1546,11 +1892,17 @@ class PerformanceEngine:
         logger.info("Performance engine shutdown complete")
 
     def __enter__(self) -> PerformanceEngine:
-        """Context manager entry."""
+        """Enter the context manager.
+
+        Returns
+        -------
+        PerformanceEngine
+            This instance.
+        """
         return self
 
     def __exit__(self, exc_type: Any, _exc_val: Any, _exc_tb: Any) -> None:
-        """Context manager exit."""
+        """Exit the context manager, releasing resources via :meth:`shutdown`."""
         self.shutdown()
 
 

@@ -1,32 +1,37 @@
-"""Data Validation for XPCS Datasets
-==================================
+"""Data validation for XPCS datasets.
 
-Comprehensive data quality validation and physics consistency checks for XPCS data.
-Integrates with v2 physics constants and provides detailed validation reports.
-Enhanced with incremental and stage-based validation for quality control integration.
+Comprehensive data quality validation and physics consistency checks for XPCS
+data. Integrates with v2 physics constants and provides detailed validation
+reports. Enhanced with incremental and stage-based validation for quality
+control integration.
 
 This module provides:
-- Physics-based validation using v2 PhysicsConstants
-- Data quality and integrity checks
-- Correlation matrix validation
-- Statistical consistency checks
-- Integration with YAML configuration system
-- Incremental validation with caching for performance
-- Stage-based validation for data processing pipeline
-- Selective validation for specific data components
 
-Validation Levels:
-- basic: Essential data integrity checks
-- full: Comprehensive physics and statistical validation
-- custom: User-configurable validation rules
-- incremental: Optimized validation using cached results
+- Physics-based validation using v2 ``PhysicsConstants``.
+- Data quality and integrity checks.
+- Correlation matrix validation.
+- Statistical consistency checks.
+- Integration with the YAML configuration system.
+- Incremental validation with caching for performance.
+- Stage-based validation for the data processing pipeline.
+- Selective validation for specific data components.
 
-Enhanced Features (v2.1):
-- Incremental validation with intelligent caching
-- Stage-aware validation for different processing phases
-- Selective validation of data subsets
-- Performance-optimized validation with early termination
-- Integration with DataQualityController for comprehensive quality control
+Notes
+-----
+Validation levels:
+
+- ``"basic"``: Essential data integrity checks.
+- ``"full"``: Comprehensive physics and statistical validation.
+- ``"custom"``: User-configurable validation rules.
+- ``"incremental"``: Optimized validation using cached results.
+
+Enhanced features (v2.1):
+
+- Incremental validation with intelligent caching.
+- Stage-aware validation for different processing phases.
+- Selective validation of data subsets.
+- Performance-optimized validation with early termination.
+- Integration with ``DataQualityController`` for comprehensive quality control.
 """
 
 import hashlib
@@ -177,16 +182,22 @@ def validate_xpcs_data(
     config: dict[str, Any] | None = None,
     validation_level: str = "basic",
 ) -> DataQualityReport:
-    """Comprehensive XPCS data validation.
+    """Run comprehensive XPCS data validation.
 
-    Args:
-        data: XPCS data dictionary with keys:
-              - wavevector_q_list, phi_angles_list, t1, t2, c2_exp
-        config: Configuration dictionary (optional)
-        validation_level: Validation level ("basic", "full", "none")
+    Parameters
+    ----------
+    data
+        XPCS data dictionary with keys ``wavevector_q_list``,
+        ``phi_angles_list``, ``t1``, ``t2``, and ``c2_exp``.
+    config
+        Optional configuration dictionary.
+    validation_level
+        Validation level; one of ``"basic"``, ``"full"``, or ``"none"``.
 
-    Returns:
-        Comprehensive data quality report
+    Returns
+    -------
+    DataQualityReport
+        Comprehensive data quality report.
     """
     logger.info(f"Starting XPCS data validation (level: {validation_level})")
 
@@ -782,17 +793,26 @@ def validate_xpcs_data_incremental(
     previous_report: DataQualityReport | None = None,
     force_revalidate: bool = False,
 ) -> DataQualityReport:
-    """Enhanced XPCS data validation with incremental caching and stage awareness.
+    """Run XPCS validation with incremental caching and stage awareness.
 
-    Args:
-        data: XPCS data dictionary
-        config: Configuration dictionary (optional)
-        validation_level: Validation level ("basic", "full", "incremental", "none")
-        previous_report: Previous validation report for comparison
-        force_revalidate: Force full revalidation ignoring cache
+    Parameters
+    ----------
+    data
+        XPCS data dictionary.
+    config
+        Optional configuration dictionary.
+    validation_level
+        Validation level; one of ``"basic"``, ``"full"``, ``"incremental"``,
+        or ``"none"``.
+    previous_report
+        Previous validation report used for incremental comparison.
+    force_revalidate
+        Force full revalidation, ignoring any cached result.
 
-    Returns:
-        Comprehensive data quality report with incremental optimization
+    Returns
+    -------
+    DataQualityReport
+        Comprehensive data quality report with incremental optimization.
     """
     logger.info(
         f"Starting incremental XPCS data validation (level: {validation_level})",
@@ -847,14 +867,22 @@ def validate_data_component(
 ) -> DataQualityReport:
     """Validate a specific component of XPCS data for selective validation.
 
-    Args:
-        data: Complete XPCS data dictionary
-        component_name: Specific component to validate ('c2_exp', 'wavevector_q_list', etc.)
-        validation_level: Validation level
-        config: Configuration dictionary
+    Parameters
+    ----------
+    data
+        Complete XPCS data dictionary.
+    component_name
+        Specific component to validate (e.g. ``'c2_exp'``,
+        ``'wavevector_q_list'``).
+    validation_level
+        Validation level.
+    config
+        Optional configuration dictionary.
 
-    Returns:
-        Data quality report focused on specific component
+    Returns
+    -------
+    DataQualityReport
+        Data quality report focused on the specified component.
     """
     logger.debug(f"Validating data component: {component_name}")
 

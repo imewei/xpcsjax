@@ -1,8 +1,7 @@
-"""Advanced Memory Manager for Homodyne Performance Engine
-==========================================================
+"""Advanced memory manager for the performance engine.
 
-Intelligent memory management system for massive XPCS datasets with dynamic allocation,
-memory pools, pressure monitoring, and optimization strategies.
+Intelligent memory management for massive XPCS datasets with dynamic
+allocation, memory pools, pressure monitoring, and optimization strategies.
 
 This module provides:
 
@@ -13,7 +12,8 @@ This module provides:
 - Virtual memory optimization for large datasets
 - Memory-efficient data structures and algorithms
 
-Key Features:
+Key features
+------------
 - Real-time memory pressure detection and response
 - Intelligent memory allocation strategies based on workload patterns
 - Memory pool recycling to minimize allocation overhead
@@ -214,7 +214,7 @@ class MemoryStats:
     memory_throughput_mbps: float = 0.0
 
     def update_system_stats(self) -> None:
-        """Update system memory statistics."""
+        """Refresh the system memory fields from :mod:`psutil` in place."""
         memory_info = psutil.virtual_memory()
         swap_info = psutil.swap_memory()
 
@@ -225,7 +225,13 @@ class MemoryStats:
         self.swap_usage_gb = swap_info.used / (1024**3)
 
     def get_pressure_level(self) -> str:
-        """Get human-readable pressure level."""
+        """Return a human-readable pressure level.
+
+        Returns
+        -------
+        str
+            One of ``"low"``, ``"moderate"``, ``"high"``, or ``"critical"``.
+        """
         if self.memory_pressure < 0.6:
             return "low"
         elif self.memory_pressure < 0.8:
@@ -252,17 +258,24 @@ class MemoryPool:
 
     @property
     def hit_rate(self) -> float:
-        """Get cache hit rate for this pool."""
+        """Return the buffer-reuse hit rate for this pool (0.0-1.0)."""
         total_requests = self.hit_count + self.miss_count
         return self.hit_count / max(total_requests, 1)
 
     @property
     def memory_usage_mb(self) -> float:
-        """Get memory usage of this pool in MB."""
+        """Return the resident memory of buffered arrays in MB."""
         return (len(self.buffers) * self.buffer_size * 8) / (1024 * 1024)
 
     def get_buffer(self) -> np.ndarray | None:
-        """Get a buffer from the pool."""
+        """Take a buffer from the pool, allocating a new one if needed.
+
+        Returns
+        -------
+        numpy.ndarray or None
+            A reused or newly allocated buffer, or ``None`` when the pool is
+            empty and at its allocation cap.
+        """
         self.last_access_time = time.time()
 
         if self.buffers:
@@ -277,7 +290,13 @@ class MemoryPool:
             return None
 
     def return_buffer(self, buffer: np.ndarray) -> None:
-        """Return a buffer to the pool."""
+        """Return a zeroed buffer to the pool if it has spare capacity.
+
+        Parameters
+        ----------
+        buffer : numpy.ndarray
+            Buffer to recycle; its contents are cleared before storage.
+        """
         if len(self.buffers) < self.max_buffers:
             # Clear buffer contents for security
             buffer.fill(0.0)
@@ -297,12 +316,16 @@ class MemoryPressureMonitor:
         critical_threshold: float = 0.9,
         monitoring_interval: float = 1.0,
     ):
-        """Initialize memory pressure monitor.
+        """Initialize the memory pressure monitor.
 
-        Args:
-            warning_threshold: Memory pressure threshold for warnings (0.0-1.0)
-            critical_threshold: Memory pressure threshold for critical actions (0.0-1.0)
-            monitoring_interval: Monitoring interval in seconds
+        Parameters
+        ----------
+        warning_threshold : float, optional
+            Memory pressure (0.0-1.0) at which warning responses fire.
+        critical_threshold : float, optional
+            Memory pressure (0.0-1.0) at which critical responses fire.
+        monitoring_interval : float, optional
+            Polling interval in seconds for the background loop.
         """
         self.warning_threshold = warning_threshold
         self.critical_threshold = critical_threshold
@@ -375,7 +398,13 @@ class MemoryPressureMonitor:
         logger.info("Memory pressure monitoring stopped")
 
     def _monitoring_loop(self) -> None:
-        """Main monitoring loop."""
+        """Run the background monitoring loop until shutdown is requested.
+
+        Repeatedly refreshes statistics and checks pressure levels at
+        :attr:`monitoring_interval`. Errors are rate-limited to one WARNING per
+        ~5-minute window per instance, with a longer back-off wait after a
+        failure.
+        """
         while self._monitoring_active and not self._shutdown_event.is_set():
             try:
                 self._update_stats()
@@ -518,31 +547,57 @@ class MemoryPressureMonitor:
         self,
         callback: Callable[[MemoryStats], None],
     ) -> None:
-        """Register callback for warning-level memory pressure."""
+        """Register a callback invoked when warning pressure is entered.
+
+        Parameters
+        ----------
+        callback : callable
+            Function receiving the current :class:`MemoryStats`.
+        """
         self._warning_callbacks.append(callback)
 
     def register_critical_callback(
         self,
         callback: Callable[[MemoryStats], None],
     ) -> None:
-        """Register callback for critical-level memory pressure."""
+        """Register a callback invoked when critical pressure is entered.
+
+        Parameters
+        ----------
+        callback : callable
+            Function receiving the current :class:`MemoryStats`.
+        """
         self._critical_callbacks.append(callback)
 
     def register_recovery_callback(
         self,
         callback: Callable[[MemoryStats], None],
     ) -> None:
-        """Register callback for memory pressure recovery."""
+        """Register a callback invoked when pressure recovers to normal.
+
+        Parameters
+        ----------
+        callback : callable
+            Function receiving the current :class:`MemoryStats`.
+        """
         self._recovery_callbacks.append(callback)
 
     def get_pressure_trend(self, window_minutes: int = 5) -> str:
-        """Get memory pressure trend over specified window.
+        """Classify the memory pressure trend over a recent window.
 
-        Args:
-            window_minutes: Analysis window in minutes
+        Compares the mean pressure of the first and second halves of the
+        windowed history and reports the direction of change.
 
-        Returns:
-            Trend description: "increasing", "decreasing", "stable"
+        Parameters
+        ----------
+        window_minutes : int, optional
+            Analysis window in minutes.
+
+        Returns
+        -------
+        str
+            One of ``"increasing"``, ``"decreasing"``, ``"stable"``, or
+            ``"insufficient_data"`` when too few samples are available.
         """
         if len(self._pressure_history) < 10:
             return "insufficient_data"
@@ -586,10 +641,16 @@ class AdvancedMemoryManager:
 
     @log_calls(include_args=False)
     def __init__(self, config: dict[str, Any] | None = None):
-        """Initialize advanced memory manager.
+        """Initialize the advanced memory manager.
 
-        Args:
-            config: Memory management configuration
+        Reads the ``"memory"`` sub-dict of ``config`` for thresholds, GC, and
+        virtual-memory settings, wires up the pressure-response callbacks, and
+        starts the pressure monitor unless monitoring is disabled.
+
+        Parameters
+        ----------
+        config : dict or None, optional
+            Memory management configuration.
         """
         self.config = config or {}
         self.memory_config = self.config.get("memory", {})
@@ -649,15 +710,33 @@ class AdvancedMemoryManager:
         dtype: np.dtype = np.float64,  # type: ignore[assignment]
         pool_enabled: bool = True,
     ):
-        """Context manager for managed memory allocation.
+        """Allocate a buffer within a pooled, pressure-aware context.
 
-        Args:
-            size: Number of elements to allocate
-            dtype: Data type for allocation
-            pool_enabled: Whether to use memory pooling
+        On entry the buffer is taken from a matching memory pool when possible
+        (``float64`` and ``pool_enabled``) and otherwise freshly allocated. On
+        exit it is returned to its pool or released, triggering an opportunistic
+        garbage-collection pass.
 
-        Yields:
-            Allocated array
+        Parameters
+        ----------
+        size : int
+            Number of elements to allocate.
+        dtype : numpy.dtype, optional
+            Data type for the allocation. Pooling is only used for
+            ``numpy.float64``.
+        pool_enabled : bool, optional
+            Whether to draw from / return to the memory pools.
+
+        Yields
+        ------
+        numpy.ndarray
+            The allocated array (a view of a pooled buffer when pooling is hit).
+
+        Examples
+        --------
+        >>> mgr = AdvancedMemoryManager()
+        >>> with mgr.managed_allocation(1024) as buf:
+        ...     buf[:] = 0.0
         """
         buffer = None
         pool_id = None
@@ -684,7 +763,20 @@ class AdvancedMemoryManager:
                         self._optimize_garbage_collection()
 
     def _get_from_pool(self, size: int) -> tuple[np.ndarray | None, str | None]:
-        """Get buffer from appropriate memory pool."""
+        """Fetch a buffer from the power-of-two pool sized for ``size``.
+
+        Parameters
+        ----------
+        size : int
+            Requested element count; rounded up to the next power of two to
+            select (or lazily create) the backing pool.
+
+        Returns
+        -------
+        tuple of (numpy.ndarray or None, str or None)
+            A view of the pooled buffer trimmed to ``size`` and its pool id, or
+            ``(None, None)`` if no buffer is available.
+        """
         with self._pools_lock:
             # Find appropriate pool (use next power of 2 for size)
             pool_size = 1
@@ -715,7 +807,19 @@ class AdvancedMemoryManager:
             return None, None
 
     def _return_to_pool(self, buffer: np.ndarray, pool_id: str) -> None:
-        """Return buffer to memory pool."""
+        """Return a buffer (or its base allocation) to its memory pool.
+
+        Walks the NumPy ``base`` chain to recover the original pooled buffer and
+        skips the return if the base size no longer matches the pool, avoiding
+        pool corruption from view-of-view chains.
+
+        Parameters
+        ----------
+        buffer : numpy.ndarray
+            Buffer (possibly a view) to recycle.
+        pool_id : str
+            Pool identifier of the form ``"pool_<size>"``.
+        """
         with self._pools_lock:
             # Extract size from pool_id like "pool_1024"
             try:
@@ -749,7 +853,30 @@ class AdvancedMemoryManager:
                 )
 
     def _allocate_buffer(self, size: int, dtype: np.dtype) -> np.ndarray:
-        """Allocate new memory buffer with tracking."""
+        """Allocate a tracked buffer with pressure-aware fallbacks.
+
+        Runs an emergency cleanup when memory is already critical, retries once
+        after cleanup on :class:`MemoryError`, and falls back to virtual memory
+        when enabled.
+
+        Parameters
+        ----------
+        size : int
+            Number of elements to allocate.
+        dtype : numpy.dtype
+            Element data type.
+
+        Returns
+        -------
+        numpy.ndarray
+            The allocated buffer.
+
+        Raises
+        ------
+        AllocationError
+            If allocation fails even after cleanup and virtual memory is
+            disabled (or virtual-memory allocation itself fails).
+        """
         start_time = time.time()
 
         try:
@@ -816,7 +943,32 @@ class AdvancedMemoryManager:
                     ) from e
 
     def _allocate_virtual_memory(self, size: int, dtype: np.dtype) -> np.ndarray:
-        """Allocate virtual memory-backed array for very large datasets."""
+        """Allocate an ``mmap``-backed array for datasets larger than RAM.
+
+        Creates a sparse, ``0o600``-permissioned backing file under the
+        validated virtual-memory path and memory-maps it, keeping the mapping
+        and file handle alive as attributes on the returned array.
+
+        Parameters
+        ----------
+        size : int
+            Number of elements to allocate.
+        dtype : numpy.dtype
+            Element data type.
+
+        Returns
+        -------
+        numpy.ndarray
+            An array backed by the memory-mapped file (empty for ``size == 0``).
+
+        Raises
+        ------
+        AllocationError
+            If the backing file cannot be created or mapped.
+        PathValidationError
+            If the configured virtual-memory path contains traversal tokens or
+            null bytes.
+        """
         try:
             # Create memory-mapped file
             element_size = np.dtype(dtype).itemsize
@@ -1048,7 +1200,14 @@ class AdvancedMemoryManager:
         self._last_gc_time = current_time
 
     def get_memory_stats(self) -> dict[str, Any]:
-        """Get comprehensive memory statistics."""
+        """Return comprehensive memory statistics.
+
+        Returns
+        -------
+        dict
+            Nested dictionary with ``system_memory``, ``pool_management``,
+            ``allocation_performance``, and ``optimization_status`` sections.
+        """
         with self._pools_lock:
             pool_stats = {}
             total_pool_memory = 0.0
@@ -1115,11 +1274,18 @@ class AdvancedMemoryManager:
         }
 
     def optimize_for_workload(self, workload_type: str, dataset_size_gb: float) -> None:
-        """Optimize memory management for specific workload characteristics.
+        """Tune memory management for a workload profile.
 
-        Args:
-            workload_type: Type of workload ("streaming", "batch", "interactive")
-            dataset_size_gb: Expected dataset size in GB
+        Adjusts the GC threshold multiplier and warning threshold per workload
+        type and enlarges pool capacities for datasets larger than 10 GB.
+
+        Parameters
+        ----------
+        workload_type : str
+            One of ``"streaming"``, ``"batch"``, or ``"interactive"``.
+            Unrecognized values leave the current tuning unchanged.
+        dataset_size_gb : float
+            Expected dataset size in GB.
         """
         logger.info(
             f"Optimizing memory management for {workload_type} workload, "
@@ -1205,11 +1371,17 @@ class AdvancedMemoryManager:
         logger.info("Advanced memory manager shutdown complete")
 
     def __enter__(self) -> "AdvancedMemoryManager":
-        """Context manager entry."""
+        """Enter the context manager.
+
+        Returns
+        -------
+        AdvancedMemoryManager
+            This instance.
+        """
         return self
 
     def __exit__(self, exc_type, _exc_val, _exc_tb) -> None:  # type: ignore[no-untyped-def]
-        """Context manager exit."""
+        """Exit the context manager, releasing resources via :meth:`shutdown`."""
         self.shutdown()
 
     def __del__(self) -> None:
