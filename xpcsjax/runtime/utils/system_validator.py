@@ -97,14 +97,20 @@ class Severity(Enum):
 
 @dataclass
 class ValidationResult:
-    """Result of a validation test.
+    """Result of a single validation test.
 
-    Attributes:
-        success: Whether the test passed.
-        severity: Severity level (INFO / WARNING / ERROR).
-        message: One-line description of the result.
-        name: Human-readable test name.
-        details: Optional multi-line details / remediation string.
+    Attributes
+    ----------
+    success : bool
+        Whether the test passed.
+    severity : Severity
+        Severity level (INFO / WARNING / ERROR).
+    message : str
+        One-line description of the result.
+    name : str
+        Human-readable test name.
+    details : str or None
+        Optional multi-line details / remediation string.
     """
 
     success: bool
@@ -122,8 +128,19 @@ class ValidationResult:
 def _parse_version(version: str) -> tuple[int, ...]:
     """Parse a PEP 440-ish version string into an int tuple for comparison.
 
-    Strips pre-release / dev / local suffixes (e.g. ``1.2.3rc1+abc`` -> ``(1, 2, 3)``).
-    Non-numeric trailing components are dropped to keep ordering total.
+    Strips pre-release / dev / local suffixes (e.g. ``1.2.3rc1+abc`` ->
+    ``(1, 2, 3)``). Non-numeric trailing components are dropped to keep ordering
+    total.
+
+    Parameters
+    ----------
+    version : str
+        Version string to parse.
+
+    Returns
+    -------
+    tuple of int
+        Numeric release components.
     """
     cleaned = re.split(r"[+\-]", version)[0]
     parts: list[int] = []
@@ -136,7 +153,22 @@ def _parse_version(version: str) -> tuple[int, ...]:
 
 
 def _version_at_least(actual: str, minimum: str) -> bool:
-    """Return True if actual >= minimum after stripping pre-release suffixes."""
+    """Return whether ``actual`` is at least ``minimum``.
+
+    Both versions are normalized via :func:`_parse_version` first.
+
+    Parameters
+    ----------
+    actual : str
+        Installed version string.
+    minimum : str
+        Required minimum version string.
+
+    Returns
+    -------
+    bool
+        ``True`` if ``actual >= minimum``.
+    """
     return _parse_version(actual) >= _parse_version(minimum)
 
 
@@ -152,18 +184,21 @@ class SystemValidator:
     :class:`ValidationResult`; uncaught exceptions are converted to ERROR
     results so a single broken probe never aborts the run.
 
-    Example:
-        >>> validator = SystemValidator(verbose=True)
-        >>> results = validator.validate()
-        >>> for r in results:
-        ...     print(f"{r.name}: {'PASS' if r.success else 'FAIL'}")
+    Examples
+    --------
+    >>> validator = SystemValidator(verbose=True)
+    >>> results = validator.validate()
+    >>> for r in results:
+    ...     print(f"{r.name}: {'PASS' if r.success else 'FAIL'}")
     """
 
     def __init__(self, verbose: bool = False) -> None:
         """Initialize the validator.
 
-        Args:
-            verbose: If True, print per-test status as validation proceeds.
+        Parameters
+        ----------
+        verbose : bool, optional
+            If ``True``, print per-test status as validation proceeds.
         """
         self.verbose = verbose
         self._tests: list[Callable[[], ValidationResult]] = [
@@ -181,8 +216,19 @@ class SystemValidator:
     def validate(self) -> list[ValidationResult]:
         """Run all validation tests.
 
-        Returns:
-            List of :class:`ValidationResult` objects, one per test.
+        Each test is isolated: an uncaught exception is converted into an ERROR
+        :class:`ValidationResult` so one broken probe never aborts the run.
+
+        Returns
+        -------
+        list of ValidationResult
+            One result per test, in test order.
+
+        Examples
+        --------
+        >>> results = SystemValidator().validate()
+        >>> all(isinstance(r, ValidationResult) for r in results)
+        True
         """
         results: list[ValidationResult] = []
         for test in self._tests:
@@ -204,7 +250,13 @@ class SystemValidator:
     # -- individual probes -------------------------------------------------
 
     def test_python_version(self) -> ValidationResult:
-        """Require Python >= 3.12."""
+        """Check that the running Python is >= 3.12.
+
+        Returns
+        -------
+        ValidationResult
+            INFO on success, ERROR if the interpreter is too old.
+        """
         v = sys.version_info
         version_str = f"{v.major}.{v.minor}.{v.micro}"
         impl = platform.python_implementation()
@@ -224,7 +276,17 @@ class SystemValidator:
         )
 
     def test_dependency_versions(self) -> ValidationResult:
-        """Verify every required runtime dependency is installed at >= minimum."""
+        """Verify every required runtime dependency meets its minimum version.
+
+        Optional viz-fast extras are reported informationally and never cause a
+        failure.
+
+        Returns
+        -------
+        ValidationResult
+            INFO when all requirements are satisfied, ERROR listing any missing
+            or outdated distributions otherwise.
+        """
         missing: list[str] = []
         outdated: list[str] = []
         present: list[str] = []
@@ -277,7 +339,14 @@ class SystemValidator:
         )
 
     def test_jax_installation(self) -> ValidationResult:
-        """Verify JAX imports, devices are visible, and x64 is enabled."""
+        """Verify JAX imports, exposes devices, and has x64 precision enabled.
+
+        Returns
+        -------
+        ValidationResult
+            INFO when JAX loads with x64 enabled, ERROR on import failure, a
+            device-enumeration error, or x64 being disabled.
+        """
         try:
             import jax  # noqa: PLC0415
         except ImportError as exc:
@@ -330,7 +399,14 @@ class SystemValidator:
         )
 
     def test_xpcsjax_import(self) -> ValidationResult:
-        """Import xpcsjax and verify every public lazy-loaded symbol resolves."""
+        """Import xpcsjax and resolve every public lazy-loaded symbol.
+
+        Returns
+        -------
+        ValidationResult
+            INFO when the import and all public symbols resolve, ERROR on import
+            failure or any unresolved symbol.
+        """
         try:
             xpcsjax = importlib.import_module("xpcsjax")
         except ImportError as exc:
@@ -370,7 +446,14 @@ class SystemValidator:
         )
 
     def test_config_templates(self) -> ValidationResult:
-        """Verify every shipped YAML config template exists."""
+        """Verify every shipped YAML config template is present on disk.
+
+        Returns
+        -------
+        ValidationResult
+            INFO when all templates exist, ERROR if any are missing or the
+            package cannot be located.
+        """
         try:
             import xpcsjax  # noqa: PLC0415
         except ImportError as exc:
@@ -403,7 +486,14 @@ class SystemValidator:
         )
 
     def test_cpu_info(self) -> ValidationResult:
-        """Report CPU core count and system RAM (informational only)."""
+        """Report CPU core count and system RAM (informational only).
+
+        Returns
+        -------
+        ValidationResult
+            INFO with the core/RAM summary, or WARNING if :mod:`psutil` is
+            unavailable.
+        """
         try:
             import psutil  # noqa: PLC0415
         except ImportError as exc:
@@ -426,7 +516,14 @@ class SystemValidator:
         )
 
     def test_xla_config(self) -> ValidationResult:
-        """Check that xpcsjax's XLA_FLAGS configuration was applied."""
+        """Check that xpcsjax's ``XLA_FLAGS`` configuration was applied.
+
+        Returns
+        -------
+        ValidationResult
+            INFO either way; ``success`` is ``True`` when the host-device-count
+            marker is present in ``XLA_FLAGS`` and ``False`` otherwise.
+        """
         xla_flags = os.environ.get("XLA_FLAGS", "")
         marker = "xla_force_host_platform_device_count"
         if marker in xla_flags:
@@ -455,6 +552,19 @@ class SystemValidator:
 
 
 def _result_to_dict(r: ValidationResult) -> dict[str, object]:
+    """Serialize a :class:`ValidationResult` into a JSON-friendly dict.
+
+    Parameters
+    ----------
+    r : ValidationResult
+        Result to serialize.
+
+    Returns
+    -------
+    dict
+        Mapping with ``name``, ``success``, ``severity``, ``message``, and
+        ``details`` keys.
+    """
     return {
         "name": r.name,
         "success": r.success,
@@ -465,7 +575,13 @@ def _result_to_dict(r: ValidationResult) -> dict[str, object]:
 
 
 def _print_report(results: list[ValidationResult]) -> None:
-    """Print a human-readable report (boxed header + per-test lines + summary)."""
+    """Print a human-readable report (boxed header, per-test lines, summary).
+
+    Parameters
+    ----------
+    results : list of ValidationResult
+        Results to render to stdout.
+    """
     title = "xpcsjax System Validator"
     bar = "=" * max(60, len(title) + 4)
     print(bar)
@@ -499,13 +615,19 @@ def _print_report(results: list[ValidationResult]) -> None:
 def run_validation(verbose: bool = False, as_json: bool = False) -> list[ValidationResult]:
     """Run all validation tests and emit a report.
 
-    Args:
-        verbose: If True, print per-test status while validating.
-        as_json: If True, emit a JSON array of results to stdout instead of the
-            human-readable report.
+    Parameters
+    ----------
+    verbose : bool, optional
+        If ``True``, print per-test status while validating (suppressed when
+        ``as_json`` is set).
+    as_json : bool, optional
+        If ``True``, emit a JSON array of results to stdout instead of the
+        human-readable report.
 
-    Returns:
-        The list of :class:`ValidationResult` objects produced.
+    Returns
+    -------
+    list of ValidationResult
+        The results produced by :meth:`SystemValidator.validate`.
     """
     validator = SystemValidator(verbose=verbose and not as_json)
     results = validator.validate()
@@ -521,7 +643,13 @@ def run_validation(verbose: bool = False, as_json: bool = False) -> list[Validat
 
 
 def main() -> int:
-    """CLI entry point for the ``xpcsjax-validate`` command."""
+    """Run the ``xpcsjax-validate`` CLI command.
+
+    Returns
+    -------
+    int
+        Process exit code: ``1`` if any ERROR-severity test failed, else ``0``.
+    """
     import argparse
 
     parser = argparse.ArgumentParser(

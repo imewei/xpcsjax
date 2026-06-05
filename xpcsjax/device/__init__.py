@@ -1,7 +1,5 @@
-"""Device Optimization Module for Homodyne
-==========================================
+"""HPC CPU device optimization with intelligent configuration.
 
-HPC CPU device optimization with intelligent configuration.
 Provides CPU-only device detection, configuration, and optimization
 for high-performance computing environments.
 

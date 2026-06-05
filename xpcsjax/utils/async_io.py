@@ -94,9 +94,22 @@ class PrefetchLoader(Iterator[R]):
         self._thread.start()
 
     def __iter__(self) -> PrefetchLoader[R]:
+        """Return ``self`` (this loader is its own iterator)."""
         return self
 
     def __next__(self) -> R:
+        """Return the prefetched item and kick off the next background load.
+
+        Joins the in-flight prefetch thread (120 s timeout), re-raising any
+        error it captured, then returns the ready item.
+
+        Raises
+        ------
+        StopIteration
+            When the source iterator is exhausted.
+        RuntimeError
+            When the prefetch thread does not finish within the 120 s timeout.
+        """
         if self._thread is not None:
             self._thread.join(timeout=120.0)
             if self._thread.is_alive():
@@ -246,6 +259,11 @@ class AsyncWriter:
         self._executor.shutdown(wait=True)
 
     def __del__(self) -> None:
+        """Warn if garbage-collected without an explicit :meth:`shutdown`.
+
+        A live writer collected before ``shutdown()`` may drop pending
+        background writes, so emit a :class:`ResourceWarning`.
+        """
         if not getattr(self, "_shutdown", True):
             import warnings
 
@@ -267,7 +285,9 @@ class AsyncWriter:
             json.dump(data, f, indent=2, default=str)
 
     def __enter__(self) -> AsyncWriter:
+        """Enter the context manager, returning ``self``."""
         return self
 
     def __exit__(self, *exc: object) -> None:
+        """Exit the context manager, draining and shutting down the pool."""
         self.shutdown()

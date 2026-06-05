@@ -1,7 +1,30 @@
 """NLSQ fit visualization and artifact serialization.
 
-Symbols defined here are wired into ``xpcsjax.viz``'s lazy export map by later
-tasks (Task 2 onward).
+This module is the matplotlib-based rendering layer for results produced by
+:func:`xpcsjax.fit_nlsq`. It exposes four public entry points, all re-exported
+from :mod:`xpcsjax.viz`:
+
+- :func:`plot_nlsq_fit` — three-panel Experimental | Fitted | Residuals figure.
+- :func:`plot_residual_map` — four-panel residual diagnostic figure.
+- :func:`plot_simulated_data` — single-panel theoretical/fitted ``c2`` heatmap.
+- :func:`generate_nlsq_plots` — orchestrator that recomputes per-angle fitted
+  surfaces, writes PNGs, and serializes NPZ + JSON artifacts.
+
+The three ``plot_*`` functions follow a common contract: they return the live
+:class:`~matplotlib.figure.Figure` when ``save_path`` is ``None``, and return
+``None`` (after saving and closing the figure) when ``save_path`` is provided.
+:func:`generate_nlsq_plots` always returns ``None`` — it writes files instead.
+
+Notes
+-----
+The module performs an optional-dependency probe for the Datashader fast-render
+backend **before** its remaining imports; that ordering is intentional and is
+exempted from import-sorting lint rules (``E402``/``I001``). Do not reorder.
+
+See Also
+--------
+xpcsjax.viz.diagnostics : Diagonal-overlay statistics for fitted surfaces.
+xpcsjax.fit_nlsq : Produces the :class:`OptimizationResult` these plots consume.
 """
 
 from __future__ import annotations
@@ -105,10 +128,10 @@ def _save_fig(fig: Figure, save_path: Path | str | None, dpi: int = 150) -> None
 
 
 def _is_homodyne_family(model: Any) -> bool:
-    """True for models that use the homodyne result layout
-    ``[contrast, offset, *physical]`` with scalar per-angle scaling.
+    """Return ``True`` for models using the homodyne result layout.
 
-    Two concrete types qualify: :class:`HomodyneModel` (the stateful viz
+    The homodyne layout is ``[contrast, offset, *physical]`` with scalar
+    per-angle scaling. Two concrete types qualify: :class:`HomodyneModel` (the stateful viz
     wrapper) and the bare :class:`CombinedModel` that
     :func:`xpcsjax.core.models.make_model` returns for the homodyne analysis
     modes (``static_*`` / ``laminar_flow``; the Task-28 contract pinned by
@@ -126,24 +149,24 @@ def _is_homodyne_family(model: Any) -> bool:
 
 
 def _is_heterodyne_family(model: Any) -> bool:
-    """True for :class:`HeterodyneModel` (per-angle ``[c.., o.., *physical]`` layout)."""
+    """Return ``True`` for :class:`HeterodyneModel` (per-angle ``[c.., o.., *physical]``)."""
     from xpcsjax.core.heterodyne_model import HeterodyneModel
 
     return isinstance(model, HeterodyneModel)
 
 
 def _is_supported_viz_model(model: Any) -> bool:
-    """True for any model type the viz layer knows how to plot."""
+    """Return ``True`` for any model type the viz layer knows how to plot."""
     return _is_homodyne_family(model) or _is_heterodyne_family(model)
 
 
 def _homodyne_scaling_arrays(
     model: Any, result: Any
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str]]:
-    """Return per-angle ``(contrasts, offsets, physical_params, names)`` for a
-    homodyne-family result.
+    """Return per-angle scaling and physical params for a homodyne-family result.
 
-    The homodyne NLSQ fit uses per-angle scaling by default, so
+    The four returned arrays are ``(contrasts, offsets, physical_params,
+    names)``. The homodyne NLSQ fit uses per-angle scaling by default, so
     ``result.parameters`` is laid out ``[c_0..N-1, o_0..N-1, physical_0..M-1]``
     — the *same* layout as heterodyne ``individual`` mode. The legacy scalar
     layout ``[contrast, offset, physical...]`` is simply the ``n_phi == 1`` case
@@ -563,7 +586,26 @@ def plot_nlsq_fit(
     -------
     Figure or None
         The matplotlib Figure when ``save_path`` is ``None``; ``None`` when
-        the figure was saved (and is therefore closed).
+        the figure was saved (and is therefore closed). When either input is
+        empty, a single-panel "No data available" figure is returned (or saved)
+        instead of the three-panel layout.
+
+    See Also
+    --------
+    plot_residual_map : Four-panel residual diagnostic for the same surfaces.
+    plot_simulated_data : Single-panel heatmap for a fitted-only surface.
+    generate_nlsq_plots : Orchestrator that calls this per angle.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from xpcsjax.viz import plot_nlsq_fit
+    >>> c2_exp = np.full((64, 64), 1.2)
+    >>> c2_fit = c2_exp + np.random.default_rng(0).normal(0, 1e-3, c2_exp.shape)
+    >>> fig = plot_nlsq_fit(c2_exp, c2_fit, reduced_chi_squared=1.05)
+    >>> fig is not None  # live Figure returned when save_path is None
+    True
+    >>> plot_nlsq_fit(c2_exp, c2_fit, save_path="fit.png")  # saved, returns None
     """
     fig, axes = plt.subplots(1, 3, figsize=figsize)
 
@@ -696,7 +738,24 @@ def plot_residual_map(
     -------
     Figure or None
         The matplotlib Figure when ``save_path`` is ``None``; ``None`` when
-        the figure was saved (and is therefore closed).
+        the figure was saved (and is therefore closed). When either input is
+        empty, a "No data available" figure is returned (or saved) instead.
+
+    See Also
+    --------
+    plot_nlsq_fit : Three-panel Experimental | Fitted | Residuals comparison.
+    compute_diagonal_overlay_stats : Numerical t₁=t₂ diagonal statistics.
+    generate_nlsq_plots : Orchestrator that calls this per angle.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from xpcsjax.viz import plot_residual_map
+    >>> c2_exp = np.full((64, 64), 1.2)
+    >>> c2_fit = c2_exp + np.random.default_rng(0).normal(0, 1e-3, c2_exp.shape)
+    >>> fig = plot_residual_map(c2_exp, c2_fit, phi_deg=45.0)
+    >>> fig is not None
+    True
     """
     fig, axes = plt.subplots(2, 2, figsize=figsize)
 
@@ -843,7 +902,25 @@ def plot_simulated_data(
     -------
     Figure or None
         The matplotlib Figure when ``save_path`` is ``None``; ``None`` when
-        the figure was saved (and is therefore closed).
+        the figure was saved (and is therefore closed). When ``c2_sim`` is
+        empty, a "No data available" figure is returned (or saved) instead.
+
+    See Also
+    --------
+    plot_nlsq_fit : Compare a fitted surface against experimental data.
+    generate_nlsq_plots : Orchestrator that calls this per angle.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from xpcsjax.viz import plot_simulated_data
+    >>> c2_sim = np.full((64, 64), 1.25)
+    >>> fig = plot_simulated_data(
+    ...     c2_sim, phi_deg=0.0, contrast=0.25, offset=1.0,
+    ...     title="Experimental C₂(t₁, t₂)",
+    ... )
+    >>> fig is not None
+    True
     """
     fig, ax = plt.subplots(figsize=figsize)
 
@@ -1337,11 +1414,16 @@ def generate_nlsq_plots(
     Parameters
     ----------
     model
-        ``HomodyneModel`` or ``HeterodyneModel``. Heterodyne reads per-angle
-        contrast/offset directly from ``result.parameters`` using the
-        per-angle fit-time layout (Spec Amendment 3 resolution).
+        :class:`~xpcsjax.HomodyneModel`, the bare ``CombinedModel`` returned by
+        :func:`xpcsjax.core.models.make_model` for the homodyne modes, or
+        :class:`~xpcsjax.HeterodyneModel`. The two families use different
+        ``result.parameters`` layouts: homodyne/``CombinedModel`` is
+        scaling-first (``[contrast.., offset.., physical..]``) while heterodyne
+        is physics-first (``[physical.. | contrast.. | offset..]``). The
+        per-model unpacking is dispatched internally, so callers do not need to
+        reconcile the two layouts.
     result
-        ``OptimizationResult`` from ``fit_nlsq``.
+        :class:`~xpcsjax.OptimizationResult` from :func:`xpcsjax.fit_nlsq`.
     data
         Dict with keys: ``c2_exp`` (n_phi, n_t1, n_t2), ``phi_angles_list``,
         ``t1``, ``t2``.
@@ -1380,6 +1462,13 @@ def generate_nlsq_plots(
         path. Default 1200×1200 (matches homodyne); reduce for faster
         rendering, increase for high-DPI publication output.
 
+    Returns
+    -------
+    None
+        This function writes PNG, NPZ, and JSON files under ``output_dir`` and
+        ``output_dir/simulated_data/``; it does not return the figures. Use the
+        ``plot_*`` functions directly if you need live Figure objects.
+
     Raises
     ------
     ValueError
@@ -1388,6 +1477,28 @@ def generate_nlsq_plots(
     TypeError
         Unsupported model type (not HomodyneModel, CombinedModel, or
         HeterodyneModel).
+    NotImplementedError
+        Heterodyne result whose per-angle scaling layout is unsupported by v0.1
+        viz (e.g. ``fourier``, or a ``constant`` layout without the matching
+        ``per_angle_mode`` diagnostics). Per-angle ``individual``, ``averaged``,
+        and reconstructable ``constant`` modes are supported.
+
+    See Also
+    --------
+    plot_nlsq_fit : Per-angle comparison figure rendered by this orchestrator.
+    plot_residual_map : Per-angle residual diagnostic figure.
+    plot_simulated_data : Per-angle fitted-surface heatmap.
+    xpcsjax.fit_nlsq : Produces the ``result`` consumed here.
+
+    Examples
+    --------
+    >>> from xpcsjax import fit_nlsq, ConfigManager  # doctest: +SKIP
+    >>> from xpcsjax.viz import generate_nlsq_plots  # doctest: +SKIP
+    >>> result = fit_nlsq(...)  # doctest: +SKIP
+    >>> generate_nlsq_plots(  # doctest: +SKIP
+    ...     model, result, data, config, "outputs/run01",
+    ...     plots=("comparison", "residuals"),
+    ... )
     """
     if not _is_supported_viz_model(model):
         raise TypeError(

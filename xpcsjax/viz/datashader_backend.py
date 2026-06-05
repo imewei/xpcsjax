@@ -231,6 +231,7 @@ def plot_c2_heatmap_fast(
         fig.tight_layout()
         # Validate the save path (traversal / extension / null-byte) before writing.
         validated_path = validate_plot_save_path(output_path, require_parent_exists=False)
+        assert validated_path is not None  # output_path is a required Path; validator returns it
         fig.savefig(validated_path, dpi=150, bbox_inches="tight")
     finally:
         plt.close(fig)
@@ -358,6 +359,7 @@ def plot_c2_comparison_fast(
         fig.tight_layout()
         # Validate the save path (traversal / extension / null-byte) before writing.
         validated_path = validate_plot_save_path(output_path, require_parent_exists=False)
+        assert validated_path is not None  # output_path is a required Path; validator returns it
         fig.savefig(validated_path, dpi=150, bbox_inches="tight")
     finally:
         plt.close(fig)

@@ -1,7 +1,5 @@
-"""HPC CPU Optimization for Homodyne
-====================================
+"""CPU-primary optimization strategies for high-performance computing.
 
-CPU-primary optimization strategies for high-performance computing environments.
 Optimized for 36/128-core HPC nodes with intelligent thread management and
 JAX CPU configuration.
 
@@ -246,8 +244,31 @@ def _set_cpu_environment_variables(
     numa_policy: str,
     memory_optimization: str,
 ) -> dict[str, str]:
-    """Set environment variables for optimal CPU performance."""
+    """Set environment variables for optimal CPU performance.
 
+    Mutates ``os.environ`` in place (OpenMP, MKL, OpenBLAS thread counts,
+    glibc malloc trim/mmap thresholds, and NUMA policy) and returns the
+    subset of variables echoed into the configuration summary.
+
+    Parameters
+    ----------
+    num_threads
+        Thread count to pin across the OpenMP/MKL/BLAS knobs.
+    cpu_info
+        CPU description from :func:`detect_cpu_info`; ``optimization_flags``
+        gates the Intel MKL block and ``numa_nodes`` gates the NUMA policy.
+    numa_policy
+        ``"local"`` or ``"interleave"`` sets ``NUMA_POLICY`` when more than one
+        NUMA node is present; any other value leaves it unset.
+    memory_optimization
+        ``"aggressive"`` or ``"standard"`` selects the glibc malloc thresholds.
+
+    Returns
+    -------
+    dict
+        The thread-count environment variables that were set (a subset of the
+        full mutation, used for the configuration summary).
+    """
     env_vars = {}
 
     # OpenMP configuration

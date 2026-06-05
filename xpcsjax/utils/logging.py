@@ -171,6 +171,10 @@ class JSONFormatter(logging.Formatter):
     """
 
     def format(self, record: logging.LogRecord) -> str:
+        """Render ``record`` as a single JSON line, never raising.
+
+        Falls back to a minimal always-valid JSON object if any step fails.
+        """
         # Observational only: a formatter that raises is fatal to the logging
         # machinery, so the entire body is guarded and degrades to a minimal,
         # always-valid JSON record on any failure (e.g. getMessage() raising on
@@ -221,6 +225,7 @@ class PhaseLogger:
         self._log = logger
 
     def banner(self, title: str, *, width: int = 80, level: int = logging.INFO) -> None:
+        """Log ``title`` framed by ``width``-wide rule lines; exception-safe."""
         try:
             self._log.log(level, "=" * width)
             self._log.log(level, title)
@@ -229,6 +234,7 @@ class PhaseLogger:
             pass
 
     def field(self, name: str, value: Any) -> None:
+        """Log an indented ``name: value`` line at INFO level; exception-safe."""
         try:
             self._log.info("  %s: %s", name, value)
         except Exception:  # noqa: BLE001
@@ -256,31 +262,43 @@ class _ContextAdapter(logging.LoggerAdapter):
 class LogConfiguration:
     """Programmatic logging configuration.
 
-    Alternative to configure_logging() for programmatic control over
+    Alternative to :func:`configure_logging` for programmatic control over
     logging settings.
 
-    Attributes:
-        console_level: Console log level (default "INFO").
-        console_format: Console format ("simple" or "detailed").
-        console_colors: Enable ANSI colors in console (default False).
-        file_enabled: Enable file logging (default True).
-        file_path: Log file path (None = auto-generate).
-        file_level: File log level (default "DEBUG").
-        file_format: File format ("simple" or "detailed").
-        file_rotation_mb: Max file size before rotation (default 10).
-        file_backup_count: Number of backup files to keep (default 5).
-        module_overrides: Per-module log level overrides.
+    Attributes
+    ----------
+    console_level : str
+        Console log level (default ``"INFO"``).
+    console_format : str
+        Console format (``"simple"`` or ``"detailed"``).
+    console_colors : bool
+        Enable ANSI colors in the console (default ``False``).
+    file_enabled : bool
+        Enable file logging (default ``True``).
+    file_path : str or Path or None
+        Log file path (``None`` auto-generates a timestamped name).
+    file_level : str
+        File log level (default ``"DEBUG"``).
+    file_format : str
+        File format (``"simple"`` or ``"detailed"``).
+    file_rotation_mb : int
+        Max file size in MB before rotation (default 10).
+    file_backup_count : int
+        Number of rotated backup files to keep (default 5).
+    module_overrides : dict
+        Per-module log level overrides.
 
-    Example:
-        >>> config = LogConfiguration.from_cli_args(verbose=True, log_file="analysis.log")
-        >>> config.apply()
+    Examples
+    --------
+    >>> config = LogConfiguration.from_cli_args(verbose=True, log_file="analysis.log")
+    >>> config.apply()
 
-        >>> config = LogConfiguration(
-        ...     console_level="INFO",
-        ...     file_level="DEBUG",
-        ...     module_overrides={"jax": "WARNING", "xpcsjax.optimization": "DEBUG"}
-        ... )
-        >>> config.apply()
+    >>> config = LogConfiguration(
+    ...     console_level="INFO",
+    ...     file_level="DEBUG",
+    ...     module_overrides={"jax": "WARNING", "xpcsjax.optimization": "DEBUG"},
+    ... )
+    >>> config.apply()
     """
 
     console_level: str = "INFO"
@@ -297,8 +315,14 @@ class LogConfiguration:
     def apply(self) -> Path | None:
         """Apply this configuration to the logging system.
 
-        Returns:
-            Path to log file if file logging is enabled, None otherwise.
+        Merges default external-library suppressions with ``module_overrides``
+        (user overrides win) and resolves the file path, auto-generating a
+        timestamped name when file logging is enabled without an explicit path.
+
+        Returns
+        -------
+        Path or None
+            Path to the log file if file logging is enabled, else ``None``.
         """
         # Suppress external library logging by default
         default_suppressions = {
@@ -337,13 +361,19 @@ class LogConfiguration:
 
     @classmethod
     def from_dict(cls, config: dict[str, Any]) -> LogConfiguration:
-        """Create configuration from dictionary.
+        """Create a configuration from a dictionary.
 
-        Args:
-            config: Dictionary with configuration values.
+        Unknown keys are ignored; missing keys fall back to the class defaults.
 
-        Returns:
-            LogConfiguration instance.
+        Parameters
+        ----------
+        config
+            Dictionary with configuration values.
+
+        Returns
+        -------
+        LogConfiguration
+            The constructed configuration.
         """
         return cls(
             console_level=config.get("console_level", "INFO"),
@@ -365,15 +395,24 @@ class LogConfiguration:
         quiet: bool = False,
         log_file: str | None = None,
     ) -> LogConfiguration:
-        """Create configuration from CLI flags.
+        """Create a configuration from CLI flags.
 
-        Args:
-            verbose: Enable DEBUG level console logging.
-            quiet: Enable ERROR-only console logging.
-            log_file: Path to log file (None = auto-generate if file logging enabled).
+        ``quiet`` takes precedence over ``verbose`` when both are set. File
+        logging is always enabled.
 
-        Returns:
-            LogConfiguration instance.
+        Parameters
+        ----------
+        verbose
+            Enable DEBUG-level console logging (and the detailed format).
+        quiet
+            Enable ERROR-only console logging.
+        log_file
+            Path to the log file (``None`` auto-generates a name).
+
+        Returns
+        -------
+        LogConfiguration
+            The constructed configuration.
         """
         # Determine console level from flags
         if quiet:
@@ -416,22 +455,26 @@ class AnalysisSummaryLogger:
     Tracks phase timings, metrics, output files, and convergence status
     for logging a structured summary at analysis completion.
 
-    Example:
-        >>> summary = AnalysisSummaryLogger(run_id="analysis_001", analysis_mode="laminar_flow")
-        >>> summary.start_phase("loading")
-        >>> data = load_data(config)
-        >>> summary.end_phase("loading", memory_peak_gb=2.1)
-        >>> summary.record_metric("chi_squared", result.chi_squared)
-        >>> summary.set_convergence_status("converged")
-        >>> summary.log_summary(logger)
+    Examples
+    --------
+    >>> summary = AnalysisSummaryLogger(run_id="analysis_001", analysis_mode="laminar_flow")
+    >>> summary.start_phase("loading")
+    >>> data = load_data(config)
+    >>> summary.end_phase("loading", memory_peak_gb=2.1)
+    >>> summary.record_metric("chi_squared", result.chi_squared)
+    >>> summary.set_convergence_status("converged")
+    >>> summary.log_summary(logger)
     """
 
     def __init__(self, run_id: str, analysis_mode: AnalysisMode) -> None:
-        """Initialize summary logger for an analysis run.
+        """Initialize the summary logger for an analysis run.
 
-        Args:
-            run_id: Unique identifier for this analysis run.
-            analysis_mode: Analysis mode (e.g., "static_isotropic", "laminar_flow").
+        Parameters
+        ----------
+        run_id
+            Unique identifier for this analysis run.
+        analysis_mode
+            Analysis mode (e.g. ``"static_isotropic"``, ``"laminar_flow"``).
         """
         self.run_id = run_id
         self.analysis_mode = analysis_mode
@@ -446,46 +489,61 @@ class AnalysisSummaryLogger:
         self._config_summary: dict[str, Any] = {}
 
     def start_phase(self, name: str) -> None:
-        """Mark phase start for timing.
+        """Mark a phase as started for timing.
 
-        Args:
-            name: Phase name (e.g., "loading", "optimization").
+        Parameters
+        ----------
+        name
+            Phase name (e.g. ``"loading"``, ``"optimization"``).
         """
         self._phases[name] = _PhaseRecord(name=name, start_time=time.perf_counter())
 
     def end_phase(self, name: str, memory_peak_gb: float | None = None) -> None:
-        """Mark phase completion.
+        """Mark a phase as completed.
 
-        Args:
-            name: Phase name that was started.
-            memory_peak_gb: Optional peak memory usage during phase.
+        Silently ignores a ``name`` that was never started.
+
+        Parameters
+        ----------
+        name
+            Phase name that was previously started.
+        memory_peak_gb
+            Optional peak memory usage (GB) during the phase.
         """
         if name in self._phases:
             self._phases[name].end_time = time.perf_counter()
             self._phases[name].memory_peak_gb = memory_peak_gb
 
     def record_metric(self, name: str, value: float) -> None:
-        """Record a named metric (e.g., chi_squared).
+        """Record a named metric (e.g. ``chi_squared``).
 
-        Args:
-            name: Metric name.
-            value: Metric value.
+        Parameters
+        ----------
+        name
+            Metric name.
+        value
+            Metric value.
         """
         self._metrics[name] = value
 
     def add_output_file(self, path: Path | str) -> None:
         """Record an output file path.
 
-        Args:
-            path: Path to output file.
+        Parameters
+        ----------
+        path
+            Path to the output file.
         """
         self._output_files.append(Path(path))
 
     def set_convergence_status(self, status: str) -> None:
-        """Set final convergence status.
+        """Set the final convergence status.
 
-        Args:
-            status: Convergence status (e.g., "converged", "max_iter", "failed").
+        Parameters
+        ----------
+        status
+            Convergence status (e.g. ``"converged"``, ``"max_iter"``,
+            ``"failed"``).
         """
         self._convergence_status = status
 
@@ -506,15 +564,25 @@ class AnalysisSummaryLogger:
         data_file: str | None = None,
         **kwargs: Any,
     ) -> None:
-        """T054: Set configuration summary for logging.
+        """Set the configuration summary for logging.
 
-        Args:
-            optimizer: Optimizer used (e.g., "nlsq").
-            n_params: Number of parameters being optimized.
-            n_data_points: Total number of data points.
-            n_phi_angles: Number of phi angles.
-            data_file: Path to data file.
-            **kwargs: Additional key-value pairs to include.
+        Only the non-``None`` keyword arguments are stored; ``**kwargs`` adds
+        arbitrary extra fields.
+
+        Parameters
+        ----------
+        optimizer
+            Optimizer used (e.g. ``"nlsq"``).
+        n_params
+            Number of parameters being optimized.
+        n_data_points
+            Total number of data points.
+        n_phi_angles
+            Number of phi angles.
+        data_file
+            Path to the data file.
+        **kwargs
+            Additional key-value pairs to include in the summary.
         """
         if optimizer is not None:
             self._config_summary["optimizer"] = optimizer
@@ -530,10 +598,12 @@ class AnalysisSummaryLogger:
         self._config_summary.update(kwargs)
 
     def log_summary(self, logger: logging.Logger | logging.LoggerAdapter) -> None:
-        """Log the complete analysis summary.
+        """Log the complete analysis summary as a single banner block.
 
-        Args:
-            logger: Logger to use for output.
+        Parameters
+        ----------
+        logger
+            Logger to use for output.
         """
         total_runtime = time.perf_counter() - self._start_time
 
@@ -596,10 +666,17 @@ class AnalysisSummaryLogger:
         logger.info("\n".join(lines))
 
     def as_dict(self) -> dict[str, Any]:
-        """Export summary as dictionary for JSON serialization.
+        """Export the summary as a JSON-serializable dictionary.
 
-        Returns:
-            Dictionary with all summary data.
+        Metric values are passed through a NaN/Inf-safe coercion (via
+        :func:`xpcsjax.io.json_utils.json_safe`, with a local fallback) so the
+        result is always serializable.
+
+        Returns
+        -------
+        dict
+            All collected summary data (run id, mode, phase timings, metrics,
+            output files, and warning/error counts).
         """
         total_runtime = time.perf_counter() - self._start_time
 
@@ -659,6 +736,7 @@ class MinimalLogger:
     _lock: threading.Lock
 
     def __new__(cls) -> MinimalLogger:
+        """Return the process-wide singleton, creating it on first call."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
@@ -748,7 +826,7 @@ class MinimalLogger:
         json_format: str | None = None,
         quiet: bool = False,
     ) -> Path | None:
-        """Internal implementation of configure (called under lock)."""
+        """Apply the logging configuration (called under the instance lock)."""
         root_logger = logging.getLogger(self._root_logger_name)
 
         if force:
@@ -1037,27 +1115,32 @@ def with_context(
 ) -> logging.LoggerAdapter[logging.Logger]:
     """Create a contextual logger with key-value prefixes.
 
-    Context is formatted as [key=value][key2=value2] message.
-    Nested calls merge contexts (inner overrides outer on key conflicts).
-    Thread-safe for use in multiprocessing.
+    Context is formatted as ``[key=value key2=value2] message``. Nested calls
+    merge contexts (inner overrides outer on key conflicts) and ``None`` values
+    are dropped. Thread-safe for use in multiprocessing.
 
-    Args:
-        logger: Base logger or existing contextual adapter to wrap.
-        **context: Key-value pairs to include as prefix.
+    Parameters
+    ----------
+    logger
+        Base logger or existing contextual adapter to wrap.
+    **context
+        Key-value pairs to include as the message prefix.
 
-    Returns:
-        A logger adapter that prefixes all messages with context.
+    Returns
+    -------
+    logging.LoggerAdapter
+        A logger adapter that prefixes all messages with the merged context.
 
-    Example:
-        >>> logger = get_logger(__name__)
-        >>> ctx_logger = with_context(logger, run_id="abc123", mode="laminar_flow")
-        >>> ctx_logger.info("Starting analysis")
-        # Output: [run_id=abc123 mode=laminar_flow] Starting analysis
+    Examples
+    --------
+    >>> logger = get_logger(__name__)
+    >>> ctx_logger = with_context(logger, run_id="abc123", mode="laminar_flow")
+    >>> ctx_logger.info("Starting analysis")
+    # Output: [run_id=abc123 mode=laminar_flow] Starting analysis
 
-        >>> # Nested context
-        >>> shard_logger = with_context(ctx_logger, shard=5)
-        >>> shard_logger.info("Processing shard")
-        # Output: [run_id=abc123 mode=laminar_flow shard=5] Processing shard
+    >>> shard_logger = with_context(ctx_logger, shard=5)  # nested context
+    >>> shard_logger.info("Processing shard")
+    # Output: [run_id=abc123 mode=laminar_flow shard=5] Processing shard
     """
     # Filter out None values from new context
     new_context = {k: v for k, v in context.items() if v is not None}
@@ -1125,24 +1208,39 @@ def log_phase(
     track_memory: bool = False,
     threshold_s: float = 0.0,
 ) -> Generator[PhaseContext, None, None]:
-    """Context manager for phase-level timing with optional memory tracking.
+    """Time a named phase, optionally tracking memory, and log on exit.
 
-    Args:
-        name: Phase name for logging.
-        logger: Logger to use. If None, uses module logger.
-        level: Log level for phase messages.
-        track_memory: Track memory usage during phase.
-        threshold_s: Only log if duration > threshold (0 = always log).
+    Memory probing is best-effort: a probe failure degrades to a memory-less
+    phase rather than escaping the context. Completion logging is observational
+    and also exception-guarded.
 
-    Yields:
-        PhaseContext with name, duration, memory_peak_gb, memory_delta_gb.
-        Duration and memory values are populated after the context exits.
+    Parameters
+    ----------
+    name
+        Phase name for logging.
+    logger
+        Logger to use. If ``None``, the caller's module logger is used.
+    level
+        Log level for the phase messages.
+    track_memory
+        Whether to probe process memory at entry and exit.
+    threshold_s
+        Only log on exit when the duration meets this threshold (``0`` always
+        logs, and also emits a start message).
 
-    Example:
-        >>> with log_phase("optimization", track_memory=True) as phase:
-        ...     result = run_optimization(data)
-        >>> print(f"Took {phase.duration:.1f}s")
-        # Logs: Phase 'optimization' completed in 45.3s (peak memory: 12.4 GB)
+    Yields
+    ------
+    PhaseContext
+        Carries ``name``, ``duration``, ``memory_peak_gb``, and
+        ``memory_delta_gb``. Duration and memory fields are populated after the
+        context exits.
+
+    Examples
+    --------
+    >>> with log_phase("optimization", track_memory=True) as phase:
+    ...     result = run_optimization(data)
+    >>> print(f"Took {phase.duration:.1f}s")
+    # Logs: Phase 'optimization' completed in 45.3s (peak memory: 12.4 GB)
     """
     resolved_logger = get_logger() if logger is None else logger
     context = PhaseContext(name=name)
@@ -1212,31 +1310,37 @@ def log_exception(
 ) -> None:
     """Log an exception with full context for debugging.
 
-    Extracts module, function, and line number from exception traceback.
-    Formats context as key-value pairs in the message.
+    Extracts the module, function, and line number from the exception's
+    traceback and formats ``context`` as key-value pairs in the message.
+    Observational only: a failure while formatting or emitting the diagnostic is
+    swallowed and never changes control flow at the call site.
 
-    Args:
-        logger: Logger to use.
-        exc: Exception to log.
-        context: Additional context (e.g., parameter values).
-        level: Log level (default ERROR).
-        include_traceback: Include full traceback (default True).
+    Parameters
+    ----------
+    logger
+        Logger to use.
+    exc
+        Exception to log.
+    context
+        Additional context (e.g. parameter values).
+    level
+        Log level (default ERROR).
+    include_traceback
+        Whether to include the full traceback (default ``True``).
 
-    Example:
-        >>> try:
-        ...     result = compute_jacobian(params)
-        ... except ValueError as e:
-        ...     log_exception(logger, e, context={
-        ...         "iteration": 45,
-        ...         "params": params.tolist()[:5]
-        ...     })
-        ...     raise
-        # Logs:
-        # ERROR | xpcsjax.optimization.nlsq.core | Exception in compute_jacobian:
-        # ValueError: invalid value
-        # Context: iteration=45, params=[1.2e-11, 0.85, ...]
-        # Traceback (most recent call last):
-        #   ...
+    Examples
+    --------
+    >>> try:
+    ...     result = compute_jacobian(params)
+    ... except ValueError as e:
+    ...     log_exception(logger, e, context={"iteration": 45, "params": params.tolist()[:5]})
+    ...     raise
+    # Logs:
+    # ERROR | xpcsjax.optimization.nlsq.core | Exception in compute_jacobian:
+    # ValueError: invalid value
+    # Context: iteration=45, params=[1.2e-11, 0.85, ...]
+    # Traceback (most recent call last):
+    #   ...
     """
     # Logging is observational only: a failure while formatting/emitting the
     # diagnostic (e.g. a context value whose __repr__ raises) must never escape
@@ -1286,13 +1390,27 @@ def log_calls(
     include_args: bool = False,
     include_result: bool = False,
 ) -> Callable[[F], F]:
-    """Decorator to log function calls.
+    """Wrap a function to log its calls (and optionally args/result).
 
-    Args:
-        logger: Logger to use. If None, creates one for the module.
-        level: Logging level to use.
-        include_args: Whether to log function arguments.
-        include_result: Whether to log function return value.
+    The returned decorator logs entry, exit, and any propagating exception. All
+    emission is guarded so a failing log handler never aborts the wrapped call.
+
+    Parameters
+    ----------
+    logger
+        Logger to use. If ``None``, one is created for the decorated function's
+        module.
+    level
+        Logging level for entry/exit records.
+    include_args
+        Whether to log the call arguments.
+    include_result
+        Whether to log the return value.
+
+    Returns
+    -------
+    Callable
+        A decorator that wraps the target function.
     """
     resolved_logger: LoggerType | None = logger
 
@@ -1354,12 +1472,26 @@ def log_performance(
     level: int = logging.INFO,
     threshold: float = 0.1,
 ) -> Callable[[F], F]:
-    """Decorator to log function performance.
+    """Wrap a function to log its wall-clock duration.
 
-    Args:
-        logger: Logger to use. If None, creates one for the module.
-        level: Logging level to use.
-        threshold: Minimum duration (seconds) to log.
+    The returned decorator times each call and logs the duration only when it
+    meets ``threshold``; on exception it logs the elapsed time at ERROR and
+    re-raises. Emission is guarded so a failing handler never aborts the call.
+
+    Parameters
+    ----------
+    logger
+        Logger to use. If ``None``, one is created for the decorated function's
+        module.
+    level
+        Logging level for the timing record.
+    threshold
+        Minimum duration in seconds before a record is emitted.
+
+    Returns
+    -------
+    Callable
+        A decorator that wraps the target function.
     """
     resolved_logger: LoggerType | None = logger
 
@@ -1417,12 +1549,25 @@ def log_operation(
     logger: LoggerType | None = None,
     level: int = logging.INFO,
 ) -> Generator[LoggerType, None, None]:
-    """Context manager for logging operations.
+    """Log the start, completion, and timing of an operation.
 
-    Args:
-        operation_name: Name of the operation.
-        logger: Logger to use. If None, creates one for caller's module.
-        level: Logging level to use.
+    Logs start and (on success) completion with elapsed time; on exception logs
+    a failure record at ERROR — guarded so it never masks the original — and
+    re-raises.
+
+    Parameters
+    ----------
+    operation_name
+        Name of the operation.
+    logger
+        Logger to use. If ``None``, the caller's module logger is used.
+    level
+        Logging level for the start/completion records.
+
+    Yields
+    ------
+    logging.Logger or logging.LoggerAdapter
+        The resolved logger, for use inside the ``with`` block.
     """
     resolved_logger = get_logger() if logger is None else logger
 
@@ -1521,6 +1666,7 @@ class ContextFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
+        """Attach context-local fields to ``record``; always returns ``True``."""
         ctx = _LOG_CONTEXT.get() or {}
         for f in _CONTEXT_FIELDS:
             if not hasattr(record, f):
