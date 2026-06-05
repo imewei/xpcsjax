@@ -1,4 +1,4 @@
-"""Engine-route ``two_component`` fit + heterodyne result contract (Task #16a).
+"""Engine-route ``two_component`` fit + heterodyne result contract (Tasks #16a/#16b).
 
 Runs the heterodyne (``two_component``) joint fit through the **shared homodyne
 stratification engine** (:class:`StratifiedResidualFunctionJIT`) and returns a
@@ -7,13 +7,20 @@ and conventions production callers (``fit_nlsq_multi_phi`` →
 ``_fit_joint_constant_multi_phi`` / ``_fit_joint_averaged_multi_phi`` /
 ``_fit_joint_multi_phi``) emit.
 
-**Build-alongside, NO dispatch flip.** This module is *not* wired into
-``_fit_nlsq_heterodyne``; production behaviour is unchanged. The dispatch flip,
-off-grid guard, and shuffle removal are Task #16b. The proven engine
-construction (frame-0-excluded chunks + per-mode :class:`HeterodynePointEvaluator`
-+ physics-first⇄scaling-first layout) is promoted here from the Phase 2.3
-parity tests (``tests/parity/test_engine_heterodyne_fit_parity.py``) so the
-production path no longer imports engine-construction helpers from tests.
+**Wired into production (Task #16b).** ``_fit_nlsq_heterodyne`` routes the
+in-memory joint fit (< 1 M points, non-escape) for the three in-scope per-angle
+scaling modes through :func:`fit_two_component_via_engine` here, best-effort with
+a fall-back to ``fit_nlsq_multi_phi`` on any engine-route exception. This
+**changes** ``two_component`` in-memory in-scope-mode results by ~1e-3 vs the old
+direct path under the accepted *no-worse* contract (engine SSR ≤ production SSR),
+**not** bit-identical — see ``CLAUDE.md``. The superseded seed-42 angle-shuffle
+regime was removed alongside the flip; the off-grid guard is obsolete on this
+path because :class:`HeterodynePointEvaluator` uses the meshgrid kernel (no
+value→index mapping). The proven engine construction (frame-0-excluded chunks +
+per-mode :class:`HeterodynePointEvaluator` + physics-first⇄scaling-first layout)
+was promoted here from the Phase 2.3 parity tests
+(``tests/parity/test_engine_heterodyne_fit_parity.py``) so the production path no
+longer imports engine-construction helpers from tests.
 
 Scope: the three in-scope per-angle scaling modes —
 ``fixed_constant`` / ``individual`` / ``auto_averaged`` (the engine-layout
