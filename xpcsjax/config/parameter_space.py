@@ -1,5 +1,4 @@
-"""Parameter Space Configuration for NLSQ
-==========================================
+"""Parameter space configuration for NLSQ.
 
 Defines the ParameterSpace class for loading parameter bounds from YAML
 configuration files. This enables config-driven NLSQ initialization
@@ -247,7 +246,6 @@ class ParameterSpace:
 
     def copy(self) -> "ParameterSpace":
         """Return a shallow copy safe for localized mutations."""
-
         return ParameterSpace(
             model_type=self.model_type,
             parameter_names=self.parameter_names.copy(),
@@ -257,7 +255,6 @@ class ParameterSpace:
 
     def drop_parameters(self, names: set[str]) -> "ParameterSpace":
         """Return a copy with specific parameters removed."""
-
         if not names:
             return self.copy()
 
@@ -373,7 +370,6 @@ class ParameterSpace:
         D_offset bounds midpoints when those parameters are present. Falls back
         to sensible defaults when either parameter is absent.
         """
-
         d0_bounds = self.bounds.get("D0", (100.0, 1e5))
         d_offset_bounds = self.bounds.get("D_offset", (-1e5, 1e5))
 
@@ -412,7 +408,7 @@ class ParameterSpace:
         }
 
     def __repr__(self) -> str:
-        """String representation."""
+        """Return a concise string representation."""
         return (
             f"ParameterSpace(model={self.model_type}, "
             f"n_params={len(self.parameter_names)}, "

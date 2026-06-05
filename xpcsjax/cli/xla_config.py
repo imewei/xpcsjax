@@ -29,16 +29,27 @@ def configure_xla(
     disable_jit: bool = False,
     enable_x64: bool = True,
 ) -> dict[str, str]:
-    """Set XLA / JAX env vars for CPU execution.
+    """Set XLA / JAX environment variables for CPU execution.
 
-    Args:
-        num_threads: CPU thread count for XLA (``None`` leaves unset).
-        disable_jit: If True, set ``JAX_DISABLE_JIT=1`` (debugging).
-        enable_x64: If True, set ``JAX_ENABLE_X64=1`` (required for
-            xpcsjax — parameters span 6+ orders of magnitude).
+    Parameters
+    ----------
+    num_threads : int or None, optional
+        CPU thread count for XLA; ``None`` leaves thread-related vars unset.
+    disable_jit : bool, optional
+        If ``True``, set ``JAX_DISABLE_JIT=1`` (for debugging).
+    enable_x64 : bool, optional
+        If ``True``, set ``JAX_ENABLE_X64=1`` (required for xpcsjax --
+        parameters span 6+ orders of magnitude).
 
-    Returns:
-        Mapping of env vars that were set.
+    Returns
+    -------
+    dict
+        Mapping of the environment variables that were set.
+
+    Notes
+    -----
+    Effective only when called *before* the first ``import jax`` (JAX reads
+    ``XLA_FLAGS`` once at backend init). See the module docstring.
     """
     env_vars: dict[str, str] = {}
 
@@ -70,7 +81,15 @@ def configure_xla(
 
 
 def get_cpu_info() -> dict[str, int | float | str]:
-    """Return a compact dict of CPU / RAM metrics (uses psutil)."""
+    """Return a compact dict of CPU / RAM metrics.
+
+    Returns
+    -------
+    dict
+        Keys ``cpu_count``, ``physical_cores``, ``available_memory_gb``, and
+        ``total_memory_gb`` (memory in GiB, rounded to one decimal). Sourced
+        from :mod:`psutil`.
+    """
     import psutil
 
     info: dict[str, int | float | str] = {

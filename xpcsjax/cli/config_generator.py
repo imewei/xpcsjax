@@ -6,7 +6,7 @@ YAML configurations from xpcsjax's four mode-specific templates:
 - ``static_anisotropic`` — 3-param diffusion with per-angle scaling
 - ``static_isotropic``   — 3-param diffusion, single global scaling
 - ``laminar_flow``       — 7-param diffusion + shear
-- ``two_component``      — heterodyne (sample + reference) 11-param model
+- ``two_component``      — heterodyne (sample + reference) 14-param model
 
 xpcsjax is NLSQ-only by design — Bayesian / CMC modes from the upstream
 ``heterodyne`` package are intentionally absent.
@@ -50,18 +50,26 @@ _VALID_MODES: tuple[str, ...] = tuple(_MODE_TO_TEMPLATE.keys())
 
 
 def get_template_path(mode: str) -> Path:
-    """Return filesystem path to the YAML template for *mode*.
+    """Return the filesystem path to the YAML template for *mode*.
 
-    Args:
-        mode: One of ``static_anisotropic``, ``static_isotropic``,
-            ``laminar_flow``, or ``two_component``.
+    Parameters
+    ----------
+    mode : str
+        One of ``static_anisotropic``, ``static_isotropic``,
+        ``laminar_flow``, or ``two_component``.
 
-    Returns:
-        Path to the template YAML file.
+    Returns
+    -------
+    pathlib.Path
+        Path to the mode-specific template YAML file shipped under
+        ``xpcsjax/config/templates/``.
 
-    Raises:
-        ValueError: If *mode* is not one of the four supported modes.
-        FileNotFoundError: If the template file is missing from the package.
+    Raises
+    ------
+    ValueError
+        If *mode* is not one of the four supported modes.
+    FileNotFoundError
+        If the template file is missing from the installed package.
     """
     if mode not in _MODE_TO_TEMPLATE:
         raise ValueError(f"Invalid mode '{mode}'. Must be one of: {', '.join(_VALID_MODES)}")
@@ -89,22 +97,44 @@ def generate_config(
 ) -> Path:
     """Generate a populated configuration file from a mode-specific template.
 
-    Args:
-        mode: Analysis mode — one of ``static_anisotropic``, ``static_isotropic``,
-            ``laminar_flow``, or ``two_component``.
-        output_path: Destination YAML path.
-        overwrite: If True, replace an existing file at *output_path*.
-        data_path: If provided, inject as the ``file_path`` entry.
-        q: If provided, inject as ``scattering.wavevector_q``.
-        dt: If provided, inject as ``analyzer_parameters.dt``.
-        time_length: If provided, inject as ``end_frame`` (last frame, inclusive).
+    Copies the template for *mode* and applies string-level substitutions for
+    any provided data path / scattering / timing values, then writes the
+    result to *output_path*.
 
-    Returns:
+    Parameters
+    ----------
+    mode : str
+        Analysis mode -- one of ``static_anisotropic``, ``static_isotropic``,
+        ``laminar_flow``, or ``two_component``.
+    output_path : pathlib.Path or str
+        Destination YAML path.
+    overwrite : bool, optional
+        If ``True``, replace an existing file at *output_path*.
+    data_path : str or None, optional
+        If provided, injected as the ``file_path`` entry.
+    q : float or None, optional
+        If provided, injected as ``scattering.wavevector_q``.
+    dt : float or None, optional
+        If provided, injected as ``analyzer_parameters.dt``.
+    time_length : int or None, optional
+        If provided, injected as ``end_frame`` (last frame, inclusive).
+
+    Returns
+    -------
+    pathlib.Path
         Path to the generated config file.
 
-    Raises:
-        ValueError: For unknown *mode*.
-        FileExistsError: If *output_path* exists and *overwrite* is False.
+    Raises
+    ------
+    ValueError
+        For an unknown *mode*.
+    FileExistsError
+        If *output_path* exists and *overwrite* is ``False``.
+
+    Notes
+    -----
+    Substitution is by exact placeholder match against the canonical template
+    values; a missing placeholder is warned about (not raised) and skipped.
     """
     if mode not in _VALID_MODES:
         raise ValueError(f"Invalid mode '{mode}'. Must be one of: {', '.join(_VALID_MODES)}")
@@ -163,8 +193,17 @@ def generate_config(
 def show_template(mode: str) -> None:
     """Print the contents of the template for *mode* to stdout.
 
-    Args:
-        mode: One of the four supported analysis modes.
+    Parameters
+    ----------
+    mode : str
+        One of the four supported analysis modes.
+
+    Raises
+    ------
+    ValueError
+        If *mode* is not supported.
+    FileNotFoundError
+        If the template file is missing from the package.
     """
     template_path = get_template_path(mode)
     with open(template_path, encoding="utf-8") as f:
@@ -174,14 +213,20 @@ def show_template(mode: str) -> None:
 def validate_config(config_path: Path | str) -> bool:
     """Validate an existing YAML configuration file.
 
-    Loads the YAML and attempts to construct a :class:`ConfigManager` against
-    it. Returns True iff both operations succeed.
+    Parses the YAML and attempts to construct a
+    :class:`~xpcsjax.config.manager.ConfigManager` against it, printing
+    progress and any failure reason to stdout.
 
-    Args:
-        config_path: Path to a YAML configuration file.
+    Parameters
+    ----------
+    config_path : pathlib.Path or str
+        Path to a YAML configuration file.
 
-    Returns:
-        True if the configuration is valid, False otherwise.
+    Returns
+    -------
+    bool
+        ``True`` if the file exists, parses as YAML, and constructs a valid
+        ``ConfigManager``; ``False`` otherwise.
     """
     config_path = Path(config_path)
     print(f"Validating: {config_path}")
@@ -231,16 +276,24 @@ def _prompt(
     required: bool = False,
     cast: type | None = None,
 ) -> Any:
-    """Prompt the user for input with a default value.
+    """Prompt the user for a value, looping until a valid answer is given.
 
-    Args:
-        label: Display label.
-        default: Default value shown in brackets.
-        required: If True, an empty answer is rejected.
-        cast: If given, attempt to cast the response to this type.
+    Parameters
+    ----------
+    label : str
+        Display label shown before the input.
+    default : str
+        Default value used when the answer is empty (and not required); shown
+        in brackets.
+    required : bool, optional
+        If ``True``, an empty answer is rejected and re-prompted.
+    cast : type or None, optional
+        If given, the response is cast to this type; a failed cast re-prompts.
 
-    Returns:
-        The user-supplied (or default) value, optionally cast.
+    Returns
+    -------
+    Any
+        The user-supplied (or default) value, cast to *cast* when provided.
     """
     while True:
         suffix = f" [{default}]" if default and not required else ""
@@ -265,11 +318,20 @@ def _prompt(
 def interactive_builder(mode: str) -> dict[str, Any]:
     """Build a minimal configuration dict via interactive prompts.
 
-    Args:
-        mode: Target analysis mode. Recorded under ``analysis_mode``.
+    Parameters
+    ----------
+    mode : str
+        Target analysis mode, recorded under ``analysis_mode``.
 
-    Returns:
-        Configuration dictionary suitable for ``yaml.safe_dump``.
+    Returns
+    -------
+    dict
+        Configuration dictionary suitable for :func:`yaml.safe_dump`.
+
+    Raises
+    ------
+    ValueError
+        If *mode* is not one of the four supported modes.
     """
     if mode not in _VALID_MODES:
         raise ValueError(f"Invalid mode '{mode}'. Must be one of: {', '.join(_VALID_MODES)}")
@@ -329,6 +391,15 @@ def interactive_builder(mode: str) -> dict[str, Any]:
 # Argparse entry point
 # -----------------------------------------------------------------------------
 def _build_parser() -> argparse.ArgumentParser:
+    """Build the argument parser for the ``xpcsjax-config`` console script.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        Parser exposing ``--mode``, ``--output``, data/scattering/timing
+        injection flags, and the ``--show-template`` / ``--validate`` /
+        ``--interactive`` action flags.
+    """
     parser = argparse.ArgumentParser(
         prog="xpcsjax-config",
         description=(
@@ -403,7 +474,23 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    """Entry point for the ``xpcsjax-config`` console script."""
+    """Run the ``xpcsjax-config`` console script.
+
+    Parses arguments and dispatches to one of: print a template
+    (``--show-template``), validate an existing config (``--validate``), run
+    the interactive builder (``--interactive``), or generate a config from a
+    template (the default). On user-facing errors, prints a message and exits
+    with status 1 via :class:`SystemExit`.
+
+    Examples
+    --------
+    Generate a laminar-flow config (typically invoked as the ``xpcsjax-config``
+    console script):
+
+    >>> from xpcsjax.cli.config_generator import main
+    >>> main()  # doctest: +SKIP
+    Created: xpcsjax_config.yaml
+    """
     parser = _build_parser()
     args = parser.parse_args()
 

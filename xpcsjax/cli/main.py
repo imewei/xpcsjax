@@ -19,14 +19,24 @@ import time
 
 
 def _bootstrap_xla_env(argv: list[str] | None) -> None:
-    """Pre-parse ``--threads`` / ``--no-jit`` and seed env vars *before*
-    ``xpcsjax/__init__.py`` runs (which eagerly imports JAX).
+    """Seed XLA/JAX env vars from ``--threads`` / ``--no-jit`` before JAX loads.
 
-    JAX reads ``XLA_FLAGS`` exactly once during backend initialization.
-    Any configuration written after the first ``import jax`` is silently
-    ignored. The xpcsjax package init triggers that first import, so
-    thread-count and disable-jit flags must be set in ``os.environ``
-    before we ``import xpcsjax.cli.args_parser``.
+    Pre-parses the thread-count and disable-JIT flags out of ``argv`` and
+    writes the corresponding environment variables, which must happen *before*
+    ``xpcsjax/__init__.py`` runs (it eagerly imports JAX).
+
+    Parameters
+    ----------
+    argv : list of str or None
+        Argument list to scan. ``None`` falls back to ``sys.argv[1:]``.
+
+    Notes
+    -----
+    JAX reads ``XLA_FLAGS`` exactly once during backend initialization; any
+    configuration written after the first ``import jax`` is silently ignored.
+    The xpcsjax package init triggers that first import, so thread-count and
+    disable-JIT flags must be set in ``os.environ`` before
+    ``xpcsjax.cli.args_parser`` is imported.
     """
     raw = list(sys.argv[1:] if argv is None else argv)
 
@@ -69,14 +79,32 @@ def _bootstrap_xla_env(argv: list[str] | None) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the xpcsjax CLI.
+    """Run the xpcsjax NLSQ analysis CLI end to end.
 
-    Args:
-        argv: Argument list (defaults to ``sys.argv[1:]``).
+    Bootstraps XLA env vars, parses and validates arguments, configures
+    logging, then dispatches the requested command (NLSQ fit or standalone
+    plotting).
 
-    Returns:
-        Exit code: 0 on success, 1 on uncaught exception, 2 on
-        NLSQ non-convergence, 130 on KeyboardInterrupt.
+    Parameters
+    ----------
+    argv : list of str or None, optional
+        Argument list; defaults to ``sys.argv[1:]`` when ``None``.
+
+    Returns
+    -------
+    int
+        Exit code: 0 on success, 1 on an uncaught exception (or argument
+        validation failure), 2 on NLSQ non-convergence, 130 on
+        :class:`KeyboardInterrupt`.
+
+    Examples
+    --------
+    Run a fit from a generated config (typically invoked via the ``xpcsjax``
+    console script):
+
+    >>> from xpcsjax.cli.main import main
+    >>> main(["--config", "xpcsjax_config.yaml"])  # doctest: +SKIP
+    0
     """
     _bootstrap_xla_env(argv)
 
@@ -134,12 +162,30 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def main_xjexp() -> int:
-    """Entry point for ``xjexp`` — plot experimental data only."""
+    """Run the ``xjexp`` console script: plot experimental data only.
+
+    Forwards to :func:`main` with ``--plot-experimental-data`` prepended,
+    skipping optimization.
+
+    Returns
+    -------
+    int
+        Exit code from :func:`main`.
+    """
     return main(["--plot-experimental-data", *sys.argv[1:]])
 
 
 def main_xjsim() -> int:
-    """Entry point for ``xjsim`` — plot simulated data only."""
+    """Run the ``xjsim`` console script: plot simulated data only.
+
+    Forwards to :func:`main` with ``--plot-simulated-data`` prepended,
+    skipping optimization.
+
+    Returns
+    -------
+    int
+        Exit code from :func:`main`.
+    """
     return main(["--plot-simulated-data", *sys.argv[1:]])
 
 

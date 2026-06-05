@@ -1,4 +1,28 @@
-"""Physics constraint validators for heterodyne parameters."""
+"""Physics constraint validators for heterodyne (``two_component``) parameters.
+
+Registry-driven sanity checks for the 14-parameter heterodyne model. These
+rules flag physically suspect or impossible parameter values (and a few
+cross-parameter relationships) that the hard bounds in
+:mod:`xpcsjax.config.parameter_registry` do not by themselves catch. Diffusion
+coefficients are interpreted in Ångström units (Å) consistent with the
+registry; velocities are reported in Å/s.
+
+This module provides:
+
+- :data:`PHYSICS_CONSTRAINTS` -- declarative per-parameter constraint rules.
+- :func:`validate_single_parameter` / :func:`validate_cross_parameter_constraints`
+  / :func:`validate_all_parameters` -- the staged check entry points.
+- :func:`validate_parameters` -- convenience wrapper returning a
+  :class:`ValidationResult` from an array or dict of parameters.
+- :func:`validate_time_integral_safety` -- numerical-safety check on the
+  ``D0 * t**alpha`` time integral.
+- :func:`validate_correlation_inputs` -- shape / finiteness / monotonicity
+  check on correlation-matrix inputs.
+
+See Also
+--------
+xpcsjax.config.physics_validators : Sibling validators for the homodyne models.
+"""
 
 from __future__ import annotations
 
@@ -25,7 +49,20 @@ class ConstraintSeverity(Enum):
 
 @dataclass(frozen=True)
 class PhysicsViolation:
-    """A single physics constraint violation."""
+    """A single triggered physics constraint violation.
+
+    Attributes
+    ----------
+    parameter : str
+        Name of the offending parameter (or a composite label such as
+        ``"f0+f3"`` for cross-parameter checks).
+    value : float or None
+        The value that triggered the violation.
+    message : str
+        Human-readable explanation, typically including the value.
+    severity : ConstraintSeverity
+        Severity of the violation.
+    """
 
     parameter: str
     value: float | None
@@ -35,7 +72,22 @@ class PhysicsViolation:
 
 @dataclass
 class ValidationResult:
-    """Result of parameter validation."""
+    """Outcome of a parameter validation, partitioned by severity.
+
+    Truthy when :attr:`is_valid` is ``True`` (no errors), via
+    :meth:`__bool__`.
+
+    Attributes
+    ----------
+    is_valid : bool
+        ``True`` when no ``error``-severity violations were found.
+    errors : list of str
+        Messages for ``error``-severity violations.
+    warnings : list of str
+        Messages for ``warning``-severity violations.
+    info : list of str
+        Messages for ``info``-severity violations.
+    """
 
     is_valid: bool
     errors: list[str]
@@ -43,12 +95,24 @@ class ValidationResult:
     info: list[str] = field(default_factory=list)
 
     def __bool__(self) -> bool:
+        """Return :attr:`is_valid` so the result is truthy when valid."""
         return self.is_valid
 
 
 @dataclass(frozen=True)
 class ConstraintRule:
-    """A single constraint rule for a parameter."""
+    """A single physics constraint rule for one parameter.
+
+    Attributes
+    ----------
+    check : collections.abc.Callable
+        Predicate over the parameter value; returns ``True`` when the value
+        violates the rule.
+    message : str
+        Human-readable explanation attached to a triggered violation.
+    severity : ConstraintSeverity
+        Severity assigned to a triggered violation.
+    """
 
     check: Callable[[float], bool]
     message: str
@@ -140,17 +204,23 @@ def validate_single_parameter(
     value: float,
     min_severity: ConstraintSeverity = ConstraintSeverity.INFO,
 ) -> list[PhysicsViolation]:
-    """Validate a single parameter against physics constraints.
+    """Validate a single parameter against its physics constraints.
 
-    Args:
-        param: Parameter name.
-        value: Parameter value.
-        min_severity: Minimum severity to include in results.
-            INFO includes all, WARNING includes warnings and errors,
-            ERROR includes only errors.
+    Parameters
+    ----------
+    param : str
+        Parameter name. Names with no rules in :data:`PHYSICS_CONSTRAINTS`
+        produce no violations.
+    value : float
+        Parameter value to check.
+    min_severity : ConstraintSeverity, optional
+        Minimum severity to include. ``INFO`` includes all, ``WARNING``
+        includes warnings and errors, ``ERROR`` includes only errors.
 
-    Returns:
-        List of PhysicsViolation objects for triggered constraints.
+    Returns
+    -------
+    list of PhysicsViolation
+        Violations triggered for this parameter, possibly empty.
     """
     severity_order = {
         ConstraintSeverity.INFO: 0,
@@ -184,18 +254,28 @@ def validate_cross_parameter_constraints(
 ) -> list[PhysicsViolation]:
     """Validate constraints that span multiple parameters.
 
-    Cross-parameter checks:
-    - f0 + f3 > 1 (ERROR): total fraction exceeds unity
-    - D_offset_ref / D0_ref > 0.5 (WARNING): offset dominates diffusion
-    - D_offset_sample / D0_sample > 0.5 (WARNING): offset dominates diffusion
-    - v0 > 0 check for two_component mode (INFO)
+    Parameters
+    ----------
+    params : dict
+        Mapping of parameter name to value.
+    min_severity : ConstraintSeverity, optional
+        Minimum severity to include.
 
-    Args:
-        params: Dictionary of parameter name -> value.
-        min_severity: Minimum severity to include.
+    Returns
+    -------
+    list of PhysicsViolation
+        Cross-parameter violations triggered, possibly empty.
 
-    Returns:
-        List of PhysicsViolation objects.
+    Notes
+    -----
+    The cross-parameter checks are:
+
+    - ``f0 + f3 > 1`` (``error``): total fraction exceeds unity.
+    - ``D_offset_ref / D0_ref > 0.5`` (``warning``): offset dominates diffusion.
+    - ``D_offset_sample / D0_sample > 0.5`` (``warning``): offset dominates
+      diffusion.
+    - ``v0 <= 0`` (``info``): the two-component model expects a positive
+      velocity.
     """
     severity_order = {
         ConstraintSeverity.INFO: 0,
@@ -266,14 +346,25 @@ def validate_all_parameters(
     params: dict[str, float],
     min_severity: ConstraintSeverity = ConstraintSeverity.INFO,
 ) -> list[PhysicsViolation]:
-    """Validate all parameters against single and cross-parameter constraints.
+    """Validate all parameters against single- and cross-parameter constraints.
 
-    Args:
-        params: Dictionary of parameter name -> value.
-        min_severity: Minimum severity to include.
+    Parameters
+    ----------
+    params : dict
+        Mapping of parameter name to value.
+    min_severity : ConstraintSeverity, optional
+        Minimum severity to include.
 
-    Returns:
-        List of all PhysicsViolation objects, sorted by severity (errors first).
+    Returns
+    -------
+    list of PhysicsViolation
+        Every triggered violation, sorted by severity (errors first, then
+        warnings, then info).
+
+    See Also
+    --------
+    validate_single_parameter : Per-parameter checks.
+    validate_cross_parameter_constraints : Inter-parameter checks.
     """
     violations: list[PhysicsViolation] = []
 
@@ -298,11 +389,23 @@ def validate_all_parameters(
 def validate_parameters(params: np.ndarray | dict[str, float]) -> ValidationResult:
     """Validate heterodyne model parameters against physical constraints.
 
-    Args:
-        params: Either array of 14 values or dict with parameter names
+    Convenience wrapper over :func:`validate_all_parameters` that accepts the
+    packed parameter array directly and returns a severity-partitioned
+    :class:`ValidationResult`.
 
-    Returns:
-        ValidationResult with errors, warnings, and info
+    Parameters
+    ----------
+    params : numpy.ndarray or dict
+        Either a length-14 array (positionally aligned with
+        :data:`~xpcsjax.config.heterodyne_parameter_names.ALL_PARAM_NAMES`) or
+        a dict mapping parameter names to values.
+
+    Returns
+    -------
+    ValidationResult
+        Result with ``errors``, ``warnings``, and ``info`` message lists. An
+        array whose length is not 14 yields an invalid result with a single
+        descriptive error.
     """
     if isinstance(params, np.ndarray):
         if len(params) != 14:
@@ -335,19 +438,26 @@ def validate_time_integral_safety(
     t_min: float,
     t_max: float,
 ) -> ValidationResult:
-    """Validate that time integral won't have numerical issues.
+    r"""Check the ``D0 * t**alpha`` time integral for numerical hazards.
 
-    For J(t) = D0 * t^alpha, the integral from 0 to T needs care when:
-    - alpha < 0: singularity at t=0
-    - alpha > large: potential overflow
+    For :math:`J(t) = D_0\,t^{\alpha}`, the integral from 0 to :math:`T`
+    needs care when ``alpha < 0`` (singularity at :math:`t = 0`) or ``alpha``
+    is large (potential overflow of :math:`t^{\alpha}`).
 
-    Args:
-        alpha: Exponent value
-        t_min: Minimum time (should be > 0 if alpha < 0)
-        t_max: Maximum time
+    Parameters
+    ----------
+    alpha : float
+        Diffusion-exponent value.
+    t_min : float
+        Minimum time. Must be ``> 0`` when ``alpha < 0``.
+    t_max : float
+        Maximum time.
 
-    Returns:
-        ValidationResult
+    Returns
+    -------
+    ValidationResult
+        Invalid (with an error) when ``alpha < 0`` and ``t_min <= 0``;
+        otherwise valid, possibly carrying instability/overflow warnings.
     """
     errors: list[str] = []
     warnings: list[str] = []
@@ -379,15 +489,23 @@ def validate_correlation_inputs(
     t2: np.ndarray,
     c2_data: np.ndarray,
 ) -> ValidationResult:
-    """Validate correlation matrix inputs.
+    """Validate correlation-matrix inputs for shape, finiteness, and range.
 
-    Args:
-        t1: Time axis 1
-        t2: Time axis 2
-        c2_data: Correlation data
+    Parameters
+    ----------
+    t1 : numpy.ndarray
+        First time axis; must be strictly increasing.
+    t2 : numpy.ndarray
+        Second time axis; must be strictly increasing.
+    c2_data : numpy.ndarray
+        Correlation data; expected shape ``(len(t1), len(t2))``.
 
-    Returns:
-        ValidationResult
+    Returns
+    -------
+    ValidationResult
+        Errors for shape mismatch, NaN/inf entries, or non-monotonic time
+        axes; warnings for out-of-range correlation values (negative or
+        ``> 2``).
     """
     errors: list[str] = []
     warnings: list[str] = []

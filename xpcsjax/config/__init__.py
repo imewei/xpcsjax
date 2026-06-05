@@ -1,15 +1,33 @@
 """Configuration system for the xpcsjax package.
 
-Provides configuration management, parameter handling, and physics validation.
+Provides configuration management, parameter handling, and physics validation
+for the NLSQ-only XPCS analysis pipeline.
 
-Modules:
-- manager.py: Main ConfigManager class for loading YAML/JSON configs
-- parameter_registry.py: Parameter registration and defaults
-- parameter_space.py: Parameter space and bounds handling
-- parameter_manager.py: Parameter validation and management
-- physics_validators.py: Physics-based constraint validation (v2.7+)
-- types.py: TypedDict definitions for type safety
-- parameter_names.py: Parameter name constants
+The central entry point is :class:`~xpcsjax.config.manager.ConfigManager`, which
+loads and normalizes YAML/JSON configs and serves typed accessors.
+:mod:`~xpcsjax.config.parameter_registry` is the single source of truth for
+parameter names, bounds, and the
+:class:`~xpcsjax.config.parameter_registry.AnalysisMode` enum; all other modules
+read from it.
+
+Modules
+-------
+manager
+    :class:`~xpcsjax.config.manager.ConfigManager` for loading YAML/JSON configs.
+parameter_registry
+    Parameter registration, defaults, bounds, and the ``AnalysisMode`` enum
+    (single source of truth).
+parameter_space
+    Parameter-space and bounds handling.
+parameter_manager
+    Parameter validation and active-parameter/bounds resolution per mode.
+physics_validators
+    Physics-based constraint validation.
+types
+    ``TypedDict`` definitions (including the ``data_type`` vocabulary) for type
+    safety.
+parameter_names
+    Parameter-name constants.
 """
 
 from xpcsjax.config.manager import ConfigManager, load_xpcs_config

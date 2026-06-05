@@ -188,8 +188,27 @@ def save_results_json(
 ) -> Path:
     """Write the optimization summary (no residuals) to a JSON file.
 
-    Residual / covariance arrays are intentionally omitted here — they
-    live in the NPZ companion file. JSON stays human-readable.
+    Residual / covariance arrays are intentionally omitted here -- they live
+    in the NPZ companion file. JSON stays human-readable.
+
+    Parameters
+    ----------
+    result : OptimizationResult
+        The completed NLSQ optimization result.
+    output_dir : pathlib.Path
+        Destination directory. Created if missing.
+    config_manager : ConfigManager or None, optional
+        Source of mode / data_type / parameter names for the JSON header.
+    args : argparse.Namespace or None, optional
+        Parsed CLI namespace; when present, serialized under ``cli_args`` for
+        provenance.
+    filename : str, keyword-only, optional
+        Output file name within *output_dir*.
+
+    Returns
+    -------
+    pathlib.Path
+        Path to the written JSON file.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     parameter_names = _resolve_parameter_names(config_manager)
@@ -220,8 +239,26 @@ def save_results_npz(
 ) -> Path:
     """Write parameter arrays, residuals, and fit metadata to a single NPZ.
 
-    The NPZ is the full-fidelity artifact: float64 arrays preserved
-    exactly, suitable for downstream re-analysis.
+    The NPZ is the full-fidelity artifact: float64 arrays preserved exactly,
+    suitable for downstream re-analysis.
+
+    Parameters
+    ----------
+    result : OptimizationResult
+        The completed NLSQ optimization result.
+    output_dir : pathlib.Path
+        Destination directory. Created if missing.
+    config_manager : ConfigManager or None, optional
+        Source of parameter names recorded alongside the arrays.
+    filename : str, keyword-only, optional
+        Output file name within *output_dir*.
+    residuals : numpy.ndarray or None, keyword-only, optional
+        Optional residual array stored under the ``residuals`` key.
+
+    Returns
+    -------
+    pathlib.Path
+        Path to the written NPZ file.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     parameter_names = _resolve_parameter_names(config_manager)
@@ -267,17 +304,26 @@ def save_results(
 ) -> None:
     """Persist an :class:`OptimizationResult` in the requested format(s).
 
-    Args:
-        result: The completed NLSQ optimization result.
-        output_dir: Destination directory. Created if missing.
-        output_format: One of ``"json"``, ``"npz"``, or ``"both"``.
-        config_manager: Optional ConfigManager whose mode, data_type, and
-            parameter names are recorded alongside the result.
-        args: Optional parsed CLI namespace. When present its attributes
-            are serialized into the JSON output for provenance.
+    Parameters
+    ----------
+    result : OptimizationResult
+        The completed NLSQ optimization result.
+    output_dir : pathlib.Path
+        Destination directory. Created if missing.
+    output_format : str
+        One of ``"json"``, ``"npz"``, or ``"both"`` (case-insensitive).
+    config_manager : ConfigManager or None
+        Optional manager whose mode, data_type, and parameter names are
+        recorded alongside the result.
+    args : argparse.Namespace or None
+        Optional parsed CLI namespace. When present, its attributes are
+        serialized into the JSON output for provenance, and ``args.residuals``
+        (if any) is stored in the NPZ.
 
-    Raises:
-        ValueError: If ``output_format`` is not one of the accepted values.
+    Raises
+    ------
+    ValueError
+        If ``output_format`` is not one of the accepted values.
     """
     fmt = output_format.lower().strip()
     if fmt not in {"json", "npz", "both"}:

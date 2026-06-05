@@ -1,18 +1,16 @@
-"""Parameter Registry for xpcsjax Analysis
+"""Parameter registry for xpcsjax analysis.
 
-Centralized parameter registry that eliminates 8x duplication of parameter
-definitions across the codebase. Provides:
-- Parameter metadata (names, types, bounds, defaults, descriptions)
-- Per-angle parameter expansion
-- Validation utilities
+Single source of truth for parameter names, bounds, defaults, and physical
+constraints across all analysis modes; both :class:`ConfigManager` and the NLSQ
+bounds builder read from it. Provides:
 
-This module consolidates parameter information that was previously duplicated in:
-- backends/multiprocessing.py (worker validation)
-- data_prep.py (data preprocessing)
-- several test fixtures
+- Parameter metadata (names, types, bounds, defaults, descriptions).
+- Per-angle parameter expansion.
+- Validation utilities.
 
-Created as part of code quality remediation (Dec 2025).
-Addresses code review finding of 8x parameter name duplication.
+It consolidates parameter information that was previously duplicated across the
+codebase (worker validation, data preprocessing, and several test fixtures),
+eliminating the prior 8x duplication of parameter definitions.
 """
 
 from __future__ import annotations
@@ -559,7 +557,7 @@ class ParameterRegistry:
         return iter(self._PARAMETERS)
 
     def __len__(self) -> int:
-        """Number of registered parameters."""
+        """Return the number of registered parameters."""
         return len(self._PARAMETERS)
 
     def __contains__(self, name: str) -> bool:

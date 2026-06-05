@@ -1,5 +1,4 @@
-"""Parameter Manager for xpcsjax
-==================================
+"""Parameter manager for xpcsjax.
 
 Centralized parameter management system for handling parameter bounds,
 active parameters, and validation for the xpcsjax NLSQ analysis pipeline.
@@ -761,7 +760,7 @@ class ParameterManager:
         return [p for p in active_params if p not in fixed_canonical]
 
     def __repr__(self) -> str:
-        """String representation."""
+        """Return a concise string representation of manager state."""
         active_params = self.get_active_parameters()
         fixed_params = self.get_fixed_parameters()
         optimizable = len(active_params) - len(fixed_params)

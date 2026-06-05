@@ -59,17 +59,30 @@ def load_and_validate_data(
     ``c2_exp`` / ``phi_angles_list`` arrays subset to the angles selected by
     the ``phi_filtering`` config block (and any ``--phi`` CLI override).
 
-    Args:
-        args: Parsed CLI arguments (may carry ``--phi`` overrides).
-        config_manager: Validated :class:`ConfigManager`.
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed CLI arguments; may carry ``--phi`` overrides.
+    config_manager : ConfigManager
+        Validated configuration manager.
 
-    Returns:
-        Dict with keys including (subject to loader version):
+    Returns
+    -------
+    dict
+        Loader output with keys including (subject to loader version):
         ``c2_exp`` / ``c2``, ``phi_angles_list`` / ``phi_angles`` / ``phi``,
         ``t1``, ``t2``.
 
-    Raises:
-        ValueError: If essential keys are missing from the loader output.
+    Raises
+    ------
+    ValueError
+        If the correlation matrix (any of ``c2_exp`` / ``c2``) is missing from
+        the loader output.
+
+    Notes
+    -----
+    An unrecognized ``data_type`` (anything other than ``"aps_old"`` or
+    ``"aps_u"``) is warned about but not rejected here.
     """
     cfg = config_manager.get_config()
     analysis_mode = cfg.get("analysis_mode", "<unknown>")
@@ -196,22 +209,37 @@ def resolve_phi_angles(
 ) -> list[float] | None:
     """Determine phi angles from CLI args or configuration.
 
-    Priority:
-        1. ``args.phi``        -- explicit ``--phi`` list (real data).
-        2. ``args.phi_angles`` -- comma-separated string (simulated mode).
-        3. ``scattering.phi_angles`` in config.
-        4. ``None`` (no selection -- caller decides default).
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed CLI args; may carry ``.phi`` and ``.phi_angles``.
+    config_manager : ConfigManager
+        Configuration manager.
+
+    Returns
+    -------
+    list of float or None
+        Phi angles in degrees normalized to ``[-180, 180]``, or ``None`` if
+        no source resolved.
+
+    Raises
+    ------
+    ValueError
+        If ``--phi-angles`` is present but cannot be parsed as a
+        comma-separated list of floats.
+
+    Notes
+    -----
+    Resolution priority:
+
+    1. ``args.phi`` -- explicit ``--phi`` list (real data).
+    2. ``args.phi_angles`` -- comma-separated string (simulated mode).
+    3. ``scattering.phi_angles`` in config.
+    4. ``None`` -- no selection; the caller decides the default.
 
     Config ``phi_filtering`` is applied to the data arrays directly in
-    :func:`load_and_validate_data` (via ``apply_angle_filtering_for_optimization``),
-    not here.
-
-    Args:
-        args: Parsed CLI args; may have ``.phi``, ``.phi_angles``.
-        config_manager: Configuration manager.
-
-    Returns:
-        Normalized phi angles in degrees, or ``None`` if nothing resolved.
+    :func:`load_and_validate_data` (via
+    ``apply_angle_filtering_for_optimization``), not here.
     """
     phi_angles: list[float] | None = None
 

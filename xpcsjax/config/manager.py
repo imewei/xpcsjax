@@ -1,9 +1,23 @@
-"""Configuration Management for xpcsjax
-========================================
+"""Configuration management for the xpcsjax NLSQ analysis package.
 
-Simplified configuration system for the xpcsjax NLSQ-only analysis package.
-Provides YAML/JSON loading with a stable interface for parameter management,
-analysis mode dispatch, and bounds configuration.
+Loads and normalizes YAML/JSON configuration files and exposes a stable
+interface for parameter management, analysis-mode dispatch, and bounds
+configuration. The package is NLSQ-only; no Bayesian/MCMC configuration block
+is read or honored here.
+
+The public surface is :class:`ConfigManager` (lazy-exported from the top-level
+:mod:`xpcsjax` package) plus the :func:`load_xpcs_config` convenience loader.
+Parameter names, bounds, and the canonical set of analysis modes are owned by
+:mod:`xpcsjax.config.parameter_registry` — this module reads from that registry
+rather than defining parameters itself.
+
+See Also
+--------
+xpcsjax.config.parameter_registry : Single source of truth for parameter
+    names, bounds, and the :class:`~xpcsjax.config.parameter_registry.AnalysisMode`
+    enum.
+xpcsjax.config.parameter_manager.ParameterManager : Resolves active parameters
+    and bounds for a given mode; constructed and cached by :class:`ConfigManager`.
 """
 
 import json
@@ -39,6 +53,7 @@ except ImportError:
     HAS_LOGGING = False
 
     def get_logger(name: str, **kwargs: _Any) -> logging.Logger:  # type: ignore[misc]
+        """Return a stdlib logger (fallback when xpcsjax logging is unavailable)."""
         return logging.getLogger(name)
 
 
@@ -46,20 +61,81 @@ logger = get_logger(__name__)
 
 
 class ConfigManager:
-    """Minimal configuration manager for xpcsjax v2 scattering analysis.
+    """Load, normalize, and serve an xpcsjax analysis configuration.
 
-    Provides simplified configuration loading with preserved API compatibility.
+    Reads a YAML or JSON configuration file (or accepts an in-memory override
+    dict), normalizes legacy schema variants, optionally validates the result,
+    and exposes the parsed mapping through the :attr:`config` attribute and a
+    set of typed accessors. CPU-only execution; GPU support is out of scope for
+    v0.1.
 
-    Key Features:
-    - YAML/JSON configuration file loading
-    - Compatible .config attribute access
-    - Preserved constructor signature
-    - Graceful fallback to defaults
-    - CPU-only execution (GPU support removed in v2.3.0)
+    The four canonical analysis modes are ``static_anisotropic``,
+    ``static_isotropic``, ``laminar_flow``, and ``two_component`` (the
+    members of :class:`~xpcsjax.config.parameter_registry.AnalysisMode`).
+    Mode synonyms (e.g. ``heterodyne`` / ``two-component`` → ``two_component``,
+    bare ``static`` → ``static_anisotropic``) are canonicalized at construction
+    by :meth:`_normalize_analysis_mode`.
 
-    Usage:
-        config_manager = ConfigManager('my_config.yaml')
-        data = config_manager.config
+    Construction is intentionally lenient: an unknown or malformed
+    ``analysis_mode`` is *not* rejected in :meth:`__init__` — it is lowercased,
+    a warning is logged, and the invalid value is deferred to the point of use.
+    Strict mode validation happens when the value is coerced to the enum, i.e.
+    on first access of the :attr:`analysis_mode` property (which calls
+    ``AnalysisMode(value)`` and raises :class:`ValueError` for a non-canonical
+    string) and inside :class:`~xpcsjax.config.parameter_manager.ParameterManager`
+    when bounds or active parameters are requested.
+
+    Parameters
+    ----------
+    config_file : str, optional
+        Path to a YAML (``.yaml`` / ``.yml``) or JSON (``.json``) configuration
+        file. Ignored when ``config_override`` is provided. Defaults to
+        ``"xpcsjax_config.yaml"``.
+    config_override : dict, optional
+        Pre-built configuration mapping. When given, the file at
+        ``config_file`` is never read; a shallow copy of this dict becomes
+        :attr:`config`.
+
+    Attributes
+    ----------
+    config : dict
+        The parsed, normalized configuration mapping. Guaranteed to be a dict
+        after construction (never ``None``) — a missing or non-mapping file
+        falls back to :meth:`_get_default_config`.
+    config_file : str
+        The path passed at construction (retained even when an override was
+        used).
+
+    Raises
+    ------
+    FileNotFoundError
+        From :meth:`__init__` via :meth:`load_config` when ``config_override``
+        is ``None`` and ``config_file`` does not exist. Other parse/IO errors
+        fall back to defaults rather than propagating.
+
+    See Also
+    --------
+    load_xpcs_config : Convenience function returning just the ``config`` dict.
+    xpcsjax.config.parameter_registry.AnalysisMode : Canonical analysis-mode enum.
+    xpcsjax.config.parameter_manager.ParameterManager : Backs the bounds and
+        active-parameter accessors.
+
+    Notes
+    -----
+    The ``data_type`` field (closed vocabulary ``"aps_old"`` / ``"aps_u"`` in
+    :mod:`xpcsjax.config.types`) is *not* consulted or validated here; the data
+    loader auto-detects the format from the HDF5 structure.
+
+    Examples
+    --------
+    >>> cfg = ConfigManager(config_override={"analysis_mode": "laminar_flow"})
+    >>> cfg.config["analysis_mode"]
+    'laminar_flow'
+    >>> cfg.analysis_mode
+    <AnalysisMode.LAMINAR_FLOW: 'laminar_flow'>
+    >>> cfg.update_config("optimization.method", "nlsq")
+    >>> cfg.config["optimization"]["method"]
+    'nlsq'
     """
 
     def __init__(
@@ -67,14 +143,27 @@ class ConfigManager:
         config_file: str = "xpcsjax_config.yaml",
         config_override: dict[str, Any] | None = None,
     ):
-        """Initialize configuration manager.
+        """Initialize the configuration manager.
+
+        Loads from ``config_file`` (via :meth:`load_config`) unless
+        ``config_override`` is given, then normalizes the schema and, unless
+        disabled by ``XPCSJAX_VALIDATE_CONFIG=false``, runs lightweight
+        validation.
 
         Parameters
         ----------
-        config_file : str
-            Path to YAML/JSON configuration file
+        config_file : str, optional
+            Path to a YAML/JSON configuration file. Ignored when
+            ``config_override`` is provided.
         config_override : dict, optional
-            Override configuration data instead of loading from file
+            In-memory configuration mapping used instead of loading from file.
+            A shallow copy is stored as :attr:`config`.
+
+        Raises
+        ------
+        FileNotFoundError
+            When ``config_override`` is ``None`` and ``config_file`` does not
+            exist (re-raised from :meth:`load_config`).
         """
         self.config_file = config_file
         # M-1: config is non-optional — always a dict after __init__ (load_config
@@ -108,22 +197,55 @@ class ConfigManager:
 
     @property
     def analysis_mode(self) -> "AnalysisMode":
-        """Validated analysis mode as the typed
-        :class:`~xpcsjax.config.parameter_registry.AnalysisMode` enum.
+        """Return the validated analysis mode as a typed enum.
 
-        Centralises the scattered ``config.get("analysis_mode", ...)`` string
-        lookups behind one typed accessor. ``AnalysisMode`` is a ``StrEnum`` so
-        existing string comparisons keep working.
+        Centralizes the scattered ``config.get("analysis_mode", ...)`` string
+        lookups behind one typed accessor. Because
+        :class:`~xpcsjax.config.parameter_registry.AnalysisMode` is a
+        ``StrEnum``, existing string comparisons keep working.
+
+        Returns
+        -------
+        AnalysisMode
+            The mode from ``config["analysis_mode"]`` coerced to the enum,
+            defaulting to ``AnalysisMode.STATIC_ISOTROPIC`` when the key is
+            absent.
+
+        Raises
+        ------
+        ValueError
+            If ``config["analysis_mode"]`` holds a non-canonical string (this
+            is where an invalid mode deferred from construction is finally
+            rejected).
         """
         from xpcsjax.config.parameter_registry import AnalysisMode
 
         return AnalysisMode(self.config.get("analysis_mode", "static_isotropic"))
 
     def load_config(self) -> None:
-        """Load and parse YAML/JSON configuration file.
+        """Load and parse the YAML/JSON configuration file into :attr:`config`.
 
-        Supports both YAML and JSON formats with graceful fallback
-        to default configuration if loading fails.
+        Dispatches on the file extension (``.yaml`` / ``.yml`` → YAML,
+        ``.json`` → JSON, anything else → YAML-then-JSON best effort). On a
+        successful load the result is normalized to a mapping, and validation
+        runs unless ``XPCSJAX_VALIDATE_CONFIG=false``. Parse and IO failures
+        (other than a missing file) fall back to :meth:`_get_default_config`.
+
+        Raises
+        ------
+        FileNotFoundError
+            If :attr:`config_file` does not exist. This is re-raised rather
+            than silenced so a wrong path is reported instead of producing
+            confusing downstream errors from stub defaults.
+        ImportError
+            If a ``.yaml`` / ``.yml`` file is requested but PyYAML is not
+            installed.
+
+        Notes
+        -----
+        An empty/null file or a non-mapping document (scalar or list) is
+        treated as a load failure and replaced with the default config, which
+        is what keeps :attr:`config` a non-optional dict.
         """
         try:
             if self.config_file is None:
@@ -210,12 +332,17 @@ class ConfigManager:
             self.config = self._get_default_config()
 
     def _get_default_config(self) -> dict[str, Any]:
-        """Get default configuration structure.
+        """Build the minimal fallback configuration mapping.
 
-        T052: Logs default value application at DEBUG level.
+        Returns a minimal configuration that supports the basic analysis modes,
+        used whenever loading fails or the file is missing/non-mapping. Logs the
+        fallback application at DEBUG level. CPU-only.
 
-        Returns minimal configuration that supports basic analysis modes.
-        CPU-only execution (GPU support removed in v2.3.0).
+        Returns
+        -------
+        dict
+            Default configuration mapping with ``analysis_mode``,
+            ``optimization``, ``output``, and ``logging`` sections.
         """
         # T052: Log default value application
         logger.debug("Applying default configuration values (fallback)")
@@ -256,24 +383,29 @@ class ConfigManager:
         }
 
     def get_config(self) -> dict[str, Any]:
-        """Get the current configuration dictionary.
+        """Return the current configuration mapping.
 
         Returns
         -------
-        Dict[str, Any]
-            Current configuration dictionary
+        dict
+            The live :attr:`config` mapping (not a copy).
         """
         return self.config
 
     def update_config(self, key: str, value: Any) -> None:
-        """Update a configuration value using dot notation.
+        """Set a configuration value addressed by a dot-notation key.
+
+        Intermediate mappings are created as needed, then the cached
+        :class:`~xpcsjax.config.parameter_manager.ParameterManager` is
+        invalidated because the mutation may change ``analysis_mode``, bounds,
+        or active parameters.
 
         Parameters
         ----------
         key : str
-            Configuration key (supports dot notation like 'optimization.method')
+            Configuration key in dot notation, e.g. ``"optimization.method"``.
         value : Any
-            New value to set
+            New value to assign at ``key``.
         """
         keys = key.split(".")
         config_ref = self.config
@@ -292,33 +424,59 @@ class ConfigManager:
         self._cached_param_manager = None
 
     def is_static_mode_enabled(self) -> bool:
-        """Check if static analysis mode is enabled."""
+        """Report whether the configured analysis mode is a static mode.
+
+        Returns
+        -------
+        bool
+            ``True`` if ``config["analysis_mode"]`` contains ``"static"``
+            (case-insensitive), or if no configuration is loaded (the static
+            default). ``False`` for ``laminar_flow`` and ``two_component``.
+        """
         if not self.config:
             return True
         analysis_mode = self.config.get("analysis_mode", "static_isotropic")
         return "static" in analysis_mode.lower()
 
     def get_model(self) -> Any:
-        """Dispatch to the physics model class for this config's analysis_mode.
+        """Construct the physics model class for this config's analysis mode.
 
-        Thin wrapper over :func:`xpcsjax.core.models.make_model` that completes
-        Task 28's plan contract — engine and test code can now construct the
-        appropriate model directly off a ``ConfigManager`` instance instead of
-        importing the factory by name. Routing rules match ``make_model``:
+        Thin wrapper over :func:`xpcsjax.core.models.make_model` so that engine
+        and test code can build the appropriate model directly from a
+        ``ConfigManager`` instance. Routing matches ``make_model``:
         ``two_component`` / ``heterodyne`` → ``HeterodyneModel``; the homodyne
         modes → ``CombinedModel``.
 
-        The import is performed lazily inside the method because
-        ``xpcsjax.core.models`` pulls in JAX and the model class hierarchy,
-        which is overkill for callers that only need parameter bounds or
-        registry lookups from the config manager.
+        Returns
+        -------
+        Any
+            The model instance produced by ``make_model`` (a ``HeterodyneModel``
+            or ``CombinedModel``).
+
+        See Also
+        --------
+        xpcsjax.core.models.make_model : The underlying factory.
+
+        Notes
+        -----
+        The import is lazy because :mod:`xpcsjax.core.models` pulls in JAX and
+        the model class hierarchy, which is overkill for callers that only need
+        parameter bounds or registry lookups.
         """
         from xpcsjax.core.models import make_model
 
         return make_model(self)
 
     def get_target_angle_ranges(self) -> dict[str, Any]:
-        """Get angle filtering ranges."""
+        """Return the angle-filtering configuration block.
+
+        Returns
+        -------
+        dict
+            The ``optimization.angle_filtering`` mapping, or ``{"enabled":
+            False}`` when no config is loaded, the block is absent, or it is not
+            a mapping.
+        """
         if not self.config:
             return {"enabled": False}
 
@@ -397,7 +555,14 @@ class ConfigManager:
         Returns
         -------
         list of dict
-            List of bound dictionaries with keys: 'name', 'min', 'max', 'type'
+            One bound dictionary per parameter, with keys ``'name'``, ``'min'``,
+            ``'max'``, and ``'type'``.
+
+        Raises
+        ------
+        TypeError
+            If the underlying ``ParameterManager.get_parameter_bounds`` does not
+            return a list.
 
         Examples
         --------
@@ -406,9 +571,13 @@ class ConfigManager:
         >>> bounds[0]
         {'min': 1.0, 'max': 1000000.0, 'name': 'D0', 'type': 'Normal'}
 
+        See Also
+        --------
+        xpcsjax.config.parameter_registry : Source of the bound values.
+
         Notes
         -----
-        This method uses a cached ParameterManager for ~14x speedup on repeated calls.
+        Uses a cached ParameterManager for ~14x speedup on repeated calls.
         """
         bounds = self._get_parameter_manager().get_parameter_bounds(parameter_names)
         if not isinstance(bounds, list):
@@ -425,8 +594,14 @@ class ConfigManager:
         Returns
         -------
         list of str
-            List of parameter names to be optimized. Falls back to mode-appropriate
+            Parameter names to be optimized. Falls back to mode-appropriate
             parameters if not specified in config.
+
+        Raises
+        ------
+        TypeError
+            If the underlying ``ParameterManager.get_active_parameters`` does
+            not return a list.
 
         Examples
         --------
@@ -436,7 +611,7 @@ class ConfigManager:
 
         Notes
         -----
-        This method uses a cached ParameterManager for ~14x speedup on repeated calls.
+        Uses a cached ParameterManager for ~14x speedup on repeated calls.
         """
         params = self._get_parameter_manager().get_active_parameters()
         if not isinstance(params, list):
@@ -1079,19 +1254,25 @@ class ConfigManager:
 
 
 def load_xpcs_config(config_path: str) -> dict[str, Any]:
-    """Load XPCS configuration from file.
+    """Load an XPCS configuration file and return the parsed mapping.
 
-    Convenience function for loading configuration files.
+    Convenience wrapper that constructs a :class:`ConfigManager` and returns its
+    :attr:`~ConfigManager.config` dict.
 
     Parameters
     ----------
     config_path : str
-        Path to configuration file
+        Path to a YAML/JSON configuration file.
 
     Returns
     -------
     dict
-        Configuration dictionary
+        The parsed, normalized configuration mapping.
+
+    See Also
+    --------
+    ConfigManager : The full configuration manager, for typed accessors and
+        validation.
     """
     manager = ConfigManager(config_path)
     return manager.config if manager.config is not None else {}

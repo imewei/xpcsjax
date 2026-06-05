@@ -1,5 +1,4 @@
-"""Parameter Name Constants for Homodyne Analysis
-====================================================
+"""Parameter name constants for homodyne analysis.
 
 Centralized parameter name definitions to ensure consistency across
 model definitions and result processing.
@@ -15,11 +14,13 @@ Usage::
         get_parameter_names
     )
 
-Version History:
+Notes
+-----
+Version history:
 
-- v2.1.1 (Nov 2025): Created to prevent parameter name mismatches
-- Fixed bug where pjit backend used gamma_dot_0 instead of gamma_dot_t0
-
+- v2.1.1 (Nov 2025): Created to prevent parameter name mismatches.
+- Fixed bug where the pjit backend used ``gamma_dot_0`` instead of
+  ``gamma_dot_t0``.
 """
 
 

@@ -1,11 +1,26 @@
-"""Parameter name constants for 14-parameter heterodyne model.
+"""Parameter name constants for the 14-parameter heterodyne model.
 
-The heterodyne model describes two-component correlation with:
-- Reference component: diffusive transport (D0_ref, alpha_ref, D_offset_ref)
-- Sample component: diffusive transport (D0_sample, alpha_sample, D_offset_sample)
-- Velocity field: time-dependent flow (v0, beta, v_offset)
-- Fraction: sample fraction evolution (f0, f1, f2, f3)
-- Angle: flow angle relative to q-vector (phi0)
+The heterodyne (two-component) model describes the correlation as a sum of a
+reference and a sample component plus a velocity field, parameterized by:
+
+- Reference component: diffusive transport (``D0_ref``, ``alpha_ref``,
+  ``D_offset_ref``).
+- Sample component: diffusive transport (``D0_sample``, ``alpha_sample``,
+  ``D_offset_sample``).
+- Velocity field: time-dependent flow (``v0``, ``beta``, ``v_offset``).
+- Fraction: sample fraction evolution (``f0``, ``f1``, ``f2``, ``f3``).
+- Angle: flow angle relative to the scattering vector (``phi0``).
+
+Notes
+-----
+This module uses the internal *kernel* names ``beta`` and ``phi0`` for the
+velocity exponent and flow angle. The config/registry-facing public names for
+the same two quantities are ``v_beta`` and ``phi0_het`` (see
+:mod:`xpcsjax.config.heterodyne_parameter_space`), chosen to disambiguate them
+from homodyne's distinct ``beta``/``phi0``. The registry
+(:mod:`xpcsjax.config.parameter_registry`) is the single source of truth for
+parameter bounds and defaults; ``phi0`` here aliases the registry's
+``phi0_het`` entry.
 """
 
 from __future__ import annotations
@@ -72,13 +87,24 @@ PARAM_INDICES: dict[str, int] = {name: i for i, name in enumerate(ALL_PARAM_NAME
 
 
 def get_group_indices(group: str) -> tuple[int, ...]:
-    """Get indices for all parameters in a group.
+    """Get the canonical-order indices of every parameter in a group.
 
-    Args:
-        group: Group name ('reference', 'sample', 'velocity', 'fraction', 'angle')
+    Parameters
+    ----------
+    group : str
+        Group name, one of ``'reference'``, ``'sample'``, ``'velocity'``,
+        ``'fraction'``, ``'angle'``, or ``'scaling'``.
 
-    Returns:
-        Tuple of indices
+    Returns
+    -------
+    tuple of int
+        Indices into the flattened parameter array for each parameter in the
+        group, in canonical order.
+
+    Raises
+    ------
+    KeyError
+        If ``group`` is not a recognized group name.
     """
     if group not in PARAM_GROUPS:
         valid = ", ".join(PARAM_GROUPS.keys())

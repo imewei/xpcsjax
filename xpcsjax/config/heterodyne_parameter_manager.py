@@ -27,16 +27,19 @@ logger = get_logger(__name__)
 
 @dataclass
 class ParameterManager:
-    """Manages parameter values, constraints, and transformations.
+    """Manage heterodyne parameter values, constraints, and transformations.
 
     Provides the bridge between configuration and optimization by:
-    - Managing which parameters vary vs are fixed
-    - Handling parameter transformations (e.g., bounded -> unbounded)
-    - Constructing full parameter arrays from varying subsets
-    - Validating parameter values against physics constraints
 
-    Performance caching is enabled by default for repeated bound and
-    active-parameter queries.
+    - Managing which parameters vary versus are fixed.
+    - Handling parameter transformations (e.g. bounded to unbounded).
+    - Constructing full parameter arrays from varying subsets.
+    - Validating parameter values against physics constraints.
+
+    Bounds and defaults are sourced from the central
+    :data:`~xpcsjax.config.parameter_registry.DEFAULT_REGISTRY`; this manager
+    never declares its own numeric bounds. Performance caching is enabled by
+    default for repeated bound and active-parameter queries.
     """
 
     space: ParameterSpace = field(default_factory=ParameterSpace)
@@ -160,8 +163,11 @@ class ParameterManager:
         calls (e.g. across multi-angle loops) always return the same config values
         even after model.set_params() has mutated space.values.
 
-        Returns:
-            Array of shape (n_varying,) with initial values for varying params.
+        Returns
+        -------
+        numpy.ndarray
+            Array of shape ``(n_varying,)`` with initial values for the varying
+            parameters.
         """
         full = np.array(
             [
@@ -177,8 +183,10 @@ class ParameterManager:
         Returns a read-only cached array (``writeable=False``).
         Use ``.copy()`` if mutation is required.
 
-        Returns:
-            Array of shape (14,).
+        Returns
+        -------
+        numpy.ndarray
+            Read-only array of shape ``(14,)``.
         """
         if self._full_values_cache is None:
             arr = self.space.get_initial_array()
@@ -187,10 +195,12 @@ class ParameterManager:
         return self._full_values_cache
 
     def get_bounds(self) -> tuple[np.ndarray, np.ndarray]:
-        """Get bounds for varying physics parameters.
+        """Get bounds for the varying physics parameters.
 
-        Returns:
-            (lower, upper) each of shape (n_varying,).
+        Returns
+        -------
+        tuple of numpy.ndarray
+            ``(lower, upper)``, each of shape ``(n_varying,)``.
         """
         lower_full, upper_full = self.space.get_bounds_arrays()
         idx = self.varying_indices
@@ -204,11 +214,15 @@ class ParameterManager:
 
         Fixed parameters are filled from stored values.
 
-        Args:
-            varying_params: Array of shape (n_varying,).
+        Parameters
+        ----------
+        varying_params : numpy.ndarray or jax.numpy.ndarray
+            Array of shape ``(n_varying,)``.
 
-        Returns:
-            Array of shape (14,).
+        Returns
+        -------
+        numpy.ndarray
+            Array of shape ``(14,)``.
         """
         full = self.get_full_values().copy()
         for i, idx in enumerate(self.varying_indices):
@@ -216,21 +230,28 @@ class ParameterManager:
         return full
 
     def extract_varying(self, full_params: np.ndarray | jnp.ndarray) -> np.ndarray:
-        """Extract varying parameters from full array.
+        """Extract the varying parameters from a full array.
 
-        Args:
-            full_params: Array of shape (14,).
+        Parameters
+        ----------
+        full_params : numpy.ndarray or jax.numpy.ndarray
+            Array of shape ``(14,)``.
 
-        Returns:
-            Array of shape (n_varying,).
+        Returns
+        -------
+        numpy.ndarray
+            Array of shape ``(n_varying,)``.
         """
         return np.array([full_params[i] for i in self.varying_indices])
 
     def update_values(self, params: np.ndarray | dict[str, float]) -> None:
-        """Update stored parameter values.
+        """Update the stored parameter values.
 
-        Args:
-            params: Either array of shape (14,) or dict with param names.
+        Parameters
+        ----------
+        params : numpy.ndarray or dict
+            Either an array of shape ``(14,)`` or a dict keyed by parameter
+            name.
         """
         if isinstance(params, dict):
             self.space.update_from_dict(params)
@@ -247,11 +268,19 @@ class ParameterManager:
     def set_vary(self, name: str, vary: bool) -> None:
         """Set whether a parameter varies in optimization.
 
-        Invalidates relevant caches.
+        Invalidates the relevant caches.
 
-        Args:
-            name: Parameter name (physics or scaling).
-            vary: Whether to vary this parameter.
+        Parameters
+        ----------
+        name : str
+            Parameter name (physics or scaling).
+        vary : bool
+            Whether to vary this parameter during optimization.
+
+        Raises
+        ------
+        ValueError
+            If ``name`` is not a known parameter.
         """
         if name not in ALL_PARAM_NAMES_WITH_SCALING:
             raise ValueError(f"Unknown parameter: {name}")
@@ -267,10 +296,19 @@ class ParameterManager:
 
         Invalidates the bounds cache for any query that includes this parameter.
 
-        Args:
-            name: Parameter name (physics or scaling).
-            lower: Lower bound.
-            upper: Upper bound.
+        Parameters
+        ----------
+        name : str
+            Parameter name (physics or scaling).
+        lower : float
+            Lower bound.
+        upper : float
+            Upper bound.
+
+        Raises
+        ------
+        ValueError
+            If ``name`` is not a known parameter.
         """
         if name not in ALL_PARAM_NAMES_WITH_SCALING:
             raise ValueError(f"Unknown parameter: {name}")
@@ -284,12 +322,16 @@ class ParameterManager:
     def validate_physics(self, params: np.ndarray | None = None) -> list[str]:
         """Validate parameters against physics constraints.
 
-        Args:
-            params: Full parameter array of shape (14,), or None to use stored
-                values.
+        Parameters
+        ----------
+        params : numpy.ndarray, optional
+            Full parameter array of shape ``(14,)``, or ``None`` to use the
+            stored values.
 
-        Returns:
-            List of violation messages (empty if valid).
+        Returns
+        -------
+        list of str
+            Violation messages (errors and warnings); empty if valid.
         """
         if params is None:
             params = self.get_full_values()
@@ -299,13 +341,17 @@ class ParameterManager:
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> ParameterManager:
-        """Create ParameterManager from configuration dictionary.
+        """Create a ParameterManager from a configuration dictionary.
 
-        Args:
-            config: Full configuration dict.
+        Parameters
+        ----------
+        config : dict
+            Full configuration dict.
 
-        Returns:
-            Configured ParameterManager.
+        Returns
+        -------
+        ParameterManager
+            Configured manager wrapping a ParameterSpace built from ``config``.
         """
         space = ParameterSpace.from_config(config)
         return cls(space=space)
@@ -313,12 +359,21 @@ class ParameterManager:
     def get_group_values(self, group: str) -> dict[str, float]:
         """Get parameter values for a specific group.
 
-        Args:
-            group: Group name ('reference', 'sample', 'velocity',
-                'fraction', 'angle', 'scaling').
+        Parameters
+        ----------
+        group : str
+            Group name, one of ``'reference'``, ``'sample'``, ``'velocity'``,
+            ``'fraction'``, ``'angle'``, or ``'scaling'``.
 
-        Returns:
-            Dict mapping parameter names to values.
+        Returns
+        -------
+        dict
+            Mapping from parameter name to value for the group.
+
+        Raises
+        ------
+        ValueError
+            If ``group`` is not a recognized group name.
         """
         if group not in PARAM_GROUPS:
             raise ValueError(f"Unknown group: {group}")
@@ -332,19 +387,30 @@ class ParameterManager:
         self,
         parameter_names: list[str] | None = None,
     ) -> list[BoundDict]:
-        """Get parameter bounds configuration with caching.
+        """Get the parameter bounds configuration, with caching.
 
-        Args:
-            parameter_names: Names of parameters to retrieve bounds for. If
-                None, returns bounds for all 16 parameters
-                (14 physics + 2 scaling) in canonical order.
+        Parameters
+        ----------
+        parameter_names : list of str, optional
+            Names of parameters to retrieve bounds for. If ``None``, returns
+            bounds for all 16 parameters (14 physics + 2 scaling) in canonical
+            order.
 
-        Returns:
-            List of BoundDict entries with keys 'name', 'min', 'max', 'type'.
+        Returns
+        -------
+        list of BoundDict
+            One entry per requested parameter, with keys ``'name'``, ``'min'``,
+            ``'max'``, ``'type'``.
 
-        Notes:
-            Results are cached per unique (sorted) parameter set. Cache is
-            invalidated automatically by set_bounds().
+        Raises
+        ------
+        KeyError
+            If a requested name is not a recognized heterodyne parameter.
+
+        Notes
+        -----
+        Results are cached per unique (order-sensitive) parameter set. The
+        cache is invalidated automatically by :meth:`set_bounds`.
         """
         if parameter_names is None:
             parameter_names = list(ALL_PARAM_NAMES_WITH_SCALING)
@@ -390,11 +456,15 @@ class ParameterManager:
         Convenience method for compatibility with optimization code that
         expects the scipy-style bounds format.
 
-        Args:
-            parameter_names: Parameter names. If None, uses all 16 parameters.
+        Parameters
+        ----------
+        parameter_names : list of str, optional
+            Parameter names. If ``None``, uses all 16 parameters.
 
-        Returns:
-            List of (min, max) tuples, one per parameter.
+        Returns
+        -------
+        list of tuple of float
+            ``(min, max)`` tuples, one per parameter.
         """
         return [(b["min"], b["max"]) for b in self.get_parameter_bounds(parameter_names)]
 
@@ -407,11 +477,15 @@ class ParameterManager:
         Convenience method for NLSQ and JAX optimizers that consume separate
         lower/upper bound arrays.
 
-        Args:
-            parameter_names: Parameter names. If None, uses all 16 parameters.
+        Parameters
+        ----------
+        parameter_names : list of str, optional
+            Parameter names. If ``None``, uses all 16 parameters.
 
-        Returns:
-            (lower_bounds, upper_bounds) as numpy arrays of shape (n_params,).
+        Returns
+        -------
+        tuple of numpy.ndarray
+            ``(lower_bounds, upper_bounds)``, each of shape ``(n_params,)``.
         """
         bd = self.get_parameter_bounds(parameter_names)
         lower = np.array([b["min"] for b in bd])
@@ -429,10 +503,12 @@ class ParameterManager:
         ``vary`` flag is True in the current ParameterSpace. Falls back to all
         14 physics parameters if the space has no explicit vary flags set.
 
-        Results are cached; call set_vary() to invalidate automatically.
+        Results are cached; call :meth:`set_vary` to invalidate automatically.
 
-        Returns:
-            List of varying physics parameter names in canonical order.
+        Returns
+        -------
+        list of str
+            Varying physics parameter names in canonical order.
         """
         if self._cache_enabled and self._active_params_cache is not None:
             logger.debug("Returning cached active parameters")
@@ -452,24 +528,30 @@ class ParameterManager:
     def get_all_parameter_names(self) -> list[str]:
         """Get all parameter names: scaling parameters first, then physics.
 
-        Returns:
-            List of 16 names (contrast, offset, then the 14 physics params) in
-            canonical order.
+        Returns
+        -------
+        list of str
+            The 16 names (``contrast``, ``offset``, then the 14 physics
+            parameters) in canonical order.
         """
         return list(SCALING_PARAMS) + list(ALL_PARAM_NAMES)
 
     def get_effective_parameter_count(self) -> int:
-        """Number of active (varying) physics parameters, excluding scaling.
+        """Count active (varying) physics parameters, excluding scaling.
 
-        Returns:
-            Count of physics parameters whose vary flag is True.
+        Returns
+        -------
+        int
+            Number of physics parameters whose ``vary`` flag is ``True``.
         """
         return len(self.get_active_parameters())
 
     def get_total_parameter_count(self) -> int:
-        """Total parameter count including both scaling and physics parameters.
+        """Get the total parameter count, including scaling and physics.
 
-        Returns:
+        Returns
+        -------
+        int
             Always 16 for the heterodyne model (14 physics + 2 scaling).
         """
         return len(ALL_PARAM_NAMES_WITH_SCALING)
@@ -479,10 +561,12 @@ class ParameterManager:
 
         A parameter is considered fixed when its ``vary`` flag is False in the
         ParameterSpace.  Scaling parameters (contrast, offset) are excluded
-        from this result — use get_parameter_dict() to access their values.
+        from this result — use :meth:`get_parameter_dict` to access their values.
 
-        Returns:
-            Dict mapping fixed physics parameter name to its current value.
+        Returns
+        -------
+        dict
+            Mapping from each fixed physics parameter name to its current value.
         """
         return {
             name: self.space.values[name]
@@ -491,14 +575,19 @@ class ParameterManager:
         }
 
     def is_parameter_active(self, param_name: str) -> bool:
-        """Check whether a physics parameter is active (vary=True).
+        """Check whether a physics parameter is active (``vary=True``).
 
-        Args:
-            param_name: Physics parameter name to check. Must be one of the 14
-                physics parameters; scaling names always return False.
+        Parameters
+        ----------
+        param_name : str
+            Physics parameter name to check. Must be one of the 14 physics
+            parameters; scaling names always return ``False``.
 
-        Returns:
-            True if the parameter's vary flag is True, False otherwise.
+        Returns
+        -------
+        bool
+            ``True`` if the parameter's ``vary`` flag is ``True``, else
+            ``False``.
         """
         if param_name not in ALL_PARAM_NAMES:
             return False
@@ -510,8 +599,10 @@ class ParameterManager:
         Equivalent to active parameters (vary=True). Scaling parameters are
         handled separately and are not included.
 
-        Returns:
-            List of physics parameter names with vary=True, in canonical order.
+        Returns
+        -------
+        list of str
+            Physics parameter names with ``vary=True``, in canonical order.
         """
         return self.get_active_parameters()
 
@@ -529,19 +620,23 @@ class ParameterManager:
         Checks for physically impossible or unusual parameter combinations
         based on the heterodyne two-component scattering model.
 
-        Args:
-            params: Parameter dict, array of shape (14,), or None to use stored
-                values. Dict keys must be physics parameter names.
-            severity_level: Minimum severity to include in the result. One of:
-                - ``"error"``   — physically impossible values only.
-                - ``"warning"`` — unusual but possible values (default).
-                - ``"info"``    — all noteworthy observations.
-                Currently the heterodyne validator does not distinguish severity
-                internally; this argument is accepted for API parity with
-                homodyne and is reserved for future use.
+        Parameters
+        ----------
+        params : dict or numpy.ndarray, optional
+            Parameter dict, array of shape ``(14,)``, or ``None`` to use the
+            stored values. Dict keys must be physics parameter names.
+        severity_level : str, default "warning"
+            Minimum severity to include in the result, one of ``"error"``
+            (physically impossible values only), ``"warning"`` (unusual but
+            possible values), or ``"info"`` (all noteworthy observations).
+            Currently the heterodyne validator does not distinguish severity
+            internally; this argument is accepted for API parity with homodyne
+            and is reserved for future use.
 
-        Returns:
-            ValidationResult with ``is_valid``, ``errors``, and ``warnings``.
+        Returns
+        -------
+        ValidationResult
+            Result carrying ``is_valid``, ``errors``, and ``warnings``.
         """
         if params is None:
             arr = self.get_full_values()

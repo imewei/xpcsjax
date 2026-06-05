@@ -90,10 +90,13 @@ class ParameterSpace:
         return {name: self.values[name] for name in SCALING_PARAMS}
 
     def get_initial_array(self) -> np.ndarray:
-        """Get initial values as numpy array in canonical order.
+        """Get initial values as a numpy array in canonical order.
 
-        Returns:
-            Array of shape (14,) with parameter values
+        Returns
+        -------
+        numpy.ndarray
+            Array of shape ``(14,)`` with the physics parameter values in
+            :data:`ALL_PARAM_NAMES` order.
         """
         return np.array([self.values[name] for name in ALL_PARAM_NAMES])
 
@@ -105,9 +108,11 @@ class ParameterSpace:
         serialized — workers rebuild them from the registry defaults.
         Only values and ``active_parameters`` (vary flags) are round-tripped.
 
-        Returns:
-            Config dict that ``from_config()`` can reconstruct into an
-            equivalent ParameterSpace (same values and varying_names).
+        Returns
+        -------
+        dict
+            Config dict that :meth:`from_config` can reconstruct into an
+            equivalent ParameterSpace (same values and ``varying_names``).
         """
         return {
             "initial_parameters": {
@@ -120,40 +125,54 @@ class ParameterSpace:
     def get_bounds_arrays(self) -> tuple[np.ndarray, np.ndarray]:
         """Get bounds as numpy arrays.
 
-        Returns:
-            (lower_bounds, upper_bounds) each of shape (14,)
+        Returns
+        -------
+        tuple of numpy.ndarray
+            ``(lower_bounds, upper_bounds)``, each of shape ``(14,)`` in
+            canonical parameter order.
         """
         lower = np.array([self.bounds[name][0] for name in ALL_PARAM_NAMES])
         upper = np.array([self.bounds[name][1] for name in ALL_PARAM_NAMES])
         return lower, upper
 
     def get_vary_mask(self) -> np.ndarray:
-        """Get boolean mask for varying parameters.
+        """Get a boolean mask for the varying parameters.
 
-        Returns:
-            Boolean array of shape (14,)
+        Returns
+        -------
+        numpy.ndarray
+            Boolean array of shape ``(14,)``; ``True`` where the parameter
+            varies during optimization.
         """
         return np.array([self.vary[name] for name in ALL_PARAM_NAMES])
 
     def array_to_dict(self, arr: np.ndarray | jnp.ndarray) -> dict[str, float]:
-        """Convert parameter array to dictionary.
+        """Convert a parameter array to a dictionary.
 
-        Args:
-            arr: Array of shape (14,)
+        Parameters
+        ----------
+        arr : numpy.ndarray or jax.numpy.ndarray
+            Array of shape ``(14,)`` in canonical parameter order.
 
-        Returns:
-            Dict mapping parameter names to values
+        Returns
+        -------
+        dict
+            Mapping from parameter name to (float) value.
         """
         return {name: float(arr[i]) for i, name in enumerate(ALL_PARAM_NAMES)}
 
     def update_from_dict(self, params: dict[str, float]) -> None:
-        """Update parameter values from dictionary.
+        """Update parameter values from a dictionary.
 
-        Args:
-            params: Dict with parameter names as keys
+        Parameters
+        ----------
+        params : dict
+            Mapping with parameter names as keys and new values.
 
-        Raises:
-            ValueError: If a key doesn't match any known parameter
+        Raises
+        ------
+        ValueError
+            If a key does not match any known parameter.
         """
         for name, value in params.items():
             if name not in self.values:
@@ -163,10 +182,13 @@ class ParameterSpace:
             self.values[name] = value
 
     def validate(self) -> list[str]:
-        """Validate parameter space configuration.
+        """Validate the parameter space configuration.
 
-        Returns:
-            List of validation error messages (empty if valid)
+        Returns
+        -------
+        list of str
+            Validation error messages; empty if every parameter has a value and
+            bounds and lies within those bounds.
         """
         errors = []
 
@@ -191,11 +213,14 @@ class ParameterSpace:
     def with_single_angle_stabilization(self) -> ParameterSpace:
         """Return a new ParameterSpace with tightened bounds for single-angle analysis.
 
-        Narrows contrast bounds to [value-0.2, value+0.2] and offset bounds
-        to [value-0.1, value+0.1], clamped to the original bounds.
+        Narrows contrast bounds to ``[value-0.2, value+0.2]`` and offset bounds
+        to ``[value-0.1, value+0.1]``, clamped to the original bounds.
 
-        Returns:
-            A new ParameterSpace with tightened scaling bounds.
+        Returns
+        -------
+        ParameterSpace
+            A new instance with tightened scaling bounds; the original is left
+            unmodified.
         """
         new = ParameterSpace(
             values=deepcopy(self.values),
@@ -237,13 +262,15 @@ class ParameterSpace:
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> ParameterSpace:
-        """Create ParameterSpace from configuration dictionary.
+        """Create a ParameterSpace from a configuration dictionary.
 
-        Supports two input formats (homodyne parity):
+        Two input formats are supported (homodyne parity):
 
-        1. **Grouped format** (preferred) — ``parameters.{group}.{param}``::
+        1. **Grouped format** (preferred) — ``parameters.{group}.{param}``:
 
-               parameters:
+           .. code-block:: yaml
+
+               parameters:   # grouped format root key
                  reference:
                    D0_ref:
                      value: 5000.0
@@ -261,12 +288,16 @@ class ParameterSpace:
         When both are present, grouped format takes precedence (it is applied
         second so its values overwrite flat-format values).
 
-        Args:
-            config: Config dict with 'parameters' and/or 'initial_parameters'
-                sections.
+        Parameters
+        ----------
+        config : dict
+            Config dict with ``'parameters'`` and/or ``'initial_parameters'``
+            sections.
 
-        Returns:
-            Configured ParameterSpace
+        Returns
+        -------
+        ParameterSpace
+            Configured parameter space.
         """
         space = cls()
 
@@ -360,9 +391,12 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
           values: [5000.0, 0.5, ...]
           active_parameters: [D0_ref]   # optional: only these vary
 
-    Args:
-        space: ParameterSpace to modify in-place.
-        config: Full configuration dictionary.
+    Parameters
+    ----------
+    space : ParameterSpace
+        ParameterSpace to modify in place.
+    config : dict
+        Full configuration dictionary.
     """
     from xpcsjax.config.types import PARAMETER_NAME_MAPPING
 

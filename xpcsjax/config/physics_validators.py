@@ -1,18 +1,32 @@
-"""Physics-Based Parameter Validators for XPCS Analysis
+r"""Physics-based parameter validators for homodyne XPCS analysis.
 
-Registry-driven validation of physics parameters based on theoretical
-understanding of XPCS and soft matter dynamics.
+Registry-driven validation of physics parameters based on the theoretical
+understanding of XPCS and soft-matter dynamics. The constraints encoded here
+complement the hard bounds in
+:mod:`xpcsjax.config.parameter_registry` (the single source of truth for
+parameter names and bounds); these rules flag values that are physically
+suspect or impossible even when they fall inside the registry bounds.
 
 This module provides:
-- PHYSICS_CONSTRAINTS: Declarative constraint definitions per parameter
-- validate_single_parameter(): Check one parameter against constraints
-- validate_cross_parameter(): Check inter-parameter relationships
-- PhysicsViolation: Named tuple for constraint violations
 
-Each constraint is defined with:
-- condition: Lambda function returning True if violation detected
-- message: Human-readable explanation
-- severity: error/warning/info
+- :data:`PHYSICS_CONSTRAINTS` -- declarative per-parameter constraint rules.
+- :func:`validate_single_parameter` -- check one parameter against its rules.
+- :func:`validate_cross_parameter_constraints` -- check inter-parameter
+  relationships.
+- :func:`validate_all_parameters` -- run both single- and cross-parameter
+  checks.
+- :class:`PhysicsViolation` -- record of a triggered constraint.
+
+Each :class:`ConstraintRule` is defined with:
+
+- ``condition`` -- callable returning ``True`` when the value violates the rule.
+- ``message`` -- human-readable explanation.
+- ``severity`` -- one of ``error`` / ``warning`` / ``info``.
+
+See Also
+--------
+xpcsjax.config.heterodyne_physics_validators : Sibling validators for the
+    14-parameter heterodyne (``two_component``) model.
 """
 
 from collections.abc import Callable
@@ -39,7 +53,19 @@ class ConstraintSeverity(StrEnum):
 
 @dataclass
 class PhysicsViolation:
-    """A physics constraint violation."""
+    """A single triggered physics constraint violation.
+
+    Attributes
+    ----------
+    param : str
+        Name of the offending parameter.
+    value : float
+        The value that triggered the violation.
+    message : str
+        Human-readable explanation of why the value is suspect.
+    severity : ConstraintSeverity
+        Severity of the violation (``error`` / ``warning`` / ``info``).
+    """
 
     param: str
     value: float
@@ -47,13 +73,24 @@ class PhysicsViolation:
     severity: ConstraintSeverity
 
     def format(self) -> str:
-        """Format violation as string."""
+        """Render the violation as a single human-readable line."""
         return f"{self.param} = {self.value:.3e}: {self.message} [{self.severity}]"
 
 
 @dataclass
 class ConstraintRule:
-    """A single constraint rule for a parameter."""
+    """A single physics constraint rule for one parameter.
+
+    Attributes
+    ----------
+    condition : collections.abc.Callable
+        Predicate over the parameter value; returns ``True`` when the value
+        violates the rule.
+    message : str
+        Human-readable explanation attached to a triggered violation.
+    severity : ConstraintSeverity
+        Severity assigned to a triggered violation.
+    """
 
     condition: Callable[[float], bool]  # Returns True if violated
     message: str
@@ -170,15 +207,27 @@ def validate_single_parameter(
     value: float,
     min_severity: ConstraintSeverity = ConstraintSeverity.WARNING,
 ) -> list[PhysicsViolation]:
-    """Validate a single parameter against physics constraints.
+    """Validate a single parameter against its physics constraints.
 
-    Args:
-        param: Parameter name
-        value: Parameter value
-        min_severity: Minimum severity to report
+    Parameters
+    ----------
+    param : str
+        Parameter name. Names absent from :data:`PHYSICS_CONSTRAINTS` have no
+        rules and produce no violations.
+    value : float
+        Parameter value to check.
+    min_severity : ConstraintSeverity, optional
+        Minimum severity to report; lower-severity rules are skipped.
 
-    Returns:
-        List of violations found
+    Returns
+    -------
+    list of PhysicsViolation
+        Violations triggered for this parameter, possibly empty.
+
+    Notes
+    -----
+    A rule whose ``condition`` raises :class:`TypeError` or :class:`ValueError`
+    (e.g. a non-numeric value) is silently skipped rather than propagated.
     """
     violations: list[PhysicsViolation] = []
     min_priority = SEVERITY_PRIORITY.get(min_severity, 2)
@@ -209,14 +258,23 @@ def validate_cross_parameter_constraints(
     params: dict[str, float],
     min_severity: ConstraintSeverity = ConstraintSeverity.WARNING,
 ) -> list[PhysicsViolation]:
-    """Validate cross-parameter physics constraints.
+    """Validate constraints that span multiple parameters.
 
-    Args:
-        params: Dictionary of parameter name -> value
-        min_severity: Minimum severity to report
+    Currently checks for an over-large ``D_offset`` relative to ``D0`` (an
+    offset exceeding half of ``D0``), reported at ``info`` severity as a
+    possible overfitting signal.
 
-    Returns:
-        List of violations found
+    Parameters
+    ----------
+    params : dict
+        Mapping of parameter name to value.
+    min_severity : ConstraintSeverity, optional
+        Minimum severity to report.
+
+    Returns
+    -------
+    list of PhysicsViolation
+        Cross-parameter violations triggered, possibly empty.
     """
     violations: list[PhysicsViolation] = []
     min_priority = SEVERITY_PRIORITY.get(min_severity, 2)
@@ -243,14 +301,25 @@ def validate_all_parameters(
     params: dict[str, float],
     min_severity: ConstraintSeverity = ConstraintSeverity.WARNING,
 ) -> list[PhysicsViolation]:
-    """Validate all parameters against physics constraints.
+    """Validate all parameters against single- and cross-parameter constraints.
 
-    Args:
-        params: Dictionary of parameter name -> value
-        min_severity: Minimum severity to report
+    Parameters
+    ----------
+    params : dict
+        Mapping of parameter name to value.
+    min_severity : ConstraintSeverity, optional
+        Minimum severity to report.
 
-    Returns:
-        List of all violations found
+    Returns
+    -------
+    list of PhysicsViolation
+        Every triggered violation, single-parameter first then
+        cross-parameter (unordered by severity).
+
+    See Also
+    --------
+    validate_single_parameter : Per-parameter checks.
+    validate_cross_parameter_constraints : Inter-parameter checks.
     """
     violations: list[PhysicsViolation] = []
 
@@ -265,10 +334,14 @@ def validate_all_parameters(
 
 
 def get_constraint_summary() -> dict[str, Any]:
-    """Get summary of all defined constraints.
+    """Summarize the defined constraint registry.
 
-    Returns:
-        Dictionary with constraint counts and parameter coverage
+    Returns
+    -------
+    dict
+        Keys ``parameters_covered`` (list of parameter names with rules),
+        ``total_constraints`` (rule count across all parameters), and
+        ``by_parameter`` (per-parameter rule count).
     """
     return {
         "parameters_covered": list(PHYSICS_CONSTRAINTS.keys()),

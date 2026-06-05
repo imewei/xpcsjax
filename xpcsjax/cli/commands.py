@@ -35,13 +35,28 @@ logger = get_logger(__name__)
 def dispatch_command(args: argparse.Namespace) -> int:
     """Run the command implied by ``args``.
 
-    Branches:
-        * Standalone plot modes (``--plot-experimental-data`` /
-          ``--plot-simulated-data``): skip optimization, render plots, return 0.
-        * Default: load config + data → run NLSQ → save → plot.
+    Loads and merges the config, reconfigures logging from the config's
+    ``logging:`` section, then dispatches to either a standalone plot mode or
+    the default NLSQ fit pipeline.
 
-    Returns:
-        Exit code (0 ok, 2 non-convergence, callee exceptions bubble up).
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed CLI arguments (already validated in :mod:`xpcsjax.cli.main`).
+
+    Returns
+    -------
+    int
+        Exit code: 0 on success, 2 on optimizer non-convergence. Callee
+        exceptions propagate to the caller.
+
+    Notes
+    -----
+    Branches:
+
+    - Standalone plot modes (``--plot-experimental-data`` /
+      ``--plot-simulated-data``): skip optimization, render plots, return 0.
+    - Default: load config + data, run NLSQ, save, then plot.
     """
     cfg_manager = load_and_merge_config(args.config, args)
 

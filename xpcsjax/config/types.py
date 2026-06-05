@@ -1,5 +1,4 @@
-"""Type Definitions for xpcsjax Configuration System
-=====================================================
+"""Type definitions for the xpcsjax configuration system.
 
 TypedDict definitions for configuration structures and parameter management.
 Provides type safety and IDE autocomplete for configuration dictionaries.
@@ -133,16 +132,15 @@ class StratificationConfig(TypedDict, total=False):
     Configuration for angle-stratified data reorganization to fix per-angle
     parameter incompatibility with NLSQ chunking on large datasets.
 
-    Root Cause Fixed:
-    -----------------
-    NLSQ's arbitrary chunking can create chunks without certain phi angles,
-    resulting in zero gradients for per-angle parameters (contrast[i], offset[i])
-    and silent optimization failures (0 iterations, unchanged parameters).
+    Notes
+    -----
+    Root cause fixed: NLSQ's arbitrary chunking can create chunks without
+    certain phi angles, resulting in zero gradients for per-angle parameters
+    (``contrast[i]``, ``offset[i]``) and silent optimization failures
+    (0 iterations, unchanged parameters).
 
-    Solution:
-    ---------
-    Reorganize data BEFORE optimization to ensure every chunk contains all phi
-    angles, making gradients always well-defined.
+    Solution: reorganize the data *before* optimization so that every chunk
+    contains all phi angles, making gradients always well-defined.
 
     Attributes
     ----------
@@ -217,20 +215,19 @@ class SequentialConfig(TypedDict, total=False):
     """Sequential per-angle optimization configuration (v2.2+).
 
     Configuration for sequential optimization fallback when stratification
-    cannot be applied (e.g., extreme angle imbalance >5.0 ratio).
+    cannot be applied (e.g. extreme angle imbalance, ratio > 5.0).
 
+    Notes
+    -----
     Strategy:
-    ---------
-    1. Split data by phi angle
-    2. Optimize each angle independently via nlsq.CurveFit (JAX-native trust-region)
-    3. Combine results using weighted averaging (inverse variance weighting)
 
-    Use Cases:
-    ----------
-    - Extreme angle imbalance (ratio > 5.0)
-    - Stratification explicitly disabled
-    - Memory-constrained environments
-    - Debugging and validation
+    1. Split data by phi angle.
+    2. Optimize each angle independently via ``nlsq.CurveFit`` (JAX-native
+       trust-region).
+    3. Combine results using weighted averaging (inverse-variance weighting).
+
+    Use cases: extreme angle imbalance (ratio > 5.0), stratification explicitly
+    disabled, memory-constrained environments, and debugging/validation.
 
     Attributes
     ----------

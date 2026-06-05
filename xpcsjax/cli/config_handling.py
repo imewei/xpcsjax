@@ -35,15 +35,30 @@ def resolve_output_dir(
     This is the **single source of truth** for output-directory resolution,
     shared by result saving (``commands._resolve_output_dir``) and plot
     writing (``plot_dispatch.resolve_plots_dir``) so the two cannot drift
-    apart — a normal run must not scatter JSON/NPZ results under the
+    apart -- a normal run must not scatter JSON/NPZ results under the
     configured output tree while writing plots to the process cwd.
 
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed CLI namespace; ``args.output`` takes precedence when set.
+    cfg_manager : ConfigManager or None
+        Configuration manager, or ``None`` when no config is available.
+
+    Returns
+    -------
+    pathlib.Path or None
+        The resolved output directory, or ``None`` when no source resolves.
+
+    Notes
+    -----
     Resolution order:
-        1. ``args.output`` (CLI override)
-        2. ``output.directory`` (canonical template schema), optionally under
-           ``output.base_directory``
-        3. ``output_settings.output_dir`` (legacy hand-written-config spelling)
-        4. ``None`` (caller decides the fallback)
+
+    1. ``args.output`` (CLI override).
+    2. ``output.directory`` (canonical template schema), optionally under
+       ``output.base_directory``.
+    3. ``output_settings.output_dir`` (legacy hand-written-config spelling).
+    4. ``None`` (caller decides the fallback).
     """
     if getattr(args, "output", None) is not None:
         return Path(args.output)
@@ -74,15 +89,20 @@ def load_and_merge_config(
     yaml_path: Path | str,
     cli_args: argparse.Namespace,
 ) -> ConfigManager:
-    """Load YAML config and apply CLI overrides.
+    """Load a YAML config and apply CLI overrides.
 
-    Args:
-        yaml_path: Path to the YAML config file.
-        cli_args: Parsed CLI namespace whose ``initial_*`` / mode / NLSQ
-            attributes may override YAML values.
+    Parameters
+    ----------
+    yaml_path : pathlib.Path or str
+        Path to the YAML config file.
+    cli_args : argparse.Namespace
+        Parsed CLI namespace whose ``initial_*`` / mode / output attributes
+        may override YAML values.
 
-    Returns:
-        ``ConfigManager`` with the merged effective config.
+    Returns
+    -------
+    ConfigManager
+        Configuration manager holding the merged effective config.
     """
     logger.info("Loading configuration from %s", yaml_path)
     config_manager = ConfigManager(str(yaml_path))
@@ -96,7 +116,23 @@ def apply_cli_overrides(
 ) -> None:
     """Mutate ``config_manager.config`` in place from CLI flags.
 
-    Precedence: CLI args > YAML > parameter_registry defaults.
+    Applies the mode override, the output-directory override, and the
+    ``--initial-*`` parameter overrides. Precedence is CLI args > YAML >
+    parameter-registry defaults.
+
+    Parameters
+    ----------
+    config_manager : ConfigManager
+        Manager whose ``config`` dict is mutated in place.
+    args : argparse.Namespace
+        Parsed CLI namespace supplying the override values.
+
+    Notes
+    -----
+    NLSQ runtime knobs (``--multistart`` / ``--max-iterations`` /
+    ``--tolerance`` / verbosity) are intentionally *not* handled here; they are
+    owned by :func:`xpcsjax.cli.optimization_runner.apply_cli_overrides`, the
+    single authority for the ``optimization.nlsq.*`` block.
     """
     config = config_manager.config
     if config is None:  # pragma: no cover — load_config never returns None
@@ -188,16 +224,27 @@ def _apply_parameter_overrides(
 ) -> None:
     """Write CLI ``--initial-*`` values into the canonical config block.
 
+    Parameters
+    ----------
+    config_manager : ConfigManager
+        Manager whose ``config`` dict is mutated in place.
+    args : argparse.Namespace
+        Parsed CLI namespace; ``--initial-*`` attributes (mapped through
+        :data:`_CLI_PARAM_MAP`) supply the override values.
+
+    Notes
+    -----
     ``ConfigManager.get_initial_parameters()`` reads from
-    ``config["initial_parameters"]["values"]`` — a list positionally
-    aligned with ``config["initial_parameters"]["parameter_names"]``.
-    (It does NOT read ``config["parameters"]["initial_values"]``; writing
-    there silently discarded every override.)
+    ``config["initial_parameters"]["values"]`` -- a list positionally aligned
+    with ``config["initial_parameters"]["parameter_names"]``. (It does *not*
+    read ``config["parameters"]["initial_values"]``; writing there silently
+    discarded every override.)
 
     Strategy: resolve the active parameter order, materialize the current
-    initial values (filling registry mid-point defaults for nulls), apply
-    the CLI overrides whose canonical name is in the active set, then write
-    the canonical ``parameter_names`` + ``values`` lists back.
+    initial values (filling registry mid-point defaults for nulls), apply the
+    CLI overrides whose canonical name is in the active set, then write the
+    canonical ``parameter_names`` + ``values`` lists back. Overrides whose name
+    is not in the active set for the resolved mode are ignored.
     """
     config = config_manager.config
     if config is None:  # pragma: no cover

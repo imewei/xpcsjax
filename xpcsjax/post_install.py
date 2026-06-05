@@ -28,8 +28,13 @@ XLA_END_MARKER = "# <<< xpcsjax xla_config <<<"
 def detect_shell_type() -> Literal["bash", "zsh", "fish", "unknown"]:
     """Detect the current shell type.
 
-    Returns:
-        Shell type string or "unknown" if detection fails.
+    Inspects the ``SHELL`` environment variable first, then falls back to the
+    parent process name via ``psutil`` when ``psutil`` is importable.
+
+    Returns
+    -------
+    {"bash", "zsh", "fish", "unknown"}
+        The detected shell, or ``"unknown"`` when detection fails.
     """
     # Check SHELL environment variable
     shell_path = os.environ.get("SHELL", "")
@@ -62,10 +67,15 @@ def detect_shell_type() -> Literal["bash", "zsh", "fish", "unknown"]:
 
 
 def is_virtual_environment() -> bool:
-    """Check if running in a virtual environment.
+    """Check whether the interpreter is running inside a virtual environment.
 
-    Returns:
-        True if in a venv, conda env, or similar.
+    Detects a standard ``venv`` (``sys.prefix != sys.base_prefix``), a conda
+    environment (``CONDA_PREFIX``), or a ``VIRTUAL_ENV`` marker.
+
+    Returns
+    -------
+    bool
+        ``True`` if in a venv, conda env, or similar isolated environment.
     """
     # Standard venv check
     if sys.prefix != sys.base_prefix:
@@ -83,19 +93,26 @@ def is_virtual_environment() -> bool:
 
 
 def is_conda_environment() -> bool:
-    """Check if running in a conda/mamba environment.
+    """Check whether the interpreter is running inside a conda/mamba environment.
 
-    Returns:
-        True if in a conda environment.
+    Returns
+    -------
+    bool
+        ``True`` if ``CONDA_PREFIX`` is set.
     """
     return bool(os.environ.get("CONDA_PREFIX"))
 
 
 def get_venv_path() -> Path:
-    """Get the virtual environment path.
+    """Resolve the active environment's root directory.
 
-    Returns:
-        Path to the virtual environment directory.
+    Resolution order: ``VIRTUAL_ENV``, then ``CONDA_PREFIX``, then
+    ``sys.prefix`` as a fallback.
+
+    Returns
+    -------
+    Path
+        Path to the virtual environment (or interpreter prefix) directory.
     """
     # Prefer VIRTUAL_ENV if set
     venv = os.environ.get("VIRTUAL_ENV")
@@ -112,10 +129,16 @@ def get_venv_path() -> Path:
 
 
 def get_completion_source_path() -> Path:
-    """Get the path to the completion script in the package.
+    """Get the path to the bundled shell completion script.
 
-    Returns:
-        Path to completion.sh in the installed package.
+    Prefers the ``COMPLETION_SCRIPT`` constant from
+    :mod:`xpcsjax.runtime.shell`, falling back to a path relative to this
+    module when that import fails.
+
+    Returns
+    -------
+    Path
+        Path to ``completion.sh`` in the installed package.
     """
     try:
         from xpcsjax.runtime.shell import COMPLETION_SCRIPT
@@ -127,12 +150,20 @@ def get_completion_source_path() -> Path:
 
 
 def get_xla_config_source_path(shell: str) -> Path:
-    """Get the path to the XLA config script.
+    """Get the path to the bundled XLA config script for a shell.
 
-    Args:
-        shell: Shell type ("bash", "zsh", or "fish")
+    Fish maps to the fish variant; every other shell maps to the bash variant
+    (zsh sources the bash script). Falls back to a path relative to this module
+    when :mod:`xpcsjax.runtime.shell` cannot be imported.
 
-    Returns:
+    Parameters
+    ----------
+    shell
+        Shell type (``"bash"``, ``"zsh"``, or ``"fish"``).
+
+    Returns
+    -------
+    Path
         Path to the XLA config script.
     """
     try:
@@ -150,14 +181,22 @@ def get_xla_config_source_path(shell: str) -> Path:
 
 
 def install_bash_completion(venv_path: Path, verbose: bool = False) -> bool:
-    """Install bash completion script.
+    """Install the bash completion script into the environment.
 
-    Args:
-        venv_path: Path to virtual environment.
-        verbose: Print verbose output.
+    Copies the bundled completion script to
+    ``venv_path/etc/bash_completion.d/xpcsjax-completion.sh``.
 
-    Returns:
-        True if installation succeeded.
+    Parameters
+    ----------
+    venv_path
+        Path to the virtual environment.
+    verbose
+        Print progress messages.
+
+    Returns
+    -------
+    bool
+        ``True`` if the script was copied successfully.
     """
     source = get_completion_source_path()
     if not source.exists():
@@ -182,14 +221,25 @@ def install_bash_completion(venv_path: Path, verbose: bool = False) -> bool:
 
 
 def install_zsh_completion(venv_path: Path, verbose: bool = False) -> bool:
-    """Install zsh completion script.
+    """Install the zsh completion wrapper into the environment.
 
-    Args:
-        venv_path: Path to virtual environment.
-        verbose: Print verbose output.
+    Ensures the bash completion is present (installing it first if needed),
+    then writes a generated zsh wrapper to
+    ``venv_path/etc/zsh/xpcsjax-completion.sh`` that loads it via
+    ``bashcompinit``. The wrapper resolves the bash script through
+    ``$VIRTUAL_ENV``/``$CONDA_PREFIX`` so it survives venv relocation.
 
-    Returns:
-        True if installation succeeded.
+    Parameters
+    ----------
+    venv_path
+        Path to the virtual environment.
+    verbose
+        Print progress messages.
+
+    Returns
+    -------
+    bool
+        ``True`` if the wrapper was written successfully.
     """
     source = get_completion_source_path()
     if not source.exists():
@@ -236,14 +286,23 @@ true  # Ensure zero exit code regardless of completion system state
 
 
 def install_fish_completion(venv_path: Path, verbose: bool = False) -> bool:
-    """Install fish completion (basic support).
+    """Install fish completions into the environment (basic support).
 
-    Args:
-        venv_path: Path to virtual environment.
-        verbose: Print verbose output.
+    Writes a generated completion file to
+    ``venv_path/share/fish/vendor_completions.d/xpcsjax.fish`` covering the
+    xpcsjax console scripts and their short aliases.
 
-    Returns:
-        True if installation succeeded.
+    Parameters
+    ----------
+    venv_path
+        Path to the virtual environment.
+    verbose
+        Print progress messages.
+
+    Returns
+    -------
+    bool
+        ``True`` if the completion file was written successfully.
     """
     # Fish completions go to a specific location
     dest_dir = venv_path / "share" / "fish" / "vendor_completions.d"
@@ -329,12 +388,20 @@ def install_shell_completion(
 ) -> bool:
     """Install shell completion for the detected or specified shell.
 
-    Args:
-        shell: Shell type or None for auto-detection.
-        verbose: Print verbose output.
+    No-ops (returns ``False``) outside a virtual environment. An undetectable
+    shell falls back to bash completion.
 
-    Returns:
-        True if installation succeeded.
+    Parameters
+    ----------
+    shell
+        Shell type, or ``None`` to auto-detect.
+    verbose
+        Print progress messages.
+
+    Returns
+    -------
+    bool
+        ``True`` if completion was installed successfully.
     """
     if not is_virtual_environment():
         if verbose:
@@ -369,12 +436,20 @@ def install_completion_activation(
     Ensures aliases and tab completion are available immediately on
     ``source activate`` without requiring manual shell init changes.
 
-    Args:
-        shell: Shell type or None for auto-detection.
-        verbose: Print verbose output.
+    No-ops (returns ``False``) outside a virtual environment. bash, zsh, and an
+    undetectable shell route through the bash activate hook; fish uses its own.
 
-    Returns:
-        True if installation succeeded.
+    Parameters
+    ----------
+    shell
+        Shell type, or ``None`` to auto-detect.
+    verbose
+        Print progress messages.
+
+    Returns
+    -------
+    bool
+        ``True`` if the activation hook was added (or already present).
     """
     if not is_virtual_environment():
         if verbose:
@@ -477,12 +552,22 @@ end
 def install_xla_config_scripts(venv_path: Path, verbose: bool = False) -> bool:
     """Copy XLA config scripts into ``venv/etc/xpcsjax/`` and fish vendor_conf.d.
 
-    Args:
-        venv_path: Path to virtual environment.
-        verbose: Print verbose output.
+    Installs the bash script into ``venv/etc/xpcsjax/xla_config.bash`` and the
+    fish script into both ``venv/etc/xpcsjax/xla_config.fish`` and
+    ``venv/share/fish/vendor_conf.d/xpcsjax-xla.fish``. Fish install failures
+    are non-fatal; only the bash script gates the return value.
 
-    Returns:
-        True if at least the bash script was installed.
+    Parameters
+    ----------
+    venv_path
+        Path to the virtual environment.
+    verbose
+        Print progress messages.
+
+    Returns
+    -------
+    bool
+        ``True`` if at least the bash script was installed.
     """
     success = True
 
@@ -546,12 +631,19 @@ def install_xla_activation(
     hook installed by this function sources the config script that reads that
     file at activation time.
 
-    Args:
-        shell: Shell type or None for auto-detection.
-        verbose: Print verbose output.
+    No-ops (returns ``False``) outside a virtual environment.
 
-    Returns:
-        True if installation succeeded.
+    Parameters
+    ----------
+    shell
+        Shell type, or ``None`` to auto-detect.
+    verbose
+        Print progress messages.
+
+    Returns
+    -------
+    bool
+        ``True`` if the activation hook was added (or already present).
     """
     if not is_virtual_environment():
         if verbose:
@@ -680,11 +772,15 @@ end
 def get_xla_mode_path() -> Path:
     """Get the path for the XLA mode configuration file.
 
-    Uses the virtual environment if active, otherwise XDG config directory.
-    Priority: $VIRTUAL_ENV or $CONDA_PREFIX > $XDG_CONFIG_HOME/xpcsjax.
+    Uses the virtual environment if active, otherwise the XDG config directory.
+    Priority: ``$VIRTUAL_ENV`` or ``$CONDA_PREFIX`` >
+    ``$XDG_CONFIG_HOME/xpcsjax`` (defaulting ``$XDG_CONFIG_HOME`` to
+    ``~/.config``).
 
-    Returns:
-        Path to the XLA mode file.
+    Returns
+    -------
+    Path
+        Path to the ``xla_mode`` file.
     """
     # Prefer per-environment config
     venv = os.environ.get("VIRTUAL_ENV") or os.environ.get("CONDA_PREFIX")
@@ -719,14 +815,23 @@ def configure_xla_mode(mode: str = "auto", verbose: bool = False, force: bool = 
     shell-side behavior in ``xla_config.bash`` where the mode file is only
     written when an explicit argument is provided.
 
-    Args:
-        mode: XLA mode (auto, nlsq, or a number).
-        verbose: Print verbose output.
-        force: Overwrite existing config. Set to True only when the user
-            explicitly passes ``--xla-mode``.
+    Migrates the legacy ``~/.xpcsjax_xla_mode`` file when present and removes it
+    after writing the new location.
 
-    Returns:
-        True if configuration succeeded.
+    Parameters
+    ----------
+    mode
+        XLA mode (``"auto"``, ``"nlsq"``, or an integer device count).
+    verbose
+        Print progress messages.
+    force
+        Overwrite existing config. Set to ``True`` only when the user
+        explicitly passes ``--xla-mode``.
+
+    Returns
+    -------
+    bool
+        ``True`` if the configuration was written (or preserved) successfully.
     """
     config_file = get_xla_mode_path()
 

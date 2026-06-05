@@ -26,10 +26,15 @@ class CleanupTarget(NamedTuple):
 
 
 def get_venv_path() -> Path | None:
-    """Get the virtual environment path if in one.
+    """Resolve the active environment's root directory, if any.
 
-    Returns:
-        Path to venv or None if not in a virtual environment.
+    Resolution order: ``sys.prefix`` (when it differs from
+    ``sys.base_prefix``), then ``VIRTUAL_ENV``, then ``CONDA_PREFIX``.
+
+    Returns
+    -------
+    Path or None
+        Path to the venv, or ``None`` when not in a virtual environment.
     """
     if sys.prefix != sys.base_prefix:
         return Path(sys.prefix)
@@ -48,8 +53,16 @@ def get_venv_path() -> Path | None:
 def find_cleanup_targets() -> list[CleanupTarget]:
     """Find all xpcsjax-related files that can be cleaned up.
 
-    Returns:
-        List of CleanupTarget objects.
+    Probes every known install location — the XLA mode file (per-env/XDG and
+    legacy ``~/.xpcsjax_xla_mode``), the per-shell completion scripts, the XLA
+    config scripts, any newly-emptied parent directories, and the user-level
+    bash completion directory — and records each as a :class:`CleanupTarget`
+    with its existence flag.
+
+    Returns
+    -------
+    list of CleanupTarget
+        One entry per candidate path; inspect ``.exists`` to filter.
     """
     targets: list[CleanupTarget] = []
 
@@ -177,12 +190,21 @@ def cleanup_completion_files(
 ) -> list[Path]:
     """Remove shell completion files.
 
-    Args:
-        dry_run: If True, don't actually delete files.
-        verbose: Print detailed output.
+    Iterates :func:`find_cleanup_targets` and deletes the existing targets whose
+    description names a completion file. Individual deletion failures are logged
+    (when ``verbose``) and skipped rather than raised.
 
-    Returns:
-        List of paths that were (or would be) removed.
+    Parameters
+    ----------
+    dry_run
+        If ``True``, report without deleting.
+    verbose
+        Print detailed output.
+
+    Returns
+    -------
+    list of Path
+        Paths that were (or, under ``dry_run``, would be) removed.
     """
     removed: list[Path] = []
     targets = find_cleanup_targets()
@@ -220,12 +242,22 @@ def cleanup_xla_config(
 ) -> list[Path]:
     """Remove XLA configuration files.
 
-    Args:
-        dry_run: If True, don't actually delete files.
-        verbose: Print detailed output.
+    Deletes the XLA mode file (per-env/XDG and legacy), the per-env XLA config
+    scripts, and the fish vendor config, de-duplicating the candidate list and
+    removing any parent directory left empty afterwards. Individual deletion
+    failures are logged (when ``verbose``) and skipped rather than raised.
 
-    Returns:
-        List of paths that were (or would be) removed.
+    Parameters
+    ----------
+    dry_run
+        If ``True``, report without deleting.
+    verbose
+        Print detailed output.
+
+    Returns
+    -------
+    list of Path
+        Paths that were (or, under ``dry_run``, would be) removed.
     """
     removed: list[Path] = []
 
@@ -288,14 +320,22 @@ def _remove_xpcsjax_blocks(content: str, end_marker: str) -> str:
     nested if/fi or if/end structures within injected blocks.
 
     Recognizes both the explicit BEGIN/END marker pairs and any residual
-    legacy single-line headers (defensive against partial uninstalls).
+    legacy single-line headers (defensive against partial uninstalls). For
+    explicit marker pairs the END marker delimits the block; legacy headers
+    fall back to shell-syntax depth tracking driven by ``end_marker``.
 
-    Args:
-        content: Full text of the activate script.
-        end_marker: Block terminator: "fi" for bash/zsh, "end" for fish.
+    Parameters
+    ----------
+    content
+        Full text of the activate script.
+    end_marker
+        Block terminator for the legacy depth-tracking path: ``"fi"`` for
+        bash/zsh, ``"end"`` for fish.
 
-    Returns:
-        Content with all xpcsjax blocks removed.
+    Returns
+    -------
+    str
+        ``content`` with all xpcsjax-injected blocks removed.
     """
     _XPCSJAX_BEGIN_HEADERS = (
         "# >>> xpcsjax completion >>>",
@@ -371,14 +411,24 @@ def cleanup_xla_activation_scripts(
     dry_run: bool = False,
     verbose: bool = False,
 ) -> bool:
-    """Remove XLA configuration from venv activation scripts.
+    """Remove xpcsjax-injected blocks from the venv activation scripts.
 
-    Args:
-        dry_run: If True, don't actually modify files.
-        verbose: Print detailed output.
+    Rewrites ``bin/activate`` and ``bin/activate.fish`` (when they contain
+    ``xpcsjax``) via :func:`_remove_xpcsjax_blocks`. No-ops when not in a
+    virtual environment. Despite the name, this strips both the completion and
+    XLA activation blocks.
 
-    Returns:
-        True if any modifications were made.
+    Parameters
+    ----------
+    dry_run
+        If ``True``, report without modifying files.
+    verbose
+        Print detailed output.
+
+    Returns
+    -------
+    bool
+        ``True`` if any script was (or, under ``dry_run``, would be) modified.
     """
     modified = False
     venv_path = get_venv_path()
