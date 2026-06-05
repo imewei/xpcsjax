@@ -6,12 +6,12 @@ joint 3-angle fit is pinned in ``tests/heterodyne/fixtures/baselines/
 two_component_c044.json``; we run the same configuration through xpcsjax and
 compare the 14 physics parameters to the baseline.
 
-Gating
-------
-Slow real-data fit (multi-minute on CPU). Gated by the Phase-5 env var:
-
-    XPCSJAX_RUN_CHARACTERIZATION=1 uv run pytest \
-        tests/heterodyne/test_two_component_real_data.py -v
+Cost
+----
+Slow real-data fit (multi-minute on CPU). It runs unconditionally (no env
+gate). It needs the upstream baseline JSON and the C044 dataset/config on disk;
+when those fixtures are absent it skips with a clear reason (so a fresh clone
+without the data does not hard-fail).
 
 Data layout
 -----------
@@ -26,7 +26,6 @@ internally).
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import numpy as np
@@ -39,12 +38,6 @@ C044_PHI_LIST = C044_DATA_DIR / "phi_list.txt"
 BASELINE_JSON = (
     Path(__file__).resolve().parent / "fixtures" / "baselines" / "two_component_c044.json"
 )
-
-_SLOW_GATE = pytest.mark.skipif(
-    os.environ.get("XPCSJAX_RUN_CHARACTERIZATION") != "1",
-    reason="Slow real-data heterodyne fit; set XPCSJAX_RUN_CHARACTERIZATION=1 to enable.",
-)
-
 
 def _require_fixture(path: Path) -> None:
     if not path.exists():
@@ -68,7 +61,6 @@ def _select_baseline_angles(phi_all: np.ndarray, baseline_meta: dict[str, object
     return idxs
 
 
-@_SLOW_GATE
 def test_heterodyne_multi_angle_matches_source(baseline):
     """End-to-end multi-angle heterodyne fit via the dispatch path."""
     _require_fixture(C044_C2_CACHE)
