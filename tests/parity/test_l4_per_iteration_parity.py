@@ -1,6 +1,8 @@
+import importlib.util
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -16,12 +18,37 @@ from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
 # laminar_flow solve must leave the rtol=1e-10 homodyne characterization
 # baseline BIT-IDENTICAL. The monitor is strictly observational.
 #
-# NOTE: the load-bearing DEFAULT-CI guard is ``test_homodyne_l4_is_diagnostic_only``
+# NOTE: the load-bearing, dependency-free guard is ``test_homodyne_l4_is_diagnostic_only``
 # below — it runs unconditionally and asserts monitor-ON == monitor-OFF (bit-
 # identical popt + chi2), the observational property. The bit-identity-vs-
 # upstream-baseline check (``test_homodyne_characterization_bit_identical_with_monitor``)
-# is env-gated and SKIPS in default CI rather than passing vacuously.
+# is AVAILABILITY-gated, not env-gated: it RUNS whenever the upstream ``homodyne``
+# package and the maintainer datasets are present (no env var needed), and SKIPS
+# with a clear reason when either is absent — so it executes on a maintainer
+# machine and stays green (skipped, never failing) on CI / fresh clones.
 # ---------------------------------------------------------------------------
+
+# Datasets the characterization subprocess reads (paths mirror
+# tests/characterization/test_homodyne_equivalence.py CONFIGS — keep in sync).
+_CHARACTERIZATION_CONFIGS = (
+    Path("/home/wei/Documents/Projects/data/Simon/homodyne_static_config.yaml"),
+    Path("/home/wei/Documents/Projects/data/C020/homodyne_laminar_flow_config.yaml"),
+)
+
+
+def _characterization_available() -> tuple[bool, str]:
+    """Return ``(available, reason_if_not)`` for the upstream-baseline check.
+
+    Available iff the upstream ``homodyne`` package is importable AND every
+    characterization dataset config exists. ``find_spec`` is used so we probe
+    importability without importing (and triggering) the package.
+    """
+    if importlib.util.find_spec("homodyne") is None:
+        return False, "upstream `homodyne` package not importable"
+    missing = [str(p) for p in _CHARACTERIZATION_CONFIGS if not p.exists()]
+    if missing:
+        return False, f"characterization datasets absent: {missing}"
+    return True, ""
 
 
 def _homodyne_gradient_monitor_block(result):
@@ -53,19 +80,25 @@ def test_homodyne_characterization_bit_identical_with_monitor():
     """Hard safety gate: the homodyne rtol=1e-10 characterization suite must
     still pass with the per-iteration L4 monitor wired in.
 
-    Env-gated and SLOW (~7 min; laminar runs CMA-ES refinement). When
-    ``XPCSJAX_RUN_CHARACTERIZATION=1`` is set this runs the characterization
+    SLOW (~7 min; laminar runs CMA-ES refinement). Runs the characterization
     suite in an isolated subprocess and asserts it stays green (bit-identical
-    vs the upstream baseline). When the env var is NOT set we skip EXPLICITLY
-    rather than pass vacuously — without the gate the subprocess self-skips and
-    returns 0, which would assert nothing about bit-identity. The unconditional
-    default-CI guard is ``test_homodyne_l4_is_diagnostic_only``.
+    vs the upstream baseline). The child suite is itself env-gated, so the
+    subprocess env forces ``XPCSJAX_RUN_CHARACTERIZATION=1`` — without it the
+    child self-skips and returns 0, asserting nothing about bit-identity.
+
+    AVAILABILITY-gated (not env-gated): it RUNS when the upstream ``homodyne``
+    package and the maintainer datasets are present, and SKIPS with a clear
+    reason otherwise — so it executes on a maintainer machine without an env var
+    and stays green (skipped) on CI / fresh clones. The dependency-free
+    observational guard is ``test_homodyne_l4_is_diagnostic_only``.
     """
-    if os.environ.get("XPCSJAX_RUN_CHARACTERIZATION") != "1":
-        pytest.skip(
-            "characterization is env-gated; XPCSJAX_RUN_CHARACTERIZATION=1 to run. "
-            "Default-CI bit-identity guard is test_homodyne_l4_is_diagnostic_only."
-        )
+    available, reason = _characterization_available()
+    if not available:
+        pytest.skip(f"upstream-baseline characterization unavailable: {reason}")
+
+    # Force the characterization gate ON in the child so it actually runs
+    # (the child self-skips and returns 0 — a vacuous pass — without it).
+    child_env = {**os.environ, "XPCSJAX_RUN_CHARACTERIZATION": "1"}
     r = subprocess.run(
         [
             sys.executable,
@@ -76,6 +109,7 @@ def test_homodyne_characterization_bit_identical_with_monitor():
         ],
         capture_output=True,
         text=True,
+        env=child_env,
     )
     assert r.returncode == 0, r.stdout[-3000:] + r.stderr[-3000:]
 
