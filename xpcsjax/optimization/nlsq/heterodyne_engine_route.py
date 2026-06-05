@@ -44,6 +44,10 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from xpcsjax.config.parameter_registry import SCALING_PARAMS
+from xpcsjax.optimization.nlsq.heterodyne_averaged_wrapper import (
+    engine_popt_to_compressed_averaged,
+    wrap_engine_averaged_residual,
+)
 from xpcsjax.optimization.nlsq.heterodyne_layout import (
     IN_SCOPE_MODES,
     physics_first_to_scaling_first,
@@ -394,16 +398,11 @@ def fit_two_component_via_engine(
         contrast_frozen = np.asarray(meta["contrast_arr"], dtype=np.float64)
         offset_frozen = np.asarray(meta["offset_arr"], dtype=np.float64)
 
-    # -- Bounds + layout conversion (physics-first -> scaling-first) --------
+    # -- Bounds (physics-first) + engine ------------------------------------
     physics_lower, physics_upper = model.param_manager.get_bounds()
     lb_pf, ub_pf = _physics_first_bounds(
         mode=mode, n_phi=n_phi, physics_lower=physics_lower, physics_upper=physics_upper
     )
-    x0_sf = physics_first_to_scaling_first(p0, n_physics=n_varying, mode=mode, n_phi=n_phi)
-    lb_sf = physics_first_to_scaling_first(lb_pf, n_physics=n_varying, mode=mode, n_phi=n_phi)
-    ub_sf = physics_first_to_scaling_first(ub_pf, n_physics=n_varying, mode=mode, n_phi=n_phi)
-
-    # -- Engine + NLSQ solve (SAME settings production uses) ----------------
     engine = _build_engine(
         mode=mode,
         chunked=chunked,
@@ -414,9 +413,37 @@ def fit_two_component_via_engine(
         dt=dt,
     )
 
-    def residual_fn(x: np.ndarray) -> Any:
-        return engine(jnp.asarray(x, dtype=jnp.float64))
+    # -- Optimizer-vector layout (the DOF the solver actually varies) -------
+    if mode == "auto_averaged":
+        # COMPRESSED averaged contract: the optimizer varies EXACTLY 2 scaling
+        # DOF ([physics | c_avg | o_avg]) — production's averaged DOF count
+        # (_fit_joint_averaged_multi_phi). wrap_engine_averaged_residual
+        # broadcasts those 2 scalars to the engine's 2*n_phi scaling-first layout
+        # INSIDE the JIT residual, so the optimizer never fits independent
+        # per-angle scaling. Driving the engine directly with the broadcast x0
+        # (n_varying + 2*n_phi DOF) would over-parameterize the averaged fit and
+        # then discard all but angle-0's fitted scalar — an inconsistent result.
+        # p0 and the physics-first bounds are already the compressed form.
+        x0_opt = np.asarray(p0, dtype=np.float64)
+        lb_opt = np.asarray(lb_pf, dtype=np.float64)
+        ub_opt = np.asarray(ub_pf, dtype=np.float64)
+        wrapped = wrap_engine_averaged_residual(
+            engine, n_physics=n_varying, n_phi=n_phi
+        )
 
+        def residual_fn(x: np.ndarray) -> Any:
+            return wrapped(jnp.asarray(x, dtype=jnp.float64))
+    else:
+        # fixed_constant (identity) / individual (block permutation): pure layout
+        # permutations onto the engine scaling-first vector — no DOF change.
+        x0_opt = physics_first_to_scaling_first(p0, n_physics=n_varying, mode=mode, n_phi=n_phi)
+        lb_opt = physics_first_to_scaling_first(lb_pf, n_physics=n_varying, mode=mode, n_phi=n_phi)
+        ub_opt = physics_first_to_scaling_first(ub_pf, n_physics=n_varying, mode=mode, n_phi=n_phi)
+
+        def residual_fn(x: np.ndarray) -> Any:
+            return engine(jnp.asarray(x, dtype=jnp.float64))
+
+    # -- NLSQ solve (SAME settings production uses) -------------------------
     joint_cfg = _NLSQConfig(
         method=config.method,
         loss=config.loss,
@@ -425,22 +452,27 @@ def fit_two_component_via_engine(
         gtol=config.gtol,
         x_scale=config.x_scale,
         max_nfev=config.max_nfev * n_phi,
-        n_params=len(x0_sf),
+        n_params=len(x0_opt),
     )
-    adapter = NLSQAdapter(parameter_names=[f"p{i}" for i in range(len(x0_sf))])
+    adapter = NLSQAdapter(parameter_names=[f"p{i}" for i in range(len(x0_opt))])
     res = adapter.fit(
         residual_fn=residual_fn,
-        initial_params=x0_sf,
-        bounds=(lb_sf, ub_sf),
+        initial_params=x0_opt,
+        bounds=(lb_opt, ub_opt),
         config=joint_cfg,
     )
-    popt_sf = np.asarray(res.parameters, dtype=np.float64)
+    popt_opt = np.asarray(res.parameters, dtype=np.float64)
     wall_time = time.perf_counter() - t_start
 
     # -- Convert popt -> physics-first; recover per-angle scaling -----------
-    popt_pf = scaling_first_to_physics_first(
-        popt_sf, n_physics=n_varying, mode=mode, n_phi=n_phi
-    )
+    if mode == "auto_averaged":
+        # The optimizer already varied the compressed physics-first vector;
+        # identity passthrough (validates length) — no un-permutation needed.
+        popt_pf = engine_popt_to_compressed_averaged(popt_opt, n_physics=n_varying)
+    else:
+        popt_pf = scaling_first_to_physics_first(
+            popt_opt, n_physics=n_varying, mode=mode, n_phi=n_phi
+        )
     physics_fitted = popt_pf[:n_varying]
 
     if mode == "fixed_constant":
