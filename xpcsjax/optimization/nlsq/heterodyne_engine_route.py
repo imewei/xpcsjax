@@ -366,6 +366,22 @@ def fit_two_component_via_engine(
     t = np.asarray(model.t, dtype=np.float64)
     q, dt = float(model.q), float(model.dt)
 
+    # -- Normalize c2 / weights to the 3-D (n_phi, N, N) contract -----------
+    # The public dispatcher and the old fit_nlsq_multi_phi path accept a 2-D
+    # single-angle c2 matrix and add a leading axis (heterodyne_core.py:694).
+    # Mirror that here so the production-support scorer
+    # (compute_multi_angle_residuals, which vmaps over axis 0) never treats the
+    # leading TIME dimension as the angle batch — passing a raw 2-D array would
+    # otherwise raise "vmap got inconsistent sizes" against the length-1 phi /
+    # contrast / offset and silently fall back on the dispatcher's best-effort.
+    c2 = np.asarray(c2, dtype=np.float64)
+    if c2.ndim == 2:
+        c2 = c2[np.newaxis, ...]
+    if weights is not None:
+        weights = np.asarray(weights, dtype=np.float64)
+        if weights.ndim == 2:
+            weights = weights[np.newaxis, ...]
+
     # -- Resolve mode: production token -> engine-layout token --------------
     production_mode = _resolve_effective_mode(config, n_phi)
     if production_mode == "fourier":

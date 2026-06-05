@@ -1,4 +1,7 @@
-"""Regression tests for engine-route ``two_component`` defects.
+"""Regression tests for two engine-route ``two_component`` defects.
+
+Both were surfaced by an adversarial review of the engine-route dispatch
+(``xpcsjax/optimization/nlsq/heterodyne_engine_route.py``):
 
 Bug 1 — averaged mode over-parameterized the scaling.
     For production ``auto`` at ``n_phi >= 3`` (engine ``auto_averaged``) the
@@ -12,6 +15,16 @@ Bug 1 — averaged mode over-parameterized the scaling.
     existed for exactly this but was never wired in. The fix routes
     ``auto_averaged`` through the wrapper so the optimizer varies 2 scaling DOF.
 
+Bug 2 — single-angle 2D ``c2`` was accepted but mis-scored.
+    The public dispatcher / old ``fit_nlsq_multi_phi`` accept a 2D single-angle
+    ``c2`` matrix and normalize it to ``(1, N, N)``. The engine route passed the
+    raw 2D array into ``_production_support_chi2`` →
+    ``compute_multi_angle_residuals``, which vmaps over axis 0 — treating the
+    leading TIME dimension as the angle batch (inconsistent vmap sizes vs the
+    length-1 ``phi``/contrast/offset → raises, swallowed by the dispatcher's
+    best-effort fallback). The fix normalizes ``c2`` (and 2D ``weights``) to
+    ``(1, N, N)`` at the top of ``fit_two_component_via_engine``.
+
 These tests are fixture-robust: the well-posed fixture used elsewhere has
 UNIFORM true scaling, which hides Bug 1 numerically (the independent-DOF optimum
 coincides with the uniform one), so Bug 1 is pinned by the optimizer DOF count
@@ -20,10 +33,16 @@ and wrapper usage, not by a chi-square delta on that fixture.
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 import numpy as np
 
 from tests.parity.test_engine_heterodyne_fit_parity import _make_well_posed_case
+from xpcsjax.config import ConfigManager
+from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
 from xpcsjax.optimization.nlsq.heterodyne_engine_route import (
     fit_two_component_via_engine,
 )
@@ -145,3 +164,121 @@ def test_individual_mode_keeps_per_angle_scaling_dof(monkeypatch):
         model, c2, np.asarray(phi), _make_config("individual"), None
     )
     assert captured["x0_len"] == n_varying + 2 * n_phi
+
+
+# ===========================================================================
+# Bug 2 — single-angle 2D c2 must be accepted and scored as (1, N, N)
+# ===========================================================================
+_SA_N_T = 12
+_SA_Q = 0.0054
+_SA_DT = 1.0
+_SA_TRUE_PERTURB = {
+    "D0_ref": 1.10e4,
+    "alpha_ref": 0.10,
+    "D0_sample": 1.05e4,
+    "beta": 0.55,
+    "f0": 0.55,
+}
+
+
+def _build_single_angle_model() -> HeterodyneModel:
+    cfg_dict = {
+        "analysis_mode": "two_component",
+        "analyzer_parameters": {
+            "dt": _SA_DT,
+            "start_frame": 1,
+            "end_frame": _SA_N_T,
+            "scattering": {"wavevector_q": _SA_Q},
+        },
+        "scaling": {
+            "n_angles": 1,
+            "mode": "constant",
+            "initial_contrast": 0.3,
+            "initial_offset": 1.0,
+        },
+        "optimization": {
+            "nlsq": {
+                "analysis_mode": "two_component",
+                "max_iterations": 30,
+                "enable_cmaes": False,
+            }
+        },
+    }
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        cfg_path = Path(tmp_dir) / "fixture.yaml"
+        import yaml
+
+        cfg_path.write_text(yaml.safe_dump(cfg_dict))
+        cfg = ConfigManager(str(cfg_path))
+    assert cfg.config is not None
+    return HeterodyneModel.from_config(cfg.config)
+
+
+def _single_angle_c2(model: HeterodyneModel, phi_val: float) -> np.ndarray:
+    """Noiseless single-angle correlation at a perturbed truth, uniform scaling.
+    Returns shape ``(1, N, N)``."""
+    pm = model.param_manager
+    names = list(pm.varying_names)
+    true_full = np.asarray(pm.get_full_values(), dtype=np.float64).copy()
+    for name, val in _SA_TRUE_PERTURB.items():
+        if name in names:
+            true_full[names.index(name)] = val
+    c2 = np.asarray(
+        model.compute_correlation(
+            phi_angle=float(phi_val),
+            params=true_full,
+            contrast=0.30,
+            offset=1.00,
+            angle_idx=0,
+        ),
+        dtype=np.float64,
+    )
+    return c2[np.newaxis, ...]
+
+
+def test_single_angle_2d_c2_equivalent_to_3d():
+    """A 2D ``(N, N)`` single-angle ``c2`` must produce the SAME result as the
+    explicit ``(1, N, N)`` stack — not raise and not silently mis-score."""
+    phi = np.array([12.0], dtype=np.float64)
+    # Generate data once (deterministic), fit with fresh models (state mutates).
+    c2_3d = _single_angle_c2(_build_single_angle_model(), float(phi[0]))
+    c2_2d = c2_3d[0]
+
+    eng_3d = fit_two_component_via_engine(
+        _build_single_angle_model(), c2_3d, phi, _make_config("auto"), None
+    )
+    eng_2d = fit_two_component_via_engine(
+        _build_single_angle_model(), c2_2d, phi, _make_config("auto"), None
+    )
+
+    assert np.isfinite(eng_2d.chi_squared)
+    assert np.asarray(eng_2d.nlsq_diagnostics["chi2_per_angle"]).shape == (1,)
+    assert np.isclose(eng_2d.chi_squared, eng_3d.chi_squared, rtol=1e-9, atol=1e-12), (
+        f"2D c2 chi2 {eng_2d.chi_squared!r} != 3D c2 chi2 {eng_3d.chi_squared!r}; "
+        "a 2D single-angle input must be normalized to (1, N, N) (Bug 2)."
+    )
+    np.testing.assert_allclose(
+        eng_2d.parameters, eng_3d.parameters, rtol=1e-7, atol=1e-9
+    )
+
+
+def test_single_angle_2d_c2_no_worse_than_production():
+    """2D single-angle parity against the old ``fit_nlsq_multi_phi`` path."""
+    phi = np.array([12.0], dtype=np.float64)
+    c2_2d = _single_angle_c2(_build_single_angle_model(), float(phi[0]))[0]
+
+    eng = fit_two_component_via_engine(
+        _build_single_angle_model(), c2_2d, phi, _make_config("auto"), None
+    )
+    ref = fit_nlsq_multi_phi(
+        _build_single_angle_model(), c2_2d, list(phi), _make_config("auto"), None
+    )
+    assert np.isfinite(eng.chi_squared) and np.isfinite(ref.chi_squared)
+    # Both reach the noiseless single-angle minimum (~machine zero), so the
+    # no-worse contract needs an absolute floor — a relative-only check is
+    # meaningless when production lands at ~1e-19. The atol still catches a
+    # genuinely worse engine (e.g. trapped at SSR ~1e-1).
+    assert eng.chi_squared <= ref.chi_squared * (1.0 + 1e-3) + 1e-9, (
+        f"engine 2D chi2 {eng.chi_squared!r} strictly worse than production "
+        f"{ref.chi_squared!r}"
+    )
