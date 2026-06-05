@@ -87,7 +87,7 @@ xpcsjax ships four mode-specific YAML templates under `xpcsjax/config/templates/
 | `laminar_flow` | `xpcsjax_laminar_flow.yaml` |
 | `two_component` | `xpcsjax_two_component.yaml` |
 
-`ConfigManager` validates mode at construction; passing an unknown mode raises immediately.
+`ConfigManager` uses **deferred** mode validation: an unknown `analysis_mode` is stored and *warned* at construction (not rejected), and only raises `ValueError` later — on `.analysis_mode` property access (`AnalysisMode(value)`) or on the registry/`ParameterManager` lookups that consume it. (Verified 2026-06-05; the lenient construction is intentional — see the comments around `_normalize_analysis_mode`.) `data_type` is likewise **not** validated by `ConfigManager`; the closed `aps_old`/`aps_u` vocabulary lives in `config/types.py` (`DataType` Literal) and is auto-detected by the loader.
 
 **`data_type` valid values:** `"aps_old"` (legacy APS format) or `"aps_u"` (unified APS format). No other strings are accepted.
 
