@@ -924,8 +924,8 @@
     "hash": "b216db6248a7587278cf6559b3cc3c3e"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/strategies/residual_jit.py": {
-    "mtime": 1780671715.0551996,
-    "hash": "185947116fae82d6dc2adc3e13e42022"
+    "mtime": 1780698288.1140463,
+    "hash": "68a79bc15a47076d6f2ef453aa8b7f13"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/strategies/executors.py": {
     "mtime": 1780671715.0541997,
@@ -944,8 +944,8 @@
     "hash": "37eff875e8eeeaf9dda2fe28907ef8d3"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/strategies/residual.py": {
-    "mtime": 1780671715.0551996,
-    "hash": "3872c1fdf633b7cc4d5ff465c6874d5d"
+    "mtime": 1780693518.612146,
+    "hash": "875e1b21a11c141b5cad46d72f1dc753"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/strategies/chunking.py": {
     "mtime": 1780671715.0541997,
