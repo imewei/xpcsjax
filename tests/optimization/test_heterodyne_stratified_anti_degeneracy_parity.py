@@ -132,9 +132,11 @@ def test_l2_banner_suppressed_when_hierarchical_disabled(caplog):
     cfg["hierarchical"] = {"enable": False}
     phi_deg = np.array([0.0, 60.0, 120.0], dtype=np.float64)
     with caplog.at_level(logging.INFO, logger="xpcsjax.optimization.nlsq.anti_degeneracy_controller"):
-        _hsl._emit_anti_degeneracy_parity_banners(
+        ctrl = _hsl._emit_anti_degeneracy_parity_banners(
             anti_degeneracy_dict=cfg, phi_deg=phi_deg, n_physical=14
         )
+    assert ctrl is not None
+    assert "Layer 3 - Adaptive Regularization" in caplog.text  # positive control: capture works
     assert "Layer 2 - Hierarchical Optimization" not in caplog.text
 
 
@@ -144,9 +146,11 @@ def test_l4_banner_suppressed_when_gradient_monitoring_disabled(caplog):
     cfg["gradient_monitoring"] = {"enable": False}
     phi_deg = np.array([0.0, 60.0, 120.0], dtype=np.float64)
     with caplog.at_level(logging.INFO, logger="xpcsjax.optimization.nlsq.anti_degeneracy_controller"):
-        _hsl._emit_anti_degeneracy_parity_banners(
+        ctrl = _hsl._emit_anti_degeneracy_parity_banners(
             anti_degeneracy_dict=cfg, phi_deg=phi_deg, n_physical=14
         )
+    assert ctrl is not None
+    assert "Layer 3 - Adaptive Regularization" in caplog.text  # positive control: capture works
     assert "Layer 4 - Gradient Collapse Monitor" not in caplog.text
 
 

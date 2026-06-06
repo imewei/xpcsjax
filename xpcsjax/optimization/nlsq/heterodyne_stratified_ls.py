@@ -399,7 +399,8 @@ def fit_heterodyne_stratified_least_squares(
     # Laminar-parity: instantiate the shared controller so the heterodyne ≥1M
     # stratified-LS log gains the same Layer 2/3/4 + mode banners laminar emits.
     # Purely for banner/diagnostic-surface parity — numerics below are unchanged.
-    _ad_controller = _emit_anti_degeneracy_parity_banners(
+    # Return is intentionally discarded: this is a banner side-effect only.
+    _emit_anti_degeneracy_parity_banners(
         anti_degeneracy_dict=anti_degeneracy_dict,
         phi_deg=np.asarray(phi),
         n_physical=n_physics_pre,
