@@ -202,6 +202,69 @@ def log_stratification_diagnostics(diag: Any, *, n_chunks: int, n_points: int, n
 # ---------------------------------------------------------------------------
 # Fit start + results blocks (wrapper-parity)
 # ---------------------------------------------------------------------------
+def log_gradient_sanity_check(
+    *,
+    residuals_0: np.ndarray,
+    gradient_estimate: float,
+    phys_idx: int,
+    passed: bool,
+    n_params: int,
+    n_physics: int,
+    n_scaling: int,
+    threshold: float = 1e-10,
+) -> None:
+    """Mirror the laminar "GRADIENT SANITY CHECK" pre-solve diagnostic (80 wide).
+
+    Pure logging: the caller computes the 1% perturbation, the gradient estimate,
+    and the ``passed`` verdict; this helper only renders the laminar banner
+    surface. Heterodyne's joint vector is PHYSICS-FIRST (``[physics | scaling]``),
+    so ``phys_idx`` is 0 (the first physical parameter) -- unlike the
+    homodyne/laminar SCALING-FIRST layout where the first physical parameter sits
+    at index ``2 * n_phi``. When ``passed`` is False the failure block is emitted
+    at ERROR level (mirroring laminar); the caller is responsible for raising.
+    """
+    r = np.asarray(residuals_0, dtype=np.float64)
+    logger.info(_W80)
+    logger.info("GRADIENT SANITY CHECK")
+    logger.info(_W80)
+    logger.info(
+        "Initial residuals: shape=%s, min=%.6e, max=%.6e, mean=%.6e",
+        tuple(r.shape),
+        float(np.min(r)),
+        float(np.max(r)),
+        float(np.mean(r)),
+    )
+    logger.info(
+        "Gradient estimate (1%% perturbation of param[%d]): %.6e",
+        phys_idx,
+        gradient_estimate,
+    )
+    if passed:
+        logger.info(
+            "Gradient sanity check passed (gradient magnitude: %.6e)",
+            gradient_estimate,
+        )
+        logger.info(_W80)
+        return
+    logger.error(_W80)
+    logger.error("GRADIENT SANITY CHECK FAILED")
+    logger.error(_W80)
+    logger.error("Gradient estimate: %.6e (expected > %.0e)", gradient_estimate, threshold)
+    logger.error("This indicates:")
+    logger.error("  - Parameter initialization issue (likely wrong parameter count)")
+    logger.error("  - Residual function not sensitive to parameter changes")
+    logger.error("  - Optimization will fail with 0 iterations")
+    logger.error("Diagnostic information:")
+    logger.error("  Initial parameters count: %d", n_params)
+    logger.error(
+        "  Expected: %d physical + %d scaling = %d",
+        n_physics,
+        n_scaling,
+        n_physics + n_scaling,
+    )
+    logger.error(_W80)
+
+
 def log_fit_start(n_params: int, n_points: int, *, n_chunks: int | None = None) -> None:
     """Mirror laminar "Starting NLSQ least_squares() optimization..." block."""
     logger.info("Starting NLSQ least_squares() optimization...")
