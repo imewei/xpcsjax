@@ -97,6 +97,7 @@ def _emit_anti_degeneracy_parity_banners(
     if not isinstance(anti_degeneracy_dict, dict) or not anti_degeneracy_dict:
         return None
     try:
+        from xpcsjax.config.parameter_registry import AnalysisMode
         from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
             AntiDegeneracyController,
         )
@@ -109,7 +110,7 @@ def _emit_anti_degeneracy_parity_banners(
             n_physical=int(n_physical),
             per_angle_scaling=True,
             is_laminar_flow=False,
-            analysis_mode="two_component",
+            analysis_mode=AnalysisMode.TWO_COMPONENT,
         )
     except Exception as exc:  # best-effort: banners must never break a fit
         from xpcsjax.utils.logging import get_logger as _get_logger
