@@ -107,6 +107,27 @@ def log_effective_mode(
     )
 
 
+def log_configured_layers_preamble() -> None:
+    """Frame the controller's setup banners as CONFIGURATION, not execution.
+
+    The heterodyne stratified-LS path instantiates the shared
+    ``AntiDegeneracyController`` purely for laminar log parity
+    (``_emit_anti_degeneracy_parity_banners``). That controller logs
+    ``ANTI-DEGENERACY: Layer 2/3/4 ... Enabled: True`` banners describing what
+    each layer is *configured* to do — which superficially contradict the
+    end-of-fit ``[AS EXECUTED]`` summary that honestly reports those same layers
+    inactive on this path. This one-line preamble, emitted immediately before the
+    controller banners, tells the reader the banners that follow are setup-only.
+    Emitted only on the stratified-LS path (the only place both blocks appear),
+    so paths without the controller banners are not given a dangling reference.
+    """
+    logger.info(
+        "ANTI-DEGENERACY [CONFIGURED]: the Layer 2/3/4 setup banners below report "
+        "what each layer is CONFIGURED to do (laminar log-parity); the "
+        "[AS EXECUTED] summary at fit end reports what actually RAN on this path."
+    )
+
+
 def log_anti_degeneracy_defense(diagnostics: dict[str, Any] | None) -> None:
     """Emit the laminar-style "ANTI-DEGENERACY DEFENSE" summary from real values.
 
@@ -117,10 +138,14 @@ def log_anti_degeneracy_defense(diagnostics: dict[str, Any] | None) -> None:
     layers do not run there, while the in-memory / streaming paths report the
     real active layers they ran. L5 (shear weighting) is reported via its
     sentinel — heterodyne has no shear term, so it is structurally inactive.
+
+    The ``[AS EXECUTED]`` tag distinguishes this end-of-fit summary (what ran)
+    from the stratified-LS ``ANTI-DEGENERACY [CONFIGURED]`` controller banners
+    (what was set up) — see :func:`log_configured_layers_preamble`.
     """
     diag = diagnostics or {}
     logger.info(_W60)
-    logger.info("ANTI-DEGENERACY DEFENSE (heterodyne two_component)")
+    logger.info("ANTI-DEGENERACY DEFENSE [AS EXECUTED] (heterodyne two_component)")
     logger.info("  per_angle_mode: %s", diag.get("per_angle_mode", "?"))
     logger.info("  L1 reparameterization: %s", _layer_state(diag, "per_angle_mode"))
     logger.info("  L2 hierarchical_active: %s", bool(diag.get("hierarchical_active", False)))
