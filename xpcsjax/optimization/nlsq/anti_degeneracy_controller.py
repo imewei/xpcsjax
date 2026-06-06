@@ -307,7 +307,7 @@ class AntiDegeneracyController:
         phi_angles : np.ndarray
             Array of phi angles in radians.
         n_physical : int
-            Number of physical parameters (7 for laminar_flow).
+            Number of physical parameters (7 for laminar_flow, 14 for two_component).
         per_angle_scaling : bool
             Whether per-angle scaling is enabled.
         is_laminar_flow : bool
@@ -330,8 +330,23 @@ class AntiDegeneracyController:
             analysis_mode=analysis_mode,
         )
 
-        # Only initialize if enabled and appropriate mode
-        if config.enable and per_angle_scaling and is_laminar_flow:
+        # Init gate. ``is_laminar_flow`` initializes the full controller for the
+        # laminar path; ``two_component`` (heterodyne) also initializes so its
+        # ≥1M stratified-LS path gets banner/diagnostic-surface parity with
+        # laminar. L5 is independently gated off for two_component by
+        # ``_LAYER_GATES`` (``is_layer_active``), so this does NOT enable shear
+        # weighting. Static homodyne modes (is_laminar_flow=False,
+        # analysis_mode != "two_component") still skip init exactly as before.
+        # Both existing call sites (core.py / strategies/stratified_ls.py) pass
+        # is_laminar_flow correctly — note core.py also serves static homodyne
+        # with is_laminar_flow=False — so the new two_component disjunct is False
+        # for every existing caller and the rtol=1e-10 homodyne baselines stay
+        # green.
+        _is_two_component = (
+            analysis_mode is not None
+            and cls._normalize_mode(str(analysis_mode)) == "two_component"
+        )
+        if config.enable and per_angle_scaling and (is_laminar_flow or _is_two_component):
             controller._initialize_components()
 
         return controller
