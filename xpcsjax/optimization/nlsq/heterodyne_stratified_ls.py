@@ -98,9 +98,15 @@ def _emit_anti_degeneracy_parity_banners(
         return None
     try:
         from xpcsjax.config.parameter_registry import AnalysisMode
+        from xpcsjax.optimization.nlsq import heterodyne_logging as _hlog
         from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
             AntiDegeneracyController,
         )
+
+        # Frame the controller's "Enabled: True" Layer 2/3/4 banners (logged on
+        # construction below) as CONFIGURATION, so they are not misread as
+        # contradicting the honest [AS EXECUTED] summary at fit end.
+        _hlog.log_configured_layers_preamble()
 
         phi_rad = np.deg2rad(np.asarray(phi_deg, dtype=np.float64))
         return AntiDegeneracyController.from_config(
