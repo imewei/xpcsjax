@@ -81,35 +81,30 @@ def log_effective_mode(
 ) -> None:
     """Mirror the controller's mode-selection banner for the resolved mode.
 
-    Reports heterodyne's real parameter budget (``n_physics`` is 14 for
-    two_component, not laminar's 7) so the "X physical + Y scaling = Z total"
-    line is accurate per mode.
+    Delegates to the shared formatter, passing THIS module's ``logger`` so the
+    emitted record name stays ``xpcsjax.optimization.nlsq.heterodyne_logging``
+    (the heterodyne caplog tests scope to that logger). Reports heterodyne's
+    real parameter budget (``n_physics`` is 14 for two_component).
+
+    Text parity: for the modes heterodyne callers actually pass
+    (``averaged`` / ``fourier`` / ``individual``) the shared formatter is
+    byte-identical to the old inline body. ``constant`` is never emitted on the
+    delegating heterodyne stratified path (it raises ``NotImplementedError``
+    upstream), so the new ``constant`` budget wording cannot reach an existing
+    heterodyne test.
     """
-    logger.info(_W60)
-    logger.info("ANTI-DEGENERACY: Effective per-angle mode '%s'", mode)
-    if threshold is not None:
-        rel = ">=" if n_phi >= threshold else "<"
-        logger.info(
-            "  Reason: n_phi (%d) %s constant_scaling_threshold (%d)",
-            n_phi,
-            rel,
-            threshold,
-        )
-    if mode == "averaged":
-        descr = f"{n_scaling} averaged scaling"
-    elif mode == "fourier":
-        descr = f"{n_scaling} Fourier coeffs"
-    elif mode == "individual":
-        descr = f"{n_scaling} per-angle scaling"
-    else:
-        descr = f"{n_scaling} scaling"
-    logger.info(
-        "  Parameters: %d physical + %s = %d total",
-        n_physics,
-        descr,
-        n_physics + n_scaling,
+    from xpcsjax.optimization.nlsq.anti_degeneracy_logging import (
+        log_effective_per_angle_mode,
     )
-    logger.info(_W60)
+
+    log_effective_per_angle_mode(
+        logger,
+        mode=mode,
+        n_phi=n_phi,
+        n_physics=n_physics,
+        n_scaling=n_scaling,
+        threshold=threshold,
+    )
 
 
 def log_anti_degeneracy_defense(diagnostics: dict[str, Any] | None) -> None:
