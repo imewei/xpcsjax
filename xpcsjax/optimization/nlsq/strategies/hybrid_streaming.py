@@ -485,37 +485,14 @@ def fit_with_stratified_hybrid_streaming(
             # Computes N quantile estimates, averages to 1 contrast + 1 offset
             # These 2 averaged values ARE OPTIMIZED along with 7 physical params
             per_angle_mode_actual = "auto_averaged"
-            logger.info("=" * 60)
-            logger.info("ANTI-DEGENERACY DEFENSE: Auto-selected 'auto_averaged' mode")
-            logger.info(
-                f"  Reason: n_phi ({n_phi}) >= "
-                f"constant_scaling_threshold ({constant_scaling_threshold})"
-            )
-            logger.info("  Behavior: Quantile estimates -> AVERAGED -> OPTIMIZED")
-            logger.info("  Parameters: 7 physical + 2 averaged (contrast, offset) = 9 total")
-            logger.info("=" * 60)
         else:
             # Use individual per-angle parameters for few angles (N < 3)
             per_angle_mode_actual = "individual"
-            logger.info("=" * 60)
-            logger.info("ANTI-DEGENERACY DEFENSE: Auto-selected 'individual' mode")
-            logger.info(
-                f"  Reason: n_phi ({n_phi}) < "
-                f"constant_scaling_threshold ({constant_scaling_threshold})"
-            )
-            logger.info(f"  Parameters: 7 physical + {2 * n_phi} per-angle = {7 + 2 * n_phi} total")
-            logger.info("=" * 60)
     elif per_angle_mode == "constant":
         # EXPLICIT constant mode: FIXED per-angle scaling (7 params)
         # Computes N quantile estimates, uses per-angle values DIRECTLY (NOT averaged)
         # Only 7 physical params are optimized; scaling is FIXED
         per_angle_mode_actual = "fixed_constant"
-        logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY DEFENSE: Explicit 'constant' mode -> fixed_constant")
-        logger.info(f"  n_phi: {n_phi}")
-        logger.info("  Behavior: Quantile estimates -> per-angle values FIXED (NOT optimized)")
-        logger.info("  Parameters: 7 physical only (scaling FIXED from quantiles)")
-        logger.info("=" * 60)
     else:
         # Other explicit modes (fourier or individual)
         per_angle_mode_actual = per_angle_mode
@@ -570,7 +547,7 @@ def fit_with_stratified_hybrid_streaming(
     elif per_angle_mode_actual == "fixed_constant" and per_angle_scaling:
         # fixed_constant mode: per-angle scaling is FIXED, not optimized
         logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY DEFENSE: Layer 1 - Fixed Constant Mode (v2.18.0)")
+        logger.info("ANTI-DEGENERACY DEFENSE: Layer 1 - Constant Scaling (v2.18.0)")
         logger.info(f"  Mode: {per_angle_mode_actual}")
         logger.info(f"  n_phi: {n_phi}")
         logger.info("  Method: Quantile-based per-angle scaling (FIXED, not optimized)")
@@ -581,13 +558,39 @@ def fit_with_stratified_hybrid_streaming(
     elif per_angle_mode_actual == "auto_averaged" and per_angle_scaling:
         # auto_averaged mode: averaged scaling is OPTIMIZED (9 params)
         logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY DEFENSE: Layer 1 - Auto Averaged Mode (v2.18.0)")
+        logger.info("ANTI-DEGENERACY DEFENSE: Layer 1 - Averaged Scaling (v2.18.0)")
         logger.info(f"  Mode: {per_angle_mode_actual}")
         logger.info(f"  n_phi: {n_phi}")
         logger.info("  Method: Quantile estimates -> averaged -> OPTIMIZED")
         logger.info("  Initial values: averaged from per-angle quantile estimates")
         logger.info(f"  Parameter reduction: {2 * n_phi} -> 2 (averaged contrast + offset)")
         logger.info("=" * 60)
+
+    # Unified resolved-mode banner (laminar ↔ heterodyne parity). No controller
+    # on this path, so values are computed inline; n_scaling is the OPTIMIZED
+    # scaling count (fixed_constant -> 0).
+    if per_angle_scaling:
+        from xpcsjax.optimization.nlsq.anti_degeneracy_logging import (
+            MODE_SHORT,
+            log_effective_per_angle_mode,
+        )
+
+        if per_angle_mode_actual == "fixed_constant":
+            _n_scaling = 0
+        elif per_angle_mode_actual == "auto_averaged":
+            _n_scaling = 2
+        elif per_angle_mode_actual == "fourier" and fourier_reparameterizer is not None:
+            _n_scaling = fourier_reparameterizer.n_coeffs
+        else:  # individual (or fourier without per-angle scaling)
+            _n_scaling = 2 * n_phi
+        log_effective_per_angle_mode(
+            logger,
+            mode=MODE_SHORT.get(per_angle_mode_actual, per_angle_mode_actual),
+            n_phi=n_phi,
+            n_physics=n_physical,
+            n_scaling=_n_scaling,
+            threshold=constant_scaling_threshold,
+        )
 
     # =====================================================================
     # CONSTANT/AUTO_AVERAGED MODES (v2.18.0): Quantile-Based Scaling
