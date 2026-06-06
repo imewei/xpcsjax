@@ -57,6 +57,22 @@ def test_from_config_static_homodyne_still_skips_init():
     assert ctrl.monitor is None
 
 
+def test_from_config_initializes_for_heterodyne_synonym():
+    """analysis_mode='heterodyne' (synonym for two_component) must also initialize."""
+    phi = np.deg2rad(np.array([0.0, 60.0, 120.0], dtype=np.float64))
+    ctrl = AntiDegeneracyController.from_config(
+        config_dict=_ad_config_dict(),
+        n_phi=3,
+        phi_angles=phi,
+        n_physical=14,
+        per_angle_scaling=True,
+        is_laminar_flow=False,
+        analysis_mode="heterodyne",
+    )
+    assert ctrl.hierarchical is not None
+    assert ctrl.use_shear_weighting is False
+
+
 def test_from_config_laminar_still_initializes():
     """laminar_flow path is unchanged: still initializes."""
     phi = np.deg2rad(np.array([0.0, 60.0, 120.0], dtype=np.float64))
