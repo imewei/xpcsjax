@@ -955,7 +955,7 @@ class AntiDegeneracyController:
             )
 
         logger.info("=" * 60)
-        logger.info("CONSTANT MODE: Computing fixed per-angle scaling from quantiles")
+        logger.info("Estimating per-angle scaling from quantiles")
         logger.info("=" * 60)
 
         contrast_per_angle, offset_per_angle = compute_quantile_per_angle_scaling(

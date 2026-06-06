@@ -145,3 +145,25 @@ def test_from_controller_disabled_is_noop(caplog):
     with caplog.at_level(logging.INFO, logger=_LOGGER):
         log_effective_mode_from_controller(log, ctrl)
     assert "Effective per-angle mode" not in caplog.text
+
+
+def test_compute_fixed_per_angle_scaling_emits_neutral_banner(caplog):
+    """The shared quantile helper is reused by the auto_averaged path, so its
+    banner must NOT claim 'CONSTANT MODE' (root cause of the laminar
+    auto_averaged log contradiction)."""
+    ctrl = _laminar_controller(n_phi=3, mode="auto")  # -> auto_averaged, use_constant=True
+
+    class _D:
+        g2_flat = np.tile(np.linspace(1.0, 1.3, 40), 3)
+        phi_flat = np.repeat([0.0, 60.0, 120.0], 40)
+        t1_flat = np.tile(np.arange(40, dtype=float), 3)
+        t2_flat = np.tile(np.arange(40, dtype=float) + 1.0, 3)
+
+    cl = "xpcsjax.optimization.nlsq.anti_degeneracy_controller"
+    with caplog.at_level(logging.INFO, logger=cl):
+        ctrl.compute_fixed_per_angle_scaling(
+            stratified_data=_D(), contrast_bounds=(0.0, 1.0), offset_bounds=(0.5, 1.5)
+        )
+    text = caplog.text
+    assert "CONSTANT MODE" not in text
+    assert "Estimating per-angle scaling from quantiles" in text
