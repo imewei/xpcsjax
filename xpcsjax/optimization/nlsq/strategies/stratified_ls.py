@@ -235,6 +235,11 @@ def fit_with_stratified_least_squares(
         )
 
         if ad_controller.is_enabled:
+            from xpcsjax.optimization.nlsq.anti_degeneracy_logging import (
+                log_effective_mode_from_controller,
+            )
+
+            log_effective_mode_from_controller(log, ad_controller)
             log.info("=" * 60)
             log.info("ANTI-DEGENERACY DEFENSE: Enabled for Stratified LS")
             log.info(f"  per_angle_mode: {ad_controller.per_angle_mode_actual}")
@@ -310,7 +315,7 @@ def fit_with_stratified_least_squares(
         # from quantiles. Per-angle values are FIXED (not optimized).
         # Result: 7 physical params only.
         log.info("=" * 60)
-        log.info("FIXED_CONSTANT MODE: Computing fixed per-angle scaling from quantiles")
+        log.info("Computing fixed per-angle scaling from quantiles")
         log.info("=" * 60)
 
         # Get contrast/offset bounds from initial bounds
@@ -369,7 +374,7 @@ def fit_with_stratified_least_squares(
         # quantiles, AVERAGE to single values, then OPTIMIZE them.
         # Result: 9 params (7 physical + 1 contrast_avg + 1 offset_avg).
         log.info("=" * 60)
-        log.info("AUTO_AVERAGED MODE: Computing averaged scaling initial values")
+        log.info("Computing averaged scaling initial values")
         log.info("=" * 60)
 
         # Get contrast/offset bounds from initial bounds
