@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import inspect
+import logging
+
 import numpy as np
 
+from xpcsjax.optimization.nlsq import heterodyne_stratified_ls as _hsl
 from xpcsjax.optimization.nlsq.anti_degeneracy_controller import AntiDegeneracyController
 
 
@@ -89,13 +93,75 @@ def test_from_config_laminar_still_initializes():
     assert ctrl.hierarchical is not None
 
 
-import inspect
-
-from xpcsjax.optimization.nlsq import heterodyne_stratified_ls as _hsl
-
-
 def test_driver_accepts_anti_degeneracy_dict_param():
     """The driver must accept an optional anti_degeneracy_dict keyword (default None)."""
     sig = inspect.signature(_hsl.fit_heterodyne_stratified_least_squares)
     assert "anti_degeneracy_dict" in sig.parameters
     assert sig.parameters["anti_degeneracy_dict"].default is None
+
+
+def test_emit_parity_banners_logs_layer_setup(caplog):
+    """The driver's controller instantiation emits the laminar-style Layer 2/3/4 banners."""
+    phi_deg = np.array([0.0, 60.0, 120.0], dtype=np.float64)
+    with caplog.at_level(logging.INFO, logger="xpcsjax.optimization.nlsq.anti_degeneracy_controller"):
+        ctrl = _hsl._emit_anti_degeneracy_parity_banners(
+            anti_degeneracy_dict=_ad_config_dict(),
+            phi_deg=phi_deg,
+            n_physical=14,
+        )
+    text = caplog.text
+    assert "Layer 2 - Hierarchical Optimization" in text
+    assert "Layer 3 - Adaptive Regularization" in text
+    assert "Layer 4 - Gradient Collapse Monitor" in text
+    # L5 must NOT be announced for heterodyne (gated off).
+    assert "Layer 5" not in text
+    assert ctrl is not None and ctrl.use_shear_weighting is False
+
+
+def test_emit_parity_banners_best_effort_on_none():
+    """No anti_degeneracy dict -> returns None, emits nothing, never raises."""
+    phi_deg = np.array([0.0, 60.0, 120.0], dtype=np.float64)
+    assert _hsl._emit_anti_degeneracy_parity_banners(
+        anti_degeneracy_dict=None, phi_deg=phi_deg, n_physical=14
+    ) is None
+
+
+def test_l2_banner_suppressed_when_hierarchical_disabled(caplog):
+    """hierarchical.enable=False must suppress the Layer 2 banner (L2 IS gated)."""
+    cfg = _ad_config_dict()
+    cfg["hierarchical"] = {"enable": False}
+    phi_deg = np.array([0.0, 60.0, 120.0], dtype=np.float64)
+    with caplog.at_level(logging.INFO, logger="xpcsjax.optimization.nlsq.anti_degeneracy_controller"):
+        _hsl._emit_anti_degeneracy_parity_banners(
+            anti_degeneracy_dict=cfg, phi_deg=phi_deg, n_physical=14
+        )
+    assert "Layer 2 - Hierarchical Optimization" not in caplog.text
+
+
+def test_l4_banner_suppressed_when_gradient_monitoring_disabled(caplog):
+    """gradient_monitoring.enable=False must suppress the Layer 4 banner (L4 IS gated)."""
+    cfg = _ad_config_dict()
+    cfg["gradient_monitoring"] = {"enable": False}
+    phi_deg = np.array([0.0, 60.0, 120.0], dtype=np.float64)
+    with caplog.at_level(logging.INFO, logger="xpcsjax.optimization.nlsq.anti_degeneracy_controller"):
+        _hsl._emit_anti_degeneracy_parity_banners(
+            anti_degeneracy_dict=cfg, phi_deg=phi_deg, n_physical=14
+        )
+    assert "Layer 4 - Gradient Collapse Monitor" not in caplog.text
+
+
+def test_l3_banner_always_on_even_when_regularization_disabled(caplog):
+    """L3 is NOT gated by a regularization.enable field — it stays on under master enable.
+
+    Pins the controller's current (laminar-shared) behavior: there is no
+    ``regularization.enable`` key, so the Layer 3 banner emits under master
+    ``enable`` regardless. Matching laminar; documented, not changed.
+    """
+    cfg = _ad_config_dict()
+    cfg["regularization"] = {"enable": False, "mode": "relative"}  # 'enable' ignored by design
+    phi_deg = np.array([0.0, 60.0, 120.0], dtype=np.float64)
+    with caplog.at_level(logging.INFO, logger="xpcsjax.optimization.nlsq.anti_degeneracy_controller"):
+        _hsl._emit_anti_degeneracy_parity_banners(
+            anti_degeneracy_dict=cfg, phi_deg=phi_deg, n_physical=14
+        )
+    assert "Layer 3 - Adaptive Regularization" in caplog.text

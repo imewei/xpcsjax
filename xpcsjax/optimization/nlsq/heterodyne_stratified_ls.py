@@ -75,6 +75,51 @@ def reorder_for_stratification(
     return perm, list(chunk_sizes)
 
 
+def _emit_anti_degeneracy_parity_banners(
+    *,
+    anti_degeneracy_dict: dict | None,
+    phi_deg: np.ndarray,
+    n_physical: int,
+) -> Any:
+    """Instantiate the shared AntiDegeneracyController for laminar-parity banners.
+
+    Mirrors laminar's ``fit_with_stratified_least_squares``: instantiating the
+    controller emits the ``ANTI-DEGENERACY: Layer 2/3/4`` + mode setup banners
+    and builds the L2/L3/L4 components per the config enable flags. L5 is gated
+    off for ``two_component`` by ``_LAYER_GATES``. This is purely for log/
+    diagnostic-surface parity — the numeric single-solve path is unchanged, and
+    the flat ``hierarchical_active`` / ``regularization_active`` markers stay
+    ``False`` exactly as laminar reports them on its stratified path.
+
+    Best-effort: returns the controller, or ``None`` if no config is provided or
+    construction fails (a banner failure must never break the fit).
+    """
+    if not isinstance(anti_degeneracy_dict, dict) or not anti_degeneracy_dict:
+        return None
+    try:
+        from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
+            AntiDegeneracyController,
+        )
+
+        phi_rad = np.deg2rad(np.asarray(phi_deg, dtype=np.float64))
+        return AntiDegeneracyController.from_config(
+            config_dict=anti_degeneracy_dict,
+            n_phi=int(phi_rad.shape[0]),
+            phi_angles=phi_rad,
+            n_physical=int(n_physical),
+            per_angle_scaling=True,
+            is_laminar_flow=False,
+            analysis_mode="two_component",
+        )
+    except Exception as exc:  # best-effort: banners must never break a fit
+        from xpcsjax.utils.logging import get_logger as _get_logger
+
+        _get_logger(__name__).warning(
+            "Anti-degeneracy parity banners skipped (controller init failed: %s)", exc
+        )
+        return None
+
+
 def make_scaling_expander(
     per_angle_mode: str,
     n_phi: int,
@@ -351,6 +396,14 @@ def fit_heterodyne_stratified_least_squares(
     n_physics_pre = int(model.param_manager.n_varying)
     _hlog.log_stratified_path_activated(int(np.asarray(c2).size))
     _hlog.log_physical_parameters("two_component", list(model.param_manager.varying_names))
+    # Laminar-parity: instantiate the shared controller so the heterodyne ≥1M
+    # stratified-LS log gains the same Layer 2/3/4 + mode banners laminar emits.
+    # Purely for banner/diagnostic-surface parity — numerics below are unchanged.
+    _ad_controller = _emit_anti_degeneracy_parity_banners(
+        anti_degeneracy_dict=anti_degeneracy_dict,
+        phi_deg=np.asarray(phi),
+        n_physical=n_physics_pre,
+    )
 
     contrast_pa, offset_pa = compute_quantile_per_angle_scaling(strat)
     contrast_pa = np.asarray(contrast_pa, dtype=np.float64)
