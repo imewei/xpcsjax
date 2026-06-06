@@ -87,3 +87,15 @@ def test_from_config_laminar_still_initializes():
     )
     assert ctrl.is_enabled is True
     assert ctrl.hierarchical is not None
+
+
+import inspect
+
+from xpcsjax.optimization.nlsq import heterodyne_stratified_ls as _hsl
+
+
+def test_driver_accepts_anti_degeneracy_dict_param():
+    """The driver must accept an optional anti_degeneracy_dict keyword (default None)."""
+    sig = inspect.signature(_hsl.fit_heterodyne_stratified_least_squares)
+    assert "anti_degeneracy_dict" in sig.parameters
+    assert sig.parameters["anti_degeneracy_dict"].default is None

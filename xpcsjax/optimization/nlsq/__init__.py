@@ -953,6 +953,11 @@ def _fit_nlsq_heterodyne(
                 "stratified_least_squares",
                 f"{int(n_points):,} points >= 1M, per_angle_mode={effective_mode}",
             )
+            ad_dict = (
+                nlsq_dict.get("anti_degeneracy")
+                if isinstance(nlsq_dict, dict)
+                else None
+            )
             result = _hsl.fit_heterodyne_stratified_least_squares(
                 model=model,
                 c2=c2,
@@ -963,6 +968,7 @@ def _fit_nlsq_heterodyne(
                 shuffle=True,
                 use_index_based=strat_cfg.use_index_based,
                 check_memory_safety=strat_cfg.check_memory_safety,
+                anti_degeneracy_dict=ad_dict,
             )
             _safe_log_heterodyne_completion(result, model, len(phi))
             return result

@@ -280,6 +280,7 @@ def fit_heterodyne_stratified_least_squares(
     shuffle: bool = True,
     use_index_based: bool = True,
     check_memory_safety: bool = True,
+    anti_degeneracy_dict: dict | None = None,
 ) -> Any:
     """Mode-aware heterodyne stratified-LS solve. Returns OptimizationResult.
 
@@ -310,6 +311,10 @@ def fit_heterodyne_stratified_least_squares(
         warning is logged if the projected peak exceeds the safe fraction of
         RAM. Best-effort and non-fatal. When False, the estimate is still
         computed for diagnostics but the safety warning is suppressed.
+    anti_degeneracy_dict :
+        Raw nested ``anti_degeneracy`` YAML block, threaded from dispatch for
+        laminar-parity controller banners; ``None`` disables the banner
+        side-effect.
     """
     from xpcsjax.optimization.nlsq import heterodyne_logging as _hlog
     from xpcsjax.optimization.nlsq.heterodyne_adapter import NLSQAdapter
