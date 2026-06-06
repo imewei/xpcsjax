@@ -151,7 +151,7 @@ def _fit_joint_constant_multi_phi(
 
     logger.info("=" * 60)
     logger.info(
-        "HETERODYNE CONSTANT MODE: quantile-fixed scaling, %d physics params, %d angles",
+        "Quantile-fixed per-angle scaling: %d physics params, %d angles",
         n_physics,
         n_phi,
     )

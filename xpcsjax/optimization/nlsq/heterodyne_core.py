@@ -1136,7 +1136,7 @@ def _fit_joint_averaged_multi_phi(
     )
 
     logger.info("=" * 60)
-    logger.info("AUTO AVERAGED SCALING: Computing per-angle scaling from quantiles")
+    logger.info("Computing per-angle scaling from quantiles")
     logger.info("=" * 60)
     avg_contrast, avg_offset, contrast_per_angle, offset_per_angle = compute_averaged_scaling(
         c2_data=np.concatenate(c2_flat),

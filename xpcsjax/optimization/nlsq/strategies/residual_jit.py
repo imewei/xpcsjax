@@ -121,7 +121,7 @@ class StratifiedResidualFunctionJIT:
             self.fixed_offset_per_angle = jnp.asarray(fixed_offset_per_angle)
             self.use_fixed_scaling = True
             self.logger.info(
-                "CONSTANT MODE: Using fixed per-angle scaling from quantiles. "
+                "Using fixed per-angle scaling from quantiles. "
                 "Parameter vector contains ONLY physical parameters."
             )
 
