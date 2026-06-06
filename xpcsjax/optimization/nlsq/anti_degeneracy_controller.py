@@ -373,7 +373,10 @@ class AntiDegeneracyController:
                     f"constant_scaling_threshold ({config.constant_scaling_threshold})"
                 )
                 logger.info("  Behavior: Quantile estimates -> AVERAGED -> OPTIMIZED")
-                logger.info("  Parameters: 7 physical + 2 averaged scaling = 9 total")
+                logger.info(
+                    f"  Parameters: {self.n_physical} physical + 2 averaged scaling "
+                    f"= {self.n_physical + 2} total"
+                )
                 logger.info("=" * 60)
             else:
                 # Use individual per-angle parameters for few angles (N < 3)
@@ -385,7 +388,8 @@ class AntiDegeneracyController:
                     f"constant_scaling_threshold ({config.constant_scaling_threshold})"
                 )
                 logger.info(
-                    f"  Parameters: 7 physical + {2 * self.n_phi} per-angle = {7 + 2 * self.n_phi} total"
+                    f"  Parameters: {self.n_physical} physical + {2 * self.n_phi} per-angle "
+                    f"= {self.n_physical + 2 * self.n_phi} total"
                 )
                 logger.info("=" * 60)
         elif config.per_angle_mode == "constant":
@@ -397,7 +401,7 @@ class AntiDegeneracyController:
             logger.info("ANTI-DEGENERACY: Using explicit 'constant' mode -> fixed_constant")
             logger.info(f"  n_phi: {self.n_phi}")
             logger.info("  Behavior: Quantile estimates -> per-angle values FIXED (NOT optimized)")
-            logger.info("  Parameters: 7 physical only (scaling FIXED from quantiles)")
+            logger.info(f"  Parameters: {self.n_physical} physical only (scaling FIXED from quantiles)")
             logger.info("=" * 60)
         else:
             # Other explicit modes (fourier or individual)

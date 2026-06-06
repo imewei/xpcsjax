@@ -169,3 +169,19 @@ def test_l3_banner_always_on_even_when_regularization_disabled(caplog):
             anti_degeneracy_dict=cfg, phi_deg=phi_deg, n_physical=14
         )
     assert "Layer 3 - Adaptive Regularization" in caplog.text
+
+
+def test_mode_banner_reports_heterodyne_physical_count(caplog):
+    """The param-count banner must report heterodyne's real n_physical (14), not laminar's 7.
+
+    Guards against the shared controller's previously-hardcoded ``7 physical``
+    literal, which would print a wrong, self-contradictory count on the
+    heterodyne path (the honest ``heterodyne_logging`` block reports 14).
+    """
+    phi_deg = np.array([0.0, 60.0, 120.0], dtype=np.float64)
+    with caplog.at_level(logging.INFO, logger="xpcsjax.optimization.nlsq.anti_degeneracy_controller"):
+        _hsl._emit_anti_degeneracy_parity_banners(
+            anti_degeneracy_dict=_ad_config_dict(), phi_deg=phi_deg, n_physical=14
+        )
+    assert "14 physical + 2 averaged scaling = 16 total" in caplog.text
+    assert "7 physical" not in caplog.text
