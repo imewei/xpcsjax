@@ -32,11 +32,34 @@ def test_stratified_ls_emits_laminar_parity_banners(caplog):
         "Contrast: mean=",
         "Offset: mean=",
         "ANTI-DEGENERACY: Effective per-angle mode 'averaged'",
+        "GRADIENT SANITY CHECK",
+        "Gradient sanity check passed",
         "Starting NLSQ least_squares() optimization",
         "OPTIMIZATION RESULTS",
         "STRATIFIED LEAST-SQUARES COMPLETE",
     ):
         assert expected in text, f"missing laminar-parity banner: {expected!r}"
+
+
+def test_stratified_ls_gradient_sanity_perturbs_physics_first_param(caplog):
+    """Heterodyne's joint vector is PHYSICS-FIRST ([physics | scaling]), so the
+    gradient sanity check must perturb param[0] (the first physical parameter) --
+    NOT the scaling-first index (2*n_phi) the homodyne/laminar path uses. This
+    pins the layout-correct port; a verbatim copy of laminar's index would
+    perturb a scaling coefficient instead and silently weaken the check."""
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        fit_heterodyne_stratified_least_squares,
+    )
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged"})
+    with caplog.at_level(logging.INFO, logger="xpcsjax.optimization.nlsq.heterodyne_logging"):
+        fit_heterodyne_stratified_least_squares(
+            model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False
+        )
+    assert "perturbation of param[0]" in caplog.text
 
 
 def test_completion_emits_honest_anti_degeneracy_defense(caplog):
