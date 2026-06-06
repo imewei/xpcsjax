@@ -520,6 +520,57 @@ def fit_heterodyne_stratified_least_squares(
     # ``parameter_names`` align 1:1 with the full popt length.
     joint_param_names = [*model.param_manager.varying_names, *scaling_names]
     adapter = NLSQAdapter(parameter_names=joint_param_names)
+
+    # Gradient sanity check (laminar-parity, pre-solve diagnostic). Mirrors the
+    # homodyne/laminar ``fit_with_stratified_least_squares`` block: perturb the
+    # first PHYSICAL parameter by 1% and verify the summed residual delta is
+    # non-negligible, catching a dead-gradient init before the multi-minute solve.
+    # Heterodyne's joint vector is PHYSICS-FIRST (``[physics | scaling]``), so the
+    # first physical parameter is at index 0 -- NOT laminar's scaling-first index
+    # ``2 * n_phi``. Strictly diagnostic: a degenerate gradient raises (mirroring
+    # laminar) so the fit fails loudly rather than burning a no-op solve; any other
+    # residual-eval error is downgraded to a warning and the solve proceeds. Cost
+    # is two evals of the (otherwise-needed) compiled residual function.
+    _grad_threshold = 1e-10
+    n_physics = len(model.param_manager.varying_names)
+    try:
+        residuals_0 = np.asarray(residual_fn(p0_full), dtype=np.float64)
+        phys_idx = 0  # physics-first layout: first physical parameter
+        params_test = np.array(p0_full, dtype=np.float64, copy=True)
+        if n_physics > 0 and params_test[phys_idx] != 0.0:
+            params_test[phys_idx] *= 1.01  # 1% perturbation
+        else:
+            # First physical param is exactly 0 (or no physics block) -- additive
+            # fallback so the perturbation is never a silent no-op.
+            params_test[phys_idx] += 0.01
+        residuals_1 = np.asarray(residual_fn(params_test), dtype=np.float64)
+        gradient_estimate = float(np.abs(np.sum(residuals_1 - residuals_0)))
+        _grad_passed = gradient_estimate >= _grad_threshold
+        _hlog.log_gradient_sanity_check(
+            residuals_0=residuals_0,
+            gradient_estimate=gradient_estimate,
+            phys_idx=phys_idx,
+            passed=_grad_passed,
+            n_params=int(p0_full.size),
+            n_physics=n_physics,
+            n_scaling=n_scaling,
+            threshold=_grad_threshold,
+        )
+        if not _grad_passed:
+            raise ValueError(
+                f"Gradient sanity check FAILED: gradient ~{gradient_estimate:.2e} "
+                f"(expected > {_grad_threshold:.0e}). Optimization cannot proceed "
+                "with zero gradients."
+            )
+    except (ValueError, RuntimeError, np.linalg.LinAlgError) as exc:
+        if "Gradient sanity check FAILED" in str(exc):
+            raise  # Re-raise our custom error -- a degenerate init must fail loudly.
+        from xpcsjax.utils.logging import get_logger
+
+        _glog = get_logger(__name__)
+        _glog.warning("Gradient sanity check encountered error: %s", exc)
+        _glog.warning("Proceeding with optimization, but this may fail")
+
     _hlog.log_fit_start(int(p0_full.size), int(meta["n_data_points"]), n_chunks=len(chunk_sizes))
     fit = adapter.fit(
         # residual_fn returns a jnp Array; NLSQAdapter types its residual as
