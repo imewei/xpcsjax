@@ -1830,6 +1830,13 @@ def fit_nlsq_cmaes(
                     analysis_mode=analysis_mode,
                 )
 
+                if ad_controller.is_enabled:
+                    from xpcsjax.optimization.nlsq.anti_degeneracy_logging import (
+                        log_effective_mode_from_controller,
+                    )
+
+                    log_effective_mode_from_controller(logger, ad_controller)
+
                 if ad_controller.is_enabled and ad_controller.use_constant:
                     use_constant_mode = True
                     # v2.18.0: Distinguish between fixed_constant and auto_averaged
@@ -1838,21 +1845,19 @@ def fit_nlsq_cmaes(
 
                     if use_fixed_scaling:
                         logger.info("=" * 60)
-                        logger.info("ANTI-DEGENERACY: Enabled for CMA-ES (Fixed Constant Mode)")
+                        logger.info("ANTI-DEGENERACY: Enabled for CMA-ES")
                         logger.info(
                             f"  Quantile estimation: N={n_phi} contrast + N={n_phi} offset values"
                         )
                         logger.info("  Per-angle values: FIXED (not optimized)")
-                        logger.info("  Total parameters: 7 physical only")
                         logger.info("=" * 60)
                     else:
                         logger.info("=" * 60)
-                        logger.info("ANTI-DEGENERACY: Enabled for CMA-ES (Auto Averaged Mode)")
+                        logger.info("ANTI-DEGENERACY: Enabled for CMA-ES")
                         logger.info(
                             f"  Quantile estimation: N={n_phi} contrast + N={n_phi} offset values"
                         )
                         logger.info("  Averaged to: 1 contrast + 1 offset (OPTIMIZED)")
-                        logger.info("  Total parameters: 7 physical + 2 averaged scaling = 9")
                         logger.info("=" * 60)
 
         # Handle parameter expansion based on anti-degeneracy mode
@@ -1883,7 +1888,7 @@ def fit_nlsq_cmaes(
             )
 
             logger.info("=" * 60)
-            logger.info("CONSTANT MODE: Computing per-angle scaling from quantiles")
+            logger.info("Computing per-angle scaling from quantiles")
             logger.info("=" * 60)
 
             # Create stratified data structure for quantile computation
