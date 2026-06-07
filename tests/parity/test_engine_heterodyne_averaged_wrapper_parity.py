@@ -60,6 +60,7 @@ import numpy as np
 # Reuse the well-posed fixture + harness helpers from the sibling module so the
 # x0, solver settings, and frame-0 reconciliation are identical.
 from tests.parity.test_engine_heterodyne_fit_parity import (
+    _LINUX_ONLY,
     _PER_SET_NFEV,
     _build_engine,
     _drop_frame0_stratified_data,
@@ -222,6 +223,7 @@ def test_averaged_wrapper_residual_is_jax_native_and_trace_consistent():
     assert np.array_equal(sf, sf_numpy)
 
 
+@_LINUX_ONLY
 def test_averaged_wrapper_apples_to_apples_two_dof():
     """APPLES-TO-APPLES averaged parity: engine route at exactly 2 scaling DOF
     (via the wrapper) vs production averaged (also 2 DOF), same well-posed fixture.

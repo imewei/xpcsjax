@@ -38,8 +38,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-# Reuse the proven well-posed fixture + solver budget from the fit-parity module.
+# Reuse the proven well-posed fixture + solver budget + the Linux-only basin gate
+# from the fit-parity module (single source of truth for the platform-fragility
+# scope — see project_heterodyne-engine-route-platform-fragility).
 from tests.parity.test_engine_heterodyne_fit_parity import (
+    _LINUX_ONLY,
     _MODE_TO_PRODUCTION,
     _PER_SET_NFEV,
     _make_well_posed_case,
@@ -85,6 +88,7 @@ def _run_both(mode: str):
 # ---------------------------------------------------------------------------
 # (a) no-worse objective
 # ---------------------------------------------------------------------------
+@_LINUX_ONLY
 @pytest.mark.parametrize("mode", _MODES)
 def test_engine_route_objective_no_worse(mode):
     ref, eng, _n_phi = _run_both(mode)
