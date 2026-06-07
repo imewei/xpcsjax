@@ -379,6 +379,8 @@ test-quick:
 #   * XPCSJAX_RUN_CHARACTERIZATION=1 — homodyne-equivalence + L4 bit-parity +
 #     real-data two_component oracles (live fits vs upstream, ~6 min each)
 #   * XPCSJAX_RUN_AB_PARITY=1        — live A/B parity vs upstream homodyne NLSQ
+#   * XPCSJAX_RUN_ENGINE_PARITY=1    — strict-numeric engine-route parity +
+#     end-to-end golden value compare (CPU-microarch-specific; synthetic, no data)
 #   * XPCSJAX_DATA_ROOT              — the maintainer datasets the gates read
 # Requires the upstream `homodyne` package installed and the datasets on disk;
 # DO NOT wire these into `test`/`verify`/CI — fresh clones lack both and would
@@ -391,6 +393,7 @@ test-full-local:
 		echo "  make test-full-local XPCSJAX_DATA_ROOT=/path/to/Projects/data"; \
 		exit 1; }
 	@XPCSJAX_RUN_CHARACTERIZATION=1 XPCSJAX_RUN_AB_PARITY=1 \
+		XPCSJAX_RUN_ENGINE_PARITY=1 \
 		XPCSJAX_DATA_ROOT="$(XPCSJAX_DATA_ROOT)" \
 		$(RUN_CMD) $(PYTEST) $(TEST_DIR) -rs --tb=short
 	@echo "$(BOLD)$(GREEN)✓ Full maintainer-local suite complete$(RESET)"
