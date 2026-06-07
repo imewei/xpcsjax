@@ -3,3 +3,10 @@
 *.h5 filter=lfs diff=lfs merge=lfs -text
 *.npz filter=lfs diff=lfs merge=lfs -text
 *.npy filter=lfs diff=lfs merge=lfs -text
+
+# Tiny deterministic parity golden fixtures (KB-scale) are committed as regular
+# git blobs, NOT LFS: CI's actions/checkout has no `lfs: true`, so LFS pointers
+# arrive in the work tree and np.load fails with UnpicklingError. Override the
+# blanket *.npz/*.npy LFS rules above for this dir only. Keep `-text` (binary)
+# so EOL normalization never corrupts the .npz zip archives.
+tests/parity/_golden/** !filter !diff !merge -text
