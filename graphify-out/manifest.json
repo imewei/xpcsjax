@@ -424,8 +424,8 @@
     "hash": "123abbf91665fb06d988f1e811cb1297"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/parity/test_engine_heterodyne_fit_parity.py": {
-    "mtime": 1780796190.2320697,
-    "hash": "55eac9b182af742759a12e540fb85dc8"
+    "mtime": 1780801830.4043386,
+    "hash": "282895f4c40b1e99b8a6c818c8230fa4"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/parity/__init__.py": {
     "mtime": 1779286310.7380996,
@@ -436,8 +436,8 @@
     "hash": "f4741b2bc188b4c34db3732bdab3d9cc"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/parity/test_homodyne_engine_preservation.py": {
-    "mtime": 1780796263.0343537,
-    "hash": "29048c451e6a99aa6c0c6848c467181a"
+    "mtime": 1780801901.5425937,
+    "hash": "fe465731653a329ba2c02cd97db61c2d"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/parity/test_engine_heterodyne_realdata_c044.py": {
     "mtime": 1780671715.0321996,
@@ -452,12 +452,12 @@
     "hash": "40e7680e0850bbbb2b376fe07acf5dc6"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/parity/test_engine_heterodyne_averaged_wrapper_parity.py": {
-    "mtime": 1780796236.4746053,
-    "hash": "8931ed225a10747ded6f43a736a87456"
+    "mtime": 1780801873.125891,
+    "hash": "3cec6b13683452f78ef85db9bcab1cfe"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/parity/test_engine_route_result_contract.py": {
-    "mtime": 1780796213.0258365,
-    "hash": "4eba01d92ecf2e57bc5a8c2c78fc791c"
+    "mtime": 1780801864.9589765,
+    "hash": "20150bb4719694137689615a664206e7"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/parity/_golden_util.py": {
     "mtime": 1780626567.9533904,
