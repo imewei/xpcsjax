@@ -44,6 +44,7 @@ written automatically on the first run if absent.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -334,24 +335,36 @@ def test_laminar_flow_end_to_end_golden():
         },
     )
 
-    # --- numerical: params + objective at rtol=1e-10 ---
+    # --- numerical: params + objective at rtol=1e-10 (value compare is LINUX-ONLY) ---
+    # The parameter VECTOR LENGTH is platform-robust and checked everywhere.
     assert params.shape == tuple(golden["parameters"].shape), (
         f"parameter vector length changed: {params.shape} != {tuple(golden['parameters'].shape)}"
     )
-    np.testing.assert_allclose(
-        params,
-        golden["parameters"],
-        rtol=1e-10,
-        atol=0.0,
-        err_msg="laminar_flow fitted parameters drifted from golden.",
-    )
-    np.testing.assert_allclose(
-        chi_squared,
-        float(golden["chi_squared"]),
-        rtol=1e-10,
-        atol=0.0,
-        err_msg="laminar_flow chi_squared drifted from golden.",
-    )
+    # The rtol=1e-10 VALUE comparison is a single-platform bit-reproducibility
+    # contract: this golden runs a full laminar_flow FIT, so the converged
+    # parameter/objective values depend on the exact float descent path (XLA
+    # codegen + BLAS backend), which differs on macOS/Windows. The golden is
+    # recorded on Linux (the project's parity oracle), so the 1e-10 numeric assert
+    # is scoped to Linux; the structural shape/key/flag/finite-pattern asserts
+    # below stay cross-platform. NOT a regression — see the project memory
+    # ``project_heterodyne-engine-route-platform-fragility``. (The fixed-parameter
+    # ``test_stratified_residual_jit_golden`` has no optimizer trajectory and stays
+    # bit-stable cross-platform, so it is intentionally NOT gated.)
+    if sys.platform == "linux":
+        np.testing.assert_allclose(
+            params,
+            golden["parameters"],
+            rtol=1e-10,
+            atol=0.0,
+            err_msg="laminar_flow fitted parameters drifted from golden.",
+        )
+        np.testing.assert_allclose(
+            chi_squared,
+            float(golden["chi_squared"]),
+            rtol=1e-10,
+            atol=0.0,
+            err_msg="laminar_flow chi_squared drifted from golden.",
+        )
 
     # --- exact: uncertainty shape + finite pattern ---
     assert tuple(uncertainties.shape) == tuple(int(x) for x in golden["uncertainties_shape"])
