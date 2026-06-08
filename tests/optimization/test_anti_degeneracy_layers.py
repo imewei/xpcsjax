@@ -121,3 +121,155 @@ def test_anti_degeneracy_config_overrides_defaults():
     assert cfg.per_angle_mode == "individual"
     assert cfg.constant_scaling_threshold == 7 != defaults.constant_scaling_threshold
     assert cfg.fourier_auto_threshold == 11 != defaults.fourier_auto_threshold
+
+
+# ---------------------------------------------------------------------------
+# Task 5: execute_layers flag registration (INERT gate, default False)
+# ---------------------------------------------------------------------------
+
+
+class TestExecuteLayersFlag:
+    """``execute_layers`` is a registered, parseable, INERT config gate.
+
+    All tests assert the flag parses correctly and that no behavioral change
+    occurs (controller activation markers are identical whether the flag is
+    absent, False, or True).
+    """
+
+    def test_config_default_is_false_when_key_absent(self) -> None:
+        """``from_dict({})`` must give ``execute_layers == False``."""
+        from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
+            AntiDegeneracyConfig,
+        )
+
+        cfg = AntiDegeneracyConfig.from_dict({})
+        assert cfg.execute_layers is False
+
+    def test_config_parses_false_explicitly(self) -> None:
+        """``from_dict({"execute_layers": False})`` must give ``False``."""
+        from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
+            AntiDegeneracyConfig,
+        )
+
+        cfg = AntiDegeneracyConfig.from_dict({"execute_layers": False})
+        assert cfg.execute_layers is False
+
+    def test_config_parses_true_explicitly(self) -> None:
+        """``from_dict({"execute_layers": True})`` must give ``True``."""
+        from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
+            AntiDegeneracyConfig,
+        )
+
+        cfg = AntiDegeneracyConfig.from_dict({"execute_layers": True})
+        assert cfg.execute_layers is True
+
+    def test_dataclass_default_field_is_false(self) -> None:
+        """The dataclass default must be ``False`` without calling ``from_dict``."""
+        from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
+            AntiDegeneracyConfig,
+        )
+
+        cfg = AntiDegeneracyConfig()
+        assert cfg.execute_layers is False
+
+    def test_controller_property_exposes_config_value(self) -> None:
+        """``controller.execute_layers`` must proxy ``controller.config.execute_layers``."""
+        import numpy as np
+
+        from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
+            AntiDegeneracyController,
+        )
+
+        phi_angles = np.array([0.0, 30.0, 60.0])
+        controller = AntiDegeneracyController.from_config(
+            config_dict={},
+            n_phi=3,
+            phi_angles=phi_angles,
+            n_physical=7,
+        )
+        assert controller.execute_layers is False
+        assert controller.execute_layers == controller.config.execute_layers
+
+    def test_controller_execute_layers_true_does_not_change_activation_markers(
+        self,
+    ) -> None:
+        """Enabling ``execute_layers`` must NOT alter any activation marker.
+
+        With the flag absent (False) vs True, ``get_diagnostics()`` must be
+        identical except for the ``execute_layers`` key itself.  All
+        hierarchical_active/regularization_active markers must stay unchanged,
+        confirming the flag is currently INERT.
+        """
+        import numpy as np
+
+        from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
+            AntiDegeneracyController,
+        )
+
+        phi_angles = np.linspace(0.0, 3.0, 5)
+
+        ctrl_off = AntiDegeneracyController.from_config(
+            config_dict={"execute_layers": False},
+            n_phi=5,
+            phi_angles=phi_angles,
+            n_physical=7,
+        )
+        ctrl_on = AntiDegeneracyController.from_config(
+            config_dict={"execute_layers": True},
+            n_phi=5,
+            phi_angles=phi_angles,
+            n_physical=7,
+        )
+
+        diag_off = ctrl_off.get_diagnostics()
+        diag_on = ctrl_on.get_diagnostics()
+
+        # execute_layers itself must differ
+        assert diag_off["execute_layers"] is False
+        assert diag_on["execute_layers"] is True
+
+        # Key SETS must match — a future bug that adds a conditional key is caught here
+        assert set(diag_off.keys()) == set(diag_on.keys()), (
+            f"key sets differ: {set(diag_off) ^ set(diag_on)}"
+        )
+
+        # All other keys must be identical — the flag is INERT
+        keys_to_compare = [k for k in diag_off if k != "execute_layers"]
+        for key in keys_to_compare:
+            assert diag_off[key] == diag_on[key], (
+                f"get_diagnostics()[{key!r}] differs when execute_layers changes: "
+                f"{diag_off[key]!r} vs {diag_on[key]!r}. "
+                f"The flag must be inert."
+            )
+
+    def test_templates_contain_execute_layers_false(self) -> None:
+        """All FOUR YAML templates must parse and expose ``execute_layers: false``."""
+        import pathlib
+
+        import yaml
+
+        templates_dir = (
+            pathlib.Path(__file__).parents[2]
+            / "xpcsjax"
+            / "config"
+            / "templates"
+        )
+        for template_name in (
+            "xpcsjax_laminar_flow.yaml",
+            "xpcsjax_two_component.yaml",
+            "xpcsjax_static_anisotropic.yaml",
+            "xpcsjax_static_isotropic.yaml",
+        ):
+            path = templates_dir / template_name
+            assert path.exists(), f"Template not found: {path}"
+            data = yaml.safe_load(path.read_text())
+            ad_block = (
+                data.get("optimization", {}).get("nlsq", {}).get("anti_degeneracy", {})
+            )
+            assert "execute_layers" in ad_block, (
+                f"{template_name}: 'execute_layers' key missing from anti_degeneracy block"
+            )
+            assert ad_block["execute_layers"] is False, (
+                f"{template_name}: execute_layers must default to false, "
+                f"got {ad_block['execute_layers']!r}"
+            )

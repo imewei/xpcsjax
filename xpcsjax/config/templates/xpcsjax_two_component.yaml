@@ -538,6 +538,7 @@ optimization:
     # will be removed in heterodyne v1.0; xpcsjax follows the same convention.
     anti_degeneracy:
       enable: true
+      execute_layers: false                # (currently inert) future gate: enable numeric L2/L3 execution on stratified-LS path; default false = current behavior
 
       per_angle_mode: "auto"               # auto → "averaged" for n_phi >= constant_scaling_threshold (3), else "individual"; "constant"/"fourier" only when set explicitly here
       constant_scaling_threshold: 3

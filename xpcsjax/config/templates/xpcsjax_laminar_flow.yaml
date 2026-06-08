@@ -430,6 +430,7 @@ optimization:
     #   individual: 53 params  (7 + 46 per-angle scaling)
     anti_degeneracy:
       enable: true
+      execute_layers: false                # (currently inert) future gate: enable numeric L2/L3 execution on stratified-LS path; default false = current behavior
 
       per_angle_mode: "auto"               # auto → "averaged" for n_phi >= constant_scaling_threshold (3), else "individual" (homodyne auto never picks fourier — set "fourier" explicitly)
       constant_scaling_threshold: 3

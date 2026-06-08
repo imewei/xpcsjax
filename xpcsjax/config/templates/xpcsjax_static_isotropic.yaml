@@ -287,6 +287,7 @@ optimization:
     # anti_degeneracy_controller.py) — blocked for static modes, no flow/shear.
     anti_degeneracy:
       enable: true
+      execute_layers: false                # (currently inert) future gate: enable numeric L2/L3 execution on stratified-LS path; default false = current behavior
 
       per_angle_mode: "constant"           # FIXED for isotropic — do not change
       constant_scaling_threshold: 1        # engage constant scaling immediately

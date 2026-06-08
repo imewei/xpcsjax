@@ -113,6 +113,14 @@ class AntiDegeneracyConfig:
         Number of consecutive triggers to confirm collapse.
     gradient_response_mode : str
         Response action: "warn", "hierarchical", "reset", "abort".
+    execute_layers : bool
+        Gate for future numeric execution of the L2 hierarchical and L3
+        regularization layers on the stratified-LS path.  Default ``False``
+        preserves current behavior: layers are configured and their
+        diagnostics are emitted, but they are not numerically executed on
+        that path.  Currently **inert** — no code reads this flag to branch
+        behavior.  Reserved for a future phase that wires full L2/L3
+        execution into the stratified-LS solver.
     """
 
     enable: bool = True
@@ -140,6 +148,8 @@ class AntiDegeneracyConfig:
     shear_weighting_alpha: float = 1.0
     shear_weighting_update_frequency: int = 1
     shear_weighting_normalize: bool = True
+    # Future gate: numeric L2/L3 execution on stratified-LS path (currently inert)
+    execute_layers: bool = False
 
     @classmethod
     def from_dict(cls, config_dict: dict[str, Any]) -> AntiDegeneracyConfig:
@@ -201,6 +211,8 @@ class AntiDegeneracyConfig:
             shear_weighting_alpha=float(shear_weighting.get("alpha", 1.0)),
             shear_weighting_update_frequency=int(shear_weighting.get("update_frequency", 1)),
             shear_weighting_normalize=shear_weighting.get("normalize", True),
+            # Future gate: numeric L2/L3 execution on stratified-LS path (currently inert)
+            execute_layers=bool(config_dict.get("execute_layers", False)),
         )
 
 
@@ -602,6 +614,23 @@ class AntiDegeneracyController:
         """Check if shear-sensitivity weighting is active."""
         return self.shear_weighter is not None
 
+    @property
+    def execute_layers(self) -> bool:
+        """Return the stratified-LS numeric-execution gate flag.
+
+        Currently **inert** (default ``False``).  A future phase will read
+        this flag to gate actual L2/L3 numeric execution on the
+        stratified-LS path; for now it is registered and parseable but
+        nothing branches on it.
+
+        Returns
+        -------
+        bool
+            ``True`` when numeric L2/L3 execution is requested (reserved for a future phase);
+            ``False`` (default) preserves current behavior.
+        """
+        return self.config.execute_layers
+
     @staticmethod
     def _normalize_mode(mode: str) -> str:
         """Normalize analysis-mode synonyms consistent with parameter_registry.
@@ -830,6 +859,7 @@ class AntiDegeneracyController:
         diag: dict[str, Any] = {
             "version": "2.18.0",
             "enabled": self.is_enabled,
+            "execute_layers": self.execute_layers,
             "per_angle_mode": self.config.per_angle_mode,  # Config value
             "per_angle_mode_actual": self.per_angle_mode_actual,  # Resolved actual mode
             "use_constant": self.use_constant,

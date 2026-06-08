@@ -485,6 +485,7 @@ optimization:
     # two_component. Setting shear_weighting.enable in a static config has no effect.
     anti_degeneracy:
       enable: true
+      execute_layers: false                # (currently inert) future gate: enable numeric L2/L3 execution on stratified-LS path; default false = current behavior
 
       per_angle_mode: "auto"               # "auto" | "constant" | "fourier" | "individual"
       constant_scaling_threshold: 3        # use averaged constant scaling when n_phi >= this
