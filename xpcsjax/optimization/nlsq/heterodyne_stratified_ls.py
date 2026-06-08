@@ -669,6 +669,10 @@ def fit_heterodyne_stratified_least_squares(
 
     info = {
         "success": bool(fit.success),
+        # SciPy termination reason (status->reason string from build_result_from_nlsq).
+        # Lets the result builder report ``max_iter`` (graded on chi^2) instead of a
+        # blanket ``failed``/``poor`` when the solver merely exhausted ``max_nfev``.
+        "convergence_reason": str(getattr(fit, "convergence_reason", "") or ""),
         "cost": 0.5 * ssr,
         "nit": int(fit.n_iterations or 0),
         "wall_time": float(fit.wall_time_seconds or 0.0),

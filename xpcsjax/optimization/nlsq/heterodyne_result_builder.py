@@ -632,11 +632,35 @@ def build_hybrid_streaming_result(
     # Convergence status and quality
     # ------------------------------------------------------------------
     success = bool(info.get("success", True))
-    convergence_status: str = "converged" if success else "failed"
+    # Distinguish "budget exhausted" from "diverged". A trust-region solve that
+    # hits SciPy's ``max_nfev`` (status 0) reports ``success=False`` even though it
+    # may have landed on a perfectly usable point — common on near-degenerate
+    # problems where ``gtol`` is never certified (C044 two_component: reduced
+    # chi^2 ~= 0.68 yet status was FAILED). The driver threads the SciPy
+    # termination reason via ``info['convergence_reason']`` so we can report
+    # ``max_iter`` (honest: not certified-converged, but graded on its real chi^2)
+    # instead of a blanket ``failed`` / ``poor``. Callers that do not thread a
+    # reason keep the previous converged/failed behavior unchanged.
+    reason = str(info.get("convergence_reason", ""))
+    hit_max_nfev = (
+        not success
+        and reason == "Maximum function evaluations reached"
+        and np.isfinite(reduced_chi2)
+    )
+    if success:
+        convergence_status = "converged"
+    elif hit_max_nfev:
+        convergence_status = "max_iter"
+    else:
+        convergence_status = "failed"
     # Classify from the REAL noise-normalized reduced chi^2 (parity with the
     # in-memory joint paths) rather than a hardcoded 1.0 — a converged-but-poor
-    # fit must not advertise "good". A failed solve is forced to "poor".
-    quality_flag = classify_quality_flag(reduced_chi2=reduced_chi2) if success else "poor"
+    # fit must not advertise "good". A genuinely failed solve is forced to "poor";
+    # a max_iter solve is graded on its actual reduced chi^2 (it produced a fit).
+    if convergence_status in ("converged", "max_iter"):
+        quality_flag = classify_quality_flag(reduced_chi2=reduced_chi2)
+    else:
+        quality_flag = "poor"
 
     # Coerce to valid ConvergenceStatus literal
     if convergence_status not in ("converged", "max_iter", "failed", "partial"):

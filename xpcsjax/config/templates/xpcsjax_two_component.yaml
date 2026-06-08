@@ -462,9 +462,18 @@ optimization:
     memory_fraction: 0.75
 
     max_iterations: 10000
-    tolerance: 1.0e-8
-    xtol: 1.0e-8
-    gtol: 1.0e-8
+    # Convergence tolerances relaxed 1e-8 -> 1e-6 (2026-06-07). On near-degenerate
+    # two_component fits (e.g. C044: a nearly-flat f2 direction), trf+soft_l1 never
+    # satisfies a 1e-8 ftol/gtol and crawls thousands of tiny-step iterations to the
+    # max_nfev cap -> reported as FAILED despite a good reduced chi^2 (~0.68). 1e-6 is
+    # a standard, tight tolerance that lets such a crawl terminate with a true
+    # convergence flag; it yields identical SSR on well-behaved fits (verified) and
+    # only differs on the degenerate cases that would otherwise hit max_nfev. This is
+    # a stopgap: it does NOT remove the degeneracy itself (that needs L2/L3 to run on
+    # the >=1M stratified-LS path -- the documented L2-L4 gap, planned phases 2-5).
+    tolerance: 1.0e-6
+    xtol: 1.0e-6
+    gtol: 1.0e-6
     trust_region_scale: 1.0
     verbose: false
 

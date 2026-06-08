@@ -158,6 +158,77 @@ def test_build_hybrid_streaming_result():
     assert res.nlsq_diagnostics.get("shear_weighting") == "not_applicable_heterodyne"
 
 
+def test_build_hybrid_streaming_result_max_nfev_is_max_iter_not_failed():
+    """A solve that exhausts ``max_nfev`` but lands on a good fit must report
+    ``convergence_status='max_iter'`` and grade quality from the real reduced
+    chi^2 — NOT a blanket ``'failed'`` / ``'poor'``.
+
+    Root cause (C044 two_component, 2026-06-07 log): the trust-region solver hit
+    SciPy's default ``max_nfev = 100*n_params`` before certifying ``gtol`` yet
+    produced reduced chi^2 ~= 0.68 (a good fit). The builder hardcoded
+    ``quality_flag = '...' if success else 'poor'`` and
+    ``convergence_status = 'converged' if success else 'failed'``, mislabeling a
+    usable fit as a hard failure. The driver now threads the SciPy termination
+    reason so the builder can distinguish "budget exhausted" from "diverged".
+    """
+    from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
+        build_hybrid_streaming_result,
+    )
+
+    model, _c2, phi = _make_synthetic_heterodyne()
+    n = model.param_manager.n_varying
+    ssr = 10.0
+    n_data = 1000
+    sigma2 = 0.01  # reduced chi^2 ~= 10 / (0.01 * (1000 - n)) ~= 1.0 -> "good"
+    res = build_hybrid_streaming_result(
+        model=model,
+        popt=np.zeros(n),
+        pcov=np.eye(n),
+        info={
+            "nit": 1513,
+            "success": False,
+            "convergence_reason": "Maximum function evaluations reached",
+            "cost": 0.5 * ssr,
+            "n_data_points": n_data,
+            "sigma2_noise": sigma2,
+        },
+        phi_angles=phi,
+    )
+    assert res.reduced_chi_squared < 2.0
+    assert res.convergence_status == "max_iter"
+    assert res.quality_flag == "good"
+
+
+def test_build_hybrid_streaming_result_genuine_failure_stays_failed_poor():
+    """Regression guard: a genuine non-convergence (no max_nfev reason, or a bad
+    reason) with success=False must STILL map to ``'failed'`` / ``'poor'`` — the
+    max_iter relaxation is scoped strictly to the max-function-evaluations case.
+    """
+    from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
+        build_hybrid_streaming_result,
+    )
+
+    model, _c2, phi = _make_synthetic_heterodyne()
+    n = model.param_manager.n_varying
+    ssr = 10.0
+    res = build_hybrid_streaming_result(
+        model=model,
+        popt=np.zeros(n),
+        pcov=np.eye(n),
+        info={
+            "nit": 3,
+            "success": False,
+            "convergence_reason": "Improper input parameters",
+            "cost": 0.5 * ssr,
+            "n_data_points": 1000,
+            "sigma2_noise": 0.01,
+        },
+        phi_angles=phi,
+    )
+    assert res.convergence_status == "failed"
+    assert res.quality_flag == "poor"
+
+
 def test_build_hybrid_streaming_result_noise_normalized_reduced_chi2():
     """reduced_chi_squared must be noise-normalized (≈1 scale) when the driver
     threads ``info['sigma2_noise']`` — mirroring the in-memory averaged/fourier
