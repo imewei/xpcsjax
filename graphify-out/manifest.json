@@ -451,6 +451,10 @@
     "mtime": 1780525312.8053493,
     "hash": "2ff2f791aa7b5eb6e9f9598078d687ae"
   },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/parity/test_laminar_execute_layers.py": {
+    "mtime": 1780958658.5823517,
+    "hash": "3b32d7c152a7665f32e1a8b7c801eef9"
+  },
   "/home/wei/Documents/GitHub/xpcsjax/tests/parity/test_layer_activation_matrix.py": {
     "mtime": 1780525312.8113492,
     "hash": "40e7680e0850bbbb2b376fe07acf5dc6"
@@ -952,8 +956,8 @@
     "hash": "a5bb9c99475c5f6ebb1602c7c7a50fe5"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/strategies/stratified_ls.py": {
-    "mtime": 1780768997.9103103,
-    "hash": "d331e4bdf70e5b1f0e4599d849287c5a"
+    "mtime": 1780956253.75439,
+    "hash": "eda2611a39889ee1394b6c2f0bceaae1"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/strategies/out_of_core.py": {
     "mtime": 1780671715.0551996,
