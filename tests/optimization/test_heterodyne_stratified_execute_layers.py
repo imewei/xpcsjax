@@ -281,3 +281,35 @@ def test_execute_layers_rejected_keeps_baseline(monkeypatch):
     assert res.nlsq_diagnostics["hierarchical_active"] is False
     assert res.nlsq_diagnostics.get("execute_layers_status") == "attempted_but_rejected"
     np.testing.assert_allclose(res.parameters, baseline.parameters, rtol=1e-6, atol=1e-8)
+
+
+def test_execute_layers_exception_falls_back_to_baseline(monkeypatch):
+    """A raising L2 runner is caught (best-effort): baseline is returned, honestly.
+
+    Plan oracle 'Robust fallback: forced L2/L3 failure returns the baseline,
+    marked honestly' — a layer failure must never break the fit.
+    """
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    base_cfg = NLSQConfig.from_dict(
+        {"analysis_mode": "two_component", "per_angle_mode": "individual"}
+    )
+    on_cfg = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "individual",
+            "execute_layers": True,
+            "enable_hierarchical": True,
+            "hierarchical_max_outer_iterations": 2,
+        }
+    )
+    baseline = _fit(model, c2, phi, base_cfg)
+
+    def _raising_runner(**_kwargs):
+        raise RuntimeError("forced L2 failure for fallback test")
+
+    monkeypatch.setattr(_hsl, "_run_hierarchical_layers", _raising_runner)
+
+    res = _fit(model, c2, phi, on_cfg)  # must NOT raise
+    assert res.nlsq_diagnostics["hierarchical_active"] is False
+    assert res.nlsq_diagnostics.get("execute_layers_status") == "attempted_but_rejected"
+    np.testing.assert_allclose(res.parameters, baseline.parameters, rtol=1e-6, atol=1e-8)
