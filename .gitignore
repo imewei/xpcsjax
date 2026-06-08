@@ -300,6 +300,7 @@ TASK_GROUP_*.md
 fix-imports/
 .optimization/
 scripts/dev_cleanup/
+plans/
 
 # Temporary analysis / review reports
 PROGRESS.md
