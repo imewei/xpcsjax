@@ -662,6 +662,129 @@ def fit_with_stratified_least_squares(
             log.warning("  - Optimizer exploring unphysical parameter space")
             log.warning("=" * 80)
 
+    # =====================================================================
+    # Gated L2/L3 numeric execution (Phase 3 step 11 — laminar mirror).
+    # =====================================================================
+    # Default OFF: the single ``least_squares`` solve above IS the result and the
+    # honest ``hierarchical_active`` / ``regularization_active`` markers stay False
+    # (byte-identical to the pre-Phase-3 path — the rtol=1e-10 homodyne-equivalence
+    # oracle is preserved). When ``execute_layers`` is True AND L2 is applicable
+    # (individual / fourier, i.e. the controller built a HierarchicalOptimizer and
+    # the mode is not a constant-like one), the controller's OWN layout-aware
+    # ``.hierarchical`` (+ ``.regularizer`` for L3) refines/escapes from the
+    # baseline; the candidate is kept only under the keep-better guard (data-only
+    # SSR no worse than baseline by more than ``tol``). Penalty rows shape the
+    # optimizer search only — chi^2 below is recomputed from the data-only
+    # residual, so the objective is never contaminated. Mirrors the heterodyne
+    # stratified-LS path (heterodyne_stratified_ls.py).
+    _lam_hier_active = False
+    _lam_reg_active = False
+    _lam_cov_placeholder = False
+    _lam_exec_status = "off"
+    _lam_layer_outcome: dict[str, Any] | None = None
+    if ad_controller is not None and ad_controller.is_enabled and ad_controller.execute_layers:
+        import jax.numpy as jnp
+
+        _keep_tol = 1e-3
+        ssr_baseline = float(np.sum(np.asarray(residual_fn(popt), dtype=np.float64) ** 2))
+        _reg_mode = str(getattr(ad_controller.config, "regularization_mode", "none"))
+        _l3_active = (_reg_mode != "none") and (ad_controller.regularizer is not None)
+        _l2_applicable = (
+            ad_controller.hierarchical is not None
+            and bounds is not None  # HierarchicalOptimizer.fit requires finite bounds
+            and not ad_controller.use_fixed_scaling
+            and not ad_controller.use_averaged_scaling
+            and not ad_controller.use_constant
+        )
+        if _l2_applicable:
+            try:
+                _reg = ad_controller.regularizer if _l3_active else None
+
+                def _lam_loss_jax(p: jnp.ndarray) -> jnp.ndarray:
+                    r = jnp.asarray(residual_fn(p))
+                    ssr = jnp.sum(r**2)
+                    if _reg is not None:
+                        nd = r.shape[0]
+                        ssr = ssr + _reg.compute_regularization_jax(p, ssr / nd, nd)
+                    return ssr
+
+                # JIT both so HierarchicalOptimizer's many inner evals do not
+                # re-trace the (large) stratified residual graph eagerly.
+                _lam_loss_jit = jax.jit(_lam_loss_jax)
+                _lam_vag = jax.jit(jax.value_and_grad(_lam_loss_jax))
+
+                def _lam_loss(pn: np.ndarray) -> float:
+                    return float(_lam_loss_jit(jnp.asarray(pn)))
+
+                def _lam_grad(pn: np.ndarray) -> np.ndarray:
+                    _v, g = _lam_vag(jnp.asarray(pn))
+                    return np.asarray(g, dtype=np.float64)
+
+                _outer_cb = None
+                if ad_controller.use_shear_weighting:
+                    # L5 shear-weight update at each outer iteration (laminar-only).
+                    def _outer_cb(cur: np.ndarray, it: int) -> None:
+                        ad_controller.update_shear_phi0(cur, it)
+
+                # Narrowing: guaranteed by ``_l2_applicable`` above.
+                assert ad_controller.hierarchical is not None
+                assert bounds is not None
+                _hres = ad_controller.hierarchical.fit(
+                    loss_fn=_lam_loss,
+                    grad_fn=_lam_grad,
+                    p0=np.asarray(popt, dtype=np.float64),  # refine/escape from baseline
+                    bounds=bounds,
+                    outer_iteration_callback=_outer_cb,
+                )
+                _cand = np.asarray(_hres.x, dtype=np.float64)
+                if bounds is not None:
+                    _cand = np.clip(_cand, bounds[0], bounds[1])
+                _cand_ssr = float(np.sum(np.asarray(residual_fn(_cand), dtype=np.float64) ** 2))
+                if _cand_ssr <= ssr_baseline * (1.0 + _keep_tol):
+                    popt = _cand
+                    _lam_hier_active = True
+                    _lam_reg_active = bool(_l3_active)
+                    _lam_cov_placeholder = True
+                    _lam_layer_outcome = {
+                        "kind": "L2_hierarchical",
+                        "n_outer": int(_hres.n_outer_iterations),
+                        "success": bool(_hres.success),
+                    }
+                    _lam_exec_status = "executed" if _hres.success else "executed_not_converged"
+                    log.info(
+                        "execute_layers: laminar L2 ACCEPTED (SSR %.6e <= baseline %.6e "
+                        "* (1 + %.0e), converged=%s, n_outer=%d).",
+                        _cand_ssr,
+                        ssr_baseline,
+                        _keep_tol,
+                        bool(_hres.success),
+                        int(_hres.n_outer_iterations),
+                    )
+                else:
+                    _lam_exec_status = "attempted_but_rejected"
+                    log.warning(
+                        "execute_layers: laminar L2 REJECTED (SSR %.6e > baseline %.6e "
+                        "* (1 + %.0e)); keeping baseline.",
+                        _cand_ssr,
+                        ssr_baseline,
+                        _keep_tol,
+                    )
+            except Exception as _exc:  # best-effort: a layer failure must never break the fit
+                _lam_exec_status = "attempted_but_rejected"
+                log.warning(
+                    "execute_layers: laminar L2 raised (%s: %s); keeping baseline.",
+                    type(_exc).__name__,
+                    _exc,
+                )
+        elif _l3_active:
+            # Constant-like modes (fixed / averaged): the reduced scaling has no
+            # per-angle DoF for L2 alternation and L3 group-variance is degenerate;
+            # flag it honestly without a wasteful re-solve (objective unchanged).
+            _lam_reg_active = True
+            _lam_exec_status = "executed"
+        else:
+            _lam_exec_status = "no_layers_configured"
+
     # Compute final residuals first (needed for both cost and covariance scaling)
     final_residuals = residual_fn(popt)
     final_cost = float(np.sum(final_residuals**2))
@@ -682,7 +805,15 @@ def fit_with_stratified_least_squares(
     n_data_real = residual_fn.n_total_points if hasattr(residual_fn, "n_total_points") else n_data
 
     # Compute covariance matrix from Jacobian
-    if "pcov" in result and result["pcov"] is not None:
+    if _lam_cov_placeholder:
+        # Accepted L2 hierarchical branch: the alternating solve produces no
+        # Gauss-Newton covariance and the baseline ``result["pcov"]`` is stale
+        # (popt moved). Use an identity placeholder (mirrors the heterodyne path /
+        # hybrid-streaming ``covariance_is_placeholder``); it is expanded by the
+        # mode-specific block below exactly like a real reduced-layout covariance.
+        pcov = np.eye(len(popt))
+        log.info("Using identity placeholder covariance (execute_layers L2 branch)")
+    elif "pcov" in result and result["pcov"] is not None:
         pcov = np.asarray(result["pcov"])
         log.info("Using covariance matrix from NLSQ result")
     else:
@@ -719,6 +850,15 @@ def fit_with_stratified_least_squares(
     message = result.get("message", "Optimization completed")
     nfev = result.get("nfev", 0)
     nit = result.get("nit", 0)
+    # When an execute_layers candidate replaced popt, the reported outcome must
+    # describe the LAYER that produced it, not the stale baseline solve.
+    if _lam_layer_outcome is not None:
+        success = bool(_lam_layer_outcome["success"])
+        nit = int(_lam_layer_outcome["n_outer"])
+        message = (
+            f"{_lam_layer_outcome['kind']} accepted by keep-better guard "
+            f"(converged={_lam_layer_outcome['success']})"
+        )
 
     # Determine if optimization actually improved
     initial_residuals = residual_fn(initial_params)
@@ -860,6 +1000,31 @@ def fit_with_stratified_least_squares(
 
         # Add diagnostics to info
         anti_degeneracy_info["controller_diagnostics"] = ad_controller.get_diagnostics()
+
+        # Phase 3 step 11: presence-based active markers (wrapper.py derives the
+        # public ``hierarchical_active`` / ``regularization_active`` from
+        # ``"hierarchical" in ad`` / ``"regularization" in ad``). These keys are
+        # added ONLY when an execute_layers layer actually executed, so the
+        # flag-off path adds nothing and stays byte-identical (the rtol=1e-10
+        # homodyne-equivalence oracle is preserved).
+        if _lam_exec_status != "off":
+            anti_degeneracy_info["execute_layers_status"] = _lam_exec_status
+            if _lam_layer_outcome is not None:
+                anti_degeneracy_info["execute_layers_kind"] = _lam_layer_outcome["kind"]
+                anti_degeneracy_info["execute_layers_n_outer"] = int(
+                    _lam_layer_outcome["n_outer"]
+                )
+                anti_degeneracy_info["execute_layers_converged"] = bool(
+                    _lam_layer_outcome["success"]
+                )
+            if _lam_cov_placeholder:
+                anti_degeneracy_info["covariance_is_placeholder"] = True
+            if _lam_hier_active and ad_controller.hierarchical is not None:
+                anti_degeneracy_info["hierarchical"] = ad_controller.hierarchical.get_diagnostics()
+            if _lam_reg_active and ad_controller.regularizer is not None:
+                anti_degeneracy_info["regularization"] = (
+                    ad_controller.regularizer.get_diagnostics()
+                )
 
     # Prepare info dict
     info = {
