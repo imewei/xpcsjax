@@ -595,6 +595,16 @@ def build_hybrid_streaming_result(
         gradient_monitor=ad_block.get("gradient_monitor"),
     )
 
+    # Surface controller_diagnostics when the stratified-LS path captured the
+    # AntiDegeneracyController (mirrors laminar's strategies/stratified_ls.py
+    # ``anti_degeneracy_info["controller_diagnostics"] = ad_controller.get_diagnostics()``
+    # which wrapper.py then threads into the public nlsq_diagnostics dict).
+    # Present only when ad_controller was successfully constructed; absent
+    # otherwise (best-effort contract preserved).
+    _cd = ad_block.get("controller_diagnostics")
+    if _cd is not None:
+        diagnostics["controller_diagnostics"] = _cd
+
     # ------------------------------------------------------------------
     # Attach hybrid-streaming-specific diagnostics block
     # ------------------------------------------------------------------

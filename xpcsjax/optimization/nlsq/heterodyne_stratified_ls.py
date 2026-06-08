@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import jax
 import jax.numpy as jnp
@@ -25,6 +25,11 @@ from xpcsjax.optimization.nlsq.strategies.chunking import (
     create_angle_stratified_indices,
     estimate_stratification_memory,
 )
+
+if TYPE_CHECKING:
+    from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
+        AntiDegeneracyController,
+    )
 
 _SHUFFLE_SEED = 42
 
@@ -80,7 +85,7 @@ def _emit_anti_degeneracy_parity_banners(
     anti_degeneracy_dict: dict | None,
     phi_deg: np.ndarray,
     n_physical: int,
-) -> Any:
+) -> AntiDegeneracyController | None:
     """Instantiate the shared AntiDegeneracyController for laminar-parity banners.
 
     Mirrors laminar's ``fit_with_stratified_least_squares``: instantiating the
@@ -406,8 +411,12 @@ def fit_heterodyne_stratified_least_squares(
     # Laminar-parity: instantiate the shared controller so the heterodyne ≥1M
     # stratified-LS log gains the same Layer 2/3/4 + mode banners laminar emits.
     # Purely for banner/diagnostic-surface parity — numerics below are unchanged.
-    # Return is intentionally discarded: this is a banner side-effect only.
-    _emit_anti_degeneracy_parity_banners(
+    # The flat ``hierarchical_active`` / ``regularization_active`` markers stay
+    # ``False`` (nothing is executed here); the controller's ``get_diagnostics()``
+    # is captured and threaded into ``info["anti_degeneracy"]`` so the public
+    # result surfaces the same ``controller_diagnostics`` key laminar emits on
+    # its stratified-LS path.  ``None`` on best-effort failure → no key emitted.
+    ad_controller = _emit_anti_degeneracy_parity_banners(
         anti_degeneracy_dict=anti_degeneracy_dict,
         phi_deg=np.asarray(phi),
         n_physical=n_physics_pre,
@@ -680,6 +689,21 @@ def fit_heterodyne_stratified_least_squares(
         "sigma2_noise": float(_sigma2_noise),
         "stratification_memory": mem_estimate,
     }
+    # Thread controller diagnostics into info so build_hybrid_streaming_result
+    # can surface ``controller_diagnostics`` in the public nlsq_diagnostics block,
+    # reaching parity with laminar's stratified-LS path (strategies/stratified_ls.py
+    # line ~862: ``anti_degeneracy_info["controller_diagnostics"] = ...``).
+    # We deliberately add ONLY ``controller_diagnostics`` here. The flat activation
+    # markers (hierarchical_active, regularization_active) are read by the result
+    # builder via ``ad_block.get(..., False)`` and therefore default to False since
+    # this dict omits them — which is correct for the stratified-LS path, where
+    # L2/L3 don't execute. (shear_weighting is L5-gated off for two_component and
+    # set to the heterodyne sentinel inside the builder.)
+    # Best-effort: emitted only when the controller was successfully constructed.
+    if ad_controller is not None:
+        info["anti_degeneracy"] = {
+            "controller_diagnostics": ad_controller.get_diagnostics(),
+        }
     return build_hybrid_streaming_result(
         model=model,
         popt=popt,
