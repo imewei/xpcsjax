@@ -305,6 +305,7 @@ class NLSQConfig:
     # Layer 2: Hierarchical Optimization
     # Alternates between physical and per-angle params to break gradient cancellation
     enable_hierarchical: bool = True
+    execute_layers: bool = False  # inert gate; registered for round-trip completeness
     hierarchical_max_outer_iterations: int = 5
     hierarchical_outer_tolerance: float = 1e-6
     hierarchical_physical_max_iterations: int = 100
@@ -506,6 +507,7 @@ class NLSQConfig:
             fourier_order=anti_degeneracy.get("fourier_order", 2),
             fourier_auto_threshold=anti_degeneracy.get("fourier_auto_threshold", 6),
             constant_scaling_threshold=anti_degeneracy.get("constant_scaling_threshold", 3),
+            execute_layers=anti_degeneracy.get("execute_layers", False),
             # Layer 2: Hierarchical Optimization
             enable_hierarchical=hierarchical.get("enable", True),
             hierarchical_max_outer_iterations=hierarchical.get("max_outer_iterations", 5),
@@ -1057,6 +1059,7 @@ class NLSQConfig:
                 "fourier_order": self.fourier_order,
                 "fourier_auto_threshold": self.fourier_auto_threshold,
                 "constant_scaling_threshold": self.constant_scaling_threshold,
+                "execute_layers": self.execute_layers,
                 "hierarchical": {
                     "enable": self.enable_hierarchical,
                     "max_outer_iterations": self.hierarchical_max_outer_iterations,

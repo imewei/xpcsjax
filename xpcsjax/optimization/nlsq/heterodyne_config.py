@@ -451,6 +451,11 @@ class NLSQConfig:
         model, default).
     validation : NLSQValidationConfig
         Post-fit validation thresholds.
+    execute_layers : bool
+        Currently-inert gate for the stratified-LS numeric-execution path.
+        Registered for round-trip completeness alongside the other anti-degeneracy
+        fields; default ``False``. No code reads this field to branch behavior
+        in v0.1.
     """
 
     # ------------------------------------------------------------------
@@ -531,6 +536,7 @@ class NLSQConfig:
     # ------------------------------------------------------------------
 
     enable_hierarchical: bool = False
+    execute_layers: bool = False  # inert gate; registered for round-trip completeness
     hierarchical_max_outer_iterations: int = 20
     hierarchical_inner_tolerance: float = 1e-6
     hierarchical_outer_tolerance: float = 1e-4
@@ -886,6 +892,7 @@ class NLSQConfig:
             "fourier_auto_threshold": "int",
             # Hierarchical optimization
             "enable_hierarchical": "bool",
+            "execute_layers": "bool",
             "hierarchical_max_outer_iterations": "int",
             "hierarchical_inner_tolerance": "float",
             "hierarchical_outer_tolerance": "float",
@@ -960,6 +967,10 @@ class NLSQConfig:
             _set_from_nested(
                 "constant_scaling_threshold",
                 raw_anti_degeneracy.get("constant_scaling_threshold", _SENTINEL),
+            )
+            _set_from_nested(
+                "execute_layers",
+                raw_anti_degeneracy.get("execute_layers", _SENTINEL),
             )
 
             hierarchical = raw_anti_degeneracy.get("hierarchical")
@@ -1258,6 +1269,7 @@ class NLSQConfig:
             "fourier_auto_threshold": self.fourier_auto_threshold,
             # Hierarchical optimization
             "enable_hierarchical": self.enable_hierarchical,
+            "execute_layers": self.execute_layers,
             "hierarchical_max_outer_iterations": self.hierarchical_max_outer_iterations,
             "hierarchical_inner_tolerance": self.hierarchical_inner_tolerance,
             "hierarchical_outer_tolerance": self.hierarchical_outer_tolerance,

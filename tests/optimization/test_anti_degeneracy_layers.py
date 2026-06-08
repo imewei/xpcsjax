@@ -273,3 +273,83 @@ class TestExecuteLayersFlag:
                 f"{template_name}: execute_layers must default to false, "
                 f"got {ad_block['execute_layers']!r}"
             )
+
+
+class TestExecuteLayersNLSQConfigHomodyne:
+    """``execute_layers`` round-trips through the homodyne solver ``NLSQConfig``.
+
+    The flag is registered for round-trip completeness only — it is INERT
+    (nothing reads it to branch behavior). ``to_dict`` emits it as a TOP-LEVEL
+    key inside the nested ``anti_degeneracy`` block, mirroring ``per_angle_mode``.
+    """
+
+    def test_from_dict_default_is_false_when_key_absent(self) -> None:
+        """``from_dict({})`` must give ``execute_layers is False``."""
+        from xpcsjax.optimization.nlsq.config import NLSQConfig
+
+        cfg = NLSQConfig.from_dict({})
+        assert cfg.execute_layers is False
+
+    def test_from_dict_parses_true_from_nested_block(self) -> None:
+        """A nested ``anti_degeneracy.execute_layers`` value must be parsed."""
+        from xpcsjax.optimization.nlsq.config import NLSQConfig
+
+        cfg = NLSQConfig.from_dict({"anti_degeneracy": {"execute_layers": True}})
+        assert cfg.execute_layers is True
+
+    def test_to_dict_emits_nested_execute_layers(self) -> None:
+        """``to_dict()["anti_degeneracy"]["execute_layers"]`` echoes the field."""
+        from xpcsjax.optimization.nlsq.config import NLSQConfig
+
+        for value in (True, False):
+            cfg = NLSQConfig(execute_layers=value)
+            assert cfg.to_dict()["anti_degeneracy"]["execute_layers"] is value
+
+    def test_to_dict_from_dict_roundtrip(self) -> None:
+        """``from_dict(to_dict())`` preserves ``execute_layers`` both ways."""
+        from xpcsjax.optimization.nlsq.config import NLSQConfig
+
+        for value in (True, False):
+            cfg = NLSQConfig(execute_layers=value)
+            restored = NLSQConfig.from_dict(cfg.to_dict())
+            assert restored.execute_layers is value
+
+
+class TestExecuteLayersNLSQConfigHeterodyne:
+    """``execute_layers`` round-trips through the heterodyne solver ``NLSQConfig``.
+
+    The flag is registered for round-trip completeness only — it is INERT
+    (nothing reads it to branch behavior). The heterodyne ``to_dict`` emits it
+    as a FLAT top-level key, mirroring ``enable_hierarchical``.
+    """
+
+    def test_from_dict_default_is_false_when_key_absent(self) -> None:
+        """``from_dict({})`` must give ``execute_layers is False``."""
+        from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+
+        cfg = NLSQConfig.from_dict({})
+        assert cfg.execute_layers is False
+
+    def test_from_dict_parses_true_from_nested_block(self) -> None:
+        """A nested ``anti_degeneracy.execute_layers`` value must be parsed."""
+        from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+
+        cfg = NLSQConfig.from_dict({"anti_degeneracy": {"execute_layers": True}})
+        assert cfg.execute_layers is True
+
+    def test_to_dict_emits_flat_execute_layers(self) -> None:
+        """``to_dict()["execute_layers"]`` echoes the field (flat key)."""
+        from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+
+        for value in (True, False):
+            cfg = NLSQConfig(execute_layers=value)
+            assert cfg.to_dict()["execute_layers"] is value
+
+    def test_to_dict_from_dict_roundtrip(self) -> None:
+        """``from_dict(to_dict())`` preserves ``execute_layers`` both ways."""
+        from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+
+        for value in (True, False):
+            cfg = NLSQConfig(execute_layers=value)
+            restored = NLSQConfig.from_dict(cfg.to_dict())
+            assert restored.execute_layers is value
