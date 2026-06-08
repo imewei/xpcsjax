@@ -247,25 +247,30 @@ def test_hybrid_streaming_takes_precedence_over_stratified_ls(monkeypatch):
 
 
 # -----------------------------------------------------------------------------
-# Fix 1 — individual mode is scoped OUT of stratified-LS
+# Task 4 — individual mode is now IN SCOPE for stratified-LS
 #
-# The existing heterodyne `individual` mode is sequential per-angle; the
-# stratified driver would treat it as one joint solve (a different objective).
-# Policy: only `averaged`/`fourier` route to stratified-LS. `individual` (and
-# `constant`/anything else) must fall back to the in-memory path even above 1M.
+# Explicit `individual` is a JOINT fit (_fit_joint_multi_phi /
+# FourierReparameterizer "independent" mode); _aggregate_individual_results is
+# only the config-is-None/single-angle fallback. Routing individual through
+# stratified-LS is objective-consistent with the in-memory path (no objective
+# discontinuity at 1M). Policy: `averaged`/`fourier`/`individual` all route to
+# stratified-LS. Only `constant` (frozen scaling) uses the in-memory path.
 # -----------------------------------------------------------------------------
 
 
-def test_individual_mode_skips_stratified_ls(monkeypatch):  # noqa: N802
-    """per_angle_mode=individual + >=1M points → in-memory path, NOT stratified-LS."""
+def test_individual_mode_uses_stratified_ls(monkeypatch):  # noqa: N802
+    """per_angle_mode=individual + >=1M points → stratified-LS solver IS called."""
     import xpcsjax.optimization.nlsq as nlsq_pkg
     import xpcsjax.optimization.nlsq.heterodyne_stratified_ls as hsl
 
     called = {"strat": False}
+    _real = hsl.fit_heterodyne_stratified_least_squares
 
-    def _fake(**k):
+    def _fake(*, model, c2, phi, config, weights, **k):
         called["strat"] = True
-        return object()
+        # Delegate to the real implementation (captured before patching to
+        # avoid infinite recursion through the patched name).
+        return _real(model=model, c2=c2, phi=phi, config=config, weights=weights, **k)
 
     monkeypatch.setattr(hsl, "fit_heterodyne_stratified_least_squares", _fake)
     monkeypatch.setattr(
@@ -280,24 +285,27 @@ def test_individual_mode_skips_stratified_ls(monkeypatch):  # noqa: N802
     cfg.config["optimization"]["nlsq"]["per_angle_mode"] = "individual"
 
     nlsq_pkg.fit_nlsq(data, cfg)
-    assert called["strat"] is False, (
-        "Stratified-LS solver was called for individual mode (should use in-memory path)"
+    assert called["strat"] is True, (
+        "Stratified-LS solver was NOT called for individual mode at >=1M (should use it)"
     )
 
 
 def test_ge_1M_unsupported_mode_warns(monkeypatch, caplog):  # noqa: N802 - "1M" pins the boundary
-    """>=1M points in an UNSUPPORTED per-angle mode (individual) → WARNING, not silence.
+    """>=1M points in an UNSUPPORTED per-angle mode (constant) → WARNING, not silence.
 
     "No silent caps": a fit large enough that stratification would have mattered
     (>=1M) that is routed to the higher-memory in-memory joint fit ONLY because
     its mode lacks a stratified expander must say so at WARNING level. The fit
     must still complete (fall back to the in-memory joint fit) and return a valid
     OptimizationResult.
+
+    ``constant`` is now the only remaining mode that lacks a stratified expander
+    (``individual`` became supported in Task 4).
     """
     import xpcsjax.optimization.nlsq as nlsq_pkg
     import xpcsjax.optimization.nlsq.heterodyne_stratified_ls as hsl
 
-    # The stratified-LS solver must NOT be called (individual is unsupported).
+    # The stratified-LS solver must NOT be called (constant is unsupported).
     called = {"strat": False}
 
     def _fake(**k):
@@ -314,8 +322,8 @@ def test_ge_1M_unsupported_mode_warns(monkeypatch, caplog):  # noqa: N802 - "1M"
     from tests.optimization._heterodyne_fixtures import make_cfgmgr_and_data
 
     cfg, data = make_cfgmgr_and_data(n_phi=3, n_t=20)
-    # Unsupported-by-stratified-LS per-angle mode.
-    cfg.config["optimization"]["nlsq"]["per_angle_mode"] = "individual"
+    # ``constant`` is the remaining mode unsupported by stratified-LS.
+    cfg.config["optimization"]["nlsq"]["per_angle_mode"] = "constant"
 
     with caplog.at_level(logging.WARNING, logger="xpcsjax.optimization.nlsq"):
         result = nlsq_pkg.fit_nlsq(data, cfg)
@@ -331,10 +339,10 @@ def test_ge_1M_unsupported_mode_warns(monkeypatch, caplog):  # noqa: N802 - "1M"
     matching = [
         r
         for r in warnings
-        if "individual" in r.getMessage() and "stratified-LS skipped" in r.getMessage()
+        if "constant" in r.getMessage() and "stratified-LS skipped" in r.getMessage()
     ]
     assert matching, (
-        "Expected a WARNING that names per_angle_mode=individual and reports "
+        "Expected a WARNING that names per_angle_mode=constant and reports "
         f"stratified-LS was skipped; got warnings: {[r.getMessage() for r in warnings]}"
     )
 

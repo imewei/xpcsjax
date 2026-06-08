@@ -930,11 +930,14 @@ def _fit_nlsq_heterodyne(
     # keeps the heterodyne_core import lazy so dispatch unit tests that stub
     # heterodyne_core (and never reach the 1M gate) are unaffected.
     if not cmaes_on and use_strat and n_points >= 1_000_000:
-        # Only ``averaged`` and ``fourier`` use the JOINT stratified-LS objective.
-        # ``individual`` is a SEQUENTIAL per-angle algorithm
-        # (heterodyne_core._aggregate_individual_results); routing it through
-        # stratified-LS would silently change the objective at the 1M boundary.
-        # ``constant`` (and anything else) likewise stays in-memory.
+        # ``averaged``, ``fourier``, and ``individual`` all use the JOINT
+        # stratified-LS objective, consistent with the in-memory
+        # ``_fit_joint_multi_phi`` path.  Explicit ``individual`` is a JOINT fit
+        # (``_fit_joint_multi_phi`` / FourierReparameterizer "independent" mode);
+        # ``_aggregate_individual_results`` is only the config-is-None /
+        # single-angle fallback and never resolves here — so there is NO
+        # objective discontinuity at the 1M boundary for individual.
+        # ``constant`` (and anything else) freezes scaling and stays in-memory.
         from xpcsjax.optimization.nlsq.heterodyne_core import _resolve_effective_mode
 
         effective_mode = _resolve_effective_mode(nlsq_cfg, len(phi))
@@ -942,7 +945,7 @@ def _fit_nlsq_heterodyne(
         effective_mode = None
 
     _stratified_ls_fallback = False
-    if effective_mode in ("averaged", "fourier"):
+    if effective_mode in ("averaged", "fourier", "individual"):
         try:
             from xpcsjax.optimization.nlsq import heterodyne_stratified_ls as _hsl
             from xpcsjax.optimization.nlsq.heterodyne_logging import (
@@ -985,7 +988,8 @@ def _fit_nlsq_heterodyne(
             _stratified_ls_fallback = True
     elif effective_mode is not None:
         # effective_mode resolved (>=1M, stratification chosen, CMA-ES off) but is
-        # individual/constant — those use the in-memory path, not stratified-LS.
+        # constant — constant freezes scaling and uses the in-memory path, not
+        # stratified-LS (individual now routes to stratified-LS in the branch above).
         # "No silent caps": at >=1M the in-memory joint fit is the OOM-prone path,
         # and the ONLY reason stratification was skipped is that this mode lacks a
         # stratified expander. Surface that at WARNING so a large fit silently

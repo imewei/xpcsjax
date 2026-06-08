@@ -341,19 +341,23 @@ def fit_heterodyne_stratified_least_squares(
 ) -> Any:
     """Mode-aware heterodyne stratified-LS solve. Returns OptimizationResult.
 
-    Resolves the effective per-angle mode (``averaged`` / ``fourier``) via
-    :func:`_resolve_effective_mode`, computes the mode-appropriate scaling-tail
-    seed from per-angle quantiles, and runs a single joint pointwise
-    least-squares solve. The objective equals the in-memory joint fit for the
-    same mode; the only behavioral change is the optional seed-42 reorder/shuffle
-    of the flat point support (objective-invariant — reordering residual elements
-    does not change the sum of squares).
+    Resolves the effective per-angle mode (``averaged`` / ``fourier`` /
+    ``individual``) via :func:`_resolve_effective_mode`, computes the
+    mode-appropriate scaling-tail seed from per-angle quantiles, and runs a
+    single joint pointwise least-squares solve. The objective equals the
+    in-memory joint fit for the same mode; the only behavioral change is the
+    optional seed-42 reorder/shuffle of the flat point support
+    (objective-invariant — reordering residual elements does not change the sum
+    of squares).
 
-    Only the JOINT modes ``averaged`` and ``fourier`` are supported. ``individual``
-    (sequential per-angle) and ``constant`` (frozen scaling) raise
+    The JOINT modes ``averaged``, ``fourier``, and ``individual`` are all
+    supported here — objective-consistent with the in-memory
+    ``_fit_joint_multi_phi`` path (explicit ``individual`` is a JOINT fit, not
+    sequential; ``_aggregate_individual_results`` is only the ``config is
+    None``/single-angle fallback).  ``constant`` (frozen scaling) raises
     ``NotImplementedError``; the dispatch gate in ``__init__.py`` only routes
-    averaged/fourier here and additionally wraps this driver in a best-effort
-    try/except that falls through to the in-memory joint fit.
+    averaged/fourier/individual here and additionally wraps this driver in a
+    best-effort try/except that falls through to the in-memory joint fit.
 
     Parameters
     ----------
@@ -392,15 +396,19 @@ def fit_heterodyne_stratified_least_squares(
     mode = _resolve_effective_mode(config, n_phi)
 
     # Defensive scope gate (belt-and-suspenders for the dispatch gate in
-    # __init__.py): only the JOINT modes ``averaged`` and ``fourier`` use
-    # stratified-LS. ``individual`` is sequential per-angle (a different
-    # objective) and ``constant`` freezes scaling — both must use the in-memory
-    # path, so the driver refuses to run them even if called directly.
-    if mode not in ("averaged", "fourier"):
+    # __init__.py): ``averaged``, ``fourier``, and ``individual`` all use the
+    # JOINT stratified-LS objective, consistent with the in-memory
+    # ``_fit_joint_multi_phi`` path (explicit ``individual`` is a joint fit;
+    # ``_aggregate_individual_results`` is only the config-is-None /
+    # single-angle fallback and never resolves here).
+    # ``constant`` freezes scaling and always uses the in-memory path, so the
+    # driver refuses to run it even if called directly.
+    if mode not in ("averaged", "fourier", "individual"):
         raise NotImplementedError(
-            f"stratified-LS supports per_angle_mode in ('averaged', 'fourier'); "
-            f"got resolved mode={mode!r} (individual is sequential per-angle; "
-            "constant freezes scaling — both use the in-memory joint path)"
+            f"stratified-LS supports per_angle_mode in "
+            f"('averaged', 'fourier', 'individual'); "
+            f"got resolved mode={mode!r} "
+            "(constant freezes scaling — use the in-memory joint path)"
         )
 
     # Laminar-parity narration: announce the path + physical parameter block
@@ -434,6 +442,14 @@ def fit_heterodyne_stratified_least_squares(
             dtype=np.float64,
         )
         scaling_names = ["contrast", "offset"]
+    elif mode == "individual":
+        # Per-angle seed: contrast block then offset block, matching
+        # make_scaling_expander("individual")'s layout (s[:n_phi], s[n_phi:2*n_phi]).
+        init_scaling = np.concatenate([contrast_pa, offset_pa]).astype(np.float64)
+        scaling_names = (
+            [f"contrast_angle_{i}" for i in range(n_phi)]
+            + [f"offset_angle_{i}" for i in range(n_phi)]
+        )
     else:  # mode == "fourier" — guaranteed by the scope gate above
         from xpcsjax.optimization.nlsq.fourier_reparam import (
             FourierReparamConfig,

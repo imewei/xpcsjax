@@ -299,13 +299,61 @@ def test_fourier_scaling_expander_requires_reparameterizer():
 
 
 def test_stratified_ls_individual_mode():
-    """Individual mode is SCOPED OUT of stratified-LS (Fix 1).
+    """Individual mode runs successfully on the stratified-LS path.
 
-    The existing heterodyne ``individual`` mode is sequential per-angle; the
-    stratified driver would treat it as one joint solve (a different objective).
-    Policy: only ``averaged``/``fourier`` use stratified-LS. The driver keeps a
-    defensive ``NotImplementedError`` so it can never silently mis-handle
-    individual even if called directly.
+    Explicit ``individual`` is a JOINT fit (``_fit_joint_multi_phi`` /
+    FourierReparameterizer "independent" mode); objective-consistent with the
+    in-memory path. The stratified driver must accept it and return a valid
+    result with ``n_physics + 2*n_phi`` parameters and finite chi-squared.
+    """
+    import numpy as np
+
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import _resolve_effective_mode
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        fit_heterodyne_stratified_least_squares,
+    )
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    n_phi = len(phi)
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "individual"})
+    # Pre-assert the config resolves to individual on this fixture.
+    assert _resolve_effective_mode(cfg, n_phi) == "individual"
+
+    result = fit_heterodyne_stratified_least_squares(
+        model=model,
+        c2=c2,
+        phi=phi,
+        config=cfg,
+        weights=None,
+        shuffle=False,
+    )
+
+    # --- correctness assertions ---
+    n_physics = int(model.param_manager.n_varying)
+    expected_n_params = n_physics + 2 * n_phi
+    assert result.parameters is not None
+    assert len(result.parameters) == expected_n_params, (
+        f"Expected {expected_n_params} params (n_physics={n_physics}, "
+        f"2*n_phi={2*n_phi}), got {len(result.parameters)}"
+    )
+    assert np.isfinite(result.chi_squared), (
+        f"chi_squared must be finite, got {result.chi_squared}"
+    )
+    # Scaling tail (contrast + offset per angle) must be non-negative.
+    scaling_tail = result.parameters[n_physics:]
+    assert np.all(scaling_tail >= 0.0), (
+        f"scaling parameters must be >= 0; got min={scaling_tail.min()}"
+    )
+
+
+def test_stratified_ls_constant_mode_raises():
+    """``constant`` mode still raises NotImplementedError from the stratified-LS driver.
+
+    ``constant`` freezes scaling (physics-only solve) and always uses the
+    in-memory path.  The dispatch gate in ``__init__.py`` never routes it here,
+    but the driver guards it defensively.
     """
     import pytest
 
@@ -317,9 +365,9 @@ def test_stratified_ls_individual_mode():
     )
 
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
-    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "individual"})
-    # Pre-assert the config resolves to individual on this fixture.
-    assert _resolve_effective_mode(cfg, len(phi)) == "individual"
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "constant"})
+    # Pre-assert the config resolves to constant on this fixture.
+    assert _resolve_effective_mode(cfg, len(phi)) == "constant"
 
     with pytest.raises(NotImplementedError):
         fit_heterodyne_stratified_least_squares(
