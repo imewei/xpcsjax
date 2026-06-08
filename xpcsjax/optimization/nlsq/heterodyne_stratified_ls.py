@@ -598,10 +598,10 @@ def fit_heterodyne_stratified_least_squares(
     )
 
     popt = np.asarray(fit.parameters, dtype=np.float64)
-    pcov = (
+    _pcov_from_adapter = (
         np.asarray(fit.covariance, dtype=np.float64)
         if fit.covariance is not None
-        else np.full((popt.size, popt.size), np.nan)
+        else None
     )
 
     # SSR conservation: recompute the data-only residual at the solution and
@@ -611,6 +611,51 @@ def fit_heterodyne_stratified_least_squares(
     # builder's ``chi_squared = info["cost"] * 2`` recovers the exact SSR.
     final_residual = np.asarray(residual_fn(popt), dtype=np.float64)
     ssr = float(np.sum(final_residual**2))
+
+    # Covariance: use the adapter's covariance when available; otherwise compute
+    # a host-side Jacobian covariance mirroring laminar's stratified-LS path
+    # (strategies/stratified_ls.py lines ~691-710).  At ≥1 M points jacfwd
+    # materialises a large (N × n_params) Jacobian, so every known failure mode
+    # is caught and falls back to all-NaN (best-effort: a covariance failure must
+    # never break the fit).
+    if _pcov_from_adapter is not None:
+        pcov = _pcov_from_adapter
+    else:
+        n_params = int(popt.size)
+        n_data = int(meta["n_data_points"])
+        s2 = ssr / max(n_data - n_params, 1)
+        try:
+            from xpcsjax.utils.logging import get_logger as _get_logger
+
+            _cov_log = _get_logger(__name__)
+            _cov_log.info(
+                "Computing host Jacobian covariance (s²=%.6e, n_data=%d, n_params=%d).",
+                s2,
+                n_data,
+                n_params,
+            )
+            jac_fn = jax.jacfwd(residual_fn)
+            J = np.asarray(jac_fn(popt), dtype=np.float64)
+            JTJ = J.T @ J
+            try:
+                pcov = np.linalg.inv(JTJ) * s2
+            except np.linalg.LinAlgError:
+                _cov_log.warning(
+                    "Singular Jacobian in heterodyne stratified-LS covariance; "
+                    "falling back to pseudo-inverse."
+                )
+                pcov = np.linalg.pinv(JTJ) * s2
+        except (MemoryError, np.linalg.LinAlgError, ValueError, RuntimeError) as _exc:
+            from xpcsjax.utils.logging import get_logger as _get_logger
+
+            _get_logger(__name__).warning(
+                "Jacobian covariance computation failed (%s: %s); "
+                "returning all-NaN covariance matrix.",
+                type(_exc).__name__,
+                _exc,
+            )
+            pcov = np.full((n_params, n_params), np.nan)
+
     phi_idx_flat = np.asarray(x_data[:, 0], dtype=np.int64)
     n_phi_meta = int(meta["n_phi"])
     chi2_per_angle = np.zeros(n_phi_meta, dtype=np.float64)

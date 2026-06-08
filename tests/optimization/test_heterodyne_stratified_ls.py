@@ -548,3 +548,143 @@ def test_stratified_ls_shuffle_on_deterministic_and_comparable():
     off = _fit(False)
     assert a.chi_squared <= off.chi_squared * 2.0 + 1e-12
     assert off.chi_squared <= a.chi_squared * 2.0 + 1e-12
+
+
+def test_stratified_ls_jacfwd_covariance_when_adapter_returns_none(monkeypatch):
+    """Jacfwd fallback path: when the adapter returns ``covariance=None``, the
+    returned ``covariance`` is finite (no NaN) and its size is consistent with
+    ``parameters`` and ``uncertainties``.
+
+    The numeric solve (``parameters``, ``chi_squared``) must be byte-identical
+    to the normal path -- covariance is a post-solve diagnostic only.
+
+    ``NLSQAdapter`` is imported lazily inside the function body
+    (``from xpcsjax.optimization.nlsq.heterodyne_adapter import NLSQAdapter``),
+    so we patch it at its definition site in ``heterodyne_adapter``.
+    """
+    import numpy as np
+
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        fit_heterodyne_stratified_least_squares,
+    )
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged"})
+
+    # Run the normal path first to pin the solve numerics.
+    ref = fit_heterodyne_stratified_least_squares(
+        model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False
+    )
+
+    # ``NLSQAdapter`` is imported lazily from ``heterodyne_adapter`` inside the
+    # function body, so patch its definition-site module.
+    import xpcsjax.optimization.nlsq.heterodyne_adapter as _ha_mod
+
+    _OrigAdapter = _ha_mod.NLSQAdapter
+
+    class _NoCovAdapter(_OrigAdapter):
+        def fit(self, residual_fn, initial_params, bounds, config, jacobian_fn=None, callback=None):
+            result = super().fit(
+                residual_fn=residual_fn,
+                initial_params=initial_params,
+                bounds=bounds,
+                config=config,
+            )
+            # Return a copy with covariance forced to None.
+            from dataclasses import replace as _replace
+
+            return _replace(result, covariance=None)
+
+    monkeypatch.setattr(_ha_mod, "NLSQAdapter", _NoCovAdapter)
+
+    fallback = fit_heterodyne_stratified_least_squares(
+        model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False
+    )
+
+    n = len(ref.parameters)
+
+    # Solve numerics must be unchanged.
+    assert np.allclose(fallback.parameters, ref.parameters, rtol=1e-10, atol=0.0), (
+        "popt changed: covariance fallback must not alter the solve"
+    )
+    assert np.isclose(fallback.chi_squared, ref.chi_squared, rtol=1e-10), (
+        "chi_squared changed: SSR must be unaffected by covariance fallback"
+    )
+
+    # Covariance from fallback is finite and shape-consistent.
+    cov = np.asarray(fallback.covariance)
+    assert cov.shape == (n, n), f"covariance shape {cov.shape} != ({n}, {n})"
+    assert np.all(np.isfinite(cov)), "jacfwd covariance contains NaN/inf"
+
+    # Uncertainties and parameters length consistency.
+    assert len(fallback.uncertainties) == n
+    assert len(fallback.parameters) == n
+
+
+def test_stratified_ls_jacfwd_guard_on_linalg_error(monkeypatch):
+    """When the jacfwd Jacobian computation raises, the fit still returns
+    (NaN covariance, no exception), and ``parameters``/``chi_squared`` are
+    unchanged relative to the reference run.
+
+    ``NLSQAdapter`` is imported lazily inside the function body, so we patch
+    it at its definition site in ``heterodyne_adapter``.
+    """
+    import numpy as np
+
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        fit_heterodyne_stratified_least_squares,
+    )
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged"})
+
+    ref = fit_heterodyne_stratified_least_squares(
+        model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False
+    )
+
+    import xpcsjax.optimization.nlsq.heterodyne_adapter as _ha_mod
+
+    _OrigAdapter = _ha_mod.NLSQAdapter
+
+    class _NoCovAdapter(_OrigAdapter):
+        def fit(self, residual_fn, initial_params, bounds, config, jacobian_fn=None, callback=None):
+            result = super().fit(
+                residual_fn=residual_fn,
+                initial_params=initial_params,
+                bounds=bounds,
+                config=config,
+            )
+            from dataclasses import replace as _replace
+
+            return _replace(result, covariance=None)
+
+    monkeypatch.setattr(_ha_mod, "NLSQAdapter", _NoCovAdapter)
+
+    # Patch jax.jacfwd inside heterodyne_stratified_ls to raise RuntimeError.
+    # The module imports ``jax`` at the top level, so patch the ``jax`` module
+    # attribute used in the fallback block.
+    import xpcsjax.optimization.nlsq.heterodyne_stratified_ls as _strat_mod
+
+    def _raise_jacfwd(*args, **kwargs):
+        raise RuntimeError("simulated jacfwd failure for guard test")
+
+    monkeypatch.setattr(_strat_mod.jax, "jacfwd", _raise_jacfwd)
+
+    result = fit_heterodyne_stratified_least_squares(
+        model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False
+    )
+
+    n = len(ref.parameters)
+
+    # Solve numerics are unchanged.
+    assert np.allclose(result.parameters, ref.parameters, rtol=1e-10, atol=0.0)
+    assert np.isclose(result.chi_squared, ref.chi_squared, rtol=1e-10)
+
+    # Covariance falls back to all-NaN, shape preserved.
+    cov = np.asarray(result.covariance)
+    assert cov.shape == (n, n)
+    assert np.all(np.isnan(cov)), "expected all-NaN covariance on guard fallback"
