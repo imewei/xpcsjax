@@ -108,8 +108,8 @@
     "hash": "2de1653a8ff0a05e7876d004e97972fc"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_heterodyne_stratified_ls.py": {
-    "mtime": 1780773172.7694201,
-    "hash": "a425f8f3a782a992196e3d2ddb5a2383"
+    "mtime": 1780935590.0808477,
+    "hash": "ad3562e616c04dce8c526618cec84a46"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_heterodyne_cmaes_diagnostics.py": {
     "mtime": 1780525312.8013494,
@@ -208,8 +208,8 @@
     "hash": "e071b0c974443eb7f258f8b3eaa120da"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_heterodyne_strategy_routing.py": {
-    "mtime": 1780525312.8233492,
-    "hash": "dc833c69c958b2bde183ece8b9652eb9"
+    "mtime": 1780935590.0798478,
+    "hash": "cb788ca471144a75f8d894f978ffcfa6"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_heterodyne_multistart.py": {
     "mtime": 1780525312.8303492,
@@ -248,8 +248,8 @@
     "hash": "d5617bb96d615fd0209e0d85425d6be3"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_heterodyne_stratified_anti_degeneracy_parity.py": {
-    "mtime": 1780727151.417078,
-    "hash": "971d643de1f97d50e2754b6781db30c2"
+    "mtime": 1780935590.0798478,
+    "hash": "9dd34050df15fcebca799a4bae65684d"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_heterodyne_return_shape.py": {
     "mtime": 1780525312.8133492,
@@ -276,8 +276,8 @@
     "hash": "ba8973e8155daba1336c934609b7844f"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_anti_degeneracy_layers.py": {
-    "mtime": 1780525312.7913494,
-    "hash": "b9df6fcad59df569fd36670db1ef090c"
+    "mtime": 1780936515.6646702,
+    "hash": "55b1b09e47907ae07610768e25e848e5"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_anti_degeneracy_transforms.py": {
     "mtime": 1779734180.4357066,
@@ -298,6 +298,10 @@
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_shear_weighting.py": {
     "mtime": 1780525312.8003492,
     "hash": "d2943ff9c905ddaabf5c32a9daa2de0e"
+  },
+  "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_heterodyne_stratified_execute_layers.py": {
+    "mtime": 1780950363.0265436,
+    "hash": "25647b4b6f476786125450799035363c"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/optimization/test_heterodyne_constant_mode.py": {
     "mtime": 1779459435.1097105,
@@ -760,8 +764,8 @@
     "hash": "496d92386ac424023e8f40b6ea6f1f5b"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/heterodyne_stratified_ls.py": {
-    "mtime": 1780893088.488023,
-    "hash": "d7b75226c322ff863ae781bba7cb96e1"
+    "mtime": 1780950789.897353,
+    "hash": "49b676ca71cf5c82422e9e3296f50213"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/transforms.py": {
     "mtime": 1780525312.8343492,
@@ -784,16 +788,16 @@
     "hash": "5b3113a68bc97c7149b0ab96f6f3dc84"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/heterodyne_result_builder.py": {
-    "mtime": 1780893075.0271611,
-    "hash": "dcc719c98dcbfad2c7d7ea15271bde21"
+    "mtime": 1780949280.755544,
+    "hash": "316d62163a791f72d9480b5a7586dc35"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/adapter.py": {
     "mtime": 1780671715.0491996,
     "hash": "196a056afb41147a9122d1842168e767"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/__init__.py": {
-    "mtime": 1780727151.418078,
-    "hash": "f8499cb8c7ebe4b3dc5268f95ade3b47"
+    "mtime": 1780935590.0838478,
+    "hash": "d852b626fdc63d0ce98227ece51d71b3"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/cmaes_wrapper.py": {
     "mtime": 1780671715.0491996,
@@ -832,12 +836,12 @@
     "hash": "b9f0b9128a125a6793b7c0cefcc8b219"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/anti_degeneracy_controller.py": {
-    "mtime": 1780768997.9043105,
-    "hash": "7ee184c6b7f675a8501ade1f65009122"
+    "mtime": 1780935590.0848477,
+    "hash": "cb252722e05f94ee3684f34a37e0f9dd"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/config.py": {
-    "mtime": 1780525312.832349,
-    "hash": "4bf5bee4364114a44efb2a3ad7f0b399"
+    "mtime": 1780936392.7751193,
+    "hash": "68346a206fa73352eced9e38a0dc83b4"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/parallel_accumulator.py": {
     "mtime": 1780671715.0531998,
@@ -932,8 +936,8 @@
     "hash": "f033fa2aa01d9763d6381b58c33916e7"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/heterodyne_config.py": {
-    "mtime": 1780671715.0511997,
-    "hash": "b216db6248a7587278cf6559b3cc3c3e"
+    "mtime": 1780936372.7611382,
+    "hash": "ae7334c65759361b1f0b01d815db0944"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/strategies/residual_jit.py": {
     "mtime": 1780768997.9103103,
@@ -1484,20 +1488,20 @@
     "hash": "96e450cd04f2a0d577cfd5174185881c"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/templates/xpcsjax_static_isotropic.yaml": {
-    "mtime": 1779902817.713226,
-    "hash": "96cd656550601f1110c5e4d2d49ef241"
+    "mtime": 1780935590.0828478,
+    "hash": "66386c43063b5d4bad927af26e076866"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/templates/xpcsjax_laminar_flow.yaml": {
-    "mtime": 1780005296.3053954,
-    "hash": "5a70b40e11b0ff0575bc19023e60dcc1"
+    "mtime": 1780935590.0808477,
+    "hash": "70b2ddc8bd6a62004dcfe516bcea442f"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/templates/xpcsjax_two_component.yaml": {
-    "mtime": 1780894474.591655,
-    "hash": "cf9c0733831f169f44b9a676734208fe"
+    "mtime": 1780935590.0828478,
+    "hash": "a45ec9d1de28a1731d922d272b6645fb"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/templates/xpcsjax_static_anisotropic.yaml": {
-    "mtime": 1779902793.9303064,
-    "hash": "9ce16c5f8c4a38c3cec496e66a3d62c1"
+    "mtime": 1780935590.081848,
+    "hash": "7cfccf9106d9c111b50db2e29f12a9cf"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/theory/citations.rst": {
     "mtime": 1779237286.5874834,
