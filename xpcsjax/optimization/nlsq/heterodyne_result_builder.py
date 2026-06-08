@@ -605,6 +605,20 @@ def build_hybrid_streaming_result(
     if _cd is not None:
         diagnostics["controller_diagnostics"] = _cd
 
+    # Surface the gated execute-layers status keys when present (heterodyne
+    # stratified-LS Phase 3). Absent on the flag-off path, so the default result
+    # surface is unchanged.
+    for _k in (
+        "execute_layers",
+        "execute_layers_status",
+        "execute_layers_kind",
+        "execute_layers_n_outer",
+        "execute_layers_converged",
+        "covariance_is_placeholder",
+    ):
+        if _k in ad_block:
+            diagnostics[_k] = ad_block[_k]
+
     # ------------------------------------------------------------------
     # Attach hybrid-streaming-specific diagnostics block
     # ------------------------------------------------------------------

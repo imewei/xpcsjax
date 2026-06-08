@@ -326,6 +326,166 @@ def build_joint_pointwise_residual(
     return residual_fn, x_data, y_data, p0_full, out_meta
 
 
+def _reconstruct_per_angle_scaling(
+    params_native: Any,
+    *,
+    mode: str,
+    n_physics: int,
+    n_phi: int,
+    fourier: Any | None,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Return ``(contrast[n_phi], offset[n_phi])`` from a native ``[physics | scaling]`` vector.
+
+    L3 must constrain the *per-angle* scaling CV — the physically meaningful
+    quantity — for BOTH ``individual`` and ``fourier`` modes. For ``individual``
+    the scaling tail IS the per-angle blocks; for ``fourier`` the per-angle arrays
+    are reconstructed from the coefficients via ``fourier_to_per_angle_jax``
+    (mirroring ``heterodyne_core``'s row-append Fourier path — regularizing the raw
+    coefficient blocks is wrong because coefficient variance can be smooth while
+    reconstructed per-angle contrast/offset still vary).
+    """
+    tail = params_native[n_physics:]
+    if mode == "individual":
+        return tail[:n_phi], tail[n_phi : 2 * n_phi]
+    if mode == "fourier":
+        if fourier is None:
+            raise ValueError("fourier mode L3 requires a FourierReparameterizer")
+        return fourier.fourier_to_per_angle_jax(tail)
+    # averaged: a single scalar per group broadcast to all angles
+    return jnp.full((n_phi,), tail[0]), jnp.full((n_phi,), tail[1])
+
+
+def _per_angle_cv(contrasts: jnp.ndarray, offsets: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Return ``(contrast_CV, offset_CV)`` with a safe-divide on near-zero means."""
+    c_mean = jnp.mean(contrasts)
+    c_cv = jnp.where(
+        jnp.abs(c_mean) > 1e-10, jnp.std(contrasts) / jnp.abs(c_mean), jnp.std(contrasts)
+    )
+    o_mean = jnp.mean(offsets)
+    o_cv = jnp.where(
+        jnp.abs(o_mean) > 1e-10, jnp.std(offsets) / jnp.abs(o_mean), jnp.std(offsets)
+    )
+    return c_cv, o_cv
+
+
+def _run_hierarchical_layers(
+    *,
+    residual_fn: Callable[[np.ndarray], jnp.ndarray],
+    p0_start: np.ndarray,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    n_physics: int,
+    n_scaling: int,
+    n_phi: int,
+    mode: str,
+    fourier: Any | None,
+    l3_lambda: float | None,
+    hier_cfg: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run the L2 hierarchical alternating solve on the inline residual.
+
+    Mirrors ``strategies/heterodyne_hybrid_streaming.py``'s L2 branch: permute
+    the native ``[physics | scaling]`` vector to the ``HierarchicalOptimizer``'s
+    ``[scaling | physics]`` convention, solve, then un-permute. L3 (when
+    ``l3_lambda`` is not None) enters the scalar loss as an SSE-scale per-angle-CV
+    penalty (``lambda * (c_CV² + o_CV²) * SSR_data`` over the *reconstructed*
+    per-angle scaling — correct for both individual and fourier). It shapes the
+    optimizer search only and never contaminates the reported data-only SSR (the
+    caller recomputes chi^2 from the data-only residual at the returned popt).
+
+    ``p0_start`` is the BASELINE solution (not the raw seed): alternating
+    optimization from the baseline escapes the gradient-cancellation saddle the
+    joint solver stalled in, while never moving below it — so the keep-better
+    guard accepts deterministically on well-conditioned data and improves on
+    degenerate data. ``hier_cfg`` carries the caller's config-derived iteration /
+    tolerance budget so ``execute_layers`` users can bound this (otherwise
+    expensive) branch.
+
+    Returns ``{"popt", "n_outer", "success"}`` with ``popt`` in native
+    ``[physics | scaling]`` layout.
+    """
+    from xpcsjax.optimization.nlsq.hierarchical import (
+        HierarchicalConfig,
+        HierarchicalOptimizer,
+    )
+
+    hier_cfg = hier_cfg or {}
+
+    # Permute native [physics | scaling] -> hier [scaling | physics].
+    perm = np.concatenate(
+        [
+            np.arange(n_physics, n_physics + n_scaling, dtype=np.intp),
+            np.arange(n_physics, dtype=np.intp),
+        ]
+    )
+    unperm = np.empty_like(perm)
+    unperm[perm] = np.arange(len(perm), dtype=np.intp)
+
+    p0_hier = np.asarray(p0_start, dtype=np.float64)[perm]
+    bounds_hier = (
+        np.asarray(lower, dtype=np.float64)[perm],
+        np.asarray(upper, dtype=np.float64)[perm],
+    )
+
+    def _loss_jax(ph: jnp.ndarray) -> jnp.ndarray:
+        params_native = ph[unperm]
+        # residual_fn is typed numpy-in; JAX arrays are numpy-compatible at runtime
+        # (the JAX/numpy boundary the rest of this module also bridges).
+        r = residual_fn(params_native)  # type: ignore[arg-type]
+        ssr_data = jnp.sum(r**2)
+        if l3_lambda is not None:
+            # SSE-scale per-angle-CV penalty over the RECONSTRUCTED per-angle
+            # scaling (relative-mode AdaptiveRegularizer equivalent:
+            # ``lambda * cv² * mse * n`` summed over the two groups == ``lambda *
+            # (c_CV² + o_CV²) * SSR_data``). Correct for both individual and fourier.
+            contrasts, offsets = _reconstruct_per_angle_scaling(
+                params_native, mode=mode, n_physics=n_physics, n_phi=n_phi, fourier=fourier
+            )
+            c_cv, o_cv = _per_angle_cv(contrasts, offsets)
+            return ssr_data + l3_lambda * (c_cv**2 + o_cv**2) * ssr_data
+        return ssr_data
+
+    # JIT both the loss and value-and-grad so HierarchicalOptimizer's many inner
+    # evaluations do NOT re-trace the (large) residual graph eagerly on every call
+    # — the un-jitted loss made this branch ~100x slower and impractical at ≥1M.
+    _loss_jit = jax.jit(_loss_jax)
+    _value_and_grad = jax.jit(jax.value_and_grad(_loss_jax))
+
+    def _loss(ph_np: np.ndarray) -> float:
+        return float(_loss_jit(jnp.asarray(ph_np)))
+
+    def _grad(ph_np: np.ndarray) -> np.ndarray:
+        _val, g = _value_and_grad(jnp.asarray(ph_np))
+        return np.asarray(g, dtype=np.float64)
+
+    hier_config = HierarchicalConfig(
+        enable=True,
+        max_outer_iterations=int(hier_cfg.get("max_outer_iterations", 5)),
+        outer_tolerance=float(hier_cfg.get("outer_tolerance", 1e-6)),
+        physical_max_iterations=int(hier_cfg.get("physical_max_iterations", 100)),
+        per_angle_max_iterations=int(hier_cfg.get("per_angle_max_iterations", 50)),
+    )
+    optimizer = HierarchicalOptimizer(
+        config=hier_config,
+        n_phi=n_phi,
+        n_physical=n_physics,
+        fourier_reparameterizer=fourier if mode == "fourier" else None,
+    )
+    hier_result = optimizer.fit(
+        loss_fn=_loss,
+        grad_fn=_grad,
+        p0=np.asarray(p0_hier, dtype=np.float64),
+        bounds=bounds_hier,
+        outer_iteration_callback=None,  # no shear update for heterodyne
+    )
+    popt_native = np.asarray(hier_result.x, dtype=np.float64)[unperm]
+    return {
+        "popt": popt_native,
+        "n_outer": int(hier_result.n_outer_iterations),
+        "success": bool(hier_result.success),
+    }
+
+
 def fit_heterodyne_stratified_least_squares(
     *,
     model: Any,
@@ -657,9 +817,229 @@ def fit_heterodyne_stratified_least_squares(
         _bounds_log.warning("One or more parameters violated physical bounds.")
         _bounds_log.warning("Parameters have been clipped to valid ranges.")
 
+    # ------------------------------------------------------------------
+    # Gated L2/L3 numeric execution (Phase 3, ``execute_layers``).
+    # ------------------------------------------------------------------
+    # Default OFF: the single baseline solve above IS the result and the honest
+    # ``hierarchical_active`` / ``regularization_active`` markers stay False
+    # (byte-identical to the pre-Phase-3 path). When ``execute_layers`` is True
+    # AND a layer is configured (``enable_hierarchical`` for L2, or
+    # ``regularization_mode != "none"`` for L3 — ``regularization.enable`` is
+    # IGNORED by the heterodyne config), the layer runs on the SEED (not the
+    # baseline) and its result is kept only if the data-only SSR is no worse than
+    # the baseline by more than ``tol`` (keep-better). Penalty rows shape the
+    # optimizer search only — the reported chi^2 is recomputed from the data-only
+    # residual below, so the objective is never contaminated.
+    hierarchical_active = False
+    regularization_active = False
+    _cov_placeholder = False
+    _invalidate_adapter_cov = False
+    # Metadata for an accepted layer candidate so the reported convergence /
+    # iterations / status reflect the LAYER that produced popt, not the stale
+    # baseline adapter fit (Fix 3). None on the default / rejected / flag-off path.
+    _layer_outcome: dict[str, Any] | None = None
+    execute_layers_on = bool(getattr(config, "execute_layers", False))
+    execute_layers_status = "off"
+
+    if execute_layers_on:
+        from xpcsjax.utils.logging import get_logger as _get_el_logger
+
+        _el_log = _get_el_logger(__name__)
+        _keep_tol = 1e-3
+        ssr_baseline = float(np.sum(np.asarray(residual_fn(popt), dtype=np.float64) ** 2))
+        reg_mode = str(getattr(config, "regularization_mode", "none"))
+        l3_configured = (
+            (reg_mode != "none")
+            and (n_scaling > 0)
+            and (mode in ("averaged", "individual", "fourier"))
+        )
+        enable_hier = bool(getattr(config, "enable_hierarchical", False))
+        use_constant = mode == "averaged"
+
+        # L3 rides inside the L2 scalar loss (individual / fourier) as an SSE-scale
+        # per-angle-CV penalty; ``None`` disables it. The L3-only branch below uses
+        # the same per-angle reconstruction as row-append penalties; averaged L3 is
+        # degenerate-zero.
+        _l3_lambda = (
+            float(getattr(config, "group_variance_lambda", 0.01))
+            if (l3_configured and not use_constant)
+            else None
+        )
+        # Config-derived iteration / tolerance budget so users can bound the
+        # (otherwise expensive) hierarchical branch (Fix 2). The per-angle/physical
+        # inner budgets are not exposed by the heterodyne config; the stratified-LS
+        # escape uses moderate caps (the keep-better guard protects quality, and at
+        # ≥1 M points each inner pass materialises the full prediction, so smaller
+        # inner budgets keep the gated escape affordable).
+        _hier_cfg = {
+            "max_outer_iterations": int(
+                getattr(config, "hierarchical_max_outer_iterations", 5)
+            ),
+            "outer_tolerance": float(getattr(config, "hierarchical_outer_tolerance", 1e-6)),
+            "physical_max_iterations": 50,
+            "per_angle_max_iterations": 30,
+        }
+
+        if enable_hier and n_scaling > 0 and not use_constant:
+            try:
+                candidate = _run_hierarchical_layers(
+                    residual_fn=residual_fn,
+                    p0_start=popt,  # refine/escape from the baseline, not the raw seed
+                    lower=lower,
+                    upper=upper,
+                    n_physics=n_physics,
+                    n_scaling=n_scaling,
+                    n_phi=n_phi,
+                    mode=mode,
+                    fourier=fourier,
+                    l3_lambda=_l3_lambda,
+                    hier_cfg=_hier_cfg,
+                )
+                cand_popt = np.clip(
+                    np.asarray(candidate["popt"], dtype=np.float64), lower, upper
+                )
+                cand_ssr = float(
+                    np.sum(np.asarray(residual_fn(cand_popt), dtype=np.float64) ** 2)
+                )
+                if cand_ssr <= ssr_baseline * (1.0 + _keep_tol):
+                    popt = cand_popt
+                    hierarchical_active = True
+                    regularization_active = bool(l3_configured)
+                    _cov_placeholder = True
+                    _layer_outcome = {
+                        "kind": "L2_hierarchical",
+                        "n_outer": int(candidate["n_outer"]),
+                        "success": bool(candidate["success"]),
+                    }
+                    # Honest status: a kept-but-non-converged hierarchical run (SSR
+                    # within tolerance yet solver did not meet outer_tolerance) is
+                    # surfaced distinctly rather than silently labelled "executed".
+                    execute_layers_status = (
+                        "executed"
+                        if candidate["success"]
+                        else "executed_not_converged"
+                    )
+                    _el_log.info(
+                        "execute_layers: L2 hierarchical ACCEPTED "
+                        "(SSR %.6e <= baseline %.6e * (1 + %.0e), converged=%s, n_outer=%d).",
+                        cand_ssr,
+                        ssr_baseline,
+                        _keep_tol,
+                        bool(candidate["success"]),
+                        int(candidate["n_outer"]),
+                    )
+                else:
+                    execute_layers_status = "attempted_but_rejected"
+                    _el_log.warning(
+                        "execute_layers: L2 hierarchical REJECTED "
+                        "(SSR %.6e > baseline %.6e * (1 + %.0e)); keeping baseline.",
+                        cand_ssr,
+                        ssr_baseline,
+                        _keep_tol,
+                    )
+            except Exception as _exc:  # best-effort: a layer failure must never break the fit
+                execute_layers_status = "attempted_but_rejected"
+                _el_log.warning(
+                    "execute_layers: L2 hierarchical raised (%s: %s); keeping baseline.",
+                    type(_exc).__name__,
+                    _exc,
+                )
+        elif l3_configured and use_constant:
+            # Averaged: each group is a single scalar -> std == 0 -> the penalty
+            # rows are identically zero (mirrors heterodyne_core's degenerate-CV
+            # averaged path). L3 is configured-and-objectively-inert here: flag it
+            # honestly without a wasteful re-solve (the objective is unchanged, so
+            # the baseline popt and SSR are already the L3 result).
+            regularization_active = True
+            execute_layers_status = "executed"
+        elif l3_configured and not use_constant and n_scaling > 0:
+            # L3-only (L2 disabled): augment the data residual with
+            # ``sqrt(lambda) * CV`` penalty rows and re-solve — the row-append L3
+            # of heterodyne_core's fourier path (2451-2515 / plan step 8). The
+            # penalty rows shape the least-squares search only; the reported chi^2
+            # is recomputed from the data-only residual below, so the objective is
+            # never contaminated. The baseline adapter covariance is invalidated
+            # (popt moved) so covariance is recomputed (host jacfwd, data-only) at
+            # the new popt.
+            try:
+                _lambda = float(getattr(config, "group_variance_lambda", 0.01))
+                _sqrt_lambda = float(np.sqrt(max(_lambda, 0.0)))
+
+                def _l3_augmented_residual(x: np.ndarray) -> jnp.ndarray:
+                    r = residual_fn(x)
+                    contrasts, offsets = _reconstruct_per_angle_scaling(
+                        jnp.asarray(x),
+                        mode=mode,
+                        n_physics=n_physics,
+                        n_phi=n_phi,
+                        fourier=fourier,
+                    )
+                    c_cv, o_cv = _per_angle_cv(contrasts, offsets)
+                    penalty_rows = jnp.array(
+                        [_sqrt_lambda * c_cv, _sqrt_lambda * o_cv], dtype=jnp.float64
+                    )
+                    return jnp.concatenate([r, penalty_rows])
+
+                fit_l3 = adapter.fit(
+                    residual_fn=_l3_augmented_residual,  # type: ignore[arg-type]
+                    initial_params=popt,  # refine from the baseline, not the raw seed
+                    bounds=(lower, upper),
+                    config=config,
+                )
+                cand_popt = np.clip(
+                    np.asarray(fit_l3.parameters, dtype=np.float64), lower, upper
+                )
+                cand_ssr = float(
+                    np.sum(np.asarray(residual_fn(cand_popt), dtype=np.float64) ** 2)
+                )
+                if cand_ssr <= ssr_baseline * (1.0 + _keep_tol):
+                    popt = cand_popt
+                    regularization_active = True
+                    _invalidate_adapter_cov = True  # popt moved; baseline cov stale
+                    _layer_outcome = {
+                        "kind": "L3_row_append",
+                        "n_outer": int(getattr(fit_l3, "n_iterations", 0) or 0),
+                        "success": bool(getattr(fit_l3, "success", True)),
+                    }
+                    execute_layers_status = (
+                        "executed"
+                        if _layer_outcome["success"]
+                        else "executed_not_converged"
+                    )
+                    _el_log.info(
+                        "execute_layers: L3 row-append ACCEPTED "
+                        "(SSR %.6e <= baseline %.6e * (1 + %.0e), converged=%s).",
+                        cand_ssr,
+                        ssr_baseline,
+                        _keep_tol,
+                        _layer_outcome["success"],
+                    )
+                else:
+                    execute_layers_status = "attempted_but_rejected"
+                    _el_log.warning(
+                        "execute_layers: L3 row-append REJECTED "
+                        "(SSR %.6e > baseline %.6e * (1 + %.0e)); keeping baseline.",
+                        cand_ssr,
+                        ssr_baseline,
+                        _keep_tol,
+                    )
+            except Exception as _exc:  # best-effort: a layer failure must never break the fit
+                execute_layers_status = "attempted_but_rejected"
+                _el_log.warning(
+                    "execute_layers: L3 row-append raised (%s: %s); keeping baseline.",
+                    type(_exc).__name__,
+                    _exc,
+                )
+        else:
+            execute_layers_status = "no_layers_configured"
+
+    # The baseline adapter covariance is valid only when popt is still the
+    # baseline solve. The L3-only row-append branch moves popt, so it invalidates
+    # the adapter covariance and forces the host-jacfwd (data-only) recompute at
+    # the new popt. The L2 branch uses the identity placeholder instead.
     _pcov_from_adapter = (
         np.asarray(fit.covariance, dtype=np.float64)
-        if fit.covariance is not None
+        if (fit.covariance is not None and not _invalidate_adapter_cov)
         else None
     )
 
@@ -677,7 +1057,12 @@ def fit_heterodyne_stratified_least_squares(
     # materialises a large (N × n_params) Jacobian, so every known failure mode
     # is caught and falls back to all-NaN (best-effort: a covariance failure must
     # never break the fit).
-    if _pcov_from_adapter is not None:
+    if _cov_placeholder:
+        # Accepted L2 hierarchical branch: the alternating solve does not produce
+        # a Gauss-Newton covariance, so use an identity placeholder (mirrors
+        # strategies/heterodyne_hybrid_streaming.py's ``covariance_is_placeholder``).
+        pcov: np.ndarray = np.eye(int(popt.size), dtype=np.float64)
+    elif _pcov_from_adapter is not None:
         pcov = _pcov_from_adapter
     else:
         n_params = int(popt.size)
@@ -720,10 +1105,32 @@ def fit_heterodyne_stratified_least_squares(
     chi2_per_angle = np.zeros(n_phi_meta, dtype=np.float64)
     np.add.at(chi2_per_angle, phi_idx_flat, final_residual**2)
 
-    # Laminar-parity OPTIMIZATION RESULTS block (reads the adapter's real fit
-    # outcome). ``initial_cost`` is omitted (None) to keep the stratified-LS path
-    # at ZERO extra residual evaluations — the block then reports the final cost
-    # without a cost-reduction percentage.
+    # Effective fit-outcome fields (Fix 3): when an execute_layers candidate was
+    # accepted, popt came from the LAYER, so success / iterations / message must
+    # describe that layer — not the stale baseline adapter fit. Otherwise these are
+    # the baseline adapter's real outcome.
+    _eff_message: str | None
+    if _layer_outcome is not None:
+        _eff_success = bool(_layer_outcome["success"])
+        _eff_nit = int(_layer_outcome["n_outer"])
+        _eff_message = (
+            f"{_layer_outcome['kind']} accepted by keep-better guard "
+            f"(converged={_layer_outcome['success']})"
+        )
+        _eff_reason = str(_layer_outcome["kind"])
+        _eff_fevals = None
+    else:
+        _eff_success = bool(fit.success)
+        _eff_nit = int(fit.n_iterations or 0)
+        _eff_message = getattr(fit, "message", None)
+        _eff_reason = str(getattr(fit, "convergence_reason", "") or "")
+        _eff_fevals = getattr(fit, "n_function_evals", None)
+    _eff_wall = float(fit.wall_time_seconds or 0.0)
+
+    # Laminar-parity OPTIMIZATION RESULTS block (reads the effective fit outcome).
+    # ``initial_cost`` is omitted (None) to keep the stratified-LS path at ZERO
+    # extra residual evaluations — the block then reports the final cost without a
+    # cost-reduction percentage.
     _n_data = int(meta["n_data_points"])
     # Noise-normalized reduced chi^2 (targets ~1.0), mirroring the in-memory
     # averaged/fourier joint paths. Raw SSR/dof collapses to MSE << 1 on
@@ -734,13 +1141,13 @@ def fit_heterodyne_stratified_least_squares(
     _n_dof = max(1, _n_data - int(popt.size))
     _reduced_chi2 = ssr / (_sigma2_noise * _n_dof) if _sigma2_noise > 1e-12 else ssr / _n_dof
     _hlog.log_optimization_results(
-        success=bool(fit.success),
-        message=getattr(fit, "message", None),
-        n_iterations=int(fit.n_iterations or 0),
+        success=_eff_success,
+        message=_eff_message,
+        n_iterations=_eff_nit,
         initial_cost=None,
         final_cost=0.5 * ssr,
-        wall_time=float(fit.wall_time_seconds or 0.0),
-        function_evals=getattr(fit, "n_function_evals", None),
+        wall_time=_eff_wall,
+        function_evals=_eff_fevals,
     )
 
     # Compute stratification diagnostics and memory estimate.
@@ -781,33 +1188,54 @@ def fit_heterodyne_stratified_least_squares(
     _hlog.log_stratified_complete(ssr, _reduced_chi2)
 
     info = {
-        "success": bool(fit.success),
-        # SciPy termination reason (status->reason string from build_result_from_nlsq).
-        # Lets the result builder report ``max_iter`` (graded on chi^2) instead of a
-        # blanket ``failed``/``poor`` when the solver merely exhausted ``max_nfev``.
-        "convergence_reason": str(getattr(fit, "convergence_reason", "") or ""),
+        # Effective outcome (Fix 3): reflects the accepted layer when one replaced
+        # popt, else the baseline adapter fit.
+        "success": _eff_success,
+        # SciPy termination reason (status->reason string from build_result_from_nlsq),
+        # or the layer kind when a layer was accepted. Lets the result builder report
+        # ``max_iter`` (graded on chi^2) instead of a blanket ``failed``/``poor`` when
+        # the solver merely exhausted ``max_nfev``.
+        "convergence_reason": _eff_reason,
         "cost": 0.5 * ssr,
-        "nit": int(fit.n_iterations or 0),
-        "wall_time": float(fit.wall_time_seconds or 0.0),
+        "nit": _eff_nit,
+        "wall_time": _eff_wall,
         "n_data_points": int(meta["n_data_points"]),
         "sigma2_noise": float(_sigma2_noise),
         "stratification_memory": mem_estimate,
     }
-    # Thread controller diagnostics into info so build_hybrid_streaming_result
-    # can surface ``controller_diagnostics`` in the public nlsq_diagnostics block,
-    # reaching parity with laminar's stratified-LS path (strategies/stratified_ls.py
-    # line ~862: ``anti_degeneracy_info["controller_diagnostics"] = ...``).
-    # We deliberately add ONLY ``controller_diagnostics`` here. The flat activation
-    # markers (hierarchical_active, regularization_active) are read by the result
-    # builder via ``ad_block.get(..., False)`` and therefore default to False since
-    # this dict omits them — which is correct for the stratified-LS path, where
-    # L2/L3 don't execute. (shear_weighting is L5-gated off for two_component and
-    # set to the heterodyne sentinel inside the builder.)
-    # Best-effort: emitted only when the controller was successfully constructed.
+    # Thread the anti-degeneracy block into info so build_hybrid_streaming_result
+    # surfaces the activation markers + (when present) ``controller_diagnostics``
+    # in the public nlsq_diagnostics block, reaching parity with laminar's
+    # stratified-LS path (strategies/stratified_ls.py line ~862).
+    #
+    # ``hierarchical_active`` / ``regularization_active`` are read by the result
+    # builder via ``ad_block.get(..., False)`` — they are HONEST per the executed
+    # branch: ``False`` on the default (flag-off) single-solve path, and ``True``
+    # only when the gated ``execute_layers`` L2/L3 candidate was accepted by the
+    # keep-better guard above. ``execute_layers_status`` /
+    # ``covariance_is_placeholder`` are surfaced only when the flag is on (so the
+    # flag-off result surface stays byte-identical). (shear_weighting is L5-gated
+    # off for two_component and set to the heterodyne sentinel inside the builder.)
+    _ad_block: dict[str, Any] = {
+        "hierarchical_active": hierarchical_active,
+        "regularization_active": regularization_active,
+        "per_angle_mode": mode,
+    }
+    if execute_layers_on:
+        _ad_block["execute_layers"] = True
+        _ad_block["execute_layers_status"] = execute_layers_status
+        if _layer_outcome is not None:
+            # Surface the accepted-layer provenance so production triage sees what
+            # actually produced popt (Fix 3).
+            _ad_block["execute_layers_kind"] = _layer_outcome["kind"]
+            _ad_block["execute_layers_n_outer"] = int(_layer_outcome["n_outer"])
+            _ad_block["execute_layers_converged"] = bool(_layer_outcome["success"])
+    if _cov_placeholder:
+        _ad_block["covariance_is_placeholder"] = True
+    # Best-effort: controller diagnostics only when the controller was built.
     if ad_controller is not None:
-        info["anti_degeneracy"] = {
-            "controller_diagnostics": ad_controller.get_diagnostics(),
-        }
+        _ad_block["controller_diagnostics"] = ad_controller.get_diagnostics()
+    info["anti_degeneracy"] = _ad_block
     return build_hybrid_streaming_result(
         model=model,
         popt=popt,
