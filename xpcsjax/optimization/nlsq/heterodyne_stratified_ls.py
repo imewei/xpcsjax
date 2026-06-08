@@ -598,6 +598,49 @@ def fit_heterodyne_stratified_least_squares(
     )
 
     popt = np.asarray(fit.parameters, dtype=np.float64)
+
+    # Post-solve bounds clip (parity with laminar strategies/stratified_ls.py).
+    # ``trf`` already respects bounds, so in the normal case popt is already
+    # in-bounds and this block is a no-op (ssr/chi2/popt byte-identical).
+    # When the solver returns a marginally out-of-bounds value (floating-point
+    # edge at a boundary), clipping it in is the correct behaviour and must
+    # happen BEFORE the residual recompute so that ssr/chi2/covariance are all
+    # derived from the clipped vector.
+    _bounds_log = None  # lazy-init — avoids import cost in the normal (no-op) path
+    _bounds_violated = False
+    for _i in range(popt.size):
+        _orig = float(popt[_i])
+        if _orig < float(lower[_i]) or _orig > float(upper[_i]):
+            popt[_i] = np.clip(_orig, float(lower[_i]), float(upper[_i]))
+            _bounds_violated = True
+            if _bounds_log is None:
+                from xpcsjax.utils.logging import get_logger as _get_logger
+
+                _bounds_log = _get_logger(__name__)
+            _pname = (
+                joint_param_names[_i]
+                if _i < len(joint_param_names)
+                else f"param_{_i}"
+            )
+            _bounds_log.warning(
+                "Parameter '%s' violated bounds: %.6e not in [%.6e, %.6e]",
+                _pname,
+                _orig,
+                float(lower[_i]),
+                float(upper[_i]),
+            )
+            _bounds_log.warning("    Clipped to: %.6e (bounds enforced)", float(popt[_i]))
+    if _bounds_violated:
+        if _bounds_log is None:
+            from xpcsjax.utils.logging import get_logger as _get_logger
+
+            _bounds_log = _get_logger(__name__)
+        _bounds_log.warning("=" * 80)
+        _bounds_log.warning("BOUNDS VIOLATION DETECTED")
+        _bounds_log.warning("=" * 80)
+        _bounds_log.warning("One or more parameters violated physical bounds.")
+        _bounds_log.warning("Parameters have been clipped to valid ranges.")
+
     _pcov_from_adapter = (
         np.asarray(fit.covariance, dtype=np.float64)
         if fit.covariance is not None

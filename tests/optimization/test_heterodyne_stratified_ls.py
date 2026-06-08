@@ -688,3 +688,156 @@ def test_stratified_ls_jacfwd_guard_on_linalg_error(monkeypatch):
     cov = np.asarray(result.covariance)
     assert cov.shape == (n, n)
     assert np.all(np.isnan(cov)), "expected all-NaN covariance on guard fallback"
+
+
+# ---------------------------------------------------------------------------
+# Task 3: Post-solve bounds clip + violation banner (parity with laminar)
+# ---------------------------------------------------------------------------
+
+
+def test_bounds_clip_enforces_bounds_on_marginally_out_of_bounds_result(
+    monkeypatch, caplog
+):
+    """Post-solve clip: a solver result with one param just outside its bound.
+
+    When the adapter returns popt with element 0 nudged just below its lower
+    bound, the clip block must:
+
+    * Bring result.parameters[0] back to lower[0] (no violation leaks).
+    * Emit a BOUNDS VIOLATION DETECTED warning banner.
+    * Leave all other parameters unchanged.
+    * SSR/chi_squared may differ from the reference (residual recomputed from
+      clipped popt) — the guarantee is bounds enforcement, not identity.
+    """
+    from dataclasses import replace as _replace
+
+    import xpcsjax.optimization.nlsq.heterodyne_adapter as _ha_mod
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        fit_heterodyne_stratified_least_squares,
+    )
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged"})
+
+    _OrigAdapter = _ha_mod.NLSQAdapter
+
+    class _OutOfBoundsAdapter(_OrigAdapter):
+        """Return the normal solve but with param[0] nudged 1e-8 below its lower bound."""
+
+        def fit(
+            self, residual_fn, initial_params, bounds, config, jacobian_fn=None, callback=None
+        ):
+            result = super().fit(
+                residual_fn=residual_fn,
+                initial_params=initial_params,
+                bounds=bounds,
+                config=config,
+            )
+            # Nudge the first parameter just below its lower bound.
+            _lower, _upper = bounds
+            _params = np.array(result.parameters, dtype=np.float64, copy=True)
+            _params[0] = float(_lower[0]) - 1e-8
+            return _replace(result, parameters=_params)
+
+    monkeypatch.setattr(_ha_mod, "NLSQAdapter", _OutOfBoundsAdapter)
+
+    with caplog.at_level(logging.WARNING, logger="xpcsjax.optimization.nlsq.heterodyne_stratified_ls"):
+        result = fit_heterodyne_stratified_least_squares(
+            model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False
+        )
+
+    # --- Bounds enforcement ---
+    # Reconstruct the lower/upper vectors to verify the clip target.
+    lower_phys, upper_phys = model.param_manager.get_bounds()
+    lower_phys_arr = np.asarray(lower_phys, dtype=np.float64)
+    upper_phys_arr = np.asarray(upper_phys, dtype=np.float64)
+    scaling_lower = np.zeros(2, dtype=np.float64)  # averaged: 2 scaling params
+    scaling_upper = np.full(2, np.inf, dtype=np.float64)
+    lower_full = np.concatenate([lower_phys_arr, scaling_lower])
+    upper_full = np.concatenate([upper_phys_arr, scaling_upper])
+
+    params = np.asarray(result.parameters)
+    # All parameters must be within bounds.
+    assert np.all(params >= lower_full[: params.size]), (
+        f"params[0]={params[0]:.6e} < lower[0]={lower_full[0]:.6e}: clip did not enforce bounds"
+    )
+    assert np.all(params <= upper_full[: params.size]), (
+        "upper bounds violated after clip"
+    )
+
+    # The warning banner must have been emitted.
+    assert "BOUNDS VIOLATION DETECTED" in caplog.text, (
+        "expected BOUNDS VIOLATION DETECTED banner in log"
+    )
+
+
+def test_bounds_clip_is_noop_for_in_bounds_result(monkeypatch):
+    """Post-solve clip: normal in-bounds solve must be byte-identical.
+
+    When the adapter returns a popt already within bounds (the normal case),
+    the clip block must not alter any element — ssr/chi2/popt are unchanged.
+    """
+    import xpcsjax.optimization.nlsq.heterodyne_adapter as _ha_mod
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        fit_heterodyne_stratified_least_squares,
+    )
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged"})
+
+    # --- Reference: plain unpatched fit ---
+    ref = fit_heterodyne_stratified_least_squares(
+        model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False
+    )
+
+    # --- Patched adapter that records the raw popt before the clip block sees it ---
+    _captured_raw: list[np.ndarray] = []
+    _OrigAdapter = _ha_mod.NLSQAdapter
+
+    class _RecordingAdapter(_OrigAdapter):
+        """Pass-through adapter that records the raw parameters before clip."""
+
+        def fit(
+            self, residual_fn, initial_params, bounds, config, jacobian_fn=None, callback=None
+        ):
+            result = super().fit(
+                residual_fn=residual_fn,
+                initial_params=initial_params,
+                bounds=bounds,
+                config=config,
+            )
+            _captured_raw.append(np.array(result.parameters, dtype=np.float64, copy=True))
+            return result
+
+    monkeypatch.setattr(_ha_mod, "NLSQAdapter", _RecordingAdapter)
+
+    patched = fit_heterodyne_stratified_least_squares(
+        model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False
+    )
+
+    assert len(_captured_raw) == 1, "adapter.fit was not called exactly once"
+    raw = _captured_raw[0]
+
+    # The raw popt from the solver must already be in-bounds (trf guarantee).
+    lower_phys, upper_phys = model.param_manager.get_bounds()
+    lower_phys_arr = np.asarray(lower_phys, dtype=np.float64)
+    upper_phys_arr = np.asarray(upper_phys, dtype=np.float64)
+    scaling_lower = np.zeros(2, dtype=np.float64)
+    scaling_upper = np.full(2, np.inf, dtype=np.float64)
+    lower_full = np.concatenate([lower_phys_arr, scaling_lower])
+    upper_full = np.concatenate([upper_phys_arr, scaling_upper])
+
+    assert np.all(raw >= lower_full[: raw.size]), "raw solver popt already out-of-bounds"
+    assert np.all(raw <= upper_full[: raw.size]), "raw solver popt already out-of-bounds"
+
+    # The clip block is a no-op -> result must be byte-identical to reference.
+    assert np.array_equal(patched.parameters, ref.parameters), (
+        "clip no-op path changed parameters: in-bounds popt must be byte-identical"
+    )
+    assert patched.chi_squared == ref.chi_squared, (
+        "clip no-op path changed chi_squared: ssr must be byte-identical"
+    )
