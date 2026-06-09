@@ -189,21 +189,39 @@ _TRUE_PERTURB = {
 # ``cpu_aot_loader`` "machine type doesn't match" warning is the tell). So an
 # earlier ``sys.platform == "linux"`` gate was the WRONG oracle — the Ubuntu CI
 # runner IS Linux but a different CPU. These are a maintainer-local oracle in the
-# same vein as ``test_homodyne_equivalence.py`` (``XPCSJAX_RUN_CHARACTERIZATION``):
-# default-SKIP on CI / fresh checkouts, opt-in via ``XPCSJAX_RUN_ENGINE_PARITY=1``.
+# same vein as ``test_homodyne_equivalence.py`` (``XPCSJAX_RUN_CHARACTERIZATION``).
 # The hardware-ROBUST checks — engine reaches the global minimum (``< 1e-6``),
 # contract/shape/key validity, the fixed-param unit golden, and the end-to-end
 # golden's STRUCTURAL asserts — stay cross-platform and keep running on CI. This is
 # NOT loosening: a real residual/scaling/layout/solver regression still fails the
 # oracle on the maintainer machine. See the project memory
 # ``project_heterodyne-engine-route-platform-fragility``.
-_RUN_ENGINE_PARITY = os.environ.get("XPCSJAX_RUN_ENGINE_PARITY") == "1"
+#
+# GATING (2026-06-09): these AUTO-RUN locally (so a maintainer ``make verify`` has
+# zero skips) and SKIP only on CI — where GitHub's heterogeneous runner fleet makes
+# the basin/SSR outcome non-reproducible. The earlier ``XPCSJAX_RUN_ENGINE_PARITY=1``
+# env-opt-in is retained as an explicit FORCE-ON override (run even on CI, e.g. to
+# debug a specific runner). Note CI is detected by the CI/GITHUB_ACTIONS markers, NOT
+# by ``sys.platform`` — the Ubuntu CI runner is Linux but a different CPU, which is
+# exactly why a ``sys.platform == "linux"`` gate was the wrong oracle.
+
+
+def _on_ci() -> bool:
+    ci = os.environ.get("CI", "").strip().lower()
+    if ci in {"true", "1", "yes", "on"}:
+        return True
+    return bool(os.environ.get("GITHUB_ACTIONS") or os.environ.get("GITLAB_CI"))
+
+
+_FORCE_ENGINE_PARITY = os.environ.get("XPCSJAX_RUN_ENGINE_PARITY") == "1"
+_SKIP_ENGINE_PARITY = _on_ci() and not _FORCE_ENGINE_PARITY
 _MAINTAINER_ONLY = pytest.mark.skipif(
-    not _RUN_ENGINE_PARITY,
+    _SKIP_ENGINE_PARITY,
     reason=(
         "strict-numeric engine-route parity is a maintainer-local oracle "
         "(CPU-microarchitecture-specific outcome, not reproducible across CI "
-        "hardware); set XPCSJAX_RUN_ENGINE_PARITY=1 to run. See "
+        "hardware); auto-runs locally and skips on CI. Set "
+        "XPCSJAX_RUN_ENGINE_PARITY=1 to force-run even on CI. See "
         "project_heterodyne-engine-route-platform-fragility"
     ),
 )

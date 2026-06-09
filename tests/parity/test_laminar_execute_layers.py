@@ -29,6 +29,15 @@ import logging
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
+
+# The synthetic data is self-consistent g2 *at truth* (see ``_build_laminar_stratified_data``),
+# so a converged fit drives residuals → 0 and the Jacobian becomes rank-deficient. Upstream
+# ``nlsq``'s stability guard then correctly reports ``Ill-conditioned Jacobian (condition
+# number: inf)``. That warning is an expected consequence of the noise-free perfect-fit
+# scenario these mechanism oracles deliberately construct — not an xpcsjax defect — so it is
+# filtered here (message-prefix match, decoupled from upstream's exact wording).
+pytestmark = pytest.mark.filterwarnings("ignore:Ill-conditioned Jacobian")
 
 _NAMES = ["D0", "alpha", "D_offset", "gamma_dot_t0", "beta", "gamma_dot_t_offset", "phi0"]
 _LOG = logging.getLogger("test_laminar_execute_layers")

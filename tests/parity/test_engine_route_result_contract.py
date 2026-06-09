@@ -41,8 +41,9 @@ import pytest
 # Reuse the proven well-posed fixture + solver budget + the maintainer-local
 # oracle gate from the fit-parity module (single source of truth for the
 # CPU-microarchitecture-fragility scope — strict-numeric engine-route parity is
-# not reproducible across CI hardware, so it is opt-in via
-# XPCSJAX_RUN_ENGINE_PARITY=1; see project_heterodyne-engine-route-platform-fragility).
+# not reproducible across CI hardware, so it auto-runs locally and skips on CI
+# [XPCSJAX_RUN_ENGINE_PARITY=1 force-runs even on CI]; see
+# project_heterodyne-engine-route-platform-fragility).
 from tests.parity.test_engine_heterodyne_fit_parity import (
     _MAINTAINER_ONLY,
     _MODE_TO_PRODUCTION,
