@@ -364,8 +364,8 @@
     "hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/data/test_loader_integration.py": {
-    "mtime": 1780525312.7953494,
-    "hash": "cb7cc9586b2ab78faf604660066220fb"
+    "mtime": 1780985508.6330135,
+    "hash": "8822e950cf9e5e05fa3e29ab53457807"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/data/test_no_pickle_loads.py": {
     "mtime": 1780525312.7963493,
@@ -428,8 +428,8 @@
     "hash": "123abbf91665fb06d988f1e811cb1297"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/parity/test_engine_heterodyne_fit_parity.py": {
-    "mtime": 1780801830.4043386,
-    "hash": "282895f4c40b1e99b8a6c818c8230fa4"
+    "mtime": 1780985388.4960344,
+    "hash": "b76934cf3e90b6716a97b58a2a297126"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/parity/__init__.py": {
     "mtime": 1779286310.7380996,
@@ -452,8 +452,8 @@
     "hash": "2ff2f791aa7b5eb6e9f9598078d687ae"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/parity/test_laminar_execute_layers.py": {
-    "mtime": 1780958658.5823517,
-    "hash": "3b32d7c152a7665f32e1a8b7c801eef9"
+    "mtime": 1780983457.7497206,
+    "hash": "b8d012f1a1da05ee12b73e441315063e"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/parity/test_layer_activation_matrix.py": {
     "mtime": 1780525312.8113492,
@@ -464,8 +464,8 @@
     "hash": "3cec6b13683452f78ef85db9bcab1cfe"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/parity/test_engine_route_result_contract.py": {
-    "mtime": 1780801864.9589765,
-    "hash": "20150bb4719694137689615a664206e7"
+    "mtime": 1780985402.0580337,
+    "hash": "5f555fcfef6e8754b15d3d5bd110ec87"
   },
   "/home/wei/Documents/GitHub/xpcsjax/tests/parity/_golden_util.py": {
     "mtime": 1780626567.9533904,
@@ -1486,10 +1486,6 @@
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/theory/index.rst": {
     "mtime": 1780068593.3314216,
     "hash": "bceb022c79a295defdd4bb3920563b43"
-  },
-  "/home/wei/Documents/GitHub/xpcsjax/tests/data/_fixtures/homodyne_static_fixture.yaml": {
-    "mtime": 1780515096.316428,
-    "hash": "96e450cd04f2a0d577cfd5174185881c"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/templates/xpcsjax_static_isotropic.yaml": {
     "mtime": 1780978704.34571,
