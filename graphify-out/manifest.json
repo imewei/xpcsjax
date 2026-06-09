@@ -768,8 +768,8 @@
     "hash": "496d92386ac424023e8f40b6ea6f1f5b"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/heterodyne_stratified_ls.py": {
-    "mtime": 1780950789.897353,
-    "hash": "49b676ca71cf5c82422e9e3296f50213"
+    "mtime": 1780978906.753312,
+    "hash": "8e03a58a294800447e7edcc6d5c87b5e"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/transforms.py": {
     "mtime": 1780525312.8343492,
@@ -840,12 +840,12 @@
     "hash": "b9f0b9128a125a6793b7c0cefcc8b219"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/anti_degeneracy_controller.py": {
-    "mtime": 1780935590.0848477,
-    "hash": "cb252722e05f94ee3684f34a37e0f9dd"
+    "mtime": 1780978809.152522,
+    "hash": "c050a57c852394f8feaabcdaf0897a3a"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/config.py": {
-    "mtime": 1780936392.7751193,
-    "hash": "68346a206fa73352eced9e38a0dc83b4"
+    "mtime": 1780978717.2776892,
+    "hash": "827128aab77dd890c8b524f29b544eaa"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/parallel_accumulator.py": {
     "mtime": 1780671715.0531998,
@@ -940,8 +940,8 @@
     "hash": "f033fa2aa01d9763d6381b58c33916e7"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/heterodyne_config.py": {
-    "mtime": 1780936372.7611382,
-    "hash": "ae7334c65759361b1f0b01d815db0944"
+    "mtime": 1780978755.1236243,
+    "hash": "167d9018ef225e8210e126efe2a1a3a6"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/optimization/nlsq/strategies/residual_jit.py": {
     "mtime": 1780768997.9103103,
@@ -1492,20 +1492,20 @@
     "hash": "96e450cd04f2a0d577cfd5174185881c"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/templates/xpcsjax_static_isotropic.yaml": {
-    "mtime": 1780935590.0828478,
-    "hash": "66386c43063b5d4bad927af26e076866"
+    "mtime": 1780978704.34571,
+    "hash": "821c83990236c4f299ad86ef483cde6c"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/templates/xpcsjax_laminar_flow.yaml": {
-    "mtime": 1780935590.0808477,
-    "hash": "70b2ddc8bd6a62004dcfe516bcea442f"
+    "mtime": 1780978704.2477102,
+    "hash": "01b9180f61f516630bf9c9db626786e7"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/templates/xpcsjax_two_component.yaml": {
-    "mtime": 1780935590.0828478,
-    "hash": "a45ec9d1de28a1731d922d272b6645fb"
+    "mtime": 1780978704.28071,
+    "hash": "af052480c4423cd4238d2375bc964db7"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/templates/xpcsjax_static_anisotropic.yaml": {
-    "mtime": 1780935590.081848,
-    "hash": "7cfccf9106d9c111b50db2e29f12a9cf"
+    "mtime": 1780978704.30871,
+    "hash": "6f5feeeb4065fd168b8fc91b3e9a078c"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/theory/citations.rst": {
     "mtime": 1779237286.5874834,
