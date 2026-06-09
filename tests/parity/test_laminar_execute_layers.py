@@ -149,6 +149,16 @@ def _fit(execute_layers: bool, *, regularization: bool = True):
     return popt, info
 
 
+def test_info_threads_convergence_reason_and_status():
+    """R2a: the stratified-LS ``info`` carries the SciPy termination reason + status
+    so the wrapper can grade a max_nfev-limited good-chi^2 solve as ``max_iter``
+    instead of a blanket ``failed`` (parity with the heterodyne path)."""
+    _popt, info = _fit(execute_layers=False)
+    assert "convergence_reason" in info
+    assert isinstance(info["convergence_reason"], str)
+    assert "status" in info  # SciPy/NLSQ termination code (int or None)
+
+
 def test_flag_off_is_single_solve_no_l2():
     """Flag OFF: no L2 executes; honest inactive markers (byte-identical path)."""
     popt, info = _fit(execute_layers=False)

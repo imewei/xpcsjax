@@ -1369,6 +1369,8 @@ class NLSQWrapper(NLSQAdapterBase):
                             convergence_status=(
                                 "converged" if info.get("success", False) else "failed"
                             ),
+                            convergence_reason=info.get("convergence_reason"),
+                            solver_status=info.get("status"),
                             recovery_actions=["hybrid_streaming_optimizer_method"],
                             streaming_diagnostics=info.get("hybrid_streaming_diagnostics"),
                             stratification_diagnostics=stratification_diagnostics,
@@ -1467,6 +1469,8 @@ class NLSQWrapper(NLSQAdapterBase):
                     iterations=info.get("nit", 0),
                     execution_time=execution_time,
                     convergence_status=("converged" if info.get("success", False) else "failed"),
+                    convergence_reason=info.get("convergence_reason"),
+                    solver_status=info.get("status"),
                     recovery_actions=["stratified_least_squares_method"],
                     streaming_diagnostics=None,
                     stratification_diagnostics=stratification_diagnostics,
@@ -3737,6 +3741,8 @@ class NLSQWrapper(NLSQAdapterBase):
         iterations: int,
         execution_time: float,
         convergence_status: str = "converged",
+        convergence_reason: str | None = None,
+        solver_status: int | None = None,
         recovery_actions: list[str] | None = None,
         streaming_diagnostics: dict[str, Any] | None = None,
         stratification_diagnostics: StratificationDiagnostics | None = None,
@@ -3801,6 +3807,23 @@ class NLSQWrapper(NLSQAdapterBase):
         n_params = n_params_effective if n_params_effective is not None else len(popt)
         degrees_of_freedom = n_data - n_params
         reduced_chi_squared = chi_squared / degrees_of_freedom if degrees_of_freedom > 0 else np.inf
+
+        # R2 (status-grading parity with heterodyne_result_builder): a trust-region
+        # solve that exhausts SciPy's ``max_nfev`` (status 0) reports
+        # ``success=False`` even when it landed on a usable point — common on
+        # near-degenerate problems where ``gtol`` is never certified (C044: reduced
+        # chi^2 ~= 0.68 yet status was FAILED). When a budget-exhausted solve still
+        # produced a finite reduced chi^2, report ``max_iter`` (honest: not
+        # certified-converged, but graded on its real chi^2) instead of a blanket
+        # ``failed``. Numerics-safe: only the status label changes. Callers that do
+        # not thread a reason/status keep the previous converged/failed behavior.
+        if convergence_status == "failed" and np.isfinite(reduced_chi_squared):
+            _hit_max_nfev = solver_status == 0 or (
+                convergence_reason is not None
+                and "maximum number of function evaluations" in convergence_reason.lower()
+            )
+            if _hit_max_nfev:
+                convergence_status = "max_iter"
 
         # Get device information
         devices = jax.devices()

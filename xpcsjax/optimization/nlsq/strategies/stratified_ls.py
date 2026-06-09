@@ -850,6 +850,10 @@ def fit_with_stratified_least_squares(
     message = result.get("message", "Optimization completed")
     nfev = result.get("nfev", 0)
     nit = result.get("nit", 0)
+    # R2a (status-grading parity): expose the SciPy/NLSQ termination code + reason
+    # so the wrapper can grade a max_nfev-limited good-chi^2 solve as ``max_iter``
+    # rather than a blanket ``failed`` (the heterodyne path already threads this).
+    status = result.get("status")
     # When an execute_layers candidate replaced popt, the reported outcome must
     # describe the LAYER that produced it, not the stale baseline solve.
     if _lam_layer_outcome is not None:
@@ -1030,6 +1034,8 @@ def fit_with_stratified_least_squares(
     info = {
         "success": success,
         "message": message,
+        "convergence_reason": message,
+        "status": status,
         "nfev": nfev,
         "nit": nit,
         "initial_cost": initial_cost,
