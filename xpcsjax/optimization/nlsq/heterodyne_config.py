@@ -452,10 +452,12 @@ class NLSQConfig:
     validation : NLSQValidationConfig
         Post-fit validation thresholds.
     execute_layers : bool
-        Currently-inert gate for the stratified-LS numeric-execution path.
-        Registered for round-trip completeness alongside the other anti-degeneracy
-        fields; default ``False``. No code reads this field to branch behavior
-        in v0.1.
+        Opt-in gate for the L2/L3 anti-degeneracy ESCAPE on the >=1M stratified-LS
+        path. Default ``False`` runs the single baseline solve (byte-identical to
+        the pre-escape path). ``True`` runs the keep-better-guarded hierarchical
+        (+ regularization) escape after the baseline — it is EXPENSIVE (~3-5x the
+        baseline fit wall-time) and never returns a worse result than the baseline,
+        so enable it only for a genuinely-stuck / degenerate fit.
     """
 
     # ------------------------------------------------------------------
@@ -536,7 +538,10 @@ class NLSQConfig:
     # ------------------------------------------------------------------
 
     enable_hierarchical: bool = False
-    execute_layers: bool = False  # inert gate; registered for round-trip completeness
+    # Opt-in L2/L3 anti-degeneracy escape on the >=1M stratified-LS path (default
+    # OFF = byte-identical single solve; True = keep-better hierarchical escape,
+    # expensive ~3-5x baseline wall-time). See the field docstring above.
+    execute_layers: bool = False
     hierarchical_max_outer_iterations: int = 20
     hierarchical_inner_tolerance: float = 1e-6
     hierarchical_outer_tolerance: float = 1e-4

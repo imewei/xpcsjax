@@ -305,7 +305,10 @@ class NLSQConfig:
     # Layer 2: Hierarchical Optimization
     # Alternates between physical and per-angle params to break gradient cancellation
     enable_hierarchical: bool = True
-    execute_layers: bool = False  # inert gate; registered for round-trip completeness
+    # Opt-in L2/L3 anti-degeneracy escape on the >=1M stratified-LS path (default
+    # OFF = byte-identical single solve; True runs the keep-better-guarded
+    # hierarchical escape — expensive, ~3-5x baseline wall-time).
+    execute_layers: bool = False
     hierarchical_max_outer_iterations: int = 5
     hierarchical_outer_tolerance: float = 1e-6
     hierarchical_physical_max_iterations: int = 100

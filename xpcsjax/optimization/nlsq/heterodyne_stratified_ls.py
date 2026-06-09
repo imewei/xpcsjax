@@ -865,19 +865,32 @@ def fit_heterodyne_stratified_least_squares(
             if (l3_configured and not use_constant)
             else None
         )
-        # Config-derived iteration / tolerance budget so users can bound the
-        # (otherwise expensive) hierarchical branch (Fix 2). The per-angle/physical
-        # inner budgets are not exposed by the heterodyne config; the stratified-LS
-        # escape uses moderate caps (the keep-better guard protects quality, and at
-        # ≥1 M points each inner pass materialises the full prediction, so smaller
-        # inner budgets keep the gated escape affordable).
+        # Config-derived iteration / tolerance budget for the (expensive)
+        # hierarchical escape (Fix 2). At ≥1 M points each inner pass materialises
+        # the full prediction, so the escape is costly (measured ~3.5x baseline
+        # wall-time on C044). Two affordability levers, both safe because the
+        # keep-better guard protects quality (fewer iterations only risk a
+        # *rejected* — never a *worse* — escape):
+        #   * outer: ``hierarchical_max_outer_iterations`` defaults to 20 on the
+        #     heterodyne config (tuned for the in-memory path); 20 full-≥1M outer
+        #     passes are prohibitive, so the escape CAPS it at ``_ESCAPE_MAX_OUTER``.
+        #     Lower it further in config for an even cheaper escape.
+        #   * inner: the per-angle / physical inner caps fall back to low defaults
+        #     (cheaper than the in-memory 100/50) but honour the config fields if
+        #     present (forward-compatible with the laminar controller path).
+        _ESCAPE_MAX_OUTER = 5
         _hier_cfg = {
-            "max_outer_iterations": int(
-                getattr(config, "hierarchical_max_outer_iterations", 5)
+            "max_outer_iterations": min(
+                int(getattr(config, "hierarchical_max_outer_iterations", _ESCAPE_MAX_OUTER)),
+                _ESCAPE_MAX_OUTER,
             ),
             "outer_tolerance": float(getattr(config, "hierarchical_outer_tolerance", 1e-6)),
-            "physical_max_iterations": 50,
-            "per_angle_max_iterations": 30,
+            "physical_max_iterations": int(
+                getattr(config, "hierarchical_physical_max_iterations", 30)
+            ),
+            "per_angle_max_iterations": int(
+                getattr(config, "hierarchical_per_angle_max_iterations", 20)
+            ),
         }
 
         if enable_hier and n_scaling > 0 and not use_constant:

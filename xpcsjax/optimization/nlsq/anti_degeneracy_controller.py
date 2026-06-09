@@ -114,13 +114,13 @@ class AntiDegeneracyConfig:
     gradient_response_mode : str
         Response action: "warn", "hierarchical", "reset", "abort".
     execute_layers : bool
-        Gate for future numeric execution of the L2 hierarchical and L3
-        regularization layers on the stratified-LS path.  Default ``False``
-        preserves current behavior: layers are configured and their
-        diagnostics are emitted, but they are not numerically executed on
-        that path.  Currently **inert** — no code reads this flag to branch
-        behavior.  Reserved for a future phase that wires full L2/L3
-        execution into the stratified-LS solver.
+        Opt-in gate for the L2 hierarchical + L3 regularization anti-degeneracy
+        ESCAPE on the >=1M stratified-LS path. Default ``False`` runs the single
+        baseline solve (layers configured + diagnosed but not executed —
+        byte-identical to the pre-escape path). ``True`` runs the escape after the
+        baseline and keeps it only under the keep-better guard (never worse than
+        the baseline). The escape is EXPENSIVE (~3-5x the baseline fit wall-time),
+        so it is an opt-in for genuinely-stuck / degenerate fits, not a default.
     """
 
     enable: bool = True
@@ -616,18 +616,18 @@ class AntiDegeneracyController:
 
     @property
     def execute_layers(self) -> bool:
-        """Return the stratified-LS numeric-execution gate flag.
+        """Return the stratified-LS L2/L3 escape gate flag.
 
-        Currently **inert** (default ``False``).  A future phase will read
-        this flag to gate actual L2/L3 numeric execution on the
-        stratified-LS path; for now it is registered and parseable but
-        nothing branches on it.
+        Read by both stratified-LS solvers (``stratified_ls.py`` /
+        ``heterodyne_stratified_ls.py``) to gate the keep-better-guarded L2/L3
+        escape. Default ``False`` runs the byte-identical single baseline solve;
+        ``True`` runs the (expensive, opt-in) escape.
 
         Returns
         -------
         bool
-            ``True`` when numeric L2/L3 execution is requested (reserved for a future phase);
-            ``False`` (default) preserves current behavior.
+            ``True`` when the L2/L3 escape is requested; ``False`` (default) runs
+            the single baseline solve.
         """
         return self.config.execute_layers
 

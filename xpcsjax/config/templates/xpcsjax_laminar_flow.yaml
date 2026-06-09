@@ -430,7 +430,19 @@ optimization:
     #   individual: 53 params  (7 + 46 per-angle scaling)
     anti_degeneracy:
       enable: true
-      execute_layers: false                # (currently inert) future gate: enable numeric L2/L3 execution on stratified-LS path; default false = current behavior
+      # OPT-IN L2/L3 anti-degeneracy ESCAPE on the >=1M stratified-LS path (fires
+      # only for L2-applicable per-angle modes: individual / fourier).
+      #   false (default) = single baseline solve; byte-identical to the
+      #                     pre-escape path (the rtol=1e-10 homodyne-equivalence
+      #                     oracle runs here).
+      #   true            = after the baseline solve, run the L2 hierarchical
+      #                     (+ L3) escape and KEEP it only if it beats the
+      #                     baseline (keep-better guard -> result is never worse).
+      # COST: the escape is EXPENSIVE -- ~3-5x the baseline fit wall-time
+      # (multi-minute at >=1M points; measured ~3.5x on C044). Enable only for a
+      # genuinely-stuck / degenerate fit; leave OFF by default. For a CHEAPER
+      # escape, lower hierarchical.max_outer_iterations (and inner iterations).
+      execute_layers: false
 
       per_angle_mode: "auto"               # auto → "averaged" for n_phi >= constant_scaling_threshold (3), else "individual" (homodyne auto never picks fourier — set "fourier" explicitly)
       constant_scaling_threshold: 3
