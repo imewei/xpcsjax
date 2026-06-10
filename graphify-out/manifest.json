@@ -135,8 +135,8 @@
     "semantic_hash": ""
   },
   "tests/optimization/test_heterodyne_stratified_ls.py": {
-    "mtime": 1780935590.0808477,
-    "ast_hash": "ad3562e616c04dce8c526618cec84a46",
+    "mtime": 1781110060.873227,
+    "ast_hash": "8f25aec6f1ecbef4aa768322f070f455",
     "semantic_hash": ""
   },
   "tests/optimization/test_heterodyne_cmaes_diagnostics.py": {
@@ -960,8 +960,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/heterodyne_stratified_ls.py": {
-    "mtime": 1781035465.942314,
-    "ast_hash": "8e03a58a294800447e7edcc6d5c87b5e",
+    "mtime": 1781109663.4068096,
+    "ast_hash": "ac6460e013e348b0cf9eca3a7d02d63f",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/transforms.py": {
@@ -1240,8 +1240,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/data/memory_manager.py": {
-    "mtime": 1781049206.0119379,
-    "ast_hash": "09a93a99d519397737565f8e80b40e8b",
+    "mtime": 1781112543.3833141,
+    "ast_hash": "fd4fadcac58abb8ab8e26896fe8588cc",
     "semantic_hash": ""
   },
   "xpcsjax/data/quality_controller.py": {
@@ -1850,8 +1850,8 @@
     "semantic_hash": ""
   },
   "docs/source/theory/heterodyne_memory_strategy.rst": {
-    "mtime": 1780284578.8489673,
-    "ast_hash": "c7bc950c312e9840f776f039e1c75814",
+    "mtime": 1781112631.7534106,
+    "ast_hash": "ab109de891c4145f229117ad3255b2c4",
     "semantic_hash": ""
   },
   "docs/source/theory/index.rst": {
@@ -1947,6 +1947,16 @@
   "tests/optimization/test_pointwise_evaluator_seam.py": {
     "mtime": 1781064917.3715494,
     "ast_hash": "a90482e746e3bd86722b08908fa3419d",
+    "semantic_hash": ""
+  },
+  "tests/data/test_memory_manager_cache_gating.py": {
+    "mtime": 1781112520.519287,
+    "ast_hash": "973ef1ab9855ce5269d7f12770ed2517",
+    "semantic_hash": ""
+  },
+  "tests/optimization/test_chunked_jacfwd.py": {
+    "mtime": 1781109682.2307134,
+    "ast_hash": "b6d27d2efc26dc8f4e21d55cd30e25e6",
     "semantic_hash": ""
   }
 }
