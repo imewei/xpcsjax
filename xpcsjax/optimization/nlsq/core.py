@@ -18,7 +18,7 @@ Key features
 - Intelligent error recovery with a 3-attempt retry strategy (T022-T024).
 - Compatible with the existing ``ParameterSpace`` and ``FitResult`` classes.
 - HPC-optimized for 36/128-core CPU nodes.
-- CPU-only (no GPU support since v2.3.0).
+- CPU-only (no GPU support).
 - Dataset size-aware optimization strategies.
 
 Notes
@@ -133,7 +133,7 @@ except ImportError:
     HAS_RESULTS_MODULE = False
     OptimizationResult = None  # type: ignore[assignment,misc]
 
-# NLSQAdapter import for new CurveFit-based implementation (v2.11.0+)
+# NLSQAdapter import for new CurveFit-based implementation
 try:
     from xpcsjax.optimization.nlsq.adapter import (
         AdapterConfig,
@@ -147,7 +147,7 @@ except ImportError:
     NLSQAdapter = None  # type: ignore[assignment,misc]
     AdapterConfig = None  # type: ignore[assignment,misc]
 
-# Multi-start optimization import (v2.6.0)
+# Multi-start optimization import
 try:
     from xpcsjax.optimization.nlsq.multistart import (
         MultiStartConfig,
@@ -164,7 +164,7 @@ except ImportError:
     SingleStartResult = None  # type: ignore[assignment,misc]
     run_multistart_nlsq = None  # type: ignore[assignment]
 
-# CMA-ES global optimization import (v2.15.0 / NLSQ 0.6.4+)
+# CMA-ES global optimization import
 try:
     from xpcsjax.optimization.nlsq.cmaes_wrapper import (
         CMAES_AVAILABLE,
@@ -191,7 +191,7 @@ except ImportError:
     HAS_CPU_CONFIG = False
     configure_cpu_threading = None  # type: ignore[assignment]
 
-# Anti-degeneracy controller import (v2.16.1+)
+# Anti-degeneracy controller import
 try:
     from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
         AntiDegeneracyController,
@@ -252,7 +252,7 @@ def fit_nlsq_jax(
 
     Uses NLSQ package (github.com/imewei/NLSQ) for trust-region optimization.
 
-    v2.11.0+: Experimental NLSQAdapter with CurveFit class available for
+    Experimental NLSQAdapter with CurveFit class available for
     improved JIT caching and automatic workflow selection. Set use_adapter=True
     to enable (default is False, uses NLSQWrapper).
 
@@ -293,13 +293,13 @@ def fit_nlsq_jax(
         scattering angle has different optical properties and detector responses.
         Legacy scalar mode (False) is no longer supported (removed Nov 2025).
     use_adapter : bool, default=False
-        EXPERIMENTAL (v2.11.0+): If True, use NLSQAdapter with NLSQ's CurveFit
+        EXPERIMENTAL: If True, use NLSQAdapter with NLSQ's CurveFit
         class for improved JIT caching and automatic workflow selection.
         If False (default), use the stable NLSQWrapper implementation.
 
     Notes
     -----
-    **Global Optimization Selection (v2.15.0+):**
+    **Global Optimization Selection:**
     This function serves as the unified entry point for NLSQ optimization.
     When called, it first checks for global optimization methods:
 
@@ -344,7 +344,7 @@ def fit_nlsq_jax(
     _sigma_is_default = isinstance(data, dict) and "sigma" not in data
 
     # ==========================================================================
-    # Global Optimization Selection (v2.15.0+)
+    # Global Optimization Selection
     # Priority: CMA-ES > Multi-Start > Local Optimization
     # ==========================================================================
     if not _skip_global_selection:
@@ -480,7 +480,7 @@ def fit_nlsq_jax(
 
     # Create optimizer and run optimization
     if _use_adapter:
-        # T021: Try NLSQAdapter first with CurveFit class (v2.11.0+)
+        # T021: Try NLSQAdapter first with CurveFit class
         try:
             adapter_config = AdapterConfig(
                 enable_cache=True,
@@ -1296,7 +1296,7 @@ def _get_iteration_count(result: Any) -> int:
 
 
 # =============================================================================
-# Multi-Start Optimization Entry Point (v2.6.0)
+# Multi-Start Optimization Entry Point
 # =============================================================================
 
 
@@ -1613,7 +1613,7 @@ def fit_nlsq_cmaes(
     Raises
     ------
     ImportError
-        If CMA-ES is not available (requires NLSQ 0.6.4+ with evosax).
+        If CMA-ES is not available (requires NLSQ with evosax).
     ValueError
         If CMA-ES is not enabled in configuration.
 
@@ -1629,7 +1629,7 @@ def fit_nlsq_cmaes(
 
     if not HAS_CMAES:
         raise ImportError(
-            "CMA-ES requires NLSQ 0.6.4+ with evosax backend. "
+            "CMA-ES requires NLSQ with evosax backend. "
             "Install with: pip install nlsq[evosax]"
         )
 
@@ -1784,7 +1784,7 @@ def fit_nlsq_cmaes(
         n_physical = len(_get_physical_param_names(analysis_mode))
 
         # ==========================================================================
-        # ANTI-DEGENERACY INTEGRATION (v2.18.0+)
+        # ANTI-DEGENERACY INTEGRATION
         # ==========================================================================
         # For laminar_flow mode with per-angle scaling, the parameter space can be
         # degenerate: per-angle contrast/offset can absorb shear signals.
@@ -1839,7 +1839,7 @@ def fit_nlsq_cmaes(
 
                 if ad_controller.is_enabled and ad_controller.use_constant:
                     use_constant_mode = True
-                    # v2.18.0: Distinguish between fixed_constant and auto_averaged
+                    # Distinguish between fixed_constant and auto_averaged
                     use_fixed_scaling = ad_controller.use_fixed_scaling
                     use_averaged_scaling = ad_controller.use_averaged_scaling
 
@@ -1880,7 +1880,7 @@ def fit_nlsq_cmaes(
                 lower_bounds, upper_bounds = bounds
             effective_per_angle_scaling = True
         elif use_constant_mode:
-            # CONSTANT MODE (v2.18.0+): Compute per-angle scaling from quantiles
+            # CONSTANT MODE: Compute per-angle scaling from quantiles
             # - use_fixed_scaling: per-angle values FIXED, optimize 7 physical only
             # - use_averaged_scaling: average to 2 values, optimize 9 params
             from xpcsjax.optimization.nlsq.parameter_utils import (
@@ -2039,7 +2039,7 @@ def fit_nlsq_cmaes(
         # Use JAX operations throughout to avoid TracerArrayConversionError
         t1_mesh, t2_mesh = np.meshgrid(t1, t2, indexing="ij")
 
-        # Diagonal filtering for CMA-ES (v2.19.0: configurable)
+        # Diagonal filtering for CMA-ES (configurable)
         # At t1==t2, the experimental g2 has a diagonal correction applied at load
         # time but the CMA-ES theory function does not apply this correction,
         # creating systematic residual mismatch. Two approaches:
@@ -2102,7 +2102,7 @@ def fit_nlsq_cmaes(
         sinc_prefactor = 0.5 / np.pi * q * L_val * dt_val
 
         # ======================================================================
-        # SHEAR-SENSITIVITY WEIGHTING FOR CMA-ES (v2.19.0, Fix #6)
+        # SHEAR-SENSITIVITY WEIGHTING FOR CMA-ES (Fix #6)
         # ======================================================================
         # Apply angle-dependent weighting to sigma to emphasize shear-sensitive
         # angles (parallel/antiparallel to flow). Unlike stratified LS, CMA-ES
@@ -2144,7 +2144,7 @@ def fit_nlsq_cmaes(
         # Import the core JAX computation function that supports element-wise mode
         from xpcsjax.core.jax_backend import _compute_g1_total_core
 
-        # Note: In constant mode (v2.18.0+), we have two sub-modes:
+        # Note: In constant mode, we have two sub-modes:
         # - auto_averaged: 9 parameters [contrast_avg, offset_avg, *physical]
         # - fixed_constant: 7 parameters [*physical] (scaling from pre-computed arrays)
 
@@ -2161,7 +2161,7 @@ def fit_nlsq_cmaes(
             Uses pure JAX operations to allow JIT compilation by NLSQ's CMAESOptimizer.
             Element-wise mode is triggered automatically when len(t1) > 2000.
 
-            In constant mode (v2.18.0+):
+            In constant mode:
             - auto_averaged: 9 parameters [contrast, offset, *physical]
             - fixed_constant: 7 parameters [*physical] (scaling from fixed arrays)
             """
@@ -2178,13 +2178,13 @@ def fit_nlsq_cmaes(
                 offsets = params_array[n_phi : 2 * n_phi]
                 physical = params_array[2 * n_phi :]
             elif use_fixed_scaling:
-                # FIXED CONSTANT MODE (v2.18.0+): 7 physical params only
+                # FIXED CONSTANT MODE: 7 physical params only
                 # Use pre-computed fixed per-angle scaling arrays
                 contrasts = fixed_contrast_jax
                 offsets = fixed_offset_jax
                 physical = params_array  # All params are physical
             elif use_averaged_scaling:
-                # AUTO AVERAGED MODE (v2.18.0+): 9 parameters [contrast, offset, *physical]
+                # AUTO AVERAGED MODE: 9 parameters [contrast, offset, *physical]
                 # Broadcast single contrast/offset to all angles
                 contrasts = jnp.full(n_phi, params_array[0])
                 offsets = jnp.full(n_phi, params_array[1])
@@ -2221,7 +2221,7 @@ def fit_nlsq_cmaes(
         xdata = np.zeros(n_data)
 
         # ======================================================================
-        # PHASE 1: NLSQ WARM-START (v2.19.0)
+        # PHASE 1: NLSQ WARM-START
         # ======================================================================
         # Run a quick NLSQ fit first to provide CMA-ES with an informed
         # starting point. This prevents CMA-ES from wasting generations
@@ -2262,7 +2262,7 @@ def fit_nlsq_cmaes(
                 logger.warning(f"[CMA-ES] NLSQ warm-start failed: {e}")
 
         # ======================================================================
-        # PHASE 2: CMA-ES GLOBAL SEARCH (with auto-skip, v2.20.0)
+        # PHASE 2: CMA-ES GLOBAL SEARCH (with auto-skip)
         # ======================================================================
         # When warm-start achieves a good fit (reduced chi2 < threshold), skip
         # the expensive CMA-ES global search. CMA-ES with warm-start sigma is
@@ -2342,7 +2342,7 @@ def fit_nlsq_cmaes(
             )
 
         # ======================================================================
-        # PHASE 3: COMPARE AND SELECT BEST RESULT (v2.19.0)
+        # PHASE 3: COMPARE AND SELECT BEST RESULT
         # ======================================================================
         # If NLSQ warm-start produced a better result than CMA-ES + refinement,
         # use the NLSQ result instead. This ensures CMA-ES never degrades
@@ -2382,7 +2382,7 @@ def fit_nlsq_cmaes(
         execution_time = time.time() - start_time
 
         # ==========================================================================
-        # EXPAND CONSTANT MODE RESULTS (v2.17.0+)
+        # EXPAND CONSTANT MODE RESULTS
         # ==========================================================================
         # If constant mode was used, expand 9 params [contrast, offset, *physical]
         # back to 2*n_phi + 7 for consistency with per_angle_scaling=True expectations.

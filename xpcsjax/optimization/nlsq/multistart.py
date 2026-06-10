@@ -6,7 +6,7 @@ and avoid local minima. All datasets use the FULL strategy (N complete fits).
 NOTE: Subsampling is explicitly NOT supported per project requirements.
 Numerical precision and reproducibility take priority over computational speed.
 
-Part of homodyne v2.6.0 architecture.
+Part of the homodyne architecture.
 """
 
 from __future__ import annotations
@@ -156,7 +156,7 @@ class MultiStartConfig:
         except ImportError as e:
             raise ImportError(
                 "NLSQ GlobalOptimizationConfig not available. "
-                "Please install NLSQ >= 0.4.0: pip install nlsq>=0.4.0"
+                "Please install NLSQ: pip install nlsq"
             ) from e
 
         # Map sampling strategy to NLSQ sampler

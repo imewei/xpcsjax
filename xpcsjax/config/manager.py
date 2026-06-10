@@ -66,8 +66,7 @@ class ConfigManager:
     Reads a YAML or JSON configuration file (or accepts an in-memory override
     dict), normalizes legacy schema variants, optionally validates the result,
     and exposes the parsed mapping through the :attr:`config` attribute and a
-    set of typed accessors. CPU-only execution; GPU support is out of scope for
-    v0.1.
+    set of typed accessors. CPU-only execution; GPU support is out of scope.
 
     The four canonical analysis modes are ``static_anisotropic``,
     ``static_isotropic``, ``laminar_flow``, and ``two_component`` (the

@@ -20,7 +20,6 @@ Usage::
         transformed_params = controller.transform_params_to_fourier(initial_params)
         model_fn = controller.wrap_model_fn(base_model_fn)
 
-Version: 2.9.0
 Author: Claude Code
 """
 
@@ -292,7 +291,7 @@ class AntiDegeneracyController:
     # homodyne characterization gate at rtol=1e-10. When set (e.g. by
     # HeterodyneModel passing "two_component"), Layer 5 is short-circuited.
     analysis_mode: AnalysisMode | None = None
-    # Fixed per-angle quantile estimates for constant mode (v2.17.0+)
+    # Fixed per-angle quantile estimates for constant mode
     _fixed_contrast_per_angle: np.ndarray | None = field(default=None, repr=False)
     _fixed_offset_per_angle: np.ndarray | None = field(default=None, repr=False)
     _is_initialized: bool = field(default=False, repr=False)
@@ -368,7 +367,7 @@ class AntiDegeneracyController:
         config = self.config
 
         # T018-T020: Determine actual per-angle mode with auto-selection logic
-        # v2.18.0: Distinct semantics for auto vs explicit constant:
+        # Distinct semantics for auto vs explicit constant:
         #   - auto (n_phi >= threshold): "auto_averaged" → 9 params, OPTIMIZED averaged scaling
         #   - constant (explicit): "fixed_constant" → 7 params, FIXED per-angle scaling
         #   - individual: per-angle scaling OPTIMIZED
@@ -857,7 +856,6 @@ class AntiDegeneracyController:
             Nested diagnostics from all 5 layers.
         """
         diag: dict[str, Any] = {
-            "version": "2.18.0",
             "enabled": self.is_enabled,
             "execute_layers": self.execute_layers,
             "per_angle_mode": self.config.per_angle_mode,  # Config value
@@ -948,7 +946,7 @@ class AntiDegeneracyController:
         This method uses physics-informed quantile analysis to estimate
         contrast and offset for each phi angle independently.
 
-        In "constant" mode (v2.17.0+):
+        In "constant" mode:
         1. Computes N contrast + N offset values from quantile estimation
         2. These are averaged to 1 contrast + 1 offset for optimization
         3. Optimizer works with 9 parameters: 7 physical + 2 averaged scaling
@@ -1047,7 +1045,7 @@ class AntiDegeneracyController:
 
         Notes
         -----
-        For NLSQ v0.4+, callbacks can be passed to CurveFit.curve_fit() or
+        For NLSQ, callbacks can be passed to CurveFit.curve_fit() or
         injected into HybridStreamingConfig.
 
         Example
@@ -1118,7 +1116,7 @@ class AntiDegeneracyController:
 
         Notes
         -----
-        For NLSQ v0.4+, pass these to HybridStreamingConfig constructor.
+        For NLSQ, pass these to HybridStreamingConfig constructor.
 
         Example
         -------

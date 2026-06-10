@@ -314,7 +314,7 @@ class NLSQAdapter(NLSQAdapterBase):
             ydata = np.zeros(n_data, dtype=np.float64)
 
             # Wrap residual_fn into (xdata, *params) signature.
-            # jnp.array is required: nlsq 0.6.12 calls func(xdata, *args) inside
+            # jnp.array is required: nlsq calls func(xdata, *args) inside
             # @jit, so *params are traced JAX scalars — np.array would raise
             # TracerArrayConversionError.
             def _wrapped(x: np.ndarray, *params: Any) -> Any:
@@ -677,7 +677,7 @@ class NLSQWrapper(NLSQAdapterBase):
         xdata = np.arange(n_data, dtype=np.float64)
         ydata = np.zeros(n_data, dtype=np.float64)
 
-        # jnp.array required: nlsq 0.6.12 calls func(xdata, *args) inside @jit.
+        # jnp.array required: nlsq calls func(xdata, *args) inside @jit.
         def _wrapped(x: np.ndarray, *params: Any) -> Any:
             return residual_fn(jnp.array(params, dtype=jnp.float64))  # type: ignore[arg-type]
 

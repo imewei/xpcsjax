@@ -33,7 +33,7 @@ class HardwareConfig:
     Attributes
     ----------
     platform : {'cpu'}
-        Primary compute platform (CPU-only in v2.3.0+)
+        Primary compute platform (CPU-only)
     num_devices : int
         Number of available CPU devices
     memory_per_device_gb : float
@@ -84,7 +84,7 @@ def detect_hardware() -> HardwareConfig:
 
     Detection Logic
     ---------------
-    1. **JAX Devices**: Query JAX for CPU devices (v2.3.0+ is CPU-only)
+    1. **JAX Devices**: Query JAX for CPU devices (CPU-only)
     2. **System Memory**: Query total system memory via psutil
        - Fallback: Assume 32GB if psutil unavailable
     3. **Cluster Environment**: Check environment variables
@@ -120,7 +120,7 @@ def detect_hardware() -> HardwareConfig:
     - Detection is robust with multiple fallback mechanisms
     - Cluster detection requires environment variables set by scheduler
     - CPU core count excludes hyperthreading for accurate parallelism
-    - v2.3.0+ is CPU-only; JAX will always report platform='cpu'
+    - CPU-only; JAX will always report platform='cpu'
     """
     logger.info("Detecting hardware configuration...")
 
@@ -128,13 +128,13 @@ def detect_hardware() -> HardwareConfig:
     # Use the actual active backend, not just first device in list
     # When JAX_PLATFORMS="cpu,gpu", devices[0] may be CPU even if GPU is active
     try:
-        # Try new API first (JAX 0.8.0+), fall back to legacy API
+        # Try new API first (newer JAX), fall back to legacy API
         try:
             from jax.extend import backend as jax_backend
 
             backend = jax_backend.get_backend()
         except (ImportError, AttributeError):
-            # Legacy API for JAX < 0.8.0
+            # Legacy API for older JAX
             import importlib
 
             xla_bridge = importlib.import_module("jax.lib.xla_bridge")
@@ -157,7 +157,7 @@ def detect_hardware() -> HardwareConfig:
         platform = "cpu"
         num_devices = 1
 
-    # Step 2: Query system memory (CPU-only in v2.3.0+)
+    # Step 2: Query system memory (CPU-only)
     if HAS_PSUTIL:
         memory_gb = psutil.virtual_memory().total / 1e9
         logger.info(f"System memory detected: {memory_gb:.2f} GB")
@@ -223,7 +223,7 @@ def detect_hardware() -> HardwareConfig:
         cores_per_node = multiprocessing.cpu_count()
         total_memory_gb = memory_gb  # Use previously detected value
 
-    # Step 5: Recommend backend and calculate max parallel shards (CPU-only in v2.3.0+)
+    # Step 5: Recommend backend and calculate max parallel shards (CPU-only)
     recommended_backend: str
     if cluster_type in ["pbs", "slurm"] and num_nodes > 1:
         # Multi-node cluster: Use PBS/Slurm backend

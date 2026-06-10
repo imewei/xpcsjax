@@ -638,15 +638,15 @@ class NLSQConfig:
         """Validate invariants that must hold immediately after construction."""
         # Deprecation alias: 'independent' → 'individual' (homodyne's canonical
         # vocabulary). Emit a DeprecationWarning and normalize so downstream
-        # code only ever sees 'individual'. Removed in xpcsjax v0.2.
-        # TODO(v0.2): remove deprecation alias
+        # code only ever sees 'individual'. Slated for future removal.
+        # TODO: remove deprecation alias
         if self.per_angle_mode == "independent":
             import warnings
 
             warnings.warn(
                 "per_angle_mode='independent' is deprecated; use 'individual' "
                 "(matches homodyne's canonical name). 'independent' will be "
-                "removed in xpcsjax v0.2.",
+                "removed in a future release.",
                 DeprecationWarning,
                 stacklevel=3,  # user -> synthesized __init__ -> __post_init__ -> warnings.warn
             )

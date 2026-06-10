@@ -12,7 +12,6 @@ Key Improvements over original StratifiedResidualFunction:
 
 Author: Homodyne Development Team
 Date: 2025-11-13
-Version: 2.4.0
 """
 
 from __future__ import annotations
@@ -110,7 +109,7 @@ class StratifiedResidualFunctionJIT:
         self.per_angle_scaling = per_angle_scaling
         self.physical_param_names = physical_param_names
 
-        # Fixed per-angle scaling for constant mode (v2.17.0+)
+        # Fixed per-angle scaling for constant mode
         # When both are provided, params contains ONLY physical parameters
         self.fixed_contrast_per_angle = None
         self.fixed_offset_per_angle = None
@@ -454,7 +453,7 @@ class StratifiedResidualFunctionJIT:
         safe_sigma = jnp.where(valid_sigma, sigma_chunk, 1.0)
         residuals_raw = jnp.where(valid_sigma, (g2_obs_chunk - g2_theory_chunk) / safe_sigma, 0.0)
 
-        # v2.14.2+: Mask out both padded values AND diagonal values (t1 == t2)
+        # Mask out both padded values AND diagonal values (t1 == t2)
         # Diagonal points are autocorrelation artifacts, not physics
         # CRITICAL FIX (2026-01-15): Compare actual time VALUES, not indices.
         # t1_indices and t2_indices reference DIFFERENT arrays (t1_unique vs t2_unique),

@@ -1,7 +1,7 @@
 """NLSQ Wrapper for Homodyne Optimization.
 
-Role and When to Use (v2.11.0+)
--------------------------------
+Role and When to Use
+--------------------
 
 **NLSQWrapper** (this module) is the **stable fallback adapter** for:
 - Complex optimizations requiring full anti-degeneracy integration
@@ -42,7 +42,7 @@ The NLSQWrapper class implements the Adapter pattern to translate:
 
 Key Features:
 - Automatic dataset size detection and strategy selection
-- Angle-stratified chunking for per-angle parameter compatibility (v2.2+)
+- Angle-stratified chunking for per-angle parameter compatibility
 - Intelligent error recovery with 3-attempt retry strategy (T022-T024)
 - Actionable error diagnostics with 5 error categories
 - CPU-optimized execution through JAX
@@ -50,7 +50,7 @@ Key Features:
 - Scientifically validated (7/7 validation tests passed, T036-T041)
 - Serves as fallback when NLSQAdapter fails
 
-Per-Angle Scaling Fix (v2.2):
+Per-Angle Scaling Fix:
 - Fixes silent optimization failures with per-angle parameters on large datasets
 - Applies angle-stratified chunking when: per_angle_scaling=True AND n_points>100k
 - Ensures every NLSQ chunk contains all phi angles → gradients always well-defined
@@ -62,7 +62,7 @@ Production Status:
 - Scientifically validated (100% test pass rate)
 - Parameter recovery accuracy: 2-14% on core parameters
 - Sub-linear performance scaling with dataset size
-- Per-angle scaling compatible with large datasets (v2.2+)
+- Per-angle scaling compatible with large datasets
 
 References
 ----------
@@ -84,8 +84,8 @@ import numpy as np
 # Reference: https://nlsq.readthedocs.io/en/latest/guides/advanced_features.html
 from nlsq import curve_fit, curve_fit_large
 
-# Try importing AdaptiveHybridStreamingOptimizer (available in NLSQ >= 0.3.2)
-# This is the preferred streaming optimizer - the old StreamingOptimizer was removed in NLSQ 0.4.0
+# Try importing AdaptiveHybridStreamingOptimizer (available in recent NLSQ releases)
+# This is the preferred streaming optimizer - the old StreamingOptimizer was removed in a recent NLSQ release
 # Fixes: 1) Shear-term weak gradients, 2) Slow convergence, 3) Crude covariance
 try:
     from nlsq import AdaptiveHybridStreamingOptimizer, HybridStreamingConfig
@@ -179,7 +179,7 @@ from xpcsjax.optimization.recovery_strategies import (  # noqa: E402
     RecoveryStrategyApplicator,
 )
 
-# Anti-Degeneracy Defense System v2.9.0
+# Anti-Degeneracy Defense System
 
 # Memory management utilities (extracted to memory.py for reduced complexity)
 from xpcsjax.optimization.nlsq.memory import (  # noqa: E402
@@ -414,7 +414,7 @@ def create_multistart_warmup_func(
     Raises
     ------
     RuntimeError
-        If AdaptiveHybridStreamingOptimizer is not available (NLSQ < 0.3.2)
+        If AdaptiveHybridStreamingOptimizer is not available
 
     Examples
     --------
@@ -458,7 +458,7 @@ def create_multistart_warmup_func(
     if not HYBRID_STREAMING_AVAILABLE:
         raise RuntimeError(
             "AdaptiveHybridStreamingOptimizer not available. "
-            "Please upgrade NLSQ to version >= 0.3.2: pip install --upgrade nlsq"
+            "Please upgrade NLSQ: pip install --upgrade nlsq"
         )
 
     def warmup_fit_func(
@@ -801,7 +801,7 @@ class NLSQWrapper(NLSQAdapterBase):
         )
         transform_cfg = parse_shear_transform_config(shear_transforms)
 
-        # Step 0.5: Unified Memory-Based Strategy Selection (v2.13.0)
+        # Step 0.5: Unified Memory-Based Strategy Selection
         # Uses pure memory estimation - no legacy point thresholds.
         n_est_points = _extract_n_points(data)
         n_params = len(initial_params) if initial_params is not None else 0
@@ -954,7 +954,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 per_angle_scaling_initial=per_angle_scaling_initial,
             )
 
-        # NEW: Check if stratified least_squares should be used (v2.2.0 double-chunking fix)
+        # NEW: Check if stratified least_squares should be used (double-chunking fix)
         # Conditions:
         # 1. Stratified data was created (has phi_flat attribute)
         # 2. Per-angle scaling is enabled
@@ -974,7 +974,7 @@ class NLSQWrapper(NLSQAdapterBase):
         )
         if use_stratified_least_squares:
             logger.info("=" * 80)
-            logger.info("STRATIFIED LEAST-SQUARES PATH ACTIVATED (v2.2.1)")
+            logger.info("STRATIFIED LEAST-SQUARES PATH ACTIVATED")
             logger.info("Solving double-chunking problem with NLSQ's least_squares()")
             logger.info("=" * 80)
 
@@ -1066,7 +1066,7 @@ class NLSQWrapper(NLSQAdapterBase):
             logger.info(f"Parameter validation passed: {len(validated_params)} parameters")
 
             # Step: Re-run unified strategy selection with EFFECTIVE parameter count
-            # (v2.14.0, v2.22.0 fix: anti-degeneracy pre-check)
+            # (anti-degeneracy pre-check)
             #
             # The expanded param count (e.g. 53 for 23 angles individual) may be much
             # larger than the effective count after anti-degeneracy mode selection
@@ -1233,7 +1233,7 @@ class NLSQWrapper(NLSQAdapterBase):
             use_streaming_mode = False
             use_hybrid_streaming = False
 
-            # Compute adaptive memory threshold (v2.7.0+)
+            # Compute adaptive memory threshold
             # Default: 75% of total system memory instead of fixed 16 GB
             memory_fraction: float | None = None  # Will use default or env var
             memory_threshold_gb: float | None = None  # Will be computed adaptively
@@ -1315,7 +1315,7 @@ class NLSQWrapper(NLSQAdapterBase):
                         "convergence and parameter estimation"
                     )
                     logger.info("=" * 80)
-                    # Extract anti-degeneracy config for defense system v2.9.0
+                    # Extract anti-degeneracy config for defense system
                     anti_degeneracy_config = nlsq_config.get("anti_degeneracy", {})
                     try:
                         popt, pcov, info = self._fit_with_stratified_hybrid_streaming(
@@ -1397,10 +1397,10 @@ class NLSQWrapper(NLSQAdapterBase):
                         # Fall through to stratified least-squares
 
                 if not STREAMING_AVAILABLE:
-                    # AdaptiveHybridStreamingOptimizer not available (NLSQ < 0.3.2)
+                    # AdaptiveHybridStreamingOptimizer not available
                     logger.error(
                         "Streaming mode requested but AdaptiveHybridStreamingOptimizer "
-                        "not available. Upgrade NLSQ to >= 0.3.2. "
+                        "not available. Upgrade NLSQ. "
                         "Falling back to stratified least-squares."
                     )
                     # Fall through to stratified least-squares
@@ -1591,7 +1591,7 @@ class NLSQWrapper(NLSQAdapterBase):
             physical_params = validated_params[2:]
 
             # Replicate contrast and offset for each angle
-            # CRITICAL FIX (v2.7.1): For laminar_flow mode, use consistent initialization
+            # CRITICAL FIX: For laminar_flow mode, use consistent initialization
             # to prevent per-angle params from absorbing the shear signal
             is_laminar_flow = "gamma_dot_t0" in physical_param_names
             use_consistent_init = (
@@ -1774,7 +1774,7 @@ class NLSQWrapper(NLSQAdapterBase):
         else:
             wrapped_residual_fn = solver_residual_fn
 
-        # Step 7: Select optimization strategy using memory-based selection (v2.13.0)
+        # Step 7: Select optimization strategy using memory-based selection
         # Uses unified select_nlsq_strategy() instead of deprecated DatasetSizeStrategy
         n_parameters = len(validated_params)
 
@@ -3881,7 +3881,7 @@ class NLSQWrapper(NLSQAdapterBase):
             recovery_actions=recovery_actions or [],
             quality_flag=quality_flag,
             streaming_diagnostics=enhanced_streaming_diagnostics,  # Task 5.4
-            stratification_diagnostics=stratification_diagnostics,  # v2.2.1: Stratification diagnostics
+            stratification_diagnostics=stratification_diagnostics,  # Stratification diagnostics
             nlsq_diagnostics=diagnostics_payload,
         )
 

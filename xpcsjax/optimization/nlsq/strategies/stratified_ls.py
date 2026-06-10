@@ -214,7 +214,7 @@ def fit_with_stratified_least_squares(
     log.info("=" * 80)
 
     # =====================================================================
-    # Anti-Degeneracy Defense System (v2.14.0+)
+    # Anti-Degeneracy Defense System
     # =====================================================================
     is_laminar_flow = "gamma_dot_t0" in physical_param_names
     n_phi = len(np.unique(stratified_data.phi_flat))
@@ -251,7 +251,7 @@ def fit_with_stratified_least_squares(
             log.info("=" * 60)
 
             # Transform initial parameters for Fourier mode only
-            # CONSTANT MODE (v2.17.0): Parameter transformation is handled later
+            # CONSTANT MODE: Parameter transformation is handled later
             # when computing fixed per-angle scaling from quantiles
             if ad_controller.use_fixed_scaling:
                 log.info(
@@ -303,7 +303,7 @@ def fit_with_stratified_least_squares(
     start_time = time.perf_counter()
 
     # Create JIT-compatible stratified residual function
-    # CRITICAL UPDATE (v2.17.0): Constant mode now uses fixed per-angle scaling
+    # CRITICAL UPDATE: Constant mode now uses fixed per-angle scaling
     # from quantile estimation. The parameters contain ONLY physical parameters.
     # This replaces the old approach of using mean contrast/offset.
     effective_per_angle_scaling = per_angle_scaling
@@ -311,7 +311,7 @@ def fit_with_stratified_least_squares(
     fixed_offset = None
 
     if ad_controller is not None and ad_controller.use_fixed_scaling:
-        # FIXED_CONSTANT MODE (v2.18.0): Compute fixed per-angle scaling
+        # FIXED_CONSTANT MODE: Compute fixed per-angle scaling
         # from quantiles. Per-angle values are FIXED (not optimized).
         # Result: 7 physical params only.
         log.info("=" * 60)
@@ -370,7 +370,7 @@ def fit_with_stratified_least_squares(
             effective_per_angle_scaling = False
 
     elif ad_controller is not None and ad_controller.use_averaged_scaling:
-        # AUTO_AVERAGED MODE (v2.18.0): Estimate per-angle scaling from
+        # AUTO_AVERAGED MODE: Estimate per-angle scaling from
         # quantiles, AVERAGE to single values, then OPTIMIZE them.
         # Result: 9 params (7 physical + 1 contrast_avg + 1 offset_avg).
         log.info("=" * 60)
@@ -898,7 +898,7 @@ def fit_with_stratified_least_squares(
         )
 
     # =====================================================================
-    # Anti-Degeneracy: Inverse Transformation (v2.14.0+, v2.18.0 update)
+    # Anti-Degeneracy: Inverse Transformation
     # =====================================================================
     anti_degeneracy_info: dict[str, Any] = {}
     if ad_controller is not None and ad_controller.is_enabled:

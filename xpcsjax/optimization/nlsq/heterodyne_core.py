@@ -74,7 +74,7 @@ except ImportError:
     HAS_ADAPTERS = False
     HAS_WRAPPER = False
 
-# Multi-start orchestration is intentionally NOT imported here: the v0.1
+# Multi-start orchestration is intentionally NOT imported here: the
 # ``_fit_multistart`` function raises NotImplementedError unconditionally (see
 # its docstring for why — the upstream homodyne port called a class-style
 # ``MultiStartOptimizer.fit(...)`` API that ``xpcsjax.optimization.nlsq.multistart``
@@ -3087,7 +3087,7 @@ def _fit_cmaes(
       port called it with a homemade keyword API
       (``objective_fn=, residual_fn=, n_data=, anti_degeneracy=``) that no
       longer exists; mypy flagged it and the smoke tests never reached the
-      branch. Fixed here so v0.1 actually delivers on the "CMA-ES global
+      branch. Fixed here so the package actually delivers on the "CMA-ES global
       search for multi-scale problems" claim for heterodyne.
     - **Phase 3**: Compare NLSQ vs CMA-ES by least-squares cost, keep the
       better result. ``CMAESResult`` exposes ``chi_squared`` (sum of squared
@@ -3414,8 +3414,8 @@ def _cmaes_to_nlsq_result(
 # Note this entry is per-angle (signature parallels ``_fit_local`` /
 # ``_fit_cmaes`` — scalar ``phi_angle``, single ``(N, N)`` ``c2_data``).
 # The dispatcher at ~line 1175 is also gated behind ``HAS_MULTISTART`` which
-# is hard-coded ``False`` at module import, so this body is unreachable in
-# v0.1; the conversion is purely about getting the return shape right so the
+# is hard-coded ``False`` at module import, so this body is currently
+# unreachable; the conversion is purely about getting the return shape right so the
 # top-level ``fit_nlsq_multi_phi`` annotation (Task C5) can be tightened.
 def _fit_multistart(
     _model: HeterodyneModel,

@@ -25,7 +25,7 @@ Validation levels:
 - ``"custom"``: User-configurable validation rules.
 - ``"incremental"``: Optimized validation using cached results.
 
-Enhanced features (v2.1):
+Enhanced features:
 
 - Incremental validation with intelligent caching.
 - Stage-aware validation for different processing phases.

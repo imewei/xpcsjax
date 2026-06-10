@@ -553,7 +553,7 @@ class PreprocessingPipeline:
     ) -> dict[str, Any]:
         """Enhanced diagonal correction with multiple statistical methods.
 
-        Uses unified diagonal_correction module (v2.14.2+) with fallback
+        Uses unified diagonal_correction module with fallback
         to local implementations for backward compatibility.
 
         Goes beyond basic diagonal correction to provide statistical methods
@@ -611,7 +611,7 @@ class PreprocessingPipeline:
     def _basic_diagonal_correction(self, c2_mat: np.ndarray) -> np.ndarray:
         """Apply the basic diagonal correction as implemented in xpcs_loader.py.
 
-        .. deprecated:: 2.16.0
+        .. deprecated::
             Use :func:`xpcsjax.core.diagonal_correction.apply_diagonal_correction`
             with method="basic" instead.
         """
@@ -633,7 +633,7 @@ class PreprocessingPipeline:
     ) -> np.ndarray:
         """Statistical diagonal correction using robust estimators.
 
-        .. deprecated:: 2.16.0
+        .. deprecated::
             Use :func:`xpcsjax.core.diagonal_correction.apply_diagonal_correction`
             with method="statistical" instead.
         """
@@ -697,7 +697,7 @@ class PreprocessingPipeline:
     ) -> np.ndarray:
         """Interpolation-based diagonal correction.
 
-        .. deprecated:: 2.16.0
+        .. deprecated::
             Use :func:`xpcsjax.core.diagonal_correction.apply_diagonal_correction`
             with method="interpolation" instead.
         """

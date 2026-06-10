@@ -3,8 +3,7 @@
 This module provides runtime detection of gradient collapse (physical params
 losing gradient signal) with automatic response actions.
 
-Part of Anti-Degeneracy Defense System v2.9.0.
-See: docs/specs/anti-degeneracy-defense-v2.9.0.md
+Part of the Anti-Degeneracy Defense System.
 
 Detection Mechanism::
 

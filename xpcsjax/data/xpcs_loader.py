@@ -1019,7 +1019,7 @@ class XPCSDataLoader:
         data = self._convert_arrays_to_target_format(data)
 
         # Apply mandatory diagonal correction (post-load for consistent behavior)
-        # Uses unified diagonal_correction module (v2.14.2+)
+        # Uses unified diagonal_correction module
         logger.debug("Applying mandatory diagonal correction to correlation matrices")
         if HAS_DIAGONAL_CORRECTION:
             data["c2_exp"] = apply_diagonal_correction_batch(data["c2_exp"])
@@ -1244,7 +1244,7 @@ class XPCSDataLoader:
     def _load_aps_old_format(self, hdf_path: str) -> dict[str, Any]:
         """Load data from APS old format HDF5 file.
 
-        Optimization (v2.9.1): Uses selective HDF5 reads when quality filtering
+        Optimization: Uses selective HDF5 reads when quality filtering
         is disabled. Instead of loading all matrices upfront, we:
         1. First determine which indices are needed based on q-selection
         2. Only load those specific matrices from HDF5
@@ -1670,7 +1670,7 @@ class XPCSDataLoader:
     def _correct_diagonal(self, c2_mat: NDArray) -> NDArray:
         """Apply diagonal correction to correlation matrix.
 
-        .. deprecated:: 2.16.0
+        .. deprecated::
             Use :func:`xpcsjax.core.diagonal_correction.apply_diagonal_correction`
             instead. This method is kept for backward compatibility only.
 
@@ -1712,7 +1712,7 @@ class XPCSDataLoader:
     def _correct_diagonal_batch(self, c2_matrices: NDArray) -> NDArray:
         """Apply diagonal correction to all matrices in a batch.
 
-        .. deprecated:: 2.16.0
+        .. deprecated::
             Use :func:`xpcsjax.core.diagonal_correction.apply_diagonal_correction_batch`
             instead. This method is kept for backward compatibility only.
 
@@ -2195,7 +2195,7 @@ class XPCSDataLoader:
                 f"Cache q-vector mismatch: current={current_config_q:.6f}, cached={cached_config_q:.6f} AA^-1",
             )
 
-        # Check if cache uses selective q-caching (v2.0 feature)
+        # Check if cache uses selective q-caching
         is_selective = cache_metadata.get("selective_q_caching", False)
         if not is_selective:
             logger.warning(

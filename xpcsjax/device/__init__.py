@@ -3,7 +3,7 @@
 Provides CPU-only device detection, configuration, and optimization
 for high-performance computing environments.
 
-GPU support removed in v2.3.0 - CPU-only optimization focus.
+GPU support removed - CPU-only optimization focus.
 
 Key Features:
 - Automatic CPU device detection and optimal configuration
@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-# Suppress JAX backend warnings and messages (CPU-only in v2.3.0)
+# Suppress JAX backend warnings and messages (CPU-only)
 # - TPU backend warnings (not available on standard systems)
 # - GPU fallback warnings (expected behavior for CPU-only installation)
 # - Backend initialization INFO messages

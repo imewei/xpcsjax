@@ -13,7 +13,7 @@ Use cases
 
 Notes
 -----
-Author: Homodyne Development Team. Version: 2.3.0. Date: 2026-01-14.
+Author: Homodyne Development Team. Date: 2026-01-14.
 """
 
 from collections.abc import Callable, Mapping, Sequence

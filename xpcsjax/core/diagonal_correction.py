@@ -30,8 +30,6 @@ References
 ----------
 - pyXPCSViewer: https://github.com/AdvancedPhotonSource/pyXPCSViewer
 - XPCS Analysis: He et al. PNAS 2024, doi:10.1073/pnas.2401162121
-
-Version: 2.14.2
 """
 
 from __future__ import annotations

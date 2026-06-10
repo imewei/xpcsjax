@@ -94,7 +94,7 @@ class OptimizationResult:
     execution_time : float
         Wall-clock fit time in seconds.
     device_info : dict[str, Any]
-        Compute device description (v0.1 is CPU-only).
+        Compute device description (CPU-only).
     recovery_actions : list[str], optional
         Error-recovery / fallback actions taken during the fit. Empty by
         default.

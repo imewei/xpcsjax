@@ -3,7 +3,7 @@
 This module implements angle-dependent loss weighting to prevent gradient
 cancellation in the shear term during optimization.
 
-Part of Anti-Degeneracy Defense System v2.9.1.
+Part of the Anti-Degeneracy Defense System.
 
 The Problem
 -----------

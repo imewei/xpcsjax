@@ -54,7 +54,7 @@ logger = get_logger(__name__)
 # Lazy imports to avoid circular dependencies
 _memory_logger = get_logger("xpcsjax.optimization.nlsq.memory")
 
-# Try importing AdaptiveHybridStreamingOptimizer (available in NLSQ >= 0.3.2)
+# Try importing AdaptiveHybridStreamingOptimizer
 try:
     from nlsq import AdaptiveHybridStreamingOptimizer, HybridStreamingConfig
 
@@ -124,7 +124,7 @@ def fit_with_hybrid_streaming_optimizer(
     if not HYBRID_STREAMING_AVAILABLE:
         raise RuntimeError(
             "AdaptiveHybridStreamingOptimizer not available. "
-            "Please upgrade NLSQ to version >= 0.3.2: pip install --upgrade nlsq"
+            "Please upgrade NLSQ: pip install --upgrade nlsq"
         )
 
     logger.info("Initializing NLSQ AdaptiveHybridStreamingOptimizer...")
@@ -146,7 +146,7 @@ def fit_with_hybrid_streaming_optimizer(
             enable_checkpoints=nlsq_config.hybrid_enable_checkpoints,
             checkpoint_frequency=nlsq_config.hybrid_checkpoint_frequency,
             validate_numerics=nlsq_config.hybrid_validate_numerics,
-            # 4-Layer Defense Strategy (NLSQ 0.3.6)
+            # 4-Layer Defense Strategy
             enable_warm_start_detection=nlsq_config.hybrid_enable_warm_start_detection,
             warm_start_threshold=nlsq_config.hybrid_warm_start_threshold,
             enable_adaptive_warmup_lr=nlsq_config.hybrid_enable_adaptive_warmup_lr,
@@ -158,7 +158,7 @@ def fit_with_hybrid_streaming_optimizer(
             max_warmup_step_size=nlsq_config.hybrid_max_warmup_step_size,
         )
     else:
-        # Use NLSQ 0.3.6 defaults with 4-layer defense enabled
+        # Use NLSQ defaults with 4-layer defense enabled
         config = HybridStreamingConfig(
             normalize=True,
             normalization_strategy="auto",
@@ -300,13 +300,13 @@ def fit_with_stratified_hybrid_streaming(
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     """Fit using NLSQ AdaptiveHybridStreamingOptimizer for large datasets.
 
-    This method implements the 4-phase hybrid optimization from NLSQ >=0.3.2:
+    This method implements the 4-phase hybrid optimization from NLSQ:
     - Phase 0: Parameter normalization setup (bounds-based)
     - Phase 1: L-BFGS warmup with adaptive switching
     - Phase 2: Streaming Gauss-Newton with exact J^T J accumulation
     - Phase 3: Denormalization and covariance transform
 
-    With Anti-Degeneracy Defense System v2.9.0 integration:
+    With Anti-Degeneracy Defense System integration:
     - Layer 1: Fourier Reparameterization (reduces per-angle DoF)
     - Layer 2: Hierarchical Optimization (alternating stage fitting)
     - Layer 3: Adaptive CV-based Regularization (scales properly)
@@ -373,7 +373,7 @@ def fit_with_stratified_hybrid_streaming(
     if not HYBRID_STREAMING_AVAILABLE:
         raise RuntimeError(
             "AdaptiveHybridStreamingOptimizer not available. "
-            "Please upgrade NLSQ to version >= 0.3.2: pip install --upgrade nlsq"
+            "Please upgrade NLSQ: pip install --upgrade nlsq"
         )
 
     logger.info("Initializing NLSQ AdaptiveHybridStreamingOptimizer...")
@@ -382,11 +382,11 @@ def fit_with_stratified_hybrid_streaming(
     start_time = time.perf_counter()
 
     # Parse hybrid streaming configuration
-    # Uses NLSQ 0.3.6 defaults which include 4-layer defense strategy
+    # Uses NLSQ defaults which include 4-layer defense strategy
     config_dict = hybrid_config or {}
     normalize = config_dict.get("normalize", True)
     normalization_strategy = config_dict.get("normalization_strategy", "auto")
-    # Standard warmup iterations - NLSQ 0.3.6 has 4-layer defense to prevent
+    # Standard warmup iterations - NLSQ has 4-layer defense to prevent
     # divergence when starting from good parameters
     warmup_iterations = config_dict.get("warmup_iterations", 200)
     max_warmup_iterations = config_dict.get("max_warmup_iterations", 500)
@@ -408,7 +408,7 @@ def fit_with_stratified_hybrid_streaming(
     )
     lr_schedule_end_value = config_dict.get("lr_schedule_end_value", 0.0001)
 
-    # 4-Layer Defense Strategy (NLSQ 0.3.6)
+    # 4-Layer Defense Strategy
     # Prevents L-BFGS warmup from diverging when starting from good parameters
     # Layer 1: Warm Start Detection - skip warmup if already at good solution
     enable_warm_start_detection = config_dict.get("enable_warm_start_detection", True)
@@ -424,7 +424,7 @@ def fit_with_stratified_hybrid_streaming(
     enable_step_clipping = config_dict.get("enable_step_clipping", True)
     max_warmup_step_size = float(config_dict.get("max_warmup_step_size", 0.1))
 
-    # Group Variance Regularization (NLSQ 0.3.8)
+    # Group Variance Regularization
     # Prevents per-angle parameters from absorbing angle-dependent physical signals
     enable_group_variance_regularization = config_dict.get(
         "enable_group_variance_regularization", False
@@ -452,7 +452,7 @@ def fit_with_stratified_hybrid_streaming(
     is_laminar_flow = "gamma_dot_t0" in physical_param_names
 
     # =====================================================================
-    # Anti-Degeneracy Defense System v2.9.0 Initialization
+    # Anti-Degeneracy Defense System Initialization
     # =====================================================================
     # CRITICAL FIX (Jan 2026): Define n_physical unconditionally FIRST
     # This variable is used by multiple conditional blocks (hierarchical,
@@ -468,14 +468,14 @@ def fit_with_stratified_hybrid_streaming(
     gradient_monitoring_config = ad_config.get("gradient_monitoring", {})
 
     # Layer 1: Fourier Reparameterization / Constant Scaling Configuration
-    # v2.18.0: Distinct semantics for auto vs explicit constant mode
+    # Distinct semantics for auto vs explicit constant mode
     per_angle_mode = ad_config.get("per_angle_mode", "auto")
     fourier_order = ad_config.get("fourier_order", 2)
     fourier_auto_threshold = ad_config.get("fourier_auto_threshold", 6)
     constant_scaling_threshold = ad_config.get("constant_scaling_threshold", 3)
 
     # Determine actual per-angle mode
-    # v2.18.0: Distinct semantics:
+    # Distinct semantics:
     #   - auto (n_phi >= threshold): "auto_averaged" → 9 params, OPTIMIZED averaged scaling
     #   - constant (explicit): "fixed_constant" → 7 params, FIXED per-angle scaling
     #   - individual: per-angle scaling OPTIMIZED
@@ -547,7 +547,7 @@ def fit_with_stratified_hybrid_streaming(
     elif per_angle_mode_actual == "fixed_constant" and per_angle_scaling:
         # fixed_constant mode: per-angle scaling is FIXED, not optimized
         logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY DEFENSE: Layer 1 - Constant Scaling (v2.18.0)")
+        logger.info("ANTI-DEGENERACY DEFENSE: Layer 1 - Constant Scaling")
         logger.info(f"  Mode: {per_angle_mode_actual}")
         logger.info(f"  n_phi: {n_phi}")
         logger.info("  Method: Quantile-based per-angle scaling (FIXED, not optimized)")
@@ -558,7 +558,7 @@ def fit_with_stratified_hybrid_streaming(
     elif per_angle_mode_actual == "auto_averaged" and per_angle_scaling:
         # auto_averaged mode: averaged scaling is OPTIMIZED (9 params)
         logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY DEFENSE: Layer 1 - Averaged Scaling (v2.18.0)")
+        logger.info("ANTI-DEGENERACY DEFENSE: Layer 1 - Averaged Scaling")
         logger.info(f"  Mode: {per_angle_mode_actual}")
         logger.info(f"  n_phi: {n_phi}")
         logger.info("  Method: Quantile estimates -> averaged -> OPTIMIZED")
@@ -593,7 +593,7 @@ def fit_with_stratified_hybrid_streaming(
         )
 
     # =====================================================================
-    # CONSTANT/AUTO_AVERAGED MODES (v2.18.0): Quantile-Based Scaling
+    # CONSTANT/AUTO_AVERAGED MODES: Quantile-Based Scaling
     # =====================================================================
     # - fixed_constant: per-angle values are FIXED (not optimized), 7 params
     # - auto_averaged: averaged values are OPTIMIZED as initial values, 9 params
@@ -856,7 +856,7 @@ def fit_with_stratified_hybrid_streaming(
         logger.info(f"  Response mode: {monitor_config.response_mode}")
         logger.info("=" * 60)
 
-    # Layer 5: Shear-Sensitivity Weighting (v2.9.1)
+    # Layer 5: Shear-Sensitivity Weighting
     # Prevents gradient cancellation for shear parameters by emphasizing
     # shear-sensitive angles (parallel/antiparallel to flow direction)
     shear_weighting_config = ad_config.get("shear_weighting", {})
@@ -897,7 +897,7 @@ def fit_with_stratified_hybrid_streaming(
     anti_degeneracy_components = {
         "per_angle_mode": per_angle_mode_actual,
         "use_constant": use_constant,  # T031: Track constant mode status
-        "use_fixed_scaling": use_fixed_scaling,  # v2.17.0: Track fixed scaling status
+        "use_fixed_scaling": use_fixed_scaling,  # Track fixed scaling status
         "fourier_reparameterizer": fourier_reparameterizer,
         "hierarchical_optimizer": hierarchical_optimizer,
         "adaptive_regularizer": adaptive_regularizer,
@@ -908,7 +908,7 @@ def fit_with_stratified_hybrid_streaming(
     if enable_group_variance_regularization and group_variance_indices_raw is None:
         if is_laminar_flow and per_angle_scaling and n_phi > 3:
             # T031: Handle fixed scaling, constant, Fourier, and individual modes
-            # Fixed scaling mode (v2.17.0): 0 per-angle params (all fixed)
+            # Fixed scaling mode: 0 per-angle params (all fixed)
             # Constant mode: 1 value per group (contrast/offset)
             # Fourier mode: n_coeffs_per_param values per group
             # Individual mode: n_phi values per group
@@ -968,13 +968,13 @@ def fit_with_stratified_hybrid_streaming(
     logger.info(f"  Gauss-Newton iterations: {gauss_newton_max_iterations}")
     logger.info(f"  Gauss-Newton tolerance: {gauss_newton_tol}")
     logger.info(f"  Chunk size: {chunk_size:,}")
-    logger.info("  4-Layer Defense Strategy (NLSQ 0.3.6):")
+    logger.info("  4-Layer Defense Strategy:")
     logger.info(f"    L1 Warm Start Detection: {enable_warm_start_detection}")
     logger.info(f"    L2 Adaptive LR: {enable_adaptive_warmup_lr}")
     logger.info(f"    L3 Cost Guard: {enable_cost_guard}")
     logger.info(f"    L4 Step Clipping: {enable_step_clipping}")
     if enable_group_variance_regularization:
-        logger.info("  Group Variance Regularization (NLSQ 0.3.8):")
+        logger.info("  Group Variance Regularization:")
         logger.info(f"    Enabled: {enable_group_variance_regularization}")
         logger.info(f"    Lambda: {group_variance_lambda}")
         logger.info(f"    Indices: {group_variance_indices}")
@@ -1025,11 +1025,11 @@ def fit_with_stratified_hybrid_streaming(
         cost_increase_tolerance=cost_increase_tolerance,
         enable_step_clipping=enable_step_clipping,
         max_warmup_step_size=max_warmup_step_size,
-        # Group Variance Regularization (NLSQ 0.3.8)
+        # Group Variance Regularization
         enable_group_variance_regularization=enable_group_variance_regularization,
         group_variance_lambda=group_variance_lambda,
         group_variance_indices=group_variance_indices,
-        # Residual Weighting (NLSQ 0.4.x)
+        # Residual Weighting
         # Homodyne computes shear-sensitivity weights and passes them as generic
         # residual weights - NLSQ just does weighted least squares
         enable_residual_weighting=enable_residual_weighting,
@@ -1124,7 +1124,7 @@ def fit_with_stratified_hybrid_streaming(
         t2_idx = x_batch_2d[:, 2].astype(jnp.int32)
 
         # T042: Extract scaling and physical parameters based on mode
-        # Fixed scaling mode (v2.17.0): use pre-computed fixed arrays, all params are physical
+        # Fixed scaling mode: use pre-computed fixed arrays, all params are physical
         # Constant mode (fallback): params[0]=contrast, params[1]=offset, params[2:]=physical
         # Individual mode: params[:n_phi]=contrast, params[n_phi:2*n_phi]=offset, params[2*n_phi:]=physical
         if use_fixed_scaling:
@@ -1259,7 +1259,7 @@ def fit_with_stratified_hybrid_streaming(
     y_data = np.asarray(y_data, dtype=np.float64)
 
     # =====================================================================
-    # Diagonal Handling (v2.14.2+)
+    # Diagonal Handling
     # =====================================================================
     # Hybrid streaming uses point-wise theory computation (no 2D grid), so
     # apply_diagonal_correction() cannot be applied to theory.
@@ -1293,7 +1293,7 @@ def fit_with_stratified_hybrid_streaming(
     # which would cause local minimum traps (gamma_dot_t0 -> 0).
 
     # =====================================================================
-    # Anti-Degeneracy Defense System v2.9.0 - EXECUTION INTEGRATION
+    # Anti-Degeneracy Defense System - EXECUTION INTEGRATION
     # =====================================================================
     # Transform parameters and execute appropriate optimization path
     use_hierarchical = (
@@ -1312,13 +1312,13 @@ def fit_with_stratified_hybrid_streaming(
     fit_bounds = bounds
 
     # T034-T038: Constant mode parameter transformation
-    # v2.17.0: When use_fixed_scaling=True, use physical params only (fixed contrast/offset from quantiles)
+    # When use_fixed_scaling=True, use physical params only (fixed contrast/offset from quantiles)
     # Fallback: Transform per-angle params (2*n_phi) to constant (2) by taking means
     if use_fixed_scaling:
-        # FIXED SCALING MODE (v2.17.0): Use quantile-derived fixed per-angle scaling
+        # FIXED SCALING MODE: Use quantile-derived fixed per-angle scaling
         # Parameters are physical-only, contrast/offset are NOT in the param vector
         logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY EXECUTION: Fixed Per-Angle Scaling (v2.17.0)")
+        logger.info("ANTI-DEGENERACY EXECUTION: Fixed Per-Angle Scaling")
         physical_params = initial_params[2 * n_phi :]
 
         # New parameter layout: [physical_params] only
@@ -1742,7 +1742,7 @@ def fit_with_stratified_hybrid_streaming(
     popt = np.asarray(result["x"])
 
     # =====================================================================
-    # Anti-Degeneracy Defense System v2.9.0 - INVERSE TRANSFORMATION
+    # Anti-Degeneracy Defense System - INVERSE TRANSFORMATION
     # =====================================================================
     # Transform Fourier coefficients back to per-angle parameters
     if use_fourier:
@@ -1818,13 +1818,13 @@ def fit_with_stratified_hybrid_streaming(
 
         logger.info("=" * 60)
 
-    # v2.17.0: Fixed scaling mode inverse transformation
+    # Fixed scaling mode inverse transformation
     # Expand physical-only params back to per-angle format using fixed scaling arrays
     elif use_fixed_scaling:
         assert fixed_contrast_per_angle is not None  # set when use_fixed_scaling is True
         assert fixed_offset_per_angle is not None  # set when use_fixed_scaling is True
         logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY EXECUTION: Inverse Fixed Scaling Transform (v2.17.0)")
+        logger.info("ANTI-DEGENERACY EXECUTION: Inverse Fixed Scaling Transform")
         # Layout: [physical_params] - popt contains ONLY physical parameters
         physical_params_opt = popt
 
@@ -2076,7 +2076,6 @@ def fit_with_stratified_hybrid_streaming(
 
     # Add anti-degeneracy defense diagnostics
     info["anti_degeneracy"] = {
-        "version": "2.18.0",
         "per_angle_mode": anti_degeneracy_components["per_angle_mode"],
         "use_constant": anti_degeneracy_components.get("use_constant", False),
         "use_fixed_scaling": use_fixed_scaling,
@@ -2094,7 +2093,7 @@ def fit_with_stratified_hybrid_streaming(
         }
     # T048: Add constant mode diagnostics
     if use_fixed_scaling:
-        # v2.18.0: Fixed scaling mode - per-angle values are fixed, not optimized
+        # Fixed scaling mode - per-angle values are fixed, not optimized
         assert fixed_contrast_per_angle is not None  # set when use_fixed_scaling is True
         assert fixed_offset_per_angle is not None  # set when use_fixed_scaling is True
         info["anti_degeneracy"]["fixed_scaling"] = {
@@ -2112,7 +2111,7 @@ def fit_with_stratified_hybrid_streaming(
             ],
         }
     elif use_averaged_scaling:
-        # v2.18.0: Auto averaged mode - averaged values are OPTIMIZED
+        # Auto averaged mode - averaged values are OPTIMIZED
         info["anti_degeneracy"]["auto_averaged"] = {
             "param_reduction": f"{2 * n_phi} -> 2 (averaged scaling)",
             "method": "quantile_estimation_averaged",
@@ -2228,7 +2227,7 @@ def should_use_streaming(
 ) -> tuple[bool, float, str]:
     """Determine if streaming optimizer should be used based on memory estimate.
 
-    Uses adaptive memory thresholding (v2.7.0+) to automatically compute
+    Uses adaptive memory thresholding to automatically compute
     an appropriate threshold based on total system memory.
 
     Parameters

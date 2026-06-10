@@ -4,7 +4,7 @@ This module provides reusable mixin classes that can be composed
 with PhysicsModelBase to add gradient, benchmarking, and optimization
 recommendation capabilities.
 
-Part of Architecture Refactoring v2.9.1.
+Part of Architecture Refactoring.
 Extracted from CombinedModel to improve maintainability.
 """
 

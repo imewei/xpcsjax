@@ -177,7 +177,7 @@ __features__ = {
     "angle_filtering": HAS_ANGLE_FILTERING,
     "preprocessing": HAS_PREPROCESSING,
     "optimization": HAS_OPTIMIZATION,
-    "validators": True,  # Validators module (v2.7+)
+    "validators": True,  # Validators module
     "yaml_config": True,  # Always available through fallbacks
     "json_support": True,  # Always available
 }
@@ -276,7 +276,7 @@ if HAS_OPTIMIZATION:
         ],
     )
 
-# Validators (v2.7+)
+# Validators
 try:
     from xpcsjax.data.validators import (  # noqa: F401
         VALIDATION_RULES,

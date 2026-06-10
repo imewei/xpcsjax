@@ -14,7 +14,7 @@ Key features
 
 Notes
 -----
-xpcsjax v0.1 is NLSQ-only by design. The ``method`` argument threaded through
+xpcsjax is NLSQ-only by design. The ``method`` argument threaded through
 this module exists so the public boundary can *reject* non-NLSQ methods
 (Bayesian sampling: CMC / MCMC) with a clear :class:`ValueError`; those
 pathways are permanently out of scope (see ``CLAUDE.md``).
@@ -168,7 +168,7 @@ class DatasetOptimizer:
         dataset_info : DatasetInfo
             Dataset analysis results from :meth:`analyze_dataset`.
         method : str, optional
-            ``"nlsq"`` (xpcsjax v0.1 is NLSQ-only). Used only as part of the
+            ``"nlsq"`` (xpcsjax is NLSQ-only). Used only as part of the
             cache key and in log messages here.
 
         Returns
@@ -509,7 +509,7 @@ def optimize_for_method(
     phi : numpy.ndarray
         Phi-angle array.
     method : str, optional
-        Must be ``"nlsq"`` (xpcsjax v0.1 is NLSQ-only; see ``CLAUDE.md``).
+        Must be ``"nlsq"`` (xpcsjax is NLSQ-only; see ``CLAUDE.md``).
     **kwargs : Any
         Additional optimization parameters forwarded to
         :func:`create_dataset_optimizer`.
@@ -531,7 +531,7 @@ def optimize_for_method(
 
     if method.lower() != "nlsq":
         raise ValueError(
-            f"Unknown method: {method}. xpcsjax v0.1 is NLSQ-only; "
+            f"Unknown method: {method}. xpcsjax is NLSQ-only; "
             "Bayesian sampling methods (CMC/MCMC) are permanently out of scope."
         )
     return optimizer.optimize_for_nlsq(data, sigma, t1, t2, phi)
@@ -700,7 +700,7 @@ class AdvancedDatasetOptimizer:
             Path to an HDF5 file for memory-mapped access; enables
             performance-engine chunk planning and prefetching when given.
         method : str, optional
-            Must be ``"nlsq"`` (xpcsjax v0.1 is NLSQ-only).
+            Must be ``"nlsq"`` (xpcsjax is NLSQ-only).
         **kwargs : Any
             Additional optimization parameters; ``correlation_keys`` is read
             for chunk planning and prefetching.
@@ -727,11 +727,11 @@ class AdvancedDatasetOptimizer:
         """
         start_time = time.time()
 
-        # Get basic optimization as foundation. xpcsjax v0.1 is NLSQ-only;
+        # Get basic optimization as foundation. xpcsjax is NLSQ-only;
         # any non-nlsq method (CMC / MCMC) is rejected at this boundary.
         if method.lower() != "nlsq":
             raise ValueError(
-                f"Unknown method: {method}. xpcsjax v0.1 is NLSQ-only; "
+                f"Unknown method: {method}. xpcsjax is NLSQ-only; "
                 "Bayesian sampling methods (CMC/MCMC) are permanently out of scope."
             )
         basic_config = self.base_optimizer.optimize_for_nlsq(
@@ -1104,7 +1104,7 @@ def optimize_for_method_advanced(
     phi : numpy.ndarray
         Phi-angle array.
     method : str, optional
-        Must be ``"nlsq"`` (xpcsjax v0.1 is NLSQ-only).
+        Must be ``"nlsq"`` (xpcsjax is NLSQ-only).
     hdf_path : str or None, optional
         Optional HDF5 file path for memory-mapped access.
     config : dict or None, optional

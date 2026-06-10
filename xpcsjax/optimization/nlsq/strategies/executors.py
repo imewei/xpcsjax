@@ -29,8 +29,8 @@ SLOW_OPERATION_THRESHOLD_S = 10.0
 # Import NLSQ functions
 from nlsq import curve_fit, curve_fit_large  # noqa: E402
 
-# Try importing AdaptiveHybridStreamingOptimizer (available in NLSQ >= 0.3.2)
-# The old StreamingOptimizer was removed in NLSQ 0.4.0
+# Try importing AdaptiveHybridStreamingOptimizer (available in recent NLSQ)
+# The old StreamingOptimizer was removed in a recent NLSQ release
 try:
     from nlsq import AdaptiveHybridStreamingOptimizer, HybridStreamingConfig
 
@@ -323,7 +323,7 @@ class StreamingExecutor(OptimizationExecutor):
     Uses NLSQ's AdaptiveHybridStreamingOptimizer for datasets that are too large
     to fit in memory. Supports checkpointing and recovery.
 
-    .. note:: The old StreamingOptimizer was removed in NLSQ 0.4.0.
+    .. note:: The old StreamingOptimizer was removed in a recent NLSQ release.
         This executor now uses AdaptiveHybridStreamingOptimizer which provides
         better convergence and parameter estimation.
     """
@@ -363,7 +363,7 @@ class StreamingExecutor(OptimizationExecutor):
         """Execute streaming optimization using AdaptiveHybridStreamingOptimizer."""
         if not STREAMING_AVAILABLE:
             raise RuntimeError(
-                "AdaptiveHybridStreamingOptimizer not available. Upgrade NLSQ to >= 0.3.2"
+                "AdaptiveHybridStreamingOptimizer not available. Upgrade NLSQ: pip install --upgrade nlsq"
             )
 
         logger.info("Using NLSQ AdaptiveHybridStreamingOptimizer for large dataset...")

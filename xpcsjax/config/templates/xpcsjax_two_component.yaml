@@ -133,7 +133,7 @@ experimental_data:
   cache_compression: true            # true = gzip cache (smaller).
 
   # ⚠ data_type / file_format / exchange_key below are
-  # INFORMATIONAL ONLY — NOT CONSULTED by the loader in xpcsjax v0.1.
+  # INFORMATIONAL ONLY — NOT CONSULTED by the loader.
   # See the static_anisotropic template for the full explanation.
   data_type: "aps_old"               # NOT CONSULTED. Auto-detected as "aps_old"
                                      # | "aps_u" | "unknown" from HDF5 structure.
@@ -158,7 +158,7 @@ phi_filtering:
       max_angle:  95.0
       description: "Perpendicular (sees only diffusion contributions)"
   fallback_to_all_angles: true           # true = use all angles if filter empties
-  algorithm: "range_based"               # only "range_based" supported in v0.1
+  algorithm: "range_based"               # only "range_based" supported
   tolerance: 3.0                         # slack [degrees] around range edges
 
   quality_control:
@@ -535,7 +535,7 @@ optimization:
     #   individual:  34 params (14 + 20 per-angle scaling — prone to absorption)
     #
     # DEPRECATION: "independent" is a deprecated alias for "individual" and
-    # will be removed in heterodyne v1.0; xpcsjax follows the same convention.
+    # will be removed in a future heterodyne release; xpcsjax follows the same convention.
     anti_degeneracy:
       enable: true
       # OPT-IN L2/L3 anti-degeneracy ESCAPE on the >=1M stratified-LS path (fires
@@ -734,7 +734,7 @@ optimization:
       verbose: 1                             # 0 = silent | 1 = progress | 2 = debug
       log_frequency: 1                       # log every N iters
 
-      # 4-layer warmup defense (NLSQ 0.3.6+) — keep all 4 enabled.
+      # 4-layer warmup defense (NLSQ) — keep all 4 enabled.
       # ESPECIALLY important for 14-D heterodyne where bad warm-starts
       # can send L-BFGS exploring nonsensical regions of parameter space.
       # L1: skip warmup if loss already small

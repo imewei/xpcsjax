@@ -1,7 +1,7 @@
 """NLSQ (non-linear least squares) optimization subpackage for xpcsjax.
 
 Houses the entire NLSQ curve-fitting stack and exposes
-:func:`fit_nlsq`, the v0.1 single-entry public wrapper that fits both the
+:func:`fit_nlsq`, the single-entry public wrapper that fits both the
 homodyne and heterodyne physics models. xpcsjax is NLSQ-only by design; no
 Bayesian / MCMC pathway exists here.
 
@@ -36,7 +36,7 @@ Module map:
 """
 
 # =============================================================================
-# NLSQ Package Imports (v0.6.10+)
+# NLSQ Package Imports
 # Core curve fitting API with CurveFit class for JIT caching
 # =============================================================================
 
@@ -50,7 +50,7 @@ except ImportError:
     curve_fit = None  # type: ignore[assignment]
     NLSQ_CURVEFIT_AVAILABLE = False
 
-# OptimizationGoal is still available in NLSQ 0.6.4 (FAST, ROBUST, QUALITY, etc.)
+# OptimizationGoal is still available in NLSQ (FAST, ROBUST, QUALITY, etc.)
 try:
     from nlsq.core.workflow import OptimizationGoal
 
@@ -59,7 +59,7 @@ except ImportError:
     OptimizationGoal = None  # type: ignore[misc, assignment]
     NLSQ_GOAL_AVAILABLE = False
 
-# Global optimization (NLSQ v0.4+)
+# Global optimization (NLSQ)
 try:
     from nlsq.global_optimization import (
         GlobalOptimizationConfig,
@@ -72,7 +72,7 @@ except ImportError:
     MultiStartOrchestrator = None  # type: ignore[misc, assignment]
     NLSQ_GLOBAL_OPT_AVAILABLE = False
 
-# CMA-ES Global Optimization (NLSQ v0.6.3+)
+# CMA-ES Global Optimization (NLSQ)
 # Requires evosax for JAX-accelerated evolution strategies
 try:
     from nlsq.global_optimization import (
@@ -101,7 +101,7 @@ except ImportError:
     is_evosax_available = None  # type: ignore[assignment]
     NLSQ_CMAES_AVAILABLE = False
 
-# Stability and recovery (NLSQ v0.4+)
+# Stability and recovery (NLSQ)
 try:
     from nlsq.stability import (
         NumericalStabilityGuard,
@@ -116,7 +116,7 @@ except ImportError:
     NLSQOptimizationRecovery = None  # type: ignore[misc, assignment]
     NLSQ_STABILITY_AVAILABLE = False
 
-# Caching and memory management (NLSQ v0.4+)
+# Caching and memory management (NLSQ)
 try:
     from nlsq.caching import MemoryManager as NLSQMemoryManager
     from nlsq.caching import get_memory_manager
@@ -127,7 +127,7 @@ except ImportError:
     get_memory_manager = None  # type: ignore[assignment]
     NLSQ_CACHING_AVAILABLE = False
 
-# Result types (NLSQ v0.4+)
+# Result types (NLSQ)
 try:
     from nlsq.result import CurveFitResult
 
@@ -136,7 +136,7 @@ except ImportError:
     CurveFitResult = None  # type: ignore[misc, assignment]
     NLSQ_RESULT_AVAILABLE = False
 
-# Streaming optimizer (NLSQ v0.3.2+)
+# Streaming optimizer (NLSQ)
 try:
     from nlsq import AdaptiveHybridStreamingOptimizer, HybridStreamingConfig
 
@@ -150,7 +150,7 @@ except ImportError:
 # xpcsjax NLSQ Module Imports
 # =============================================================================
 
-# NLSQAdapter using CurveFit class (v2.11.0+)
+# NLSQAdapter using CurveFit class
 from xpcsjax.optimization.nlsq.adapter import (  # noqa: E402
     AdapterConfig,
     NLSQAdapter,
@@ -161,16 +161,16 @@ from xpcsjax.optimization.nlsq.adapter import (  # noqa: E402
     is_adapter_available,
 )
 
-# Architecture refactoring (v2.14.0): NLSQAdapterBase
+# Architecture refactoring: NLSQAdapterBase
 from xpcsjax.optimization.nlsq.adapter_base import NLSQAdapterBase  # noqa: E402
 
-# Anti-degeneracy defense system (v2.9.0)
+# Anti-degeneracy defense system
 from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (  # noqa: E402
     AntiDegeneracyConfig,
     AntiDegeneracyController,
 )
 
-# CMA-ES global optimization wrapper (v2.15.0 / NLSQ 0.6.4+)
+# CMA-ES global optimization wrapper
 # Note: NLSQ_CMAES_AVAILABLE from cmaes_wrapper is the canonical source
 from xpcsjax.optimization.nlsq.cmaes_wrapper import (  # noqa: E402
     CMAES_AVAILABLE as NLSQ_CMAES_AVAILABLE,  # overrides global_optimization import
@@ -225,7 +225,7 @@ from xpcsjax.optimization.nlsq.memory import (  # noqa: E402
     select_nlsq_strategy,
 )
 
-# Multi-start optimization (v2.6.0)
+# Multi-start optimization
 # NOTE: Subsampling is explicitly NOT supported per project requirements.
 # Numerical precision and reproducibility take priority over computational speed.
 from xpcsjax.optimization.nlsq.multistart import (  # noqa: E402
@@ -301,19 +301,19 @@ from xpcsjax.optimization.nlsq.strategies.sequential import (  # noqa: E402
 from xpcsjax.optimization.nlsq.wrapper import NLSQWrapper  # noqa: E402
 
 __all__ = [
-    # NLSQ Package Integration (v2.11.0+)
+    # NLSQ Package Integration
     # Core NLSQ classes
     "CurveFit",
     "curve_fit",
     "NLSQ_CURVEFIT_AVAILABLE",
-    # OptimizationGoal (still available in NLSQ 0.6.4)
+    # OptimizationGoal (still available in NLSQ)
     "OptimizationGoal",  # FAST, ROBUST, GLOBAL, MEMORY_EFFICIENT, QUALITY
     "NLSQ_GOAL_AVAILABLE",
     # Global optimization (Multi-Start)
     "GlobalOptimizationConfig",
     "MultiStartOrchestrator",
     "NLSQ_GLOBAL_OPT_AVAILABLE",
-    # CMA-ES Global Optimization (NLSQ 0.6.3+)
+    # CMA-ES Global Optimization (NLSQ)
     "CMAES_PRESETS",
     "CMAESConfig",
     "CMAESDiagnostics",
@@ -351,14 +351,14 @@ __all__ = [
     "JAX_AVAILABLE",
     "NLSQ_AVAILABLE",
     "_get_param_names",
-    # Configuration (v2.11.0+)
+    # Configuration
     "NLSQConfig",
     "HybridRecoveryConfig",
-    # Anti-degeneracy defense system (v2.9.0)
+    # Anti-degeneracy defense system
     "AntiDegeneracyConfig",
     "AntiDegeneracyController",
     "ParameterIndexMapper",
-    # Multi-start (v2.6.0)
+    # Multi-start
     # NOTE: No subsampling - numerical precision takes priority
     "MultiStartConfig",
     "MultiStartResult",
@@ -375,12 +375,12 @@ __all__ = [
     "NLSQWrapper",
     "OptimizationResult",
     "FunctionEvaluationCounter",
-    # Adapter (v2.11.0+ - recommended)
+    # Adapter (recommended)
     "NLSQAdapter",
     "AdapterConfig",
     "get_adapter",
     "is_adapter_available",
-    # Model caching (v2.11.0+)
+    # Model caching
     "get_or_create_model",
     "clear_model_cache",
     "get_cache_stats",
@@ -443,13 +443,13 @@ __all__ = [
     "compute_consistent_per_angle_init",
     "compute_jacobian_stats",
     "sample_xdata",
-    # Architecture refactoring (v2.14.0)
+    # Architecture refactoring
     "NLSQAdapterBase",
 ]
 
 
 # ============================================================================
-# xpcsjax v0.1 single-entry public wrapper
+# xpcsjax single-entry public wrapper
 # ============================================================================
 from pathlib import Path as _Path  # noqa: E402 - public API section is below the verbatim port
 from typing import TYPE_CHECKING, Any  # noqa: E402
@@ -462,7 +462,7 @@ def fit_nlsq(
     data: dict[str, Any],
     config: "ConfigManager | str | _Path",
 ) -> "OptimizationResult":
-    """Run the xpcsjax v0.1 NLSQ fit for either physics model.
+    """Run the xpcsjax NLSQ fit for either physics model.
 
     Single public entry point for non-linear least squares curve fitting in
     xpcsjax. It reads ``analysis_mode`` from ``config`` and dispatches:

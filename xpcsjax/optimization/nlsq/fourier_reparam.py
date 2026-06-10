@@ -3,8 +3,7 @@
 This module replaces n_phi independent per-angle contrast/offset values
 with truncated Fourier series, dramatically reducing structural degeneracy.
 
-Part of Anti-Degeneracy Defense System v2.9.0.
-See: docs/specs/anti-degeneracy-defense-v2.9.0.md
+Part of the Anti-Degeneracy Defense System.
 
 Mathematical Formulation
 ------------------------

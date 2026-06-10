@@ -43,7 +43,7 @@ from xpcsjax.config.parameter_registry import (
 )
 from xpcsjax.config.parameter_space import ParameterSpace
 
-# Physics validators (v2.7+)
+# Physics validators
 from xpcsjax.config.physics_validators import (
     PHYSICS_CONSTRAINTS,
     ConstraintRule,
@@ -66,9 +66,9 @@ __all__ = [
     # Configuration management
     "ConfigManager",
     "load_xpcs_config",
-    # Parameter manager (v2.4+)
+    # Parameter manager
     "ParameterManager",
-    # Parameter registry (v2.4.1+)
+    # Parameter registry
     "ParameterInfo",
     "ParameterRegistry",
     "get_registry",
@@ -78,7 +78,7 @@ __all__ = [
     "get_defaults",
     # Parameter space
     "ParameterSpace",
-    # Physics validators (v2.7+)
+    # Physics validators
     "ConstraintRule",
     "ConstraintSeverity",
     "PhysicsViolation",

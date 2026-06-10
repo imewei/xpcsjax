@@ -18,7 +18,7 @@ Notes
 -----
 Version history:
 
-- v2.1.1 (Nov 2025): Created to prevent parameter name mismatches.
+- (Nov 2025): Created to prevent parameter name mismatches.
 - Fixed bug where the pjit backend used ``gamma_dot_0`` instead of
   ``gamma_dot_t0``.
 """

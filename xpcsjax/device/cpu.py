@@ -330,16 +330,19 @@ def _configure_jax_cpu(
     jax_config: dict[str, Any] = {}
 
     try:
-        # Force CPU platform.
+        # Force CPU platform. xpcsjax is CPU-only; a GPU is not required.
         #
-        # ADR: GPU acceleration deliberately not supported (2026-03).
-        # Homodyne's float64 physics (epsilon_abs=1e-12, params spanning 7
-        # orders of magnitude) rules out consumer GPUs: RTX 4090 delivers
-        # ~1.3 TFLOPS float64 (1:64 ratio) vs ~0.5-1.0 TFLOPS on a 20-core
-        # CPU -- a 1.3-2.6x advantage erased by PCIe round-trips forced by
-        # the NLSQ C extension (~70ms/iteration) and CPU-only XLA flags.
-        # Viable only with datacenter GPUs (A100/H100, 1:2 float64 ratio)
-        # and a jaxopt-based optimizer rewrite.
+        # Decision record: docs/source/development/cpu_gpu_decision.rst.
+        # Summary: the fit's wall time is COMPILE-dominated (~47% cold XLA
+        # compile vs ~1.6% warm numeric loop on C044/1.55M pts), so by Amdahl
+        # a GPU -- which only accelerates the warm loop -- buys ~2% at best,
+        # and GPU compile is typically slower. float64's 1:64 ratio on consumer
+        # GPUs (RTX 4090 ~1.3 TFLOPS) erases any compute edge; a clear win
+        # needs datacenter GPUs (A100/H100, 1:2). NOTE: the NLSQ trust-region
+        # solve is pure JAX (lax.while_loop under @jit, no C extension, no
+        # per-iteration host<->device transfer), so enabling GPU is an
+        # install + device-flag change, NOT an optimizer rewrite. The pin is a
+        # workload decision, not an engineering barrier -- see the record.
         os.environ["JAX_PLATFORMS"] = "cpu"
         jax_config["platform"] = "cpu"
 
@@ -367,7 +370,7 @@ def _configure_jax_cpu(
                     "--xla_cpu_enable_fast_math=true",
                     "--xla_cpu_fast_math_honor_nans=true",
                     "--xla_cpu_fast_math_honor_infs=true",
-                    # --xla_cpu_enable_xla_runtime removed: dropped in JAX 0.8+,
+                    # --xla_cpu_enable_xla_runtime removed: dropped in newer JAX,
                     # now causes FATAL parse error from parse_flags_from_env.cc.
                 ]
             )

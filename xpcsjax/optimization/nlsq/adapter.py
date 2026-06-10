@@ -1,7 +1,7 @@
 """NLSQ Adapter using CurveFit class for homodyne optimization.
 
-Role and When to Use (v2.11.0+)
--------------------------------
+Role and When to Use
+--------------------
 
 **NLSQAdapter** (this module) is the **recommended adapter** for:
 - Standard optimizations (static_isotropic mode)
@@ -39,7 +39,7 @@ and the NLSQ package's CurveFit class, leveraging:
 - Built-in stability and recovery systems
 - Runtime fallback to NLSQWrapper on failure
 
-This is the recommended integration path for NLSQ v0.4+ (homodyne v2.11.0+).
+This is the recommended integration path for NLSQ.
 
 Key Features:
 - Model caching: 3-5× speedup for multi-start optimization
@@ -52,7 +52,7 @@ Key Features:
 
 Migration Guide:
 - Replace NLSQWrapper with NLSQAdapter
-- Set use_adapter=True in fit_nlsq_jax() (default in v2.11.0+)
+- Set use_adapter=True in fit_nlsq_jax() (default)
 - Anti-degeneracy layers work unchanged
 
 References
@@ -489,7 +489,7 @@ def get_or_create_model(
         xdata : np.ndarray
             Independent variables of shape ``[n_points, 3]`` with columns
             ``[t1, t2, phi_idx]``, where ``phi_idx`` is the precomputed phi
-            angle index (v2.17.0+).
+            angle index.
         *params : float
             Parameter values (may be JAX tracers during JIT).
 
@@ -500,7 +500,7 @@ def get_or_create_model(
 
         Notes
         -----
-        As of v2.17.0, ``xdata[:, 2]`` holds precomputed phi indices (integers
+        ``xdata[:, 2]`` holds precomputed phi indices (integers
         stored as float64) to avoid expensive argmin/gather operations inside
         the JIT-compiled function. This eliminates XLA ``slow_operation_alarm``
         warnings for large datasets (23M+ points).
@@ -525,7 +525,7 @@ def get_or_create_model(
             physical_params = params_array[2:] if n_params_val > 2 else default_phys
 
         # Compute g2 for each point using vectorized computation
-        # xdata columns: [t1, t2, phi_idx] where phi_idx is precomputed (v2.17.0+)
+        # xdata columns: [t1, t2, phi_idx] where phi_idx is precomputed
         # Performance Optimization (Spec 001 - FR-006, T042): Use batched vmap
         # computation instead of Python loop for better performance.
 
@@ -538,7 +538,7 @@ def get_or_create_model(
         else:
             t1_batch = jnp.array(xdata[:, 0])
             t2_batch = jnp.array(xdata[:, 1])
-            # phi_idx is precomputed in _flatten_xpcs_data (v2.17.0+)
+            # phi_idx is precomputed in _flatten_xpcs_data
             phi_indices = jnp.array(xdata[:, 2]).astype(jnp.int32)
             if len(_xdata_cache) < 4:  # Limit cache for streaming mode
                 _xdata_cache[xdata_id] = (t1_batch, t2_batch, phi_indices)
@@ -646,9 +646,9 @@ class AdapterConfig:
     Attributes
     ----------
     enable_cache : bool
-        Enable model instance caching (new in v2.11.0).
+        Enable model instance caching.
     enable_jit : bool
-        Enable JIT compilation of model functions (new in v2.11.0).
+        Enable JIT compilation of model functions.
     enable_recovery : bool
         Enable NLSQ's built-in recovery system.
     enable_stability : bool
@@ -674,7 +674,7 @@ class NLSQAdapter(NLSQAdapterBase):
 
     Uses NLSQ's ``CurveFit`` for JIT compilation caching and xpcsjax's own
     memory-aware strategy selection. This is the modern integration path for
-    NLSQ v0.4+ with improved performance and reliability.
+    NLSQ with improved performance and reliability.
 
     Compared to ``NLSQWrapper`` this adapter uses the ``CurveFit`` class for
     JIT compilation caching, delegates recovery to NLSQ's built-in systems,
@@ -792,7 +792,7 @@ class NLSQAdapter(NLSQAdapterBase):
 
         Notes
         -----
-        NLSQ 0.6.3+ simplified its own workflows to three presets
+        NLSQ simplified its own workflows to three presets
         (``"auto"``, ``"auto_global"``, ``"hpc"``); the old presets
         (``"streaming"``, ``"standard"``, etc.) were removed. xpcsjax keeps
         its own strategy selection via ``select_nlsq_strategy()``.
@@ -987,7 +987,7 @@ class NLSQAdapter(NLSQAdapterBase):
 
         Notes
         -----
-        As of v2.17.0, ``phi_idx`` is precomputed here to avoid expensive
+        ``phi_idx`` is precomputed here to avoid expensive
         gather operations inside JIT-compiled functions (which trigger XLA
         ``slow_operation_alarm``).
         """
@@ -1039,7 +1039,7 @@ class NLSQAdapter(NLSQAdapterBase):
         else:
             phi_broadcast = phi
 
-        # Precompute phi indices to avoid expensive argmin inside JIT (v2.17.0)
+        # Precompute phi indices to avoid expensive argmin inside JIT
         # This prevents XLA slow_operation_alarm from gather operations
         # during constant folding of large arrays (23M+ points)
         phi_indices = np.argmin(

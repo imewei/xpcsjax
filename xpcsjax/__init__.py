@@ -50,7 +50,7 @@ else:
     if flags_to_add:
         os.environ["XLA_FLAGS"] += " " + " ".join(flags_to_add)
 
-# Pin JAX to CPU. v0.1 is CPU-only; GPU support is v0.2+. Setting this at
+# Pin JAX to CPU (CPU-only; no GPU support). Setting this at
 # package import time (before any jax import) is the *only* place this works
 # reliably — spawn-pool worker init runs *after* the worker's `import jax`,
 # which is why xpcsjax.viz.nlsq_plots.{_worker_init_cpu_only,_render_one_angle_worker}
@@ -59,7 +59,7 @@ os.environ.setdefault("JAX_PLATFORMS", "cpu")
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 os.environ.setdefault("XLA_PYTHON_CLIENT_ALLOCATOR", "platform")
 
-# Suppress NLSQ GPU warnings (v0.1 CPU-only; GPU support is v0.2+)
+# Suppress NLSQ GPU warnings (CPU-only; no GPU support)
 os.environ.setdefault("NLSQ_SKIP_GPU_CHECK", "1")
 
 # Suppress JAX backend logs (GPU fallback warnings on CPU-only systems)

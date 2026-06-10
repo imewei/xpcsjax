@@ -4,8 +4,7 @@ This module implements CV-based (Coefficient of Variation) regularization
 that scales properly with data, replacing the ineffective absolute variance
 regularization.
 
-Part of Anti-Degeneracy Defense System v2.9.0.
-See: docs/specs/anti-degeneracy-defense-v2.9.0.md
+Part of the Anti-Degeneracy Defense System.
 
 Mathematical Formulation::
 
@@ -51,7 +50,7 @@ class AdaptiveRegularizationConfig:
         - "relative": CV-based (L_reg = λ × CV² × MSE × n)
         - "auto": Use relative for n_phi > 5, absolute otherwise
     lambda_base : float
-        Base regularization strength. Default 1.0 (100× stronger than v2.8).
+        Base regularization strength. Default 1.0.
     target_cv : float
         Target coefficient of variation. Default 0.10 (10% variation allowed).
     target_contribution : float
@@ -68,7 +67,7 @@ class AdaptiveRegularizationConfig:
     mode: Literal["absolute", "relative", "auto"] = "relative"
 
     # Relative (CV-based) mode settings
-    lambda_base: float = 1.0  # 100× stronger than v2.8 default of 0.01
+    lambda_base: float = 1.0  # stronger regularization default
     target_cv: float = 0.10  # 10% variation target
     target_contribution: float = 0.10  # 10% of MSE contribution
 

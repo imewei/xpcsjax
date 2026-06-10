@@ -110,7 +110,7 @@ def fit_with_out_of_core_accumulation(
 
     Notes
     -----
-    Since v2.14.1 this method uses the full homodyne physics via
+    This method uses the full homodyne physics via
     ``compute_g2_scaled()``, identical to stratified least-squares. The
     Anti-Degeneracy Defense System layers are not yet wired on this path.
     """
@@ -195,7 +195,7 @@ def fit_with_out_of_core_accumulation(
         config.config if hasattr(config, "config") else (config if isinstance(config, dict) else {})
     )
 
-    # Extract physics constants from data (v2.14.1+: Full homodyne physics)
+    # Extract physics constants from data (full homodyne physics)
     q_val = float(data.q)
     L_val = float(data.L)
     dt_raw = getattr(data, "dt", cfg_dict.get("dt", None))
@@ -238,7 +238,7 @@ def fit_with_out_of_core_accumulation(
     )
     max_iter = cfg_dict.get("optimization", {}).get("max_iterations", 50)
 
-    # Convergence tolerances (v2.22.0: multi-criteria, matching standard NLSQ)
+    # Convergence tolerances (multi-criteria, matching standard NLSQ)
     xtol = 1e-6  # Relative parameter change (per-component max, not norm)
     ftol = 1e-6  # Relative cost function change
     lm_lambda = 0.01  # Initial damping
@@ -501,7 +501,7 @@ def fit_with_out_of_core_accumulation(
                         lm_lambda = 1e-7
                     step_accepted = True
 
-                    # Multi-criteria convergence (v2.22.0)
+                    # Multi-criteria convergence
                     # 1. Per-component relative parameter change (scale-invariant)
                     param_scale = jnp.maximum(jnp.abs(params_curr), 1e-10)
                     rel_change = float(jnp.max(jnp.abs(step) / param_scale))

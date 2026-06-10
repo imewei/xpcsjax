@@ -4,8 +4,7 @@ This module implements alternating optimization between physical and per-angle
 parameters, breaking the gradient cancellation cycle that causes structural
 degeneracy in streaming optimization.
 
-Part of Anti-Degeneracy Defense System v2.9.0.
-See: docs/specs/anti-degeneracy-defense-v2.9.0.md
+Part of the Anti-Degeneracy Defense System.
 
 Algorithm::
 
@@ -56,7 +55,7 @@ import numpy as np
 
 # jaxopt emits a DeprecationWarning at import time (it is no longer maintained).
 # Suppress it at the callsite so -W error::DeprecationWarning in CI doesn't
-# block collection. Tracked for migration in v0.2.
+# block collection. Tracked for future migration.
 with warnings.catch_warnings():
     warnings.simplefilter("ignore", DeprecationWarning)
     from jaxopt import LBFGSB

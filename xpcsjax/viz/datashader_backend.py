@@ -118,7 +118,7 @@ class DatashaderRenderer:
         )
 
         # canvas.quadmesh() resamples gridded data to canvas resolution.
-        # canvas.raster() was removed in Datashader ≥ 0.15; quadmesh() is the
+        # canvas.raster() was removed in newer Datashader; quadmesh() is the
         # supported API for regularly-spaced xr.DataArray inputs.
         agg = canvas.quadmesh(xr_data, x="x", y="y", agg=ds.mean("intensity"))
         cmap_obj = self._get_colormap(cmap)

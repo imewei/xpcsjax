@@ -128,7 +128,7 @@ _fallback_stats = {
 # Value: (t1_grid, t2_grid) JAX arrays
 # Performance Optimization (Spec 001 - FR-002): LRU eviction for better cache utilization
 _meshgrid_cache: OrderedDict[tuple, tuple] = OrderedDict()
-_MESHGRID_CACHE_MAX_SIZE = 64  # Increased for 23-angle datasets (v2.11.0+)
+_MESHGRID_CACHE_MAX_SIZE = 64  # Increased for 23-angle datasets
 # Guards every mutation of _meshgrid_cache (move_to_end, popitem, insert, clear)
 # and _cache_stats — the cache is a process-global shared by all threads.
 _cache_lock = threading.Lock()

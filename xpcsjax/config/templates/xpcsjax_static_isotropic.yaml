@@ -105,7 +105,7 @@ experimental_data:
   cache_compression: true            # true = gzip cache (smaller, slightly slower).
 
   # ⚠ data_type / file_format / exchange_key below are
-  # INFORMATIONAL ONLY — NOT CONSULTED by the loader in xpcsjax v0.1.
+  # INFORMATIONAL ONLY — NOT CONSULTED by the loader.
   # See the static_anisotropic template for the full explanation.
   data_type: "aps_old"               # NOT CONSULTED. Auto-detected by loader as
                                      # "aps_old" | "aps_u" | "unknown" from HDF5 structure.
@@ -129,7 +129,7 @@ phi_filtering:
       max_angle:  10.0
       description: "Representative angle for isotropic sample"
   fallback_to_all_angles: true           # true = use all angles if filter empties
-  algorithm: "range_based"               # only "range_based" is supported in v0.1
+  algorithm: "range_based"               # only "range_based" is supported
   tolerance: 5.0                         # slack [degrees] around target_range edges.
                                          # Wider here than anisotropic (default 3.0)
                                          # because we don't need precise angle picks.
@@ -425,7 +425,7 @@ optimization:
       verbose: 1                             # 0 = silent | 1 = progress | 2 = debug
       log_frequency: 1                       # log every N iters
 
-      # 4-layer warmup defense (NLSQ 0.3.6+) — keep all 4 enabled.
+      # 4-layer warmup defense (NLSQ) — keep all 4 enabled.
       # L1: skip warmup if loss is already small (well-chosen warm-start)
       # L2: scale learning rate by initial loss quality
       # L3: abort if cost increases > 5% during warmup
@@ -506,7 +506,7 @@ noise_estimation:
   model: "global"               # isotropic → "global" is the natural choice
 
 # -----------------------------------------------------------------------------
-# PERFORMANCE — CPU-only (v0.1 has no GPU; NLSQ_SKIP_GPU_CHECK=1 is set)
+# PERFORMANCE — CPU-only (no GPU; NLSQ_SKIP_GPU_CHECK=1 is set)
 # -----------------------------------------------------------------------------
 performance:
   strategy_override: null      # null = auto-select (RECOMMENDED)

@@ -40,7 +40,7 @@ def _bootstrap_xla_env(argv: list[str] | None) -> None:
     """
     raw = list(sys.argv[1:] if argv is None else argv)
 
-    # CPU-only in v0.1 (per project CLAUDE.md "GPU support is v0.2+")
+    # CPU-only (per project CLAUDE.md: GPU support is out of scope)
     os.environ.setdefault("JAX_PLATFORM_NAME", "cpu")
 
     threads: int | None = None

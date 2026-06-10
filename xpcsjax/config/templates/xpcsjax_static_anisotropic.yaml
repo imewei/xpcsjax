@@ -59,7 +59,7 @@ analyzer_parameters:
                          # (typically the first 20-50 frames in synchrotron data).
 
   end_frame: 1000        # Last frame, INCLUSIVE. MUST be > start_frame and > 0.
-                         # ⚠ end_frame: -1 is REJECTED in v0.1 — the sentinel
+                         # ⚠ end_frame: -1 is REJECTED — the sentinel
                          # value is no longer interpreted as "all frames".
                          # Pre-resolve it from the actual frame count.
 
@@ -142,7 +142,7 @@ experimental_data:
                                      # slightly slower). false = uncompressed.
 
   # ⚠ The three fields below (data_type, file_format, exchange_key) are
-  # INFORMATIONAL ONLY in xpcsjax v0.1 — they are NOT consulted by the loader.
+  # INFORMATIONAL ONLY — they are NOT consulted by the loader.
   # Kept for compatibility with upstream homodyne/heterodyne configs so old
   # configs continue to load without "unknown key" warnings.
   data_type: "aps_old"               # NOT CONSULTED. xpcsjax auto-detects from HDF5
@@ -191,7 +191,7 @@ phi_filtering:
                                          # false = raise an error (strict mode)
 
   algorithm: "range_based"               # "range_based" is the only currently
-                                         # supported algorithm in v0.1.
+                                         # supported algorithm.
 
   tolerance: 3.0                         # Slack [degrees] applied to range edges.
                                          # Angles within `tolerance` of a range
@@ -352,7 +352,7 @@ parameter_space:
 # Estimate: J memory ≈ (n_points × n_params × 8 bytes) × 6.5 overhead factor.
 #
 # xpcsjax always uses nlsq.CurveFit directly (NOT NLSQ's higher-level fit()
-# or MemoryBudgetSelector). NLSQ's WorkflowSelector was removed in v0.6.0.
+# or MemoryBudgetSelector). NLSQ's WorkflowSelector was removed in a recent NLSQ release.
 optimization:
   method: "nlsq"
 
@@ -776,7 +776,7 @@ optimization:
       log_frequency: 1                      # log every N iterations (with verbose >= 1)
 
       # -------------------------------------------------------------------
-      # 4-LAYER WARMUP DEFENSE (NLSQ 0.3.6+)
+      # 4-LAYER WARMUP DEFENSE (NLSQ)
       # -------------------------------------------------------------------
       # Prevents L-BFGS warmup from DIVERGING when starting from a good
       # initial guess (e.g. warm-start from a previous fit). All layers
@@ -852,7 +852,7 @@ optimization:
                                            # based on observed memory usage
 
   # ---------------------------------------------------------------------------
-  # STRATIFICATION — angle-stratified chunking (v2.2+)
+  # STRATIFICATION — angle-stratified chunking
   # ---------------------------------------------------------------------------
   # Fixes per-angle scaling compatibility with NLSQ's chunking on large
   # datasets. Without stratification, arbitrary chunks may exclude certain
@@ -892,7 +892,7 @@ optimization:
                                            # (requires collect_diagnostics: true)
 
   # ---------------------------------------------------------------------------
-  # SEQUENTIAL — per-angle optimization fallback (v2.2+)
+  # SEQUENTIAL — per-angle optimization fallback
   # ---------------------------------------------------------------------------
   # Used when stratification cannot be applied (e.g. extreme angle imbalance
   # exceeding stratification.max_imbalance_ratio). Strategy:
@@ -947,7 +947,7 @@ optimization:
 # -----------------------------------------------------------------------------
 # When enabled, this runs an Adam-based noise variance estimator with a small
 # NumPyro posterior pass. xpcsjax itself does not ship a Bayesian sampler in
-# v0.1 — leave disabled unless you have the upstream `homodyne` package
+# Leave disabled unless you have the upstream `homodyne` package
 # installed and want estimated per-angle noise variance to weight the fit.
 # For most users, the default uniform weights are fine.
 #
@@ -959,7 +959,7 @@ noise_estimation:
   model: "per_angle"           # "per_angle" | "global"
 
 # -----------------------------------------------------------------------------
-# PERFORMANCE — CPU-only (v0.1 has no GPU path; NLSQ_SKIP_GPU_CHECK=1 is set)
+# PERFORMANCE — CPU-only (no GPU path; NLSQ_SKIP_GPU_CHECK=1 is set)
 # -----------------------------------------------------------------------------
 performance:
   strategy_override: null      # Force a specific NLSQ strategy (defeats the

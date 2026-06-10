@@ -12,7 +12,7 @@ Key Features:
 - CPU-primary architecture (GPU optional via JAX)
 - Dataset size-aware optimization strategies
 
-Note: xpcsjax v0.1 ships JAX-native NLSQ only.
+Note: xpcsjax ships JAX-native NLSQ only.
 """
 
 from __future__ import annotations
@@ -76,9 +76,9 @@ OPTIMIZATION_STATUS = {
 # Primary API functions
 __all__ = [
     # Primary optimization methods
-    "fit_nlsq",  # Single-entry NLSQ wrapper (v0.1)
+    "fit_nlsq",  # Single-entry NLSQ wrapper
     "fit_nlsq_jax",  # NLSQ trust-region (PRIMARY)
-    "fit_nlsq_multistart",  # Multi-start NLSQ (v2.6.0)
+    "fit_nlsq_multistart",  # Multi-start NLSQ
     # Result classes
     "NLSQResult",
     "MultiStartConfig",

@@ -127,7 +127,7 @@ class StreamingConfig(TypedDict, total=False):
 
 
 class StratificationConfig(TypedDict, total=False):
-    """Angle-stratified chunking configuration (v2.2+).
+    """Angle-stratified chunking configuration.
 
     Configuration for angle-stratified data reorganization to fix per-angle
     parameter incompatibility with NLSQ chunking on large datasets.
@@ -212,7 +212,7 @@ class StratificationConfig(TypedDict, total=False):
 
 
 class SequentialConfig(TypedDict, total=False):
-    """Sequential per-angle optimization configuration (v2.2+).
+    """Sequential per-angle optimization configuration.
 
     Configuration for sequential optimization fallback when stratification
     cannot be applied (e.g. extreme angle imbalance, ratio > 5.0).
@@ -306,9 +306,9 @@ class OptimizationConfig(TypedDict, total=False):
     streaming : StreamingConfig, optional
         Streaming optimization settings (checkpoint management, fault tolerance)
     stratification : StratificationConfig, optional
-        Angle-stratified chunking settings (v2.2+, fixes per-angle parameter compatibility)
+        Angle-stratified chunking settings (fixes per-angle parameter compatibility)
     sequential : SequentialConfig, optional
-        Sequential per-angle optimization settings (v2.2+, fallback for extreme imbalance)
+        Sequential per-angle optimization settings (fallback for extreme imbalance)
     """
 
     method: Literal["nlsq", "auto"]

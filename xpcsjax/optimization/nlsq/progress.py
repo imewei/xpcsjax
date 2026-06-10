@@ -9,7 +9,7 @@ Features:
 - Multi-start progress tracking
 - Streaming optimization progress
 
-Part of homodyne v2.7.0 architecture.
+Part of the homodyne architecture.
 """
 
 from __future__ import annotations

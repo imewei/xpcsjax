@@ -5,7 +5,7 @@ NLSQ-specific configuration settings from the YAML config file.
 
 Part of Phase 3 architecture refactoring to reduce wrapper.py complexity.
 
-Config Consolidation (v2.14.0, FR-014):
+Config Consolidation (FR-014):
 - Single entry point: NLSQConfig.from_yaml() or NLSQConfig.from_dict()
 - Safe type conversion utilities: safe_float, safe_int
 - Full validation via validate() method
@@ -198,7 +198,7 @@ class NLSQConfig:
     """
 
     # NLSQ Workflow Settings
-    # Note: NLSQ 0.6.3+ uses 3 workflows: "auto", "auto_global", "hpc"
+    # Note: NLSQ uses 3 workflows: "auto", "auto_global", "hpc"
     # Homodyne uses its own select_nlsq_strategy() for memory-aware selection
     # These settings are for internal homodyne configuration, not passed to NLSQ
     workflow: str = "auto"  # Internal: "auto" (let homodyne decide strategy)
@@ -233,13 +233,13 @@ class NLSQConfig:
     enable_recovery: bool = True
     max_recovery_attempts: int = 3
 
-    # Progress and logging settings (v2.7.0)
+    # Progress and logging settings
     # Controls progress bar display and logging verbosity during optimization
     enable_progress_bar: bool = True  # Show tqdm progress bar during fitting
     verbose: int = 1  # Verbosity level: 0=quiet, 1=normal, 2=detailed
     log_iteration_interval: int = 10  # Log every N iterations (for verbose >= 2)
 
-    # Hybrid streaming optimizer settings (v2.6.0)
+    # Hybrid streaming optimizer settings
     # Fixes: 1) Shear-term weak gradients, 2) Slow convergence, 3) Crude covariance
     enable_hybrid_streaming: bool = True
     hybrid_normalize: bool = True
@@ -256,7 +256,7 @@ class NLSQConfig:
     hybrid_checkpoint_frequency: int = 100
     hybrid_validate_numerics: bool = True
 
-    # 4-Layer Defense Strategy for L-BFGS Warmup (v2.8.0 / NLSQ 0.3.6)
+    # 4-Layer Defense Strategy for L-BFGS Warmup
     # Prevents divergence when starting from good initial parameters
     #
     # Layer 1: Warm Start Detection - skip warmup if already at good solution
@@ -276,7 +276,7 @@ class NLSQConfig:
     hybrid_enable_step_clipping: bool = True
     hybrid_max_warmup_step_size: float = 0.1  # Max step in normalized units
 
-    # Multi-start optimization settings (v2.6.0)
+    # Multi-start optimization settings
     # Enables exploration of parameter space via Latin Hypercube Sampling
     # NOTE: Subsampling is explicitly NOT supported per project requirements.
     # Numerical precision and reproducibility take priority over computational speed.
@@ -291,8 +291,7 @@ class NLSQConfig:
     multi_start_refinement_ftol: float = 1e-12
     multi_start_degeneracy_threshold: float = 0.1
 
-    # === Anti-Degeneracy Defense System (v2.9.0) ===
-    # See: docs/specs/anti-degeneracy-defense-v2.9.0.md
+    # === Anti-Degeneracy Defense System ===
     #
     # Layer 1: Fourier Reparameterization / Constant Scaling
     # Reduces structural degeneracy by expressing per-angle params as Fourier series
@@ -317,7 +316,7 @@ class NLSQConfig:
     # Layer 3: Adaptive Relative Regularization
     # CV-based regularization that scales properly with data
     regularization_mode: str = "relative"  # "absolute", "relative", "auto"
-    group_variance_lambda: float = 1.0  # 100x stronger than v2.8 default of 0.01
+    group_variance_lambda: float = 1.0  # 100x stronger than the previous default of 0.01
     regularization_target_cv: float = 0.10  # 10% variation target
     regularization_target_contribution: float = 0.10  # 10% of MSE contribution
     regularization_max_cv: float = 0.20  # 20% max variation
@@ -330,7 +329,7 @@ class NLSQConfig:
     gradient_consecutive_triggers: int = 5  # Must trigger N times consecutively
     gradient_collapse_response: str = "hierarchical"  # "warn", "hierarchical", "reset", "abort"
 
-    # === CMA-ES Global Optimization (NLSQ v0.6.4+) ===
+    # === CMA-ES Global Optimization ===
     # Covariance Matrix Adaptation Evolution Strategy for global optimization
     # Particularly beneficial for laminar_flow mode with vastly different parameter scales
     # (e.g., D₀ ~ 1e4 vs γ̇₀ ~ 1e-3, scale ratio > 1e7)
@@ -368,12 +367,12 @@ class NLSQConfig:
     cmaes_refinement_max_nfev: int = 500  # Max function evaluations for refinement
     cmaes_refinement_loss: str = "linear"  # Loss function: "linear", "soft_l1", "huber"
     #
-    # CMA-ES Parameter Normalization (v2.16.0)
+    # CMA-ES Parameter Normalization
     # Normalizes parameters to [0,1] based on bounds for better scale handling
     cmaes_normalize: bool = True  # Enable bounds-based normalization (recommended)
     cmaes_normalization_epsilon: float = 1e-12  # Prevent division by zero
 
-    # === Fit Quality Validation (v2.16.0) ===
+    # === Fit Quality Validation ===
     # Post-optimization quality checks with configurable thresholds
     # Logs warnings for potential issues but does not raise exceptions
     enable_quality_validation: bool = True  # Enable post-fit quality checks
@@ -411,20 +410,20 @@ class NLSQConfig:
         # Extract progress/logging settings
         progress = config_dict.get("progress", {})
 
-        # Extract anti-degeneracy settings (v2.9.0)
+        # Extract anti-degeneracy settings
         anti_degeneracy = config_dict.get("anti_degeneracy", {})
         hierarchical = anti_degeneracy.get("hierarchical", {})
         regularization = anti_degeneracy.get("regularization", {})
         gradient_monitoring = anti_degeneracy.get("gradient_monitoring", {})
 
-        # Extract CMA-ES global optimization settings (v2.15.0 / NLSQ 0.6.4+)
+        # Extract CMA-ES global optimization settings
         cmaes = config_dict.get("cmaes", {})
 
-        # Extract fit quality validation settings (v2.16.0)
+        # Extract fit quality validation settings
         quality_validation = config_dict.get("quality_validation", {})
 
         config = cls(
-            # NLSQ Workflow Settings (v2.11.0+)
+            # NLSQ Workflow Settings
             workflow=config_dict.get("workflow", "auto"),
             goal=config_dict.get("goal", "quality"),
             # Loss function
@@ -449,11 +448,11 @@ class NLSQConfig:
             # Recovery
             enable_recovery=recovery.get("enable", True),
             max_recovery_attempts=recovery.get("max_attempts", 3),
-            # Progress and logging (v2.7.0)
+            # Progress and logging
             enable_progress_bar=progress.get("enable", True),
             verbose=progress.get("verbose", 1),
             log_iteration_interval=progress.get("log_interval", 10),
-            # Hybrid streaming (v2.6.0)
+            # Hybrid streaming
             enable_hybrid_streaming=hybrid_streaming.get("enable", True),
             hybrid_normalize=hybrid_streaming.get("normalize", True),
             hybrid_normalization_strategy=hybrid_streaming.get("normalization_strategy", "auto"),
@@ -472,7 +471,7 @@ class NLSQConfig:
             hybrid_enable_checkpoints=hybrid_streaming.get("enable_checkpoints", True),
             hybrid_checkpoint_frequency=hybrid_streaming.get("checkpoint_frequency", 100),
             hybrid_validate_numerics=hybrid_streaming.get("validate_numerics", True),
-            # 4-Layer Defense Strategy (v2.8.0 / NLSQ 0.3.6)
+            # 4-Layer Defense Strategy
             # Layer 1: Warm Start Detection
             hybrid_enable_warm_start_detection=hybrid_streaming.get(
                 "enable_warm_start_detection", True
@@ -492,7 +491,7 @@ class NLSQConfig:
             # Layer 4: Step Clipping
             hybrid_enable_step_clipping=hybrid_streaming.get("enable_step_clipping", True),
             hybrid_max_warmup_step_size=float(hybrid_streaming.get("max_warmup_step_size", 0.1)),
-            # Multi-start (v2.6.0)
+            # Multi-start
             # NOTE: No subsampling - numerical precision takes priority
             enable_multi_start=multi_start.get("enable", False),
             multi_start_n_starts=multi_start.get("n_starts", 10),
@@ -504,7 +503,7 @@ class NLSQConfig:
             multi_start_refine_top_k=multi_start.get("refine_top_k", 3),
             multi_start_refinement_ftol=float(multi_start.get("refinement_ftol", 1e-12)),
             multi_start_degeneracy_threshold=float(multi_start.get("degeneracy_threshold", 0.1)),
-            # Anti-Degeneracy Defense System (v2.9.0)
+            # Anti-Degeneracy Defense System
             # Layer 1: Fourier Reparameterization / Constant Scaling
             per_angle_mode=anti_degeneracy.get("per_angle_mode", "auto"),
             fourier_order=anti_degeneracy.get("fourier_order", 2),
@@ -531,7 +530,7 @@ class NLSQConfig:
             gradient_ratio_threshold=float(gradient_monitoring.get("ratio_threshold", 0.01)),
             gradient_consecutive_triggers=gradient_monitoring.get("consecutive_triggers", 5),
             gradient_collapse_response=gradient_monitoring.get("response", "hierarchical"),
-            # CMA-ES Global Optimization (v2.15.0 / NLSQ 0.6.4+)
+            # CMA-ES Global Optimization
             enable_cmaes=cmaes.get("enable", False),
             cmaes_preset=cmaes.get("preset", "cmaes"),
             cmaes_max_generations=cmaes.get("max_generations"),  # None = adaptive
@@ -557,10 +556,10 @@ class NLSQConfig:
             cmaes_refinement_gtol=float(cmaes.get("refinement_gtol", 1e-10)),
             cmaes_refinement_max_nfev=cmaes.get("refinement_max_nfev", 500),
             cmaes_refinement_loss=cmaes.get("refinement_loss", "linear"),
-            # CMA-ES Parameter Normalization (v2.16.0)
+            # CMA-ES Parameter Normalization
             cmaes_normalize=cmaes.get("normalize", True),
             cmaes_normalization_epsilon=float(cmaes.get("normalization_epsilon", 1e-12)),
-            # Fit Quality Validation (v2.16.0)
+            # Fit Quality Validation
             enable_quality_validation=quality_validation.get("enable", True),
             quality_reduced_chi_squared_threshold=float(
                 quality_validation.get("reduced_chi_squared_threshold", 10.0)
@@ -794,7 +793,7 @@ class NLSQConfig:
                 f"got: {self.multi_start_degeneracy_threshold}"
             )
 
-        # Validate Anti-Degeneracy Defense System settings (v2.9.0)
+        # Validate Anti-Degeneracy Defense System settings
         # Layer 1: Fourier Reparameterization / Constant Scaling
         valid_per_angle_modes = ["individual", "constant", "fourier", "auto"]
         if self.per_angle_mode not in valid_per_angle_modes:
@@ -876,7 +875,7 @@ class NLSQConfig:
                 f"got: {self.gradient_collapse_response}"
             )
 
-        # CMA-ES Global Optimization validation (v2.15.0 / NLSQ 0.6.4+)
+        # CMA-ES Global Optimization validation
         valid_cmaes_presets = ["cmaes-fast", "cmaes", "cmaes-global"]
         if self.cmaes_preset not in valid_cmaes_presets:
             errors.append(
@@ -987,7 +986,7 @@ class NLSQConfig:
             Configuration as dictionary.
         """
         return {
-            # NLSQ Workflow Settings (v2.11.0+)
+            # NLSQ Workflow Settings
             "workflow": self.workflow,
             "goal": self.goal,
             "loss": self.loss,
@@ -1033,7 +1032,7 @@ class NLSQConfig:
                 "enable_checkpoints": self.hybrid_enable_checkpoints,
                 "checkpoint_frequency": self.hybrid_checkpoint_frequency,
                 "validate_numerics": self.hybrid_validate_numerics,
-                # 4-Layer Defense Strategy (v2.8.0 / NLSQ 0.3.6)
+                # 4-Layer Defense Strategy
                 "enable_warm_start_detection": self.hybrid_enable_warm_start_detection,
                 "warm_start_threshold": self.hybrid_warm_start_threshold,
                 "enable_adaptive_warmup_lr": self.hybrid_enable_adaptive_warmup_lr,
@@ -1056,7 +1055,7 @@ class NLSQConfig:
                 "refinement_ftol": self.multi_start_refinement_ftol,
                 "degeneracy_threshold": self.multi_start_degeneracy_threshold,
             },
-            # Anti-Degeneracy Defense System (v2.9.0)
+            # Anti-Degeneracy Defense System
             "anti_degeneracy": {
                 "per_angle_mode": self.per_angle_mode,
                 "fourier_order": self.fourier_order,
@@ -1085,7 +1084,7 @@ class NLSQConfig:
                     "response": self.gradient_collapse_response,
                 },
             },
-            # CMA-ES Global Optimization (v2.15.0 / NLSQ 0.6.4+)
+            # CMA-ES Global Optimization
             "cmaes": {
                 "enable": self.enable_cmaes,
                 "preset": self.cmaes_preset,
@@ -1128,7 +1127,7 @@ class NLSQConfig:
     def to_workflow_kwargs(self) -> dict[str, Any]:
         """Convert settings to kwargs for NLSQ's curve_fit().
 
-        Maps NLSQConfig settings to NLSQ 0.6.4+ curve_fit() parameters.
+        Maps NLSQConfig settings to NLSQ curve_fit() parameters.
         Note: Homodyne uses curve_fit() directly, not the fit() unified API.
 
         Returns
@@ -1138,7 +1137,7 @@ class NLSQConfig:
 
         Notes
         -----
-        NLSQ 0.6.3+ Changes:
+        NLSQ Changes:
         - Simplified to 3 workflows: "auto", "auto_global", "hpc"
         - Old presets ("streaming", "standard") were removed
         - Homodyne uses its own select_nlsq_strategy() for memory selection

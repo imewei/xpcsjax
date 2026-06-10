@@ -94,7 +94,7 @@ def handle_nlsq_result(
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     """Normalize NLSQ return values to consistent format.
 
-    NLSQ v0.1.5 has inconsistent return types across different functions:
+    NLSQ has inconsistent return types across different functions:
     - curve_fit: Returns tuple (popt, pcov) OR CurveFitResult object
     - curve_fit_large: Returns tuple (popt, pcov) OR OptimizeResult object
     - StreamingOptimizer.fit: Returns dict with 'x', 'pcov', 'streaming_diagnostics'

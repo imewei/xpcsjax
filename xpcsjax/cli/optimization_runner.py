@@ -1,7 +1,7 @@
 """Optimization execution for xpcsjax CLI.
 
-Manages NLSQ fitting runs. NLSQ is the only optimizer pathway in xpcsjax
-v0.1; Bayesian sampling is out of scope (see project CLAUDE.md).
+Manages NLSQ fitting runs. NLSQ is the only optimizer pathway in xpcsjax;
+Bayesian sampling is out of scope (see project CLAUDE.md).
 
 Public surface
 --------------

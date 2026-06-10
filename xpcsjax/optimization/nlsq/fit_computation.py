@@ -333,7 +333,7 @@ def extract_parameters_from_result(
         raise ValueError(
             f"Parameter count mismatch! Expected {expected_per_angle} "
             f"(2x{n_angles} scaling + {n_physical} physical), got {n_params}. "
-            f"Per-angle scaling is REQUIRED in v2.4.0+"
+            f"Per-angle scaling is REQUIRED"
         )
 
     return contrasts, offsets, physical_params, scalar_expansion

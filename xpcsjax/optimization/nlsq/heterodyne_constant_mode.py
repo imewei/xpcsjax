@@ -64,7 +64,7 @@ try:
         NLSQAdapter,
         NLSQWrapper,
     )
-except ImportError:  # pragma: no cover — backend always present in v0.1
+except ImportError:  # pragma: no cover — backend always present
     NLSQAdapter = None  # type: ignore[assignment,misc]
     NLSQWrapper = None  # type: ignore[assignment,misc]
 

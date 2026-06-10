@@ -10,7 +10,7 @@ CMA-ES (Covariance Matrix Adaptation Evolution Strategy) is particularly
 beneficial for XPCS laminar_flow mode where parameters have vastly different
 scales (e.g., D₀ ~ 1e4 vs γ̇₀ ~ 1e-3, scale ratio > 1e7).
 
-NLSQ v0.6.4+ Features:
+NLSQ Features:
 - evosax backend for JAX-accelerated evolution
 - BIPOP restart strategy (alternating large/small populations)
 - Memory batching: population_batch_size, data_chunk_size
@@ -69,7 +69,7 @@ def _format_bounds_summary(bounds: tuple[np.ndarray, np.ndarray]) -> str:
 
 
 # =============================================================================
-# Parameter Normalization Utilities (v2.16.0)
+# Parameter Normalization Utilities
 # =============================================================================
 # These functions implement bounds-based normalization to improve CMA-ES
 # convergence for multi-scale problems (e.g., D₀ ~ 1e4 vs γ̇₀ ~ 1e-3).
@@ -294,7 +294,7 @@ class CMAESWrapperConfig:
     refinement_max_nfev: int = 500  # Refinement shouldn't need many iterations
     refinement_loss: str = "linear"  # Linear loss for final refinement
 
-    # Parameter normalization (v2.16.0)
+    # Parameter normalization
     # Normalizes parameters to [0,1] based on bounds for better scale handling
     normalize: bool = True  # Enable bounds-based normalization
     normalization_epsilon: float = 1e-12  # Prevent division by zero
@@ -341,7 +341,7 @@ class CMAESWrapperConfig:
             refinement_gtol=getattr(config, "cmaes_refinement_gtol", 1e-10),
             refinement_max_nfev=getattr(config, "cmaes_refinement_max_nfev", 500),
             refinement_loss=getattr(config, "cmaes_refinement_loss", "linear"),
-            # Parameter normalization (v2.16.0)
+            # Parameter normalization
             normalize=getattr(config, "cmaes_normalize", True),
             normalization_epsilon=getattr(config, "cmaes_normalization_epsilon", 1e-12),
         )
@@ -369,7 +369,7 @@ class CMAESWrapperConfig:
         """
         if not CMAES_AVAILABLE:
             raise ImportError(
-                "CMA-ES requires NLSQ 0.6.4+ with evosax backend. "
+                "CMA-ES requires NLSQ with evosax backend. "
                 "Install with: pip install nlsq[evosax]"
             )
 
@@ -822,7 +822,7 @@ class CMAESWrapper:
         """
         if not CMAES_AVAILABLE:
             raise ImportError(
-                "CMA-ES requires NLSQ 0.6.4+ with evosax backend. "
+                "CMA-ES requires NLSQ with evosax backend. "
                 "Install with: pip install nlsq[evosax]"
             )
 
@@ -842,7 +842,7 @@ class CMAESWrapper:
             f"[CMA-ES] Problem characteristics: scale_ratio={scale_ratio:.2e}, {bounds_summary}"
         )
 
-        # Log bounds for debugging (v2.20.0)
+        # Log bounds for debugging
         # Bounds order follows _bounds_to_arrays canonical order:
         # [contrast, offset, D0, alpha, D_offset, gamma_dot_t0, beta,
         #  gamma_dot_t_offset, phi0] (may differ from config parameter order)
@@ -853,7 +853,7 @@ class CMAESWrapper:
             np.array2string(upper, precision=4, separator=", "),
         )
 
-        # Select sigma based on warm-start state (v2.20.0)
+        # Select sigma based on warm-start state
         # When warm-start provides a near-optimal starting point, use a smaller
         # sigma for local refinement instead of global exploration.
         warmstart_active = warmstart_chi2 is not None and warmstart_chi2 < float("inf")
@@ -872,7 +872,7 @@ class CMAESWrapper:
         # Build CMAESConfig with memory settings
         cmaes_config = self.config.to_cmaes_config(n_params, sigma_override=effective_sigma)
 
-        # When warm-start is active, override BIPOP -> none (v2.21.0)
+        # When warm-start is active, override BIPOP -> none
         # BIPOP large-population restarts are designed for global exploration,
         # but with sigma_warmstart (small sigma), the large populations sample
         # densely in a small neighborhood without actually exploring broadly.
@@ -886,7 +886,7 @@ class CMAESWrapper:
                 "(BIPOP large-population restarts are incoherent with small sigma_warmstart)"
             )
 
-        # Adaptive population sizing for high scale-ratio problems (v2.19.0)
+        # Adaptive population sizing for high scale-ratio problems
         # Default popsize (4+3*ln(9) ~ 11) is too small for multi-scale problems.
         # Scale up popsize and generations when scale ratio is large, unless
         # the user explicitly configured a popsize.
@@ -952,7 +952,7 @@ class CMAESWrapper:
         # Create optimizer with config
         optimizer = CMAESOptimizer(config=cmaes_config)
 
-        # Set up parameter normalization if enabled (v2.16.0)
+        # Set up parameter normalization if enabled
         # Normalizes parameters to [0, 1] space for better CMA-ES covariance adaptation
         norm_state: dict[str, Any] | None = None
         if self.config.normalize:
@@ -1017,7 +1017,7 @@ class CMAESWrapper:
         if cmaes_covariance is not None:
             cmaes_covariance = np.asarray(cmaes_covariance)
 
-        # Denormalize results if normalization was applied (v2.16.0)
+        # Denormalize results if normalization was applied
         if norm_state is not None:
             cmaes_params = _denormalize_params(
                 cmaes_params, norm_state["scale"], norm_state["offset"]
@@ -1028,7 +1028,7 @@ class CMAESWrapper:
             logger.debug("[CMA-ES] Parameters denormalized from [0,1] to physical space")
 
         # Build CMA-ES diagnostics
-        # NLSQ 0.6.4+ stores diagnostics under 'cmaes_diagnostics' dict
+        # NLSQ stores diagnostics under 'cmaes_diagnostics' dict
         cmaes_diag = result.get("cmaes_diagnostics", {})
         generations = cmaes_diag.get("total_generations", 0)
         restarts = cmaes_diag.get("total_restarts", 0)

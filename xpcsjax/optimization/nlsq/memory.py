@@ -1,7 +1,7 @@
 """Memory Management and Unified Strategy Selection for NLSQ Optimization.
 
 This module is the **homodyne** memory model: strategy names ``STANDARD``,
-``OUT_OF_CORE``, ``HYBRID_STREAMING`` follow homodyne's v2.13.0 vocabulary.
+``OUT_OF_CORE``, ``HYBRID_STREAMING`` follow homodyne's vocabulary.
 The heterodyne counterpart lives in :mod:`xpcsjax.optimization.nlsq.heterodyne_memory`
 and uses ``STANDARD``, ``LARGE``, ``STREAMING`` (different naming because the
 heterodyne residual layout has a different memory footprint). The two modules
@@ -9,7 +9,7 @@ are intentionally separate — do not unify them without coordinating Phase 6's
 heterodyne tolerance work.
 
 Provides adaptive memory threshold detection and unified memory-based strategy
-selection for NLSQ optimization (v2.13.0+).
+selection for NLSQ optimization.
 
 Key Features:
 - Cross-platform system memory detection (psutil + os.sysconf fallback)
@@ -18,7 +18,7 @@ Key Features:
 - Environment variable override support (NLSQ_MEMORY_FRACTION)
 - Safe fraction clamping to prevent OOM or underutilization
 
-Strategy Selection (v2.13.0+):
+Strategy Selection:
     >>> from xpcsjax.optimization.nlsq.memory import select_nlsq_strategy
     >>> decision = select_nlsq_strategy(n_points=100_000_000, n_params=53)
     >>> print(decision.strategy.value)  # 'standard', 'out_of_core', or 'hybrid_streaming'
@@ -35,7 +35,7 @@ from typing import Any
 
 from xpcsjax.utils.logging import get_logger, log_phase
 
-# Check if NLSQ MemoryManager is available (v0.4+)
+# Check if NLSQ MemoryManager is available
 try:
     _NLSQ_MEMORY_MANAGER_AVAILABLE = True
 except ImportError:
@@ -413,7 +413,7 @@ __all__ = [
     "detect_total_system_memory",
     "get_adaptive_memory_threshold",
     "estimate_peak_memory_gb",
-    # Unified strategy selection (v2.13.0)
+    # Unified strategy selection
     "NLSQStrategy",
     "StrategyDecision",
     "select_nlsq_strategy",

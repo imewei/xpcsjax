@@ -187,12 +187,12 @@ class StratifiedResidualFunction:
         self._t2_unique_global = global_t2_unique
 
         self._precomputed_flat_indices = []
-        self._precomputed_t1_indices = []  # v2.14.2+: for diagonal masking
-        self._precomputed_t2_indices = []  # v2.14.2+: for diagonal masking
+        self._precomputed_t1_indices = []  # for diagonal masking
+        self._precomputed_t2_indices = []  # for diagonal masking
 
         for chunk in self.chunks:
             # Pre-compute flat indices for this chunk (FR-001 optimization)
-            # v2.14.2+: Also returns t1/t2 indices for diagonal masking
+            # Also returns t1/t2 indices for diagonal masking
             flat_indices, t1_indices, t2_indices = self._compute_flat_indices(
                 phi=chunk.phi,
                 t1=chunk.t1,
@@ -224,7 +224,7 @@ class StratifiedResidualFunction:
         This helper method computes the 1D flat indices that map each point
         in a chunk to its position in the flattened 3D grid (phi × t1 × t2).
 
-        Also returns t1_indices and t2_indices for diagonal masking (v2.14.2+).
+        Also returns t1_indices and t2_indices for diagonal masking.
 
         Performance Note (Spec 006 - FR-001):
         This method is called once during __init__ to pre-compute indices,
@@ -338,8 +338,8 @@ class StratifiedResidualFunction:
         Attributes Created:
             g2_all: Concatenated g2 observations from all chunks
             flat_indices_all: Concatenated pre-computed flat indices
-            t1_indices_all: Concatenated t1 indices for diagonal masking (v2.14.2+)
-            t2_indices_all: Concatenated t2 indices for diagonal masking (v2.14.2+)
+            t1_indices_all: Concatenated t1 indices for diagonal masking
+            t2_indices_all: Concatenated t2 indices for diagonal masking
             chunk_boundaries: Array of boundary indices [0, len(chunk0), len(chunk0)+len(chunk1), ...]
             _chunk_q: q value (same for all chunks)
             _chunk_L: L value (same for all chunks)
@@ -352,7 +352,7 @@ class StratifiedResidualFunction:
         # Concatenate pre-computed flat indices
         self.flat_indices_all = jnp.concatenate(self._precomputed_flat_indices, axis=0)
 
-        # v2.14.2+: Concatenate t1/t2 indices for diagonal masking
+        # Concatenate t1/t2 indices for diagonal masking
         self.t1_indices_all = jnp.concatenate(self._precomputed_t1_indices, axis=0)
         self.t2_indices_all = jnp.concatenate(self._precomputed_t2_indices, axis=0)
 
@@ -612,7 +612,7 @@ class StratifiedResidualFunction:
         safe_sigma = jnp.where(valid_sigma, sigma_all, 1.0)
         residuals = jnp.where(valid_sigma, (self.g2_all - g2_theory_all) / safe_sigma, 0.0)
 
-        # v2.14.2+ / A2: Mask diagonal points (t1 == t2) to zero. Diagonal
+        # A2: Mask diagonal points (t1 == t2) to zero. Diagonal
         # points are autocorrelation artifacts, not physics. The mask is
         # precomputed once in _concatenate_chunk_data (self._diag_mask) using
         # the integer grid indices — diagonal points have identical t1/t2
