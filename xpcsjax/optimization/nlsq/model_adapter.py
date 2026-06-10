@@ -175,3 +175,57 @@ class HeterodynePointEvaluator:
         # Prepend the length-1 phi axis so the engine's squeeze(axis=0) yields
         # (n_t, n_t), matching HomodynePointEvaluator's (1, n_t, n_t) shape.
         return grid[None, :, :]
+
+
+class HeterodynePointwiseEvaluator(HeterodynePointEvaluator):
+    r"""Heterodyne adapter that ALSO evaluates only at scattered support points.
+
+    Subclasses :class:`HeterodynePointEvaluator` so it still satisfies the grid
+    :class:`PointEvaluator` Protocol (``eval_points`` returns the full per-angle
+    ``(1, n_t, n_t)`` meshgrid, inherited unchanged). In addition it advertises
+    ``supports_scattered = True`` and implements :meth:`eval_scattered`, which the
+    stratification engine detects via ``getattr(evaluator, "supports_scattered",
+    False)`` (a duck-typed capability — NOT a member of the ``PointEvaluator``
+    Protocol, so homodyne's evaluator is unaffected).
+
+    The scattered kernel ``compute_c2_heterodyne_pointwise`` gathers from the same
+    per-t cumulative arrays as the meshgrid kernel, so for any point
+    ``eval_scattered(...)[p]`` equals
+    ``eval_points(..., phi_unique[phi_idx[p]], ...)[0][t1_idx[p], t2_idx[p]]`` to
+    float precision (see ``heterodyne_jax_backend.py``). That is what makes the
+    engine swap numerically equivalent rather than merely no-worse.
+    """
+
+    supports_scattered: bool = True
+
+    def eval_scattered(
+        self,
+        params: Any,
+        phi_unique: Any,
+        t: Any,
+        phi_idx: Any,
+        t1_idx: Any,
+        t2_idx: Any,
+        contrast: Any,
+        offset: Any,
+    ) -> Any:
+        """Return a flat ``(P,)`` theory vector at the scattered triples.
+
+        ``contrast``/``offset`` are per-angle arrays of length ``n_phi`` (indexed
+        internally by ``phi_idx``). ``t`` is the shared time grid (the engine's
+        ``t1_unique``).
+        """
+        from xpcsjax.core.heterodyne_jax_backend import compute_c2_heterodyne_pointwise
+
+        return compute_c2_heterodyne_pointwise(
+            params,
+            t,
+            self.q,
+            self.dt,
+            phi_unique=phi_unique,
+            phi_idx=phi_idx,
+            t1_idx=t1_idx,
+            t2_idx=t2_idx,
+            contrast=contrast,
+            offset=offset,
+        )
