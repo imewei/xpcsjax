@@ -1240,8 +1240,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/data/memory_manager.py": {
-    "mtime": 1781112543.3833141,
-    "ast_hash": "fd4fadcac58abb8ab8e26896fe8588cc",
+    "mtime": 1781116197.851782,
+    "ast_hash": "37706f6e8351ad3160ddcde42c7d0a8b",
     "semantic_hash": ""
   },
   "xpcsjax/data/quality_controller.py": {
@@ -1950,8 +1950,8 @@
     "semantic_hash": ""
   },
   "tests/data/test_memory_manager_cache_gating.py": {
-    "mtime": 1781112520.519287,
-    "ast_hash": "973ef1ab9855ce5269d7f12770ed2517",
+    "mtime": 1781116260.2786372,
+    "ast_hash": "f7ca1e93c8acff431e6d2de2bdbe7461",
     "semantic_hash": ""
   },
   "tests/optimization/test_chunked_jacfwd.py": {
