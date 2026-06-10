@@ -75,17 +75,6 @@ For heterodyne (`two_component`) fits, `fit_nlsq` returns a `list[NLSQResult]`
 
 ---
 
-## What `xpcsjax` will NEVER add
-
-- **CMC / Bayesian sampling** (NumPyro, BlackJAX, ArviZ). xpcsjax is NLSQ-only by
-  design. Users needing posterior sampling should use the source `homodyne` or
-  `heterodyne` packages.
-- `scipy.optimize.least_squares`. The trust-region solver is `nlsq.CurveFit`
-  end-to-end. JAX-first, GPU/TPU-capable, no per-iteration Host↔Device transfers.
-- Heterodyne's soft-L1 loss (xpcsjax uses chi-squared throughout).
-
----
-
 ## Validation
 
 xpcsjax reproduces source-package fits with strong guarantees:
