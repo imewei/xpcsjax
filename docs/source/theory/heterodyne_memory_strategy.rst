@@ -209,3 +209,55 @@ Parity notes
   L5 shear-sensitivity weighting is ``laminar_flow``-only and does not apply
   to the heterodyne two-component model; this remains true on all heterodyne
   paths including stratified-LS and streaming.
+
+Memory profile and known limitations
+-------------------------------------
+
+The ≥1M stratified-LS path solves **all** real data points (no subsampling —
+silent downsampling is prohibited).  At the C044 scale (23 angles × 1001 × 1001
+≈ 23M points, 16 joint parameters) the dominant resident cost during the solve
+is the **dense Jacobian** that ``trf`` forms each iteration: ``N × n_params``
+float64 (≈ 2.9 GB at 23M × 16) plus the forward-mode AD tangents threaded
+through the pointwise kernel.  On a memory-tight host this transient drives the
+``AdvancedMemoryManager`` pressure monitor across its 75 % / 90 % thresholds; the
+pressure is **live working-set arrays, not a leak**, and recovers between
+iterations.
+
+What the package does about it:
+
+* **The per-iteration Jacobian is owned by the external ``nlsq`` library**
+  (``CurveFit`` with ``x_scale="jac"``); the adapter passes no analytic
+  Jacobian.  It is **not** reducible from xpcsjax without changing ``x_scale`` /
+  ``method`` or modifying ``nlsq`` — either of which would perturb the
+  non-convex ``trf`` + ``soft_l1`` solve and risk a different (worse) local
+  basin, with no ``rtol`` gate to catch the regression.  It is therefore left
+  unchanged by design.
+* **The post-solve covariance Jacobian *is* owned by xpcsjax** and is computed
+  with a column-blocked forward-mode JVP (``_chunked_jacfwd_dense`` in
+  ``heterodyne_stratified_ls.py``) that is byte-identical to ``jax.jacfwd``
+  (verified at ``rtol ≤ 1e-12``) but caps the AD-tangent width, cutting the one
+  xpcsjax-controlled multi-GB spike.  This affects covariance only, never the
+  fit trajectory.
+* **Pressure logging is regime-aware.** When GC repeatedly frees nothing — the
+  signal that pressure is live JAX/NumPy arrays — the monitor demotes the
+  warning to DEBUG and the critical event to a reframed WARNING ("live arrays,
+  best-effort cleanup only; not a leak"), and gates ``jax.clear_caches()``
+  (which would otherwise force XLA recompiles mid-solve) behind that same
+  signal plus a cooldown.  The 90 %+ state stays *visible* in case of a genuine
+  OOM climb, but stops reading as an actionable defect during a normal hot
+  solve.
+
+Future work (not implemented — each alters results and needs parity verification):
+
+* **Workload-level reduction of the dense-Jacobian peak.** The only way to cut
+  the ≈ 2.9 GB / iteration peak without basin risk is to feed fewer points to
+  the dense solve — e.g. an out-of-core tier below the in-memory stratified-LS
+  path, or a coarser ``stratification.target_chunk_size``.  Both change the
+  numerics and must be validated against the C044 objective oracle
+  (``tests/heterodyne/test_two_component_real_data.py``).  Subsampling the data
+  is **not** an option (no silent downsampling).
+* **Upstream chunked/blockwise Jacobian.** A memory-bounded Jacobian that
+  accumulates ``JᵀJ`` blockwise belongs in ``nlsq`` itself (or in a future
+  solver robust to the pointwise evaluator).  Tracked alongside the
+  pointwise-evaluator basin-fragility note in the heterodyne engine-route
+  documentation.
