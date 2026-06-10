@@ -315,6 +315,7 @@ class MemoryPressureMonitor:
         warning_threshold: float = 0.75,
         critical_threshold: float = 0.9,
         monitoring_interval: float = 1.0,
+        live_array_regime_check: Callable[[], bool] | None = None,
     ):
         """Initialize the memory pressure monitor.
 
@@ -326,10 +327,19 @@ class MemoryPressureMonitor:
             Memory pressure (0.0-1.0) at which critical responses fire.
         monitoring_interval : float, optional
             Polling interval in seconds for the background loop.
+        live_array_regime_check : callable, optional
+            Zero-arg predicate returning ``True`` when the resident pressure is
+            held by *live* JAX/NumPy arrays (GC freeing nothing) rather than
+            reclaimable garbage. When it returns ``True`` the pressure events are
+            not actionable, so they are logged calmly (warning -> DEBUG, critical
+            -> WARNING with a "live arrays, no action" framing) instead of as
+            actionable WARNING/CRITICAL. Defaults to "never a live-array regime"
+            (preserving standalone behavior).
         """
         self.warning_threshold = warning_threshold
         self.critical_threshold = critical_threshold
         self.monitoring_interval = monitoring_interval
+        self._live_array_regime_check = live_array_regime_check
 
         self.stats = MemoryStats()
         self._monitoring_active = False
@@ -491,12 +501,40 @@ class MemoryPressureMonitor:
         # Update state
         self._last_pressure_state = new_state
 
+    def _live_array_regime(self) -> bool:
+        """Whether the current pressure is live JAX/NumPy arrays (not garbage).
+
+        Delegates to the injected ``live_array_regime_check`` predicate; returns
+        ``False`` (the actionable default) when no predicate was supplied or it
+        raises. See :meth:`__init__`.
+        """
+        if self._live_array_regime_check is None:
+            return False
+        try:
+            return bool(self._live_array_regime_check())
+        except Exception:
+            return False
+
     def _trigger_warning_response(self) -> None:
-        """Trigger warning-level memory pressure response."""
-        logger.warning(
-            f"Memory pressure warning: {self.stats.memory_pressure:.1%} "
-            f"(available: {self.stats.available_memory_gb:.1f}GB)",
-        )
+        """Trigger warning-level memory pressure response.
+
+        In the live-array regime the warning is not actionable (nothing the
+        manager does can free a live working set), so it is logged at DEBUG with
+        an explicit "no action" note instead of an alarming WARNING — these fits
+        legitimately run hot and the pressure is transient, not a leak.
+        """
+        if self._live_array_regime():
+            logger.debug(
+                "Memory pressure %.1f%% (available: %.1fGB) - live JAX/NumPy "
+                "arrays, no action available (GC freeing 0; not a leak).",
+                self.stats.memory_pressure * 100.0,
+                self.stats.available_memory_gb,
+            )
+        else:
+            logger.warning(
+                f"Memory pressure warning: {self.stats.memory_pressure:.1%} "
+                f"(available: {self.stats.available_memory_gb:.1f}GB)",
+            )
 
         for callback in self._warning_callbacks:
             try:
@@ -511,11 +549,26 @@ class MemoryPressureMonitor:
                 )
 
     def _trigger_critical_response(self) -> None:
-        """Trigger critical-level memory pressure response."""
-        logger.critical(
-            f"Critical memory pressure: {self.stats.memory_pressure:.1%} "
-            f"(available: {self.stats.available_memory_gb:.1f}GB)",
-        )
+        """Trigger critical-level memory pressure response.
+
+        In the live-array regime the event is logged at WARNING (not CRITICAL):
+        the 90%+ state stays *visible* in case it is a genuine OOM climb, but is
+        reframed as best-effort-only since emergency cleanup cannot free a live
+        working set. Outside the regime the original CRITICAL is preserved.
+        """
+        if self._live_array_regime():
+            logger.warning(
+                "Memory pressure %.1f%% (available: %.1fGB) - live JAX/NumPy "
+                "arrays (GC freeing 0); emergency cleanup is best-effort only. "
+                "Not a leak; watch for sustained climb toward OOM.",
+                self.stats.memory_pressure * 100.0,
+                self.stats.available_memory_gb,
+            )
+        else:
+            logger.critical(
+                f"Critical memory pressure: {self.stats.memory_pressure:.1%} "
+                f"(available: {self.stats.available_memory_gb:.1f}GB)",
+            )
 
         for callback in self._critical_callbacks:
             try:
@@ -668,6 +721,10 @@ class AdvancedMemoryManager:
             warning_threshold,
             critical_threshold,
             monitoring_interval,
+            # Teach the monitor when pressure is unactionable (live arrays) so it
+            # logs calmly instead of crying WARNING/CRITICAL every cycle. Bound
+            # method reads the GC signal defensively (it is set just below).
+            live_array_regime_check=self._in_live_array_regime,
         )
 
         # Register pressure response callbacks
@@ -688,6 +745,16 @@ class AdvancedMemoryManager:
         # GC rate limiting (owned by this class, not by pressure_monitor)
         self._consecutive_zero_gc: int = 0
         self._last_gc_freed: int = 0
+
+        # JAX compilation-cache-clear gating (see _maybe_clear_jax_caches).
+        # Clearing the JIT cache mid-solve evicts compiled XLA executables and
+        # forces a recompile on the next solver step (these fits are
+        # cold-compile-dominated), so it is gated on a cooldown and on whether
+        # GC is actually freeing anything.
+        self._last_jax_cache_clear: float = 0.0
+        self._jax_cache_clear_cooldown_s: float = float(
+            self.memory_config.get("jax_cache_clear_cooldown_s", 60.0)
+        )
 
         # Virtual memory support
         self._virtual_memory_enabled = self.memory_config.get("virtual_memory", True)
@@ -1042,6 +1109,19 @@ class AdvancedMemoryManager:
             logger.error(f"Virtual memory allocation failed: {e}")
             raise AllocationError("Virtual memory allocation failed") from e
 
+    def _in_live_array_regime(self) -> bool:
+        """Whether recent GC freed nothing => pressure is live JAX/NumPy arrays.
+
+        Reuses the same ``_consecutive_zero_gc >= 3`` signal that gates the GC
+        skip and the JAX cache-clear: when three consecutive collections free
+        nothing, the resident memory is a live working set (e.g. an active NLSQ
+        solve), not reclaimable garbage. In that regime memory-pressure events
+        are not actionable, so the monitor and these callbacks log them calmly.
+        Read defensively via ``getattr`` because the monitor (which calls this)
+        is constructed before ``_consecutive_zero_gc`` is assigned.
+        """
+        return getattr(self, "_consecutive_zero_gc", 0) >= 3
+
     def _handle_memory_warning(self, stats: MemoryStats) -> None:
         """Handle memory pressure warning.
 
@@ -1049,7 +1129,13 @@ class AdvancedMemoryManager:
         free memory (e.g., during JAX/NumPy-heavy workloads where memory
         is actively referenced).
         """
-        logger.warning("Memory pressure warning - triggering optimization")
+        if self._in_live_array_regime():
+            logger.debug(
+                "Memory pressure (live JAX/NumPy arrays) - monitoring only, no "
+                "effective optimization available."
+            )
+        else:
+            logger.warning("Memory pressure warning - triggering optimization")
 
         # Trigger garbage collection with rate-limiting
         # Skip GC if previous calls consistently freed 0 objects (JAX/NumPy workload)
@@ -1089,7 +1175,13 @@ class AdvancedMemoryManager:
 
     def _handle_memory_critical(self, stats: MemoryStats) -> None:
         """Handle critical memory pressure."""
-        logger.critical("Critical memory pressure - performing emergency cleanup")
+        if self._in_live_array_regime():
+            logger.debug(
+                "Critical memory pressure (live JAX/NumPy arrays) - running "
+                "best-effort cleanup (expected no-op; not a leak)."
+            )
+        else:
+            logger.critical("Critical memory pressure - performing emergency cleanup")
 
         with logged_errors(logger, "emergency_cleanup", policy="suppress", level=logging.DEBUG):
             self._emergency_memory_cleanup()
@@ -1118,48 +1210,86 @@ class AdvancedMemoryManager:
                 gc.set_threshold(700, 10, 10)
 
     def _emergency_memory_cleanup(self) -> None:
-        """Perform emergency memory cleanup."""
-        logger.warning("Performing emergency memory cleanup")
+        """Perform emergency memory cleanup.
 
-        # Clear all memory pools
+        Under an active JAX/NumPy workload (e.g. a large NLSQ solve) the resident
+        memory is held by *live* device/host arrays — not Python garbage and not
+        pooled buffers. ``gc.collect()`` then frees nothing, and
+        ``jax.clear_caches()`` cannot free the live working set either; it only
+        evicts compiled XLA executables, forcing a recompile on the next solver
+        step (these fits are cold-compile-dominated). Repeatedly clearing the
+        cache mid-solve is a feedback loop that *raises* peak memory and
+        wall-time while reclaiming nothing. So both responses are gated on
+        whether they can plausibly help instead of fired unconditionally.
+        """
+        if self._in_live_array_regime():
+            logger.debug("Performing emergency memory cleanup (live arrays; best-effort)")
+        else:
+            logger.warning("Performing emergency memory cleanup")
+
+        # Clear all memory pools (these ARE ours and always safe to drop).
         with logged_errors(logger, "emergency_clear_pools", policy="suppress", level=logging.DEBUG):
             with self._pools_lock:
                 for pool in self._pools.values():
                     pool.buffers.clear()
                 self._pools.clear()
 
-        # Force garbage collection multiple times
-        for _ in range(3):
-            try:
-                collected = gc.collect()
-                logger.debug(f"Emergency GC collected {collected} objects")
-            except Exception as exc:
-                log_once(
-                    logger,
-                    logging.DEBUG,
-                    f"{id(self)}:memmgr:emergency_gc",
-                    "Emergency GC failed: %s",
-                    exc,
-                )
+        # One collection — and stop if it frees nothing (live arrays, not
+        # garbage). Looping 3× when the first pass already freed 0 is pure waste
+        # and floods the log under sustained pressure.
+        with logged_errors(logger, "emergency_gc", policy="suppress", level=logging.DEBUG):
+            collected = gc.collect()
+            logger.debug(f"Emergency GC collected {collected} objects")
+            if collected == 0:
+                self._consecutive_zero_gc += 1
+            else:
+                self._consecutive_zero_gc = 0
+            self._last_gc_freed = collected
 
-        # JAX memory cleanup if available
-        if HAS_JAX:
-            try:
-                # CRITICAL FIX (Nov 10, 2025): jax.clear_backends() removed in newer JAX
-                # Use jax.clear_caches() for newer JAX compatibility
-                # This clears JIT compilation cache and helps release device memory
-                if hasattr(jax, "clear_caches"):
-                    jax.clear_caches()
-                    logger.debug("Cleared JAX compilation cache")
-                else:
-                    logger.debug("JAX clear_caches() not available (older JAX version)")
-            except Exception as exc:
-                log_exception(
-                    logger,
-                    exc,
-                    context={"operation": "jax_memory_cleanup"},
-                    level=logging.DEBUG,
-                )
+        # JAX cache clear: only when it can plausibly help and not too often.
+        if HAS_JAX and hasattr(jax, "clear_caches"):
+            self._maybe_clear_jax_caches()
+        elif HAS_JAX:
+            logger.debug("JAX clear_caches() not available (older JAX version)")
+
+    def _maybe_clear_jax_caches(self) -> None:
+        """Clear JAX's compilation cache only when it can plausibly free memory.
+
+        Skips the clear when (a) recent GC passes freed nothing — a reliable
+        signal that the pressure is live JAX/NumPy arrays a cache-clear cannot
+        release — or (b) a clear already happened within the cooldown window.
+        Clearing the JIT cache mid-solve forces XLA recompilation (extra memory
+        and time) without touching the live working set, so suppressing it
+        during an active fit is strictly beneficial. When memory is genuinely
+        reclaimable (GC productive) and the cooldown has elapsed, the clear
+        proceeds exactly as before.
+        """
+        if self._consecutive_zero_gc >= 3:
+            log_once(
+                logger,
+                logging.DEBUG,
+                f"{id(self)}:memmgr:skip_jax_cache_clear_live",
+                "Skipping jax.clear_caches() - pressure is live JAX/NumPy arrays "
+                "(GC freed 0); clearing would force recompiles without freeing the "
+                "working set.",
+            )
+            return
+
+        now = time.monotonic()
+        if (now - self._last_jax_cache_clear) < self._jax_cache_clear_cooldown_s:
+            logger.debug(
+                "Skipping jax.clear_caches() - within %.0fs cooldown "
+                "(avoids mid-solve recompile thrashing).",
+                self._jax_cache_clear_cooldown_s,
+            )
+            return
+
+        with logged_errors(
+            logger, "jax_memory_cleanup", policy="suppress", level=logging.DEBUG
+        ):
+            jax.clear_caches()
+            self._last_jax_cache_clear = now
+            logger.debug("Cleared JAX compilation cache")
 
     def _cleanup_old_pools(self) -> None:
         """Clean up old or unused memory pools."""
