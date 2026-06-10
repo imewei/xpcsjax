@@ -12,3 +12,4 @@ contract.
    testing
    porting_notes
    nlsq_integration
+   cpu_gpu_decision

@@ -75,15 +75,6 @@ For heterodyne (`two_component`) fits, `fit_nlsq` returns a `list[NLSQResult]`
 
 ---
 
-## What's coming in v0.2+
-
-- GPU/TPU support (v0.1 sets `NLSQ_SKIP_GPU_CHECK=1` and runs CPU-only).
-- PyQt6 desktop UI.
-- Unification of the two `HeterodyneModel` classes (Task 27 wrapper vs Task 30
-  stateful — see [MIGRATION.md](docs/MIGRATION.md)).
-
----
-
 ## What `xpcsjax` will NEVER add
 
 - **CMC / Bayesian sampling** (NumPyro, BlackJAX, ArviZ). xpcsjax is NLSQ-only by

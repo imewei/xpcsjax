@@ -81,6 +81,14 @@ probe slows package import by several hundred milliseconds even when
 no GPU is present. ``NLSQ_SKIP_GPU_CHECK=1`` tells NLSQ to skip the
 probe.
 
+.. seealso::
+
+   :doc:`/development/cpu_gpu_decision` records *why* v0.1 pins the CPU
+   backend: the fit is compile-dominated, so a GPU (which only speeds the
+   ~1.6 % warm numeric loop) buys almost nothing, and float64 erases its
+   edge on consumer cards. The deferral is a workload decision, not a
+   solver-rewrite barrier — the NLSQ trust-region solve is already pure JAX.
+
 Overriding the defaults
 -----------------------
 
