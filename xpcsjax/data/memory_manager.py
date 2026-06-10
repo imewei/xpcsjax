@@ -742,7 +742,25 @@ class AdvancedMemoryManager:
         self._last_gc_time = 0.0
         self._gc_threshold_multiplier = 2.0  # Reduce GC frequency under pressure
 
-        # GC rate limiting (owned by this class, not by pressure_monitor)
+        # Capture the process GC thresholds ONCE so pressure responses divide
+        # from this baseline. The previous code divided gc.get_threshold() (the
+        # *current* value) on every warning/critical, compounding downward over
+        # oscillating pressure (700->350->87->...->0) until GC ran on nearly
+        # every allocation, and permanently clobbered any user-configured
+        # thresholds. Dividing from the captured baseline keeps the adjustment
+        # bounded and restorable.
+        try:
+            self._default_gc_thresholds: tuple[int, ...] = gc.get_threshold()
+        except Exception:
+            self._default_gc_thresholds = (700, 10, 10)
+
+        # GC rate limiting (owned by this class, not by pressure_monitor).
+        # Guarded by `_gc_state_lock`: `_emergency_memory_cleanup` /
+        # `_optimize_garbage_collection` can run on a foreground allocation
+        # thread while the monitor's critical callback runs the same code on the
+        # daemon thread, so the read-modify-write of these counters (and the
+        # cache-clear cooldown check-then-act) must be serialized.
+        self._gc_state_lock = threading.Lock()
         self._consecutive_zero_gc: int = 0
         self._last_gc_freed: int = 0
 
@@ -750,8 +768,9 @@ class AdvancedMemoryManager:
         # Clearing the JIT cache mid-solve evicts compiled XLA executables and
         # forces a recompile on the next solver step (these fits are
         # cold-compile-dominated), so it is gated on a cooldown and on whether
-        # GC is actually freeing anything.
-        self._last_jax_cache_clear: float = 0.0
+        # GC is actually freeing anything. Baseline -inf so the FIRST clear is
+        # always allowed (monotonic() can be < cooldown on a freshly booted box).
+        self._last_jax_cache_clear: float = float("-inf")
         self._jax_cache_clear_cooldown_s: float = float(
             self.memory_config.get("jax_cache_clear_cooldown_s", 60.0)
         )
@@ -1122,12 +1141,36 @@ class AdvancedMemoryManager:
         """
         return getattr(self, "_consecutive_zero_gc", 0) >= 3
 
+    def _record_gc_result(self, collected: int) -> None:
+        """Update the live-array-regime counters from a ``gc.collect()`` result.
+
+        Single locked writer for ``_consecutive_zero_gc`` / ``_last_gc_freed`` so
+        the monitor's critical callback (daemon thread) and foreground allocation
+        threads cannot race the read-modify-write. ALL gc.collect() sites route
+        through here. A productive collection (``collected > 0``) resets the
+        regime — this is how the live-array state self-heals once memory becomes
+        reclaimable again (e.g. after a solve frees its working set), without
+        flickering the warning demotion on every transient recovery.
+        """
+        with self._gc_state_lock:
+            if collected == 0:
+                self._consecutive_zero_gc += 1
+            else:
+                self._consecutive_zero_gc = 0
+            self._last_gc_freed = collected
+
     def _handle_memory_warning(self, stats: MemoryStats) -> None:
         """Handle memory pressure warning.
 
         Includes GC rate-limiting to avoid wasteful calls when GC cannot
         free memory (e.g., during JAX/NumPy-heavy workloads where memory
         is actively referenced).
+
+        Note: the live-array demotion below reflects the regime established by
+        PRIOR cycles — on the very event that establishes the 3rd zero-GC the
+        log may still read as actionable while the cache-clear gate (which runs
+        after this cycle's collect) already treats it as live. This one-cycle
+        lag is intentional and harmless; the regime is a hysteresis signal.
         """
         if self._in_live_array_regime():
             logger.debug(
@@ -1150,26 +1193,23 @@ class AdvancedMemoryManager:
             else:
                 collected = gc.collect()
                 logger.debug(f"Garbage collection freed {collected} objects")
-
-                # Track consecutive zero-result collections
-                if collected == 0:
-                    self._consecutive_zero_gc += 1
-                else:
-                    self._consecutive_zero_gc = 0
-                self._last_gc_freed = collected
+                self._record_gc_result(collected)
 
         # Clean up old pools
         with logged_errors(logger, "cleanup_old_pools", policy="suppress", level=logging.DEBUG):
             self._cleanup_old_pools()
 
-        # Adjust GC thresholds to be more aggressive
+        # Adjust GC thresholds to be more aggressive (divide from the captured
+        # baseline, not the current value, so repeated warnings don't compound
+        # the thresholds toward 0). Clamp to >=1 so a generation is never
+        # disabled (a 0 gen0 threshold turns off automatic collection).
         if self._gc_optimization_enabled:
             with logged_errors(
                 logger, "warning_gc_threshold", policy="suppress", level=logging.DEBUG
             ):
-                current_thresholds = gc.get_threshold()
                 new_thresholds = tuple(
-                    int(t / self._gc_threshold_multiplier) for t in current_thresholds
+                    max(1, int(t / self._gc_threshold_multiplier))
+                    for t in self._default_gc_thresholds
                 )
                 gc.set_threshold(*new_thresholds)
 
@@ -1186,14 +1226,15 @@ class AdvancedMemoryManager:
         with logged_errors(logger, "emergency_cleanup", policy="suppress", level=logging.DEBUG):
             self._emergency_memory_cleanup()
 
-        # More aggressive GC threshold adjustment
+        # More aggressive GC threshold adjustment (from the captured baseline,
+        # clamped to >=1 — see _handle_memory_warning).
         if self._gc_optimization_enabled:
             with logged_errors(
                 logger, "critical_gc_threshold", policy="suppress", level=logging.DEBUG
             ):
-                current_thresholds = gc.get_threshold()
                 new_thresholds = tuple(
-                    int(t / (self._gc_threshold_multiplier * 2)) for t in current_thresholds
+                    max(1, int(t / (self._gc_threshold_multiplier * 2)))
+                    for t in self._default_gc_thresholds
                 )
                 gc.set_threshold(*new_thresholds)
 
@@ -1201,13 +1242,14 @@ class AdvancedMemoryManager:
         """Handle memory pressure recovery."""
         logger.info("Memory pressure recovered - restoring normal operation")
 
-        # Restore normal GC thresholds
+        # Restore the GC thresholds captured at init (the process's real
+        # baseline — not a hardcoded (700, 10, 10) that would clobber a
+        # user-configured value).
         if self._gc_optimization_enabled:
             with logged_errors(
                 logger, "recovery_gc_threshold", policy="suppress", level=logging.DEBUG
             ):
-                # Reset to default thresholds
-                gc.set_threshold(700, 10, 10)
+                gc.set_threshold(*self._default_gc_thresholds)
 
     def _emergency_memory_cleanup(self) -> None:
         """Perform emergency memory cleanup.
@@ -1240,11 +1282,7 @@ class AdvancedMemoryManager:
         with logged_errors(logger, "emergency_gc", policy="suppress", level=logging.DEBUG):
             collected = gc.collect()
             logger.debug(f"Emergency GC collected {collected} objects")
-            if collected == 0:
-                self._consecutive_zero_gc += 1
-            else:
-                self._consecutive_zero_gc = 0
-            self._last_gc_freed = collected
+            self._record_gc_result(collected)
 
         # JAX cache clear: only when it can plausibly help and not too often.
         if HAS_JAX and hasattr(jax, "clear_caches"):
@@ -1263,8 +1301,32 @@ class AdvancedMemoryManager:
         during an active fit is strictly beneficial. When memory is genuinely
         reclaimable (GC productive) and the cooldown has elapsed, the clear
         proceeds exactly as before.
+
+        The regime check and the cooldown check-then-set run under
+        ``_gc_state_lock`` so two threads (the daemon monitor's critical
+        callback and a foreground allocation) cannot both pass the cooldown and
+        issue duplicate ``jax.clear_caches()`` calls. The actual (slow) clear
+        runs outside the lock once this thread has claimed the cooldown slot.
         """
-        if self._consecutive_zero_gc >= 3:
+        if not HAS_JAX:  # self-safe even if called directly without the guard
+            return
+
+        # Decide under the lock; act outside it. `skip_reason` carries the
+        # decision out so logging/clearing happen without holding the lock.
+        skip_reason: str | None = None
+        with self._gc_state_lock:
+            if self._consecutive_zero_gc >= 3:
+                skip_reason = "live"
+            else:
+                now = time.monotonic()
+                if (now - self._last_jax_cache_clear) < self._jax_cache_clear_cooldown_s:
+                    skip_reason = "cooldown"
+                else:
+                    # Claim the slot before releasing so a concurrent caller
+                    # sees the advanced timestamp and skips.
+                    self._last_jax_cache_clear = now
+
+        if skip_reason == "live":
             log_once(
                 logger,
                 logging.DEBUG,
@@ -1274,9 +1336,7 @@ class AdvancedMemoryManager:
                 "working set.",
             )
             return
-
-        now = time.monotonic()
-        if (now - self._last_jax_cache_clear) < self._jax_cache_clear_cooldown_s:
+        if skip_reason == "cooldown":
             logger.debug(
                 "Skipping jax.clear_caches() - within %.0fs cooldown "
                 "(avoids mid-solve recompile thrashing).",
@@ -1288,7 +1348,6 @@ class AdvancedMemoryManager:
             logger, "jax_memory_cleanup", policy="suppress", level=logging.DEBUG
         ):
             jax.clear_caches()
-            self._last_jax_cache_clear = now
             logger.debug("Cleared JAX compilation cache")
 
     def _cleanup_old_pools(self) -> None:
@@ -1326,6 +1385,10 @@ class AdvancedMemoryManager:
             collected = gc.collect()
             if collected > 0:
                 logger.debug(f"Proactive GC collected {collected} objects")
+            # Feed the same regime counter the warning/emergency paths use, so a
+            # productive proactive collect resets a stale live-array regime (and
+            # the counter's meaning stays consistent across all gc.collect sites).
+            self._record_gc_result(collected)
 
         self._last_gc_time = current_time
 

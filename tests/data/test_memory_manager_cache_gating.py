@@ -197,3 +197,94 @@ def test_emergency_gc_does_not_loop_when_unproductive(monkeypatch):
         )
     finally:
         manager.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Review-fix coverage (codex/agy dual review of memory_manager.py)
+# ---------------------------------------------------------------------------
+
+
+def test_gc_thresholds_divide_from_baseline_not_compounding(monkeypatch):
+    """Repeated warnings must NOT compound gc thresholds toward 0 (agy F2).
+
+    The old code divided gc.get_threshold() (the *current* value) each warning,
+    so oscillating pressure drove thresholds 700->350->175->... The fix divides
+    from the baseline captured at init, so every warning sets the same value.
+    """
+    manager = _make_manager()
+    try:
+        manager._default_gc_thresholds = (700, 10, 10)
+        manager._gc_threshold_multiplier = 2.0
+        manager._consecutive_zero_gc = 5  # skip the warning-path collect
+
+        set_calls: list[tuple] = []
+        monkeypatch.setattr(mm_mod.gc, "set_threshold", lambda *t: set_calls.append(t))
+        monkeypatch.setattr(mm_mod.gc, "collect", lambda *a, **k: 0)
+
+        stats = mm_mod.MemoryStats()
+        manager._handle_memory_warning(stats)
+        manager._handle_memory_warning(stats)
+
+        assert set_calls == [(350, 5, 5), (350, 5, 5)], (
+            f"thresholds must divide from baseline each time, not compound: {set_calls}"
+        )
+    finally:
+        manager.shutdown()
+
+
+def test_productive_collect_self_heals_live_regime(monkeypatch):
+    """A productive proactive collect resets a stale live-array regime (codex C2).
+
+    `_optimize_garbage_collection` previously collected without updating the
+    counter, so once `_consecutive_zero_gc >= 3` the regime could never clear.
+    Routing it through `_record_gc_result` makes the regime self-heal.
+    """
+    manager = _make_manager()
+    try:
+        manager._consecutive_zero_gc = 5  # stuck live regime
+        manager._last_gc_time = 0.0
+        manager.pressure_monitor.stats.memory_pressure = 0.85  # > 0.8 gate
+        monkeypatch.setattr(mm_mod.gc, "collect", lambda *a, **k: 12)  # productive
+
+        manager._optimize_garbage_collection()
+
+        assert manager._consecutive_zero_gc == 0, "productive collect must reset the regime"
+        assert not manager._in_live_array_regime()
+    finally:
+        manager.shutdown()
+
+
+@pytest.mark.skipif(not mm_mod.HAS_JAX, reason="JAX required for cache-clear gating")
+def test_first_cache_clear_allowed_on_low_uptime(monkeypatch):
+    """Baseline -inf lets the first clear through even when uptime < cooldown (C3/F6)."""
+    manager = _make_manager()
+    try:
+        calls: list[int] = []
+        monkeypatch.setattr(mm_mod.jax, "clear_caches", lambda: calls.append(1))
+        monkeypatch.setattr(mm_mod.gc, "collect", lambda *a, **k: 1)  # productive => not live
+        manager._consecutive_zero_gc = 0
+        manager._jax_cache_clear_cooldown_s = 60.0
+        # Freshly booted box: monotonic() (5s) is LESS than the 60s cooldown.
+        monkeypatch.setattr(mm_mod.time, "monotonic", lambda: 5.0)
+
+        manager._maybe_clear_jax_caches()
+
+        assert calls == [1], (
+            "first clear must be allowed when uptime < cooldown (baseline must be -inf, not 0.0)"
+        )
+    finally:
+        manager.shutdown()
+
+
+@pytest.mark.skipif(not mm_mod.HAS_JAX, reason="JAX required for cache-clear gating")
+def test_maybe_clear_jax_caches_direct_call_is_safe(monkeypatch):
+    """`_maybe_clear_jax_caches` is self-safe when called directly (F8 guard)."""
+    manager = _make_manager()
+    try:
+        monkeypatch.setattr(mm_mod.jax, "clear_caches", lambda: None)
+        manager._consecutive_zero_gc = 0
+        manager._jax_cache_clear_cooldown_s = 0.0
+        # Must not raise (the `if not HAS_JAX: return` guard + locking are intact).
+        manager._maybe_clear_jax_caches()
+    finally:
+        manager.shutdown()
