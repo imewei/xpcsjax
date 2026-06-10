@@ -135,6 +135,45 @@ Layer classes
 .. autofunction:: xpcsjax.optimization.nlsq.core.fit_nlsq_multistart
    :no-index:
 
+Model-agnostic stratification engine
+------------------------------------
+
+The stratification engine (``StratifiedResidualFunctionJIT``) is model-agnostic
+via a ``PointEvaluator`` seam. Homodyne injects ``compute_g2_scaled`` through the
+default :class:`~xpcsjax.optimization.nlsq.model_adapter.HomodynePointEvaluator`;
+heterodyne routes through the meshgrid
+:class:`~xpcsjax.optimization.nlsq.model_adapter.HeterodynePointEvaluator`. See
+:doc:`/theory/heterodyne_memory_strategy` for the procedural-parity rationale.
+
+.. autoclass:: xpcsjax.optimization.nlsq.model_adapter.PointEvaluator
+
+.. autoclass:: xpcsjax.optimization.nlsq.model_adapter.HomodynePointEvaluator
+
+.. autoclass:: xpcsjax.optimization.nlsq.model_adapter.HeterodynePointEvaluator
+
+.. autoclass:: xpcsjax.optimization.nlsq.model_adapter.HeterodynePointwiseEvaluator
+
+   A tested scattered-evaluation seam (``supports_scattered=True``) that
+   evaluates theory only at a chunk's support points, avoiding the dense
+   ``(n_phi, n_t, n_t)`` grid. It is **deliberately not wired** into the
+   production solve — swapping it flips the non-convex ``two_component`` solve
+   into a worse basin on degenerate fixtures. Kept for a future robust solver.
+
+Heterodyne procedural-parity routes
+-----------------------------------
+
+.. autofunction:: xpcsjax.optimization.nlsq.heterodyne_engine_route.fit_two_component_via_engine
+
+   Routes in-memory, in-scope-mode (``fixed_constant`` / ``individual`` /
+   ``auto_averaged``) ``two_component`` fits through the *same* homodyne
+   stratification engine, giving procedural parity. Best-effort: any engine-route
+   exception falls back to ``fit_nlsq_multi_phi``. ``fourier`` stays on the
+   legacy path.
+
+.. autofunction:: xpcsjax.optimization.nlsq.heterodyne_stratified_ls.fit_heterodyne_stratified_least_squares
+
+   The ≥ 1 M-point double-chunked stratified least-squares path for heterodyne.
+
 NLSQResult and NLSQ-side configs
 --------------------------------
 
