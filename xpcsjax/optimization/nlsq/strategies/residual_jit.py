@@ -397,7 +397,9 @@ class StratifiedResidualFunctionJIT:
             self.use_fixed_scaling or self.per_angle_scaling
         )
         if use_scattered:
-            g2_theory_chunk = self._evaluator.eval_scattered(
+            # eval_scattered is a duck-typed capability gated by supports_scattered
+            # above; it is not on the PointEvaluator Protocol, so mypy can't see it.
+            g2_theory_chunk = self._evaluator.eval_scattered(  # type: ignore[attr-defined]
                 physical_params,
                 self.phi_unique,
                 self.t1_unique,
@@ -475,6 +477,9 @@ class StratifiedResidualFunctionJIT:
         if self._sigma_is_unit:
             sigma_chunk = jnp.ones_like(g2_obs_chunk)
         else:
+            # _sigma_is_unit is False <=> sigma_jax was set from a real array in
+            # __init__ (the two are assigned together), so it is never None here.
+            assert self.sigma_jax is not None
             sigma_flat = self.sigma_jax.flatten()
             sigma_chunk = sigma_flat[flat_indices]
 
