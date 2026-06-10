@@ -262,7 +262,7 @@ class TestExecuteLayersFlag:
         ):
             path = templates_dir / template_name
             assert path.exists(), f"Template not found: {path}"
-            data = yaml.safe_load(path.read_text())
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
             ad_block = (
                 data.get("optimization", {}).get("nlsq", {}).get("anti_degeneracy", {})
             )
