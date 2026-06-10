@@ -945,8 +945,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/heterodyne_stratified_data.py": {
-    "mtime": 1780671715.0531998,
-    "ast_hash": "152ac068a62e1853b73b1f491b3b187b",
+    "mtime": 1781064917.3725493,
+    "ast_hash": "0d6a8325f4b2a2927d0564c0619efc5f",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/fit_computation.py": {
@@ -1100,8 +1100,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/model_adapter.py": {
-    "mtime": 1780671715.0531998,
-    "ast_hash": "c2174617328986346958f667afb1ea9f",
+    "mtime": 1781064917.3725493,
+    "ast_hash": "685b7652eebf64f2f478eaad9089596c",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/heterodyne_constant_mode.py": {
@@ -1165,8 +1165,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/heterodyne_engine_route.py": {
-    "mtime": 1780671715.0521996,
-    "ast_hash": "928d0b3d8e814231f45c93f3e83861c5",
+    "mtime": 1781064917.3725493,
+    "ast_hash": "60590f5e2996cc1bd8116300e22f67a1",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/hierarchical.py": {
@@ -1180,8 +1180,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/strategies/residual_jit.py": {
-    "mtime": 1781048494.424501,
-    "ast_hash": "abb57665ce61ad1d6a4065959f5d382b",
+    "mtime": 1781064917.3735492,
+    "ast_hash": "84a5ebdf336c84b8d117a8a461f4b9e3",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/strategies/executors.py": {
@@ -1195,8 +1195,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/strategies/stratified_ls.py": {
-    "mtime": 1781048379.3319688,
-    "ast_hash": "5c6fe5986a485716debd327d93fa0c40",
+    "mtime": 1781064917.3735492,
+    "ast_hash": "5493f5158f560f1ea391ef76d587d5de",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/strategies/out_of_core.py": {
@@ -1942,6 +1942,11 @@
   "docs/source/development/cpu_gpu_decision.rst": {
     "mtime": 1781046168.7128043,
     "ast_hash": "73d9c0e80c5d58886097c43dd7c64a1b",
+    "semantic_hash": ""
+  },
+  "tests/optimization/test_pointwise_evaluator_seam.py": {
+    "mtime": 1781064917.3715494,
+    "ast_hash": "a90482e746e3bd86722b08908fa3419d",
     "semantic_hash": ""
   }
 }
