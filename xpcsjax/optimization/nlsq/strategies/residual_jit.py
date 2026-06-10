@@ -368,80 +368,101 @@ class StratifiedResidualFunctionJIT:
             offset = params_all[1]
             physical_params = params_all[2:]
 
-        # Compute theoretical g2 using vectorized computation
-        # NOTE: Warning for dt=None is emitted in __call__ (outside JIT trace)
-        # dt is sourced via self._evaluator (built with the same 0.001 fallback).
-        if self.use_fixed_scaling or self.per_angle_scaling:
-            # Vectorize over phi with corresponding contrast/offset
-            def compute_for_angle(
-                phi_val: float, contrast_val: float, offset_val: float
-            ) -> jnp.ndarray:
-                return jnp.squeeze(
-                    self._evaluator.eval_points(
-                        physical_params,
-                        jnp.asarray(phi_val),
-                        self.t1_unique,
-                        self.t2_unique,
-                        contrast_val,
-                        offset_val,
-                    ),
-                    axis=0,
-                )
-
-            compute_g2_vmap = jax.vmap(compute_for_angle, in_axes=(0, 0, 0))
-            g2_theory_grid = compute_g2_vmap(self.phi_unique, contrast, offset)  # type: ignore[arg-type]
-        else:
-            # Legacy: single contrast/offset
-            def compute_for_angle_scalar(phi_val: float) -> jnp.ndarray:
-                # We use cast(float, ...) here to satisfy mypy, but at runtime these are JAX tracers
-                # which compute_g2_scaled handles correctly despite the float type hint.
-                from typing import cast  # noqa: F811 — intentional re-import in closure
-
-                return jnp.squeeze(
-                    self._evaluator.eval_points(
-                        physical_params,
-                        jnp.asarray(phi_val),
-                        self.t1_unique,
-                        self.t2_unique,
-                        cast(float, contrast),
-                        cast(float, offset),
-                    ),
-                    axis=0,
-                )
-
-            compute_g2_vmap_scalar = jax.vmap(compute_for_angle_scalar, in_axes=0)
-            g2_theory_grid = compute_g2_vmap_scalar(self.phi_unique)  # type: ignore[arg-type]
-
-        # NOTE: Diagonal correction is intentionally skipped here.
-        # Residuals for t1==t2 points are masked out below via `non_diagonal`,
-        # so theory grid diagonal values are never used in the optimization.
-        # Skipping this call removes ~38% of residual computation time.
-
-        # Flatten theory grid for indexing
-        g2_theory_flat = g2_theory_grid.flatten()
-
-        # Find indices of (phi, t1, t2) in the full grid
-        # n_phi dimension used implicitly for grid shape: (n_phi, n_t1, n_t2)
+        # ---- Indices FIRST (needed by both the grid and scattered paths) ----
+        # Cast to int64 BEFORE any multiplication to prevent int32 overflow on
+        # large grids (searchsorted returns int32).
         n_t1 = len(self.t1_unique)
         n_t2 = len(self.t2_unique)
-
-        # Note: clip removed - stratified LS data comes from same chunks that build
-        # unique arrays, so all values are guaranteed to be in range. The clip was
-        # causing optimization to converge to wrong local minima (D0=91342 vs 19253).
-        # Original clip added in ae4848c for streaming optimizer, but not needed here.
-        # Cast to int64 BEFORE multiplication to prevent int32 overflow.
-        # jnp.searchsorted returns int32; for large datasets (n_phi=100,
-        # n_t1=5000, n_t2=5000) the product 99*25_000_000=2.475B exceeds
-        # int32 max (2.147B), silently wrapping to a negative index.
         phi_indices = jnp.searchsorted(self.phi_unique, phi_chunk).astype(jnp.int64)
         t1_indices = jnp.searchsorted(self.t1_unique, t1_chunk).astype(jnp.int64)
         t2_indices = jnp.searchsorted(self.t2_unique, t2_chunk).astype(jnp.int64)
-
-        # Compute flat indices
         flat_indices = phi_indices * (n_t1 * n_t2) + t1_indices * n_t2 + t2_indices
 
-        # Extract theory values for chunk points
-        g2_theory_chunk = g2_theory_flat[flat_indices]
+        # ---- Theory at chunk points ----
+        # Scattered path: evaluate the kernel ONLY at this chunk's points, never
+        # materializing the dense (n_phi, n_t, n_t) grid. Used only when the
+        # injected evaluator advertises it (heterodyne pointwise) AND per-angle
+        # scaling arrays are in play (so contrast/offset are length-n_phi arrays,
+        # which compute_c2_heterodyne_pointwise indexes by phi_idx). The legacy
+        # scalar-scaling mode keeps the grid path. Homodyne keeps the grid path
+        # (its evaluator has no supports_scattered) -> bit-identical.
+        use_scattered = getattr(self._evaluator, "supports_scattered", False) and (
+            self.use_fixed_scaling or self.per_angle_scaling
+        )
+        if use_scattered:
+            g2_theory_chunk = self._evaluator.eval_scattered(
+                physical_params,
+                self.phi_unique,
+                self.t1_unique,
+                phi_indices,
+                t1_indices,
+                t2_indices,
+                jnp.asarray(contrast),
+                jnp.asarray(offset),
+            )
+        else:
+            # Grid path (UNCHANGED): build the full per-angle theory grid, then
+            # gather. Preserved verbatim for homodyne (laminar_flow) parity.
+
+            # Compute theoretical g2 using vectorized computation
+            # NOTE: Warning for dt=None is emitted in __call__ (outside JIT trace)
+            # dt is sourced via self._evaluator (built with the same 0.001 fallback).
+            if self.use_fixed_scaling or self.per_angle_scaling:
+                # Vectorize over phi with corresponding contrast/offset
+                def compute_for_angle(
+                    phi_val: float, contrast_val: float, offset_val: float
+                ) -> jnp.ndarray:
+                    return jnp.squeeze(
+                        self._evaluator.eval_points(
+                            physical_params,
+                            jnp.asarray(phi_val),
+                            self.t1_unique,
+                            self.t2_unique,
+                            contrast_val,
+                            offset_val,
+                        ),
+                        axis=0,
+                    )
+
+                compute_g2_vmap = jax.vmap(compute_for_angle, in_axes=(0, 0, 0))
+                g2_theory_grid = compute_g2_vmap(self.phi_unique, contrast, offset)  # type: ignore[arg-type]
+            else:
+                # Legacy: single contrast/offset
+                def compute_for_angle_scalar(phi_val: float) -> jnp.ndarray:
+                    # We use cast(float, ...) here to satisfy mypy, but at runtime these are JAX tracers
+                    # which compute_g2_scaled handles correctly despite the float type hint.
+                    from typing import cast  # noqa: F811 — intentional re-import in closure
+
+                    return jnp.squeeze(
+                        self._evaluator.eval_points(
+                            physical_params,
+                            jnp.asarray(phi_val),
+                            self.t1_unique,
+                            self.t2_unique,
+                            cast(float, contrast),
+                            cast(float, offset),
+                        ),
+                        axis=0,
+                    )
+
+                compute_g2_vmap_scalar = jax.vmap(compute_for_angle_scalar, in_axes=0)
+                g2_theory_grid = compute_g2_vmap_scalar(self.phi_unique)  # type: ignore[arg-type]
+
+            # NOTE: Diagonal correction is intentionally skipped here.
+            # Residuals for t1==t2 points are masked out below via `non_diagonal`,
+            # so theory grid diagonal values are never used in the optimization.
+            # Skipping this call removes ~38% of residual computation time.
+
+            # Flatten theory grid for indexing
+            g2_theory_flat = g2_theory_grid.flatten()
+
+            # Note: clip removed - stratified LS data comes from same chunks that build
+            # unique arrays, so all values are guaranteed to be in range. The clip was
+            # causing optimization to converge to wrong local minima (D0=91342 vs 19253).
+            # Original clip added in ae4848c for streaming optimizer, but not needed here.
+
+            # Extract theory values for chunk points
+            g2_theory_chunk = g2_theory_flat[flat_indices]
 
         # Get sigma values for chunk points
         sigma_flat = self.sigma_jax.flatten()

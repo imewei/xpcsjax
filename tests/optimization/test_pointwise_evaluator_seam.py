@@ -104,3 +104,54 @@ def test_scattered_matches_meshgrid_gather_pointwise():
         [grid0[1, 3], grid0[4, 0], grid1[2, 5], grid1[5, 1]], dtype=np.float64
     )
     np.testing.assert_allclose(got, expected, rtol=1e-12, atol=0.0)
+
+
+def test_engine_takes_scattered_branch_and_matches_grid():
+    """The scattered branch (a) is actually exercised and (b) equals the grid path."""
+    from xpcsjax.optimization.nlsq.strategies.residual_jit import (
+        StratifiedResidualFunctionJIT,
+    )
+
+    q, dt = 0.0123, 0.1
+    t = np.arange(5, dtype=np.float64)
+    phi_vals = [0.0, 30.0]
+    n_phi = len(phi_vals)
+    params = _params14()
+    mesh = HeterodynePointEvaluator(analysis_mode="two_component", q=q, dt=dt)
+    grids = [
+        np.asarray(mesh.eval_points(params, p, jnp.asarray(t), jnp.asarray(t), 0.3, 1.0)[0])
+        for p in phi_vals
+    ]
+    chunked = _make_single_chunk_chunked(phi_vals, t, grids)
+
+    common = dict(
+        stratified_data=chunked,
+        per_angle_scaling=True,
+        physical_param_names=["dummy"] * 14,
+        fixed_contrast_per_angle=None,
+        fixed_offset_per_angle=None,
+    )
+    # [contrast(n_phi) | offset(n_phi) | physical(14)]
+    pvec = jnp.asarray(
+        [*([0.30] * n_phi), *([1.00] * n_phi), *list(np.asarray(params))],
+        dtype=jnp.float64,
+    )
+
+    class _SpyEval(HeterodynePointwiseEvaluator):
+        calls = {"n": 0}
+
+        def eval_scattered(self, *a, **k):
+            type(self).calls["n"] += 1
+            return super().eval_scattered(*a, **k)
+
+    grid_engine = StratifiedResidualFunctionJIT(
+        **common, evaluator=HeterodynePointEvaluator(analysis_mode="two_component", q=q, dt=dt)
+    )
+    spy = _SpyEval(analysis_mode="two_component", q=q, dt=dt)
+    point_engine = StratifiedResidualFunctionJIT(**common, evaluator=spy)
+
+    r_grid = np.asarray(grid_engine(pvec))
+    r_point = np.asarray(point_engine(pvec))
+
+    assert _SpyEval.calls["n"] >= 1  # scattered branch was actually used
+    np.testing.assert_allclose(r_point, r_grid, rtol=1e-10, atol=1e-14)
