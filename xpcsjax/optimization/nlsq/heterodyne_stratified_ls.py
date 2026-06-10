@@ -33,6 +33,70 @@ if TYPE_CHECKING:
 
 _SHUFFLE_SEED = 42
 
+# Column-block width for the host covariance Jacobian (see _chunked_jacfwd_dense).
+# n_params is small (16 for two_component); 4 blocks of 4 tangents cap the
+# forward-AD tangent width at 4 instead of n_params while staying byte-identical.
+_COV_JACFWD_COL_BLOCK = 4
+
+
+def _chunked_jacfwd_dense(
+    fn: Callable[[np.ndarray], jnp.ndarray],
+    x: np.ndarray,
+    *,
+    col_block: int = _COV_JACFWD_COL_BLOCK,
+) -> np.ndarray:
+    """Column-blocked forward-mode Jacobian, numerically identical to ``jax.jacfwd``.
+
+    ``jax.jacfwd(fn)(x)`` builds the full ``(n_out, n_in)`` Jacobian by pushing
+    all ``n_in`` basis tangents through ``fn`` at once, so every intermediate of
+    ``fn`` is materialised at width ``n_in``. For the heterodyne stratified-LS
+    covariance ``n_out`` is the full support (~23M points) and ``n_in`` is the
+    16-ish joint parameters, so that ``n_in``-wide tangent is the dominant
+    transient — the ~3 GB+ spike that drives the post-solve memory peak.
+
+    Computing the columns in small blocks (each a ``vmap``'d JVP over ``col_block``
+    basis vectors, moved to host and released before the next block) yields the
+    SAME columns — ``jvp`` is exact and column order is preserved — while capping
+    the live tangent width at ``col_block``. The assembled ``J`` (and therefore
+    ``JᵀJ`` and the covariance) is byte-identical to ``jax.jacfwd`` up to XLA
+    fusion noise (≤ ULP); this only affects the post-solve covariance, never the
+    fit trajectory.
+
+    Parameters
+    ----------
+    fn : callable
+        ``params (n_in,) -> residuals (n_out,)`` (the joint residual). May be
+        ``jax.jit``-wrapped.
+    x : np.ndarray
+        Point at which to evaluate the Jacobian (the converged ``popt``).
+    col_block : int, optional
+        Number of parameter columns evaluated per block. Defaults to
+        :data:`_COV_JACFWD_COL_BLOCK`.
+
+    Returns
+    -------
+    np.ndarray, (n_out, n_in) float64
+        The dense Jacobian, matching ``np.asarray(jax.jacfwd(fn)(x))``.
+    """
+    x_jax = jnp.asarray(x, dtype=jnp.float64)
+    n_in = int(x_jax.shape[0])
+    eye = jnp.eye(n_in, dtype=x_jax.dtype)
+
+    def _jvp_col(tangent: jnp.ndarray) -> jnp.ndarray:
+        # jvp(fn, primal, e_j)[1] == d fn / d x_j == column j of the Jacobian.
+        return jax.jvp(fn, (x_jax,), (tangent,))[1]
+
+    blocks: list[np.ndarray] = []
+    for c0 in range(0, n_in, max(1, col_block)):
+        tangents = eye[c0 : c0 + max(1, col_block)]  # (b, n_in)
+        # (b, n_out): row r is column (c0 + r) of J. Pull to host and let the
+        # device buffer for this block free before the next block allocates.
+        block_cols = np.asarray(jax.vmap(_jvp_col)(tangents), dtype=np.float64)
+        blocks.append(block_cols)
+
+    # Stack column-blocks -> (n_in, n_out), transpose -> (n_out, n_in).
+    return np.concatenate(blocks, axis=0).T
+
 
 def reorder_for_stratification(
     phi_flat: np.ndarray,
@@ -1091,8 +1155,11 @@ def fit_heterodyne_stratified_least_squares(
                 n_data,
                 n_params,
             )
-            jac_fn = jax.jacfwd(residual_fn)
-            J = np.asarray(jac_fn(popt), dtype=np.float64)
+            # Column-blocked forward-mode Jacobian: byte-identical to
+            # jax.jacfwd(residual_fn)(popt) but caps the live AD-tangent width at
+            # _COV_JACFWD_COL_BLOCK instead of n_params, cutting the dominant
+            # post-solve memory spike at >=1M points (see _chunked_jacfwd_dense).
+            J = _chunked_jacfwd_dense(residual_fn, popt)
             JTJ = J.T @ J
             try:
                 pcov = np.linalg.inv(JTJ) * s2

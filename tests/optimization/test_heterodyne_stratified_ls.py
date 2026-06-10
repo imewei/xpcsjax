@@ -712,15 +712,17 @@ def test_stratified_ls_jacfwd_guard_on_linalg_error(monkeypatch):
 
     monkeypatch.setattr(_ha_mod, "NLSQAdapter", _NoCovAdapter)
 
-    # Patch jax.jacfwd inside heterodyne_stratified_ls to raise RuntimeError.
-    # The module imports ``jax`` at the top level, so patch the ``jax`` module
-    # attribute used in the fallback block.
+    # Force the host covariance Jacobian to raise. The covariance now goes
+    # through ``_chunked_jacfwd_dense`` (a column-blocked JVP that is
+    # byte-identical to ``jax.jacfwd`` but caps the AD-tangent memory), so patch
+    # THAT — the actual function the fallback block calls — to exercise the same
+    # guard: a Jacobian failure must fall back to all-NaN covariance, not crash.
     import xpcsjax.optimization.nlsq.heterodyne_stratified_ls as _strat_mod
 
     def _raise_jacfwd(*args, **kwargs):
         raise RuntimeError("simulated jacfwd failure for guard test")
 
-    monkeypatch.setattr(_strat_mod.jax, "jacfwd", _raise_jacfwd)
+    monkeypatch.setattr(_strat_mod, "_chunked_jacfwd_dense", _raise_jacfwd)
 
     result = fit_heterodyne_stratified_least_squares(
         model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False
