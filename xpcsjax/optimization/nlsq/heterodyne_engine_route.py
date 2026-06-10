@@ -122,7 +122,17 @@ def _drop_frame0_stratified_data(
         t1_flat=strat.t1_flat[keep].copy(),
         t2_flat=strat.t2_flat[keep].copy(),
         g2_flat=strat.g2_flat[keep].copy(),
-        sigma=np.ones((n_phi, n_t_reduced, n_t_reduced), dtype=np.float64),
+        # Preserve the unit-sigma sentinel through frame-0 exclusion: when the
+        # source data is unweighted (sigma is None) keep None so the engine treats
+        # it as unit sigma without a dense (n_phi, n_t, n_t) allocation. A weighted
+        # sigma (real array) was already replaced by unit ones on this path
+        # (build_heterodyne_stratified_data is called with weights=None here, so a
+        # real array never reaches this branch); keep that behaviour unchanged.
+        sigma=(
+            None
+            if strat.sigma is None
+            else np.ones((n_phi, n_t_reduced, n_t_reduced), dtype=np.float64)
+        ),
         q=strat.q,
         L=strat.L,
         dt=strat.dt,

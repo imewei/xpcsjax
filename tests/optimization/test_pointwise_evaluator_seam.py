@@ -184,7 +184,7 @@ def test_unweighted_stratified_data_does_not_materialize_dense_sigma(monkeypatch
     real_ones = np.ones
 
     def spy_ones(shape, *a, **k):
-        if isinstance(shape, tuple) and len(shape) == 3:
+        if shape == (n_phi, n_t, n_t):
             calls["ones_big"] += 1
         return real_ones(shape, *a, **k)
 

@@ -88,7 +88,7 @@ def create_stratified_chunks(
     g2_flat = stratified_data.g2_flat
 
     # Get metadata (not chunked - shared across all chunks)
-    sigma = stratified_data.sigma  # 3D array: (n_phi, n_t1, n_t2)
+    sigma = stratified_data.sigma  # 3D array (n_phi, n_t1, n_t2), or None (unweighted unit-sigma sentinel)
     q = stratified_data.q
     L = stratified_data.L
     dt = getattr(stratified_data, "dt", None)
