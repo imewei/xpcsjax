@@ -155,3 +155,44 @@ def test_engine_takes_scattered_branch_and_matches_grid():
 
     assert _SpyEval.calls["n"] >= 1  # scattered branch was actually used
     np.testing.assert_allclose(r_point, r_grid, rtol=1e-10, atol=1e-14)
+
+
+def test_unweighted_stratified_data_does_not_materialize_dense_sigma(monkeypatch):
+    """build_heterodyne_stratified_data(weights=None) must not allocate a dense
+    (n_phi, n_t, n_t) ones array; sigma should be the None sentinel."""
+    import numpy as np
+
+    import xpcsjax.optimization.nlsq.heterodyne_stratified_data as hsd
+
+    n_phi, n_t = 3, 6
+    dt = 0.1
+
+    class _PM:
+        varying_names = ["dummy"] * 14
+
+    class _Model:
+        def __init__(self):
+            self.param_manager = _PM()
+            self.q = 0.0123
+            self.dt = dt
+            self.t = np.arange(1, n_t + 1, dtype=np.float64) * dt
+
+        def sync_time_axis(self, t):
+            self.t = np.asarray(t, dtype=np.float64)
+
+    calls = {"ones_big": 0}
+    real_ones = np.ones
+
+    def spy_ones(shape, *a, **k):
+        if isinstance(shape, tuple) and len(shape) == 3:
+            calls["ones_big"] += 1
+        return real_ones(shape, *a, **k)
+
+    monkeypatch.setattr(hsd.np, "ones", spy_ones)
+
+    c2 = real_ones((n_phi, n_t, n_t)) * 1.1
+    phi = np.linspace(0, 90, n_phi)
+    strat = hsd.build_heterodyne_stratified_data(_Model(), c2, phi, None)
+
+    assert calls["ones_big"] == 0  # no dense (n_phi, n_t, n_t) ones allocation
+    assert strat.sigma is None  # sentinel

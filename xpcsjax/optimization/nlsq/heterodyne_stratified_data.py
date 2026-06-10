@@ -42,10 +42,12 @@ class HeterodyneStratifiedData:
         Flattened t2 values, shape ``(N_total,)``.
     g2_flat : np.ndarray
         Flattened observed C2 values, shape ``(N_total,)``.
-    sigma : np.ndarray
+    sigma : np.ndarray or None
         Uncertainty array — stored as a 3-D ``(n_phi, n_t, n_t)`` array for
         compatibility with the ``StratifiedResidualFunction`` interface, which
-        expects a 3-D sigma. Uniform (all ones) when ``weights=None``.
+        expects a 3-D sigma. ``None`` sentinel when ``weights=None`` (unweighted);
+        the engine treats ``None`` as unit sigma without materialising the dense
+        array.
     q : float
         Scattering wavevector magnitude.
     L : float
@@ -69,7 +71,7 @@ class HeterodyneStratifiedData:
     t1_flat: np.ndarray
     t2_flat: np.ndarray
     g2_flat: np.ndarray
-    sigma: np.ndarray  # shape (n_phi, n_t, n_t), all ones if unweighted
+    sigma: np.ndarray | None  # shape (n_phi, n_t, n_t), or None sentinel if unweighted
     q: float
     L: float
     dt: float
@@ -167,7 +169,10 @@ def build_heterodyne_stratified_data(
         with np.errstate(divide="ignore", invalid="ignore"):
             sigma = np.where(w_arr > 0, 1.0 / np.sqrt(w_arr), 1.0)
     else:
-        sigma = np.ones((n_phi, n_t, n_t), dtype=np.float64)
+        # Unweighted: None sentinel instead of a dense (n_phi, n_t, n_t) ones
+        # array. create_stratified_chunks forwards None unchanged; the engine and
+        # the streaming consumer both treat None as unit sigma.
+        sigma = None
 
     # ------------------------------------------------------------------ #
     # 4. Flatten angle by angle into per-slab arrays                      #

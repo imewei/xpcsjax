@@ -149,8 +149,15 @@ class StratifiedResidualFunctionJIT:
         self.n_phi = len(self.phi_unique)
 
         # Prepare sigma array
-        sigma_array = np.asarray(stratified_data.sigma, dtype=np.float64)
-        self.sigma_jax = jnp.asarray(sigma_array)
+        # sigma=None sentinel (unweighted): treat as unit sigma without ever
+        # materializing the dense (n_phi, n_t, n_t) ones array.
+        if stratified_data.sigma is None:
+            self.sigma_jax = None
+            self._sigma_is_unit = True
+        else:
+            sigma_array = np.asarray(stratified_data.sigma, dtype=np.float64)
+            self.sigma_jax = jnp.asarray(sigma_array)
+            self._sigma_is_unit = False
 
         # Create padded arrays with static shapes
         self.logger.info(f"Creating padded arrays for {self.n_chunks} chunks...")
@@ -465,8 +472,11 @@ class StratifiedResidualFunctionJIT:
             g2_theory_chunk = g2_theory_flat[flat_indices]
 
         # Get sigma values for chunk points
-        sigma_flat = self.sigma_jax.flatten()
-        sigma_chunk = sigma_flat[flat_indices]
+        if self._sigma_is_unit:
+            sigma_chunk = jnp.ones_like(g2_obs_chunk)
+        else:
+            sigma_flat = self.sigma_jax.flatten()
+            sigma_chunk = sigma_flat[flat_indices]
 
         # Compute weighted residuals — mask out zero-sigma points entirely
         EPS = 1e-10
