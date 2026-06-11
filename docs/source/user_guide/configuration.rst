@@ -196,6 +196,43 @@ Override merging is performed key by key down the tree. To replace an
 entire sub-block (rather than merging into it), set the sub-block to
 ``None`` in the override and then re-populate it.
 
+.. _parameter_space_bounds:
+
+Overriding bounds (``parameter_space.bounds``)
+----------------------------------------------
+
+Alongside the flat ``parameter_bounds`` mapping, both modes accept a
+**list-format** ``parameter_space.bounds`` block. Each entry names a single
+parameter and supplies an explicit ``[min, max]`` window (plus optional
+``value`` and ``vary`` overrides):
+
+.. code-block:: yaml
+
+   parameter_space:
+     bounds:
+       - {name: v_beta, min: -2.0, max: 2.0}        # widen past the default
+       - {name: D0_ref, min: 0.0,  max: 1.0e6}
+       - {name: phi0_het, min: -10.0, max: 10.0, vary: true}
+
+This is the supported way to **opt a parameter out of its conservative
+registry default**. The heterodyne velocity exponent ``v_beta`` defaults to
+``[0, 2]``, but decelerating-flow fits need a negative exponent — the C044
+creep-flow dataset, for example, fits ``v_beta ≈ -0.43`` (finite because the
+time grid starts at ``t_start = dt > 0``). Without an explicit override the
+registry default would clamp that warm-start to ``≈ 0`` and collapse the
+velocity fan. The registry default is intentionally *not* widened: doing so
+destabilised the non-convex single-angle solve for fits that rely on it, so the
+wider window is opt-in per config.
+
+Template/alias names are translated to their canonical kernel entries before the
+override is applied — heterodyne's public ``v_beta`` / ``phi0_het`` map to the
+kernel-internal ``beta`` / ``phi0`` — so you write the same names that appear in
+``templates/xpcsjax_two_component.yaml``. Entries naming an unknown parameter are
+skipped with a warning rather than aborting the load. Heterodyne support for this
+block (in ``ParameterSpace.from_config``) reaches parity with the long-standing
+homodyne behaviour exposed through
+:meth:`xpcsjax.config.ConfigManager.get_parameter_bounds`.
+
 How :func:`xpcsjax.optimization.nlsq.fit_nlsq` consumes the configuration
 -------------------------------------------------------
 

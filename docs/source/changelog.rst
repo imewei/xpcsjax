@@ -8,6 +8,22 @@ current release line.
 Unreleased
 ----------
 
+**Heterodyne config bounds overrides (``parameter_space.bounds``).** The
+``two_component`` config loader now honors list-format
+``parameter_space.bounds`` overrides — ``ParameterSpace.from_config`` applies
+them through its ``_apply_parameter_space_bounds`` helper, reaching parity with
+homodyne's ``ParameterManager._load_config_bounds``.
+Previously the heterodyne path silently ignored config bounds and fell back to
+registry defaults, so a narrow default window could clamp a valid warm-start
+(e.g. the C044 creep-flow fit needs ``v_beta ≈ -0.43``, outside the conservative
+``[0, 2]`` registry default). Template/alias names (``v_beta``, ``phi0_het``)
+are translated to their canonical kernel entries (``beta``, ``phi0``) so the
+override lands on the right registry parameter. The registry default for
+``v_beta`` stays ``[0, 2]`` by design — widening it destabilised the non-convex
+engine-route single-angle solve, so configs needing negative exponents must opt
+in explicitly. See :ref:`Overriding bounds (parameter_space.bounds)
+<parameter_space_bounds>`.
+
 **Heterodyne streaming anti-degeneracy (parity gap D closed).** The
 ``two_component`` STREAMING tier previously froze the quantile-estimated
 per-angle scaling and ran no anti-degeneracy layers. It now **optimizes** the

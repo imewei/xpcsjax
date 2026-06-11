@@ -304,6 +304,13 @@ class ParameterSpace:
         When both are present, grouped format takes precedence (it is applied
         second so its values overwrite flat-format values).
 
+        Independently of the value format, a list-format
+        ``parameter_space.bounds`` block (``[{name, min, max, value?, vary?}, ...]``)
+        is applied as a bounds overlay via ``_apply_parameter_space_bounds``
+        — homodyne parity, used to opt a parameter out of its conservative
+        registry default (e.g. a negative ``v_beta`` window). See the
+        "Overriding bounds" section of the Configuration user guide.
+
         Parameters
         ----------
         config : dict
