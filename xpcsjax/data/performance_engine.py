@@ -655,6 +655,12 @@ class MultiLevelCache:
         self._access_times: dict[str, float] = {}
         self._access_frequencies: dict[str, deque] = {}  # For frequency analysis
 
+        # Hit/miss tallies for a true cache hit rate = hits / (hits + misses).
+        # Distinct from ``_access_counts`` (incremented on hits and puts only),
+        # which cannot express the fraction of accesses served from cache.
+        self._hits: int = 0
+        self._misses: int = 0
+
         # Cache hierarchy paths
         _xdg_cache = os.environ.get("XDG_CACHE_HOME", "")
         if _xdg_cache:
@@ -703,6 +709,7 @@ class MultiLevelCache:
                 item = self._memory_cache.pop(key)
                 self._memory_cache[key] = item  # Move to end (most recent)
                 self._update_access_stats(key, current_time)
+                self._hits += 1
                 logger.debug(f"Cache hit (memory): {key}")
                 return item
 
@@ -714,6 +721,7 @@ class MultiLevelCache:
                     # Promote to memory cache
                     self._put_memory(key, item, current_time)
                     self._update_access_stats(key, current_time)
+                    self._hits += 1
                     logger.debug(f"Cache hit (SSD): {key}")
                     return item
                 except (OSError, ValueError) as e:
@@ -728,11 +736,13 @@ class MultiLevelCache:
                     self._put_memory(key, item, current_time)
                     self._put_ssd(key, item)
                     self._update_access_stats(key, current_time)
+                    self._hits += 1
                     logger.debug(f"Cache hit (HDD): {key}")
                     return item
                 except (OSError, ValueError) as e:
                     logger.warning(f"Failed to load from HDD cache {key}: {e}")
 
+            self._misses += 1
             logger.debug(f"Cache miss: {key}")
             return None
 
@@ -1220,8 +1230,13 @@ class MultiLevelCache:
         hdd_items = len(list(self._hdd_cache_path.glob("*.zstd")))
         with self._lock:
             memory_items = len(self._memory_cache)
+            hits = self._hits
+            misses = self._misses
 
             return {
+                "hits": hits,
+                "misses": misses,
+                "hit_rate": hits / max(hits + misses, 1),
                 "memory_cache": {
                     "items": memory_items,
                     "usage_mb": self._memory_usage_mb,
@@ -1397,16 +1412,12 @@ class PerformanceEngine:
         cpu_percent = psutil.cpu_percent(interval=None)
         self.metrics.update(cpu_utilization=cpu_percent / 100.0)
 
-        # Cache metrics
+        # Cache metrics — true hit rate = hits / (hits + misses). Only update
+        # once at least one access has occurred, so an idle cache does not
+        # report a spurious 0.0 hit rate that trips the bottleneck classifier.
         cache_stats = self.cache.get_cache_stats()
-        if cache_stats["memory_cache"]["items"] > 0:
-            with self.cache._lock:
-                total_requests = sum(self.cache._access_counts.values())
-                cache_hits = len(
-                    [k for k in self.cache._memory_cache.keys() if k in self.cache._access_counts],
-                )
-            cache_hit_rate = cache_hits / max(total_requests, 1)
-            self.metrics.update(cache_hit_rate=cache_hit_rate)
+        if cache_stats["hits"] + cache_stats["misses"] > 0:
+            self.metrics.update(cache_hit_rate=cache_stats["hit_rate"])
 
     def _detect_bottlenecks(self) -> None:
         """Detect and classify performance bottlenecks."""

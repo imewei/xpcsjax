@@ -130,3 +130,36 @@ def test_aps_old_zero_selection_raises(tmp_path, monkeypatch, quality_enabled) -
 
     with pytest.raises(ValueError, match=r"zero \(q,phi\) pairs"):
         loader._load_aps_old_format(str(hdf))
+
+
+def test_cache_hit_rate_is_a_true_hit_rate(tmp_path, monkeypatch) -> None:
+    """Audit [20] (double-check follow-up): cache_hit_rate must be a true
+    hits/(hits+misses) fraction, not (#resident keys)/(hits+puts).
+
+    Before the fix, misses were never counted and the numerator was the
+    memory-cache size, so the metric could not express the fraction of accesses
+    served from cache (and mis-classified the bottleneck type).
+    """
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    from xpcsjax.data.performance_engine import MultiLevelCache
+
+    cache = MultiLevelCache(memory_cache_mb=64)
+
+    # Cold: no accesses yet -> a neutral 0-access hit rate, no division blow-up.
+    stats = cache.get_cache_stats()
+    assert stats["hits"] == 0 and stats["misses"] == 0
+    assert stats["hit_rate"] == 0.0
+
+    cache.put("a", np.ones(4))
+    # 3 hits on the one resident key, 2 misses on absent keys -> 3/5 = 0.6.
+    for _ in range(3):
+        assert cache.get("a") is not None
+    assert cache.get("missing-1") is None
+    assert cache.get("missing-2") is None
+
+    stats = cache.get_cache_stats()
+    assert stats["hits"] == 3
+    assert stats["misses"] == 2
+    assert stats["hit_rate"] == pytest.approx(3 / 5)
+    # A real hit rate is bounded by 1.0 regardless of how many keys are resident.
+    assert 0.0 <= stats["hit_rate"] <= 1.0
