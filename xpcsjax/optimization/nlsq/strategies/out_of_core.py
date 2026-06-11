@@ -391,7 +391,11 @@ def fit_with_out_of_core_accumulation(
     i = -1
     count = 0
     total_chi2 = float("inf")
-    total_JtJ = np.eye(n_params)
+    # Seed as a JAX array (not np.eye): the accumulator is reassigned to JAX
+    # arrays inside the loop and uses the `.at[...]` functional-update API, so a
+    # JAX seed keeps the loop-carried type consistent. Behaviorally identical to
+    # np.eye for the max_iter <= 0 fall-through (downstream wraps in np.array).
+    total_JtJ = jnp.eye(n_params)
 
     try:
         for i in range(max_iter):
