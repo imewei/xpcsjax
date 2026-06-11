@@ -721,6 +721,10 @@ def combine_angle_results(
         # σ² = 1 / Σ(1/σ²_i)
         # Add small epsilon to prevent division by zero
         inv_vars = np.array([1.0 / (np.diag(cov) + 1e-10) for cov in cov_list])
+        # Exclude angles whose per-angle variance was non-finite — those angles
+        # were already given zero weight above, so a NaN/inf covariance must not
+        # poison the combined inverse-variance covariance either.
+        inv_vars = inv_vars[finite]
         combined_var = 1.0 / inv_vars.sum(axis=0)
         combined_cov = np.diag(combined_var)
     else:

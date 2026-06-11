@@ -885,8 +885,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/device/cpu.py": {
-    "mtime": 1781049207.4159331,
-    "ast_hash": "ac32cdd4300a559eb9a936c5c6b8576e",
+    "mtime": 1781130975.7520814,
+    "ast_hash": "05ae6a345ab122c0442db18f87359cd6",
     "semantic_hash": ""
   },
   "xpcsjax/utils/logging.py": {
@@ -995,8 +995,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/adapter.py": {
-    "mtime": 1781048395.3599021,
-    "ast_hash": "fb4328354e043d988ca0e502e23c65c9",
+    "mtime": 1781130541.4138837,
+    "ast_hash": "f2b4a55ca14f36b44c96aa1991c106ae",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/__init__.py": {
@@ -1005,8 +1005,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/cmaes_wrapper.py": {
-    "mtime": 1781048514.1724231,
-    "ast_hash": "044e59d61211db750fe6ad128b9b2ae9",
+    "mtime": 1781130824.271571,
+    "ast_hash": "2aaae6b5753fc35760255f1ab55b199e",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/heterodyne_results.py": {
@@ -1035,8 +1035,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/recovery.py": {
-    "mtime": 1780671715.0531998,
-    "ast_hash": "f35425ca5d7a3cb2abab48e80cb73137",
+    "mtime": 1781130488.9268544,
+    "ast_hash": "f4b356ec0f06fd5fc7be1b37480b076b",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/heterodyne_multistart.py": {
@@ -1125,8 +1125,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/multistart.py": {
-    "mtime": 1781048434.2257428,
-    "ast_hash": "357b3e01789be9b3852bf39f9270f01d",
+    "mtime": 1781133006.5218127,
+    "ast_hash": "18753db59dd9a791300c835fcb4ec663",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/wrapper.py": {
@@ -1165,8 +1165,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/heterodyne_engine_route.py": {
-    "mtime": 1781064917.3725493,
-    "ast_hash": "60590f5e2996cc1bd8116300e22f67a1",
+    "mtime": 1781131175.9039166,
+    "ast_hash": "0519f664e6af2850e6c83fe381c764c2",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/hierarchical.py": {
@@ -1200,8 +1200,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/strategies/out_of_core.py": {
-    "mtime": 1781048397.5048933,
-    "ast_hash": "a132c6a3a471098c954cb9bcd995c71b",
+    "mtime": 1781131288.2447736,
+    "ast_hash": "7a99010ea2bbf9e0a8ce236c3149bfa2",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/strategies/residual.py": {
@@ -1210,13 +1210,13 @@
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/strategies/chunking.py": {
-    "mtime": 1780671715.0541997,
-    "ast_hash": "7b72e8ccc604fa8c40ba87d9aba28103",
+    "mtime": 1781131396.358409,
+    "ast_hash": "f7b046a71774992b4889c02698db8c16",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/strategies/sequential.py": {
-    "mtime": 1781049195.0869749,
-    "ast_hash": "836d5d0aa74609e8cacd62df6b7d1a99",
+    "mtime": 1781130380.5881188,
+    "ast_hash": "91471f08c55af5c5175cda7d8b33e450",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/strategies/hybrid_streaming.py": {
@@ -1245,8 +1245,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/data/quality_controller.py": {
-    "mtime": 1780671715.0461996,
-    "ast_hash": "fae7ea339eb60ea469ec7adff22c9471",
+    "mtime": 1781130997.4945374,
+    "ast_hash": "e6c2414fc928ff3006193fa05961cac2",
     "semantic_hash": ""
   },
   "xpcsjax/data/preprocessing.py": {
@@ -1285,8 +1285,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/data/xpcs_loader.py": {
-    "mtime": 1781048653.0388894,
-    "ast_hash": "390988a44ea72e386d251c9ecaf4cd4c",
+    "mtime": 1781153769.8292265,
+    "ast_hash": "7caffefe86f1cfd379e60c8b11ae07b1",
     "semantic_hash": ""
   },
   "xpcsjax/data/filtering_utils.py": {
@@ -1300,8 +1300,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/data/performance_engine.py": {
-    "mtime": 1780671715.0451996,
-    "ast_hash": "e8a1ac50c71e2e065d39c82515765876",
+    "mtime": 1781130317.8189847,
+    "ast_hash": "2ebcb5dd574ba849d97a4694a4dab8fc",
     "semantic_hash": ""
   },
   "xpcsjax/config/physics_validators.py": {
@@ -1310,13 +1310,13 @@
     "semantic_hash": ""
   },
   "xpcsjax/config/parameter_manager.py": {
-    "mtime": 1780671715.0391996,
-    "ast_hash": "ec04124f9b838aa3217b23a62e3c98ea",
+    "mtime": 1781130781.0274453,
+    "ast_hash": "e113cc16b7b2a2032cb332c8437123c9",
     "semantic_hash": ""
   },
   "xpcsjax/config/heterodyne_parameter_space.py": {
-    "mtime": 1780671715.0371997,
-    "ast_hash": "ded70214b673072a4598fde3b1d425f3",
+    "mtime": 1781130732.1650963,
+    "ast_hash": "4babdeb0ccf4ba8afa7f33b7e4862656",
     "semantic_hash": ""
   },
   "xpcsjax/config/parameter_registry.py": {
@@ -1340,8 +1340,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/config/manager.py": {
-    "mtime": 1781048771.6334515,
-    "ast_hash": "c1a5c7b26cea1d295664f01ef968b743",
+    "mtime": 1781135136.5486336,
+    "ast_hash": "1485e21a59c7212649fb56a9f076ab7d",
     "semantic_hash": ""
   },
   "xpcsjax/config/parameter_space.py": {
@@ -1355,8 +1355,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/config/heterodyne_parameter_names.py": {
-    "mtime": 1780671715.0371997,
-    "ast_hash": "62b9976630e105b9d6b011a62c788a57",
+    "mtime": 1781130635.3721504,
+    "ast_hash": "849532f0b5a01364674614cf10aae514",
     "semantic_hash": ""
   },
   "xpcsjax/config/heterodyne_physics_validators.py": {
@@ -1385,13 +1385,13 @@
     "semantic_hash": ""
   },
   "xpcsjax/cli/data_pipeline.py": {
-    "mtime": 1780671715.0351996,
-    "ast_hash": "ffbf63ec937a617ea971dffa96c18776",
+    "mtime": 1781130641.2263398,
+    "ast_hash": "bea52eb9971e6351e2d568ed7c192992",
     "semantic_hash": ""
   },
   "xpcsjax/cli/plot_dispatch.py": {
-    "mtime": 1780525312.8153493,
-    "ast_hash": "0a85fe2fc354683ebe71dce7bed3f858",
+    "mtime": 1781130835.406851,
+    "ast_hash": "2579b2846696571d9c30d5f085fa36a6",
     "semantic_hash": ""
   },
   "xpcsjax/cli/__init__.py": {
@@ -1520,8 +1520,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/core/heterodyne_scaling_utils.py": {
-    "mtime": 1780671715.0401995,
-    "ast_hash": "a85da62aa736e1a80726170395739a8f",
+    "mtime": 1781130830.8367367,
+    "ast_hash": "2ea058f1f17f4a3b6a7c01f5974e6406",
     "semantic_hash": ""
   },
   "xpcsjax/core/heterodyne_physics_factors.py": {
@@ -1540,8 +1540,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/core/model_mixins.py": {
-    "mtime": 1781048742.2995586,
-    "ast_hash": "12a58f895e366844d23479c4e9dc1297",
+    "mtime": 1781130902.8194687,
+    "ast_hash": "a04bc13470d59a02872ca28c4fad466f",
     "semantic_hash": ""
   },
   "xpcsjax/core/diagonal_correction.py": {
@@ -1565,8 +1565,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/viz/nlsq_plots.py": {
-    "mtime": 1781048407.8238509,
-    "ast_hash": "2aae18e5f92701e8e658c2f6e7a72fe4",
+    "mtime": 1781133091.133262,
+    "ast_hash": "8ce08d58d542124cf4a17f5ed59663e5",
     "semantic_hash": ""
   },
   "xpcsjax/viz/diagnostics.py": {
@@ -1957,6 +1957,11 @@
   "tests/optimization/test_chunked_jacfwd.py": {
     "mtime": 1781109682.2307134,
     "ast_hash": "b6d27d2efc26dc8f4e21d55cd30e25e6",
+    "semantic_hash": ""
+  },
+  "tests/test_debug_audit_regressions.py": {
+    "mtime": 1781153961.2390337,
+    "ast_hash": "48f50d7cb4cdf507540f8bb6a3764e05",
     "semantic_hash": ""
   }
 }

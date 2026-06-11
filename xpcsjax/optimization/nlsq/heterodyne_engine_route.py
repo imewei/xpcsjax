@@ -401,6 +401,20 @@ def fit_two_component_via_engine(
         if weights.ndim == 2:
             weights = weights[np.newaxis, ...]
 
+    # The engine solve is UNWEIGHTED: build_heterodyne_stratified_data is called
+    # below WITHOUT weights (sigma=None / unit sigma). Uniform weights only
+    # rescale the objective by a constant and leave the argmin unchanged, so they
+    # are safe to proceed with. Non-uniform weights WOULD change the optimum and
+    # must not be silently dropped — route those fits to fit_nlsq_multi_phi (which
+    # applies weights in its solve) via the caller's best-effort fallback, exactly
+    # as the 'fourier' mode does below.
+    if weights is not None and weights.size and not np.allclose(weights, weights.flat[0]):
+        raise NotImplementedError(
+            "fit_two_component_via_engine does not honour non-uniform weights "
+            "(the engine solve is unweighted); falling back to fit_nlsq_multi_phi, "
+            "which applies them in the solve."
+        )
+
     # -- Resolve mode: production token -> engine-layout token --------------
     production_mode = _resolve_effective_mode(config, n_phi)
     if production_mode == "fourier":

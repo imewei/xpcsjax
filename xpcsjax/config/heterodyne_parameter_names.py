@@ -109,4 +109,10 @@ def get_group_indices(group: str) -> tuple[int, ...]:
     if group not in PARAM_GROUPS:
         valid = ", ".join(PARAM_GROUPS.keys())
         raise KeyError(f"Unknown group '{group}'. Valid groups: {valid}")
-    return tuple(PARAM_INDICES[name] for name in PARAM_GROUPS[group])
+    # Index into the full 16-element with-scaling parameter array so the
+    # 'scaling' group (contrast, offset) resolves. Those names are absent from
+    # the 14-element physics-only PARAM_INDICES, so using it here would KeyError
+    # for the documented-valid 'scaling' group. Physics-group indices are
+    # unchanged (physics params occupy positions 0..13 in both orderings).
+    indices_map = {name: i for i, name in enumerate(ALL_PARAM_NAMES_WITH_SCALING)}
+    return tuple(indices_map[name] for name in PARAM_GROUPS[group])

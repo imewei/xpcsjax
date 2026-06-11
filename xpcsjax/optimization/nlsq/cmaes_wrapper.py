@@ -387,7 +387,15 @@ class CMAESWrapperConfig:
             "cmaes": 100,
             "cmaes-global": 200,
         }
-        max_gen = preset_generations.get(self.preset, self.max_generations or 100)
+        # An explicitly configured max_generations overrides the preset default
+        # (config semantics: None = use preset + adaptive scaling). Putting
+        # self.max_generations in the .get() default slot would only consult it
+        # when the preset key is absent, silently ignoring it for every valid
+        # preset.
+        if self.max_generations is not None:
+            max_gen = self.max_generations
+        else:
+            max_gen = preset_generations.get(self.preset, 100)
 
         effective_sigma = sigma_override if sigma_override is not None else self.sigma
 

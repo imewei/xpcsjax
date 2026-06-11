@@ -243,8 +243,14 @@ def execute_with_recovery(
                     recovery_actions.append("detected_parameter_stagnation")
                     log.info("Retrying with perturbed parameters...")
                     _rng = np.random.default_rng(seed=42 + attempt)
+                    # Use an absolute-value scale with a unit floor so parameters
+                    # that are exactly zero still receive a non-zero perturbation
+                    # (a purely multiplicative kick cannot escape a zero value).
+                    perturb_scale = np.where(
+                        np.abs(current_params) > 1e-12, np.abs(current_params), 1.0
+                    )
                     perturbation = (
-                        0.05 * current_params * _rng.uniform(-1, 1, size=len(current_params))
+                        0.05 * perturb_scale * _rng.uniform(-1, 1, size=len(current_params))
                     )
                     current_params = current_params + perturbation
                     if bounds is not None:
@@ -255,6 +261,11 @@ def execute_with_recovery(
                         "Optimization returned unchanged parameters after all retries. "
                         "This may indicate a bug in NLSQ or an intractable problem."
                     )
+                    # Honest status: a detected stagnation on the final attempt is
+                    # a failure, not a convergence. Returning "converged" here would
+                    # silently mislabel an unoptimized fit as successful.
+                    recovery_actions.append("stagnation_after_all_retries")
+                    return popt, pcov, info, recovery_actions, "failed"
 
             # Success!
             convergence_status = "converged" if attempt == 0 else "converged_with_recovery"

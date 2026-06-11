@@ -1714,8 +1714,11 @@ def generate_nlsq_plots(
                 _render_one_angle_worker(_render_args_for_index(i))
 
     # Slice uncertainties to match physical_params.
-    # Homodyne layout is scaling-first ([contrast, offset, physical...]) -> the
-    # physical uncertainties trail the 2 scalar scaling slots, so skip first 2.
+    # Homodyne layout is scaling-first ([c_0..n_phi-1, o_0..n_phi-1, physical...])
+    # with 2*n_phi scaling slots (n_phi may be > 1 for per-angle scaling), so the
+    # physical uncertainties are the TRAILING n_physical entries — a fixed
+    # all_unc[2:] only holds for the n_phi == 1 case and otherwise mislabels
+    # per-angle scaling uncertainties as physical (mirrors _homodyne_scaling_arrays).
     # Heterodyne layout is PHYSICS-first ([physics(n_physical) | contrast | offset],
     # or [physics] for constant mode) -> physical uncertainties are the LEADING
     # n_physical entries.
@@ -1723,7 +1726,11 @@ def generate_nlsq_plots(
     if _is_heterodyne_family(model):
         phys_unc = all_unc[: len(model.parameter_names)]
     else:
-        phys_unc = all_unc[2:]
+        # Use the already-extracted physical-parameter count (HomodyneModel has
+        # no ``parameter_names`` attribute; physical_params is resolved robustly
+        # by _unpack_result_params for both model families).
+        n_physical = len(physical_params)
+        phys_unc = all_unc[-n_physical:]
 
     _save_fit_artifacts(
         c2_exp=c2_exp,

@@ -1556,18 +1556,21 @@ class PerformanceEngine:
         Returns
         -------
         numpy.ndarray
-            Stacked correlation matrices in chunk-completion order.
+            Stacked correlation matrices in ascending chunk (key) order.
         """
         if chunk_info is None:
             # Create chunk plan
             chunk_size = self.chunker.calculate_optimal_chunk_size(len(data_keys))
             chunk_info = self.chunker.create_chunk_plan(len(data_keys), chunk_size)
 
-        # Process chunks in parallel
+        # Process chunks in parallel. Slice keys with a running offset so the
+        # boundaries stay correct even when the final chunk is truncated
+        # (chunk.size is the actual per-chunk size, not a uniform stride, so
+        # ``index * size`` would duplicate middle keys and drop the tail).
         future_to_chunk = {}
 
+        start_idx = 0
         for chunk in chunk_info:
-            start_idx = chunk.index * chunk.size
             end_idx = min(start_idx + chunk.size, len(data_keys))
             chunk_keys = data_keys[start_idx:end_idx]
 
@@ -1578,9 +1581,13 @@ class PerformanceEngine:
                 chunk,
             )
             future_to_chunk[future] = chunk
+            start_idx = end_idx
 
-        # Collect results
-        all_matrices = []
+        # Collect results keyed by chunk index. Futures complete in arbitrary
+        # order, so reassemble by ascending chunk index to preserve the
+        # original key order (extending in completion order would scramble the
+        # matrices relative to ``data_keys``).
+        chunk_results: dict[int, Any] = {}
         for future in as_completed(future_to_chunk):
             chunk = future_to_chunk[future]
             try:
@@ -1588,7 +1595,7 @@ class PerformanceEngine:
                 chunk_matrices = future.result()
                 chunk_processing_time = time.time() - chunk_start_time
 
-                all_matrices.extend(chunk_matrices)
+                chunk_results[chunk.index] = chunk_matrices
 
                 # Update chunker performance feedback
                 self.chunker.update_performance_feedback(
@@ -1602,6 +1609,10 @@ class PerformanceEngine:
                 # Update chunker with failure
                 self.chunker.update_performance_feedback(chunk, 0.0, success=False)
                 raise
+
+        all_matrices: list[Any] = []
+        for index in sorted(chunk_results):
+            all_matrices.extend(chunk_results[index])
 
         return np.array(all_matrices)
 

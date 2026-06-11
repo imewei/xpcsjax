@@ -522,11 +522,20 @@ class ConfigManager:
             ):
                 analysis_mode = AnalysisMode.TWO_COMPONENT
             elif self.is_static_mode_enabled():
-                # Preserve isotropic/anisotropic distinction if specified;
-                # otherwise default to the angular-resolved variant.
-                if "isotropic" in raw_mode and "anisotropic" not in raw_mode:
+                # Preserve an explicit isotropic/anisotropic choice.
+                if "anisotropic" in raw_mode:
+                    analysis_mode = AnalysisMode.STATIC_ANISOTROPIC
+                elif "isotropic" in raw_mode:
+                    analysis_mode = AnalysisMode.STATIC_ISOTROPIC
+                elif raw_mode == "":
+                    # Absent analysis_mode: match the .analysis_mode property's
+                    # canonical default of config.get("analysis_mode",
+                    # "static_isotropic") so the two resolution paths agree.
                     analysis_mode = AnalysisMode.STATIC_ISOTROPIC
                 else:
+                    # A bare "static" (and other static-containing strings)
+                    # normalizes to the angular-resolved variant, mirroring
+                    # AnalysisMode's own normalization.
                     analysis_mode = AnalysisMode.STATIC_ANISOTROPIC
             else:
                 analysis_mode = AnalysisMode.LAMINAR_FLOW

@@ -691,6 +691,8 @@ def estimate_per_angle_scaling_from_quantile(
     t1_flat = np.asarray(t1).ravel()
     t2_flat = np.asarray(t2).ravel()
     phi_flat = np.asarray(phi_indices).ravel().astype(np.intp)
+    if phi_flat.size == 0:
+        raise ValueError("phi_indices is empty; expected at least one phi index")
     if int(phi_flat.max()) >= n_phi:
         raise ValueError(
             f"phi_indices contains values >= n_phi={n_phi}; max index = {int(phi_flat.max())}"

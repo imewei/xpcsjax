@@ -921,15 +921,18 @@ class NLSQAdapter(NLSQAdapterBase):
                 t2_all = xdata[:, 1]
                 phi_all = xdata[:, 2]
 
-                # Map phi values to indices (vectorized). Warn on out-of-grid
-                # phi: an unguarded clip would silently route those points to the
-                # boundary angle bin, mis-associating them in the residual.
-                phi_idx_all = np.searchsorted(phi_unique, phi_all)
-                n_phi_oob = int(np.sum(phi_idx_all >= len(phi_unique)))
+                # xdata[:, 2] holds precomputed phi INDICES (see
+                # _flatten_xpcs_data), exactly as the cached branch consumes them
+                # (``xdata[:, 2].astype(int32)``). Treat them as integer indices,
+                # not raw angle values — running searchsorted on an index column
+                # maps an index into an index and mis-associates points with
+                # angles.
+                phi_idx_all = phi_all.astype(np.int64)
+                n_phi_oob = int(np.sum((phi_idx_all < 0) | (phi_idx_all >= len(phi_unique))))
                 if n_phi_oob > 0:
                     logger.warning(
-                        "%d phi value(s) lie beyond the fitted angle grid; clipped "
-                        "to the boundary bin. Check data/config alignment.",
+                        "%d phi index/indices lie outside the fitted angle grid; "
+                        "clipped to the valid range. Check data/config alignment.",
                         n_phi_oob,
                     )
                 phi_idx_all = np.clip(phi_idx_all, 0, len(phi_unique) - 1)

@@ -1311,6 +1311,10 @@ class DataQualityController:
                 try:
                     arr = np.asarray(value)
                     nan_mask = ~np.isfinite(arr)
+                    # Track repair per key — a cumulative flag would falsely
+                    # attribute a "Repaired NaN values in {key}" message to later
+                    # keys once any earlier key had been repaired.
+                    key_modified = False
 
                     if np.any(nan_mask):
                         if key == "c2_exp" and arr.ndim >= 2:
@@ -1323,11 +1327,12 @@ class DataQualityController:
                                     if len(finite_values) > 0:
                                         replacement_value = np.median(finite_values)
                                         matrix[~np.isfinite(matrix)] = replacement_value
-                                        data_modified = True
+                                        key_modified = True
                             # Write repaired array back; np.asarray() of a list/JAX
                             # array creates a detached copy, so the loop above mutated
                             # `arr` only — we must propagate it back to `data`.
-                            data[key] = arr
+                            if key_modified:
+                                data[key] = arr
                         else:
                             # For other arrays, use median replacement
                             finite_values = arr[np.isfinite(arr)]
@@ -1335,9 +1340,10 @@ class DataQualityController:
                                 replacement_value = np.median(finite_values)
                                 arr[nan_mask] = replacement_value
                                 data[key] = arr
-                                data_modified = True
+                                key_modified = True
 
-                        if data_modified:
+                        if key_modified:
+                            data_modified = True
                             repairs_applied.append(f"Repaired NaN values in {key}")
                 except (AttributeError, TypeError, IndexError):
                     pass

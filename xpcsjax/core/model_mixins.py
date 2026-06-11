@@ -262,6 +262,7 @@ class BenchmarkingMixin:
                         test_L,
                         test_contrast,
                         test_offset,
+                        test_dt,
                     )
 
                 computation_time = time.perf_counter() - start_time
@@ -326,6 +327,7 @@ class BenchmarkingMixin:
         test_L = 1e6  # 1 mm in Angstroms, center of valid range [1e5, 1e8]
         test_contrast = 0.8
         test_offset = 1.0
+        test_dt = 0.001  # Required dt parameter (config-sourced in production)
 
         validation_results: dict[str, Any] = {
             "test_conditions": {
@@ -350,6 +352,7 @@ class BenchmarkingMixin:
                     test_L,
                     test_contrast,
                     test_offset,
+                    test_dt,
                 )
 
                 # Basic validation checks
