@@ -2955,9 +2955,9 @@
     "semantic_hash": "849532f0b5a01364674614cf10aae514"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/heterodyne_parameter_space.py": {
-    "mtime": 1781206964.2158659,
-    "ast_hash": "32dff40bcbada466a4eed1178b95066d",
-    "semantic_hash": "32dff40bcbada466a4eed1178b95066d"
+    "mtime": 1781209788.1365511,
+    "ast_hash": "aba977eb6e14b43cfe367f4c129ba107",
+    "semantic_hash": "aba977eb6e14b43cfe367f4c129ba107"
   },
   "/home/wei/Documents/GitHub/xpcsjax/xpcsjax/config/heterodyne_physics_validators.py": {
     "mtime": 1780671715.0381997,
@@ -3720,9 +3720,9 @@
     "semantic_hash": "2cd5891a490aabd58f74d33ca113f552"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/changelog.rst": {
-    "mtime": 1780419942.4405098,
-    "ast_hash": "4604fee9037c8cced7aa789d49eefed0",
-    "semantic_hash": "4604fee9037c8cced7aa789d49eefed0"
+    "mtime": 1781209765.5301223,
+    "ast_hash": "1e549b73613824f2066b6938f4c5069c",
+    "semantic_hash": "1e549b73613824f2066b6938f4c5069c"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/development/contributing.rst": {
     "mtime": 1779234939.7348447,
@@ -3850,9 +3850,9 @@
     "semantic_hash": "4780717babb0dfc560f5d4eebd442f97"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/user_guide/configuration.rst": {
-    "mtime": 1779559896.2429955,
-    "ast_hash": "b28f1e570490c7a11039868f04a75b93",
-    "semantic_hash": "b28f1e570490c7a11039868f04a75b93"
+    "mtime": 1781209780.5847397,
+    "ast_hash": "efd46baf697dda8cb4076381b80dc7eb",
+    "semantic_hash": "efd46baf697dda8cb4076381b80dc7eb"
   },
   "/home/wei/Documents/GitHub/xpcsjax/docs/source/user_guide/data_loading.rst": {
     "mtime": 1779237474.0984652,

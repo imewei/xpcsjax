@@ -99,8 +99,14 @@
       "output_tokens": 0,
       "files": 393,
       "note": "full rebuild, Claude subagents"
+    },
+    {
+      "date": "2026-06-11T20:56:47.038294+00:00",
+      "input_tokens": 27601,
+      "output_tokens": 1995,
+      "files": 394
     }
   ],
-  "total_input_tokens": 557367,
-  "total_output_tokens": 200925
+  "total_input_tokens": 584968,
+  "total_output_tokens": 202920
 }
