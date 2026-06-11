@@ -425,8 +425,8 @@
     "semantic_hash": ""
   },
   "tests/data/test_validation.py": {
-    "mtime": 1780525312.7903492,
-    "ast_hash": "d7b2a31b8a2e75fea5f7f69eeac29b7c",
+    "mtime": 1781191285.208085,
+    "ast_hash": "7a9af4c1cc5de350804868e59c81e2e2",
     "semantic_hash": ""
   },
   "tests/data/test_loader_smoke.py": {
@@ -1200,8 +1200,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/strategies/out_of_core.py": {
-    "mtime": 1781180232.750953,
-    "ast_hash": "ebcec4b9f3f2b7e028571c401e8fb05a",
+    "mtime": 1781188452.9040704,
+    "ast_hash": "08c9f6cfce7dd7e47c5895a3259c5e73",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/strategies/residual.py": {
@@ -1295,8 +1295,8 @@
     "semantic_hash": ""
   },
   "xpcsjax/data/validation.py": {
-    "mtime": 1781180232.744953,
-    "ast_hash": "f5756c209b87990e6473722cbdd01ee7",
+    "mtime": 1781191235.6288087,
+    "ast_hash": "f817f5614d1540b06b5503e4fd646b74",
     "semantic_hash": ""
   },
   "xpcsjax/data/performance_engine.py": {
