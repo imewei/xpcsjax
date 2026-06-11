@@ -367,6 +367,12 @@ def run_nlsq(
             result.convergence_status,
         )
 
+    # Writer 1 of 2 (intentional dual-format output — audit [23], confirmed
+    # not a clobber): this emits the homodyne-compatible trio
+    # parameters.json / analysis_results_nlsq.json / convergence_metrics.json
+    # for downstream homodyne tooling. The CLI dispatcher (commands._dispatch_fit
+    # -> result_saving.save_results) separately writes the native
+    # nlsq_result.json/.npz. Distinct filenames in the same directory; keep both.
     output_dir = _resolve_output_dir(args)
     if output_dir is not None:
         _save_results(result, config_manager, data, output_dir)
