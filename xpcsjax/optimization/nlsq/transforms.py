@@ -244,7 +244,9 @@ def apply_forward_shear_transforms_to_vector(
 
     if transform_cfg.get("enable_gamma_dot_log", False):
         # Try canonical name first, fallback to old name for backwards compatibility
-        idx = index_map.get("gamma_dot_t0") or index_map.get("gamma_dot_0")
+        idx = index_map.get("gamma_dot_t0")
+        if idx is None:
+            idx = index_map.get("gamma_dot_0")
         if idx is not None:
             value = vector[idx]
             if value <= 0:

@@ -746,6 +746,10 @@ class PreprocessingPipeline:
         normalized_data = {
             k: (np.array(v) if hasattr(v, "shape") else copy.deepcopy(v)) for k, v in data.items()
         }
+        # Normalization yields fractional values; if the source c2_exp is an integer
+        # dtype, assigning floats back into it would truncate. Upcast the buffer.
+        if hasattr(c2_exp, "shape") and not np.issubdtype(np.asarray(c2_exp).dtype, np.floating):
+            normalized_data["c2_exp"] = np.asarray(normalized_data["c2_exp"], dtype=np.float64)
 
         if method == NormalizationMethod.BASELINE:
             # Normalize by t=0 value (diagonal)

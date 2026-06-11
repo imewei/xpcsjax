@@ -80,8 +80,8 @@ def detect_cpu_info() -> dict[str, Any]:
         CPU information including cores, architecture, and optimization hints
     """
     info: dict[str, Any] = {
-        "physical_cores": psutil.cpu_count(logical=False),
-        "logical_cores": psutil.cpu_count(logical=True),
+        "physical_cores": psutil.cpu_count(logical=False) or 1,
+        "logical_cores": psutil.cpu_count(logical=True) or 1,
         "architecture": platform.machine(),
         "processor": platform.processor(),
         "numa_nodes": 1,  # Default

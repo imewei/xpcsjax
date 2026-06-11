@@ -475,7 +475,7 @@ def estimate_per_angle_scaling(
     c2 = np.asarray(c2_data)
     t1_arr = np.asarray(t1)
     t2_arr = np.asarray(t2)
-    phi_idx = np.asarray(phi_indices)
+    phi_idx = np.asarray(phi_indices).astype(np.intp)
 
     delta_t = np.abs(t1_arr - t2_arr)
 

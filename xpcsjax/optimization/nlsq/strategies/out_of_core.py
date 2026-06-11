@@ -386,6 +386,13 @@ def fit_with_out_of_core_accumulation(
     # Track early convergence result for return after cleanup
     _early_result: tuple[np.ndarray, np.ndarray, dict] | None = None
 
+    # Seed loop-carried accumulators so the post-loop summary stays well-defined
+    # even when max_iter <= 0 (loop body never runs).
+    i = -1
+    count = 0
+    total_chi2 = float("inf")
+    total_JtJ = np.eye(n_params)
+
     try:
         for i in range(max_iter):
             _iter_start = time.perf_counter()  # noqa: F841

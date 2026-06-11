@@ -21,12 +21,27 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# The heterodyne kernel names the flow angle "phi0", but the registry stores it
-# as a separate "phi0_het" entry to avoid colliding with homodyne's "phi0".
-# Both are in *degrees* (the kernel applies deg2rad(phi_angle + phi0_het)); the
-# registry's "phi0_het" default bounds are degrees [-10, 10]. Map the kernel
-# name to "phi0_het" so the bounds default is sourced from that entry.
-_REGISTRY_ALIAS: dict[str, str] = {"phi0": "phi0_het"}
+# The heterodyne kernel names the flow angle "phi0" and the velocity exponent
+# "beta", but the registry stores those as separate "phi0_het" / "v_beta" entries
+# to avoid colliding with homodyne's "phi0" / "beta" (which carry different
+# bounds and defaults). Map the kernel names to the disambiguated registry
+# entries so bounds/defaults are sourced from the heterodyne-specific entries.
+#   phi0  -> phi0_het : degrees [-10, 10], default 0.0
+#   beta  -> v_beta   : velocity exponent v(t)=v0*t^beta, bounds [0, 2], default 1.0
+# Without the "beta" alias the velocity exponent would inherit homodyne's beta
+# (default 0.5, bounds [-2, 2]) — a physically wrong window (v_beta < 0 diverges
+# as t -> 0) and the wrong start value.
+_REGISTRY_ALIAS: dict[str, str] = {"phi0": "phi0_het", "beta": "v_beta"}
+
+
+def registry_info(name: str):  # noqa: ANN201 - returns a ParameterInfo from the registry
+    """Return the ``DEFAULT_REGISTRY`` entry for a heterodyne kernel-name param.
+
+    Resolves kernel names (``beta``, ``phi0``) to their disambiguated registry
+    entries (``v_beta``, ``phi0_het``) via :data:`_REGISTRY_ALIAS` so every
+    bounds/default lookup is consistent across the parameter space and manager.
+    """
+    return DEFAULT_REGISTRY[_REGISTRY_ALIAS.get(name, name)]
 
 # Public template names (``v_beta``, ``phi0_het``) disambiguate the heterodyne
 # velocity exponent and flow angle from homodyne's ``beta``/``phi0`` — see the
@@ -52,8 +67,7 @@ class ParameterSpace:
     def __post_init__(self) -> None:
         """Initialize with defaults from registry."""
         for name in ALL_PARAM_NAMES_WITH_SCALING:
-            registry_name = _REGISTRY_ALIAS.get(name, name)
-            info = DEFAULT_REGISTRY[registry_name]
+            info = registry_info(name)
             if name not in self.values:
                 self.values[name] = info.default
             if name not in self.vary:
@@ -337,7 +351,7 @@ class ParameterSpace:
 
                 pconfig = group_config[param_name]
                 if isinstance(pconfig, dict):
-                    reg_info = DEFAULT_REGISTRY[param_name]
+                    reg_info = registry_info(param_name)
                     if "value" in pconfig:
                         new_val = pconfig["value"]
                         if new_val != reg_info.default:

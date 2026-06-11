@@ -2108,6 +2108,12 @@ class XPCSDataLoader:
             c2_exp = c2_matrices
             logger.debug("No frame slicing needed - using full range")
 
+        # Record the actually-applied (clamped) frame window in 1-based inclusive
+        # coordinates so cache metadata reports the true extent instead of
+        # re-deriving it from the raw (possibly out-of-range) config values.
+        self._applied_start_frame = start_frame + 1  # 0-based start -> 1-based
+        self._applied_end_frame = end_frame  # 0-based exclusive end == 1-based last
+
         return c2_exp
 
     def _calculate_time_arrays(self, matrix_size: int) -> NDArray:
@@ -2172,14 +2178,18 @@ class XPCSDataLoader:
             "actual_wavevector_q": actual_q,
             "q_variance": q_variance,
             "q_count": len(q_values),
-            "start_frame": self.analyzer_config.get("start_frame", 1),
-            # Normalize end_frame=-1 sentinel to actual last frame
-            "end_frame": (
-                self.analyzer_config.get("end_frame")
-                if self.analyzer_config.get("end_frame", -1) != -1
-                else (
-                    cache_data["c2_exp"].shape[-1] + self.analyzer_config.get("start_frame", 1) - 1
-                )
+            # Report the actually-applied (clamped) frame window recorded by
+            # _apply_frame_slicing_to_selected_q. Fall back to the raw config /
+            # sliced width only if slicing was never run on this instance.
+            "start_frame": getattr(
+                self, "_applied_start_frame", self.analyzer_config.get("start_frame", 1)
+            ),
+            "end_frame": getattr(
+                self,
+                "_applied_end_frame",
+                cache_data["c2_exp"].shape[-1]
+                + self.analyzer_config.get("start_frame", 1)
+                - 1,
             ),
             "phi_count": len(cache_data["phi_angles_list"]),
             "cache_version": "2.0",

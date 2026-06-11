@@ -324,6 +324,31 @@ class ResultBuilder:
         self.info = info
         return self
 
+    def _chi_squared_from_info(self) -> float:
+        """Derive chi-squared from optimizer ``info`` robustly.
+
+        scipy/NLSQ ``least_squares`` stores the residual VECTOR under ``"fun"``
+        and the scalar cost (``0.5 * RSS``) under ``"cost"``. Treating the
+        residual vector as a scalar (the old ``float(info["fun"]) * 2``) raises
+        on a multi-element vector and is wrong for a single-element one.
+
+        Returns
+        -------
+        float
+            ``sum(residuals**2)`` when ``"fun"`` is an array; ``2*cost`` when
+            ``"fun"`` is a bare scalar (legacy convention); ``2*info["cost"]``
+            (default 0.0) when ``"fun"`` is absent.
+        """
+        fun = self.info.get("fun")
+        if fun is not None and np.ndim(fun) > 0:
+            arr = np.asarray(fun)
+            if arr.size > 0:
+                return float(np.sum(arr**2))
+        elif fun is not None:
+            # Bare scalar cost (0.5 * RSS) -> chi^2 = 2 * cost.
+            return float(fun) * 2.0
+        return float(self.info.get("cost", 0.0)) * 2.0
+
     def with_stratification_diagnostics(self, diags: Any) -> ResultBuilder:
         """Set stratification diagnostics."""
         self.stratification_diagnostics = diags
@@ -468,24 +493,24 @@ class ResultBuilder:
                 quality = compute_quality_metrics(residuals, self.n_data, n_params)
             except (ValueError, RuntimeError, TypeError):
                 # Fallback if residual computation fails.
-                # NLSQ/scipy least_squares stores cost = 0.5*RSS as "fun"
-                # (internal convention).  Multiply by 2 to get chi-squared.
+                # scipy/NLSQ least_squares stores the residual VECTOR as "fun"
+                # and the scalar cost (0.5*RSS) as "cost". Handle both: a vector
+                # → chi^2 = sum of squared residuals; a bare scalar (legacy
+                # cost convention) → chi^2 = 2*cost.
                 # NOTE: OOC and hierarchical paths use different keys
                 # ("chi_squared", "final_cost") and don't set "fun", so this
                 # defaults to 0.0 for those callers (acceptable — they supply
                 # residual_fn and hit the primary path above).
-                fun_val = float(self.info.get("fun", 0.0))
-                chi_sq_fallback = fun_val * 2.0
+                chi_sq_fallback = self._chi_squared_from_info()
                 quality = QualityMetrics(
                     chi_squared=chi_sq_fallback,
                     reduced_chi_squared=chi_sq_fallback / max(self.n_data - n_params, 1),
                     quality_flag="unknown",
                 )
         else:
-            # Use info from optimizer.
-            # NLSQ/scipy least_squares stores cost = 0.5*RSS as "fun".
-            # Multiply by 2 to get chi-squared.  See note above re: OOC/hier.
-            chi_sq = float(self.info.get("fun", 0.0)) * 2.0
+            # Use info from optimizer. "fun" is the residual vector (scipy/NLSQ
+            # least_squares convention); "cost" is the scalar 0.5*RSS. See helper.
+            chi_sq = self._chi_squared_from_info()
             quality = QualityMetrics(
                 chi_squared=chi_sq,
                 reduced_chi_squared=chi_sq / max(self.n_data - n_params, 1),

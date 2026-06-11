@@ -528,9 +528,15 @@ def _aggregate_individual_results(
                 w_i = weights[i] if weights.ndim == 3 else weights
                 residual = residual * np.sqrt(np.asarray(w_i, dtype=np.float64))
             n_matrix = residual.shape[0]
-            off_diag = ~np.eye(n_matrix, dtype=bool)
+            # Match the kernel / joint-path convention (n_per_angle =
+            # (N-1)*(N-2)): exclude the diagonal AND the t=0 boundary row/col.
+            # Masking only the diagonal leaks t=0 boundary residuals into the SSR,
+            # inconsistent with every joint path's reduced-chi2.
+            valid_mask = ~np.eye(n_matrix, dtype=bool)
+            valid_mask[0, :] = False
+            valid_mask[:, 0] = False
             # OptimizationResult.chi_squared is defined as data residual SSR.
-            chi2_values.append(float(np.sum(residual[off_diag] ** 2)))
+            chi2_values.append(float(np.sum(residual[valid_mask] ** 2)))
         elif r.final_cost is not None:
             # NLSQResult.final_cost follows least-squares convention:
             # final_cost = 0.5 * SSR. Convert back to SSR for result-level chi2.
@@ -544,7 +550,11 @@ def _aggregate_individual_results(
 
     c2_arr = np.asarray(c2_data)
     if c2_arr.ndim == 3:
-        n_data_total = int(c2_arr.shape[0] * c2_arr.shape[1] * c2_arr.shape[2])
+        # Per-angle valid points exclude the diagonal and the t=0 boundary row/col
+        # (n_per_angle = (N-1)*(N-2)), matching the SSR masking above and every
+        # joint path's convention.
+        n_phi_c2, n_time_c2 = int(c2_arr.shape[0]), int(c2_arr.shape[1])
+        n_data_total = n_phi_c2 * max(n_time_c2 - 1, 0) * max(n_time_c2 - 2, 0)
     else:
         n_data_total = int(c2_arr.size)
     dof = max(n_data_total - total_dim, 1)
@@ -2606,6 +2616,13 @@ def _fit_joint_multi_phi(
         xtol=config.xtol,
         gtol=config.gtol,
         max_nfev=(config.max_nfev * n_phi if config.max_nfev is not None else None),
+        # Inherit the robust-loss kernel from the caller so fourier/individual
+        # joint solves minimize the SAME objective as the averaged/constant joint
+        # paths. Omitting these let loss fall to the dataclass default ("soft_l1"),
+        # making the solver objective silently mode-dependent.
+        loss=config.loss,
+        use_nlsq_library=config.use_nlsq_library,
+        n_params=len(x0),
     )
 
     joint_result: NLSQResult | None = None

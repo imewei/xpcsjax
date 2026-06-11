@@ -164,14 +164,21 @@ _MODE_TO_PRODUCTION = {
 # True physics perturbation off the model config defaults, by varying-param name.
 # Each shift is well-separated from the default yet inside the param's basin of
 # attraction (small relative to its bound range). Unlisted params keep defaults.
-#   defaults: D0_ref=D0_sample=1e4, v0=1e3, beta=0.5, f0=0.5, rest 0
+#   defaults: D0_ref=D0_sample=1e4, v0=1e3, beta=1.0 (v_beta), f0=0.5, rest 0
+# NOTE: the heterodyne velocity exponent sources its default/bounds from the
+# registry ``v_beta`` entry (default 1.0, bounds [0, 2]) — see
+# ``heterodyne_parameter_space._REGISTRY_ALIAS``. Because ``beta`` is an exponent
+# in ``v(t)=v0*t^beta``, the noiseless basin around the x0 default (1.0) is
+# ASYMMETRIC: truths below 1.0 are recovered by the plain local solve while truths
+# above ~1.0 fall into a higher local minimum. The truth below is a -0.10 shift
+# (matching the alpha +-0.10 perturbations) — well-separated yet in-basin from x0.
 _TRUE_PERTURB = {
     "D0_ref": 1.10e4,
     "alpha_ref": 0.10,
     "D0_sample": 1.05e4,
     "alpha_sample": -0.10,
     "v0": 1.05e3,
-    "beta": 0.55,
+    "beta": 0.90,
     "f0": 0.55,
     "phi0": 0.30,
 }

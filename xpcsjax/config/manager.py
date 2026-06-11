@@ -434,8 +434,10 @@ class ConfigManager:
         """
         if not self.config:
             return True
-        analysis_mode = self.config.get("analysis_mode", "static_isotropic")
-        return "static" in analysis_mode.lower()
+        # Delegate to the typed accessor so a non-str / non-canonical analysis_mode
+        # raises the same ValueError as everywhere else (the single deferred-
+        # validation point) instead of an AttributeError from str.lower().
+        return "static" in self.analysis_mode.value.lower()
 
     def get_model(self) -> Any:
         """Construct the physics model class for this config's analysis mode.
@@ -1037,11 +1039,21 @@ class ConfigManager:
 
         # Optimizer selection
         optimization = self.config.get("optimization", {})
+        if not isinstance(optimization, dict):
+            logger.warning(
+                "optimization must be a dict, ignoring (got %s)", type(optimization).__name__
+            )
+            optimization = {}
         method = optimization.get("method", "nlsq")
         logger.info(f"Optimizer: {method}")
 
         # Log dataset size estimate if available
         nlsq_config = optimization.get("nlsq", {})
+        if not isinstance(nlsq_config, dict):
+            logger.warning(
+                "optimization.nlsq must be a dict, ignoring (got %s)", type(nlsq_config).__name__
+            )
+            nlsq_config = {}
         memory_fraction = nlsq_config.get("memory_fraction")
         if memory_fraction:
             logger.debug(f"Memory fraction: {memory_fraction}")
@@ -1060,9 +1072,20 @@ class ConfigManager:
             return
 
         optimization = self.config.get("optimization", {})
+        if not isinstance(optimization, dict):
+            logger.warning(
+                "optimization must be a dict, ignoring (got %s)", type(optimization).__name__
+            )
+            optimization = {}
 
         # Warn about very high iteration limits
         nlsq_config = optimization.get("nlsq", {}) or optimization.get("lsq", {})
+        if not isinstance(nlsq_config, dict):
+            logger.warning(
+                "optimization.nlsq/lsq must be a dict, ignoring (got %s)",
+                type(nlsq_config).__name__,
+            )
+            nlsq_config = {}
         max_iter = nlsq_config.get("max_iterations", 10000)
         if max_iter > 50000:
             logger.warning(
@@ -1096,8 +1119,12 @@ class ConfigManager:
         # Warn about disabled anti-degeneracy for laminar_flow
         mode = self.config.get("analysis_mode", "static_anisotropic")
         anti_deg = nlsq_config.get("anti_degeneracy", {})
+        if not isinstance(anti_deg, dict):
+            anti_deg = {}
         if mode == "laminar_flow":
             hierarchical = anti_deg.get("hierarchical", {})
+            if not isinstance(hierarchical, dict):
+                hierarchical = {}
             if hierarchical.get("enable") is False:
                 logger.warning(
                     "hierarchical.enable=False for laminar_flow may cause "

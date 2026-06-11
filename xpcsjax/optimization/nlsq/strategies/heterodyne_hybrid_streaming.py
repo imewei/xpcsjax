@@ -62,11 +62,15 @@ def _bin_to_grid(values: np.ndarray, grid: np.ndarray, axis_name: str) -> np.nda
     """
     raw = np.searchsorted(grid, values)
     n_oob = int(np.sum(raw >= len(grid)))
-    if n_oob > 0:
+    # Below-grid points snap to bin 0 just like a legitimate grid[0] value, so
+    # raw alone cannot surface them — count them explicitly.
+    n_low = int(np.sum(np.asarray(values) < grid[0]))
+    if n_oob > 0 or n_low > 0:
         logger.warning(
-            "%d data point(s) lie beyond the %s grid; clipped to the boundary "
-            "bin. Check data/config grid alignment.",
+            "%d data point(s) lie above and %d below the %s grid; clipped to the "
+            "boundary bin. Check data/config grid alignment.",
             n_oob,
+            n_low,
             axis_name,
         )
     return np.clip(raw, 0, len(grid) - 1)

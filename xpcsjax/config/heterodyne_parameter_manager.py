@@ -14,7 +14,7 @@ from xpcsjax.config.heterodyne_parameter_names import (
     PARAM_GROUPS,
     SCALING_PARAMS,
 )
-from xpcsjax.config.heterodyne_parameter_space import ParameterSpace
+from xpcsjax.config.heterodyne_parameter_space import ParameterSpace, registry_info
 from xpcsjax.config.heterodyne_physics_validators import ValidationResult, validate_parameters
 from xpcsjax.config.types import BoundDict
 from xpcsjax.utils.logging import get_logger
@@ -67,11 +67,11 @@ class ParameterManager:
 
     def __post_init__(self) -> None:
         """Build default bounds lookup from the registry, then merge config overrides."""
-        from xpcsjax.config.parameter_registry import DEFAULT_REGISTRY
-
         self._default_bounds: dict[str, BoundDict] = {}
         for name in ALL_PARAM_NAMES_WITH_SCALING:
-            info = DEFAULT_REGISTRY[name]
+            # registry_info resolves kernel names (beta -> v_beta, phi0 -> phi0_het)
+            # so the velocity exponent / flow angle source heterodyne bounds.
+            info = registry_info(name)
             self._default_bounds[name] = BoundDict(
                 name=name,
                 min=info.min_bound,
@@ -96,14 +96,11 @@ class ParameterManager:
         ``self.space.bounds`` (populated by ``ParameterSpace.from_config``),
         so we just copy them over.
         """
-        from xpcsjax.config.parameter_registry import DEFAULT_REGISTRY
-
         for name in ALL_PARAM_NAMES_WITH_SCALING:
-            lo, hi = self.space.bounds.get(
-                name, (DEFAULT_REGISTRY[name].min_bound, DEFAULT_REGISTRY[name].max_bound)
-            )
+            # registry_info applies the heterodyne kernel-name aliases (see above).
+            reg = registry_info(name)
+            lo, hi = self.space.bounds.get(name, (reg.min_bound, reg.max_bound))
             if name in self._default_bounds:
-                reg = DEFAULT_REGISTRY[name]
                 if lo != reg.min_bound or hi != reg.max_bound:
                     logger.debug(
                         "Config overrides bounds for %s: [%.4g, %.4g] -> [%.4g, %.4g]",

@@ -543,6 +543,16 @@ class AntiDegeneracyController:
                 initial_phi0=0.0,  # Will be updated from initial params
                 normalize=config.shear_weighting_normalize,
             )
+            # NOTE: self.phi_angles is in RADIANS here (the caller passes
+            # np.deg2rad(phi_angles); see core.py) and ShearSensitivityWeighting
+            # applies jnp.radians() again — so the shear weights are effectively
+            # computed from twice-converted angles. This is INTENTIONAL 1:1 parity
+            # with upstream homodyne (anti_degeneracy_controller.py:477 +
+            # core.py:1818, which do the identical np.deg2rad -> controller ->
+            # jnp.radians). The rtol=1e-10 characterization baseline is generated
+            # from upstream and pins this exact behavior; do NOT "fix" the units
+            # here — it would diverge from the parity oracle. See the 2026-06-11
+            # debug-audit finding #1 (verified false-positive-vs-oracle).
             self.shear_weighter = ShearSensitivityWeighting(
                 phi_angles=self.phi_angles,
                 n_physical=self.n_physical,

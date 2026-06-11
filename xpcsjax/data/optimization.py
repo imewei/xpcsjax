@@ -358,7 +358,10 @@ class DatasetOptimizer:
 
         # Setup chunked processing for large datasets
         if dataset_info.category == "large":
-            start_time = time.time()
+            # create_chunked_iterator returns a lazy generator: no chunk work runs
+            # until it is consumed downstream, so there is no preprocessing cost to
+            # time here. preprocessing_time stays 0.0 by design rather than recording
+            # the (meaningless) generator-object construction time.
             optimization_config["chunked_iterator"] = self.create_chunked_iterator(
                 data,
                 sigma,
@@ -367,7 +370,6 @@ class DatasetOptimizer:
                 phi,
                 strategy.chunk_size,
             )
-            optimization_config["preprocessing_time"] = time.time() - start_time
 
         return optimization_config
 

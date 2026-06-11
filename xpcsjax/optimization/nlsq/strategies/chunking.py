@@ -584,8 +584,10 @@ def calculate_adaptive_chunk_size(
     # Ensure all angles fit in each chunk (critical for per-angle parameters)
     # If chunk doesn't contain all angles, gradients for missing angles are zero
     if n_angles > 0:
-        points_per_angle = max_total_points / n_angles
-        chunk_size = int(points_per_angle * n_angles)
+        # Floor to a whole multiple of n_angles. int(x / n * n) cancels the
+        # division and is a no-op; integer-floor before re-multiplying actually
+        # snaps the chunk down to a per-angle-balanced size.
+        chunk_size = (int(max_total_points) // n_angles) * n_angles
     else:
         chunk_size = int(max_total_points)
 

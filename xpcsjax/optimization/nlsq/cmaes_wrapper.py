@@ -949,7 +949,7 @@ class CMAESWrapper:
             f"[CMA-ES] Algorithm settings: max_generations={cmaes_config.max_generations}, "
             f"popsize={cmaes_config.popsize}, sigma={cmaes_config.sigma:.3f}"
             f"{' (warm-start)' if warmstart_active else ''}, "
-            f"restart={self.config.restart_strategy}"
+            f"restart={cmaes_config.restart_strategy}, max_restarts={cmaes_config.max_restarts}"
         )
         if self.config.refine_with_nlsq:
             logger.info(
@@ -1113,8 +1113,10 @@ class CMAESWrapper:
                 best_chi_squared = refinement_result["chi_squared"]
                 nlsq_refined = True
 
-                # Update diagnostics with refinement info
-                diagnostics["refinement_nfev"] = refinement_result["infodict"].get("nfev", 0)
+                # Update diagnostics with refinement info.
+                # NLSQ curve_fit returns only (popt, pcov) — no nfev is available
+                # (infodict is always empty), so we do not emit a misleading
+                # always-zero refinement_nfev key here.
                 diagnostics["refinement_message"] = refinement_result["mesg"]
                 diagnostics["cmaes_chi_squared"] = cmaes_chi_squared
                 diagnostics["refined_chi_squared"] = best_chi_squared

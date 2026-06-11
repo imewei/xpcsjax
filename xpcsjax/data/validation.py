@@ -668,7 +668,9 @@ def _compute_data_statistics(data: dict[str, Any], report: DataQualityReport) ->
                     "std": float(np.nanstd(arr)) if arr.size > 0 else 0.0,
                     "min": float(np.nanmin(arr)) if arr.size > 0 else 0.0,
                     "max": float(np.nanmax(arr)) if arr.size > 0 else 0.0,
-                    "finite_fraction": float(np.sum(np.isfinite(arr)) / arr.size),
+                    "finite_fraction": (
+                        float(np.sum(np.isfinite(arr)) / arr.size) if arr.size > 0 else 0.0
+                    ),
                     # sum/first/last are used by _identify_changed_components
                     # as a change-detection fingerprint. Must be stored here or
                     # incremental validation always falls back to full re-validation.

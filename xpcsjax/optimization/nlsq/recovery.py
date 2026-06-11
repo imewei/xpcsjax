@@ -51,6 +51,7 @@ def execute_with_recovery(
     curve_fit_fn: Callable,
     curve_fit_large_fn: Callable,
     callback: Callable | None = None,
+    convergence: dict[str, float] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict, list[str], str]:
     """Execute optimization with automatic error recovery (T022-T024).
 
@@ -103,6 +104,21 @@ def execute_with_recovery(
     max_retries = 3
     current_params = initial_params.copy()
 
+    # Resolve solver tolerances from the caller's NLSQ config when supplied,
+    # falling back to the recovery-path defaults only for keys left unset. This
+    # makes the recovery executor honor user ftol/gtol/xtol/max_iterations instead
+    # of always hard-coding 1e-6 / 5000.
+    _conv = convergence or {}
+    _tol_kwargs: dict[str, float] = {
+        "gtol": float(_conv.get("gtol", 1e-6)),
+        "ftol": float(_conv.get("ftol", 1e-6)),
+        "max_nfev": int(_conv.get("max_nfev", 5000)),
+    }
+    if _conv.get("xtol") is not None:
+        # xtol was not passed on the legacy path; only forward it when the config
+        # explicitly sets it, so the default recovery solve stays unchanged.
+        _tol_kwargs["xtol"] = float(_conv["xtol"])
+
     # Compute initial cost for optimization success tracking
     if hasattr(residual_fn, "n_total_points") or isinstance(residual_fn, FunctionEvaluationCounter):
         initial_residuals = residual_fn(initial_params)
@@ -145,12 +161,10 @@ def execute_with_recovery(
                     bounds=bounds,
                     loss=loss_name,
                     x_scale=x_scale_large,
-                    gtol=1e-6,
-                    ftol=1e-6,
-                    max_nfev=5000,
                     verbose=2,
                     show_progress=show_progress,
                     stability="auto",
+                    **_tol_kwargs,
                 )
                 popt, pcov, info = handle_nlsq_result_fn(result, OptimizationStrategy.LARGE)
                 info["initial_cost"] = initial_cost
@@ -184,12 +198,10 @@ def execute_with_recovery(
                     bounds=bounds,
                     loss=loss_name,
                     x_scale=x_scale_array,
-                    gtol=1e-6,
-                    ftol=1e-6,
-                    max_nfev=5000,
                     verbose=2,
                     stability="auto",
                     rescale_data=False,
+                    **_tol_kwargs,
                 )
                 if callback is not None and "callback" not in _std_kwargs:
                     # Real L4 per-iteration monitor callback (strictly

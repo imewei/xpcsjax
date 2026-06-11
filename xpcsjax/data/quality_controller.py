@@ -1318,9 +1318,12 @@ class DataQualityController:
 
                     if np.any(nan_mask):
                         if key == "c2_exp" and arr.ndim >= 2:
-                            # For correlation matrices, interpolate from neighbors
-                            for i in range(len(arr)):
-                                matrix = arr[i] if arr.ndim > 2 else arr
+                            # For correlation matrices, interpolate from neighbors.
+                            # ndim==2 is a single matrix (repair once); ndim>2 is a
+                            # stack of matrices (repair each). Iterating range(len(arr))
+                            # for ndim==2 would re-scan the whole matrix n_rows times.
+                            matrices = arr if arr.ndim > 2 else (arr,)
+                            for matrix in matrices:
                                 if np.any(~np.isfinite(matrix)):
                                     # Simple interpolation from finite neighbors
                                     finite_values = matrix[np.isfinite(matrix)]

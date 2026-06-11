@@ -138,7 +138,7 @@ def _configure_cpu_optimal(
 
             logger.info("[OK] Basic CPU configuration completed")
 
-    except (OSError, ValueError, RuntimeError, ImportError) as e:
+    except (OSError, ValueError, RuntimeError, ImportError, TypeError) as e:
         logger.error(f"CPU configuration failed: {e}")
         config_result.update(
             {
@@ -200,7 +200,7 @@ def get_device_status() -> dict[str, Any]:
                 "Standard CPU configuration - adequate performance expected",
             )
 
-    except (OSError, ValueError, RuntimeError, ImportError) as e:
+    except (OSError, ValueError, RuntimeError, ImportError, TypeError) as e:
         logger.error(f"Device status check failed: {e}")
         status["error"] = str(e)
 
@@ -245,7 +245,7 @@ def benchmark_device_performance(
                 "Install psutil for detailed CPU benchmarking",
             )
 
-    except (OSError, ValueError, RuntimeError, ImportError) as e:
+    except (OSError, ValueError, RuntimeError, ImportError, TypeError) as e:
         logger.error(f"Device benchmarking failed: {e}")
         benchmark_results["error"] = str(e)
 

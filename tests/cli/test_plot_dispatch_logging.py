@@ -31,8 +31,28 @@ def _reset_log_once() -> None:
     reset_log_once_cache()
 
 
+@pytest.fixture(autouse=True)
+def _stub_c2_eval(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the fitted-surface evaluation so the render-logging path is reached.
+
+    ``_save_fit_comparison_only`` resolves the fitted c2 surface through the
+    shared ``xpcsjax.viz.nlsq_plots._evaluate_c2_per_angle`` extractor, which is a
+    strict isinstance gate (homodyne/heterodyne families only) so it correctly
+    handles the per-angle scaling layout. These tests exercise the *render*-
+    failure rate-limiting contract with a minimal fake model, so stub the
+    evaluation step to return a valid surface and let the patched renderers drive
+    the failure path. (The function's local ``from ... import`` re-binds the name
+    each call, so patching the module attribute takes effect.)
+    """
+    monkeypatch.setattr(
+        "xpcsjax.viz.nlsq_plots._evaluate_c2_per_angle",
+        lambda model, result, data, config, phi_deg: np.ones((4, 4), dtype=np.float64),
+        raising=False,
+    )
+
+
 class _FakeModel:
-    """Minimal model exposing ``compute_g2`` so ``_evaluate_model_c2`` succeeds."""
+    """Minimal stand-in model for the fit-comparison render-logging tests."""
 
     def compute_g2(self, params, t1, t2, phi, q, L, contrast, offset, dt):  # noqa: N803
         n1 = np.asarray(t1).shape[0]

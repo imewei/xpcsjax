@@ -947,6 +947,9 @@ def plot_simulated_data(
     vmin, vmax = _resolve_color_limits(c2_sim, percentile_min=1.0, percentile_max=99.0)
     vmin = max(1.0, vmin)
     vmax = min(1.6, vmax) if vmax > 1.0 else vmax
+    if vmin >= vmax:
+        # Degenerate sub-1.0 surface: avoid passing vmin > vmax (inverted colormap)
+        vmax = vmin + 0.5
 
     im = ax.imshow(
         c2_sim,

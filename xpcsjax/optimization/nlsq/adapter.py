@@ -1122,10 +1122,13 @@ class NLSQAdapter(NLSQAdapterBase):
         # Iterations
         iterations = info.get("nfev", info.get("iterations", 0))
 
-        # Quality flag based on reduced chi-squared
-        if reduced_chi_squared < 2.0:
+        # Quality flag based on reduced chi-squared. Use the same 1.5/3.0 bands as
+        # the homodyne wrapper path (wrapper.py:895/1187/3838) so the adapter and
+        # wrapper agree on good/marginal/poor; the adapter previously used a looser
+        # 2.0/5.0 split, mislabeling marginal fits as good.
+        if reduced_chi_squared < 1.5:
             quality_flag = "good"
-        elif reduced_chi_squared < 5.0:
+        elif reduced_chi_squared < 3.0:
             quality_flag = "marginal"
         else:
             quality_flag = "poor"

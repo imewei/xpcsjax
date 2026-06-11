@@ -509,6 +509,29 @@ def _compute_g1_diffusion_core(
             grid_indices = jnp.arange(_FALLBACK_GRID_SIZE, dtype=jnp.result_type(dt))
             time_grid_used = grid_indices * dt
 
+            # Eager-only guard: surface silent integral truncation when a direct
+            # call requests times beyond the fixed fallback-grid extent. searchsorted
+            # clips those to the last grid point, biasing g1 with no warning. Under
+            # JIT the operands are abstract tracers and float() raises, so this check
+            # self-disables during tracing (production NLSQ uses matrix mode).
+            try:
+                _grid_extent = float(time_grid_used[-1])
+                _t_max_req = float(max(jnp.max(t1_arr), jnp.max(t2_arr)))
+            except Exception:  # noqa: BLE001 - abstract tracer / non-concrete value
+                _grid_extent = None
+                _t_max_req = None
+            if _grid_extent is not None and _t_max_req is not None and _t_max_req > _grid_extent:
+                logger.warning(
+                    "Element-wise integral: requested time %.6g exceeds the fallback "
+                    "time-grid extent %.6g (%d points x dt=%.6g); times beyond the grid "
+                    "are clipped, truncating the integral. Pass an explicit time_grid "
+                    "covering the full range.",
+                    _t_max_req,
+                    _grid_extent,
+                    _FALLBACK_GRID_SIZE,
+                    float(dt),
+                )
+
         grid_size = time_grid_used.shape[0]
 
         # Compute D(t) on grid and build cumulative trapezoid
@@ -663,6 +686,29 @@ def _compute_g1_shear_core(
             _FALLBACK_GRID_SIZE = 10001
             grid_indices = jnp.arange(_FALLBACK_GRID_SIZE, dtype=jnp.result_type(dt))
             time_grid_used = grid_indices * dt
+
+            # Eager-only guard: surface silent integral truncation when a direct
+            # call requests times beyond the fixed fallback-grid extent. searchsorted
+            # clips those to the last grid point, biasing g1 with no warning. Under
+            # JIT the operands are abstract tracers and float() raises, so this check
+            # self-disables during tracing (production NLSQ uses matrix mode).
+            try:
+                _grid_extent = float(time_grid_used[-1])
+                _t_max_req = float(max(jnp.max(t1_arr), jnp.max(t2_arr)))
+            except Exception:  # noqa: BLE001 - abstract tracer / non-concrete value
+                _grid_extent = None
+                _t_max_req = None
+            if _grid_extent is not None and _t_max_req is not None and _t_max_req > _grid_extent:
+                logger.warning(
+                    "Element-wise integral: requested time %.6g exceeds the fallback "
+                    "time-grid extent %.6g (%d points x dt=%.6g); times beyond the grid "
+                    "are clipped, truncating the integral. Pass an explicit time_grid "
+                    "covering the full range.",
+                    _t_max_req,
+                    _grid_extent,
+                    _FALLBACK_GRID_SIZE,
+                    float(dt),
+                )
 
         grid_size = time_grid_used.shape[0]
 

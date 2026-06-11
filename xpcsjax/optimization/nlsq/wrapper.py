@@ -785,6 +785,23 @@ class NLSQWrapper(NLSQAdapterBase):
 
         nlsq_settings = self._extract_nlsq_settings(config)
         loss_name = nlsq_settings.get("loss", "soft_l1")
+        # Resolve recovery-path solver tolerances from the config so the
+        # error-recovery executor honors user ftol/gtol/xtol/max_iterations instead
+        # of its hard-coded 1e-6 / 5000 defaults. Keys left unset fall back inside
+        # execute_with_recovery, so an absent config leaves the recovery solve
+        # byte-identical to before.
+        _recovery_convergence: dict[str, float] = {}
+        if "gtol" in nlsq_settings:
+            _recovery_convergence["gtol"] = float(nlsq_settings["gtol"])
+        _ftol = nlsq_settings.get("ftol", nlsq_settings.get("tolerance"))
+        if _ftol is not None:
+            _recovery_convergence["ftol"] = float(_ftol)
+        if "xtol" in nlsq_settings:
+            _recovery_convergence["xtol"] = float(nlsq_settings["xtol"])
+        _max_nfev = nlsq_settings.get("max_iterations", nlsq_settings.get("max_nfev"))
+        if _max_nfev is not None:
+            _recovery_convergence["max_nfev"] = int(_max_nfev)
+        self._recovery_convergence = _recovery_convergence
         trust_region_scale = float(nlsq_settings.get("trust_region_scale", 1.0))
         if trust_region_scale <= 0:
             trust_region_scale = 1.0
@@ -2236,6 +2253,7 @@ class NLSQWrapper(NLSQAdapterBase):
             curve_fit_fn=curve_fit,
             curve_fit_large_fn=curve_fit_large,
             callback=callback,
+            convergence=getattr(self, "_recovery_convergence", None),
         )
 
     def _diagnose_error(

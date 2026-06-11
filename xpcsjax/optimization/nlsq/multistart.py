@@ -1286,9 +1286,11 @@ def _run_parallel_with_progress(
                     logger.info("Falling back to sequential execution")
                     fallback_to_sequential = True
                     fallback_reason = f"Worker {idx} timeout"
-                    # Cancel remaining futures
-                    for f in futures:
-                        f.cancel()
+                    # Drop pending work and stop dispatching. cancel_futures=True
+                    # (Py3.9+) cancels not-yet-started futures; already-running
+                    # workers still finish (processes can't be force-killed here),
+                    # but no new starts are launched.
+                    executor.shutdown(wait=False, cancel_futures=True)
                     break
                 except (
                     ValueError,
@@ -1303,8 +1305,9 @@ def _run_parallel_with_progress(
                         fallback_reason = f"Pickle error: {error_msg[:100]}"
                         logger.warning(f"Pickle/serialization error detected: {e}")
                         logger.info("Falling back to sequential execution")
-                        for f in futures:
-                            f.cancel()
+                        # Drop pending work; running workers finish but no new
+                        # starts launch (see timeout branch above).
+                        executor.shutdown(wait=False, cancel_futures=True)
                         break
                     else:
                         # Non-fatal error for this worker
@@ -1354,11 +1357,17 @@ def _run_parallel_with_progress(
     # If parallel failed, fall back to sequential
     if fallback_to_sequential:
         logger.info(f"Sequential fallback reason: {fallback_reason}")
-        logger.info(f"Running {len(starts)} optimizations sequentially")
-        # Clear any partial results
-        results = []
-        for idx, start in enumerate(starts):
-            logger.debug(f"Starting sequential optimization {idx + 1}/{len(starts)}")
+        # Preserve results already collected in parallel; only re-run the starts
+        # that have no result yet. A single worker stall should not discard every
+        # completed fit and recompute all of them.
+        done_idxs = {r.start_idx for r in results}
+        remaining = [(idx, start) for idx, start in enumerate(starts) if idx not in done_idxs]
+        logger.info(
+            f"Running {len(remaining)} remaining optimization(s) sequentially "
+            f"({len(done_idxs)} already completed in parallel)"
+        )
+        for idx, start in remaining:
+            logger.debug(f"Starting sequential optimization for start {idx}")
             try:
                 result = optimize_func(idx, start)
                 results.append(result)

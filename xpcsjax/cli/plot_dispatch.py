@@ -514,17 +514,12 @@ def _save_fit_comparison_only(
     t1 = data.get("t1")
     t2 = data.get("t2")
 
-    # Pull physical scalars for compute_g2 — same source as the simulated path.
+    # The fitted c2 surface is rendered per-angle via the shared
+    # ``_evaluate_c2_per_angle`` extractor, which resolves the model-specific
+    # parameter layout (homodyne scaling-first vs heterodyne physics-first) and
+    # the per-angle contrast/offset from ``result``/diagnostics. q/L/dt are read
+    # from ``cfg`` inside that helper.
     cfg = config_manager.config or {}
-    _analyzer = cfg.get("analyzer_parameters", {}) or {}
-    _scattering = _analyzer.get("scattering", {}) or {}
-    _geometry = _analyzer.get("geometry", {}) or {}
-    _q = float(_scattering.get("wavevector_q", 0.01))
-    _L = float(_geometry.get("stator_rotor_gap", 1.0))
-    _dt = float(_analyzer.get("dt", 1.0))
-    # Pull scaling from the fitted result when available, else defaults.
-    _contrast = float(getattr(result, "contrast", 0.3) or 0.3)
-    _offset = float(getattr(result, "offset", 1.0) or 1.0)
 
     if c2_exp.size == 0 or len(phi_list) == 0:
         logger.warning("Missing c2_exp or phi_angles_list; skipping fit-comparison plots")
@@ -540,18 +535,12 @@ def _save_fit_comparison_only(
         if i >= c2_exp.shape[0]:
             break
         try:
-            c2_fit = _evaluate_model_c2(
-                model,
-                np.asarray(result.parameters),
-                float(phi),
-                t1_arr if t1_arr is not None else np.arange(c2_exp.shape[1], dtype=np.float64),
-                t2_arr if t2_arr is not None else np.arange(c2_exp.shape[2], dtype=np.float64),
-                q=_q,
-                L=_L,
-                contrast=_contrast,
-                offset=_offset,
-                dt=_dt,
-            )
+            # Use the model-aware shared extractor: it splits result.parameters
+            # into per-angle (contrast, offset) + physical block rather than
+            # passing the whole scaling-prefixed vector as physics with defaults.
+            from xpcsjax.viz.nlsq_plots import _evaluate_c2_per_angle
+
+            c2_fit = _evaluate_c2_per_angle(model, result, data, cfg, float(phi))
         except Exception as exc:
             run_id = _current_run_id()
             log_once(
