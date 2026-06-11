@@ -1423,6 +1423,22 @@ class XPCSDataLoader:
                     c2_matrices_array[_out_i] = _c2_half + _c2_half.T
                     c2_matrices_array[_out_i][_diag_idx] /= 2
 
+            # Shared zero-selection guard. BOTH the quality-filtering and the
+            # phi-only branches resolve ``final_indices`` above. The phi-only
+            # branch additionally fast-fails earlier (before its pre-allocated
+            # probe read of ``final_indices[0]``), but the quality-filtering
+            # branch has no such early guard: an empty candidate set or a quality
+            # pass that rejects every row leaves ``final_indices`` empty and
+            # ``selected_c2_matrices`` empty, which would otherwise become an
+            # ``np.array([])`` and flow downstream as a malformed empty c2 stack.
+            # Fail loudly here for every APS-old selection path instead.
+            if len(final_indices) == 0:
+                raise ValueError(
+                    "Phi/q/quality filtering selected zero (q,phi) pairs to load; "
+                    "check the angle/q-range/quality filters in the config against "
+                    "the dataset (no matrices match the requested ranges)."
+                )
+
             # Extract metadata for final indices
             filtered_dqlist = dqlist[final_indices]
             filtered_dphilist = dphilist[final_indices]

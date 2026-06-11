@@ -8,6 +8,7 @@ reference the finding they guard in the docstring.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 
 def test_get_group_indices_scaling_resolves() -> None:
@@ -79,3 +80,53 @@ def test_absent_analysis_mode_resolves_to_isotropic_consistently() -> None:
     assert "isotropic" in pm_mode
     assert "anisotropic" not in pm_mode
 
+
+
+def _make_aps_old_hdf5(path: str, n_pairs: int = 6, msize: int = 8) -> None:
+    """Write a minimal APS-old-format HDF5 file the loader can parse."""
+    import h5py
+
+    with h5py.File(path, "w") as f:
+        f.create_dataset("xpcs/dqlist", data=np.linspace(0.01, 0.05, n_pairs).reshape(1, n_pairs))
+        f.create_dataset("xpcs/dphilist", data=np.linspace(0.0, 150.0, n_pairs).reshape(1, n_pairs))
+        grp = f.create_group("exchange/C2T_all")
+        half = np.ones((msize, msize), dtype=np.float64)
+        for i in range(n_pairs):
+            grp.create_dataset(str(i + 1), data=half)
+
+
+@pytest.mark.parametrize("quality_enabled", [True, False])
+def test_aps_old_zero_selection_raises(tmp_path, monkeypatch, quality_enabled) -> None:
+    """Audit [6] + Codex follow-up: an empty (q,phi) selection must fail loudly on
+    BOTH the quality-filtered and the phi-only APS-old load paths, rather than flow
+    downstream as a malformed empty c2 stack."""
+    pytest.importorskip("h5py")
+    from xpcsjax.data.xpcs_loader import XPCSDataLoader
+
+    hdf = tmp_path / "aps_old.h5"
+    _make_aps_old_hdf5(str(hdf))
+
+    data_filtering: dict = {"enabled": True}
+    if quality_enabled:
+        data_filtering["quality_filtering"] = {"enabled": True}
+    config = {
+        "analysis_mode": "static_isotropic",
+        "experimental_data": {
+            "data_folder_path": str(tmp_path),
+            "data_file_name": "aps_old.h5",
+        },
+        "analyzer_parameters": {
+            "dt": 0.1,
+            "start_frame": 1,
+            "end_frame": 8,
+            "scattering": {"wavevector_q": 0.03},
+        },
+        "data_filtering": data_filtering,
+    }
+    loader = XPCSDataLoader(config_dict=config, configure_logging=False)
+    # Force "everything filtered out" so the selection collapses to empty,
+    # independent of the q/phi/quality filter config details.
+    monkeypatch.setattr(loader, "_get_selected_indices", lambda *a, **k: np.array([], dtype=int))
+
+    with pytest.raises(ValueError, match=r"zero \(q,phi\) pairs"):
+        loader._load_aps_old_format(str(hdf))
