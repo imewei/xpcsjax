@@ -387,6 +387,15 @@ class ParameterRegistry:
         "v_beta": ParameterInfo(
             name="v_beta",
             description="Velocity time exponent (renamed from heterodyne docs' `beta`)",
+            # Conservative default window [0, 2]. Negative exponents ARE physical
+            # (decelerating velocity v(t)=v0·t^β, e.g. C044 creep flow needs
+            # v_beta≈-0.43, finite because the time grid starts at t_start=dt>0),
+            # but a config that needs them must opt in via parameter_space.bounds
+            # — now honored by ParameterSpace.from_config (see
+            # _apply_parameter_space_bounds). Widening this DEFAULT to [-2, 2]
+            # was reverted: it destabilized the non-convex engine-route
+            # single-angle solve (test_single_angle_2d_c2_no_worse_than_production
+            # trapped at a worse basin) for fits that rely on the default.
             default=1.0,
             lower_bound=0.0,
             upper_bound=2.0,

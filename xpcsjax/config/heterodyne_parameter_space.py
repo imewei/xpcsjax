@@ -320,6 +320,15 @@ class ParameterSpace:
         # --- Flat format: initial_parameters (homodyne parity) ---------------
         _apply_initial_parameters(space, config)
 
+        # --- List format: parameter_space.bounds (homodyne parity) ----------
+        # Mirrors homodyne ParameterManager._load_config_bounds: explicit
+        # per-parameter ``min``/``max`` (and optional ``value``/``vary``) under
+        # ``parameter_space.bounds``. Without this the heterodyne path silently
+        # ignored config bounds and fell back to registry defaults — which broke
+        # C044 once the ``beta``->``v_beta`` registry alias narrowed the default
+        # window to [0, 2] and clamped the config's intended v_beta∈[-2, 2].
+        _apply_parameter_space_bounds(space, config)
+
         # --- Grouped format: parameters.{group}.{param} (primary) -----------
         params_config = config.get("parameters", {})
 
@@ -470,3 +479,72 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
             "initial_parameters: active_parameters set %d params to vary",
             len(active_names),
         )
+
+
+def _apply_parameter_space_bounds(space: ParameterSpace, config: dict[str, Any]) -> None:
+    """Apply ``parameter_space.bounds`` list-format overrides to *space*.
+
+    Homodyne parity with :meth:`ParameterManager._load_config_bounds`. Reads::
+
+        parameter_space:
+          bounds:
+            - {name: v_beta, min: -2.0, max: 2.0}   # optional: value, vary
+            - {name: D0_ref, min: 0.0, max: 1000000.0}
+
+    Template/alias names are translated to canonical kernel names
+    (``v_beta``→``beta``, ``phi0_het``→``phi0``) so the per-parameter overrides
+    land on the right entry. Only ``min``/``max`` are required; ``value`` (when
+    not ``None``) and ``vary`` are honored when present.
+
+    Parameters
+    ----------
+    space : ParameterSpace
+        ParameterSpace to modify in place.
+    config : dict
+        Full configuration dictionary.
+    """
+    from xpcsjax.config.types import PARAMETER_NAME_MAPPING
+
+    param_space = config.get("parameter_space", {})
+    if not isinstance(param_space, dict):
+        return
+    config_bounds = param_space.get("bounds")
+    if config_bounds is None:
+        return
+    if not isinstance(config_bounds, list):
+        logger.warning("parameter_space.bounds must be a list; ignoring")
+        return
+
+    for entry in config_bounds:
+        if not isinstance(entry, dict):
+            continue
+        raw_name = entry.get("name")
+        if not raw_name or not isinstance(raw_name, str):
+            continue
+        # Translate legacy/alias then heterodyne public→canonical (v_beta→beta).
+        name = _INBOUND_NAME_ALIAS.get(
+            PARAMETER_NAME_MAPPING.get(raw_name, raw_name),
+            PARAMETER_NAME_MAPPING.get(raw_name, raw_name),
+        )
+        if name not in space.bounds:
+            logger.warning("parameter_space.bounds: unknown parameter '%s', skipping", raw_name)
+            continue
+        if "min" in entry and "max" in entry:
+            lo, hi = float(entry["min"]), float(entry["max"])
+            reg = registry_info(name)
+            if lo != reg.min_bound or hi != reg.max_bound:
+                logger.debug(
+                    "parameter_space.bounds overrides %s bounds: [%.4g, %.4g] -> [%.4g, %.4g]",
+                    name,
+                    reg.min_bound,
+                    reg.max_bound,
+                    lo,
+                    hi,
+                )
+            space.bounds[name] = (lo, hi)
+        # Optional value / vary overrides (value None means "leave warm-start").
+        val = entry.get("value")
+        if val is not None:
+            space.values[name] = float(val)
+        if "vary" in entry:
+            space.vary[name] = bool(entry["vary"])
