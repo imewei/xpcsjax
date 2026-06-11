@@ -551,18 +551,32 @@ def _validate_correlation_matrices(
                     ),
                 )
 
-            # Check diagonal values (should be around 1.0 at t=0)
-            diagonal = np.diag(matrix)
-            t0_correlation = diagonal[0] if len(diagonal) > 0 else 0
+            # Check the near-zero-lag correlation against the Siegert ceiling
+            # g2(0) = 1 + beta in [1.0, 2.0] (beta in [0, 1]). The EXACT tau=0
+            # main diagonal (matrix[k, k]) is the self-correlation / shot-noise
+            # spike — for raw two-time XPCS it routinely sits at ~2.4 (single
+            # pixels far higher) and is excluded from analysis (frame-0 / diagonal
+            # exclusion). Evaluating it here would flag every angle of valid data.
+            # Use the smallest *non-zero* lag (first off-diagonal) where the
+            # Siegert relation actually holds; this still catches genuinely
+            # over-normalized data (lag-1 g2 > 2.0) while passing clean matrices.
+            if matrix.shape[1] > 1:
+                near_zero_lag_correlation = float(matrix[0, 1])
+            else:
+                diagonal = np.diag(matrix)
+                near_zero_lag_correlation = float(diagonal[0]) if len(diagonal) > 0 else 0.0
 
-            if not (0.5 <= t0_correlation <= 2.0):
+            if not (0.5 <= near_zero_lag_correlation <= 2.0):
                 report.add_issue(
                     ValidationIssue(
                         severity="warning",
                         category="data_quality",
-                        message=f"Unusual t=0 correlation value in matrix {i}: {t0_correlation:.3f}",
+                        message=(
+                            f"Unusual near-zero-lag correlation in matrix {i}: "
+                            f"{near_zero_lag_correlation:.3f}"
+                        ),
                         parameter="c2_exp",
-                        value=t0_correlation,
+                        value=near_zero_lag_correlation,
                         recommendation="Check normalization and baseline correction",
                     ),
                 )
