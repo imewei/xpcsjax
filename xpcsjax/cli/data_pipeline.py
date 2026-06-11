@@ -86,7 +86,11 @@ def load_and_validate_data(
     """
     cfg = config_manager.get_config()
     analysis_mode = cfg.get("analysis_mode", "<unknown>")
-    data_type = cfg.get("data_type", cfg.get("experimental_data", {}).get("data_type"))
+    data_type = cfg.get("data_type")
+    if data_type is None:
+        # ``experimental_data`` may be present-but-null (YAML ``null``), so guard
+        # against None before indexing rather than relying on dict.get's default.
+        data_type = (cfg.get("experimental_data") or {}).get("data_type")
     if data_type not in (None, "aps_old", "aps_u"):
         logger.warning(
             "Unrecognized data_type=%r in config (expected 'aps_old' or 'aps_u')",

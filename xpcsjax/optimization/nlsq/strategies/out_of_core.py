@@ -456,6 +456,14 @@ def fit_with_out_of_core_accumulation(
 
             diag_idx = jnp.diag_indices_from(total_JtJ)
 
+            # Line-search baseline measured with the SAME estimator as the trial
+            # cost. In fast_chi2_mode evaluate_total_chi2 returns a strided+scaled
+            # estimate, so comparing that estimate against the exact full
+            # accumulator chi2 (total_chi2) would bias step acceptance. Use a
+            # like-for-like estimate of the current point. With fast_chi2_mode off
+            # this is exactly total_chi2 (no extra evaluation, behavior unchanged).
+            chi2_ref = evaluate_total_chi2(params_curr) if fast_chi2_mode else total_chi2
+
             for _lm_iter in range(10):  # Max dampings per iter
                 solver_matrix = total_JtJ.at[diag_idx].add(lm_lambda * jnp.diag(total_JtJ))
 
@@ -487,10 +495,10 @@ def fit_with_out_of_core_accumulation(
                     log.warning(f"Eval failed: {e}")
                     chi2_new = jnp.inf
 
-                # Acceptance check
-                if chi2_new < total_chi2:
+                # Acceptance check (against the like-for-like baseline)
+                if chi2_new < chi2_ref:
                     # Accept
-                    ratio = (total_chi2 - chi2_new) / total_chi2
+                    ratio = (chi2_ref - chi2_new) / chi2_ref
                     log.info(
                         f"Iter {i + 1}: chi2={float(chi2_new):.4e} (dec {ratio:.1%}), "
                         f"lambda={lm_lambda:.1e}"
@@ -543,7 +551,7 @@ def fit_with_out_of_core_accumulation(
                 else:
                     # Reject
                     log.debug(
-                        f"Reject step (chi2 {float(chi2_new):.4e} >= {float(total_chi2):.4e}). Damping up."
+                        f"Reject step (chi2 {float(chi2_new):.4e} >= {float(chi2_ref):.4e}). Damping up."
                     )
                     lm_lambda *= 10
 

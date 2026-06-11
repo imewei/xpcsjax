@@ -688,6 +688,9 @@ def screen_starts(
         f"(best cost: {filtered_costs[0]:.4g}, worst kept: {filtered_costs[-1]:.4g})"
     )
 
+    # Return the FULL screening cost array (not just the kept costs): callers
+    # store it as screening diagnostics metadata covering every candidate start.
+    # The kept starts are a separate return value.
     return filtered_starts, costs
 
 
@@ -947,15 +950,9 @@ def run_multistart_nlsq(
         starts = generate_random_starts(bounds, config.n_starts, config.seed)
     logger.info(f"Generated {len(starts)} starting points")
 
-    # Include custom starting points (from argument or config)
-    custom = custom_starts if custom_starts is not None else config.custom_starts
-    n_before = len(starts)
-    starts = include_custom_starts(starts, custom, bounds)
-    n_added = len(starts) - n_before
-    if n_added > 0:
-        logger.info(f"Added {n_added} custom starting point(s), total: {len(starts)}")
-
-    # Screening phase (optional)
+    # Screening phase (optional) — screen the GENERATED starts only. Custom
+    # starts are added afterwards so they are never filtered by screening,
+    # honouring include_custom_starts' documented "always included" guarantee.
     screening_costs = None
     if config.use_screening and cost_func is not None:
         logger.info("-" * 40)
@@ -967,6 +964,14 @@ def run_multistart_nlsq(
         logger.info(f"Screening filtered {n_filtered} starts, keeping {len(starts)}")
     else:
         logger.debug("Screening disabled, proceeding with all starting points")
+
+    # Include custom starting points (from argument or config) after screening.
+    custom = custom_starts if custom_starts is not None else config.custom_starts
+    n_before = len(starts)
+    starts = include_custom_starts(starts, custom, bounds)
+    n_added = len(starts) - n_before
+    if n_added > 0:
+        logger.info(f"Added {n_added} custom starting point(s), total: {len(starts)}")
 
     # Get worker count
     n_workers = get_n_workers(config, len(starts))

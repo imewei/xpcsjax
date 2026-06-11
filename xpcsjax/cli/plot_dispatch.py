@@ -251,7 +251,7 @@ def _plot_simulated_from_config(
     # cos(q·cos φ·∫v(t')dt'); feeding frame indices (or a bare arange that
     # ignores dt and the frame window) into that integral collapses the
     # fringe structure and yields a qualitatively wrong C2 surface.
-    if "start_frame" in analyzer:
+    if "start_frame" in analyzer and "end_frame" in analyzer:
         n_times = int(analyzer["end_frame"]) - int(analyzer["start_frame"]) + 1
         t_start = dt
     else:

@@ -21,9 +21,11 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# The heterodyne model uses "phi0" internally (angle in *radians*), but the
-# registry entry "phi0" is the homodyne flow angle in *degrees* with bounds
-# [-10, 10].  Use "phi0_het" ([-π, π], radians) for the bounds default.
+# The heterodyne kernel names the flow angle "phi0", but the registry stores it
+# as a separate "phi0_het" entry to avoid colliding with homodyne's "phi0".
+# Both are in *degrees* (the kernel applies deg2rad(phi_angle + phi0_het)); the
+# registry's "phi0_het" default bounds are degrees [-10, 10]. Map the kernel
+# name to "phi0_het" so the bounds default is sourced from that entry.
 _REGISTRY_ALIAS: dict[str, str] = {"phi0": "phi0_het"}
 
 # Public template names (``v_beta``, ``phi0_het``) disambiguate the heterodyne

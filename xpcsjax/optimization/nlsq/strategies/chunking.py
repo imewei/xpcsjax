@@ -627,23 +627,29 @@ def create_angle_stratified_data(
     g2_exp: jnp.ndarray,
     target_chunk_size: int = 100_000,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, list[int]]:
-    """Ensure each chunk contains every phi angle using Cyclic Stratification.
+    """Interleave every phi angle across chunks via proportional stratification.
 
     Reorders data so NLSQ chunking keeps balanced angle coverage and maintains
-    valid gradients for per-angle parameters.
+    valid gradients for per-angle parameters across the full (summed) Jacobian.
 
-    CRITICAL FIX (Jan 2026): Cyclic Stratification
-    ----------------------------------------------
+    Stratification logic
+    --------------------
     Previously, stratification stopped when the smallest angle was exhausted,
     dumping all remaining data into a single massive, unbalanced chunk. This
-    caused rank-deficient Jacobians (zero gradients for missing angles) and
-    memory spikes.
+    caused per-chunk rank-deficient Jacobians and memory spikes.
 
-    New Logic:
-    1. Determine number of chunks based on failure mode: ensuring ALL data is used regardless of balance.
-    2. Iterate through chunks, pulling data from EACH angle.
-    3. If an angle runs out of data, recycled data from the beginning (Cyclic).
-    4. Result: Consistent chunk sizes, all angles present in all chunks.
+    Current logic:
+    1. Choose the number of chunks from the total point count (no expansion).
+    2. For each angle, distribute its points across the chunks proportionally
+       (round-robin: earlier chunks take the remainder) so every point is used
+       exactly once.
+    3. An angle with fewer points than the number of chunks is therefore present
+       only in the earliest chunks; its points are NOT recycled or duplicated
+       (recycling would over-weight that angle and bias the fit). Because the
+       solver accumulates J^T J over all chunks, the full Jacobian stays
+       well-conditioned even when a rare angle is absent from later chunks.
+    4. Result: every point used exactly once, no duplication, balanced coverage
+       wherever an angle has enough points.
 
     Parameters
     ----------

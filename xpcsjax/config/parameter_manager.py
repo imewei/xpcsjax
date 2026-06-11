@@ -149,6 +149,12 @@ class ParameterManager:
             if not isinstance(bound_dict, dict):
                 continue
 
+            # Work on a shallow copy so we neither mutate the caller's config
+            # dicts (the float() coercion below) nor alias the same dict object
+            # into _default_bounds (which would couple later internal bound
+            # edits back into the user's config and vice versa).
+            bound_dict = dict(bound_dict)
+
             raw_name = bound_dict.get("name")
             if not raw_name or not isinstance(raw_name, str):
                 continue
@@ -483,10 +489,15 @@ class ParameterManager:
 
     def _get_default_active_parameters(self) -> list[str]:
         """Get default active parameters based on analysis mode."""
-        if "static" in self.analysis_mode.lower():
+        mode = self.analysis_mode.lower()
+        if "static" in mode:
             return STATIC_PARAM_NAMES.copy()
-        else:
-            return LAMINAR_FLOW_PARAM_NAMES.copy()
+        if "two_component" in mode or "two-component" in mode or "heterodyne" in mode:
+            # Heterodyne (two-component) has its own 14-parameter set; falling
+            # through to the laminar branch returned the wrong model's
+            # parameters. Source the canonical list from the registry.
+            return get_registry().get_param_names(AnalysisMode.TWO_COMPONENT)
+        return LAMINAR_FLOW_PARAM_NAMES.copy()
 
     def get_all_parameter_names(self) -> list[str]:
         """Get all parameter names including scaling parameters.

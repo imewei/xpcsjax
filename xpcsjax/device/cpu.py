@@ -279,8 +279,11 @@ def _set_cpu_environment_variables(
         os.environ["OMP_PLACES"] = "cores"
     env_vars["OMP_NUM_THREADS"] = str(num_threads)
 
-    # Intel MKL configuration (if Intel CPU)
-    if "intel" in cpu_info.get("optimization_flags", []):
+    # Intel MKL configuration (if Intel CPU). detect_cpu_info() emits flags such
+    # as "intel_mkl", so test for any flag containing "intel" rather than exact
+    # membership of the bare string "intel" (which never matched, so MKL thread
+    # vars were silently never set on Intel CPUs).
+    if any("intel" in str(flag) for flag in cpu_info.get("optimization_flags", [])):
         os.environ["MKL_NUM_THREADS"] = str(num_threads)
         os.environ["MKL_DOMAIN_NUM_THREADS"] = f"MKL_BLAS={num_threads}"
         env_vars["MKL_NUM_THREADS"] = str(num_threads)

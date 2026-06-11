@@ -1387,6 +1387,12 @@ class XPCSDataLoader:
                     f"({len(final_indices) / len(c2_keys) * 100:.1f}% I/O)"
                 )
                 n_sel = len(final_indices)
+                if n_sel == 0:
+                    raise ValueError(
+                        "Phi/q filtering selected zero (q,phi) pairs to load; check "
+                        "the angle/q-range filters in the config against the dataset "
+                        "(no matrices match the requested ranges)."
+                    )
                 # Read first matrix to get the time-axis dimension without storing it.
                 # Preserve the source dtype (do NOT force float64): _reconstruct_full_matrix
                 # did the c2_half + c2_half.T arithmetic in the stored dtype, and parity is
