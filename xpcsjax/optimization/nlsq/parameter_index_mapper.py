@@ -15,6 +15,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from xpcsjax.optimization.nlsq.per_angle_mode import PerAngleMode
+from xpcsjax.optimization.nlsq.per_angle_mode import n_optimized as _n_optimized
+
 if TYPE_CHECKING:
     from xpcsjax.optimization.nlsq.fourier_reparam import FourierReparameterizer
 
@@ -258,3 +261,102 @@ class ParameterIndexMapper:
         per_angle_slice = slice(0, self.n_per_angle_total)
         physical_slice = slice(self.n_per_angle_total, self.total_params)
         return per_angle_slice, physical_slice
+
+    @staticmethod
+    def canonical(mode: str, n_phi: int, n_physics: int) -> CanonicalIndexMapper:
+        """Scaling-first canonical layout authority (spec §4 Seam 2).
+
+        The SOLE constructor for the new ``[scaling_head | physics]`` layout. Rejects
+        unresolved tokens (``auto``/``fourier``/``independent``) — resolve via
+        :func:`~xpcsjax.optimization.nlsq.per_angle_mode.resolve_per_angle_mode` first.
+        There is no ``from_resolved``/``from_mode`` alias. Returns a
+        :class:`CanonicalIndexMapper`.
+        """
+        return _canonical_index_mapper(mode, n_phi, n_physics)
+
+
+@dataclass(frozen=True)
+class CanonicalIndexMapper:
+    """Scaling-first canonical layout authority (spec §4 Seam 2).
+
+    Optimizer vector is ``[scaling_head | physics]``: the scaling head occupies
+    indices ``[0, n_optimized)`` and physics the tail ``[n_optimized, vector_length)``.
+    This is the single source of truth for vector length, block slices, the L3
+    group indices, and the ``freeze`` flag across every execution path. Built via
+    :meth:`ParameterIndexMapper.canonical`.
+
+    Attributes
+    ----------
+    mode : PerAngleMode
+        Resolved variant: ``"constant"``, ``"averaged"``, or ``"individual"``.
+    n_phi : int
+        Number of unique phi angles.
+    n_physics : int
+        Number of physical parameters (7 homodyne laminar_flow, 14 heterodyne).
+    n_optimized : int
+        Optimized scaling params: ``0`` (constant), ``2`` (averaged),
+        ``2 * n_phi`` (individual).
+    vector_length : int
+        ``n_physics + n_optimized``.
+    scaling_block : slice
+        Head slice ``slice(0, n_optimized)`` (empty for ``constant``).
+    physics_block : slice
+        Tail slice ``slice(n_optimized, n_optimized + n_physics)``.
+    group_indices : list[tuple[int, int]]
+        L3 regularization groups within the scaling head:
+        ``[(c_start, c_end), (o_start, o_end)]``; empty for ``constant``.
+    freeze : bool
+        ``True`` iff ``mode == "constant"`` (scaling frozen, not optimized).
+    """
+
+    mode: PerAngleMode
+    n_phi: int
+    n_physics: int
+    n_optimized: int
+    vector_length: int
+    scaling_block: slice
+    physics_block: slice
+    group_indices: list[tuple[int, int]]
+    freeze: bool
+
+
+def _canonical_index_mapper(
+    mode: str, n_phi: int, n_physics: int
+) -> CanonicalIndexMapper:
+    if n_phi < 1:
+        raise ValueError(f"n_phi must be >= 1, got {n_phi}")
+    if n_physics < 1:
+        raise ValueError(f"n_physics must be >= 1, got {n_physics}")
+    # Reject auto/fourier/independent: canonical layout requires a RESOLVED mode.
+    if mode not in ("constant", "averaged", "individual"):
+        raise ValueError(
+            f"unknown per_angle_mode {mode!r}; valid: constant, averaged, individual"
+        )
+    resolved: PerAngleMode = mode  # type: ignore[assignment]
+    n_opt = _n_optimized(resolved, n_phi)
+    scaling_block = slice(0, n_opt)
+    physics_block = slice(n_opt, n_opt + n_physics)
+    # group_indices: contrast then offset within the scaling head.
+    if n_opt == 0:
+        group_indices: list[tuple[int, int]] = []
+    else:
+        half = n_opt // 2
+        group_indices = [(0, half), (half, n_opt)]
+    return CanonicalIndexMapper(
+        mode=resolved,
+        n_phi=n_phi,
+        n_physics=n_physics,
+        n_optimized=n_opt,
+        vector_length=n_physics + n_opt,
+        scaling_block=scaling_block,
+        physics_block=physics_block,
+        group_indices=group_indices,
+        freeze=(resolved == "constant"),
+    )
+
+
+# NOTE: do NOT dynamically attach `ParameterIndexMapper.canonical = staticmethod(...)` here.
+# The `canonical` staticmethod is defined IN the class body above (so mypy/Pyright/IDE
+# inference resolves `.canonical(...)`); this module-level helper is what it delegates to.
+# The legacy fourier/use_constant dataclass FIELDS and METHODS stay byte-untouched (Risk 2);
+# adding one staticmethod is additive and does not alter them.
