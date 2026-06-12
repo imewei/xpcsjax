@@ -199,6 +199,38 @@ def test_from_dict_cmaes_alias_keys() -> None:
     assert cfg.cmaes_population_size == 16  # 'popsize' alias
 
 
+def test_from_dict_cmaes_max_generations_null_is_adaptive_not_zero() -> None:
+    # Regression: ``cmaes.max_generations: null`` (the template's "adaptive"
+    # sentinel) was coerced through kind "int" -> safe_int(None, 0) -> 0, which
+    # the CMA-ES joint escape passed straight to nlsq's CMAESConfig, raising
+    # "max_generations must be >= 1, got 0" and aborting the escape. null must
+    # map to None (adaptive: wrapper derives generations from the preset).
+    cfg = NLSQConfig.from_dict({"cmaes": {"enable": True, "max_generations": None}})
+    assert cfg.cmaes_max_iterations is None
+
+
+def test_from_dict_cmaes_max_generations_absent_keeps_default() -> None:
+    # When the cmaes block omits the key entirely, the dataclass default holds.
+    assert NLSQConfig.from_dict({}).cmaes_max_iterations == 1000
+
+
+def test_cmaes_max_generations_explicit_nonpositive_rejected() -> None:
+    # An explicit 0/negative is a user error — reject it at config construction
+    # with a clear message instead of deep inside the CMA-ES escape.
+    with pytest.raises(ValueError, match=r"cmaes_max_iterations must be >= 1 or null"):
+        NLSQConfig.from_dict({"cmaes": {"enable": True, "max_generations": 0}})
+
+
+def test_from_dict_explicit_null_on_numeric_field_uses_default_not_zero() -> None:
+    # Class-level hardening: an explicit null on ANY non-nullable int/float
+    # field must fall through to the dataclass default, never collapse to 0
+    # (the safe_int(None, 0) / safe_float(None, 0.0) footgun).
+    defaults = NLSQConfig()
+    cfg = NLSQConfig.from_dict({"max_iterations": None, "tolerance": None})
+    assert cfg.max_iterations == defaults.max_iterations != 0
+    assert cfg.tolerance == defaults.tolerance != 0
+
+
 def test_from_dict_known_ignored_sections_do_not_warn(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

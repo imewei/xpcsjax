@@ -568,7 +568,12 @@ class NLSQConfig:
 
     enable_cmaes: bool = False
     cmaes_sigma0: float = 0.3
-    cmaes_max_iterations: int = 1000
+    # ``None`` means "adaptive" — the CMA-ES wrapper picks max generations from
+    # the preset + scale-ratio scaling. This is what ``cmaes.max_generations:
+    # null`` in the YAML maps to; coerced via ``"int_or_none"`` so null stays
+    # None instead of collapsing to 0 (which nlsq rejects: ``max_generations
+    # must be >= 1``). The numeric default is used only when the key is absent.
+    cmaes_max_iterations: int | None = 1000
     cmaes_population_size: int | None = None
     cmaes_tolx: float = 1e-6
     cmaes_tolfun: float = 1e-8
@@ -672,6 +677,14 @@ class NLSQConfig:
             raise ValueError("gradient_consecutive_triggers must be >= 1")
         if self.cmaes_sigma0 <= 0:
             raise ValueError("cmaes_sigma0 must be > 0")
+        # ``None`` = adaptive (preset-driven). A non-positive explicit value is
+        # rejected here with a clear message rather than surfacing later as
+        # nlsq's "max_generations must be >= 1" deep inside the CMA-ES escape.
+        if self.cmaes_max_iterations is not None and self.cmaes_max_iterations < 1:
+            raise ValueError(
+                f"cmaes_max_iterations must be >= 1 or null (adaptive), "
+                f"got {self.cmaes_max_iterations}"
+            )
         if self.cmaes_diagonal_filtering not in ("remove", "none"):
             raise ValueError(
                 f"cmaes_diagonal_filtering must be 'remove' or 'none', "
@@ -912,7 +925,7 @@ class NLSQConfig:
             # CMA-ES global search
             "enable_cmaes": "bool",
             "cmaes_sigma0": "float",
-            "cmaes_max_iterations": "int",
+            "cmaes_max_iterations": "int_or_none",
             "cmaes_population_size": "int_or_none",
             "cmaes_tolx": "float",
             "cmaes_tolfun": "float",
@@ -1125,6 +1138,15 @@ class NLSQConfig:
         for field_name, kind in known_scalar_fields.items():
             raw = normalized_config.get(field_name, _SENTINEL)
             if raw is _SENTINEL:
+                continue  # use dataclass default
+
+            # An explicit ``null`` on a non-nullable numeric field means "use the
+            # dataclass default", NOT 0. Without this, ``safe_int(None, 0)`` /
+            # ``safe_float(None, 0.0)`` silently collapse a null sentinel to 0 —
+            # the ``cmaes_max_iterations`` footgun, where ``max_generations:
+            # null`` reached nlsq as ``max_generations=0``. Nullable kinds
+            # (``*_or_none`` / ``passthrough``) handle ``None`` themselves below.
+            if raw is None and kind in ("int", "float"):
                 continue  # use dataclass default
 
             if kind == "float":
