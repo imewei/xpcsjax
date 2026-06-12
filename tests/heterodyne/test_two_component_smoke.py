@@ -171,3 +171,28 @@ def test_heterodyne_smoke_fit_recovers_truth(tmp_path):
         assert np.isclose(recovered, truth, rtol=0.5, atol=tol), (
             f"smoke fit drifted on {p}: truth={truth:.4g} recovered={recovered:.4g}"
         )
+
+
+def test_individual_joint_fit_returns_scaling_first_and_conserves_ssr():
+    """A real ``individual`` joint fit returns scaling-first params + conserves SSR."""
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
+
+    # Build the fixture at the target n_phi so model.scaling, c2, and phi are
+    # all self-consistent (t/q/dt are read-only properties set by the fixture).
+    n_phi = 2
+    model, c2, phi = make_synthetic_two_component(n_phi=n_phi, n_t=10)
+    cfg = NLSQConfig(per_angle_mode="individual", max_nfev=50)
+
+    result = fit_nlsq_multi_phi(model, c2, phi, cfg, None)
+    n_physics = model.param_manager.n_varying
+    params = np.asarray(result.parameters, dtype=np.float64)
+    # scaling head present, physics in the tail
+    assert len(params) == 2 * n_phi + n_physics
+    names = result.nlsq_diagnostics["parameter_names"]
+    assert names[0] == "contrast_0"
+    assert names[-n_physics:] == list(model.param_manager.varying_names)
+    # SSR conservation across angles
+    chi2pa = np.asarray(result.nlsq_diagnostics["chi2_per_angle"])
+    np.testing.assert_allclose(chi2pa.sum(), result.chi_squared, rtol=1e-10)
