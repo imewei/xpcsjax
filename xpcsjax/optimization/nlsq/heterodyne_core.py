@@ -2289,6 +2289,77 @@ def _joint_param_names_scaling_first(
     return [*contrast, *offset, *physics_names]
 
 
+def _split_scaling_first_joint(
+    x_final: np.ndarray,
+    *,
+    mode: str,
+    n_phi: int,
+    n_physics: int,
+    frozen_contrast: np.ndarray | None = None,
+    frozen_offset: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Decompose a canonical scaling-first joint vector into dense per-angle scaling.
+
+    Returns ``(physics[n_physics], contrast[n_phi], offset[n_phi])``. The physics
+    block is the TAIL; the scaling head is expanded to dense per-angle:
+
+    - ``constant``   → broadcast ``frozen_*`` (scaling absent from the vector);
+    - ``averaged``   → broadcast the 2 head scalars to ``n_phi``;
+    - ``individual`` → identity reshape of the ``2*n_phi`` head.
+
+    Mirrors ``PerAngleScalingPlan.expand_tail`` but reads the head-then-tail layout
+    so it can be used inside ``_build_joint_result`` without a Plan instance.
+
+    Parameters
+    ----------
+    x_final : np.ndarray
+        Canonical scaling-first joint optimizer vector.
+    mode : str
+        Resolved per-angle mode: ``"constant"``, ``"averaged"``, or
+        ``"individual"``.
+    n_phi : int
+        Number of angles.
+    n_physics : int
+        Number of physics parameters (length of the tail).
+    frozen_contrast : np.ndarray or None
+        Required when ``mode == "constant"``; frozen per-angle contrast values.
+    frozen_offset : np.ndarray or None
+        Required when ``mode == "constant"``; frozen per-angle offset values.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray, np.ndarray]
+        ``(physics[n_physics], contrast[n_phi], offset[n_phi])``
+    """
+    x = np.asarray(x_final, dtype=np.float64)
+    if mode == "constant":
+        assert frozen_contrast is not None and frozen_offset is not None
+        physics = x[:n_physics]
+        return (
+            physics,
+            np.asarray(frozen_contrast, dtype=np.float64),
+            np.asarray(frozen_offset, dtype=np.float64),
+        )
+    if mode == "averaged":
+        c_avg = float(x[0])
+        o_avg = float(x[1])
+        physics = x[2:]
+        return (
+            physics,
+            np.full(n_phi, c_avg, dtype=np.float64),
+            np.full(n_phi, o_avg, dtype=np.float64),
+        )
+    # individual
+    contrast = x[:n_phi]
+    offset = x[n_phi : 2 * n_phi]
+    physics = x[2 * n_phi :]
+    return (
+        np.asarray(physics, dtype=np.float64),
+        np.asarray(contrast, dtype=np.float64),
+        np.asarray(offset, dtype=np.float64),
+    )
+
+
 def _build_joint_problem(
     model: HeterodyneModel,
     c2_data: np.ndarray,

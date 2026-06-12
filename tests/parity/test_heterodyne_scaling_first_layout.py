@@ -41,3 +41,47 @@ def test_rejects_fourier():
         _joint_param_names_scaling_first(
             mode="fourier", physics_names=["D0"], n_phi=4
         )
+
+
+def test_split_individual_scaling_first():
+    from xpcsjax.optimization.nlsq.heterodyne_core import (
+        _split_scaling_first_joint,
+    )
+    # [c0,c1, o0,o1, D0,alpha,beta]  (n_phi=2, n_physics=3)
+    x = np.array([0.1, 0.2, 1.0, 1.1, 5.0, 6.0, 7.0])
+    physics, contrast, offset = _split_scaling_first_joint(
+        x, mode="individual", n_phi=2, n_physics=3
+    )
+    np.testing.assert_array_equal(physics, [5.0, 6.0, 7.0])
+    np.testing.assert_array_equal(contrast, [0.1, 0.2])
+    np.testing.assert_array_equal(offset, [1.0, 1.1])
+
+
+def test_split_averaged_broadcasts():
+    from xpcsjax.optimization.nlsq.heterodyne_core import (
+        _split_scaling_first_joint,
+    )
+    # [c_avg, o_avg, D0, alpha]  (n_phi=4, n_physics=2)
+    x = np.array([0.3, 1.2, 5.0, 6.0])
+    physics, contrast, offset = _split_scaling_first_joint(
+        x, mode="averaged", n_phi=4, n_physics=2
+    )
+    np.testing.assert_array_equal(physics, [5.0, 6.0])
+    np.testing.assert_array_equal(contrast, [0.3, 0.3, 0.3, 0.3])
+    np.testing.assert_array_equal(offset, [1.2, 1.2, 1.2, 1.2])
+
+
+def test_split_constant_uses_frozen():
+    from xpcsjax.optimization.nlsq.heterodyne_core import (
+        _split_scaling_first_joint,
+    )
+    # [D0, alpha] only; frozen scaling supplied
+    x = np.array([5.0, 6.0])
+    physics, contrast, offset = _split_scaling_first_joint(
+        x, mode="constant", n_phi=3, n_physics=2,
+        frozen_contrast=np.array([0.4, 0.5, 0.6]),
+        frozen_offset=np.array([1.4, 1.5, 1.6]),
+    )
+    np.testing.assert_array_equal(physics, [5.0, 6.0])
+    np.testing.assert_array_equal(contrast, [0.4, 0.5, 0.6])
+    np.testing.assert_array_equal(offset, [1.4, 1.5, 1.6])
