@@ -62,7 +62,7 @@ def resolve_per_angle_mode(
 
 
 def n_optimized(mode: PerAngleMode, n_phi: int) -> int:
-    """Number of OPTIMIZED scaling parameters for a resolved mode.
+    """Return the number of OPTIMIZED scaling parameters for a resolved mode.
 
     ``constant`` -> 0 (frozen), ``averaged`` -> 2, ``individual`` -> ``2 * n_phi``.
 
