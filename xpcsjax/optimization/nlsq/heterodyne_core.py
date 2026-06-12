@@ -3195,20 +3195,23 @@ def _build_joint_result(
     # L2 anti-degeneracy: hierarchical two-stage solve.
     #
     # Stage 1 (physics-only with quantile-fixed scaling) ran above — before
-    # the joint Fourier solve — when `config.enable_hierarchical` was True,
-    # producing `hierarchical_stage1_chi2` and a warm-started
-    # `physics_initial`. Stage 2 is the joint refine the surrounding code
-    # already executed (Fourier coefficients unfrozen, jointly fit with
-    # physics over `[physics | fourier_coeffs]`).
+    # the joint solve — when `config.enable_hierarchical` was True, producing
+    # `hierarchical_stage1_chi2` and a warm-started `physics_initial`. Stage 2
+    # is the joint refine the surrounding code already executed (scaling tail
+    # unfrozen, jointly fit with physics): the scaling-first path optimizes
+    # `[scaling_head | physics]`; the legacy Fourier arm optimizes
+    # `[physics | fourier_coeffs]`.
     #
     # The SSR conservation invariant (`chi2_per_angle.sum() == chi_squared`)
     # still holds for stage 2 because the joint solve uses the canonical
     # multi-angle residual decomposition.
     # ------------------------------------------------------------------
+    mode_label = f"mode={resolved_mode}" if scaling_first else "fourier mode"
     hierarchical_extras: dict[str, Any] = {}
     if config.enable_hierarchical and hierarchical_stage1_chi2 is not None:
         logger.info(
-            "L2 hierarchical (fourier mode) — Stage 2 done: chi2=%.6f (stage1=%.6f)",
+            "L2 hierarchical (%s) — Stage 2 done: chi2=%.6f (stage1=%.6f)",
+            mode_label,
             ssr,
             hierarchical_stage1_chi2,
         )
@@ -3238,8 +3241,9 @@ def _build_joint_result(
     regularization_extras: dict[str, Any] = {}
     if regularization_active:
         logger.info(
-            "L3 adaptive regularization enabled (fourier mode): "
+            "L3 adaptive regularization enabled (%s): "
             "mode=%s, lambda=%.6g, target_cv=%.3f, penalty_rows=%d.",
+            mode_label,
             config.regularization_mode,
             config.group_variance_lambda,
             config.regularization_target_cv,

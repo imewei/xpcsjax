@@ -148,6 +148,7 @@ def test_result_builder_roundtrips_scaling_first(mode):
     else:  # constant: physics-only vector
         x_final = np.asarray(known_physics, dtype=np.float64)
 
+    plan = prob.meta["plan"]
     result = _build_joint_result(
         model, prob, c2, x_final, phi, cfg, None,
     )
@@ -161,3 +162,14 @@ def test_result_builder_roundtrips_scaling_first(mode):
         )
         # model.scaling reflects the SAME per-angle values (not transposed)
         np.testing.assert_allclose(model.scaling.contrast, 0.10 + 0.01 * np.arange(n_phi))
+    elif mode == "averaged":
+        # the scaling head carries the distinguishable [c_avg, o_avg] pair...
+        np.testing.assert_allclose(params[:2], [0.33, 1.27])
+        # ...broadcast onto every per-angle scaling slot (not transposed).
+        np.testing.assert_allclose(model.scaling.contrast, np.full(n_phi, 0.33))
+        np.testing.assert_allclose(model.scaling.offset, np.full(n_phi, 1.27))
+    else:  # constant: scaling is frozen from the plan's quantile estimate
+        np.testing.assert_allclose(model.scaling.contrast, plan.frozen_contrast)
+        np.testing.assert_allclose(model.scaling.offset, plan.frozen_offset)
+        # physics-only vector: the whole parameter surface IS the physics tail
+        np.testing.assert_allclose(params, known_physics, rtol=0, atol=0)
