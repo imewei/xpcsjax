@@ -2251,6 +2251,44 @@ class JointProblem:
     meta: dict[str, Any]
 
 
+def _joint_param_names_scaling_first(
+    *, mode: str, physics_names: list[str], n_phi: int
+) -> list[str]:
+    """Canonical scaling-first joint parameter-name list ``[scaling_head | physics]``.
+
+    Parameters
+    ----------
+    mode : str
+        Resolved per-angle mode token: ``"constant"``, ``"averaged"``, or
+        ``"individual"``.  Any other token (including ``"fourier"`` /
+        ``"independent"``) raises ``ValueError`` via ``n_optimized``'s own
+        contract — names are only ever built for a RESOLVED mode.
+    physics_names : list[str]
+        Ordered physics parameter names (e.g. ``["D0", "alpha"]``).
+    n_phi : int
+        Number of angles in the joint fit.
+
+    Returns
+    -------
+    list[str]
+        ``constant``   → ``[*physics]``
+        ``averaged``   → ``["contrast_avg", "offset_avg", *physics]``
+        ``individual`` → ``[contrast_0..N-1, offset_0..N-1, *physics]``
+    """
+    from xpcsjax.optimization.nlsq.per_angle_mode import n_optimized
+
+    # n_optimized rejects non-canonical tokens via the same ValueError the
+    # resolver raises (matched by the "unknown per_angle_mode" test).
+    _ = n_optimized(mode, n_phi)  # type: ignore[arg-type]  # validates token
+    if mode == "constant":
+        return list(physics_names)
+    if mode == "averaged":
+        return ["contrast_avg", "offset_avg", *physics_names]
+    contrast = [f"contrast_{i}" for i in range(n_phi)]
+    offset = [f"offset_{i}" for i in range(n_phi)]
+    return [*contrast, *offset, *physics_names]
+
+
 def _build_joint_problem(
     model: HeterodyneModel,
     c2_data: np.ndarray,
