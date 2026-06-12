@@ -114,3 +114,50 @@ def test_build_joint_problem_x0_is_scaling_first():
     assert prob.meta["joint_param_names"][-n_physics:] == list(
         model.param_manager.varying_names
     )
+
+
+@pytest.mark.parametrize("mode", ["constant", "averaged", "individual"])
+def test_result_builder_roundtrips_scaling_first(mode):
+    """An escape-style scaling-first x_final reconstructs the right per-angle
+    scaling AND the right physics for every mode (the §Risk-3 1e6-heatmap class)."""
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import (
+        _build_joint_problem,
+        _build_joint_result,
+    )
+
+    # Fixture builds a fully-configured model with self-consistent c2/phi; t/q/dt
+    # are read-only properties we do not override.
+    n_phi = 4
+    model, c2, phi = make_synthetic_two_component(n_phi=n_phi, n_t=12)
+    cfg = NLSQConfig(per_angle_mode=mode)
+    prob = _build_joint_problem(model, c2, phi, cfg, None)
+
+    # Construct a scaling-first x_final with KNOWN, distinguishable values.
+    n_physics = model.param_manager.n_varying
+    known_physics = model.param_manager.get_initial_values()
+    if mode == "individual":
+        head = np.concatenate([
+            0.10 + 0.01 * np.arange(n_phi),      # contrast per angle
+            1.20 + 0.01 * np.arange(n_phi),      # offset per angle
+        ])
+        x_final = np.concatenate([head, known_physics])
+    elif mode == "averaged":
+        x_final = np.concatenate([[0.33, 1.27], known_physics])
+    else:  # constant: physics-only vector
+        x_final = np.asarray(known_physics, dtype=np.float64)
+
+    result = _build_joint_result(
+        model, prob, c2, x_final, phi, cfg, None,
+    )
+    # parameters surface is canonical scaling-first: physics live in the TAIL
+    params = np.asarray(result.parameters, dtype=np.float64)
+    np.testing.assert_allclose(params[-n_physics:], known_physics, rtol=0, atol=0)
+    if mode == "individual":
+        np.testing.assert_allclose(params[:n_phi], 0.10 + 0.01 * np.arange(n_phi))
+        np.testing.assert_allclose(
+            params[n_phi : 2 * n_phi], 1.20 + 0.01 * np.arange(n_phi)
+        )
+        # model.scaling reflects the SAME per-angle values (not transposed)
+        np.testing.assert_allclose(model.scaling.contrast, 0.10 + 0.01 * np.arange(n_phi))
