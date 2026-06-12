@@ -39,20 +39,20 @@ def _reevaluate_joint_ssr(
 
     Independently reconstructs the residual the joint solver minimizes:
     physics block expanded to the full parameter vector, with per-angle
-    ``(contrast, offset)`` read from the individual-mode scaling tail
-    ``[physics | contrast_0..contrast_{n_phi-1} | offset_0..offset_{n_phi-1}]``.
-    Sums the off-diagonal / t=0-excluded residual SSR across all angles —
-    the same masked support ``compute_residuals`` (and therefore the joint
-    fit) uses.
+    ``(contrast, offset)`` read from the canonical SCALING-FIRST individual-mode
+    layout ``[contrast_0..contrast_{n_phi-1} | offset_0..offset_{n_phi-1} |
+    physics]`` (scaling head, physics tail). Sums the off-diagonal /
+    t=0-excluded residual SSR across all angles — the same masked support
+    ``compute_residuals`` (and therefore the joint fit) uses.
     """
     pm = model.param_manager
     n_physics = int(pm.n_varying)
     n_phi = len(phi)
     params = np.asarray(params, dtype=np.float64)
 
-    physics_varying = params[:n_physics]
-    contrasts = params[n_physics : n_physics + n_phi]
-    offsets = params[n_physics + n_phi : n_physics + 2 * n_phi]
+    contrasts = params[:n_phi]
+    offsets = params[n_phi : 2 * n_phi]
+    physics_varying = params[2 * n_phi :]
     full_physics = np.asarray(pm.expand_varying_to_full(physics_varying), dtype=np.float64)
 
     total = 0.0
@@ -89,7 +89,7 @@ def test_individual_mode_is_joint_params_reproduce_chi2():
         "individual multi-angle must be a joint fit, not the sequential aggregate"
     )
 
-    # Parameter layout is [physics | 2 * n_phi per-angle scaling].
+    # Parameter layout is canonical scaling-first [2 * n_phi per-angle scaling | physics].
     n_physics = int(model.param_manager.n_varying)
     assert res.parameters.shape == (n_physics + 2 * len(phi),)
 

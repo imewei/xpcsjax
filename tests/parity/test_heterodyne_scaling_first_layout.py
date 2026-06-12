@@ -85,3 +85,32 @@ def test_split_constant_uses_frozen():
     np.testing.assert_array_equal(physics, [5.0, 6.0])
     np.testing.assert_array_equal(contrast, [0.4, 0.5, 0.6])
     np.testing.assert_array_equal(offset, [1.4, 1.5, 1.6])
+
+
+def test_build_joint_problem_x0_is_scaling_first():
+    """x0 places scaling at the HEAD, physics at the TAIL, for individual mode."""
+    import numpy as np
+
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import _build_joint_problem
+
+    # The stateful HeterodyneModel exposes t/q/dt as read-only properties — the
+    # fixture configures them (and a self-consistent c2/phi); we use those
+    # directly. The scaling-first layout assertions are the load-bearing part.
+    n_phi = 4
+    model, c2, phi = make_synthetic_two_component(n_phi=n_phi, n_t=12)
+    cfg = NLSQConfig(per_angle_mode="individual")
+
+    prob = _build_joint_problem(model, c2, phi, cfg, None)
+    n_physics = model.param_manager.n_varying
+    x0 = np.asarray(prob.x0, dtype=np.float64)
+    # scaling head is 2*n_phi, physics tail is n_physics
+    assert len(x0) == 2 * n_phi + n_physics
+    assert prob.meta["scaling_first"] is True
+    assert prob.meta["resolved_mode"] == "individual"
+    # the joint names are scaling-first
+    assert prob.meta["joint_param_names"][:1] == ["contrast_0"]
+    assert prob.meta["joint_param_names"][-n_physics:] == list(
+        model.param_manager.varying_names
+    )
