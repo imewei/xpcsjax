@@ -46,7 +46,6 @@ def _reevaluate_joint_ssr(
     ``compute_residuals`` (and therefore the joint fit) uses.
     """
     pm = model.param_manager
-    n_physics = int(pm.n_varying)
     n_phi = len(phi)
     params = np.asarray(params, dtype=np.float64)
 
