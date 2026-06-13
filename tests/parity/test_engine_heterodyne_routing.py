@@ -243,6 +243,25 @@ def test_in_scope_modes_are_the_three_under_test():
     )
 
 
+def test_engine_route_uses_canonical_tokens_no_fourier_raise():
+    """PRODUCTION_TO_ENGINE_MODE is the identity map over the three canonical tokens
+    (Tasks 7-9); fourier is absent from the map and raises NotImplementedError
+    at the engine-route boundary so the caller's best-effort falls back."""
+    from xpcsjax.optimization.nlsq.heterodyne_engine_route import (
+        PRODUCTION_TO_ENGINE_MODE,
+    )
+
+    # Identity over the three canonical tokens
+    assert PRODUCTION_TO_ENGINE_MODE == {
+        "constant": "constant",
+        "averaged": "averaged",
+        "individual": "individual",
+    }, f"PRODUCTION_TO_ENGINE_MODE is not identity: {PRODUCTION_TO_ENGINE_MODE!r}"
+
+    # fourier is simply absent (no old NotImplementedError arm to special-case)
+    assert "fourier" not in PRODUCTION_TO_ENGINE_MODE
+
+
 @pytest.mark.parametrize("mode", _MODES)
 def test_engine_routes_heterodyne_residual_matches_objective(mode):
     """Engine SSR (heterodyne data + HeterodynePointEvaluator + layout convert)

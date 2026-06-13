@@ -17,16 +17,16 @@ direct path under the accepted *no-worse* contract (engine SSR ≤ production SS
 regime was removed alongside the flip; the off-grid guard is obsolete on this
 path because :class:`HeterodynePointEvaluator` uses the meshgrid kernel (no
 value→index mapping). The proven engine construction (frame-0-excluded chunks +
-per-mode :class:`HeterodynePointEvaluator` + physics-first⇄scaling-first layout)
+per-mode :class:`HeterodynePointEvaluator` + canonical scaling-first layout)
 was promoted here from the Phase 2.3 parity tests
 (``tests/parity/test_engine_heterodyne_fit_parity.py``) so the production path no
 longer imports engine-construction helpers from tests.
 
 Scope: the three in-scope per-angle scaling modes —
-``fixed_constant`` / ``individual`` / ``auto_averaged`` (the engine-layout
-tokens for production ``constant`` / ``individual`` / ``auto``-at-``n_phi>=3``).
-``fourier`` is out of scope here and raises :class:`NotImplementedError`
-(#16b keeps it on the existing path).
+``constant`` / ``individual`` / ``averaged`` (the canonical production tokens).
+``fourier`` is resolved upstream by ``_resolve_effective_mode`` and never reaches
+this function; the non-uniform-weights path raises :class:`NotImplementedError`
+as a best-effort guard.
 
 Result-contract assembly REUSES the production result-builder primitives:
 
@@ -41,6 +41,11 @@ Result-contract assembly REUSES the production result-builder primitives:
 
 so each mode's returned ``OptimizationResult`` matches the contract of the
 production path it mirrors.
+
+Parameters returned are **canonical scaling-first**: ``[scaling_head | physics]``.
+``constant``  → ``[*physics]`` (no scaling DOF).
+``averaged``  → ``[contrast_avg, offset_avg, *physics]``.
+``individual``→ ``[contrast_0..N-1, offset_0..N-1, *physics]``.
 """
 
 from __future__ import annotations
@@ -51,14 +56,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from xpcsjax.config.parameter_registry import SCALING_PARAMS
-from xpcsjax.optimization.nlsq.heterodyne_averaged_wrapper import (
-    engine_popt_to_compressed_averaged,
-    wrap_engine_averaged_residual,
-)
 from xpcsjax.optimization.nlsq.heterodyne_layout import (
-    IN_SCOPE_MODES,
     physics_first_to_scaling_first,
-    scaling_first_to_physics_first,
 )
 
 if TYPE_CHECKING:
@@ -74,11 +73,19 @@ if TYPE_CHECKING:
 
 __all__ = ["fit_two_component_via_engine", "PRODUCTION_TO_ENGINE_MODE"]
 
-# Production ``_resolve_effective_mode`` token -> engine-layout mode token. The
-# layout module (``heterodyne_layout.IN_SCOPE_MODES``) names the engine side
-# ``fixed_constant`` / ``auto_averaged`` / ``individual``; the production
-# resolver returns ``constant`` / ``averaged`` / ``individual`` / ``fourier``.
+# Canonical production token -> canonical token (identity map; the old
+# ``fixed_constant``/``auto_averaged`` engine-internal tokens are now retired).
+# This map is kept for backward-compatibility with callers that key into it, but
+# the values are now the same canonical strings the resolver produces.
 PRODUCTION_TO_ENGINE_MODE: dict[str, str] = {
+    "constant": "constant",
+    "averaged": "averaged",
+    "individual": "individual",
+}
+
+# Old-token translation needed at the ``build_heterodyne_pointwise_model``
+# boundary (that function still speaks the old per_angle_mode vocabulary).
+_CANONICAL_TO_POINTWISE_TOKEN: dict[str, str] = {
     "constant": "fixed_constant",
     "averaged": "auto_averaged",
     "individual": "individual",
@@ -153,12 +160,12 @@ def _build_engine(
     q: float,
     dt: float,
 ) -> StratifiedResidualFunctionJIT:
-    """Construct the frame-0-excluded engine for ``mode`` (mirrors Phase 2.3a).
+    """Construct the frame-0-excluded engine for canonical ``mode``.
 
-    ``fixed_constant`` freezes the per-angle scaling on the engine; the other two
+    ``constant`` freezes the per-angle scaling on the engine; the other two
     modes expose the engine's ``2*n_phi`` per-angle scaling-first layout (the
-    ``auto_averaged`` 2→2*n_phi broadcast happens at the optimizer boundary via
-    :func:`physics_first_to_scaling_first`).
+    ``averaged`` 2→2*n_phi broadcast happens at the optimizer boundary via
+    :func:`_make_averaged_residual_and_x0`).
     """
     from xpcsjax.optimization.nlsq.model_adapter import HeterodynePointEvaluator
     from xpcsjax.optimization.nlsq.strategies.residual_jit import (
@@ -166,7 +173,7 @@ def _build_engine(
     )
 
     evaluator = HeterodynePointEvaluator(analysis_mode="two_component", q=float(q), dt=float(dt))
-    if mode == "fixed_constant":
+    if mode == "constant":
         return StratifiedResidualFunctionJIT(
             stratified_data=chunked,
             per_angle_scaling=False,
@@ -185,24 +192,30 @@ def _build_engine(
     )
 
 
-def _physics_first_bounds(
+def _scaling_first_bounds(
     *, mode: str, n_phi: int, physics_lower: np.ndarray, physics_upper: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Physics-first ``(lb, ub)`` matching the production joint-fit layout."""
+    """Canonical scaling-first ``(lb, ub)`` for the optimizer DOF.
+
+    Layout mirrors ``_joint_param_names_scaling_first``:
+    ``constant``   → physics-only.
+    ``averaged``   → ``[c_avg_bounds, o_avg_bounds, physics_bounds]``.
+    ``individual`` → ``[contrast(n_phi), offset(n_phi), physics]``.
+    """
     cb = (SCALING_PARAMS["contrast"].min_bound, SCALING_PARAMS["contrast"].max_bound)
     ob = (SCALING_PARAMS["offset"].min_bound, SCALING_PARAMS["offset"].max_bound)
     physics_lower = np.asarray(physics_lower, dtype=np.float64)
     physics_upper = np.asarray(physics_upper, dtype=np.float64)
 
-    if mode == "fixed_constant":
+    if mode == "constant":
         return physics_lower, physics_upper
-    if mode == "auto_averaged":
-        lb = np.concatenate([physics_lower, [cb[0], ob[0]]])
-        ub = np.concatenate([physics_upper, [cb[1], ob[1]]])
+    if mode == "averaged":
+        lb = np.concatenate([[cb[0], ob[0]], physics_lower])
+        ub = np.concatenate([[cb[1], ob[1]], physics_upper])
         return lb, ub
-    # individual: tail [contrast(n_phi) | offset(n_phi)]
-    lb = np.concatenate([physics_lower, np.full(n_phi, cb[0]), np.full(n_phi, ob[0])])
-    ub = np.concatenate([physics_upper, np.full(n_phi, cb[1]), np.full(n_phi, ob[1])])
+    # individual: head [contrast(n_phi) | offset(n_phi)], physics tail
+    lb = np.concatenate([np.full(n_phi, cb[0]), np.full(n_phi, ob[0]), physics_lower])
+    ub = np.concatenate([np.full(n_phi, cb[1]), np.full(n_phi, ob[1]), physics_upper])
     return lb, ub
 
 
@@ -214,7 +227,7 @@ def _quantile_frozen_scaling(
     Mirrors ``_fit_joint_constant_multi_phi`` EXACTLY: flatten the full grid,
     run :func:`estimate_per_angle_scaling_from_quantile` at quantile 0.95, clamp
     to the registry bounds. Sourcing the engine's frozen scaling from the SAME
-    estimator the production constant path uses is what makes ``fixed_constant``
+    estimator the production constant path uses is what makes ``constant``
     reach the identical physics-only minimum (Phase 2.3b STEP-0 finding).
     """
     from xpcsjax.core.heterodyne_scaling_utils import (
@@ -330,8 +343,9 @@ def fit_two_component_via_engine(
     phi
         Detector angles (degrees), shape ``(n_phi,)``.
     config
-        :class:`NLSQConfig`. ``per_angle_mode`` is resolved to an engine-layout
-        mode via :func:`_resolve_effective_mode` + :data:`PRODUCTION_TO_ENGINE_MODE`.
+        :class:`NLSQConfig`. ``per_angle_mode`` is resolved to a canonical mode
+        via :func:`_resolve_effective_mode`. ``fourier`` is rejected upstream by
+        the resolver and never reaches this function.
         Solver fields (``method`` / ``loss`` / tolerances / ``x_scale`` /
         ``max_nfev``) mirror the production joint fit.
     weights
@@ -340,15 +354,16 @@ def fit_two_component_via_engine(
     Returns
     -------
     OptimizationResult
-        Physics-first ``parameters`` (``[physics | scaling_tail]``), production
-        ``chi_squared`` / ``chi2_per_angle`` (SSR-conserving), covariance on the
-        optimizer-DOF side, and a symmetric heterodyne ``nlsq_diagnostics`` dict.
+        Canonical scaling-first ``parameters`` (``[scaling_head | physics]``),
+        production ``chi_squared`` / ``chi2_per_angle`` (SSR-conserving),
+        covariance on the optimizer-DOF side, and a symmetric heterodyne
+        ``nlsq_diagnostics`` dict.
 
     Raises
     ------
     NotImplementedError
-        For the ``fourier`` per-angle mode (out of scope for #16a; #16b keeps it
-        on the existing path).
+        For non-uniform weights (the engine solve is unweighted; the caller
+        falls back to ``fit_nlsq_multi_phi``).
     """
     import jax.numpy as jnp
 
@@ -356,7 +371,9 @@ def fit_two_component_via_engine(
     from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig as _NLSQConfig
     from xpcsjax.optimization.nlsq.heterodyne_core import (
         _build_heterodyne_diagnostics,
+        _joint_param_names_scaling_first,
         _resolve_effective_mode,
+        _split_scaling_first_joint,
     )
     from xpcsjax.optimization.nlsq.heterodyne_data_prep import (
         noise_normalized_reduced_chi2,
@@ -406,8 +423,7 @@ def fit_two_component_via_engine(
     # rescale the objective by a constant and leave the argmin unchanged, so they
     # are safe to proceed with. Non-uniform weights WOULD change the optimum and
     # must not be silently dropped — route those fits to fit_nlsq_multi_phi (which
-    # applies weights in its solve) via the caller's best-effort fallback, exactly
-    # as the 'fourier' mode does below.
+    # applies weights in its solve) via the caller's best-effort fallback.
     if weights is not None and weights.size and not np.allclose(weights, weights.flat[0]):
         raise NotImplementedError(
             "fit_two_component_via_engine does not honour non-uniform weights "
@@ -415,16 +431,22 @@ def fit_two_component_via_engine(
             "which applies them in the solve."
         )
 
-    # -- Resolve mode: production token -> engine-layout token --------------
-    production_mode = _resolve_effective_mode(config, n_phi)
-    if production_mode == "fourier":
+    # -- Resolve mode: returns canonical token (constant/averaged/individual) -
+    # The resolver can still return ``"fourier"`` when the user requests it
+    # explicitly; the engine does not support fourier (it is kept on the
+    # ``fit_nlsq_multi_phi`` path via the best-effort fallback in the caller).
+    # Raise NotImplementedError so the caller's try/except falls back cleanly.
+    mode = _resolve_effective_mode(config, n_phi)
+    if mode not in {"constant", "averaged", "individual"}:
         raise NotImplementedError(
-            "fit_two_component_via_engine does not support per_angle_mode "
-            "'fourier' (Task #16a scope is fixed_constant / individual / "
-            "auto_averaged). Use the existing fit_nlsq_multi_phi path for fourier."
+            f"fit_two_component_via_engine does not support per_angle_mode "
+            f"{mode!r} (the engine-route scope is constant / averaged / individual). "
+            "Use the existing fit_nlsq_multi_phi path for fourier."
         )
-    mode = PRODUCTION_TO_ENGINE_MODE[production_mode]
-    assert mode in IN_SCOPE_MODES, f"resolved engine mode {mode!r} not in {IN_SCOPE_MODES}"
+
+    # ``build_heterodyne_pointwise_model`` still speaks the old per_angle_mode
+    # vocabulary; translate at this single boundary.
+    pointwise_token = _CANONICAL_TO_POINTWISE_TOKEN[mode]
 
     # -- Build frame-0-excluded engine chunks -------------------------------
     strat_full = build_heterodyne_stratified_data(model, c2, phi_arr)
@@ -436,22 +458,18 @@ def fit_two_component_via_engine(
         stratified_data=strat_full,
         model=model,
         physical_param_names=phys_names,
-        per_angle_mode=mode,
+        per_angle_mode=pointwise_token,
     )
     p0_arr = np.asarray(p0, dtype=np.float64)
 
-    # -- Frozen scaling for fixed_constant: production quantile estimator ---
-    if mode == "fixed_constant":
+    # -- Frozen scaling for constant: production quantile estimator ----------
+    if mode == "constant":
         contrast_frozen, offset_frozen = _quantile_frozen_scaling(model, c2, n_phi)
     else:
         contrast_frozen = np.asarray(meta["contrast_arr"], dtype=np.float64)
         offset_frozen = np.asarray(meta["offset_arr"], dtype=np.float64)
 
-    # -- Bounds (physics-first) + engine ------------------------------------
-    physics_lower, physics_upper = model.param_manager.get_bounds()
-    lb_pf, ub_pf = _physics_first_bounds(
-        mode=mode, n_phi=n_phi, physics_lower=physics_lower, physics_upper=physics_upper
-    )
+    # -- Engine (canonical mode tokens) -------------------------------------
     engine = _build_engine(
         mode=mode,
         chunked=chunked,
@@ -462,30 +480,51 @@ def fit_two_component_via_engine(
         dt=dt,
     )
 
-    # -- Optimizer-vector layout (the DOF the solver actually varies) -------
-    if mode == "auto_averaged":
-        # COMPRESSED averaged contract: the optimizer varies EXACTLY 2 scaling
-        # DOF ([physics | c_avg | o_avg]) — production's averaged DOF count
-        # (_fit_joint_averaged_multi_phi). wrap_engine_averaged_residual
-        # broadcasts those 2 scalars to the engine's 2*n_phi scaling-first layout
-        # INSIDE the JIT residual, so the optimizer never fits independent
-        # per-angle scaling. Driving the engine directly with the broadcast x0
-        # (n_varying + 2*n_phi DOF) would over-parameterize the averaged fit and
-        # then discard all but angle-0's fitted scalar — an inconsistent result.
-        # p0 and the physics-first bounds are already the compressed form.
-        x0_opt = np.asarray(p0_arr, dtype=np.float64)
-        lb_opt = np.asarray(lb_pf, dtype=np.float64)
-        ub_opt = np.asarray(ub_pf, dtype=np.float64)
-        wrapped = wrap_engine_averaged_residual(engine, n_physics=n_varying, n_phi=n_phi)
+    # -- Optimizer-vector layout: canonical SCALING-FIRST -------------------
+    # ``constant``  : physics-only; no scaling DOF.
+    # ``individual``: [contrast(n_phi) | offset(n_phi) | physics] — block-permute
+    #                 the physics-first p0 (``physics_first_to_scaling_first`` is a
+    #                 pure permutation for "individual"/"fixed_constant").
+    # ``averaged``  : COMPRESSED [c_avg, o_avg, physics] — 2 scaling DOF at the
+    #                 HEAD, physics tail. The residual broadcasts the 2 scalars to
+    #                 the engine's 2*n_phi scaling-first layout inside the JIT
+    #                 closure (avoids the over-parameterized 2*n_phi DOF that was
+    #                 the earlier "improvement" artifact).
+    physics_lower, physics_upper = model.param_manager.get_bounds()
+    lb_sf, ub_sf = _scaling_first_bounds(
+        mode=mode, n_phi=n_phi, physics_lower=physics_lower, physics_upper=physics_upper
+    )
+
+    if mode == "averaged":
+        # p0_arr from the pointwise builder is physics-first [physics|c_avg|o_avg].
+        # Extract the 2 scaling scalars and put them at the head.
+        p0_physics = p0_arr[:n_varying]
+        p0_c_avg = float(p0_arr[n_varying])
+        p0_o_avg = float(p0_arr[n_varying + 1])
+        x0_opt = np.concatenate([[p0_c_avg, p0_o_avg], p0_physics])
 
         def residual_fn(x: np.ndarray) -> Any:
-            return wrapped(jnp.asarray(x, dtype=jnp.float64))
+            """Scaling-first compressed averaged residual: x = [c_avg, o_avg, physics]."""
+            x_jnp = jnp.asarray(x, dtype=jnp.float64)
+            c_avg = x_jnp[0]
+            o_avg = x_jnp[1]
+            physics = x_jnp[2:]
+            contrast = jnp.full((n_phi,), c_avg, dtype=jnp.float64)
+            offset = jnp.full((n_phi,), o_avg, dtype=jnp.float64)
+            engine_vec = jnp.concatenate([contrast, offset, physics])
+            return engine(engine_vec)
+
     else:
-        # fixed_constant (identity) / individual (block permutation): pure layout
-        # permutations onto the engine scaling-first vector — no DOF change.
-        x0_opt = physics_first_to_scaling_first(p0_arr, n_physics=n_varying, mode=mode, n_phi=n_phi)
-        lb_opt = physics_first_to_scaling_first(lb_pf, n_physics=n_varying, mode=mode, n_phi=n_phi)
-        ub_opt = physics_first_to_scaling_first(ub_pf, n_physics=n_varying, mode=mode, n_phi=n_phi)
+        # constant (identity) / individual (block permutation):
+        # convert the physics-first p0 to the engine's scaling-first layout.
+        # For "constant", ``physics_first_to_scaling_first`` with the OLD token
+        # "fixed_constant" is the identity (no scaling tail). Use the layout
+        # function with the appropriate OLD token since it validates against
+        # IN_SCOPE_MODES = ("fixed_constant", "auto_averaged", "individual").
+        old_token = _CANONICAL_TO_POINTWISE_TOKEN[mode]  # fixed_constant / individual
+        x0_opt = physics_first_to_scaling_first(
+            p0_arr, n_physics=n_varying, mode=old_token, n_phi=n_phi
+        )
 
         def residual_fn(x: np.ndarray) -> Any:
             return engine(jnp.asarray(x, dtype=jnp.float64))
@@ -510,34 +549,25 @@ def fit_two_component_via_engine(
     res = adapter.fit(
         residual_fn=residual_fn,
         initial_params=x0_opt,
-        bounds=(lb_opt, ub_opt),
+        bounds=(lb_sf, ub_sf),
         config=joint_cfg,
     )
-    popt_opt = np.asarray(res.parameters, dtype=np.float64)
+    popt_sf = np.asarray(res.parameters, dtype=np.float64)
     wall_time = time.perf_counter() - t_start
 
-    # -- Convert popt -> physics-first; recover per-angle scaling -----------
-    if mode == "auto_averaged":
-        # The optimizer already varied the compressed physics-first vector;
-        # identity passthrough (validates length) — no un-permutation needed.
-        popt_pf = engine_popt_to_compressed_averaged(popt_opt, n_physics=n_varying)
-    else:
-        popt_pf = scaling_first_to_physics_first(
-            popt_opt, n_physics=n_varying, mode=mode, n_phi=n_phi
-        )
-    physics_fitted = popt_pf[:n_varying]
-
-    if mode == "fixed_constant":
-        contrast_used = contrast_frozen
-        offset_used = offset_frozen
-    elif mode == "auto_averaged":
-        c_avg = float(popt_pf[n_varying])
-        o_avg = float(popt_pf[n_varying + 1])
-        contrast_used = np.full(n_phi, c_avg, dtype=np.float64)
-        offset_used = np.full(n_phi, o_avg, dtype=np.float64)
-    else:  # individual
-        contrast_used = np.asarray(popt_pf[n_varying : n_varying + n_phi], dtype=np.float64)
-        offset_used = np.asarray(popt_pf[n_varying + n_phi :], dtype=np.float64)
+    # -- Recover per-angle scaling from the scaling-first optimized vector ---
+    # ``_split_scaling_first_joint`` speaks canonical tokens.
+    physics_fitted, contrast_used, offset_used = _split_scaling_first_joint(
+        popt_sf,
+        mode=mode,
+        n_phi=n_phi,
+        n_physics=n_varying,
+        frozen_contrast=contrast_frozen if mode == "constant" else None,
+        frozen_offset=offset_frozen if mode == "constant" else None,
+    )
+    physics_fitted = np.asarray(physics_fitted, dtype=np.float64)
+    contrast_used = np.asarray(contrast_used, dtype=np.float64)
+    offset_used = np.asarray(offset_used, dtype=np.float64)
 
     # -- Production-support objective (REUSE production residual + helpers) --
     chi_squared, chi2_per_angle = _production_support_chi2(
@@ -550,7 +580,7 @@ def fit_two_component_via_engine(
         weights=weights,
     )
 
-    n_total_params = int(popt_pf.size)
+    n_total_params = int(popt_sf.size)
     data_valid = n_phi * (int(c2.shape[1]) - 1) * (int(c2.shape[1]) - 2)
     reduced_chi2 = noise_normalized_reduced_chi2(
         ssr=chi_squared,
@@ -559,13 +589,13 @@ def fit_two_component_via_engine(
         n_params=n_total_params,
     )
 
-    # -- Covariance / uncertainties (optimizer-DOF side) --------------------
-    # For fixed_constant / individual the optimizer DOF == popt_pf length (the
-    # scaling-first <-> physics-first map is a permutation). For auto_averaged
-    # the optimizer DOF == n_varying + 2 (the 2 compressed averaged scalars),
-    # which also equals popt_pf length — so res.covariance is dimensionally
-    # the physics-first compressed covariance and passes through unchanged
-    # (Task-2.2: a 2->2*n_phi averaged covariance permutation is undefined).
+    # -- Covariance / uncertainties (optimizer-DOF side, scaling-first) -----
+    # The optimizer solved the scaling-first compressed vector, so ``res.covariance``
+    # is already in scaling-first order. For ``constant`` / ``individual`` the
+    # scaling-first <-> physics-first map is a permutation so the covariance is
+    # dimensionally correct. For ``averaged`` the optimizer DOF == n_varying + 2
+    # (the 2 compressed scalars); a 2->2*n_phi covariance permutation is undefined,
+    # so the compressed covariance is passed through unchanged (Task-2.2 design).
     if res.covariance is not None and np.asarray(res.covariance).shape == (
         n_total_params,
         n_total_params,
@@ -586,10 +616,12 @@ def fit_two_component_via_engine(
     # ``OptimizationResult`` (defaults to ``None``); the averaged / individual
     # paths set it to the physics-varying count. Matching this keeps the engine
     # result byte-for-byte contract-equal to the production path it mirrors.
-    n_physics_field = None if mode == "fixed_constant" else int(n_varying)
+    n_physics_field = None if mode == "constant" else int(n_varying)
 
     # -- Per-mode nlsq_diagnostics (mirror the production path's extras) ----
-    joint_param_names = _engine_joint_param_names(mode, phys_names, n_phi)
+    joint_param_names = _joint_param_names_scaling_first(
+        mode=mode, physics_names=phys_names, n_phi=n_phi
+    )
     diagnostics = _assemble_diagnostics(
         mode=mode,
         chi2_per_angle=chi2_per_angle,
@@ -606,7 +638,7 @@ def fit_two_component_via_engine(
     )
 
     return OptimizationResult(
-        parameters=np.asarray(popt_pf, dtype=np.float64),
+        parameters=popt_sf,
         uncertainties=uncertainties,
         covariance=covariance,
         chi_squared=chi_squared,
@@ -622,18 +654,6 @@ def fit_two_component_via_engine(
         nlsq_diagnostics=diagnostics,
         n_physics=n_physics_field,
     )
-
-
-def _engine_joint_param_names(mode: str, phys_names: list[str], n_phi: int) -> list[str]:
-    """Physics-first joint parameter-name list matching ``parameters`` length."""
-    if mode == "fixed_constant":
-        return list(phys_names)
-    if mode == "auto_averaged":
-        return [*phys_names, "contrast_avg", "offset_avg"]
-    # individual
-    contrast_names = [f"contrast_{i}" for i in range(n_phi)]
-    offset_names = [f"offset_{i}" for i in range(n_phi)]
-    return [*phys_names, *contrast_names, *offset_names]
 
 
 def _assemble_diagnostics(
@@ -655,9 +675,9 @@ def _assemble_diagnostics(
 
     Mirrors the ``_build_heterodyne_diagnostics`` call each production path makes:
 
-    * ``fixed_constant`` ↔ ``_fit_joint_constant_multi_phi``
+    * ``constant``   ↔ ``_fit_joint_constant_multi_phi``
       (``scaling_source="quantile_fixed"``, ``*_per_angle_fixed``).
-    * ``auto_averaged`` ↔ ``_fit_joint_averaged_multi_phi``
+    * ``averaged``   ↔ ``_fit_joint_averaged_multi_phi``
       (``scaling_source="averaged_then_fitted"``, ``averaged_*``).
     * ``individual`` ↔ ``_fit_joint_multi_phi``
       (``scaling_source="fitted"``, ``*_per_angle_fitted``).
@@ -686,7 +706,7 @@ def _assemble_diagnostics(
         "n_angles_joint": int(n_phi),
     }
 
-    if mode == "fixed_constant":
+    if mode == "constant":
         return build_diag(
             per_angle_mode="constant",
             scaling_source="quantile_fixed",
@@ -694,7 +714,7 @@ def _assemble_diagnostics(
             offset_per_angle_fixed=np.asarray(offset_used, dtype=np.float64),
             **common,
         )
-    if mode == "auto_averaged":
+    if mode == "averaged":
         return build_diag(
             per_angle_mode="averaged",
             scaling_source="averaged_then_fitted",
