@@ -1532,3 +1532,38 @@ def test_diagnostics_stamps_canonical_token_and_n_optimized(mode, n_phi, n_opt):
     assert ad["n_optimized"] == n_opt
     for k in ("hierarchical_active", "regularization_active"):
         assert k in ad
+
+
+def test_streaming_above_threshold_ssr_not_worse_after_unification():
+    """Phase-4 gate (averaged default, n_phi>=threshold). A real streaming optimizer
+    run on a small synthetic >threshold dataset must produce optimized SSR
+    no-worse-than the frozen-quantile baseline, with the canonical 'averaged' token.
+    Synthetic + small => always runnable (NOT an availability-gated oracle)."""
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        fit_with_stratified_hybrid_streaming_heterodyne,
+    )
+
+    # n_phi=4 >= default threshold 3 -> auto resolves to averaged.
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=4, n_t=8)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+    popt, _pcov, info = fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={"warmup_iterations": 10, "max_warmup_iterations": 20,
+                       "gauss_newton_max_iterations": 10, "verbose": 0},
+        anti_degeneracy_config={"per_angle_mode": "auto"},  # default threshold=3
+    )
+    assert info["anti_degeneracy"]["per_angle_mode"] == "averaged"
+    assert np.isfinite(info["ssr"]) and np.isfinite(info["ssr_frozen_baseline"])
+    assert np.all(np.isfinite(popt))
+    assert info["ssr"] <= info["ssr_frozen_baseline"] + 1e-9, (
+        f"unification regressed streaming SSR: ssr={info['ssr']:.6e} > "
+        f"frozen={info['ssr_frozen_baseline']:.6e}"
+    )
