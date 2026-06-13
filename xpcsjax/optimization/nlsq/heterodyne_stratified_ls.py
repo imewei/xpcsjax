@@ -442,18 +442,19 @@ def _run_hierarchical_layers(
     n_scaling: int,
     n_phi: int,
     mode: str,
-    fourier: Any | None,
     l3_lambda: float | None,
+    frozen: tuple[np.ndarray, np.ndarray] | None = None,
     hier_cfg: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the L2 hierarchical alternating solve on the inline residual.
 
-    Mirrors ``strategies/heterodyne_hybrid_streaming.py``'s L2 branch: permute
-    the native ``[physics | scaling]`` vector to the ``HierarchicalOptimizer``'s
-    ``[scaling | physics]`` convention, solve, then un-permute. L3 (when
-    ``l3_lambda`` is not None) enters the scalar loss as an SSE-scale per-angle-CV
-    penalty (``lambda * (c_CV² + o_CV²) * SSR_data`` over the *reconstructed*
-    per-angle scaling — correct for both individual and fourier). It shapes the
+    Mirrors ``strategies/heterodyne_hybrid_streaming.py``'s L2 branch. The joint
+    vector is already canonical scaling-first ``[scaling | physics]`` — exactly
+    the ``HierarchicalOptimizer``'s convention — so no permutation is needed
+    (Phase 3 retired the physics-first<->scaling-first permute to identity). L3
+    (when ``l3_lambda`` is not None) enters the scalar loss as an SSE-scale
+    per-angle-CV penalty (``lambda * (c_CV² + o_CV²) * SSR_data`` over the
+    *reconstructed* per-angle scaling — correct for individual). It shapes the
     optimizer search only and never contaminates the reported data-only SSR (the
     caller recomputes chi^2 from the data-only residual at the returned popt).
 
@@ -465,8 +466,8 @@ def _run_hierarchical_layers(
     tolerance budget so ``execute_layers`` users can bound this (otherwise
     expensive) branch.
 
-    Returns ``{"popt", "n_outer", "success"}`` with ``popt`` in native
-    ``[physics | scaling]`` layout.
+    Returns ``{"popt", "n_outer", "success"}`` with ``popt`` in canonical
+    ``[scaling | physics]`` layout.
     """
     from xpcsjax.optimization.nlsq.hierarchical import (
         HierarchicalConfig,
@@ -475,24 +476,18 @@ def _run_hierarchical_layers(
 
     hier_cfg = hier_cfg or {}
 
-    # Permute native [physics | scaling] -> hier [scaling | physics].
-    perm = np.concatenate(
-        [
-            np.arange(n_physics, n_physics + n_scaling, dtype=np.intp),
-            np.arange(n_physics, dtype=np.intp),
-        ]
-    )
-    unperm = np.empty_like(perm)
-    unperm[perm] = np.arange(len(perm), dtype=np.intp)
-
-    p0_hier = np.asarray(p0_start, dtype=np.float64)[perm]
+    # The joint vector is already canonical scaling-first [scaling | physics],
+    # which is exactly HierarchicalOptimizer's convention — no permutation needed
+    # (Phase 3 retired the physics-first<->scaling-first permute to identity).
+    p0_hier = np.asarray(p0_start, dtype=np.float64)
     bounds_hier = (
-        np.asarray(lower, dtype=np.float64)[perm],
-        np.asarray(upper, dtype=np.float64)[perm],
+        np.asarray(lower, dtype=np.float64),
+        np.asarray(upper, dtype=np.float64),
     )
 
     def _loss_jax(ph: jnp.ndarray) -> jnp.ndarray:
-        params_native = ph[unperm]
+        # ``ph`` is already scaling-first [scaling | physics]; no un-permute.
+        params_native = ph
         # residual_fn is typed numpy-in; JAX arrays are numpy-compatible at runtime
         # (the JAX/numpy boundary the rest of this module also bridges).
         r = residual_fn(params_native)  # type: ignore[arg-type]
@@ -501,9 +496,9 @@ def _run_hierarchical_layers(
             # SSE-scale per-angle-CV penalty over the RECONSTRUCTED per-angle
             # scaling (relative-mode AdaptiveRegularizer equivalent:
             # ``lambda * cv² * mse * n`` summed over the two groups == ``lambda *
-            # (c_CV² + o_CV²) * SSR_data``). Correct for both individual and fourier.
+            # (c_CV² + o_CV²) * SSR_data``).
             contrasts, offsets = _reconstruct_per_angle_scaling(
-                params_native, mode=mode, n_physics=n_physics, n_phi=n_phi, fourier=fourier
+                params_native, mode=mode, n_phi=n_phi, frozen=frozen
             )
             c_cv, o_cv = _per_angle_cv(contrasts, offsets)
             return ssr_data + l3_lambda * (c_cv**2 + o_cv**2) * ssr_data
@@ -533,7 +528,7 @@ def _run_hierarchical_layers(
         config=hier_config,
         n_phi=n_phi,
         n_physical=n_physics,
-        fourier_reparameterizer=fourier if mode == "fourier" else None,
+        fourier_reparameterizer=None,
     )
     hier_result = optimizer.fit(
         loss_fn=_loss,
@@ -542,7 +537,7 @@ def _run_hierarchical_layers(
         bounds=bounds_hier,
         outer_iteration_callback=None,  # no shear update for heterodyne
     )
-    popt_native = np.asarray(hier_result.x, dtype=np.float64)[unperm]
+    popt_native = np.asarray(hier_result.x, dtype=np.float64)
     return {
         "popt": popt_native,
         "n_outer": int(hier_result.n_outer_iterations),

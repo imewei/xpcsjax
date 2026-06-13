@@ -1072,3 +1072,81 @@ def test_reconstruct_scaling_first_averaged():
     c, o = _reconstruct_per_angle_scaling(vec, mode="averaged", n_phi=n_phi, frozen=None)
     np.testing.assert_allclose(np.asarray(c), np.full(n_phi, 0.5))
     np.testing.assert_allclose(np.asarray(o), np.full(n_phi, 1.2))
+
+
+def test_hier_layers_no_permute_scaling_first(monkeypatch):
+    """Test _run_hierarchical_layers feeds the scaling-first vector unpermuted.
+
+    With the canonical [scaling | physics] layout the permute->solve->unpermute
+    dance is identity. We assert the loss/grad the optimizer sees address the
+    SAME vector the caller passed (no scrambling): the captured p0 equals the
+    input p0, and the loss at p0 equals residual_fn(p0) SSR.
+    """
+    import numpy as np
+
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        _run_hierarchical_layers,
+        build_joint_pointwise_residual,
+    )
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=12)
+    n_phi = len(phi)
+    n_physics = int(model.param_manager.n_varying)
+    contrast_pa = np.full(n_phi, 0.3)
+    offset_pa = np.full(n_phi, 1.0)
+    init_scaling = np.concatenate([contrast_pa, offset_pa])
+    strat = build_heterodyne_stratified_data(model, c2, phi, None)
+    residual_fn, _x, _y, p0_full, meta = build_joint_pointwise_residual(
+        model=model,
+        stratified_data=strat,
+        per_angle_mode="individual",
+        init_scaling=init_scaling,
+    )
+    n_scaling = int(meta["n_scaling"])
+
+    captured = {}
+
+    import xpcsjax.optimization.nlsq.hierarchical as _hier
+
+    class _FakeResult:
+        def __init__(self, x):
+            self.x = np.asarray(x, dtype=np.float64)
+            self.n_outer_iterations = 1
+            self.success = True
+
+    class _FakeOpt:
+        def __init__(self, *a, **k):
+            pass
+
+        def fit(self, *, loss_fn, grad_fn, p0, bounds, outer_iteration_callback):
+            captured["p0"] = np.asarray(p0, dtype=np.float64).copy()
+            captured["loss_at_p0"] = float(loss_fn(p0))
+            return _FakeResult(p0)  # identity return
+
+    monkeypatch.setattr(_hier, "HierarchicalOptimizer", _FakeOpt)
+
+    lower = np.concatenate([np.zeros(n_scaling), np.full(n_physics, -np.inf)])
+    upper = np.concatenate([np.full(n_scaling, np.inf), np.full(n_physics, np.inf)])
+    out = _run_hierarchical_layers(
+        residual_fn=residual_fn,
+        p0_start=p0_full,
+        lower=lower,
+        upper=upper,
+        n_physics=n_physics,
+        n_scaling=n_scaling,
+        n_phi=n_phi,
+        mode="individual",
+        l3_lambda=None,
+        hier_cfg={},
+    )
+    # No permutation: the optimizer saw exactly the scaling-first p0 we passed.
+    np.testing.assert_allclose(captured["p0"], p0_full)
+    # Loss at p0 == data SSR at p0 (l3_lambda=None).
+    ssr = float(np.sum(np.asarray(residual_fn(p0_full)) ** 2))
+    np.testing.assert_allclose(captured["loss_at_p0"], ssr, rtol=1e-9)
+    # Returned popt unchanged (identity round-trip).
+    np.testing.assert_allclose(np.asarray(out["popt"]), p0_full)
