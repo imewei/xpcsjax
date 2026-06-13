@@ -259,3 +259,72 @@ def test_joint_multistart_escape_honors_averaged_default():
     assert diag["per_angle_mode"] == "averaged"
     assert diag.get("fourier_basis_dim") is None
     assert int(np.asarray(res.parameters).size) == plain_size
+
+
+# ---------------------------------------------------------------------------
+# Task 6: individual joint CMA-ES escape is scaling-first; escape gate is
+# collapsed to ``('individual',)`` so fourier no longer enters the joint
+# escape path.
+# ---------------------------------------------------------------------------
+def test_individual_cmaes_escape_returns_scaling_first():
+    """The joint CMA-ES escape (individual) keeps-better and returns a
+    scaling-first parameter vector identical in LAYOUT to the plain fit.
+
+    With n_phi=2 (< constant_scaling_threshold=3) ``auto`` resolves to
+    ``individual`` (2*n_phi per-angle scaling params). The escape must:
+    - Return ``len(params) == 2*n_phi + n_physics`` (scaling-first layout).
+    - Surface ``parameter_names[0] == "contrast_0"`` (scaling head first).
+    - Tag ``global_escape`` in ``nlsq_diagnostics``.
+    """
+    from xpcsjax.optimization.nlsq.heterodyne_core import HAS_CMAES
+    if not HAS_CMAES:
+        pytest.skip("cmaes backend not importable")
+
+    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi as _fit
+
+    n_phi = 2  # < constant_scaling_threshold(3) → auto resolves to individual
+    model, c2, phi = make_synthetic_two_component(n_phi=n_phi, n_t=12)
+    cfg = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "individual",
+            "enable_cmaes": True,
+            "cmaes_max_iterations": 5,
+            "max_nfev": 30,
+        }
+    )
+    result = _fit(model, c2, phi, cfg, None)
+    n_physics = model.param_manager.n_varying
+    params = np.asarray(result.parameters, dtype=np.float64)
+    # scaling-first layout: [contrast_0, offset_0, ..., contrast_{n-1}, offset_{n-1}, physics...]
+    assert len(params) == 2 * n_phi + n_physics
+    assert result.nlsq_diagnostics["parameter_names"][0] == "contrast_0"
+    # escape tagging present (escape ran or warm-start kept)
+    assert "global_escape" in result.nlsq_diagnostics
+
+
+def test_fourier_escape_gate_removed():
+    """After Task 6, ``fourier`` mode no longer enters the joint CMA-ES escape
+    path — it falls through to the plain fourier joint fit.  The result must
+    still be a valid OptimizationResult (no raise, parameters present).
+    """
+    from xpcsjax.optimization.nlsq.heterodyne_core import HAS_CMAES
+    if not HAS_CMAES:
+        pytest.skip("cmaes backend not importable")
+
+    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi as _fit
+
+    model, c2, phi = make_synthetic_two_component(n_phi=4, n_t=12)
+    cfg = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "fourier",
+            "enable_cmaes": True,
+            "cmaes_max_iterations": 5,
+            "max_nfev": 30,
+        }
+    )
+    result = _fit(model, c2, phi, cfg, None)
+    # fourier no longer gets a global_escape tag (plain fourier path)
+    assert "global_escape" not in result.nlsq_diagnostics
+    assert result.parameters is not None

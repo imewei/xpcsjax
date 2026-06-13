@@ -787,10 +787,11 @@ def fit_nlsq_multi_phi(
             escape_kind,
         )
 
-        # The Fourier / individual escapes keep the existing Fourier-reparam
-        # joint-problem builder (``_build_joint_problem``), which already
-        # represents both layouts (``"fourier"`` / ``"independent"``) correctly.
-        if escape_kind is not None and effective_mode in ("individual", "fourier"):
+        # The individual escape uses the scaling-first ``_build_joint_problem``
+        # (``"independent"`` reparameterizer, ``use_fourier=False``).  Fourier
+        # mode no longer takes this path — it falls through to the plain fourier
+        # joint fit below.  The fourier escape arm is removed in Task 11.
+        if escape_kind is not None and effective_mode == "individual":
             if escape_kind == "cmaes":
                 logger.info("CMA-ES enabled, delegating to joint multi-angle CMA-ES")
                 return _fit_joint_cmaes_multi_phi(
@@ -1639,10 +1640,14 @@ def _fit_joint_cmaes_multi_phi(
 
     Notes
     -----
-    The escape **honours the resolved per-angle scaling mode** — it builds the
-    :class:`JointProblem` through :func:`_build_joint_fourier`, which uses
-    ``"independent"`` for ``individual`` and the Fourier basis otherwise. It does
-    NOT force a Fourier layout.
+    This path is reached only for ``individual`` mode (the escape gate was
+    narrowed in Task 6 to ``effective_mode == "individual"``).  The escape
+    builds the :class:`JointProblem` via :func:`_build_joint_problem` which
+    returns a scaling-first vector ``[scaling_head | physics]`` — the same
+    layout the plain joint fit produces.  ``_build_joint_fourier`` is called
+    only to pass a ``use_fourier=False`` reparameterizer consistent with the
+    per-mode dispatch; the legacy Fourier arm in ``_build_joint_problem`` is
+    not entered.
 
     When CMA-ES is kept, the returned :class:`OptimizationResult` is tagged via
     ``nlsq_diagnostics["global_escape"]`` and, by construction, carries NaN
@@ -1798,8 +1803,10 @@ def _fit_joint_multistart(
 
     Notes
     -----
-    Like the CMA-ES escape, this **honours the resolved per-angle scaling mode**
-    (via :func:`_build_joint_fourier`) and never forces a Fourier layout. A kept
+    This path is reached only for ``individual`` mode (same gate as the CMA-ES
+    escape: Task 6 narrowed it to ``effective_mode == "individual"``).  The
+    :class:`JointProblem` is built via :func:`_build_joint_problem` which
+    returns a scaling-first ``[scaling_head | physics]`` vector.  A kept
     multistart result is tagged ``nlsq_diagnostics["global_escape"]`` and, by
     construction, carries NaN covariance / uncertainties and ``n_iterations == 0``
     (no covariance solve on the kept vector).
@@ -1920,8 +1927,8 @@ def _fit_joint_multistart(
 # ---------------------------------------------------------------------------
 # Shared joint global-escape machinery for the AVERAGED / CONSTANT layouts.
 #
-# The Fourier/individual escapes (``_fit_joint_cmaes_multi_phi`` /
-# ``_fit_joint_multistart``) optimize the Fourier-reparam joint vector via
+# The individual escape (``_fit_joint_cmaes_multi_phi`` /
+# ``_fit_joint_multistart``) optimizes the scaling-first joint vector via
 # ``_build_joint_problem``. The averaged (2 scaling params) and constant
 # (frozen scaling) layouts have their OWN ``base_residual_fn`` + ``[physics |
 # scaling]`` vector built inline by ``_fit_joint_averaged_multi_phi`` /
