@@ -133,11 +133,13 @@ def test_reconstruct_per_angle_scaling_individual_mode() -> None:
     from xpcsjax.optimization.nlsq.heterodyne_views import reconstruct_per_angle_scaling
 
     n_physics = 3
+    # Canonical scaling-first layout: [contrast.. | offset.. | physics..] (scaling HEAD,
+    # physics TAIL) — the individual reconstruct branch reads contrast/offset from the head.
     params = np.concatenate(
         [
-            np.array([0.5, 0.1, 0.01]),  # physics
-            np.array([0.4, 0.42, 0.38]),  # contrast per angle
+            np.array([0.4, 0.42, 0.38]),  # contrast per angle (scaling HEAD)
             np.array([1.0, 1.0, 1.0]),  # offset per angle
+            np.array([0.5, 0.1, 0.01]),  # physics (TAIL)
         ]
     )
     result = OptimizationResult(
