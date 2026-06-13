@@ -17,6 +17,8 @@ when ``n_phi >= constant_scaling_threshold``; valid regularization modes are
 ``regularization_mode="adaptive"``.
 """
 
+import pytest
+
 from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
@@ -93,6 +95,7 @@ def test_disabled_path_omits_layer_detail_keys():
     assert "regularization_scope" not in d
 
 
+@pytest.mark.skip(reason="in-memory fourier removed in Phase 1+2; full fourier-test teardown in Phase 7")
 def test_fourier_path_always_emits_activation_keys():
     d = _diag(per_angle_mode="fourier")
     for k in _ACTIVATION:

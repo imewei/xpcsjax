@@ -304,9 +304,12 @@ def test_individual_cmaes_escape_returns_scaling_first():
 
 
 def test_fourier_escape_gate_removed():
-    """After Task 6, ``fourier`` mode no longer enters the joint CMA-ES escape
-    path — it falls through to the plain fourier joint fit.  The result must
-    still be a valid OptimizationResult (no raise, parameters present).
+    """``fourier`` mode no longer enters the joint CMA-ES escape path.
+
+    In Phase 1+2 the in-memory Fourier arm was removed entirely; a fourier
+    request now raises ``ValueError`` at the in-memory dispatch (it never reaches
+    the joint CMA-ES escape). The >=1M stratified-LS / streaming fourier paths are
+    unaffected. (Full fourier-test teardown is Phase 7.)
     """
     from xpcsjax.optimization.nlsq.heterodyne_core import HAS_CMAES
     if not HAS_CMAES:
@@ -324,7 +327,5 @@ def test_fourier_escape_gate_removed():
             "max_nfev": 30,
         }
     )
-    result = _fit(model, c2, phi, cfg, None)
-    # fourier no longer gets a global_escape tag (plain fourier path)
-    assert "global_escape" not in result.nlsq_diagnostics
-    assert result.parameters is not None
+    with pytest.raises(ValueError, match="unknown per_angle_mode"):
+        _fit(model, c2, phi, cfg, None)

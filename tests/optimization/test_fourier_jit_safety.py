@@ -12,6 +12,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from xpcsjax.optimization.nlsq.fourier_reparam import (
     FourierReparamConfig,
@@ -40,6 +41,7 @@ def test_fourier_to_per_angle_jax_matches_numpy_and_is_jit_safe():
     assert np.max(np.abs(np.asarray(o_jax) - o_ref)) < 1e-12
 
 
+@pytest.mark.skip(reason="in-memory fourier removed in Phase 1+2; full fourier-test teardown in Phase 7")
 def test_heterodyne_fourier_joint_fit_has_no_tracer_error(caplog):
     """The fourier joint fit must not leak TracerArrayConversionError."""
     from xpcsjax.config import ConfigManager
@@ -77,6 +79,7 @@ def test_heterodyne_fourier_joint_fit_has_no_tracer_error(caplog):
     assert not leaked, f"tracer error leaked into fourier fit: {leaked[0][:100]}"
 
 
+@pytest.mark.skip(reason="in-memory fourier removed in Phase 1+2; full fourier-test teardown in Phase 7")
 def test_heterodyne_fourier_fit_with_regularization_no_tracer_error(caplog):
     """The L3-regularization fourier path (joint_residual_fn) must also be
     JIT-safe and produce finite parameters — guards the DRY consolidation of

@@ -1,6 +1,7 @@
 import logging
 
 import numpy as np
+import pytest
 
 from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import reorder_for_stratification
 
@@ -380,6 +381,11 @@ def test_stratified_ls_constant_mode_raises():
         )
 
 
+@pytest.mark.skip(
+    reason="compares against the in-memory fourier joint fit, removed in Phase 1+2; "
+    "the stratified-LS fourier path itself is still covered by "
+    "test_stratified_ls_fourier_mode. Full fourier-test teardown in Phase 7."
+)
 def test_stratified_ls_fourier_parity():
     """Fourier-mode stratified-LS matches the in-memory joint fourier fit objective.
 

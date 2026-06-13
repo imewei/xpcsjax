@@ -26,7 +26,7 @@ def test_l2_hierarchical_activates_for_heterodyne() -> None:
 
     model = _build_minimal_heterodyne_model_for_fourier()
     config = NLSQConfig(
-        per_angle_mode="fourier",
+        per_angle_mode="individual",  # repointed from fourier (in-memory fourier removed in Phase 1+2; L2/L3/L4 are mode-agnostic)
         enable_hierarchical=True,
         max_nfev=30,
     )
@@ -61,7 +61,7 @@ def test_l2_hierarchical_two_stage_actually_runs() -> None:
 
     model = _build_minimal_heterodyne_model_for_fourier()
     config = NLSQConfig(
-        per_angle_mode="fourier",
+        per_angle_mode="individual",  # repointed from fourier (in-memory fourier removed in Phase 1+2; L2/L3/L4 are mode-agnostic)
         fourier_order=2,
         enable_hierarchical=True,
         max_nfev=60,  # generous so both stages have budget
@@ -144,7 +144,7 @@ def test_l3_adaptive_regularization_activates_for_heterodyne() -> None:
 
     model = _build_minimal_heterodyne_model_for_fourier()
     config = NLSQConfig(
-        per_angle_mode="fourier",
+        per_angle_mode="individual",  # repointed from fourier (in-memory fourier removed in Phase 1+2; L2/L3/L4 are mode-agnostic)
         regularization_mode="adaptive",
         max_nfev=30,
     )
@@ -185,7 +185,7 @@ def test_l3_adaptive_regularization_actually_penalizes() -> None:
 
     # Baseline: no regularization
     config_baseline = NLSQConfig(
-        per_angle_mode="fourier",
+        per_angle_mode="individual",  # repointed from fourier (in-memory fourier removed in Phase 1+2; L2/L3/L4 are mode-agnostic)
         fourier_order=2,
         regularization_mode="none",
         max_nfev=60,
@@ -195,7 +195,7 @@ def test_l3_adaptive_regularization_actually_penalizes() -> None:
     # Regularized — re-build model since fit mutates it
     model_reg = _build_minimal_heterodyne_model_for_fourier()
     config_reg = NLSQConfig(
-        per_angle_mode="fourier",
+        per_angle_mode="individual",  # repointed from fourier (in-memory fourier removed in Phase 1+2; L2/L3/L4 are mode-agnostic)
         fourier_order=2,
         regularization_mode="adaptive",
         group_variance_lambda=0.01,
@@ -248,7 +248,7 @@ def test_l4_gradient_monitor_activates_for_heterodyne() -> None:
 
     model = _build_minimal_heterodyne_model_for_fourier()
     config = NLSQConfig(
-        per_angle_mode="fourier",
+        per_angle_mode="individual",  # repointed from fourier (in-memory fourier removed in Phase 1+2; L2/L3/L4 are mode-agnostic)
         enable_gradient_monitoring=True,
         gradient_ratio_threshold=100.0,
         gradient_consecutive_triggers=3,
@@ -288,7 +288,7 @@ def test_l4_gradient_monitor_records_real_observations() -> None:
 
     model = _build_minimal_heterodyne_model_for_fourier()
     config = NLSQConfig(
-        per_angle_mode="fourier",
+        per_angle_mode="individual",  # repointed from fourier (in-memory fourier removed in Phase 1+2; L2/L3/L4 are mode-agnostic)
         fourier_order=2,
         enable_gradient_monitoring=True,
         gradient_ratio_threshold=100.0,
@@ -377,7 +377,7 @@ def test_l5_shear_weighting_is_homodyne_only() -> None:
     from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
 
     model = _build_minimal_heterodyne_model_for_fourier()
-    config = NLSQConfig(per_angle_mode="fourier", max_nfev=30)
+    config = NLSQConfig(per_angle_mode="individual", max_nfev=30)  # repointed from fourier (in-memory fourier removed Phase 1+2; L5 marker is mode-agnostic)
     n_phi = 6
     c2 = _build_synthetic_c2_stack_for_fourier(n_phi=n_phi, n_t=16, model=model)
     phi = np.linspace(0, 150, n_phi)

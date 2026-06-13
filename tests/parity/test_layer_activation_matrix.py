@@ -1,8 +1,9 @@
 """Locks the per-mode anti-degeneracy layer-activation contract.
 
-L1-L4 are active for both ``averaged`` and ``fourier`` heterodyne modes;
+L1-L4 are active for both ``averaged`` and ``individual`` heterodyne modes;
 L5 (shear weighting) is ``laminar_flow``-only and is recorded as
-``'not_applicable_heterodyne'`` in all heterodyne results.
+``'not_applicable_heterodyne'`` in all heterodyne results. (In-memory ``fourier``
+was retired in Phase 1+2; full fourier-test teardown is Phase 7.)
 
 Diagnostics key/value assertions are derived directly from
 ``_build_heterodyne_diagnostics`` and the extras dicts assembled in
@@ -30,16 +31,10 @@ _CANONICAL_GM_KEYS = {
 # ---------------------------------------------------------------------------
 
 
-def test_heterodyne_l1_reparam_active_fourier():
-    """Fourier per_angle_mode sets fourier_basis_dim to a positive integer (L1 engaged)."""
-    model, c2, phi = make_synthetic_two_component(n_phi=7, n_t=16)
-    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "fourier"})
-    diag = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None).nlsq_diagnostics
-    assert diag["per_angle_mode"] == "fourier"
-    # fourier_basis_dim is the number of Fourier coefficients per scaling parameter;
-    # must be a positive integer when the Fourier basis is active.
-    assert isinstance(diag["fourier_basis_dim"], int)
-    assert diag["fourier_basis_dim"] > 0
+# ``test_heterodyne_l1_reparam_active_fourier`` removed: in-memory fourier (the
+# only path that set fourier_basis_dim > 0) was retired in Phase 1+2 (full
+# fourier-test teardown in Phase 7). The averaged/individual cases below cover
+# the mode-agnostic L1-L4 + L5-exclusion contract.
 
 
 def test_heterodyne_l1_reparam_averaged_has_none_basis_dim():
@@ -93,17 +88,22 @@ def test_heterodyne_l2_l3_l4_active_l5_excluded_averaged():
 
 
 # ---------------------------------------------------------------------------
-# L2 + L3 + L4 active; L5 excluded — fourier mode
+# L2 + L3 + L4 active; L5 excluded — individual mode
 # ---------------------------------------------------------------------------
 
 
-def test_heterodyne_l2_l3_l4_active_l5_excluded_fourier():
-    """Same layer-activation contract holds for the fourier per_angle_mode."""
+def test_heterodyne_l2_l3_l4_active_l5_excluded_individual():
+    """Same layer-activation contract holds for the individual per_angle_mode.
+
+    Repointed from the former fourier vehicle (in-memory fourier was retired in
+    Phase 1+2; full fourier-test teardown in Phase 7). ``individual`` exercises
+    the same mode-agnostic L2/L3/L4 layers and the L5 exclusion.
+    """
     model, c2, phi = make_synthetic_two_component(n_phi=7, n_t=16)
     cfg = NLSQConfig.from_dict(
         {
             "analysis_mode": "two_component",
-            "per_angle_mode": "fourier",
+            "per_angle_mode": "individual",
             "enable_hierarchical": True,
             "regularization_mode": "tikhonov",
             "enable_gradient_monitoring": True,
@@ -111,9 +111,9 @@ def test_heterodyne_l2_l3_l4_active_l5_excluded_fourier():
     )
     diag = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None).nlsq_diagnostics
 
-    # L1: Fourier basis engaged
-    assert diag["per_angle_mode"] == "fourier"
-    assert isinstance(diag["fourier_basis_dim"], int) and diag["fourier_basis_dim"] > 0
+    # L1: per-angle individual mode (no Fourier basis)
+    assert diag["per_angle_mode"] == "individual"
+    assert diag["fourier_basis_dim"] is None
 
     # L2
     assert diag.get("hierarchical_active") is True

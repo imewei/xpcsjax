@@ -68,10 +68,12 @@ def _make_failing_adapter(orig_adapter_cls):
         # ``auto`` with n_phi >= constant_scaling_threshold (3) resolves to the
         # averaged joint builder (_fit_joint_averaged_multi_phi).
         ("auto", 3, "averaged"),
-        # ``fourier`` routes to the Fourier joint builder (_fit_joint_multi_phi).
-        # n_phi=7 gives the FourierReparameterizer enough angles to build a real
-        # fourier basis rather than silently falling back to independent.
-        ("fourier", 7, "fourier"),
+        # ``individual`` routes to the scaling-first joint builder
+        # (_fit_joint_multi_phi). This replaces the former ``fourier`` row:
+        # in-memory fourier was retired in Phase 1+2 (full fourier-test teardown
+        # in Phase 7), and ``individual`` exercises the same joint-fit builder
+        # the fallback-monitor bug was duplicated in.
+        ("individual", 7, "individual"),
     ],
 )
 def test_fallback_does_not_report_discarded_adapter_monitor(

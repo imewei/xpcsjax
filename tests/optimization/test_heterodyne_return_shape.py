@@ -366,60 +366,26 @@ def _build_synthetic_c2_stack_for_fourier(n_phi: int, n_t: int, model) -> np.nda
     return c2_stack
 
 
-def test_fourier_mode_returns_single_optimization_result() -> None:
-    """``per_angle_mode='fourier'`` returns one OptimizationResult.
+def test_fourier_mode_rejected_in_memory() -> None:
+    """In-memory ``per_angle_mode='fourier'`` is rejected (Phase 1+2 removal).
 
-    The optimizer parameter vector is
-    ``[physics_varying | fourier_contrast_coeffs | fourier_offset_coeffs]``
-    where each Fourier block has ``2K+1`` coefficients (K = fourier_order).
-    Per-angle chi^2 lands in ``nlsq_diagnostics['chi2_per_angle']``, and
-    SSR conservation (``chi2_per_angle.sum() == chi_squared``) must hold
-    — same invariant as B2's constant-mode result.
+    The in-memory Fourier joint builders were retired; ``fit_nlsq_multi_phi``
+    now raises ``ValueError`` for a fourier-resolved mode. (Fourier scaling
+    remains on the >=1M stratified-LS / streaming paths. Full fourier-test
+    teardown is Phase 7.)
     """
     pytest.importorskip("xpcsjax.core.heterodyne_model_stateful")
     from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
     from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
 
     model = _build_minimal_heterodyne_model_for_fourier()
-    K = 2
-    config = NLSQConfig(per_angle_mode="fourier", fourier_order=K, max_nfev=30)
+    config = NLSQConfig(per_angle_mode="fourier", fourier_order=2, max_nfev=30)
     n_phi = len(_C2_PHI_ANGLES)
     c2 = _build_synthetic_c2_stack_for_fourier(n_phi=n_phi, n_t=_C2_N_TIMES, model=model)
     phi = _C2_PHI_ANGLES
 
-    result = fit_nlsq_multi_phi(model, c2, phi, config, weights=None)
-
-    assert isinstance(result, OptimizationResult), (
-        f"expected OptimizationResult, got {type(result).__name__}"
-    )
-
-    # Parameter vector layout: physics_varying + 2*(2K+1) Fourier coeffs
-    # (contrast block + offset block).
-    expected_dim = model.param_manager.n_varying + 2 * (2 * K + 1)
-    assert result.parameters.shape == (expected_dim,), (
-        f"Fourier mode parameter vector should be physics + 2*(2K+1) coeffs; "
-        f"got {result.parameters.shape}"
-    )
-
-    assert result.nlsq_diagnostics is not None
-    diag = result.nlsq_diagnostics
-    assert diag["per_angle_mode"] == "fourier"
-    # fourier_basis_dim is the per-block coefficient count (2K+1), matching
-    # B2's per_angle_mode='constant' convention where it is None and the
-    # post-hoc heterodyne_views helpers consume this key.
-    assert diag["fourier_basis_dim"] == 2 * K + 1
-    assert diag["scaling_source"] == "fitted"
-    assert diag["shear_weighting"] == "not_applicable_heterodyne"
-    assert "chi2_per_angle" in diag
-    assert diag["chi2_per_angle"].shape == (n_phi,)
-
-    # SSR conservation (locked in by B2 — same convention applies here).
-    np.testing.assert_allclose(
-        diag["chi2_per_angle"].sum(),
-        result.chi_squared,
-        rtol=1e-6,
-        err_msg="chi2_per_angle.sum() must equal chi_squared (SSR conservation)",
-    )
+    with pytest.raises(ValueError, match="unknown per_angle_mode"):
+        fit_nlsq_multi_phi(model, c2, phi, config, weights=None)
 
 
 # ---------------------------------------------------------------------------
@@ -575,10 +541,12 @@ def test_multistart_path_returns_single_optimization_result() -> None:
     [
         ("constant", 2, None),
         ("individual", 4, None),
-        ("fourier", 6, 2),
+        # ``fourier`` row removed: in-memory fourier was retired in Phase 1+2
+        # (full fourier-test teardown in Phase 7). The >=1M stratified-LS /
+        # streaming fourier paths keep their own coverage.
         ("auto", 2, None),  # n_phi < constant_scaling_threshold (3) → constant
         ("auto", 4, None),  # constant_threshold <= n_phi < fourier_threshold → averaged
-        ("auto", 6, None),  # n_phi >= fourier_auto_threshold (6) → fourier
+        ("auto", 6, None),  # n_phi >= constant_scaling_threshold (3) → averaged
     ],
 )
 def test_fit_nlsq_multi_phi_top_level_returns_optimization_result(

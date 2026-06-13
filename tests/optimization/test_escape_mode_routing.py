@@ -27,7 +27,10 @@ def _fit(model, c2, phi, mode, *, cmaes):
     return fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
 
 
-@pytest.mark.parametrize("mode", ["individual", "fourier"])
+# ``fourier`` row removed: in-memory fourier was retired in Phase 1+2 (full
+# fourier-test teardown in Phase 7). ``individual`` still pins the consistency
+# invariant (enabling CMA-ES must not switch the scaling layout).
+@pytest.mark.parametrize("mode", ["individual"])
 def test_escape_preserves_layout_and_is_keep_better(mode):
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
     plain = _fit(model, c2, phi, mode, cmaes=False)

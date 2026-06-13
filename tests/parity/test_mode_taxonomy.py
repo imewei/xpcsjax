@@ -48,7 +48,8 @@ from xpcsjax.optimization.nlsq.results import OptimizationResult
     [
         ("constant", lambda n_phys, n_phi, K: 0),
         ("individual", lambda n_phys, n_phi, K: 2 * n_phi),
-        ("fourier", lambda n_phys, n_phi, K: 2 * (2 * K + 1)),
+        # ``fourier`` row removed: in-memory fourier was retired in Phase 1+2
+        # (full fourier-test teardown in Phase 7).
     ],
 )
 def test_heterodyne_param_dim_matches_homodyne_formula(
