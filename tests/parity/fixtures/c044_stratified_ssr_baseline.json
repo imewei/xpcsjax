@@ -1,0 +1,26 @@
+{
+  "_meta": {
+    "description": "Pre-Phase-3 (physics-first) C044 >=1M stratified-LS SSR baseline. Captured ONCE at commit 3538de8 (the last commit BEFORE the scaling-first re-order e44ec65) via /tmp/c044_strat_ssr_capture.py. The oracle test_phase3_stratified_ls_c044_1m.py asserts the CURRENT scaling-first stratified-LS SSR is no-worse than these numbers (averaged/individual within 1e-3). Do NOT overwrite from a post-re-order checkout.",
+    "capture_commit": "3538de8",
+    "config": "C044/xpcsjax_config.yaml",
+    "n_t": 220,
+    "n_phi": 23,
+    "size": 1113200,
+    "shuffle": false
+  },
+  "averaged": {
+    "chi_squared": 3339.5804741832035,
+    "n_params": 16,
+    "supported_pre_phase3": true
+  },
+  "individual": {
+    "chi_squared": 2761.000975876785,
+    "n_params": 60,
+    "supported_pre_phase3": true
+  },
+  "constant": {
+    "chi_squared": null,
+    "supported_pre_phase3": false,
+    "note": "constant raised NotImplementedError on the pre-Phase-3 stratified-LS path (routed to the in-memory joint fit). No pre-re-order stratified baseline exists; the oracle asserts it now RUNS on stratified-LS and produces a finite physics-only SSR instead of a no-worse comparison."
+  }
+}

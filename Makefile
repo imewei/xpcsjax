@@ -41,7 +41,8 @@ HEAVY_NODES := \
   tests/parity/test_l4_per_iteration_parity.py::test_homodyne_characterization_bit_identical_with_monitor
 HEAVY_FILES := \
   tests/heterodyne/test_two_component_real_data.py \
-  tests/parity/test_engine_heterodyne_realdata_c044.py
+  tests/parity/test_engine_heterodyne_realdata_c044.py \
+  tests/parity/test_phase3_stratified_ls_c044_1m.py
 #
 # (b) Env-gated — self-skip under `-n auto` (no XPCSJAX_RUN_* set), so they do
 #     NOT fire today; ignored purely as insurance against an accidental
