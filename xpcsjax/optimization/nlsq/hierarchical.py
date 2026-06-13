@@ -228,19 +228,23 @@ class HierarchicalOptimizer:
         self.n_physical = n_physical
         self.fourier = fourier_reparameterizer
 
-        # Determine per-angle parameter count from the canonical mapper.
-        # HierarchicalOptimizer runs only for the individual scaling mode
-        # (averaged/constant skip L2 per architecture); for individual,
-        # ParameterIndexMapper.canonical always returns n_optimized == 2*n_phi —
-        # numerically identical to the old ``2 * n_phi`` else-branch but now
-        # sourced from the single boundary authority (Phase 0 seam).
-        # self.fourier is kept until the Phase 7 teardown; we no longer DERIVE
-        # the boundary from it.
-        from xpcsjax.optimization.nlsq.parameter_index_mapper import ParameterIndexMapper
+        # Determine the per-angle parameter count. Fourier (still live on the
+        # stratified-LS path until the Phase 7 teardown) parameterizes the per-angle
+        # scaling by its COEFFICIENT count, not 2*n_phi. Every other mode that runs
+        # HierarchicalOptimizer is ``individual`` (averaged/constant skip L2 per
+        # architecture), for which the canonical mapper returns n_optimized == 2*n_phi
+        # — sourced from the single boundary authority (Phase 0 seam). When fourier is
+        # removed in Phase 7, the else-branch becomes the only path.
+        if self.fourier is not None:
+            self.n_per_angle = self.fourier.n_coeffs
+        else:
+            from xpcsjax.optimization.nlsq.parameter_index_mapper import (
+                ParameterIndexMapper,
+            )
 
-        self.n_per_angle = ParameterIndexMapper.canonical(
-            mode="individual", n_phi=n_phi, n_physics=n_physical
-        ).n_optimized
+            self.n_per_angle = ParameterIndexMapper.canonical(
+                mode="individual", n_phi=n_phi, n_physics=n_physical
+            ).n_optimized
 
         # Use numpy arrays for indices to support both NumPy and JAX array indexing
         # JAX arrays don't support Python list indexing (non-tuple sequence error)
