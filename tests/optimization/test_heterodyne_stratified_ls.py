@@ -677,6 +677,33 @@ def test_stratified_ls_jacfwd_covariance_when_adapter_returns_none(monkeypatch):
     assert len(fallback.parameters) == n
 
 
+def test_stratified_ls_modes_resolve_via_canonical_resolver():
+    """The 3 stratified-LS modes resolve canonically; n_optimized matches the mapper.
+
+    Phase 3 relies on the Phase-0 resolver returning only
+    {constant, averaged, individual} (no fourier) and on the mapper's
+    n_optimized agreeing with the per-mode scaling-tail length.
+    """
+    from xpcsjax.optimization.nlsq.per_angle_mode import (
+        n_optimized,
+        resolve_per_angle_mode,
+    )
+
+    n_phi = 5
+    # auto @ n_phi=5 >= threshold(3) -> averaged
+    assert resolve_per_angle_mode("auto", n_phi) == "averaged"
+    assert resolve_per_angle_mode("constant", n_phi) == "constant"
+    assert resolve_per_angle_mode("individual", n_phi) == "individual"
+
+    assert n_optimized("constant", n_phi) == 0
+    assert n_optimized("averaged", n_phi) == 2
+    assert n_optimized("individual", n_phi) == 2 * n_phi
+
+    # fourier is erased from the engine -> ValueError, never a stratified mode.
+    with pytest.raises(ValueError):
+        resolve_per_angle_mode("fourier", n_phi)
+
+
 def test_stratified_ls_jacfwd_guard_on_linalg_error(monkeypatch):
     """When the jacfwd Jacobian computation raises, the fit still returns
     (NaN covariance, no exception), and ``parameters``/``chi_squared`` are
