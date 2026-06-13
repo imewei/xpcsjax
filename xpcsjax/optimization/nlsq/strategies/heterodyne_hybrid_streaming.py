@@ -717,7 +717,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
             config=hier_config,
             n_phi=n_phi_meta,
             n_physical=meta["n_physics_varying"],
-            fourier_reparameterizer=meta.get("fourier"),  # None for individual
+            # 'individual' only reaches here; no Fourier reparameterizer exists.
         )
         logger.info(
             "L2 hierarchical optimizer enabled (heterodyne streaming): "
@@ -787,98 +787,79 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     logger.info("Running heterodyne hybrid streaming fit (%d params)...", len(p0_arr))
 
     # ------------------------------------------------------------------
-    # Branch: L2 hierarchical (individual/fourier) or plain optimizer
+    # Branch: L2 hierarchical (individual) or plain optimizer
     # ------------------------------------------------------------------
     hierarchical_active = False
 
     if hierarchical_optimizer is not None:
-        # L2 hierarchical branch (Task 6).
+        # L2 hierarchical branch.
         #
         # HierarchicalOptimizer expects layout [per_angle | physics]:
-        #   indices 0..n_scaling-1  → per-angle (scaling tail)
+        #   indices 0..n_scaling-1  → per-angle (scaling head)
         #   indices n_scaling..end  → physics
         #
-        # Heterodyne's native layout is the reverse: [physics | scaling].
-        # We permute to hier-convention, run the solver, then un-permute.
+        # Heterodyne's native vector is ALREADY scaling-first [scaling | physics]
+        # (Phase-4 unification), which IS the hier-convention layout — so the
+        # bridge permutation is identity and is retired. p0_arr / bounds_arg pass
+        # straight through; the result is already native.
         #
         # NOTE: the hierarchical loss_fn materialises the full prediction over
         # x_data on every call — mirrors laminar; acceptable because L2 only
-        # fires for individual/fourier which auto selects at small n_phi.
+        # fires for 'individual' which auto selects at small n_phi.
         assert bounds_arg is not None, (
             "L2 hierarchical requires bounds (bounds_arg is None — pass finite "
             "physics bounds so the scaling tail is also bounded)"
         )
-        n_phys_h = meta["n_physics_varying"]
-        n_scal_h = meta["n_scaling"]
-
-        # Permutation: heterodyne [physics | scaling] -> hier [scaling | physics]
-        perm = np.concatenate(
-            [
-                np.arange(n_phys_h, n_phys_h + n_scal_h, dtype=np.intp),  # scaling tail first
-                np.arange(n_phys_h, dtype=np.intp),  # then physics
-            ]
-        )
-        unperm = np.empty_like(perm)
-        unperm[perm] = np.arange(len(perm), dtype=np.intp)
-
-        p0_hier = p0_arr[perm]
-        bounds_hier = (bounds_arg[0][perm], bounds_arg[1][perm])
 
         y_data_jax = jnp.asarray(y_data)
         x_data_jax = x_data  # already numpy; model_fn accepts both
 
-        def _hier_loss(params_hier: np.ndarray) -> float:
-            """Loss in hier-convention param space [scaling | physics].
+        def _hier_loss(params: np.ndarray) -> float:
+            """Loss in the native scaling-first param space [scaling | physics].
 
-            Permutes back to heterodyne convention [physics | scaling] before
-            calling model_fn so the closure is consistent with x_data/y_data.
             Includes L3 adaptive regularization when active.
             """
-            params_native = jnp.asarray(params_hier)[unperm]
-            pred = model_fn(x_data_jax, *params_native)
+            params_jax = jnp.asarray(params)
+            pred = model_fn(x_data_jax, *params_jax)
             residuals = y_data_jax - pred
             wl = jnp.mean(residuals**2) * y_data.shape[0]
             if adaptive_regularizer is not None:
                 mse = wl / y_data.shape[0]
                 wl = wl + adaptive_regularizer.compute_regularization_jax(
-                    params_native, mse, y_data.shape[0]
+                    params_jax, mse, y_data.shape[0]
                 )
             return float(wl)
 
         _hier_counter = [0]
 
         def _loss_jax(ph: jnp.ndarray) -> jnp.ndarray:
-            """Loss in hier-convention param space [scaling | physics] (JAX)."""
-            params_native = ph[unperm]
-            pred = model_fn(x_data_jax, *params_native)
+            """Loss in the native scaling-first param space [scaling | physics] (JAX)."""
+            pred = model_fn(x_data_jax, *ph)
             residuals = y_data_jax - pred
             wl = jnp.mean(residuals**2) * y_data.shape[0]
             if adaptive_regularizer is not None:
                 mse = wl / y_data.shape[0]
                 wl = wl + adaptive_regularizer.compute_regularization_jax(
-                    params_native, mse, y_data.shape[0]
+                    ph, mse, y_data.shape[0]
                 )
             return wl
 
         _value_and_grad = jax.jit(jax.value_and_grad(_loss_jax))
 
-        def _hier_grad(params_hier: np.ndarray) -> np.ndarray:
-            """Gradient in hier-convention param space."""
+        def _hier_grad(params: np.ndarray) -> np.ndarray:
+            """Gradient in the native scaling-first param space."""
             # Single forward+backward pass: value_and_grad gives both the loss
             # and the gradient, so the monitor reuses loss_val instead of a
             # second full _hier_loss forward pass.
-            loss_val, g = _value_and_grad(jnp.asarray(params_hier))
+            loss_val, g = _value_and_grad(jnp.asarray(params))
             if monitor is not None:
-                # `g` and `params_hier` are in HIER layout [scaling | physics],
-                # but the monitor's physical_indices/per_angle_indices are NATIVE
-                # layout [physics | scaling]. Un-permute both before check() so the
-                # group slices line up with the indices.
-                g_native = np.asarray(g)[unperm]
-                params_native_arr = np.asarray(params_hier)[unperm]
+                # `g` and `params` are in the native scaling-first layout, which
+                # is the same layout the monitor's physical_indices /
+                # per_angle_indices are built against — no permutation needed.
                 monitor.check(
-                    g_native,
+                    np.asarray(g),
                     _hier_counter[0],
-                    params_native_arr,
+                    np.asarray(params),
                     float(loss_val),
                 )
                 _hier_counter[0] += 1
@@ -887,16 +868,14 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         hier_result = hierarchical_optimizer.fit(
             loss_fn=_hier_loss,
             grad_fn=_hier_grad,
-            p0=np.asarray(p0_hier, dtype=np.float64),
-            bounds=bounds_hier,
+            p0=np.asarray(p0_arr, dtype=np.float64),
+            bounds=(bounds_arg[0], bounds_arg[1]),
             outer_iteration_callback=None,  # no shear update for heterodyne
         )
 
-        # Un-permute result back to heterodyne convention [physics | scaling]
-        x_hier_native = np.asarray(hier_result.x, dtype=np.float64)[unperm]
-        n = len(x_hier_native)
+        popt = np.asarray(hier_result.x, dtype=np.float64)
+        n = len(popt)
         pcov = np.eye(n)  # Hessian covariance is optional; identity placeholder
-        popt = x_hier_native
         info: dict[str, Any] = {
             "success": bool(hier_result.success),
             "nit": int(hier_result.n_outer_iterations),

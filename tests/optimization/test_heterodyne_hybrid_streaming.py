@@ -1452,3 +1452,51 @@ def test_streaming_resolves_canonical_mode(monkeypatch, token, n_phi, threshold,
     )
     assert captured["mode"] == expected
     assert info["anti_degeneracy"]["per_angle_mode"] == expected
+
+
+def test_l2_branch_uses_identity_layout_no_permute():
+    """Native heterodyne vector is scaling-first (Phase 4), matching
+    HierarchicalOptimizer's [per_angle | physics] convention. The L2 branch must
+    pass the vector straight through — no permute/un-permute. Guard: the module no
+    longer constructs a non-identity permutation in the L2 branch."""
+    import inspect
+
+    from xpcsjax.optimization.nlsq.strategies import heterodyne_hybrid_streaming as hs
+
+    src = inspect.getsource(hs.fit_with_stratified_hybrid_streaming_heterodyne)
+    assert "unperm" not in src, "L2 un-permute survived; native vector is already scaling-first"
+    assert "[perm]" not in src, (
+        "L2 permute survived; retire to identity (Phase 4 made native scaling-first)"
+    )
+
+
+def test_l2_individual_runs_and_beats_frozen_baseline():
+    """individual mode drives the L2 hierarchical branch; with the permute retired
+    the result still ties-or-beats the frozen-quantile SSR baseline."""
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        fit_with_stratified_hybrid_streaming_heterodyne,
+    )
+
+    # n_phi=2 -> auto resolves to individual (threshold=3), exercising the L2 branch.
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=2, n_t=8)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+    _, _, info = fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={"verbose": 0},
+        anti_degeneracy_config={"per_angle_mode": "individual",
+                                "hierarchical": {"max_outer_iterations": 3}},
+    )
+    assert info["anti_degeneracy"]["hierarchical_active"] is True
+    assert info["anti_degeneracy"]["per_angle_mode"] == "individual"
+    assert np.isfinite(info["ssr"]) and np.isfinite(info["ssr_frozen_baseline"])
+    assert info["ssr"] <= info["ssr_frozen_baseline"] + 1e-9, (
+        f"L2 individual ssr={info['ssr']:.6e} > frozen={info['ssr_frozen_baseline']:.6e}"
+    )
