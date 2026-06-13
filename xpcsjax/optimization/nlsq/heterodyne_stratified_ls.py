@@ -258,16 +258,16 @@ def build_joint_pointwise_residual(
     stratified_data: Any,
     per_angle_mode: str,
     init_scaling: np.ndarray,
-    fourier: Any | None = None,
+    frozen: tuple[np.ndarray, np.ndarray] | None = None,
     perm: np.ndarray | None = None,
 ) -> tuple[Callable[[np.ndarray], jnp.ndarray], np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
     """Build a flat pointwise residual with VARYING per-angle scaling.
 
     Unlike :func:`build_heterodyne_pointwise_model` (which bakes the per-angle
     contrast/offset in as FIXED quantile arrays), this residual expands the
-    per-angle scaling from the TAIL of the joint parameter vector each
-    iteration via ``make_scaling_expander``. Parameter packing is physics-first:
-    ``params = [physics (n_physics) | scaling (n_scaling)]``.
+    per-angle scaling from the HEAD of the joint parameter vector each
+    iteration via ``make_scaling_expander``. Parameter packing is canonical
+    scaling-first: ``params = [scaling (n_scaling) | physics (n_physics)]``.
 
     Parameters
     ----------
@@ -277,13 +277,14 @@ def build_joint_pointwise_residual(
         Flat heterodyne data from ``build_heterodyne_stratified_data``.
     per_angle_mode :
         One of the modes accepted by ``make_scaling_expander``
-        (``"averaged"`` / ``"individual"`` / ``"fourier"``).
+        (``"constant"`` / ``"averaged"`` / ``"individual"``).
     init_scaling :
-        Mode-appropriate initial scaling tail seed (the driver computes this).
-        Length must equal ``n_scaling`` for the active mode: ``2`` for
-        averaged, ``2*n_phi`` for individual, ``fourier.n_coeffs`` for fourier.
-    fourier :
-        Optional Fourier descriptor passed through to ``make_scaling_expander``.
+        Mode-appropriate initial scaling head seed (the driver computes this).
+        Length must equal ``n_scaling`` for the active mode: ``0`` for constant
+        (frozen scaling), ``2`` for averaged, ``2*n_phi`` for individual.
+    frozen :
+        Optional ``(contrast[n_phi], offset[n_phi])`` frozen per-angle quantile
+        arrays, required by ``constant`` mode (the optimizer solves physics-only).
     perm :
         Optional permutation of the flat support (objective-invariant reorder /
         shuffle used by the stratified-LS path). ``None`` keeps native order.
@@ -296,8 +297,8 @@ def build_joint_pointwise_residual(
         ``[phi_idx, t1_idx, t2_idx]`` per point (post-``perm`` if given).
     y_data : np.ndarray, (N,) float64
         Observed C2 values (post-``perm`` if given).
-    p0_full : np.ndarray, (n_physics + n_scaling,) float64
-        Physics-first initial joint vector.
+    p0_full : np.ndarray, (n_scaling + n_physics,) float64
+        Scaling-first initial joint vector.
     meta : dict
         ``build_heterodyne_pointwise_model``'s meta plus
         ``{"n_physics", "n_phi", "n_scaling"}``.
@@ -327,7 +328,7 @@ def build_joint_pointwise_residual(
 
     n_physics = int(model.param_manager.n_varying)
     n_phi = int(np.asarray(meta["phi_unique"]).shape[0])
-    expander, n_scaling = make_scaling_expander(per_angle_mode, n_phi, fourier=fourier)
+    expander, n_scaling = make_scaling_expander(per_angle_mode, n_phi, frozen=frozen)
 
     fixed_full_jax = jnp.asarray(model.param_manager.get_full_values(), dtype=jnp.float64)
     varying_indices_jax = jnp.array(list(model.param_manager.varying_indices), dtype=jnp.int32)
@@ -351,8 +352,8 @@ def build_joint_pointwise_residual(
         # ``params`` argument is not reassigned to a jnp Array (keeps mypy happy
         # at the numpy/JAX boundary without changing behavior).
         p = jnp.asarray(params, dtype=jnp.float64)
-        physics = p[:n_physics]
-        scaling = p[n_physics:]
+        scaling = p[:n_scaling]
+        physics = p[n_scaling:]
         contrast, offset = expander(scaling)
         full = fixed_full_jax.at[varying_indices_jax].set(physics)
         phi_idx = x_jax[:, 0]
@@ -383,8 +384,8 @@ def build_joint_pointwise_residual(
         )
     p0_full = np.concatenate(
         [
-            np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
             init_scaling,
+            np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
         ]
     )
     out_meta = {**meta, "n_physics": n_physics, "n_phi": n_phi, "n_scaling": n_scaling}

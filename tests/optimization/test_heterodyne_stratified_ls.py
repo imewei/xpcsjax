@@ -968,3 +968,71 @@ def test_scaling_expander_rejects_fourier_now():
 
     with pytest.raises(NotImplementedError):
         make_scaling_expander("fourier", n_phi=7)
+
+
+def test_joint_residual_scaling_first_individual_layout():
+    """Test build_joint_pointwise_residual packs [scaling | physics] (scaling-first)."""
+    import numpy as np
+
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        build_joint_pointwise_residual,
+    )
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=12)
+    n_phi = len(phi)
+    contrast_pa = np.full(n_phi, 0.3, dtype=np.float64)
+    offset_pa = np.full(n_phi, 1.0, dtype=np.float64)
+    init_scaling = np.concatenate([contrast_pa, offset_pa])  # individual seed
+
+    _rfn, _x, _y, p0_full, meta = build_joint_pointwise_residual(
+        model=model,
+        stratified_data=build_heterodyne_stratified_data(model, c2, phi, None),
+        per_angle_mode="individual",
+        init_scaling=init_scaling,
+    )
+    n_scaling = int(meta["n_scaling"])
+    assert n_scaling == 2 * n_phi
+    # scaling-first: the HEAD is the scaling seed, the TAIL is the physics x0.
+    np.testing.assert_allclose(p0_full[:n_scaling], init_scaling)
+    np.testing.assert_allclose(
+        p0_full[n_scaling:],
+        np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+    )
+
+
+def test_joint_residual_constant_is_physics_only():
+    """Test constant mode: n_scaling=0, vector is physics-only, scaling frozen."""
+    import numpy as np
+
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        build_joint_pointwise_residual,
+    )
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=12)
+    n_phi = len(phi)
+    n_physics = int(model.param_manager.n_varying)
+    frozen_c = np.full(n_phi, 0.3, dtype=np.float64)
+    frozen_o = np.full(n_phi, 1.0, dtype=np.float64)
+    strat = build_heterodyne_stratified_data(model, c2, phi, None)
+
+    residual_fn, _x, _y, p0_full, meta = build_joint_pointwise_residual(
+        model=model,
+        stratified_data=strat,
+        per_angle_mode="constant",
+        init_scaling=np.zeros((0,), dtype=np.float64),
+        frozen=(frozen_c, frozen_o),
+    )
+    assert int(meta["n_scaling"]) == 0
+    assert p0_full.shape[0] == n_physics  # physics-only vector
+    # The residual must evaluate on the physics-only vector (frozen scaling baked in).
+    r = np.asarray(residual_fn(p0_full), dtype=np.float64)
+    assert r.shape[0] == int(meta["n_data_points"])
+    assert np.all(np.isfinite(r))
