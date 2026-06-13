@@ -1375,3 +1375,30 @@ def test_pointwise_model_rejects_fourier_token():
 
     # No fourier symbol survives at module scope.
     assert not hasattr(hs, "FourierReparameterizer")
+
+
+@pytest.mark.parametrize("mode", ["constant", "averaged", "individual"])
+def test_meta_has_no_fourier_keys(mode):
+    """After the fourier teardown, meta must carry zero fourier-related keys for
+    every resolved mode, and per_angle_mode must be the canonical token."""
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        build_heterodyne_pointwise_model,
+    )
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=4, n_t=8)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    _fn, _x, _y, _p0, meta = build_heterodyne_pointwise_model(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        per_angle_mode=mode,
+    )
+    forbidden = {"fourier", "fourier_effective_mode", "fourier_order", "fourier_basis_dim"}
+    assert forbidden.isdisjoint(meta.keys()), (
+        f"meta still carries fourier keys: {forbidden & set(meta.keys())}"
+    )
+    assert meta["per_angle_mode"] == mode
+    assert "n_scaling" in meta and "n_physics_varying" in meta
