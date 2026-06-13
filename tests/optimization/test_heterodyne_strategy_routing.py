@@ -6,8 +6,6 @@ stratification above 100k points but only *engages* the stratified-LS solver at
 point estimator so no large array is ever allocated.
 """
 
-import logging
-
 import numpy as np  # noqa: F401  (kept for parity / future array fixtures)
 import pytest
 
@@ -253,8 +251,9 @@ def test_hybrid_streaming_takes_precedence_over_stratified_ls(monkeypatch):
 # FourierReparameterizer "independent" mode); _aggregate_individual_results is
 # only the config-is-None/single-angle fallback. Routing individual through
 # stratified-LS is objective-consistent with the in-memory path (no objective
-# discontinuity at 1M). Policy: `averaged`/`fourier`/`individual` all route to
-# stratified-LS. Only `constant` (frozen scaling) uses the in-memory path.
+# discontinuity at 1M). Policy (Phase 3): `constant`/`averaged`/`individual` all
+# route to stratified-LS. `constant` freezes scaling and solves physics-only on
+# the stratified-LS path; the legacy fourier mode is removed from the engine.
 # -----------------------------------------------------------------------------
 
 
@@ -290,27 +289,25 @@ def test_individual_mode_uses_stratified_ls(monkeypatch):  # noqa: N802
     )
 
 
-def test_ge_1M_unsupported_mode_warns(monkeypatch, caplog):  # noqa: N802 - "1M" pins the boundary
-    """>=1M points in an UNSUPPORTED per-angle mode (constant) → WARNING, not silence.
+def test_ge_1M_constant_mode_uses_stratified_ls(monkeypatch):  # noqa: N802 - "1M" pins the boundary
+    """>=1M points in ``constant`` per-angle mode → stratified-LS solver IS called.
 
-    "No silent caps": a fit large enough that stratification would have mattered
-    (>=1M) that is routed to the higher-memory in-memory joint fit ONLY because
-    its mode lacks a stratified expander must say so at WARNING level. The fit
-    must still complete (fall back to the in-memory joint fit) and return a valid
-    OptimizationResult.
-
-    ``constant`` is now the only remaining mode that lacks a stratified expander
-    (``individual`` became supported in Task 4).
+    Phase 3 makes ``constant`` a first-class stratified mode: it freezes the
+    per-angle scaling from quantiles and solves physics-only on the stratified-LS
+    path. There is no longer any resolved mode that lacks a stratified expander, so
+    the old "unsupported -> warn -> in-memory" path is dead for in-scope modes.
     """
     import xpcsjax.optimization.nlsq as nlsq_pkg
     import xpcsjax.optimization.nlsq.heterodyne_stratified_ls as hsl
 
-    # The stratified-LS solver must NOT be called (constant is unsupported).
     called = {"strat": False}
+    _real = hsl.fit_heterodyne_stratified_least_squares
 
-    def _fake(**k):
+    def _fake(*, model, c2, phi, config, weights, **k):
         called["strat"] = True
-        return object()
+        # Delegate to the real implementation (captured before patching to
+        # avoid infinite recursion through the patched name).
+        return _real(model=model, c2=c2, phi=phi, config=config, weights=weights, **k)
 
     monkeypatch.setattr(hsl, "fit_heterodyne_stratified_least_squares", _fake)
     # Force the gate above 1M without allocating a huge array.
@@ -322,29 +319,16 @@ def test_ge_1M_unsupported_mode_warns(monkeypatch, caplog):  # noqa: N802 - "1M"
     from tests.optimization._heterodyne_fixtures import make_cfgmgr_and_data
 
     cfg, data = make_cfgmgr_and_data(n_phi=3, n_t=20)
-    # ``constant`` is the remaining mode unsupported by stratified-LS.
+    # ``constant`` now routes to stratified-LS (physics-only, frozen scaling).
     cfg.config["optimization"]["nlsq"]["per_angle_mode"] = "constant"
 
-    with caplog.at_level(logging.WARNING, logger="xpcsjax.optimization.nlsq"):
-        result = nlsq_pkg.fit_nlsq(data, cfg)
+    result = nlsq_pkg.fit_nlsq(data, cfg)
 
-    # The stratified-LS solver was correctly skipped...
-    assert called["strat"] is False
-    # ...and the fit still produced a valid result (fell back to the joint fit).
+    assert called["strat"] is True, (
+        "Stratified-LS solver was NOT called for constant mode at >=1M (should use it)"
+    )
     assert result is not None
     assert hasattr(result, "parameters")
-
-    # A WARNING-level record naming the mode + the skip must have been emitted.
-    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
-    matching = [
-        r
-        for r in warnings
-        if "constant" in r.getMessage() and "stratified-LS skipped" in r.getMessage()
-    ]
-    assert matching, (
-        "Expected a WARNING that names per_angle_mode=constant and reports "
-        f"stratified-LS was skipped; got warnings: {[r.getMessage() for r in warnings]}"
-    )
 
 
 # -----------------------------------------------------------------------------

@@ -7,9 +7,9 @@ These tests pin the ``execute_layers`` contract:
   ``hierarchical_active`` / ``regularization_active`` stay ``False`` (the inert
   gate, byte-identical to pre-Phase-3 behavior).
 * **Flag ON + ``enable_hierarchical``** — the L2 hierarchical solver runs on the
-  inline ``[physics | scaling]`` residual (individual / fourier), and the result
-  is accepted only under the keep-better guard (data-only SSR never worse than
-  the baseline by more than ``tol``).
+  inline canonical scaling-first ``[scaling | physics]`` residual (individual),
+  and the result is accepted only under the keep-better guard (data-only SSR
+  never worse than the baseline by more than ``tol``).
 * **Flag ON + ``regularization_mode != "none"``** — L3 is configured; the
   reported ``chi_squared`` stays the *data-only* SSR (penalty rows never leak
   into the objective).
@@ -100,37 +100,6 @@ def test_execute_layers_honors_hierarchical_budget():
     assert diag["execute_layers_kind"] == "L2_hierarchical"
     assert 0 <= int(diag["execute_layers_n_outer"]) <= 2
     assert "execute_layers_converged" in diag
-
-
-def test_execute_layers_fourier_l2_l3_executes():
-    """Fourier L2+L3 executes and keeps the data-only objective (review Fix 1).
-
-    Exercises the per-angle reconstruction path (Fourier coefficients ->
-    per-angle contrast/offset) that L3 must penalize. Contract: executes,
-    keep-better vs baseline, and chi^2 is data-only (penalty never contaminates).
-    """
-    model, c2, phi = make_synthetic_two_component(n_phi=7, n_t=20)
-    base = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": "fourier"}
-    )
-    on = NLSQConfig.from_dict(
-        {
-            "analysis_mode": "two_component",
-            "per_angle_mode": "fourier",
-            "execute_layers": True,
-            "enable_hierarchical": True,
-            "regularization_mode": "adaptive",
-            "group_variance_lambda": 0.01,
-            "hierarchical_max_outer_iterations": 3,
-        }
-    )
-    ssr_off = _fit(model, c2, phi, base).chi_squared
-    res = _fit(model, c2, phi, on)
-    assert res.nlsq_diagnostics["hierarchical_active"] is True
-    assert res.nlsq_diagnostics["regularization_active"] is True
-    assert res.chi_squared <= ssr_off * (1.0 + 1e-3)
-    chi2_pa = np.asarray(res.nlsq_diagnostics["chi2_per_angle"], dtype=np.float64)
-    assert np.isclose(chi2_pa.sum(), res.chi_squared, rtol=1e-6, atol=1e-9)
 
 
 def test_execute_layers_keep_better_never_worse():
