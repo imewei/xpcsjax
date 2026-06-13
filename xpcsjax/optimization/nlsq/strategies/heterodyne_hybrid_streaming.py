@@ -30,6 +30,8 @@ from xpcsjax.optimization.nlsq.gradient_monitor import (
     build_gradient_collapse_callback,
     gradient_monitor_diagnostics,
 )
+from xpcsjax.optimization.nlsq.parameter_index_mapper import ParameterIndexMapper
+from xpcsjax.optimization.nlsq.per_angle_mode import PerAngleMode
 from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -81,8 +83,7 @@ def build_heterodyne_pointwise_model(
     stratified_data: HeterodyneStratifiedData,
     model: HeterodyneModel,
     physical_param_names: list[str],
-    per_angle_mode: str = "fixed_constant",
-    fourier_order: int = 2,
+    per_angle_mode: PerAngleMode = "constant",
 ) -> tuple[Any, np.ndarray, np.ndarray, list[float], dict[str, Any]]:
     """Build the pointwise model function and data arrays for hybrid streaming.
 
@@ -97,21 +98,17 @@ def build_heterodyne_pointwise_model(
     physical_param_names :
         Names of the varying physics parameters (``model.param_manager.varying_names``).
     per_angle_mode :
-        Scaling treatment for per-angle contrast/offset.
-        ``"fixed_constant"`` (default) — freeze quantile-estimated scaling inside
-        the JIT closure (existing behaviour, backward-compatible).
-        ``"auto_averaged"`` — append 2 optimized scaling scalars (mean contrast,
-        mean offset) to ``p0``; the JIT closure reads them as uniform across all
-        angles.
-        ``"individual"`` — append ``2 * n_phi`` optimized scaling params (per-angle
+        Resolved canonical scaling treatment for per-angle contrast/offset. The
+        builder accepts ONLY the three resolved tokens; ``"auto"`` must be resolved
+        upstream via
+        :func:`~xpcsjax.optimization.nlsq.per_angle_mode.resolve_per_angle_mode`.
+        The native parameter vector is scaling-first ``[scaling_head | physics]``.
+        ``"constant"`` (default) — freeze quantile-estimated scaling inside the JIT
+        closure; the scaling head is empty (physics-only optimizer vector).
+        ``"averaged"`` — prepend 2 optimized scaling scalars (mean contrast,
+        mean offset) to ``p0``; the JIT closure broadcasts them across all angles.
+        ``"individual"`` — prepend ``2 * n_phi`` optimized scaling params (per-angle
         contrast then per-angle offset); the JIT closure reads them directly.
-        ``"fourier"`` — append ``2 * (2*fourier_order + 1)`` Fourier coefficient
-        params; the JIT closure expands them to per-angle via the
-        :class:`~xpcsjax.optimization.nlsq.fourier_reparam.FourierReparameterizer`
-        JIT-safe transform.
-    fourier_order :
-        Number of Fourier harmonics.  Only used when ``per_angle_mode="fourier"``.
-        Default 2 gives ``2*(2*2+1)=10`` total scaling coefficients.
 
     Returns
     -------
@@ -238,63 +235,26 @@ def build_heterodyne_pointwise_model(
     p0: list[float] = [float(v) for v in model.param_manager.get_initial_values()]
     n_physics_varying = len(p0)
 
-    # Fourier reparameterizer — built once here, closed over in model_fn below.
-    fourier_reparam: Any = None  # set for "fourier" mode only
-
-    # Effective fourier mode — authoritative only after the fourier branch runs.
-    # For non-fourier modes it is the mode itself. For fourier it reports whether
-    # FourierReparameterizer actually used the Fourier basis or silently fell back
-    # to independent (per-angle) scaling because n_phi was too small.
-    fourier_effective_mode: str = per_angle_mode
-
-    if per_angle_mode == "auto_averaged":
+    # Canonical scaling-first layout authority: [scaling_head | physics_tail].
+    # Rejects auto/fourier/independent (resolve upstream); the ValueError surfaces
+    # here for the removed fourier/independent tokens.
+    mapper = ParameterIndexMapper.canonical(
+        mode=per_angle_mode, n_phi=n_phi, n_physics=n_physics_varying
+    )
+    n_scaling = mapper.n_optimized
+    if per_angle_mode == "averaged":
         contrast0 = float(np.mean(contrast_arr))
         offset0 = float(np.mean(offset_arr))
-        n_scaling = 2
-        p0 = [*p0, contrast0, offset0]
+        p0 = [contrast0, offset0, *p0]  # scaling-first head
     elif per_angle_mode == "individual":
-        # Tail = [contrast_per_angle | offset_per_angle], length 2*n_phi.
-        n_scaling = 2 * n_phi
-        p0 = [*p0, *contrast_arr.tolist(), *offset_arr.tolist()]
-    elif per_angle_mode == "fourier":
-        # Import the real Fourier API (same import used by heterodyne_core).
-        from xpcsjax.optimization.nlsq.fourier_reparam import (
-            FourierReparamConfig,
-            FourierReparameterizer,
-        )
-
-        fourier_config = FourierReparamConfig(
-            mode="fourier",
-            fourier_order=fourier_order,
-        )
-        fourier_reparam = FourierReparameterizer(phi_unique, fourier_config)
-        # Inverse-transform initial per-angle estimates into Fourier coefficient space.
-        init_coeffs = fourier_reparam.per_angle_to_fourier(contrast_arr, offset_arr)
-        # NOTE: meta["n_scaling"] (set from fourier_reparam.n_coeffs) is the
-        # AUTHORITATIVE scaling-tail length — downstream code must read it, never
-        # recompute 2*(2K+1) from per_angle_mode+fourier_order. When n_phi is too
-        # small for the requested fourier_order, FourierReparameterizer silently
-        # falls back to independent mode (use_fourier=False), making n_coeffs =
-        # 2*n_phi, not 2*(2K+1).
-        n_scaling = fourier_reparam.n_coeffs  # = 2*(2*fourier_order+1) when use_fourier=True
-        p0 = [*p0, *np.asarray(init_coeffs, dtype=np.float64).tolist()]
-        # Expose the EFFECTIVE mode so consumers (Task 6) can detect the fallback.
-        fourier_effective_mode = "fourier" if fourier_reparam.use_fourier else "individual"
-        if not fourier_reparam.use_fourier:
-            logger.warning(
-                "per_angle_mode='fourier' requested with fourier_order=%d but "
-                "n_phi=%d is too small (need n_phi >= 1+2*order); "
-                "FourierReparameterizer fell back to independent per-angle scaling "
-                "(n_scaling=%d).",
-                fourier_order,
-                n_phi,
-                n_scaling,
-            )
-    elif per_angle_mode == "fixed_constant":
-        n_scaling = 0
-    else:
-        raise NotImplementedError(
-            f"per_angle_mode={per_angle_mode!r} not supported in build_heterodyne_pointwise_model."
+        # scaling-first head: [contrast_per_angle | offset_per_angle], then physics
+        p0 = [*contrast_arr.tolist(), *offset_arr.tolist(), *p0]
+    elif per_angle_mode == "constant":
+        pass  # scaling frozen, applied in residual; head empty
+    else:  # pragma: no cover - canonical() already rejected fourier/independent
+        raise ValueError(
+            f"unknown per_angle_mode {per_angle_mode!r}; valid: "
+            "constant, averaged, individual"
         )
 
     # ------------------------------------------------------------------
@@ -313,35 +273,34 @@ def build_heterodyne_pointwise_model(
     # 8. Build JIT-compiled pointwise model function
     # ------------------------------------------------------------------
     # Cache the compile-time constants as local Python names for the closure.
-    # per_angle_mode and fourier_reparam are Python-level constants (not JAX
+    # per_angle_mode and the mapper slices are Python-level constants (not JAX
     # tracers), so the if/elif branches below are static at JIT trace time.
     _per_angle_mode = per_angle_mode
-    _fourier_reparam = fourier_reparam  # None unless per_angle_mode=="fourier"
     _n_phi_local = len(phi_unique)  # compile-time constant for individual slice
+    _scaling_block = mapper.scaling_block  # Python-static slice (head)
+    _physics_block = mapper.physics_block  # Python-static slice (tail)
 
     @jax.jit
     def model_fn(x_batch: jnp.ndarray, *params_tuple: jnp.ndarray) -> jnp.ndarray:
-        """Pointwise heterodyne model: params = [physics_varying | scaling_tail]."""
+        """Pointwise heterodyne model: params = [scaling_head | physics_tail]."""
         x_batch_2d = jnp.atleast_2d(x_batch)
         params_all = jnp.stack(params_tuple)
 
-        # Reconstruct full physics parameter vector from fixed + varying
-        physics = params_all[:n_physics_varying]
+        # Reconstruct full physics parameter vector from fixed + varying.
+        # Layout is scaling-first: physics is the TAIL, scaling the HEAD.
+        physics = params_all[_physics_block]
         full = fixed_full_jax.at[varying_indices_jax].set(physics)
 
         # Resolve per-angle scaling — branch is static (compile-time constant).
-        if _per_angle_mode == "auto_averaged":
-            contrasts = jnp.full((_n_phi_local,), params_all[n_physics_varying])
-            offsets = jnp.full((_n_phi_local,), params_all[n_physics_varying + 1])
+        if _per_angle_mode == "averaged":
+            head = params_all[_scaling_block]
+            contrasts = jnp.full((_n_phi_local,), head[0])
+            offsets = jnp.full((_n_phi_local,), head[1])
         elif _per_angle_mode == "individual":
-            tail = params_all[n_physics_varying:]
-            contrasts = tail[:_n_phi_local]
-            offsets = tail[_n_phi_local:]
-        elif _per_angle_mode == "fourier":
-            # _fourier_reparam.fourier_to_per_angle_jax is JIT-safe (uses jnp).
-            tail = params_all[n_physics_varying:]
-            contrasts, offsets = _fourier_reparam.fourier_to_per_angle_jax(tail)
-        else:  # fixed_constant
+            head = params_all[_scaling_block]
+            contrasts = head[:_n_phi_local]
+            offsets = head[_n_phi_local:]
+        else:  # constant
             contrasts = contrast_jax
             offsets = offset_jax
 
@@ -386,7 +345,7 @@ def build_heterodyne_pointwise_model(
     # ------------------------------------------------------------------
     # Scaling-tail parameter bounds (used by later tasks for joint bounds array)
     # ------------------------------------------------------------------
-    if per_angle_mode == "auto_averaged":
+    if per_angle_mode == "averaged":
         c_lo, c_hi = 0.01, max(2.0 * contrast0, 1.0)
         # Offset is a DC baseline that can be negative; use a symmetric bound
         # centered on offset0 so the lower bound permits negative offsets.
@@ -407,15 +366,7 @@ def build_heterodyne_pointwise_model(
         # model_fn slicing (tail[:n_phi] = contrasts, tail[n_phi:] = offsets).
         scaling_lower = np.concatenate([contrast_lower, offset_lower])
         scaling_upper = np.concatenate([contrast_upper, offset_upper])
-    elif per_angle_mode == "fourier":
-        # Use FourierReparameterizer.get_bounds() which returns bounds for the
-        # Fourier coefficient vector in the same layout as per_angle_to_fourier.
-        # fourier_reparam was built in the fourier branch above (this branch only
-        # runs when per_angle_mode == "fourier").
-        scaling_lower, scaling_upper = fourier_reparam.get_bounds()
-        scaling_lower = np.asarray(scaling_lower, dtype=np.float64)
-        scaling_upper = np.asarray(scaling_upper, dtype=np.float64)
-    else:  # fixed_constant
+    else:  # constant
         scaling_lower = np.empty(0, dtype=np.float64)
         scaling_upper = np.empty(0, dtype=np.float64)
 
@@ -432,20 +383,11 @@ def build_heterodyne_pointwise_model(
         # time axis, but expose it explicitly so downstream residual builders
         # index against the exact same grid).
         "t_unique": t_unique,
-        # Scaling-mode metadata (Task 1+)
+        # Scaling-mode metadata (canonical resolved token)
         "per_angle_mode": per_angle_mode,
-        # Effective fourier mode: "fourier" if the Fourier basis was actually
-        # used, "individual" if FourierReparameterizer fell back (n_phi too small
-        # for the requested order); for non-fourier modes it is the mode itself.
-        # Consumers detect the silent fallback via meta.get("fourier_effective_mode").
-        "fourier_effective_mode": fourier_effective_mode,
         "n_scaling": n_scaling,
         "n_physics_varying": n_physics_varying,
         "scaling_bounds": (scaling_lower, scaling_upper),
-        # FourierReparameterizer object for "fourier" mode (consumed by the
-        # HierarchicalOptimizer L2 wiring); None for every non-fourier mode so
-        # `meta.get("fourier")` is always safe.
-        "fourier": fourier_reparam,
         # Authoritative angle count: the same phi_unique the JIT closure and the
         # pointwise kernel were built against. Downstream (AdaptiveRegularizer)
         # must use THIS, not a fresh float-set count which can overcount via
@@ -616,9 +558,10 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     if len(scaling_lower) > 0:
         if bounds is not None:
             lo, hi = bounds
+            # Scaling-first layout: scaling-head bounds PREPEND the physics bounds.
             bounds = (
-                np.concatenate([np.asarray(lo, dtype=np.float64), scaling_lower]),
-                np.concatenate([np.asarray(hi, dtype=np.float64), scaling_upper]),
+                np.concatenate([scaling_lower, np.asarray(lo, dtype=np.float64)]),
+                np.concatenate([scaling_upper, np.asarray(hi, dtype=np.float64)]),
             )
         else:
             # bounds=None + scaling tail. The ideal would be to bound only the
@@ -672,17 +615,12 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
 
     if regularization_active:
         assert _group_indices is not None  # guarded above
-        # Translate tail-LOCAL group indices to FULL-vector coordinates ONCE.
-        # compute_regularization_jax (used by the hierarchical loss) and the
-        # plain-branch group-variance config both slice the FULL
-        # [physics(n_phys) | scaling] vector, so the regularizer must carry
-        # full-vector indices (base + offset), not tail-local ones — otherwise
-        # it would regularize the first n_phi PHYSICS params instead of the
-        # scaling tail.
-        base = meta["n_physics_varying"]
-        group_indices_full: list[tuple[int, int]] = [
-            (base + a, base + b) for (a, b) in _group_indices
-        ]
+        # Scaling-first layout: the scaling head occupies full-vector indices
+        # [0, n_scaling), so the mapper's head-local group indices ARE already the
+        # full-vector coordinates — no base offset. compute_regularization_jax (the
+        # hierarchical loss) and the plain-branch group-variance config both slice
+        # the FULL [scaling | physics] vector, and the scaling head is at offset 0.
+        group_indices_full: list[tuple[int, int]] = list(_group_indices)
 
         reg_config = AdaptiveRegularizationConfig(
             enable=True,
@@ -713,10 +651,13 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     l4_callback = None
 
     if gm_cfg_dict.get("enable", True) and meta["n_scaling"] > 0:
-        base_idx = meta["n_physics_varying"]
+        n_phys_params = meta["n_physics_varying"]
         n_scaling_params = meta["n_scaling"]
-        physical_indices = np.arange(base_idx, dtype=np.intp)
-        per_angle_indices = np.arange(base_idx, base_idx + n_scaling_params, dtype=np.intp)
+        # Scaling-first layout: scaling head at [0, n_scaling); physics tail after.
+        per_angle_indices = np.arange(n_scaling_params, dtype=np.intp)
+        physical_indices = np.arange(
+            n_scaling_params, n_scaling_params + n_phys_params, dtype=np.intp
+        )
         monitor_config = GradientMonitorConfig(
             enable=True,
             ratio_threshold=float(gm_cfg_dict.get("ratio_threshold", 0.01)),
@@ -739,7 +680,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         logger.info(
             "L4 gradient-collapse monitor enabled (heterodyne streaming): "
             "n_physics=%d, n_scaling=%d",
-            base_idx,
+            n_phys_params,
             n_scaling_params,
         )
 
@@ -801,8 +742,9 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         ip = np.asarray(initial_params, dtype=np.float64)
         n_phys = meta["n_physics_varying"]
         if ip.shape[0] == n_phys:
-            # Physics-only override: splice in, keep scaling tail from builder
-            p0_arr[:n_phys] = ip
+            # Physics-only override: splice into the physics TAIL (scaling-first),
+            # keeping the scaling head from the builder.
+            p0_arr[len(p0_arr) - n_phys :] = ip
         elif ip.shape == p0_arr.shape:
             p0_arr = ip
         else:
@@ -1017,31 +959,24 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
 
     if meta["n_scaling"] > 0:
         n_phys = meta["n_physics_varying"]
-        # Build the frozen scaling tail using the per-mode initial estimates so
+        n_scal = meta["n_scaling"]
+        # Build the frozen scaling HEAD using the per-mode initial estimates so
         # we compare optimised SSR against the unoptimised quantile-baseline.
-        # The tail layout must match what model_fn expects for this mode:
-        #   auto_averaged : [mean_contrast, mean_offset]          (2 params)
-        #   individual    : [contrast_arr..., offset_arr...]       (2*n_phi params)
-        #   fourier       : Fourier coefficients from reparam      (n_scaling params)
-        # For fourier, re-project the per-angle quantile estimates into Fourier
-        # space via the same FourierReparameterizer that was used at build time.
+        # The head layout (scaling-first) must match what model_fn expects:
+        #   averaged   : [mean_contrast, mean_offset]          (2 params)
+        #   individual : [contrast_arr..., offset_arr...]       (2*n_phi params)
         _contrast_arr = np.asarray(meta["contrast_arr"])
         _offset_arr = np.asarray(meta["offset_arr"])
         _mode = meta["per_angle_mode"]
-        if _mode == "auto_averaged":
-            frozen_tail = [float(np.mean(_contrast_arr)), float(np.mean(_offset_arr))]
+        if _mode == "averaged":
+            frozen_head = [float(np.mean(_contrast_arr)), float(np.mean(_offset_arr))]
         elif _mode == "individual":
-            frozen_tail = _contrast_arr.tolist() + _offset_arr.tolist()
-        elif _mode == "fourier" and meta.get("fourier") is not None:
-            _fp = meta["fourier"]
-            _coeffs = np.asarray(
-                _fp.per_angle_to_fourier(_contrast_arr, _offset_arr), dtype=np.float64
-            )
-            frozen_tail = _coeffs.tolist()
+            frozen_head = _contrast_arr.tolist() + _offset_arr.tolist()
         else:
-            # fixed_constant or unexpected mode: no scaling tail to freeze
-            frozen_tail = []
-        frozen = list(popt[:n_phys]) + frozen_tail
+            # constant or unexpected mode: no scaling head to freeze
+            frozen_head = []
+        # Scaling-first: frozen head PREPENDS the optimised physics tail.
+        frozen = frozen_head + list(popt[n_scal:])
         if len(frozen) == len(popt):
             pred0 = np.asarray(model_fn(x_data, *frozen))
             info["ssr_frozen_baseline"] = float(np.sum((y_data - pred0) ** 2))

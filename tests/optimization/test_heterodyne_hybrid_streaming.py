@@ -1341,3 +1341,37 @@ def test_streaming_result_without_anti_degeneracy_defaults_inactive():
     assert diag["hierarchical_active"] is False
     assert diag["regularization_active"] is False
     assert "gradient_monitor" not in diag  # absent when L4 didn't run
+
+
+def test_pointwise_model_rejects_fourier_token():
+    """fourier (and the independent alias) are removed: build_heterodyne_pointwise_model
+    must raise ValueError for them, and the builder no longer accepts fourier_order."""
+    import inspect
+
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies import heterodyne_hybrid_streaming as hs
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        build_heterodyne_pointwise_model,
+    )
+
+    # fourier_order is gone from the signature entirely.
+    sig = inspect.signature(build_heterodyne_pointwise_model)
+    assert "fourier_order" not in sig.parameters, (
+        "fourier_order must be removed from build_heterodyne_pointwise_model"
+    )
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=6, n_t=8)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    for bad in ("fourier", "independent"):
+        with pytest.raises(ValueError, match="fourier|independent|unknown per_angle_mode"):
+            build_heterodyne_pointwise_model(
+                stratified_data=strat,
+                model=model,
+                physical_param_names=list(model.param_manager.varying_names),
+                per_angle_mode=bad,
+            )
+
+    # No fourier symbol survives at module scope.
+    assert not hasattr(hs, "FourierReparameterizer")
