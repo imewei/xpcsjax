@@ -66,12 +66,17 @@ def test_optimizer_indices_non_fourier() -> None:
 
 
 def test_optimizer_indices_fourier() -> None:
+    # Task 13b: n_per_angle is now sourced from ParameterIndexMapper.canonical(
+    # mode="individual", ...).n_optimized, NOT from fourier.n_coeffs.
+    # HierarchicalOptimizer runs only in individual mode (averaged/constant skip
+    # L2); for individual, n_optimized == 2*n_phi.  The fourier_reparameterizer
+    # arg is kept until Phase 7 teardown but no longer drives the boundary.
     fourier = cast(Any, SimpleNamespace(n_coeffs=10))
     opt = h.HierarchicalOptimizer(
         h.HierarchicalConfig(), n_phi=23, n_physical=7, fourier_reparameterizer=fourier
     )
-    assert opt.n_per_angle == 10  # n_coeffs, not 2 * n_phi
-    np.testing.assert_array_equal(opt.physical_indices, np.arange(10, 17))
+    assert opt.n_per_angle == 2 * 23  # mapper-backed: individual == 2*n_phi
+    np.testing.assert_array_equal(opt.physical_indices, np.arange(2 * 23, 2 * 23 + 7))
 
 
 # ---------------------------------------------------------------------------

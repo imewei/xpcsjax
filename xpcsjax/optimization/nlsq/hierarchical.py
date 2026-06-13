@@ -228,13 +228,19 @@ class HierarchicalOptimizer:
         self.n_physical = n_physical
         self.fourier = fourier_reparameterizer
 
-        # Determine parameter indices based on Fourier mode
-        # When Fourier mode is active, per-angle params are Fourier coefficients
-        # not 2 * n_phi independent values
-        if self.fourier is not None:
-            self.n_per_angle = self.fourier.n_coeffs
-        else:
-            self.n_per_angle = 2 * n_phi
+        # Determine per-angle parameter count from the canonical mapper.
+        # HierarchicalOptimizer runs only for the individual scaling mode
+        # (averaged/constant skip L2 per architecture); for individual,
+        # ParameterIndexMapper.canonical always returns n_optimized == 2*n_phi —
+        # numerically identical to the old ``2 * n_phi`` else-branch but now
+        # sourced from the single boundary authority (Phase 0 seam).
+        # self.fourier is kept until the Phase 7 teardown; we no longer DERIVE
+        # the boundary from it.
+        from xpcsjax.optimization.nlsq.parameter_index_mapper import ParameterIndexMapper
+
+        self.n_per_angle = ParameterIndexMapper.canonical(
+            mode="individual", n_phi=n_phi, n_physics=n_physical
+        ).n_optimized
 
         # Use numpy arrays for indices to support both NumPy and JAX array indexing
         # JAX arrays don't support Python list indexing (non-tuple sequence error)

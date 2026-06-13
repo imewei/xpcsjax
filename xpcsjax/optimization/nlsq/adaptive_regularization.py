@@ -138,6 +138,7 @@ class AdaptiveRegularizer:
         config: AdaptiveRegularizationConfig,
         n_phi: int,
         n_params: int | None = None,
+        n_optimized: int | None = None,
     ):
         """Initialize adaptive regularizer.
 
@@ -151,17 +152,39 @@ class AdaptiveRegularizer:
             Actual parameter vector length. When provided and less than
             2 * n_phi + n_physical, auto_averaged mode is assumed
             (2 scaling params instead of 2 * n_phi).
+        n_optimized : int, optional
+            Resolved number of optimized scaling parameters from
+            ``ParameterIndexMapper.canonical(...).n_optimized``.  Prefer
+            passing this over relying on the ``n_params < 2*n_phi`` heuristic:
+
+            * ``0``  — constant mode: scaling is FROZEN; nothing to regularize
+              → ``group_indices = []``.
+            * ``2``  — averaged mode: one contrast_avg + one offset_avg
+              → ``group_indices = [(0, 1), (1, 2)]``.
+            * ``2*n_phi`` — individual mode: per-angle contrast + offset
+              → ``group_indices = [(0, n_phi), (n_phi, 2*n_phi)]``.
+
+            When ``None`` the legacy ``n_params < 2*n_phi`` heuristic is
+            retained for backward compatibility with callers that have not
+            yet been migrated.
         """
         self.config = config
         self.n_phi = n_phi
 
-        # Auto-compute group indices if not provided
+        # Auto-compute group indices if not provided.
+        # Priority: (1) explicit config.group_indices, (2) mapper-resolved
+        # n_optimized, (3) legacy n_params heuristic (backward compat only).
         if config.group_indices is None:
-            # For auto_averaged mode, the parameter vector has only 2 scaling
-            # params (1 contrast_avg + 1 offset_avg) instead of 2*n_phi.
-            # Detect this by checking if n_params < 2*n_phi.
-            if n_params is not None and n_params < 2 * n_phi:
-                # auto_averaged: indices [0,1) for contrast_avg, [1,2) for offset_avg
+            if n_optimized is not None:
+                if n_optimized == 0:
+                    # constant mode: scaling is FROZEN — nothing to regularize.
+                    self.group_indices = []
+                else:
+                    half = n_optimized // 2
+                    self.group_indices = [(0, half), (half, n_optimized)]
+            elif n_params is not None and n_params < 2 * n_phi:
+                # legacy fallback retained ONLY for callers that still omit n_optimized:
+                # auto_averaged — 2 scaling params instead of 2*n_phi.
                 self.group_indices = [
                     (0, 1),  # contrast_avg group
                     (1, 2),  # offset_avg group
