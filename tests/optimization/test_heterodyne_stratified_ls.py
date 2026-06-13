@@ -1173,3 +1173,54 @@ def test_hier_layers_no_permute_scaling_first(monkeypatch):
     np.testing.assert_allclose(captured["loss_at_p0"], ssr, rtol=1e-9)
     # Returned popt unchanged (identity round-trip).
     np.testing.assert_allclose(np.asarray(out["popt"]), p0_full)
+
+
+def test_dispatcher_routes_constant_to_stratified_ls_at_1m(monkeypatch):
+    """Test that at >=1M points constant mode routes to stratified-LS, not in-memory.
+
+    We stub the stratified-LS driver to a sentinel result and stub the point count
+    over 1M, then assert the constant >=1M dispatch hits the stratified driver.
+    """
+    import numpy as np
+
+    import xpcsjax.optimization.nlsq as nlsq_pkg
+    from tests.optimization._heterodyne_fixtures import make_cfgmgr_and_data
+
+    # n_phi=3 + stubbed ~1.5M points so the >=1M branch fires. Request explicit
+    # ``constant`` so _resolve_effective_mode -> "constant" and the
+    # stratification config keeps strat_cfg enabled.
+    cfg, data = make_cfgmgr_and_data(
+        n_phi=3, n_t=12, stratification={"enabled": True, "target_chunk_size": 100000}
+    )
+    # Inject the explicit per-angle mode into the (unwrapped) nlsq block.
+    cfg.config["optimization"]["nlsq"]["per_angle_mode"] = "constant"
+
+    called = {}
+
+    import xpcsjax.optimization.nlsq.heterodyne_stratified_ls as _hsl
+
+    def _fake_strat(*, model, c2, phi, config, weights, **kw):
+        called["strat"] = True
+        from xpcsjax.optimization.nlsq.results import OptimizationResult
+
+        return OptimizationResult(
+            parameters=np.zeros(int(model.param_manager.n_varying)),
+            uncertainties=None,
+            chi_squared=1.0,
+            reduced_chi_squared=1.0,
+            covariance=None,
+            success=True,
+            n_iterations=1,
+            nlsq_diagnostics={"per_angle_mode": "constant", "parameter_names": []},
+        )
+
+    monkeypatch.setattr(_hsl, "fit_heterodyne_stratified_least_squares", _fake_strat)
+    # The dispatcher computes n_points via _estimate_heterodyne_points(c2, phi).
+    # Stub it over 1M so the >=1M branch fires without a giant array.
+    monkeypatch.setattr(
+        nlsq_pkg, "_estimate_heterodyne_points", lambda c2, phi: 1_500_000, raising=True
+    )
+
+    res = nlsq_pkg._fit_nlsq_heterodyne(data, cfg)  # noqa: SLF001
+    assert called.get("strat") is True, "constant >=1M must route to stratified-LS"
+    assert res.nlsq_diagnostics["per_angle_mode"] == "constant"

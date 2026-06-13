@@ -930,14 +930,15 @@ def _fit_nlsq_heterodyne(
     # keeps the heterodyne_core import lazy so dispatch unit tests that stub
     # heterodyne_core (and never reach the 1M gate) are unaffected.
     if not cmaes_on and use_strat and n_points >= 1_000_000:
-        # ``averaged``, ``fourier``, and ``individual`` all use the JOINT
-        # stratified-LS objective, consistent with the in-memory
-        # ``_fit_joint_multi_phi`` path.  Explicit ``individual`` is a JOINT fit
-        # (``_fit_joint_multi_phi`` / FourierReparameterizer "independent" mode);
-        # ``_aggregate_individual_results`` is only the config-is-None /
-        # single-angle fallback and never resolves here — so there is NO
-        # objective discontinuity at the 1M boundary for individual.
-        # ``constant`` (and anything else) freezes scaling and stays in-memory.
+        # ``constant``, ``averaged``, and ``individual`` all route to stratified-LS
+        # after Phase 3. ``averaged`` / ``individual`` use the JOINT stratified-LS
+        # objective, consistent with the in-memory ``_fit_joint_multi_phi`` path
+        # (explicit ``individual`` is a JOINT fit / FourierReparameterizer
+        # "independent" mode; ``_aggregate_individual_results`` is only the
+        # config-is-None / single-angle fallback and never resolves here — so there
+        # is NO objective discontinuity at the 1M boundary for individual).
+        # ``constant`` freezes scaling from quantiles and solves physics-only on the
+        # stratified-LS path. ``fourier`` is removed from the engine.
         from xpcsjax.optimization.nlsq.heterodyne_core import _resolve_effective_mode
 
         effective_mode = _resolve_effective_mode(nlsq_cfg, len(phi))
@@ -945,7 +946,7 @@ def _fit_nlsq_heterodyne(
         effective_mode = None
 
     _stratified_ls_fallback = False
-    if effective_mode in ("averaged", "fourier", "individual"):
+    if effective_mode in ("constant", "averaged", "individual"):
         try:
             from xpcsjax.optimization.nlsq import heterodyne_stratified_ls as _hsl
             from xpcsjax.optimization.nlsq.heterodyne_logging import (
@@ -987,21 +988,18 @@ def _fit_nlsq_heterodyne(
             # succeeded" from "stratified failed → OOM-prone in-memory path".
             _stratified_ls_fallback = True
     elif effective_mode is not None:
-        # effective_mode resolved (>=1M, stratification chosen, CMA-ES off) but is
-        # constant — constant freezes scaling and uses the in-memory path, not
-        # stratified-LS (individual now routes to stratified-LS in the branch above).
-        # "No silent caps": at >=1M the in-memory joint fit is the OOM-prone path,
-        # and the ONLY reason stratification was skipped is that this mode lacks a
-        # stratified expander. Surface that at WARNING so a large fit silently
-        # taking the higher-memory path is VISIBLE. Below 1M stratification would
-        # not have engaged anyway, so keep it at debug there.
+        # All in-scope resolved modes (constant / averaged / individual) route to
+        # stratified-LS above after Phase 3. This branch is now defensive only:
+        # it fires only if a future unresolved token slips through. Surface it at
+        # WARNING at >=1M so a large fit silently taking the higher-memory in-memory
+        # path is VISIBLE. Below 1M stratification would not have engaged anyway, so
+        # keep it at debug there.
         from xpcsjax.utils.logging import get_logger as _get_logger
 
         if n_points >= 1_000_000:
             _get_logger(__name__).warning(
-                "per_angle_mode=%s at %d points (>=1M): stratified-LS skipped "
-                "because this mode's stratified expander is not wired; using the "
-                "higher-memory in-memory joint fit (potential OOM risk).",
+                "per_angle_mode=%s at %d points (>=1M): no stratified expander "
+                "wired; using the higher-memory in-memory joint fit (OOM risk).",
                 effective_mode,
                 int(n_points),
             )
