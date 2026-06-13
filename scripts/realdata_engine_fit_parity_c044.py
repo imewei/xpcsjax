@@ -47,41 +47,51 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from typing import TYPE_CHECKING
 
 import numpy as np
 
+if TYPE_CHECKING:  # annotations only — these are imported lazily at call sites
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        HeterodyneStratifiedData,
+    )
+    from xpcsjax.optimization.nlsq.strategies.residual_jit import (
+        StratifiedResidualFunctionJIT,
+    )
+
 import xpcsjax  # noqa: F401  -- sets JAX_ENABLE_X64 before any jax import
 from xpcsjax.config import ConfigManager
-from xpcsjax.config.parameter_registry import SCALING_PARAMS
 from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
 from xpcsjax.data import load_xpcs_data
-from xpcsjax.optimization.nlsq.heterodyne_adapter import NLSQAdapter
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
-from xpcsjax.optimization.nlsq.heterodyne_layout import (
-    physics_first_to_scaling_first,
-    scaling_first_to_physics_first,
-)
-from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
-    HeterodyneStratifiedData,
-    build_heterodyne_stratified_data,
-)
-from xpcsjax.optimization.nlsq.model_adapter import HeterodynePointEvaluator
-from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
-    build_heterodyne_pointwise_model,
-)
-from xpcsjax.optimization.nlsq.strategies.residual_jit import (
-    StratifiedResidualFunctionJIT,
-)
-from xpcsjax.optimization.nlsq.strategies.stratified_ls import (
-    create_stratified_chunks,
-)
+
+# NOTE: the engine-route machinery (NLSQAdapter / SCALING_PARAMS / the strategies
+# modules and the now-retired physics-first<->scaling-first layout helpers) is
+# imported LAZILY inside ``run_reference_and_engine`` / ``_build_engine`` /
+# ``_physics_first_bounds`` below. Scaling-first is native after Phase 1+2 — the
+# ``heterodyne_layout`` module was retired (commit ed19d41) — so a module-level
+# import of those symbols would break ``import``ing this script for its loader /
+# baseline helpers. Keeping them function-local lets ``--emit-baseline`` and the
+# in-memory no-worse oracle (which only need ``load_c044`` + ``fit_nlsq_multi_phi``)
+# exec this module cleanly on the current branch.
 
 _DEFAULT_CONFIG = "/home/wei/Documents/Projects/data/C044/xpcsjax_config.yaml"
 _MODES = ("fixed_constant", "individual")
 _MODE_TO_PRODUCTION = {
     "fixed_constant": "constant",
     "individual": "individual",
+}
+
+# Test-label -> production ``per_angle_mode`` for the in-memory no-worse oracle /
+# ``--emit-baseline``. ``averaged`` is not a user-facing ``per_angle_mode`` token;
+# it is the variant ``auto`` resolves to at C044's ``n_phi >= 3``, so we drive it
+# via ``auto`` (honest averaged path; avoids the ``validate()`` rejection of the
+# bare ``averaged`` string).
+_BASELINE_MODE_TO_PRODUCTION = {
+    "constant": "constant",
+    "individual": "individual",
+    "averaged": "auto",
 }
 
 
@@ -92,6 +102,10 @@ _MODE_TO_PRODUCTION = {
 def _drop_frame0_stratified_data(
     strat: HeterodyneStratifiedData, *, t: np.ndarray, n_phi: int
 ) -> HeterodyneStratifiedData:
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        HeterodyneStratifiedData,
+    )
+
     t = np.asarray(t, dtype=np.float64)
     t0 = float(t[0])
     eps = float(strat.dt) * 1e-6
@@ -130,6 +144,11 @@ def _build_engine(
     q: float,
     dt: float,
 ) -> StratifiedResidualFunctionJIT:
+    from xpcsjax.optimization.nlsq.model_adapter import HeterodynePointEvaluator
+    from xpcsjax.optimization.nlsq.strategies.residual_jit import (
+        StratifiedResidualFunctionJIT,
+    )
+
     evaluator = HeterodynePointEvaluator(
         analysis_mode="two_component", q=float(q), dt=float(dt)
     )
@@ -155,6 +174,8 @@ def _build_engine(
 def _physics_first_bounds(
     *, mode: str, n_phi: int, physics_lower: np.ndarray, physics_upper: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
+    from xpcsjax.config.parameter_registry import SCALING_PARAMS
+
     cb = (SCALING_PARAMS["contrast"].min_bound, SCALING_PARAMS["contrast"].max_bound)
     ob = (SCALING_PARAMS["offset"].min_bound, SCALING_PARAMS["offset"].max_bound)
     physics_lower = np.asarray(physics_lower, dtype=np.float64)
@@ -246,11 +267,81 @@ def load_real_subset(config_path: str, *, n_t: int, n_phi: int):
     return model, c2_sub, phi_sub, info
 
 
+def load_c044(config_path: str = _DEFAULT_CONFIG, *, n_t: int = 48):
+    """Thin (model, c2, phi) loader for the in-memory no-worse oracle.
+
+    Wraps ``load_real_subset(..., n_phi=0)`` (all angles, first ``n_t`` time
+    indices of REAL noisy C044 data) and drops the ``info`` dict so the C044
+    in-memory scaling-first test can call ``model, c2, phi = helpers.load_c044(
+    n_t=...)`` without duplicating any model construction.
+    """
+    model, c2_sub, phi_sub, _info = load_real_subset(config_path, n_t=n_t, n_phi=0)
+    return model, c2_sub, phi_sub
+
+
+# ---------------------------------------------------------------------------
+# In-memory no-worse-SSR baseline (--emit-baseline): all 3 modes via the
+# production in-memory joint fit ``fit_nlsq_multi_phi`` (NO engine route).
+# ---------------------------------------------------------------------------
+def run_inmemory_baseline(
+    config_path: str = _DEFAULT_CONFIG, *, n_t: int = 48, nfev: int = 400
+) -> dict:
+    """Fit C044 in-memory for ``constant`` / ``individual`` / ``averaged`` and
+    return ``{mode: {"chi_squared": float}}``.
+
+    This is the regeneration tool for ``tests/parity/fixtures/
+    c044_inmemory_ssr_baseline.json``. NOTE: the COMMITTED baseline is captured
+    once at the PRE-re-order commit (47e5323); on the CURRENT branch this emits
+    the NEW scaling-first SSR (used to verify no-worse, not to overwrite the
+    pinned baseline). ``averaged`` is driven via production ``auto`` (resolves to
+    averaged at C044's ``n_phi >= 3``).
+    """
+    model, c2, phi = load_c044(config_path, n_t=n_t)
+    out: dict[str, dict[str, float]] = {}
+    for mode in ("constant", "individual", "averaged"):
+        cfg = NLSQConfig(
+            per_angle_mode=_BASELINE_MODE_TO_PRODUCTION[mode], max_nfev=nfev
+        )
+        result = fit_nlsq_multi_phi(model, c2, list(phi), cfg, None)
+        out[mode] = {"chi_squared": float(result.chi_squared)}
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Run production reference + engine route for one mode (mirrors the harness).
 # ---------------------------------------------------------------------------
 def run_reference_and_engine(model, c2, phi, *, mode: str, nfev: int) -> dict:
     import jax.numpy as jnp
+
+    from xpcsjax.optimization.nlsq.heterodyne_adapter import NLSQAdapter
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        build_heterodyne_pointwise_model,
+    )
+    from xpcsjax.optimization.nlsq.strategies.stratified_ls import (
+        create_stratified_chunks,
+    )
+
+    # The physics-first<->scaling-first layout helpers were retired in Phase 1+2
+    # (commit ed19d41 — scaling-first is native). This engine-route harness has
+    # NOT been re-pointed onto the native scaling-first builders; it is kept here
+    # for historical context but is non-functional on the current branch. The
+    # in-memory no-worse oracle (--emit-baseline / the C044 in-memory test) does
+    # NOT use this path; it drives ``fit_nlsq_multi_phi`` directly.
+    try:
+        from xpcsjax.optimization.nlsq.heterodyne_layout import (  # type: ignore[import-not-found]
+            physics_first_to_scaling_first,
+            scaling_first_to_physics_first,
+        )
+    except ImportError as exc:  # pragma: no cover - retired module
+        raise NotImplementedError(
+            "run_reference_and_engine relies on the retired heterodyne_layout "
+            "module (physics-first<->scaling-first conversion). After Phase 1+2 "
+            "scaling-first is native; this engine-route harness is superseded. "
+            "Use --emit-baseline (fit_nlsq_multi_phi) for the in-memory oracle."
+        ) from exc
 
     phys_names = list(model.param_manager.varying_names)
     n_varying = len(phys_names)
@@ -391,7 +482,24 @@ def main() -> None:
     ap.add_argument("--n-t", type=int, default=64, help="time-window crop (first n_t indices)")
     ap.add_argument("--n-phi", type=int, default=0, help="0 = all angles, else subset count")
     ap.add_argument("--nfev", type=int, default=600, help="per-angle max_nfev")
+    ap.add_argument(
+        "--emit-baseline",
+        action="store_true",
+        help=(
+            "emit the in-memory no-worse-SSR baseline JSON ({mode: {chi_squared}}) "
+            "for constant/individual/averaged via fit_nlsq_multi_phi and exit "
+            "(regeneration tool for tests/parity/fixtures/"
+            "c044_inmemory_ssr_baseline.json)"
+        ),
+    )
     args = ap.parse_args()
+
+    if args.emit_baseline:
+        baseline = run_inmemory_baseline(
+            args.config, n_t=args.n_t, nfev=args.nfev
+        )
+        print(json.dumps(baseline))
+        return
 
     print(f"[load] config={args.config}  n_t={args.n_t}  n_phi={args.n_phi}")
     model, c2, phi, info = load_real_subset(args.config, n_t=args.n_t, n_phi=args.n_phi)
