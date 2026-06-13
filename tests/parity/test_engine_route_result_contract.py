@@ -60,7 +60,6 @@ import pytest
 # project_heterodyne-engine-route-platform-fragility).
 from tests.parity.test_engine_heterodyne_fit_parity import (
     _MAINTAINER_ONLY,
-    _MODE_TO_PRODUCTION,
     _PER_SET_NFEV,
     _make_well_posed_case,
 )

@@ -3,8 +3,8 @@ handles constant mode (n_optimized==0) WITHOUT regularizing physics params as sc
 from __future__ import annotations
 
 from xpcsjax.optimization.nlsq.adaptive_regularization import (
-    AdaptiveRegularizer,
     AdaptiveRegularizationConfig,
+    AdaptiveRegularizer,
 )
 
 
