@@ -574,8 +574,8 @@ def test_heterodyne_averaged_mode_does_not_raise(tmp_path):
     model = HeterodyneModel()
     n_phi = 3
     physical = np.asarray(model.get_default_parameters(), dtype=float)
-    # Averaged layout: [physics..., contrast, offset].
-    params = np.concatenate([physical, [0.2, 1.0]])
+    # Canonical scaling-first averaged layout: [contrast, offset, physics...].
+    params = np.concatenate([[0.2, 1.0], physical])
     result = OptimizationResult(
         parameters=params,
         uncertainties=np.full(params.size, 0.01),
@@ -683,3 +683,53 @@ def test_heterodyne_constant_mode_with_diag_does_not_raise(tmp_path):
     np.testing.assert_allclose(phys, physical)
 
     generate_nlsq_plots(model=model, result=result, data=data, config=config, output_dir=tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# 14. results.physics_parameters / scaling_parameters read the TAIL / HEAD
+#     of the canonical scaling-first vector [scaling | physics].
+#     Regression guard for the C044 heatmap-at-1e6 class of bug where the
+#     properties swapped the two halves.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "mode,n_phi",
+    [("individual", 3), ("averaged", 4), ("constant", 4)],
+)
+def test_results_slices_scaling_first(mode, n_phi):
+    """physics_parameters reads the TAIL; scaling_parameters reads the HEAD."""
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+
+    n_physics = 5
+    physics = np.arange(100.0, 100.0 + n_physics)
+    if mode == "individual":
+        # Scaling-first: [contrast_0..n_phi-1, offset_0..n_phi-1, physics...]
+        scaling = np.arange(1.0, 1.0 + 2 * n_phi)
+    elif mode == "averaged":
+        # Scaling-first: [contrast, offset, physics...]
+        scaling = np.array([1.0, 2.0])
+    else:
+        # Constant: physics-only vector; no scaling head in result.parameters.
+        scaling = np.array([])
+
+    params = np.concatenate([scaling, physics])
+    r = OptimizationResult(
+        parameters=params,
+        uncertainties=np.full(params.size, 0.01),
+        covariance=np.eye(params.size) * 0.01,
+        chi_squared=1.0,
+        reduced_chi_squared=1.0,
+        convergence_status="converged",
+        iterations=10,
+        execution_time=0.1,
+        device_info={"platform": "cpu"},
+        n_physics=(None if mode == "constant" else n_physics),
+    )
+    if mode == "constant":
+        # Constant mode: n_physics is None; physics_parameters raises ValueError.
+        with pytest.raises(ValueError, match="n_physics"):
+            _ = r.physics_parameters
+    else:
+        np.testing.assert_array_equal(r.physics_parameters, physics)
+        np.testing.assert_array_equal(r.scaling_parameters, scaling)

@@ -60,15 +60,16 @@ class OptimizationResult:
     ``covariance`` shapes must agree with the parameter count. Illegal
     combinations raise :class:`ValueError` at construction.
 
-    Parameters follow the physics-first ``[physics | scaling]`` layout. When the
-    split point is known it is recorded in :attr:`n_physics`, which enables the
+    Parameters follow the scaling-first ``[scaling | physics]`` layout for
+    heterodyne results (homodyne is also scaling-first). When the split point is
+    known it is recorded in :attr:`n_physics`, which enables the
     :attr:`physics_parameters` and :attr:`scaling_parameters` accessors; prefer
     those over hardcoded slicing.
 
     Attributes
     ----------
     parameters : numpy.ndarray
-        Converged parameter values in physics-first ``[physics | scaling]``
+        Converged parameter values in scaling-first ``[scaling | physics]``
         order. Empty on a ``failed`` / ``partial`` result.
     uncertainties : numpy.ndarray
         One-sigma standard deviations from the covariance-matrix diagonal.
@@ -252,11 +253,11 @@ class OptimizationResult:
 
     @property
     def physics_parameters(self) -> np.ndarray:
-        """Leading physics block of :attr:`parameters` (requires :attr:`n_physics`).
+        """Trailing physics block of :attr:`parameters` (requires :attr:`n_physics`).
 
-        Makes the physics-first ``[physics | scaling]`` layout explicit so
-        callers stop slicing by hardcoded offsets — the root of past scaling
-        mis-application bugs.
+        Reads the TAIL of the canonical scaling-first ``[scaling | physics]``
+        layout so callers stop slicing by hardcoded offsets — the root of past
+        scaling mis-application bugs.
 
         Raises
         ------
@@ -268,11 +269,14 @@ class OptimizationResult:
                 "physics_parameters requires n_physics to be set on the result "
                 "(the physics/scaling split point is unknown)."
             )
-        return np.asarray(self.parameters)[: self.n_physics]
+        return np.asarray(self.parameters)[-self.n_physics :]
 
     @property
     def scaling_parameters(self) -> np.ndarray:
-        """Trailing scaling block of :attr:`parameters` (requires :attr:`n_physics`).
+        """Leading scaling block of :attr:`parameters` (requires :attr:`n_physics`).
+
+        Reads the HEAD of the canonical scaling-first ``[scaling | physics]``
+        layout.
 
         Raises
         ------
@@ -284,7 +288,8 @@ class OptimizationResult:
                 "scaling_parameters requires n_physics to be set on the result "
                 "(the physics/scaling split point is unknown)."
             )
-        return np.asarray(self.parameters)[self.n_physics :]
+        n = self.n_physics
+        return np.asarray(self.parameters)[:-n] if n > 0 else np.asarray(self.parameters)
 
     @property
     def global_escape(self) -> str | None:

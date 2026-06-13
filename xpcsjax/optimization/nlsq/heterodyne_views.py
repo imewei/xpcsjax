@@ -66,10 +66,13 @@ def reconstruct_per_angle_scaling(
         return {"contrast": contrast, "offset": offset}
 
     if mode == "individual":
-        n_physics = int(layout["n_physics"])
+        # Canonical scaling-first layout: [c_0..n_phi-1, o_0..n_phi-1, physics...]
+        # — the scaling HEAD precedes the physics TAIL (Tasks 3-12 of
+        # per-angle-mode unification).  n_physics is only used to verify the
+        # layout via layout["n_physics"] but the slice reads from the HEAD.
         params = result.parameters
-        contrast = params[n_physics : n_physics + n_phi]
-        offset = params[n_physics + n_phi : n_physics + 2 * n_phi]
+        contrast = params[:n_phi]
+        offset = params[n_phi : 2 * n_phi]
         return {"contrast": np.asarray(contrast), "offset": np.asarray(offset)}
 
     if mode == "fourier":

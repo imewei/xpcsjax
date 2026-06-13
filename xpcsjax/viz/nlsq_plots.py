@@ -246,14 +246,15 @@ def _unpack_result_params(
         n_total = params.size
         diagnostics = getattr(result, "nlsq_diagnostics", None) or {}
         mode = diagnostics.get("per_angle_mode")
-        # Averaged mode: [physical..., contrast, offset]. Scalar summary is the
-        # single fitted pair (physics is the leading 14-vector).
+        # Averaged mode: canonical scaling-first layout [contrast, offset, physics...].
+        # Scalar summary is the single fitted pair (physics is the trailing 14-vector).
         if mode == "averaged":
-            physical_params = params[:n_physical].copy()
-            contrast_scalar = float(diagnostics.get("averaged_contrast", params[n_physical]))
-            offset_scalar = float(diagnostics.get("averaged_offset", params[n_physical + 1]))
+            physical_params = params[-n_physical:].copy()
+            contrast_scalar = float(diagnostics.get("averaged_contrast", params[-2]))
+            offset_scalar = float(diagnostics.get("averaged_offset", params[-1]))
             return contrast_scalar, offset_scalar, physical_params, physical_names
-        # Constant mode: [physical...] only; scaling frozen in diagnostics.
+        # Constant mode: [physics...] only (physics-only vector); scaling frozen in
+        # diagnostics — params[:n_physical] is the entire vector.
         if mode == "constant":
             physical_params = params[:n_physical].copy()
             c_fixed = np.asarray(diagnostics["contrast_per_angle_fixed"], dtype=float)
@@ -265,18 +266,14 @@ def _unpack_result_params(
                 physical_names,
             )
         # Individual mode (or diagnostics-less result):
-        # Per-angle layout is PHYSICS-FIRST:
-        #   [physical_0..n_physical-1, c_0..N-1, o_0..N-1]
-        # matching what the fit emits (heterodyne_core ``_aggregate_individual_results``
-        # / ``_fit_joint_multi_phi``: ``[physics | contrast_per_angle | offset_per_angle]``;
-        # see tests/optimization/test_heterodyne_individual_joint.py). This is the
-        # OPPOSITE of the homodyne scaling-first layout — heterodyne consumes the
-        # full physics vector through ``compute_g1`` and carries scaling as a tail.
-        # Require 2*n_phi + n_physical params; the residual (n_total - n_physical)
-        # must be even. We tolerate the no-scaling case (n_total == n_physical) by
-        # returning zero scalars so the downstream simulated-data annotation panel
-        # still renders; the real heterodyne per-angle evaluation path uses
-        # ``_unpack_heterodyne_scaling`` which fails loudly for that case.
+        # Canonical scaling-first layout: [c_0..N-1, o_0..N-1, physical_0..n_physical-1]
+        # — the scaling HEAD precedes the physics TAIL (Tasks 3-12 of per-angle-mode
+        # unification). Require 2*n_phi + n_physical params; the residual
+        # (n_total - n_physical) must be even and non-negative. We tolerate the
+        # no-scaling case (n_total == n_physical) by returning zero scalars so the
+        # downstream simulated-data annotation panel still renders; the real
+        # heterodyne per-angle evaluation path uses ``_unpack_heterodyne_scaling``
+        # which fails loudly for that case.
         residual = n_total - n_physical
         if residual < 0 or residual % 2 != 0:
             raise ValueError(
@@ -285,9 +282,9 @@ def _unpack_result_params(
                 f"{residual} is not divisible by 2."
             )
         n_phi = residual // 2
-        physical_params = params[:n_physical].copy()
-        contrasts = params[n_physical : n_physical + n_phi]
-        offsets = params[n_physical + n_phi : n_physical + 2 * n_phi]
+        physical_params = params[-n_physical:].copy()
+        contrasts = params[:n_phi]
+        offsets = params[n_phi : 2 * n_phi]
         # For the homodyne-shaped (scalar contrast, offset) return contract,
         # use the per-angle means as scalar summaries. Per-angle arrays are
         # extracted by callers that need them (see _evaluate_c2_per_angle).
@@ -351,21 +348,23 @@ def _unpack_heterodyne_scaling(
     diagnostics = getattr(result, "nlsq_diagnostics", None) or {}
     mode = diagnostics.get("per_angle_mode")
 
-    # Averaged mode: layout is ``[physics..., contrast, offset]`` — one fitted
-    # (contrast, offset) pair shared across all angles. Prefer the fitted
-    # scalars stored in diagnostics; fall back to the trailing two parameter
-    # slots. Replicate across n_phi so the per-angle evaluation path stays
-    # uniform with individual mode.
+    # Averaged mode: canonical scaling-first layout is ``[contrast, offset,
+    # physics...]`` — one fitted (contrast, offset) pair shared across all
+    # angles. Prefer the fitted scalars stored in diagnostics; fall back to
+    # the leading two parameter slots (params[-2] / params[-1] because the
+    # physics tail occupies params[-n_physical:]). Replicate across n_phi so
+    # the per-angle evaluation path stays uniform with individual mode.
     if mode == "averaged":
-        physical_params = params[:n_physical].copy()
-        contrast = float(diagnostics.get("averaged_contrast", params[n_physical]))
-        offset = float(diagnostics.get("averaged_offset", params[n_physical + 1]))
+        physical_params = params[-n_physical:].copy()
+        contrast = float(diagnostics.get("averaged_contrast", params[-2]))
+        offset = float(diagnostics.get("averaged_offset", params[-1]))
         contrasts = np.full(n_phi_expected, contrast, dtype=float)
         offsets = np.full(n_phi_expected, offset, dtype=float)
         return contrasts, offsets, physical_params, n_phi_expected
 
-    # Constant mode: layout is ``[physics...]`` only; per-angle scaling was
-    # frozen pre-fit and is carried in diagnostics.
+    # Constant mode: layout is ``[physics...]`` only (physics-only vector, no
+    # scaling head in result.parameters); per-angle scaling was frozen pre-fit
+    # and is carried in diagnostics.
     if mode == "constant":
         physical_params = params[:n_physical].copy()
         contrasts = np.asarray(diagnostics["contrast_per_angle_fixed"], dtype=float).ravel()
@@ -378,10 +377,9 @@ def _unpack_heterodyne_scaling(
         return contrasts, offsets, physical_params, n_phi_expected
 
     # Individual mode (or a diagnostics-less result, e.g. a synthetic
-    # OptimizationResult): layout is PHYSICS-FIRST ``[physics..., c_0..N-1,
-    # o_0..N-1]`` — matching what the heterodyne fit emits (see
-    # ``heterodyne_core._aggregate_individual_results`` / ``_fit_joint_multi_phi``
-    # and tests/optimization/test_heterodyne_individual_joint.py).
+    # OptimizationResult): canonical scaling-first layout is
+    # ``[c_0..N-1, o_0..N-1, physics...]`` — the scaling HEAD precedes the
+    # physics TAIL (Tasks 3-12 of per-angle-mode unification).
     individual_total = n_physical + 2 * n_phi_expected
     if n_total != individual_total:
         if n_total == n_physical:
@@ -398,9 +396,9 @@ def _unpack_heterodyne_scaling(
             f"2*{n_phi_expected} per-angle scaling). Scaling mode "
             f"{mode!r} (e.g. 'fourier') is not yet supported by viz."
         )
-    physical_params = params[:n_physical].copy()
-    contrasts = params[n_physical : n_physical + n_phi_expected].copy()
-    offsets = params[n_physical + n_phi_expected : n_physical + 2 * n_phi_expected].copy()
+    physical_params = params[-n_physical:].copy()
+    contrasts = params[:n_phi_expected].copy()
+    offsets = params[n_phi_expected : 2 * n_phi_expected].copy()
     return contrasts, offsets, physical_params, n_phi_expected
 
 
@@ -1717,17 +1715,17 @@ def generate_nlsq_plots(
                 _render_one_angle_worker(_render_args_for_index(i))
 
     # Slice uncertainties to match physical_params.
-    # Homodyne layout is scaling-first ([c_0..n_phi-1, o_0..n_phi-1, physical...])
-    # with 2*n_phi scaling slots (n_phi may be > 1 for per-angle scaling), so the
-    # physical uncertainties are the TRAILING n_physical entries — a fixed
-    # all_unc[2:] only holds for the n_phi == 1 case and otherwise mislabels
-    # per-angle scaling uncertainties as physical (mirrors _homodyne_scaling_arrays).
-    # Heterodyne layout is PHYSICS-first ([physics(n_physical) | contrast | offset],
-    # or [physics] for constant mode) -> physical uncertainties are the LEADING
-    # n_physical entries.
+    # Both homodyne and heterodyne use scaling-first layout:
+    #   homodyne:   [c_0..n_phi-1, o_0..n_phi-1, physical...]
+    #   heterodyne: [c_0..N-1, o_0..N-1, physical...] (individual)
+    #               [contrast, offset, physical...]     (averaged)
+    #               [physical...]                       (constant, physics-only)
+    # In all cases the physical uncertainties are the TRAILING n_physical
+    # entries — all_unc[-n_physical:].
     all_unc = np.asarray(result.uncertainties, dtype=float)
     if _is_heterodyne_family(model):
-        phys_unc = all_unc[: len(model.parameter_names)]
+        n_physical_het = len(model.parameter_names)
+        phys_unc = all_unc[-n_physical_het:]
     else:
         # Use the already-extracted physical-parameter count (HomodyneModel has
         # no ``parameter_names`` attribute; physical_params is resolved robustly
