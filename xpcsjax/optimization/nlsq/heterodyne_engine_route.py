@@ -56,9 +56,6 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from xpcsjax.config.parameter_registry import SCALING_PARAMS
-from xpcsjax.optimization.nlsq.heterodyne_layout import (
-    physics_first_to_scaling_first,
-)
 
 if TYPE_CHECKING:
     from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
@@ -482,9 +479,10 @@ def fit_two_component_via_engine(
 
     # -- Optimizer-vector layout: canonical SCALING-FIRST -------------------
     # ``constant``  : physics-only; no scaling DOF.
-    # ``individual``: [contrast(n_phi) | offset(n_phi) | physics] — block-permute
-    #                 the physics-first p0 (``physics_first_to_scaling_first`` is a
-    #                 pure permutation for "individual"/"fixed_constant").
+    # ``individual``: [contrast(n_phi) | offset(n_phi) | physics] — block-reorder
+    #                 the physics-first p0 directly (a pure permutation; the engine
+    #                 solves scaling-first natively, so no conversion module is
+    #                 needed).
     # ``averaged``  : COMPRESSED [c_avg, o_avg, physics] — 2 scaling DOF at the
     #                 HEAD, physics tail. The residual broadcasts the 2 scalars to
     #                 the engine's 2*n_phi scaling-first layout inside the JIT
@@ -514,17 +512,26 @@ def fit_two_component_via_engine(
             engine_vec = jnp.concatenate([contrast, offset, physics])
             return engine(engine_vec)
 
+    elif mode == "constant":
+        # Physics-only: no scaling DOF. p0_arr is physics-first [physics] (the
+        # pointwise builder emits no scaling tail for the frozen-constant token),
+        # so the scaling-first vector is the identical physics-only vector
+        # (the former layout-conversion identity, built directly here).
+        x0_opt = p0_arr[:n_varying].copy()
+
+        def residual_fn(x: np.ndarray) -> Any:
+            return engine(jnp.asarray(x, dtype=jnp.float64))
+
     else:
-        # constant (identity) / individual (block permutation):
-        # convert the physics-first p0 to the engine's scaling-first layout.
-        # For "constant", ``physics_first_to_scaling_first`` with the OLD token
-        # "fixed_constant" is the identity (no scaling tail). Use the layout
-        # function with the appropriate OLD token since it validates against
-        # IN_SCOPE_MODES = ("fixed_constant", "auto_averaged", "individual").
-        old_token = _CANONICAL_TO_POINTWISE_TOKEN[mode]  # fixed_constant / individual
-        x0_opt = physics_first_to_scaling_first(
-            p0_arr, n_physics=n_varying, mode=old_token, n_phi=n_phi
-        )
+        # individual: physics-first p0 is [physics(n_varying) | contrast(n_phi) |
+        # offset(n_phi)]; the engine's canonical scaling-first layout is
+        # [contrast(n_phi) | offset(n_phi) | physics(n_varying)]. Build it directly
+        # as a pure block reorder — numerically the SAME vector the former
+        # individual-mode layout conversion produced.
+        scaling_tail = p0_arr[n_varying:]
+        contrast_head = scaling_tail[:n_phi]
+        offset_head = scaling_tail[n_phi : 2 * n_phi]
+        x0_opt = np.concatenate([contrast_head, offset_head, p0_arr[:n_varying]])
 
         def residual_fn(x: np.ndarray) -> Any:
             return engine(jnp.asarray(x, dtype=jnp.float64))

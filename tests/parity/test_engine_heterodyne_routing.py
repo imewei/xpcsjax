@@ -70,7 +70,7 @@ import numpy as np
 import pytest
 
 from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
-from xpcsjax.optimization.nlsq.heterodyne_layout import (
+from tests.parity._heterodyne_layout_oracle import (
     IN_SCOPE_MODES,
     physics_first_to_scaling_first,
 )
@@ -550,3 +550,18 @@ def test_engine_route_matches_production_objective_frame0_reconciled(mode):
         "real Phase 2.3a finding. Do NOT loosen this assertion or fall back to "
         "the engine-support reference; diagnose the mismatch."
     )
+
+
+def test_heterodyne_layout_module_removed():
+    """``heterodyne_layout.py`` is retired (Task 11).
+
+    The engine route now builds the constant/individual x0 directly in the
+    canonical scaling-first order, so the physics-first<->scaling-first layout
+    conversion module has no remaining consumer and is deleted.
+    """
+    import importlib
+
+    import pytest
+
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("xpcsjax.optimization.nlsq.heterodyne_layout")

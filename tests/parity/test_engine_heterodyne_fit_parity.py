@@ -111,17 +111,17 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from tests.parity._heterodyne_layout_oracle import (
+    IN_SCOPE_MODES,
+    physics_first_to_scaling_first,
+    scaling_first_to_physics_first,
+)
 from xpcsjax.config import ConfigManager
 from xpcsjax.config.parameter_registry import SCALING_PARAMS
 from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
 from xpcsjax.optimization.nlsq.heterodyne_adapter import NLSQAdapter
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
-from xpcsjax.optimization.nlsq.heterodyne_layout import (
-    IN_SCOPE_MODES,
-    physics_first_to_scaling_first,
-    scaling_first_to_physics_first,
-)
 from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
     HeterodyneStratifiedData,
     build_heterodyne_stratified_data,
