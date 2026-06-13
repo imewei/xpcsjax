@@ -1500,3 +1500,35 @@ def test_l2_individual_runs_and_beats_frozen_baseline():
     assert info["ssr"] <= info["ssr_frozen_baseline"] + 1e-9, (
         f"L2 individual ssr={info['ssr']:.6e} > frozen={info['ssr_frozen_baseline']:.6e}"
     )
+
+
+@pytest.mark.parametrize("mode,n_phi,n_opt", [("averaged", 4, 2), ("individual", 2, 4)])
+def test_diagnostics_stamps_canonical_token_and_n_optimized(mode, n_phi, n_opt):
+    """The anti_degeneracy block stamps the canonical resolved token, the
+    laminar_flow_inactive L5 sentinel, and the new n_optimized key."""
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        fit_with_stratified_hybrid_streaming_heterodyne,
+    )
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=n_phi, n_t=8)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+    _, _, info = fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={"verbose": 0},
+        anti_degeneracy_config={"per_angle_mode": mode,
+                                "hierarchical": {"max_outer_iterations": 2}},
+    )
+    ad = info["anti_degeneracy"]
+    assert ad["per_angle_mode"] == mode  # canonical, not auto_averaged/fixed_constant
+    assert ad["shear_weighting"] == "laminar_flow_inactive"
+    assert ad["n_optimized"] == n_opt
+    for k in ("hierarchical_active", "regularization_active"):
+        assert k in ad

@@ -1007,6 +1007,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         shear_weighting="laminar_flow_inactive",
         gradient_monitor=gm_block,
         per_angle_mode=meta["per_angle_mode"],
+        n_optimized=int(meta["n_scaling"]),
     )
 
     return popt, pcov, info
