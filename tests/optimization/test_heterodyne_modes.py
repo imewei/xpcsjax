@@ -169,3 +169,40 @@ def test_auto_never_selects_constant_or_fourier() -> None:
     for explicit in ("constant", "fourier", "individual"):
         cfg = NLSQConfig(per_angle_mode=explicit)
         assert _resolve_effective_mode(cfg, 8) == explicit
+
+
+def test_no_build_joint_fourier_symbol() -> None:
+    """The legacy in-memory Fourier joint builders are deleted (Task 10).
+
+    ``_build_joint_fourier`` (reparameterizer factory) and
+    ``_build_joint_problem_fourier`` (physics-first problem builder) are the two
+    in-memory Fourier-arm symbols torn down here. Both must be gone from
+    ``heterodyne_core`` after the teardown.
+    """
+    import xpcsjax.optimization.nlsq.heterodyne_core as hc
+
+    assert not hasattr(hc, "_build_joint_fourier")
+    assert not hasattr(hc, "_build_joint_problem_fourier")
+
+
+def test_resolver_rejects_fourier_in_dispatch() -> None:
+    """In-memory ``fit_nlsq_multi_phi`` rejects a fourier-resolved mode (Task 10).
+
+    The in-memory joint path no longer builds a Fourier problem; a fourier
+    resolved mode raises ``ValueError`` at the dispatch site (the shared
+    ``_resolve_effective_mode`` still RETURNS ``"fourier"`` for the
+    stratified-LS / streaming paths, which is out of scope here).
+    """
+    import numpy as np
+    import pytest
+
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
+
+    # n_phi=4 (>= constant_scaling_threshold) so an explicit ``fourier`` request
+    # resolves to ``"fourier"`` and reaches the in-memory dispatch's reject path.
+    model, c2, phi = make_synthetic_two_component(n_phi=4, n_t=10)
+    cfg = NLSQConfig(per_angle_mode="fourier")
+    with pytest.raises(ValueError, match="unknown per_angle_mode"):
+        fit_nlsq_multi_phi(model, np.asarray(c2), np.asarray(phi), cfg, None)

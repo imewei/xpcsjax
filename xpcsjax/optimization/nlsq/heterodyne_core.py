@@ -660,12 +660,12 @@ def fit_nlsq_multi_phi(
       → :class:`OptimizationResult`
     - ``"averaged"`` → :func:`_fit_joint_averaged_multi_phi`
       → :class:`OptimizationResult`
-    - ``"fourier"`` → :func:`_fit_joint_multi_phi`
-      → :class:`OptimizationResult`
+    - ``"fourier"`` → rejected with ``ValueError`` (no in-memory Fourier arm;
+      only the ≥1M stratified-LS / streaming paths still run Fourier scaling)
     - ``"individual"`` (explicit, multi-angle) → :func:`_fit_joint_multi_phi`
-      via a ``FourierReparameterizer`` in ``"independent"`` mode (JOINT fit of
-      ``[physics | 2*n_phi per-angle scaling]``, matching ``laminar_flow`` and
-      upstream heterodyne) → :class:`OptimizationResult`
+      (JOINT fit of the canonical scaling-first
+      ``[2*n_phi per-angle scaling | physics]`` vector, matching ``laminar_flow``
+      and upstream heterodyne) → :class:`OptimizationResult`
     - ``enable_cmaes=True`` → :func:`_fit_joint_cmaes_multi_phi`
       → :class:`OptimizationResult`
     - ``multistart=True`` → :func:`_fit_joint_multistart`
@@ -750,11 +750,6 @@ def fit_nlsq_multi_phi(
     # Determine whether to use homodyne-style joint multi-angle fitting.
     # ------------------------------------------------------------------
     use_joint = False
-    # Pre-initialize so the ``if use_joint:`` branch below sees a bound name
-    # even when the optional fourier_reparam import fails. ``use_joint`` is
-    # only flipped True inside the try block where ``fourier`` is reassigned,
-    # so this initial None is never actually consumed at runtime.
-    fourier: Any = None
     if config is not None and len(phi_angles) > 1:
         # Resolve ``auto`` / explicit modes to a canonical dispatch token FIRST.
         # The resolver returns one of: "constant", "averaged", "fourier",
@@ -765,6 +760,11 @@ def fit_nlsq_multi_phi(
         # ``[physics | scaling]`` global search instead of collapsing to Fourier.
         # Keeping the table explicit makes the threshold semantics testable in
         # isolation — see tests/optimization/test_heterodyne_modes.py.
+        #
+        # NOTE: ``_resolve_effective_mode`` still RETURNS ``"fourier"`` for an
+        # explicit request because the ≥1M stratified-LS and the streaming paths
+        # consume that token (they keep their own Fourier objective). The
+        # in-memory joint path below no longer supports Fourier and rejects it.
         effective_mode = _resolve_effective_mode(config, len(phi_angles))
 
         # Global-escape gate. CMA-ES takes priority over multistart (matching the
@@ -778,19 +778,17 @@ def fit_nlsq_multi_phi(
 
         logger.info(
             "Per-angle dispatch: requested=%s, n_phi=%d, constant_threshold=%d, "
-            "fourier_threshold=%d, effective=%s, escape=%s",
+            "effective=%s, escape=%s",
             config.per_angle_mode,
             len(phi_angles),
             config.constant_scaling_threshold,
-            config.fourier_auto_threshold,
             effective_mode,
             escape_kind,
         )
 
-        # The individual escape uses the scaling-first ``_build_joint_problem``
-        # (``"independent"`` reparameterizer, ``use_fourier=False``).  Fourier
-        # mode no longer takes this path — it falls through to the plain fourier
-        # joint fit below.  The fourier escape arm is removed in Task 11.
+        # The individual escape uses the scaling-first ``_build_joint_problem``.
+        # Fourier is no longer an in-memory mode (the Fourier arm was torn down);
+        # an explicit fourier request is rejected below.
         if escape_kind is not None and effective_mode == "individual":
             if escape_kind == "cmaes":
                 logger.info("CMA-ES enabled, delegating to joint multi-angle CMA-ES")
@@ -839,77 +837,34 @@ def fit_nlsq_multi_phi(
                 global_escape_kind=escape_kind,
             )
 
-        if effective_mode == "fourier":
-            try:
-                from xpcsjax.optimization.nlsq.fourier_reparam import (
-                    FourierReparamConfig,
-                    FourierReparameterizer,
-                )
-
-                # NOTE: ``FourierReparamConfig.mode`` is typed as
-                # ``Literal["independent", "fourier", "auto"]`` — a narrower
-                # vocabulary than heterodyne's ``per_angle_mode``
-                # (``"individual" | "fourier" | "auto" | "constant" |
-                # "independent"``). We reach this branch only when the
-                # resolver returned ``"fourier"``, so passing the literal
-                # ``"fourier"`` is correct and silences the Pyright
-                # incompatibility flagged since A1. The
-                # ``FourierReparameterizer`` re-runs the auto/feasibility
-                # check via ``_determine_mode`` and falls back to
-                # ``independent`` internally if ``n_phi`` is too small for
-                # the requested order — so we do not lose the auto-fallback
-                # behaviour by pinning the string here.
-                fourier_config = FourierReparamConfig(
-                    mode="fourier",
-                    fourier_order=config.fourier_order,
-                    auto_threshold=config.fourier_auto_threshold,
-                )
-                phi_rad = np.deg2rad(phi_angles.astype(np.float64))
-                fourier = FourierReparameterizer(phi_rad, fourier_config)
-                use_joint = True
-            except ImportError:
-                logger.warning("fourier_reparam not available, falling back to sequential fits")
-
-        elif effective_mode == "individual":
+        if effective_mode == "individual":
             # Explicit multi-angle ``individual`` is a JOINT fit (parity with
             # xpcsjax ``laminar_flow`` and upstream heterodyne). The per-angle
             # (contrast, offset) are packed as the ``2*n_phi`` scaling tail of
-            # the joint vector ``[physics | contrast_0..N | offset_0..N]`` and
-            # optimized jointly with physics via ``_fit_joint_multi_phi``,
-            # exactly like the fourier branch — only the reparameterizer mode
-            # differs (``"independent"`` = identity passthrough, no Fourier
-            # basis). This replaces the old sequential-per-angle aggregate
-            # (``mean(physics)`` reported as ``parameters``), which was an
-            # inconsistent estimator whose parameters did not reproduce the
-            # reported chi-squared. The sequential aggregate
-            # (``_aggregate_individual_results``) survives ONLY as the
-            # genuine fallback for ``config is None`` / single-angle
+            # the canonical scaling-first joint vector
+            # ``[contrast_0..N | offset_0..N | physics]`` and optimized jointly
+            # with physics via ``_fit_joint_multi_phi`` (which builds the layout
+            # from ``config`` itself — no Fourier reparameterizer). This replaces
+            # the old sequential-per-angle aggregate (``mean(physics)`` reported
+            # as ``parameters``), which was an inconsistent estimator whose
+            # parameters did not reproduce the reported chi-squared. The
+            # sequential aggregate (``_aggregate_individual_results``) survives
+            # ONLY as the genuine fallback for ``config is None`` / single-angle
             # (``len(phi_angles) <= 1``) — both handled by this block's guard
             # (``config is not None and len(phi_angles) > 1``) being false.
-            try:
-                from xpcsjax.optimization.nlsq.fourier_reparam import (
-                    FourierReparamConfig,
-                    FourierReparameterizer,
-                )
-
-                # ``"independent"`` makes ``FourierReparameterizer`` an
-                # identity passthrough: ``fourier_to_per_angle_jax`` returns
-                # ``coeffs[:n_phi], coeffs[n_phi:]`` and ``get_bounds`` /
-                # ``n_coeffs`` describe the ``2*n_phi`` per-angle layout — so
-                # ``_fit_joint_multi_phi`` solves the individual problem with
-                # no Fourier-only assumptions.
-                fourier_config = FourierReparamConfig(
-                    mode="independent",
-                    fourier_order=config.fourier_order,
-                    auto_threshold=config.fourier_auto_threshold,
-                )
-                phi_rad = np.deg2rad(phi_angles.astype(np.float64))
-                fourier = FourierReparameterizer(phi_rad, fourier_config)
-                use_joint = True
-            except ImportError:
-                logger.warning(
-                    "fourier_reparam not available, falling back to sequential individual fits"
-                )
+            use_joint = True
+        elif effective_mode == "fourier":
+            # Fourier is no longer an in-memory per-angle mode. The Fourier joint
+            # builders were removed; only the ≥1M stratified-LS and the streaming
+            # paths still run a Fourier objective (they own their own resolve →
+            # build flow). An explicit in-memory fourier request is rejected so
+            # the caller fails loudly instead of silently degrading.
+            raise ValueError(
+                f"unknown per_angle_mode {config.per_angle_mode!r} for the in-memory "
+                "joint fit; valid in-memory modes: constant, averaged, individual. "
+                "Fourier per-angle scaling is only available on the >=1M stratified-LS "
+                "and streaming paths."
+            )
 
         # ``config is None`` / single-angle (len(phi_angles) <= 1) never reach
         # this block — they fall through to the sequential per-angle aggregate
@@ -928,7 +883,7 @@ def fit_nlsq_multi_phi(
             phi_angles,
             config,
             weights,
-            fourier,
+            fourier=None,
         )
 
     # ------------------------------------------------------------------
@@ -1587,31 +1542,6 @@ _JOINT_CMAES_SEED = 42
 _PER_ANGLE_CMAES_SEED = 42
 
 
-def _build_joint_fourier(config: NLSQConfig, phi_angles: np.ndarray) -> Any:
-    """Build the mode-appropriate :class:`FourierReparameterizer` for the joint fit.
-
-    Mirrors the per-mode dispatch in :func:`fit_nlsq_multi_phi`: ``individual``
-    resolves to an identity-passthrough (``"independent"``) reparameterizer
-    (free ``2*n_phi`` per-angle scaling); any other resolved mode keeps the
-    Fourier basis (the reparameterizer re-checks feasibility and degrades to
-    independent internally if ``n_phi`` is too small).
-    """
-    from xpcsjax.optimization.nlsq.fourier_reparam import (
-        FourierReparamConfig,
-        FourierReparameterizer,
-    )
-
-    effective_mode = _resolve_effective_mode(config, len(np.asarray(phi_angles)))
-    reparam_mode: Any = "independent" if effective_mode == "individual" else "fourier"
-    fourier_config = FourierReparamConfig(
-        mode=reparam_mode,
-        fourier_order=config.fourier_order,
-        auto_threshold=config.fourier_auto_threshold,
-    )
-    phi_rad = np.deg2rad(np.asarray(phi_angles).astype(np.float64))
-    return FourierReparameterizer(phi_rad, fourier_config)
-
-
 def _fit_joint_cmaes_multi_phi(
     model: HeterodyneModel,
     c2_data: np.ndarray,
@@ -1644,10 +1574,8 @@ def _fit_joint_cmaes_multi_phi(
     narrowed in Task 6 to ``effective_mode == "individual"``).  The escape
     builds the :class:`JointProblem` via :func:`_build_joint_problem` which
     returns a scaling-first vector ``[scaling_head | physics]`` — the same
-    layout the plain joint fit produces.  ``_build_joint_fourier`` is called
-    only to pass a ``use_fourier=False`` reparameterizer consistent with the
-    per-mode dispatch; the legacy Fourier arm in ``_build_joint_problem`` is
-    not entered.
+    layout the plain joint fit produces.  No Fourier reparameterizer is built;
+    the in-memory Fourier arm has been removed.
 
     When CMA-ES is kept, the returned :class:`OptimizationResult` is tagged via
     ``nlsq_diagnostics["global_escape"]`` and, by construction, carries NaN
@@ -1655,8 +1583,7 @@ def _fit_joint_cmaes_multi_phi(
     run on the kept vector). Read ``global_escape`` to detect an escape result.
     """
     try:
-        fourier = _build_joint_fourier(config, phi_angles)
-        prob = _build_joint_problem(model, c2_data, phi_angles, config, weights, fourier=fourier)
+        prob = _build_joint_problem(model, c2_data, phi_angles, config, weights, fourier=None)
 
         # Phase 1: warm-start via the plain joint fit over the SAME problem.
         warm = _fit_joint_multi_phi(
@@ -1665,7 +1592,7 @@ def _fit_joint_cmaes_multi_phi(
             phi_angles=np.asarray(phi_angles),
             config=config,
             weights=weights,
-            fourier=fourier,
+            fourier=None,
         )
         x_warm = np.asarray(warm.parameters, dtype=np.float64)
         ssr_warm = float(warm.chi_squared)
@@ -1762,14 +1689,13 @@ def _fit_joint_cmaes_multi_phi(
             type(exc).__name__,
             exc,
         )
-        fourier_fb = _build_joint_fourier(config, phi_angles)
         return _fit_joint_multi_phi(
             model=model,
             c2_data=c2_data,
             phi_angles=np.asarray(phi_angles),
             config=config,
             weights=weights,
-            fourier=fourier_fb,
+            fourier=None,
         )
 
 
@@ -1812,8 +1738,7 @@ def _fit_joint_multistart(
     (no covariance solve on the kept vector).
     """
     try:
-        fourier = _build_joint_fourier(config, phi_angles)
-        prob = _build_joint_problem(model, c2_data, phi_angles, config, weights, fourier=fourier)
+        prob = _build_joint_problem(model, c2_data, phi_angles, config, weights, fourier=None)
         bounds2 = np.stack([prob.lb, prob.ub], axis=1)  # (n_params, 2)
 
         # Data-only SSR (excludes any L3 penalty rows) — the keep-better unit,
@@ -1844,7 +1769,7 @@ def _fit_joint_multistart(
                 phi_angles=np.asarray(phi_angles),
                 config=config,
                 weights=weights,
-                fourier=fourier,
+                fourier=None,
                 x0_override=np.asarray(x_start, dtype=np.float64),
             )
             x_fit = np.asarray(res.parameters, dtype=np.float64)
@@ -1879,7 +1804,7 @@ def _fit_joint_multistart(
             phi_angles=np.asarray(phi_angles),
             config=config,
             weights=weights,
-            fourier=fourier,
+            fourier=None,
         )
         x_default = np.asarray(default.parameters, dtype=np.float64)
         ssr_default = _data_ssr(x_default)
@@ -1913,14 +1838,13 @@ def _fit_joint_multistart(
             type(exc).__name__,
             exc,
         )
-        fourier_fb = _build_joint_fourier(config, phi_angles)
         return _fit_joint_multi_phi(
             model=model,
             c2_data=c2_data,
             phi_angles=np.asarray(phi_angles),
             config=config,
             weights=weights,
-            fourier=fourier_fb,
+            fourier=None,
         )
 
 
@@ -2367,193 +2291,6 @@ def _split_scaling_first_joint(
     )
 
 
-def _build_joint_problem_fourier(
-    model: HeterodyneModel,
-    c2_data: np.ndarray,
-    phi_angles: np.ndarray,
-    config: NLSQConfig,
-    weights: np.ndarray | None,
-    fourier: Any,
-) -> JointProblem:
-    """Legacy PHYSICS-FIRST Fourier-reparam joint problem (``per_angle_mode='fourier'``).
-
-    Preserved verbatim from the pre-scaling-first builder so the ``fourier``
-    per-angle mode stays bit-identical while ``constant`` / ``averaged`` /
-    ``individual`` migrate to the canonical scaling-first layout. The optimizer
-    vector is ``[physics_varying | fourier_contrast_coeffs |
-    fourier_offset_coeffs]`` and the result builder reads it physics-first via
-    ``prob.fourier`` (``meta["scaling_first"] = False``). This whole Fourier arm
-    is removed in the later fourier-teardown task.
-    """
-    param_manager = model.param_manager
-    varying_names = param_manager.varying_names
-    n_physics_varying = param_manager.n_varying
-    n_phi = len(phi_angles)
-
-    # Physics parameter initial values and bounds
-    physics_initial = param_manager.get_initial_values()
-    physics_lower, physics_upper = param_manager.get_bounds()
-    physics_initial = np.clip(physics_initial, physics_lower, physics_upper)
-
-    hierarchical_stage1_chi2: float | None = None
-    if config.enable_hierarchical:
-        logger.info(
-            "L2 hierarchical (fourier mode) — Stage 1: physics-only solve "
-            "with quantile-fixed scaling"
-        )
-        from xpcsjax.optimization.nlsq.heterodyne_constant_mode import (
-            _fit_joint_constant_multi_phi,
-        )
-
-        stage1_result = _fit_joint_constant_multi_phi(
-            model=model,
-            c2_data=c2_data,
-            phi_angles=phi_angles,
-            config=config,
-            weights=weights,
-        )
-        stage1_physics = np.asarray(stage1_result.parameters, dtype=np.float64)
-        hierarchical_stage1_chi2 = float(stage1_result.chi_squared)
-        physics_initial = np.clip(stage1_physics, physics_lower, physics_upper)
-        logger.info(
-            "L2 hierarchical (fourier mode) — Stage 1 done: chi2=%.6f, "
-            "warm-starting stage 2 joint refine",
-            hierarchical_stage1_chi2,
-        )
-
-    # Fourier coefficient initial values and bounds
-    scaling = model.scaling
-    contrast_init = float(scaling.contrast[0]) if len(scaling.contrast) > 0 else 0.5
-    offset_init = float(scaling.offset[0]) if len(scaling.offset) > 0 else 1.0
-    fourier_initial = fourier.get_initial_coefficients(contrast_init, offset_init)
-    fourier_lower, fourier_upper = fourier.get_bounds()
-
-    # Combined parameter vector (physics-first)
-    x0 = np.concatenate([physics_initial, fourier_initial])
-    lb = np.concatenate([physics_lower, fourier_lower])
-    ub = np.concatenate([physics_upper, fourier_upper])
-
-    logger.info(
-        "Joint multi-angle fit: %d physics + %d Fourier = %d total params, %d angles",
-        n_physics_varying,
-        fourier.n_coeffs,
-        len(x0),
-        n_phi,
-    )
-
-    # Pre-convert data to JAX arrays (outside closure — constants)
-    t, q, dt = model.t, model.q, model.dt
-    c2_data_list = [jnp.asarray(c2_data[i], dtype=jnp.float64) for i in range(n_phi)]
-    weights_list: list[jnp.ndarray | None] = []
-    for i in range(n_phi):
-        if weights is not None and weights.ndim == 3:
-            weights_list.append(jnp.asarray(weights[i], dtype=jnp.float64))
-        elif weights is not None:
-            weights_list.append(jnp.asarray(weights, dtype=jnp.float64))
-        else:
-            weights_list.append(None)
-
-    c2_data_batch = jnp.stack(c2_data_list, axis=0)  # (n_phi, N, N)
-    weights_batch = jnp.stack(
-        [
-            (w if w is not None else jnp.ones_like(c2_data_list[i]))
-            for i, w in enumerate(weights_list)
-        ],
-        axis=0,
-    )  # (n_phi, N, N)
-    phi_angles_jax = jnp.asarray(phi_angles, dtype=jnp.float64)  # (n_phi,)
-
-    fixed_values_jax = jnp.asarray(param_manager.get_full_values(), dtype=jnp.float64)
-    varying_indices_jax = jnp.array(param_manager.varying_indices, dtype=jnp.int32)
-
-    def base_residual_fn(x: np.ndarray) -> Any:  # type: ignore[return-value]
-        """Concatenated residuals across angles via vmap (Fourier physics-first split)."""
-        physics_varying = x[:n_physics_varying]
-        fourier_coeffs = x[n_physics_varying:]
-
-        varying_jax = jnp.asarray(physics_varying, dtype=jnp.float64)
-        full_jax = fixed_values_jax.at[varying_indices_jax].set(varying_jax)
-
-        # JIT-safe Fourier → per-angle conversion.
-        contrasts_jax, offsets_jax = fourier.fourier_to_per_angle_jax(fourier_coeffs)
-
-        return compute_multi_angle_residuals(
-            full_jax,
-            t,
-            q,
-            dt,
-            phi_angles_jax,
-            c2_data_batch,
-            weights_batch,
-            contrasts_jax,
-            offsets_jax,
-        )
-
-    regularization_active = config.regularization_mode != "none"
-    n_penalty_rows = 0
-    if regularization_active:
-        from xpcsjax.optimization.nlsq.adaptive_regularization import (
-            AdaptiveRegularizationConfig,
-            AdaptiveRegularizer,
-        )
-
-        reg_mode_jax: Any = "relative" if config.regularization_mode == "adaptive" else "absolute"
-        reg_config = AdaptiveRegularizationConfig(
-            enable=True,
-            mode=reg_mode_jax,
-            lambda_base=float(config.group_variance_lambda),
-            target_cv=float(config.regularization_target_cv),
-            auto_tune_lambda=False,
-        )
-        regularizer = AdaptiveRegularizer(reg_config, n_phi=n_phi, n_params=len(x0))
-        n_penalty_rows = len(regularizer.group_indices)
-        sqrt_lambda = float(np.sqrt(float(regularizer.lambda_value)))
-
-        def joint_residual_fn(x: np.ndarray) -> Any:  # type: ignore[return-value]
-            r = base_residual_fn(x)
-            contrasts, offsets = fourier.fourier_to_per_angle_jax(x[n_physics_varying:])
-            c_mean = jnp.mean(contrasts)
-            c_cv = jnp.where(
-                jnp.abs(c_mean) > 1e-10,
-                jnp.std(contrasts) / jnp.abs(c_mean),
-                jnp.std(contrasts),
-            )
-            o_mean = jnp.mean(offsets)
-            o_cv = jnp.where(
-                jnp.abs(o_mean) > 1e-10,
-                jnp.std(offsets) / jnp.abs(o_mean),
-                jnp.std(offsets),
-            )
-            penalty_rows = jnp.array([sqrt_lambda * c_cv, sqrt_lambda * o_cv], dtype=jnp.float64)
-            return jnp.concatenate([r, penalty_rows])
-    else:
-        joint_residual_fn = base_residual_fn  # type: ignore[assignment]
-
-    meta: dict[str, Any] = {
-        "base_residual_fn": base_residual_fn,
-        "n_physics_varying": int(n_physics_varying),
-        "scaling_tail_size": int(len(fourier_initial)),
-        "regularization_active": regularization_active,
-        "n_penalty_rows": int(n_penalty_rows),
-        "hierarchical_stage1_chi2": hierarchical_stage1_chi2,
-        "varying_names": list(varying_names),
-        # Physics-first Fourier path: result builder reads via prob.fourier.
-        "scaling_first": False,
-        "resolved_mode": "fourier",
-        "plan": None,
-        "joint_param_names": list(varying_names) + list(fourier.get_coefficient_labels()),
-    }
-
-    return JointProblem(
-        joint_residual_fn=joint_residual_fn,
-        x0=x0,
-        lb=lb,
-        ub=ub,
-        fourier=fourier,
-        meta=meta,
-    )
-
-
 def _build_joint_problem(
     model: HeterodyneModel,
     c2_data: np.ndarray,
@@ -2561,7 +2298,7 @@ def _build_joint_problem(
     config: NLSQConfig,
     weights: np.ndarray | None,
     *,
-    fourier: Any = None,
+    fourier: Any = None,  # noqa: ARG001 - vestigial caller-signature parity (always None)
 ) -> JointProblem:
     """Build the joint heterodyne LSQ problem (residual + x0 + bounds), scaling-first.
 
@@ -2574,11 +2311,9 @@ def _build_joint_problem(
     (:func:`_fit_joint_multi_phi`) and the global escapes so all three optimize
     the SAME objective.
 
-    The optional ``fourier`` argument keeps the legacy ``per_angle_mode='fourier'``
-    arm alive: when a Fourier-active reparameterizer is supplied this delegates to
-    the preserved physics-first :func:`_build_joint_problem_fourier` (that whole arm
-    is torn down in the later fourier-teardown task). For every other mode the
-    argument is ignored and the scaling-first layout is built from ``config``.
+    The ``fourier`` argument is vestigial (accepted for caller-signature parity
+    only; always ``None``). The in-memory Fourier per-angle arm has been removed
+    — the scaling-first layout is always built from ``config``.
 
     Includes the L2 hierarchical Stage 1 physics-only solve (run when
     ``config.enable_hierarchical`` is True) — its converged physics vector
@@ -2600,14 +2335,6 @@ def _build_joint_problem(
         PerAngleScalingPlan,
         resolve_per_angle_mode,
     )
-
-    # Legacy Fourier arm (preserved until the fourier-teardown task): only when
-    # an explicit Fourier-active reparameterizer is threaded through. Every other
-    # mode builds the canonical scaling-first layout below.
-    if fourier is not None and getattr(fourier, "use_fourier", False):
-        return _build_joint_problem_fourier(
-            model, c2_data, phi_angles, config, weights, fourier
-        )
 
     param_manager = model.param_manager
     varying_names = param_manager.varying_names
@@ -3080,32 +2807,24 @@ def _build_joint_result(
     hierarchical_stage1_chi2 = prob.meta["hierarchical_stage1_chi2"]
     resolved_mode = prob.meta["resolved_mode"]
     plan = prob.meta["plan"]
-    scaling_first = prob.meta.get("scaling_first", True)
 
     if joint_param_names is None:
         joint_param_names = list(prob.meta["joint_param_names"])
 
     fitted_params_full = np.asarray(x_final, dtype=np.float64)
-    if scaling_first:
-        # Canonical scaling-first vector ``[scaling_head | physics]``: physics is
-        # the TAIL, the scaling head expands to dense per-angle contrast/offset.
-        # ``_split_scaling_first_joint`` is the host-side (NumPy) reader — POST-fit
-        # only, never inside the JIT residual.
-        fitted_physics, fitted_contrast, fitted_offset = _split_scaling_first_joint(
-            fitted_params_full,
-            mode=resolved_mode,
-            n_phi=n_phi,
-            n_physics=n_physics_varying,
-            frozen_contrast=plan.frozen_contrast if resolved_mode == "constant" else None,
-            frozen_offset=plan.frozen_offset if resolved_mode == "constant" else None,
-        )
-    else:
-        # Legacy PHYSICS-FIRST Fourier path: ``[physics | fourier_coeffs]``; the
-        # Fourier reparameterizer maps coefficients → per-angle contrast/offset.
-        fourier = prob.fourier
-        fitted_physics = fitted_params_full[:n_physics_varying]
-        fitted_fourier = fitted_params_full[n_physics_varying:]
-        fitted_contrast, fitted_offset = fourier.fourier_to_per_angle(fitted_fourier)
+    # Canonical scaling-first vector ``[scaling_head | physics]``: physics is the
+    # TAIL, the scaling head expands to dense per-angle contrast/offset.
+    # ``_split_scaling_first_joint`` is the host-side (NumPy) reader — POST-fit
+    # only, never inside the JIT residual. (The in-memory Fourier physics-first
+    # path was removed; the joint problem is always scaling-first.)
+    fitted_physics, fitted_contrast, fitted_offset = _split_scaling_first_joint(
+        fitted_params_full,
+        mode=resolved_mode,
+        n_phi=n_phi,
+        n_physics=n_physics_varying,
+        frozen_contrast=plan.frozen_contrast if resolved_mode == "constant" else None,
+        frozen_offset=plan.frozen_offset if resolved_mode == "constant" else None,
+    )
 
     # Update model with fitted physics parameters
     full_fitted = param_manager.expand_varying_to_full(fitted_physics)
@@ -3206,14 +2925,13 @@ def _build_joint_result(
     # `hierarchical_stage1_chi2` and a warm-started `physics_initial`. Stage 2
     # is the joint refine the surrounding code already executed (scaling tail
     # unfrozen, jointly fit with physics): the scaling-first path optimizes
-    # `[scaling_head | physics]`; the legacy Fourier arm optimizes
-    # `[physics | fourier_coeffs]`.
+    # `[scaling_head | physics]`.
     #
     # The SSR conservation invariant (`chi2_per_angle.sum() == chi_squared`)
     # still holds for stage 2 because the joint solve uses the canonical
     # multi-angle residual decomposition.
     # ------------------------------------------------------------------
-    mode_label = f"mode={resolved_mode}" if scaling_first else "fourier mode"
+    mode_label = f"mode={resolved_mode}"
     hierarchical_extras: dict[str, Any] = {}
     if config.enable_hierarchical and hierarchical_stage1_chi2 is not None:
         logger.info(
@@ -3277,25 +2995,13 @@ def _build_joint_result(
     # ``_assemble_l4_extras`` falls back to the post-solve covariance-condition
     # block (tagged ``mechanism="post_solve_fallback"``).
     # ------------------------------------------------------------------
-    # Reported ``per_angle_mode``: for the scaling-first path it is the resolved
+    # Reported ``per_angle_mode``: the scaling-first path reports the resolved
     # variant (``constant`` / ``averaged`` / ``individual``) with no Fourier
-    # basis dim; the legacy Fourier arm reports ``"fourier"`` + the per-block
-    # coefficient count (2K+1).
-    if scaling_first:
-        per_angle_mode_label = resolved_mode
-        fourier_basis_dim: int | None = None
-        fourier_extras: dict[str, Any] = {}
-    else:
-        fourier = prob.fourier
-        per_angle_mode_label = "fourier"
-        fourier_basis_dim = fourier.n_coeffs_per_param
-        fourier_extras = {
-            "fourier_mode": fourier.config.mode,
-            "fourier_order": fourier.order,
-            "fourier_coeffs": np.asarray(fitted_fourier, dtype=np.float64).tolist(),
-            "fourier_n_coeffs": fourier.n_coeffs,
-            "fourier_reduction": fourier.get_diagnostics()["reduction_ratio"],
-        }
+    # basis dim (``fourier_basis_dim=None`` diagnostics stub kept for contract
+    # symmetry). The in-memory Fourier arm has been removed.
+    per_angle_mode_label = resolved_mode
+    fourier_basis_dim: int | None = None
+    fourier_extras: dict[str, Any] = {}
 
     # L4 extras require both a monitor and the NLSQ result it described. A
     # global escape supplies neither (monitor=None, joint_result=None), so the
