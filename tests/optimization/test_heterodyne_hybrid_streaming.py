@@ -1402,3 +1402,53 @@ def test_meta_has_no_fourier_keys(mode):
     )
     assert meta["per_angle_mode"] == mode
     assert "n_scaling" in meta and "n_physics_varying" in meta
+
+
+@pytest.mark.parametrize(
+    "token,n_phi,threshold,expected",
+    [
+        ("auto", 4, 3, "averaged"),
+        ("auto", 2, 3, "individual"),
+        ("constant", 4, 3, "constant"),
+        ("individual", 4, 3, "individual"),
+        ("averaged", 2, 3, "averaged"),
+    ],
+)
+def test_streaming_resolves_canonical_mode(monkeypatch, token, n_phi, threshold, expected):
+    """fit_with_stratified_hybrid_streaming_heterodyne resolves per_angle_mode via the
+    shared resolver to a canonical token, and stamps it on diagnostics."""
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies import heterodyne_hybrid_streaming as hs
+
+    captured = {}
+    real_builder = hs.build_heterodyne_pointwise_model
+
+    def _spy(*, stratified_data, model, physical_param_names, per_angle_mode):
+        captured["mode"] = per_angle_mode
+        return real_builder(
+            stratified_data=stratified_data,
+            model=model,
+            physical_param_names=physical_param_names,
+            per_angle_mode=per_angle_mode,
+        )
+
+    monkeypatch.setattr(hs, "build_heterodyne_pointwise_model", _spy)
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=n_phi, n_t=8)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+    _, _, info = hs.fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={"warmup_iterations": 5, "max_warmup_iterations": 10,
+                       "gauss_newton_max_iterations": 5, "verbose": 0},
+        anti_degeneracy_config={"per_angle_mode": token,
+                                "constant_scaling_threshold": threshold},
+    )
+    assert captured["mode"] == expected
+    assert info["anti_degeneracy"]["per_angle_mode"] == expected

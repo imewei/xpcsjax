@@ -479,12 +479,11 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         Consumed to select the per-angle scaling treatment and L3
         group-variance regularization. Accepted keys:
         ``per_angle_mode`` — ``"auto"`` (THE DEFAULT, including when no config /
-        None is supplied — mirrors laminar; resolves to ``"auto_averaged"`` when
+        None is supplied — mirrors laminar; resolves to ``"averaged"`` when
         ``n_phi >= constant_scaling_threshold`` (default 3), else to
-        ``"individual"``), ``"fixed_constant"`` (explicit opt-out: frozen quantile
+        ``"individual"``), ``"constant"`` (explicit opt-out: frozen quantile
         scaling, no L3), ``"individual"`` (per-angle optimized scaling + L2
-        hierarchical branch), ``"fourier"`` (Fourier-coefficient scaling + L2
-        hierarchical; falls back to independent when n_phi < 1+2K).
+        hierarchical branch).
         ``regularization.{enable, mode, lambda, target_cv}`` —
         configures the L3 adaptive group-variance regularizer on the scaling
         tail (active for the optimized-scaling modes).
@@ -518,20 +517,23 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     # Mirror laminar EXACTLY (hybrid_streaming.py:550): the default per-angle mode
     # is "auto" even when NO anti-degeneracy config is supplied — there is no
     # special-cased "freeze scaling when unconfigured" branch. 'auto' optimizes
-    # scaling (AVERAGED at/above the threshold; per-angle 'individual', which also
-    # activates the L2 hierarchical branch, below it). Explicit
-    # ``per_angle_mode="constant"`` is the opt-out that freezes scaling.
+    # scaling ('averaged' at/above the threshold; per-angle 'individual', which
+    # also activates the L2 hierarchical branch, below it). Explicit
+    # ``per_angle_mode="constant"`` is the opt-out that freezes scaling. The shared
+    # resolver rejects the removed 'fourier'/'independent' tokens.
+    from xpcsjax.optimization.nlsq.per_angle_mode import (
+        DEFAULT_CONSTANT_SCALING_THRESHOLD,
+        resolve_per_angle_mode,
+    )
+
     requested_mode = ad_config.get("per_angle_mode", "auto")
-    if requested_mode == "auto":
-        # n_phi is derived set-wise from phi_flat, matching the builder's
-        # deduplication (build_heterodyne_pointwise_model's phi_unique).
-        threshold = int(ad_config.get("constant_scaling_threshold", 3))
-        n_phi_resolved = len(set(stratified_data.phi_flat.tolist()))
-        mode_actual = "auto_averaged" if n_phi_resolved >= threshold else "individual"
-    elif requested_mode == "constant":
-        mode_actual = "fixed_constant"
-    else:
-        mode_actual = requested_mode  # explicit 'individual' or 'fourier'
+    threshold = int(
+        ad_config.get("constant_scaling_threshold", DEFAULT_CONSTANT_SCALING_THRESHOLD)
+    )
+    # n_phi is derived set-wise from phi_flat, matching the builder's
+    # deduplication (build_heterodyne_pointwise_model's phi_unique).
+    n_phi_resolved = len(set(stratified_data.phi_flat.tolist()))
+    mode_actual = resolve_per_angle_mode(requested_mode, n_phi_resolved, threshold)
 
     logger.info(
         "anti_degeneracy_config: mode_actual=%r (ad_config_provided=%s)",
@@ -593,18 +595,15 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     # the tail), translated to full-vector coords (base + ...) when building
     # group_variance_kwargs for the plain optimizer branch.
     # In the hierarchical branch L3 is applied via the loss_fn directly.
-    _group_indices: list[tuple[int, int]] | None = None
-    if mode_actual == "auto_averaged":
-        _group_indices = [(0, 1), (1, 2)]
-    elif mode_actual == "individual":
-        # individual: tail = [contrast_0..contrast_{n_phi-1} | offset_0..offset_{n_phi-1}]
-        _group_indices = [(0, n_phi_meta), (n_phi_meta, 2 * n_phi_meta)]
-    elif mode_actual == "fourier":
-        # fourier: tail = [contrast_coeffs | offset_coeffs], each of length n_scaling//2
-        # (n_scaling is always even: 2 * n_coeffs_per_param)
-        c = n_scaling // 2
-        _group_indices = [(0, c), (c, 2 * c)]
-    # fixed_constant: _group_indices stays None (nothing to regularize)
+    # L3 group indices from the canonical mapper — ONE boundary authority shared
+    # with the laminar streaming path. Scaling-first head-local coords: averaged
+    # -> [(0,1),(1,2)]; individual -> [(0,n_phi),(n_phi,2*n_phi)]; constant -> [].
+    _group_indices: list[tuple[int, int]] | None = (
+        ParameterIndexMapper.canonical(
+            mode=mode_actual, n_phi=n_phi_resolved, n_physics=len(physical_param_names)
+        ).group_indices
+        or None  # [] (constant) -> None, matching the existing "no L3 groups" sentinel
+    )
 
     regularization_active = (
         (n_scaling > 0) and (_group_indices is not None) and reg_cfg_dict.get("enable", True)
@@ -685,18 +684,18 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         )
 
     # ------------------------------------------------------------------
-    # Build L2 HierarchicalOptimizer (Task 6)
-    # Mirrors laminar :821-860.  Only fires for individual/fourier (i.e.
-    # when not use_constant).  auto_averaged / fixed_constant already
-    # suppress gradient-cancellation degeneracy by having only 2 or 0
-    # per-angle DoF, so hierarchical alternation is not needed there.
+    # Build L2 HierarchicalOptimizer
+    # Mirrors laminar :821-860.  Only fires for 'individual' (i.e. when not
+    # use_constant).  'averaged' / 'constant' already suppress gradient-
+    # cancellation degeneracy by having only 2 or 0 per-angle DoF, so
+    # hierarchical alternation is not needed there.
     #
-    # LAYOUT NOTE: heterodyne's native vector is [physics(n_phys) | scaling(n_scaling)].
-    # HierarchicalOptimizer expects [per_angle(n_scaling) | physics(n_phys)] (per-angle
-    # first, physics last — same as the laminar convention).  We permute the
-    # vector before passing it to the optimizer and un-permute the result.
+    # LAYOUT NOTE: heterodyne's native vector is now scaling-first
+    # [scaling(n_scaling) | physics(n_phys)] (Phase-4 unification), which IS
+    # HierarchicalOptimizer's expected [per_angle | physics] convention — so the
+    # vector is passed through identity (no permutation).
     # ------------------------------------------------------------------
-    use_constant = mode_actual in ("auto_averaged", "fixed_constant")
+    use_constant = mode_actual in ("averaged", "constant")
     hier_cfg_dict: dict[str, Any] = ad_config.get("hierarchical", {})
     enable_hier = hier_cfg_dict.get("enable", True)
     hierarchical_optimizer = None
