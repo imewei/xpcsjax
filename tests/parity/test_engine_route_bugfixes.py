@@ -11,9 +11,9 @@ Bug 1 — averaged mode over-parameterized the scaling.
     handed the optimizer ``n_varying + 2*n_phi`` DOF, letting it fit independent
     per-angle contrast/offset. It then compressed by keeping ONLY angle-0's
     fitted scalar and broadcasting it — discarding the other fitted values before
-    scoring. The dedicated :func:`wrap_engine_averaged_residual` (Task #14)
-    existed for exactly this but was never wired in. The fix routes
-    ``auto_averaged`` through the wrapper so the optimizer varies 2 scaling DOF.
+    scoring. The fix compresses the averaged scaling to the 2 shared scalars at
+    the optimizer head (an inline broadcast in the engine route's ``residual_fn``)
+    so the optimizer varies exactly 2 scaling DOF.
 
 Bug 2 — single-angle 2D ``c2`` was accepted but mis-scored.
     The public dispatcher / old ``fit_nlsq_multi_phi`` accept a 2D single-angle
@@ -114,42 +114,28 @@ def test_averaged_mode_optimizes_two_compressed_scaling_dof(monkeypatch):
     assert captured["n_params"] == n_varying + 2
 
 
-def test_averaged_mode_uses_compressed_wrapper(monkeypatch):
-    """``auto_averaged`` must route through ``wrap_engine_averaged_residual``
-    (Task #14), and the wrapped residual must receive compressed
-    ``n_varying + 2`` vectors."""
-    from xpcsjax.optimization.nlsq import heterodyne_averaged_wrapper
+def test_averaged_mode_optimizes_compressed_two_scaling_dof(monkeypatch):
+    """``auto_averaged`` must optimize exactly ``n_varying + 2`` DOF (Bug 1).
 
+    The original Task #14 fix routed averaged through a dedicated
+    ``wrap_engine_averaged_residual``; that broadcast was later INLINED into the
+    engine route's ``residual_fn`` (the wrapper module was retired). The behavior
+    contract is unchanged and is what matters here: averaged compresses the
+    ``2*n_phi`` engine scaling DOF down to the 2 shared scalars at the optimizer
+    HEAD, so the solver varies ``n_varying + 2`` parameters (NOT ``2*n_phi`` and
+    NOT a collapse to a single angle's fitted scalar).
+    """
     model, c2, phi = _make_well_posed_case()
     n_varying = len(model.param_manager.varying_names)
-    calls: dict = {"count": 0, "residual_input_len": None}
 
-    real_wrap = heterodyne_averaged_wrapper.wrap_engine_averaged_residual
-
-    def spy_wrap(engine, *, n_physics, n_phi):  # noqa: ANN001
-        calls["count"] += 1
-        inner = real_wrap(engine, n_physics=n_physics, n_phi=n_phi)
-
-        def recording(x):  # noqa: ANN001
-            if calls["residual_input_len"] is None:
-                calls["residual_input_len"] = int(np.asarray(x).shape[0])
-            return inner(x)
-
-        return recording
-
-    monkeypatch.setattr(
-        "xpcsjax.optimization.nlsq.heterodyne_engine_route.wrap_engine_averaged_residual",
-        spy_wrap,
-        raising=False,
-    )
-
+    captured = _spy_adapter_initial_params(monkeypatch)
     fit_two_component_via_engine(model, c2, np.asarray(phi), _make_config("auto"), None)
 
-    assert calls["count"] >= 1, (
-        "averaged engine route did not call wrap_engine_averaged_residual; the "
-        "compressed-averaged wrapper (Task #14) must be wired in (Bug 1)."
+    assert captured["x0_len"] == n_varying + 2, (
+        "averaged engine route did not compress to 2 shared scaling DOF; the "
+        "inline compressed-averaged broadcast must vary n_varying + 2 params (Bug 1)."
     )
-    assert calls["residual_input_len"] == n_varying + 2
+    assert captured["n_params"] == n_varying + 2
 
 
 def test_individual_mode_keeps_per_angle_scaling_dof(monkeypatch):

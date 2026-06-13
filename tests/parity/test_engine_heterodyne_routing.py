@@ -565,3 +565,17 @@ def test_heterodyne_layout_module_removed():
 
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("xpcsjax.optimization.nlsq.heterodyne_layout")
+
+
+def test_averaged_wrapper_module_removed():
+    """``heterodyne_averaged_wrapper.py`` is retired (Task 12).
+
+    The compressed-averaged broadcast was inlined into the engine route's
+    ``residual_fn`` (Task 8), so the wrapper module has no remaining consumer.
+    """
+    import importlib
+
+    import pytest
+
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("xpcsjax.optimization.nlsq.heterodyne_averaged_wrapper")
