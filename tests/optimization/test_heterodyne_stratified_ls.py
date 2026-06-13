@@ -924,3 +924,47 @@ def test_bounds_clip_is_noop_for_in_bounds_result(monkeypatch):
     assert patched.chi_squared == ref.chi_squared, (
         "clip no-op path changed chi_squared: ssr must be byte-identical"
     )
+
+
+# --- Phase 3: scaling-first + constant stratified-LS ---
+
+
+def test_constant_scaling_expander_freezes_quantiles():
+    """Test constant mode: n_scaling=0, expander broadcasts the frozen quantile arrays."""
+    import numpy as np
+
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import make_scaling_expander
+
+    n_phi = 3
+    frozen_c = np.array([0.30, 0.31, 0.29], dtype=np.float64)
+    frozen_o = np.array([1.00, 1.01, 0.99], dtype=np.float64)
+    expander, n_scaling = make_scaling_expander(
+        "constant", n_phi=n_phi, frozen=(frozen_c, frozen_o)
+    )
+    assert n_scaling == 0
+    # The (empty) scaling head is ignored; frozen per-angle arrays are returned.
+    import jax.numpy as jnp
+
+    c, o = expander(jnp.zeros((0,)))
+    np.testing.assert_allclose(np.asarray(c), frozen_c, rtol=0, atol=0)
+    np.testing.assert_allclose(np.asarray(o), frozen_o, rtol=0, atol=0)
+
+
+def test_constant_scaling_expander_requires_frozen():
+    """Test constant mode without frozen arrays is a programming error."""
+    import pytest
+
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import make_scaling_expander
+
+    with pytest.raises(ValueError, match="constant mode requires frozen"):
+        make_scaling_expander("constant", n_phi=3, frozen=None)
+
+
+def test_scaling_expander_rejects_fourier_now():
+    """Test fourier is erased from the stratified-LS expander after Phase 1+2."""
+    import pytest
+
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import make_scaling_expander
+
+    with pytest.raises(NotImplementedError):
+        make_scaling_expander("fourier", n_phi=7)

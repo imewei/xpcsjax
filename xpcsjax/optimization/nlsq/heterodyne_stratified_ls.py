@@ -200,22 +200,38 @@ def make_scaling_expander(
     per_angle_mode: str,
     n_phi: int,
     *,
-    fourier: Any | None = None,
+    frozen: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> tuple[Callable[[jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]], int]:
     """Return ``(expander, n_scaling_params)`` for the active per-angle mode.
 
-    ``expander(scaling_params) -> (contrast[n_phi], offset[n_phi])`` maps the
-    varying scaling parameters to per-angle contrast/offset arrays. Physics-first
-    packing means these scaling params are the TAIL of the joint vector.
+    ``expander(scaling_head) -> (contrast[n_phi], offset[n_phi])`` maps the varying
+    scaling parameters (the canonical scaling-first HEAD of the joint vector) to
+    per-angle contrast/offset arrays.
 
-    - averaged: 2 params (one contrast, one offset) broadcast to all angles.
-    - individual: 2*n_phi params (contrast block then offset block).
-    - fourier: 2*(2K+1) Fourier coefficients via ``fourier``.
+    - ``constant``: ``n_scaling = 0``. The scaling head is empty; the per-angle
+      contrast/offset are FROZEN to the quantile arrays passed via ``frozen``
+      (the optimizer solves physics-only).
+    - ``averaged``: 2 params (one contrast, one offset) broadcast to all angles.
+    - ``individual``: ``2*n_phi`` params (contrast block then offset block).
 
-    ``constant`` and any unrecognized mode are unsupported by stratified-LS and
-    raise ``NotImplementedError`` (the dispatch gate falls back to the in-memory
-    joint fit).
+    ``fourier`` is removed from the engine; any unrecognized mode raises
+    ``NotImplementedError``.
     """
+    if per_angle_mode == "constant":
+        if frozen is None:
+            raise ValueError(
+                "constant mode requires frozen=(contrast[n_phi], offset[n_phi]) "
+                "(the per-angle quantile arrays); scaling is not optimized"
+            )
+        frozen_c = jnp.asarray(frozen[0], dtype=jnp.float64)
+        frozen_o = jnp.asarray(frozen[1], dtype=jnp.float64)
+
+        def expand(_s: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+            # The (empty) scaling head is ignored; per-angle scaling is frozen.
+            return frozen_c, frozen_o
+
+        return expand, 0
+
     if per_angle_mode == "averaged":
 
         def expand(s: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
@@ -230,24 +246,9 @@ def make_scaling_expander(
 
         return expand, 2 * n_phi
 
-    if per_angle_mode == "fourier":
-        if fourier is None:
-            raise ValueError("fourier mode requires a FourierReparameterizer (fourier=...)")
-        # The scaling vector IS the full Fourier coefficient vector
-        # [contrast_coeffs (n_coeffs_per_param) | offset_coeffs (n_coeffs_per_param)].
-        # fourier_to_per_angle_jax splits and maps both halves to per-angle
-        # arrays in one JIT-safe call — identical to the conversion done every
-        # iteration by ``_fit_joint_multi_phi`` in heterodyne_core.py.
-        n_scaling = int(fourier.n_coeffs)
-
-        def expand(s: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
-            return fourier.fourier_to_per_angle_jax(s)
-
-        return expand, n_scaling
-
     raise NotImplementedError(
         f"stratified-LS does not support per_angle_mode={per_angle_mode!r} "
-        "(supported: averaged, individual, fourier)"
+        "(supported: constant, averaged, individual)"
     )
 
 
