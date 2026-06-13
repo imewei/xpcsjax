@@ -42,12 +42,13 @@ def test_stratified_ls_emits_laminar_parity_banners(caplog):
         assert expected in text, f"missing laminar-parity banner: {expected!r}"
 
 
-def test_stratified_ls_gradient_sanity_perturbs_physics_first_param(caplog):
-    """Heterodyne's joint vector is PHYSICS-FIRST ([physics | scaling]), so the
-    gradient sanity check must perturb param[0] (the first physical parameter) --
-    NOT the scaling-first index (2*n_phi) the homodyne/laminar path uses. This
-    pins the layout-correct port; a verbatim copy of laminar's index would
-    perturb a scaling coefficient instead and silently weaken the check."""
+def test_stratified_ls_gradient_sanity_perturbs_first_physics_param(caplog):
+    """Heterodyne's joint vector is canonical SCALING-FIRST ([scaling | physics],
+    Phase 3), so the gradient sanity check must perturb the FIRST PHYSICAL
+    parameter at index n_scaling -- matching laminar's scaling-first layout. For
+    averaged mode n_scaling=2, so the perturbed index is param[2]; a verbatim copy
+    of the old physics-first index 0 would perturb a scaling coefficient instead
+    and silently weaken the check."""
     from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
     from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
     from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
@@ -60,7 +61,8 @@ def test_stratified_ls_gradient_sanity_perturbs_physics_first_param(caplog):
         fit_heterodyne_stratified_least_squares(
             model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False
         )
-    assert "perturbation of param[0]" in caplog.text
+    # averaged -> n_scaling=2 -> first physics param at index 2.
+    assert "perturbation of param[2]" in caplog.text
 
 
 def test_completion_emits_honest_anti_degeneracy_defense(caplog):
@@ -229,7 +231,15 @@ def test_stratified_ls_matches_joint_fit_shuffle_off():
         per_angle_mode="averaged",
         init_scaling=np.array([0.3, 1.0]),
     )
-    ssr_joint = float(np.sum(np.asarray(shared_resid(np.asarray(joint.parameters))) ** 2))
+    # The shared residual is canonical SCALING-FIRST ([scaling | physics], Phase 3),
+    # which is exactly the stratified-LS ``strat.parameters`` layout. The in-memory
+    # ``fit_nlsq_multi_phi`` result is still PHYSICS-FIRST ([physics | scaling]), so
+    # permute it to scaling-first before scoring against the same residual (a pure
+    # layout permutation — same numeric vector).
+    n_physics = int(model.param_manager.n_varying)
+    joint_p = np.asarray(joint.parameters)
+    joint_p_scaling_first = np.concatenate([joint_p[n_physics:], joint_p[:n_physics]])
+    ssr_joint = float(np.sum(np.asarray(shared_resid(joint_p_scaling_first)) ** 2))
     ssr_strat = float(np.sum(np.asarray(shared_resid(np.asarray(strat.parameters))) ** 2))
     assert np.isclose(ssr_joint, joint.chi_squared, rtol=1e-9)
     assert np.isclose(ssr_strat, strat.chi_squared, rtol=1e-9)
@@ -342,21 +352,22 @@ def test_stratified_ls_individual_mode():
     assert np.isfinite(result.chi_squared), (
         f"chi_squared must be finite, got {result.chi_squared}"
     )
-    # Scaling tail (contrast + offset per angle) must be non-negative.
-    scaling_tail = result.parameters[n_physics:]
-    assert np.all(scaling_tail >= 0.0), (
-        f"scaling parameters must be >= 0; got min={scaling_tail.min()}"
+    # Canonical scaling-first: scaling HEAD (contrast + offset per angle) must be
+    # non-negative (the physics tail follows at index 2*n_phi).
+    scaling_head = result.parameters[: 2 * n_phi]
+    assert np.all(scaling_head >= 0.0), (
+        f"scaling parameters must be >= 0; got min={scaling_head.min()}"
     )
 
 
-def test_stratified_ls_constant_mode_raises():
-    """``constant`` mode still raises NotImplementedError from the stratified-LS driver.
+def test_stratified_ls_constant_mode_runs_physics_only():
+    """Test constant mode RUNS on stratified-LS (frozen scaling, physics-only solve).
 
-    ``constant`` freezes scaling (physics-only solve) and always uses the
-    in-memory path.  The dispatch gate in ``__init__.py`` never routes it here,
-    but the driver guards it defensively.
+    Phase 3 teaches the driver constant: scaling is frozen from the per-angle
+    quantiles, the optimizer solves physics-only, and the result vector is
+    physics-only (n_scaling=0). Replaces the old NotImplementedError contract.
     """
-    import pytest
+    import numpy as np
 
     from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
     from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
@@ -366,19 +377,29 @@ def test_stratified_ls_constant_mode_raises():
     )
 
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    n_phi = len(phi)
+    n_physics = int(model.param_manager.n_varying)
     cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "constant"})
-    # Pre-assert the config resolves to constant on this fixture.
-    assert _resolve_effective_mode(cfg, len(phi)) == "constant"
+    assert _resolve_effective_mode(cfg, n_phi) == "constant"
 
-    with pytest.raises(NotImplementedError):
-        fit_heterodyne_stratified_least_squares(
-            model=model,
-            c2=c2,
-            phi=phi,
-            config=cfg,
-            weights=None,
-            shuffle=False,
-        )
+    result = fit_heterodyne_stratified_least_squares(
+        model=model,
+        c2=c2,
+        phi=phi,
+        config=cfg,
+        weights=None,
+        shuffle=False,
+    )
+    # Physics-only optimizer vector: n_scaling == 0.
+    assert result.parameters is not None
+    assert len(result.parameters) == n_physics, (
+        f"constant -> physics-only vector of length {n_physics}, "
+        f"got {len(result.parameters)}"
+    )
+    assert np.isfinite(result.chi_squared)
+    # The frozen per-angle scaling is surfaced in diagnostics (expand_back contract).
+    diag = result.nlsq_diagnostics or {}
+    assert diag.get("per_angle_mode") == "constant"
 
 
 @pytest.mark.skip(
@@ -838,8 +859,9 @@ def test_bounds_clip_enforces_bounds_on_marginally_out_of_bounds_result(
     upper_phys_arr = np.asarray(upper_phys, dtype=np.float64)
     scaling_lower = np.zeros(2, dtype=np.float64)  # averaged: 2 scaling params
     scaling_upper = np.full(2, np.inf, dtype=np.float64)
-    lower_full = np.concatenate([lower_phys_arr, scaling_lower])
-    upper_full = np.concatenate([upper_phys_arr, scaling_upper])
+    # Canonical scaling-first: [scaling | physics].
+    lower_full = np.concatenate([scaling_lower, lower_phys_arr])
+    upper_full = np.concatenate([scaling_upper, upper_phys_arr])
 
     params = np.asarray(result.parameters)
     # All parameters must be within bounds.
@@ -911,8 +933,9 @@ def test_bounds_clip_is_noop_for_in_bounds_result(monkeypatch):
     upper_phys_arr = np.asarray(upper_phys, dtype=np.float64)
     scaling_lower = np.zeros(2, dtype=np.float64)
     scaling_upper = np.full(2, np.inf, dtype=np.float64)
-    lower_full = np.concatenate([lower_phys_arr, scaling_lower])
-    upper_full = np.concatenate([upper_phys_arr, scaling_upper])
+    # Canonical scaling-first: [scaling | physics].
+    lower_full = np.concatenate([scaling_lower, lower_phys_arr])
+    upper_full = np.concatenate([scaling_upper, upper_phys_arr])
 
     assert np.all(raw >= lower_full[: raw.size]), "raw solver popt already out-of-bounds"
     assert np.all(raw <= upper_full[: raw.size]), "raw solver popt already out-of-bounds"

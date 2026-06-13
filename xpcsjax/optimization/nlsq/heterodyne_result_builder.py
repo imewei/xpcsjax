@@ -564,8 +564,9 @@ def build_hybrid_streaming_result(
     # ------------------------------------------------------------------
     # ``parameter_names`` defaults to physics-only ``varying_names`` (length
     # n_physics), preserving the existing hybrid-streaming caller. The
-    # stratified-LS driver passes the FULL joint name list ([physics | scaling])
-    # so the diagnostics names align with ``popt`` length (Fix 4).
+    # stratified-LS driver passes the FULL joint name list (canonical
+    # scaling-first [scaling | physics], Phase 3) so the diagnostics names align
+    # with ``popt`` length (Fix 4).
     diag_param_names = (
         list(parameter_names)
         if parameter_names is not None
