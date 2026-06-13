@@ -5,9 +5,11 @@ heterodyne two_component model. Reuses the model-agnostic chunking helpers and
 adds a heterodyne-specific joint pointwise residual whose per-angle scaling is
 expanded from the varying parameter vector each iteration.
 
-Parameter packing is physics-first ([physics | scaling]) to match the rest of
-the heterodyne result handling. The objective equals the in-memory joint fit's
-objective; the only intended behavioral change is the seed-42 pre-shuffle.
+Parameter packing is canonical scaling-first ([scaling | physics]) to match the
+rest of the heterodyne result handling (Phase 1+2). The objective equals the
+in-memory joint fit's objective; the only intended behavioral change is the
+seed-42 pre-shuffle. ``constant`` freezes the per-angle scaling from quantiles
+and solves physics-only (n_scaling = 0).
 """
 
 from __future__ import annotations
@@ -214,8 +216,8 @@ def make_scaling_expander(
     - ``averaged``: 2 params (one contrast, one offset) broadcast to all angles.
     - ``individual``: ``2*n_phi`` params (contrast block then offset block).
 
-    ``fourier`` is removed from the engine; any unrecognized mode raises
-    ``NotImplementedError``.
+    Any unrecognized mode raises ``NotImplementedError`` (the stratified-LS
+    engine supports only the three modes above).
     """
     if per_angle_mode == "constant":
         if frozen is None:
@@ -403,7 +405,7 @@ def _reconstruct_per_angle_scaling(
 
     The scaling block is the HEAD. ``individual`` reads the per-angle blocks;
     ``averaged`` broadcasts the 2 head scalars; ``constant`` returns the frozen
-    quantile arrays (the scaling head is empty). ``fourier`` is removed.
+    quantile arrays (the scaling head is empty).
     """
     head = params_native
     if mode == "individual":
@@ -451,7 +453,7 @@ def _run_hierarchical_layers(
     Mirrors ``strategies/heterodyne_hybrid_streaming.py``'s L2 branch. The joint
     vector is already canonical scaling-first ``[scaling | physics]`` — exactly
     the ``HierarchicalOptimizer``'s convention — so no permutation is needed
-    (Phase 3 retired the physics-first<->scaling-first permute to identity). L3
+    (Phase 3 retired the physics<->scaling permute to identity). L3
     (when ``l3_lambda`` is not None) enters the scalar loss as an SSE-scale
     per-angle-CV penalty (``lambda * (c_CV² + o_CV²) * SSR_data`` over the
     *reconstructed* per-angle scaling — correct for individual). It shapes the
@@ -478,7 +480,7 @@ def _run_hierarchical_layers(
 
     # The joint vector is already canonical scaling-first [scaling | physics],
     # which is exactly HierarchicalOptimizer's convention — no permutation needed
-    # (Phase 3 retired the physics-first<->scaling-first permute to identity).
+    # (Phase 3 retired the physics<->scaling permute to identity).
     p0_hier = np.asarray(p0_start, dtype=np.float64)
     bounds_hier = (
         np.asarray(lower, dtype=np.float64),
@@ -560,23 +562,24 @@ def fit_heterodyne_stratified_least_squares(
 ) -> Any:
     """Mode-aware heterodyne stratified-LS solve. Returns OptimizationResult.
 
-    Resolves the effective per-angle mode (``averaged`` / ``fourier`` /
+    Resolves the effective per-angle mode (``constant`` / ``averaged`` /
     ``individual``) via :func:`_resolve_effective_mode`, computes the
-    mode-appropriate scaling-tail seed from per-angle quantiles, and runs a
+    mode-appropriate scaling-head seed from per-angle quantiles, and runs a
     single joint pointwise least-squares solve. The objective equals the
     in-memory joint fit for the same mode; the only behavioral change is the
     optional seed-42 reorder/shuffle of the flat point support
     (objective-invariant — reordering residual elements does not change the sum
     of squares).
 
-    The JOINT modes ``averaged``, ``fourier``, and ``individual`` are all
-    supported here — objective-consistent with the in-memory
-    ``_fit_joint_multi_phi`` path (explicit ``individual`` is a JOINT fit, not
-    sequential; ``_aggregate_individual_results`` is only the ``config is
-    None``/single-angle fallback).  ``constant`` (frozen scaling) raises
-    ``NotImplementedError``; the dispatch gate in ``__init__.py`` only routes
-    averaged/fourier/individual here and additionally wraps this driver in a
-    best-effort try/except that falls through to the in-memory joint fit.
+    All three resolved modes (``constant`` / ``averaged`` / ``individual``) are
+    supported here. ``averaged`` / ``individual`` use the JOINT objective,
+    objective-consistent with the in-memory ``_fit_joint_multi_phi`` path
+    (explicit ``individual`` is a JOINT fit, not sequential;
+    ``_aggregate_individual_results`` is only the ``config is None``/single-angle
+    fallback). ``constant`` freezes the per-angle scaling from quantiles and
+    solves physics-only (n_scaling = 0). The dispatch gate in ``__init__.py``
+    routes all three here and additionally wraps this driver in a best-effort
+    try/except that falls through to the in-memory joint fit.
 
     Parameters
     ----------
@@ -622,12 +625,11 @@ def fit_heterodyne_stratified_least_squares(
     # ``_aggregate_individual_results`` is only the config-is-None /
     # single-angle fallback and never resolves here). ``constant`` freezes the
     # per-angle scaling from quantiles and solves physics-only (n_scaling=0).
-    # ``fourier`` is removed from the engine.
     if mode not in ("constant", "averaged", "individual"):
         raise NotImplementedError(
             f"stratified-LS supports per_angle_mode in "
             f"('constant', 'averaged', 'individual'); "
-            f"got resolved mode={mode!r} (fourier is removed from the engine)"
+            f"got resolved mode={mode!r} (this mode is not handled by the engine)"
         )
 
     # Laminar-parity narration: announce the path + physical parameter block
@@ -895,7 +897,7 @@ def fit_heterodyne_stratified_least_squares(
         enable_hier = bool(getattr(config, "enable_hierarchical", False))
         use_constant = mode == "averaged"
 
-        # L3 rides inside the L2 scalar loss (individual / fourier) as an SSE-scale
+        # L3 rides inside the L2 scalar loss (individual) as an SSE-scale
         # per-angle-CV penalty; ``None`` disables it. The L3-only branch below uses
         # the same per-angle reconstruction as row-append penalties; averaged L3 is
         # degenerate-zero.
@@ -1007,7 +1009,7 @@ def fit_heterodyne_stratified_least_squares(
         elif l3_configured and not use_constant and n_scaling > 0:
             # L3-only (L2 disabled): augment the data residual with
             # ``sqrt(lambda) * CV`` penalty rows and re-solve — the row-append L3
-            # of heterodyne_core's fourier path (2451-2515 / plan step 8). The
+            # of heterodyne_core's joint-reparam path (2451-2515 / plan step 8). The
             # penalty rows shape the least-squares search only; the reported chi^2
             # is recomputed from the data-only residual below, so the objective is
             # never contaminated. The baseline adapter covariance is invalidated
@@ -1187,7 +1189,7 @@ def fit_heterodyne_stratified_least_squares(
     # cost-reduction percentage.
     _n_data = int(meta["n_data_points"])
     # Noise-normalized reduced chi^2 (targets ~1.0), mirroring the in-memory
-    # averaged/fourier joint paths. Raw SSR/dof collapses to MSE << 1 on
+    # averaged/individual joint paths. Raw SSR/dof collapses to MSE << 1 on
     # normalized C2 data and is not an interpretable goodness-of-fit. The far-lag
     # photon-noise variance is threaded to the result builder via ``sigma2_noise``
     # so the logged value and the OptimizationResult agree.
