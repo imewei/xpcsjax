@@ -66,6 +66,18 @@ _SKIP_REASON = (
     "Never enabled in CI / fresh clones."
 )
 
+# SUPERSEDED (Phase 1+2 scaling-first re-order): the engine-route reference harness
+# `run_reference_and_engine` below relied on the now-retired `heterodyne_layout`
+# physics-first<->scaling-first conversion. The engine route is natively scaling-first,
+# so the engine-vs-physics-first-reference comparison is no longer meaningful. The
+# no-worse contract on real C044 data moved to the in-memory oracle
+# `tests/parity/test_engine_heterodyne_inmemory_scaling_first_c044.py`.
+pytestmark = pytest.mark.skip(
+    reason="superseded by Phase 1+2 scaling-first re-order (run_reference_and_engine "
+    "relied on the retired heterodyne_layout); C044 no-worse coverage moved to "
+    "test_engine_heterodyne_inmemory_scaling_first_c044.py"
+)
+
 # Import the script helpers by path (the script lives under scripts/, not a
 # package) so we do not duplicate the engine-route construction.
 _SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "realdata_engine_fit_parity_c044.py"

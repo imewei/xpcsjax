@@ -1,9 +1,9 @@
 """Typed accessors on OptimizationResult (quality-gate type-design fixes).
 
-F8: ``parameters`` is a flat array whose physics-first ``[physics | scaling]``
-layout was implicit — the root of the recurring viz mis-slicing bug. Named
-``physics_parameters`` / ``scaling_parameters`` accessors make the split
-explicit (given ``n_physics``).
+F8: ``parameters`` is a flat array whose canonical scaling-first
+``[scaling_head | physics_tail]`` layout was implicit — the root of the recurring
+viz mis-slicing bug. Named ``physics_parameters`` (TAIL) / ``scaling_parameters``
+(HEAD) accessors make the split explicit (given ``n_physics``).
 
 F3: ``nlsq_diagnostics`` is an untyped dict, so ``["global_escape"]`` typos
 silently return ``None``. A typed ``global_escape`` accessor centralises the
@@ -35,9 +35,10 @@ def _result(**overrides):
 
 
 def test_physics_and_scaling_split_when_n_physics_known():
-    res = _result(n_physics=3)
-    assert np.array_equal(res.physics_parameters, np.array([1.0, 2.0, 3.0]))
-    assert np.array_equal(res.scaling_parameters, np.array([0.5, 0.1]))
+    # Canonical scaling-first layout: [scaling_head | physics_tail].
+    res = _result(n_physics=3, parameters=np.array([0.5, 0.1, 1.0, 2.0, 3.0]))
+    assert np.array_equal(res.physics_parameters, np.array([1.0, 2.0, 3.0]))  # TAIL
+    assert np.array_equal(res.scaling_parameters, np.array([0.5, 0.1]))  # HEAD
 
 
 def test_accessors_raise_clearly_when_n_physics_unknown():
