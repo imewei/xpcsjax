@@ -1036,3 +1036,39 @@ def test_joint_residual_constant_is_physics_only():
     r = np.asarray(residual_fn(p0_full), dtype=np.float64)
     assert r.shape[0] == int(meta["n_data_points"])
     assert np.all(np.isfinite(r))
+
+
+def test_reconstruct_scaling_first_individual():
+    """Test L3 reconstruction reads the scaling HEAD for individual mode."""
+    import jax.numpy as jnp
+    import numpy as np
+
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        _reconstruct_per_angle_scaling,
+    )
+
+    n_phi = 3
+    contrast = np.array([0.30, 0.31, 0.29])
+    offset = np.array([1.00, 1.01, 0.99])
+    physics = np.arange(14, dtype=np.float64)
+    # scaling-first: [contrast_block | offset_block | physics]
+    vec = jnp.asarray(np.concatenate([contrast, offset, physics]))
+    c, o = _reconstruct_per_angle_scaling(vec, mode="individual", n_phi=n_phi, frozen=None)
+    np.testing.assert_allclose(np.asarray(c), contrast)
+    np.testing.assert_allclose(np.asarray(o), offset)
+
+
+def test_reconstruct_scaling_first_averaged():
+    """Test averaged: the 2 head scalars broadcast to n_phi."""
+    import jax.numpy as jnp
+    import numpy as np
+
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        _reconstruct_per_angle_scaling,
+    )
+
+    n_phi = 4
+    vec = jnp.asarray(np.concatenate([[0.5, 1.2], np.arange(14, dtype=np.float64)]))
+    c, o = _reconstruct_per_angle_scaling(vec, mode="averaged", n_phi=n_phi, frozen=None)
+    np.testing.assert_allclose(np.asarray(c), np.full(n_phi, 0.5))
+    np.testing.assert_allclose(np.asarray(o), np.full(n_phi, 1.2))

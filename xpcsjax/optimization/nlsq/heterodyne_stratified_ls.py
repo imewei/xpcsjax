@@ -396,29 +396,27 @@ def _reconstruct_per_angle_scaling(
     params_native: Any,
     *,
     mode: str,
-    n_physics: int,
     n_phi: int,
-    fourier: Any | None,
+    frozen: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Return ``(contrast[n_phi], offset[n_phi])`` from a native ``[physics | scaling]`` vector.
+    """Return ``(contrast[n_phi], offset[n_phi])`` from a scaling-first ``[scaling | physics]`` vector.
 
-    L3 must constrain the *per-angle* scaling CV — the physically meaningful
-    quantity — for BOTH ``individual`` and ``fourier`` modes. For ``individual``
-    the scaling tail IS the per-angle blocks; for ``fourier`` the per-angle arrays
-    are reconstructed from the coefficients via ``fourier_to_per_angle_jax``
-    (mirroring ``heterodyne_core``'s row-append Fourier path — regularizing the raw
-    coefficient blocks is wrong because coefficient variance can be smooth while
-    reconstructed per-angle contrast/offset still vary).
+    The scaling block is the HEAD. ``individual`` reads the per-angle blocks;
+    ``averaged`` broadcasts the 2 head scalars; ``constant`` returns the frozen
+    quantile arrays (the scaling head is empty). ``fourier`` is removed.
     """
-    tail = params_native[n_physics:]
+    head = params_native
     if mode == "individual":
-        return tail[:n_phi], tail[n_phi : 2 * n_phi]
-    if mode == "fourier":
-        if fourier is None:
-            raise ValueError("fourier mode L3 requires a FourierReparameterizer")
-        return fourier.fourier_to_per_angle_jax(tail)
-    # averaged: a single scalar per group broadcast to all angles
-    return jnp.full((n_phi,), tail[0]), jnp.full((n_phi,), tail[1])
+        return head[:n_phi], head[n_phi : 2 * n_phi]
+    if mode == "averaged":
+        return jnp.full((n_phi,), head[0]), jnp.full((n_phi,), head[1])
+    if mode == "constant":
+        if frozen is None:
+            raise ValueError("constant mode L3 reconstruction requires frozen arrays")
+        return jnp.asarray(frozen[0], dtype=jnp.float64), jnp.asarray(
+            frozen[1], dtype=jnp.float64
+        )
+    raise NotImplementedError(f"unknown per_angle_mode {mode!r} in L3 reconstruction")
 
 
 def _per_angle_cv(contrasts: jnp.ndarray, offsets: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
