@@ -4,11 +4,11 @@ Both were surfaced by an adversarial review of the engine-route dispatch
 (``xpcsjax/optimization/nlsq/heterodyne_engine_route.py``):
 
 Bug 1 — averaged mode over-parameterized the scaling.
-    For production ``auto`` at ``n_phi >= 3`` (engine ``auto_averaged``) the
+    For production ``auto`` at ``n_phi >= 3`` (engine ``averaged``) the
     contract is a COMPRESSED ``[physics | avg_contrast | avg_offset]`` problem —
     exactly **2 scaling DOF** shared across angles. The route instead broadcast
     the 2 averaged scalars to the engine's ``2*n_phi`` scaling-first layout and
-    handed the optimizer ``n_varying + 2*n_phi`` DOF, letting it fit independent
+    handed the optimizer ``n_varying + 2*n_phi`` DOF, letting it fit separate
     per-angle contrast/offset. It then compressed by keeping ONLY angle-0's
     fitted scalar and broadcasting it — discarding the other fitted values before
     scoring. The fix compresses the averaged scaling to the 2 shared scalars at
@@ -26,7 +26,7 @@ Bug 2 — single-angle 2D ``c2`` was accepted but mis-scored.
     ``(1, N, N)`` at the top of ``fit_two_component_via_engine``.
 
 These tests are fixture-robust: the well-posed fixture used elsewhere has
-UNIFORM true scaling, which hides Bug 1 numerically (the independent-DOF optimum
+UNIFORM true scaling, which hides Bug 1 numerically (the per-angle-DOF optimum
 coincides with the uniform one), so Bug 1 is pinned by the optimizer DOF count
 and wrapper usage, not by a chi-square delta on that fixture.
 """
@@ -93,9 +93,9 @@ def _spy_adapter_initial_params(monkeypatch) -> dict:
 
 
 def test_averaged_mode_optimizes_two_compressed_scaling_dof(monkeypatch):
-    """``auto_averaged`` must hand the solver ``n_varying + 2`` DOF, NOT
+    """``averaged`` must hand the solver ``n_varying + 2`` DOF, NOT
     ``n_varying + 2*n_phi``. With the over-parameterized route the optimizer
-    fit independent per-angle scaling — inconsistent with the averaged contract.
+    fit separate per-angle scaling — inconsistent with the averaged contract.
     """
     model, c2, phi = _make_well_posed_case()
     n_phi = len(phi)
@@ -115,7 +115,7 @@ def test_averaged_mode_optimizes_two_compressed_scaling_dof(monkeypatch):
 
 
 def test_averaged_mode_optimizes_compressed_two_scaling_dof(monkeypatch):
-    """``auto_averaged`` must optimize exactly ``n_varying + 2`` DOF (Bug 1).
+    """``averaged`` must optimize exactly ``n_varying + 2`` DOF (Bug 1).
 
     The original Task #14 fix routed averaged through a dedicated
     ``wrap_engine_averaged_residual``; that broadcast was later INLINED into the
@@ -140,7 +140,7 @@ def test_averaged_mode_optimizes_compressed_two_scaling_dof(monkeypatch):
 
 def test_individual_mode_keeps_per_angle_scaling_dof(monkeypatch):
     """Guard: the fix must NOT change ``individual`` — it legitimately fits
-    ``2*n_phi`` independent scaling DOF."""
+    ``2*n_phi`` per-angle scaling DOF."""
     model, c2, phi = _make_well_posed_case()
     n_phi = len(phi)
     n_varying = len(model.param_manager.varying_names)

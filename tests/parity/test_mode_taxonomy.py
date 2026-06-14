@@ -10,13 +10,12 @@ Parameter Count Summary table:
 
 * ``constant``   : ``n_physics``                       (scaling frozen pre-fit)
 * ``individual`` : ``n_physics + 2 * n_phi``           (free per-angle scaling)
-* ``fourier``    : ``n_physics + 2 * (2K + 1)``        (truncated basis)
 
-All three parametrizations pass. Explicit multi-angle ``individual`` mode is a
-JOINT fit: the ``n_phi`` independent per-angle ``(contrast, offset)`` are packed
+Both parametrizations pass. Explicit multi-angle ``individual`` mode is a
+JOINT fit: the ``n_phi`` separate per-angle ``(contrast, offset)`` are packed
 as the ``2 * n_phi`` scaling tail of the joint vector and optimized jointly with
-physics via :func:`_fit_joint_multi_phi` (``FourierReparameterizer`` in
-``"independent"`` mode), matching ``laminar_flow`` and upstream heterodyne. The
+physics via :func:`_fit_joint_multi_phi` (per-angle scaling-first layout),
+matching ``laminar_flow`` and upstream heterodyne. The
 parameter dim is therefore ``n_physics + 2 * n_phi`` — the same as the old
 sequential aggregate, but now from one consistent joint optimum (its parameters
 reproduce its reported chi-squared). The sequential per-angle aggregate
@@ -48,8 +47,8 @@ from xpcsjax.optimization.nlsq.results import OptimizationResult
     [
         ("constant", lambda n_phys, n_phi, K: 0),
         ("individual", lambda n_phys, n_phi, K: 2 * n_phi),
-        # ``fourier`` row removed: in-memory fourier was retired in Phase 1+2
-        # (full fourier-test teardown in Phase 7).
+        # truncated-basis row removed: that in-memory mode was retired in
+        # Phase 1+2 (full test teardown in Phase 7).
     ],
 )
 def test_heterodyne_param_dim_matches_homodyne_formula(
@@ -68,10 +67,10 @@ def test_heterodyne_param_dim_matches_homodyne_formula(
 
     model = _build_minimal_heterodyne_model_for_fourier()
     n_physics = model.param_manager.n_varying
-    n_phi = 6  # full angle set — large enough to trigger the fourier window
+    n_phi = 6  # full angle set
     K = 2
 
-    config = NLSQConfig(per_angle_mode=mode, fourier_order=K, max_nfev=30)
+    config = NLSQConfig(per_angle_mode=mode, max_nfev=30)
     c2 = _build_synthetic_c2_stack_for_fourier(n_phi=n_phi, n_t=_C2_N_TIMES, model=model)
     phi = np.linspace(0.0, 150.0, n_phi, dtype=np.float64)
 

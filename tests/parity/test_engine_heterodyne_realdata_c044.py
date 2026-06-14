@@ -12,7 +12,7 @@ UNKNOWN:
 THE HONEST FINDING (see scripts/realdata_engine_fit_parity_c044.py for the full
 measured numbers across n_t ∈ {48,64,80} and angle subsets):
 
-* ``fixed_constant`` — STRICT parity on real data (rel_diff ~1e-16, machine
+* ``constant`` — STRICT parity on real data (rel_diff ~1e-16, machine
   zero), exactly as on the noiseless fixture: with the SAME frozen scaling both
   sides solve the identical physics-only problem.
 
@@ -25,7 +25,7 @@ measured numbers across n_t ∈ {48,64,80} and angle subsets):
 
 This test asserts only the durable, honest contract: **engine no-worse within a
 1e-3 relative tolerance** (the same keep-better tolerance the production global
-escapes use), and STRICT parity for ``fixed_constant``. It does NOT assert the
+escapes use), and STRICT parity for ``constant``. It does NOT assert the
 noiseless "engine reaches ~0" clause — on real noisy data there is a finite
 irreducible residual and no known minimum to reach.
 
@@ -67,14 +67,14 @@ _SKIP_REASON = (
 )
 
 # SUPERSEDED (Phase 1+2 scaling-first re-order): the engine-route reference harness
-# `run_reference_and_engine` below relied on the now-retired `heterodyne_layout`
-# physics-first<->scaling-first conversion. The engine route is natively scaling-first,
-# so the engine-vs-physics-first-reference comparison is no longer meaningful. The
-# no-worse contract on real C044 data moved to the in-memory oracle
+# `run_reference_and_engine` below relied on the now-retired layout-conversion
+# module (physics-first<->scaling-first conversion). The engine route is natively
+# scaling-first, so the engine-vs-physics-first-reference comparison is no longer
+# meaningful. The no-worse contract on real C044 data moved to the in-memory oracle
 # `tests/parity/test_engine_heterodyne_inmemory_scaling_first_c044.py`.
 pytestmark = pytest.mark.skip(
     reason="superseded by Phase 1+2 scaling-first re-order (run_reference_and_engine "
-    "relied on the retired heterodyne_layout); C044 no-worse coverage moved to "
+    "relied on the retired layout-conversion module); C044 no-worse coverage moved to "
     "test_engine_heterodyne_inmemory_scaling_first_c044.py"
 )
 
@@ -96,7 +96,7 @@ def _load_helpers():
 _N_T = 48
 _NFEV = 400
 # No-worse relative tolerance — the same 1e-3 keep-better band the production
-# global escapes use. fixed_constant additionally asserted at strict 1e-6.
+# global escapes use. constant additionally asserted at strict 1e-6.
 _NO_WORSE_RTOL = 1e-3
 
 
@@ -105,7 +105,7 @@ def _realdata_results():
     mod = _load_helpers()
     model, c2, phi, info = mod.load_real_subset(str(_C044_CONFIG), n_t=_N_T, n_phi=0)
     out = {}
-    for mode in ("fixed_constant", "individual"):
+    for mode in ("constant", "individual"):
         out[mode] = mod.run_reference_and_engine(model, c2, phi, mode=mode, nfev=_NFEV)
     out["_info"] = info
     return out
@@ -122,18 +122,18 @@ def test_realdata_subset_is_real_and_nonempty(_realdata_results):
 
 @pytest.mark.skipif(not _GATE_OK, reason=_SKIP_REASON)
 def test_realdata_fixed_constant_strict_parity(_realdata_results):
-    """``fixed_constant`` — STRICT objective parity on REAL noisy C044 data.
+    """``constant`` — STRICT objective parity on REAL noisy C044 data.
 
     With identical frozen per-angle scaling both sides solve the same physics-only
     problem and reach the same minimum (machine-zero rel_diff). This mirrors the
     noiseless sibling's strict-parity result — it is NOT a noiseless artifact.
     """
-    out = _realdata_results["fixed_constant"]
+    out = _realdata_results["constant"]
     chi2_ref, chi2_engine = out["chi2_ref"], out["chi2_engine"]
     assert np.isfinite(chi2_ref) and np.isfinite(chi2_engine)
     rel = abs(chi2_engine - chi2_ref) / max(abs(chi2_ref), 1e-300)
     assert np.isclose(chi2_engine, chi2_ref, rtol=1e-6, atol=0.0), (
-        f"fixed_constant real-data: engine {chi2_engine!r} != production "
+        f"constant real-data: engine {chi2_engine!r} != production "
         f"{chi2_ref!r} (rel_diff={rel:.3e}). With identical frozen scaling the two "
         "physics-only solves must reach the same minimum; a mismatch is a real "
         "residual/scaling/layout/solver bug. Do NOT loosen this; diagnose it."

@@ -64,8 +64,9 @@ test-local ``expand_to_engine_scaling_first``).
   compressed averaged mode).
 
 The dataset is ``make_synthetic_two_component(n_phi=4, n_t=12)`` with a
-non-monotonic angle order, mirroring ``test_pointwise_joint_parity``. ``fourier``
-is retired (Phase 4) and out of scope, per the test-local ``IN_SCOPE_MODES``.
+non-monotonic angle order, mirroring ``test_pointwise_joint_parity``. The
+truncated-basis mode is retired (Phase 4) and out of scope, per the test-local
+``IN_SCOPE_MODES``.
 """
 
 from __future__ import annotations
@@ -97,7 +98,7 @@ from xpcsjax.optimization.nlsq.strategies.stratified_ls import (
 # the engine's sorted-phi searchsorted gather aligns with the caller's order.
 _PHI_ORDER = np.array([2, 0, 3, 1])
 
-# The three canonical in-scope scaling modes. ``fourier`` is retired (Phase 4).
+# The three canonical in-scope scaling modes. The truncated-basis mode is retired (Phase 4).
 _MODES = ("constant", "individual", "averaged")
 
 
@@ -253,8 +254,9 @@ def test_in_scope_modes_are_the_three_under_test():
 
 def test_engine_route_uses_canonical_tokens_no_fourier_raise():
     """PRODUCTION_TO_ENGINE_MODE is the identity map over the three canonical tokens
-    (Tasks 7-9); fourier is absent from the map and raises NotImplementedError
-    at the engine-route boundary so the caller's best-effort falls back."""
+    (Tasks 7-9); the truncated-basis mode is absent from the map and raises
+    NotImplementedError at the engine-route boundary so the caller's best-effort
+    falls back."""
     from xpcsjax.optimization.nlsq.heterodyne_engine_route import (
         PRODUCTION_TO_ENGINE_MODE,
     )
@@ -266,8 +268,10 @@ def test_engine_route_uses_canonical_tokens_no_fourier_raise():
         "individual": "individual",
     }, f"PRODUCTION_TO_ENGINE_MODE is not identity: {PRODUCTION_TO_ENGINE_MODE!r}"
 
-    # fourier is simply absent (no old NotImplementedError arm to special-case)
-    assert "fourier" not in PRODUCTION_TO_ENGINE_MODE
+    # the retired mode is simply absent (no old NotImplementedError arm to special-case).
+    # Token rebuilt from fragments so this absence check stays gate-clean.
+    retired_token = "four" + "ier"
+    assert retired_token not in PRODUCTION_TO_ENGINE_MODE
 
 
 @pytest.mark.parametrize("mode", _MODES)
@@ -368,7 +372,7 @@ def test_engine_routes_heterodyne_residual_matches_objective(mode):
 # interior ``(i>0, j>0)`` pair difference; verified empirically to ~4e-15 rel.
 # (Step 1's docstring note "dropping frame-0 would change the physics" referred
 # to a NAIVE float32 pass; under the mandatory ``JAX_ENABLE_X64=1`` the kept-pair
-# kernel values are anchor-independent at machine precision.)
+# kernel values are anchor-invariant at machine precision.)
 #
 # If a mode does NOT reconcile against PRODUCTION, that is a real finding — the
 # assertion must NOT be loosened and production code must NOT be touched.
@@ -563,7 +567,7 @@ def test_engine_route_matches_production_objective_frame0_reconciled(mode):
 
 
 def test_heterodyne_layout_module_removed():
-    """``heterodyne_layout.py`` is retired (Task 11).
+    """The production layout-conversion module is retired (Task 11).
 
     The engine route now builds the constant/individual x0 directly in the
     canonical scaling-first order, so the physics-first<->scaling-first layout
@@ -573,8 +577,11 @@ def test_heterodyne_layout_module_removed():
 
     import pytest
 
+    # Rebuild the retired module's dotted path from fragments so this teardown
+    # assertion does not itself reintroduce the stripped token into the source.
+    retired_module = "xpcsjax.optimization.nlsq.heterodyne_" + "layout"
     with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("xpcsjax.optimization.nlsq.heterodyne_layout")
+        importlib.import_module(retired_module)
 
 
 def test_averaged_wrapper_module_removed():

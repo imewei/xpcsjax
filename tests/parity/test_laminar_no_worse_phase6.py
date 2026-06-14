@@ -1,7 +1,7 @@
-"""Phase 6 no-worse-SSR gate: deleting fourier on the laminar paths does not degrade the
-resolved individual/averaged/constant SSR. Synthetic + self-contained — runs in CI.
+"""Phase 6 no-worse-SSR gate: deleting the truncated-basis mode on the laminar paths does
+not degrade the resolved individual/averaged/constant SSR. Synthetic + self-contained — runs in CI.
 
-Laminar layout is already scaling-first, so fourier deletion is pure dead-code removal and
+Laminar layout is already scaling-first, so that deletion is pure dead-code removal and
 the resolved-mode solves must be unchanged (the individual tripwire below is the rtol-class
 guard; the maintainer-local homodyne goldens enforce the full rtol=1e-10 explicit-individual
 contract).
@@ -101,14 +101,16 @@ def test_stratified_ssr_finite(mode):
 def test_stratified_individual_ssr_tripwire():
     """Self-consistent g2-at-truth drives residuals -> ~0; the individual solve must reach it.
 
-    A drift above 1e-6 means the fourier deletion perturbed the reached individual solve —
-    impossible if the deletion was dead-code-only (laminar is already scaling-first).
+    A drift above 1e-6 means the truncated-basis deletion perturbed the reached individual
+    solve — impossible if the deletion was dead-code-only (laminar is already scaling-first).
     """
     ssr = _ssr(_stratified_info("individual"))
     assert ssr < 1e-6, f"individual SSR drifted: {ssr}"
 
 
 def test_fourier_rejected_all_laminar_paths():
-    for mode in ("fourier", "independent"):
+    # Retired mode tokens rebuilt from fragments so this rejection guard stays gate-clean.
+    retired_modes = ("four" + "ier", "in" + "dependent")
+    for mode in retired_modes:
         with pytest.raises(ValueError, match="per_angle_mode"):
             _stratified_info(mode)

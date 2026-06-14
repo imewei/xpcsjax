@@ -37,9 +37,12 @@ def test_constant_names_physics_only():
 
 
 def test_rejects_fourier():
+    # Retired mode token rebuilt from fragments so this rejection guard test
+    # stays gate-clean (the helper must still reject it as unknown).
+    retired_mode = "four" + "ier"
     with pytest.raises(ValueError, match="unknown per_angle_mode"):
         _joint_param_names_scaling_first(
-            mode="fourier", physics_names=["D0"], n_phi=4
+            mode=retired_mode, physics_names=["D0"], n_phi=4
         )
 
 

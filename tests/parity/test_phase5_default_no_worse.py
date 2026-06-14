@@ -113,7 +113,7 @@ def test_c020_simon_default_no_worse(label):
     cfg_i.config.setdefault("optimization", {}).setdefault("nlsq", {}).setdefault(
         "anti_degeneracy", {}
     ).update({"enable": True, "per_angle_mode": "individual"})
-    # load_xpcs_data takes the path (the data load is independent of per_angle_mode,
+    # load_xpcs_data takes the path (the data load does not depend on per_angle_mode,
     # which only affects the fit); the mutated cfg drives fit_nlsq.
     # The registered laminar config (C020) is a ~23M-point dataset routed to the
     # heavy stratified-LS tier; keep only the scalar SSR and release the data +

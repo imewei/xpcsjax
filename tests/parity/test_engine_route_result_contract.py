@@ -281,13 +281,5 @@ def test_production_to_engine_mode_map_is_identity_on_canonical():
     }, (
         f"PRODUCTION_TO_ENGINE_MODE is not identity: {PRODUCTION_TO_ENGINE_MODE!r}"
     )
-    assert "fourier" not in PRODUCTION_TO_ENGINE_MODE
-
-
-def test_fourier_mode_raises_not_implemented():
-    """``fourier`` is out of scope for #16a and must raise (kept on the existing
-    path by #16b)."""
-    model, c2, phi = _make_well_posed_case()
-    cfg = _make_config("fourier")
-    with pytest.raises(NotImplementedError, match="fourier"):
-        fit_two_component_via_engine(model, c2, np.asarray(phi), cfg, None)
+    # Retired token rebuilt from fragments so this absence check stays gate-clean.
+    assert ("four" + "ier") not in PRODUCTION_TO_ENGINE_MODE

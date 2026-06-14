@@ -76,11 +76,11 @@ RESULTS ON THE WELL-POSED FIXTURE (the honest contract)
   SSR ~7e-2, ``averaged`` at SSR ~1.4 with recovered avg_contrast 0.24 vs true
   0.30) — and it does so even when warm-started immediately adjacent to the truth
   (verified: production reads config-initial as x0 and is trapped by its
-  batched-meshgrid + Fourier-reparam ``"independent"`` geometry, not by the
+  batched-meshgrid joint-reparam per-angle geometry, not by the
   starting point). The engine's frame-0-reconciled stratified-point residual
   descends cleanly to ~0. (For ``averaged`` the engine additionally has
   more freedom: the layout broadcasts the 2 averaged scalars to per-angle
-  ``2*n_phi`` scaling — see ``heterodyne_layout`` — so it can fit per-angle
+  ``2*n_phi`` scaling — see the scaling-first layout oracle — so it can fit per-angle
   scaling where production fits a single averaged pair; with uniform true scaling
   the averaged solve *should* still reach 0, and the gap is production's solver
   sub-optimality, not the DOF difference.)
@@ -539,7 +539,7 @@ def test_engine_route_individual_reaches_true_minimum_production_misses():
 
     On this noiseless, well-posed, in-basin fixture the true objective is ~0.
     From the SAME x0 the engine-route solve descends to ~1e-15; production's
-    batched-meshgrid + Fourier-reparam ``"independent"`` solve stops well above
+    batched-meshgrid joint-reparam per-angle solve stops well above
     it (SSR ~7e-2). The engine route is therefore CORRECT and STRICTLY BETTER —
     a real Phase 2.3b finding, not an engine defect (verified production stays
     trapped even when warm-started adjacent to the truth).

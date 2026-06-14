@@ -2,8 +2,8 @@
 
 L1-L4 are active for both ``averaged`` and ``individual`` heterodyne modes;
 L5 (shear weighting) is ``laminar_flow``-only and is recorded as
-``'not_applicable_heterodyne'`` in all heterodyne results. (In-memory ``fourier``
-was retired in Phase 1+2; full fourier-test teardown is Phase 7.)
+``'not_applicable_heterodyne'`` in all heterodyne results. (The in-memory
+truncated-basis mode was retired in Phase 1+2; full test teardown is Phase 7.)
 
 Diagnostics key/value assertions are derived directly from
 ``_build_heterodyne_diagnostics`` and the extras dicts assembled in
@@ -31,9 +31,9 @@ _CANONICAL_GM_KEYS = {
 # ---------------------------------------------------------------------------
 
 
-# ``test_heterodyne_l1_reparam_active_fourier`` removed: in-memory fourier (the
-# only path that set fourier_basis_dim > 0) was retired in Phase 1+2 (full
-# fourier-test teardown in Phase 7). The averaged/individual cases below cover
+# The former truncated-basis L1-reparam test was removed: that in-memory mode
+# (the only path that set a positive fourier_basis_dim) was retired in Phase 1+2
+# (full test teardown in Phase 7). The averaged/individual cases below cover
 # the mode-agnostic L1-L4 + L5-exclusion contract.
 
 
@@ -95,8 +95,8 @@ def test_heterodyne_l2_l3_l4_active_l5_excluded_averaged():
 def test_heterodyne_l2_l3_l4_active_l5_excluded_individual():
     """Same layer-activation contract holds for the individual per_angle_mode.
 
-    Repointed from the former fourier vehicle (in-memory fourier was retired in
-    Phase 1+2; full fourier-test teardown in Phase 7). ``individual`` exercises
+    Repointed from the former truncated-basis vehicle (that in-memory mode was
+    retired in Phase 1+2; full test teardown in Phase 7). ``individual`` exercises
     the same mode-agnostic L2/L3/L4 layers and the L5 exclusion.
     """
     model, c2, phi = make_synthetic_two_component(n_phi=7, n_t=16)
@@ -145,7 +145,7 @@ def test_laminar_l1_l4_active_l5_present():
     produces. Those flat keys are heterodyne-specific. On the laminar side:
 
     * the L4 ``gradient_monitor`` block IS surfaced under ``nlsq_diagnostics``
-      (via the wrapper's ``_l4_extras``, independent of the diagnostics gate),
+      (via the wrapper's ``_l4_extras``, regardless of the diagnostics gate),
       carrying the same canonical key set as heterodyne (shared mechanism), and
     * the laminar result does NOT carry heterodyne's
       ``shear_weighting == "not_applicable_heterodyne"`` marker — L5 shear

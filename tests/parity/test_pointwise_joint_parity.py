@@ -13,9 +13,9 @@ code) — the production code under measurement is:
 * ``build_heterodyne_pointwise_model`` (flat point-wise model + its scaling map)
 
 The three canonical resolved modes are ``constant`` / ``averaged`` / ``individual``.
-Phase 4 retired the ``fourier`` per-angle mode from the pointwise builder (the
-builder now rejects it with ``ValueError`` and no longer accepts a ``fourier_order``
-kwarg), so the former ``fourier`` / true-Fourier-basis cases are gone. The builder
+Phase 4 retired the truncated-basis per-angle mode from the pointwise builder (the
+builder now rejects it with ``ValueError`` and no longer accepts the former basis-order
+kwarg), so the former truncated-basis cases are gone. The builder
 emits the canonical **scaling-first** ``p0`` ``[scaling_head | physics_tail]``:
 ``averaged`` head ``[c_avg, o_avg]``, ``individual`` head
 ``[contrast(n_phi) | offset(n_phi)]``, ``constant`` head empty.

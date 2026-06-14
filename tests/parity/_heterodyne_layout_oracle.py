@@ -1,6 +1,6 @@
 """Test-local oracle for the canonical heterodyne scaling-first layout.
 
-The production ``heterodyne_layout`` module was retired (Task 11) once the engine
+The production layout module was retired (Task 11) once the engine
 route began building its scaling-first x0 directly, AND Phase 4 made the pointwise
 builder emit the canonical **scaling-first** ``p0`` natively
 (``[scaling_head | physics_tail]``). The former physics-first<->scaling-first
@@ -14,8 +14,8 @@ The engine-parity tests still need this expansion as an INDEPENDENT reference (a
 oracle the engine route's inline build is checked against), so the pure-math
 ``expand_to_engine_scaling_first`` is preserved here, in the test tree only — it
 is not production code. It speaks the canonical resolved tokens
-(``constant`` / ``averaged`` / ``individual``); the removed ``fourier`` and the
-legacy ``independent`` token are not accepted.
+(``constant`` / ``averaged`` / ``individual``); the retired truncated-basis
+and legacy per-angle-agnostic tokens are not accepted.
 """
 
 from __future__ import annotations
