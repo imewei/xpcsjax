@@ -99,12 +99,26 @@ def test_homodyne_characterization_bit_identical_with_monitor():
     # Force the characterization gate ON in the child so it actually runs
     # (the child self-skips and returns 0 — a vacuous pass — without it).
     child_env = {**os.environ, "XPCSJAX_RUN_CHARACTERIZATION": "1"}
+    # DG-B re-verify: this wrapper guards rtol=1e-10 BIT-IDENTITY, which the child
+    # suite now exercises under EXPLICIT per_angle_mode='individual' (Phase-5 DG-A
+    # pins it). Scope the child to the LAMINAR strict bit-identity node only via
+    # `-k` for two reasons:
+    #   1. laminar_c020 is the rtol=1e-10 tripwire that the scaling-first per-angle
+    #      permutation must preserve (static has no per-angle-mode flip — Finding 8).
+    #   2. Each ~23M-point laminar fit fits in RAM standalone (~4 min, verified),
+    #      but running static + laminar + the Phase-5 no-worse auto fit in ONE child
+    #      process accumulates JAX caches and OOM-kills it (returncode -9). Isolating
+    #      the single laminar bit-identity fit restores a memory profile that passes.
+    # The `test_homodyne_default_no_worse` sibling is a SEPARATE no-worse gate run
+    # under XPCSJAX_RUN_AB_PARITY, not part of this bit-identity oracle.
     r = subprocess.run(
         [
             sys.executable,
             "-m",
             "pytest",
             "tests/characterization/test_homodyne_equivalence.py",
+            "-k",
+            "test_homodyne_bit_equivalence and laminar",
             "-q",
         ],
         capture_output=True,
