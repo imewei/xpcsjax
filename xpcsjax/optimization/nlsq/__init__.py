@@ -495,9 +495,9 @@ def fit_nlsq(
         :class:`~xpcsjax.optimization.nlsq.results.OptimizationResult` type.
 
         The heterodyne path returns one for every per-angle scaling mode —
-        ``"constant"``, ``"fourier"``, ``"individual"``, and ``"auto"`` (which
-        resolves internally to ``"averaged"`` for ``n_phi >= 3`` or
-        ``"individual"`` otherwise). Mode-specific per-angle data
+        ``"constant"``, ``"individual"``, and ``"auto"`` (which resolves
+        internally to ``"averaged"`` for ``n_phi >= 3`` or ``"individual"``
+        otherwise). Mode-specific per-angle data
         (``chi2_per_angle``, ``parameter_names``,
         ``contrast_per_angle`` / ``offset_per_angle``, etc.) lives under
         :attr:`result.nlsq_diagnostics <OptimizationResult.nlsq_diagnostics>`.
@@ -933,12 +933,11 @@ def _fit_nlsq_heterodyne(
         # ``constant``, ``averaged``, and ``individual`` all route to stratified-LS
         # after Phase 3. ``averaged`` / ``individual`` use the JOINT stratified-LS
         # objective, consistent with the in-memory ``_fit_joint_multi_phi`` path
-        # (explicit ``individual`` is a JOINT fit / FourierReparameterizer
-        # "independent" mode; ``_aggregate_individual_results`` is only the
-        # config-is-None / single-angle fallback and never resolves here — so there
-        # is NO objective discontinuity at the 1M boundary for individual).
-        # ``constant`` freezes scaling from quantiles and solves physics-only on the
-        # stratified-LS path. ``fourier`` is removed from the engine.
+        # (explicit ``individual`` is a JOINT fit; ``_aggregate_individual_results``
+        # is only the config-is-None / single-angle fallback and never resolves
+        # here — so there is NO objective discontinuity at the 1M boundary for
+        # individual). ``constant`` freezes scaling from quantiles and solves
+        # physics-only on the stratified-LS path.
         from xpcsjax.optimization.nlsq.heterodyne_core import _resolve_effective_mode
 
         effective_mode = _resolve_effective_mode(nlsq_cfg, len(phi))
@@ -1016,13 +1015,11 @@ def _fit_nlsq_heterodyne(
     _log_strategy("standard", f"{int(n_points):,} points (in-memory joint fit)")
 
     # In-memory joint fit (<1M, non-escape). The three in-scope per-angle scaling
-    # modes (fixed_constant / individual / auto_averaged — production constant /
-    # individual / auto-at-n_phi>=3) route through the SHARED stratification
-    # engine via fit_two_component_via_engine (Task #16b). The engine route does
-    # its own frame-0 exclusion + stratification, so the superseded seed-42
-    # angle-shuffle regime is removed. fourier stays on fit_nlsq_multi_phi (the
-    # engine route raises NotImplementedError for it). Best-effort: any routing
-    # failure falls back to fit_nlsq_multi_phi so a fit never breaks.
+    # modes (constant / individual / averaged — production constant / individual /
+    # auto-at-n_phi>=3) route through the SHARED stratification engine via
+    # fit_two_component_via_engine (Task #16b). The engine route does its own
+    # frame-0 exclusion + stratification. Best-effort: any routing failure falls
+    # back to fit_nlsq_multi_phi so a fit never breaks.
     #
     # NOTE: this CHANGES two_component in-memory in-scope-mode results by ~1e-3
     # vs the old direct fit_nlsq_multi_phi path — the accepted no-worse contract
@@ -1034,15 +1031,11 @@ def _fit_nlsq_heterodyne(
     # touch heterodyne_core for stubbed callers.
     result = None
     try:
-        from xpcsjax.optimization.nlsq.heterodyne_core import _resolve_effective_mode
+        from xpcsjax.optimization.nlsq.heterodyne_engine_route import (
+            fit_two_component_via_engine,
+        )
 
-        _effective_mode = _resolve_effective_mode(nlsq_cfg, len(phi))
-        if _effective_mode != "fourier":
-            from xpcsjax.optimization.nlsq.heterodyne_engine_route import (
-                fit_two_component_via_engine,
-            )
-
-            result = fit_two_component_via_engine(model, c2, phi, nlsq_cfg, weights)
+        result = fit_two_component_via_engine(model, c2, phi, nlsq_cfg, weights)
     except Exception as _engine_exc:  # noqa: BLE001 - best-effort engine route
         from xpcsjax.utils.logging import get_logger as _get_logger
 
