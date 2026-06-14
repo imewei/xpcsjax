@@ -590,7 +590,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     n_phi_meta = meta["n_phi"]
     reg_cfg_dict: dict[str, Any] = ad_config.get("regularization", {})
 
-    # L3 mode-aware group_indices (Task 6: extend to individual/fourier).
+    # L3 mode-aware group_indices (averaged / individual).
     # Group indices are LOCAL offsets WITHIN the scaling tail (0-based within
     # the tail), translated to full-vector coords (base + ...) when building
     # group_variance_kwargs for the plain optimizer branch.
@@ -902,7 +902,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         )
 
     else:
-        # Plain hybrid-streaming path (auto_averaged / fixed_constant)
+        # Plain hybrid-streaming path (averaged / constant)
         result: dict[str, Any] = optimizer.fit(
             data_source=(x_data, y_data),
             func=model_fn,
@@ -971,7 +971,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     # shear_weighting / gradient_monitor (when present) + layer_detail kwargs.
     # L5 (shear weighting) is laminar_flow-only; streaming heterodyne reports
     # the canonical "laminar_flow_inactive" sentinel.
-    # L2 (hierarchical) is now wired for individual/fourier (Task 6).
+    # L2 (hierarchical) is wired for individual.
     # ------------------------------------------------------------------
     gm_block: dict | None = None
     if monitor is not None:
