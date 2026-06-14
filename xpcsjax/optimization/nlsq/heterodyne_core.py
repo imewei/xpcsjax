@@ -3902,9 +3902,11 @@ def log_heterodyne_completion(
     status / χ² / fitted-physical-parameter summary. Pure logging — reads from
     ``result`` only, never mutates state.
 
-    Physics parameters lead the joint vector for every mode **except**
-    ``hybrid_streaming`` (which packs scaling first); that one case is handled
-    explicitly so the per-name table is never mislabeled.
+    The canonical joint vector is scaling-first ``[scaling_head | physics_tail]``
+    for every mode, so the physical parameters are read from the TAIL
+    (``params[-n_physics:]``). ``constant`` is physics-only (empty scaling head),
+    so its tail equals the full vector. ``hybrid_streaming`` is likewise
+    scaling-first and shares the same tail slice.
     """
     diag = result.nlsq_diagnostics or {}
     mode = diag.get("per_angle_mode", "?")
@@ -3927,12 +3929,10 @@ def log_heterodyne_completion(
     logger.info("Quality: %s", result.quality_flag)
 
     if n_physics > 0 and params.size >= n_physics:
-        if mode == "hybrid_streaming":
-            phys_vals = params[-n_physics:]
-            phys_unc = unc[-n_physics:] if unc is not None and unc.size >= n_physics else None
-        else:
-            phys_vals = params[:n_physics]
-            phys_unc = unc[:n_physics] if unc is not None and unc.size >= n_physics else None
+        # Scaling-first canonical layout for every mode: physics is the TAIL.
+        # (constant -> empty scaling head, so the tail is the whole vector.)
+        phys_vals = params[-n_physics:]
+        phys_unc = unc[-n_physics:] if unc is not None and unc.size >= n_physics else None
 
         logger.info("Fitted parameters (%d physical, %d angles):", n_physics, n_phi)
         logger.info("  Physical parameters:")
