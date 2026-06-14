@@ -57,6 +57,20 @@ Per-Angle Scaling Fix:
 - <1% performance overhead (0.15s for 3M points)
 - Reference: ultra-think-20251106-012247
 
+Reduced-chi2 / covariance DOF semantics (Phase 5, spec §5):
+- The laminar standard in-memory path resolves the per-angle scaling mode via the
+  single ``resolve_per_angle_mode`` owner and slices the optimizer vector via the
+  canonical ``ParameterIndexMapper``.
+- ``averaged`` solves a COMPRESSED optimizer vector (``n_physics + 2``) but the s²
+  / reduced-chi2 DOF use the EXPANDED constrained-model count ``2*n_phi + n_physics``
+  (``reduced_chi2_dof_basis == "expanded_constrained_model"``). Using the compressed
+  count would underestimate s² and yield artificially tight pcov.
+- ``individual`` optimizer DOF == expanded DOF (identical).
+- ``constant`` freezes scaling (zero scaling DOF) -> ``n_physics``
+  (``reduced_chi2_dof_basis == "physics_only"``).
+- ``n_dof_effective`` / ``reduced_chi2_dof_basis`` / ``n_optimized`` /
+  ``per_angle_mode`` are stamped onto ``nlsq_diagnostics`` for auditability.
+
 Production Status:
 - Production-ready with comprehensive error recovery
 - Scientifically validated (100% test pass rate)
@@ -884,22 +898,30 @@ class NLSQWrapper(NLSQAdapterBase):
             # DOF is 2*n_phi + n_physical (one contrast+offset per angle).
             _ooc_init_n_params_effective: int | None = None
             if per_angle_scaling and config is not None and hasattr(config, "config"):
+                from xpcsjax.optimization.nlsq.per_angle_mode import (
+                    resolve_per_angle_mode as _resolve_pam,
+                )
+
                 _ooc_init_ad = (
                     config.config.get("optimization", {}).get("nlsq", {}).get("anti_degeneracy", {})
                 )
                 _ooc_init_mode = _ooc_init_ad.get("per_angle_mode", "auto")
                 _ooc_init_thresh = _ooc_init_ad.get("constant_scaling_threshold", 3)
                 # Use data.phi to count unique angles — reading n_phi from len(popt)
-                # is incorrect in auto_averaged mode where popt has compressed length
+                # is incorrect in averaged mode where popt has compressed length
                 # (e.g. 9 for laminar_flow: 7 physical + 2 averaged) rather than
                 # the expanded length (2*n_phi + n_physical = 53 for 23 angles).
                 # Inferring (len(popt) - n_physical) // 2 gives 1, not 23, so the
                 # threshold check 1 >= 3 never fires and the DOF fix is silently skipped.
                 _ooc_init_n_phi = len(np.unique(np.asarray(data.phi)))
                 _ooc_init_n_physical = len(physical_param_names)
-                if _ooc_init_mode == "auto" and _ooc_init_n_phi >= _ooc_init_thresh:
+                # Single resolver owner (spec Seam 1); same numeric outcome.
+                _ooc_resolved = _resolve_pam(
+                    _ooc_init_mode, _ooc_init_n_phi, _ooc_init_thresh
+                )
+                if _ooc_resolved == "averaged":
                     _ooc_init_n_params_effective = 2 * _ooc_init_n_phi + _ooc_init_n_physical
-                elif _ooc_init_mode == "constant":
+                elif _ooc_resolved == "constant":
                     _ooc_init_n_params_effective = _ooc_init_n_physical
             _ooc_init_dof = (
                 _ooc_init_n_params_effective
@@ -1100,22 +1122,31 @@ class NLSQWrapper(NLSQAdapterBase):
             effective_n_params = actual_n_params  # Default: no reduction
 
             if per_angle_scaling and config is not None and hasattr(config, "config"):
+                from xpcsjax.optimization.nlsq.per_angle_mode import (
+                    resolve_per_angle_mode as _resolve_pam,
+                )
+
                 nlsq_cfg = config.config.get("optimization", {}).get("nlsq", {})
                 ad_cfg = nlsq_cfg.get("anti_degeneracy", {})
                 ad_per_angle_mode = ad_cfg.get("per_angle_mode", "auto")
                 ad_threshold = ad_cfg.get("constant_scaling_threshold", 3)
                 n_angles_check = len(np.unique(stratified_data.phi_flat))
+                # Single resolver owner (spec Seam 1): same numeric outcome as the
+                # former inline auto/constant ladder.
+                _resolved_pre = _resolve_pam(
+                    ad_per_angle_mode, n_angles_check, ad_threshold
+                )
 
-                if ad_per_angle_mode == "auto" and n_angles_check >= ad_threshold:
-                    # auto_averaged: 2 averaged scaling params replace 2*n_angles
+                if _resolved_pre == "averaged":
+                    # averaged: 2 averaged scaling params replace 2*n_angles
                     effective_n_params = n_physical + 2
                     logger.info(
-                        f"Anti-Degeneracy pre-check: auto -> auto_averaged "
+                        f"Anti-Degeneracy pre-check: {ad_per_angle_mode} -> averaged "
                         f"(n_phi={n_angles_check} >= threshold={ad_threshold}). "
                         f"Effective params: {effective_n_params} "
                         f"(expanded: {actual_n_params})"
                     )
-                elif ad_per_angle_mode == "constant":
+                elif _resolved_pre == "constant":
                     # constant: scaling fixed, only physical params optimized
                     effective_n_params = n_physical
                     logger.info(
@@ -1987,25 +2018,24 @@ class NLSQWrapper(NLSQAdapterBase):
         # heterodyne uses, independent of the diagnostics_enabled gate.
         _l4_extras = self._assemble_homodyne_l4_extras(_l4_monitor)
 
-        # Compute effective DOF for the diagnostics covariance scaling (s²).
-        # In auto_averaged mode the optimizer works on a compressed 9-param vector
-        # (contrast_avg, offset_avg, physical×7), but the physics model consumes
-        # 2*n_phi + n_physical effective degrees of freedom (one contrast+offset per
-        # angle, constrained to an averaged value).  Using the compressed count (9)
-        # would underestimate s² and produce artificially tight diagnostic pcov.
+        # DOF semantics for reduced-chi2 / covariance s² scaling (DECISION, spec §5):
+        #   * averaged  -> EXPANDED constrained-model DOF (2*n_phi + n_physics). The
+        #     optimizer solves n_physics+2, but the physics model consumes 2*n_phi
+        #     scaling DOF constrained to one shared pair; using the compressed count
+        #     would underestimate s² and give artificially tight pcov.
+        #   * individual -> optimizer DOF == expanded DOF (identical here).
+        #   * constant  -> n_physics (scaling frozen, zero scaling DOF).
+        # Single source of truth = the resolved enum + mapper (no inline token re-read).
         n_physical = len(physical_param_names)
         n_dof_effective: int | None = None
-        if per_angle_scaling and config is not None and hasattr(config, "config"):
-            _nlsq_cfg = config.config.get("optimization", {}).get("nlsq", {})
-            _ad_cfg = _nlsq_cfg.get("anti_degeneracy", {})
-            _ad_mode = _ad_cfg.get("per_angle_mode", "auto")
-            _ad_threshold = _ad_cfg.get("constant_scaling_threshold", 3)
-            if _ad_mode == "auto" and n_phi_unique >= _ad_threshold:
-                # auto_averaged: expanded DOF = 2*n_phi + n_physical (e.g. 53)
+        dof_basis: str | None = None
+        if scaling_mapper is not None:
+            if resolved_per_angle_mode in ("averaged", "individual"):
                 n_dof_effective = 2 * n_phi_unique + n_physical
-            elif _ad_mode == "constant":
-                # constant: only physical params are optimised; scaling is fixed
+                dof_basis = "expanded_constrained_model"
+            elif resolved_per_angle_mode == "constant":
                 n_dof_effective = n_physical
+                dof_basis = "physics_only"
 
         return self._post_process_results(
             popt=popt,
@@ -2036,6 +2066,7 @@ class NLSQWrapper(NLSQAdapterBase):
             per_angle_mode=resolved_per_angle_mode,
             scaling_plan=scaling_plan,
             scaling_mapper=scaling_mapper,
+            dof_basis=dof_basis,
         )
 
     def _execute_optimization_with_fallback(
@@ -2129,6 +2160,7 @@ class NLSQWrapper(NLSQAdapterBase):
         per_angle_mode: str | None = None,
         scaling_plan: Any = None,
         scaling_mapper: Any = None,
+        dof_basis: str | None = None,
     ) -> OptimizationResult:
         """Post-process optimization outputs into final result.
 
@@ -2345,6 +2377,11 @@ class NLSQWrapper(NLSQAdapterBase):
         # individual -> 2*n_phi). None mapper (static) is omitted.
         if scaling_mapper is not None:
             existing["n_optimized"] = int(scaling_mapper.n_optimized)
+        # Effective DOF + its basis for reduced-chi2 / covariance s² (spec §5).
+        if n_dof_effective is not None:
+            existing["n_dof_effective"] = int(n_dof_effective)
+        if dof_basis is not None:
+            existing["reduced_chi2_dof_basis"] = dof_basis
         result.nlsq_diagnostics = existing
 
         logger.info(
