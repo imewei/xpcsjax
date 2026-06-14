@@ -1,8 +1,8 @@
 """Centralized index mapping for anti-degeneracy layers.
 
 This module provides the ParameterIndexMapper class which ensures consistent
-index ranges regardless of whether Fourier reparameterization is active.
-This is the single source of truth for parameter group boundaries.
+index ranges regardless of the resolved per-angle scaling mode. This is the
+single source of truth for parameter group boundaries.
 
 Created: 2025-12-31
 Feature: 001-fix-nlsq-anti-degeneracy
@@ -11,23 +11,19 @@ Feature: 001-fix-nlsq-anti-degeneracy
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import numpy as np
 
 from xpcsjax.optimization.nlsq.per_angle_mode import PerAngleMode
 from xpcsjax.optimization.nlsq.per_angle_mode import n_optimized as _n_optimized
 
-if TYPE_CHECKING:
-    from xpcsjax.optimization.nlsq.fourier_reparam import FourierReparameterizer
-
 
 @dataclass
 class ParameterIndexMapper:
     """Centralized index mapping for anti-degeneracy layers.
 
-    Provides consistent index ranges regardless of whether Fourier
-    reparameterization or constant scaling is active. This class is the
+    Provides consistent index ranges regardless of whether averaged/constant
+    scaling or per-angle (individual) scaling is active. This class is the
     single source of truth for parameter group boundaries.
 
     Parameters
@@ -36,30 +32,27 @@ class ParameterIndexMapper:
         Number of unique phi angles.
     n_physical : int
         Number of physical parameters (typically 7 for laminar_flow mode).
-    fourier : FourierReparameterizer | None
-        Reference to Fourier reparameterizer if Layer 1 is active.
     use_constant : bool
-        Whether constant scaling mode is active (single contrast/offset
+        Whether constant/averaged scaling mode is active (single contrast/offset
         shared across all angles).
 
     Attributes
     ----------
     n_per_angle_total : int
-        Total number of per-angle parameters (Fourier coefficients, raw, or 2).
+        Total number of per-angle parameters (2 for constant/averaged,
+        ``2 * n_phi`` for individual).
     n_per_group : int
         Number of parameters per group (contrast or offset).
-    use_fourier : bool
-        Whether Fourier reparameterization is active.
     use_constant : bool
-        Whether constant scaling mode is active.
+        Whether constant/averaged scaling mode is active.
     total_params : int
         Total number of parameters.
     mode_name : str
-        Human-readable name of current mode ("constant", "fourier", or "individual").
+        Human-readable name of current mode ("constant" or "individual").
 
     Examples
     --------
-    >>> # Constant mode (23 phi angles)
+    >>> # Constant/averaged mode (23 phi angles)
     >>> mapper = ParameterIndexMapper(n_phi=23, n_physical=7, use_constant=True)
     >>> mapper.get_group_indices()
     [(0, 1), (1, 2)]
@@ -68,24 +61,16 @@ class ParameterIndexMapper:
     >>> mapper.mode_name
     'constant'
 
-    >>> # Non-Fourier mode (23 phi angles)
-    >>> mapper = ParameterIndexMapper(n_phi=23, n_physical=7, fourier=None)
+    >>> # Individual mode (23 phi angles)
+    >>> mapper = ParameterIndexMapper(n_phi=23, n_physical=7)
     >>> mapper.get_group_indices()
     [(0, 23), (23, 46)]
     >>> mapper.n_per_angle_total
     46
-
-    >>> # Fourier mode (23 phi angles, order=2)
-    >>> mapper = ParameterIndexMapper(n_phi=23, n_physical=7, fourier=fourier_obj)
-    >>> mapper.get_group_indices()
-    [(0, 5), (5, 10)]
-    >>> mapper.n_per_angle_total
-    10
     """
 
     n_phi: int
     n_physical: int
-    fourier: FourierReparameterizer | None = None
     use_constant: bool = False
 
     def __post_init__(self) -> None:
@@ -94,17 +79,6 @@ class ParameterIndexMapper:
             raise ValueError(f"n_phi must be >= 1, got {self.n_phi}")
         if self.n_physical < 1:
             raise ValueError(f"n_physical must be >= 1, got {self.n_physical}")
-        # T011: Mutual exclusion - cannot use both Fourier and constant mode
-        if self.use_constant and self.fourier is not None and self.fourier.use_fourier:
-            raise ValueError(
-                "Cannot use both Fourier reparameterization and constant scaling mode. "
-                "Choose one: set use_constant=False or fourier=None."
-            )
-
-    @property
-    def use_fourier(self) -> bool:
-        """Check if Fourier reparameterization is active."""
-        return self.fourier is not None and self.fourier.use_fourier
 
     @property
     def n_per_group(self) -> int:
@@ -113,17 +87,11 @@ class ParameterIndexMapper:
         Returns
         -------
         int
-            1 for constant mode, n_coeffs for Fourier, n_phi for individual.
+            1 for constant/averaged mode, n_phi for individual.
         """
-        # T010: Return 1 for constant mode (single value per group)
+        # T010: Return 1 for constant/averaged mode (single value per group)
         if self.use_constant:
             return 1
-        if self.use_fourier:
-            # Invariant: ``use_fourier`` is derived from
-            # ``self.fourier is not None and self.fourier.use_fourier`` (see
-            # the ``use_fourier`` property). Narrow for mypy.
-            assert self.fourier is not None
-            return self.fourier.n_coeffs_per_param
         return self.n_phi
 
     @property
@@ -133,12 +101,10 @@ class ParameterIndexMapper:
         Returns
         -------
         str
-            "constant", "fourier", or "individual"
+            "constant" or "individual"
         """
         if self.use_constant:
             return "constant"
-        if self.use_fourier:
-            return "fourier"
         return "individual"
 
     @property
@@ -146,9 +112,6 @@ class ParameterIndexMapper:
         """Get total number of per-angle parameters (scaling params)."""
         if self.use_constant:
             return 2  # One contrast + one offset
-        if self.use_fourier:
-            assert self.fourier is not None  # use_fourier invariant — see above
-            return self.fourier.n_coeffs
         return 2 * self.n_phi
 
     @property
@@ -219,7 +182,7 @@ class ParameterIndexMapper:
             if end > n_params:
                 raise ValueError(
                     f"Group {i} end index {end} exceeds parameter count {n_params}. "
-                    f"This may indicate a Fourier/regularization mode mismatch."
+                    f"This may indicate a per-angle-scaling/regularization mode mismatch."
                 )
             if start >= end:
                 raise ValueError(f"Group {i} has invalid range [{start}, {end})")
@@ -237,7 +200,6 @@ class ParameterIndexMapper:
         return {
             "mode_name": self.mode_name,
             "use_constant": self.use_constant,
-            "use_fourier": self.use_fourier,
             "n_phi": self.n_phi,
             "n_physical": self.n_physical,
             "n_per_group": self.n_per_group,
@@ -267,7 +229,7 @@ class ParameterIndexMapper:
         """Scaling-first canonical layout authority (spec §4 Seam 2).
 
         The SOLE constructor for the new ``[scaling_head | physics]`` layout. Rejects
-        unresolved tokens (``auto``/``fourier``/``independent``) — resolve via
+        the unresolved ``auto`` token — resolve via
         :func:`~xpcsjax.optimization.nlsq.per_angle_mode.resolve_per_angle_mode` first.
         There is no ``from_resolved``/``from_mode`` alias. Returns a
         :class:`CanonicalIndexMapper`.
@@ -327,7 +289,7 @@ def _canonical_index_mapper(
         raise ValueError(f"n_phi must be >= 1, got {n_phi}")
     if n_physics < 1:
         raise ValueError(f"n_physics must be >= 1, got {n_physics}")
-    # Reject auto/fourier/independent: canonical layout requires a RESOLVED mode.
+    # Reject the unresolved auto token: canonical layout requires a RESOLVED mode.
     if mode not in ("constant", "averaged", "individual"):
         raise ValueError(
             f"unknown per_angle_mode {mode!r}; valid: constant, averaged, individual"
@@ -358,5 +320,3 @@ def _canonical_index_mapper(
 # NOTE: do NOT dynamically attach `ParameterIndexMapper.canonical = staticmethod(...)` here.
 # The `canonical` staticmethod is defined IN the class body above (so mypy/Pyright/IDE
 # inference resolves `.canonical(...)`); this module-level helper is what it delegates to.
-# The legacy fourier/use_constant dataclass FIELDS and METHODS stay byte-untouched (Risk 2);
-# adding one staticmethod is additive and does not alter them.

@@ -4,7 +4,7 @@ This module provides a clean interface for initializing and coordinating
 the 5-layer anti-degeneracy defense system for NLSQ optimization.
 
 The controller encapsulates:
-- Layer 1: Fourier/Constant Reparameterization
+- Layer 1: Per-Angle Reparameterization
 - Layer 2: Hierarchical Optimization
 - Layer 3: Adaptive CV-based Regularization
 - Layer 4: Gradient Collapse Monitoring
@@ -16,8 +16,7 @@ Usage::
         config_dict, n_phi, phi_angles, n_physical
     )
     if controller.is_enabled:
-        # Use controller.fourier, controller.hierarchical, etc.
-        transformed_params = controller.transform_params_to_fourier(initial_params)
+        # Use controller.hierarchical, controller.regularizer, etc.
         model_fn = controller.wrap_model_fn(base_model_fn)
 
 Author: Claude Code
@@ -35,9 +34,6 @@ from xpcsjax.optimization.nlsq.adaptive_regularization import (
     AdaptiveRegularizationConfig,
     AdaptiveRegularizer,
 )
-from xpcsjax.optimization.nlsq.fourier_reparam import (
-    FourierReparameterizer,
-)
 from xpcsjax.optimization.nlsq.gradient_monitor import (
     GradientCollapseMonitor,
     GradientMonitorConfig,
@@ -47,6 +43,7 @@ from xpcsjax.optimization.nlsq.hierarchical import (
     HierarchicalOptimizer,
 )
 from xpcsjax.optimization.nlsq.parameter_index_mapper import ParameterIndexMapper
+from xpcsjax.optimization.nlsq.per_angle_mode import DEFAULT_CONSTANT_SCALING_THRESHOLD
 from xpcsjax.optimization.nlsq.shear_weighting import (
     ShearSensitivityWeighting,
     ShearWeightingConfig,
@@ -82,11 +79,7 @@ class AntiDegeneracyConfig:
     enable : bool
         Master switch for all anti-degeneracy defenses.
     per_angle_mode : str
-        Mode for per-angle parameters: "individual", "constant", "fourier", or "auto".
-    fourier_order : int
-        Order of Fourier series (order=2 -> 5 coefficients per group).
-    fourier_auto_threshold : int
-        n_phi threshold for auto mode to switch to Fourier.
+        Mode for per-angle parameters: "individual", "constant", or "auto".
     constant_scaling_threshold : int
         n_phi threshold for auto mode to use constant scaling (n_phi >= threshold).
     hierarchical_enable : bool
@@ -123,9 +116,7 @@ class AntiDegeneracyConfig:
 
     enable: bool = True
     per_angle_mode: str = "auto"
-    fourier_order: int = 2
-    fourier_auto_threshold: int = 6
-    constant_scaling_threshold: int = 3
+    constant_scaling_threshold: int = DEFAULT_CONSTANT_SCALING_THRESHOLD
     hierarchical_enable: bool = True
     hierarchical_max_outer_iterations: int = 5
     hierarchical_outer_tolerance: float = 1e-6
@@ -161,8 +152,7 @@ class AntiDegeneracyConfig:
                 {
                     "enable": bool,
                     "per_angle_mode": str,
-                    "fourier_order": int,
-                    "fourier_auto_threshold": int,
+                    "constant_scaling_threshold": int,
                     "hierarchical": {...},
                     "regularization": {...},
                     "gradient_monitoring": {...}
@@ -181,9 +171,9 @@ class AntiDegeneracyConfig:
         return cls(
             enable=config_dict.get("enable", True),
             per_angle_mode=config_dict.get("per_angle_mode", "auto"),
-            fourier_order=config_dict.get("fourier_order", 2),
-            fourier_auto_threshold=config_dict.get("fourier_auto_threshold", 6),
-            constant_scaling_threshold=config_dict.get("constant_scaling_threshold", 3),
+            constant_scaling_threshold=config_dict.get(
+                "constant_scaling_threshold", DEFAULT_CONSTANT_SCALING_THRESHOLD
+            ),
             # Hierarchical
             hierarchical_enable=hierarchical.get("enable", True),
             hierarchical_max_outer_iterations=hierarchical.get("max_outer_iterations", 5),
@@ -223,8 +213,9 @@ class AntiDegeneracyController:
     enables, and exposes the parameter transforms, callbacks, and diagnostics the
     NLSQ solver paths consume.
 
-    The five layers, in order, are L1 Fourier/constant reparameterization
-    (:class:`~xpcsjax.optimization.nlsq.fourier_reparam.FourierReparameterizer`),
+    The five layers, in order, are L1 Per-Angle Reparameterization
+    (the resolved averaged/constant/individual scaling layout owned by
+    :class:`~xpcsjax.optimization.nlsq.parameter_index_mapper.ParameterIndexMapper`),
     L2 hierarchical optimization
     (:class:`~xpcsjax.optimization.nlsq.hierarchical.HierarchicalOptimizer`),
     L3 adaptive CV-based regularization
@@ -244,8 +235,6 @@ class AntiDegeneracyController:
         Number of physical parameters.
     phi_angles : np.ndarray
         Array of phi angles in radians.
-    fourier : FourierReparameterizer or None
-        Layer 1: Fourier reparameterization component.
     hierarchical : HierarchicalOptimizer or None
         Layer 2: Hierarchical optimization component.
     regularizer : AdaptiveRegularizer or None
@@ -255,7 +244,7 @@ class AntiDegeneracyController:
     shear_weighter : ShearSensitivityWeighting or None
         Layer 5: Shear-sensitivity weighting component (``laminar_flow`` only).
     per_angle_mode_actual : str
-        Actual mode used ("constant", "fourier", or "independent").
+        Actual resolved mode used ("constant", "averaged", or "individual").
 
     Notes
     -----
@@ -271,14 +260,13 @@ class AntiDegeneracyController:
     ...     config_dict, n_phi, phi_angles, n_physical
     ... )
     >>> if controller.is_enabled:
-    ...     transformed = controller.transform_params_to_fourier(initial_params)
+    ...     model_fn = controller.wrap_model_fn(base_model_fn)
     """
 
     config: AntiDegeneracyConfig
     n_phi: int
     n_physical: int
     phi_angles: np.ndarray
-    fourier: FourierReparameterizer | None = None
     hierarchical: HierarchicalOptimizer | None = None
     regularizer: AdaptiveRegularizer | None = None
     monitor: GradientCollapseMonitor | None = None
@@ -367,17 +355,17 @@ class AntiDegeneracyController:
 
         # T018-T020: Determine actual per-angle mode with auto-selection logic
         # Distinct semantics for auto vs explicit constant:
-        #   - auto (n_phi >= threshold): "auto_averaged" → 9 params, OPTIMIZED averaged scaling
-        #   - constant (explicit): "fixed_constant" → 7 params, FIXED per-angle scaling
+        #   - auto (n_phi >= threshold): "averaged" → 9 params, OPTIMIZED averaged scaling
+        #   - constant (explicit): "constant" → 7 params, FIXED per-angle scaling
         #   - individual: per-angle scaling OPTIMIZED
         if config.per_angle_mode == "auto":
             if self.n_phi >= config.constant_scaling_threshold:
                 # AUTO mode with large n_phi: optimize averaged scaling (9 params)
                 # Computes N quantile estimates, averages to 1 contrast + 1 offset
                 # These 2 averaged values ARE OPTIMIZED along with 7 physical params
-                self.per_angle_mode_actual = "auto_averaged"
+                self.per_angle_mode_actual = "averaged"
                 logger.info("=" * 60)
-                logger.info("ANTI-DEGENERACY: Auto-selected 'auto_averaged' mode")
+                logger.info("ANTI-DEGENERACY: Auto-selected 'averaged' mode")
                 logger.info(
                     f"  Reason: n_phi ({self.n_phi}) >= "
                     f"constant_scaling_threshold ({config.constant_scaling_threshold})"
@@ -406,9 +394,9 @@ class AntiDegeneracyController:
             # EXPLICIT constant mode: FIXED per-angle scaling (7 params)
             # Computes N quantile estimates, uses per-angle values DIRECTLY (NOT averaged)
             # Only 7 physical params are optimized; scaling is FIXED
-            self.per_angle_mode_actual = "fixed_constant"
+            self.per_angle_mode_actual = "constant"
             logger.info("=" * 60)
-            logger.info("ANTI-DEGENERACY: Using explicit 'constant' mode -> fixed_constant")
+            logger.info("ANTI-DEGENERACY: Using explicit 'constant' mode -> constant")
             logger.info(f"  n_phi: {self.n_phi}")
             logger.info("  Behavior: Quantile estimates -> per-angle values FIXED (NOT optimized)")
             logger.info(f"  Parameters: {self.n_physical} physical only (scaling FIXED from quantiles)")
@@ -423,19 +411,18 @@ class AntiDegeneracyController:
             )
 
         # T021: Determine use_constant flag for mapper
-        # Both auto_averaged and fixed_constant use constant-style mapping
-        use_constant = self.per_angle_mode_actual in ("auto_averaged", "fixed_constant")
+        # Both averaged and constant use constant-style mapping
+        use_constant = self.per_angle_mode_actual in ("averaged", "constant")
 
-        # Layer 1 (Phase 6): fourier reparameterization removed on the laminar paths; the
-        # resolver above rejects the ``fourier`` token, so ``self.fourier`` stays ``None``.
-        # Note: auto_averaged and fixed_constant logging already done in mode selection above
+        # Layer 1: Per-Angle Reparameterization — the averaged/constant/individual
+        # scaling layout is owned by ParameterIndexMapper (built below); the
+        # resolved-mode banner is emitted in mode selection above.
 
         # T022: Create ParameterIndexMapper with correct use_constant flag
         # This provides centralized, consistent index mapping for all subsequent layers
         self.mapper = ParameterIndexMapper(
             n_phi=self.n_phi,
             n_physical=self.n_physical,
-            fourier=self.fourier,
             use_constant=use_constant,
         )
         logger.debug(
@@ -455,7 +442,6 @@ class AntiDegeneracyController:
                 config=hier_config,
                 n_phi=self.n_phi,
                 n_physical=self.n_physical,
-                fourier_reparameterizer=self.fourier,
             )
             logger.info("=" * 60)
             logger.info("ANTI-DEGENERACY: Layer 2 - Hierarchical Optimization")
@@ -466,7 +452,7 @@ class AntiDegeneracyController:
 
         # Layer 3: Adaptive Regularization
         # T020: Use mapper.get_group_indices() instead of n_phi-based calculation
-        # This fixes the dimension mismatch when Fourier reparameterization is active
+        # This fixes the dimension mismatch across resolved per-angle scaling modes
         reg_config = AdaptiveRegularizationConfig(
             enable=True,
             mode=cast(Literal["absolute", "relative", "auto"], config.regularization_mode),
@@ -478,7 +464,7 @@ class AntiDegeneracyController:
         )
         self.regularizer = AdaptiveRegularizer(
             reg_config,
-            self.mapper.n_per_group,  # T020: Use Fourier-aware n_per_group
+            self.mapper.n_per_group,  # T020: Use mapper-resolved n_per_group
         )
         logger.info("=" * 60)
         logger.info("ANTI-DEGENERACY: Layer 3 - Adaptive Regularization")
@@ -564,43 +550,38 @@ class AntiDegeneracyController:
         return self._is_initialized and self.config.enable
 
     @property
-    def use_fourier(self) -> bool:
-        """Check if Fourier reparameterization is active."""
-        return self.fourier is not None
-
-    @property
     def use_constant(self) -> bool:
-        """Check if constant scaling mode is active (either auto_averaged or fixed_constant).
+        """Check if constant scaling mode is active (either averaged or constant).
 
-        Both modes use constant-style parameter mapping (9 params for auto_averaged,
-        7 params for fixed_constant), as opposed to individual mode (7 + 2*n_phi params).
+        Both modes use constant-style parameter mapping (9 params for averaged,
+        7 params for constant), as opposed to individual mode (7 + 2*n_phi params).
         """
-        return self.per_angle_mode_actual in ("auto_averaged", "fixed_constant")
+        return self.per_angle_mode_actual in ("averaged", "constant")
 
     @property
     def use_fixed_scaling(self) -> bool:
         """Check if using FIXED per-angle scaling (7 params, not optimized).
 
-        Returns True only for explicit constant mode ("fixed_constant"), where:
+        Returns True only for explicit constant mode ("constant"), where:
         - Per-angle contrast/offset are FIXED from quantile estimation
         - Only 7 physical parameters are optimized
         - Scaling is NOT part of the optimization
 
-        This is DIFFERENT from auto_averaged mode, where:
+        This is DIFFERENT from averaged mode, where:
         - Averaged contrast/offset ARE optimized (9 params total)
         """
-        return self.per_angle_mode_actual == "fixed_constant"
+        return self.per_angle_mode_actual == "constant"
 
     @property
     def use_averaged_scaling(self) -> bool:
         """Check if using OPTIMIZED averaged scaling (9 params).
 
-        Returns True only for auto mode with n_phi >= threshold ("auto_averaged"), where:
+        Returns True only for auto mode with n_phi >= threshold ("averaged"), where:
         - N per-angle quantile estimates are averaged to 1 contrast + 1 offset
         - These 2 averaged values ARE OPTIMIZED along with 7 physical params
         - Total: 9 parameters
         """
-        return self.per_angle_mode_actual == "auto_averaged"
+        return self.per_angle_mode_actual == "averaged"
 
     @property
     def use_hierarchical(self) -> bool:
@@ -654,9 +635,8 @@ class AntiDegeneracyController:
         ----------
         layer_name : str
             Class name of the layer to query, e.g.
-            ``"ShearSensitivityWeighting"``, ``"FourierReparameterizer"``,
-            ``"HierarchicalOptimizer"``, ``"AdaptiveRegularizer"``,
-            ``"GradientCollapseMonitor"``.
+            ``"ShearSensitivityWeighting"``, ``"HierarchicalOptimizer"``,
+            ``"AdaptiveRegularizer"``, ``"GradientCollapseMonitor"``.
 
         Returns
         -------
@@ -682,84 +662,15 @@ class AntiDegeneracyController:
             The count of scaling parameters that participate in the optimization,
             which depends on the resolved per-angle scaling mode:
 
-            - ``fixed_constant``: ``0`` (scaling is frozen, not optimized)
-            - ``auto_averaged``: ``2`` (one contrast, one offset)
-            - ``fourier``: ``n_coeffs`` (Fourier coefficients)
+            - ``constant``: ``0`` (scaling is frozen, not optimized)
+            - ``averaged``: ``2`` (one contrast, one offset)
             - ``individual``: ``2 * n_phi`` (per-angle contrast + offset)
         """
         if self.use_fixed_scaling:
             return 0  # Scaling is FIXED, not part of optimization
         if self.use_averaged_scaling:
             return 2  # One contrast, one offset (optimized)
-        if self.fourier:
-            return self.fourier.n_coeffs
         return 2 * self.n_phi
-
-    def transform_params_to_fourier(
-        self, params: np.ndarray
-    ) -> tuple[np.ndarray, tuple[np.ndarray, np.ndarray] | None]:
-        """Transform per-angle parameters to Fourier coefficients.
-
-        Parameters
-        ----------
-        params : np.ndarray
-            Full parameter array: [contrast(n_phi), offset(n_phi), physical].
-
-        Returns
-        -------
-        tuple
-            (fourier_params, original_bounds_if_transformed)
-            fourier_params: [contrast_coeffs, offset_coeffs, physical]
-            bounds: (lower, upper) in Fourier space if transformation applied
-        """
-        if not self.use_fourier:
-            return params, None
-
-        # Transform to Fourier - fourier must be initialized if use_fourier is True
-        assert self.fourier is not None, "Fourier reparameterizer must be initialized"
-
-        # Split parameters
-        contrast = params[: self.n_phi]
-        offset = params[self.n_phi : 2 * self.n_phi]
-        physical = params[2 * self.n_phi :]
-
-        # Transform to Fourier
-        contrast_coeffs = self.fourier.to_fourier(contrast)
-        offset_coeffs = self.fourier.to_fourier(offset)
-
-        return np.concatenate([contrast_coeffs, offset_coeffs, physical]), None
-
-    def transform_params_from_fourier(self, fourier_params: np.ndarray) -> np.ndarray:
-        """Transform Fourier coefficients back to per-angle parameters.
-
-        Parameters
-        ----------
-        fourier_params : np.ndarray
-            Fourier parameter array: [contrast_coeffs, offset_coeffs, physical].
-
-        Returns
-        -------
-        np.ndarray
-            Per-angle parameter array: [contrast(n_phi), offset(n_phi), physical].
-        """
-        if not self.use_fourier:
-            return fourier_params
-
-        # Access fourier attributes - fourier must be initialized if use_fourier is True
-        assert self.fourier is not None, "Fourier reparameterizer must be initialized"
-
-        n_coeffs = self.fourier.n_coeffs_per_param
-
-        # Extract Fourier coefficients
-        contrast_coeffs = fourier_params[:n_coeffs]
-        offset_coeffs = fourier_params[n_coeffs : 2 * n_coeffs]
-        physical = fourier_params[2 * n_coeffs :]
-
-        # Transform back to per-angle
-        contrast = self.fourier.from_fourier(contrast_coeffs)
-        offset = self.fourier.from_fourier(offset_coeffs)
-
-        return np.concatenate([contrast, offset, physical])
 
     def transform_params_to_constant(self, params: np.ndarray) -> np.ndarray:
         """Transform per-angle parameters to constant mode.
@@ -823,7 +734,7 @@ class AntiDegeneracyController:
         """Get group variance indices for NLSQ regularization.
 
         T024: Delegates to ParameterIndexMapper for consistent index calculation
-        regardless of Fourier mode.
+        regardless of the resolved per-angle scaling mode.
 
         Returns
         -------
@@ -833,18 +744,16 @@ class AntiDegeneracyController:
         if not self.is_enabled:
             return None
 
-        # T024: Delegate to mapper for consistent Fourier-aware indices
+        # T024: Delegate to mapper for consistent per-angle scaling indices
         if self.mapper is not None:
             return self.mapper.get_group_indices()
 
-        # Fallback for backward compatibility (should not reach here in normal use)
-        if self.fourier is None:
-            raise ValueError(
-                "get_group_variance_indices called but neither mapper nor fourier is initialized. "
-                "This can occur with per_angle_mode='constant' where group variance is not applicable."
-            )
-        n_per_group = self.fourier.n_coeffs_per_param if self.use_fourier else self.n_phi
-        return [(0, n_per_group), (n_per_group, 2 * n_per_group)]
+        # Fallback for backward compatibility (should not reach here in normal use):
+        # the mapper is always built in _initialize_components.
+        raise ValueError(
+            "get_group_variance_indices called but the mapper is not initialized. "
+            "This can occur with per_angle_mode='constant' where group variance is not applicable."
+        )
 
     def get_diagnostics(self) -> dict[str, Any]:
         """Get comprehensive diagnostics from all components.
@@ -862,7 +771,6 @@ class AntiDegeneracyController:
             "use_constant": self.use_constant,
             "use_fixed_scaling": self.use_fixed_scaling,
             "use_averaged_scaling": self.use_averaged_scaling,
-            "use_fourier": self.use_fourier,
             "use_shear_weighting": self.use_shear_weighting,
             "n_phi": self.n_phi,
             "n_physical": self.n_physical,
@@ -886,9 +794,6 @@ class AntiDegeneracyController:
         # Add mapper diagnostics
         if self.mapper:
             diag["mapper"] = self.mapper.get_diagnostics()
-
-        if self.fourier:
-            diag["fourier"] = self.fourier.get_diagnostics()
 
         if self.hierarchical:
             diag["hierarchical"] = self.hierarchical.get_diagnostics()

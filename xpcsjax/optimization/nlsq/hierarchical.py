@@ -61,7 +61,6 @@ with warnings.catch_warnings():
     from jaxopt import LBFGSB
 
 from xpcsjax.optimization.nlsq.config import safe_float, safe_int
-from xpcsjax.optimization.nlsq.fourier_reparam import FourierReparameterizer
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -193,8 +192,6 @@ class HierarchicalOptimizer:
         Number of unique phi angles.
     n_physical : int
         Number of physical parameters.
-    fourier_reparameterizer : FourierReparameterizer, optional
-        Fourier reparameterizer if using Fourier mode.
 
     Examples
     --------
@@ -208,7 +205,6 @@ class HierarchicalOptimizer:
         config: HierarchicalConfig,
         n_phi: int,
         n_physical: int,
-        fourier_reparameterizer: FourierReparameterizer | None = None,
     ):
         """Initialize hierarchical optimizer.
 
@@ -220,31 +216,23 @@ class HierarchicalOptimizer:
             Number of unique phi angles.
         n_physical : int
             Number of physical parameters.
-        fourier_reparameterizer : FourierReparameterizer, optional
-            Fourier reparameterizer for Fourier mode.
         """
         self.config = config
         self.n_phi = n_phi
         self.n_physical = n_physical
-        self.fourier = fourier_reparameterizer
 
-        # Determine the per-angle parameter count. Fourier (still live on the
-        # stratified-LS path until the Phase 7 teardown) parameterizes the per-angle
-        # scaling by its COEFFICIENT count, not 2*n_phi. Every other mode that runs
+        # Determine the per-angle parameter count. Every mode that runs
         # HierarchicalOptimizer is ``individual`` (averaged/constant skip L2 per
-        # architecture), for which the canonical mapper returns n_optimized == 2*n_phi
-        # — sourced from the single boundary authority (Phase 0 seam). When fourier is
-        # removed in Phase 7, the else-branch becomes the only path.
-        if self.fourier is not None:
-            self.n_per_angle = self.fourier.n_coeffs
-        else:
-            from xpcsjax.optimization.nlsq.parameter_index_mapper import (
-                ParameterIndexMapper,
-            )
+        # architecture), for which the canonical mapper returns
+        # n_optimized == 2*n_phi — sourced from the single boundary authority
+        # (Phase 0 seam).
+        from xpcsjax.optimization.nlsq.parameter_index_mapper import (
+            ParameterIndexMapper,
+        )
 
-            self.n_per_angle = ParameterIndexMapper.canonical(
-                mode="individual", n_phi=n_phi, n_physics=n_physical
-            ).n_optimized
+        self.n_per_angle = ParameterIndexMapper.canonical(
+            mode="individual", n_phi=n_phi, n_physics=n_physical
+        ).n_optimized
 
         # Use numpy arrays for indices to support both NumPy and JAX array indexing
         # JAX arrays don't support Python list indexing (non-tuple sequence error)
@@ -262,8 +250,7 @@ class HierarchicalOptimizer:
 
         logger.debug(
             f"HierarchicalOptimizer initialized: "
-            f"n_per_angle={self.n_per_angle}, n_physical={n_physical}, "
-            f"fourier={'enabled' if self.fourier else 'disabled'}"
+            f"n_per_angle={self.n_per_angle}, n_physical={n_physical}"
         )
 
     def _create_physical_loss(
@@ -741,7 +728,6 @@ class HierarchicalOptimizer:
             "n_phi": self.n_phi,
             "n_physical": self.n_physical,
             "n_per_angle": self.n_per_angle,
-            "fourier_enabled": self.fourier is not None,
             "max_outer_iterations": self.config.max_outer_iterations,
             "outer_tolerance": self.config.outer_tolerance,
         }
