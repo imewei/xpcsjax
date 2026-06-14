@@ -984,7 +984,7 @@ class NLSQAdapter(NLSQAdapterBase):
         -------
         tuple
             ``(xdata, ydata, n_phi)`` where ``xdata`` holds the flattened
-            independent variables ``[t1, t2, phi_idx]`` (``phi_idx`` is the
+            predictor variables ``[t1, t2, phi_idx]`` (``phi_idx`` is the
             precomputed phi angle index), ``ydata`` holds the flattened g2
             observations, and ``n_phi`` is the number of unique phi angles.
 

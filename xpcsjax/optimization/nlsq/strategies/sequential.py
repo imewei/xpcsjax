@@ -670,7 +670,7 @@ def combine_angle_results(
         μ = Σ(w_i × x_i) / Σ(w_i)
         σ² = 1 / Σ(w_i)
 
-    This provides optimal statistical combination when errors are independent.
+    This provides optimal statistical combination when errors are uncorrelated.
     """
     # Filter to successful optimizations
     successful = [r for r in per_angle_results if r["success"]]

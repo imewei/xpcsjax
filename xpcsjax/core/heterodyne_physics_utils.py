@@ -300,7 +300,7 @@ def create_signed_integral_matrix(cumsum_values: jnp.ndarray) -> jnp.ndarray:
     values — hence the rename.
 
     For transport integrals, call ``smooth_abs`` on the result to get
-    direction-independent decay. For velocity integrals, use the signed
+    direction-agnostic decay. For velocity integrals, use the signed
     result directly (it feeds into ``cos(q cos(phi) integral(v) dt)``).
 
     Parameters

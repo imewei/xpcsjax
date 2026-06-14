@@ -77,7 +77,7 @@ class ScalingConfig:
         Number of detector angles.
     mode : str
         Scaling mode — one of ``"constant"`` (same contrast/offset for all
-        angles, the default), ``"individual"`` (independent per angle),
+        angles, the default), ``"individual"`` (separate per angle),
         ``"auto"``, or ``"constant_averaged"``.
     initial_contrast : float
         Starting contrast value.

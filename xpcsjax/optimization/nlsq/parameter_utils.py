@@ -351,7 +351,7 @@ def compute_consistent_per_angle_init(
                 # returns <= 0 (rejected), macOS Accelerate returns ~1e-11
                 # (a tiny positive that a bare ``> 0`` test wrongly accepts).
                 # Requiring a real minimum makes the fall-back to defaults
-                # platform-independent.
+                # platform-agnostic.
                 if _MIN_PHYSICAL_CONTRAST < fit_contrast < 2.0 and 0.5 < fit_offset < 1.5:
                     contrast_per_angle[i] = fit_contrast
                     offset_per_angle[i] = fit_offset

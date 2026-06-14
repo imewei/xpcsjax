@@ -230,7 +230,7 @@ class GradientCollapseMonitor:
         -----
         When Fourier reparameterization is active, per_angle_indices should
         correspond to Fourier coefficient indices (typically 10 for order=2),
-        not independent per-angle indices (2 * n_phi).
+        not separate per-angle indices (2 * n_phi).
         """
         self.config = config
         # Use numpy arrays for indices to support both NumPy and JAX array indexing

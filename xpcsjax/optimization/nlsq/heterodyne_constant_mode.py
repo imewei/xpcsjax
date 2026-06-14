@@ -85,7 +85,7 @@ def _fit_joint_constant_multi_phi(
     over the SAME physics-only data residual (scaling stays quantile-frozen),
     keeping the lower-SSR vector. This honours an explicit ``constant`` request
     under CMA-ES / multistart — a physics-only global escape, mirroring
-    laminar_flow's ``fixed_constant`` CMA-ES — instead of collapsing to the
+    laminar_flow's ``constant`` CMA-ES — instead of collapsing to the
     Fourier layout. An escape result carries ``nlsq_diagnostics["global_escape"]``
     and, by the escape contract, NaN covariance / uncertainties and
     ``n_iterations=0``.

@@ -21,7 +21,7 @@ class PreparedData:
     Attributes
     ----------
     xdata : np.ndarray
-        Flattened independent-variable data.
+        Flattened predictor-variable data.
     ydata : np.ndarray
         Flattened dependent-variable data (observations).
     n_data : int
