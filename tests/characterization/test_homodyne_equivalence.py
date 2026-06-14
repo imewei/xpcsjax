@@ -26,6 +26,7 @@ a green ``make test-smoke`` cannot silently pretend parity:
    repo and rot when datasets move).
 """
 
+import gc
 import json
 import os
 from pathlib import Path
@@ -34,6 +35,27 @@ import numpy as np
 import pytest
 
 BASELINES_DIR = Path(__file__).parent / "fixtures" / "baselines"
+
+
+@pytest.fixture(autouse=True)
+def _release_jax_memory_between_fits():
+    """Cap cumulative RAM across this module's heavy ~23M-point laminar fits.
+
+    DG-A added a no-worse sibling that runs a SECOND large (auto->averaged) C020
+    fit in the same process; the L4 oracle (test_l4_per_iteration_parity.py)
+    subprocesses this whole module, so without releasing JAX compilation caches +
+    fit buffers after each test the cumulative footprint OOM-kills the child
+    (returncode -9). Each individual 23M fit fits in memory (~260s, verified);
+    the accumulation is what overran. Clear JAX caches + gc after every test.
+    """
+    yield
+    try:
+        import jax
+
+        jax.clear_caches()
+    except Exception:  # pragma: no cover - best-effort hygiene only
+        pass
+    gc.collect()
 
 # Map baseline label → original config absolute path (lives outside the repo).
 # When fixtures get bundled in v0.2 these become repo-local.
@@ -118,11 +140,30 @@ def test_homodyne_bit_equivalence(label: str) -> None:
 
     # Import lazily — module-level imports would force JAX initialization on
     # collection even when the test would skip.
+    from xpcsjax.config import ConfigManager
     from xpcsjax.data import load_xpcs_data
     from xpcsjax.optimization.nlsq import fit_nlsq
 
     data = load_xpcs_data(str(config_path))
-    result = fit_nlsq(data, str(config_path))
+    # DG-A strict half: pin EXPLICIT per_angle_mode='individual' so this rtol=1e-10
+    # baseline (generated from upstream homodyne's individual fit) stays a pure
+    # scaling-first index-permutation tripwire after the Phase-5 default flip
+    # (auto->averaged@n_phi>=3). The default change is gated separately by the
+    # no-worse sibling below. Static labels already keep individual (Finding 8).
+    cfg = ConfigManager(config_file=str(config_path))
+    # Pin individual and keep L2/L3 inert (they do not execute on the stratified
+    # path regardless — execute_layers defaults False — but disabling them
+    # explicitly guarantees the solve is the pure individual fit the 53-param
+    # (=2*23+7) laminar_c020 baseline was generated from).
+    cfg.config.setdefault("optimization", {}).setdefault("nlsq", {}).setdefault(
+        "anti_degeneracy", {}
+    ).update({
+        "enable": True,
+        "per_angle_mode": "individual",
+        "hierarchical": {"enable": False},
+        "regularization": {"enable": False},
+    })
+    result = fit_nlsq(data, cfg)
 
     actual_params = np.asarray(_extract_params(result), dtype=np.float64)
     expected_params = np.asarray(baseline["parameters"], dtype=np.float64)
@@ -153,6 +194,50 @@ def test_homodyne_bit_equivalence(label: str) -> None:
             f"{label}: convergence_status mismatch "
             f"(xpcsjax={actual_status}, baseline={baseline['convergence_status']})"
         )
+
+
+@pytest.mark.skipif(not GATE_OPT_IN, reason=_SKIP_REASON)
+@pytest.mark.parametrize("label", _available_labels())
+def test_homodyne_default_no_worse(label: str) -> None:
+    """DG-A no-worse half: the Phase-5 DEFAULT (`auto`) fit must be no-worse-SSR vs
+    the explicit-individual baseline within ~1e-3 (averaged is MORE constrained, so
+    SSR can only degrade-or-equal; the degradation is the INTENDED default change,
+    not a regression — see spec Risk 2 / CLAUDE.md dual-gate).
+
+    Static labels are gated OUT of Phase 5 (auto->averaged is a no-op there;
+    Finding 8), so they are skipped — the no-worse comparison would be vacuous.
+    """
+    _NO_WORSE_REL = 1e-3
+    config_path = CONFIGS[label]
+    baseline_path = BASELINES_DIR / f"{label}.json"
+    assert Path(config_path).exists(), f"{label}: registered config path is dead"
+    assert baseline_path.exists(), f"{label}: baseline missing at {baseline_path}"
+
+    from xpcsjax.config import ConfigManager
+    from xpcsjax.data import load_xpcs_data
+    from xpcsjax.optimization.nlsq import fit_nlsq
+
+    probe = ConfigManager(config_file=str(config_path))
+    if str(probe.config.get("analysis_mode", "")).startswith("static"):
+        pytest.skip(f"{label}: static mode is deferred (auto->averaged is a no-op)")
+
+    baseline = json.loads(baseline_path.read_text())
+    if "chi_squared" not in baseline:
+        pytest.skip(f"{label}: baseline has no chi_squared; no-worse band undefined")
+    chi2_baseline = float(baseline["chi_squared"])
+
+    data = load_xpcs_data(str(config_path))
+    cfg = ConfigManager(config_file=str(config_path))
+    cfg.config.setdefault("optimization", {}).setdefault("nlsq", {}).setdefault(
+        "anti_degeneracy", {}
+    ).update({"enable": True, "per_angle_mode": "auto"})
+    result = fit_nlsq(data, cfg)
+    chi2_default = float(_extract_chi_squared(result))
+
+    assert chi2_default <= chi2_baseline * (1.0 + _NO_WORSE_REL) + 1e-9, (
+        f"{label}: default auto/averaged chi2 {chi2_default} worse than "
+        f"individual baseline {chi2_baseline} beyond no-worse band"
+    )
 
 
 def _extract_params(result):
