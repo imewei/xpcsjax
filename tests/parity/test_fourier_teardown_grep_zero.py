@@ -1,10 +1,14 @@
 """Phase 7 exit gate: the removed per-angle tokens must not survive anywhere.
 
-This is the authoritative spec section 6 grep-zero checklist as an executable test.
-It runs ``rg -n -w <tokens> tests/ xpcsjax/`` from the repo root and asserts zero
-matching lines. It is RED until every Phase-7 task below has landed, GREEN once
-the teardown is complete. Kept permanently as a regression tripwire against any
-re-introduction of fourier/independent/old-token vocabulary.
+This is the authoritative spec section 6 grep-zero checklist as an executable
+test. It runs ripgrep for the removed per-angle vocabulary across ``tests/`` and
+``xpcsjax/`` and asserts zero matching lines. It is RED until every Phase-7 task
+has landed, GREEN once the teardown is complete. Kept permanently as a
+regression tripwire against any re-introduction of the removed vocabulary.
+
+NOTE: the removed tokens themselves are assembled from fragments at runtime so
+this gate file does not contain any whole-word token literal that would make the
+gate match itself.
 """
 
 from __future__ import annotations
@@ -18,9 +22,19 @@ import pytest
 # Repo root = three parents up from tests/parity/<file>.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-_TOKENS = (
-    "fourier|use_fourier|fourier_order|fourier_auto_threshold|"
-    "auto_averaged|fixed_constant|heterodyne_layout|independent"
+# Assembled from fragments so the gate never matches its own source.
+_F = "four" + "ier"
+_TOKENS = "|".join(
+    (
+        _F,
+        "use_" + _F,
+        _F + "_order",
+        _F + "_auto_threshold",
+        "auto_" + "averaged",
+        "fixed_" + "constant",
+        "heterodyne_" + "layout",
+        "in" + "dependent",
+    )
 )
 
 
