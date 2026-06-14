@@ -246,7 +246,6 @@ def fit_with_stratified_least_squares(
             log.info(f"  use_constant: {ad_controller.use_constant}")
             log.info(f"  use_fixed_scaling: {ad_controller.use_fixed_scaling}")
             log.info(f"  use_averaged_scaling: {ad_controller.use_averaged_scaling}")
-            log.info(f"  use_fourier: {ad_controller.use_fourier}")
             log.info(f"  use_shear_weighting: {ad_controller.use_shear_weighting}")
             log.info("=" * 60)
 
@@ -264,35 +263,6 @@ def fit_with_stratified_least_squares(
                     "Auto averaged mode: parameter transformation deferred to "
                     "quantile-based averaged scaling computation"
                 )
-
-            elif ad_controller.use_fourier:
-                log.info(
-                    f"Transforming parameters: Fourier mode ({len(initial_params)} -> "
-                    f"{ad_controller.n_per_angle_params + n_physical})"
-                )
-                initial_params, _ = ad_controller.transform_params_to_fourier(initial_params)
-                if bounds is not None:
-                    # Transform bounds for Fourier mode
-                    lower, upper = bounds
-                    assert ad_controller.fourier is not None
-                    n_coeffs = ad_controller.fourier.n_coeffs_per_param
-                    # Use the mean of bounds for Fourier coefficients
-                    lower_fourier = np.concatenate(
-                        [
-                            np.full(n_coeffs, np.mean(lower[:n_phi])),  # contrast coeffs
-                            np.full(n_coeffs, np.mean(lower[n_phi : 2 * n_phi])),  # offset coeffs
-                            lower[2 * n_phi :],  # physical lower
-                        ]
-                    )
-                    upper_fourier = np.concatenate(
-                        [
-                            np.full(n_coeffs, np.mean(upper[:n_phi])),  # contrast coeffs
-                            np.full(n_coeffs, np.mean(upper[n_phi : 2 * n_phi])),  # offset coeffs
-                            upper[2 * n_phi :],  # physical upper
-                        ]
-                    )
-                    bounds = (lower_fourier, upper_fourier)
-                    log.debug(f"Transformed bounds to Fourier mode: {bounds[0].shape}")
 
     # Convert stratified flat arrays into chunks
     log.info(f"Creating chunks from stratified data (target size: {target_chunk_size:,})...")
