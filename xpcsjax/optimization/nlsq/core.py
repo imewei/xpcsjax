@@ -617,19 +617,33 @@ def _log_optimization_results(
         n_physical = len(physical_param_names)
         n_params = len(result.parameters)
 
-        if per_angle_scaling and n_params > (2 + n_physical):
-            n_angles = (n_params - n_physical) // 2
+        # Canonical scaling-first layout [scaling_head | physics_tail]:
+        #   constant   -> n_params == n_physical               (head = 0)
+        #   averaged   -> n_params == 2 + n_physical           (head = [c, o])
+        #   individual -> n_params == 2*n_phi + n_physical     (head = 2*n_phi)
+        # Physics is ALWAYS the tail, so log the physical params sliced from the
+        # TAIL (not the head). The previous ``n_params > (2 + n_physical)`` gate
+        # mislabeled averaged (== branch) and constant (physics-only) by falling
+        # through to the [contrast, offset, ...]-prefixed param-name table.
+        scaling_head = n_params - n_physical
+        if per_angle_scaling and scaling_head >= 0 and scaling_head % 2 == 0 and n_params > 0:
+            n_angles = scaling_head // 2
 
-            logger.info(f"Fitted parameters (per-angle scaling: {n_angles} angles):")
+            if n_angles == 0:
+                logger.info("Fitted parameters (constant per-angle scaling, frozen):")
+            else:
+                logger.info(
+                    f"Fitted parameters (per-angle scaling: {n_angles} "
+                    f"{'averaged pair' if n_angles == 1 else 'angles'}):"
+                )
             logger.info("  Physical parameters:")
-            physical_start_idx = 2 * n_angles
+            physical_start_idx = scaling_head  # physics is the TAIL
 
             unc_array = result.uncertainties if hasattr(result, "uncertainties") else None
             unc_size = len(unc_array) if unc_array is not None else 0
             if unc_array is not None and unc_size != n_params:
                 logger.warning(
-                    f"Uncertainty array size mismatch: expected {n_params}, got {unc_size}. "
-                    "This may occur when Fourier covariance transformation failed."
+                    f"Uncertainty array size mismatch: expected {n_params}, got {unc_size}."
                 )
                 unc_array = None
 
@@ -639,12 +653,13 @@ def _log_optimization_results(
                 unc_val = unc_array[idx] if unc_array is not None and idx < len(unc_array) else 0.0
                 logger.info(f"    {name}: {param_val:.6g} +/- {unc_val:.6g}")
 
-            contrast_vals = result.parameters[:n_angles]
-            offset_vals = result.parameters[n_angles : 2 * n_angles]
-            logger.info(
-                f"  Mean scaling: contrast={np.nanmean(contrast_vals):.4f}, "
-                f"offset={np.nanmean(offset_vals):.4f}"
-            )
+            if n_angles > 0:
+                contrast_vals = result.parameters[:n_angles]
+                offset_vals = result.parameters[n_angles : 2 * n_angles]
+                logger.info(
+                    f"  Mean scaling: contrast={np.nanmean(contrast_vals):.4f}, "
+                    f"offset={np.nanmean(offset_vals):.4f}"
+                )
         else:
             param_names = _get_param_names(analysis_mode)
             n_display = min(len(param_names), n_params)
