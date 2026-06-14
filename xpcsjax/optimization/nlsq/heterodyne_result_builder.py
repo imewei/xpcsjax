@@ -581,6 +581,14 @@ def build_hybrid_streaming_result(
     # ``not_applicable_heterodyne`` marker (set inside the helper); we forward only
     # the activation flags + the real per-angle mode.
     ad_block = info.get("anti_degeneracy") or {}
+    # Forward the streaming-computed n_optimized when present so the public
+    # streaming OptimizationResult carries the same scaling-head-length key as
+    # the joint paths (the helper can't derive it from a path-label mode token).
+    _extra_n_opt = (
+        {"n_optimized": int(ad_block["n_optimized"])}
+        if ad_block.get("n_optimized") is not None
+        else {}
+    )
     diagnostics = _build_heterodyne_diagnostics(
         per_angle_mode=ad_block.get("per_angle_mode", per_angle_mode),
         chi2_per_angle=chi2_per_angle,
@@ -593,6 +601,7 @@ def build_hybrid_streaming_result(
         hierarchical_active=bool(ad_block.get("hierarchical_active", False)),
         regularization_active=bool(ad_block.get("regularization_active", False)),
         gradient_monitor=ad_block.get("gradient_monitor"),
+        **_extra_n_opt,
     )
 
     # Surface controller_diagnostics when the stratified-LS path captured the

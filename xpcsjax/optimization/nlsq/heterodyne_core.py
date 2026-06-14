@@ -13,7 +13,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, get_args
 
 import jax.numpy as jnp
 import numpy as np
@@ -325,12 +325,23 @@ def _build_heterodyne_diagnostics(
     hierarchical_active = bool(extras.pop("hierarchical_active", False))
     regularization_active = bool(extras.pop("regularization_active", False))
     gradient_monitor = extras.pop("gradient_monitor", None)
+    # A caller (e.g. the streaming result builder) may supply n_optimized
+    # explicitly; that takes precedence over deriving it from the mode token.
+    explicit_n_optimized = extras.pop("n_optimized", None)
 
     # Optimizer scaling-head length (constant -> 0, averaged -> 2,
     # individual -> 2*n_phi). Mirrors the laminar standard-path key
     # (``wrapper.py``) and the streaming/constant-mode paths so the
     # ``n_optimized`` diagnostic is symmetric across every heterodyne path.
-    from xpcsjax.optimization.nlsq.per_angle_mode import n_optimized
+    # Only the joint paths pass a RESOLVED scaling token here; the streaming
+    # path passes a path label (e.g. ``"hybrid_streaming"``) for which the
+    # scaling-head length is not derivable from the token alone — in that case
+    # honour an explicit value if given, else omit the key (the streaming
+    # anti_degeneracy block already carries its own n_optimized).
+    from xpcsjax.optimization.nlsq.per_angle_mode import (
+        PerAngleMode,
+        n_optimized,
+    )
 
     n_phi = int(np.asarray(chi2_per_angle).size)
 
@@ -338,8 +349,11 @@ def _build_heterodyne_diagnostics(
         "per_angle_mode": per_angle_mode,
         "chi2_per_angle": chi2_per_angle,
         "scaling_source": scaling_source,
-        "n_optimized": n_optimized(per_angle_mode, n_phi),  # type: ignore[arg-type]
     }
+    if explicit_n_optimized is not None:
+        base["n_optimized"] = int(explicit_n_optimized)
+    elif per_angle_mode in get_args(PerAngleMode):
+        base["n_optimized"] = n_optimized(per_angle_mode, n_phi)  # type: ignore[arg-type]
     base.update(
         assemble_anti_degeneracy_diagnostics(
             hierarchical_active=hierarchical_active,
