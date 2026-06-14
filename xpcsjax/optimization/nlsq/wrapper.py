@@ -1550,12 +1550,9 @@ class NLSQWrapper(NLSQAdapterBase):
                     f"Lower: {lower[invalid_indices]}, Upper: {upper[invalid_indices]}",
                 )
 
-        # Step 6: Create residual function with per-angle scaling
-        logger.info(f"Creating residual function (per_angle_scaling={per_angle_scaling})...")
-        residual_fn = self._create_residual_function(
-            stratified_data, analysis_mode, per_angle_scaling
-        )
-        base_residual_fn = residual_fn
+        # Step 6: Prepare per-angle metadata BEFORE building the residual function.
+        # The residual closure (Phase 5) slices the optimizer vector per the resolved
+        # per-angle mode, so the resolver block below must run first.
         physical_param_names = self._get_physical_param_names(analysis_mode)
         phi_values = np.asarray(stratified_data.phi)
         n_phi_unique = len(np.unique(phi_values)) if phi_values.size else 0
@@ -1635,6 +1632,30 @@ class NLSQWrapper(NLSQAdapterBase):
                 scaling_mapper.vector_length,
             )
 
+        # For constant mode the scaling is FROZEN from the quantile estimate and
+        # closed over the residual (the optimizer vector carries physics only).
+        # Compute it ONCE here so the vector build (Step 6.6) and the residual share
+        # the same frozen estimate.
+        frozen_scaling_for_residual: tuple[np.ndarray, np.ndarray] | None = None
+        if resolved_per_angle_mode == "constant":
+            from xpcsjax.optimization.nlsq.parameter_utils import (
+                compute_quantile_per_angle_scaling,
+            )
+
+            _fc, _fo = compute_quantile_per_angle_scaling(stratified_data, logger=logger)
+            frozen_scaling_for_residual = (np.asarray(_fc), np.asarray(_fo))
+
+        # Step 6: Build the residual function now that the per-angle mode is resolved.
+        logger.info(f"Creating residual function (per_angle_scaling={per_angle_scaling})...")
+        residual_fn = self._create_residual_function(
+            stratified_data,
+            analysis_mode,
+            per_angle_scaling,
+            resolved_per_angle_mode=resolved_per_angle_mode,
+            fixed_scaling=frozen_scaling_for_residual,
+        )
+        base_residual_fn = residual_fn
+
         # Step 6.6: Expand parameters for per-angle scaling if needed
         # This is CRITICAL: the residual function expects per-angle parameters,
         # but validated_params is still in compact form [contrast, offset, *physical]
@@ -1710,14 +1731,10 @@ class NLSQWrapper(NLSQAdapterBase):
                 # per-angle arrays built above (the plan's seed_tail collapses averaged to
                 # the mean and uses the arrays verbatim for individual).
                 if resolved_per_angle_mode == "constant":
-                    from xpcsjax.optimization.nlsq.parameter_utils import (
-                        compute_quantile_per_angle_scaling,
-                    )
-
-                    _qc, _qo = compute_quantile_per_angle_scaling(
-                        stratified_data, logger=logger
-                    )
-                    _quantile_scaling = (np.asarray(_qc), np.asarray(_qo))
+                    # Reuse the ONE frozen estimate computed above for the residual
+                    # (shared so the seed and the residual agree exactly).
+                    assert frozen_scaling_for_residual is not None
+                    _quantile_scaling = frozen_scaling_for_residual
                 else:
                     _quantile_scaling = (
                         np.asarray(contrast_per_angle),
@@ -3440,7 +3457,12 @@ class NLSQWrapper(NLSQAdapterBase):
         return (lower, upper)
 
     def _create_residual_function(
-        self, data: Any, analysis_mode: AnalysisMode, per_angle_scaling: bool = True
+        self,
+        data: Any,
+        analysis_mode: AnalysisMode,
+        per_angle_scaling: bool = True,
+        resolved_per_angle_mode: str | None = None,
+        fixed_scaling: tuple[np.ndarray, np.ndarray] | None = None,
     ) -> Any:
         """Create JAX-compatible model function for NLSQ with per-angle scaling support.
 
@@ -3530,6 +3552,20 @@ class NLSQWrapper(NLSQAdapterBase):
         phi_unique = jnp.asarray(np.unique(np.asarray(phi)))
         n_phi = len(phi_unique)
 
+        # Phase 5: mode-aware scaling slice. None -> legacy individual (static + the
+        # pre-Phase-5 default). "constant" closes over frozen per-angle arrays and the
+        # param vector is physics-only. "averaged" broadcasts 2 head scalars to n_phi.
+        _mode = resolved_per_angle_mode or "individual"
+        _fixed_c = None
+        _fixed_o = None
+        if _mode == "constant":
+            if fixed_scaling is None:
+                raise ValueError(
+                    "constant per_angle_mode requires fixed_scaling (contrast, offset)"
+                )
+            _fixed_c = jnp.asarray(fixed_scaling[0])
+            _fixed_o = jnp.asarray(fixed_scaling[1])
+
         # Determine parameter structure based on analysis mode and per_angle_scaling
         # Legacy (per_angle_scaling=False): [contrast, offset, *physical_params]
         #   Static isotropic: 5 params total (2 scaling + 3 physical)
@@ -3569,11 +3605,19 @@ class NLSQWrapper(NLSQAdapterBase):
             # Convert params tuple to array (stack avoids retracing vs asarray)
             params_array = jnp.stack(params_tuple)
 
-            # Extract per-angle scaling parameters (legacy mode removed Nov 2025)
-            # Per-angle mode: first n_phi are contrasts, next n_phi are offsets
-            contrast = params_array[:n_phi]  # Array of shape (n_phi,)
-            offset = params_array[n_phi : 2 * n_phi]  # Array of shape (n_phi,)
-            physical_params = params_array[2 * n_phi :]
+            # Scaling-first canonical slice per resolved per-angle mode.
+            if _mode == "constant":
+                contrast = _fixed_c                      # frozen (n_phi,)
+                offset = _fixed_o                        # frozen (n_phi,)
+                physical_params = params_array           # physics-only vector
+            elif _mode == "averaged":
+                contrast = jnp.full(n_phi, params_array[0])   # broadcast head scalar
+                offset = jnp.full(n_phi, params_array[1])
+                physical_params = params_array[2:]
+            else:  # individual
+                contrast = params_array[:n_phi]
+                offset = params_array[n_phi : 2 * n_phi]
+                physical_params = params_array[2 * n_phi :]
 
             # Get requested data point indices
             # Use int64 to prevent overflow when n_phi * n_t1 * n_t2 > 2.147B.
