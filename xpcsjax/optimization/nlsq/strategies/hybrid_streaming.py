@@ -23,10 +23,6 @@ from xpcsjax.optimization.nlsq.adaptive_regularization import (
     AdaptiveRegularizationConfig,
     AdaptiveRegularizer,
 )
-from xpcsjax.optimization.nlsq.fourier_reparam import (
-    FourierReparamConfig,
-    FourierReparameterizer,
-)
 from xpcsjax.optimization.nlsq.gradient_monitor import (
     GradientCollapseMonitor,
     GradientMonitorConfig,
@@ -467,11 +463,9 @@ def fit_with_stratified_hybrid_streaming(
     regularization_config = ad_config.get("regularization", {})
     gradient_monitoring_config = ad_config.get("gradient_monitoring", {})
 
-    # Layer 1: Fourier Reparameterization / Constant Scaling Configuration
+    # Layer 1 (Phase 6): fourier removed; constant-scaling configuration only.
     # Distinct semantics for auto vs explicit constant mode
     per_angle_mode = ad_config.get("per_angle_mode", "auto")
-    fourier_order = ad_config.get("fourier_order", 2)
-    fourier_auto_threshold = ad_config.get("fourier_auto_threshold", 6)
     constant_scaling_threshold = ad_config.get("constant_scaling_threshold", 3)
 
     # Determine actual per-angle mode
@@ -493,10 +487,15 @@ def fit_with_stratified_hybrid_streaming(
         # Computes N quantile estimates, uses per-angle values DIRECTLY (NOT averaged)
         # Only 7 physical params are optimized; scaling is FIXED
         per_angle_mode_actual = "fixed_constant"
+    elif per_angle_mode == "individual":
+        per_angle_mode_actual = "individual"
+        logger.debug("ANTI-DEGENERACY: Using explicit per_angle_mode: individual")
     else:
-        # Other explicit modes (fourier or individual)
-        per_angle_mode_actual = per_angle_mode
-        logger.debug(f"ANTI-DEGENERACY: Using explicit per_angle_mode: {per_angle_mode_actual}")
+        # Phase 6: fourier/independent are no longer accepted on the laminar streaming path.
+        raise ValueError(
+            f"unknown per_angle_mode {per_angle_mode!r}; valid: "
+            "constant, averaged, individual, auto"
+        )
 
     # T031: Determine mode flags
     # use_constant: True for both auto_averaged and fixed_constant (constant-style mapping)
@@ -506,45 +505,8 @@ def fit_with_stratified_hybrid_streaming(
     use_averaged_scaling = per_angle_mode_actual == "auto_averaged"
     # use_fixed_scaling will be set True after quantile estimation for fixed_constant mode
 
-    # Initialize Fourier reparameterizer if using fourier mode
-    fourier_reparameterizer = None
-    if per_angle_mode_actual == "fourier" and per_angle_scaling:
-        # Get unique phi angles in radians
-        phi_unique_rad = np.deg2rad(np.array(sorted(set(all_phi_early))))
-
-        # Extract user-configured bounds for contrast and offset from bounds tuple
-        # Bounds layout: [contrast(n_phi), offset(n_phi), physical(7)]
-        # Use first contrast/offset bound as the c0/o0 (mean) bounds
-        c0_bounds = (0.1, 0.8)  # Default
-        o0_bounds = (0.5, 1.5)  # Default
-        if bounds is not None:
-            lower_bounds, upper_bounds = bounds
-            if len(lower_bounds) >= n_phi and len(upper_bounds) >= n_phi:
-                # Extract contrast bounds from first contrast element
-                c0_bounds = (float(lower_bounds[0]), float(upper_bounds[0]))
-                # Extract offset bounds from first offset element
-                o0_bounds = (float(lower_bounds[n_phi]), float(upper_bounds[n_phi]))
-                logger.debug(
-                    f"  Using user-configured Fourier bounds: c0={c0_bounds}, o0={o0_bounds}"
-                )
-
-        fourier_config = FourierReparamConfig(
-            mode="fourier",
-            fourier_order=fourier_order,
-            auto_threshold=fourier_auto_threshold,
-            c0_bounds=c0_bounds,
-            o0_bounds=o0_bounds,
-        )
-        fourier_reparameterizer = FourierReparameterizer(phi_unique_rad, fourier_config)
-        logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY DEFENSE: Layer 1 - Fourier Reparameterization")
-        logger.info(f"  Mode: {per_angle_mode_actual}")
-        logger.info(f"  n_phi: {n_phi}, Fourier order: {fourier_order}")
-        logger.info(f"  Contrast bounds (c0): {c0_bounds}")
-        logger.info(f"  Offset bounds (o0): {o0_bounds}")
-        logger.info(f"  Parameter reduction: {2 * n_phi} -> {fourier_reparameterizer.n_coeffs}")
-        logger.info("=" * 60)
-    elif per_angle_mode_actual == "fixed_constant" and per_angle_scaling:
+    # Per-angle reparameterization (Phase 6): fourier removed; resolver rejects the token.
+    if per_angle_mode_actual == "fixed_constant" and per_angle_scaling:
         # fixed_constant mode: per-angle scaling is FIXED, not optimized
         logger.info("=" * 60)
         logger.info("ANTI-DEGENERACY DEFENSE: Layer 1 - Constant Scaling")
@@ -579,9 +541,7 @@ def fit_with_stratified_hybrid_streaming(
             _n_scaling = 0
         elif per_angle_mode_actual == "auto_averaged":
             _n_scaling = 2
-        elif per_angle_mode_actual == "fourier" and fourier_reparameterizer is not None:
-            _n_scaling = fourier_reparameterizer.n_coeffs
-        else:  # individual (or fourier without per-angle scaling)
+        else:  # individual
             _n_scaling = 2 * n_phi
         log_effective_per_angle_mode(
             logger,
@@ -720,7 +680,6 @@ def fit_with_stratified_hybrid_streaming(
             config=hier_config,
             n_phi=n_phi,
             n_physical=n_physical,
-            fourier_reparameterizer=fourier_reparameterizer,
         )
         logger.info("=" * 60)
         logger.info("ANTI-DEGENERACY DEFENSE: Layer 2 - Hierarchical Optimization")
@@ -760,26 +719,9 @@ def fit_with_stratified_hybrid_streaming(
             logger.debug(
                 f"Auto-averaged regularization groups: {mode_group_indices} (1 contrast + 1 offset)"
             )
-        elif fourier_reparameterizer is not None and fourier_reparameterizer.use_fourier:
-            n_coeffs_per_param = fourier_reparameterizer.n_coeffs_per_param
-            mode_group_indices = [
-                (0, n_coeffs_per_param),  # contrast Fourier coefficients
-                (
-                    n_coeffs_per_param,
-                    2 * n_coeffs_per_param,
-                ),  # offset Fourier coefficients
-            ]
-            logger.debug(
-                f"Fourier-aware regularization groups: {mode_group_indices} "
-                f"(n_coeffs_per_param={n_coeffs_per_param})"
-            )
         else:
             mode_group_indices = None  # Use default: [(0, n_phi), (n_phi, 2*n_phi)]
-            logger.debug(
-                f"Using default regularization groups (Fourier mode not active): "
-                f"fourier_reparameterizer={fourier_reparameterizer is not None}, "
-                f"use_fourier={fourier_reparameterizer.use_fourier if fourier_reparameterizer else 'N/A'}"
-            )
+            logger.debug("Using default regularization groups (individual mode)")
 
         reg_config = AdaptiveRegularizationConfig(
             enable=True,
@@ -810,16 +752,13 @@ def fit_with_stratified_hybrid_streaming(
     gradient_monitor = None
     if gradient_monitor_enabled and per_angle_scaling:
         # Compute mode-aware parameter count
-        # n_per_angle depends on per-angle mode: fixed_constant, auto_averaged, fourier, or individual
+        # n_per_angle depends on per-angle mode: fixed_constant, auto_averaged, or individual
         if use_fixed_scaling:
             # fixed_constant: 0 per-angle params (scaling is fixed)
             n_per_angle = 0
         elif use_averaged_scaling:
             # auto_averaged: 2 per-angle params (1 contrast + 1 offset)
             n_per_angle = 2
-        elif fourier_reparameterizer is not None:
-            # Fourier mode: n_coeffs Fourier coefficients
-            n_per_angle = fourier_reparameterizer.n_coeffs
         else:
             # Independent mode: 2 * n_phi per-angle params
             n_per_angle = 2 * n_phi
@@ -898,7 +837,6 @@ def fit_with_stratified_hybrid_streaming(
         "per_angle_mode": per_angle_mode_actual,
         "use_constant": use_constant,  # T031: Track constant mode status
         "use_fixed_scaling": use_fixed_scaling,  # Track fixed scaling status
-        "fourier_reparameterizer": fourier_reparameterizer,
         "hierarchical_optimizer": hierarchical_optimizer,
         "adaptive_regularizer": adaptive_regularizer,
         "gradient_monitor": gradient_monitor,
@@ -922,8 +860,6 @@ def fit_with_stratified_hybrid_streaming(
                 )
             elif use_constant:
                 n_per_group = 1
-            elif fourier_reparameterizer is not None:
-                n_per_group = fourier_reparameterizer.n_coeffs_per_param
             else:
                 n_per_group = n_phi
 
@@ -1098,14 +1034,11 @@ def fit_with_stratified_hybrid_streaming(
     # In fixed scaling mode: 0 (all params are physical)
     # In constant mode (fallback): 1 contrast + 1 offset = 2
     # In individual mode: n_phi contrast + n_phi offset = 2*n_phi
-    # In Fourier mode: n_coeffs contrast + n_coeffs offset = 2*n_coeffs
     if use_fixed_scaling:
         # Fixed scaling: all params are physical, no per-angle params in vector
         n_per_angle = 0
     elif use_constant:
         n_per_angle = 2
-    elif fourier_reparameterizer is not None:
-        n_per_angle = fourier_reparameterizer.n_coeffs
     else:
         n_per_angle = 2 * n_phi
 
@@ -1301,12 +1234,6 @@ def fit_with_stratified_hybrid_streaming(
         and anti_degeneracy_components.get("hierarchical_optimizer") is not None
         and ad_config.get("enable", True)
     )
-    use_fourier = (
-        fourier_reparameterizer is not None
-        and anti_degeneracy_components.get("fourier_reparameterizer") is not None
-        and ad_config.get("enable", True)
-    )
-
     # Track params for fitting
     fit_initial_params = initial_params.copy()
     fit_bounds = bounds
@@ -1386,169 +1313,8 @@ def fit_with_stratified_hybrid_streaming(
             fit_bounds = (fit_lower, fit_upper)
         logger.info("=" * 60)
 
-    # Layer 1: Fourier reparameterization of initial parameters
-    elif use_fourier:
-        assert fourier_reparameterizer is not None  # guarded by use_fourier
-        logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY EXECUTION: Fourier Reparameterization")
-        # Transform per-angle params to Fourier coefficients
-        per_angle_params = initial_params[: 2 * n_phi]
-        physical_params = initial_params[2 * n_phi :]
-
-        # Split per-angle into contrast and offset groups
-        contrast_per_angle = per_angle_params[:n_phi]
-        offset_per_angle = per_angle_params[n_phi : 2 * n_phi]
-
-        # Transform to Fourier coefficients
-        contrast_coeffs = fourier_reparameterizer.to_fourier(contrast_per_angle)
-        offset_coeffs = fourier_reparameterizer.to_fourier(offset_per_angle)
-
-        # New parameter layout: [contrast_coeffs, offset_coeffs, physical_params]
-        fit_initial_params = np.concatenate([contrast_coeffs, offset_coeffs, physical_params])
-
-        logger.info(f"  Original params: {len(initial_params)}")
-        logger.info(f"  Fourier params: {len(fit_initial_params)}")
-        logger.info(
-            f"  Per-angle reduction: {2 * n_phi} -> {len(contrast_coeffs) + len(offset_coeffs)}"
-        )
-
-        # Transform bounds for Fourier space
-        if bounds is not None:
-            lower_bounds, upper_bounds = bounds
-            # Per-angle bounds are typically (0,1) for contrast, (0.5, 1.5) for offset
-            # Fourier coefficients can have wider bounds since they combine linearly
-            # Use n_coeffs_per_param (e.g., 5 for order=2), NOT n_coeffs (total=10)
-            n_half = fourier_reparameterizer.n_coeffs_per_param
-
-            # Fourier coefficient bounds: a0 keeps the mean, others can be ±range
-            contrast_lower = np.concatenate(
-                [
-                    [lower_bounds[0]],  # a0 (mean) lower bound
-                    np.full(n_half - 1, -1.0),  # Other coeffs can be negative
-                ]
-            )
-            contrast_upper = np.concatenate(
-                [
-                    [upper_bounds[0]],  # a0 (mean) upper bound
-                    np.full(n_half - 1, 1.0),  # Other coeffs bounded
-                ]
-            )
-            offset_lower = np.concatenate(
-                [
-                    [lower_bounds[n_phi]],  # a0 (mean) lower bound
-                    np.full(n_half - 1, -0.5),  # Other coeffs
-                ]
-            )
-            offset_upper = np.concatenate(
-                [
-                    [upper_bounds[n_phi]],  # a0 (mean) upper bound
-                    np.full(n_half - 1, 0.5),  # Other coeffs
-                ]
-            )
-
-            fit_lower = np.concatenate([contrast_lower, offset_lower, lower_bounds[2 * n_phi :]])
-            fit_upper = np.concatenate([contrast_upper, offset_upper, upper_bounds[2 * n_phi :]])
-            fit_bounds = (fit_lower, fit_upper)
-        logger.info("=" * 60)
-
-    # =====================================================================
-    # Anti-Degeneracy Defense: Create Fourier-wrapped model function
-    # =====================================================================
-    # When using Fourier mode, wrap model_fn to convert Fourier coeffs -> per-angle
-    if use_fourier:
-        assert fourier_reparameterizer is not None  # guarded by use_fourier
-        n_coeffs_per_param = fourier_reparameterizer.n_coeffs_per_param
-        _fourier_basis_matrix = fourier_reparameterizer._basis_matrix
-
-        @jax.jit
-        def model_fn_fourier(x_batch: jnp.ndarray, *params_tuple: jnp.ndarray) -> jnp.ndarray:
-            """Model function with Fourier coefficient inputs."""
-            # Handle both single points (1D) and batches (2D)
-            x_batch_2d = jnp.atleast_2d(x_batch)
-            params_all = jnp.stack(params_tuple)
-
-            # Extract Fourier coefficients and physical params
-            # Layout: [contrast_coeffs, offset_coeffs, physical_params]
-            n_coeffs = n_coeffs_per_param  # captured from outer scope
-            contrast_coeffs = params_all[:n_coeffs]
-            offset_coeffs = params_all[n_coeffs : 2 * n_coeffs]
-            physical_params = params_all[2 * n_coeffs :]
-
-            # Convert Fourier coefficients to per-angle values
-            # Uses precomputed basis matrix: values = B @ coeffs
-            basis_matrix = jnp.asarray(_fourier_basis_matrix)
-            contrast_all = basis_matrix @ contrast_coeffs
-            offset_all = basis_matrix @ offset_coeffs
-
-            # Extract indices from x_batch (now guaranteed 2D)
-            phi_idx = x_batch_2d[:, 0].astype(jnp.int32)
-            t1_idx = x_batch_2d[:, 1].astype(jnp.int32)
-            t2_idx = x_batch_2d[:, 2].astype(jnp.int32)
-
-            # Extract physical parameters
-            D0 = physical_params[0]
-            alpha = physical_params[1]
-            D_offset = physical_params[2]
-
-            # Compute diffusion
-            D_t = calculate_diffusion_coefficient(t1_unique_jax, D0, alpha, D_offset)
-            D_cumsum = trapezoid_cumsum(D_t)
-            D_diff = D_cumsum[t1_idx] - D_cumsum[t2_idx]
-            # P0-2: epsilon_abs=1e-12 (was 1e-20, below float32 precision)
-            D_integral_batch = jnp.sqrt(D_diff**2 + 1e-12)
-
-            log_g1_diff = -wavevector_q_squared_half_dt * D_integral_batch
-            log_g1_diff_bounded = jnp.clip(log_g1_diff, -700.0, 0.0)
-            g1_diffusion = jnp.exp(log_g1_diff_bounded)
-
-            if is_laminar_flow:
-                # Shear parameters
-                gamma_dot_0 = physical_params[3]
-                beta = physical_params[4]
-                gamma_dot_offset = physical_params[5]
-                phi0 = physical_params[6]
-
-                # Compute shear
-                gamma_t = calculate_shear_rate(t1_unique_jax, gamma_dot_0, beta, gamma_dot_offset)
-                gamma_cumsum = trapezoid_cumsum(gamma_t)
-                gamma_diff = gamma_cumsum[t1_idx] - gamma_cumsum[t2_idx]
-                # P0-2: epsilon_abs=1e-12 (was 1e-20, below float32 precision)
-                gamma_integral_batch = jnp.sqrt(gamma_diff**2 + 1e-12)
-
-                # Shear contribution with angle dependence
-                phi_values = phi_unique_jax[phi_idx]
-                angle_diff = jnp.deg2rad(phi0 - phi_values)
-                cos_phi = jnp.cos(angle_diff)
-
-                sinc_arg = sinc_prefactor * gamma_integral_batch * cos_phi
-                sinc_val = safe_sinc(sinc_arg)
-                g1_shear = sinc_val**2
-
-                g1_total = g1_diffusion * g1_shear
-                # P0-3: Use jnp.where (gradient-safe) instead of jnp.clip.
-                # log-space clip above guarantees g1 ≤ 1.0; lower floor prevents log(0).
-                epsilon = 1e-10
-                g1 = jnp.where(g1_total > epsilon, g1_total, epsilon)
-            else:
-                epsilon = 1e-10
-                g1 = jnp.where(g1_diffusion > epsilon, g1_diffusion, epsilon)
-
-            # Compute g2 with per-angle scaling (from Fourier-derived values)
-            contrast = contrast_all[phi_idx]
-            offset = offset_all[phi_idx]
-            g2_theory = offset + contrast * g1**2
-            # P0-3: Removed jnp.clip(g2, 0.5, 2.5) — kills gradients at boundaries.
-            # Bounds enforced via parameter bounds in optimizer, not g2 clipping.
-            g2 = g2_theory
-
-            return jnp.asarray(g2.squeeze())
-
-        # Use Fourier model function for optimization
-        active_model_fn = model_fn_fourier
-        logger.info("  Using Fourier-wrapped model function")
-    else:
-        # Use standard per-angle model function
-        active_model_fn = model_fn_pointwise
+    # Phase 6: per-angle scaling uses the standard pointwise model on all resolved modes.
+    active_model_fn = model_fn_pointwise
 
     # Run hybrid optimization
     logger.info("Starting hybrid optimization (L-BFGS + Gauss-Newton)...")
@@ -1744,83 +1510,9 @@ def fit_with_stratified_hybrid_streaming(
     # =====================================================================
     # Anti-Degeneracy Defense System - INVERSE TRANSFORMATION
     # =====================================================================
-    # Transform Fourier coefficients back to per-angle parameters
-    if use_fourier:
-        assert fourier_reparameterizer is not None  # guarded by use_fourier
-        logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY EXECUTION: Inverse Fourier Transform")
-        # Use n_coeffs_per_param (e.g., 5 for order=2), NOT n_coeffs (total=10)
-        # Layout: [contrast_coeffs (5), offset_coeffs (5), physical (7)]
-        n_half = fourier_reparameterizer.n_coeffs_per_param
-
-        # Extract Fourier coefficients and physical params from optimized result
-        fourier_contrast_coeffs = popt[:n_half]
-        fourier_offset_coeffs = popt[n_half : 2 * n_half]
-        physical_params_opt = popt[2 * n_half :]
-
-        # Transform back to per-angle parameters
-        contrast_per_angle_opt = fourier_reparameterizer.from_fourier(fourier_contrast_coeffs)
-        offset_per_angle_opt = fourier_reparameterizer.from_fourier(fourier_offset_coeffs)
-
-        # Reconstruct full parameter vector in original layout
-        popt = np.concatenate([contrast_per_angle_opt, offset_per_angle_opt, physical_params_opt])
-
-        logger.info(f"  Fourier params: {2 * n_half + len(physical_params_opt)}")
-        logger.info(f"  Restored per-angle params: {len(popt)}")
-
-        # Transform covariance from Fourier space to per-angle space
-        # J_fourier = d(per_angle)/d(fourier_coeffs)
-        # pcov_per_angle = J_full @ pcov_fourier @ J_full.T
-        pcov_fourier = result.get("pcov", None)
-        n_fourier_total = 2 * n_half + len(physical_params_opt)
-
-        if (
-            pcov_fourier is not None
-            and pcov_fourier.shape[0] == n_fourier_total
-            and pcov_fourier.shape[1] == n_fourier_total
-        ):
-            # Get Jacobian for per-angle transformation
-            # This is the Fourier basis matrix that maps coefficients to per-angle values
-            jacobian_per_angle = fourier_reparameterizer.get_jacobian_transform()
-            # jacobian_per_angle shape: (2 * n_phi, n_coeffs_fourier)
-            # where n_coeffs_fourier = 2 * n_half
-
-            # Build full Jacobian for complete parameter space transformation
-            # Layout: [n_phi contrast, n_phi offset, n_physical]
-            # Fourier layout: [n_half contrast_coeffs, n_half offset_coeffs, n_physical]
-            n_per_angle_total = 2 * n_phi  # contrast + offset per-angle
-            n_physical = len(physical_params_opt)
-            n_total_restored = n_per_angle_total + n_physical
-
-            J_full = np.zeros((n_total_restored, n_fourier_total))
-            # Block for per-angle params: use Fourier Jacobian
-            J_full[:n_per_angle_total, : 2 * n_half] = jacobian_per_angle
-            # Block for physical params: identity (pass-through)
-            J_full[n_per_angle_total:, 2 * n_half :] = np.eye(n_physical)
-
-            # Transform covariance: pcov_full = J @ pcov_fourier @ J.T
-            try:
-                pcov_transformed = J_full @ pcov_fourier @ J_full.T
-                # Store for later use (override the result dict lookup)
-                result["pcov_transformed"] = pcov_transformed
-                logger.info("  Covariance transformed from Fourier to per-angle space")
-            except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
-                logger.warning(f"  Covariance transformation failed: {e}. Using identity fallback.")
-                result["pcov_transformed"] = None
-        else:
-            pcov_shape = pcov_fourier.shape if pcov_fourier is not None else None
-            logger.warning(
-                f"  Fourier covariance unavailable or wrong shape (got {pcov_shape}, "
-                f"expected ({n_fourier_total}, {n_fourier_total})). "
-                "Using identity fallback."
-            )
-            result["pcov_transformed"] = None
-
-        logger.info("=" * 60)
-
     # Fixed scaling mode inverse transformation
     # Expand physical-only params back to per-angle format using fixed scaling arrays
-    elif use_fixed_scaling:
+    if use_fixed_scaling:
         assert fixed_contrast_per_angle is not None  # set when use_fixed_scaling is True
         assert fixed_offset_per_angle is not None  # set when use_fixed_scaling is True
         logger.info("=" * 60)
@@ -2079,18 +1771,11 @@ def fit_with_stratified_hybrid_streaming(
         "per_angle_mode": anti_degeneracy_components["per_angle_mode"],
         "use_constant": anti_degeneracy_components.get("use_constant", False),
         "use_fixed_scaling": use_fixed_scaling,
-        "fourier_enabled": fourier_reparameterizer is not None,
         "hierarchical_enabled": hierarchical_optimizer is not None,
         "adaptive_regularization_enabled": adaptive_regularizer is not None,
         "gradient_monitor_enabled": gradient_monitor is not None,
         "shear_weighting_enabled": shear_weighter is not None,
     }
-    if fourier_reparameterizer is not None:
-        info["anti_degeneracy"]["fourier"] = {
-            "order": fourier_order,
-            "n_coeffs": fourier_reparameterizer.n_coeffs,
-            "param_reduction": f"{2 * n_phi} -> {fourier_reparameterizer.n_coeffs}",
-        }
     # T048: Add constant mode diagnostics
     if use_fixed_scaling:
         # Fixed scaling mode - per-angle values are fixed, not optimized

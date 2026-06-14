@@ -129,3 +129,23 @@ def test_sequential_laminar_emits_symmetric_activation_keys(monkeypatch):
     assert any("Sequential" in a for a in result.recovery_actions)
     # Fit values are real numbers (sanity; diagnostics-only change).
     assert np.isfinite(result.chi_squared)
+
+
+# --- Phase 6 Task 5: laminar streaming has no fourier machinery ---
+
+
+def test_streaming_has_no_fourier_machinery():
+    import inspect
+
+    from xpcsjax.optimization.nlsq.strategies import hybrid_streaming
+
+    fns = [
+        v
+        for v in vars(hybrid_streaming).values()
+        if callable(v) and getattr(v, "__module__", None) == hybrid_streaming.__name__
+    ]
+    src = "\n".join(inspect.getsource(f) for f in fns)
+    assert "model_fn_fourier" not in src
+    assert "fourier_reparameterizer" not in src
+    assert "use_fourier" not in src
+    assert "FourierReparameterizer" not in src
