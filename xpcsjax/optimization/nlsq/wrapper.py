@@ -1592,7 +1592,49 @@ class NLSQWrapper(NLSQAdapterBase):
                 except (TypeError, ValueError):
                     logger.warning("Invalid per-angle offset override; ignoring")
 
-        # Step 6.5: Expand parameters for per-angle scaling if needed
+        # Step 6.5: Resolve the per-angle mode (laminar_flow only; static modes keep
+        # the legacy individual hard-wire below). The resolved enum + mapper drive
+        # the vector build, bounds, residual slicing, labels, and DOF.
+        from xpcsjax.optimization.nlsq.per_angle_mode import (
+            DEFAULT_CONSTANT_SCALING_THRESHOLD,
+            resolve_per_angle_mode,
+        )
+        from xpcsjax.optimization.nlsq.parameter_index_mapper import ParameterIndexMapper
+
+        resolved_per_angle_mode: str | None = None
+        scaling_mapper: Any = None
+        if (
+            per_angle_scaling
+            and analysis_mode == AnalysisMode.LAMINAR_FLOW
+            and n_phi_unique >= 1
+        ):
+            _ad_cfg6: dict[str, Any] = {}
+            if config is not None and hasattr(config, "config"):
+                _ad_cfg6 = (
+                    config.config.get("optimization", {})
+                    .get("nlsq", {})
+                    .get("anti_degeneracy", {})
+                )
+            _mode_token = _ad_cfg6.get("per_angle_mode", "auto")
+            _thresh = _ad_cfg6.get(
+                "constant_scaling_threshold", DEFAULT_CONSTANT_SCALING_THRESHOLD
+            )
+            resolved_per_angle_mode = resolve_per_angle_mode(
+                _mode_token, n_phi_unique, _thresh
+            )
+            scaling_mapper = ParameterIndexMapper.canonical(
+                mode=resolved_per_angle_mode,
+                n_phi=n_phi_unique,
+                n_physics=len(physical_param_names),
+            )
+            logger.info(
+                "Standard in-memory per-angle mode: token=%r -> resolved=%r "
+                "(n_phi=%d, threshold=%d, vector_length=%d)",
+                _mode_token, resolved_per_angle_mode, n_phi_unique, _thresh,
+                scaling_mapper.vector_length,
+            )
+
+        # Step 6.6: Expand parameters for per-angle scaling if needed
         # This is CRITICAL: the residual function expects per-angle parameters,
         # but validated_params is still in compact form [contrast, offset, *physical]
         if per_angle_scaling:
@@ -1932,6 +1974,7 @@ class NLSQWrapper(NLSQAdapterBase):
             },
             logger=logger,
             n_dof_effective=n_dof_effective,
+            per_angle_mode=resolved_per_angle_mode,
         )
 
     def _execute_optimization_with_fallback(
@@ -2022,6 +2065,7 @@ class NLSQWrapper(NLSQAdapterBase):
         diagnostics_state: dict[str, Any],
         logger: logging.Logger | logging.LoggerAdapter[logging.Logger],
         n_dof_effective: int | None = None,
+        per_angle_mode: str | None = None,
     ) -> OptimizationResult:
         """Post-process optimization outputs into final result.
 
@@ -2216,6 +2260,10 @@ class NLSQWrapper(NLSQAdapterBase):
         if not isinstance(existing, dict):
             existing = {}
         existing.update(ad_block)
+        # Phase 5: stamp the resolved per-angle scaling mode (laminar standard path).
+        # Static modes pass None -> the legacy individual layout, reported as
+        # "individual" so the diagnostics contract is uniform across modes.
+        existing["per_angle_mode"] = per_angle_mode if per_angle_mode is not None else "individual"
         result.nlsq_diagnostics = existing
 
         logger.info(
