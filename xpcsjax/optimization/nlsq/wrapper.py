@@ -1603,6 +1603,7 @@ class NLSQWrapper(NLSQAdapterBase):
 
         resolved_per_angle_mode: str | None = None
         scaling_mapper: Any = None
+        scaling_plan: Any = None
         if (
             per_angle_scaling
             and analysis_mode == AnalysisMode.LAMINAR_FLOW
@@ -1696,10 +1697,46 @@ class NLSQWrapper(NLSQAdapterBase):
                 else:
                     offset_per_angle = np.full(n_phi, offset_single)
 
-            # Concatenate: [contrasts, offsets, physical]
-            validated_params = np.concatenate(
-                [contrast_per_angle, offset_per_angle, physical_params]
-            )
+            # Build the optimizer scaling head per the resolved mode. For laminar
+            # the plan owns the head; for static (resolved_per_angle_mode is None)
+            # keep the legacy dense individual head verbatim.
+            if resolved_per_angle_mode is not None:
+                from xpcsjax.optimization.nlsq.per_angle_mode import PerAngleScalingPlan
+
+                # FROZEN Phase-0 ctor: PerAngleScalingPlan(mode, n_phi, n_physics,
+                # quantile_scaling) where quantile_scaling=(contrast[n_phi], offset[n_phi]).
+                # quantile_scaling is REQUIRED (shape-checked, never None). For constant we
+                # freeze from the quantile estimate; for averaged/individual we pass the
+                # per-angle arrays built above (the plan's seed_tail collapses averaged to
+                # the mean and uses the arrays verbatim for individual).
+                if resolved_per_angle_mode == "constant":
+                    from xpcsjax.optimization.nlsq.parameter_utils import (
+                        compute_quantile_per_angle_scaling,
+                    )
+
+                    _qc, _qo = compute_quantile_per_angle_scaling(
+                        stratified_data, logger=logger
+                    )
+                    _quantile_scaling = (np.asarray(_qc), np.asarray(_qo))
+                else:
+                    _quantile_scaling = (
+                        np.asarray(contrast_per_angle),
+                        np.asarray(offset_per_angle),
+                    )
+
+                scaling_plan = PerAngleScalingPlan(
+                    mode=resolved_per_angle_mode,
+                    n_phi=n_phi,
+                    n_physics=len(physical_params),
+                    quantile_scaling=_quantile_scaling,
+                )
+                scaling_head = scaling_plan.seed_tail()  # head in scaling-first layout
+                validated_params = np.concatenate([scaling_head, physical_params])
+            else:
+                # Static modes: legacy dense individual head (unchanged behavior).
+                validated_params = np.concatenate(
+                    [contrast_per_angle, offset_per_angle, physical_params]
+                )
 
             logger.info(
                 f"Expanded parameters for per-angle scaling:\n"
@@ -1718,19 +1755,24 @@ class NLSQWrapper(NLSQAdapterBase):
                 physical_lower = lower[2:]
                 physical_upper = upper[2:]
 
-                # Expand to per-angle bounds
-                contrast_lower_per_angle = np.full(n_phi, contrast_lower)
-                contrast_upper_per_angle = np.full(n_phi, contrast_upper)
-                offset_lower_per_angle = np.full(n_phi, offset_lower)
-                offset_upper_per_angle = np.full(n_phi, offset_upper)
+                # Size the scaling-head bounds per the resolved mode.
+                # individual -> 2*n_phi ; averaged -> 2 ; constant -> 0 (frozen).
+                if resolved_per_angle_mode == "constant":
+                    head_lower = np.empty(0, dtype=np.float64)
+                    head_upper = np.empty(0, dtype=np.float64)
+                elif resolved_per_angle_mode == "averaged":
+                    head_lower = np.array([contrast_lower, offset_lower])
+                    head_upper = np.array([contrast_upper, offset_upper])
+                else:  # individual (and static fall-through)
+                    head_lower = np.concatenate(
+                        [np.full(n_phi, contrast_lower), np.full(n_phi, offset_lower)]
+                    )
+                    head_upper = np.concatenate(
+                        [np.full(n_phi, contrast_upper), np.full(n_phi, offset_upper)]
+                    )
 
-                # Concatenate expanded bounds
-                expanded_lower = np.concatenate(
-                    [contrast_lower_per_angle, offset_lower_per_angle, physical_lower]
-                )
-                expanded_upper = np.concatenate(
-                    [contrast_upper_per_angle, offset_upper_per_angle, physical_upper]
-                )
+                expanded_lower = np.concatenate([head_lower, physical_lower])
+                expanded_upper = np.concatenate([head_upper, physical_upper])
 
                 nlsq_bounds = (expanded_lower, expanded_upper)
 
