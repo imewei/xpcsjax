@@ -141,3 +141,14 @@ def test_stratified_ls_fourier_config_rejected():
             anti_degeneracy_config={"enable": True, "per_angle_mode": "fourier"},
             analysis_mode="laminar_flow",
         )
+
+
+def test_stratified_ls_has_no_fourier_expansion_arm():
+    import inspect
+
+    from xpcsjax.optimization.nlsq.strategies import stratified_ls
+
+    src = inspect.getsource(stratified_ls.fit_with_stratified_least_squares)
+    assert "use_fourier" not in src
+    assert "transform_params_from_fourier" not in src
+    assert "get_basis_matrix" not in src

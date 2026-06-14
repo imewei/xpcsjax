@@ -935,43 +935,6 @@ def fit_with_stratified_least_squares(
             anti_degeneracy_info["original_n_params"] = 2 + n_physical
             anti_degeneracy_info["expanded_n_params"] = len(popt)
 
-        elif ad_controller.use_fourier:
-            log.info(
-                f"Expanding parameters from Fourier mode ({len(popt)} -> {2 * n_phi + n_physical})"
-            )
-            popt_expanded = ad_controller.transform_params_from_fourier(popt)
-
-            assert ad_controller.fourier is not None
-            n_coeffs = ad_controller.fourier.n_coeffs_per_param
-            B_contrast = ad_controller.fourier.get_basis_matrix()  # (n_phi, n_coeffs)
-            B_offset = ad_controller.fourier.get_basis_matrix()
-            assert B_contrast is not None and B_offset is not None
-
-            pcov_expanded = np.zeros((len(popt_expanded), len(popt_expanded)))
-            pcov_contrast = pcov[:n_coeffs, :n_coeffs]
-            pcov_expanded[:n_phi, :n_phi] = B_contrast @ pcov_contrast @ B_contrast.T
-            pcov_offset = pcov[n_coeffs : 2 * n_coeffs, n_coeffs : 2 * n_coeffs]
-            pcov_expanded[n_phi : 2 * n_phi, n_phi : 2 * n_phi] = (
-                B_offset @ pcov_offset @ B_offset.T
-            )
-            pcov_expanded[2 * n_phi :, 2 * n_phi :] = pcov[2 * n_coeffs :, 2 * n_coeffs :]
-            pcov_expanded[2 * n_phi :, :n_phi] = pcov[2 * n_coeffs :, :n_coeffs] @ B_contrast.T
-            pcov_expanded[:n_phi, 2 * n_phi :] = B_contrast @ pcov[:n_coeffs, 2 * n_coeffs :]
-            pcov_expanded[2 * n_phi :, n_phi : 2 * n_phi] = (
-                pcov[2 * n_coeffs :, n_coeffs : 2 * n_coeffs] @ B_offset.T
-            )
-            pcov_expanded[n_phi : 2 * n_phi, 2 * n_phi :] = (
-                B_offset @ pcov[n_coeffs : 2 * n_coeffs, 2 * n_coeffs :]
-            )
-
-            popt = popt_expanded
-            pcov = pcov_expanded
-            log.info(f"Expanded to {len(popt)} per-angle parameters")
-            anti_degeneracy_info["mode"] = "fourier"
-            anti_degeneracy_info["fourier_order"] = ad_controller.fourier.order
-            anti_degeneracy_info["original_n_params"] = 2 * n_coeffs + n_physical
-            anti_degeneracy_info["expanded_n_params"] = len(popt)
-
         # Add diagnostics to info
         anti_degeneracy_info["controller_diagnostics"] = ad_controller.get_diagnostics()
 
