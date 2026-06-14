@@ -86,6 +86,41 @@ def n_optimized(mode: PerAngleMode, n_phi: int) -> int:
     )
 
 
+def effective_constrained_dof(
+    mode: PerAngleMode, *, n_phi: int, n_physical: int
+) -> int | None:
+    """Return the constrained-model parameter count for reduced-chi2 / covariance.
+
+    This is the EXPANDED constrained-model DOF (spec §5 design decision 3), the
+    single authority the large-data result builders (out-of-core, hybrid-streaming,
+    stratified-LS) share so an explicit ``averaged`` is treated identically to
+    ``auto -> averaged``:
+
+    * ``averaged`` -> ``2 * n_phi + n_physical`` (2 averaged scalars constrain the
+      ``2 * n_phi`` per-angle scaling DOF the physics model still consumes).
+    * ``constant`` -> ``n_physical`` (scaling fully frozen, zero scaling DOF).
+    * ``individual`` -> ``None`` (the optimizer vector is already dense, so the
+      caller's ``len(popt)`` is the correct count).
+
+    Callers MUST pass a resolved variant (resolve ``"auto"`` via
+    :func:`resolve_per_angle_mode` first).
+
+    Raises
+    ------
+    ValueError
+        If ``mode`` is not a resolved variant.
+    """
+    if mode == "averaged":
+        return 2 * int(n_phi) + int(n_physical)
+    if mode == "constant":
+        return int(n_physical)
+    if mode == "individual":
+        return None
+    raise ValueError(
+        f"unknown per_angle_mode {mode!r}; valid: constant, averaged, individual"
+    )
+
+
 class PerAngleScalingPlan:
     """Model-agnostic per-angle scaling bookkeeping (spec §4 Seam 3).
 

@@ -1220,12 +1220,20 @@ class NLSQWrapper(NLSQAdapterBase):
                         .get("nlsq", {})
                         .get("anti_degeneracy", {})
                     )
+                    from xpcsjax.optimization.nlsq.per_angle_mode import (
+                        effective_constrained_dof as _eff_dof,
+                        resolve_per_angle_mode as _resolve_pam,
+                    )
+
                     _ooc_mode = _ooc_ad.get("per_angle_mode", "auto")
                     _ooc_thresh = _ooc_ad.get("constant_scaling_threshold", 3)
-                    if _ooc_mode == "auto" and n_angles_check >= _ooc_thresh:
-                        _ooc_n_params_effective = 2 * n_angles_check + n_physical
-                    elif _ooc_mode == "constant":
-                        _ooc_n_params_effective = n_physical
+                    # Resolve first so EXPLICIT averaged gets the expanded constrained
+                    # DOF too, not just auto->averaged (Codex Finding 2).
+                    _ooc_n_params_effective = _eff_dof(
+                        _resolve_pam(_ooc_mode, n_angles_check, _ooc_thresh),
+                        n_phi=n_angles_check,
+                        n_physical=n_physical,
+                    )
                 _ooc_dof = (
                     _ooc_n_params_effective if _ooc_n_params_effective is not None else len(popt)
                 )
@@ -1399,12 +1407,20 @@ class NLSQWrapper(NLSQAdapterBase):
                         # but the true model DOF is 2*n_phi + n_physical (e.g. 53).
                         _hs_n_params_effective: int | None = None
                         if per_angle_scaling and anti_degeneracy_config:
+                            from xpcsjax.optimization.nlsq.per_angle_mode import (
+                                effective_constrained_dof as _eff_dof,
+                                resolve_per_angle_mode as _resolve_pam,
+                            )
+
                             _hs_ad_mode = anti_degeneracy_config.get("per_angle_mode", "auto")
                             _hs_thresh = anti_degeneracy_config.get("constant_scaling_threshold", 3)
-                            if _hs_ad_mode == "auto" and n_angles_check >= _hs_thresh:
-                                _hs_n_params_effective = 2 * n_angles_check + n_physical
-                            elif _hs_ad_mode == "constant":
-                                _hs_n_params_effective = n_physical
+                            # Resolve first so EXPLICIT averaged gets the expanded
+                            # constrained DOF too, not just auto->averaged (Codex Finding 2).
+                            _hs_n_params_effective = _eff_dof(
+                                _resolve_pam(_hs_ad_mode, n_angles_check, _hs_thresh),
+                                n_phi=n_angles_check,
+                                n_physical=n_physical,
+                            )
 
                         # Create result
                         result = self._create_fit_result(
@@ -1501,12 +1517,20 @@ class NLSQWrapper(NLSQAdapterBase):
                 # but the true model DOF is 2*n_phi + n_physical (e.g. 53).
                 _sls_n_params_effective: int | None = None
                 if per_angle_scaling and anti_degeneracy_config:
+                    from xpcsjax.optimization.nlsq.per_angle_mode import (
+                        effective_constrained_dof as _eff_dof,
+                        resolve_per_angle_mode as _resolve_pam,
+                    )
+
                     _sls_ad_mode = anti_degeneracy_config.get("per_angle_mode", "auto")
                     _sls_thresh = anti_degeneracy_config.get("constant_scaling_threshold", 3)
-                    if _sls_ad_mode == "auto" and n_angles_check >= _sls_thresh:
-                        _sls_n_params_effective = 2 * n_angles_check + n_physical
-                    elif _sls_ad_mode == "constant":
-                        _sls_n_params_effective = n_physical
+                    # Resolve first so EXPLICIT averaged gets the expanded constrained
+                    # DOF too, not just auto->averaged (Codex Finding 2).
+                    _sls_n_params_effective = _eff_dof(
+                        _resolve_pam(_sls_ad_mode, n_angles_check, _sls_thresh),
+                        n_phi=n_angles_check,
+                        n_physical=n_physical,
+                    )
 
                 # Create result
                 result = self._create_fit_result(
@@ -1830,10 +1854,18 @@ class NLSQWrapper(NLSQAdapterBase):
                 )
 
         n_angles_for_map = n_phi_unique if per_angle_scaling else 1
+        # Physics is the (scaling-first) optimizer vector's tail, so its start index
+        # is the scaling-head length. For the compressed canonical modes this is
+        # < 2*n_phi (averaged -> 2, constant -> 0); derive it from the actual vector
+        # so the shear-transform index map stays in-bounds for the compressed vector
+        # (Codex Finding 1). For individual / static (dense head = 2*n_phi) this is
+        # byte-identical to the legacy default, preserving the rtol=1e-10 goldens.
+        _scaling_head_size = len(validated_params) - len(physical_param_names)
         physical_index_map = build_physical_index_map(
             per_angle_scaling,
             n_angles_for_map,
             physical_param_names,
+            scaling_head_size=_scaling_head_size,
         )
         validated_params, transform_state = apply_forward_shear_transforms_to_vector(
             validated_params,

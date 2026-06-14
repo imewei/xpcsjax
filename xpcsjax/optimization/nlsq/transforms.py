@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import jax.numpy as jnp
 import numpy as np
 
 from xpcsjax.config.parameter_registry import AnalysisMode
@@ -189,6 +190,7 @@ def build_physical_index_map(
     per_angle_scaling: bool,
     n_angles: int,
     physical_param_names: list[str],
+    scaling_head_size: int | None = None,
 ) -> dict[str, int]:
     """Build mapping from parameter names to indices.
 
@@ -200,13 +202,24 @@ def build_physical_index_map(
         Number of phi angles.
     physical_param_names : list[str]
         List of physical parameter names.
+    scaling_head_size : int, optional
+        Exact length of the scaling head in the (scaling-first) optimizer vector,
+        i.e. physics starts at this index. REQUIRED for the canonical compressed
+        per-angle modes (``constant`` -> 0, ``averaged`` -> 2) where the head is
+        NOT ``2 * n_angles``; passing it keeps the physics indices in-bounds for
+        the compressed vector. When ``None`` (default) the legacy dense head
+        (``2 * n_angles`` if ``per_angle_scaling`` else 2) is used, preserving the
+        individual / static-mode layout that the rtol=1e-10 goldens rely on.
 
     Returns
     -------
     dict[str, int]
         Mapping from parameter name to index in parameter vector.
     """
-    start = 2 * n_angles if per_angle_scaling else 2
+    if scaling_head_size is not None:
+        start = int(scaling_head_size)
+    else:
+        start = 2 * n_angles if per_angle_scaling else 2
     return {name: start + idx for idx, name in enumerate(physical_param_names)}
 
 
@@ -336,6 +349,37 @@ def apply_inverse_shear_transforms_to_vector(
     return vector
 
 
+def apply_inverse_shear_transforms_to_vector_jax(
+    params: Any,
+    state: dict[str, Any] | None,
+) -> Any:
+    """JIT-safe inverse shear transforms (solver space -> physical space).
+
+    Identical math to :func:`apply_inverse_shear_transforms_to_vector` but built
+    with ``jax.numpy`` and functional ``.at[idx].set(...)`` updates so it can run
+    INSIDE a JIT-traced residual (the transform-wrapped model / stratified residual
+    in :func:`wrap_model_function_with_transforms` /
+    :func:`wrap_stratified_function_with_transforms`). The numpy variant is kept for
+    the host-side post-solve conversions (it would raise ``TracerArrayConversionError``
+    on a traced array).
+
+    ``gamma_log_idx`` / ``beta_center_idx`` / ``beta_reference`` are Python scalars
+    in ``state`` (compile-time constants), so this traces cleanly.
+    """
+    if not state:
+        return params
+    vector = jnp.asarray(params)
+    gamma_idx = state.get("gamma_log_idx")
+    if gamma_idx is not None:
+        vector = vector.at[gamma_idx].set(jnp.exp(vector[gamma_idx]))
+    beta_idx = state.get("beta_center_idx")
+    if beta_idx is not None:
+        vector = vector.at[beta_idx].set(
+            vector[beta_idx] + float(state.get("beta_reference", 0.0))
+        )
+    return vector
+
+
 def adjust_covariance_for_transforms(
     covariance: np.ndarray,
     transformed_params: np.ndarray,
@@ -397,7 +441,12 @@ def wrap_model_function_with_transforms(
         return model_fn
 
     def wrapped_model(xdata: np.ndarray, *solver_params: float) -> np.ndarray:
-        physical = apply_inverse_shear_transforms_to_vector(np.asarray(solver_params), state)
+        # JIT-safe: this runs inside NLSQ's JIT-traced residual, so solver_params are
+        # tracers — use the jnp inverse (the numpy one would raise
+        # TracerArrayConversionError on np.asarray of a tracer).
+        physical = apply_inverse_shear_transforms_to_vector_jax(
+            jnp.asarray(solver_params), state
+        )
         result: np.ndarray = model_fn(xdata, *physical)
         return result
 
@@ -435,7 +484,8 @@ def wrap_stratified_function_with_transforms(
             self._state = transform_state
 
         def __call__(self, params: np.ndarray) -> np.ndarray:
-            physical = apply_inverse_shear_transforms_to_vector(params, self._state)
+            # JIT-safe: the stratified residual is JIT-traced, so use the jnp inverse.
+            physical = apply_inverse_shear_transforms_to_vector_jax(params, self._state)
             result: np.ndarray = self._base_fn(physical)
             return result
 
