@@ -2,8 +2,8 @@
 engine (``StratifiedResidualFunctionJIT``), fed heterodyne data + a
 ``HeterodynePointEvaluator`` + the Task-2.2 layout conversion, must reproduce
 the heterodyne fit objective (SSR) at a fixed parameter vector, for the three
-in-scope per-angle scaling modes (``fixed_constant``, ``individual``,
-``auto_averaged``).
+in-scope canonical per-angle scaling modes (``constant``, ``individual``,
+``averaged``).
 
 This is a DISCOVERY / MEASUREMENT test (not red-green TDD) and TEST-ONLY: it
 touches NO production dispatch. It validates the integration approach BEFORE any
@@ -45,23 +45,27 @@ Two convention gaps had to be reconciled to get an apples-to-apples objective:
 
 PER-MODE ENGINE CONSTRUCTION (verified against residual_jit.py:304-322)
 -----------------------------------------------------------------------
-* ``fixed_constant`` -> ``per_angle_scaling=False`` with
+Phase 4 made the pointwise builder emit the canonical **scaling-first** ``p0``
+``[scaling_head | physics_tail]`` directly, so the former physics-first ->
+scaling-first conversion is the identity for ``constant`` / ``individual`` and a
+2 -> 2*n_phi broadcast for ``averaged`` (the only remaining work, done by the
+test-local ``expand_to_engine_scaling_first``).
+
+* ``constant`` -> ``per_angle_scaling=False`` with
   ``fixed_contrast_per_angle = meta["contrast_arr"]`` /
   ``fixed_offset_per_angle = meta["offset_arr"]``. Engine param vector is
-  physics-only (n_physics). Layout conversion is the identity.
+  physics-only (n_physics). Conversion is the identity.
 * ``individual`` -> ``per_angle_scaling=True``. Engine param vector is
-  ``[contrast(n_phi) | offset(n_phi) | physics]`` via
-  ``physics_first_to_scaling_first(p0, mode="individual", ...)`` (a pure block
-  permutation of the physics-first ``p0``).
-* ``auto_averaged`` -> ``per_angle_scaling=True`` with the BROADCAST vector
-  ``physics_first_to_scaling_first(p0, mode="auto_averaged", ...)`` (the 2
-  averaged scalars expanded to ``2*n_phi``; the engine has no compressed
-  averaged mode).
+  ``[contrast(n_phi) | offset(n_phi) | physics]`` — the builder's scaling-first
+  head already equals this, so ``expand_to_engine_scaling_first`` is the identity.
+* ``averaged`` -> ``per_angle_scaling=True`` with the BROADCAST vector
+  ``expand_to_engine_scaling_first(p0, mode="averaged", ...)`` (the builder's 2
+  compressed averaged scalars expanded to ``2*n_phi``; the engine has no
+  compressed averaged mode).
 
 The dataset is ``make_synthetic_two_component(n_phi=4, n_t=12)`` with a
 non-monotonic angle order, mirroring ``test_pointwise_joint_parity``. ``fourier``
-is intentionally out of scope (it is a learned reparameterization that stays on
-the heterodyne path, per ``heterodyne_layout.IN_SCOPE_MODES``).
+is retired (Phase 4) and out of scope, per the test-local ``IN_SCOPE_MODES``.
 """
 
 from __future__ import annotations
@@ -72,7 +76,7 @@ import pytest
 from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
 from tests.parity._heterodyne_layout_oracle import (
     IN_SCOPE_MODES,
-    physics_first_to_scaling_first,
+    expand_to_engine_scaling_first,
 )
 from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
     HeterodyneStratifiedData,
@@ -93,8 +97,8 @@ from xpcsjax.optimization.nlsq.strategies.stratified_ls import (
 # the engine's sorted-phi searchsorted gather aligns with the caller's order.
 _PHI_ORDER = np.array([2, 0, 3, 1])
 
-# The three in-scope conversion modes. ``fourier`` stays on the heterodyne path.
-_MODES = ("fixed_constant", "individual", "auto_averaged")
+# The three canonical in-scope scaling modes. ``fourier`` is retired (Phase 4).
+_MODES = ("constant", "individual", "averaged")
 
 
 def _effective_scaling_in_phi_unique_order(
@@ -105,21 +109,23 @@ def _effective_scaling_in_phi_unique_order(
     n_varying: int,
 ) -> tuple[np.ndarray, np.ndarray]:
     """(contrast, offset) per angle in SORTED phi_unique order — exactly the
-    scaling the engine resolves at this ``p0`` (mirrors the model_fn slicing and
-    ``physics_first_to_scaling_first``)."""
-    tail = np.asarray(p0[n_varying:], dtype=np.float64)
-    if mode == "fixed_constant":
+    scaling the engine resolves at this ``p0`` (mirrors the model_fn slicing).
+
+    Phase 4: ``p0`` is canonical **scaling-first** ``[scaling_head | physics]``,
+    so the scaling head is the FRONT slice ``p0[:len(p0) - n_varying]``."""
+    head = np.asarray(p0[: len(p0) - n_varying], dtype=np.float64)
+    if mode == "constant":
         return (
             np.asarray(meta["contrast_arr"], dtype=np.float64),
             np.asarray(meta["offset_arr"], dtype=np.float64),
         )
-    if mode == "auto_averaged":
+    if mode == "averaged":
         return (
-            np.full(n_phi, float(tail[0]), dtype=np.float64),
-            np.full(n_phi, float(tail[1]), dtype=np.float64),
+            np.full(n_phi, float(head[0]), dtype=np.float64),
+            np.full(n_phi, float(head[1]), dtype=np.float64),
         )
-    # individual: tail = [contrast(n_phi) | offset(n_phi)]
-    return tail[:n_phi].copy(), tail[n_phi:].copy()
+    # individual: head = [contrast(n_phi) | offset(n_phi)]
+    return head[:n_phi].copy(), head[n_phi:].copy()
 
 
 def _reference_ssr_on_engine_support(
@@ -191,7 +197,7 @@ def _build_engine_for_mode(
         dt=float(_MODEL_DT),
     )
 
-    if mode == "fixed_constant":
+    if mode == "constant":
         engine = StratifiedResidualFunctionJIT(
             stratified_data=chunked,
             per_angle_scaling=False,
@@ -200,7 +206,7 @@ def _build_engine_for_mode(
             fixed_offset_per_angle=np.asarray(meta["offset_arr"], dtype=np.float64),
             evaluator=evaluator,
         )
-    else:  # individual / auto_averaged -> per-angle (expanded) scaling
+    else:  # individual / averaged -> per-angle (expanded) scaling
         engine = StratifiedResidualFunctionJIT(
             stratified_data=chunked,
             per_angle_scaling=True,
@@ -210,7 +216,9 @@ def _build_engine_for_mode(
             evaluator=evaluator,
         )
 
-    engine_vec = physics_first_to_scaling_first(
+    # Builder p0 is canonical scaling-first; expand the compressed averaged head
+    # to the engine's 2*n_phi layout (identity for constant/individual).
+    engine_vec = expand_to_engine_scaling_first(
         np.asarray(p0, dtype=np.float64),
         n_physics=n_varying,
         mode=mode,
@@ -286,7 +294,8 @@ def test_engine_routes_heterodyne_residual_matches_objective(mode):
         per_angle_mode=mode,
     )
     p0 = np.asarray(p0, dtype=np.float64)
-    physics = p0[:n_varying]
+    # p0 is canonical scaling-first: physics is the TAIL slice p0[-n_varying:].
+    physics = p0[-n_varying:]
 
     contrasts, offsets = _effective_scaling_in_phi_unique_order(mode, p0, meta, n_phi, n_varying)
 
@@ -311,8 +320,8 @@ def test_engine_routes_heterodyne_residual_matches_objective(mode):
     )
 
     # Engine param-vector length contract (residual_jit param slicing):
-    #   fixed_constant -> physics-only;  individual/auto_averaged -> 2*n_phi + physics.
-    expected_len = n_varying if mode == "fixed_constant" else 2 * n_phi + n_varying
+    #   constant -> physics-only;  individual/averaged -> 2*n_phi + physics.
+    expected_len = n_varying if mode == "constant" else 2 * n_phi + n_varying
     assert engine_vec.shape == (expected_len,), (
         f"mode={mode}: engine vector length {engine_vec.shape} != ({expected_len},)"
     )
@@ -495,7 +504,8 @@ def test_engine_route_matches_production_objective_frame0_reconciled(mode):
         per_angle_mode=mode,
     )
     p0 = np.asarray(p0, dtype=np.float64)
-    physics = p0[:n_varying]
+    # p0 is canonical scaling-first: physics is the TAIL slice p0[-n_varying:].
+    physics = p0[-n_varying:]
 
     contrasts, offsets = _effective_scaling_in_phi_unique_order(mode, p0, meta, n_phi, n_varying)
 

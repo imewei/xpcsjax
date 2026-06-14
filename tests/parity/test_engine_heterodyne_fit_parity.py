@@ -2,7 +2,7 @@
 OPTIMIZER through the shared homodyne stratification engine descends to the
 SAME-or-BETTER objective as the current production heterodyne fit
 (``fit_nlsq_multi_phi``), for the three in-scope per-angle scaling modes
-(``fixed_constant``, ``individual``, ``auto_averaged``).
+(``constant``, ``individual``, ``averaged``).
 
 Phase 2.3a proved the engine *residual* (frame-0 reconciled) reproduces the
 production ``compute_multi_angle_residuals`` objective **at a fixed parameter
@@ -43,12 +43,12 @@ engine-route solve calls the SAME ``NLSQAdapter.fit`` entry with an identically
 built :class:`NLSQConfig`, so the two solves differ only in *which residual
 surface* they descend — production's batched-meshgrid residual vs the engine's
 frame-0-reconciled stratified-point residual (proved equal-SSR-at-equal-params in
-Phase 2.3a). ``x0`` / bounds are built physics-first and converted to the engine
-scaling-first layout via ``physics_first_to_scaling_first`` (identity for
-``fixed_constant``, a block permutation for ``individual``, a 2→2*n_phi broadcast
-for ``auto_averaged``).
+Phase 2.3a). Phase 4: ``x0`` is the builder's canonical scaling-first ``p0`` (broadcast-expanded
+for ``averaged`` via ``expand_to_engine_scaling_first``) and bounds are built
+directly in the engine scaling-first layout (``_engine_scaling_first_bounds``) —
+the former physics-first -> scaling-first conversion is gone.
 
-STEP-0 FINDING — ``fixed_constant`` frozen scaling source
+STEP-0 FINDING — ``constant`` frozen scaling source
 ---------------------------------------------------------
 The engine freezes per-angle (contrast, offset) outside the optimizer; those
 constants MUST equal the ones production froze, in sorted-phi_unique order.
@@ -62,13 +62,13 @@ reconciliation, not a production change.
 
 RESULTS ON THE WELL-POSED FIXTURE (the honest contract)
 -------------------------------------------------------
-* ``fixed_constant`` — **strict bidirectional parity** (rel_diff ~6e-15). With
+* ``constant`` — **strict bidirectional parity** (rel_diff ~6e-15). With
   the SAME frozen scaling both sides solve the identical physics-only problem and
   reach the identical minimum (a small ~7e-4 SSR floor set by the quantile
   scaling estimate differing slightly from the true 0.30/1.00 — both inherit the
   SAME floor). Asserted at strict ``rtol=1e-3``.
 
-* ``individual`` and ``auto_averaged`` — **the engine reaches the true global
+* ``individual`` and ``averaged`` — **the engine reaches the true global
   minimum (SSR ~1e-15); production does NOT.** This is a real Phase 2.3b finding,
   and it is the OPPOSITE of an engine defect: the engine route is *correct and
   strictly better*. From the SAME x0 on the SAME well-posed surface, production's
@@ -78,7 +78,7 @@ RESULTS ON THE WELL-POSED FIXTURE (the honest contract)
   (verified: production reads config-initial as x0 and is trapped by its
   batched-meshgrid + Fourier-reparam ``"independent"`` geometry, not by the
   starting point). The engine's frame-0-reconciled stratified-point residual
-  descends cleanly to ~0. (For ``auto_averaged`` the engine additionally has
+  descends cleanly to ~0. (For ``averaged`` the engine additionally has
   more freedom: the layout broadcasts the 2 averaged scalars to per-angle
   ``2*n_phi`` scaling — see ``heterodyne_layout`` — so it can fit per-angle
   scaling where production fits a single averaged pair; with uniform true scaling
@@ -113,8 +113,7 @@ import pytest
 
 from tests.parity._heterodyne_layout_oracle import (
     IN_SCOPE_MODES,
-    physics_first_to_scaling_first,
-    scaling_first_to_physics_first,
+    expand_to_engine_scaling_first,
 )
 from xpcsjax.config import ConfigManager
 from xpcsjax.config.parameter_registry import SCALING_PARAMS
@@ -150,15 +149,15 @@ _OFFSET_TRUE = 1.00
 # ``_PER_SET_NFEV * n_phi`` to mirror the production joint-fit budget contract.
 _PER_SET_NFEV = 600
 
-_MODES = ("fixed_constant", "individual", "auto_averaged")
+_MODES = ("constant", "individual", "averaged")
 
-# Engine (layout) mode -> production ``per_angle_mode`` config token. With
+# Canonical scaling mode -> production ``per_angle_mode`` config token. With
 # n_phi=6 and the default constant_scaling_threshold=3, ``auto`` resolves to the
-# ``averaged`` dispatch — the production analog of the engine's ``auto_averaged``.
+# ``averaged`` dispatch — the production analog of the engine's ``averaged`` mode.
 _MODE_TO_PRODUCTION = {
-    "fixed_constant": "constant",
+    "constant": "constant",
     "individual": "individual",
-    "auto_averaged": "auto",
+    "averaged": "auto",
 }
 
 # True physics perturbation off the model config defaults, by varying-param name.
@@ -190,7 +189,7 @@ _TRUE_PERTURB = {
 # therefore CPU-MICROARCHITECTURE-specific: reproducible on the maintainer's
 # machine but NOT across GitHub's heterogeneous runner fleet. Verified 2026-06-07
 # (CI run 27080084602): macOS/Windows land in a *different* basin (e.g.
-# ``auto_averaged`` engine == the 1.44526... trap to ~6 sig-figs); the Ubuntu
+# ``averaged`` engine == the 1.44526... trap to ~6 sig-figs); the Ubuntu
 # runner + per-Python-version numpy/JAX SIMD wheels flip ``individual`` at the
 # ~1e-15 floor and even differ py3.12 vs py3.13/3.14 on the SAME OS (the XLA
 # ``cpu_aot_loader`` "machine type doesn't match" warning is the tell). So an
@@ -352,7 +351,7 @@ def _build_engine(
 ) -> StratifiedResidualFunctionJIT:
     """Construct the frame-0-excluded engine for ``mode`` (mirrors Phase 2.3a)."""
     evaluator = HeterodynePointEvaluator(analysis_mode="two_component", q=float(q), dt=float(dt))
-    if mode == "fixed_constant":
+    if mode == "constant":
         return StratifiedResidualFunctionJIT(
             stratified_data=chunked,
             per_angle_scaling=False,
@@ -371,24 +370,27 @@ def _build_engine(
     )
 
 
-def _physics_first_bounds(
+def _engine_scaling_first_bounds(
     *, mode: str, n_phi: int, physics_lower: np.ndarray, physics_upper: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Physics-first ``(lb, ub)`` matching the production joint-fit layout."""
+    """Engine canonical **scaling-first** ``(lb, ub)``:
+    ``[contrast(n_phi) | offset(n_phi) | physics]`` (or ``[physics]`` only for
+    ``constant``). Phase 4 made x0 scaling-first natively, so the bounds are built
+    directly in the engine layout (no physics-first -> scaling-first conversion).
+
+    For ``averaged`` the engine has no compressed scaling mode — it consumes the
+    broadcast ``2*n_phi`` per-angle block — so the bounds use ``2*n_phi`` slots
+    (matching ``expand_to_engine_scaling_first``'s broadcast of the x0 head)."""
     cb = (SCALING_PARAMS["contrast"].min_bound, SCALING_PARAMS["contrast"].max_bound)
     ob = (SCALING_PARAMS["offset"].min_bound, SCALING_PARAMS["offset"].max_bound)
     physics_lower = np.asarray(physics_lower, dtype=np.float64)
     physics_upper = np.asarray(physics_upper, dtype=np.float64)
 
-    if mode == "fixed_constant":
+    if mode == "constant":
         return physics_lower, physics_upper
-    if mode == "auto_averaged":
-        lb = np.concatenate([physics_lower, [cb[0], ob[0]]])
-        ub = np.concatenate([physics_upper, [cb[1], ob[1]]])
-        return lb, ub
-    # individual: tail [contrast(n_phi) | offset(n_phi)]
-    lb = np.concatenate([physics_lower, np.full(n_phi, cb[0]), np.full(n_phi, ob[0])])
-    ub = np.concatenate([physics_upper, np.full(n_phi, cb[1]), np.full(n_phi, ob[1])])
+    # individual / averaged: scaling-first head [contrast(n_phi) | offset(n_phi)].
+    lb = np.concatenate([np.full(n_phi, cb[0]), np.full(n_phi, ob[0]), physics_lower])
+    ub = np.concatenate([np.full(n_phi, cb[1]), np.full(n_phi, ob[1]), physics_upper])
     return lb, ub
 
 
@@ -436,9 +438,9 @@ def _run_reference_and_engine(mode: str):
     )
     p0 = np.asarray(p0, dtype=np.float64)
 
-    # Frozen scaling for fixed_constant: production's quantile estimate
+    # Frozen scaling for constant: production's quantile estimate
     # (sorted-phi order) so engine + reference freeze the SAME constants.
-    if mode == "fixed_constant":
+    if mode == "constant":
         contrast_arr = np.asarray(diag["contrast_per_angle_fixed"], dtype=np.float64)
         offset_arr = np.asarray(diag["offset_per_angle_fixed"], dtype=np.float64)
     else:
@@ -446,15 +448,14 @@ def _run_reference_and_engine(mode: str):
         offset_arr = np.asarray(meta["offset_arr"], dtype=np.float64)
 
     physics_lower, physics_upper = model.param_manager.get_bounds()
-    lb_pf, ub_pf = _physics_first_bounds(
+    # Bounds are built directly in the engine scaling-first layout. x0 (the
+    # builder's canonical scaling-first p0) is broadcast-expanded for averaged.
+    lb_sf, ub_sf = _engine_scaling_first_bounds(
         mode=mode, n_phi=n_phi, physics_lower=physics_lower, physics_upper=physics_upper
     )
+    x0_sf = expand_to_engine_scaling_first(p0, n_physics=n_varying, mode=mode, n_phi=n_phi)
 
-    x0_sf = physics_first_to_scaling_first(p0, n_physics=n_varying, mode=mode, n_phi=n_phi)
-    lb_sf = physics_first_to_scaling_first(lb_pf, n_physics=n_varying, mode=mode, n_phi=n_phi)
-    ub_sf = physics_first_to_scaling_first(ub_pf, n_physics=n_varying, mode=mode, n_phi=n_phi)
-
-    expected_len = n_varying if mode == "fixed_constant" else 2 * n_phi + n_varying
+    expected_len = n_varying if mode == "constant" else 2 * n_phi + n_varying
     assert x0_sf.shape == (expected_len,), (
         f"mode={mode}: engine x0 length {x0_sf.shape} != ({expected_len},)"
     )
@@ -493,21 +494,22 @@ def _run_reference_and_engine(mode: str):
     resid_at_opt = np.asarray(engine(jnp.asarray(popt_sf)), dtype=np.float64)
     chi2_engine = float(np.sum(resid_at_opt**2))
 
-    popt_pf = scaling_first_to_physics_first(popt_sf, n_physics=n_varying, mode=mode, n_phi=n_phi)
+    # popt_sf is engine scaling-first; physics is the TAIL slice.
+    physics_engine = popt_sf[-n_varying:]
 
     return {
         "chi2_ref": chi2_ref,
         "chi2_engine": chi2_engine,
         "physics_ref": physics_ref,
-        "physics_engine": popt_pf[:n_varying],
+        "physics_engine": physics_engine,
         "ref_status": result_ref.convergence_status,
         "engine_success": bool(res.success),
     }
 
 
 @_MAINTAINER_ONLY
-def test_engine_route_fixed_constant_strict_objective_parity():
-    """``fixed_constant`` — STRICT bidirectional objective parity.
+def test_engine_route_constant_strict_objective_parity():
+    """``constant`` — STRICT bidirectional objective parity.
 
     With the SAME frozen per-angle scaling (sourced from production's quantile
     diagnostics — see STEP-0 FINDING) both sides solve the identical physics-only
@@ -515,14 +517,14 @@ def test_engine_route_fixed_constant_strict_objective_parity():
     fixture). The small ~7e-4 SSR floor is the quantile scaling estimate departing
     slightly from the true 0.30/1.00; both inherit the SAME floor.
     """
-    out = _run_reference_and_engine("fixed_constant")
+    out = _run_reference_and_engine("constant")
     chi2_ref = out["chi2_ref"]
     chi2_engine = out["chi2_engine"]
 
     assert np.isfinite(chi2_ref) and np.isfinite(chi2_engine)
     rel = abs(chi2_engine - chi2_ref) / max(abs(chi2_ref), 1e-300)
     assert np.isclose(chi2_engine, chi2_ref, rtol=1e-3, atol=0.0), (
-        f"fixed_constant: engine objective {chi2_engine!r} != production "
+        f"constant: engine objective {chi2_engine!r} != production "
         f"{chi2_ref!r} (rel_diff={rel:.3e}). With identical frozen scaling the two "
         "physics-only solves must reach the same minimum on this well-posed "
         "fixture; a mismatch is a Phase 2.3b finding (residual/scaling/layout/"
@@ -547,16 +549,16 @@ def test_engine_route_individual_reaches_true_minimum_production_misses():
 
 
 @_MAINTAINER_ONLY
-def test_engine_route_auto_averaged_reaches_true_minimum_production_misses():
-    """``auto_averaged`` — same finding as ``individual``: the engine reaches the
+def test_engine_route_averaged_reaches_true_minimum_production_misses():
+    """``averaged`` — same finding as ``individual``: the engine reaches the
     TRUE global minimum (SSR ~0) while production's averaged joint solver is
     trapped (SSR ~1.4, recovered avg_contrast ~0.24 vs true 0.30). The layout
     broadcasts the 2 averaged scalars to per-angle ``2*n_phi`` scaling on the
     engine; with uniform true scaling the averaged solve *should* still reach 0,
     so the gap is production solver sub-optimality. Engine is correct + better.
     """
-    out = _run_reference_and_engine("auto_averaged")
-    _assert_engine_reaches_minimum_no_worse("auto_averaged", out)
+    out = _run_reference_and_engine("averaged")
+    _assert_engine_reaches_minimum_no_worse("averaged", out)
 
 
 def _assert_engine_reaches_minimum_no_worse(mode: str, out: dict) -> None:
