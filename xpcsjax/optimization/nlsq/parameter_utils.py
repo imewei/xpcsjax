@@ -456,14 +456,36 @@ def compute_quantile_per_angle_scaling(
         t1_flat = np.array(t1_list)
         t2_flat = np.array(t2_list)
         phi_flat = np.array(phi_list)
-    else:
-        # StratifiedData format with flat arrays
+    elif hasattr(stratified_data, "phi_flat"):
+        # StratifiedData format with flat per-point arrays
         phi_unique = np.unique(stratified_data.phi_flat)
         n_phi = len(phi_unique)
         g2_flat = stratified_data.g2_flat
         t1_flat = stratified_data.t1_flat
         t2_flat = stratified_data.t2_flat
         phi_flat = stratified_data.phi_flat
+    else:
+        # Raw (non-stratified, <100k) grid object: phi/t1/t2 are unique grid axes
+        # of DIFFERENT lengths and g2 is a dense (n_phi, n_t1, n_t2) cube. Flatten
+        # the meshgrid to per-point flats so the rest of the helper is unchanged.
+        # This is the path that previously AttributeError'd on .phi_flat
+        # (CLAUDE.md / spec §5: <100k unstratified path).
+        phi_grid = np.asarray(stratified_data.phi, dtype=np.float64)
+        t1_grid = np.asarray(stratified_data.t1, dtype=np.float64)
+        t2_grid = np.asarray(stratified_data.t2, dtype=np.float64)
+        g2_cube = np.asarray(stratified_data.g2, dtype=np.float64)
+        phi_unique = np.unique(phi_grid)
+        n_phi = len(phi_unique)
+        # Broadcast the (n_phi, n_t1, n_t2) cube onto per-point flats.
+        n_t1 = len(t1_grid)
+        n_t2 = len(t2_grid)
+        t1_mesh, t2_mesh = np.meshgrid(t1_grid, t2_grid, indexing="ij")
+        t1_per_angle = t1_mesh.ravel()
+        t2_per_angle = t2_mesh.ravel()
+        phi_flat = np.repeat(phi_grid, n_t1 * n_t2)
+        t1_flat = np.tile(t1_per_angle, n_phi)
+        t2_flat = np.tile(t2_per_angle, n_phi)
+        g2_flat = g2_cube.reshape(n_phi, n_t1 * n_t2).ravel()
 
     # Pre-compute time lags (vectorized)
     delta_t = np.abs(t1_flat - t2_flat)
