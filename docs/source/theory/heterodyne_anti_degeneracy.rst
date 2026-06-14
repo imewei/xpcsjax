@@ -21,10 +21,7 @@ Mode             Optimizer params (K=2, n_phi)  Notes
                                                 from quantile and frozen
 ``auto``         depends on n_phi:              recommended default
                  n_phi < 3 -> constant
-                 3 <= n_phi < 6 -> averaged
-                 n_phi >= 6 -> fourier
-``fourier``      ``n_physics + 2(2K+1)``        truncated Fourier basis
-                                                for beta(phi), offset(phi)
+                 n_phi >= 3 -> averaged
 ``individual``   ``n_physics + 2*n_phi``        free per-angle scaling
 ================ ============================== ===========================
 
@@ -76,10 +73,10 @@ path.  "Gated" means the layer runs only for the listed
    * - L1
      - all modes
      - all modes
-     - Fourier/averaged/individual reparameterization of the scaling tail
+     - averaged/individual/constant reparameterization of the scaling tail
    * - L2
      - all modes (inline two-stage)
-     - ``individual`` / ``fourier`` only
+     - ``individual`` only
      - ``auto_averaged`` and ``fixed_constant`` skip L2 (≤ 2 DoF; no cancellation risk)
    * - L3
      - all modes
@@ -113,7 +110,7 @@ L2: Hierarchical optimization
 
   **STREAMING path:** wired via
   :class:`~xpcsjax.optimization.nlsq.hierarchical.HierarchicalOptimizer`
-  and gated to ``individual`` / ``fourier`` modes (i.e. ``not use_constant``
+  and gated to ``individual`` mode (i.e. ``not use_constant``
   — exactly mirroring laminar_flow's streaming gate).  ``auto_averaged``
   and ``fixed_constant`` modes skip L2 because they have at most 2
   per-angle DoF, so gradient-cancellation degeneracy cannot arise.
@@ -238,7 +235,7 @@ equivalent contract is:
 
 1. **Mechanism parity** — the same defense layers (L1–L4) are wired on the
    streaming path, with the same gating rules (L2 only for
-   ``individual``/``fourier``; L5 omitted).
+   ``individual``; L5 omitted).
 2. **Objective parity** — optimized-scaling SSR ≤ frozen-scaling baseline
    (``info["ssr"] <= info["ssr_frozen_baseline"]``), verified by the
    ``fixed_constant`` regression guard test.

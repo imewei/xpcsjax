@@ -17,20 +17,25 @@ every iteration of the fit.
 The five layers
 ---------------
 
-Layer 1 — Fourier reparameterisation
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Layer 1 — Per-angle reparameterisation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-:class:`~xpcsjax.optimization.nlsq.fourier_reparam.FourierReparameterizer`
+:class:`~xpcsjax.optimization.nlsq.per_angle_mode.PerAngleScalingPlan`
 
-- **What it does.** Rewrites the shear parameter sub-space in a
-  Fourier basis indexed by harmonics of ``2 * phi``. Directions
-  weakly constrained by the data take on small singular values in
-  this basis, which the trust-region solve handles by shrinking
-  their step rather than thrashing.
+- **What it does.** Resolves how the per-angle scaling tail
+  (contrast/offset) is parameterised before the trust-region solve.
+  The three resolved modes are ``constant`` (a single frozen scaling
+  shared across all angles), ``averaged`` (two averaged scaling
+  parameters spanning all angles), and ``individual`` (a separate
+  contrast/offset pair per angle). Choosing the smallest adequate
+  layout keeps weakly-constrained scaling directions out of the
+  trust-region step so it shrinks rather than thrashes.
 - **When it activates.** Engaged automatically for
-  ``laminar_flow`` and ``two_component`` modes; respects
-  ``anti_degeneracy.fourier_reparam.enabled`` in the YAML.
-- **What it costs.** One small SVD per fit on the shear sub-block,
+  ``laminar_flow`` and ``two_component`` modes; the resolved mode is
+  selected from ``anti_degeneracy.per_angle_mode`` in the YAML (the
+  ``auto`` default resolves to ``averaged`` for ``n_phi >= 3`` else
+  ``individual``).
+- **What it costs.** A one-shot host-side layout decision per fit,
   amortised by the NLSQ JIT cache. No per-iteration overhead.
 
 Layer 2 — Hierarchical optimisation
@@ -103,7 +108,7 @@ The controller runs as a sequence:
     [start of fit]
       │
       ▼
-    FourierReparameterizer.apply()        (one-shot basis change)
+    PerAngleScalingPlan.resolve()         (one-shot scaling layout)
       │
       ▼
     HierarchicalOptimizer.wrap()          (block-split residual)
@@ -132,9 +137,7 @@ The relevant YAML block:
 
     anti_degeneracy:
       enabled: true
-      fourier_reparam:
-        enabled: true
-        n_harmonics: 4
+      per_angle_mode: auto
       hierarchical:
         enabled: true
         inner_max_iters: 50
@@ -160,7 +163,7 @@ A typical sequence on a ``laminar_flow`` fit:
 
 .. code-block:: text
 
-    fourier_reparam: applied (n_harmonics=4)
+    per_angle_mode: resolved (averaged)
     hierarchical: outer_step=0  inner_converged_in=12
     adaptive_reg: cond=2.1e+09  lambda=3.4e-05
     shear_weight: applied (phi0=12.34)

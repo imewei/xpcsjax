@@ -78,8 +78,8 @@ the configuration is parsed. It inspects:
    * - stratified-LS
      - Many phi-angle strata that individually fit in memory but whose
        joint Jacobian would not. Each stratum is solved independently
-       with shared parameters via the Fourier reparameterisation
-       layer.
+       with shared parameters via the per-angle (averaged/constant)
+       reparameterisation layer.
    * - hybrid-streaming
      - Very large datasets (typically 10M+ correlation entries). Data
        arrays are captured in JIT closures; this is the case where the
@@ -192,7 +192,7 @@ returns the best by reduced :math:`\chi^2`. The cost is linear in
 always worth running.
 
 The multistart is per-fit, not per-stratum: in a heterodyne run with
-36 strata, multistart applies to the global Fourier-coefficient
+36 strata, multistart applies to the global averaged-scaling
 parameters, with each stratum still solved deterministically given
 those globals.
 
@@ -243,7 +243,7 @@ anti-degeneracy systems is reflected in
 * :attr:`xpcsjax.optimization.nlsq.results.OptimizationResult.streaming_diagnostics` — strategy router decisions and
   hybrid-streaming chunk accounting.
 * :attr:`xpcsjax.optimization.nlsq.results.OptimizationResult.stratification_diagnostics` — per-stratum chunk sizes,
-  Fourier reparameterisation degrees, dropped angles.
+  per-angle scaling mode, dropped angles.
 * :attr:`xpcsjax.optimization.nlsq.results.OptimizationResult.nlsq_diagnostics` — residual history, Jacobian conditioning,
   trust-region size.
 * :attr:`xpcsjax.optimization.nlsq.results.OptimizationResult.recovery_actions` — controller interventions, multistart
