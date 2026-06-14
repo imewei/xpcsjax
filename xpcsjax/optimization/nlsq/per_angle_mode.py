@@ -7,7 +7,7 @@ default. ``auto`` is input sugar resolving to ``averaged``/``individual``. The
 removed legacy tokens are rejected by the generic
 ``else`` branch (no special-case arm).
 
-Phase 0: pure unit; no call site imports this yet.
+Fully integrated into the wrapper and heterodyne config pipeline.
 """
 
 from __future__ import annotations
