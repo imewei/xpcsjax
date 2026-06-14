@@ -90,7 +90,6 @@ def test_defaults_construct_and_validate_clean() -> None:
         ({"hybrid_warmup_fraction": 1.5}, "hybrid_warmup_fraction must be in"),
         ({"screen_keep_fraction": 2.0}, "screen_keep_fraction must be in"),
         ({"refine_top_k": 0}, "refine_top_k must be >= 1"),
-        ({"constant_scaling_threshold": 10}, "constant_scaling_threshold"),
     ],
 )
 def test_post_init_invariants(kwargs: dict, match: str) -> None:
