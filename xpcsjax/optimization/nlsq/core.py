@@ -1885,11 +1885,6 @@ def fit_nlsq_cmaes(
                         logger.info("  Averaged to: 1 contrast + 1 offset (OPTIMIZED)")
                         logger.info("=" * 60)
 
-        if ad_controller is not None and ad_controller.is_enabled:
-            assert ad_controller.fourier is None, (
-                "fourier reparam removed in Phase 6 — laminar CMA-ES has no fourier branch"
-            )
-
         # Handle parameter expansion based on anti-degeneracy mode
         if per_angle_scaling and not use_constant_mode:
             # Standard behavior: expand to per-angle parameters (13 params for n_phi=3)
