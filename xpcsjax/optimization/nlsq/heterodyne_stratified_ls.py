@@ -530,7 +530,6 @@ def _run_hierarchical_layers(
         config=hier_config,
         n_phi=n_phi,
         n_physical=n_physics,
-        fourier_reparameterizer=None,
     )
     hier_result = optimizer.fit(
         loss_fn=_loss,
