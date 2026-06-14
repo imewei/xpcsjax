@@ -64,7 +64,7 @@ The 5 anti-degeneracy layers, in order:
 
 | Layer | Name | Module | Active modes |
 |-------|------|--------|-------------|
-| L1 | Fourier/Constant Reparameterization | `fourier_reparam.py` | all |
+| L1 | Per-Angle Reparameterization | `per_angle_mode.py` | all |
 | L2 | Hierarchical Optimization | `hierarchical.py` | all |
 | L3 | Adaptive CV-based Regularization | `adaptive_regularization.py` | all |
 | L4 | Gradient Collapse Monitoring | `gradient_monitor.py` | all |
