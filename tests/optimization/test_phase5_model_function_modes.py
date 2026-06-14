@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def _data_obj(n_phi=4, n_t=6):

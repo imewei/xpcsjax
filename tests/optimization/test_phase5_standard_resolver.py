@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from xpcsjax.optimization.nlsq.per_angle_mode import resolve_per_angle_mode
 
