@@ -2034,6 +2034,8 @@ class NLSQWrapper(NLSQAdapterBase):
             logger=logger,
             n_dof_effective=n_dof_effective,
             per_angle_mode=resolved_per_angle_mode,
+            scaling_plan=scaling_plan,
+            scaling_mapper=scaling_mapper,
         )
 
     def _execute_optimization_with_fallback(
@@ -2125,6 +2127,8 @@ class NLSQWrapper(NLSQAdapterBase):
         logger: logging.Logger | logging.LoggerAdapter[logging.Logger],
         n_dof_effective: int | None = None,
         per_angle_mode: str | None = None,
+        scaling_plan: Any = None,
+        scaling_mapper: Any = None,
     ) -> OptimizationResult:
         """Post-process optimization outputs into final result.
 
@@ -2284,6 +2288,20 @@ class NLSQWrapper(NLSQAdapterBase):
         elif "streaming_diagnostics" in info:
             streaming_diagnostics = info["streaming_diagnostics"]
 
+        # Phase 5: averaged/constant solve a compressed optimizer vector; expand it
+        # back to the DENSE scaling-first per-angle layout so results.py / viz see one
+        # uniform [c_0..c_{n-1}, o_0..o_{n-1}, physics] contract. individual + static
+        # are identity (plan is None). Done AFTER final_residuals + params_changed
+        # (which need the compressed popt/validated_params) and AFTER the diagnostics
+        # pcov s² recompute (which builds the compressed-shape pcov via n_dof_effective).
+        if scaling_plan is not None and scaling_plan.mode in ("averaged", "constant"):
+            # expand_back -> dense params (3-tuple); concatenate to the dense scaling-first
+            # vector. expand_covariance -> dense (D,D) covariance (None passes through).
+            # These are SEPARATE calls; expand_back does NOT take pcov.
+            c_dense, o_dense, phys = scaling_plan.expand_back(popt)
+            popt = np.concatenate([c_dense, o_dense, phys])
+            pcov = scaling_plan.expand_covariance(pcov)
+
         # Create result
         result = self._create_fit_result(
             popt=popt,
@@ -2323,6 +2341,10 @@ class NLSQWrapper(NLSQAdapterBase):
         # Static modes pass None -> the legacy individual layout, reported as
         # "individual" so the diagnostics contract is uniform across modes.
         existing["per_angle_mode"] = per_angle_mode if per_angle_mode is not None else "individual"
+        # Optimizer scaling-head length (constant -> 0, averaged -> 2,
+        # individual -> 2*n_phi). None mapper (static) is omitted.
+        if scaling_mapper is not None:
+            existing["n_optimized"] = int(scaling_mapper.n_optimized)
         result.nlsq_diagnostics = existing
 
         logger.info(
