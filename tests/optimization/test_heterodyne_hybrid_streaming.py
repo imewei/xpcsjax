@@ -128,7 +128,7 @@ def test_fit_with_stratified_hybrid_streaming_heterodyne_dispatch(monkeypatch):
         initial_params=np.asarray(model.param_manager.get_initial_values()),
         bounds=(np.asarray(lower), np.asarray(upper)),
         hybrid_config={"enable": True, "warmup_iterations": 30, "chunk_size": 4000},
-        # Pin fixed_constant so popt stays physics-only (this test targets config
+        # Pin constant so popt stays physics-only (this test targets config
         # pass-through / dispatch, not the scaling mode). The default is now 'auto'.
         anti_degeneracy_config={"per_angle_mode": "constant"},
     )
@@ -231,7 +231,7 @@ def test_build_hybrid_streaming_result_genuine_failure_stays_failed_poor():
 
 def test_build_hybrid_streaming_result_noise_normalized_reduced_chi2():
     """reduced_chi_squared must be noise-normalized (≈1 scale) when the driver
-    threads ``info['sigma2_noise']`` — mirroring the in-memory averaged/fourier
+    threads ``info['sigma2_noise']`` — mirroring the in-memory averaged/individual
     joint paths. Prevents the meaningless ``MSE ≪ 1`` value the stratified-LS
     path reported before (smart-debug RCA: χ²_red = 0.0024 on C020 two_component).
     """
@@ -531,7 +531,7 @@ def test_initial_params_override_is_honored(monkeypatch):
         initial_params=custom,
         bounds=None,
         hybrid_config={"enable": True},
-        # Pin fixed_constant so p0 stays physics-only (this test checks the
+        # Pin constant so p0 stays physics-only (this test checks the
         # initial_params override, not the scaling mode). Default is now 'auto'.
         anti_degeneracy_config={"per_angle_mode": "constant"},
     )
@@ -562,8 +562,9 @@ def test_reduced_chi_squared_uses_data_dof():
     )  # finite or NaN ok
 
 
-def test_pointwise_model_auto_averaged_param_layout():
-    """auto_averaged appends 2 optimized scaling params; model_fn reads them."""
+def test_pointwise_model_averaged_param_layout():
+    """averaged prepends 2 optimized scaling params (scaling-first head); model_fn
+    reads them."""
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
         build_heterodyne_stratified_data,
     )
@@ -579,16 +580,17 @@ def test_pointwise_model_auto_averaged_param_layout():
         stratified_data=strat,
         model=model,
         physical_param_names=list(model.param_manager.varying_names),
-        per_angle_mode="auto_averaged",
+        per_angle_mode="averaged",
     )
     n_phys = len(model.param_manager.get_initial_values())
     assert len(p0) == n_phys + 2
-    assert np.isclose(p0[n_phys], float(np.mean(meta["contrast_arr"])))
-    assert np.isclose(p0[n_phys + 1], float(np.mean(meta["offset_arr"])))
+    # Scaling-first head: contrast at p0[0], offset at p0[1].
+    assert np.isclose(p0[0], float(np.mean(meta["contrast_arr"])))
+    assert np.isclose(p0[1], float(np.mean(meta["offset_arr"])))
     pred = np.asarray(model_fn(x_data[:8], *[float(v) for v in p0]))
     assert pred.shape == (8,)
     assert np.all(np.isfinite(pred))
-    assert meta["per_angle_mode"] == "auto_averaged"
+    assert meta["per_angle_mode"] == "averaged"
     assert meta["n_scaling"] == 2
     assert meta["n_physics_varying"] == n_phys
     scaling_lower, scaling_upper = meta["scaling_bounds"]
@@ -597,11 +599,11 @@ def test_pointwise_model_auto_averaged_param_layout():
     assert len(scaling_lower) == 2
     assert len(scaling_upper) == 2
     assert scaling_lower[0] == 0.01
-    assert np.isclose(scaling_upper[0], max(2.0 * p0[n_phys], 1.0))
+    assert np.isclose(scaling_upper[0], max(2.0 * p0[0], 1.0))
 
 
-def test_streaming_auto_averaged_optimizes_scaling_and_sets_group_variance(monkeypatch):
-    """Task 2 (structural): anti_degeneracy_config consumed; auto_averaged resolves;
+def test_streaming_averaged_optimizes_scaling_and_sets_group_variance(monkeypatch):
+    """Task 2 (structural): anti_degeneracy_config consumed; averaged resolves;
     group-variance config injected with the correct indices.
 
     Uses a MOCK optimizer that returns p0 unchanged, so this test asserts ONLY
@@ -652,9 +654,9 @@ def test_streaming_auto_averaged_optimizes_scaling_and_sets_group_variance(monke
         anti_degeneracy_config={"per_angle_mode": "auto"},
     )
 
-    # popt has 2 extra scaling params appended
+    # popt has 2 extra scaling params prepended (scaling-first head)
     assert len(popt) == n_phys + 2, f"Expected {n_phys + 2} params, got {len(popt)}"
-    assert info["anti_degeneracy"]["per_angle_mode"] == "auto_averaged"
+    assert info["anti_degeneracy"]["per_angle_mode"] == "averaged"
     # bounds were spliced to include scaling tail
     assert captured["bounds"] is not None
     assert len(captured["bounds"][0]) == n_phys + 2
@@ -663,15 +665,16 @@ def test_streaming_auto_averaged_optimizes_scaling_and_sets_group_variance(monke
     cfg = captured["config"]
     assert cfg.enable_group_variance_regularization is True
     assert cfg.group_variance_lambda > 0.0
-    base = n_phys
-    assert cfg.group_variance_indices == [(base, base + 1), (base + 1, base + 2)]
+    # Scaling-first: the scaling head is at full-vector indices [0, n_scaling),
+    # so the group indices are head-local.
+    assert cfg.group_variance_indices == [(0, 1), (1, 2)]
 
 
 def test_streaming_auto_threshold_routing():
     """Mirror laminar's auto dispatch: sub-threshold `auto` (n_phi <
     constant_scaling_threshold) routes to `individual` (per-angle scaling, which
-    activates the L2 hierarchical branch); at/above the threshold it stays
-    `auto_averaged` (L2 off). n_phi=2 vs the default threshold 3."""
+    activates the L2 hierarchical branch); at/above the threshold it resolves to
+    `averaged` (L2 off). n_phi=2 vs the default threshold 3."""
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
         build_heterodyne_stratified_data,
     )
@@ -699,12 +702,12 @@ def test_streaming_auto_threshold_routing():
     info_ind = fit_fn(**common, anti_degeneracy_config={"per_angle_mode": "auto"})[2]
     assert info_ind["anti_degeneracy"]["per_angle_mode"] == "individual"
     assert info_ind["anti_degeneracy"]["hierarchical_active"] is True
-    # Lowering the threshold to 2 makes n_phi=2 resolve to auto_averaged (L2 off)
+    # Lowering the threshold to 2 makes n_phi=2 resolve to averaged (L2 off)
     info_avg = fit_fn(
         **common,
         anti_degeneracy_config={"per_angle_mode": "auto", "constant_scaling_threshold": 2},
     )[2]
-    assert info_avg["anti_degeneracy"]["per_angle_mode"] == "auto_averaged"
+    assert info_avg["anti_degeneracy"]["per_angle_mode"] == "averaged"
     assert info_avg["anti_degeneracy"]["hierarchical_active"] is False
 
 
@@ -757,7 +760,7 @@ def test_streaming_l4_monitor_present_and_objective_invariant():
     )
 
 
-def test_streaming_auto_averaged_real_run_ssr_not_worse():
+def test_streaming_averaged_real_run_ssr_not_worse():
     """Fix 3: REAL optimizer run (no mock). Optimizing the averaged scaling tail
     must do at least as well as the frozen-quantile baseline (shared physics).
 
@@ -787,12 +790,12 @@ def test_streaming_auto_averaged_real_run_ssr_not_worse():
             "gauss_newton_max_iterations": 10,
             "verbose": 0,
         },
-        # threshold=2 pins auto->auto_averaged at n_phi=2 (this test targets the
+        # threshold=2 pins auto->averaged at n_phi=2 (this test targets the
         # averaged path; sub-threshold auto->individual is covered separately).
         anti_degeneracy_config={"per_angle_mode": "auto", "constant_scaling_threshold": 2},
     )
 
-    assert info["anti_degeneracy"]["per_angle_mode"] == "auto_averaged"
+    assert info["anti_degeneracy"]["per_angle_mode"] == "averaged"
     assert np.isfinite(info["ssr"])
     assert np.isfinite(info["ssr_frozen_baseline"])
     # Optimizing the scaling tail (shared fitted physics) must beat-or-tie the
@@ -803,13 +806,13 @@ def test_streaming_auto_averaged_real_run_ssr_not_worse():
 
 
 # ---------------------------------------------------------------------------
-# Task 5: individual + fourier scaling-tail expansion
+# individual scaling-head expansion (scaling-first)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("mode", ["individual", "fourier"])
-def test_pointwise_model_individual_fourier_layout(mode):
-    """individual / fourier per_angle_mode: correct param tail layout, p0 length,
+@pytest.mark.parametrize("mode", ["individual"])
+def test_pointwise_model_individual_layout(mode):
+    """individual per_angle_mode: correct scaling-head layout, p0 length,
     meta fields, and a finite forward pass."""
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
         build_heterodyne_stratified_data,
@@ -818,7 +821,6 @@ def test_pointwise_model_individual_fourier_layout(mode):
         build_heterodyne_pointwise_model,
     )
 
-    # n_phi=6: feasible for fourier order=2 (min angles = 1+2*2 = 5 <= 6).
     model, c2, phi = _make_synthetic_heterodyne(n_phi=6, n_t=8)
     strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
 
@@ -827,29 +829,14 @@ def test_pointwise_model_individual_fourier_layout(mode):
         model=model,
         physical_param_names=list(model.param_manager.varying_names),
         per_angle_mode=mode,
-        fourier_order=2,
     )
 
     n_phys = len(model.param_manager.get_initial_values())
     n_phi = len(meta["phi_unique"])
 
-    if mode == "individual":
-        assert meta["n_scaling"] == 2 * n_phi, (
-            f"individual: expected n_scaling=2*{n_phi}={2 * n_phi}, got {meta['n_scaling']}"
-        )
-        # Non-fourier modes must expose meta["fourier"] as None so Task 6's
-        # HierarchicalOptimizer(..., fourier_reparameterizer=meta.get("fourier"))
-        # is safe.
-        assert meta.get("fourier") is None, "individual: meta['fourier'] must be None"
-    else:  # fourier, K=2 -> 2*(2*K+1) = 2*(5) = 10
-        K = 2
-        expected = 2 * (2 * K + 1)
-        assert meta["n_scaling"] == expected, (
-            f"fourier K=2: expected n_scaling={expected}, got {meta['n_scaling']}"
-        )
-        # Fourier mode must expose the FourierReparameterizer object on meta so
-        # Task 6 can pass it to HierarchicalOptimizer.
-        assert meta.get("fourier") is not None, "fourier: meta['fourier'] must be set"
+    assert meta["n_scaling"] == 2 * n_phi, (
+        f"individual: expected n_scaling=2*{n_phi}={2 * n_phi}, got {meta['n_scaling']}"
+    )
 
     assert len(p0) == n_phys + meta["n_scaling"], (
         f"p0 length mismatch: {len(p0)} vs {n_phys} + {meta['n_scaling']}"
@@ -875,58 +862,21 @@ def test_pointwise_model_individual_fourier_layout(mode):
     assert np.all(np.isfinite(pred)), f"pred has non-finite: {pred}"
 
 
-def test_pointwise_model_fourier_fallback_to_independent():
-    """fourier with n_phi too small for the requested order falls back to
-    independent per-angle scaling: n_scaling = 2*n_phi (NOT 2*(2K+1)), and
-    meta['fourier_effective_mode'] == 'individual'."""
-    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
-        build_heterodyne_stratified_data,
-    )
-    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
-        build_heterodyne_pointwise_model,
-    )
-
-    # n_phi=3 < 1+2*2 = 5 minimum angles for fourier order=2 -> silent fallback.
-    model, c2, phi = _make_synthetic_heterodyne(n_phi=3, n_t=8)
-    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
-
-    model_fn, x_data, y_data, p0, meta = build_heterodyne_pointwise_model(
-        stratified_data=strat,
-        model=model,
-        physical_param_names=list(model.param_manager.varying_names),
-        per_angle_mode="fourier",
-        fourier_order=2,
-    )
-
-    n_phys = len(model.param_manager.get_initial_values())
-
-    # (a) n_scaling reflects the fallback: 2*n_phi == 6, not 2*(2*2+1) == 10.
-    assert meta["n_scaling"] == 2 * 3 == 6, f"n_scaling={meta['n_scaling']} (expected 6)"
-    # (b) effective mode reports the fallback for downstream (Task 6) consumers.
-    assert meta["fourier_effective_mode"] == "individual"
-    # (c) p0 carries n_phys + 6 entries.
-    assert len(p0) == n_phys + 6, f"len(p0)={len(p0)} (expected {n_phys + 6})"
-    # (d) forward pass is finite over 8 points.
-    pred = np.asarray(model_fn(x_data[:8], *[float(v) for v in p0]))
-    assert pred.shape == (8,), f"pred shape {pred.shape}"
-    assert np.all(np.isfinite(pred)), f"pred has non-finite: {pred}"
-
-
 # ---------------------------------------------------------------------------
-# Task 6: L2 hierarchical branch for individual / fourier
+# L2 hierarchical branch for individual
 # ---------------------------------------------------------------------------
 
 
 def test_streaming_l2_gate_and_activation():
-    """L2 hierarchical runs for individual (not use_constant), off for auto_averaged.
+    """L2 hierarchical runs for individual (not use_constant), off for averaged.
 
     Uses a real (but tiny) optimizer run so hierarchical_active is determined by
     the actual code path, not a mock.  n_phi=4 makes individual meaningful (4
-    independent contrast + 4 independent offset params).
+    per-angle contrast + 4 per-angle offset params).
 
     The dataset is deliberately small so the hierarchical loss_fn's full-vector
     materialisation is cheap (see implementation comment: L2 only fires for
-    individual/fourier, which auto selects at small n_phi).
+    individual, which auto selects at small n_phi).
     """
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
         build_heterodyne_stratified_data,
@@ -965,13 +915,13 @@ def test_streaming_l2_gate_and_activation():
         f"{info_ind['anti_degeneracy']['hierarchical_active']}"
     )
 
-    # auto (-> auto_averaged) -> L2 must be off
+    # auto (-> averaged) -> L2 must be off
     _, _, info_avg = fit_with_stratified_hybrid_streaming_heterodyne(
         **base_kwargs,
         anti_degeneracy_config={"per_angle_mode": "auto"},
     )
     assert info_avg["anti_degeneracy"]["hierarchical_active"] is False, (
-        f"auto_averaged: expected hierarchical_active=False, got "
+        f"averaged: expected hierarchical_active=False, got "
         f"{info_avg['anti_degeneracy']['hierarchical_active']}"
     )
 
@@ -1078,8 +1028,8 @@ def test_streaming_diagnostics_symmetric_keys():
             "gauss_newton_max_iterations": 10,
             "verbose": 0,
         },
-        # threshold=2 pins auto->auto_averaged at n_phi=2 (this test asserts the
-        # auto_averaged contract: hierarchical_active False).
+        # threshold=2 pins auto->averaged at n_phi=2 (this test asserts the
+        # averaged contract: hierarchical_active False).
         anti_degeneracy_config={
             "per_angle_mode": "auto",
             "constant_scaling_threshold": 2,
@@ -1093,20 +1043,20 @@ def test_streaming_diagnostics_symmetric_keys():
     # gradient_monitor is emitted only when L4 ran; this test enables it, so it must be present here
     assert "gradient_monitor" in ad
     assert ad["shear_weighting"] == "laminar_flow_inactive"
-    assert ad["hierarchical_active"] is False  # auto_averaged => L2 off
+    assert ad["hierarchical_active"] is False  # averaged => L2 off
 
 
 # ---------------------------------------------------------------------------
-# Task 7: fixed_constant frozen-scaling regression guard + None-config default
+# constant frozen-scaling regression guard + None-config default
 # ---------------------------------------------------------------------------
 
 
-def test_streaming_fixed_constant_matches_legacy_frozen_scaling():
+def test_streaming_constant_matches_legacy_frozen_scaling():
     """Explicit constant mode reproduces today's frozen-scaling streaming result.
 
-    per_angle_mode='constant' must resolve to 'fixed_constant': the legacy
-    behavior where scaling is frozen inside the JIT closure (quantile estimates
-    are NOT optimized).  popt is physics-only (len == n_varying).
+    per_angle_mode='constant' resolves to the canonical 'constant': scaling is
+    frozen inside the JIT closure (quantile estimates are NOT optimized).  popt is
+    physics-only (len == n_varying).
     """
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
         build_heterodyne_stratified_data,
@@ -1136,15 +1086,15 @@ def test_streaming_fixed_constant_matches_legacy_frozen_scaling():
         anti_degeneracy_config={"per_angle_mode": "constant"},
     )
 
-    # No scaling tail appended: physics-only vector (legacy behavior)
+    # No scaling head: physics-only vector (frozen-scaling behavior)
     assert len(popt) == n_phys, (
-        f"fixed_constant: expected len(popt)={n_phys} (physics-only), got {len(popt)}"
+        f"constant: expected len(popt)={n_phys} (physics-only), got {len(popt)}"
     )
-    assert info["anti_degeneracy"]["per_angle_mode"] == "fixed_constant", (
-        f"per_angle_mode={info['anti_degeneracy']['per_angle_mode']!r}, expected 'fixed_constant'"
+    assert info["anti_degeneracy"]["per_angle_mode"] == "constant", (
+        f"per_angle_mode={info['anti_degeneracy']['per_angle_mode']!r}, expected 'constant'"
     )
     assert info["anti_degeneracy"]["hierarchical_active"] is False, (
-        "fixed_constant must not activate L2 hierarchical"
+        "constant must not activate L2 hierarchical"
     )
     # SSR must be finite
     assert np.isfinite(info["ssr"]), f"ssr not finite: {info['ssr']}"
@@ -1155,8 +1105,8 @@ def test_streaming_none_config_defaults_to_auto():
     (hybrid_streaming.py:550), which has no "freeze when unconfigured" special
     case. It does NOT freeze scaling. At n_phi=2 (< threshold 3) 'auto' resolves
     to 'individual' (per-angle optimized scaling + L2 hierarchical), so popt
-    carries the 2*n_phi scaling tail. 'fixed_constant' is reachable only via the
-    explicit opt-out per_angle_mode='constant' (covered separately).
+    carries the 2*n_phi scaling head. Frozen 'constant' scaling is reachable only
+    via the explicit opt-out per_angle_mode='constant' (covered separately).
     """
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
         build_heterodyne_stratified_data,
@@ -1191,7 +1141,7 @@ def test_streaming_none_config_defaults_to_auto():
     ad = info["anti_degeneracy"]
     assert ad["per_angle_mode"] == "individual", (
         f"None config: per_angle_mode={ad['per_angle_mode']!r}, expected 'individual' "
-        "(auto default, NOT frozen fixed_constant)"
+        "(auto default, NOT frozen constant)"
     )
     assert ad["hierarchical_active"] is True
     assert len(popt) == n_phys + 2 * n_phi, (
@@ -1212,7 +1162,7 @@ def test_streaming_l2_individual_ssr_not_worse():
       - Bug 2: L4 monitor now receives native-layout gradient/params (diagnostic
         only; does not affect SSR but is exercised here on the real path).
 
-    n_phi=4 makes 'individual' meaningful (4 independent contrast + 4 offset
+    n_phi=4 makes 'individual' meaningful (4 per-angle contrast + 4 offset
     params). Kept tiny (n_t=6, few iterations) so it runs in a few seconds.
     """
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
@@ -1527,7 +1477,7 @@ def test_diagnostics_stamps_canonical_token_and_n_optimized(mode, n_phi, n_opt):
                                 "hierarchical": {"max_outer_iterations": 2}},
     )
     ad = info["anti_degeneracy"]
-    assert ad["per_angle_mode"] == mode  # canonical, not auto_averaged/fixed_constant
+    assert ad["per_angle_mode"] == mode  # canonical resolved token
     assert ad["shear_weighting"] == "laminar_flow_inactive"
     assert ad["n_optimized"] == n_opt
     for k in ("hierarchical_active", "regularization_active"):
@@ -1567,3 +1517,37 @@ def test_streaming_above_threshold_ssr_not_worse_after_unification():
         f"unification regressed streaming SSR: ssr={info['ssr']:.6e} > "
         f"frozen={info['ssr_frozen_baseline']:.6e}"
     )
+
+
+def test_no_fourier_or_old_tokens_in_this_module():
+    """Phase-7 grep exit criterion, scoped to this module: zero fourier / old-token
+    references SURVIVE after the streaming unification.
+
+    The negative tests that ENFORCE the removal must NAME the dropped tokens
+    (rejection / forbidden-set / canonical-stamp assertions), so their bodies are
+    excised before scanning — they are the enforcement, not survivors.
+    """
+    import pathlib
+    import re
+
+    src = pathlib.Path(__file__).read_text()
+    # Excise the bodies of the enforcement tests (they legitimately name the
+    # dropped tokens) before scanning: each from its `def` line to the next
+    # top-level `def ` or EOF.
+    enforcement = (
+        "test_pointwise_model_rejects_fourier_token",
+        "test_meta_has_no_fourier_keys",
+        "test_no_fourier_or_old_tokens_in_this_module",
+    )
+    for name in enforcement:
+        src = re.sub(rf"\ndef {name}\b.*?(?=\ndef |\Z)", "\n", src, flags=re.S)
+    forbidden = re.compile(
+        r"\b(fourier|use_fourier|fourier_order|fourier_auto_threshold|"
+        r"auto_averaged|fixed_constant|heterodyne_layout|independent)\b"
+    )
+    hits = [
+        (i + 1, line)
+        for i, line in enumerate(src.splitlines())
+        if forbidden.search(line)
+    ]
+    assert not hits, f"old/fourier tokens still present: {hits[:10]}"
