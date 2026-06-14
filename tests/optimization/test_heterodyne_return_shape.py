@@ -287,7 +287,6 @@ def test_averaged_path_returns_single_optimization_result() -> None:
     assert diag is not None
     assert diag["per_angle_mode"] == "averaged"
     assert diag["scaling_source"] == "averaged_then_fitted"
-    assert diag["fourier_basis_dim"] is None
     assert diag["shear_weighting"] == "not_applicable_heterodyne"
     assert "chi2_per_angle" in diag
     assert diag["chi2_per_angle"].shape == (n_phi,)

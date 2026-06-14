@@ -32,18 +32,17 @@ _CANONICAL_GM_KEYS = {
 
 
 # The former truncated-basis L1-reparam test was removed: that in-memory mode
-# (the only path that set a positive fourier_basis_dim) was retired in Phase 1+2
-# (full test teardown in Phase 7). The averaged/individual cases below cover
-# the mode-agnostic L1-L4 + L5-exclusion contract.
+# was retired in Phase 1+2 (full test teardown in Phase 7). The
+# averaged/individual cases below cover the mode-agnostic L1-L4 + L5-exclusion
+# contract.
 
 
-def test_heterodyne_l1_reparam_averaged_has_none_basis_dim():
-    """Averaged per_angle_mode records fourier_basis_dim=None (no Fourier basis)."""
+def test_heterodyne_l1_reparam_averaged_reports_resolved_mode():
+    """Averaged per_angle_mode is reported as the resolved variant."""
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
     cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged"})
     diag = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None).nlsq_diagnostics
     assert diag["per_angle_mode"] == "averaged"
-    assert diag["fourier_basis_dim"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -111,9 +110,8 @@ def test_heterodyne_l2_l3_l4_active_l5_excluded_individual():
     )
     diag = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None).nlsq_diagnostics
 
-    # L1: per-angle individual mode (no Fourier basis)
+    # L1: per-angle individual mode
     assert diag["per_angle_mode"] == "individual"
-    assert diag["fourier_basis_dim"] is None
 
     # L2
     assert diag.get("hierarchical_active") is True

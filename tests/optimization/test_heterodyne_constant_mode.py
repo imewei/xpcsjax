@@ -251,7 +251,6 @@ def test_constant_mode_fit_optimizes_only_physics() -> None:
     diag = result.nlsq_diagnostics
     assert diag["scaling_source"] == "quantile_fixed"
     assert diag["per_angle_mode"] == "constant"
-    assert diag["fourier_basis_dim"] is None
     assert diag["shear_weighting"] == "not_applicable_heterodyne"
     assert "contrast_per_angle_fixed" in diag
     assert "offset_per_angle_fixed" in diag

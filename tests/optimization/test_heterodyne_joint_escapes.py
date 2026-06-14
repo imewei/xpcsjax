@@ -214,7 +214,6 @@ def test_joint_cmaes_escape_honors_averaged_default():
     diag = res.nlsq_diagnostics
     assert diag.get("global_escape", "").startswith("cmaes")
     assert diag["per_angle_mode"] == "averaged"
-    assert diag.get("fourier_basis_dim") is None
     assert int(np.asarray(res.parameters).size) == plain_size
 
 
@@ -236,7 +235,6 @@ def test_joint_cmaes_escape_honors_constant_explicit():
     diag = res.nlsq_diagnostics
     assert diag.get("global_escape", "").startswith("cmaes")
     assert diag["per_angle_mode"] == "constant"
-    assert diag.get("fourier_basis_dim") is None
     assert int(np.asarray(res.parameters).size) == plain_size
 
 
@@ -257,7 +255,6 @@ def test_joint_multistart_escape_honors_averaged_default():
     diag = res.nlsq_diagnostics
     assert diag.get("global_escape", "").startswith("multistart")
     assert diag["per_angle_mode"] == "averaged"
-    assert diag.get("fourier_basis_dim") is None
     assert int(np.asarray(res.parameters).size) == plain_size
 
 

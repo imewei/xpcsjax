@@ -125,7 +125,6 @@ def _fit_joint_constant_multi_phi(
         * ``offset_per_angle_fixed``: ``np.ndarray`` of shape ``(n_phi,)``
         * ``chi2_per_angle``: ``np.ndarray`` of shape ``(n_phi,)``
         * ``per_angle_mode``: ``"constant"``
-        * ``fourier_basis_dim``: ``None``
         * ``shear_weighting``: ``"not_applicable_heterodyne"``
         * ``parameter_names``: ``list[str]`` of varying physics names
     """
@@ -396,7 +395,6 @@ def _fit_joint_constant_multi_phi(
         "offset_per_angle_fixed": offset_fixed,
         "chi2_per_angle": chi2_per_angle,
         "per_angle_mode": "constant",
-        "fourier_basis_dim": None,
         "parameter_names": varying_names,
         "convergence_reason": ("global_escape" if is_escape else nlsq_result.convergence_reason),
         "n_function_evals": (0 if is_escape else int(nlsq_result.n_function_evals or 0)),

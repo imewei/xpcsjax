@@ -297,7 +297,6 @@ def _build_heterodyne_diagnostics(
     per_angle_mode: str,
     chi2_per_angle: np.ndarray,
     scaling_source: str,
-    fourier_basis_dim: int | None,
     **extras: Any,
 ) -> dict[str, Any]:
     """Build the standard heterodyne ``nlsq_diagnostics`` dict.
@@ -331,7 +330,6 @@ def _build_heterodyne_diagnostics(
         "per_angle_mode": per_angle_mode,
         "chi2_per_angle": chi2_per_angle,
         "scaling_source": scaling_source,
-        "fourier_basis_dim": fourier_basis_dim,
     }
     base.update(
         assemble_anti_degeneracy_diagnostics(
@@ -597,7 +595,6 @@ def _aggregate_individual_results(
         per_angle_mode="individual",
         chi2_per_angle=chi2_per_angle,
         scaling_source="fixed_per_angle",
-        fourier_basis_dim=None,
         covariance_structure="block_diagonal_sequential",
         parameter_names=varying_names,
         phi_angles=np.asarray(phi_angles, dtype=np.float64),
@@ -994,7 +991,7 @@ def _fit_joint_averaged_multi_phi(
         ``physics_varying + [avg_contrast, avg_offset]`` layout (2 scaling
         params). Per-angle diagnostics — ``chi2_per_angle``,
         ``per_angle_mode='averaged'``, ``scaling_source='averaged_then_fitted'``,
-        ``fourier_basis_dim=None``, ``shear_weighting='not_applicable_heterodyne'``
+        ``shear_weighting='not_applicable_heterodyne'``
         — live in ``nlsq_diagnostics``, alongside the ``averaged_contrast`` /
         ``averaged_offset`` scalar extras. Mirrors the contract of
         :func:`_fit_joint_multi_phi` (Sub-PR C2) and
@@ -1449,7 +1446,6 @@ def _fit_joint_averaged_multi_phi(
         per_angle_mode="averaged",
         chi2_per_angle=chi2_per_angle,
         scaling_source="averaged_then_fitted",
-        fourier_basis_dim=None,
         averaged_contrast=fitted_contrast,
         averaged_offset=fitted_offset,
         parameter_names=joint_param_names,
@@ -2598,7 +2594,7 @@ def _fit_joint_multi_phi(
     OptimizationResult
         One result for the entire joint solve.  ``parameters`` has the canonical
         scaling-first ``[scaling_head | physics]`` layout. Per-angle diagnostics
-        — ``chi2_per_angle``, ``fourier_basis_dim`` (``None``),
+        — ``chi2_per_angle``,
         ``per_angle_mode`` (the resolved variant), ``scaling_source='fitted'``,
         ``shear_weighting='not_applicable_heterodyne'`` — live in
         ``nlsq_diagnostics``.  Mirrors the contract of
@@ -2948,10 +2944,8 @@ def _build_joint_result(
     # block (tagged ``mechanism="post_solve_fallback"``).
     # ------------------------------------------------------------------
     # Reported ``per_angle_mode``: the scaling-first path reports the resolved
-    # variant (``constant`` / ``averaged`` / ``individual``); the
-    # ``fourier_basis_dim=None`` diagnostics stub is kept for contract symmetry.
+    # variant (``constant`` / ``averaged`` / ``individual``).
     per_angle_mode_label = resolved_mode
-    fourier_basis_dim: int | None = None
     fourier_extras: dict[str, Any] = {}
 
     # L4 extras require both a monitor and the NLSQ result it described. A
@@ -2984,7 +2978,6 @@ def _build_joint_result(
         per_angle_mode=per_angle_mode_label,
         chi2_per_angle=chi2_per_angle,
         scaling_source="fitted",
-        fourier_basis_dim=fourier_basis_dim,
         parameter_names=joint_param_names,
         contrast_per_angle_fitted=np.asarray(fitted_contrast, dtype=np.float64),
         offset_per_angle_fitted=np.asarray(fitted_offset, dtype=np.float64),

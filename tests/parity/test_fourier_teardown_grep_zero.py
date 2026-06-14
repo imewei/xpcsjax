@@ -30,6 +30,7 @@ _TOKENS = "|".join(
         "use_" + _F,
         _F + "_order",
         _F + "_auto_threshold",
+        _F + "_basis_dim",
         "auto_" + "averaged",
         "fixed_" + "constant",
         "heterodyne_" + "layout",

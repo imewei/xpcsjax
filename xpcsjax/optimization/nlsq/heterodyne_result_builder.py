@@ -585,7 +585,6 @@ def build_hybrid_streaming_result(
         per_angle_mode=ad_block.get("per_angle_mode", per_angle_mode),
         chi2_per_angle=chi2_per_angle,
         scaling_source=scaling_source,
-        fourier_basis_dim=None,
         parameter_names=diag_param_names,
         phi_angles=np.asarray(phi_angles, dtype=np.float64),
         n_angles_joint=int(n_phi),

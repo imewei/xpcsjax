@@ -36,8 +36,8 @@ Result-contract assembly REUSES the production result-builder primitives:
 * ``_decompose_chi2_per_angle`` — per-angle χ² decomposition (SSR conservation).
 * ``noise_normalized_reduced_chi2`` — the shared reduced-χ² correction.
 * ``_build_heterodyne_diagnostics`` — the symmetric ``nlsq_diagnostics`` dict
-  (``per_angle_mode`` / ``chi2_per_angle`` / ``scaling_source`` /
-  ``fourier_basis_dim`` + the anti-degeneracy activation block).
+  (``per_angle_mode`` / ``chi2_per_angle`` / ``scaling_source``
+  + the anti-degeneracy activation block).
 
 so each mode's returned ``OptimizationResult`` matches the contract of the
 production path it mirrors.
@@ -668,7 +668,6 @@ def _assemble_diagnostics(
     # are added per-branch below rather than in ``common``.
     common = {
         "chi2_per_angle": chi2_per_angle,
-        "fourier_basis_dim": None,
         "parameter_names": list(joint_param_names),
         "convergence_reason": str(res.convergence_reason),
         "n_function_evals": int(res.n_function_evals or 0),
