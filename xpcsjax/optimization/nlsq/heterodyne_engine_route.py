@@ -80,14 +80,6 @@ PRODUCTION_TO_ENGINE_MODE: dict[str, str] = {
     "individual": "individual",
 }
 
-# Old-token translation needed at the ``build_heterodyne_pointwise_model``
-# boundary (that function still speaks the old per_angle_mode vocabulary).
-_CANONICAL_TO_POINTWISE_TOKEN: dict[str, str] = {
-    "constant": "fixed_constant",
-    "averaged": "auto_averaged",
-    "individual": "individual",
-}
-
 
 # ---------------------------------------------------------------------------
 # Engine construction (promoted from tests/parity/test_engine_heterodyne_fit_parity.py)
@@ -441,21 +433,20 @@ def fit_two_component_via_engine(
             "Use the existing fit_nlsq_multi_phi path for fourier."
         )
 
-    # ``build_heterodyne_pointwise_model`` still speaks the old per_angle_mode
-    # vocabulary; translate at this single boundary.
-    pointwise_token = _CANONICAL_TO_POINTWISE_TOKEN[mode]
-
     # -- Build frame-0-excluded engine chunks -------------------------------
     strat_full = build_heterodyne_stratified_data(model, c2, phi_arr)
     strat = _drop_frame0_stratified_data(strat_full, t=t, n_phi=n_phi)
     chunked = create_stratified_chunks(strat, target_chunk_size=100_000)
 
-    # -- x0 (physics-first) from the pointwise builder ----------------------
+    # -- x0 (canonical SCALING-FIRST) from the pointwise builder ------------
+    # The builder now emits the canonical scaling-first vector
+    # ``[scaling_head | physics]`` and speaks the canonical per_angle_mode
+    # vocabulary directly (Phase 4 retired the old-token/physics-first shim).
     _mf, _x, _y, p0, meta = build_heterodyne_pointwise_model(
         stratified_data=strat_full,
         model=model,
         physical_param_names=phys_names,
-        per_angle_mode=pointwise_token,
+        per_angle_mode=mode,
     )
     p0_arr = np.asarray(p0, dtype=np.float64)
 
@@ -478,28 +469,23 @@ def fit_two_component_via_engine(
     )
 
     # -- Optimizer-vector layout: canonical SCALING-FIRST -------------------
-    # ``constant``  : physics-only; no scaling DOF.
-    # ``individual``: [contrast(n_phi) | offset(n_phi) | physics] — block-reorder
-    #                 the physics-first p0 directly (a pure permutation; the engine
-    #                 solves scaling-first natively, so no conversion module is
-    #                 needed).
+    # The pointwise builder now emits the canonical scaling-first vector
+    # directly, so x0 is the builder's p0 verbatim (the former physics-first
+    # -> scaling-first reorder is now the IDENTITY and has been retired). The
+    # final x0 is numerically identical to what the old reorder produced.
+    # ``constant``  : physics-only; no scaling DOF (empty head).
+    # ``individual``: [contrast(n_phi) | offset(n_phi) | physics].
     # ``averaged``  : COMPRESSED [c_avg, o_avg, physics] — 2 scaling DOF at the
-    #                 HEAD, physics tail. The residual broadcasts the 2 scalars to
-    #                 the engine's 2*n_phi scaling-first layout inside the JIT
-    #                 closure (avoids the over-parameterized 2*n_phi DOF that was
-    #                 the earlier "improvement" artifact).
+    #                 HEAD; the residual broadcasts the 2 scalars to the engine's
+    #                 2*n_phi scaling-first layout inside the JIT closure.
     physics_lower, physics_upper = model.param_manager.get_bounds()
     lb_sf, ub_sf = _scaling_first_bounds(
         mode=mode, n_phi=n_phi, physics_lower=physics_lower, physics_upper=physics_upper
     )
 
+    x0_opt = p0_arr.copy()
+
     if mode == "averaged":
-        # p0_arr from the pointwise builder is physics-first [physics|c_avg|o_avg].
-        # Extract the 2 scaling scalars and put them at the head.
-        p0_physics = p0_arr[:n_varying]
-        p0_c_avg = float(p0_arr[n_varying])
-        p0_o_avg = float(p0_arr[n_varying + 1])
-        x0_opt = np.concatenate([[p0_c_avg, p0_o_avg], p0_physics])
 
         def residual_fn(x: np.ndarray) -> Any:
             """Scaling-first compressed averaged residual: x = [c_avg, o_avg, physics]."""
@@ -512,27 +498,9 @@ def fit_two_component_via_engine(
             engine_vec = jnp.concatenate([contrast, offset, physics])
             return engine(engine_vec)
 
-    elif mode == "constant":
-        # Physics-only: no scaling DOF. p0_arr is physics-first [physics] (the
-        # pointwise builder emits no scaling tail for the frozen-constant token),
-        # so the scaling-first vector is the identical physics-only vector
-        # (the former layout-conversion identity, built directly here).
-        x0_opt = p0_arr[:n_varying].copy()
-
-        def residual_fn(x: np.ndarray) -> Any:
-            return engine(jnp.asarray(x, dtype=jnp.float64))
-
     else:
-        # individual: physics-first p0 is [physics(n_varying) | contrast(n_phi) |
-        # offset(n_phi)]; the engine's canonical scaling-first layout is
-        # [contrast(n_phi) | offset(n_phi) | physics(n_varying)]. Build it directly
-        # as a pure block reorder — numerically the SAME vector the former
-        # individual-mode layout conversion produced.
-        scaling_tail = p0_arr[n_varying:]
-        contrast_head = scaling_tail[:n_phi]
-        offset_head = scaling_tail[n_phi : 2 * n_phi]
-        x0_opt = np.concatenate([contrast_head, offset_head, p0_arr[:n_varying]])
-
+        # constant (physics-only) and individual ([contrast|offset|physics]) both
+        # feed the engine's native scaling-first vector unchanged.
         def residual_fn(x: np.ndarray) -> Any:
             return engine(jnp.asarray(x, dtype=jnp.float64))
 
