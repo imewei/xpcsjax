@@ -35,21 +35,6 @@ def _per_angle_params(contrast: np.ndarray, offset: np.ndarray) -> np.ndarray:
     return np.concatenate([contrast, offset, physical])
 
 
-def test_fourier_round_trip_preserves_physical_block() -> None:
-    ctrl = _build("fourier")
-    contrast = 0.3 + 0.05 * np.cos(PHI)
-    offset = 1.0 + 0.02 * np.sin(PHI)
-    params = _per_angle_params(contrast, offset)
-
-    fourier_params, _ = ctrl.transform_params_to_fourier(params)
-    recovered = ctrl.transform_params_from_fourier(fourier_params)
-
-    assert recovered.shape == params.shape
-    assert np.all(np.isfinite(recovered))
-    # Physical tail must pass through untouched regardless of Fourier truncation.
-    assert np.allclose(recovered[-N_PHYSICAL:], params[-N_PHYSICAL:])
-
-
 def test_constant_round_trip_is_exact_for_constant_scaling() -> None:
     ctrl = _build("constant")
     if not ctrl.use_constant:  # config did not enable constant mode on this build
@@ -83,6 +68,45 @@ def test_constant_collapse_uses_nanmean_and_preserves_physical() -> None:
 
 
 def test_get_diagnostics_returns_mapping() -> None:
-    ctrl = _build("fourier")
+    ctrl = _build("individual")
     diag = ctrl.get_diagnostics()
     assert isinstance(diag, dict)
+
+
+# --- Phase 6: laminar controller rejects fourier/independent (resolver teardown) ---
+
+
+def _make_controller(per_angle_mode: str, n_phi: int = 5):
+    phi = np.deg2rad(np.linspace(0.0, 144.0, n_phi))
+    return AntiDegeneracyController.from_config(
+        config_dict={"enable": True, "per_angle_mode": per_angle_mode},
+        n_phi=n_phi,
+        phi_angles=phi,
+        n_physical=7,
+        per_angle_scaling=True,
+        is_laminar_flow=True,
+        analysis_mode="laminar_flow",
+    )
+
+
+def test_controller_rejects_fourier_after_phase6() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="per_angle_mode"):
+        _make_controller("fourier")
+
+
+def test_controller_rejects_independent_after_phase6() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="per_angle_mode"):
+        _make_controller("independent")
+
+
+def test_controller_resolves_individual_no_fourier_attr() -> None:
+    ctrl = _make_controller("individual")
+    # Phase-6-safe AND Phase-7-safe (Finding 15): getattr-with-default survives Phase 7
+    # deleting the ``use_fourier`` property + ``fourier`` attribute.
+    assert getattr(ctrl, "use_fourier", False) is False
+    assert getattr(ctrl, "fourier", None) is None
+    assert ctrl.per_angle_mode_actual == "individual"

@@ -36,7 +36,6 @@ from xpcsjax.optimization.nlsq.adaptive_regularization import (
     AdaptiveRegularizer,
 )
 from xpcsjax.optimization.nlsq.fourier_reparam import (
-    FourierReparamConfig,
     FourierReparameterizer,
 )
 from xpcsjax.optimization.nlsq.gradient_monitor import (
@@ -414,31 +413,21 @@ class AntiDegeneracyController:
             logger.info("  Behavior: Quantile estimates -> per-angle values FIXED (NOT optimized)")
             logger.info(f"  Parameters: {self.n_physical} physical only (scaling FIXED from quantiles)")
             logger.info("=" * 60)
+        elif config.per_angle_mode == "individual":
+            self.per_angle_mode_actual = "individual"
+            logger.debug("ANTI-DEGENERACY: Using explicit per_angle_mode: individual")
         else:
-            # Other explicit modes (fourier or individual)
-            self.per_angle_mode_actual = config.per_angle_mode
-            logger.debug(
-                f"ANTI-DEGENERACY: Using explicit per_angle_mode: {self.per_angle_mode_actual}"
+            raise ValueError(
+                f"unknown per_angle_mode {config.per_angle_mode!r}; valid: "
+                "constant, averaged, individual, auto"
             )
 
         # T021: Determine use_constant flag for mapper
         # Both auto_averaged and fixed_constant use constant-style mapping
         use_constant = self.per_angle_mode_actual in ("auto_averaged", "fixed_constant")
 
-        # Layer 1: Fourier Reparameterization (only if fourier mode)
-        if self.per_angle_mode_actual == "fourier":
-            fourier_config = FourierReparamConfig(
-                mode="fourier",
-                fourier_order=config.fourier_order,
-                auto_threshold=config.fourier_auto_threshold,
-            )
-            self.fourier = FourierReparameterizer(self.phi_angles, fourier_config)
-            logger.info("=" * 60)
-            logger.info("ANTI-DEGENERACY: Layer 1 - Fourier Reparameterization")
-            logger.info(f"  Mode: {self.per_angle_mode_actual}")
-            logger.info(f"  n_phi: {self.n_phi}, Fourier order: {config.fourier_order}")
-            logger.info(f"  Parameter reduction: {2 * self.n_phi} -> {self.fourier.n_coeffs}")
-            logger.info("=" * 60)
+        # Layer 1 (Phase 6): fourier reparameterization removed on the laminar paths; the
+        # resolver above rejects the ``fourier`` token, so ``self.fourier`` stays ``None``.
         # Note: auto_averaged and fixed_constant logging already done in mode selection above
 
         # T022: Create ParameterIndexMapper with correct use_constant flag
