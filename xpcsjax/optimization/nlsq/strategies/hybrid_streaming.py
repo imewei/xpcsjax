@@ -707,21 +707,25 @@ def fit_with_stratified_hybrid_streaming(
 
     adaptive_regularizer = None
     if per_angle_scaling:
-        # Compute mode-aware group indices
-        # Group indices depend on per-angle mode: fixed_constant, auto_averaged, fourier, or individual
-        if use_fixed_scaling:
-            # fixed_constant: No scaling params to regularize (7 physical only)
-            mode_group_indices = []
-            logger.debug("Fixed-constant mode: No per-angle regularization (scaling is fixed)")
-        elif use_averaged_scaling:
-            # auto_averaged: 2 per-angle params (1 contrast + 1 offset) to regularize
-            mode_group_indices = [(0, 1), (1, 2)]
-            logger.debug(
-                f"Auto-averaged regularization groups: {mode_group_indices} (1 contrast + 1 offset)"
-            )
-        else:
-            mode_group_indices = None  # Use default: [(0, n_phi), (n_phi, 2*n_phi)]
-            logger.debug("Using default regularization groups (individual mode)")
+        # Phase 6: L3 group indices come from the canonical ParameterIndexMapper.
+        # Bridge the controller's resolved flags to the canonical mode string
+        # (independent of the Phase 7 token rename).
+        from xpcsjax.optimization.nlsq.parameter_index_mapper import ParameterIndexMapper
+
+        _canonical = (
+            "constant"
+            if use_fixed_scaling
+            else "averaged"
+            if use_averaged_scaling
+            else "individual"
+        )
+        _mapper = ParameterIndexMapper.canonical(
+            mode=_canonical, n_phi=n_phi, n_physics=n_physical
+        )
+        mode_group_indices = _mapper.group_indices or None  # [] (constant) -> None
+        logger.debug(
+            f"L3 group indices from mapper ({_canonical}): {_mapper.group_indices}"
+        )
 
         reg_config = AdaptiveRegularizationConfig(
             enable=True,
@@ -751,17 +755,21 @@ def fit_with_stratified_hybrid_streaming(
     gradient_monitor_enabled = gradient_monitoring_config.get("enable", True)
     gradient_monitor = None
     if gradient_monitor_enabled and per_angle_scaling:
-        # Compute mode-aware parameter count
-        # n_per_angle depends on per-angle mode: fixed_constant, auto_averaged, or individual
-        if use_fixed_scaling:
-            # fixed_constant: 0 per-angle params (scaling is fixed)
-            n_per_angle = 0
-        elif use_averaged_scaling:
-            # auto_averaged: 2 per-angle params (1 contrast + 1 offset)
-            n_per_angle = 2
-        else:
-            # Independent mode: 2 * n_phi per-angle params
-            n_per_angle = 2 * n_phi
+        # Phase 6: L4 per-angle count comes from the canonical mapper built in the L3
+        # block above (same `if per_angle_scaling:` guard). Rebuild defensively in case
+        # L3 was skipped (regularization disabled) — it is a cheap pure dataclass.
+        from xpcsjax.optimization.nlsq.parameter_index_mapper import ParameterIndexMapper
+
+        _canonical_l4 = (
+            "constant"
+            if use_fixed_scaling
+            else "averaged"
+            if use_averaged_scaling
+            else "individual"
+        )
+        n_per_angle = ParameterIndexMapper.canonical(
+            mode=_canonical_l4, n_phi=n_phi, n_physics=n_physical
+        ).n_optimized  # 0 (constant) | 2 (averaged) | 2*n_phi (individual)
         # n_physical defined unconditionally above
         # Use numpy arrays for indices (JAX compatibility)
         per_angle_indices = np.arange(n_per_angle, dtype=np.intp)

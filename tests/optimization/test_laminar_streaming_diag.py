@@ -149,3 +149,22 @@ def test_streaming_has_no_fourier_machinery():
     assert "fourier_reparameterizer" not in src
     assert "use_fourier" not in src
     assert "FourierReparameterizer" not in src
+
+
+# --- Phase 6 Task 6: mapper drives streaming L3 group_indices / L4 n_optimized ---
+
+
+def test_mapper_drives_streaming_L3_L4():  # noqa: N802
+    from xpcsjax.optimization.nlsq.parameter_index_mapper import ParameterIndexMapper
+    from xpcsjax.optimization.nlsq.per_angle_mode import n_optimized
+
+    cases = [
+        ("individual", 5, [(0, 5), (5, 10)], 10),
+        ("averaged", 5, [(0, 1), (1, 2)], 2),
+        ("constant", 5, [], 0),
+    ]
+    for mode, n_phi, exp_groups, exp_nopt in cases:
+        m = ParameterIndexMapper.canonical(mode=mode, n_phi=n_phi, n_physics=7)
+        assert m.group_indices == exp_groups
+        assert m.n_optimized == exp_nopt
+        assert m.n_optimized == n_optimized(mode, n_phi)
