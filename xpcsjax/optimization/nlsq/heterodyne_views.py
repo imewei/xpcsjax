@@ -16,7 +16,7 @@ from xpcsjax.optimization.nlsq.results import OptimizationResult
 def reconstruct_per_angle_scaling(
     result: OptimizationResult,
     phi_angles: np.ndarray,
-    mode: Literal["individual", "constant", "auto"],
+    mode: Literal["individual", "constant", "averaged", "auto"],
     layout: dict[str, Any],
 ) -> dict[str, np.ndarray]:
     """Return ``{'contrast': (n_phi,), 'offset': (n_phi,)}`` from fit parameters.
@@ -30,8 +30,11 @@ def reconstruct_per_angle_scaling(
     phi_angles : np.ndarray
         Phi angles in degrees, shape ``(n_phi,)``.
     mode : str
-        The effective per-angle mode that produced the result. For ``'auto'``,
-        read the dispatched mode from ``result.nlsq_diagnostics['per_angle_mode']``.
+        The effective per-angle mode that produced the result —
+        ``'individual'``, ``'constant'``, ``'averaged'``, or ``'auto'``. For
+        ``'auto'``, read the dispatched mode from
+        ``result.nlsq_diagnostics['per_angle_mode']`` (which itself resolves to
+        one of the three concrete variants).
     layout : dict
         Layout descriptor with required keys:
           - ``n_physics`` : int
@@ -54,6 +57,21 @@ def reconstruct_per_angle_scaling(
         contrast = params[:n_phi]
         offset = params[n_phi : 2 * n_phi]
         return {"contrast": np.asarray(contrast), "offset": np.asarray(offset)}
+
+    if mode == "averaged":
+        # Canonical scaling-first averaged layout: [c_avg, o_avg, physics...].
+        # One fitted (contrast, offset) pair shared across all angles. Prefer
+        # the fitted scalars stored in diagnostics; fall back to the scaling
+        # HEAD params[0]/[1] (NOT the tail — physics occupies the tail). Broadcast
+        # to n_phi so the return contract matches individual/constant mode.
+        diag = result.nlsq_diagnostics or {}
+        params = np.asarray(result.parameters, dtype=np.float64)
+        c = float(diag.get("averaged_contrast", params[0]))
+        o = float(diag.get("averaged_offset", params[1]))
+        return {
+            "contrast": np.full(n_phi, c, dtype=np.float64),
+            "offset": np.full(n_phi, o, dtype=np.float64),
+        }
 
     if mode == "auto":
         diag = result.nlsq_diagnostics or {}

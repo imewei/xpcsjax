@@ -124,6 +124,118 @@ def test_reconstruct_per_angle_scaling_auto_mode_resolves_via_diagnostics() -> N
     np.testing.assert_allclose(out["contrast"], [0.4, 0.42, 0.38])
 
 
+def test_reconstruct_per_angle_scaling_averaged_mode_from_diagnostics() -> None:
+    """Averaged mode broadcasts the single fitted (contrast, offset) pair to n_phi.
+
+    Prefers the ``averaged_contrast`` / ``averaged_offset`` diagnostics scalars.
+    """
+    from xpcsjax.optimization.nlsq.heterodyne_views import reconstruct_per_angle_scaling
+
+    # Canonical scaling-first averaged layout: [c_avg, o_avg, physics...].
+    result = OptimizationResult(
+        parameters=np.array([0.41, 1.02, 0.5, 0.1, 0.01]),  # [c, o, physics(3)]
+        uncertainties=np.zeros(5),
+        covariance=np.eye(5),
+        chi_squared=0.0,
+        reduced_chi_squared=0.0,
+        convergence_status="converged",
+        iterations=0,
+        execution_time=0.0,
+        device_info={},
+        recovery_actions=[],
+        quality_flag="good",
+        streaming_diagnostics=None,
+        stratification_diagnostics=None,
+        nlsq_diagnostics={
+            "per_angle_mode": "averaged",
+            "scaling_source": "averaged_then_fitted",
+            "averaged_contrast": 0.41,
+            "averaged_offset": 1.02,
+        },
+    )
+
+    out = reconstruct_per_angle_scaling(
+        result=result,
+        phi_angles=np.array([0.0, 45.0, 90.0]),
+        mode="averaged",
+        layout={"n_physics": 3},
+    )
+
+    assert out["contrast"].shape == (3,)
+    assert out["offset"].shape == (3,)
+    np.testing.assert_allclose(out["contrast"], [0.41, 0.41, 0.41])
+    np.testing.assert_allclose(out["offset"], [1.02, 1.02, 1.02])
+
+
+def test_reconstruct_per_angle_scaling_averaged_mode_falls_back_to_head() -> None:
+    """Without the averaged_* diagnostics, read the scaling-first HEAD params[0]/[1]."""
+    from xpcsjax.optimization.nlsq.heterodyne_views import reconstruct_per_angle_scaling
+
+    result = OptimizationResult(
+        parameters=np.array([0.37, 0.98, 0.5, 0.1, 0.01]),  # [c, o, physics(3)]
+        uncertainties=np.zeros(5),
+        covariance=np.eye(5),
+        chi_squared=0.0,
+        reduced_chi_squared=0.0,
+        convergence_status="converged",
+        iterations=0,
+        execution_time=0.0,
+        device_info={},
+        recovery_actions=[],
+        quality_flag="good",
+        streaming_diagnostics=None,
+        stratification_diagnostics=None,
+        nlsq_diagnostics={"per_angle_mode": "averaged"},  # no averaged_* scalars
+    )
+
+    out = reconstruct_per_angle_scaling(
+        result=result,
+        phi_angles=np.array([0.0, 45.0]),
+        mode="averaged",
+        layout={"n_physics": 3},
+    )
+
+    assert out["contrast"].shape == (2,)
+    np.testing.assert_allclose(out["contrast"], [0.37, 0.37])
+    np.testing.assert_allclose(out["offset"], [0.98, 0.98])
+
+
+def test_reconstruct_per_angle_scaling_auto_resolves_to_averaged() -> None:
+    """`mode='auto'` resolving to 'averaged' no longer raises ValueError."""
+    from xpcsjax.optimization.nlsq.heterodyne_views import reconstruct_per_angle_scaling
+
+    result = OptimizationResult(
+        parameters=np.array([0.41, 1.02, 0.5, 0.1, 0.01]),
+        uncertainties=np.zeros(5),
+        covariance=np.eye(5),
+        chi_squared=0.0,
+        reduced_chi_squared=0.0,
+        convergence_status="converged",
+        iterations=0,
+        execution_time=0.0,
+        device_info={},
+        recovery_actions=[],
+        quality_flag="good",
+        streaming_diagnostics=None,
+        stratification_diagnostics=None,
+        nlsq_diagnostics={
+            "per_angle_mode": "averaged",  # the resolved mode
+            "averaged_contrast": 0.41,
+            "averaged_offset": 1.02,
+        },
+    )
+
+    out = reconstruct_per_angle_scaling(
+        result=result,
+        phi_angles=np.array([0.0, 45.0, 90.0]),
+        mode="auto",
+        layout={"n_physics": 3},
+    )
+
+    np.testing.assert_allclose(out["contrast"], [0.41, 0.41, 0.41])
+    np.testing.assert_allclose(out["offset"], [1.02, 1.02, 1.02])
+
+
 def test_per_angle_chi2_reads_from_diagnostics() -> None:
     """`per_angle_chi2()` retrieves the array from nlsq_diagnostics."""
     from xpcsjax.optimization.nlsq.heterodyne_views import per_angle_chi2
