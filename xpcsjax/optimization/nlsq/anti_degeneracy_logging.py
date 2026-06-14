@@ -14,12 +14,13 @@ from typing import Any
 _W60 = "=" * 60
 
 # Resolved controller mode (``per_angle_mode_actual``) -> short banner token.
-# Public: imported by hybrid_streaming (which has no controller object).
+# Public: imported by hybrid_streaming (which has no controller object). The
+# controller now stamps the resolved canonical token directly, so this map is an
+# identity pass-through, kept only as a stable seam.
 MODE_SHORT = {
-    "auto_averaged": "averaged",
-    "fixed_constant": "constant",
+    "averaged": "averaged",
+    "constant": "constant",
     "individual": "individual",
-    "fourier": "fourier",
 }
 
 
@@ -40,8 +41,7 @@ def log_effective_per_angle_mode(
         Caller's own logger; the emitted record's ``name`` matches the caller's
         module path so log routing is preserved.
     mode : str
-        Short mode token: ``"averaged"``, ``"individual"``, ``"fourier"``, or
-        ``"constant"``.
+        Short mode token: ``"averaged"``, ``"individual"``, or ``"constant"``.
     n_phi : int
         Number of phi angles in the fit.
     n_physics : int
@@ -71,8 +71,6 @@ def log_effective_per_angle_mode(
     else:
         if mode == "averaged":
             descr = f"{n_scaling} averaged scaling"
-        elif mode == "fourier":
-            descr = f"{n_scaling} Fourier coeffs"
         elif mode == "individual":
             descr = f"{n_scaling} per-angle scaling"
         else:
@@ -93,9 +91,9 @@ def log_effective_mode_from_controller(
 
     Convenience wrapper for paths that hold a controller (stratified-LS,
     CMA-ES). Pulls the short mode, the real ``n_physical``, and the resolved
-    optimized scaling count (``n_per_angle_params``, which already reflects the
-    Fourier fallback to ``2*n_phi``). No-ops when the controller is not
-    enabled, so a disabled/uninitialized controller emits nothing.
+    optimized scaling count (``n_per_angle_params``, which is ``2*n_phi`` for
+    ``individual`` and ``2`` for ``averaged``). No-ops when the controller is
+    not enabled, so a disabled/uninitialized controller emits nothing.
 
     Parameters
     ----------

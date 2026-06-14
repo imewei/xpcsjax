@@ -336,10 +336,10 @@ def fit_with_stratified_hybrid_streaming(
         ``chunk_size``.
     anti_degeneracy_config : dict, optional
         Anti-Degeneracy Defense config dict. Recognized keys include
-        ``per_angle_mode`` (``"individual"``, ``"fourier"``, ``"constant"``, or
+        ``per_angle_mode`` (``"individual"``, ``"constant"``, or
         ``"auto"`` — **the default, including when this config is absent/None**;
-        there is no "freeze when unconfigured" special case), ``fourier_order``,
-        ``fourier_auto_threshold``, ``constant_scaling_threshold``,
+        there is no "freeze when unconfigured" special case),
+        ``constant_scaling_threshold``,
         ``hierarchical.enable``, ``regularization.mode``, ``regularization.lambda``,
         and ``gradient_monitoring.enable``.
 
@@ -463,22 +463,22 @@ def fit_with_stratified_hybrid_streaming(
     regularization_config = ad_config.get("regularization", {})
     gradient_monitoring_config = ad_config.get("gradient_monitoring", {})
 
-    # Layer 1 (Phase 6): fourier removed; constant-scaling configuration only.
+    # Layer 1: per-angle reparameterization (averaged/constant/individual).
     # Distinct semantics for auto vs explicit constant mode
     per_angle_mode = ad_config.get("per_angle_mode", "auto")
     constant_scaling_threshold = ad_config.get("constant_scaling_threshold", 3)
 
     # Determine actual per-angle mode
     # Distinct semantics:
-    #   - auto (n_phi >= threshold): "auto_averaged" → 9 params, OPTIMIZED averaged scaling
-    #   - constant (explicit): "fixed_constant" → 7 params, FIXED per-angle scaling
+    #   - auto (n_phi >= threshold): "averaged" → 9 params, OPTIMIZED averaged scaling
+    #   - constant (explicit): "constant" → 7 params, FIXED per-angle scaling
     #   - individual: per-angle scaling OPTIMIZED
     if per_angle_mode == "auto":
         if n_phi >= constant_scaling_threshold:
             # AUTO mode with large n_phi: optimize averaged scaling (9 params)
             # Computes N quantile estimates, averages to 1 contrast + 1 offset
             # These 2 averaged values ARE OPTIMIZED along with 7 physical params
-            per_angle_mode_actual = "auto_averaged"
+            per_angle_mode_actual = "averaged"
         else:
             # Use individual per-angle parameters for few angles (N < 3)
             per_angle_mode_actual = "individual"
@@ -486,28 +486,28 @@ def fit_with_stratified_hybrid_streaming(
         # EXPLICIT constant mode: FIXED per-angle scaling (7 params)
         # Computes N quantile estimates, uses per-angle values DIRECTLY (NOT averaged)
         # Only 7 physical params are optimized; scaling is FIXED
-        per_angle_mode_actual = "fixed_constant"
+        per_angle_mode_actual = "constant"
     elif per_angle_mode == "individual":
         per_angle_mode_actual = "individual"
         logger.debug("ANTI-DEGENERACY: Using explicit per_angle_mode: individual")
     else:
-        # Phase 6: fourier/independent are no longer accepted on the laminar streaming path.
+        # Only constant/averaged/individual/auto are accepted on the laminar streaming path.
         raise ValueError(
             f"unknown per_angle_mode {per_angle_mode!r}; valid: "
             "constant, averaged, individual, auto"
         )
 
     # T031: Determine mode flags
-    # use_constant: True for both auto_averaged and fixed_constant (constant-style mapping)
-    # use_fixed_scaling: True only for fixed_constant (scaling NOT optimized)
-    # use_averaged_scaling: True only for auto_averaged (scaling optimized)
-    use_constant = per_angle_mode_actual in ("auto_averaged", "fixed_constant")
-    use_averaged_scaling = per_angle_mode_actual == "auto_averaged"
-    # use_fixed_scaling will be set True after quantile estimation for fixed_constant mode
+    # use_constant: True for both averaged and constant (constant-style mapping)
+    # use_fixed_scaling: True only for constant (scaling NOT optimized)
+    # use_averaged_scaling: True only for averaged (scaling optimized)
+    use_constant = per_angle_mode_actual in ("averaged", "constant")
+    use_averaged_scaling = per_angle_mode_actual == "averaged"
+    # use_fixed_scaling will be set True after quantile estimation for constant mode
 
-    # Per-angle reparameterization (Phase 6): fourier removed; resolver rejects the token.
-    if per_angle_mode_actual == "fixed_constant" and per_angle_scaling:
-        # fixed_constant mode: per-angle scaling is FIXED, not optimized
+    # Per-angle reparameterization: averaged/constant/individual scaling layout.
+    if per_angle_mode_actual == "constant" and per_angle_scaling:
+        # constant mode: per-angle scaling is FIXED, not optimized
         logger.info("=" * 60)
         logger.info("ANTI-DEGENERACY DEFENSE: Layer 1 - Constant Scaling")
         logger.info(f"  Mode: {per_angle_mode_actual}")
@@ -517,8 +517,8 @@ def fit_with_stratified_hybrid_streaming(
         logger.info("  These values are FIXED (not optimized) during fitting")
         logger.info(f"  Parameter reduction: {2 * n_phi} -> 0 (physical only)")
         logger.info("=" * 60)
-    elif per_angle_mode_actual == "auto_averaged" and per_angle_scaling:
-        # auto_averaged mode: averaged scaling is OPTIMIZED (9 params)
+    elif per_angle_mode_actual == "averaged" and per_angle_scaling:
+        # averaged mode: averaged scaling is OPTIMIZED (9 params)
         logger.info("=" * 60)
         logger.info("ANTI-DEGENERACY DEFENSE: Layer 1 - Averaged Scaling")
         logger.info(f"  Mode: {per_angle_mode_actual}")
@@ -530,16 +530,16 @@ def fit_with_stratified_hybrid_streaming(
 
     # Unified resolved-mode banner (laminar ↔ heterodyne parity). No controller
     # on this path, so values are computed inline; n_scaling is the OPTIMIZED
-    # scaling count (fixed_constant -> 0).
+    # scaling count (constant -> 0).
     if per_angle_scaling:
         from xpcsjax.optimization.nlsq.anti_degeneracy_logging import (
             MODE_SHORT,
             log_effective_per_angle_mode,
         )
 
-        if per_angle_mode_actual == "fixed_constant":
+        if per_angle_mode_actual == "constant":
             _n_scaling = 0
-        elif per_angle_mode_actual == "auto_averaged":
+        elif per_angle_mode_actual == "averaged":
             _n_scaling = 2
         else:  # individual
             _n_scaling = 2 * n_phi
@@ -555,15 +555,15 @@ def fit_with_stratified_hybrid_streaming(
     # =====================================================================
     # CONSTANT/AUTO_AVERAGED MODES: Quantile-Based Scaling
     # =====================================================================
-    # - fixed_constant: per-angle values are FIXED (not optimized), 7 params
-    # - auto_averaged: averaged values are OPTIMIZED as initial values, 9 params
+    # - constant: per-angle values are FIXED (not optimized), 7 params
+    # - averaged: averaged values are OPTIMIZED as initial values, 9 params
     # =====================================================================
     use_fixed_scaling = False
     fixed_contrast_per_angle: np.ndarray | None = None
     fixed_offset_per_angle: np.ndarray | None = None
     fixed_contrast_jax: jnp.ndarray | None = None
     fixed_offset_jax: jnp.ndarray | None = None
-    # For auto_averaged mode: averaged values to use as initial optimization values
+    # For averaged mode: averaged values to use as initial optimization values
     averaged_contrast_init: float | None = None
     averaged_offset_init: float | None = None
 
@@ -594,8 +594,8 @@ def fit_with_stratified_hybrid_streaming(
             )
 
             if fixed_contrast_per_angle is not None and fixed_offset_per_angle is not None:
-                if per_angle_mode_actual == "fixed_constant":
-                    # fixed_constant: Use per-angle values DIRECTLY as FIXED
+                if per_angle_mode_actual == "constant":
+                    # constant: Use per-angle values DIRECTLY as FIXED
                     use_fixed_scaling = True
                     fixed_contrast_jax = jnp.asarray(fixed_contrast_per_angle)
                     fixed_offset_jax = jnp.asarray(fixed_offset_per_angle)
@@ -611,8 +611,8 @@ def fit_with_stratified_hybrid_streaming(
                         f"range=[{np.nanmin(fixed_offset_per_angle):.4f}, "
                         f"{np.nanmax(fixed_offset_per_angle):.4f}]"
                     )
-                elif per_angle_mode_actual == "auto_averaged":
-                    # auto_averaged: AVERAGE per-angle values → use as INITIAL for optimization
+                elif per_angle_mode_actual == "averaged":
+                    # averaged: AVERAGE per-angle values → use as INITIAL for optimization
                     averaged_contrast_init = float(np.nanmean(fixed_contrast_per_angle))
                     averaged_offset_init = float(np.nanmean(fixed_offset_per_angle))
 
@@ -621,7 +621,7 @@ def fit_with_stratified_hybrid_streaming(
                     logger.info(f"  Averaged offset: {averaged_offset_init:.4f}")
                     logger.info("  These will be OPTIMIZED along with 7 physical params (9 total)")
 
-                    # Do NOT set use_fixed_scaling = True for auto_averaged
+                    # Do NOT set use_fixed_scaling = True for averaged
                     # The averaged values are just initial guesses for optimization
             else:  # pragma: no cover – defensive; function always returns arrays
                 logger.warning(  # type: ignore[unreachable]
@@ -707,9 +707,8 @@ def fit_with_stratified_hybrid_streaming(
 
     adaptive_regularizer = None
     if per_angle_scaling:
-        # Phase 6: L3 group indices come from the canonical ParameterIndexMapper.
-        # Bridge the controller's resolved flags to the canonical mode string
-        # (independent of the Phase 7 token rename).
+        # L3 group indices come from the canonical ParameterIndexMapper.
+        # Bridge the controller's resolved flags to the canonical mode string.
         from xpcsjax.optimization.nlsq.parameter_index_mapper import ParameterIndexMapper
 
         _canonical = (
@@ -1805,7 +1804,7 @@ def fit_with_stratified_hybrid_streaming(
         }
     elif use_averaged_scaling:
         # Auto averaged mode - averaged values are OPTIMIZED
-        info["anti_degeneracy"]["auto_averaged"] = {
+        info["anti_degeneracy"]["averaged"] = {
             "param_reduction": f"{2 * n_phi} -> 2 (averaged scaling)",
             "method": "quantile_estimation_averaged",
             # After inverse transform, popt[0] is first contrast (uniform)
