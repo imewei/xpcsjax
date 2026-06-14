@@ -3,7 +3,7 @@
 # =============================================================================
 # Three-parameter anomalous-diffusion model with a single, angle-averaged
 # scaling pair. Use this template when the sample is isotropic (no preferred
-# orientation) so that g2(t1, t2; phi) is independent of phi, AND you do not
+# orientation) so that g2(t1, t2; phi) does not depend on phi, AND you do not
 # need per-angle contrast/offset to capture detector anisotropy.
 #
 # Physics model — identical to static_anisotropic:
@@ -79,7 +79,7 @@ analysis_settings:
   model_description:
     type: "static_isotropic"
     parameters: ["D0", "alpha", "D_offset"]
-    physics: "Anomalous diffusion D(t) = D0·t^alpha + D_offset (angle-independent)"
+    physics: "Anomalous diffusion D(t) = D0·t^alpha + D_offset (angle-invariant)"
     per_angle_scaling: false
 
 # -----------------------------------------------------------------------------
@@ -117,7 +117,7 @@ experimental_data:
 # -----------------------------------------------------------------------------
 # PHI FILTERING — angle subset selection
 # -----------------------------------------------------------------------------
-# Isotropic mode treats c2 as angle-independent, so you can either pin to
+# Isotropic mode treats c2 as angle-invariant, so you can either pin to
 # one representative angle or use all available (the shared scaling is
 # averaged either way).
 phi_filtering:
@@ -276,7 +276,7 @@ optimization:
     # The whole point of isotropic mode is "one (contrast, offset) shared
     # across angles" — so per_angle_mode is hard-pinned to "constant" with
     # threshold=1, which forces the constant-per-angle path to engage for
-    # any n_phi >= 1. Other modes ("auto", "fourier", "individual") would
+    # any n_phi >= 1. Other modes ("auto", "individual") would
     # silently re-introduce per-angle scaling and defeat the purpose.
     #
     # Parameter count (isotropic, any n_phi):
@@ -288,7 +288,7 @@ optimization:
     anti_degeneracy:
       enable: true
       # OPT-IN L2/L3 anti-degeneracy ESCAPE on the >=1M stratified-LS path (fires
-      # only for L2-applicable per-angle modes: individual / fourier).
+      # only for the L2-applicable per-angle mode: individual).
       #   false (default) = single baseline solve; byte-identical to the
       #                     pre-escape path (the rtol=1e-10 homodyne-equivalence
       #                     oracle runs here).
@@ -303,8 +303,6 @@ optimization:
 
       per_angle_mode: "constant"           # FIXED for isotropic — do not change
       constant_scaling_threshold: 1        # engage constant scaling immediately
-      fourier_order: 2                     # unused in constant mode
-      fourier_auto_threshold: 6            # unused in constant mode
 
       hierarchical:
         enable: false

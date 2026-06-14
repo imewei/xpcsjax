@@ -468,14 +468,12 @@ optimization:
     #                 Auto-selected when n_phi >= constant_scaling_threshold.
     #   "constant"    Per-angle (β, o) FROZEN from quantile estimate →  3 params
     #                 (physical-only optimization)
-    #   "fourier"     (β, o) as truncated Fourier series             →  3 + 2·(2K+1)
-    #   "individual"  Independent per-angle (β_k, o_k), optimized    →  3 + 2·n_phi
+    #   "individual"  Separate per-angle (β_k, o_k), optimized       →  3 + 2·n_phi
     #                 Prone to absorption for many angles — use with caution.
     #
-    # PARAMETER COUNT EXAMPLES (static, n_phi=10, fourier_order=2):
+    # PARAMETER COUNT EXAMPLES (static, n_phi=10):
     #   constant:    3 params (β, o frozen per-angle from quantile)
     #   auto:        5 params (3 physical + 2 averaged scaling)
-    #   fourier:    13 params (3 physical + 10 Fourier coeffs)
     #   individual: 23 params (3 physical + 20 per-angle scaling)
     #
     # For static_anisotropic the default defense (L1 + L4, with L2/L3 optional)
@@ -486,7 +484,7 @@ optimization:
     anti_degeneracy:
       enable: true
       # OPT-IN L2/L3 anti-degeneracy ESCAPE on the >=1M stratified-LS path (fires
-      # only for L2-applicable per-angle modes: individual / fourier).
+      # only for the L2-applicable per-angle mode: individual).
       #   false (default) = single baseline solve; byte-identical to the
       #                     pre-escape path (the rtol=1e-10 homodyne-equivalence
       #                     oracle runs here).
@@ -499,10 +497,8 @@ optimization:
       # escape, lower hierarchical.max_outer_iterations (and inner iterations).
       execute_layers: false
 
-      per_angle_mode: "auto"               # "auto" | "constant" | "fourier" | "individual"
+      per_angle_mode: "auto"               # "auto" | "constant" | "individual"
       constant_scaling_threshold: 3        # use averaged constant scaling when n_phi >= this
-      fourier_order: 2                     # number of Fourier harmonics K
-      fourier_auto_threshold: 6            # min angles before fourier mode considered
 
       # ---- L2 hierarchical (alternates physical/per-angle solves) ----
       # Not needed for static (no shear), but harmless if enabled.
@@ -1123,7 +1119,7 @@ plotting:
   residual_analysis: true        # true = residual histograms + QQ plots
   angle_coverage: true           # true = polar plot showing which angles were used
   angle_correlation: false       # true = c2 vs phi (oscillation diagnostic)
-                                 # OFF for static (angles are independent — no
+                                 # OFF for static (angles are uncorrelated — no
                                  # oscillation expected; this plot is for laminar_flow
                                  # and two_component).
 

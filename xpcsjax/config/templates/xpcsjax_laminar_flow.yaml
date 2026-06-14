@@ -406,7 +406,7 @@ optimization:
     #      above by x_scale_map; the rest is handled by the layers below).
     #
     # 5-LAYER DEFENSE (all engaged by default for laminar_flow):
-    #   L1: Fourier reparameterization (rarely needed; off by default)
+    #   L1: Per-angle reparameterization (averaged/constant/individual scaling layout)
     #   L2: Hierarchical alternating optimization (REQUIRED for L5)
     #   L3: Adaptive CV-based regularization (off; enable if L2+L5 insufficient)
     #   L4: Gradient-collapse detection + auto-recovery
@@ -419,19 +419,17 @@ optimization:
     #   "auto"        Quantile-init averaged + jointly optimized   →  7 + 2 = 9 params
     #                 (auto-selects when n_phi >= constant_scaling_threshold)
     #   "constant"    Per-angle (β, o) FROZEN from quantile        →  7 params
-    #   "fourier"     (β, o) as truncated Fourier series           →  7 + 2·(2K+1)
-    #   "individual"  Independent per-angle (β_k, o_k), optimized  →  7 + 2·n_phi
+    #   "individual"  Separate per-angle (β_k, o_k), optimized     →  7 + 2·n_phi
     #                 (prone to absorption; avoid for many angles)
     #
-    # Parameter count examples (laminar_flow, n_phi=23, fourier_order=2):
+    # Parameter count examples (laminar_flow, n_phi=23):
     #   constant:    7 params  (physical only)
     #   auto:        9 params  (7 + 2 averaged scaling)
-    #   fourier:    17 params  (7 + 10 Fourier coeffs)
     #   individual: 53 params  (7 + 46 per-angle scaling)
     anti_degeneracy:
       enable: true
       # OPT-IN L2/L3 anti-degeneracy ESCAPE on the >=1M stratified-LS path (fires
-      # only for L2-applicable per-angle modes: individual / fourier).
+      # only for the L2-applicable per-angle mode: individual).
       #   false (default) = single baseline solve; byte-identical to the
       #                     pre-escape path (the rtol=1e-10 homodyne-equivalence
       #                     oracle runs here).
@@ -444,10 +442,8 @@ optimization:
       # escape, lower hierarchical.max_outer_iterations (and inner iterations).
       execute_layers: false
 
-      per_angle_mode: "auto"               # auto → "averaged" for n_phi >= constant_scaling_threshold (3), else "individual" (homodyne auto never picks fourier — set "fourier" explicitly)
+      per_angle_mode: "auto"               # auto → "averaged" for n_phi >= constant_scaling_threshold (3), else "individual"
       constant_scaling_threshold: 3
-      fourier_order: 2                     # used only when per_angle_mode="fourier"
-      fourier_auto_threshold: 6            # min angles for fourier mode
 
       # ---- L2 Hierarchical Optimization (REQUIRED for L5 shear_weighting) ----
       # Alternates between (a) physical-params solve with scaling frozen,

@@ -35,8 +35,7 @@
 # Per-angle modes (from anti_degeneracy.per_angle_mode):
 #   constant:   per-angle (β, o) frozen from quantile — 14 physics only
 #   auto:       quantile (β, o) averaged then optimized jointly — 16 params
-#   fourier:    (β, o) as truncated Fourier series — 14 + 2·(2K+1)
-#   individual: independent per-angle (β_k, o_k) — 14 + 2·N_phi
+#   individual: separate per-angle (β_k, o_k) — 14 + 2·N_phi
 #
 # Scope: xpcsjax is NLSQ-only. Bayesian sampling is permanently out of scope.
 # =============================================================================
@@ -525,21 +524,16 @@ optimization:
     #                 (optimizer fits the 14 physics only)
     #   "auto"        quantile (β, o) averaged + jointly optimized    →  16
     #                 (auto-selects when n_phi >= constant_scaling_threshold)
-    #   "fourier"     (β, o) as truncated Fourier series              →  14 + 2·(2K+1)
-    #   "individual"  independent per-angle (β_k, o_k), optimized     →  14 + 2·n_phi
+    #   "individual"  separate per-angle (β_k, o_k), optimized        →  14 + 2·n_phi
     #
-    # Parameter count examples (n_phi=10, fourier_order=2):
+    # Parameter count examples (n_phi=10):
     #   constant:    14 params (β, o frozen per-angle)
     #   auto:        16 params (14 + 2 averaged scaling)
-    #   fourier:     24 params (14 + 10 Fourier coeffs)
     #   individual:  34 params (14 + 20 per-angle scaling — prone to absorption)
-    #
-    # DEPRECATION: "independent" is a deprecated alias for "individual" and
-    # will be removed in a future heterodyne release; xpcsjax follows the same convention.
     anti_degeneracy:
       enable: true
       # OPT-IN L2/L3 anti-degeneracy ESCAPE on the >=1M stratified-LS path (fires
-      # only for L2-applicable per-angle modes: individual / fourier).
+      # only for the L2-applicable per-angle mode: individual).
       #   false (default) = single baseline solve; byte-identical to the
       #                     pre-escape path (the rtol=1e-10 homodyne-equivalence
       #                     oracle runs here).
@@ -552,10 +546,8 @@ optimization:
       # escape, lower hierarchical.max_outer_iterations (and inner iterations).
       execute_layers: false
 
-      per_angle_mode: "auto"               # auto → "averaged" for n_phi >= constant_scaling_threshold (3), else "individual"; "constant"/"fourier" only when set explicitly here
+      per_angle_mode: "auto"               # auto → "averaged" for n_phi >= constant_scaling_threshold (3), else "individual"; "constant" only when set explicitly here
       constant_scaling_threshold: 3
-      fourier_order: 2
-      fourier_auto_threshold: 6
 
       # ---- L2 Hierarchical (alternating physical / per-angle solves) ----
       # Recommended for heterodyne — the 14-D physics block benefits from
