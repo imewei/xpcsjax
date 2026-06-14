@@ -322,8 +322,8 @@ def _unpack_heterodyne_scaling(
     When ``nlsq_diagnostics`` is absent (e.g. a synthetic result), the layout
     is inferred from the parameter count and treated as ``individual``. The
     caller must supply ``n_phi_expected`` (from ``data["phi_angles_list"]``) so
-    the individual layout can be disambiguated from the ``fourier`` mode, which
-    has ``2*(2K+1)`` extra slots that would otherwise be misread as ``2*n_phi``.
+    the individual layout can be disambiguated from any unrecognised layout
+    whose extra slots would otherwise be misread as ``2*n_phi``.
 
     Returns
     -------
@@ -335,8 +335,9 @@ def _unpack_heterodyne_scaling(
     Raises
     ------
     NotImplementedError
-        ``fourier`` mode, or a diagnostics-less result whose parameter count
-        matches no recognised layout. Those remain out of scope for viz.
+        An unrecognised per-angle scaling mode, or a diagnostics-less result
+        whose parameter count matches no recognised layout. Those remain out of
+        scope for viz.
     """
     if not _is_heterodyne_family(model):
         raise TypeError(
@@ -394,7 +395,7 @@ def _unpack_heterodyne_scaling(
             f"Heterodyne result has {n_total} parameters but xpcsjax viz expects "
             f"{individual_total} (individual mode: {n_physical} physics + "
             f"2*{n_phi_expected} per-angle scaling). Scaling mode "
-            f"{mode!r} (e.g. 'fourier') is not yet supported by viz."
+            f"{mode!r} is not yet supported by viz."
         )
     physical_params = params[-n_physical:].copy()
     contrasts = params[:n_phi_expected].copy()
@@ -1480,9 +1481,9 @@ def generate_nlsq_plots(
         HeterodyneModel).
     NotImplementedError
         Heterodyne result whose per-angle scaling layout is unsupported by
-        viz (e.g. ``fourier``, or a ``constant`` layout without the matching
-        ``per_angle_mode`` diagnostics). Per-angle ``individual``, ``averaged``,
-        and reconstructable ``constant`` modes are supported.
+        viz (e.g. a ``constant`` layout without the matching ``per_angle_mode``
+        diagnostics). Per-angle ``individual``, ``averaged``, and
+        reconstructable ``constant`` modes are supported.
 
     See Also
     --------
@@ -1553,7 +1554,7 @@ def generate_nlsq_plots(
     sim_dir.mkdir(parents=True, exist_ok=True)
 
     # Heterodyne: validate the per-angle scaling layout upfront. Without this,
-    # an unsupported mode (fourier) would either silently produce all-NaN
+    # an unsupported mode would either silently produce all-NaN
     # artifacts (the per-angle compute loop catches Exception and leaves NaN)
     # or mis-infer n_phi from a residual that happens to be even. The
     # ``averaged`` and ``constant`` modes are now reconstructed by
@@ -1581,8 +1582,7 @@ def generate_nlsq_plots(
                 f"Heterodyne result has {n_total} parameters but xpcsjax viz "
                 f"expects {individual_total} (individual mode: {n_physical} "
                 f"physics + 2*{n_phi_expected} per-angle scaling). Scaling mode "
-                f"{per_angle_mode!r} (e.g. 'fourier') is not yet supported by "
-                f"viz."
+                f"{per_angle_mode!r} is not yet supported by viz."
             )
 
     # Per-model param unpacking (model-type dispatched inside helper).
