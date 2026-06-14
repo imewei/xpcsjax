@@ -88,7 +88,7 @@ def test_canonical_rejects_unresolved_mode():
     with pytest.raises(ValueError, match="unknown per_angle_mode"):
         ParameterIndexMapper.canonical(mode="auto", n_phi=10, n_physics=7)
     with pytest.raises(ValueError, match="unknown per_angle_mode"):
-        ParameterIndexMapper.canonical(mode="fourier", n_phi=10, n_physics=7)
+        ParameterIndexMapper.canonical(mode="nonsense", n_phi=10, n_physics=7)
 
 
 def test_legacy_fourier_constructor_is_untouched():

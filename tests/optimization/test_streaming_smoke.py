@@ -54,7 +54,7 @@ def _streaming_size_for_threshold(threshold_gb: float, factor: float = 2.0) -> i
     """Number of int64 points whose index array exceeds ``factor × threshold_gb``.
 
     Solves ``n_points × 8 bytes > factor × threshold_gb × 2**30``. Used by both
-    tests to pick a deterministic streaming-trigger size independent of the host's
+    tests to pick a deterministic streaming-trigger size regardless of the host's
     physical RAM.
     """
     return int(factor * threshold_gb * (1024**3) / 8)

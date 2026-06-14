@@ -9,9 +9,6 @@ convergence and loss reduction are verifiable without real XPCS physics.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from typing import Any, cast
-
 import numpy as np
 
 from xpcsjax.optimization.nlsq import hierarchical as h
@@ -63,22 +60,6 @@ def test_optimizer_indices_non_fourier() -> None:
     assert opt.n_per_angle == 6  # 2 * n_phi
     np.testing.assert_array_equal(opt.per_angle_indices, [0, 1, 2, 3, 4, 5])
     np.testing.assert_array_equal(opt.physical_indices, [6, 7])
-
-
-def test_optimizer_indices_fourier() -> None:
-    # Fourier is still LIVE on the stratified-LS path until the Phase 7 teardown and
-    # parameterizes the per-angle scaling by its COEFFICIENT count: when a fourier
-    # reparameterizer is threaded, HierarchicalOptimizer uses fourier.n_coeffs (NOT
-    # 2*n_phi). The non-fourier (individual) boundary comes from the canonical mapper
-    # — see test_optimizer_indices (2*n_phi). Hardcoding individual here previously
-    # masked a real IndexError regression on the fourier stratified-LS L2 path.
-    fourier = cast(Any, SimpleNamespace(n_coeffs=10))
-    opt = h.HierarchicalOptimizer(
-        h.HierarchicalConfig(), n_phi=23, n_physical=7, fourier_reparameterizer=fourier
-    )
-    assert opt.n_per_angle == 10  # fourier.n_coeffs (live until Phase 7)
-    # physics indices follow the fourier coefficient head: [n_coeffs, n_coeffs + n_phys).
-    np.testing.assert_array_equal(opt.physical_indices, np.arange(10, 10 + 7))
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +121,6 @@ def test_get_diagnostics() -> None:
     assert diag["n_phi"] == 2
     assert diag["n_physical"] == 3
     assert diag["n_per_angle"] == 4
-    assert diag["fourier_enabled"] is False
 
 
 # ---------------------------------------------------------------------------

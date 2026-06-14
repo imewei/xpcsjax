@@ -98,12 +98,6 @@ def test_post_init_invariants(kwargs: dict, match: str) -> None:
         NLSQConfig(**kwargs)
 
 
-def test_post_init_deprecation_alias_independent() -> None:
-    with pytest.warns(DeprecationWarning, match="independent"):
-        cfg = NLSQConfig(per_angle_mode="independent")
-    assert cfg.per_angle_mode == "individual"  # normalized
-
-
 # ---------------------------------------------------------------------------
 # validate() — fields not enforced in __post_init__
 # ---------------------------------------------------------------------------
@@ -116,7 +110,6 @@ def test_post_init_deprecation_alias_independent() -> None:
         ({"goal": "bogus"}, "goal"),
         ({"analysis_mode": "bogus"}, "analysis_mode"),
         ({"per_angle_mode": "bogus"}, "per_angle_mode"),
-        ({"fourier_order": 0}, "fourier_order"),
         ({"regularization_mode": "bogus"}, "regularization_mode"),
         ({"hybrid_method": "bogus"}, "hybrid_method"),
         ({"sampling_strategy": "bogus"}, "sampling_strategy"),
@@ -129,12 +122,6 @@ def test_validate_reports_errors(kwargs: dict, fragment: str) -> None:
     cfg = NLSQConfig(**kwargs)
     errors = cfg.validate()
     assert any(fragment in e for e in errors), errors
-
-
-def test_validate_fourier_auto_threshold() -> None:
-    # fourier_auto_threshold < 1, kept consistent with constant_scaling_threshold.
-    cfg = NLSQConfig(fourier_auto_threshold=0, constant_scaling_threshold=-5)
-    assert any("fourier_auto_threshold" in e for e in cfg.validate())
 
 
 # ---------------------------------------------------------------------------
@@ -170,8 +157,7 @@ def test_from_dict_nested_anti_degeneracy() -> None:
     cfg = NLSQConfig.from_dict(
         {
             "anti_degeneracy": {
-                "per_angle_mode": "fourier",
-                "fourier_order": 3,
+                "per_angle_mode": "individual",
                 "constant_scaling_threshold": 2,
                 "hierarchical": {"enable": True, "max_outer_iterations": 15},
                 "regularization": {"mode": "tikhonov", "lambda": 0.05},
@@ -179,8 +165,7 @@ def test_from_dict_nested_anti_degeneracy() -> None:
             }
         }
     )
-    assert cfg.per_angle_mode == "fourier"
-    assert cfg.fourier_order == 3
+    assert cfg.per_angle_mode == "individual"
     assert cfg.enable_hierarchical is True
     assert cfg.hierarchical_max_outer_iterations == 15
     assert cfg.regularization_mode == "tikhonov"
@@ -304,14 +289,14 @@ def test_from_dict_to_dict_roundtrip_preserves_fields() -> None:
     original = NLSQConfig(
         max_iterations=321,
         cmaes_sigma0=0.42,
-        per_angle_mode="fourier",
+        per_angle_mode="individual",
         recovery_config=HybridRecoveryConfig(max_retries=7),
         validation=NLSQValidationConfig(chi2_fail_high=15.0),
     )
     restored = NLSQConfig.from_dict(original.to_dict())
     assert restored.max_iterations == 321
     assert restored.cmaes_sigma0 == pytest.approx(0.42)
-    assert restored.per_angle_mode == "fourier"
+    assert restored.per_angle_mode == "individual"
     assert restored.recovery_config.max_retries == 7
     assert restored.validation.chi2_fail_high == pytest.approx(15.0)
 
@@ -327,23 +312,19 @@ def test_advisory_warning_does_not_error() -> None:
 def test_config_overrides_defaults_not_silently_dropped() -> None:
     """Config-file anti_degeneracy settings must OVERRIDE dataclass defaults.
 
-    Defaults are per_angle_mode='auto', constant_scaling_threshold=3,
-    fourier_auto_threshold=6, fourier_order=3. Feed distinct non-default values
-    via the nested ``anti_degeneracy`` block (production YAML layout) and assert
-    each survives into the parsed config rather than reverting to the default.
+    Defaults are per_angle_mode='auto', constant_scaling_threshold=3. Feed
+    distinct non-default values via the nested ``anti_degeneracy`` block
+    (production YAML layout) and assert each survives into the parsed config
+    rather than reverting to the default.
     """
     defaults = NLSQConfig()
     cfg = NLSQConfig.from_dict(
         {
             "anti_degeneracy": {
-                "per_angle_mode": "fourier",
+                "per_angle_mode": "individual",
                 "constant_scaling_threshold": 5,
-                "fourier_auto_threshold": 9,
-                "fourier_order": 4,
             }
         }
     )
-    assert cfg.per_angle_mode == "fourier" != defaults.per_angle_mode
+    assert cfg.per_angle_mode == "individual" != defaults.per_angle_mode
     assert cfg.constant_scaling_threshold == 5 != defaults.constant_scaling_threshold
-    assert cfg.fourier_auto_threshold == 9 != defaults.fourier_auto_threshold
-    assert cfg.fourier_order == 4 != defaults.fourier_order

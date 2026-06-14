@@ -247,13 +247,13 @@ def test_hybrid_streaming_takes_precedence_over_stratified_ls(monkeypatch):
 # -----------------------------------------------------------------------------
 # Task 4 — individual mode is now IN SCOPE for stratified-LS
 #
-# Explicit `individual` is a JOINT fit (_fit_joint_multi_phi /
-# FourierReparameterizer "independent" mode); _aggregate_individual_results is
+# Explicit `individual` is a JOINT fit (_fit_joint_multi_phi, per-angle
+# scaling layout); _aggregate_individual_results is
 # only the config-is-None/single-angle fallback. Routing individual through
 # stratified-LS is objective-consistent with the in-memory path (no objective
 # discontinuity at 1M). Policy (Phase 3): `constant`/`averaged`/`individual` all
 # route to stratified-LS. `constant` freezes scaling and solves physics-only on
-# the stratified-LS path; the legacy fourier mode is removed from the engine.
+# the stratified-LS path.
 # -----------------------------------------------------------------------------
 
 

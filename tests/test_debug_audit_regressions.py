@@ -125,7 +125,7 @@ def test_aps_old_zero_selection_raises(tmp_path, monkeypatch, quality_enabled) -
     }
     loader = XPCSDataLoader(config_dict=config, configure_logging=False)
     # Force "everything filtered out" so the selection collapses to empty,
-    # independent of the q/phi/quality filter config details.
+    # regardless of the q/phi/quality filter config details.
     monkeypatch.setattr(loader, "_get_selected_indices", lambda *a, **k: np.array([], dtype=int))
 
     with pytest.raises(ValueError, match=r"zero \(q,phi\) pairs"):

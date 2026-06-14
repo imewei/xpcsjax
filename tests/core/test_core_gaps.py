@@ -69,7 +69,7 @@ class TestHeterodyneComputeG1MultiPhi:
         The heterodyne c2 kernel depends on phi via the velocity term
         v0*cos(phi). With default params the differences are small but
         non-zero. We verify that the max absolute difference exceeds
-        floating-point epsilon, confirming independent vmap evaluations.
+        floating-point epsilon, confirming per-element vmap evaluations.
         """
         model, params = model_and_params
         N = 8

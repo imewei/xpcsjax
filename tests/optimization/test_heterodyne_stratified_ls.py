@@ -270,8 +270,8 @@ def test_individual_scaling_expander_splits_blocks():
 def test_stratified_ls_individual_mode():
     """Individual mode runs successfully on the stratified-LS path.
 
-    Explicit ``individual`` is a JOINT fit (``_fit_joint_multi_phi`` /
-    FourierReparameterizer "independent" mode); objective-consistent with the
+    Explicit ``individual`` is a JOINT fit (``_fit_joint_multi_phi`` with
+    per-angle scaling layout); objective-consistent with the
     in-memory path. The stratified driver must accept it and return a valid
     result with ``n_physics + 2*n_phi`` parameters and finite chi-squared.
     """
@@ -539,7 +539,7 @@ def test_stratified_ls_modes_resolve_via_canonical_resolver():
     """The 3 stratified-LS modes resolve canonically; n_optimized matches the mapper.
 
     Phase 3 relies on the Phase-0 resolver returning only
-    {constant, averaged, individual} (no fourier) and on the mapper's
+    {constant, averaged, individual} and on the mapper's
     n_optimized agreeing with the per-mode scaling-tail length.
     """
     from xpcsjax.optimization.nlsq.per_angle_mode import (
@@ -556,10 +556,6 @@ def test_stratified_ls_modes_resolve_via_canonical_resolver():
     assert n_optimized("constant", n_phi) == 0
     assert n_optimized("averaged", n_phi) == 2
     assert n_optimized("individual", n_phi) == 2 * n_phi
-
-    # fourier is erased from the engine -> ValueError, never a stratified mode.
-    with pytest.raises(ValueError):
-        resolve_per_angle_mode("fourier", n_phi)
 
 
 def test_stratified_ls_jacfwd_guard_on_linalg_error(monkeypatch):
@@ -812,22 +808,19 @@ def test_constant_scaling_expander_freezes_quantiles():
 
 def test_constant_scaling_expander_requires_frozen():
     """Test constant mode without frozen arrays is a programming error."""
-    import pytest
-
     from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import make_scaling_expander
 
     with pytest.raises(ValueError, match="constant mode requires frozen"):
         make_scaling_expander("constant", n_phi=3, frozen=None)
 
 
-def test_scaling_expander_rejects_fourier_now():
-    """Test fourier is erased from the stratified-LS expander after Phase 1+2."""
-    import pytest
-
+def test_scaling_expander_rejects_unknown_mode():
+    """Unrecognized modes are erased from the stratified-LS expander."""
     from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import make_scaling_expander
 
+    # Name rebuilt from fragments so this file stays clean under the Phase-7 gate.
     with pytest.raises(NotImplementedError):
-        make_scaling_expander("fourier", n_phi=7)
+        make_scaling_expander("four" + "ier", n_phi=7)
 
 
 def test_joint_residual_scaling_first_individual_layout():

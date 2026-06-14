@@ -1,8 +1,9 @@
-"""Verify all 5 anti-degeneracy layers ported over from homodyne.
+"""Verify the surviving anti-degeneracy layers ported over from homodyne.
 
 Task 29 tests the Layer-5 model-lineage gating. This test catches a different
 regression: did the dead-code removal refactoring accidentally cut into the
-anti-degeneracy controller's layer wiring?"""
+anti-degeneracy controller's layer wiring? (Phase 7 retired the L1 reparam
+layer; the live set is L2-L5.)"""
 
 import inspect
 from typing import Any
@@ -12,7 +13,6 @@ from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
 )
 
 LAYER_NAMES = (
-    "FourierReparameterizer",
     "HierarchicalOptimizer",
     "AdaptiveRegularizer",
     "GradientCollapseMonitor",
@@ -20,7 +20,7 @@ LAYER_NAMES = (
 )
 
 
-def test_controller_source_references_all_5_layers():
+def test_controller_source_references_all_layers():
     """Static check: the controller class source must mention every layer name.
 
     If a layer class was dropped during the verbatim port, this catches it
@@ -34,17 +34,16 @@ def test_controller_source_references_all_5_layers():
     )
 
 
-def test_module_exports_all_5_layer_classes():
-    """All 5 layer class names must be importable from the controller module
-    (either re-exported by the controller module itself, or by its sibling
-    modules in xpcsjax.optimization.nlsq).
+def test_module_exports_all_layer_classes():
+    """All surviving layer class names must be importable from the controller
+    module (either re-exported by the controller module itself, or by its
+    sibling modules in xpcsjax.optimization.nlsq).
 
     Pyright stale-indexing can hide these — the test asserts true reachability."""
     import importlib
 
     candidate_modules = [
         "xpcsjax.optimization.nlsq.anti_degeneracy_controller",
-        "xpcsjax.optimization.nlsq.fourier_reparam",
         "xpcsjax.optimization.nlsq.hierarchical",
         "xpcsjax.optimization.nlsq.adaptive_regularization",
         "xpcsjax.optimization.nlsq.gradient_monitor",
@@ -104,8 +103,8 @@ def test_controller_instantiates_with_minimal_config():
 
 def test_anti_degeneracy_config_overrides_defaults():
     """Homodyne AntiDegeneracyConfig.from_dict must honor config-file values
-    over the dataclass defaults (constant_scaling_threshold=3,
-    fourier_auto_threshold=6) — never silently dropped to the default."""
+    over the dataclass defaults (constant_scaling_threshold=3) — never silently
+    dropped to the default."""
     from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
         AntiDegeneracyConfig,
     )
@@ -115,12 +114,10 @@ def test_anti_degeneracy_config_overrides_defaults():
         {
             "per_angle_mode": "individual",
             "constant_scaling_threshold": 7,
-            "fourier_auto_threshold": 11,
         }
     )
     assert cfg.per_angle_mode == "individual"
     assert cfg.constant_scaling_threshold == 7 != defaults.constant_scaling_threshold
-    assert cfg.fourier_auto_threshold == 11 != defaults.fourier_auto_threshold
 
 
 # ---------------------------------------------------------------------------

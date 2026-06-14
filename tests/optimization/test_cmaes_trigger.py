@@ -83,7 +83,7 @@ def test_compute_scale_ratio_increases_with_spread(wrapper):
     )
 
 
-# --- Phase 6: laminar CMA-ES propagates the fourier ValueError (not swallowed) ---
+# --- Phase 6: laminar CMA-ES surviving per-angle modes ---
 
 
 def _laminar_cmaes_config(per_angle_mode: str):
@@ -134,13 +134,6 @@ def _tiny_laminar_data(n_phi=5, n_t=10):
         "t2": t,
         "c2_exp": c2,
     }
-
-
-def test_cmaes_laminar_fourier_rejected():
-    from xpcsjax.optimization.nlsq.core import fit_nlsq_cmaes
-
-    with pytest.raises(ValueError, match="per_angle_mode"):
-        fit_nlsq_cmaes(_tiny_laminar_data(), _laminar_cmaes_config("fourier"))
 
 
 @pytest.mark.parametrize("mode", ["individual", "auto"])

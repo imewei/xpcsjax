@@ -41,15 +41,6 @@ def test_individual_banner_uses_dynamic_less_than(caplog):
     assert "Parameters: 7 physical + 4 per-angle scaling = 11 total" in text
 
 
-def test_fourier_banner_text(caplog):
-    log = logging.getLogger(_LOGGER)
-    with caplog.at_level(logging.INFO, logger=_LOGGER):
-        log_effective_per_angle_mode(
-            log, mode="fourier", n_phi=6, n_physics=7, n_scaling=5, threshold=3
-        )
-    assert "Parameters: 7 physical + 5 Fourier coeffs = 12 total" in caplog.text
-
-
 def test_constant_banner_has_no_zero_scaling(caplog):
     log = logging.getLogger(_LOGGER)
     with caplog.at_level(logging.INFO, logger=_LOGGER):
@@ -148,10 +139,10 @@ def test_from_controller_disabled_is_noop(caplog):
 
 
 def test_compute_fixed_per_angle_scaling_emits_neutral_banner(caplog):
-    """The shared quantile helper is reused by the auto_averaged path, so its
+    """The shared quantile helper is reused by the averaged path, so its
     banner must NOT claim 'CONSTANT MODE' (root cause of the laminar
-    auto_averaged log contradiction)."""
-    ctrl = _laminar_controller(n_phi=3, mode="auto")  # -> auto_averaged, use_constant=True
+    averaged log contradiction)."""
+    ctrl = _laminar_controller(n_phi=3, mode="auto")  # -> averaged, use_constant=True
 
     class _D:
         g2_flat = np.tile(np.linspace(1.0, 1.3, 40), 3)

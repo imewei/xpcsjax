@@ -4,129 +4,10 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import numpy as np
 import pytest
 
 from xpcsjax.optimization.nlsq.results import OptimizationResult
-
-
-def test_reconstruct_per_angle_scaling_fourier_mode() -> None:
-    """Helper reconstructs per-angle contrast from Fourier coefficients."""
-    from xpcsjax.optimization.nlsq.heterodyne_views import (
-        reconstruct_per_angle_scaling,
-    )
-
-    # Fake result: 3 physics + 5 contrast Fourier (K=2) + 5 offset Fourier
-    # Coefficients: contrast_coeffs = [0.4, 0, 0, 0, 0]  (constant 0.4)
-    #               offset_coeffs   = [1.0, 0, 0, 0, 0]  (constant 1.0)
-    params = np.array([0.5, 0.1, 0.01, 0.4, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0])
-    result = OptimizationResult(
-        parameters=params,
-        uncertainties=np.zeros_like(params),
-        covariance=np.eye(len(params)),
-        chi_squared=0.0,
-        reduced_chi_squared=0.0,
-        convergence_status="converged",
-        iterations=0,
-        execution_time=0.0,
-        device_info={},
-        recovery_actions=[],
-        quality_flag="good",
-        streaming_diagnostics=None,
-        stratification_diagnostics=None,
-        nlsq_diagnostics={
-            "per_angle_mode": "fourier",
-            "fourier_basis_dim": 5,
-            "scaling_source": "fitted",
-        },
-    )
-
-    phi = np.array([0.0, 45.0, 90.0])
-    layout = {"n_physics": 3, "fourier_order": 2}
-    out = reconstruct_per_angle_scaling(
-        result=result, phi_angles=phi, mode="fourier", layout=layout
-    )
-
-    assert set(out.keys()) == {"contrast", "offset"}
-    np.testing.assert_allclose(out["contrast"], [0.4, 0.4, 0.4], atol=1e-12)
-    np.testing.assert_allclose(out["offset"], [1.0, 1.0, 1.0], atol=1e-12)
-
-
-def test_reconstruct_per_angle_scaling_fourier_matches_canonical_basis() -> None:
-    """Helper's Fourier basis layout matches FourierReparameterizer's.
-
-    Exercises every harmonic with non-zero coefficients at K=2 and compares
-    the helper output against B @ coeffs, where B is the canonical basis
-    matrix built by `FourierReparameterizer._compute_basis_matrix`. This is
-    the load-bearing test for the interleaved [c0, c1, s1, c2, s2] layout.
-    """
-    from xpcsjax.optimization.nlsq.fourier_reparam import (
-        FourierReparamConfig,
-        FourierReparameterizer,
-    )
-    from xpcsjax.optimization.nlsq.heterodyne_views import reconstruct_per_angle_scaling
-
-    K = 2
-    phi_deg = np.array([0.0, 30.0, 60.0, 90.0, 135.0])
-    n_physics = 3
-    basis_dim = 2 * K + 1  # 5
-
-    # Non-zero coefficients to exercise every harmonic.
-    contrast_coeffs = np.array([0.40, 0.05, 0.03, -0.02, 0.01])  # [c0, c1, s1, c2, s2]
-    offset_coeffs = np.array([1.00, 0.10, -0.05, 0.02, -0.03])
-
-    params = np.concatenate(
-        [
-            np.array([0.5, 0.1, 0.01]),  # physics
-            contrast_coeffs,
-            offset_coeffs,
-        ]
-    )
-
-    result = OptimizationResult(
-        parameters=params,
-        uncertainties=np.zeros_like(params),
-        covariance=np.eye(len(params)),
-        chi_squared=0.0,
-        reduced_chi_squared=0.0,
-        convergence_status="converged",
-        iterations=0,
-        execution_time=0.0,
-        device_info={},
-        recovery_actions=[],
-        quality_flag="good",
-        streaming_diagnostics=None,
-        stratification_diagnostics=None,
-        nlsq_diagnostics={
-            "per_angle_mode": "fourier",
-            "fourier_basis_dim": basis_dim,
-            "scaling_source": "fitted",
-        },
-    )
-
-    out = reconstruct_per_angle_scaling(
-        result=result,
-        phi_angles=phi_deg,
-        mode="fourier",
-        layout={"n_physics": n_physics, "fourier_order": K},
-    )
-
-    # Build the canonical basis matrix the same way `_fit_joint_multi_phi`
-    # would. FourierReparameterizer takes phi in *radians*; the helper takes
-    # phi in *degrees* and deg2rads internally — so we feed the radian form
-    # to the reparameterizer for an apples-to-apples comparison.
-    config = FourierReparamConfig(mode="fourier", fourier_order=K)
-    reparam = FourierReparameterizer(phi_angles=np.deg2rad(phi_deg), config=config)
-    assert reparam.use_fourier, "expected Fourier mode to be active"
-    B = reparam.get_basis_matrix()
-    assert B is not None
-    expected_contrast = B @ contrast_coeffs
-    expected_offset = B @ offset_coeffs
-
-    np.testing.assert_allclose(out["contrast"], expected_contrast, atol=1e-12)
-    np.testing.assert_allclose(out["offset"], expected_offset, atol=1e-12)
 
 
 def test_reconstruct_per_angle_scaling_individual_mode() -> None:
@@ -292,15 +173,13 @@ def test_per_angle_chi2_raises_when_missing() -> None:
 
 
 # ---------------------------------------------------------------------------
-# C2: integration test — Fourier-mode joint fit returns one OptimizationResult
+# C2: integration fixtures — minimal heterodyne model + synthetic C2 stack
 # ---------------------------------------------------------------------------
 #
 # Self-contained heterodyne config sufficient for HeterodyneModel.from_config.
 # Pattern mirrors test_heterodyne_constant_mode.py's B2 helpers — tiny problem
-# size, registry-default physics, no external fixtures. ``n_phi=6`` is the
-# minimum to keep ``auto`` dispatch in the Fourier window (>= fourier_auto_
-# threshold of 6), but the explicit ``per_angle_mode="fourier"`` setting makes
-# the dispatch deterministic regardless of threshold defaults.
+# size, registry-default physics, no external fixtures. ``_C2_PHI_ANGLES`` holds
+# 6 angles, enough to exercise the averaged ``auto`` window.
 _C2_N_TIMES = 16
 _C2_DT = 1.0
 _C2_Q = 0.0054
@@ -368,40 +247,18 @@ def _build_synthetic_c2_stack_for_fourier(n_phi: int, n_t: int, model) -> np.nda
     return c2_stack
 
 
-def test_fourier_mode_rejected_in_memory() -> None:
-    """In-memory ``per_angle_mode='fourier'`` is rejected (Phase 1+2 removal).
-
-    The in-memory Fourier joint builders were retired; ``fit_nlsq_multi_phi``
-    now raises ``ValueError`` for a fourier-resolved mode. (Fourier scaling
-    remains on the >=1M stratified-LS / streaming paths. Full fourier-test
-    teardown is Phase 7.)
-    """
-    pytest.importorskip("xpcsjax.core.heterodyne_model_stateful")
-    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
-    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
-
-    model = _build_minimal_heterodyne_model_for_fourier()
-    config = NLSQConfig(per_angle_mode="fourier", fourier_order=2, max_nfev=30)
-    n_phi = len(_C2_PHI_ANGLES)
-    c2 = _build_synthetic_c2_stack_for_fourier(n_phi=n_phi, n_t=_C2_N_TIMES, model=model)
-    phi = _C2_PHI_ANGLES
-
-    with pytest.raises(ValueError, match="unknown per_angle_mode"):
-        fit_nlsq_multi_phi(model, c2, phi, config, weights=None)
-
-
 # ---------------------------------------------------------------------------
 # C3: integration test — averaged-mode joint fit returns one OptimizationResult
 # ---------------------------------------------------------------------------
 #
 # Reuses the C2 fixture builders. The averaged path is taken when
-# ``per_angle_mode='auto'`` and ``constant_threshold <= n_phi < fourier_threshold``.
+# ``per_angle_mode='auto'`` and ``n_phi >= constant_threshold``.
 # Optimizer parameter vector is ``[physics_varying | avg_contrast | avg_offset]``
-# (2 scaling parameters, not 2*(2K+1) Fourier coefficients).
+# (2 scaling parameters).
 
 
 def test_averaged_path_returns_single_optimization_result() -> None:
-    """`per_angle_mode='auto'` with constant_threshold <= n_phi < fourier_threshold returns OptimizationResult."""
+    """`per_angle_mode='auto'` with n_phi >= constant_threshold returns OptimizationResult."""
     pytest.importorskip("xpcsjax.core.heterodyne_model_stateful")
     from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
     from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
@@ -410,10 +267,9 @@ def test_averaged_path_returns_single_optimization_result() -> None:
     config = NLSQConfig(
         per_angle_mode="auto",
         constant_scaling_threshold=3,
-        fourier_auto_threshold=6,
         max_nfev=30,
     )
-    n_phi = 4  # in the averaged window (3 <= n_phi < 6)
+    n_phi = 4  # in the averaged window (n_phi >= 3)
     c2 = _build_synthetic_c2_stack_for_fourier(n_phi=n_phi, n_t=_C2_N_TIMES, model=model)
     phi = _C2_PHI_ANGLES[:n_phi]
 
@@ -476,7 +332,7 @@ def test_cmaes_path_returns_single_optimization_result() -> None:
     from xpcsjax.optimization.nlsq.heterodyne_core import _fit_joint_cmaes_multi_phi
 
     model = _build_minimal_heterodyne_model_for_fourier()
-    config = NLSQConfig(per_angle_mode="fourier", fourier_order=2, enable_cmaes=True, max_nfev=30)
+    config = NLSQConfig(per_angle_mode="auto", enable_cmaes=True, max_nfev=30)
     n_phi = len(_C2_PHI_ANGLES)
     c2 = _build_synthetic_c2_stack_for_fourier(n_phi=n_phi, n_t=_C2_N_TIMES, model=model)
     phi = _C2_PHI_ANGLES
@@ -504,7 +360,7 @@ def test_multistart_path_returns_single_optimization_result() -> None:
     from xpcsjax.optimization.nlsq.heterodyne_core import _fit_multistart
 
     model = _build_minimal_heterodyne_model_for_fourier()
-    config = NLSQConfig(per_angle_mode="fourier", fourier_order=2, max_nfev=30)
+    config = NLSQConfig(per_angle_mode="auto", max_nfev=30)
     n_phi = len(_C2_PHI_ANGLES)
     c2_stack = _build_synthetic_c2_stack_for_fourier(n_phi=n_phi, n_t=_C2_N_TIMES, model=model)
 
@@ -528,37 +384,32 @@ def test_multistart_path_returns_single_optimization_result() -> None:
 # Each parametrization exercises a single dispatch branch:
 #
 # * ``"constant"``   → :func:`_fit_joint_constant_multi_phi`
-# * ``"individual"`` → JOINT fit via :func:`_fit_joint_multi_phi` (independent
-#   reparameterizer mode); ``[physics | 2*n_phi per-angle scaling]``.
-# * ``"fourier"``    → :func:`_fit_joint_multi_phi`
-# * ``"auto"``       → routed by ``n_phi`` to constant / averaged / fourier
+# * ``"individual"`` → JOINT fit via :func:`_fit_joint_multi_phi` (per-angle
+#   scaling layout); ``[physics | 2*n_phi per-angle scaling]``.
+# * ``"auto"``       → routed by ``n_phi`` to individual / averaged
 #
-# The fourier auto window uses ``n_phi=6`` (the fixture's full angle set,
-# matching ``fourier_auto_threshold``); using ``n_phi=8`` would exceed the
-# fixture's 6-angle ``_C2_PHI_ANGLES`` array.
+# ``n_phi=6`` uses the fixture's full angle set; using ``n_phi=8`` would exceed
+# the fixture's 6-angle ``_C2_PHI_ANGLES`` array.
 
 
 @pytest.mark.parametrize(
-    "mode,n_phi,fourier_order",
+    "mode,n_phi",
     [
-        ("constant", 2, None),
-        ("individual", 4, None),
-        # ``fourier`` row removed: in-memory fourier was retired in Phase 1+2
-        # (full fourier-test teardown in Phase 7). The >=1M stratified-LS /
-        # streaming fourier paths keep their own coverage.
-        ("auto", 2, None),  # n_phi < constant_scaling_threshold (3) → constant
-        ("auto", 4, None),  # constant_threshold <= n_phi < fourier_threshold → averaged
-        ("auto", 6, None),  # n_phi >= constant_scaling_threshold (3) → averaged
+        ("constant", 2),
+        ("individual", 4),
+        ("auto", 2),  # n_phi < constant_scaling_threshold (3) → individual
+        ("auto", 4),  # n_phi >= constant_scaling_threshold (3) → averaged
+        ("auto", 6),  # n_phi >= constant_scaling_threshold (3) → averaged
     ],
 )
 def test_fit_nlsq_multi_phi_top_level_returns_optimization_result(
-    mode: str, n_phi: int, fourier_order: int | None
+    mode: str, n_phi: int
 ) -> None:
     """The public entry point returns one OptimizationResult in all modes.
 
     SSR conservation (``chi2_per_angle.sum() == chi_squared``) — the
     invariant locked in by B2's constant-mode result and reasserted by
-    C2's Fourier and C3's averaged tests — is checked uniformly across
+    C3's averaged test — is checked uniformly across
     every dispatched branch here.
     """
     pytest.importorskip("xpcsjax.core.heterodyne_model_stateful")
@@ -566,10 +417,7 @@ def test_fit_nlsq_multi_phi_top_level_returns_optimization_result(
     from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
 
     model = _build_minimal_heterodyne_model_for_fourier()
-    kwargs: dict[str, Any] = {"per_angle_mode": mode, "max_nfev": 30}
-    if fourier_order is not None:
-        kwargs["fourier_order"] = fourier_order
-    config = NLSQConfig(**kwargs)
+    config = NLSQConfig(per_angle_mode=mode, max_nfev=30)
     c2 = _build_synthetic_c2_stack_for_fourier(n_phi=n_phi, n_t=_C2_N_TIMES, model=model)
     phi = _C2_PHI_ANGLES[:n_phi]
 

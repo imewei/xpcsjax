@@ -57,7 +57,7 @@ def test_joint_cmaes_escape_valid_keep_better_and_tagged():
     reason=(
         "Cross-run bit/branch determinism of the joint escape relies on a "
         "bit-reproducible warm-start solve. macOS Accelerate-backed XLA is not "
-        "bit-reproducible across independent fits, which intermittently flips the "
+        "bit-reproducible across repeated fits, which intermittently flips the "
         "keep-better (win vs warmstart-kept) decision. Determinism is enforced on "
         "Linux (OpenBLAS) and Windows; the seed-pinned escape itself is "
         "deterministic (covered by test_heterodyne_cmaes_seed)."
@@ -262,9 +262,8 @@ def test_joint_multistart_escape_honors_averaged_default():
 
 
 # ---------------------------------------------------------------------------
-# Task 6: individual joint CMA-ES escape is scaling-first; escape gate is
-# collapsed to ``('individual',)`` so fourier no longer enters the joint
-# escape path.
+# Task 6: individual joint CMA-ES escape is scaling-first; the escape gate is
+# collapsed to ``('individual',)``.
 # ---------------------------------------------------------------------------
 def test_individual_cmaes_escape_returns_scaling_first():
     """The joint CMA-ES escape (individual) keeps-better and returns a
@@ -301,31 +300,3 @@ def test_individual_cmaes_escape_returns_scaling_first():
     assert result.nlsq_diagnostics["parameter_names"][0] == "contrast_0"
     # escape tagging present (escape ran or warm-start kept)
     assert "global_escape" in result.nlsq_diagnostics
-
-
-def test_fourier_escape_gate_removed():
-    """``fourier`` mode no longer enters the joint CMA-ES escape path.
-
-    In Phase 1+2 the in-memory Fourier arm was removed entirely; a fourier
-    request now raises ``ValueError`` at the in-memory dispatch (it never reaches
-    the joint CMA-ES escape). The >=1M stratified-LS / streaming fourier paths are
-    unaffected. (Full fourier-test teardown is Phase 7.)
-    """
-    from xpcsjax.optimization.nlsq.heterodyne_core import HAS_CMAES
-    if not HAS_CMAES:
-        pytest.skip("cmaes backend not importable")
-
-    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi as _fit
-
-    model, c2, phi = make_synthetic_two_component(n_phi=4, n_t=12)
-    cfg = NLSQConfig.from_dict(
-        {
-            "analysis_mode": "two_component",
-            "per_angle_mode": "fourier",
-            "enable_cmaes": True,
-            "cmaes_max_iterations": 5,
-            "max_nfev": 30,
-        }
-    )
-    with pytest.raises(ValueError, match="unknown per_angle_mode"):
-        _fit(model, c2, phi, cfg, None)

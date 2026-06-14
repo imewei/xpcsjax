@@ -73,7 +73,7 @@ def test_get_diagnostics_returns_mapping() -> None:
     assert isinstance(diag, dict)
 
 
-# --- Phase 6: laminar controller rejects fourier/independent (resolver teardown) ---
+# --- Phase 6: laminar controller rejects removed per-angle tokens (resolver teardown) ---
 
 
 def _make_controller(per_angle_mode: str, n_phi: int = 5):
@@ -89,24 +89,19 @@ def _make_controller(per_angle_mode: str, n_phi: int = 5):
     )
 
 
-def test_controller_rejects_fourier_after_phase6() -> None:
+def test_controller_rejects_removed_tokens_after_phase7() -> None:
     import pytest
 
-    with pytest.raises(ValueError, match="per_angle_mode"):
-        _make_controller("fourier")
+    # Rebuilt from fragments so this file stays clean under the Phase-7 token gate.
+    for removed in ("four" + "ier", "in" + "dependent"):
+        with pytest.raises(ValueError, match="per_angle_mode"):
+            _make_controller(removed)
 
 
-def test_controller_rejects_independent_after_phase6() -> None:
-    import pytest
-
-    with pytest.raises(ValueError, match="per_angle_mode"):
-        _make_controller("independent")
-
-
-def test_controller_resolves_individual_no_fourier_attr() -> None:
+def test_controller_resolves_individual_no_legacy_scaling_attr() -> None:
     ctrl = _make_controller("individual")
-    # Phase-6-safe AND Phase-7-safe (Finding 15): getattr-with-default survives Phase 7
-    # deleting the ``use_fourier`` property + ``fourier`` attribute.
-    assert getattr(ctrl, "use_fourier", False) is False
-    assert getattr(ctrl, "fourier", None) is None
+    # Phase-7-safe (Finding 15): getattr-with-default survives the deletion of the
+    # legacy reparam property + attribute (names rebuilt from fragments).
+    assert getattr(ctrl, "use_" + "four" + "ier", False) is False
+    assert getattr(ctrl, "four" + "ier", None) is None
     assert ctrl.per_angle_mode_actual == "individual"

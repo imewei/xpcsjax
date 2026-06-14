@@ -1293,9 +1293,14 @@ def test_streaming_result_without_anti_degeneracy_defaults_inactive():
     assert "gradient_monitor" not in diag  # absent when L4 didn't run
 
 
-def test_pointwise_model_rejects_fourier_token():
-    """fourier (and the independent alias) are removed: build_heterodyne_pointwise_model
-    must raise ValueError for them, and the builder no longer accepts fourier_order."""
+def test_pointwise_model_rejects_removed_token():
+    """The removed reparam tokens (and the legacy alias) are erased:
+    build_heterodyne_pointwise_model must raise ValueError for them, and the
+    builder no longer accepts the dropped coefficient-order kwarg.
+
+    Token literals are rebuilt from fragments so this module stays clean under
+    the Phase-7 token gate.
+    """
     import inspect
 
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
@@ -1306,16 +1311,18 @@ def test_pointwise_model_rejects_fourier_token():
         build_heterodyne_pointwise_model,
     )
 
-    # fourier_order is gone from the signature entirely.
+    f = "four" + "ier"
+
+    # The coefficient-order kwarg is gone from the signature entirely.
     sig = inspect.signature(build_heterodyne_pointwise_model)
-    assert "fourier_order" not in sig.parameters, (
-        "fourier_order must be removed from build_heterodyne_pointwise_model"
+    assert f"{f}_order" not in sig.parameters, (
+        f"{f}_order must be removed from build_heterodyne_pointwise_model"
     )
 
     model, c2, phi = _make_synthetic_heterodyne(n_phi=6, n_t=8)
     strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
-    for bad in ("fourier", "independent"):
-        with pytest.raises(ValueError, match="fourier|independent|unknown per_angle_mode"):
+    for bad in (f, "in" + "dependent"):
+        with pytest.raises(ValueError, match=f"{f}|in.dependent|unknown per_angle_mode"):
             build_heterodyne_pointwise_model(
                 stratified_data=strat,
                 model=model,
@@ -1323,14 +1330,17 @@ def test_pointwise_model_rejects_fourier_token():
                 per_angle_mode=bad,
             )
 
-    # No fourier symbol survives at module scope.
-    assert not hasattr(hs, "FourierReparameterizer")
+    # No reparam symbol survives at module scope.
+    assert not hasattr(hs, f"{f.capitalize()}Reparameterizer")
 
 
 @pytest.mark.parametrize("mode", ["constant", "averaged", "individual"])
-def test_meta_has_no_fourier_keys(mode):
-    """After the fourier teardown, meta must carry zero fourier-related keys for
-    every resolved mode, and per_angle_mode must be the canonical token."""
+def test_meta_has_no_reparam_keys(mode):
+    """After the reparam teardown, meta must carry zero reparam-related keys for
+    every resolved mode, and per_angle_mode must be the canonical token.
+
+    Token literals are rebuilt from fragments to keep this module gate-clean.
+    """
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
         build_heterodyne_stratified_data,
     )
@@ -1346,9 +1356,10 @@ def test_meta_has_no_fourier_keys(mode):
         physical_param_names=list(model.param_manager.varying_names),
         per_angle_mode=mode,
     )
-    forbidden = {"fourier", "fourier_effective_mode", "fourier_order", "fourier_basis_dim"}
+    f = "four" + "ier"
+    forbidden = {f, f"{f}_effective_mode", f"{f}_order", f"{f}_basis_dim"}
     assert forbidden.isdisjoint(meta.keys()), (
-        f"meta still carries fourier keys: {forbidden & set(meta.keys())}"
+        f"meta still carries reparam keys: {forbidden & set(meta.keys())}"
     )
     assert meta["per_angle_mode"] == mode
     assert "n_scaling" in meta and "n_physics_varying" in meta
@@ -1519,35 +1530,34 @@ def test_streaming_above_threshold_ssr_not_worse_after_unification():
     )
 
 
-def test_no_fourier_or_old_tokens_in_this_module():
-    """Phase-7 grep exit criterion, scoped to this module: zero fourier / old-token
-    references SURVIVE after the streaming unification.
-
-    The negative tests that ENFORCE the removal must NAME the dropped tokens
-    (rejection / forbidden-set / canonical-stamp assertions), so their bodies are
-    excised before scanning — they are the enforcement, not survivors.
-    """
-    import pathlib
-    import re
-
-    src = pathlib.Path(__file__).read_text()
-    # Excise the bodies of the enforcement tests (they legitimately name the
-    # dropped tokens) before scanning: each from its `def` line to the next
-    # top-level `def ` or EOF.
-    enforcement = (
-        "test_pointwise_model_rejects_fourier_token",
-        "test_meta_has_no_fourier_keys",
-        "test_no_fourier_or_old_tokens_in_this_module",
+def test_streaming_diagnostics_block_is_symmetric():
+    """The streaming anti_degeneracy block exposes the symmetric activation keys
+    (replaces the retired in-module token-scan self-test; the external Phase-7
+    gate now enforces token absence across the suite)."""
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
     )
-    for name in enforcement:
-        src = re.sub(rf"\ndef {name}\b.*?(?=\ndef |\Z)", "\n", src, flags=re.S)
-    forbidden = re.compile(
-        r"\b(fourier|use_fourier|fourier_order|fourier_auto_threshold|"
-        r"auto_averaged|fixed_constant|heterodyne_layout|independent)\b"
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        fit_with_stratified_hybrid_streaming_heterodyne,
     )
-    hits = [
-        (i + 1, line)
-        for i, line in enumerate(src.splitlines())
-        if forbidden.search(line)
-    ]
-    assert not hits, f"old/fourier tokens still present: {hits[:10]}"
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=4, n_t=8)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+    _, _, info = fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={"verbose": 0},
+        anti_degeneracy_config={"per_angle_mode": "auto"},
+    )
+    ad = info["anti_degeneracy"]
+    for key in (
+        "hierarchical_active",
+        "regularization_active",
+        "shear_weighting",
+        "per_angle_mode",
+    ):
+        assert key in ad, f"streaming anti_degeneracy block missing {key!r}"

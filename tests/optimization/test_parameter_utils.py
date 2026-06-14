@@ -173,7 +173,7 @@ def test_consistent_init_recovers_known_scaling_static() -> None:
     g1_sq = _static_g1_sq(t1, t2, t_unique, q, dt, D0, alpha, D_offset)
     g2 = offset_true + contrast_true * g1_sq
 
-    # Two angles sharing identical (phi-independent) diffusion structure.
+    # Two angles sharing identical (phi-agnostic) diffusion structure.
     phi = np.concatenate([np.zeros(100), np.full(100, 45.0)])
     data = _static_stratified(np.tile(g2, 2), np.tile(t1, 2), np.tile(t2, 2), phi, q, dt)
 

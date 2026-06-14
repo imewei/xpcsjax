@@ -7,8 +7,8 @@ That is an internally inconsistent estimator: the returned parameter vector
 does NOT reproduce the reported ``chi_squared``.
 
 The fix routes explicit multi-angle ``individual`` through the existing joint
-solver (``_fit_joint_multi_phi`` via ``FourierReparameterizer`` independent
-mode), exactly like the ``fourier`` branch and matching xpcsjax
+solver (``_fit_joint_multi_phi`` with per-angle scaling layout),
+matching xpcsjax
 ``laminar_flow`` and upstream heterodyne. A correct joint fit has one
 consistent optimum, so re-evaluating the model at ``res.parameters`` MUST
 reproduce ``res.chi_squared``.

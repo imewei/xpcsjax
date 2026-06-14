@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 
 
@@ -13,19 +11,6 @@ def test_individual_mode_accepted() -> None:
     assert cfg.per_angle_mode == "individual"
     errors = cfg.validate()
     assert errors == [], f"expected no validation errors, got {errors}"
-
-
-def test_independent_deprecation_alias() -> None:
-    """`independent` maps to `individual` with a DeprecationWarning that points at the user's call site."""
-    with pytest.warns(DeprecationWarning, match=r"'independent' is deprecated") as records:
-        cfg = NLSQConfig(per_angle_mode="independent")  # type: ignore[arg-type]
-    assert cfg.per_angle_mode == "individual"
-    assert len(records) == 1
-    # stacklevel should point at this test file, not dataclass-synthesized <string> code
-    assert records[0].filename.endswith("test_heterodyne_modes.py"), (
-        f"DeprecationWarning fired at {records[0].filename}:{records[0].lineno} — "
-        "expected to point at user call site (stacklevel issue?)"
-    )
 
 
 def test_averaged_function_renamed() -> None:
@@ -85,7 +70,7 @@ def test_auto_with_small_n_phi_uses_individual() -> None:
 
 
 def test_auto_with_mid_n_phi_uses_averaged() -> None:
-    """`auto` mode with constant_threshold <= n_phi < fourier_auto_threshold dispatches averaged."""
+    """`auto` mode with n_phi >= constant_threshold dispatches averaged."""
     from unittest.mock import patch
 
     import numpy as np
@@ -96,7 +81,6 @@ def test_auto_with_mid_n_phi_uses_averaged() -> None:
     config = NLSQConfig(
         per_angle_mode="auto",
         constant_scaling_threshold=3,
-        fourier_auto_threshold=6,
     )
 
     class _StubModel:
@@ -116,11 +100,9 @@ def test_auto_with_mid_n_phi_uses_averaged() -> None:
 
 
 def test_auto_with_large_n_phi_uses_averaged() -> None:
-    """`auto` with large n_phi dispatches averaged, NOT fourier.
+    """`auto` with large n_phi dispatches averaged.
 
-    Unified rule: auto never auto-selects fourier (``fourier_auto_threshold``
-    has no effect under auto). Even at n_phi=8 (>= the old fourier threshold),
-    auto resolves to averaged; fourier must be requested explicitly.
+    Unified rule: at large n_phi (e.g. n_phi=8), auto resolves to averaged.
     """
     from unittest.mock import patch
 
@@ -132,14 +114,13 @@ def test_auto_with_large_n_phi_uses_averaged() -> None:
     config = NLSQConfig(
         per_angle_mode="auto",
         constant_scaling_threshold=3,
-        fourier_auto_threshold=6,
     )
 
     class _StubModel:
         pass
 
     model = _StubModel()
-    c2 = np.zeros((8, 8, 8))  # n_phi = 8, at/above the OLD fourier threshold
+    c2 = np.zeros((8, 8, 8))  # n_phi = 8, well above the constant threshold
     phi = np.linspace(0, 157.5, 8)
 
     with patch(
@@ -151,13 +132,13 @@ def test_auto_with_large_n_phi_uses_averaged() -> None:
     mock_avg.assert_called_once()
 
 
-def test_auto_never_selects_constant_or_fourier() -> None:
+def test_auto_never_selects_constant() -> None:
     """Unified rule: auto ∈ {individual, averaged} for ALL n_phi; explicit
-    constant/fourier/individual pass through unchanged."""
+    constant/individual pass through unchanged."""
     from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
     from xpcsjax.optimization.nlsq.heterodyne_core import _resolve_effective_mode
 
-    auto = NLSQConfig(per_angle_mode="auto", constant_scaling_threshold=3, fourier_auto_threshold=6)
+    auto = NLSQConfig(per_angle_mode="auto", constant_scaling_threshold=3)
     for n_phi in (1, 2, 3, 4, 5, 6, 10, 23, 100):
         mode = _resolve_effective_mode(auto, n_phi)
         assert mode in ("individual", "averaged"), (
@@ -166,43 +147,6 @@ def test_auto_never_selects_constant_or_fourier() -> None:
         assert mode == ("individual" if n_phi < 3 else "averaged")
 
     # Explicit modes are honored regardless of n_phi.
-    for explicit in ("constant", "fourier", "individual"):
+    for explicit in ("constant", "individual"):
         cfg = NLSQConfig(per_angle_mode=explicit)
         assert _resolve_effective_mode(cfg, 8) == explicit
-
-
-def test_no_build_joint_fourier_symbol() -> None:
-    """The legacy in-memory Fourier joint builders are deleted (Task 10).
-
-    ``_build_joint_fourier`` (reparameterizer factory) and
-    ``_build_joint_problem_fourier`` (physics-first problem builder) are the two
-    in-memory Fourier-arm symbols torn down here. Both must be gone from
-    ``heterodyne_core`` after the teardown.
-    """
-    import xpcsjax.optimization.nlsq.heterodyne_core as hc
-
-    assert not hasattr(hc, "_build_joint_fourier")
-    assert not hasattr(hc, "_build_joint_problem_fourier")
-
-
-def test_resolver_rejects_fourier_in_dispatch() -> None:
-    """In-memory ``fit_nlsq_multi_phi`` rejects a fourier-resolved mode (Task 10).
-
-    The in-memory joint path no longer builds a Fourier problem; a fourier
-    resolved mode raises ``ValueError`` at the dispatch site (the shared
-    ``_resolve_effective_mode`` still RETURNS ``"fourier"`` for the
-    stratified-LS / streaming paths, which is out of scope here).
-    """
-    import numpy as np
-    import pytest
-
-    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
-    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
-    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
-
-    # n_phi=4 (>= constant_scaling_threshold) so an explicit ``fourier`` request
-    # resolves to ``"fourier"`` and reaches the in-memory dispatch's reject path.
-    model, c2, phi = make_synthetic_two_component(n_phi=4, n_t=10)
-    cfg = NLSQConfig(per_angle_mode="fourier")
-    with pytest.raises(ValueError, match="unknown per_angle_mode"):
-        fit_nlsq_multi_phi(model, np.asarray(c2), np.asarray(phi), cfg, None)

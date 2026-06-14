@@ -49,7 +49,7 @@ def test_from_config_accepts_analysis_mode_kwarg():
 
 def test_layer5_gated_off_for_two_component():
     """Lineage gate must short-circuit ShearSensitivityWeighting for heterodyne
-    (two_component) fits, independent of whatever upstream ``is_laminar_flow``
+    (two_component) fits, regardless of whatever upstream ``is_laminar_flow``
     flag the call site happened to pass."""
     controller = _build(analysis_mode="two_component")
     assert controller.is_layer_active("ShearSensitivityWeighting") is False

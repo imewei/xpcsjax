@@ -156,7 +156,7 @@ def test_all_cmaes_config_sites_pin_seed() -> None:
     reason="CMA-ES backend (evosax) not installed; determinism not testable",
 )
 def test_per_angle_cmaes_is_bit_reproducible() -> None:
-    """Two independent per-angle CMA-ES fits return identical parameters.
+    """Two separate per-angle CMA-ES fits return identical parameters.
 
     The behavioral consequence of the seed fix. A fresh model is built per run
     because ``model.scaling`` is mutated by every fit (see heterodyne_core's

@@ -1,7 +1,7 @@
 """Tests for three NLSQ support modules.
 
-* parameter_index_mapper: parameter-group index bookkeeping across the three
-  per-angle modes (constant / fourier / individual), with mutual-exclusion and
+* parameter_index_mapper: parameter-group index bookkeeping across the
+  per-angle modes (constant / individual), with mutual-exclusion and
   bounds validation.
 * jacobian: jacfwd-based Jacobian statistics, condition number, sensitivity,
   and gradient-noise estimation (well- vs ill-conditioned QR branch, failure
@@ -12,7 +12,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any, cast
 
 import jax.numpy as jnp
@@ -28,21 +27,9 @@ from xpcsjax.optimization.nlsq.parameter_index_mapper import ParameterIndexMappe
 # ===========================================================================
 
 
-def _fourier_stub(n_coeffs_per_param: int = 5) -> Any:
-    return cast(
-        Any,
-        SimpleNamespace(
-            use_fourier=True,
-            n_coeffs_per_param=n_coeffs_per_param,
-            n_coeffs=2 * n_coeffs_per_param,
-        ),
-    )
-
-
 def test_mapper_individual_mode() -> None:
     m = ParameterIndexMapper(n_phi=23, n_physical=7)
     assert m.mode_name == "individual"
-    assert m.use_fourier is False
     assert m.n_per_angle_total == 46
     assert m.n_per_group == 23
     assert m.get_group_indices() == [(0, 23), (23, 46)]
@@ -59,22 +46,11 @@ def test_mapper_constant_mode() -> None:
     assert m.total_params == 9
 
 
-def test_mapper_fourier_mode() -> None:
-    m = ParameterIndexMapper(n_phi=23, n_physical=7, fourier=_fourier_stub(5))
-    assert m.mode_name == "fourier"
-    assert m.use_fourier is True
-    assert m.n_per_group == 5
-    assert m.n_per_angle_total == 10
-    assert m.get_group_indices() == [(0, 5), (5, 10)]
-
-
 def test_mapper_validation_errors() -> None:
     with pytest.raises(ValueError, match="n_phi must be >= 1"):
         ParameterIndexMapper(n_phi=0, n_physical=7)
     with pytest.raises(ValueError, match="n_physical must be >= 1"):
         ParameterIndexMapper(n_phi=5, n_physical=0)
-    with pytest.raises(ValueError, match="Cannot use both"):
-        ParameterIndexMapper(n_phi=5, n_physical=7, fourier=_fourier_stub(), use_constant=True)
 
 
 def test_mapper_per_angle_indices_and_slices() -> None:
@@ -174,7 +150,7 @@ def test_analyze_parameter_sensitivity() -> None:
 
 
 def test_analyze_parameter_sensitivity_zero_gradient() -> None:
-    # Residual independent of params -> all column norms zero -> zeros.
+    # Residual unaffected by params -> all column norms zero -> zeros.
     def constant_resid(x: np.ndarray, a: float, b: float) -> jnp.ndarray:
         return jnp.asarray(x)
 

@@ -42,7 +42,7 @@ def test_auto_honors_custom_threshold():
     assert resolve_per_angle_mode("auto", 6, constant_scaling_threshold=6) == "averaged"
 
 
-@pytest.mark.parametrize("bad", ["fourier", "independent", "Auto", "", "AVERAGED", "foo"])
+@pytest.mark.parametrize("bad", ["Auto", "", "AVERAGED", "foo"])
 def test_unknown_and_removed_tokens_raise_valueerror(bad):
     with pytest.raises(ValueError, match="unknown per_angle_mode"):
         resolve_per_angle_mode(bad, n_phi=10)

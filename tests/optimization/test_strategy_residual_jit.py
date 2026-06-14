@@ -2,7 +2,7 @@
 
 ``StratifiedResidualFunctionJIT`` pads chunks to a uniform size and vmaps the
 per-chunk residual for JIT compatibility. Tests build a tiny synthetic
-stratified dataset and assert structural invariants independent of the physics:
+stratified dataset and assert structural invariants regardless of the physics:
 output length (n_chunks * max_chunk_size), finiteness, exact-zero residuals on
 the t1==t2 diagonal AND on padded slots, across all three scaling modes
 (per-angle, scalar, fixed/constant). Metadata-consistency and validation errors

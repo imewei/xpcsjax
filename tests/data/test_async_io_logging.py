@@ -122,7 +122,7 @@ def test_shutdown_loop_warning_is_rate_limited_per_call(caplog):
 
 
 def test_second_wait_all_call_logs_independently(caplog):
-    """A second independent wait_all() call still logs (no cross-call suppression).
+    """A second separate wait_all() call still logs (no cross-call suppression).
 
     Regression guard for the None-collapsed key: keying log_once on run_id alone
     (None outside a run context) suppressed the WARNING for every later call. A
@@ -148,7 +148,7 @@ def test_second_wait_all_call_logs_independently(caplog):
 
         caplog.clear()
 
-        # Second, independent call: a new failing future must ALSO log a WARNING.
+        # Second, separate call: a new failing future must ALSO log a WARNING.
         writer.submit_task(_boom)
         with caplog.at_level(logging.DEBUG, logger="xpcsjax"):
             second_errors = writer.wait_all(timeout=10.0)
@@ -159,7 +159,7 @@ def test_second_wait_all_call_logs_independently(caplog):
             if r.levelno == logging.WARNING and "call boom" in r.getMessage()
         ]
         assert len(second_warnings) == 1, (
-            "a second independent wait_all() call must emit its own WARNING; "
+            "a second separate wait_all() call must emit its own WARNING; "
             f"got {len(second_warnings)} (cross-call suppression regression)"
         )
     finally:
