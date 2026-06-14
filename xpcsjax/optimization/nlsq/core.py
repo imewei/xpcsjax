@@ -1840,7 +1840,7 @@ def fit_nlsq_cmaes(
         use_averaged_scaling = False
         ad_controller = None
         is_laminar_flow = analysis_mode == "laminar_flow"
-        # L1-L4 (Fourier reparam / hierarchical / regularization / gradient
+        # L1-L4 (per-angle reparam / hierarchical / regularization / gradient
         # monitoring) apply to ALL homodyne modes with per-angle scaling; only L5
         # (shear weighting) stays gated to laminar_flow. The controller's
         # _LAYER_GATES suppresses L5 internally for non-laminar modes, and the L5

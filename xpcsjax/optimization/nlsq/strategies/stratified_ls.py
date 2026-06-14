@@ -248,7 +248,6 @@ def fit_with_stratified_least_squares(
             log.info(f"  use_shear_weighting: {ad_controller.use_shear_weighting}")
             log.info("=" * 60)
 
-            # Transform initial parameters for Fourier mode only
             # CONSTANT MODE: Parameter transformation is handled later
             # when computing fixed per-angle scaling from quantiles
             if ad_controller.use_fixed_scaling:

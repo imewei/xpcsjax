@@ -303,7 +303,7 @@ def fit_with_stratified_hybrid_streaming(
     - Phase 3: Denormalization and covariance transform
 
     With Anti-Degeneracy Defense System integration:
-    - Layer 1: Fourier Reparameterization (reduces per-angle DoF)
+    - Layer 1: Per-Angle Reparameterization (reduces per-angle DoF)
     - Layer 2: Hierarchical Optimization (alternating stage fitting)
     - Layer 3: Adaptive CV-based Regularization (scales properly)
     - Layer 4: Gradient Collapse Detection (runtime monitoring)
@@ -360,7 +360,7 @@ def fit_with_stratified_hybrid_streaming(
 
     Notes
     -----
-    Layers L1-L4 (Fourier reparameterization, hierarchical optimization,
+    Layers L1-L4 (per-angle reparameterization, hierarchical optimization,
     adaptive CV regularization, gradient-collapse monitoring) gate on
     ``per_angle_scaling`` and fire for all analysis modes. L4 is strictly
     diagnostic (monitor-on vs monitor-off is bit-identical). L5 shear weighting
@@ -441,7 +441,7 @@ def fit_with_stratified_hybrid_streaming(
     phi_unique = np.array(sorted(set(all_phi_early)))  # For shear weighting
 
     # is_laminar_flow (shear present) gates ONLY Layer 5 (shear weighting) and the
-    # shear-specific bounds/popt handling below. Layers 1-4 (Fourier reparam,
+    # shear-specific bounds/popt handling below. Layers 1-4 (per-angle reparam,
     # hierarchical, adaptive regularization, gradient monitoring) gate on
     # per_angle_scaling alone so they fire for ALL analysis modes, not just
     # laminar_flow.
@@ -665,7 +665,7 @@ def fit_with_stratified_hybrid_streaming(
     hierarchical_optimizer = None
     # Skip hierarchical optimization in constant scaling mode:
     # - Constant mode already prevents per-angle absorption (2 DoF vs 46)
-    # - HierarchicalOptimizer expects n_per_angle = 2*n_phi or n_coeffs (Fourier)
+    # - HierarchicalOptimizer expects n_per_angle = 2*n_phi (contrast + offset)
     # - Using hierarchical with constant mode causes index mismatch error
     if enable_hierarchical and per_angle_scaling and not use_constant:
         # n_physical defined unconditionally above
@@ -852,10 +852,9 @@ def fit_with_stratified_hybrid_streaming(
     # ===================================================================== #
     if enable_group_variance_regularization and group_variance_indices_raw is None:
         if is_laminar_flow and per_angle_scaling and n_phi > 3:
-            # T031: Handle fixed scaling, constant, Fourier, and individual modes
+            # T031: Handle fixed scaling, constant, and individual modes
             # Fixed scaling mode: 0 per-angle params (all fixed)
             # Constant mode: 1 value per group (contrast/offset)
-            # Fourier mode: n_coeffs_per_param values per group
             # Individual mode: n_phi values per group
             if use_fixed_scaling:
                 # No per-angle params to regularize - skip group variance
@@ -1328,7 +1327,6 @@ def fit_with_stratified_hybrid_streaming(
     opt_start = time.perf_counter()
 
     # Layer 2: Hierarchical optimization path
-    # Can be combined with Fourier mode (hierarchical operates on Fourier params)
     result: dict[str, Any]
     if use_hierarchical:
         # Use hierarchical two-stage optimization
@@ -1672,7 +1670,7 @@ def fit_with_stratified_hybrid_streaming(
             logger.warning("=" * 60)
 
     # Get covariance (properly transformed from normalized space)
-    # Priority: 1) pcov_transformed (from Fourier space), 2) pcov, 3) identity fallback
+    # Priority: 1) pcov_transformed (from reparameterized space), 2) pcov, 3) identity fallback
     pcov = result.get("pcov_transformed", None)
     if pcov is None:
         pcov = result.get("pcov", None)

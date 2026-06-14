@@ -288,8 +288,8 @@ NLSQ_AVAILABLE = HAS_ADAPTERS
 
 # ---------------------------------------------------------------------------
 # Shared diagnostics helper (used by every joint multi-phi path that returns
-# an OptimizationResult — currently the Fourier path here and the constant
-# path in heterodyne_constant_mode.py via re-import)
+# an OptimizationResult — the averaged/individual joint paths here and the
+# constant path in heterodyne_constant_mode.py via re-import)
 # ---------------------------------------------------------------------------
 
 
@@ -301,11 +301,11 @@ def _build_heterodyne_diagnostics(
 ) -> dict[str, Any]:
     """Build the standard heterodyne ``nlsq_diagnostics`` dict.
 
-    Centralises the five canonical keys every heterodyne-side
-    :class:`OptimizationResult` carries so the Fourier-mode joint path here
-    and the constant-mode joint path in :mod:`heterodyne_constant_mode` stay
-    in lockstep. Extra mode-specific keys (e.g. ``contrast_per_angle_fixed``
-    in constant mode, ``fourier_coeffs`` in Fourier mode) are passed through
+    Centralises the canonical keys every heterodyne-side
+    :class:`OptimizationResult` carries so the averaged/individual joint paths
+    here and the constant-mode joint path in :mod:`heterodyne_constant_mode`
+    stay in lockstep. Extra mode-specific keys (e.g.
+    ``contrast_per_angle_fixed`` in constant mode) are passed through
     ``**extras``.
 
     The anti-degeneracy activation block (``hierarchical_active`` /
@@ -977,8 +977,8 @@ def _fit_joint_averaged_multi_phi(
     NLSQ solve below is used as the warm-start, a seed-pinned global search is
     run over the SAME ``[physics | avg_contrast, avg_offset]`` data residual,
     and the better (lower data-only SSR) vector is kept. This honours the
-    ``auto → averaged`` default under CMA-ES / multistart instead of collapsing
-    to the Fourier layout — matching the plain dispatch and laminar_flow's
+    ``auto → averaged`` default under CMA-ES / multistart instead of switching
+    the scaling layout — matching the plain dispatch and laminar_flow's
     CMA-ES. An escape result carries ``nlsq_diagnostics["global_escape"]`` and,
     by the escape contract, NaN covariance / uncertainties and
     ``n_iterations=0`` (no covariance solve on the kept vector).
@@ -1297,7 +1297,7 @@ def _fit_joint_averaged_multi_phi(
     # ``compute_multi_angle_residuals`` returns an angle-major flat layout
     # (n_phi, n_per_angle) — n_per_angle = (n_time - 1) * (n_time - 2) because
     # the kernel excludes the diagonal AND the t=0 boundary row/col. Re-use the canonical helper from
-    # heterodyne_constant_mode (same import the Fourier-mode joint path uses).
+    # heterodyne_constant_mode (the canonical chi2-decomposition helper).
     # ------------------------------------------------------------------
     from xpcsjax.optimization.nlsq.heterodyne_constant_mode import (
         _decompose_chi2_per_angle,
@@ -1508,9 +1508,6 @@ def _fit_joint_averaged_multi_phi(
     )
 
 
-# Phase-6 minimal stub: delegates to the standard joint Fourier fit so the
-# return shape is ``OptimizationResult`` (matches the constant/averaged/Fourier
-# paths).  A real CMA-ES escape with NLSQ warm-start and Fourier-reparam
 # Deterministic seed pinned on the joint CMA-ES escape. ``CMAESWrapperConfig``
 # (and NLSQ's ``CMAESConfig``) default ``seed=None`` → non-reproducible; the
 # escape MUST pin it so the global search is bit-reproducible run to run.
@@ -1557,8 +1554,7 @@ def _fit_joint_cmaes_multi_phi(
     narrowed in Task 6 to ``effective_mode == "individual"``).  The escape
     builds the :class:`JointProblem` via :func:`_build_joint_problem` which
     returns a scaling-first vector ``[scaling_head | physics]`` — the same
-    layout the plain joint fit produces.  No Fourier reparameterizer is built;
-    the in-memory Fourier arm has been removed.
+    layout the plain joint fit produces.
 
     When CMA-ES is kept, the returned :class:`OptimizationResult` is tagged via
     ``nlsq_diagnostics["global_escape"]`` and, by construction, carries NaN
@@ -1840,7 +1836,7 @@ def _fit_joint_multistart(
 # two solvers accept a ``global_escape_kind`` and run the search over their own
 # data residual via the helpers below. Keep-better (escape kept only if it does
 # not increase the data-only SSR) and the NaN-covariance / n_iterations=0 escape
-# contract are applied by the solver, exactly like the Fourier escape.
+# contract are applied by the solver, exactly like the individual-mode escape.
 # ---------------------------------------------------------------------------
 
 
@@ -1895,8 +1891,8 @@ def _cmaes_joint_candidate(
 
     Returns the CMA-ES optimum (``None`` when the search did not succeed so the
     caller keeps the warm-start). Mirrors ``_fit_joint_cmaes_multi_phi`` Phase 2
-    but over the averaged/constant data residual (not the Fourier-augmented
-    one); ``ydata=zeros`` ⇒ CMA-ES minimises ``||residual||²`` directly.
+    but over the averaged/constant data residual; ``ydata=zeros`` ⇒ CMA-ES
+    minimises ``||residual||²`` directly.
     """
     from xpcsjax.optimization.nlsq.cmaes_wrapper import CMAESWrapperConfig
 
@@ -1947,9 +1943,9 @@ def _multistart_joint_candidate(
     """Seed-pinned LHS multistart over ``base_residual_fn``; returns the best start.
 
     Mirrors ``_fit_joint_multistart`` but each start is a local trust-region
-    refine of the averaged/constant data residual (``_solve_residual_nlsq``)
-    rather than a Fourier-reparam joint solve. The keep-better vs the warm-start
-    is applied by the caller (``_apply_global_escape``).
+    refine of the averaged/constant data residual (``_solve_residual_nlsq``).
+    The keep-better vs the warm-start is applied by the caller
+    (``_apply_global_escape``).
     """
     if not HAS_JOINT_MULTISTART:
         return None
@@ -2475,16 +2471,13 @@ def _build_joint_problem(
     # L3 anti-degeneracy: wrap base residual with adaptive CV-regularization.
     # When ``config.regularization_mode != "none"`` we build an
     # AdaptiveRegularizer keyed to the per-angle scaling groups (contrast +
-    # offset, derived from the Fourier coefficients) and append penalty rows
-    # to the residual vector. NLSQ's trust-region solver minimises ``||r||²``,
-    # so K appended rows with values ``sqrt(lambda) * CV_g`` yield an extra
-    # ``lambda * sum_g(CV_g^2)`` penalty term — the JIT-traceable variant of
-    # the CV-based regularizer documented in
+    # offset) and append penalty rows to the residual vector. NLSQ's
+    # trust-region solver minimises ``||r||²``, so K appended rows with values
+    # ``sqrt(lambda) * CV_g`` yield an extra ``lambda * sum_g(CV_g^2)`` penalty
+    # term — the JIT-traceable variant of the CV-based regularizer documented in
     # ``adaptive_regularization.AdaptiveRegularizer``. Penalty rows operate
-    # on the *per-angle scaling arrays* derived from the Fourier coefficients
-    # (the natural target since Fourier reparameterization may smooth the
-    # raw coefficient variance away from the per-angle CV that actually
-    # matters).
+    # on the *per-angle scaling arrays* (contrast + offset), the natural target
+    # for the per-angle CV that actually matters.
     #
     # Wrapping happens here (inside the residual factory) rather than after
     # the solve so NLSQ's CurveFit sees the augmented residual end-to-end.
@@ -2636,7 +2629,7 @@ def _fit_joint_multi_phi(
     ub = prob.ub
 
     # Run optimization via NLSQAdapter (primary) with NLSQWrapper fallback.
-    # max_nfev is multiplied by n_phi here because the Fourier joint solve
+    # max_nfev is multiplied by n_phi here because the joint multi-angle solve
     # packs all angles into a single residual vector; the per-angle budget
     # documented on NLSQConfig.max_nfev is preserved by scaling the
     # combined cap. See NLSQConfig.max_nfev docstring for the contract.
@@ -2772,8 +2765,8 @@ def _build_joint_result(
     # Canonical scaling-first vector ``[scaling_head | physics]``: physics is the
     # TAIL, the scaling head expands to dense per-angle contrast/offset.
     # ``_split_scaling_first_joint`` is the host-side (NumPy) reader — POST-fit
-    # only, never inside the JIT residual. (The in-memory Fourier physics-first
-    # path was removed; the joint problem is always scaling-first.)
+    # only, never inside the JIT residual. (The joint problem is always
+    # scaling-first.)
     fitted_physics, fitted_contrast, fitted_offset = _split_scaling_first_joint(
         fitted_params_full,
         mode=resolved_mode,

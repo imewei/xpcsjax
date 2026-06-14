@@ -328,7 +328,7 @@ class NLSQConfig:
     Notes
     -----
     Only the most load-bearing fields are documented below; the additional
-    Fourier-reparameterization, hierarchical, regularization, gradient-monitor,
+    per-angle-reparameterization, hierarchical, regularization, gradient-monitor,
     CMA-ES, hybrid-streaming, and multi-start knobs are grouped inline at their
     declarations. The ``per_angle_mode`` field accepts the user-facing tokens
     ``{"individual", "auto", "constant"}``; ``"averaged"`` is *not* a user

@@ -222,15 +222,8 @@ class GradientCollapseMonitor:
             Indices of physical parameters. Converted to numpy array internally
             to support both NumPy and JAX array indexing.
         per_angle_indices : Sequence[int] or np.ndarray
-            Indices of per-angle parameters (or Fourier coefficients when
-            Fourier reparameterization is active). Converted to numpy array
-            internally.
-
-        Notes
-        -----
-        When Fourier reparameterization is active, per_angle_indices should
-        correspond to Fourier coefficient indices (typically 10 for order=2),
-        not separate per-angle indices (2 * n_phi).
+            Indices of the per-angle scaling parameters (the ``2 * n_phi``
+            contrast/offset slots). Converted to numpy array internally.
         """
         self.config = config
         # Use numpy arrays for indices to support both NumPy and JAX array indexing

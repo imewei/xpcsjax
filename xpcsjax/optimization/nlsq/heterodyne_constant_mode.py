@@ -85,8 +85,8 @@ def _fit_joint_constant_multi_phi(
     over the SAME physics-only data residual (scaling stays quantile-frozen),
     keeping the lower-SSR vector. This honours an explicit ``constant`` request
     under CMA-ES / multistart — a physics-only global escape, mirroring
-    laminar_flow's ``constant`` CMA-ES — instead of collapsing to the
-    Fourier layout. An escape result carries ``nlsq_diagnostics["global_escape"]``
+    laminar_flow's ``constant`` CMA-ES — instead of switching the scaling
+    layout. An escape result carries ``nlsq_diagnostics["global_escape"]``
     and, by the escape contract, NaN covariance / uncertainties and
     ``n_iterations=0``.
 
@@ -331,7 +331,7 @@ def _fit_joint_constant_multi_phi(
     # 8. Translate heterodyne NLSQResult → homodyne-side OptimizationResult.
     # ------------------------------------------------------------------
     # Escape contract: a kept global-escape vector has no covariance solve, so
-    # uncertainties / covariance are NaN (mirrors the averaged / Fourier escapes).
+    # uncertainties / covariance are NaN (mirrors the averaged escape).
     if is_escape:
         uncertainties = np.full(n_physics, np.nan, dtype=np.float64)
         covariance = np.full((n_physics, n_physics), np.nan, dtype=np.float64)

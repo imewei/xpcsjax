@@ -717,7 +717,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
             config=hier_config,
             n_phi=n_phi_meta,
             n_physical=meta["n_physics_varying"],
-            # 'individual' only reaches here; no Fourier reparameterizer exists.
+            # 'individual' only reaches here; per-angle scaling is unreparameterized.
         )
         logger.info(
             "L2 hierarchical optimizer enabled (heterodyne streaming): "
