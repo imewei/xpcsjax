@@ -16,16 +16,16 @@ from typing import Any, Literal
 import numpy as np
 
 from xpcsjax.config.parameter_registry import AnalysisMode
+from xpcsjax.optimization.nlsq.per_angle_mode import DEFAULT_CONSTANT_SCALING_THRESHOLD
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Per-angle scaling vocabularies. ``PerAngleMode`` is what a user/config may set
-# (``"independent"`` is a deprecated alias for ``"individual"``);
+# Per-angle scaling vocabularies. ``PerAngleMode`` is what a user/config may set;
 # ``ResolvedPerAngleMode`` is the canonical token ``_resolve_effective_mode``
 # dispatches on after applying the auto/threshold rules.
-PerAngleMode = Literal["individual", "fourier", "auto", "constant", "independent"]
-ResolvedPerAngleMode = Literal["constant", "averaged", "fourier", "individual"]
+PerAngleMode = Literal["individual", "auto", "constant"]
+ResolvedPerAngleMode = Literal["constant", "averaged", "individual"]
 
 # ---------------------------------------------------------------------------
 # Safe type-conversion utilities
@@ -331,9 +331,8 @@ class NLSQConfig:
     Fourier-reparameterization, hierarchical, regularization, gradient-monitor,
     CMA-ES, hybrid-streaming, and multi-start knobs are grouped inline at their
     declarations. The ``per_angle_mode`` field accepts the user-facing tokens
-    ``"individual"``, ``"fourier"``, ``"auto"``, and ``"constant"``
-    (``"independent"`` is a deprecated alias for ``"individual"``, normalised in
-    :meth:`__post_init__`); ``"averaged"`` is *not* a user input — it is an
+    ``{"individual", "auto", "constant"}``; ``"averaged"`` is *not* a user
+    input — it is an
     internally resolved mode that ``auto`` produces when
     ``n_phi >= constant_scaling_threshold`` (default 3), falling back to
     ``"individual"`` below that threshold.
@@ -385,7 +384,7 @@ class NLSQConfig:
            single combined least-squares problem whose residual vector
            concatenates all angles, so the per-call cap is scaled by ``n_phi``
            to give each angle the same iteration budget it would have under
-           independent fits. Single-angle paths (``_fit_local``,
+           separate per-angle fits. Single-angle paths (``_fit_local``,
            ``_fit_multistart``) pass ``max_nfev`` through unchanged.
     chunk_size : int or None
         Number of q-points per processing chunk. ``None`` means auto-select
@@ -433,9 +432,8 @@ class NLSQConfig:
     step_bound : float
         Upper bound on the step norm relative to the trust radius. ``0.0``
         defers to the solver default.
-    per_angle_mode : {"individual", "fourier", "auto", "constant", "independent"}
-        Per-angle scaling layout (see Notes). ``"independent"`` is a deprecated
-        alias for ``"individual"``.
+    per_angle_mode : {"individual", "auto", "constant"}
+        Per-angle scaling layout (see Notes).
     constant_scaling_threshold : int
         ``n_phi`` threshold (default 3) at or above which ``auto`` resolves to
         the ``"averaged"`` scaling layout; below it ``auto`` uses
@@ -526,12 +524,10 @@ class NLSQConfig:
     step_bound: float = 0.0
 
     # ------------------------------------------------------------------
-    # Fourier reparameterization for per-angle scaling
+    # Per-angle scaling mode
     # ------------------------------------------------------------------
 
     per_angle_mode: PerAngleMode = "auto"
-    fourier_order: int = 2
-    fourier_auto_threshold: int = 6
 
     # ------------------------------------------------------------------
     # Hierarchical optimization
@@ -609,7 +605,7 @@ class NLSQConfig:
     # Scaling threshold
     # ------------------------------------------------------------------
 
-    constant_scaling_threshold: int = 3
+    constant_scaling_threshold: int = DEFAULT_CONSTANT_SCALING_THRESHOLD
 
     # ------------------------------------------------------------------
     # Backend and model identity
@@ -641,22 +637,6 @@ class NLSQConfig:
 
     def __post_init__(self) -> None:
         """Validate invariants that must hold immediately after construction."""
-        # Deprecation alias: 'independent' → 'individual' (homodyne's canonical
-        # vocabulary). Emit a DeprecationWarning and normalize so downstream
-        # code only ever sees 'individual'. Slated for future removal.
-        # TODO: remove deprecation alias
-        if self.per_angle_mode == "independent":
-            import warnings
-
-            warnings.warn(
-                "per_angle_mode='independent' is deprecated; use 'individual' "
-                "(matches homodyne's canonical name). 'independent' will be "
-                "removed in a future release.",
-                DeprecationWarning,
-                stacklevel=3,  # user -> synthesized __init__ -> __post_init__ -> warnings.warn
-            )
-            self.per_angle_mode = "individual"
-
         if self.max_iterations < 1:
             raise ValueError("max_iterations must be >= 1")
         if self.tolerance <= 0:
@@ -705,12 +685,6 @@ class NLSQConfig:
             raise ValueError("screen_keep_fraction must be in (0, 1]")
         if self.refine_top_k < 1:
             raise ValueError("refine_top_k must be >= 1")
-        if self.constant_scaling_threshold >= self.fourier_auto_threshold:
-            raise ValueError(
-                f"constant_scaling_threshold ({self.constant_scaling_threshold}) must be "
-                f"< fourier_auto_threshold ({self.fourier_auto_threshold}): "
-                f"the auto-dispatch 'averaged' range would be empty or inverted"
-            )
 
     # ------------------------------------------------------------------
     # Validation
@@ -750,32 +724,11 @@ class NLSQConfig:
                 f"must be one of {sorted(_VALID_ANALYSIS_MODES)}"
             )
 
-        valid_per_angle_modes = (
-            "individual",
-            "fourier",
-            "auto",
-            "constant",
-            "independent",
-        )
-        # Note: 'independent' is a deprecated alias for 'individual'; it is
-        # normalized in __post_init__ and should not appear here at runtime.
-        # We include it in the accepted tuple to keep validate() robust against
-        # callers that construct an NLSQConfig and then mutate per_angle_mode.
+        valid_per_angle_modes = ("individual", "auto", "constant")
         if self.per_angle_mode not in valid_per_angle_modes:
-            user_facing_modes = ("individual", "fourier", "auto", "constant")
             errors.append(
                 f"per_angle_mode={self.per_angle_mode!r} is not valid; "
-                f"must be one of {user_facing_modes}"
-            )
-        if self.fourier_order < 1:
-            errors.append(f"fourier_order={self.fourier_order} must be >= 1")
-        if self.fourier_auto_threshold < 1:
-            errors.append(f"fourier_auto_threshold={self.fourier_auto_threshold} must be >= 1")
-        if self.constant_scaling_threshold >= self.fourier_auto_threshold:
-            errors.append(
-                f"constant_scaling_threshold={self.constant_scaling_threshold} must be "
-                f"< fourier_auto_threshold={self.fourier_auto_threshold}: "
-                f"the auto-dispatch 'averaged' range would be empty or inverted"
+                f"must be one of {valid_per_angle_modes}"
             )
 
         valid_regularization_modes = ("none", "tikhonov", "adaptive")
@@ -904,10 +857,8 @@ class NLSQConfig:
             "loss_scale": "float",
             "tr_solver": "str_or_none",
             "step_bound": "float",
-            # Fourier reparameterization
+            # Per-angle scaling mode
             "per_angle_mode": "str",
-            "fourier_order": "int",
-            "fourier_auto_threshold": "int",
             # Hierarchical optimization
             "enable_hierarchical": "bool",
             "execute_layers": "bool",
@@ -973,14 +924,6 @@ class NLSQConfig:
             _set_from_nested(
                 "per_angle_mode",
                 raw_anti_degeneracy.get("per_angle_mode", _SENTINEL),
-            )
-            _set_from_nested(
-                "fourier_order",
-                raw_anti_degeneracy.get("fourier_order", _SENTINEL),
-            )
-            _set_from_nested(
-                "fourier_auto_threshold",
-                raw_anti_degeneracy.get("fourier_auto_threshold", _SENTINEL),
             )
             _set_from_nested(
                 "constant_scaling_threshold",
@@ -1290,10 +1233,8 @@ class NLSQConfig:
             "loss_scale": self.loss_scale,
             "tr_solver": self.tr_solver,
             "step_bound": self.step_bound,
-            # Fourier reparameterization
+            # Per-angle scaling mode
             "per_angle_mode": self.per_angle_mode,
-            "fourier_order": self.fourier_order,
-            "fourier_auto_threshold": self.fourier_auto_threshold,
             # Hierarchical optimization
             "enable_hierarchical": self.enable_hierarchical,
             "execute_layers": self.execute_layers,
