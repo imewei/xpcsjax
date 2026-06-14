@@ -4,7 +4,7 @@ Collapses the per-angle scaling contract to exactly three RESOLVED variants —
 ``constant`` (frozen), ``averaged`` (one optimized pair), ``individual`` (per-angle
 optimized) — and provides the sole owner of the ``constant_scaling_threshold``
 default. ``auto`` is input sugar resolving to ``averaged``/``individual``. The
-removed ``fourier`` and legacy ``independent`` tokens are rejected by the generic
+removed legacy tokens are rejected by the generic
 ``else`` branch (no special-case arm).
 
 Phase 0: pure unit; no call site imports this yet.
@@ -50,7 +50,7 @@ def resolve_per_angle_mode(
     ------
     ValueError
         For any token other than the four accepted strings — including the
-        removed ``"fourier"`` and the legacy ``"independent"`` alias.
+        removed legacy tokens (e.g. the old reparameterization aliases).
     """
     if token in _RESOLVED:
         return token  # type: ignore[return-value]
@@ -253,7 +253,7 @@ class PerAngleScalingPlan:
         Identical semantics, but pure ``jnp`` — it never calls ``np.asarray`` on the
         argument, so it can be invoked inside an NLSQ-traced residual without raising
         ``TracerArrayConversionError`` (the exact failure mode the existing
-        ``fourier.fourier_to_per_angle_jax`` was introduced to avoid;
+        the per-angle expansion helper was introduced to avoid;
         ``heterodyne_core.py:2400-2427``). ``constant`` broadcasts the frozen quantiles
         (converted to ``jnp`` constants at construction-equivalent time, NOT from the
         traced ``theta_tail``); ``averaged`` broadcasts the two traced head scalars;

@@ -893,7 +893,7 @@ class NLSQWrapper(NLSQAdapterBase):
 
             execution_time = time.time() - start_time
             uncertainties = _safe_uncertainties_from_pcov(pcov, len(popt))
-            # Effective DOF for reduced chi-squared: in auto_averaged mode the
+            # Effective DOF for reduced chi-squared: in averaged mode the
             # optimizer works on a compressed param vector but the true model
             # DOF is 2*n_phi + n_physical (one contrast+offset per angle).
             _ooc_init_n_params_effective: int | None = None
@@ -1109,7 +1109,7 @@ class NLSQWrapper(NLSQAdapterBase):
             #
             # The expanded param count (e.g. 53 for 23 angles individual) may be much
             # larger than the effective count after anti-degeneracy mode selection
-            # (e.g. 9 for auto_averaged). Using the expanded count for memory estimation
+            # (e.g. 9 for averaged). Using the expanded count for memory estimation
             # can unnecessarily trigger out-of-core routing, which bypasses the
             # anti-degeneracy defense system entirely — causing parameter absorption
             # degeneracy and false convergence.
@@ -1210,7 +1210,7 @@ class NLSQWrapper(NLSQAdapterBase):
 
                 execution_time = time.time() - start_time
                 uncertainties = _safe_uncertainties_from_pcov(pcov, len(popt))
-                # Effective DOF for reduced chi-squared: in auto_averaged mode the
+                # Effective DOF for reduced chi-squared: in averaged mode the
                 # optimizer works on a compressed param vector but the true model
                 # DOF is 2*n_phi + n_physical (one contrast+offset per angle).
                 _ooc_n_params_effective: int | None = None
@@ -1395,7 +1395,7 @@ class NLSQWrapper(NLSQAdapterBase):
                         execution_time = time.time() - start_time
 
                         # Compute effective DOF for reduced_chi_squared.
-                        # In auto_averaged mode, popt has compressed length (e.g. 9),
+                        # In averaged mode, popt has compressed length (e.g. 9),
                         # but the true model DOF is 2*n_phi + n_physical (e.g. 53).
                         _hs_n_params_effective: int | None = None
                         if per_angle_scaling and anti_degeneracy_config:
@@ -1497,7 +1497,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 execution_time = time.time() - start_time
 
                 # Compute effective DOF for reduced_chi_squared.
-                # In auto_averaged mode, popt has compressed length (e.g. 9),
+                # In averaged mode, popt has compressed length (e.g. 9),
                 # but the true model DOF is 2*n_phi + n_physical (e.g. 53).
                 _sls_n_params_effective: int | None = None
                 if per_angle_scaling and anti_degeneracy_config:
@@ -2015,7 +2015,7 @@ class NLSQWrapper(NLSQAdapterBase):
 
         # L4: assemble the gradient_monitor diagnostics block from the monitor.
         # Strictly diagnostic — attached under the same ``gradient_monitor`` key
-        # heterodyne uses, independent of the diagnostics_enabled gate.
+        # heterodyne uses, regardless of the diagnostics_enabled gate.
         _l4_extras = self._assemble_homodyne_l4_extras(_l4_monitor)
 
         # DOF semantics for reduced-chi2 / covariance s² scaling (DECISION, spec §5):
@@ -2271,7 +2271,7 @@ class NLSQWrapper(NLSQAdapterBase):
                     )
             if final_jtj is not None:
                 n_diag_data = len(final_residuals)
-                # Use n_dof_effective when provided (e.g. auto_averaged mode where
+                # Use n_dof_effective when provided (e.g. averaged mode where
                 # the compressed optimizer vector has fewer entries than the true
                 # model DOF: 2*n_phi + n_physical >> len(popt)).  Falling back to
                 # len(popt) would underestimate s² and produce artificially tight
@@ -2454,7 +2454,7 @@ class NLSQWrapper(NLSQAdapterBase):
         Returns
         -------
         tuple of np.ndarray
-            ``(xdata, ydata)`` — flattened independent variables and
+            ``(xdata, ydata)`` — flattened predictor variables and
             observations.
         """
         # Validate data has required attributes
@@ -4010,7 +4010,7 @@ class NLSQWrapper(NLSQAdapterBase):
         chi_squared = float(np.sum(residuals**2))
 
         # Compute reduced chi-squared.
-        # Use n_params_effective when provided — in auto_averaged mode the compressed
+        # Use n_params_effective when provided — in averaged mode the compressed
         # optimizer vector (e.g. 9 params) has fewer entries than the true model DOF
         # (e.g. 2*n_phi + n_physical = 53). Using len(popt) would underestimate the
         # true DOF, producing an artificially low reduced chi-squared and a falsely

@@ -236,8 +236,8 @@ def build_heterodyne_pointwise_model(
     n_physics_varying = len(p0)
 
     # Canonical scaling-first layout authority: [scaling_head | physics_tail].
-    # Rejects auto/fourier/independent (resolve upstream); the ValueError surfaces
-    # here for the removed fourier/independent tokens.
+    # Rejects the unresolved auto token (resolve upstream); the ValueError surfaces
+    # here for unknown tokens.
     mapper = ParameterIndexMapper.canonical(
         mode=per_angle_mode, n_phi=n_phi, n_physics=n_physics_varying
     )
@@ -251,7 +251,7 @@ def build_heterodyne_pointwise_model(
         p0 = [*contrast_arr.tolist(), *offset_arr.tolist(), *p0]
     elif per_angle_mode == "constant":
         pass  # scaling frozen, applied in residual; head empty
-    else:  # pragma: no cover - canonical() already rejected fourier/independent
+    else:  # pragma: no cover - canonical() already rejected the unresolved token
         raise ValueError(
             f"unknown per_angle_mode {per_angle_mode!r}; valid: "
             "constant, averaged, individual"
@@ -520,7 +520,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     # scaling ('averaged' at/above the threshold; per-angle 'individual', which
     # also activates the L2 hierarchical branch, below it). Explicit
     # ``per_angle_mode="constant"`` is the opt-out that freezes scaling. The shared
-    # resolver rejects the removed 'fourier'/'independent' tokens.
+    # resolver requires a resolved token.
     from xpcsjax.optimization.nlsq.per_angle_mode import (
         DEFAULT_CONSTANT_SCALING_THRESHOLD,
         resolve_per_angle_mode,

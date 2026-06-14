@@ -1815,9 +1815,9 @@ def fit_nlsq_cmaes(
         # degenerate: per-angle contrast/offset can absorb shear signals.
         #
         # Two modes:
-        # - auto_averaged: Compute N quantile estimates, AVERAGE to 1 contrast + 1 offset,
+        # - averaged: Compute N quantile estimates, AVERAGE to 1 contrast + 1 offset,
         #                  OPTIMIZE these 2 along with 7 physical = 9 params
-        # - fixed_constant: Compute N quantile estimates, use per-angle values DIRECTLY
+        # - constant: Compute N quantile estimates, use per-angle values DIRECTLY
         #                   as FIXED scaling, OPTIMIZE only 7 physical params
         # ==========================================================================
         use_constant_mode = False
@@ -1864,7 +1864,7 @@ def fit_nlsq_cmaes(
 
                 if ad_controller.is_enabled and ad_controller.use_constant:
                     use_constant_mode = True
-                    # Distinguish between fixed_constant and auto_averaged
+                    # Distinguish between constant and averaged
                     use_fixed_scaling = ad_controller.use_fixed_scaling
                     use_averaged_scaling = ad_controller.use_averaged_scaling
 
@@ -2170,8 +2170,8 @@ def fit_nlsq_cmaes(
         from xpcsjax.core.jax_backend import _compute_g1_total_core
 
         # Note: In constant mode, we have two sub-modes:
-        # - auto_averaged: 9 parameters [contrast_avg, offset_avg, *physical]
-        # - fixed_constant: 7 parameters [*physical] (scaling from pre-computed arrays)
+        # - averaged: 9 parameters [contrast_avg, offset_avg, *physical]
+        # - constant: 7 parameters [*physical] (scaling from pre-computed arrays)
 
         # Convert fixed per-angle scaling to JAX arrays if using fixed scaling
         fixed_contrast_jax = None
@@ -2187,8 +2187,8 @@ def fit_nlsq_cmaes(
             Element-wise mode is triggered automatically when len(t1) > 2000.
 
             In constant mode:
-            - auto_averaged: 9 parameters [contrast, offset, *physical]
-            - fixed_constant: 7 parameters [*physical] (scaling from fixed arrays)
+            - averaged: 9 parameters [contrast, offset, *physical]
+            - constant: 7 parameters [*physical] (scaling from fixed arrays)
             """
             params_array = jnp.asarray(params)
 

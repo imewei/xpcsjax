@@ -5,7 +5,7 @@ Extracted from wrapper.py to reduce file size and improve maintainability.
 This module provides:
 - Stratified chunk creation from angle-stratified data
 - Stratified least-squares fitting with anti-degeneracy support
-- Supports fixed_constant, auto_averaged, individual, and fourier modes
+- Supports constant, averaged, and individual modes
 """
 
 from __future__ import annotations
@@ -183,8 +183,7 @@ def fit_with_stratified_least_squares(
         Config dict for the Anti-Degeneracy Defense System. When provided (with
         per-angle scaling and ``laminar_flow``), an :class:`AntiDegeneracyController`
         is instantiated; this path therefore runs L2/L3 according to the resolved
-        per-angle mode (``fixed_constant`` / ``auto_averaged`` / ``individual`` /
-        ``fourier``).
+        per-angle mode (``constant`` / ``averaged`` / ``individual``).
     nlsq_config_dict : dict, optional
         NLSQ convergence config dict (``ftol``, ``xtol``, ``gtol``,
         ``max_iterations``).
@@ -458,16 +457,16 @@ def fit_with_stratified_least_squares(
         )
 
         # Perturb the first physical parameter (D0) by 1%.
-        # BUG-5: In auto_averaged mode, effective_per_angle_scaling=False but
+        # BUG-5: In averaged mode, effective_per_angle_scaling=False but
         # params = [contrast_avg, offset_avg, D0, ...], so D0 is at index 2.
-        # In individual mode, D0 is at index 2*n_phi. In fixed_constant, D0
+        # In individual mode, D0 is at index 2*n_phi. In constant, D0
         # is at index 0 (no scaling params in vector).
         if effective_per_angle_scaling:
             phys_idx = 2 * residual_fn.n_phi  # individual mode
         elif len(initial_params) > 2:
-            phys_idx = 2  # auto_averaged: [contrast_avg, offset_avg, D0, ...]
+            phys_idx = 2  # averaged: [contrast_avg, offset_avg, D0, ...]
         else:
-            phys_idx = 0  # fixed_constant: [D0, alpha, ...]
+            phys_idx = 0  # constant: [D0, alpha, ...]
         params_test = np.array(initial_params, copy=True)
         params_test[phys_idx] *= 1.01  # 1% perturbation
         residuals_1 = residual_fn(params_test)
@@ -639,7 +638,7 @@ def fit_with_stratified_least_squares(
     # honest ``hierarchical_active`` / ``regularization_active`` markers stay False
     # (byte-identical to the pre-Phase-3 path — the rtol=1e-10 homodyne-equivalence
     # oracle is preserved). When ``execute_layers`` is True AND L2 is applicable
-    # (individual / fourier, i.e. the controller built a HierarchicalOptimizer and
+    # (individual, i.e. the controller built a HierarchicalOptimizer and
     # the mode is not a constant-like one), the controller's OWN layout-aware
     # ``.hierarchical`` (+ ``.regularizer`` for L3) refines/escapes from the
     # baseline; the candidate is kept only under the keep-better guard (data-only
@@ -879,7 +878,7 @@ def fit_with_stratified_least_squares(
                 fixed_contrast, fixed_offset = fixed_scaling
 
                 log.info(
-                    f"Expanding parameters from fixed_constant mode:\n"
+                    f"Expanding parameters from constant mode:\n"
                     f"  Physical params: {len(popt)}\n"
                     f"  Fixed contrast: mean={np.nanmean(fixed_contrast):.4f}\n"
                     f"  Fixed offset: mean={np.nanmean(fixed_offset):.4f}\n"
@@ -914,7 +913,7 @@ def fit_with_stratified_least_squares(
 
         elif ad_controller.use_averaged_scaling:
             log.info(
-                f"Expanding parameters from auto_averaged mode ({len(popt)} -> "
+                f"Expanding parameters from averaged mode ({len(popt)} -> "
                 f"{2 * n_phi + n_physical})"
             )
             popt_expanded = ad_controller.transform_params_from_constant(popt)
@@ -931,7 +930,7 @@ def fit_with_stratified_least_squares(
             popt = popt_expanded
             pcov = pcov_expanded
             log.info(f"Expanded to {len(popt)} per-angle parameters")
-            anti_degeneracy_info["mode"] = "auto_averaged"
+            anti_degeneracy_info["mode"] = "averaged"
             anti_degeneracy_info["original_n_params"] = 2 + n_physical
             anti_degeneracy_info["expanded_n_params"] = len(popt)
 

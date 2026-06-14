@@ -24,7 +24,7 @@ longer imports engine-construction helpers from tests.
 
 Scope: the three in-scope per-angle scaling modes —
 ``constant`` / ``individual`` / ``averaged`` (the canonical production tokens).
-``fourier`` is resolved upstream by ``_resolve_effective_mode`` and never reaches
+Unsupported per-angle modes are rejected upstream and never reach
 this function; the non-uniform-weights path raises :class:`NotImplementedError`
 as a best-effort guard.
 
@@ -70,8 +70,8 @@ if TYPE_CHECKING:
 
 __all__ = ["fit_two_component_via_engine", "PRODUCTION_TO_ENGINE_MODE"]
 
-# Canonical production token -> canonical token (identity map; the old
-# ``fixed_constant``/``auto_averaged`` engine-internal tokens are now retired).
+# Canonical production token -> canonical token (identity map; the
+# ``constant``/``averaged`` resolved tokens are used directly).
 # This map is kept for backward-compatibility with callers that key into it, but
 # the values are now the same canonical strings the resolver produces.
 PRODUCTION_TO_ENGINE_MODE: dict[str, str] = {
@@ -333,8 +333,7 @@ def fit_two_component_via_engine(
         Detector angles (degrees), shape ``(n_phi,)``.
     config
         :class:`NLSQConfig`. ``per_angle_mode`` is resolved to a canonical mode
-        via :func:`_resolve_effective_mode`. ``fourier`` is rejected upstream by
-        the resolver and never reaches this function.
+        via :func:`_resolve_effective_mode`.
         Solver fields (``method`` / ``loss`` / tolerances / ``x_scale`` /
         ``max_nfev``) mirror the production joint fit.
     weights
@@ -421,16 +420,17 @@ def fit_two_component_via_engine(
         )
 
     # -- Resolve mode: returns canonical token (constant/averaged/individual) -
-    # The resolver can still return ``"fourier"`` when the user requests it
-    # explicitly; the engine does not support fourier (it is kept on the
-    # ``fit_nlsq_multi_phi`` path via the best-effort fallback in the caller).
+    # The resolver can still return an out-of-scope token when the user requests
+    # one explicitly; the engine only supports constant / averaged / individual
+    # (an out-of-scope mode is kept on the ``fit_nlsq_multi_phi`` path via the
+    # best-effort fallback in the caller).
     # Raise NotImplementedError so the caller's try/except falls back cleanly.
     mode = _resolve_effective_mode(config, n_phi)
     if mode not in {"constant", "averaged", "individual"}:
         raise NotImplementedError(
             f"fit_two_component_via_engine does not support per_angle_mode "
             f"{mode!r} (the engine-route scope is constant / averaged / individual). "
-            "Use the existing fit_nlsq_multi_phi path for fourier."
+            "Use the existing fit_nlsq_multi_phi path for unsupported modes."
         )
 
     # -- Build frame-0-excluded engine chunks -------------------------------

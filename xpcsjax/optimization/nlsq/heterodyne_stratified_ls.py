@@ -121,7 +121,7 @@ def reorder_for_stratification(
         relabeled angles, so each chunk keeps its balanced angle multiset; only
         WHICH concrete points fill each angle's slots changes (homodyne
         local-minimum-avoidance parity — alters trajectory, not objective). With
-        ``shuffle=False`` the behavior is identical to no shuffle (seed-independent).
+        ``shuffle=False`` the behavior is identical to no shuffle (seed-invariant).
     seed : int
         Pre-shuffle seed (fixed at 42 for reproducibility; matches homodyne).
 
