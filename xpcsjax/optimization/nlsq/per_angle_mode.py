@@ -90,7 +90,7 @@ class PerAngleScalingPlan:
     """Model-agnostic per-angle scaling bookkeeping (spec §4 Seam 3).
 
     Centralizes the seed/expand logic that the four execution paths duplicate
-    today, absorbing the two surviving ``fourier_reparam.py`` transforms:
+    today, owning the per-angle scaling transforms:
     ``individual`` = identity reshape, ``constant``/``averaged`` = mean-collapse /
     broadcast. The residual functions stay model-specific (homodyne grid vs
     heterodyne meshgrid); this object only owns layout + expansion.
