@@ -87,7 +87,7 @@ def log_effective_mode(
     real parameter budget (``n_physics`` is 14 for two_component).
 
     Text parity: for the modes heterodyne callers actually pass
-    (``averaged`` / ``fourier`` / ``individual``) the shared formatter is
+    (``averaged`` / ``individual``) the shared formatter is
     byte-identical to the old inline body. ``constant`` is never emitted on the
     delegating heterodyne stratified path (it raises ``NotImplementedError``
     upstream), so the new ``constant`` budget wording cannot reach an existing
@@ -163,11 +163,11 @@ def log_anti_degeneracy_defense(diagnostics: dict[str, Any] | None) -> None:
 def _layer_state(diag: dict[str, Any], mode_key: str) -> str:
     """Report the L1 reparameterization state for the resolved per-angle mode.
 
-    L1 (Fourier/constant reparam) is active for every optimized mode and
-    skipped only for the frozen ``fixed_constant`` mode (laminar parity).
+    L1 (per-angle reparam) is active for every optimized mode and
+    skipped only for the frozen ``constant`` mode (laminar parity).
     """
     mode = str(diag.get(mode_key, ""))
-    return "inactive (fixed_constant)" if mode == "fixed_constant" else "active"
+    return "inactive (constant)" if mode == "constant" else "active"
 
 
 # ---------------------------------------------------------------------------

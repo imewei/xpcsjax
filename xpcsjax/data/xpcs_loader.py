@@ -427,7 +427,7 @@ def _assert_safe_cache_filename(name: str) -> None:
 
     Raises ``ValueError`` if ``name`` contains a path separator (either
     platform's), a parent-directory traversal, a drive/ADS ``:`` specifier, or a
-    null byte. Platform-independent by construction.
+    null byte. Platform-agnostic by construction.
     """
     if any(tok in name for tok in _UNSAFE_FILENAME_TOKENS):
         raise ValueError(f"Unsafe cache filename from template: {name!r}")
@@ -591,7 +591,7 @@ class XPCSDataLoader:
         # Extract main configuration sections
         self.exp_config = self.config.get("experimental_data", {})
         # Resolve ${ENV_VAR} and a leading ~ in the data folder path so configs
-        # can stay machine-independent (e.g. fixtures point at ${XPCSJAX_DATA_ROOT}).
+        # can stay machine-agnostic (e.g. fixtures point at ${XPCSJAX_DATA_ROOT}).
         # expandvars/expanduser are no-ops on plain absolute paths, so this cannot
         # perturb any existing config or the rtol=1e-10 parity baselines. The
         # traversal/security checks downstream run on the *expanded* value.

@@ -26,7 +26,7 @@ def flatten_upper_triangle(
     """Flatten the upper triangle of a symmetric matrix.
 
     For a two-time correlation matrix ``C2(t1, t2)``, only the upper triangle
-    (``t2 >= t1``) contains independent data. This extracts those elements in
+    (``t2 >= t1``) contains non-redundant data. This extracts those elements in
     row-major order for residual computation.
 
     Parameters
@@ -314,7 +314,7 @@ def noise_normalized_reduced_chi2(
     is the same correction the single-angle / per-angle / CMA-ES heterodyne
     paths already apply (see ``heterodyne_core._compute_per_angle_chi2`` and the
     ``chi2_corrected`` block in ``_run_nlsq_with_cmaes_escape``); centralising it
-    here keeps every joint path (averaged, fourier, constant) consistent.
+    here keeps every joint path (averaged, constant) consistent.
 
     Falls back to plain MSE (``SSR / dof``) when the noise estimate is
     degenerate, matching the fallback used elsewhere.

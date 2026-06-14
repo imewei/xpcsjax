@@ -150,7 +150,7 @@ class AdaptiveRegularizer:
             Number of unique phi angles.
         n_params : int, optional
             Actual parameter vector length. When provided and less than
-            2 * n_phi + n_physical, auto_averaged mode is assumed
+            2 * n_phi + n_physical, averaged mode is assumed
             (2 scaling params instead of 2 * n_phi).
         n_optimized : int, optional
             Resolved number of optimized scaling parameters from
@@ -184,7 +184,7 @@ class AdaptiveRegularizer:
                     self.group_indices = [(0, half), (half, n_optimized)]
             elif n_params is not None and n_params < 2 * n_phi:
                 # legacy fallback retained ONLY for callers that still omit n_optimized:
-                # auto_averaged — 2 scaling params instead of 2*n_phi.
+                # averaged — 2 scaling params instead of 2*n_phi.
                 self.group_indices = [
                     (0, 1),  # contrast_avg group
                     (1, 2),  # offset_avg group

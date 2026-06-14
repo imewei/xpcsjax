@@ -221,7 +221,7 @@ def fit_with_out_of_core_accumulation(
     n_physical = len(physical_param_names)
 
     # Effective parameter count for DOF in s^2 computation.
-    # auto_averaged uses a compressed vector (contrast_avg, offset_avg, physical)
+    # averaged uses a compressed vector (contrast_avg, offset_avg, physical)
     # but consumes expanded DOF; constant mode keeps scaling fixed and must not
     # be expanded or covariance is over-inflated.
     n_params_effective = _effective_param_count_for_ooc(
@@ -590,7 +590,7 @@ def fit_with_out_of_core_accumulation(
         "message": "Out-of-Core accumulation completed",
     }
     # pcov = s^2 * (J^T J)^{-1}  where s^2 = RSS / (n - p_effective)
-    # Uses n_params_effective for correct DOF in auto_averaged mode.
+    # Uses n_params_effective for correct DOF in averaged mode.
     s2 = float(total_chi2) / max(count - n_params_effective, 1)
     try:
         pcov = s2 * np.linalg.inv(np.array(total_JtJ))

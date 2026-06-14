@@ -445,7 +445,7 @@ def _compute_covariance(
     residuals
         Residual vector at the solution.
     n_data
-        Number of independent data points.
+        Number of fitted data points.
     n_params
         Number of parameters.
 
@@ -637,7 +637,7 @@ def build_hybrid_streaming_result(
     n_data = int(info.get("n_data_points", 0))
     n_dof = max(1, n_data - n)
     # Noise-normalized reduced chi^2 (targets ~1.0 for a good fit), mirroring the
-    # in-memory averaged/fourier joint paths (heterodyne_core: noise_normalized_
+    # in-memory averaged joint paths (heterodyne_core: noise_normalized_
     # reduced_chi2). The driver threads an estimated far-lag photon-noise variance
     # via ``info['sigma2_noise']``; dividing SSR by it restores the conventional
     # chi^2_red scale. Without it, raw SSR/dof collapses to MSE << 1 on normalized
