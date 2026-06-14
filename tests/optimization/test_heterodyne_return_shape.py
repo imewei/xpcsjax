@@ -541,6 +541,21 @@ def test_fit_nlsq_multi_phi_top_level_returns_optimization_result(
     # SSR conservation across all modes
     np.testing.assert_allclose(diag["chi2_per_angle"].sum(), result.chi_squared, rtol=1e-6)
 
+    # F7: n_optimized is emitted on the standard joint + constant paths,
+    # symmetric with laminar / streaming, and equals the optimizer scaling-head
+    # length for the RESOLVED mode (constant->0, averaged->2, individual->2*n_phi).
+    from xpcsjax.optimization.nlsq.per_angle_mode import (
+        n_optimized as _n_optimized,
+    )
+    from xpcsjax.optimization.nlsq.per_angle_mode import (
+        resolve_per_angle_mode,
+    )
+
+    assert "n_optimized" in diag, "heterodyne diagnostics must carry n_optimized"
+    resolved = resolve_per_angle_mode(mode, n_phi)
+    assert diag["per_angle_mode"] == resolved
+    assert diag["n_optimized"] == _n_optimized(resolved, n_phi)
+
 
 # ---------------------------------------------------------------------------
 # C7: source-level audit — no direct ``fit_nlsq_multi_phi(...)[i]`` patterns

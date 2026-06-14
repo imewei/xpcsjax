@@ -395,6 +395,10 @@ def _fit_joint_constant_multi_phi(
         "offset_per_angle_fixed": offset_fixed,
         "chi2_per_angle": chi2_per_angle,
         "per_angle_mode": "constant",
+        # Optimizer scaling-head length; constant freezes scaling -> 0 (==
+        # n_optimized("constant", n_phi)). Symmetric with laminar/streaming/
+        # joint heterodyne paths.
+        "n_optimized": 0,
         "parameter_names": varying_names,
         "convergence_reason": ("global_escape" if is_escape else nlsq_result.convergence_reason),
         "n_function_evals": (0 if is_escape else int(nlsq_result.n_function_evals or 0)),

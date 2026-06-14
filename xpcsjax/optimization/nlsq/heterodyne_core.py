@@ -326,10 +326,19 @@ def _build_heterodyne_diagnostics(
     regularization_active = bool(extras.pop("regularization_active", False))
     gradient_monitor = extras.pop("gradient_monitor", None)
 
+    # Optimizer scaling-head length (constant -> 0, averaged -> 2,
+    # individual -> 2*n_phi). Mirrors the laminar standard-path key
+    # (``wrapper.py``) and the streaming/constant-mode paths so the
+    # ``n_optimized`` diagnostic is symmetric across every heterodyne path.
+    from xpcsjax.optimization.nlsq.per_angle_mode import n_optimized
+
+    n_phi = int(np.asarray(chi2_per_angle).size)
+
     base: dict[str, Any] = {
         "per_angle_mode": per_angle_mode,
         "chi2_per_angle": chi2_per_angle,
         "scaling_source": scaling_source,
+        "n_optimized": n_optimized(per_angle_mode, n_phi),  # type: ignore[arg-type]
     }
     base.update(
         assemble_anti_degeneracy_diagnostics(
