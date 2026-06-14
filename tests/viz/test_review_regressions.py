@@ -606,6 +606,48 @@ def test_heterodyne_averaged_mode_does_not_raise(tmp_path):
     generate_nlsq_plots(model=model, result=result, data=data, config=config, output_dir=tmp_path)
 
 
+def test_heterodyne_averaged_fallback_reads_scaling_first_head(tmp_path):
+    """F4: averaged fallback (no averaged_* diag keys) reads the scaling-FIRST
+    HEAD params[0]/[1], not the physics-first tail params[-2]/[-1].
+    """
+    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+    from xpcsjax.viz.nlsq_plots import _unpack_heterodyne_scaling, _unpack_result_params
+
+    model = HeterodyneModel()
+    n_phi = 3
+    physical = np.asarray(model.get_default_parameters(), dtype=float)
+    # Scaling-first averaged layout [c, o, physics...]; c/o distinct from the
+    # physics tail so a head-vs-tail confusion is caught.
+    contrast_head, offset_head = 0.31, 1.07
+    params = np.concatenate([[contrast_head, offset_head], physical])
+    result = OptimizationResult(
+        parameters=params,
+        uncertainties=np.full(params.size, 0.01),
+        covariance=np.eye(params.size) * 0.01,
+        chi_squared=2.5,
+        reduced_chi_squared=0.9,
+        convergence_status="converged",
+        iterations=10,
+        execution_time=0.1,
+        device_info={"platform": "cpu"},
+        nlsq_diagnostics={"per_angle_mode": "averaged"},  # NO averaged_* scalars
+    )
+
+    contrasts, offsets, phys, n = _unpack_heterodyne_scaling(
+        model, result, n_phi_expected=n_phi
+    )
+    assert n == n_phi
+    np.testing.assert_allclose(contrasts, contrast_head)
+    np.testing.assert_allclose(offsets, offset_head)
+    np.testing.assert_allclose(phys, physical)
+
+    c_scalar, o_scalar, phys2, _ = _unpack_result_params(model, result, {})
+    assert c_scalar == contrast_head
+    assert o_scalar == offset_head
+    np.testing.assert_allclose(phys2, physical)
+
+
 def test_laminar_flow_combined_model_does_not_raise(tmp_path):
     """make_model returns a bare CombinedModel for homodyne modes
     (static_*/laminar_flow) — the Task-28 contract. generate_nlsq_plots must

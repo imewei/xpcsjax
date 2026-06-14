@@ -250,8 +250,11 @@ def _unpack_result_params(
         # Scalar summary is the single fitted pair (physics is the trailing 14-vector).
         if mode == "averaged":
             physical_params = params[-n_physical:].copy()
-            contrast_scalar = float(diagnostics.get("averaged_contrast", params[-2]))
-            offset_scalar = float(diagnostics.get("averaged_offset", params[-1]))
+            # Scaling-first layout: the (contrast, offset) HEAD is params[0]/[1];
+            # the physics tail is params[-n_physical:]. Fall back to the HEAD (not
+            # the tail) when the fitted scalars are absent from diagnostics.
+            contrast_scalar = float(diagnostics.get("averaged_contrast", params[0]))
+            offset_scalar = float(diagnostics.get("averaged_offset", params[1]))
             return contrast_scalar, offset_scalar, physical_params, physical_names
         # Constant mode: [physics...] only (physics-only vector); scaling frozen in
         # diagnostics — params[:n_physical] is the entire vector.
@@ -352,13 +355,13 @@ def _unpack_heterodyne_scaling(
     # Averaged mode: canonical scaling-first layout is ``[contrast, offset,
     # physics...]`` — one fitted (contrast, offset) pair shared across all
     # angles. Prefer the fitted scalars stored in diagnostics; fall back to
-    # the leading two parameter slots (params[-2] / params[-1] because the
-    # physics tail occupies params[-n_physical:]). Replicate across n_phi so
-    # the per-angle evaluation path stays uniform with individual mode.
+    # the leading two scaling-HEAD slots (params[0] / params[1] — the physics
+    # tail occupies params[-n_physical:]). Replicate across n_phi so the
+    # per-angle evaluation path stays uniform with individual mode.
     if mode == "averaged":
         physical_params = params[-n_physical:].copy()
-        contrast = float(diagnostics.get("averaged_contrast", params[-2]))
-        offset = float(diagnostics.get("averaged_offset", params[-1]))
+        contrast = float(diagnostics.get("averaged_contrast", params[0]))
+        offset = float(diagnostics.get("averaged_offset", params[1]))
         contrasts = np.full(n_phi_expected, contrast, dtype=float)
         offsets = np.full(n_phi_expected, offset, dtype=float)
         return contrasts, offsets, physical_params, n_phi_expected
