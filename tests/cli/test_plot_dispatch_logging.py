@@ -138,7 +138,7 @@ def test_second_dispatch_call_is_not_cross_call_suppressed(
     caplog: pytest.LogCaptureFixture,
     tmp_path,
 ) -> None:
-    """A SECOND independent call must emit its own WARNING (no cross-call collapse).
+    """A SECOND separate call must emit its own WARNING (no cross-call collapse).
 
     With no log context set (``run_id is None``), the per-phi ``log_once`` key
     is scoped by a monotonic per-call token, so a second dispatch-function call
@@ -166,7 +166,7 @@ def test_second_dispatch_call_is_not_cross_call_suppressed(
     # Drop the first call's records so we count ONLY the second call's output.
     caplog.clear()
 
-    # Second, independent call. Capture only its warnings.
+    # Second, separate call. Capture only its warnings.
     with caplog.at_level(logging.WARNING, logger="xpcsjax"):
         out2 = pd._save_fit_comparison_only(_FakeConfigManager(), data, _FakeResult(), tmp_path)
     assert out2 == tmp_path

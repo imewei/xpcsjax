@@ -39,7 +39,7 @@ def _smoke_config_dict() -> dict:
     Uses registry defaults for all 14 physics parameters; only the analyzer /
     optimizer sections are populated. The ``parameters`` block is intentionally
     empty so :meth:`ParameterSpace.from_config` falls back to defaults — this
-    keeps the test independent of registry-default drift.
+    keeps the test insulated from registry-default drift.
     """
     return {
         "analysis_mode": "two_component",
@@ -115,9 +115,9 @@ def test_heterodyne_smoke_fit_recovers_truth(tmp_path):
     # ---- Pipeline contract ----------------------------------------------
     # After Phase-6 C2-C6 + C5b, ``fit_nlsq_multi_phi`` returns a single
     # :class:`OptimizationResult` for every dispatch mode (constant /
-    # averaged / fourier / CMA-ES / individual). ``parameter_names`` for
-    # the physics block lives in ``nlsq_diagnostics``; per-angle chi^2
-    # lives there too (SSR conservation locked in by B2/C2/C3).
+    # averaged / CMA-ES / individual). ``parameter_names`` for the physics
+    # block lives in ``nlsq_diagnostics``; per-angle chi^2 lives there too
+    # (SSR conservation locked in by B2/C2/C3).
     assert isinstance(results, OptimizationResult), (
         f"expected OptimizationResult, got {type(results)}"
     )
@@ -136,7 +136,7 @@ def test_heterodyne_smoke_fit_recovers_truth(tmp_path):
     # The optimizer parameter vector for constant mode is just the
     # physics-varying block (per-angle scaling is frozen / fixed). Slice
     # to ``len(parameter_names)`` so we don't accidentally pick up any
-    # mode-specific tail (Fourier coefficients in fourier mode, etc.).
+    # mode-specific per-angle scaling tail.
     first_names = list(diag["parameter_names"])
     first_params = np.asarray(results.parameters, dtype=np.float64)[: len(first_names)]
     assert np.all(np.isfinite(first_params)), f"NaN/Inf in fitted parameters: {first_params}"

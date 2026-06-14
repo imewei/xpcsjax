@@ -4,7 +4,7 @@ Unlike the unit suites (which mock the optimizer boundary), these run an actual
 NLSQ optimization end-to-end on a small two-component dataset. They exercise the
 fit-orchestration paths that unit tests cannot reach: the single-angle entry
 (`fit_nlsq_jax` -> `_fit_local` -> NLSQ adapter) and the multi-angle dispatch
-(`fit_nlsq_multi_phi` -> individual / auto->fourier joint fits).
+(`fit_nlsq_multi_phi` -> individual / auto->averaged joint fits).
 
 Kept fast via tiny grids and `max_nfev=30` — these assert the result *contract*
 (type, shape, finiteness, diagnostics), not convergence quality (covered by the
@@ -125,8 +125,7 @@ def test_individual_mode_joint_fit() -> None:
 
 def test_auto_mode_resolves_to_averaged_for_many_angles() -> None:
     # Unified auto rule: n_phi >= 3 -> averaged, regardless of how large.
-    # Even at n_phi=6 (the OLD fourier_auto_threshold) auto stays "averaged";
-    # fourier is selected only when the user requests it explicitly.
+    # Even at n_phi=6 (a large angle count) auto stays "averaged".
     model = _build_model()
     n_phi = 6
     c2 = _synthetic_stack(model, n_phi=n_phi)

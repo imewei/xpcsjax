@@ -98,10 +98,9 @@ def test_heterodyne_multi_angle_matches_source(baseline):
 
     # After Phase-6 C2-C6 + C5b, ``fit_nlsq_multi_phi`` returns a single
     # :class:`OptimizationResult` for every dispatch mode (constant /
-    # averaged / fourier / CMA-ES / individual). With n_phi=3 + the C044
-    # config's ``auto`` dispatch (constant_threshold=3,
-    # fourier_threshold=6) the resolver selects the averaged branch;
-    # the unified shape contract applies regardless.
+    # averaged / CMA-ES / individual). With n_phi=3 + the C044 config's
+    # ``auto`` dispatch (constant_threshold=3) the resolver selects the
+    # averaged branch; the unified shape contract applies regardless.
     assert isinstance(results, OptimizationResult), (
         f"expected OptimizationResult, got {type(results)}"
     )

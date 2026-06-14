@@ -69,10 +69,8 @@ def _make_failing_adapter(orig_adapter_cls):
         # averaged joint builder (_fit_joint_averaged_multi_phi).
         ("auto", 3, "averaged"),
         # ``individual`` routes to the scaling-first joint builder
-        # (_fit_joint_multi_phi). This replaces the former ``fourier`` row:
-        # in-memory fourier was retired in Phase 1+2 (full fourier-test teardown
-        # in Phase 7), and ``individual`` exercises the same joint-fit builder
-        # the fallback-monitor bug was duplicated in.
+        # (_fit_joint_multi_phi) and exercises the same joint-fit builder the
+        # fallback-monitor bug was duplicated in.
         ("individual", 7, "individual"),
     ],
 )
@@ -84,8 +82,8 @@ def test_fallback_does_not_report_discarded_adapter_monitor(
     The returned ``gradient_monitor`` block must report ``post_solve_fallback``
     (honest, computed from the wrapper's result), NOT the discarded adapter
     run's ``per_iteration_gradient_ratio``. Parametrized over BOTH joint-fit
-    builders — the original finding noted the bug is duplicated in the fourier
-    path, so both are locked under test.
+    builders — the original finding noted the bug is duplicated across the
+    per-angle joint builders, so both are locked under test.
     """
     model, c2, phi = make_synthetic_two_component(n_phi=n_phi, n_t=20)
     cfg = NLSQConfig.from_dict(
@@ -100,9 +98,10 @@ def test_fallback_does_not_report_discarded_adapter_monitor(
 
     res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
 
-    # Prove the dispatch actually took the intended joint builder. The fourier
-    # case must route through _fit_joint_multi_phi (per_angle_mode == "fourier"),
-    # not the averaged builder — otherwise the fourier path is not exercised.
+    # Prove the dispatch actually took the intended joint builder. The
+    # individual case must route through _fit_joint_multi_phi (per_angle_mode
+    # == "individual"), not the averaged builder — otherwise that path is not
+    # exercised.
     assert res.nlsq_diagnostics.get("per_angle_mode") == expected_mode, (
         f"expected {expected_mode!r} joint builder, got "
         f"{res.nlsq_diagnostics.get('per_angle_mode')!r}"

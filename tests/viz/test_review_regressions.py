@@ -113,13 +113,13 @@ def test_heterodyne_unknown_layout_raises_not_implemented(tmp_path):
     model = HeterodyneModel()
     n_physical = len(model.parameter_names)
     # Pick a residual that's even but does NOT equal 2 * n_phi (n_phi=3 → 6).
-    # n_total = n_physical + 4 mimics a fourier mode with K=0 (2*(2K+1) = 2),
-    # or other intermediate shapes.
+    # n_total = n_physical + 4 is an intermediate per-angle shape that matches
+    # no recognised scaling layout.
     result = _make_heterodyne_result(n_physical + 4)
     data = _make_heterodyne_data(n_phi=3)
     config = _make_heterodyne_config()
 
-    with pytest.raises(NotImplementedError, match="fourier|individual"):
+    with pytest.raises(NotImplementedError, match="individual"):
         generate_nlsq_plots(
             model=model,
             result=result,
