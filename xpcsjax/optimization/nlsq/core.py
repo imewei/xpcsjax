@@ -1575,6 +1575,31 @@ def fit_nlsq_multistart(
     return result
 
 
+def _cmaes_failed_result(
+    x0: np.ndarray, execution_time: float, e: Exception
+) -> OptimizationResult:
+    """Build the standard failed CMA-ES result (extracted byte-identical, Phase 6)."""
+    n_params = len(x0)
+    return OptimizationResult(
+        parameters=np.asarray(x0),
+        uncertainties=np.zeros(n_params),
+        covariance=np.eye(n_params),
+        chi_squared=float("inf"),
+        reduced_chi_squared=float("inf"),
+        convergence_status="failed",
+        iterations=0,
+        execution_time=execution_time,
+        device_info={
+            "device": "cpu",
+            "method": "cmaes",
+            "adapter": "CMAESWrapper",
+            "error": str(e),
+        },
+        recovery_actions=[],
+        quality_flag="poor",
+    )
+
+
 @log_performance(threshold=1.0)
 def fit_nlsq_cmaes(
     data: dict[str, Any],
@@ -1859,6 +1884,11 @@ def fit_nlsq_cmaes(
                         )
                         logger.info("  Averaged to: 1 contrast + 1 offset (OPTIMIZED)")
                         logger.info("=" * 60)
+
+        if ad_controller is not None and ad_controller.is_enabled:
+            assert ad_controller.fourier is None, (
+                "fourier reparam removed in Phase 6 — laminar CMA-ES has no fourier branch"
+            )
 
         # Handle parameter expansion based on anti-degeneracy mode
         if per_angle_scaling and not use_constant_mode:
@@ -2514,27 +2544,13 @@ def fit_nlsq_cmaes(
 
         return result
 
-    except (ValueError, RuntimeError, TypeError, OSError, MemoryError) as e:
+    except ValueError as e:
+        if "per_angle_mode" in str(e):
+            raise  # config rejection (Phase 6 resolver), not a solver failure
         execution_time = time.time() - start_time
         logger.error(f"CMA-ES optimization failed: {e}")
-
-        # Return failed result
-        n_params = len(x0)
-        return OptimizationResult(
-            parameters=np.asarray(x0),
-            uncertainties=np.zeros(n_params),
-            covariance=np.eye(n_params),
-            chi_squared=float("inf"),
-            reduced_chi_squared=float("inf"),
-            convergence_status="failed",
-            iterations=0,
-            execution_time=execution_time,
-            device_info={
-                "device": "cpu",
-                "method": "cmaes",
-                "adapter": "CMAESWrapper",
-                "error": str(e),
-            },
-            recovery_actions=[],
-            quality_flag="poor",
-        )
+        return _cmaes_failed_result(x0, execution_time, e)
+    except (RuntimeError, TypeError, OSError, MemoryError) as e:
+        execution_time = time.time() - start_time
+        logger.error(f"CMA-ES optimization failed: {e}")
+        return _cmaes_failed_result(x0, execution_time, e)

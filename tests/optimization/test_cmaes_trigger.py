@@ -81,3 +81,72 @@ def test_compute_scale_ratio_increases_with_spread(wrapper):
         f"compute_scale_ratio should respond to width spread: "
         f"tight={tight_ratio}, wide={wide_ratio}"
     )
+
+
+# --- Phase 6: laminar CMA-ES propagates the fourier ValueError (not swallowed) ---
+
+
+def _laminar_cmaes_config(per_angle_mode: str):
+    from xpcsjax.config import ConfigManager
+
+    return ConfigManager(
+        config_override={
+            "analysis_mode": "laminar_flow",
+            "analyzer_parameters": {
+                "dt": 0.1,
+                "start_frame": 1,
+                "end_frame": 10,
+                "temporal": {"dt": 0.1, "start_frame": 1, "end_frame": 10},
+                "scattering": {"wavevector_q": 0.0237},
+                "geometry": {"stator_rotor_gap": 2_000_000.0},
+            },
+            "optimization": {
+                "method": "nlsq",
+                "nlsq": {
+                    "max_iterations": 20,
+                    "cmaes": {"enable": True, "auto_select": False},
+                    "multi_start": {"enable": False},
+                    "anti_degeneracy": {
+                        "enable": True,
+                        "per_angle_mode": per_angle_mode,
+                        "constant_scaling_threshold": 3,
+                    },
+                },
+                "stratification": {"enabled": False},
+            },
+        }
+    )
+
+
+def _tiny_laminar_data(n_phi=5, n_t=10):
+    from xpcsjax.core.homodyne_model import HomodyneModel
+
+    phi = np.linspace(0.0, 144.0, n_phi)
+    t = np.linspace(0.0, float(n_t - 1), n_t)
+    truth = np.array([1000.0, 0.5, 10.0, 0.01, 0.0, 0.0, 0.0])
+    cfg = _laminar_cmaes_config("individual")
+    model = HomodyneModel(cfg.config)
+    c2 = np.asarray(model.compute_c2(truth, phi, contrast=0.3, offset=1.0), dtype=np.float64)
+    return {
+        "phi_angles_list": phi,
+        "wavevector_q_list": np.array([0.0237]),
+        "t1": t,
+        "t2": t,
+        "c2_exp": c2,
+    }
+
+
+def test_cmaes_laminar_fourier_rejected():
+    from xpcsjax.optimization.nlsq.core import fit_nlsq_cmaes
+
+    with pytest.raises(ValueError, match="per_angle_mode"):
+        fit_nlsq_cmaes(_tiny_laminar_data(), _laminar_cmaes_config("fourier"))
+
+
+@pytest.mark.parametrize("mode", ["individual", "auto"])
+def test_cmaes_laminar_result_param_count(mode):
+    """Surviving modes expand back to the dense per-angle 2*n_phi + n_physical layout."""
+    from xpcsjax.optimization.nlsq.core import fit_nlsq_cmaes
+
+    res = fit_nlsq_cmaes(_tiny_laminar_data(), _laminar_cmaes_config(mode))
+    assert len(res.parameters) == 2 * 5 + 7
