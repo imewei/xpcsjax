@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from xpcsjax.optimization.nlsq.per_angle_mode import DEFAULT_CONSTANT_SCALING_THRESHOLD
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -293,13 +294,13 @@ class NLSQConfig:
 
     # === Anti-Degeneracy Defense System ===
     #
-    # Layer 1: Fourier Reparameterization / Constant Scaling
-    # Reduces structural degeneracy by expressing per-angle params as Fourier series
-    # or using a single constant value shared across all angles
-    per_angle_mode: str = "auto"  # "individual", "constant", "fourier", "auto"
-    fourier_order: int = 2  # Number of Fourier harmonics (order=2 -> 5 coeffs)
-    fourier_auto_threshold: int = 6  # Use Fourier when n_phi > threshold
-    constant_scaling_threshold: int = 3  # Use constant when n_phi >= threshold (auto mode)
+    # Layer 1: Per-Angle Reparameterization (scaling mode)
+    # Resolves per-angle (contrast, offset) scaling to one of: individual,
+    # averaged (the auto default at n_phi>=threshold), or constant (frozen).
+    per_angle_mode: str = "auto"  # "individual", "constant", "auto"
+    # Single threshold owner = per_angle_mode.py (MINOR 1): import the constant, do NOT
+    # re-hardcode 3, so the default cannot drift between config files and the resolver.
+    constant_scaling_threshold: int = DEFAULT_CONSTANT_SCALING_THRESHOLD  # auto: averaged/constant when n_phi >= threshold
     #
     # Layer 2: Hierarchical Optimization
     # Alternates between physical and per-angle params to break gradient cancellation
@@ -504,11 +505,11 @@ class NLSQConfig:
             multi_start_refinement_ftol=float(multi_start.get("refinement_ftol", 1e-12)),
             multi_start_degeneracy_threshold=float(multi_start.get("degeneracy_threshold", 0.1)),
             # Anti-Degeneracy Defense System
-            # Layer 1: Fourier Reparameterization / Constant Scaling
+            # Layer 1: Per-Angle Reparameterization (scaling mode)
             per_angle_mode=anti_degeneracy.get("per_angle_mode", "auto"),
-            fourier_order=anti_degeneracy.get("fourier_order", 2),
-            fourier_auto_threshold=anti_degeneracy.get("fourier_auto_threshold", 6),
-            constant_scaling_threshold=anti_degeneracy.get("constant_scaling_threshold", 3),
+            constant_scaling_threshold=anti_degeneracy.get(
+                "constant_scaling_threshold", DEFAULT_CONSTANT_SCALING_THRESHOLD
+            ),
             execute_layers=anti_degeneracy.get("execute_layers", False),
             # Layer 2: Hierarchical Optimization
             enable_hierarchical=hierarchical.get("enable", True),
@@ -794,17 +795,11 @@ class NLSQConfig:
             )
 
         # Validate Anti-Degeneracy Defense System settings
-        # Layer 1: Fourier Reparameterization / Constant Scaling
-        valid_per_angle_modes = ["individual", "constant", "fourier", "auto"]
+        # Layer 1: Per-Angle Reparameterization (scaling mode)
+        valid_per_angle_modes = ["individual", "constant", "auto"]
         if self.per_angle_mode not in valid_per_angle_modes:
             errors.append(
                 f"per_angle_mode must be one of {valid_per_angle_modes}, got: {self.per_angle_mode}"
-            )
-        if self.fourier_order < 1:
-            errors.append(f"fourier_order must be >= 1, got: {self.fourier_order}")
-        if self.fourier_auto_threshold < 1:
-            errors.append(
-                f"fourier_auto_threshold must be >= 1, got: {self.fourier_auto_threshold}"
             )
         if self.constant_scaling_threshold < 1:
             errors.append(
@@ -1058,8 +1053,6 @@ class NLSQConfig:
             # Anti-Degeneracy Defense System
             "anti_degeneracy": {
                 "per_angle_mode": self.per_angle_mode,
-                "fourier_order": self.fourier_order,
-                "fourier_auto_threshold": self.fourier_auto_threshold,
                 "constant_scaling_threshold": self.constant_scaling_threshold,
                 "execute_layers": self.execute_layers,
                 "hierarchical": {
