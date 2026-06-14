@@ -224,7 +224,16 @@ def _build_laminar_fit():
                 "loss": "linear",
                 "cmaes": {"enable": False, "auto_select": False},
                 "multi_start": {"enable": False},
-                "anti_degeneracy": {"enable": False},
+                # Dual-gate (a): pin EXPLICIT individual so this golden stays the
+                # strict rtol=1e-10 tripwire (the default->averaged change is gated
+                # separately in Task 8 / test_phase5_default_no_worse). n_phi=2
+                # resolves to individual either way, so the EXPLICIT token is a pure
+                # index permutation through the mapper and must NOT move numerics.
+                "anti_degeneracy": {
+                    "enable": True,
+                    "per_angle_mode": "individual",
+                    "constant_scaling_threshold": 3,
+                },
             },
             "stratification": {"enabled": False},
         },
@@ -398,6 +407,68 @@ def test_laminar_flow_end_to_end_golden():
     assert strategy == str(golden["strategy"])
     assert convergence_status == str(golden["convergence_status"])
     assert quality_flag == str(golden["quality_flag"])
+
+
+def test_explicit_individual_pins_layout_and_stays_bit_identical():
+    """Dual-gate (a): explicit per_angle_mode='individual' is a PURE index permutation
+    through the mapper -> the end-to-end laminar fit must stay byte-identical to the
+    pre-Phase-5 golden (parameter VECTOR LENGTH always; rtol=1e-10 VALUES under
+    XPCSJAX_RUN_ENGINE_PARITY). This is the strict tripwire on silent drift (spec §8)."""
+    # _build_laminar_fit now pins explicit individual (n_phi=2 -> individual either way,
+    # but the EXPLICIT token must NOT route through averaged regardless of threshold).
+    result = _build_laminar_fit()
+    diag = dict(result.nlsq_diagnostics or {})
+    assert diag.get("per_angle_mode") == "individual"
+    params = np.asarray(result.parameters, dtype=np.float64)
+    # n_phi=2 -> dense individual length 2*2 + 7 == 11
+    assert params.shape[0] == 2 * 2 + 7
+
+
+def test_explicit_individual_unaffected_by_threshold_at_high_nphi():
+    """Even with n_phi >= threshold, EXPLICIT 'individual' must NOT become averaged."""
+    from xpcsjax.config import ConfigManager
+    from xpcsjax.core.homodyne_model import HomodyneModel
+    from xpcsjax.optimization.nlsq import fit_nlsq
+
+    n_phi, n_t = 4, 8
+    phi = np.linspace(0.0, 90.0, n_phi, dtype=np.float64)
+    t = np.linspace(0.0, float(n_t - 1), n_t, dtype=np.float64)
+    true = np.array([1000.0, 0.5, 10.0, 0.01, 0.0, 0.0, 0.0])
+    cfg_dict = {
+        "analysis_mode": "laminar_flow",
+        "analyzer_parameters": {
+            "dt": 0.1, "start_frame": 1, "end_frame": n_t,
+            "temporal": {"dt": 0.1, "start_frame": 1, "end_frame": n_t},
+            "scattering": {"wavevector_q": 0.0237},
+            "geometry": {"stator_rotor_gap": 2000000},
+        },
+        "initial_parameters": {
+            "parameter_names": list(_PHYS_NAMES),
+            "values": true.tolist(),
+        },
+        "optimization": {
+            "method": "nlsq",
+            "nlsq": {
+                "analysis_mode": "laminar_flow", "max_iterations": 30, "loss": "linear",
+                "cmaes": {"enable": False, "auto_select": False},
+                "multi_start": {"enable": False},
+                "anti_degeneracy": {
+                    "enable": True, "per_angle_mode": "individual",
+                    "constant_scaling_threshold": 3,
+                },
+            },
+            "stratification": {"enabled": False},
+        },
+    }
+    cfg = ConfigManager(config_override=cfg_dict)
+    model = HomodyneModel(cfg.config)
+    c2 = np.asarray(model.compute_c2(true, phi, contrast=0.3, offset=1.0))
+    data = {"phi_angles_list": phi, "c2_exp": c2, "t1": t, "t2": t,
+            "wavevector_q_list": np.array([0.0237])}
+    res = fit_nlsq(data, cfg)
+    diag = dict(res.nlsq_diagnostics or {})
+    assert diag.get("per_angle_mode") == "individual"
+    assert np.asarray(res.parameters).shape[0] == 2 * n_phi + 7  # 15, NOT 9
 
 
 @pytest.mark.parametrize("golden_name", ["stratified_residual_jit", "laminar_flow_end_to_end"])
