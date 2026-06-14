@@ -2110,12 +2110,14 @@ def _resolve_effective_mode(config: NLSQConfig, n_phi: int) -> ResolvedPerAngleM
     ``constant`` is NEVER auto-selected; the user must request it explicitly via
     ``anti_degeneracy.per_angle_mode`` in the config (or a CLI option).
 
-    Explicit modes (``"constant"``, ``"individual"``) pass through unchanged. Any
-    other token is rejected with ``ValueError``.
+    Explicit resolved modes (``"constant"``, ``"averaged"``, ``"individual"``)
+    pass through unchanged. Any other token is rejected with ``ValueError``.
     """
     requested = config.per_angle_mode
     if requested == "constant":
         return "constant"
+    if requested == "averaged":
+        return "averaged"
     if requested == "individual":
         return "individual"
     if requested == "auto":
@@ -2127,7 +2129,7 @@ def _resolve_effective_mode(config: NLSQConfig, n_phi: int) -> ResolvedPerAngleM
             return "individual"
         return "averaged"
     raise ValueError(
-        f"unknown per_angle_mode {requested!r}; valid: constant, individual, auto"
+        f"unknown per_angle_mode {requested!r}; valid: constant, averaged, individual, auto"
     )
 
 
