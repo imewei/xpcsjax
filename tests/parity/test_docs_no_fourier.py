@@ -41,7 +41,8 @@ _DELETED_TOKENS = [
     _REMOVED_MODE + "_effective_mode",
 ]
 
-# RST literal form of the removed per-angle MODE token, e.g. ``fourier``.
+# RST literal form (doubled backticks) of the removed per-angle MODE token; the
+# token itself is assembled from fragments so this guard file stays grep-zero clean.
 _MODE_LITERAL = "``" + _REMOVED_MODE + "``"
 
 
