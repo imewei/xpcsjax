@@ -817,8 +817,18 @@ def _fit_nlsq_heterodyne(
     # omits the hybrid_streaming section opts out, so the gate never touches
     # select_nlsq_strategy / model.param_manager for non-hybrid fits. The shipped
     # template sets enable: true explicitly, so template users still get it.
+    # ``multistart_on`` gates this OFF for the same reason as ``cmaes_on``: the flat
+    # ``multistart`` escape is owned by fit_nlsq_multi_phi (the hybrid path runs no
+    # global escape), so letting hybrid intercept a flat-multistart fit at a
+    # LARGE/STREAMING tier would silently ship a different optimizer than
+    # configured. Pinned by ``test_flat_multistart_precedence_over_hybrid``.
     hybrid_dict = nlsq_dict.get("hybrid_streaming", {}) if isinstance(nlsq_dict, dict) else {}
-    if not cmaes_on and isinstance(hybrid_dict, dict) and hybrid_dict.get("enable", False):
+    if (
+        not cmaes_on
+        and not multistart_on
+        and isinstance(hybrid_dict, dict)
+        and hybrid_dict.get("enable", False)
+    ):
         from xpcsjax.optimization.nlsq.heterodyne_memory import (
             NLSQStrategy,
             select_nlsq_strategy,
@@ -937,7 +947,12 @@ def _fit_nlsq_heterodyne(
     # actually fire (CMA-ES off, stratification chosen, and >= 1M points). This
     # keeps the heterodyne_core import lazy so dispatch unit tests that stub
     # heterodyne_core (and never reach the 1M gate) are unaffected.
-    if not cmaes_on and use_strat and n_points >= 1_000_000:
+    # ``multistart_on`` gates this OFF alongside ``cmaes_on``: the flat
+    # ``multistart`` escape is owned by fit_nlsq_multi_phi and the stratified-LS
+    # path runs no global escape, so a flat-multistart fit at >=1M must fall
+    # through to fit_nlsq_multi_phi rather than be silently intercepted here.
+    # Pinned by ``test_flat_multistart_skips_stratified_ls``.
+    if not cmaes_on and not multistart_on and use_strat and n_points >= 1_000_000:
         # ``constant``, ``averaged``, and ``individual`` all route to stratified-LS
         # after Phase 3. ``averaged`` / ``individual`` use the JOINT stratified-LS
         # objective, consistent with the in-memory ``_fit_joint_multi_phi`` path
