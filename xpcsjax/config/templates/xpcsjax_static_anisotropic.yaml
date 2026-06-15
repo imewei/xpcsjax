@@ -463,17 +463,17 @@ optimization:
     #      laminar_flow only; there is no shear gradient to cancel for static)
     #   3. Ineffective Regularization: previously λ was too weak (now CV-based)
     #
-    # PER-ANGLE MODE — controls how (contrast, offset) varies with angle:
-    #   "auto"        Quantile-init averaged then OPTIMIZED jointly  →  3 + 2 params
-    #                 Auto-selected when n_phi >= constant_scaling_threshold.
-    #   "constant"    Per-angle (β, o) FROZEN from quantile estimate →  3 params
-    #                 (physical-only optimization)
-    #   "individual"  Separate per-angle (β_k, o_k), optimized       →  3 + 2·n_phi
-    #                 Prone to absorption for many angles — use with caution.
+    # PER-ANGLE MODE — for static modes this is PINNED to "individual".
+    #   Static modes have no flow direction, so the auto->averaged compression
+    #   that benefits laminar_flow is a no-op here. Every fit path enforces the
+    #   "static keeps individual" invariant: the standard wrapper (Step 6.5),
+    #   the CMA-ES + stratified-LS paths (controller gated to laminar/two_component),
+    #   and the hybrid-streaming path. The "static unification" that would let
+    #   static honor "auto"/"constant" is DEFERRED (spec §9); until it lands,
+    #   set this to "individual" so config intent matches enforced behavior.
+    #   "individual"  Separate per-angle (β_k, o_k), optimized  →  3 + 2·n_phi
     #
-    # PARAMETER COUNT EXAMPLES (static, n_phi=10):
-    #   constant:    3 params (β, o frozen per-angle from quantile)
-    #   auto:        5 params (3 physical + 2 averaged scaling)
+    # PARAMETER COUNT EXAMPLE (static, n_phi=10):
     #   individual: 23 params (3 physical + 20 per-angle scaling)
     #
     # For static_anisotropic the default defense (L1 + L4, with L2/L3 optional)
@@ -497,8 +497,8 @@ optimization:
       # escape, lower hierarchical.max_outer_iterations (and inner iterations).
       execute_layers: false
 
-      per_angle_mode: "auto"               # "auto" | "constant" | "individual"
-      constant_scaling_threshold: 3        # use averaged constant scaling when n_phi >= this
+      per_angle_mode: "individual"         # PINNED for static (auto/constant deferred, spec §9)
+      constant_scaling_threshold: 3        # unused while pinned to individual; kept for forward-compat
 
       # ---- L2 hierarchical (alternates physical/per-angle solves) ----
       # Not needed for static (no shear), but harmless if enabled.
