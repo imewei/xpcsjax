@@ -186,3 +186,78 @@ def test_static_anisotropic_template_pins_individual():
         "unification (spec §9) lands; 'auto' silently resolves averaged on the "
         "streaming path."
     )
+
+
+# ---------------------------------------------------------------------------
+# Shared static-pin resolver (single source of truth for the invariant). Both
+# the streaming fit and the large-data reduced-chi2 DOF computations resolve
+# through it so a static fit's optimized param count AND its DOF/reduced-chi2
+# are individual everywhere, independent of dataset size or requested mode.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("requested", ["auto", "averaged", "constant", "individual"])
+@pytest.mark.parametrize("n_phi", [2, 3, 23])
+def test_resolve_static_pinned_forces_individual(requested, n_phi):
+    from xpcsjax.optimization.nlsq.per_angle_mode import (
+        resolve_per_angle_mode_static_pinned,
+    )
+
+    assert (
+        resolve_per_angle_mode_static_pinned(requested, n_phi, 3, is_laminar_flow=False)
+        == "individual"
+    )
+
+
+def test_resolve_static_pinned_laminar_honors_resolver():
+    from xpcsjax.optimization.nlsq.per_angle_mode import (
+        resolve_per_angle_mode_static_pinned as _r,
+    )
+
+    assert _r("auto", 3, 3, is_laminar_flow=True) == "averaged"
+    assert _r("auto", 2, 3, is_laminar_flow=True) == "individual"
+    assert _r("constant", 5, 3, is_laminar_flow=True) == "constant"
+    assert _r("averaged", 5, 3, is_laminar_flow=True) == "averaged"
+
+
+# ---------------------------------------------------------------------------
+# Reduced-chi2 DOF — the bug. The large-data DOF computations resolved the RAW
+# config token (static_isotropic ships "constant"), giving DOF = n_physical (3)
+# while the optimizer actually fit the dense individual vector (2*n_phi + 3).
+# The static pin makes the DOF match the fit.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("token", ["constant", "averaged", "auto"])
+def test_static_dof_uses_individual_param_count(token):
+    from xpcsjax.optimization.nlsq.per_angle_mode import (
+        effective_constrained_dof,
+        resolve_per_angle_mode_static_pinned,
+    )
+
+    n_phi, n_physical = 6, 3
+    resolved = resolve_per_angle_mode_static_pinned(token, n_phi, 1, is_laminar_flow=False)
+    assert resolved == "individual"
+    # individual -> None so the caller falls back to len(popt) = 2*n_phi + n_physical,
+    # NOT the n_physical the inert "constant" token would have produced.
+    assert effective_constrained_dof(resolved, n_phi=n_phi, n_physical=n_physical) is None
+
+
+def test_wrapper_dof_sites_resolve_through_static_pin():
+    """Wiring: every large-data reduced-chi2 DOF computation in the wrapper must
+    resolve its per-angle mode through the static-pinned resolver, never the bare
+    resolver (which skips the pin and mis-sizes static DOF)."""
+    src = pathlib.Path("xpcsjax/optimization/nlsq/wrapper.py").read_text(encoding="utf-8")
+    assert src.count("effective_constrained_dof") >= 3
+    assert "resolve_per_angle_mode_static_pinned" in src
+
+
+# ---------------------------------------------------------------------------
+# Template — static_isotropic must ALSO pin individual (it shipped "constant",
+# an inert token on the optimizer path that mis-sized reduced-chi2 DOF).
+# ---------------------------------------------------------------------------
+def test_static_isotropic_template_pins_individual():
+    iso = pathlib.Path("xpcsjax/config/templates/xpcsjax_static_isotropic.yaml")
+    cfg = yaml.safe_load(iso.read_text(encoding="utf-8"))
+    ad = cfg["optimization"]["nlsq"]["anti_degeneracy"]
+    assert ad["per_angle_mode"] == "individual", (
+        "static_isotropic must pin per_angle_mode to 'individual' (static = "
+        "individual everywhere until unification, spec §9); the prior 'constant' "
+        "token was inert on the optimizer path and mis-sized reduced-chi2 DOF."
+    )
