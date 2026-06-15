@@ -1615,6 +1615,40 @@ def _cmaes_failed_result(
     )
 
 
+def _broadcast_scaling_mode_label(use_averaged_scaling: bool) -> str:
+    """Resolve the one-word label for the constant/averaged broadcast paths.
+
+    ``AntiDegeneracyController.use_constant`` is an umbrella over true
+    fixed-constant scaling and the averaged broadcast (the ``auto`` default at
+    ``n_phi >= constant_scaling_threshold``). Every log line that names the
+    broadcast mode — the summary line and the parameter-expansion line — must
+    derive its word from here and never hard-code "constant", so an averaged run
+    never reports the contradictory "constant"/"fixed" wording. Centralizing the
+    label keeps the tripwire in ``test_laminar_mode_banners.py`` honest.
+    """
+    return "averaged" if use_averaged_scaling else "constant"
+
+
+def _anti_degeneracy_mode_summary(
+    *, use_averaged_scaling: bool, n_optimized: int, n_total: int
+) -> str:
+    """Single source of truth for the constant/averaged broadcast summary line.
+
+    An averaged run optimizes its 1 contrast + 1 offset and is neither
+    ``constant`` nor ``fixed``; see :func:`_broadcast_scaling_mode_label`.
+    """
+    mode = _broadcast_scaling_mode_label(use_averaged_scaling)
+    qualifier = (
+        "optimized broadcast scaling"
+        if use_averaged_scaling
+        else "fixed per-angle scaling"
+    )
+    return (
+        f"Anti-degeneracy: {mode} mode with {qualifier} "
+        f"({n_optimized} optimized -> {n_total} total params)"
+    )
+
+
 @log_performance(threshold=1.0)
 def fit_nlsq_cmaes(
     data: dict[str, Any],
@@ -2413,11 +2447,20 @@ def fit_nlsq_cmaes(
             )
         else:
             if nlsq_warmstart_params is not None:
-                logger.info(
-                    f"[CMA-ES] CMA-ES result is better: "
-                    f"CMA-ES chi2={cmaes_result.chi_squared:.4e} <= "
-                    f"NLSQ chi2={nlsq_warmstart_chi2:.4e}"
-                )
+                if cmaes_result.diagnostics.get("cmaes_skipped"):
+                    # CMA-ES was auto-skipped: cmaes_result was built directly
+                    # from the warm-start, so the two chi2 are byte-identical and
+                    # there is no distinct CMA-ES result to compare against.
+                    logger.info(
+                        f"[CMA-ES] CMA-ES skipped; kept NLSQ warm-start: "
+                        f"chi2={nlsq_warmstart_chi2:.4e}"
+                    )
+                else:
+                    logger.info(
+                        f"[CMA-ES] CMA-ES result is better: "
+                        f"CMA-ES chi2={cmaes_result.chi_squared:.4e} <= "
+                        f"NLSQ chi2={nlsq_warmstart_chi2:.4e}"
+                    )
 
         execution_time = time.time() - start_time
 
@@ -2446,8 +2489,11 @@ def fit_nlsq_cmaes(
             )
             final_params = expanded.params
 
+            # use_constant is an umbrella over fixed-constant and averaged scaling;
+            # label the message with the actually-resolved mode (shared helper).
+            _expand_mode_label = _broadcast_scaling_mode_label(use_averaged_scaling)
             logger.info(
-                f"Expanding constant mode results: {n_before} -> "
+                f"Expanding {_expand_mode_label} mode results: {n_before} -> "
                 f"{len(final_params)} parameters (broadcast contrast={final_params[0]:.4f}, offset={final_params[n_phi]:.4f})"
             )
 
@@ -2548,8 +2594,11 @@ def fit_nlsq_cmaes(
         logger.info(f"L-M refined: {cmaes_result.nlsq_refined}")
         if use_constant_mode:
             logger.info(
-                f"Anti-degeneracy: constant mode with fixed per-angle scaling "
-                f"({len(cmaes_result.parameters)} physical -> {n_params} total params)"
+                _anti_degeneracy_mode_summary(
+                    use_averaged_scaling=use_averaged_scaling,
+                    n_optimized=len(cmaes_result.parameters),
+                    n_total=n_params,
+                )
             )
 
         return result
