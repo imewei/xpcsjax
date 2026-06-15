@@ -146,11 +146,9 @@ from xpcsjax.optimization.nlsq.strategies.residual_jit import (
 from xpcsjax.optimization.nlsq.fallback_chain import (
     OptimizationStrategy,
     execute_optimization_with_fallback,
-    get_fallback_strategy,
     handle_nlsq_result,
 )
 from xpcsjax.optimization.nlsq.recovery import (
-    diagnose_error,
     execute_with_recovery,
     safe_uncertainties_from_pcov,
 )
@@ -162,10 +160,8 @@ from xpcsjax.optimization.nlsq.strategies.stratified_ls import (
     fit_with_stratified_least_squares,
 )
 from xpcsjax.optimization.nlsq.strategies.hybrid_streaming import (
-    estimate_memory_for_stratified_ls,
     fit_with_hybrid_streaming_optimizer,
     fit_with_stratified_hybrid_streaming,
-    should_use_streaming,
 )
 
 
@@ -701,15 +697,6 @@ class NLSQWrapper(NLSQAdapterBase):
         Delegates to fallback_chain.handle_nlsq_result().
         """
         return handle_nlsq_result(result, strategy)
-
-    def _get_fallback_strategy(
-        self, current_strategy: OptimizationStrategy
-    ) -> OptimizationStrategy | None:
-        """Get fallback strategy when current strategy fails.
-
-        Delegates to fallback_chain.get_fallback_strategy().
-        """
-        return get_fallback_strategy(current_strategy)
 
     def fit(
         self,
@@ -2475,21 +2462,6 @@ class NLSQWrapper(NLSQAdapterBase):
             convergence=getattr(self, "_recovery_convergence", None),
         )
 
-    def _diagnose_error(
-        self,
-        error: Exception,
-        params: np.ndarray,
-        bounds: tuple[np.ndarray, np.ndarray] | None,
-        attempt: int,
-    ) -> dict[str, Any]:
-        """Diagnose optimization error and provide actionable recovery strategy (T023)."""
-        return diagnose_error(
-            error=error,
-            params=params,
-            bounds=bounds,
-            attempt=attempt,
-        )
-
     def _prepare_xy_data(self, data: Any) -> tuple[np.ndarray, np.ndarray]:
         """Transform multi-dimensional XPCS data to flattened 1D arrays.
 
@@ -3968,32 +3940,6 @@ class NLSQWrapper(NLSQAdapterBase):
             logger=logger,
             hybrid_config=hybrid_config,
             anti_degeneracy_config=anti_degeneracy_config,
-        )
-
-    def _estimate_memory_for_stratified_ls(
-        self,
-        n_points: int,
-        n_params: int,
-        n_chunks: int,
-    ) -> float:
-        """Estimate peak memory usage for stratified least-squares optimization."""
-        return estimate_memory_for_stratified_ls(n_points, n_params, n_chunks)
-
-    def _should_use_streaming(
-        self,
-        n_points: int,
-        n_params: int,
-        n_chunks: int,
-        memory_threshold_gb: float | None = None,
-        memory_fraction: float | None = None,
-    ) -> tuple[bool, float, str]:
-        """Determine if streaming optimizer should be used based on memory estimate."""
-        return should_use_streaming(
-            n_points=n_points,
-            n_params=n_params,
-            n_chunks=n_chunks,
-            memory_threshold_gb=memory_threshold_gb,
-            memory_fraction=memory_fraction,
         )
 
     def _create_fit_result(
