@@ -413,8 +413,17 @@ def test_hybrid_does_not_fire_on_standard_tier(monkeypatch):
         message = "ok"
         nlsq_diagnostics: dict = {}
 
+    # The standard (non-hybrid) in-memory path for an in-scope two_component mode
+    # now lands on the SHARED engine route (Task #16b) first, falling back to
+    # fit_nlsq_multi_phi only on a routing skip. Record BOTH so the assertion
+    # captures "fell through to the normal joint fit" regardless of which standard
+    # sink ran — the real "hybrid must NOT fire" guard is the throw-patch above.
     monkeypatch.setattr(
         "xpcsjax.optimization.nlsq.heterodyne_core.fit_nlsq_multi_phi",
+        lambda *a, **k: joint.setdefault("yes", True) or _R(),
+    )
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.heterodyne_engine_route.fit_two_component_via_engine",
         lambda *a, **k: joint.setdefault("yes", True) or _R(),
     )
 
@@ -473,6 +482,54 @@ def test_cmaes_precedence_over_hybrid(monkeypatch):
     data = {"c2_exp": c2, "phi_angles_list": phi}
     nlsq_pkg.fit_nlsq(data, cfg)
     assert joint.get("yes") is True
+
+
+def test_flat_multistart_skips_engine_route_on_auto_budget(monkeypatch):
+    """A flat ``multistart=True`` fit with the default auto budget must NOT route
+    through the engine route (which runs no global escape) — it must fall through
+    to fit_nlsq_multi_phi, which owns the joint multistart escape. Regression for
+    the Codex finding that the engine-route gate only checked ``cmaes_on``.
+    """
+    import xpcsjax.optimization.nlsq as nlsq_pkg
+
+    model, c2, phi = _make_synthetic_heterodyne()
+    _install_model_stub(monkeypatch, model)
+
+    # The engine route must NEVER run when a global escape is requested.
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.heterodyne_engine_route.fit_two_component_via_engine",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("engine route must not run when flat multistart is on")
+        ),
+    )
+    import numpy as _np
+
+    class _R:
+        parameters = _np.zeros(1)
+        chi_squared = 0.0
+        reduced_chi_squared = 0.0
+        success = True
+        message = "ok"
+        nlsq_diagnostics: dict = {}
+
+    joint = {}
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.heterodyne_core.fit_nlsq_multi_phi",
+        lambda *a, **k: joint.setdefault("yes", True) or _R(),
+    )
+
+    cfg = _Cfg(
+        {
+            "analysis_mode": "two_component",
+            "optimization": {"nlsq": {"multistart": True}},
+        }
+    )
+    data = {"c2_exp": c2, "phi_angles_list": phi}
+    # Self-validating: if flat ``multistart`` were NOT parsed onto nlsq_cfg the
+    # gate would not fire, the engine route would run, and its monkeypatched stub
+    # would raise. A clean pass proves both the parse and the gate.
+    nlsq_pkg.fit_nlsq(data, cfg)
+    assert joint.get("yes") is True  # routed to fit_nlsq_multi_phi (owns the escape)
 
 
 def test_pointwise_data_excludes_t0_and_diagonal():

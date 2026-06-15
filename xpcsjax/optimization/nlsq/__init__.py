@@ -786,6 +786,14 @@ def _fit_nlsq_heterodyne(
     # stratified-LS intercept before CMA-ES. This single change fixes the
     # multistart, hybrid, AND stratified-LS precedence gates.
     cmaes_on = bool(getattr(nlsq_cfg, "enable_cmaes", False))
+    # The FLAT ``multistart`` field is a SEPARATE global escape from the nested
+    # ``multi_start.enable`` dict above: it is consumed inside fit_nlsq_multi_phi
+    # (heterodyne_core.py — ``escape_kind = "multistart"``), not by this
+    # dispatcher. Like ``cmaes_on`` it must gate the engine route OFF (the engine
+    # route runs no global escape), else a flat-``multistart`` fit with the
+    # default auto budget would silently return the plain engine solve and drop
+    # the escape. See the engine-route gate below.
+    multistart_on = bool(getattr(nlsq_cfg, "multistart", False))
     if isinstance(ms_dict, dict) and ms_dict.get("enable", False) and not cmaes_on:
         from xpcsjax.optimization.nlsq.heterodyne_logging import (
             log_strategy_selection as _log_strategy,
@@ -1029,17 +1037,32 @@ def _fit_nlsq_heterodyne(
     # dispatch unit test that never reaches a real fit) falls back to
     # fit_nlsq_multi_phi. The import stays inside the try so it does NOT eagerly
     # touch heterodyne_core for stubbed callers.
+    #
+    # The engine route is the NON-ESCAPE in-memory path: it runs a plain joint
+    # NLSQ solve with no global-escape logic. The CMA-ES *and* (flat) multistart
+    # joint escapes live INSIDE fit_nlsq_multi_phi (heterodyne_core.py —
+    # ``escape_kind`` is "cmaes"/"multistart"), and a fit requesting either
+    # reaches this branch because neither has a separate dispatcher gate above
+    # (the early branch handles only the NESTED ``multi_start.enable``). So when
+    # ``cmaes_on`` OR ``multistart_on`` we must NOT route through the engine route
+    # (it would silently drop the escape) — leave ``result=None`` so the fit falls
+    # through to fit_nlsq_multi_phi, which owns both escape branches. Pinned by
+    # ``test_cmaes_precedence_over_hybrid`` and
+    # ``test_flat_multistart_skips_engine_route_on_auto_budget``.
     result = None
     try:
-        from xpcsjax.optimization.nlsq.heterodyne_engine_route import (
-            fit_two_component_via_engine,
-        )
+        if not cmaes_on and not multistart_on:
+            from xpcsjax.optimization.nlsq.heterodyne_engine_route import (
+                fit_two_component_via_engine,
+            )
 
-        result = fit_two_component_via_engine(model, c2, phi, nlsq_cfg, weights)
+            result = fit_two_component_via_engine(model, c2, phi, nlsq_cfg, weights)
     except NotImplementedError as _engine_skip:
         # By-design bail: the engine route raises NotImplementedError for the
-        # cases it intentionally does not handle (non-uniform weights, an
-        # out-of-scope per_angle_mode, or an "auto"/None max_nfev). This is the
+        # cases it intentionally does not handle (non-uniform weights or an
+        # out-of-scope ``per_angle_mode``). The "auto"/None max_nfev budget is
+        # now handled in-route (passed through so nlsq auto-resolves
+        # 100*n_params), so it no longer bails here. This is the
         # documented best-effort fallback, NOT an error — log it at INFO so it
         # does not read as a failure in production logs.
         from xpcsjax.utils.logging import get_logger as _get_logger
