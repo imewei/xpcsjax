@@ -299,12 +299,12 @@ Multi-angle joint fitting
 Heterodyne fits in xpcsjax share the 14 physics parameters across all
 :math:`\phi` sectors while allowing the per-angle scaling to vary
 according to the chosen anti-degeneracy mode (``auto``, ``constant``,
-``fourier``, or ``individual``). The Fourier reparameterisation in
-:mod:`xpcsjax.optimization.nlsq.fourier_reparam` expresses
-:math:`\beta(\phi)` and :math:`c_\mathrm{offset}(\phi)` as a truncated
-Fourier series, which is especially useful for heterodyne because the
-oscillatory cross term carries genuine angular signal that the controller
-must not smear into per-angle nuisance variation.
+``averaged``, or ``individual``). The per-angle reparameterisation in
+:mod:`xpcsjax.optimization.nlsq.per_angle_mode` collapses the per-angle
+:math:`\beta(\phi)` and :math:`c_\mathrm{offset}(\phi)` scaling onto a
+small, shared set of parameters, which is especially useful for heterodyne
+because the oscillatory cross term carries genuine angular signal that the
+controller must not smear into per-angle nuisance variation.
 
 The dispatch returns a Python list of
 :class:`xpcsjax.optimization.nlsq.heterodyne_results.NLSQResult`, one per :math:`\phi`
@@ -357,7 +357,7 @@ Comparison with the homodyne model
      - 3 (static) or 7 (laminar flow)
      - 14
    * - Per-angle scaling
-     - 2 (constant / averaged) -- 10 (Fourier K=2) -- 2\ :math:`N_\phi`
+     - 2 (constant / averaged) -- 2\ :math:`N_\phi` (individual)
      - same as homodyne (controller-driven)
    * - :math:`c_2` shape
      - Monotone decay from the diagonal

@@ -42,8 +42,8 @@ Stratified least-squares module
 for the heterodyne model via three building blocks:
 
 * ``make_scaling_expander`` — constructs the per-angle scaling expansion for
-  the active ``per_angle_mode`` (``averaged``, ``individual``, or
-  ``fourier``).
+  the active ``per_angle_mode`` (``constant``, ``averaged``, or
+  ``individual``).
 * ``build_joint_pointwise_residual`` — assembles the full residual vector
   as a flat concatenation of per-angle residuals.
 * ``strategies/chunking.py`` — model-agnostic data-layout helper shared with
@@ -150,16 +150,13 @@ The scaling treatment is selected by ``anti_degeneracy_config.per_angle_mode``:
    * - ``"individual"``
      - 2 × n_phi
      - Per-angle contrast + offset optimized jointly.
-   * - ``"fourier"``
-     - 2 × (2K+1) Fourier coeffs
-     - Smooth angular variation.  Falls back silently to ``"individual"`` when n_phi < 1+2K; the effective mode is surfaced via ``meta["fourier_effective_mode"]``.
 
 Layer activation on the STREAMING path
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-- **L1** — active for all optimized modes (``auto_averaged``, ``individual``,
-  ``fourier``); skipped for ``fixed_constant`` (no tail to reparameterize).
-- **L2** — active for ``individual`` and ``fourier`` only, gated identically to
+- **L1** — active for all optimized modes (``auto_averaged``, ``individual``);
+  skipped for ``fixed_constant`` (no tail to reparameterize).
+- **L2** — active for ``individual`` only, gated identically to
   ``laminar_flow`` streaming (``not use_constant``).  ``auto_averaged`` and
   ``fixed_constant`` have ≤ 2 per-angle DoF so hierarchical alternation is not
   needed.  On the L2 branch the ``[physics | scaling]`` vector is permuted to

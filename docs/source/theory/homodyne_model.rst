@@ -322,8 +322,8 @@ The signature is
 For ``static``/``static_isotropic``/``static_anisotropic`` the ``params``
 vector is truncated to the 3-entry diffusion block. The ``contrast`` and
 ``offset`` arguments are scalars when the anti-degeneracy controller uses
-``constant`` or ``auto``-averaged scaling, and per-angle arrays when it uses
-``individual`` or ``fourier``. The pipeline that drives this dispatch lives
+``constant`` or ``averaged`` scaling, and per-angle arrays when it uses
+``individual``. The pipeline that drives this dispatch lives
 in :mod:`xpcsjax.optimization.nlsq`.
 
 Connection to rheology

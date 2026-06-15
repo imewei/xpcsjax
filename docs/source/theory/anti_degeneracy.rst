@@ -86,43 +86,32 @@ The :class:`~xpcsjax.optimization.nlsq.anti_degeneracy_controller.AntiDegeneracy
 orchestrates five complementary mechanisms. The layers are not redundant:
 each addresses a different root cause and they compose.
 
-Layer 1 -- Fourier / constant reparameterisation
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Layer 1 -- Per-angle reparameterisation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Module:** :mod:`xpcsjax.optimization.nlsq.fourier_reparam`.
-**Class:** :class:`~xpcsjax.optimization.nlsq.fourier_reparam.FourierReparameterizer`.
+**Module:** :mod:`xpcsjax.optimization.nlsq.per_angle_mode`.
+**Class:** :class:`~xpcsjax.optimization.nlsq.per_angle_mode.PerAngleScalingPlan`
+(resolved by :func:`~xpcsjax.optimization.nlsq.per_angle_mode.resolve_per_angle_mode`).
 
 This layer attacks the structural degeneracy by reducing the dimension of
-the per-angle scaling space. Four modes are available, selected through the
-``per_angle_mode`` setting:
+the per-angle scaling space. Three resolved modes are available, selected
+through the ``per_angle_mode`` setting (the ``auto`` token resolves to one of
+them):
 
 * ``constant`` -- per-angle :math:`(\beta(\phi_k), c_\mathrm{offset}(\phi_k))`
   are estimated from data quantiles and held **fixed** during the fit. Only
   the physical parameters are optimised. Total parameters: physical only.
-* ``auto`` (default) -- for :math:`N_\phi \geq 3`, computes the quantile
-  estimates, averages them to a single
+* ``averaged`` -- computes the quantile estimates, averages them to a single
   :math:`(\bar{\beta}, \bar{c}_\mathrm{offset})`, and optimises these two
-  averaged scalars together with the physical parameters. For
-  :math:`N_\phi < 3`, falls back to ``individual``.
-* ``fourier`` -- expresses :math:`\beta(\phi)` and
-  :math:`c_\mathrm{offset}(\phi)` as a truncated Fourier series of order
-  :math:`K` (default :math:`K = 2`),
-
-  .. math::
-     :label: ad_fourier
-
-     \beta(\phi)
-     \;=\; \bar{\beta}
-     + \sum_{\ell=1}^K \bigl[a_\ell \cos(\ell \phi) + b_\ell \sin(\ell \phi)\bigr],
-
-  yielding :math:`2 K + 1 = 5` coefficients per group instead of
-  :math:`N_\phi` per group.
+  averaged scalars together with the physical parameters. This is what
+  ``auto`` (the default) resolves to for :math:`N_\phi \geq 3`.
 * ``individual`` -- each angle has independent
   :math:`(\beta(\phi_k), c_\mathrm{offset}(\phi_k))`, adding
-  :math:`2 N_\phi` free parameters. Use only for very small :math:`N_\phi`
-  or as a post-hoc refinement of an ``auto``-mode fit.
+  :math:`2 N_\phi` free parameters. This is what ``auto`` resolves to for
+  :math:`N_\phi < 3`; also usable as a post-hoc refinement of an
+  ``averaged``-mode fit.
 
-The quantile estimation underlying ``constant`` and ``auto`` exploits the
+The quantile estimation underlying ``constant`` and ``averaged`` exploits the
 Siegert plateau:
 
 * At small lags (\ :math:`\Delta t \to 0`),
@@ -147,15 +136,14 @@ instead of min / max for outlier robustness.
    * - ``constant``
      - 7
      - Scaling fixed from quantiles; fastest convergence.
-   * - ``auto``
+   * - ``averaged``
      - 9
-     - 7 physical + 2 averaged scaling; recommended default.
-   * - ``fourier`` (K=2)
-     - 17
-     - 7 physical + 10 Fourier coefficients.
+     - 7 physical + 2 averaged scaling; what ``auto`` (the recommended
+       default) resolves to for :math:`N_\phi \geq 3`.
    * - ``individual``
      - 53
-     - 7 physical + 46 per-angle; high degeneracy risk.
+     - 7 physical + 46 per-angle; high degeneracy risk. ``auto`` resolves
+       to this for :math:`N_\phi < 3`.
 
 Layer 2 -- Hierarchical two-stage optimisation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -432,7 +420,7 @@ Notes on the recommendations:
 * **L3 is inert in** ``auto``-**averaged mode.** With a single shared
   ``(contrast, offset)`` pair there is only one scaling group, so the
   cross-group CV penalty is identically zero. L3 only bites once there are
-  :math:`\geq 2` groups (``fourier`` / ``individual``).
+  :math:`\geq 2` groups (``individual``).
 * **CMA-ES** (a separate escape path, not a layer) is rarely needed for static
   modes, often needed for ``laminar_flow``, and routinely engaged for
   ``two_component`` (14-D, wide parameter scales).
@@ -446,10 +434,9 @@ dataclass with the following key fields:
 
 * ``enable`` (default ``True``) -- master switch;
 * ``per_angle_mode`` (default ``"auto"``) -- one of
-  ``"individual"``, ``"constant"``, ``"fourier"``, ``"auto"``;
-* ``fourier_order`` (default 2) -- truncation order :math:`K`;
+  ``"individual"``, ``"constant"``, ``"averaged"``, ``"auto"``;
 * ``constant_scaling_threshold`` (default 3) -- :math:`N_\phi` at which
-  ``"auto"`` switches from ``"individual"`` to ``"constant"``;
+  ``"auto"`` switches from ``"individual"`` to ``"averaged"``;
 * ``hierarchical_enable`` (default ``True``) -- Layer 2 on/off;
 * ``hierarchical_max_outer_iterations`` (default 5) -- maximum outer loops;
 * ``regularization_mode`` (default ``"relative"``) -- one of
@@ -503,10 +490,10 @@ When to use which mode
    * - ``constant``
      - Debugging, or when the quantile estimate is known to be reliable
        and speed matters most.
-   * - ``fourier``
-     - Genuine smooth azimuthal contrast variation expected (anisotropic
-       beam or sample). Tune :math:`K` and verify with information
-       criteria.
+   * - ``averaged``
+     - A single shared contrast/offset is adequate and you want it
+       optimised rather than frozen; what ``auto`` resolves to for
+       :math:`N_\phi \geq 3`.
    * - ``individual``
      - Post-hoc refinement only, initialised from an ``auto`` result.
        Never as a first attempt for :math:`N_\phi > 6`.
@@ -522,7 +509,7 @@ When to use which mode
      companion page covering tuning and diagnostics.
    * :mod:`xpcsjax.optimization.nlsq.anti_degeneracy_controller` -- the
      orchestrator.
-   * :mod:`xpcsjax.optimization.nlsq.fourier_reparam` -- Layer 1.
+   * :mod:`xpcsjax.optimization.nlsq.per_angle_mode` -- Layer 1.
    * :mod:`xpcsjax.optimization.nlsq.hierarchical` -- Layer 2.
    * :mod:`xpcsjax.optimization.nlsq.adaptive_regularization` -- Layer 3.
    * :mod:`xpcsjax.optimization.nlsq.gradient_monitor` -- Layer 4.

@@ -272,8 +272,9 @@ uniform and can optionally encode Poisson photon statistics or
 shear-sensitivity reweighting. The shape parameters
 :math:`(\beta(\phi_k), c_\mathrm{offset}(\phi_k))` enter through the
 anti-degeneracy controller's per-angle mode --- ``constant`` (fixed from
-quantiles), ``auto`` (averaged and optimised), ``fourier`` (truncated
-series), or ``individual``. See :doc:`anti_degeneracy`.
+quantiles), ``averaged`` (averaged and optimised), or ``individual``
+(per-angle); ``auto`` resolves to ``averaged`` or ``individual`` by angle
+count. See :doc:`anti_degeneracy`.
 
 .. seealso::
 
