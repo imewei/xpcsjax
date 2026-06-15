@@ -63,6 +63,36 @@ def resolve_per_angle_mode(
     )
 
 
+def resolve_per_angle_mode_static_pinned(
+    token: str,
+    n_phi: int,
+    constant_scaling_threshold: int = DEFAULT_CONSTANT_SCALING_THRESHOLD,
+    *,
+    is_laminar_flow: bool,
+) -> PerAngleMode:
+    """Resolve a per-angle mode, enforcing the "static keeps individual" pin.
+
+    Single source of truth for the invariant shared by the streaming fit
+    (:func:`~xpcsjax.optimization.nlsq.strategies.hybrid_streaming._resolve_streaming_per_angle_mode`)
+    and the large-data reduced-chi2 DOF computations in
+    :class:`~xpcsjax.optimization.nlsq.wrapper.NLSQWrapper`.
+
+    Static modes (``static_isotropic`` / ``static_anisotropic``) have no flow
+    direction, so the laminar ``auto -> averaged`` scaling compression is a no-op
+    for them and every fit path pins them to the dense ``individual`` layout
+    (``n_physics + 2*n_phi``). Resolving through this helper keeps a static fit's
+    optimized parameter count — and therefore its DOF / reduced-chi2 /
+    uncertainties — ``individual`` regardless of the requested token or whether
+    the dataset crossed a large-data threshold. ``is_laminar_flow=True`` honors
+    the full resolver unchanged. "Static unification" (letting static honor
+    auto/averaged/constant) is deferred (spec §9).
+    """
+    resolved = resolve_per_angle_mode(token, n_phi, constant_scaling_threshold)
+    if not is_laminar_flow and resolved != "individual":
+        return "individual"
+    return resolved
+
+
 def n_optimized(mode: PerAngleMode, n_phi: int) -> int:
     """Return the number of OPTIMIZED scaling parameters for a resolved mode.
 

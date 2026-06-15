@@ -1222,15 +1222,22 @@ class NLSQWrapper(NLSQAdapterBase):
                     )
                     from xpcsjax.optimization.nlsq.per_angle_mode import (
                         effective_constrained_dof as _eff_dof,
-                        resolve_per_angle_mode as _resolve_pam,
+                        resolve_per_angle_mode_static_pinned as _resolve_pam_pinned,
                     )
 
                     _ooc_mode = _ooc_ad.get("per_angle_mode", "auto")
                     _ooc_thresh = _ooc_ad.get("constant_scaling_threshold", 3)
-                    # Resolve first so EXPLICIT averaged gets the expanded constrained
-                    # DOF too, not just auto->averaged (Codex Finding 2).
+                    # Resolve through the static pin so a static fit's DOF reflects the
+                    # dense individual vector it actually fits (2*n_phi + n_physical),
+                    # not the inert config token. EXPLICIT averaged still gets the
+                    # expanded constrained DOF on laminar (Codex Finding 2).
                     _ooc_n_params_effective = _eff_dof(
-                        _resolve_pam(_ooc_mode, n_angles_check, _ooc_thresh),
+                        _resolve_pam_pinned(
+                            _ooc_mode,
+                            n_angles_check,
+                            _ooc_thresh,
+                            is_laminar_flow=(analysis_mode == AnalysisMode.LAMINAR_FLOW),
+                        ),
                         n_phi=n_angles_check,
                         n_physical=n_physical,
                     )
@@ -1409,15 +1416,22 @@ class NLSQWrapper(NLSQAdapterBase):
                         if per_angle_scaling and anti_degeneracy_config:
                             from xpcsjax.optimization.nlsq.per_angle_mode import (
                                 effective_constrained_dof as _eff_dof,
-                                resolve_per_angle_mode as _resolve_pam,
+                                resolve_per_angle_mode_static_pinned as _resolve_pam_pinned,
                             )
 
                             _hs_ad_mode = anti_degeneracy_config.get("per_angle_mode", "auto")
                             _hs_thresh = anti_degeneracy_config.get("constant_scaling_threshold", 3)
-                            # Resolve first so EXPLICIT averaged gets the expanded
-                            # constrained DOF too, not just auto->averaged (Codex Finding 2).
+                            # Resolve through the static pin so a static fit's DOF reflects
+                            # the dense individual vector (2*n_phi + n_physical), not the
+                            # inert config token. EXPLICIT averaged still gets the expanded
+                            # constrained DOF on laminar (Codex Finding 2).
                             _hs_n_params_effective = _eff_dof(
-                                _resolve_pam(_hs_ad_mode, n_angles_check, _hs_thresh),
+                                _resolve_pam_pinned(
+                                    _hs_ad_mode,
+                                    n_angles_check,
+                                    _hs_thresh,
+                                    is_laminar_flow=(analysis_mode == AnalysisMode.LAMINAR_FLOW),
+                                ),
                                 n_phi=n_angles_check,
                                 n_physical=n_physical,
                             )
@@ -1519,15 +1533,22 @@ class NLSQWrapper(NLSQAdapterBase):
                 if per_angle_scaling and anti_degeneracy_config:
                     from xpcsjax.optimization.nlsq.per_angle_mode import (
                         effective_constrained_dof as _eff_dof,
-                        resolve_per_angle_mode as _resolve_pam,
+                        resolve_per_angle_mode_static_pinned as _resolve_pam_pinned,
                     )
 
                     _sls_ad_mode = anti_degeneracy_config.get("per_angle_mode", "auto")
                     _sls_thresh = anti_degeneracy_config.get("constant_scaling_threshold", 3)
-                    # Resolve first so EXPLICIT averaged gets the expanded constrained
-                    # DOF too, not just auto->averaged (Codex Finding 2).
+                    # Resolve through the static pin so a static fit's DOF reflects the
+                    # dense individual vector (2*n_phi + n_physical), not the inert config
+                    # token. EXPLICIT averaged still gets the expanded constrained DOF on
+                    # laminar (Codex Finding 2).
                     _sls_n_params_effective = _eff_dof(
-                        _resolve_pam(_sls_ad_mode, n_angles_check, _sls_thresh),
+                        _resolve_pam_pinned(
+                            _sls_ad_mode,
+                            n_angles_check,
+                            _sls_thresh,
+                            is_laminar_flow=(analysis_mode == AnalysisMode.LAMINAR_FLOW),
+                        ),
                         n_phi=n_angles_check,
                         n_physical=n_physical,
                     )

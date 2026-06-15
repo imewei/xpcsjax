@@ -308,12 +308,15 @@ def _resolve_streaming_per_angle_mode(
     and static_anisotropic, so this targets static exactly. Laminar_flow is
     unaffected and still honors the full resolver.
     """
-    from xpcsjax.optimization.nlsq.per_angle_mode import resolve_per_angle_mode
+    from xpcsjax.optimization.nlsq.per_angle_mode import (
+        resolve_per_angle_mode_static_pinned,
+    )
 
-    mode = resolve_per_angle_mode(per_angle_mode, n_phi, constant_scaling_threshold)
-    if not is_laminar_flow and mode != "individual":
-        return "individual"
-    return mode
+    # Delegate to the shared single-source-of-truth pin so the streaming fit and
+    # the large-data DOF computations in NLSQWrapper enforce the same invariant.
+    return resolve_per_angle_mode_static_pinned(
+        per_angle_mode, n_phi, constant_scaling_threshold, is_laminar_flow=is_laminar_flow
+    )
 
 
 def fit_with_stratified_hybrid_streaming(
