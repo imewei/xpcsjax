@@ -85,10 +85,7 @@ silently turns off optimizer-level overrides.
 
     anti_degeneracy:
       enabled: true
-      fourier_reparam:
-        enabled: true
-      shear_weighting:
-        enabled: true
+      per_angle_mode: auto
 
 .. warning::
 
@@ -150,16 +147,19 @@ parameters (e.g. ``contrast``, ``offset``) are allowed to vary.
         vals = np.array([float(r.parameters[k]) for r in results if r.success])
         print(f"{name:>10s}  mean={vals.mean(): .4e}  std={vals.std(): .2e}")
 
-Fourier reparameterisation in the multi-angle setting
------------------------------------------------------
+Per-angle reparameterisation in the multi-angle setting
+-------------------------------------------------------
 
-With many angles, the shear sub-space picks up additional null
+With many angles, the per-angle scaling space picks up additional null
 directions: angles near ``phi0`` are insensitive, angles in the
-flow-perpendicular direction are dominant. The
-:class:`~xpcsjax.optimization.nlsq.fourier_reparam.FourierReparameterizer`
-operates in a Fourier basis indexed by harmonics of ``2 * phi``, which
-absorbs that anisotropy cleanly. You will see the controller log
-entries on each angle's ``recovery_actions`` field.
+flow-perpendicular direction are dominant. Layer 1
+(:class:`~xpcsjax.optimization.nlsq.per_angle_mode.PerAngleScalingPlan`,
+resolved from ``per_angle_mode`` by
+:func:`~xpcsjax.optimization.nlsq.per_angle_mode.resolve_per_angle_mode`)
+collapses the per-angle scaling onto a small, shared set of parameters
+(``constant`` / ``averaged`` / ``individual``), which absorbs that
+anisotropy cleanly. You will see the controller log entries on each
+angle's ``recovery_actions`` field.
 
 Next steps
 ----------

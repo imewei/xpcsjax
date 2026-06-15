@@ -65,8 +65,7 @@ A representative seven-parameter config:
 
     anti_degeneracy:
       enabled: true
-      fourier_reparam:
-        enabled: true
+      per_angle_mode: auto
       shear_weighting:
         enabled: true
 
@@ -139,11 +138,13 @@ In ``laminar_flow`` mode the engine activates the full five-layer
 controller documented at :doc:`/advanced/anti_degeneracy`. The two
 layers that matter most here are:
 
-- :class:`~xpcsjax.optimization.nlsq.fourier_reparam.FourierReparameterizer`
-  rewrites the shear parameter sub-space in a basis where directions
-  weakly constrained by data have small singular values. The trust
-  region solve then handles them naturally without inflating the
-  condition number.
+- :class:`~xpcsjax.optimization.nlsq.per_angle_mode.PerAngleScalingPlan`
+  (Layer 1) collapses the per-angle scaling space onto a small, shared set
+  of parameters (``constant`` / ``averaged`` / ``individual``, resolved
+  from ``per_angle_mode`` by
+  :func:`~xpcsjax.optimization.nlsq.per_angle_mode.resolve_per_angle_mode`),
+  so weakly constrained per-angle directions no longer inflate the
+  condition number of the trust-region solve.
 - :class:`~xpcsjax.optimization.nlsq.shear_weighting.ShearSensitivityWeighting`
   applies a per-angle weight derived from ``cos(2(phi - phi0))`` so
   that low-sensitivity angles contribute less to the Jacobian.
