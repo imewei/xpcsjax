@@ -14,9 +14,7 @@ Two checks:
    tree must not reference the DELETED module / classes / config keys, nor the
    removed per-angle mode literal. It does NOT forbid the bare word "Fourier",
    which legitimately appears in XPCS physics prose ("position density in
-   Fourier space"). The committed ``api/optimization.rst`` deliberately keeps a
-   single ``fourier`` legacy-path note mirroring code that still routes that
-   token, so it is excluded from the mode-literal check only.
+   Fourier space").
 """
 
 from __future__ import annotations
@@ -46,10 +44,6 @@ _DELETED_TOKENS = [
 # RST literal form of the removed per-angle MODE token, e.g. ``fourier``.
 _MODE_LITERAL = "``" + _REMOVED_MODE + "``"
 
-# Intentionally-kept legacy-path reference (committed, do-not-touch file): it
-# documents that the deleted token still falls back to the legacy solver path.
-_MODE_LITERAL_EXEMPT = {_DOCS / "api" / "optimization.rst"}
-
 
 @pytest.mark.parametrize("path", _RST, ids=lambda p: p.name)
 def test_rst_has_no_removed_mode(path: Path) -> None:
@@ -67,7 +61,7 @@ def test_all_rst_have_no_deleted_feature_tokens() -> None:
         for token in _DELETED_TOKENS:
             if token.lower() in lowered:
                 offenders.append(f"{rel}: deleted token {token!r}")
-        if path not in _MODE_LITERAL_EXEMPT and _MODE_LITERAL in text:
+        if _MODE_LITERAL in text:
             offenders.append(f"{rel}: removed per-angle mode literal {_MODE_LITERAL!r}")
     assert not offenders, "stale Fourier-scaling references found:\n" + "\n".join(
         offenders

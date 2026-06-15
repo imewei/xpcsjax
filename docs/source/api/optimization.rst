@@ -160,11 +160,10 @@ Heterodyne procedural-parity routes
 
 .. autofunction:: xpcsjax.optimization.nlsq.heterodyne_engine_route.fit_two_component_via_engine
 
-   Routes in-memory, in-scope-mode (``fixed_constant`` / ``individual`` /
-   ``auto_averaged``) ``two_component`` fits through the *same* homodyne
+   Routes in-memory, in-scope-mode (``constant`` / ``individual`` /
+   ``averaged``) ``two_component`` fits through the *same* homodyne
    stratification engine, giving procedural parity. Best-effort: any engine-route
-   exception falls back to ``fit_nlsq_multi_phi``. ``fourier`` stays on the
-   legacy path.
+   exception falls back to ``fit_nlsq_multi_phi``.
 
 .. autofunction:: xpcsjax.optimization.nlsq.heterodyne_stratified_ls.fit_heterodyne_stratified_least_squares
 
