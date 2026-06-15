@@ -495,9 +495,9 @@
     "semantic_hash": "cb9f96a1d4ea9abc43be926d1bd77455"
   },
   "tests/parity/test_engine_route_bugfixes.py": {
-    "mtime": 1781469355.4507036,
-    "ast_hash": "f21cc25c47fa80b031022fe4e1c1e8e9",
-    "semantic_hash": "f21cc25c47fa80b031022fe4e1c1e8e9"
+    "mtime": 1781507277.439926,
+    "ast_hash": "cc5af55c5d48bb7f362fba3ec62e18a9",
+    "semantic_hash": ""
   },
   "tests/parity/test_engine_heterodyne_routing.py": {
     "mtime": 1781469355.4507036,
@@ -970,9 +970,9 @@
     "semantic_hash": "ee72294efeade3a07e940561d4ff133f"
   },
   "xpcsjax/optimization/nlsq/__init__.py": {
-    "mtime": 1781469355.4577036,
-    "ast_hash": "dddde905f279ec2b621073c32c8b5641",
-    "semantic_hash": "dddde905f279ec2b621073c32c8b5641"
+    "mtime": 1781507342.237069,
+    "ast_hash": "6d77a4af4dd58e29495c2c63fd368438",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/cmaes_wrapper.py": {
     "mtime": 1781180232.7469528,
@@ -1080,9 +1080,9 @@
     "semantic_hash": "e1fcd9c5e60ce507b9bc764a04758823"
   },
   "xpcsjax/optimization/nlsq/heterodyne_core.py": {
-    "mtime": 1781469355.4677033,
-    "ast_hash": "96b5dab09e7d076261514671ed2e3a0d",
-    "semantic_hash": "96b5dab09e7d076261514671ed2e3a0d"
+    "mtime": 1781507381.1005936,
+    "ast_hash": "8aacfd4fddb8f189157a9f805004a47a",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/result_builder.py": {
     "mtime": 1781469355.4727035,
@@ -1130,9 +1130,9 @@
     "semantic_hash": "bff7cacf94128ee06185fa3d811c46a7"
   },
   "xpcsjax/optimization/nlsq/heterodyne_engine_route.py": {
-    "mtime": 1781469355.4677033,
-    "ast_hash": "16ec0b9155333aa2d0559a7708812286",
-    "semantic_hash": "16ec0b9155333aa2d0559a7708812286"
+    "mtime": 1781507330.8472135,
+    "ast_hash": "dad076c17b30ef3462b3f60f139c6b4d",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/hierarchical.py": {
     "mtime": 1781469355.4707034,
