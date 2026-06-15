@@ -1193,7 +1193,17 @@ def fit_heterodyne_stratified_least_squares(
     # photon-noise variance is threaded to the result builder via ``sigma2_noise``
     # so the logged value and the OptimizationResult agree.
     _sigma2_noise = far_lag_noise_variance(c2)
-    _n_dof = max(1, _n_data - int(popt.size))
+    # Codex review: averaged popt is compressed [c_avg, o_avg, physics]; the
+    # constrained model consumes the EXPANDED 2*n_phi + n_physics scaling DOF
+    # (spec §5 decision 3), so the LOGGED reduced chi^2 must use the same expanded
+    # DOF the OptimizationResult (build_hybrid_streaming_result) now uses — else the
+    # logged value and the result disagree for averaged. constant freezes scaling
+    # (n_scaling=0 -> n_physics); individual is already dense (== popt.size).
+    _n_phys_meta = int(meta["n_physics"])
+    _n_params_dof = (
+        _n_phys_meta if int(meta["n_scaling"]) == 0 else 2 * n_phi_meta + _n_phys_meta
+    )
+    _n_dof = max(1, _n_data - _n_params_dof)
     _reduced_chi2 = ssr / (_sigma2_noise * _n_dof) if _sigma2_noise > 1e-12 else ssr / _n_dof
     _hlog.log_optimization_results(
         success=_eff_success,

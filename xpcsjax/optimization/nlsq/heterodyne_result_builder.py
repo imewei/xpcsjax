@@ -643,7 +643,26 @@ def build_hybrid_streaming_result(
     # Finding 3: dof = n_data - n_params.  n_data_points is threaded from the
     # wrapper via info so this is always correct when the hybrid path ran.
     n_data = int(info.get("n_data_points", 0))
-    n_dof = max(1, n_data - n)
+    # Codex review: for the compressed averaged layout popt is
+    # [c_avg, o_avg, physics] (n_physics + 2), but the constrained model consumes
+    # the EXPANDED 2*n_phi + n_physics scaling DOF, so reduced chi2 / covariance
+    # must use the expanded constrained-model DOF (spec §5 decision 3), not
+    # len(popt). constant -> n_physics (== len(popt)); individual -> len(popt)
+    # (already dense). Falls back to len(popt) for non-resolved/unknown tokens.
+    _resolved_mode = ad_block.get("per_angle_mode")
+    _n_params_for_dof = n
+    if _resolved_mode in ("constant", "averaged", "individual"):
+        from xpcsjax.optimization.nlsq.per_angle_mode import effective_constrained_dof
+
+        try:
+            _n_physics = len(model.param_manager.varying_names)
+        except Exception:
+            _n_physics = None
+        if _n_physics is not None:
+            _eff = effective_constrained_dof(_resolved_mode, n_phi=n_phi, n_physical=_n_physics)
+            if _eff is not None:
+                _n_params_for_dof = int(_eff)
+    n_dof = max(1, n_data - _n_params_for_dof)
     # Noise-normalized reduced chi^2 (targets ~1.0 for a good fit), mirroring the
     # in-memory averaged joint paths (heterodyne_core: noise_normalized_
     # reduced_chi2). The driver threads an estimated far-lag photon-noise variance

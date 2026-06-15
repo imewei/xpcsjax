@@ -199,3 +199,70 @@ def test_explicit_averaged_resolves_like_auto_for_dof():
         resolve_per_angle_mode("averaged", n_phi, thr), n_phi=n_phi, n_physical=n_phys
     )
     assert dof_auto == dof_explicit == 2 * n_phi + n_phys
+
+
+# ---------------------------------------------------------------------------
+# Round 2 (second adversarial review) — heterodyne large-path reduced-chi2 DOF.
+# ---------------------------------------------------------------------------
+
+
+def test_heterodyne_streaming_averaged_reduced_chi2_uses_expanded_dof():
+    """Codex round-2 F1: heterodyne averaged streaming popt is COMPRESSED
+    ``[c_avg, o_avg, physics]`` (n_physics + 2), but build_hybrid_streaming_result
+    must compute reduced chi^2 with the EXPANDED constrained-model DOF
+    ``2*n_phi + n_physics`` (spec §5 decision 3), not ``len(popt)``. Pre-fix the
+    builder used ``n_data - len(popt)`` -> n_dof too large -> reduced chi^2 too
+    optimistic for averaged."""
+    import sys
+
+    sys.path.insert(0, "tests/optimization")
+    from test_heterodyne_hybrid_streaming import _make_synthetic_heterodyne
+
+    from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
+        build_hybrid_streaming_result,
+    )
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        fit_with_stratified_hybrid_streaming_heterodyne,
+    )
+
+    n_phi, n_t = 4, 8
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=n_phi, n_t=n_t)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+    popt, pcov, info = fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={"verbose": 0},
+        anti_degeneracy_config={"per_angle_mode": "auto"},  # -> averaged at n_phi=4
+    )
+    assert info["anti_degeneracy"]["per_angle_mode"] == "averaged"
+    # averaged popt is compressed (2 + n_physics), NOT dense (2*n_phi + n_physics)
+    n_physics = len(model.param_manager.varying_names)
+    assert len(popt) == 2 + n_physics
+
+    # Override SSR/noise/n_data with controlled, DOF-sensitive values (the synthetic
+    # fit converges to ~0 residual, where any DOF gives reduced_chi2 ~ 0).
+    info = dict(info)
+    info["cost"] = 50.0  # ssr = 2*cost = 100
+    info["sigma2_noise"] = 1.0
+    info["n_data_points"] = 1000
+    result = build_hybrid_streaming_result(
+        model=model, popt=popt, pcov=pcov, info=info, phi_angles=phi
+    )
+    ssr = 100.0
+    expanded_dof = 1000 - (2 * n_phi + n_physics)  # constrained-model DOF (correct)
+    compressed_dof = 1000 - len(popt)  # the pre-fix (wrong) DOF
+    expected = ssr / expanded_dof
+    wrong = ssr / compressed_dof
+    assert not np.isclose(expected, wrong, rtol=1e-6)  # fixture distinguishes the two
+    # The builder must use the EXPANDED constrained DOF, NOT len(popt) = 2 + n_physics.
+    assert np.isclose(float(result.reduced_chi_squared), expected, rtol=1e-9, atol=0.0), (
+        f"reduced_chi2 {result.reduced_chi_squared!r} uses compressed DOF "
+        f"({wrong!r}) instead of expanded ({expected!r})"
+    )
