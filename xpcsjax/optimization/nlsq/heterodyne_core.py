@@ -1595,6 +1595,7 @@ def _fit_joint_cmaes_multi_phi(
             phi_angles=np.asarray(phi_angles),
             config=config,
             weights=weights,
+            prob=prob,
         )
         x_warm = np.asarray(warm.parameters, dtype=np.float64)
         ssr_warm = float(warm.chi_squared)
@@ -2605,6 +2606,7 @@ def _fit_joint_multi_phi(
     config: NLSQConfig,
     weights: np.ndarray | None,
     x0_override: np.ndarray | None = None,
+    prob: JointProblem | None = None,
 ) -> OptimizationResult:
     """Joint multi-angle fit over the canonical scaling-first vector.
 
@@ -2647,7 +2649,14 @@ def _fit_joint_multi_phi(
     # ``constant`` / ``averaged`` / ``individual``. The result-tail bookkeeping
     # (scaling, base residual, regularization/hierarchical meta) is consumed by
     # ``_build_joint_result``, not here.
-    prob = _build_joint_problem(model, c2_data, phi_angles, config, weights)
+    #
+    # ``prob`` may be supplied by a caller that already built it (the CMA-ES
+    # escape builds it once for the residual closures + bounds) so the expensive
+    # L2 Stage-1 constant-mode solve inside ``_build_joint_problem`` runs ONCE
+    # per escaped fit instead of twice. Default ``None`` ⇒ build here, keeping
+    # every existing caller byte-identical.
+    if prob is None:
+        prob = _build_joint_problem(model, c2_data, phi_angles, config, weights)
     joint_residual_fn = prob.joint_residual_fn
     # ``x0_override`` (Task 3) lets the joint multistart escape seed the solver at
     # an arbitrary LHS start. Default ``None`` ⇒ ``prob.x0`` (the scaling-first
@@ -2732,11 +2741,42 @@ def _fit_joint_multi_phi(
 
     wall_time = time.perf_counter() - t_start
 
+    # L2 keep-better floor. A degenerate joint solve — e.g. a nan-gradient
+    # trust-region step on the near-singular C044 ``two_component`` Jacobian —
+    # can return parameters whose data-only SSR is HIGHER than the warm-start
+    # ``x0`` (the feasible point the solve began at: ``[scaling | stage-1
+    # physics]``). A trust-region method must never return worse than its start;
+    # when the backend does (or fails and yields a degraded vector), revert to
+    # ``x0``. The comparison uses the DATA-ONLY residual (excludes any L3 penalty
+    # rows) via the NaN-safe ``_escape_keeps_candidate``, so it is SSR-monotone
+    # and parity-safe under the ``two_component`` no-worse contract. Without this
+    # floor the degraded vector poisoned the CMA-ES warm-start (RCA: C044 fit
+    # finalized SSR 8737 after discarding a 6796 Stage-1 point).
+    base_residual_fn = prob.meta["base_residual_fn"]
+
+    def _data_ssr(x: np.ndarray) -> float:
+        return float(np.sum(np.asarray(base_residual_fn(x), dtype=np.float64) ** 2))
+
+    solved_params = np.asarray(joint_result.parameters, dtype=np.float64)
+    ssr_solved = _data_ssr(solved_params)
+    ssr_x0 = _data_ssr(x0)
+    if _escape_keeps_candidate(ssr_warm=ssr_x0, ssr_cand=ssr_solved):
+        final_params = solved_params
+    else:
+        logger.warning(
+            "L2 joint solve degraded data-only SSR vs warm-start x0 "
+            "(%.6e > %.6e); reverting to x0 (feasible warm-start) to preserve "
+            "the keep-better floor",
+            ssr_solved,
+            ssr_x0,
+        )
+        final_params = x0
+
     return _build_joint_result(
         model,
         prob,
         c2_data,
-        np.asarray(joint_result.parameters, dtype=np.float64),
+        final_params,
         phi_angles,
         config,
         weights,
