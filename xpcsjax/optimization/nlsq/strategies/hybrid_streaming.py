@@ -302,8 +302,8 @@ def _resolve_streaming_per_angle_mode(
     2*n_phi). The "static unification" that would let static honor
     ``auto`` / ``averaged`` / ``constant`` is deferred (spec §9). Enforcing the
     pin here keeps a static fit's optimized parameter count — and therefore its
-    DOF / reduced-chi2 / uncertainties — independent of whether the dataset
-    happened to cross the streaming threshold. Only homodyne modes reach the
+    DOF / reduced-chi2 / uncertainties — the same regardless of whether the
+    dataset happened to cross the streaming threshold. Only homodyne modes reach the
     streaming function, and ``is_laminar_flow`` is False for both static_isotropic
     and static_anisotropic, so this targets static exactly. Laminar_flow is
     unaffected and still honors the full resolver.

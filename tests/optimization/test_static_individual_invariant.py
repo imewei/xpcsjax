@@ -192,7 +192,7 @@ def test_static_anisotropic_template_pins_individual():
 # Shared static-pin resolver (single source of truth for the invariant). Both
 # the streaming fit and the large-data reduced-chi2 DOF computations resolve
 # through it so a static fit's optimized param count AND its DOF/reduced-chi2
-# are individual everywhere, independent of dataset size or requested mode.
+# are individual everywhere, regardless of dataset size or requested mode.
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("requested", ["auto", "averaged", "constant", "individual"])
 @pytest.mark.parametrize("n_phi", [2, 3, 23])
