@@ -92,6 +92,21 @@ the rendered documentation.
 
 ### Removed
 
+- **Per-angle-mode unification (Phase 7) — the `fourier` per-angle scaling
+  mode is gone.** Both `laminar_flow` and `two_component` now expose a single
+  canonical vocabulary of three per-angle scaling layouts — `constant`,
+  `averaged`, and `individual` (resolved from the `auto` default) — across all
+  eight execution paths. The Fourier-reparameterized scaling tail and its
+  `independent` sibling were deleted along with the
+  `optimization/nlsq/fourier_reparam.py` module, the `FourierReparameterizer`
+  class, the `fourier_order` / `fourier_auto_threshold` config keys (all four
+  mode templates plus the homodyne and heterodyne config dataclasses), and the
+  `fourier_basis_dim` diagnostics key. **Breaking:** configs that set
+  `per_angle_mode: fourier` (or `independent`) are rejected at resolve time —
+  use `individual` for free per-angle scaling or `averaged` for the
+  angularly-averaged two-DOF tail. Verified no-worse-SSR on the laminar
+  CMA-ES / stratified / streaming paths; the homodyne `rtol=1e-10` parity
+  baselines were regenerated against explicit `individual`.
 - **Dead-code cleanup** — removed code that was unreachable, superseded, or
   never wired into the NLSQ pipeline. No behavioural change; verified by the
   full suite (1253 passed, 8 skipped).
