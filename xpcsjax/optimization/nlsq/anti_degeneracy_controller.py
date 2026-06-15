@@ -353,17 +353,24 @@ class AntiDegeneracyController:
         """Initialize all 4 layers of the defense system."""
         config = self.config
 
-        # T018-T020: Determine actual per-angle mode with auto-selection logic
-        # Distinct semantics for auto vs explicit constant:
-        #   - auto (n_phi >= threshold): "averaged" → 9 params, OPTIMIZED averaged scaling
-        #   - constant (explicit): "constant" → 7 params, FIXED per-angle scaling
-        #   - individual: per-angle scaling OPTIMIZED
+        # Determine actual per-angle mode through the single shared seam
+        # (``resolve_per_angle_mode``) so the controller — and the laminar
+        # CMA-ES / stratified-LS paths that route through it — handle the
+        # canonical token set uniformly with the standard wrapper path:
+        #   - auto (n_phi >= threshold): "averaged" (OPTIMIZED averaged scaling)
+        #   - auto (n_phi <  threshold): "individual" (per-angle OPTIMIZED)
+        #   - constant (explicit): "constant" (FIXED per-angle scaling)
+        #   - individual / averaged (explicit): pass-through resolved variant
+        # An explicit "averaged" token is now accepted here exactly as it is on
+        # the standard path (resolve_per_angle_mode returns it verbatim); the
+        # legacy/unknown tokens still raise via the resolver's else branch.
+        from xpcsjax.optimization.nlsq.per_angle_mode import resolve_per_angle_mode
+
+        self.per_angle_mode_actual = resolve_per_angle_mode(
+            config.per_angle_mode, self.n_phi, config.constant_scaling_threshold
+        )
         if config.per_angle_mode == "auto":
-            if self.n_phi >= config.constant_scaling_threshold:
-                # AUTO mode with large n_phi: optimize averaged scaling (9 params)
-                # Computes N quantile estimates, averages to 1 contrast + 1 offset
-                # These 2 averaged values ARE OPTIMIZED along with 7 physical params
-                self.per_angle_mode_actual = "averaged"
+            if self.per_angle_mode_actual == "averaged":
                 logger.info("=" * 60)
                 logger.info("ANTI-DEGENERACY: Auto-selected 'averaged' mode")
                 logger.info(
@@ -377,8 +384,6 @@ class AntiDegeneracyController:
                 )
                 logger.info("=" * 60)
             else:
-                # Use individual per-angle parameters for few angles (N < 3)
-                self.per_angle_mode_actual = "individual"
                 logger.info("=" * 60)
                 logger.info("ANTI-DEGENERACY: Auto-selected 'individual' mode")
                 logger.info(
@@ -390,24 +395,17 @@ class AntiDegeneracyController:
                     f"= {self.n_physical + 2 * self.n_phi} total"
                 )
                 logger.info("=" * 60)
-        elif config.per_angle_mode == "constant":
-            # EXPLICIT constant mode: FIXED per-angle scaling (7 params)
-            # Computes N quantile estimates, uses per-angle values DIRECTLY (NOT averaged)
-            # Only 7 physical params are optimized; scaling is FIXED
-            self.per_angle_mode_actual = "constant"
+        elif self.per_angle_mode_actual == "constant":
             logger.info("=" * 60)
             logger.info("ANTI-DEGENERACY: Using explicit 'constant' mode -> constant")
             logger.info(f"  n_phi: {self.n_phi}")
             logger.info("  Behavior: Quantile estimates -> per-angle values FIXED (NOT optimized)")
             logger.info(f"  Parameters: {self.n_physical} physical only (scaling FIXED from quantiles)")
             logger.info("=" * 60)
-        elif config.per_angle_mode == "individual":
-            self.per_angle_mode_actual = "individual"
-            logger.debug("ANTI-DEGENERACY: Using explicit per_angle_mode: individual")
         else:
-            raise ValueError(
-                f"unknown per_angle_mode {config.per_angle_mode!r}; valid: "
-                "constant, averaged, individual, auto"
+            logger.debug(
+                "ANTI-DEGENERACY: Using explicit per_angle_mode: %s",
+                self.per_angle_mode_actual,
             )
 
         # T021: Determine use_constant flag for mapper

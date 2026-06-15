@@ -468,34 +468,25 @@ def fit_with_stratified_hybrid_streaming(
     per_angle_mode = ad_config.get("per_angle_mode", "auto")
     constant_scaling_threshold = ad_config.get("constant_scaling_threshold", 3)
 
-    # Determine actual per-angle mode
-    # Distinct semantics:
-    #   - auto (n_phi >= threshold): "averaged" → 9 params, OPTIMIZED averaged scaling
-    #   - constant (explicit): "constant" → 7 params, FIXED per-angle scaling
-    #   - individual: per-angle scaling OPTIMIZED
-    if per_angle_mode == "auto":
-        if n_phi >= constant_scaling_threshold:
-            # AUTO mode with large n_phi: optimize averaged scaling (9 params)
-            # Computes N quantile estimates, averages to 1 contrast + 1 offset
-            # These 2 averaged values ARE OPTIMIZED along with 7 physical params
-            per_angle_mode_actual = "averaged"
-        else:
-            # Use individual per-angle parameters for few angles (N < 3)
-            per_angle_mode_actual = "individual"
-    elif per_angle_mode == "constant":
-        # EXPLICIT constant mode: FIXED per-angle scaling (7 params)
-        # Computes N quantile estimates, uses per-angle values DIRECTLY (NOT averaged)
-        # Only 7 physical params are optimized; scaling is FIXED
-        per_angle_mode_actual = "constant"
-    elif per_angle_mode == "individual":
-        per_angle_mode_actual = "individual"
-        logger.debug("ANTI-DEGENERACY: Using explicit per_angle_mode: individual")
-    else:
-        # Only constant/averaged/individual/auto are accepted on the laminar streaming path.
-        raise ValueError(
-            f"unknown per_angle_mode {per_angle_mode!r}; valid: "
-            "constant, averaged, individual, auto"
-        )
+    # Determine actual per-angle mode through the single shared seam
+    # (``resolve_per_angle_mode``), keeping this streaming path symmetric with
+    # the standard wrapper path and the anti-degeneracy controller:
+    #   - auto (n_phi >= threshold): "averaged" → OPTIMIZED averaged scaling
+    #   - auto (n_phi <  threshold): "individual" → per-angle scaling OPTIMIZED
+    #   - constant (explicit): "constant" → FIXED per-angle scaling
+    #   - individual / averaged (explicit): pass-through resolved variant
+    # An explicit "averaged" token is now accepted here exactly as on the
+    # standard path; legacy/unknown tokens still raise via the resolver.
+    from xpcsjax.optimization.nlsq.per_angle_mode import resolve_per_angle_mode
+
+    per_angle_mode_actual = resolve_per_angle_mode(
+        per_angle_mode, n_phi, constant_scaling_threshold
+    )
+    logger.debug(
+        "ANTI-DEGENERACY: resolved per_angle_mode %r -> %r",
+        per_angle_mode,
+        per_angle_mode_actual,
+    )
 
     # T031: Determine mode flags
     # use_constant: True for both averaged and constant (constant-style mapping)
