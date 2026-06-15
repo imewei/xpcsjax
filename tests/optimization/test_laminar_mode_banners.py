@@ -158,3 +158,65 @@ def test_compute_fixed_per_angle_scaling_emits_neutral_banner(caplog):
     text = caplog.text
     assert "CONSTANT MODE" not in text
     assert "Estimating per-angle scaling from quantiles" in text
+
+
+# ---------------------------------------------------------------------------
+# Tripwire: the fit_nlsq_cmaes summary line must reflect the *resolved* mode.
+#
+# `AntiDegeneracyController.use_constant` is an umbrella over fixed-constant and
+# averaged scaling, so the laminar CMA-ES summary used to hard-code "constant
+# mode with fixed per-angle scaling" even for an averaged run (the C020 log
+# contradiction: header banners say 'averaged', the summary says 'constant').
+# The label now flows through the single-source-of-truth helper
+# `_anti_degeneracy_mode_summary`; these guard against vocabulary drift.
+# ---------------------------------------------------------------------------
+
+
+def test_broadcast_mode_label_resolves_word():
+    from xpcsjax.optimization.nlsq.core import _broadcast_scaling_mode_label
+
+    assert _broadcast_scaling_mode_label(True) == "averaged"
+    assert _broadcast_scaling_mode_label(False) == "constant"
+
+
+def test_summary_helper_averaged_has_no_constant_or_fixed_wording():
+    from xpcsjax.optimization.nlsq.core import _anti_degeneracy_mode_summary
+
+    msg = _anti_degeneracy_mode_summary(
+        use_averaged_scaling=True, n_optimized=9, n_total=13
+    )
+    assert "averaged mode" in msg
+    assert "optimized broadcast scaling" in msg
+    assert "9 optimized -> 13 total params" in msg
+    # The drift this tripwire exists to catch:
+    assert "constant mode" not in msg
+    assert "fixed" not in msg
+
+
+def test_summary_helper_constant_keeps_fixed_wording():
+    from xpcsjax.optimization.nlsq.core import _anti_degeneracy_mode_summary
+
+    msg = _anti_degeneracy_mode_summary(
+        use_averaged_scaling=False, n_optimized=7, n_total=13
+    )
+    assert "constant mode with fixed per-angle scaling" in msg
+    assert "7 optimized -> 13 total params" in msg
+    assert "averaged" not in msg
+
+
+def test_fit_nlsq_cmaes_summary_routes_through_helper():
+    """Pin the wiring: the summary label must be produced by the helper, never
+    re-inlined as an f-string that could drift back to unconditional 'constant
+    mode' wording on the averaged path."""
+    import inspect
+
+    from xpcsjax.optimization.nlsq import core
+
+    src = inspect.getsource(core.fit_nlsq_cmaes)
+    assert "_anti_degeneracy_mode_summary(" in src
+    # No raw summary f-string should survive alongside the helper call.
+    assert "Anti-degeneracy: constant mode with fixed per-angle scaling" not in src
+    # The expansion line's mode word is folded into the same shared helper, so
+    # neither call site may hard-code the "averaged"/"constant" ternary again.
+    assert "_broadcast_scaling_mode_label(use_averaged_scaling)" in src
+    assert '"averaged" if use_averaged_scaling else "constant"' not in src
