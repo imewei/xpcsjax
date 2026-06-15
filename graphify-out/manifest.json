@@ -1185,9 +1185,9 @@
     "semantic_hash": "6be97afb3692f9d868216684b58f3528"
   },
   "xpcsjax/optimization/nlsq/strategies/hybrid_streaming.py": {
-    "mtime": 1781496224.9923446,
-    "ast_hash": "fa16781d1934cf2bb034701405a74a59",
-    "semantic_hash": "fa16781d1934cf2bb034701405a74a59"
+    "mtime": 1781505659.5320535,
+    "ast_hash": "135d1604ec1359e3f69ebcd98ff2d09a",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/strategies/heterodyne_hybrid_streaming.py": {
     "mtime": 1781469355.4737034,
@@ -1840,9 +1840,9 @@
     "semantic_hash": "27a9752db7b9297c1d2959e2ec0df800"
   },
   "xpcsjax/config/templates/xpcsjax_static_anisotropic.yaml": {
-    "mtime": 1781469355.4527037,
-    "ast_hash": "6421bb2c763b45d026a778f20e6fc5e8",
-    "semantic_hash": "6421bb2c763b45d026a778f20e6fc5e8"
+    "mtime": 1781505693.3729432,
+    "ast_hash": "b1ba67da6c9cb5bc8f297384e22f95ba",
+    "semantic_hash": ""
   },
   "docs/source/theory/citations.rst": {
     "mtime": 1779237286.5874834,
@@ -2078,5 +2078,10 @@
     "mtime": 1781469355.4717033,
     "ast_hash": "18476f575b335fa6e024a22d533c178b",
     "semantic_hash": "18476f575b335fa6e024a22d533c178b"
+  },
+  "tests/optimization/test_static_individual_invariant.py": {
+    "mtime": 1781505743.3377886,
+    "ast_hash": "4ef740bca8d342aa29a5301d3b36021e",
+    "semantic_hash": ""
   }
 }
