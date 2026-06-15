@@ -1,6 +1,6 @@
 """Phase 1+2 — C044 in-memory scaling-first no-worse-SSR oracle (maintainer-gated).
 
-Mirrors the gate of tests/parity/test_engine_heterodyne_realdata_c044.py: the
+Real C044 in-memory scaling-first no-worse-SSR oracle: the
 scaling-first re-order of the heterodyne in-memory path (native + escapes +
 engine route) must be NO-WORSE on real C044 data for all three modes —
 ``constant`` strict (1e-6), ``individual``/``averaged`` no-worse within 1e-3 — vs
@@ -25,6 +25,7 @@ pre-re-order one and must NOT be overwritten from a post-re-order checkout).
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -46,6 +47,20 @@ _SKIP_REASON = (
 # scripts/realdata_engine_fit_parity_c044.py --emit-baseline; committed alongside.
 _BASELINE = Path(__file__).parent / "fixtures" / "c044_inmemory_ssr_baseline.json"
 
+# Engine-route construction lives in the parity script (loaded by path — it sits
+# under scripts/, not a package). Inlined here after its former host test
+# (test_engine_heterodyne_realdata_c044.py) was removed as superseded.
+_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "realdata_engine_fit_parity_c044.py"
+
+
+def _load_helpers():
+    spec = importlib.util.spec_from_file_location("_realdata_c044_helpers", _SCRIPT)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 _N_T = 48
 _NFEV = 400
 _NO_WORSE_RTOL = 1e-3
@@ -57,9 +72,7 @@ _STRICT_RTOL = 1e-6
 @pytest.mark.parametrize("mode", ["constant", "individual", "averaged"])
 def test_c044_inmemory_scaling_first_no_worse(mode):
     # Reuse the parity script's loader + mode mapping so no model/engine
-    # construction is duplicated (lifted exactly like the sibling C044 oracle).
-    from tests.parity.test_engine_heterodyne_realdata_c044 import _load_helpers
-
+    # construction is duplicated.
     helpers = _load_helpers()
     model, c2, phi = helpers.load_c044(str(_C044_CONFIG), n_t=_N_T)
 
