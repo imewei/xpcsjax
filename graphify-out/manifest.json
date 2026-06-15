@@ -135,9 +135,9 @@
     "semantic_hash": "65fa545725b82c5a8bb2681dbcd59efa"
   },
   "tests/optimization/test_heterodyne_stratified_ls.py": {
-    "mtime": 1781469355.4467037,
-    "ast_hash": "86a230226c599f14b51e4f389db0c905",
-    "semantic_hash": "86a230226c599f14b51e4f389db0c905"
+    "mtime": 1781533087.1425514,
+    "ast_hash": "b25e47c87bed5d6a5f02201b55d7111b",
+    "semantic_hash": ""
   },
   "tests/optimization/test_heterodyne_cmaes_diagnostics.py": {
     "mtime": 1780525312.8013494,
@@ -1095,8 +1095,8 @@
     "semantic_hash": "6429a741a8bcca0c5489ecc00d486d7b"
   },
   "xpcsjax/optimization/nlsq/wrapper.py": {
-    "mtime": 1781514006.891595,
-    "ast_hash": "a69bb149dddd583c7049cfea7a9402da",
+    "mtime": 1781515227.988639,
+    "ast_hash": "7a1a7b8e280200103402275beacddc24",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/validation.py": {
@@ -1935,9 +1935,9 @@
     "semantic_hash": "53a973ede47ac87c9c710b4007faa460"
   },
   "tests/config/test_templates_no_fourier_keys.py": {
-    "mtime": 1781469355.4427037,
-    "ast_hash": "3bb36dde0ac4c9429752d1eb6549b4e9",
-    "semantic_hash": "3bb36dde0ac4c9429752d1eb6549b4e9"
+    "mtime": 1781515788.8282971,
+    "ast_hash": "299085173aa4e7ef2e5c3c091689e5f4",
+    "semantic_hash": ""
   },
   "tests/optimization/test_canonical_index_mapper.py": {
     "mtime": 1781469355.4447038,
@@ -1950,14 +1950,14 @@
     "semantic_hash": "3dd283e0bfb090e26fc20e38e7290f9e"
   },
   "tests/optimization/test_explicit_averaged_mode_parity.py": {
-    "mtime": 1781496224.9913447,
-    "ast_hash": "2cafc8485d8f6c3d1224f73cc5a45731",
-    "semantic_hash": "2cafc8485d8f6c3d1224f73cc5a45731"
+    "mtime": 1781515775.529327,
+    "ast_hash": "9a72ebae7a64080ed494c18d0d13b5e2",
+    "semantic_hash": ""
   },
   "tests/optimization/test_fourier_reparam_removed.py": {
-    "mtime": 1781469355.4447038,
-    "ast_hash": "5583a5628b31cecb826ee328ecb918aa",
-    "semantic_hash": "5583a5628b31cecb826ee328ecb918aa"
+    "mtime": 1781515751.9133806,
+    "ast_hash": "7af3217caac5d28822aa340c914d82df",
+    "semantic_hash": ""
   },
   "tests/optimization/test_heterodyne_config_no_fourier.py": {
     "mtime": 1781469355.4447038,
@@ -2035,9 +2035,9 @@
     "semantic_hash": "d55d39d5b7aec4eafd2bbcd8f056bbb9"
   },
   "tests/parity/test_docs_no_fourier.py": {
-    "mtime": 1781496225.0523462,
-    "ast_hash": "1a3be4c40711ba7a562f81c897bb6ac5",
-    "semantic_hash": "1a3be4c40711ba7a562f81c897bb6ac5"
+    "mtime": 1781515771.2943366,
+    "ast_hash": "f452a5b434cabf1f81ab4ad1fbc0c82a",
+    "semantic_hash": ""
   },
   "tests/parity/test_engine_heterodyne_inmemory_scaling_first_c044.py": {
     "mtime": 1781469355.4507036,
@@ -2055,9 +2055,9 @@
     "semantic_hash": "e50aa51158eba2b7da1e86fd5e570ab1"
   },
   "tests/parity/test_l1_rename.py": {
-    "mtime": 1781469355.4517038,
-    "ast_hash": "559e99d5c020bdab4d4697cd36e549f3",
-    "semantic_hash": "559e99d5c020bdab4d4697cd36e549f3"
+    "mtime": 1781515763.2523549,
+    "ast_hash": "501c4772a10201fcd60605ace171f982",
+    "semantic_hash": ""
   },
   "tests/parity/test_laminar_no_worse_phase6.py": {
     "mtime": 1781469355.4517038,
