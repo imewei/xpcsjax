@@ -24,24 +24,24 @@ SRC_DIR := xpcsjax
 TEST_DIR := tests
 
 # Heavy LIVE-FIT oracles that overcommit RAM under `-n auto` (one worker/CPU):
-# they run real fits on maintainer datasets — or spawn a nested pytest that does —
-# allocating multi-GB working sets. Landing on a busy worker tips the box past
-# available RAM -> kernel OOM-kill (SIGKILL / returncode -9). All are EXCLUDED
-# from every parallel pass and run via `make test-heavy-serial`
-# (availability-gated) or `make test-full-local` (also the env-gated ones).
-# They still execute & assert there, and self-skip on CI / fresh clones.
+# they run real fits on maintainer datasets allocating multi-GB working sets.
+# Landing on a busy worker tips the box past available RAM -> kernel OOM-kill
+# (SIGKILL / returncode -9). All are EXCLUDED from every parallel pass and run
+# via `make test-heavy-serial` (availability-gated) or `make test-full-local`
+# (also the env-gated ones). They still execute & assert there, and self-skip on
+# CI / fresh clones.
 #
 # (a) Availability-gated — run automatically when datasets are present (no env
-#     var), so they fire the OOM TODAY. The L4 oracle shares a file with cheap
-#     tests -> deselect just its node. The two real-data files are heavy
-#     wholesale (module-scoped fixtures) -> ignore them entirely.
+#     var), so they fire the OOM TODAY. These real-data files are heavy wholesale
+#     (module-scoped fixtures) -> ignore them entirely.
 #     NOTE: --ignore drops EVERY test in these files from all parallel targets;
 #     add any future non-heavy test to a separate file to keep it in `-n auto`.
-HEAVY_NODES := \
-  tests/parity/test_l4_per_iteration_parity.py::test_homodyne_characterization_bit_identical_with_monitor
+#     HEAVY_NODES is currently empty — kept as a seam for any future single-node
+#     deselect that shares a file with cheap tests (the old L4 bit-identity node
+#     that lived here was removed).
+HEAVY_NODES :=
 HEAVY_FILES := \
   tests/heterodyne/test_two_component_real_data.py \
-  tests/parity/test_engine_heterodyne_realdata_c044.py \
   tests/parity/test_phase3_stratified_ls_c044_1m.py
 #
 # (b) Env-gated — self-skip under `-n auto` (no XPCSJAX_RUN_* set), so they do
@@ -310,11 +310,9 @@ test-all-parallel:
 
 # Availability-gated heavy oracles, run SERIALLY (never under xdist) so they
 # never overlap the parallel pass. NO env vars forced -> safe on CI / fresh
-# clones (each self-skips via its own availability gate when datasets/homodyne
-# are absent). The env-gated oracles (A/B parity, direct characterization) are
-# NOT here — their live coverage is `make test-full-local`. The L4 node already
-# drives the homodyne-equivalence suite via its own nested subprocess, so that
-# file is not listed (avoids a double run).
+# clones (each self-skips via its own availability gate when datasets are
+# absent). The env-gated oracles (A/B parity, direct characterization) are
+# NOT here — their live coverage is `make test-full-local`.
 test-heavy-serial:
 	@echo "$(BOLD)$(BLUE)Running availability-gated heavy oracles SERIALLY (no xdist)...$(RESET)"
 	$(RUN_CMD) $(PYTEST) $(HEAVY_NODES) $(HEAVY_FILES) -p no:xdist -v --tb=short -rs
