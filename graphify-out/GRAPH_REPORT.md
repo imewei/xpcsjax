@@ -1,16 +1,16 @@
 # Graph Report - xpcsjax  (2026-06-15)
 
 ## Corpus Check
-- 353 files · ~522,227 words
+- 353 files · ~522,700 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 7114 nodes · 14336 edges · 388 communities (291 shown, 97 thin omitted)
+- 7115 nodes · 14343 edges · 409 communities (302 shown, 107 thin omitted)
 - Extraction: 89% EXTRACTED · 11% INFERRED · 0% AMBIGUOUS · INFERRED: 1598 edges (avg confidence: 0.51)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `018a3139`
+- Built from commit: `1e8d8c27`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -293,20 +293,34 @@
 - [[_COMMUNITY_Community 275|Community 275]]
 - [[_COMMUNITY_Community 276|Community 276]]
 - [[_COMMUNITY_Community 277|Community 277]]
+- [[_COMMUNITY_Community 278|Community 278]]
+- [[_COMMUNITY_Community 279|Community 279]]
+- [[_COMMUNITY_Community 280|Community 280]]
 - [[_COMMUNITY_Community 281|Community 281]]
 - [[_COMMUNITY_Community 282|Community 282]]
 - [[_COMMUNITY_Community 283|Community 283]]
+- [[_COMMUNITY_Community 284|Community 284]]
 - [[_COMMUNITY_Community 285|Community 285]]
 - [[_COMMUNITY_Community 286|Community 286]]
 - [[_COMMUNITY_Community 287|Community 287]]
 - [[_COMMUNITY_Community 288|Community 288]]
 - [[_COMMUNITY_Community 289|Community 289]]
+- [[_COMMUNITY_Community 290|Community 290]]
+- [[_COMMUNITY_Community 291|Community 291]]
 - [[_COMMUNITY_Community 292|Community 292]]
 - [[_COMMUNITY_Community 293|Community 293]]
 - [[_COMMUNITY_Community 294|Community 294]]
 - [[_COMMUNITY_Community 295|Community 295]]
 - [[_COMMUNITY_Community 296|Community 296]]
 - [[_COMMUNITY_Community 297|Community 297]]
+- [[_COMMUNITY_Community 298|Community 298]]
+- [[_COMMUNITY_Community 299|Community 299]]
+- [[_COMMUNITY_Community 300|Community 300]]
+- [[_COMMUNITY_Community 301|Community 301]]
+- [[_COMMUNITY_Community 302|Community 302]]
+- [[_COMMUNITY_Community 303|Community 303]]
+- [[_COMMUNITY_Community 304|Community 304]]
+- [[_COMMUNITY_Community 305|Community 305]]
 - [[_COMMUNITY_Community 306|Community 306]]
 - [[_COMMUNITY_Community 307|Community 307]]
 - [[_COMMUNITY_Community 308|Community 308]]
@@ -390,6 +404,13 @@
 - [[_COMMUNITY_Community 399|Community 399]]
 - [[_COMMUNITY_Community 400|Community 400]]
 - [[_COMMUNITY_Community 401|Community 401]]
+- [[_COMMUNITY_Community 402|Community 402]]
+- [[_COMMUNITY_Community 403|Community 403]]
+- [[_COMMUNITY_Community 404|Community 404]]
+- [[_COMMUNITY_Community 405|Community 405]]
+- [[_COMMUNITY_Community 406|Community 406]]
+- [[_COMMUNITY_Community 407|Community 407]]
+- [[_COMMUNITY_Community 408|Community 408]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `NLSQConfig` - 167 edges
@@ -424,55 +445,55 @@
 - **XPCS Correlation Function Chain (g1 to g2 via Siegert)** — concept_g1_correlation, concept_siegert_relation, concept_g2_correlation, concept_two_time_matrix [EXTRACTED 0.75]
 - **Primary PNAS Transport-Coefficient References** — cite_he2024, cite_he2025, concept_transport_coefficient_jt [EXTRACTED 0.75]
 
-## Communities (388 total, 97 thin omitted)
+## Communities (409 total, 107 thin omitted)
 
 ### Community 0 - "Physics Kernels (diffusion/shear)"
-Cohesion: 0.08
-Nodes (38): AdaptiveRegularizationConfig, AdaptiveRegularizer, Adaptive Relative Regularization for Anti-Degeneracy Defense.  This module imple, CV-based adaptive regularization for per-angle parameters.      This regularizer, Initialize adaptive regularizer.          Parameters         ----------, Configuration for adaptive relative regularization.      Attributes     --------, Get regularization diagnostics for logging.          Returns         -------, AntiDegeneracyConfig (+30 more)
+Cohesion: 0.05
+Nodes (56): AdaptiveRegularizationConfig, AdaptiveRegularizer, Adaptive Relative Regularization for Anti-Degeneracy Defense.  This module imple, CV-based adaptive regularization for per-angle parameters.      This regularizer, Initialize adaptive regularizer.          Parameters         ----------, Compute regularization term to add to loss.          Parameters         --------, Compute regularization term using JAX for autodiff compatibility.          This, Compute gradient of regularization term.          Parameters         ---------- (+48 more)
 
 ### Community 1 - "Physics Constants & Dataset"
-Cohesion: 0.03
-Nodes (114): PhysicsConstants, Physical constants and reference values for XPCS analysis.      These values are, A loaded XPCS dataset: a ``dict`` with typed, alias-resolving accessors., XpcsDataset, DataFilteringError, Raised when data filtering encounters an error., Comprehensive data filter for XPCS correlation matrices.      Provides unified f, Handle case where filtering results in no selected indices. (+106 more)
+Cohesion: 0.04
+Nodes (118): PhysicsConstants, Physical constants and reference values for XPCS analysis.      These values are, A loaded XPCS dataset: a ``dict`` with typed, alias-resolving accessors., XpcsDataset, apply_data_filtering(), DataFilteringError, Raised when data filtering encounters an error., Comprehensive data filter for XPCS correlation matrices.      Provides unified f (+110 more)
 
 ### Community 2 - "Heterodyne Model (correlation)"
-Cohesion: 0.09
-Nodes (29): Inject a debug callback into the solve paths (test seam).      Used by tests to, _set_debug_curvefit_callback(), _build_laminar_fit(), Phase-0 gate: NLSQ's curve_fit callback must be observational (cannot perturb a, Build a small synthetic laminar_flow fit that routes through the live     NLSQWr, _recording_callback(), _result_chi2(), _result_params() (+21 more)
+Cohesion: 0.39
+Nodes (8): Inject a debug callback into the solve paths (test seam).      Used by tests to, _set_debug_curvefit_callback(), Phase-0 gate: NLSQ's curve_fit callback must be observational (cannot perturb a, _recording_callback(), _result_chi2(), _result_params(), test_heterodyne_curve_fit_callback_is_observational_and_per_iteration(), test_homodyne_curve_fit_callback_is_observational_and_per_iteration()
 
 ### Community 3 - "Heterodyne Diagnostics Tests"
-Cohesion: 0.05
-Nodes (68): _build_model(), _config_dict(), Integration smoke tests: real heterodyne NLSQ fits on tiny synthetic data.  Unli, _synthetic_stack(), test_auto_mode_resolves_to_averaged_for_many_angles(), test_cmaes_path_runs(), test_individual_mode_joint_fit(), test_multi_phi_ssr_conservation() (+60 more)
+Cohesion: 0.06
+Nodes (58): _build_model(), _config_dict(), Integration smoke tests: real heterodyne NLSQ fits on tiny synthetic data.  Unli, _synthetic_stack(), test_auto_mode_resolves_to_averaged_for_many_angles(), test_cmaes_path_runs(), test_individual_mode_joint_fit(), test_multi_phi_ssr_conservation() (+50 more)
 
 ### Community 4 - "NLSQ Adapter Base"
-Cohesion: 0.15
-Nodes (11): get_executor(), OptimizationExecutor, Optimization Strategy Executors for NLSQ.  This module implements the Strategy p, Strategy name for logging., Whether this strategy supports progress bars., Streaming optimization for unlimited dataset sizes.      Uses NLSQ's AdaptiveHyb, Strategy name for logging., Whether this strategy supports progress bars (it does). (+3 more)
+Cohesion: 0.07
+Nodes (28): ExecutionResult, get_executor(), LargeDatasetExecutor, OptimizationExecutor, Optimization Strategy Executors for NLSQ.  This module implements the Strategy p, Strategy name for logging., Whether this strategy supports progress bars., Standard curve_fit optimization for small datasets (<1M points).      Uses scipy (+20 more)
 
 ### Community 5 - "Per-Angle Mode & Logging"
 Cohesion: 0.04
-Nodes (79): build_joint_pointwise_residual(), _chunked_jacfwd_dense(), _emit_anti_degeneracy_parity_banners(), fit_heterodyne_stratified_least_squares(), make_scaling_expander(), _per_angle_cv(), Heterodyne stratified least-squares solver.  Mirrors the homodyne stratified-LS, Return a permutation that angle-stratifies (and optionally shuffles) points. (+71 more)
+Nodes (81): compute_c2_heterodyne_pointwise(), Pointwise heterodyne correlation at scattered ``(phi, t1, t2)`` triples.      Th, build_joint_pointwise_residual(), _chunked_jacfwd_dense(), _emit_anti_degeneracy_parity_banners(), fit_heterodyne_stratified_least_squares(), make_scaling_expander(), _per_angle_cv() (+73 more)
 
 ### Community 6 - "Multi-Angle Residuals & Scaling"
 Cohesion: 0.06
-Nodes (84): compute_residuals(), Compute weighted residuals between model and data.      Parameters     ---------, fit_with_cmaes(), Run CMA-ES optimization with default wrapper configuration.      Parameters, NLSQWrapper, Stable fallback adapter with memory-aware strategy routing.      Selects between, Initialise the wrapper.          Parameters         ----------         parameter, Adapter name (``"nlsq.NLSQWrapper"``). (+76 more)
+Nodes (79): compute_residuals(), Compute weighted residuals between model and data.      Parameters     ---------, NLSQWrapper, Stable fallback adapter with memory-aware strategy routing.      Selects between, Initialise the wrapper.          Parameters         ----------         parameter, Adapter name (``"nlsq.NLSQWrapper"``)., Return whether the adapter supports box bounds (always ``True``)., Return whether the adapter accepts an analytic Jacobian (always ``True``). (+71 more)
 
 ### Community 7 - "NLSQ Adapter"
-Cohesion: 0.05
-Nodes (64): NLSQAdapterBase, Validate input arrays for consistency.          Parameters         ----------, Build standardized result dictionary.          Parameters         ----------, Abstract base class for NLSQ optimization adapters.      Provides shared methods, Handle optimization errors gracefully.          Parameters         ----------, Set up parameter bounds arrays.          Parameters         ----------         p, Compute parameter covariance matrix from Jacobian.          Uses the standard fo, Prepare input data for optimization.          Parameters         ---------- (+56 more)
+Cohesion: 0.06
+Nodes (38): apply_forward_shear_transforms_to_bounds(), Apply forward shear transforms to parameter bounds.      Parameters     --------, _build_homodyne_l4_callback(), create_multistart_warmup_func(), _extract_n_points(), _homodyne_l4_monitoring_enabled(), NLSQWrapper, Execute optimization with strategy fallback.          Delegates to fallback_chai (+30 more)
 
 ### Community 8 - "Quality Control"
 Cohesion: 0.05
-Nodes (99): QualityControlConfig, QualityLevel, QualityMetrics, Data quality controller for the XPCS loading pipeline.  Comprehensive data quali, Quality assessment levels., Auto-repair strategy levels., Comprehensive data quality metrics., Configuration for quality control system. (+91 more)
+Nodes (98): QualityControlConfig, QualityLevel, QualityMetrics, Data quality controller for the XPCS loading pipeline.  Comprehensive data quali, Quality assessment levels., Auto-repair strategy levels., Comprehensive data quality metrics., Configuration for quality control system. (+90 more)
 
 ### Community 9 - "Data Quality Controller"
-Cohesion: 0.04
-Nodes (66): create_quality_controller(), DataQualityController, QualityControlResult, Check shape consistency across ``c2_exp``, ``t1``, and ``t2``.          Paramete, Check correlation data for preprocessing artifacts.          Parameters, Compute the fidelity of a data transformation.          Parameters         -----, Assess overall analysis readiness as a weighted score.          Combines complet, Apply automatic data repairs based on detected issues and config.          Conse (+58 more)
+Cohesion: 0.05
+Nodes (47): DataQualityController, QualityControlResult, Check shape consistency across ``c2_exp``, ``t1``, and ``t2``.          Paramete, Check correlation data for preprocessing artifacts.          Parameters, Compute the fidelity of a data transformation.          Parameters         -----, Assess overall analysis readiness as a weighted score.          Combines complet, Apply automatic data repairs based on detected issues and config.          Conse, Replace NaN/non-finite values with per-array median estimates.          Correlat (+39 more)
 
 ### Community 10 - "Parameter Space & Results"
 Cohesion: 0.07
-Nodes (57): _array_to_params(), _bounds_to_arrays(), _check_convergence(), _estimate_contrast_offset_from_data(), _extract_shear_transform_config(), fit_nlsq_cmaes(), fit_nlsq_jax(), fit_nlsq_multistart() (+49 more)
+Nodes (59): is_adapter_available(), Check whether :class:`NLSQAdapter` can be used.      Returns     -------     boo, _array_to_params(), _bounds_to_arrays(), _check_convergence(), _estimate_contrast_offset_from_data(), _extract_shear_transform_config(), fit_nlsq_cmaes() (+51 more)
 
 ### Community 11 - "Homodyne Model"
 Cohesion: 0.04
-Nodes (40): HomodyneModel, Initialize the model from a configuration dictionary.          Extracts and vali, Compute the C2 correlation surfaces for all phi angles.          Uses the pre-co, Compute the C2 correlation surface for a single phi angle.          Convenience, Extract and validate configuration parameters., Determine analysis mode from configuration., Return a human-readable summary of the model configuration., Hybrid stateful/functional wrapper for homodyne XPCS analysis.      Combines the (+32 more)
+Nodes (45): HomodyneModel, Hybrid stateful/functional wrapper for homodyne XPCS analysis.  Combines statefu, Initialize the model from a configuration dictionary.          Extracts and vali, Compute the C2 correlation surfaces for all phi angles.          Uses the pre-co, Compute the C2 correlation surface for a single phi angle.          Convenience, Extract and validate configuration parameters., Determine analysis mode from configuration., Return a human-readable summary of the model configuration. (+37 more)
 
 ### Community 12 - "I/O & JSON Utilities"
 Cohesion: 0.05
@@ -484,51 +505,51 @@ Nodes (50): Initialize NLSQWrapper.          Parameters         ----------      
 
 ### Community 14 - "Heterodyne Model (residual)"
 Cohesion: 0.05
-Nodes (60): Return the validated analysis mode as a typed enum.          Centralizes the sca, AnalysisMode, Canonical XPCS analysis modes.      ``StrEnum`` (a ``str`` subclass): each membe, HeterodyneModel, param_bounds(), parameter_bounds(), Adapter exposing two-component heterodyne XPCS physics to the NLSQ engine.  This, Return ``(lower, upper)`` bounds for the 14 params (registry order).          Re (+52 more)
+Nodes (56): Return the validated analysis mode as a typed enum.          Centralizes the sca, AnalysisMode, Canonical XPCS analysis modes.      ``StrEnum`` (a ``str`` subclass): each membe, HeterodyneModel, Return registry default values for the 14 heterodyne params.          Returns, Compute the flat residual vector ``model - data`` for NLSQ.          Parameters, Two-component reference + sample heterodyne XPCS model (14 physics params)., CombinedModel (+48 more)
 
 ### Community 15 - "L4 Monitor Tests"
-Cohesion: 0.03
-Nodes (81): _assess_convergence(), NLSQAdapterBase, Abstract base class for NLSQ adapters., Abstract base class for heterodyne NLSQ optimization adapters.      Adapters wra, CachedModel, clear_model_cache(), get_cache_stats(), get_or_create_fitter() (+73 more)
+Cohesion: 0.04
+Nodes (65): _assess_convergence(), NLSQAdapterBase, Abstract base class for NLSQ adapters., Abstract base class for heterodyne NLSQ optimization adapters.      Adapters wra, CachedModel, clear_model_cache(), get_cache_stats(), get_or_create_fitter() (+57 more)
 
 ### Community 16 - "Dataset Optimizer"
 Cohesion: 0.05
-Nodes (47): AdvancedMemoryManager, Tune memory management for a workload profile.          Adjusts the GC threshold, Enter the context manager.          Returns         -------         AdvancedMemo, Advanced memory manager with intelligent allocation strategies.      Provides dy, AdvancedDatasetOptimizer, create_advanced_dataset_optimizer(), create_dataset_optimizer(), DatasetOptimizer (+39 more)
+Nodes (39): create_advanced_dataset_optimizer(), create_dataset_optimizer(), DatasetOptimizer, optimize_for_method(), optimize_for_method_advanced(), Dataset size-aware optimization for the NLSQ pipeline.  Memory-efficient data pr, Release advanced optimizer resources.          Shuts down the performance engine, Exit the context manager, releasing resources via :meth:`cleanup`. (+31 more)
 
 ### Community 17 - "JAX Physics Backend"
-Cohesion: 0.06
-Nodes (52): batch_chi_squared(), compute_chi_squared(), compute_g1_diffusion(), _compute_g1_diffusion_core(), compute_g1_shear(), _compute_g1_shear_core(), _compute_g1_total_core(), _compute_g2_scaled_core() (+44 more)
+Cohesion: 0.03
+Nodes (110): batch_chi_squared(), clear_meshgrid_cache(), compute_chi_squared(), compute_g1_diffusion(), _compute_g1_diffusion_core(), compute_g1_shear(), _compute_g1_shear_core(), compute_g1_total() (+102 more)
 
 ### Community 18 - "Community 18"
-Cohesion: 0.05
-Nodes (51): get_optimization_info(), JAX-First Optimization for xpcsjax.  JAX-native NLSQ-only optimization system fo, Get information about available optimization methods.      Returns     -------, _full_grid_chunk(), Tests for xpcsjax.optimization.nlsq.strategies.residual.  ``StratifiedResidualFu, One chunk holding the full phi x t1 x t2 cartesian grid (all angles)., _stratified(), test_deprecated_paths_raise() (+43 more)
+Cohesion: 0.06
+Nodes (46): get_optimization_info(), JAX-First Optimization for xpcsjax.  JAX-native NLSQ-only optimization system fo, Get information about available optimization methods.      Returns     -------, _full_grid_chunk(), Tests for xpcsjax.optimization.nlsq.strategies.residual.  ``StratifiedResidualFu, One chunk holding the full phi x t1 x t2 cartesian grid (all angles)., _stratified(), test_deprecated_paths_raise() (+38 more)
 
 ### Community 19 - "Community 19"
-Cohesion: 0.07
-Nodes (48): float64, int64, MultiStartProgressTracker, check_zero_volume_bounds(), detect_degeneracy(), generate_lhs_starts(), generate_random_starts(), _get_dataset_size() (+40 more)
+Cohesion: 0.05
+Nodes (65): float64, int64, MultiStartProgressTracker, ExpandedParameters, PreparedData, Container for prepared optimization data.      Attributes     ----------     xda, Container for expanded per-angle parameters.      Attributes     ----------, fit_nlsq_multistart_heterodyne() (+57 more)
 
 ### Community 20 - "Community 20"
-Cohesion: 0.06
-Nodes (32): create_default_preprocessing_config(), log_phase(), preprocess_xpcs_data(), PreprocessingPipeline, r"""Advanced data preprocessing pipeline for the homodyne data layer.  Intellige, Save preprocessing provenance to file for reproducibility.          Args:, Load preprocessing provenance from a file.          Parameters         ---------, Fallback log_phase for environments without v2 logging. (+24 more)
+Cohesion: 0.07
+Nodes (21): Save preprocessing provenance to file for reproducibility.          Args:, Record of a single transformation applied to data., Convert provenance record to dictionary for serialization., Initialize the preprocessing pipeline with configuration.          Parameters, Validate preprocessing configuration parameters., Get list of enabled preprocessing stages based on configuration., Generate unique pipeline ID based on configuration hash., Execute a single preprocessing stage. (+13 more)
 
 ### Community 21 - "Community 21"
 Cohesion: 0.05
-Nodes (57): _build_synthetic_c2(), Task 30: end-to-end heterodyne smoke fit on synthetic two-component data.  Exerc, Self-contained heterodyne config sufficient for HeterodyneModel.from_config., Forward-evaluate the model at each phi to build the c2 stack., End-to-end heterodyne fit on synthetic data must converge and recover     parame, _smoke_config_dict(), test_heterodyne_smoke_fit_recovers_truth(), _write_config() (+49 more)
+Nodes (48): _build_synthetic_c2(), Self-contained heterodyne config sufficient for HeterodyneModel.from_config., Forward-evaluate the model at each phi to build the c2 stack., End-to-end heterodyne fit on synthetic data must converge and recover     parame, _smoke_config_dict(), test_heterodyne_smoke_fit_recovers_truth(), _write_config(), per_angle_chi2() (+40 more)
 
 ### Community 22 - "Community 22"
 Cohesion: 0.11
 Nodes (24): get_param_names(), get_registry(), Get all parameter names including per-angle scaling.          Parameters, Get the global ParameterRegistry instance.      Returns     -------     Paramete, Get physical parameter names for analysis mode., Heterodyne parameter registry entries — verbatim from heterodyne docs.  Source:, heterodyne' should normalize to 'two_component'., test_heterodyne_mode_lists_14_params() (+16 more)
 
 ### Community 23 - "Community 23"
-Cohesion: 0.06
-Nodes (52): plot_nlsq_fit(), plot_residual_map(), plot_simulated_data(), Save figure to disk and close. No-op when ``save_path`` is None.      The path i, Three-panel NLSQ fit comparison: Experimental | Fitted | Residuals.      Exp + F, Four-panel residual diagnostic.      Layout (2x2):         [0,0] Residual Map (R, Single-panel theoretical/fitted c2 heatmap with inline stats annotation.      Us, _save_fig() (+44 more)
+Cohesion: 0.04
+Nodes (63): compute_diagonal_overlay_stats(), DiagonalOverlayResult, Diagonal-overlay diagnostic helpers.  The diagonal of a two-time correlation sur, Per-angle diagonal trace statistics.      Attributes     ----------     phi_inde, Extract the t₁=t₂ diagonals of two c2 surfaces at one angle.      Slices both su, NLSQ visualization for xpcsjax.  Lazy public surface — symbols are imported on f, plot_nlsq_fit(), plot_residual_map() (+55 more)
 
 ### Community 24 - "Community 24"
-Cohesion: 0.08
-Nodes (35): ConstraintSeverity, ParameterManager, Parameter manager for xpcsjax.  Centralized parameter management system for hand, Materialize default bounds from the ParameterRegistry.          The ParameterReg, Load parameter bounds from configuration and merge with defaults., Extract base parameter name from indexed parameter names.          Handles per-a, Validate physics-based parameter constraints beyond simple bounds.          Chec, Fallback validation when physics_validators module not available. (+27 more)
+Cohesion: 0.11
+Nodes (27): ConstraintSeverity, Parameter manager for xpcsjax.  Centralized parameter management system for hand, Materialize default bounds from the ParameterRegistry.          The ParameterReg, Load parameter bounds from configuration and merge with defaults., Validate physics-based parameter constraints beyond simple bounds.          Chec, Fallback validation when physics_validators module not available., Severity levels for physics constraint violations., Validate parameter values against bounds.          Parameters         ---------- (+19 more)
 
 ### Community 25 - "Community 25"
-Cohesion: 0.10
-Nodes (16): _quantile_flat(), Scientific tests for xpcsjax.optimization.nlsq.parameter_utils.  Pure helpers (l, Mirror the diffusion-only g1^2 the estimator computes, for self-consistency., Build flat data where small lags sit at the ceiling and large lags at the floor., _static_g1_sq(), _static_stratified(), test_consistent_init_chunks_format_smoke(), test_consistent_init_falls_back_to_defaults_on_flat_data() (+8 more)
+Cohesion: 0.06
+Nodes (32): _quantile_flat(), Scientific tests for xpcsjax.optimization.nlsq.parameter_utils.  Pure helpers (l, Mirror the diffusion-only g1^2 the estimator computes, for self-consistency., Build flat data where small lags sit at the ceiling and large lags at the floor., _static_g1_sq(), _static_stratified(), test_consistent_init_chunks_format_smoke(), test_consistent_init_falls_back_to_defaults_on_flat_data() (+24 more)
 
 ### Community 26 - "Community 26"
 Cohesion: 0.04
@@ -539,52 +560,52 @@ Cohesion: 0.04
 Nodes (5): fake_venv(), isolated_env(), Tests for xpcsjax.post_install.  Covers environment/shell detection, venv-path r, A venv-shaped directory with empty bash + fish activate scripts., Point HOME at a tmp dir and clear venv markers so config paths are sandboxed.
 
 ### Community 28 - "Community 28"
-Cohesion: 0.09
-Nodes (43): ArrayLike, Backend, apply_diagonal_correction(), apply_diagonal_correction_batch(), _basic_correction_numpy(), _diagonal_correction_batch_jax(), _diagonal_correction_batch_numpy(), _diagonal_correction_jax() (+35 more)
+Cohesion: 0.08
+Nodes (45): ArrayLike, Backend, apply_diagonal_correction(), apply_diagonal_correction_batch(), _basic_correction_numpy(), _diagonal_correction_batch_jax(), _diagonal_correction_batch_numpy(), _diagonal_correction_jax() (+37 more)
 
 ### Community 29 - "Community 29"
-Cohesion: 0.05
-Nodes (26): Configuration system for the xpcsjax package.  Provides configuration management, get_defaults(), ParameterRegistry, Parameter registry for xpcsjax analysis.  Single source of truth for parameter n, Centralized registry of all parameter definitions.      This class provides a si, Singleton pattern - return existing instance if available., Base names of all scaling parameters (derived from ``is_scaling`` flag)., Iterate over registered parameter names (canonical order). (+18 more)
+Cohesion: 0.06
+Nodes (23): Configuration system for the xpcsjax package.  Provides configuration management, ParameterRegistry, Centralized registry of all parameter definitions.      This class provides a si, Singleton pattern - return existing instance if available., Base names of all scaling parameters (derived from ``is_scaling`` flag)., Iterate over registered parameter names (canonical order)., Return the number of registered parameters., Membership test by parameter name (exact match only). (+15 more)
 
 ### Community 30 - "Community 30"
-Cohesion: 0.08
-Nodes (22): BenchmarkingMixin, GradientCapabilityMixin, OptimizationRecommendationMixin, _PhysicsModelProtocol, Mixins for physics model capabilities.  This module provides reusable mixin clas, Check if gradient computation is available., Get the best available gradient method for optimization algorithms., Get comprehensive gradient capability information. (+14 more)
+Cohesion: 0.05
+Nodes (38): BenchmarkingMixin, GradientCapabilityMixin, OptimizationRecommendationMixin, _PhysicsModelProtocol, Mixins for physics model capabilities.  This module provides reusable mixin clas, Check if gradient computation is available., Get the best available gradient method for optimization algorithms., Get comprehensive gradient capability information. (+30 more)
 
 ### Community 31 - "Community 31"
 Cohesion: 0.06
-Nodes (29): HybridRecoveryConfig, NLSQValidationConfig, Configuration for NLSQ optimization in the heterodyne analysis pipeline.  This m, Progressive retry / fallback parameters for NLSQ recovery.      When a fit fails, Serialise the configuration to a plain dictionary.          Nested dataclasses a, Return scaled optimiser settings for a given retry attempt.          Parameters, Thresholds used when validating post-fit quality metrics.      Attributes     --, Parse the ``optimization`` block's ``stratification`` sub-dict.          Accepts (+21 more)
+Nodes (28): HybridRecoveryConfig, NLSQValidationConfig, Progressive retry / fallback parameters for NLSQ recovery.      When a fit fails, Serialise the configuration to a plain dictionary.          Nested dataclasses a, Return scaled optimiser settings for a given retry attempt.          Parameters, Thresholds used when validating post-fit quality metrics.      Attributes     --, Parse the ``optimization`` block's ``stratification`` sub-dict.          Accepts, Convert *value* to float, returning *default* on failure.      Parameters     -- (+20 more)
 
 ### Community 32 - "Community 32"
-Cohesion: 0.20
-Nodes (9): Verify the surviving anti-degeneracy layers ported over from homodyne.  Task 29, Homodyne AntiDegeneracyConfig.from_dict must honor config-file values     over t, Static check: the controller class source must mention every layer name.      If, All surviving layer class names must be importable from the controller     modul, The controller must construct from a minimal (config, n_phi, n_physical, phi_ang, test_anti_degeneracy_config_overrides_defaults(), test_controller_instantiates_with_minimal_config(), test_controller_source_references_all_layers() (+1 more)
+Cohesion: 0.03
+Nodes (44): AntiDegeneracyController, Create kwargs for NLSQ's HybridStreamingConfig.          Returns kwargs that can, Orchestrator for the 5-Layer Anti-Degeneracy Defense System.      Owns and coord, Check if the defense system is enabled and initialized., Check if constant scaling mode is active (either averaged or constant)., Check if using FIXED per-angle scaling (7 params, not optimized).          Retur, Check if using OPTIMIZED averaged scaling (9 params).          Returns True only, Check if hierarchical optimization is active. (+36 more)
 
 ### Community 33 - "Community 33"
-Cohesion: 0.06
-Nodes (26): Background-write failures in :mod:`xpcsjax.utils.async_io` must be observed.  Ph, A second separate wait_all() call still logs (no cross-call suppression).      R, Each rate-limit assertion needs a clean log_once cache., A failed background write surfaces a WARNING in wait_all (control intact)., #8: DISTINCT failures in one wait_all() must each surface a WARNING.      Rate-l, A single wait_all with N>=3 failing futures emits exactly one WARNING., _reset_log_once(), test_background_write_failure_logs_warning() (+18 more)
+Cohesion: 0.05
+Nodes (28): Background-write failures in :mod:`xpcsjax.utils.async_io` must be observed.  Ph, A second separate wait_all() call still logs (no cross-call suppression).      R, Each rate-limit assertion needs a clean log_once cache., A failed background write surfaces a WARNING in wait_all (control intact)., #8: DISTINCT failures in one wait_all() must each surface a WARNING.      Rate-l, A single wait_all with N>=3 failing futures emits exactly one WARNING., _reset_log_once(), test_background_write_failure_logs_warning() (+20 more)
 
 ### Community 34 - "Community 34"
 Cohesion: 0.05
 Nodes (41): _fake_loader_data(), Config-driven phi_filtering must subset the data arrays.  Regression: the HDF5 l, Minimal two_component config with phi_filtering enabled., 23-angle synthetic dataset mirroring the C044 azimuthal sweep., test_load_and_validate_data_subsets_to_filtered_angles(), test_phi_filtering_disabled_keeps_all_angles(), _write_config(), ConfigManager (+33 more)
 
 ### Community 35 - "Community 35"
-Cohesion: 0.05
-Nodes (40): AllocationError, _check_vm_path(), log_exception(), MemoryManagerError, MemoryPool, MemoryPressureError, PathValidationError, Advanced memory manager for the performance engine.  Intelligent memory manageme (+32 more)
+Cohesion: 0.06
+Nodes (30): AllocationError, _check_vm_path(), log_exception(), MemoryManagerError, MemoryPool, MemoryPressureError, PathValidationError, Advanced memory manager for the performance engine.  Intelligent memory manageme (+22 more)
 
 ### Community 36 - "Community 36"
 Cohesion: 0.07
-Nodes (44): adjust_covariance_for_transforms(), apply_forward_shear_transforms_to_bounds(), apply_forward_shear_transforms_to_vector(), apply_inverse_shear_transforms_to_vector(), apply_inverse_shear_transforms_to_vector_jax(), build_per_parameter_x_scale(), build_physical_index_map(), format_x_scale_for_log() (+36 more)
+Nodes (42): adjust_covariance_for_transforms(), apply_forward_shear_transforms_to_vector(), apply_inverse_shear_transforms_to_vector(), apply_inverse_shear_transforms_to_vector_jax(), build_per_parameter_x_scale(), build_physical_index_map(), format_x_scale_for_log(), normalize_param_key() (+34 more)
 
 ### Community 37 - "Community 37"
-Cohesion: 0.07
-Nodes (35): Result of memory-based strategy selection.      Attributes     ----------     st, StrategyDecision, _build_cfgmgr(), _config_dict(), make_cfgmgr_and_data(), Shared synthetic heterodyne fixtures for optimization unit tests.  The model + d, Construct a real ``ConfigManager`` for a two-component fixture config.      The, Build a real ``ConfigManager`` plus a heterodyne-loader data dict.      Returns (+27 more)
+Cohesion: 0.08
+Nodes (31): Result of memory-based strategy selection.      Attributes     ----------     st, StrategyDecision, make_cfgmgr_and_data(), Build a real ``ConfigManager`` plus a heterodyne-loader data dict.      Returns, Routing tests for the heterodyne standard-tier stratification gate.  The gate (i, LARGE memory tier + hybrid_streaming.enable=true → hybrid path, not stratified-L, per_angle_mode=individual + >=1M points → stratified-LS solver IS called., >=1M points in ``constant`` per-angle mode → stratified-LS solver IS called. (+23 more)
 
 ### Community 38 - "Community 38"
-Cohesion: 0.03
-Nodes (78): is_adapter_available(), Check whether :class:`NLSQAdapter` can be used.      Returns     -------     boo, build_parameter_labels(), classify_parameter_status(), convert_bounds_to_nlsq_format(), ExpandedParameters, PreparedData, Data Preparation Utilities for NLSQ Optimization.  This module provides data pre (+70 more)
+Cohesion: 0.07
+Nodes (28): Convert MultiStartResult to OptimizationResult for CLI compatibility.          R, compute_quality_metrics(), compute_uncertainties(), determine_convergence_status(), normalize_nlsq_result(), QualityMetrics, Result Building Utilities for NLSQ Optimization.  This module provides utilities, Normalize various NLSQ result formats to standard format.      NLSQ can return r (+20 more)
 
 ### Community 39 - "Community 39"
-Cohesion: 0.06
-Nodes (25): xpcsjax.core — physics models, diagonal correction, JAX g1/g2 kernels., DiffusionModel, get_available_models(), Physical models for XPCS homodyne analysis.  ===================================, Convert parameter array to named dictionary., Anomalous diffusion model with D(t) = D₀ t^α + D_offset.      The three physical, Return the standard bounds for the diffusion parameters., Default values for typical XPCS measurements. (+17 more)
+Cohesion: 0.20
+Nodes (9): Smoke tests for HomodyneModel classes (DiffusionModel, CombinedModel).  Adaptati, Static diffusion mode has 3 parameters with the expected names., Laminar flow mode has 7 parameters with the expected names., Static analysis mode collapses to the 3 diffusion parameters., compute_g1 must return a finite array for in-bounds default params.      Smoke c, test_combined_model_param_count(), test_combined_model_static_mode_param_count(), test_diffusion_model_g1_runs() (+1 more)
 
 ### Community 40 - "Community 40"
 Cohesion: 0.07
@@ -592,15 +613,15 @@ Nodes (38): apply_config_defaults(), ConfigValidationResult, create_example_yaml
 
 ### Community 41 - "Community 41"
 Cohesion: 0.14
-Nodes (8): Get list of active (physical) parameters from configuration (cached).          T, Get default active parameters based on analysis mode., Get the effective number of physical parameters (excludes scaling).          Ret, Get total number of parameters including scaling parameters.          Returns, Get parameters that should be held fixed during optimization.          Returns, Check if a parameter is active (being optimized).          Parameters         --, Get list of parameters that should be optimized (active - fixed).          Retur, Return a concise string representation of manager state.
+Nodes (17): build_multistart_config(), Build a ``MultiStartConfig`` from the nested ``multi_start`` config dict.      `, Result from a single starting point optimization.      Attributes     ----------, SingleStartResult, _CfgMgr, _install_model_stub(), Tests for heterodyne joint multistart wiring (Phase 1)., Minimal OptimizationResult stand-in. (+9 more)
 
 ### Community 42 - "Community 42"
-Cohesion: 0.06
-Nodes (54): get_group_indices(), Parameter name constants for the 14-parameter heterodyne model.  The heterodyne, Get the canonical-order indices of every parameter in a group.      Parameters, LeastSquares, AngleSubset, _coerce_mapping_to_array(), _coerce_numeric_array(), combine_angle_results() (+46 more)
+Cohesion: 0.11
+Nodes (36): LeastSquares, AngleSubset, _coerce_mapping_to_array(), _coerce_numeric_array(), combine_angle_results(), _compute_final_jacobian_norms(), _estimate_initial_jacobian_norms(), _get_nlsq_engine() (+28 more)
 
 ### Community 43 - "Community 43"
 Cohesion: 0.08
-Nodes (30): _adjust_covariance_for_normalization(), CMAESWrapper, _compute_normalization_factors(), _denormalize_params(), _format_bounds_summary(), _is_cmaes_available(), _normalize_bounds(), _normalize_params() (+22 more)
+Nodes (32): _adjust_covariance_for_normalization(), CMAESWrapper, _compute_normalization_factors(), _denormalize_params(), fit_with_cmaes(), _format_bounds_summary(), _is_cmaes_available(), _normalize_bounds() (+24 more)
 
 ### Community 44 - "Community 44"
 Cohesion: 0.06
@@ -611,20 +632,20 @@ Cohesion: 0.07
 Nodes (29): compute_g2_scaled(), Compute g2 for NLSQ using meshgrid 2D matrices.      NLSQ-specific function — cr, HomodynePointEvaluator, PointEvaluator, Model-agnostic point-evaluator adapter for the stratification engine.  Phase 1.1, Structural interface for a per-angle g2 point evaluator.      Implementations ma, Homodyne (``laminar_flow``) adapter over the 9-arg ``compute_g2_scaled``.      H, Pass through to ``compute_g2_scaled`` with the kernel's arg order.          Note (+21 more)
 
 ### Community 46 - "Community 46"
-Cohesion: 0.09
-Nodes (25): accumulate_chunks_parallel(), accumulate_chunks_sequential(), create_ooc_kernels(), _ooc_compute_chi2_chunk(), _ooc_compute_chunk(), _ooc_worker_cleanup(), _ooc_worker_init(), Parallel chunk accumulation for NLSQ streaming optimizer.  Dispatches chunk comp (+17 more)
+Cohesion: 0.15
+Nodes (13): create_ooc_kernels(), _ooc_compute_chi2_chunk(), _ooc_compute_chunk(), _ooc_worker_cleanup(), _ooc_worker_init(), Parallel chunk accumulation for NLSQ streaming optimizer.  Dispatches chunk comp, Create JIT-compiled OOC chunk kernels from physics constants.      This is the s, Determine if parallel accumulation is worthwhile.      Parameters     ---------- (+5 more)
 
 ### Community 47 - "Community 47"
 Cohesion: 0.06
 Nodes (19): ParameterManager, Total number of physics model parameters (14)., Number of physics parameters that vary in optimization., Names of varying physics parameters (excludes scaling)., Indices of varying parameters in the 14-element physics array., Indices of fixed parameters in the 14-element physics array., Get current parameter values as dictionary., Set whether a parameter varies in optimization.          Invalidates the relevan (+11 more)
 
 ### Community 48 - "Community 48"
-Cohesion: 0.09
-Nodes (48): Resolve the effective output directory (CLI > YAML > ``None``).      This is the, resolve_output_dir(), _current_run_id(), dispatch_plots(), _evaluate_model_c2(), _generate_post_fit_plots(), _plot_experimental_data(), _plot_simulated_from_config() (+40 more)
+Cohesion: 0.12
+Nodes (32): _current_run_id(), dispatch_plots(), _evaluate_model_c2(), _generate_post_fit_plots(), _plot_experimental_data(), _plot_simulated_from_config(), Plot generation dispatch for the xpcsjax CLI.  NLSQ-only by design — xpcsjax doe, Parse the ``--phi-angles`` CLI option, falling back to data angles. (+24 more)
 
 ### Community 49 - "Community 49"
-Cohesion: 0.05
-Nodes (81): _evaluate_c2_per_angle(), generate_nlsq_plots(), _generate_plots_datashader(), _homodyne_scaling_arrays(), _is_heterodyne_family(), _is_homodyne_family(), _is_supported_viz_model(), _plot_single_angle_datashader() (+73 more)
+Cohesion: 0.06
+Nodes (68): _evaluate_c2_per_angle(), generate_nlsq_plots(), _generate_plots_datashader(), _homodyne_scaling_arrays(), _is_heterodyne_family(), _is_homodyne_family(), _is_supported_viz_model(), _plot_single_angle_datashader() (+60 more)
 
 ### Community 50 - "Community 50"
 Cohesion: 0.11
@@ -635,8 +656,8 @@ Cohesion: 0.06
 Nodes (3): Tests for xpcsjax.uninstall_scripts.  Covers venv-path resolution, cleanup-targe, Sandbox HOME + VIRTUAL_ENV to tmp and return the fake venv path., venv_env()
 
 ### Community 52 - "Community 52"
-Cohesion: 0.12
-Nodes (29): Guard against unbounded allocation from a crafted/corrupt correlation file.  Qua, test_accepts_realistic_allocation(), test_accepts_realistic_frame_count(), test_accepts_square_matrix_shape(), test_rejects_absurd_frame_count(), test_rejects_huge_matrix_count_even_with_legal_frame_count(), test_rejects_negative_matrix_count(), test_rejects_non_2d_matrix_shape() (+21 more)
+Cohesion: 0.07
+Nodes (39): Guard against unbounded allocation from a crafted/corrupt correlation file.  Qua, test_accepts_realistic_allocation(), test_accepts_realistic_frame_count(), test_accepts_square_matrix_shape(), test_rejects_absurd_frame_count(), test_rejects_huge_matrix_count_even_with_legal_frame_count(), test_rejects_negative_matrix_count(), test_rejects_non_2d_matrix_shape() (+31 more)
 
 ### Community 53 - "Community 53"
 Cohesion: 0.07
@@ -655,12 +676,12 @@ Cohesion: 0.11
 Nodes (29): ConstraintRule, ConstraintSeverity, PhysicsViolation, Physics constraint validators for heterodyne (``two_component``) parameters.  Re, A single physics constraint rule for one parameter.      Attributes     --------, Validate a single parameter against its physics constraints.      Parameters, Validate constraints that span multiple parameters.      Parameters     --------, Validate all parameters against single- and cross-parameter constraints.      Pa (+21 more)
 
 ### Community 57 - "Community 57"
-Cohesion: 0.28
-Nodes (6): create_time_integral_matrix(), r"""Create time integral matrix using trapezoidal numerical integration.      Co, N=1 single-point time array must not crash and must return finite (1,1)., The integral from t[0] to t[0] is zero; smooth_abs gives sqrt(eps)., Sanity check: N=2 also works., TestTimeIntegralMatrixN1
+Cohesion: 0.12
+Nodes (20): create_quality_controller(), Create a :class:`DataQualityController` from a config dict.      Parameters, _baseline_config(), _minimal_data(), Smoke tests for :mod:`xpcsjax.data.quality_controller`.  The ``DataQualityContro, Each pipeline stage must return a QualityControlResult without raising., When the controller is disabled, every stage must return a minimal     result wi, The module-level convenience function constructs the controller and     validate (+12 more)
 
 ### Community 58 - "Community 58"
-Cohesion: 0.07
-Nodes (19): apply_data_filtering(), apply_filtering(), FilterCriteria, FilteringResult, Data filtering utilities for the XPCS data loader.  Comprehensive filtering util, Initialize the data filter.          Args:             config: Configuration dic, Apply q-range filtering based on wavevector values., Apply phi-range filtering based on angle values. (+11 more)
+Cohesion: 0.08
+Nodes (16): apply_filtering(), FilterCriteria, FilteringResult, Data filtering utilities for the XPCS data loader.  Comprehensive filtering util, Initialize the data filter.          Args:             config: Configuration dic, Apply q-range filtering based on wavevector values., Apply phi-range filtering based on angle values., Apply quality-based filtering using correlation matrix properties. (+8 more)
 
 ### Community 59 - "Community 59"
 Cohesion: 0.09
@@ -675,16 +696,16 @@ Cohesion: 0.12
 Nodes (26): compute_weights(), far_lag_noise_variance(), flatten_upper_triangle(), prepare_fit_data(), Data preparation for NLSQ fitting.  Converts correlation matrices and weights in, Compute a weight array for NLSQ fitting.      Parameters     ----------     c2_d, Prepare correlation data and weights for least-squares fitting.      Flattens th, Flatten the upper triangle of a symmetric matrix.      For a two-time correlatio (+18 more)
 
 ### Community 62 - "Community 62"
-Cohesion: 0.06
-Nodes (59): ParameterSpace, Parameter space definition with bounds for NLSQ optimization.      Implements sp, MultiStartResult, AdapterConfig, get_adapter(), NLSQAdapter, Check if NLSQ CurveFit is available., Construct an :class:`NLSQAdapter` instance.      Parameters     ----------     c (+51 more)
+Cohesion: 0.08
+Nodes (50): ParameterManager, Get list of active (physical) parameters from configuration (cached).          T, Get default active parameters based on analysis mode., Get the effective number of physical parameters (excludes scaling).          Ret, Centralized parameter management system.      Handles:     - Parameter bounds (w, Get total number of parameters including scaling parameters.          Returns, Get parameters that should be held fixed during optimization.          Returns, Check if a parameter is active (being optimized).          Parameters         -- (+42 more)
 
 ### Community 63 - "Community 63"
 Cohesion: 0.09
 Nodes (15): Branch-coverage complement for xpcsjax.optimization.nlsq.validation.  ``test_val, _result(), test_fit_quality_acceptable_band_logged(), test_fit_quality_cmaes_max_restarts_warns(), test_fit_quality_cmaes_other_reason_passes(), test_fit_quality_condition_number_ok_via_pcov_fallback(), test_fit_quality_condition_number_too_high(), test_fit_quality_convergence_failed() (+7 more)
 
 ### Community 64 - "Community 64"
-Cohesion: 0.14
-Nodes (20): _fit(), Phase 3 (steps 8-10): gated L2/L3 numeric execution on the heterodyne stratified, The accepted L2 result is never worse than baseline beyond tol., L3 active → ``regularization_active`` True, penalty never in chi_squared., L3 configured but L2 disabled (individual) runs a row-append re-solve.      ``re, Averaged L3 penalty is degenerate-zero: flag flips, numerics unchanged., A worse L2 candidate is discarded; the baseline solve is returned., A raising L2 runner is caught (best-effort): baseline is returned, honestly. (+12 more)
+Cohesion: 0.05
+Nodes (50): log_heterodyne_start(), Map ``config.per_angle_mode`` + ``n_phi`` to a canonical dispatch token.      Re, Log the opening ``NLSQ OPTIMIZATION`` banner for the heterodyne dispatch.      M, _resolve_effective_mode(), _fit_nlsq_heterodyne(), Best-effort opening ``NLSQ OPTIMIZATION`` banner for the heterodyne path.      L, Best-effort homodyne-parity completion logging for the heterodyne path.      Log, Dispatch the heterodyne multi-phi fit through the ported orchestration.      The (+42 more)
 
 ### Community 65 - "Community 65"
 Cohesion: 0.08
@@ -695,8 +716,8 @@ Cohesion: 0.29
 Nodes (4): Pass through to ``compute_c2_heterodyne`` (meshgrid path).          The engine s, Return a flat ``(P,)`` theory vector at the scattered triples.          ``contra, Return the scaled g2 surface for ``phi`` over the ``(t1, t2)`` grid., Any
 
 ### Community 67 - "Community 67"
-Cohesion: 0.08
-Nodes (8): _patch_threshold(), Tests for heterodyne memory routing and adapter helper logic.  * heterodyne_memo, test_optimizer_kwargs_includes_explicit_max_nfev(), test_optimizer_kwargs_omits_none_max_nfev(), test_select_strategy_large(), test_select_strategy_standard(), test_select_strategy_streaming(), test_select_strategy_zero_params()
+Cohesion: 0.06
+Nodes (15): detect_total_system_memory(), estimate_peak_memory_gb(), _get_memory_threshold(), Memory-aware strategy selection for NLSQ optimization (**heterodyne** flavor)., Estimate peak memory for full-Jacobian NLSQ optimization.      The dominant cost, Compute memory threshold in GB.      Checks ``HETERODYNE_MEMORY_FRACTION`` env-v, Detect total system memory in GB.      Tries ``psutil`` first, then ``os.sysconf, _patch_threshold() (+7 more)
 
 ### Community 68 - "Community 68"
 Cohesion: 0.08
@@ -712,11 +733,11 @@ Nodes (23): Write numerical arrays to .npz with configurable compression.      A
 
 ### Community 71 - "Community 71"
 Cohesion: 0.11
-Nodes (26): load_and_validate_data(), _norm_scalar(), _pick(), Data loading and validation pipeline for xpcsjax CLI.  Ported from heterodyne/cl, Slice ``c2``/``phi`` arrays in-place to the requested angles.      Matches each, Determine phi angles from CLI args or configuration.      Parameters     -------, Return the first present key's value, else None., Normalize a single angle to [-180, 180]. (+18 more)
+Nodes (26): dispatch_command(), _dispatch_fit(), _dispatch_standalone_plot(), Top-level command dispatcher for the xpcsjax CLI.  NLSQ-only by design: there is, Load data → run NLSQ → save → plot. Returns 0 / 2., Resolve the effective output directory (CLI > YAML > None).      Thin wrapper ov, Run the command implied by ``args``.      Loads and merges the config, reconfigu, Plot experimental data or simulated C2 heatmaps without optimizing. (+18 more)
 
 ### Community 72 - "Community 72"
-Cohesion: 0.20
-Nodes (12): fit_nlsq(), Run the xpcsjax NLSQ fit for either physics model.      Single public entry poin, Phase 5 — constant/averaged/individual laminar fits run end-to-end without JIT c, _run(), test_laminar_modes_no_crash_correct_lengths(), _fit(), Phase 5 dual-gate (b): default auto->averaged is no-worse-SSR vs explicit indivi, # NOTE: ConfigManager's path argument is `config_file` (the plan's `config_path= (+4 more)
+Cohesion: 0.29
+Nodes (7): _fit(), Phase 5 dual-gate (b): default auto->averaged is no-worse-SSR vs explicit indivi, # NOTE: ConfigManager's path argument is `config_file` (the plan's `config_path=, CI-safe: averaged SSR must not exceed individual SSR by more than the threshold., Availability-gated: run the real homodyne config under explicit individual vs, test_c020_simon_default_no_worse(), test_synthetic_default_averaged_no_worse_than_individual()
 
 ### Community 73 - "Community 73"
 Cohesion: 0.11
@@ -731,8 +752,8 @@ Cohesion: 0.10
 Nodes (12): ParameterInfo, Reject inverted bounds at construction (frozen-dataclass safe).          ``lower, Alias for ``lower_bound`` (upstream heterodyne API)., Alias for ``upper_bound`` (upstream heterodyne API)., Alias for ``units`` (upstream heterodyne API uses singular)., Check if value is within bounds (upstream heterodyne API)., Clip value to bounds (upstream heterodyne API)., Get parameter metadata.          Parameters         ----------         name : st (+4 more)
 
 ### Community 76 - "Community 76"
-Cohesion: 0.09
-Nodes (20): MultiLevelCache, Evict oldest file from SSD cache., Evict oldest file from HDD cache., Advanced multi-level caching system with intelligent eviction.      Implements m, Initialize the multi-level cache system.          Parameters         ----------, Write an item to the SSD tier, evicting to stay within the limit.          Param, Write an item to the HDD tier, evicting to stay within the limit.          Param, Save a compressed array to disk and return its size in MB.          Parameters (+12 more)
+Cohesion: 0.10
+Nodes (19): MultiLevelCache, Evict oldest file from SSD cache., Evict oldest file from HDD cache., Advanced multi-level caching system with intelligent eviction.      Implements m, Write an item to the SSD tier, evicting to stay within the limit.          Param, Write an item to the HDD tier, evicting to stay within the limit.          Param, Save a compressed array to disk and return its size in MB.          Parameters, cache_engine() (+11 more)
 
 ### Community 77 - "Community 77"
 Cohesion: 0.60
@@ -743,44 +764,44 @@ Cohesion: 0.09
 Nodes (28): _ad_config_dict(), Parity tests: heterodyne ≥1M stratified-LS anti-degeneracy controller wiring., The driver's controller instantiation emits the laminar-style Layer 2/3/4 banner, No anti_degeneracy dict -> returns None, emits nothing, never raises., hierarchical.enable=False must suppress the Layer 2 banner (L2 IS gated)., gradient_monitoring.enable=False must suppress the Layer 4 banner (L4 IS gated)., L3 is NOT gated by a regularization.enable field — it stays on under master enab, The param-count banner must report heterodyne's real n_physical (14), not lamina (+20 more)
 
 ### Community 79 - "Community 79"
-Cohesion: 0.18
-Nodes (12): compute_diagonal_overlay_stats(), DiagonalOverlayResult, Diagonal-overlay diagnostic helpers.  The diagonal of a two-time correlation sur, Per-angle diagonal trace statistics.      Attributes     ----------     phi_inde, Extract the t₁=t₂ diagonals of two c2 surfaces at one angle.      Slices both su, NLSQ visualization for xpcsjax.  Lazy public surface — symbols are imported on f, Tests for compute_diagonal_overlay_stats., test_diagonal_overlay_out_of_bounds_raises() (+4 more)
+Cohesion: 0.13
+Nodes (22): build_hybrid_streaming_result(), Build an OptimizationResult from heterodyne hybrid-streaming optimizer output., _make_synthetic_heterodyne(), Build a tiny synthetic heterodyne dataset from the live kernel.      Returns (mo, build_hybrid_streaming_result must propagate info['anti_degeneracy'] into     th, Backward compat: info lacking 'anti_degeneracy' → result reports inactive., A solve that exhausts ``max_nfev`` but lands on a good fit must report     ``con, Regression guard: a genuine non-convergence (no max_nfev reason, or a bad     re (+14 more)
 
 ### Community 80 - "Community 80"
 Cohesion: 0.09
 Nodes (25): _make_manager(), Memory-manager cleanup/monitoring must be observed, not silently swallowed.  Pha, REL-1: repeated calls with the SAME malformed pool_id emit exactly one log., The HAS_V2_LOGGING=False fallback shim must re-raise when policy='reraise'., The fallback shim must swallow when policy='suppress' (existing behaviour)., Exercise the fallback shim directly under forced HAS_V2_LOGGING=False.      Monk, A virtual_memory_path containing '..' must be rejected before any directory is c, #4: a failure after the backing file is opened must close the fd/mapping.      B (+17 more)
 
 ### Community 81 - "Community 81"
-Cohesion: 0.10
-Nodes (20): _layer_state(), log_configured_layers_preamble(), log_effective_mode(), log_fit_start(), log_optimization_results(), log_physical_parameters(), log_stratification_diagnostics(), log_stratified_complete() (+12 more)
+Cohesion: 0.11
+Nodes (17): log_configured_layers_preamble(), log_effective_mode(), log_fit_start(), log_optimization_results(), log_physical_parameters(), log_strategy_selection(), log_stratified_complete(), log_stratified_path_activated() (+9 more)
 
 ### Community 82 - "Community 82"
 Cohesion: 0.11
 Nodes (23): get_num_parameters(), get_parameter_description(), get_parameter_names(), get_physical_param_names(), Parameter name constants for homodyne analysis.  Centralized parameter name defi, Get physical parameter names only (without scaling params).      Unlike get_para, Get number of parameters for analysis mode.      Parameters     ----------     a, Validate parameter names against expected names for analysis mode.      Paramete (+15 more)
 
 ### Community 83 - "Community 83"
-Cohesion: 0.11
-Nodes (19): _compute_g1_diffusion_meshgrid(), _compute_g1_shear_meshgrid(), _compute_g1_total_meshgrid(), _compute_g2_scaled_meshgrid(), NLSQ physics backend providing meshgrid-only g1/g2 computations.  ==============, Meshgrid shear computation for NLSQ optimization.      Computes g1_shear for 2D, Meshgrid total g1 computation for NLSQ optimization.      Computes g1_total = g1, Meshgrid g2 computation for NLSQ optimization.      Core homodyne equation: g₂ = (+11 more)
+Cohesion: 0.14
+Nodes (20): HeterodynePointwiseEvaluator, r"""Heterodyne adapter that ALSO evaluates only at scattered support points., _make_single_chunk_chunked(), _params14(), Tests for the pointwise scattered-eval seam on the heterodyne evaluator.  Also d, The scattered branch (a) is actually exercised and (b) equals the grid path., build_heterodyne_stratified_data(weights=None) must not allocate a dense     (n_, A physically-plausible 14-param heterodyne vector (registry order).      Values (+12 more)
 
 ### Community 84 - "Community 84"
-Cohesion: 0.14
-Nodes (9): Create config from nested dictionary.          Parameters         ----------, Create controller from configuration dictionary.          Parameters         ---, Initialize all 4 layers of the defense system., Normalize analysis-mode synonyms consistent with parameter_registry.          -, Report whether a named layer is active for this ``analysis_mode``.          Task, Get comprehensive diagnostics from all components.          Returns         ----, Compute and store fixed per-angle contrast/offset from quantiles.          This, Check if fixed per-angle scaling has been computed.          Returns         --- (+1 more)
+Cohesion: 0.13
+Nodes (18): _Cfg, _install_model_stub(), Tests for heterodyne stratified hybrid-streaming pipeline (Phase 2)., The removed reparam tokens (and the legacy alias) are erased:     build_heterody, After the reparam teardown, meta must carry zero reparam-related keys for     ev, fit_with_stratified_hybrid_streaming_heterodyne resolves per_angle_mode via the, Native heterodyne vector is scaling-first (Phase 4), matching     HierarchicalOp, Task 2 (structural): anti_degeneracy_config consumed; averaged resolves;     gro (+10 more)
 
 ### Community 85 - "Community 85"
 Cohesion: 0.15
 Nodes (24): NamedTuple, get_xla_mode_path(), Get the path for the XLA mode configuration file.      Uses the virtual environm, cleanup_completion_files(), cleanup_xla_activation_scripts(), cleanup_xla_config(), CleanupTarget, find_cleanup_targets() (+16 more)
 
 ### Community 86 - "Community 86"
-Cohesion: 0.08
-Nodes (39): execute_optimization_with_fallback(), get_fallback_strategy(), _get_strategy_info(), handle_nlsq_result(), OptimizationStrategy, Fallback chain logic for NLSQ optimization strategy selection.  Extracted from w, Execute optimization with automatic strategy fallback.      Tries the selected s, Local optimization strategy enum for internal use.      Note: This replaces the (+31 more)
+Cohesion: 0.05
+Nodes (63): NLSQAdapterBase, Abstract base class for NLSQ adapters (FR-012).  Provides shared methods for NLS, Validate input arrays for consistency.          Parameters         ----------, Build standardized result dictionary.          Parameters         ----------, Abstract base class for NLSQ optimization adapters.      Provides shared methods, Handle optimization errors gracefully.          Parameters         ----------, Set up parameter bounds arrays.          Parameters         ----------         p, Compute parameter covariance matrix from Jacobian.          Uses the standard fo (+55 more)
 
 ### Community 87 - "Community 87"
 Cohesion: 0.09
 Nodes (30): build_gradient_collapse_callback(), CollapseEvent, create_gradient_function_with_monitoring(), gradient_monitor_diagnostics(), GradientCollapseMonitor, GradientMonitorConfig, Gradient Collapse Monitor for Anti-Degeneracy Defense.  This module provides run, Record of a gradient collapse event.      Attributes     ----------     iteratio (+22 more)
 
 ### Community 88 - "Community 88"
-Cohesion: 0.05
-Nodes (64): test_individual_path_always_emits_activation_keys(), _make_failing_adapter(), Regression: L4 must not report the discarded adapter monitor on fallback.  Bug (, Build an NLSQAdapter subclass whose ``fit`` fires the L4 callback once     then, Adapter fires the L4 callback then fails; the wrapper fallback succeeds.      Th, test_fallback_does_not_report_discarded_adapter_monitor(), A real ``individual`` joint fit returns scaling-first params + conserves SSR., test_individual_joint_fit_returns_scaling_first_and_conserves_ssr() (+56 more)
+Cohesion: 0.04
+Nodes (96): _diag(), Golden test for heterodyne anti-degeneracy diagnostics emission.  Both modes now, Only the 3 activation flags are unconditional; per-layer DETAIL keys     (hierar, test_constant_path_always_emits_activation_keys(), test_detail_keys_preserved_when_enabled(), test_disabled_path_now_emits_activation_keys_false(), test_disabled_path_omits_layer_detail_keys(), test_enabled_path_emits_activation_keys_true() (+88 more)
 
 ### Community 89 - "Community 89"
 Cohesion: 0.12
@@ -791,24 +812,24 @@ Cohesion: 0.13
 Nodes (24): Public API Reference, ConfigManager, fit_nlsq (single-entry NLSQ wrapper), HeterodyneModel, HomodyneModel, Lazy __getattr__ public-export mechanism, load_xpcs_data, OptimizationResult & Results API (+16 more)
 
 ### Community 91 - "Community 91"
-Cohesion: 0.14
-Nodes (22): log_effective_mode_from_controller(), log_effective_per_angle_mode(), Shared per-angle-mode banner emitter (laminar ↔ heterodyne parity).  Pure loggin, Emit the unified 'Effective per-angle mode' banner under ``logger``.      Parame, Emit the unified banner from a resolved ``AntiDegeneracyController``.      Conve, _laminar_controller(), Unit tests for the shared per-angle-mode banner formatter.  Covers ``log_effecti, The shared quantile helper is reused by the averaged path, so its     banner mus (+14 more)
+Cohesion: 0.16
+Nodes (20): log_effective_mode_from_controller(), log_effective_per_angle_mode(), Shared per-angle-mode banner emitter (laminar ↔ heterodyne parity).  Pure loggin, Emit the unified 'Effective per-angle mode' banner under ``logger``.      Parame, Emit the unified banner from a resolved ``AntiDegeneracyController``.      Conve, _laminar_controller(), Unit tests for the shared per-angle-mode banner formatter.  Covers ``log_effecti, The shared quantile helper is reused by the averaged path, so its     banner mus (+12 more)
 
 ### Community 92 - "Community 92"
-Cohesion: 0.18
-Nodes (15): _fit(), Phase 5 — averaged uses EXPANDED constrained-model DOF (2*n_phi + n_physics)., test_averaged_dof_basis_is_expanded(), test_constant_dof_basis_is_physics_only(), test_individual_dof_basis_is_optimizer(), Phase 5 — averaged/constant results expand back to the dense per-angle layout., test_averaged_result_is_dense_per_angle(), test_constant_result_is_dense_per_angle() (+7 more)
+Cohesion: 0.14
+Nodes (22): fit_nlsq(), Run the xpcsjax NLSQ fit for either physics model.      Single public entry poin, _fit(), Phase 5 — averaged uses EXPANDED constrained-model DOF (2*n_phi + n_physics)., test_averaged_dof_basis_is_expanded(), test_constant_dof_basis_is_physics_only(), test_individual_dof_basis_is_optimizer(), Phase 5 — averaged/constant results expand back to the dense per-angle layout. (+14 more)
 
 ### Community 93 - "Community 93"
-Cohesion: 0.12
-Nodes (23): _b2_config_dict(), _build_minimal_heterodyne_model(), _build_synthetic_c2_stack(), _expected_synthetic_scaling(), _make_synthetic_c2(), Tests for true `constant` mode in heterodyne (quantile-frozen scaling)., Build a tiny synthetic two-time correlation stack for unit tests., Build a minimal HeterodyneModel via the same config path the smoke tests use. (+15 more)
+Cohesion: 0.07
+Nodes (47): _build_inputs(), Heterodyne residual-layout parity gate (corpus-loading, not generating).  Assert, Reconstruct the deterministic inputs — must match the generator exactly., test_xpcsjax_matches_upstream_residual_layout(), compute_multi_angle_residuals(), Compute residuals for multiple phi angles simultaneously (JIT-compiled).      Pa, estimate_per_angle_scaling_from_quantile(), Estimate per-angle contrast β(φ_k) and offset ō(φ_k) from the data.      Mirrors (+39 more)
 
 ### Community 94 - "Community 94"
 Cohesion: 0.13
 Nodes (15): Tests for xpcsjax.optimization.nlsq.shear_weighting.  The shear weight ``w(phi), test_apply_weights_to_loss_disabled(), test_apply_weights_to_loss_enabled(), test_compute_weighted_mse_disabled(), test_compute_weighted_mse_enabled(), test_get_diagnostics(), test_get_weights_jax_matches(), test_get_weights_override_phi0() (+7 more)
 
 ### Community 95 - "Community 95"
-Cohesion: 0.07
-Nodes (50): HeterodynePointwiseEvaluator, r"""Heterodyne adapter that ALSO evaluates only at scattered support points., _make_single_chunk_chunked(), _params14(), Tests for the pointwise scattered-eval seam on the heterodyne evaluator.  Also d, The scattered branch (a) is actually exercised and (b) equals the grid path., build_heterodyne_stratified_data(weights=None) must not allocate a dense     (n_, A physically-plausible 14-param heterodyne vector (registry order).      Values (+42 more)
+Cohesion: 0.20
+Nodes (20): _full_grid_chunk(), Tests for xpcsjax.optimization.nlsq.strategies.residual_jit.  ``StratifiedResidu, _stratified(), test_dt_none_uses_fallback_and_warns(), test_empty_chunks_raises(), test_fixed_scaling_constant_mode(), test_get_diagnostics(), test_inconsistent_q_raises() (+12 more)
 
 ### Community 96 - "Community 96"
 Cohesion: 0.08
@@ -819,16 +840,16 @@ Cohesion: 0.09
 Nodes (22): analysis_mode, chi_squared, config_path, convergence_reason, convergence_status, label, metadata, aggregate (+14 more)
 
 ### Community 98 - "Community 98"
-Cohesion: 0.19
-Nodes (12): _grep_callers(), Chunking / streaming smoke tests for memory-aware NLSQ routing.  The Phase 5 /do, The homodyne (HYBRID_STREAMING) and heterodyne (STREAMING) routers both     retu, Return non-test python files under ``xpcsjax/`` that mention ``symbol``., ``select_nlsq_strategy`` must have non-test callers — otherwise the     "memory-, Number of int64 points whose index array exceeds ``factor × threshold_gb``., Force the ``index_memory_gb > threshold_gb`` branch in homodyne routing.      Th, _streaming_size_for_threshold() (+4 more)
+Cohesion: 0.23
+Nodes (18): Resolve the effective output directory (CLI > YAML > ``None``).      This is the, resolve_output_dir(), _args(), _cfg(), Regression tests for unified CLI output-directory resolution.  Adversarial-revie, When generate_nlsq_plots raises, _generate_post_fit_plots must report     that n, Minimal ConfigManager stand-in — the resolver only reads ``.config``., With a template-style config and no ``--output``, plots land under the     same (+10 more)
 
 ### Community 99 - "Community 99"
-Cohesion: 0.09
-Nodes (19): OOCComputePool, OOCSharedArrays, Shared memory manager for OOC flat data arrays.      Parameters     ----------, Get picklable shared memory references., Close and unlink all shared memory blocks., Enter the context manager, returning self., Exit the context manager, unlinking all shared memory blocks., Persistent process pool for parallel OOC chunk computation.      Workers share f (+11 more)
+Cohesion: 0.13
+Nodes (15): OOCComputePool, OOCSharedArrays, Shared memory manager for OOC flat data arrays.      Parameters     ----------, Get picklable shared memory references., Enter the context manager, returning self., Persistent process pool for parallel OOC chunk computation.      Workers share f, Dispatch all chunks to workers and collect (JtJ, Jtr, chi2) tuples.          Par, Dispatch chi2-only computation across workers (no Jacobian).          Parameters (+7 more)
 
 ### Community 100 - "Community 100"
-Cohesion: 0.08
-Nodes (35): PerAngleScalingPlan, Model-agnostic per-angle scaling bookkeeping (spec §4 Seam 3).      Centralizes, Return ``True`` iff ``mode == "constant"``., Alias of :attr:`n_optimized` (the scaling-head length)., Frozen per-angle contrast from the quantile estimate (``constant`` mode)., Frozen per-angle offset from the quantile estimate (``constant`` mode)., Return L3 regularization groups within the scaling head., x0 scaling head seed from the quantile estimate.          ``constant`` -> empty (+27 more)
+Cohesion: 0.15
+Nodes (25): PerAngleScalingPlan, Model-agnostic per-angle scaling bookkeeping (spec §4 Seam 3).      Centralizes, Return ``True`` iff ``mode == "constant"``., Alias of :attr:`n_optimized` (the scaling-head length)., Return L3 regularization groups within the scaling head., _quantiles(), Phase-0 unit tests for PerAngleScalingPlan (spec §4 Seam 3).  quantile_scaling =, The jnp variant returns the same values as the NumPy one (so the traced     resi (+17 more)
 
 ### Community 101 - "Community 101"
 Cohesion: 0.12
@@ -843,12 +864,12 @@ Cohesion: 0.14
 Nodes (15): _make_config(), Integration tests for NLSQAdapter error recovery.  Ports the focused subset of h, A residual that raises ValueError yields a failed NLSQResult.          Verifies, A parameter pinned by lower == upper does not crash the adapter., Sanity-check companion: the same adapter converges on benign input.      Verifie, Trivial well-conditioned residual: r_i = p_i - target_i.      JAX-traceable: ret, Minimal valid config for the 3-parameter fixture., NLSQAdapter.fit returns an NLSQResult instead of raising on pathological input. (+7 more)
 
 ### Community 104 - "Community 104"
-Cohesion: 0.05
-Nodes (84): build_hybrid_streaming_result(), Build an OptimizationResult from heterodyne hybrid-streaming optimizer output., build_heterodyne_stratified_data(), Build a :class:`HeterodyneStratifiedData` from model + raw C2 data.      Flatten, _Cfg, _install_model_stub(), _make_synthetic_heterodyne(), Tests for heterodyne stratified hybrid-streaming pipeline (Phase 2). (+76 more)
+Cohesion: 0.08
+Nodes (36): build_heterodyne_stratified_data(), Build a :class:`HeterodyneStratifiedData` from model + raw C2 data.      Flatten, Streaming anti_degeneracy block carries the same top-level keys as other paths., Explicit constant mode reproduces today's frozen-scaling streaming result., No/None anti_degeneracy_config defaults to 'auto' — mirroring laminar     (hybri, REAL hierarchical (L2) run for per_angle_mode='individual'. Optimizing the     p, individual mode drives the L2 hierarchical branch; with the permute retired, The anti_degeneracy block stamps the canonical resolved token, the     laminar_f (+28 more)
 
 ### Community 105 - "Community 105"
-Cohesion: 0.07
-Nodes (39): _build_inputs(), Heterodyne residual-layout parity gate (corpus-loading, not generating).  Assert, Reconstruct the deterministic inputs — must match the generator exactly., test_xpcsjax_matches_upstream_residual_layout(), compute_multi_angle_residuals(), Compute residuals for multiple phi angles simultaneously (JIT-compiled).      Pa, _builder_head_len(), expand_to_engine_scaling_first() (+31 more)
+Cohesion: 0.11
+Nodes (26): _build_engine_for_mode(), _drop_frame0_stratified_data(), _effective_scaling_in_phi_unique_order(), _make_case(), _production_reference_ssr(), Phase 2.3 Step 1 — integration proof: the shared homodyne stratification engine, (contrast, offset) per angle in SORTED phi_unique order — exactly the     scalin, SSR over the ENGINE's masked support: the heterodyne meshgrid kernel per     ang (+18 more)
 
 ### Community 106 - "Community 106"
 Cohesion: 0.13
@@ -859,24 +880,24 @@ Cohesion: 0.14
 Nodes (14): _monitor(), Tests for xpcsjax.optimization.nlsq.gradient_monitor.  The monitor is a pure sta, test_check_collapse_after_consecutive_triggers(), test_check_disabled_returns_ok(), test_check_healthy_gradient_is_ok(), test_check_rearms_after_recovery(), test_check_skips_off_interval(), test_check_tracks_best_params() (+6 more)
 
 ### Community 108 - "Community 108"
-Cohesion: 0.20
-Nodes (13): _make_config(), Task #16a — engine-route ``two_component`` fit function + result-contract proof., Run production ``fit_nlsq_multi_phi`` AND the engine-route function., fit_two_component_via_engine returns canonical scaling-first parameters     for, fit_two_component_via_engine returns scaling-first compressed averaged params, PRODUCTION_TO_ENGINE_MODE is now the identity map over the three canonical     t, _run_both(), test_engine_route_averaged_scaling_first() (+5 more)
+Cohesion: 0.14
+Nodes (14): get_group_indices(), Parameter name constants for the 14-parameter heterodyne model.  The heterodyne, Get the canonical-order indices of every parameter in a group.      Parameters, _make_aps_old_hdf5(), Regression tests for the 2026-06-10 whole-codebase debug audit.  Each test pins, Audit [6] + Codex follow-up: an empty (q,phi) selection must fail loudly on, Audit [26]: get_group_indices('scaling') must resolve, not KeyError.      The 's, Audit [8]: the active-parameter fallback for two_component must return the     h (+6 more)
 
 ### Community 109 - "Community 109"
-Cohesion: 0.05
-Nodes (32): ParameterIndexMapper, Get total number of per-angle parameters (scaling params)., Get total number of parameters., Get (start, end) tuples for contrast and offset parameter groups.          Retur, Get indices of physical parameters.          Returns         -------         lis, Get indices of all per-angle parameters.          Returns         -------, Validate that group indices are within parameter vector bounds.          Paramet, Get diagnostic information for logging.          Returns         ------- (+24 more)
+Cohesion: 0.09
+Nodes (6): Tests for three NLSQ support modules.  * parameter_index_mapper: parameter-group, test_mapper_constant_mode(), test_mapper_diagnostics(), test_mapper_individual_mode(), test_mapper_validate_indices(), test_mapper_validation_errors()
 
 ### Community 110 - "Community 110"
-Cohesion: 0.11
-Nodes (20): load_or_init_golden(), Golden-snapshot load/init helper for the parity preservation suites.  Mechanism:, Return the golden arrays at ``path``.      Args:         path: Destination ``.np, _build_laminar_fit(), _build_stratified_residual_fn(), Phase-1.0 homodyne engine preservation suite (executor-runnable golden net).  WH, Small synthetic ``laminar_flow`` fit through the public ``fit_nlsq`` path     wi, Snapshot the residual VECTOR emitted by the production     ``StratifiedResidualF (+12 more)
+Cohesion: 0.13
+Nodes (18): load_or_init_golden(), Golden-snapshot load/init helper for the parity preservation suites.  Mechanism:, Return the golden arrays at ``path``.      Args:         path: Destination ``.np, _build_laminar_fit(), _build_stratified_residual_fn(), Phase-1.0 homodyne engine preservation suite (executor-runnable golden net).  WH, Small synthetic ``laminar_flow`` fit through the public ``fit_nlsq`` path     wi, Snapshot the residual VECTOR emitted by the production     ``StratifiedResidualF (+10 more)
 
 ### Community 111 - "Community 111"
 Cohesion: 0.15
 Nodes (17): CacheError, device_get(), device_put(), get_logger(), log_calls(), log_performance(), MemoryPressureError, PerformanceEngineError (+9 more)
 
 ### Community 112 - "Community 112"
-Cohesion: 0.16
-Nodes (8): Initialize the performance engine from configuration.          Builds the memory, Initialize memory map manager., Initialize adaptive chunker., Initialize multi-level cache system., Initialize parallel processing executor., Start background performance monitoring., Start background processing for prefetching., Fetch an item from the cache hierarchy (memory then SSD then HDD).          A hi
+Cohesion: 0.12
+Nodes (11): Initialize the performance engine from configuration.          Builds the memory, Initialize memory map manager., Initialize adaptive chunker., Initialize multi-level cache system., Initialize parallel processing executor., Start background performance monitoring., Start background processing for prefetching., Initialize the multi-level cache system.          Parameters         ---------- (+3 more)
 
 ### Community 113 - "Community 113"
 Cohesion: 0.15
@@ -887,36 +908,36 @@ Cohesion: 0.11
 Nodes (12): LogConfiguration, MinimalLogger, Get or create a logger with hierarchical naming., Programmatic logging configuration.      Alternative to :func:`configure_logging, Apply this configuration to the logging system.          Merges default external, Configurable logger manager for the xpcsjax package.      Thread-safe singleton, Return the process-wide singleton, creating it on first call., Configure xpcsjax logging.          Thread-safe configuration of the logging sys (+4 more)
 
 ### Community 115 - "Community 115"
-Cohesion: 0.08
-Nodes (36): _add_version_arg(), create_parser(), Argument parser for the xpcsjax CLI.  NLSQ-only by design (see project CLAUDE.md, Build the xpcsjax CLI argument parser., Add ``--version`` with a best-effort version resolution., Light validation pass. Returns non-fatal warning strings.      Raises ``FileNotF, validate_args(), dispatch_command() (+28 more)
+Cohesion: 0.14
+Nodes (18): _add_version_arg(), create_parser(), Argument parser for the xpcsjax CLI.  NLSQ-only by design (see project CLAUDE.md, Build the xpcsjax CLI argument parser., Add ``--version`` with a best-effort version resolution., Light validation pass. Returns non-fatal warning strings.      Raises ``FileNotF, validate_args(), _bootstrap_xla_env() (+10 more)
 
 ### Community 116 - "Community 116"
-Cohesion: 0.29
-Nodes (7): configure_xla(), get_cpu_info(), main(), XLA configuration helper for JAX on CPU.  Two distinct use cases:  1.  **Library, ``xpcsjax-config-xla`` / ``xj-config-xla`` entry point.      This command is **i, Set XLA / JAX environment variables for CPU execution.      Parameters     -----, Return a compact dict of CPU / RAM metrics.      Returns     -------     dict
+Cohesion: 0.13
+Nodes (16): apply_cli_overrides(), _apply_parameter_overrides(), load_and_merge_config(), Configuration loading and CLI override merging for the xpcsjax CLI.  xpcsjax's :, Mutate ``config_manager.config`` in place from CLI flags.      Applies the mode, # NOTE: NLSQ runtime knobs (--multistart / --multistart-n /, Write CLI ``--initial-*`` values into the canonical config block.      Parameter, Load a YAML config and apply CLI overrides.      Parameters     ----------     y (+8 more)
 
 ### Community 117 - "Community 117"
 Cohesion: 0.13
 Nodes (14): Build default bounds lookup from the registry, then merge config overrides., Merge config-overridden bounds from ParameterSpace into _default_bounds., _apply_initial_parameters(), _apply_parameter_space_bounds(), Parameter space definition with bounds for heterodyne NLSQ optimization., Serialize this space to a dict compatible with :meth:`from_config`.          Pro, Create a ParameterSpace from a configuration dictionary.          Two input form, Return the ``DEFAULT_REGISTRY`` entry for a heterodyne kernel-name param.      R (+6 more)
 
 ### Community 118 - "Community 118"
-Cohesion: 0.12
-Nodes (29): compute_transport_integral_matrix(), compute_velocity_integral_matrix(), Compute the transport integral matrix (NLSQ meshgrid path, JIT-compiled).      C, Compute the velocity integral matrix (NLSQ meshgrid path, JIT-compiled).      Co, _compute_c2_meshgrid(), _compute_c2_pointwise(), _fraction(), _half_transport_meshgrid() (+21 more)
+Cohesion: 0.17
+Nodes (19): _compute_c2_meshgrid(), _compute_c2_pointwise(), compute_c2_unified(), _half_transport_meshgrid(), Shared physics kernel for heterodyne two-time correlation.  This module factors, Compute the two-component heterodyne ``c2`` via the shared kernel.      A single, Evaluate ``c2`` pointwise, producing ``(P,)`` from scattered index triples., Evaluate ``c2`` over the meshgrid, producing an ``(N, N)`` matrix.      Paramete (+11 more)
 
 ### Community 119 - "Community 119"
-Cohesion: 0.19
-Nodes (20): compute_g1_total(), Compute the total g1 (diffusion × shear) using a configuration ``dt``.      Wrap, compute_gradient_norms(), compute_optimal_x_scale(), _create_residual_function(), Gradient diagnostics and x_scale recommender for NLSQ optimization.  Diagnoses g, Compute per-parameter gradient norms at the given point.      Parameters     ---, Compute optimal x_scale map based on gradient norms.      The ``x_scale`` values (+12 more)
+Cohesion: 0.21
+Nodes (18): compute_gradient_norms(), compute_optimal_x_scale(), _create_residual_function(), Gradient diagnostics and x_scale recommender for NLSQ optimization.  Diagnoses g, Compute per-parameter gradient norms at the given point.      Parameters     ---, Compute optimal x_scale map based on gradient norms.      The ``x_scale`` values, Create a residual function for gradient computation.      Parameters     -------, _laminar_params() (+10 more)
 
 ### Community 120 - "Community 120"
-Cohesion: 0.21
-Nodes (9): ExecutionResult, Execute standard curve_fit optimization., Execute large dataset optimization., Initialize streaming executor.          Parameters         ----------         ch, Execute streaming optimization using AdaptiveHybridStreamingOptimizer., Result from optimization execution.      Attributes     ----------     popt : np, Execute optimization with the specific strategy.          Parameters         ---, Any (+1 more)
+Cohesion: 0.17
+Nodes (15): build_parameter_labels(), classify_parameter_status(), convert_bounds_to_nlsq_format(), Data Preparation Utilities for NLSQ Optimization.  This module provides data pre, Validate parameter bounds.      Parameters     ----------     bounds : tuple[np., Validate and clip initial parameters to bounds.      Parameters     ----------, Convert bounds to NLSQ-compatible format.      NLSQ expects bounds as ``(lower_a, Build human-readable parameter labels.      Parameters     ----------     per_an (+7 more)
 
 ### Community 121 - "Community 121"
 Cohesion: 0.13
 Nodes (16): clip_parameters(), estimate_correlation_time(), get_default_parameters(), get_parameter_info(), parameter_bounds(), Physical constants and parameter validation for homodyne XPCS analysis.  =======, # NOTE: These are reference values. The PRIMARY bounds used by NLSQ, Get standard parameter bounds for all model types.      Returns     ------- (+8 more)
 
 ### Community 122 - "Community 122"
-Cohesion: 0.11
-Nodes (24): compute_g2_scaled(), Compute the scaled g2 correlation using a configuration ``dt``.      Wraps :func, compute_g2(), Physics identity: g₂ = offset + 0·g₁² = offset when contrast=0., Sanity check: contrast=1 must not be constant., TestG2ScaledContrastZero, compute_g2_batch(), compute_g2_batch_with_per_angle_scaling() (+16 more)
+Cohesion: 0.17
+Nodes (18): compute_g2_batch(), compute_g2_batch_with_per_angle_scaling(), compute_theoretical_fits(), extract_parameters_from_result(), get_physical_param_count(), normalize_analysis_mode(), Fit Computation Utilities for NLSQ Results.  This module provides functions for, Compute g2 with per-angle contrast/offset in single vectorized operation.      P (+10 more)
 
 ### Community 123 - "Community 123"
 Cohesion: 0.17
@@ -951,8 +972,8 @@ Cohesion: 0.14
 Nodes (17): cache_engine(), Defense-in-depth regression tests for the trusted-cache loader.  The /double-che, Path-containment gate: an explicit ``..``-traversal path fails.      Even if a k, Mode gate: a file with world-write bits is refused.      ``_save_to_disk`` write, Mode gate: even read-only group bits are refused.      Anything wider than 0o600, A nonexistent cache path raises OSError before hitting deserialization.      Wit, Construct a MultiLevelCache pinned at ``tmp_path``.      Overrides ``XDG_CACHE_H, Write a cache item through the engine's own save path and return its disk path. (+9 more)
 
 ### Community 131 - "Community 131"
-Cohesion: 0.15
-Nodes (15): Image, DatashaderRenderer, plot_c2_comparison_fast(), plot_c2_heatmap_fast(), Datashader backend for fast C2 heatmap visualization.  Provides high-performance, Resolve a matplotlib colormap name to a Datashader hex-color list., Single-panel C2 heatmap via the Datashader hybrid pipeline.      Rasterizes ``c2, Three-panel comparison (Experimental | Fitted | Residuals) via Datashader. (+7 more)
+Cohesion: 0.10
+Nodes (25): Image, DatashaderRenderer, plot_c2_comparison_fast(), plot_c2_heatmap_fast(), Datashader backend for fast C2 heatmap visualization.  Provides high-performance, Resolve a matplotlib colormap name to a Datashader hex-color list., Single-panel C2 heatmap via the Datashader hybrid pipeline.      Rasterizes ``c2, Three-panel comparison (Experimental | Fitted | Residuals) via Datashader. (+17 more)
 
 ### Community 132 - "Community 132"
 Cohesion: 0.11
@@ -963,16 +984,16 @@ Cohesion: 0.14
 Nodes (16): test_print_report_renders_all_tags(), test_result_to_dict_roundtrip(), test_run_validation_human_report(), test_run_validation_json(), main(), _print_report(), System validation utilities for xpcsjax installation.  This module provides comp, Serialize a :class:`ValidationResult` into a JSON-friendly dict.      Parameters (+8 more)
 
 ### Community 134 - "Community 134"
-Cohesion: 0.11
-Nodes (23): compute_fraction_jit(), Compute the sample fraction (JIT-compiled).      Evaluates ``f_s(t) = f0 * exp(f, compute_relative_difference(), Numerically safe mathematical primitives for heterodyne physics.  All functions, Compute a logarithm with protection against non-positive arguments.      Paramet, Compute a square root with protection against negative arguments.      Parameter, Compute the element-wise relative difference between two arrays.      Defined as, Force a matrix to be exactly symmetric via ``(M + M.T) / 2``.      Parameters (+15 more)
+Cohesion: 0.16
+Nodes (16): compute_relative_difference(), Numerically safe mathematical primitives for heterodyne physics.  All functions, Compute a logarithm with protection against non-positive arguments.      Paramet, Compute a square root with protection against negative arguments.      Parameter, Compute the element-wise relative difference between two arrays.      Defined as, Force a matrix to be exactly symmetric via ``(M + M.T) / 2``.      Parameters, Compute a power function that is safe for non-positive bases.      For ``base <=, Evaluate the unnormalized sinc ``sin(x) / x``, safe at ``x = 0``.      Returns ` (+8 more)
 
 ### Community 135 - "Community 135"
-Cohesion: 0.16
-Nodes (18): NLSQConfig, Convert settings to kwargs for NLSQ's curve_fit().          Maps NLSQConfig sett, Configuration for NLSQ (Nonlinear Least Squares) optimization.      This datacla, Convert configuration to dictionary.          Returns         -------         di, F6: NLSQConfig.validate() upper-bound guard for chunk-size fields.  A pathologic, test_cmaes_data_chunk_size_above_ceiling_is_rejected(), test_cmaes_data_chunk_size_none_is_accepted(), test_cmaes_data_chunk_size_normal_is_accepted() (+10 more)
+Cohesion: 0.21
+Nodes (16): NLSQConfig, Configuration for NLSQ (Nonlinear Least Squares) optimization.      This datacla, F6: NLSQConfig.validate() upper-bound guard for chunk-size fields.  A pathologic, test_cmaes_data_chunk_size_above_ceiling_is_rejected(), test_cmaes_data_chunk_size_none_is_accepted(), test_cmaes_data_chunk_size_normal_is_accepted(), test_cmaes_data_chunk_size_zero_still_rejected(), test_hybrid_chunk_size_above_ceiling_is_rejected() (+8 more)
 
 ### Community 136 - "Community 136"
-Cohesion: 0.12
-Nodes (17): HierarchicalOptimizer, HierarchicalResult, _OptimizeResult, Hierarchical Two-Stage Optimization for Anti-Degeneracy Defense.  This module im, Result from hierarchical optimization.      Attributes     ----------     x : np, Two-stage hierarchical optimizer for decoupled fitting.      This optimizer brea, Initialize hierarchical optimizer.          Parameters         ----------, Create physical loss function with pre-allocated buffer (FR-002).          Uses (+9 more)
+Cohesion: 0.14
+Nodes (14): HierarchicalOptimizer, _OptimizeResult, Two-stage hierarchical optimizer for decoupled fitting.      This optimizer brea, Initialize hierarchical optimizer.          Parameters         ----------, Create physical loss function with pre-allocated buffer (FR-002).          Uses, Create physical gradient function with pre-allocated buffer (FR-002).          U, Create per-angle loss function with pre-allocated buffer (FR-002).          Uses, Create per-angle gradient function with pre-allocated buffer (FR-002). (+6 more)
 
 ### Community 137 - "Community 137"
 Cohesion: 0.16
@@ -987,8 +1008,8 @@ Cohesion: 0.12
 Nodes (15): label, source, spec, contrasts, dt, N, n_phi, offsets (+7 more)
 
 ### Community 140 - "Community 140"
-Cohesion: 0.16
-Nodes (13): _CaptureAndStopError, _install_capturing_spy(), Regression tests for per-angle CMA-ES reproducibility + config plumbing.  Guards, The configured ``cmaes_sigma0`` reaches ``CMAESWrapperConfig.sigma``.      Use a, Every ``CMAESWrapperConfig(...)`` literal in heterodyne_core passes ``seed=``., Two separate per-angle CMA-ES fits return identical parameters.      The behavio, Raised by the spy after recording the config, to short-circuit     ``_fit_cmaes`, Replace ``heterodyne_core.fit_with_cmaes`` with a spy that records the     ``CMA (+5 more)
+Cohesion: 0.12
+Nodes (17): _build_cfgmgr(), _config_dict(), Shared synthetic heterodyne fixtures for optimization unit tests.  The model + d, Construct a real ``ConfigManager`` for a two-component fixture config.      The, _CaptureAndStopError, _install_capturing_spy(), Regression tests for per-angle CMA-ES reproducibility + config plumbing.  Guards, The configured ``cmaes_sigma0`` reaches ``CMAESWrapperConfig.sigma``.      Use a (+9 more)
 
 ### Community 141 - "Community 141"
 Cohesion: 0.16
@@ -999,16 +1020,16 @@ Cohesion: 0.06
 Nodes (31): get_logger(), Configuration management for the xpcsjax NLSQ analysis package.  Loads and norma, Return a stdlib logger (fallback when xpcsjax logging is unavailable)., Config-driven dispatch returns the right physics model class.  Task 28: validate, ConfigManager should normalize 'heterodyne' / 'Heterodyne' → 'two_component'., Minimal YAML config setting analysis_mode., analysis_mode: two_component must produce a HeterodyneModel instance., analysis_mode: heterodyne (synonym) must also produce HeterodyneModel. (+23 more)
 
 ### Community 143 - "Community 143"
-Cohesion: 0.16
-Nodes (15): compute_c2_heterodyne(), compute_c2_heterodyne_pointwise(), Compute the two-time heterodyne correlation (meshgrid path, JIT-compiled)., Pointwise heterodyne correlation at scattered ``(phi, t1, t2)`` triples.      Th, Compute the heterodyne two-time correlation surface(s).          Strictly speaki, Compute the two-time heterodyne correlation matrix.          Parameters, compute_c2_unified(), Compute the two-component heterodyne ``c2`` via the shared kernel.      A single (+7 more)
+Cohesion: 0.19
+Nodes (11): compute_c2_heterodyne(), Compute the two-time heterodyne correlation (meshgrid path, JIT-compiled)., Compute the heterodyne two-time correlation surface(s).          Strictly speaki, Compute the two-time heterodyne correlation matrix.          Parameters, _params(), Pointwise heterodyne kernel must exactly match the meshgrid path., Two phi angles, scattered points; each must match its meshgrid value., test_pointwise_matches_meshgrid() (+3 more)
 
 ### Community 144 - "Community 144"
 Cohesion: 0.17
 Nodes (10): AdaptiveChunker, ChunkInfo, Load correlation matrices via chunked parallel processing.          Parameters, Information about a data chunk for intelligent processing., Intelligent chunking system that adapts based on memory pressure and data charac, Initialize the adaptive chunker.          Parameters         ----------, Calculate the optimal chunk size for current conditions.          Scales the cur, Create an intelligent chunk processing plan.          Splits the data into chunk (+2 more)
 
 ### Community 145 - "Community 145"
-Cohesion: 0.18
-Nodes (7): PerformanceMetrics, Return comprehensive cache statistics across all tiers.          Returns, Real-time performance monitoring metrics., Update real-time performance metrics., Update named metric fields and append a history snapshot.          Parameters, Compute the recent linear trend for a metric.          Fits a line to the last `, Return a comprehensive performance report.          Returns         -------
+Cohesion: 0.13
+Nodes (9): PerformanceMetrics, Return comprehensive cache statistics across all tiers.          Returns, Real-time performance monitoring metrics., Run the background performance-monitoring loop until shutdown.          Refreshe, Update real-time performance metrics., Detect and classify performance bottlenecks., Update named metric fields and append a history snapshot.          Parameters, Compute the recent linear trend for a metric.          Fits a line to the last ` (+1 more)
 
 ### Community 146 - "Community 146"
 Cohesion: 0.21
@@ -1019,12 +1040,12 @@ Cohesion: 0.17
 Nodes (15): _make_controller(), ShearSensitivityWeighting (anti-degeneracy Layer 5) is gated by analysis mode., Build a controller with minimal-but-valid arguments., Layer 5 is active ONLY for laminar_flow (the mode with a shear rate)., Layer 5 is inactive for static modes — no flow direction, no shear peak., Layer 5 is inactive for two_component (heterodyne) mode., The 'heterodyne' synonym must produce the same gating., The other 4 anti-degeneracy layers stay active for heterodyne fits. (+7 more)
 
 ### Community 148 - "Community 148"
-Cohesion: 0.17
-Nodes (15): _enable_streaming(), _logger(), Tests for xpcsjax.optimization.nlsq.strategies.executors.  The executors wrap NL, test_large_executor_optimize_result_with_pcov(), test_large_executor_optimize_result_without_pcov(), test_large_executor_reraises(), test_large_executor_three_tuple_with_info(), test_large_executor_two_tuple() (+7 more)
+Cohesion: 0.13
+Nodes (8): Frozen per-angle contrast from the quantile estimate (``constant`` mode)., Frozen per-angle offset from the quantile estimate (``constant`` mode)., x0 scaling head seed from the quantile estimate.          ``constant`` -> empty, Lower/upper bounds for the scaling head, matching ``seed_tail()`` length., Dense per-angle ``(contrast[n_phi], offset[n_phi])`` from a scaling tail., Split a scaling-first optimizer vector into dense per-angle scaling + physics., Expand the OPTIMIZER covariance to the DENSE scaling-first layout.          Comp, ndarray
 
 ### Community 149 - "Community 149"
-Cohesion: 0.11
-Nodes (16): CallbackBase, create_progress_callback(), create_streaming_progress_callback(), HomodyneIterationLogger, ProgressConfig, Progress bar and logging callbacks for NLSQ optimization.  This module provides, Log iteration information based on verbosity settings., Create progress callback chain for NLSQ optimization.      Creates a callback ch (+8 more)
+Cohesion: 0.15
+Nodes (11): CallbackBase, create_progress_callback(), HomodyneIterationLogger, ProgressConfig, Progress bar and logging callbacks for NLSQ optimization.  This module provides, Create progress callback chain for NLSQ optimization.      Creates a callback ch, Configuration for progress tracking.      Attributes     ----------     enable_p, Create ProgressConfig from NLSQConfig.          Parameters         ---------- (+3 more)
 
 ### Community 150 - "Community 150"
 Cohesion: 0.15
@@ -1039,8 +1060,8 @@ Cohesion: 0.19
 Nodes (14): _find_violations(), _is_np_load(), _iter_source_files(), Regression guard: no unsafe ``np.load`` calls inside ``xpcsjax/``.  The NPZ cach, Sanity: variable-smuggled allow_pickle is flagged., Return True if ``node`` is ``np.load``, ``numpy.load``, or bare ``load``., Return ``(line, reason)`` for offending ``np.load`` calls in ``path``., No file in ``xpcsjax/`` may set ``allow_pickle`` to True (or a variable). (+6 more)
 
 ### Community 153 - "Community 153"
-Cohesion: 0.11
-Nodes (22): analyze_parameter_sensitivity(), compute_jacobian_condition_number(), compute_jacobian_stats(), estimate_gradient_noise(), Jacobian computation utilities for NLSQ optimization.  This module extracts Jaco, Analyze parameter sensitivity from Jacobian column norms.      Higher column nor, Estimate gradient noise from multiple Jacobian computations.      Computes Jacob, Compute Jacobian statistics for convergence diagnostics.      Computes the Jacob (+14 more)
+Cohesion: 0.17
+Nodes (13): analyze_parameter_sensitivity(), compute_jacobian_stats(), Analyze parameter sensitivity from Jacobian column norms.      Higher column nor, Compute Jacobian statistics for convergence diagnostics.      Computes the Jacob, fixture_data(), Smoke tests for the Jacobian-stats utility module.  ``xpcsjax/optimization/nlsq/, 20-point polynomial fixture: xdata + initial params at the truth., Happy path: well-conditioned polynomial returns a (3,3) J^T J and     a length-3 (+5 more)
 
 ### Community 154 - "Community 154"
 Cohesion: 0.16
@@ -1071,28 +1092,28 @@ Cohesion: 0.22
 Nodes (10): HierarchicalOptimizer, _opt(), Tests for xpcsjax.optimization.nlsq.hierarchical.  The two-stage optimizer alter, test_create_per_angle_loss_and_grad(), test_create_physical_grad_slices_physical_indices(), test_create_physical_loss_assembles_full_vector(), test_fit_converges_on_separable_quadratic(), test_fit_invokes_outer_callback_and_logs() (+2 more)
 
 ### Community 161 - "Community 161"
-Cohesion: 0.22
-Nodes (13): _joint_param_names_scaling_first(), Canonical scaling-first joint parameter-name list ``[scaling_head | physics]``., Decompose a canonical scaling-first joint vector into dense per-angle scaling., _split_scaling_first_joint(), x0 places scaling at the HEAD, physics at the TAIL, for individual mode., test_averaged_names_scaling_first(), test_build_joint_problem_x0_is_scaling_first(), test_constant_names_physics_only() (+5 more)
+Cohesion: 0.20
+Nodes (14): _joint_param_names_scaling_first(), Constructed heterodyne joint LSQ problem (residual + x0 + bounds + reparam)., Canonical scaling-first joint parameter-name list ``[scaling_head | physics]``., Decompose a canonical scaling-first joint vector into dense per-angle scaling., _split_scaling_first_joint(), x0 places scaling at the HEAD, physics at the TAIL, for individual mode., test_averaged_names_scaling_first(), test_build_joint_problem_x0_is_scaling_first() (+6 more)
 
 ### Community 162 - "Community 162"
 Cohesion: 0.15
 Nodes (18): ExperimentalDataConfig, InitialParametersConfig, NLSQValidationConfig, OptimizationConfig, ParameterSpaceConfig, Type definitions for the xpcsjax configuration system.  TypedDict definitions fo, Angle-stratified chunking configuration.      Configuration for angle-stratified, Sequential per-angle optimization configuration.      Configuration for sequenti (+10 more)
 
 ### Community 163 - "Community 163"
-Cohesion: 0.06
-Nodes (31): CanonicalIndexMapper, _canonical_index_mapper(), CanonicalIndexMapper, Centralized index mapping for anti-degeneracy layers.  This module provides the, Get slice indices for covariance matrix transformation.          Returns slices, Scaling-first canonical layout authority (spec §4 Seam 2).          The SOLE con, Scaling-first canonical layout authority (spec §4 Seam 2).      Optimizer vector, # NOTE: do NOT dynamically attach `ParameterIndexMapper.canonical = staticmethod (+23 more)
+Cohesion: 0.12
+Nodes (18): n_optimized(), Single source of truth for the resolved per-angle scaling mode (spec §4 Seam 1)., Return the number of optimized scaling parameters., Resolve a user/config ``per_angle_mode`` token to a canonical variant.      Para, Return the number of OPTIMIZED scaling parameters for a resolved mode.      ``co, resolve_per_angle_mode(), The 3 stratified-LS modes resolve canonically; n_optimized matches the mapper., test_stratified_ls_modes_resolve_via_canonical_resolver() (+10 more)
 
 ### Community 164 - "Community 164"
-Cohesion: 0.14
-Nodes (12): get_all_param_names(), get_bounds(), Get bounds for all parameters.          T055: Logs parameter bounds at DEBUG lev, Get total number of parameters.          Parameters         ----------         a, Validate parameter values against bounds.          Parameters         ----------, Get all parameter names including per-angle scaling., Get parameter bounds., parameter_manager must derive all bounds from parameter_registry.  This guards a (+4 more)
+Cohesion: 0.11
+Nodes (15): get_all_param_names(), get_bounds(), get_defaults(), Parameter registry for xpcsjax analysis.  Single source of truth for parameter n, Get bounds for all parameters.          T055: Logs parameter bounds at DEBUG lev, Get total number of parameters.          Parameters         ----------         a, Validate parameter values against bounds.          Parameters         ----------, Get all parameter names including per-angle scaling. (+7 more)
 
 ### Community 165 - "Community 165"
-Cohesion: 0.21
-Nodes (9): Regression: static modes are pinned to the ``individual`` per-angle layout on ev, Pin the wiring: the streaming fit must resolve its mode via the helper,     neve, _static_cfg(), test_standard_inmemory_static_is_individual_despite_auto(), test_streaming_function_routes_through_static_pin_helper(), test_streaming_laminar_still_honors_resolver(), test_streaming_static_always_individual(), Resolve the streaming per-angle mode, enforcing the static-mode pin.      Wraps (+1 more)
+Cohesion: 0.08
+Nodes (32): expand_per_angle_parameters(), Expand compact parameters to per-angle format.      When per_angle_scaling=True, detect_total_system_memory(), Detect total system memory in bytes using multiple methods.      Returns     ---, classify_parameter_status(), Classify parameters as active or at bounds.      Parameters     ----------     v, Configuration for shear-sensitivity weighting.      Attributes     ----------, ShearWeightingConfig (+24 more)
 
 ### Community 166 - "Community 166"
-Cohesion: 0.15
-Nodes (22): _make_well_posed_case(), Build (model, c2, phi) where ``c2`` is NOISELESS model correlation at a     pert, _build_single_angle_model(), _make_config(), Regression tests for two engine-route ``two_component`` defects.  Both were surf, ``averaged`` must optimize exactly ``n_varying + 2`` DOF (Bug 1).      The origi, Guard: the fix must NOT change ``individual`` — it legitimately fits     ``2*n_p, Noiseless single-angle correlation at a perturbed truth, uniform scaling.     Re (+14 more)
+Cohesion: 0.09
+Nodes (41): fit_two_component_via_engine(), Canonical scaling-first ``(lb, ub)`` for the optimizer DOF.      Layout mirrors, Fit ``two_component`` through the shared engine, returning a contract result., _scaling_first_bounds(), _make_well_posed_case(), Build (model, c2, phi) where ``c2`` is NOISELESS model correlation at a     pert, _build_single_angle_model(), _make_config() (+33 more)
 
 ### Community 167 - "Community 167"
 Cohesion: 0.19
@@ -1119,12 +1140,12 @@ Cohesion: 0.11
 Nodes (17): Bit-equivalence guarantee for homodyne fits, Command-line interface, Custom analysis_mode synonyms, Direct model access, Heterodyne parameter renames, Import paths, Migrating from `homodyne` or `heterodyne` to `xpcsjax`, Multi-angle heterodyne agreement (+9 more)
 
 ### Community 173 - "Community 173"
-Cohesion: 0.21
-Nodes (15): _build_engine(), _drop_frame0_stratified_data(), load_c044(), load_real_subset(), main(), _physics_first_bounds(), ndarray, Task #15 — Real-data engine-vs-production fit-parity validation on C044.  GATING (+7 more)
+Cohesion: 0.17
+Nodes (12): accumulate_chunks_parallel(), accumulate_chunks_sequential(), Determine if parallel chunk COMPUTE is worthwhile.      Parameters     ---------, Accumulate chunk results sequentially.      Parameters     ----------     chunks, Accumulate chunk results in parallel via process pool.      Partitions chunks ac, should_use_parallel_compute(), calculate_adaptive_chunk_size(), Calculate optimal chunk size from available memory and parameter count.      Thi (+4 more)
 
 ### Community 174 - "Community 174"
-Cohesion: 0.12
-Nodes (18): assemble_anti_degeneracy_diagnostics(), Shared assembler for the anti-degeneracy layer-activation diagnostics block.  Bo, Build the symmetric anti-degeneracy diagnostics block.      Always emits ``hiera, _laminar_anti_degeneracy_block(), Build the symmetric anti-degeneracy diagnostics block for a laminar result., test_bool_coercion_and_determinism(), test_core_activation_keys_always_present(), test_empty_gradient_monitor_is_still_included() (+10 more)
+Cohesion: 0.20
+Nodes (12): _laminar_anti_degeneracy_block(), Build the symmetric anti-degeneracy diagnostics block for a laminar result., _build_sequential_laminar_fit(), Diagnostics-parity tests for laminar non-in-memory result builders.  The in-memo, Reuse the small synthetic laminar fixture but force the SEQUENTIAL     per-angle, Site 4 (sequential per-angle) result carries the symmetric anti-degeneracy     a, test_block_honest_active_from_streaming_info(), test_block_inactive_for_stratified_controller_only_info() (+4 more)
 
 ### Community 175 - "Community 175"
 Cohesion: 0.17
@@ -1187,8 +1208,8 @@ Cohesion: 0.22
 Nodes (10): _build_synthetic_c2(), _het_smoke_config_dict(), Wall-clock regression suite for xpcsjax v0.1 hot paths.  The /double-check perfo, End-to-end timing for the heterodyne per-angle local NLSQ fit.      Smallest mea, Routing decision for a typical XPCS fit (10k points, 11 params).      Expected:, Routing decision at chunked-fit scale (10M points, 14 params).      Same code pa, Tiny heterodyne config — same shape as test_heterodyne_cmaes.py., test_perf_heterodyne_per_angle_local_fit() (+2 more)
 
 ### Community 190 - "Community 190"
-Cohesion: 0.06
-Nodes (37): Array, expand_per_angle_parameters(), Expand compact parameters to per-angle format.      When per_angle_scaling=True, classify_parameter_status(), Classify parameters as active or at bounds.      Parameters     ----------     v, _compute_weights_jax(), create_shear_weighting(), Shear-Sensitivity Weighting for Anti-Degeneracy Defense.  This module implements (+29 more)
+Cohesion: 0.10
+Nodes (18): Array, _compute_weights_jax(), create_shear_weighting(), Shear-Sensitivity Weighting for Anti-Degeneracy Defense.  This module implements, Shear-sensitivity weighted loss for anti-degeneracy defense.      This class man, Initialize the weighter and precompute weights for the initial phi0.          Se, Compute angle weights for given phi0.          Performance Optimization (Spec 00, Update phi0 estimate from current parameters.          Parameters         ------ (+10 more)
 
 ### Community 191 - "Community 191"
 Cohesion: 0.33
@@ -1200,19 +1221,19 @@ Nodes (10): Regression: heterodyne ``parameter_space.bounds`` list overrides are
 
 ### Community 193 - "Community 193"
 Cohesion: 0.18
-Nodes (6): Transform per-angle parameters to constant mode.          Computes mean contrast, Transform constant mode parameters to per-angle form.          Expands single co, Get shear-sensitivity weights for residuals.          Returns         -------, Update the phi0 value in shear weighter.          Parameters         ----------, Get the fixed per-angle contrast/offset estimates.          Returns         ----, ndarray
+Nodes (7): Get slice indices for covariance matrix transformation.          Returns slices, test_blocks_partition_the_vector_scaling_first(), test_constant_mode_is_frozen_with_empty_scaling_head(), test_legacy_fourier_constructor_is_untouched(), test_vector_length_property(), test_mapper_per_angle_indices_and_slices(), slice
 
 ### Community 194 - "Community 194"
-Cohesion: 0.10
-Nodes (17): clear_meshgrid_cache(), _get_array_hash_key(), get_cached_meshgrid(), Create a hashable key from array properties.      Uses (length, quartile samples, Get or create cached meshgrid for time arrays.      For repeated calls with the, Clear the meshgrid cache.      Call this when switching between datasets or when, Tests for xpcsjax.core.jax_backend identified by Gemini round-2 review.  Covers, The pre-computed-factors hot path must produce bit-identical output to     the r (+9 more)
+Cohesion: 0.20
+Nodes (11): _minimal_result(), Smoke tests for the heterodyne NLSQResult dataclass + result helpers.  ``xpcsjax, The smallest legal NLSQResult — just the four required fields., parameters, parameter_names, success, message are required positional     args., Two results must not share the same metadata dict (field defaults to     a fresh, The optional uncertainty / covariance / residuals fields accept     arrays and r, When success=False the message must carry the diagnostic — a regression     to s, test_failure_result_message_preserved() (+3 more)
 
 ### Community 195 - "Community 195"
 Cohesion: 0.20
 Nodes (6): Load correlation matrices with full performance optimization.          Checks th, Build a cache key from the file identity and the requested keys.          Parame, Schedule a background prefetch of correlation matrices.          Returns an alre, Load and cache data on a background thread for prefetching.          Parameters, Store an item, choosing tiers by priority and access frequency.          Always, Future
 
 ### Community 196 - "Community 196"
-Cohesion: 0.22
-Nodes (6): Compute regularization term to add to loss.          Parameters         --------, Compute regularization term using JAX for autodiff compatibility.          This, Compute gradient of regularization term.          Parameters         ----------, Check if CV exceeds max_cv threshold.          Parameters         ----------, Log regularization summary.          Parameters         ----------         param, ndarray
+Cohesion: 0.26
+Nodes (10): get_safe_output_dir(), Path validation utilities for secure file operations.  This module provides path, Validate a save path for plot files.      Convenience wrapper for validate_save_, Sanitize path for logging to prevent log injection.      Parameters     --------, Get a safe output directory, creating it if necessary.      Parameters     -----, Validate and sanitize a file save path.      Prevents path traversal attacks and, _sanitize_log_path(), validate_plot_save_path() (+2 more)
 
 ### Community 197 - "Community 197"
 Cohesion: 0.24
@@ -1223,24 +1244,24 @@ Cohesion: 0.31
 Nodes (5): All-zero sigma means all pixels excluded → chi-squared = 0., All-positive sigma must give same result before and after the fix path., After BUG2 fix, zero-sigma pixels are excluded (contribute 0), not Inf., A single zero-sigma element must not produce Inf chi-squared., TestChiSquaredZeroSigma
 
 ### Community 199 - "Community 199"
-Cohesion: 0.18
-Nodes (10): _nonlinear_residual(), Parity guard for the column-blocked covariance Jacobian.  The heterodyne stratif, A nonlinear R^n_in -> R^n_out map that exercises mixed partials.      Shaped lik, Chunked Jacobian == jax.jacfwd for every column-block width., The residual is jax.jit-wrapped in production; the helper must handle it., The production default block (no col_block kwarg) is also exact., test_chunked_jacfwd_default_block_is_identical(), test_chunked_jacfwd_matches_jacfwd() (+2 more)
+Cohesion: 0.25
+Nodes (10): compute_transport_integral_matrix(), compute_velocity_integral_matrix(), Compute the transport integral matrix (NLSQ meshgrid path, JIT-compiled).      C, Compute the velocity integral matrix (NLSQ meshgrid path, JIT-compiled).      Co, create_signed_integral_matrix(), Build N×N **signed** integral matrix from cumulative sums (NLSQ path).      M[i,, Characterization tests for the heterodyne velocity/transport integral kernels., test_transport_integral_constant_rate_is_abs_gap_and_symmetric() (+2 more)
 
 ### Community 200 - "Community 200"
 Cohesion: 0.27
 Nodes (10): _load_c044(), _load_helpers(), Phase 3 — C044 >=1M stratified-LS scaling-first no-worse-SSR oracle.  Maintainer, Run the >=1M stratified-LS driver for an explicit mode; return (chi2, result)., ``constant`` now RUNS on the >=1M stratified-LS path (it raised pre-Phase-3)., Scaling-first stratified-LS SSR no-worse than the pre-re-order baseline.      Th, Load the in-repo C044 loader by path (it lives under scripts/, not a package)., _run_stratified() (+2 more)
 
 ### Community 201 - "Community 201"
-Cohesion: 0.20
-Nodes (6): ``execute_layers`` round-trips through the homodyne solver ``NLSQConfig``., ``from_dict({})`` must give ``execute_layers is False``., A nested ``anti_degeneracy.execute_layers`` value must be parsed., ``to_dict()["anti_degeneracy"]["execute_layers"]`` echoes the field., ``from_dict(to_dict())`` preserves ``execute_layers`` both ways., TestExecuteLayersNLSQConfigHomodyne
+Cohesion: 0.27
+Nodes (8): assemble_anti_degeneracy_diagnostics(), Shared assembler for the anti-degeneracy layer-activation diagnostics block.  Bo, Build the symmetric anti-degeneracy diagnostics block.      Always emits ``hiera, test_bool_coercion_and_determinism(), test_core_activation_keys_always_present(), test_empty_gradient_monitor_is_still_included(), test_gradient_monitor_included_when_provided(), test_layer_detail_merged_verbatim()
 
 ### Community 203 - "Community 203"
 Cohesion: 0.20
 Nodes (5): _BoundsAdapter, Look up a scaling parameter's ParameterInfo via the xpcsjax registry.      Wraps, Mapping-shaped access to scaling parameter info.      Mirrors the upstream ``SCA, _scaling_param_info(), _ScalingParamProxy
 
 ### Community 204 - "Community 204"
-Cohesion: 0.20
-Nodes (6): ``execute_layers`` round-trips through the heterodyne solver ``NLSQConfig``., ``from_dict({})`` must give ``execute_layers is False``., A nested ``anti_degeneracy.execute_layers`` value must be parsed., ``to_dict()["execute_layers"]`` echoes the field (flat key)., ``from_dict(to_dict())`` preserves ``execute_layers`` both ways., TestExecuteLayersNLSQConfigHeterodyne
+Cohesion: 0.22
+Nodes (10): create_stratified_chunks(), fit_with_stratified_least_squares(), Stratified least-squares strategy for NLSQ optimization.  Extracted from wrapper, Fit using NLSQ's least_squares() with stratified residual function.      This me, Convert stratified flat arrays into chunks for StratifiedResidualFunction., AnalysisMode, Any, Logger (+2 more)
 
 ### Community 205 - "Community 205"
 Cohesion: 0.22
@@ -1255,16 +1276,16 @@ Cohesion: 0.24
 Nodes (8): Cross-platform safety of the cache-filename guard.  The original guard tested ``, test_accepts_plain_filename(), test_rejects_unsafe_cache_filenames(), _assert_safe_cache_filename(), _migrate_cache_template(), Generate cache file path based on current configuration., Auto-convert old {var} format templates to ${var} syntax.      Returns the templ, Reject a cache filename that is not a bare, in-directory file name.      Raises
 
 ### Community 208 - "Community 208"
-Cohesion: 0.09
-Nodes (19): _isolate_logging(), Regression test for config-driven file logging on the CLI path.  Root cause this, The default template (``file.enabled: false``) must not write a file., Restore the xpcsjax logger's handlers/level after the test., A config with ``logging.file.enabled: true`` produces a log file when     routed, test_dispatch_command_writes_log_file_when_config_enables_file(), test_dispatch_command_writes_no_file_when_config_disables_file(), Homodyne NLSQ parameter space.  =================================  Defines :clas (+11 more)
+Cohesion: 0.22
+Nodes (8): detect_hardware(), HardwareConfig, Hardware detection and configuration helpers for xpcsjax NLSQ optimization.  Det, Hardware configuration for NLSQ optimization.      This dataclass encapsulates a, Auto-detect hardware configuration for NLSQ optimization.      This function per, Phase-2 observational-logging tests for the device probe fallbacks.  These asser, A raising JAX-backend probe is logged with context; CPU default returned., test_jax_probe_failure_logs_with_context_and_returns_default()
 
 ### Community 209 - "Community 209"
-Cohesion: 0.32
-Nodes (4): PrefetchLoader, Return the prefetched item and kick off the next background load.          Joins, Thread-based prefetch iterator.      Loads the next item in a background thread, Return ``self`` (this loader is its own iterator).
+Cohesion: 0.20
+Nodes (5): Extract base parameter name from indexed parameter names.          Handles per-a, Get parameter bounds configuration (with caching for performance).          Para, Get all parameter names including scaling parameters.          Returns         -, Get parameter bounds as list of (min, max) tuples.          Convenience method f, Get parameter bounds as separate lower and upper arrays.          Convenience me
 
 ### Community 210 - "Community 210"
-Cohesion: 0.36
-Nodes (8): _diag(), Golden test for heterodyne anti-degeneracy diagnostics emission.  Both modes now, Only the 3 activation flags are unconditional; per-layer DETAIL keys     (hierar, test_constant_path_always_emits_activation_keys(), test_detail_keys_preserved_when_enabled(), test_disabled_path_now_emits_activation_keys_false(), test_disabled_path_omits_layer_detail_keys(), test_enabled_path_emits_activation_keys_true()
+Cohesion: 0.22
+Nodes (9): compute_fraction_jit(), Compute the sample fraction (JIT-compiled).      Evaluates ``f_s(t) = f0 * exp(f, _fraction(), Compute the sample fraction ``f_s(t)``, smoothly bounded to ``[0, 1]``.      ``s, Soft clip to ``[low, high]`` with continuous gradient at the boundaries.      Ac, smooth_clip(), Canonical numerically-safe math primitives shared across physics backends.  This, Overflow-protected exponential, canonical for all physics paths.      Clips the (+1 more)
 
 ### Community 211 - "Community 211"
 Cohesion: 0.20
@@ -1275,8 +1296,8 @@ Cohesion: 0.29
 Nodes (7): _anti_degeneracy_mode_summary(), _broadcast_scaling_mode_label(), Resolve the one-word label for the constant/averaged broadcast paths.      ``Ant, Single source of truth for the constant/averaged broadcast summary line.      An, test_broadcast_mode_label_resolves_word(), test_summary_helper_averaged_has_no_constant_or_fixed_wording(), test_summary_helper_constant_keeps_fixed_wording()
 
 ### Community 213 - "Community 213"
-Cohesion: 0.18
-Nodes (11): Phase 1+2 — C044 in-memory scaling-first no-worse-SSR oracle (maintainer-gated)., test_c044_inmemory_scaling_first_no_worse(), _load_helpers(), Task #15 — REAL-DATA (C044) engine-vs-production fit-parity, maintainer-gated., Sanity: we are fitting a real, non-degenerate C044 subset (not a fixture)., ``constant`` — STRICT objective parity on REAL noisy C044 data.      With identi, ``individual`` — engine NO-WORSE than production on REAL noisy C044 data.      T, _realdata_results() (+3 more)
+Cohesion: 0.22
+Nodes (9): _load_helpers(), Task #15 — REAL-DATA (C044) engine-vs-production fit-parity, maintainer-gated., Sanity: we are fitting a real, non-degenerate C044 subset (not a fixture)., ``constant`` — STRICT objective parity on REAL noisy C044 data.      With identi, ``individual`` — engine NO-WORSE than production on REAL noisy C044 data.      T, _realdata_results(), test_realdata_fixed_constant_strict_parity(), test_realdata_individual_engine_no_worse() (+1 more)
 
 ### Community 214 - "Community 214"
 Cohesion: 0.20
@@ -1303,8 +1324,8 @@ Cohesion: 0.33
 Nodes (3): Normalize an arbitrary mode string to a canonical ``AnalysisMode``.          M-8, Get physical parameter names for analysis mode.          Parameters         ----, Normalize analysis mode string (registry-internal, lenient).          Delegates
 
 ### Community 220 - "Community 220"
-Cohesion: 0.32
-Nodes (6): compute_quantile_per_angle_scaling(), Estimate per-angle contrast/offset from quantiles of c2_experimental values., Phase 5 — quantile scaling accepts a raw (non-stratified, <100k) grid object., The object the <100k unstratified path returns: grid arrays, NO phi_flat., _RawGrid, test_quantile_on_raw_grid_no_attribute_error()
+Cohesion: 0.15
+Nodes (13): Compute and store fixed per-angle contrast/offset from quantiles.          This, compute_jacobian_stats(), compute_quantile_per_angle_scaling(), Subsample x-data for diagnostic computations.      Parameters     ----------, Compute Jacobian statistics for diagnostics.      Parameters     ----------, Estimate per-angle contrast/offset from quantiles of c2_experimental values., sample_xdata(), Phase 5 — quantile scaling accepts a raw (non-stratified, <100k) grid object. (+5 more)
 
 ### Community 221 - "Community 221"
 Cohesion: 0.43
@@ -1339,40 +1360,40 @@ Cohesion: 0.32
 Nodes (6): Create a manager from a :class:`ScalingConfig`.          Parameters         ----, Configuration for per-angle scaling behavior.      Attributes     ----------, ScalingConfig, Characterization tests for PerAngleScaling pack/unpack helpers.  Quality-gate ga, test_constant_mode_propagates_first_angle_to_all(), test_individual_mode_varying_roundtrip_is_identity()
 
 ### Community 229 - "Community 229"
-Cohesion: 0.29
-Nodes (5): Hybrid stateful/functional wrapper for homodyne XPCS analysis.  Combines statefu, create_physics_factors_from_config_dict(), from_config(), Pre-computation and caching of physics factors for XPCS calculations.  =========, Create PhysicsFactors from a homodyne configuration dictionary.      Convenience
+Cohesion: 0.24
+Nodes (9): angle_in_range(), apply_angle_filtering(), apply_angle_filtering_for_plot(), normalize_angle_to_symmetric_range(), Angle filtering utilities for homodyne XPCS analysis.  This module provides func, Core angle filtering logic shared by optimization and plotting.      Filters phi, Normalize angle(s) to [-180°, 180°] range.      The horizontal flow direction is, Apply angle filtering to select specific angles for plotting.      This is a wra (+1 more)
 
 ### Community 230 - "Community 230"
 Cohesion: 0.36
 Nodes (6): c2(), phi(), Typed container for loaded XPCS experimental data.  ``XpcsDataset`` is the named, Return the first present alias key as a NumPy array.          Parameters, t1(), t2()
 
 ### Community 231 - "Community 231"
-Cohesion: 0.12
-Nodes (14): Create config from dictionary with safe type conversion., HybridRecoveryConfig, NLSQ configuration dataclass and validation.  This module provides the NLSQConfi, Configuration for hybrid streaming optimizer recovery strategy.      T029: Imple, Get settings for a specific retry attempt.          Parameters         ---------, # NOTE: Subsampling is explicitly NOT supported per project requirements., Convert value to float safely, returning default on failure.      Parameters, # NOTE: No subsampling - numerical precision takes priority (+6 more)
+Cohesion: 0.11
+Nodes (17): Create config from dictionary with safe type conversion., NLSQ configuration dataclass and validation.  This module provides the NLSQConfi, # NOTE: Subsampling is explicitly NOT supported per project requirements., Convert value to float safely, returning default on failure.      Parameters, # NOTE: No subsampling - numerical precision takes priority, Convert value to int safely, returning default on failure.      Parameters     -, safe_float(), safe_int() (+9 more)
 
 ### Community 232 - "Community 232"
 Cohesion: 0.25
 Nodes (4): Create NLSQConfig from configuration dictionary.          Parameters         ---, Create NLSQConfig from YAML configuration file (T099).          This is the reco, Validate configuration values.          Returns         -------         list[str, Check if configuration is valid.          Returns         -------         bool
 
 ### Community 233 - "Community 233"
-Cohesion: 0.33
-Nodes (3): Create kwargs for NLSQ's HybridStreamingConfig.          Returns kwargs that can, Get group variance indices for NLSQ regularization.          T024: Delegates to, Create callbacks for NLSQ's CurveFit integration.          This method creates c
+Cohesion: 0.20
+Nodes (9): compute_jacobian_condition_number(), estimate_gradient_noise(), Jacobian computation utilities for NLSQ optimization.  This module extracts Jaco, Estimate gradient noise from multiple Jacobian computations.      Computes Jacob, Compute condition number of Jacobian matrix.      The condition number indicates, Smooth polynomial → low but finite gradient noise across     perturbations. The, Well-conditioned polynomial fit has a finite, modest cond(J)., test_compute_jacobian_condition_number_is_finite() (+1 more)
 
 ### Community 234 - "Community 234"
 Cohesion: 0.25
 Nodes (4): Guard test: no direct ``scipy.optimize.least_squares`` in the NLSQ path.  Archit, ScipyNLSQAdapter (the retired fallback) must not reappear in adapter.py., Verify scipy.optimize.least_squares is absent from the NLSQ path., TestNoScipyLeastSquares
 
 ### Community 235 - "Community 235"
-Cohesion: 0.33
-Nodes (4): LargeDatasetExecutor, Large dataset optimization using curve_fit_large.      Uses NLSQ's memory-effici, Strategy name for logging., Whether this strategy supports progress bars (it does).
+Cohesion: 0.29
+Nodes (10): _patch_threshold(), test_adaptive_threshold_default_source(), test_adaptive_threshold_env_source(), test_adaptive_threshold_fallback_on_detection_failure(), test_adaptive_threshold_invalid_env_warns(), test_select_strategy_hybrid_streaming(), test_select_strategy_out_of_core(), test_select_strategy_standard() (+2 more)
 
 ### Community 236 - "Community 236"
 Cohesion: 0.25
 Nodes (7): test_parse_version(), test_version_at_least(), _parse_version(), Parse a PEP 440-ish version string into an int tuple for comparison.      Strips, Return whether ``actual`` is at least ``minimum``.      Both versions are normal, Verify every required runtime dependency meets its minimum version.          Opt, _version_at_least()
 
 ### Community 237 - "Community 237"
-Cohesion: 0.17
-Nodes (14): analyze_angle_distribution(), AngleDistributionStats, create_angle_stratified_indices(), get_stratified_chunk_iterator(), Angle-Stratified Chunking for Per-Angle Parameter Optimization.  This module imp, Analyze phi angle distribution to assess balance.      Computes statistics about, Statistics about phi angle distribution in dataset.      Attributes     --------, Create index array for zero-copy angle-stratified data access using Interleaved (+6 more)
+Cohesion: 0.15
+Nodes (24): NLSQ Wrapper for Homodyne Optimization.  Role and When to Use ------------------, Apply angle-stratified chunking if conditions require it.          This method f, analyze_angle_distribution(), AngleDistributionStats, compute_stratification_diagnostics(), create_angle_stratified_data(), create_angle_stratified_indices(), estimate_nlsq_optimization_memory() (+16 more)
 
 ### Community 238 - "Community 238"
 Cohesion: 0.25
@@ -1399,8 +1420,12 @@ Cohesion: 0.29
 Nodes (6): InputValidator, Validator for NLSQ optimization input data., Initialize InputValidator.          Parameters         ----------         strict, test_input_validator_non_strict_returns_false_and_records_errors(), test_input_validator_passes_on_clean_input(), test_input_validator_strict_raises_on_bad_input()
 
 ### Community 244 - "Community 244"
-Cohesion: 0.33
-Nodes (4): Standard curve_fit optimization for small datasets (<1M points).      Uses scipy, Strategy name for logging., Whether this strategy supports progress bars (it does not)., StandardExecutor
+Cohesion: 0.25
+Nodes (7): CanonicalIndexMapper, _canonical_index_mapper(), CanonicalIndexMapper, Centralized index mapping for anti-degeneracy layers.  This module provides the, Scaling-first canonical layout authority (spec §4 Seam 2).          The SOLE con, Scaling-first canonical layout authority (spec §4 Seam 2).      Optimizer vector, # NOTE: do NOT dynamically attach `ParameterIndexMapper.canonical = staticmethod
+
+### Community 245 - "Community 245"
+Cohesion: 0.36
+Nodes (8): _make(), Coverage for Layer-3 adaptive regularization (audit finding #15).  These exercis, H-4: NaN/inf params (a diverged step) must force trust-region rejection.      Th, test_auto_and_absolute_modes_both_finite(), test_disabled_returns_zero(), test_nonfinite_params_return_inf(), test_out_of_range_group_is_skipped_not_crash(), test_singleton_group_is_skipped()
 
 ### Community 246 - "Community 246"
 Cohesion: 0.38
@@ -1463,8 +1488,8 @@ Cohesion: 0.33
 Nodes (3): Phase 7: homodyne config.py NLSQConfig drops the removed reparam-order fields., test_to_dict_anti_degeneracy_has_no_removed_reparam_keys(), test_validate_rejects_removed_reparam_per_angle_mode()
 
 ### Community 261 - "Community 261"
-Cohesion: 0.15
-Nodes (16): calculate_diffusion_coefficient(), calculate_shear_rate(), Shared physics utility functions for homodyne XPCS analysis.  ==================, Calculate time-dependent diffusion coefficient using discrete evaluation.      F, Calculate time-dependent shear rate using discrete evaluation.      Follows refe, Cumulative trapezoid integral without dt scaling (dt is applied outside).      R, trapezoid_cumsum(), compute_consistent_per_angle_init() (+8 more)
+Cohesion: 0.25
+Nodes (7): _isolate_logging(), Regression test for config-driven file logging on the CLI path.  Root cause this, The default template (``file.enabled: false``) must not write a file., Restore the xpcsjax logger's handlers/level after the test., A config with ``logging.file.enabled: true`` produces a log file when     routed, test_dispatch_command_writes_log_file_when_config_enables_file(), test_dispatch_command_writes_no_file_when_config_disables_file()
 
 ### Community 262 - "Community 262"
 Cohesion: 0.33
@@ -1480,7 +1505,7 @@ Nodes (6): get_completion_source_path(), install_bash_completion(), install_zsh_
 
 ### Community 265 - "Community 265"
 Cohesion: 0.04
-Nodes (96): HeterodyneModel, Trim model time axis to match post-exclusion data length.          The data pipe, Return the current full parameter array.          Returns         -------, Return the current parameters as a name-keyed dictionary., Set parameter values.          Parameters         ----------         params : np, Compute the two-time correlation matrix.          Parameters         ----------, Main heterodyne correlation model with stateful parameter management.      This, Compute residuals between model and data.          Parameters         ---------- (+88 more)
+Nodes (87): HeterodyneModel, Trim model time axis to match post-exclusion data length.          The data pipe, Return the current full parameter array.          Returns         -------, Return the current parameters as a name-keyed dictionary., Set parameter values.          Parameters         ----------         params : np, Compute the two-time correlation matrix.          Parameters         ----------, Main heterodyne correlation model with stateful parameter management.      This, Compute residuals between model and data.          Parameters         ---------- (+79 more)
 
 ### Community 266 - "Community 266"
 Cohesion: 0.60
@@ -1496,7 +1521,7 @@ Nodes (5): Bit-equivalence Guarantee for Homodyne Fits, Single fit_nlsq Entry Po
 
 ### Community 269 - "Community 269"
 Cohesion: 0.08
-Nodes (33): detect_total_system_memory(), estimate_peak_memory_gb(), get_adaptive_memory_threshold(), Memory Management and Unified Strategy Selection for NLSQ Optimization.  This mo, Estimate peak memory usage for full Jacobian optimization.      Parameters     -, Result of unified memory-based strategy selection.      Attributes     ---------, Unified memory-based NLSQ strategy selection.      Implements a pure memory-base, Detect total system memory in bytes using multiple methods.      Returns     --- (+25 more)
+Nodes (35): estimate_peak_memory_gb(), get_adaptive_memory_threshold(), Memory Management and Unified Strategy Selection for NLSQ Optimization.  This mo, Estimate peak memory usage for full Jacobian optimization.      Parameters     -, Unified memory-based NLSQ strategy selection.      Implements a pure memory-base, Compute adaptive memory threshold based on system memory.      The memory thresh, select_nlsq_strategy(), Direct unit tests for memory-aware NLSQ strategy routing.  Localizes router regr (+27 more)
 
 ### Community 270 - "Community 270"
 Cohesion: 0.40
@@ -1518,9 +1543,29 @@ Nodes (3): JSONFormatter must handle a circular-reference context dict without r
 Cohesion: 0.50
 Nodes (4): CMA-ES Escape, BIPOP-CMA-ES Restart Schedule (Hansen 2009), CMAESWrapper (BIPOP escape), CMAESWrapperConfig
 
+### Community 277 - "Community 277"
+Cohesion: 0.32
+Nodes (7): _builder_head_len(), expand_to_engine_scaling_first(), Test-local oracle for the canonical heterodyne scaling-first layout.  The produc, Length of the scaling head the pointwise builder emits for *mode*.      ``consta, Expand the builder's canonical scaling-first ``p0`` to the engine's layout., _validate(), ndarray
+
+### Community 278 - "Community 278"
+Cohesion: 0.25
+Nodes (6): get_stratified_chunk_iterator(), Iterator that yields index chunks for stratified data access.      This iterator, Yield each stratified chunk's index slice in order., Return the number of stratified chunks., Create an iterator yielding stratified index chunks.      Parameters     -------, StratifiedIndexIterator
+
+### Community 279 - "Community 279"
+Cohesion: 0.33
+Nodes (4): param_bounds(), parameter_bounds(), Adapter exposing two-component heterodyne XPCS physics to the NLSQ engine.  This, Return ``(lower, upper)`` bounds for the 14 params (registry order).          Re
+
+### Community 280 - "Community 280"
+Cohesion: 0.33
+Nodes (4): Configuration for NLSQ optimization in the heterodyne analysis pipeline.  This m, Angle-stratified chunking settings for the heterodyne NLSQ path.      Mirrors th, Return ``True`` if stratification is explicitly turned off.          Mirrors hom, StratificationConfig
+
 ### Community 282 - "Community 282"
 Cohesion: 0.50
 Nodes (3): Phase 7 exit gate: the removed per-angle tokens must not survive anywhere.  This, ``rg -n -w <tokens> tests/ xpcsjax/`` returns zero lines after teardown., test_no_removed_per_angle_tokens_in_tests_or_package()
+
+### Community 284 - "Community 284"
+Cohesion: 0.33
+Nodes (5): create_streaming_progress_callback(), Log iteration information based on verbosity settings., Create a progress callback for streaming optimization.      Parameters     -----, Any, ndarray
 
 ### Community 285 - "Community 285"
 Cohesion: 0.50
@@ -1538,19 +1583,39 @@ Nodes (3): async wait_all, Logging Phase 2, plot_dispatch
 Cohesion: 0.67
 Nodes (3): Decision Record: CPU-only Execution, Compilation is the bottleneck, not compute, Float64 erases consumer-GPU advantage
 
+### Community 289 - "Community 289"
+Cohesion: 0.53
+Nodes (5): Typed accessors on OptimizationResult (quality-gate type-design fixes).  F8: ``p, _result(), test_accessors_raise_clearly_when_n_physics_unknown(), test_global_escape_typed_read(), test_physics_and_scaling_split_when_n_physics_known()
+
+### Community 290 - "Community 290"
+Cohesion: 0.40
+Nodes (5): _layer_state(), log_stratification_diagnostics(), Report the L1 reparameterization state for the resolved per-angle mode.      L1, Mirror laminar "Stratified Residual Function Diagnostics" block.      ``diag`` m, Any
+
+### Community 298 - "Community 298"
+Cohesion: 0.50
+Nodes (3): HybridRecoveryConfig, Configuration for hybrid streaming optimizer recovery strategy.      T029: Imple, Get settings for a specific retry attempt.          Parameters         ---------
+
+### Community 301 - "Community 301"
+Cohesion: 0.33
+Nodes (4): Pointwise training data must match the meshgrid residual support:     no diagona, averaged prepends 2 optimized scaling params (scaling-first head); model_fn, test_pointwise_data_excludes_t0_and_diagonal(), test_pointwise_model_averaged_param_layout()
+
+### Community 302 - "Community 302"
+Cohesion: 0.50
+Nodes (3): __getattr__(), xpcsjax — unified JAX-native XPCS NLSQ fitting.  Public API (lazy-loaded — heavy, Lazy attribute loader for the documented public API.
+
 ## Knowledge Gaps
 - **156 isolated node(s):** `label`, `source`, `N`, `n_phi`, `q` (+151 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **97 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **107 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `get_logger()` connect `Community 208` to `Physics Kernels (diffusion/shear)`, `Physics Constants & Dataset`, `Community 131`, `NLSQ Adapter Base`, `Per-Angle Mode & Logging`, `Multi-Angle Residuals & Scaling`, `Community 261`, `Quality Control`, `Community 265`, `Parameter Space & Results`, `Community 136`, `I/O & JSON Utilities`, `Community 269`, `Community 142`, `Heterodyne Model (residual)`, `Dataset Optimizer`, `JAX Physics Backend`, `L4 Monitor Tests`, `Community 19`, `Community 20`, `Community 149`, `Community 18`, `Community 24`, `Community 155`, `Community 28`, `Community 29`, `Community 30`, `Community 31`, `Community 33`, `Community 35`, `NLSQ Adapter`, `Community 38`, `Community 39`, `Community 40`, `Community 169`, `Community 42`, `Community 43`, `Community 45`, `Community 46`, `Community 48`, `Community 49`, `Community 53`, `Community 184`, `Community 58`, `Community 61`, `Community 190`, `Community 69`, `Community 71`, `Community 74`, `Community 81`, `Community 83`, `Community 86`, `Community 87`, `Community 220`, `Community 95`, `Community 229`, `Community 101`, `Community 231`, `Community 237`, `Community 111`, `Community 115`, `Community 117`, `Community 119`, `Community 121`, `Community 122`, `Community 125`, `Community 126`, `Community 127`?**
-  _High betweenness centrality (0.267) - this node is a cross-community bridge._
-- **Why does `AnalysisMode` connect `Heterodyne Model (residual)` to `Physics Kernels (diffusion/shear)`, `Heterodyne Diagnostics Tests`, `Community 259`, `Per-Angle Mode & Logging`, `NLSQ Adapter`, `Community 137`, `Parameter Space & Results`, `Homodyne Model`, `Community 142`, `Community 22`, `Community 24`, `Community 29`, `Community 30`, `Community 31`, `Community 34`, `Community 162`, `Community 164`, `Community 36`, `Community 38`, `Community 39`, `Community 42`, `Community 44`, `Community 177`, `Community 49`, `Community 185`, `Community 62`, `Community 193`, `Community 69`, `Community 75`, `Community 208`, `Community 82`, `Community 84`, `Community 86`, `Community 216`, `Community 219`, `Community 247`, `Community 95`, `Community 96`, `Community 229`, `Community 114`, `Community 119`, `Community 122`?**
+- **Why does `get_logger()` connect `Community 231` to `Physics Kernels (diffusion/shear)`, `Physics Constants & Dataset`, `Community 131`, `NLSQ Adapter Base`, `Community 261`, `Multi-Angle Residuals & Scaling`, `Per-Angle Mode & Logging`, `Quality Control`, `NLSQ Adapter`, `Parameter Space & Results`, `Homodyne Model`, `I/O & JSON Utilities`, `Community 269`, `Community 142`, `Heterodyne Model (residual)`, `Dataset Optimizer`, `JAX Physics Backend`, `L4 Monitor Tests`, `Community 19`, `Community 18`, `Community 149`, `Community 24`, `Community 280`, `Community 155`, `Community 28`, `Community 29`, `Community 30`, `Community 33`, `Community 35`, `Community 164`, `Community 165`, `Community 38`, `Community 40`, `Community 169`, `Community 42`, `Community 43`, `Community 173`, `Community 46`, `Community 45`, `Community 48`, `Community 49`, `Community 53`, `Community 184`, `Community 58`, `Community 61`, `Community 62`, `Community 190`, `Community 64`, `Community 67`, `Community 196`, `Community 69`, `Community 71`, `Community 74`, `Community 204`, `Community 208`, `Community 81`, `Community 86`, `Community 87`, `Community 220`, `Community 93`, `Community 229`, `Community 101`, `Community 237`, `Community 111`, `Community 115`, `Community 116`, `Community 117`, `Community 119`, `Community 121`, `Community 122`, `Community 125`, `Community 126`, `Community 127`?**
+  _High betweenness centrality (0.275) - this node is a cross-community bridge._
+- **Why does `AnalysisMode` connect `Heterodyne Model (residual)` to `Physics Kernels (diffusion/shear)`, `Heterodyne Diagnostics Tests`, `Community 259`, `Per-Angle Mode & Logging`, `NLSQ Adapter`, `Community 137`, `Parameter Space & Results`, `Homodyne Model`, `Community 142`, `Community 22`, `Community 279`, `Community 24`, `Community 280`, `Community 29`, `Community 30`, `Community 31`, `Community 32`, `Community 34`, `Community 162`, `Community 164`, `Community 36`, `Community 44`, `Community 177`, `Community 49`, `Community 185`, `Community 62`, `Community 69`, `Community 75`, `Community 204`, `Community 82`, `Community 83`, `Community 86`, `Community 216`, `Community 219`, `Community 247`, `Community 96`, `Community 108`, `Community 237`, `Community 114`, `Community 119`, `Community 122`?**
   _High betweenness centrality (0.109) - this node is a cross-community bridge._
-- **Why does `OptimizationResult` connect `Community 21` to `Heterodyne Diagnostics Tests`, `Per-Angle Mode & Logging`, `Multi-Angle Residuals & Scaling`, `NLSQ Adapter`, `Community 265`, `Parameter Space & Results`, `Community 137`, `Homodyne Model`, `Heterodyne Model (residual)`, `L4 Monitor Tests`, `Community 142`, `Community 18`, `Community 19`, `Community 23`, `Community 37`, `Community 38`, `Community 48`, `Community 49`, `Community 59`, `Community 188`, `Community 189`, `Community 62`, `Community 197`, `Community 74`, `Community 86`, `Community 93`, `Community 104`, `Community 239`, `Community 115`, `Community 126`?**
+- **Why does `NLSQConfig` connect `Heterodyne Diagnostics Tests` to `Heterodyne Model (correlation)`, `Per-Angle Mode & Logging`, `Multi-Angle Residuals & Scaling`, `Community 265`, `Community 140`, `Heterodyne Model (residual)`, `L4 Monitor Tests`, `Community 19`, `Community 21`, `Community 280`, `Community 31`, `Community 32`, `Community 161`, `Community 37`, `Community 166`, `Community 179`, `Community 62`, `Community 64`, `Community 67`, `Community 200`, `Community 78`, `Community 88`, `Community 93`, `Community 103`?**
   _High betweenness centrality (0.067) - this node is a cross-community bridge._
 - **Are the 55 inferred relationships involving `NLSQConfig` (e.g. with `TestNLSQAdapterErrorRecovery` and `TestNLSQAdapterFinishesCleanlyOnNoiseFixtures`) actually correct?**
   _`NLSQConfig` has 55 INFERRED edges - model-reasoned connections that need verification._
