@@ -1036,11 +1036,26 @@ def _fit_nlsq_heterodyne(
         )
 
         result = fit_two_component_via_engine(model, c2, phi, nlsq_cfg, weights)
+    except NotImplementedError as _engine_skip:
+        # By-design bail: the engine route raises NotImplementedError for the
+        # cases it intentionally does not handle (non-uniform weights, an
+        # out-of-scope per_angle_mode, or an "auto"/None max_nfev). This is the
+        # documented best-effort fallback, NOT an error — log it at INFO so it
+        # does not read as a failure in production logs.
+        from xpcsjax.utils.logging import get_logger as _get_logger
+
+        _get_logger(__name__).info(
+            "Engine route not applicable for this two_component fit (%s); "
+            "using fit_nlsq_multi_phi as designed (not an error).",
+            _engine_skip,
+        )
+        result = None
     except Exception as _engine_exc:  # noqa: BLE001 - best-effort engine route
         from xpcsjax.utils.logging import get_logger as _get_logger
 
         _get_logger(__name__).warning(
-            "Engine-route two_component fit failed (%s: %s); falling back to fit_nlsq_multi_phi.",
+            "Engine-route two_component fit failed unexpectedly (%s: %s); "
+            "falling back to fit_nlsq_multi_phi.",
             type(_engine_exc).__name__,
             _engine_exc,
         )

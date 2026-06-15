@@ -67,6 +67,30 @@ def _make_config(production_mode: str) -> NLSQConfig:
 
 
 # ===========================================================================
+# Bug 3 — max_nfev=None ("auto") must raise an explicit, self-describing
+# NotImplementedError (not a cryptic ``None * n_phi`` TypeError) so the
+# caller's best-effort guard logs an intentional fallback, not a failure.
+# ===========================================================================
+def test_engine_route_raises_notimplemented_on_auto_max_nfev():
+    """``max_nfev=None`` (the NLSQConfig "auto" default) cannot be resolved by the
+    engine route, which needs a concrete per-set budget to build ``max_nfev *
+    n_phi``. The route must raise a clear ``NotImplementedError`` so the caller in
+    ``fit_nlsq`` falls back to ``fit_nlsq_multi_phi`` (which resolves auto ->
+    100*n_params). Previously this surfaced as the cryptic ``TypeError:
+    unsupported operand type(s) for *: 'NoneType' and 'int'`` from
+    ``config.max_nfev * n_phi`` deep inside the function, AFTER the engine build.
+    """
+    import pytest
+
+    model, c2, phi = _make_well_posed_case()
+    cfg = _make_config("individual")
+    cfg.max_nfev = None  # the NLSQConfig "auto" default
+
+    with pytest.raises(NotImplementedError, match="max_nfev"):
+        fit_two_component_via_engine(model, c2, np.asarray(phi), cfg, None)
+
+
+# ===========================================================================
 # Bug 1 — averaged mode must optimize a COMPRESSED 2-scaling-DOF problem
 # ===========================================================================
 def _spy_adapter_initial_params(monkeypatch) -> dict:
