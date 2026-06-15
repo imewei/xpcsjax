@@ -802,7 +802,12 @@ def fit_nlsq_multi_phi(
         # The individual escape uses the scaling-first ``_build_joint_problem``.
         if escape_kind is not None and effective_mode == "individual":
             if escape_kind == "cmaes":
-                logger.info("CMA-ES enabled, delegating to joint multi-angle CMA-ES")
+                logger.info(
+                    "CMA-ES enabled, delegating to joint multi-angle CMA-ES "
+                    "(global search — this can run for several minutes with no "
+                    "per-iteration log output; the next CMA-ES line appears at "
+                    "phase boundaries / completion, not a hang)"
+                )
                 return _fit_joint_cmaes_multi_phi(
                     model=model,
                     c2_data=c2_data,
@@ -1576,9 +1581,14 @@ def _fit_joint_cmaes_multi_phi(
     run on the kept vector). Read ``global_escape`` to detect an escape result.
     """
     try:
+        _t_escape_start = time.perf_counter()
         prob = _build_joint_problem(model, c2_data, phi_angles, config, weights)
 
         # Phase 1: warm-start via the plain joint fit over the SAME problem.
+        logger.info(
+            "Joint CMA-ES escape: Phase 1/2 — warm-start joint fit "
+            "(NLSQ trust-region; no per-iteration output)"
+        )
         warm = _fit_joint_multi_phi(
             model=model,
             c2_data=c2_data,
@@ -1631,6 +1641,14 @@ def _fit_joint_cmaes_multi_phi(
         )
 
         assert fit_with_cmaes is not None, "HAS_CMAES guards entry to the escape"
+        logger.info(
+            "Joint CMA-ES escape: Phase 2/2 — global search over %d-dim residual "
+            "(seed=%d, warm SSR=%.6e; this is the long, silent step — minutes are "
+            "normal, not a hang)",
+            rdim,
+            _JOINT_CMAES_SEED,
+            ssr_warm,
+        )
         cres = fit_with_cmaes(
             model_func=model_func,
             xdata=np.arange(rdim, dtype=np.float64),
@@ -1658,10 +1676,12 @@ def _fit_joint_cmaes_multi_phi(
             x_final, escape = x_warm, "cmaes_warmstart_kept"
 
         logger.info(
-            "Joint CMA-ES escape: warm SSR=%.6e, cmaes SSR=%.6e → kept %s",
+            "Joint CMA-ES escape: warm SSR=%.6e, cmaes SSR=%.6e → kept %s "
+            "(%.1fs total)",
             ssr_warm,
             cmaes_ssr,
             escape,
+            time.perf_counter() - _t_escape_start,
         )
 
         return _build_joint_result(
