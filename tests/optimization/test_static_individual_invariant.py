@@ -261,3 +261,47 @@ def test_static_isotropic_template_pins_individual():
         "individual everywhere until unification, spec §9); the prior 'constant' "
         "token was inert on the optimizer path and mis-sized reduced-chi2 DOF."
     )
+
+
+# ---------------------------------------------------------------------------
+# Memory-strategy routing — the pre-check that sizes the Jacobian before
+# selecting in-memory vs out-of-core MUST also use the dense individual count
+# for static fits. A static config supplying auto/averaged/constant otherwise
+# UNDER-estimates memory and mis-routes a large dataset (Codex finding, high).
+# ---------------------------------------------------------------------------
+def test_routing_effective_n_params_static_is_dense_for_any_mode():
+    from xpcsjax.config.parameter_registry import AnalysisMode
+    from xpcsjax.optimization.nlsq.wrapper import _routing_effective_n_params
+
+    n_phi, n_physical = 5, 3
+    dense = 2 * n_phi + n_physical  # 13 — the vector the optimizer actually builds
+
+    for am in (AnalysisMode.STATIC_ISOTROPIC, AnalysisMode.STATIC_ANISOTROPIC):
+        for mode in ("auto", "averaged", "constant", "individual"):
+            ad = {"per_angle_mode": mode, "constant_scaling_threshold": 3}
+            got = _routing_effective_n_params(
+                am, ad, n_phi=n_phi, n_physical=n_physical, actual_n_params=dense
+            )
+            assert got == dense, f"static {am.value}/{mode}: routing used {got}, expected dense {dense}"
+
+
+def test_routing_effective_n_params_laminar_reduction_unchanged():
+    """Laminar reduction is preserved (byte-identical routing for laminar)."""
+    from xpcsjax.config.parameter_registry import AnalysisMode
+    from xpcsjax.optimization.nlsq.wrapper import _routing_effective_n_params
+
+    lf = AnalysisMode.LAMINAR_FLOW
+    n_phi, n_physical = 5, 7
+    dense = 2 * n_phi + n_physical
+
+    def _r(mode, nphi=n_phi):
+        ad = {"per_angle_mode": mode, "constant_scaling_threshold": 3}
+        return _routing_effective_n_params(
+            lf, ad, n_phi=nphi, n_physical=n_physical, actual_n_params=2 * nphi + n_physical
+        )
+
+    assert _r("averaged") == n_physical + 2          # 9
+    assert _r("constant") == n_physical              # 7
+    assert _r("auto") == n_physical + 2              # auto@5>=3 -> averaged
+    assert _r("auto", nphi=2) == 2 * 2 + n_physical  # auto@2<3 -> individual -> dense
+    assert _r("individual") == dense

@@ -2771,6 +2771,14 @@ def _fit_joint_multi_phi(
             ssr_x0,
         )
         final_params = x0
+        # The covariance / uncertainties / iteration counts / L4-monitor data in
+        # ``joint_result`` describe the DISCARDED degraded vector, not x0. Drop
+        # them so ``_build_joint_result`` NaN-fills uncertainty for the accepted
+        # x0 instead of copying evidence from a rejected solve (it recomputes
+        # parameters and chi^2 at x0 regardless). Mirrors the global-escape
+        # contract, which also carries NaN covariance on a kept warm vector.
+        joint_result = None
+        used_monitored_backend = False
 
     return _build_joint_result(
         model,

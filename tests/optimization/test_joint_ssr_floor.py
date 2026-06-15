@@ -171,3 +171,58 @@ def test_cmaes_escape_builds_joint_problem_once(monkeypatch):
         f"Stage-1/joint problem built {n_builds['count']}x; expected 1 "
         "(escape must reuse its prebuilt prob)"
     )
+
+
+def test_floor_revert_discards_degraded_solve_covariance(monkeypatch):
+    """On revert to x0 the result must NOT carry the rejected solve's covariance.
+
+    When the floor rejects a degraded-but-finite-covariance solve and reverts to
+    x0, the returned OptimizationResult describes x0 — so its covariance and
+    uncertainties (which were computed at the discarded vector) must be dropped,
+    not copied through. Exercises the REAL ``_build_joint_result`` (not stubbed).
+    """
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=16)
+    cfg = _individual_cfg()
+
+    prob = hc._build_joint_problem(model, c2, phi, cfg, weights=None)
+    x0 = np.asarray(prob.x0, dtype=np.float64)
+    base = prob.meta["base_residual_fn"]
+
+    def _ssr(x: np.ndarray) -> float:
+        return float(np.sum(np.asarray(base(x), dtype=np.float64) ** 2))
+
+    degraded = np.clip(x0 + 0.5 * (prob.ub - prob.lb), prob.lb, prob.ub)
+    assert _ssr(degraded) > _ssr(x0), "test precondition: degraded must be worse"
+
+    n = len(x0)
+    finite_cov = np.eye(n, dtype=np.float64) * 0.123
+    finite_unc = np.full(n, 0.456, dtype=np.float64)
+
+    class _FakeAdapter:
+        def __init__(self, parameter_names):
+            self.parameter_names = parameter_names
+
+        def fit(self, **_kwargs):
+            # A solve that REPORTS success with FINITE covariance, yet degraded SSR.
+            return SimpleNamespace(
+                success=True,
+                message="ok",
+                parameters=degraded,
+                uncertainties=finite_unc,
+                covariance=finite_cov,
+                chi_squared=_ssr(degraded),
+                n_iterations=5,
+            )
+
+    monkeypatch.setattr(hc, "NLSQAdapter", _FakeAdapter)
+
+    res = hc._fit_joint_multi_phi(model, c2, phi, cfg, None)
+
+    cov = None if res.covariance is None else np.asarray(res.covariance, dtype=np.float64)
+    unc = None if res.uncertainties is None else np.asarray(res.uncertainties, dtype=np.float64)
+    assert cov is None or np.all(np.isnan(cov)), (
+        "reverted-to-x0 result carried the rejected solve's covariance"
+    )
+    assert unc is None or np.all(np.isnan(unc)), (
+        "reverted-to-x0 result carried the rejected solve's uncertainties"
+    )

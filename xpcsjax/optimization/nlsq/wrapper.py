@@ -567,6 +567,44 @@ def _safe_uncertainties_from_pcov(pcov: np.ndarray, n_params: int) -> np.ndarray
     return safe_uncertainties_from_pcov(pcov, n_params)
 
 
+def _routing_effective_n_params(
+    analysis_mode: AnalysisMode,
+    ad_cfg: dict[str, Any],
+    *,
+    n_phi: int,
+    n_physical: int,
+    actual_n_params: int,
+) -> int:
+    """Effective optimizer parameter count for memory-strategy routing.
+
+    The pre-check that decides in-memory vs out-of-core sizing must use the SAME
+    per-angle param count the optimizer will actually build. Resolves the
+    requested per-angle mode through the static pin
+    (:func:`resolve_per_angle_mode_static_pinned`) so static fits — always the
+    dense ``individual`` layout — route on ``2*n_phi + n_physical`` and never
+    under-estimate Jacobian memory from a reduced averaged/constant count (which
+    would mis-route a large static dataset away from out-of-core handling and
+    fail late with avoidable OOM). Laminar routing is unchanged: the pin is a
+    no-op for ``laminar_flow``, so averaged -> ``n_physical + 2`` and constant ->
+    ``n_physical`` exactly as before.
+    """
+    from xpcsjax.optimization.nlsq.per_angle_mode import (
+        resolve_per_angle_mode_static_pinned,
+    )
+
+    resolved = resolve_per_angle_mode_static_pinned(
+        ad_cfg.get("per_angle_mode", "auto"),
+        n_phi,
+        ad_cfg.get("constant_scaling_threshold", 3),
+        is_laminar_flow=(analysis_mode == AnalysisMode.LAMINAR_FLOW),
+    )
+    if resolved == "averaged":
+        return n_physical + 2
+    if resolved == "constant":
+        return n_physical
+    return actual_n_params
+
+
 class NLSQWrapper(NLSQAdapterBase):
     """Adapter for NLSQ-package integration with homodyne optimization.
 
@@ -1109,37 +1147,25 @@ class NLSQWrapper(NLSQAdapterBase):
             effective_n_params = actual_n_params  # Default: no reduction
 
             if per_angle_scaling and config is not None and hasattr(config, "config"):
-                from xpcsjax.optimization.nlsq.per_angle_mode import (
-                    resolve_per_angle_mode as _resolve_pam,
-                )
-
                 nlsq_cfg = config.config.get("optimization", {}).get("nlsq", {})
                 ad_cfg = nlsq_cfg.get("anti_degeneracy", {})
-                ad_per_angle_mode = ad_cfg.get("per_angle_mode", "auto")
-                ad_threshold = ad_cfg.get("constant_scaling_threshold", 3)
                 n_angles_check = len(np.unique(stratified_data.phi_flat))
-                # Single resolver owner (spec Seam 1): same numeric outcome as the
-                # former inline auto/constant ladder.
-                _resolved_pre = _resolve_pam(
-                    ad_per_angle_mode, n_angles_check, ad_threshold
+                # Static-pinned resolver owner (spec Seam 1): same numeric outcome
+                # as the former inline auto/constant ladder for laminar, but static
+                # fits always route on the dense individual count so a static
+                # auto/averaged/constant config never under-estimates Jacobian
+                # memory and mis-routes a large dataset.
+                effective_n_params = _routing_effective_n_params(
+                    analysis_mode,
+                    ad_cfg,
+                    n_phi=n_angles_check,
+                    n_physical=n_physical,
+                    actual_n_params=actual_n_params,
                 )
-
-                if _resolved_pre == "averaged":
-                    # averaged: 2 averaged scaling params replace 2*n_angles
-                    effective_n_params = n_physical + 2
+                if effective_n_params < actual_n_params:
                     logger.info(
-                        f"Anti-Degeneracy pre-check: {ad_per_angle_mode} -> averaged "
-                        f"(n_phi={n_angles_check} >= threshold={ad_threshold}). "
-                        f"Effective params: {effective_n_params} "
-                        f"(expanded: {actual_n_params})"
-                    )
-                elif _resolved_pre == "constant":
-                    # constant: scaling fixed, only physical params optimized
-                    effective_n_params = n_physical
-                    logger.info(
-                        f"Anti-Degeneracy pre-check: constant mode. "
-                        f"Effective params: {effective_n_params} "
-                        f"(expanded: {actual_n_params})"
+                        f"Anti-Degeneracy pre-check: effective params "
+                        f"{effective_n_params} (expanded: {actual_n_params})"
                     )
 
             strategy_recheck = select_nlsq_strategy(n_total_points, effective_n_params)
