@@ -124,7 +124,7 @@ The following are in scope for v0.1:
 * Homodyne fitting in ``static``, ``static_isotropic``,
   ``static_anisotropic``, and ``laminar_flow`` modes.
 * Heterodyne / two-component fitting (``two_component``,
-  ``heterodyne``) including the multi-angle Fourier reparameterisation.
+  ``heterodyne``) including the multi-angle per-angle reparameterisation.
 * CPU-only execution. The NLSQ GPU check is suppressed at import time.
 * Strategy routing across in-memory, stratified-least-squares,
   hybrid-streaming, and out-of-core paths based on dataset size and

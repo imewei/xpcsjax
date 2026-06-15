@@ -139,10 +139,11 @@ are supported, with one caveat: heterodyne plotting in v0.1 requires the
    result.parameters = [c_0..n_phi-1, o_0..n_phi-1, physical_0..13]
 
 The orchestrator validates this upfront before any rendering starts.
-Heterodyne results from the ``constant``, ``fourier``, or ``auto`` scaling
-modes will raise :class:`NotImplementedError` with a clear message naming
-the parameter-count mismatch. Full mode parity (``constant`` /
-``fourier``) is scheduled for v0.2; in the meantime, refit with
+Heterodyne results from the ``constant`` or ``averaged`` scaling modes
+(including ``auto`` when it resolves to ``averaged``) will raise
+:class:`NotImplementedError` with a clear message naming the
+parameter-count mismatch. Full mode parity (``constant`` / ``averaged``)
+is scheduled for v0.2; in the meantime, refit with
 ``per_angle_mode="individual"`` if you need plotting, or pin the upstream
 ``heterodyne`` package for non-individual workflows.
 

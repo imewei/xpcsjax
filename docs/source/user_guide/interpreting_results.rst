@@ -64,7 +64,7 @@ The result dataclass
        accounting.
    * - ``stratification_diagnostics``
      - dict
-     - Per-stratum chunk sizes, Fourier reparameterisation degrees,
+     - Per-stratum chunk sizes, per-angle reparameterisation mode,
        dropped angles.
    * - ``nlsq_diagnostics``
      - dict
@@ -105,7 +105,7 @@ For ``static`` and ``static_isotropic`` modes, the order is
 ``["D0", "alpha", "D_offset"]``. For ``laminar_flow`` it extends to
 seven entries. For ``two_component`` / ``heterodyne`` it is the
 fourteen physics parameters returned by the registry, with per-angle
-scaling handled separately by the Fourier layer.
+scaling handled separately by the per-angle reparameterisation layer.
 
 Reduced chi-squared interpretation
 ----------------------------------
@@ -207,7 +207,7 @@ slower than expected; or a hybrid-streaming fit on a small dataset).
 Per-stratum bookkeeping:
 
 * Number of phi-angle strata.
-* Effective parameter dimension after Fourier reparameterisation.
+* Effective parameter dimension after per-angle reparameterisation.
 * Any phi angles dropped by the filter.
 
 For heterodyne fits this block is essentially mandatory reading.

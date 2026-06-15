@@ -129,9 +129,8 @@ The fourteen physics parameters cover:
   ``D_offset`` (six parameters).
 * Their relative amplitudes / mixing fractions.
 * Cross-component coupling and the reference-beam-induced terms.
-* Per-angle scaling parameters that, after Fourier reparameterisation,
-  collapse into a small number of Fourier coefficients for multi-angle
-  fits.
+* Per-angle scaling parameters that, after per-angle reparameterisation,
+  collapse into a small, shared set of parameters for multi-angle fits.
 
 Each phi-angle stratum is fit jointly. The return type of
 :func:`xpcsjax.optimization.nlsq.fit_nlsq` in this mode is ``list[NLSQResult]`` — one
@@ -141,7 +140,7 @@ input data dictionary.
 .. note::
 
    The full sixteen-parameter problem is overdetermined for any single
-   phi angle; the multi-angle Fourier reparameterisation is what makes
+   phi angle; the multi-angle per-angle reparameterisation is what makes
    the fit identifiable in practice. See
    :doc:`/user_guide/heterodyne_workflow` for details.
 
@@ -201,4 +200,4 @@ Where to go next
 * :doc:`/user_guide/homodyne_workflow` for an end-to-end script using
   the three homodyne modes.
 * :doc:`/user_guide/heterodyne_workflow` for the two-component
-  pipeline and the Fourier reparameterisation.
+  pipeline and the per-angle reparameterisation.
