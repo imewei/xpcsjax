@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, get_args
 
@@ -44,6 +45,84 @@ if TYPE_CHECKING:
     from xpcsjax.optimization.nlsq.results import ConvergenceStatus, QualityFlag
 
 logger = get_logger(__name__)
+
+
+# Loggers that emit the sub-solver failure noise of a CMA-ES / multistart
+# warm-start PROBE. On a degenerate Jacobian (e.g. C044 ``two_component``) the
+# warm-start NLSQ solve is EXPECTED to not converge — the keep-better floor
+# reverts it to x0 and the global search (Phase 2) refines from there, so the
+# run is healthy. But the adapter/wrapper/nlsq sub-loggers each scream
+# ``ERROR/WARNING`` for that expected, recovered probe, which reads as a hard
+# failure. ``_quiet_warm_start_probe_logging`` drops exactly those records for
+# the duration of a probe. The fixed names below are passed to ``getLogger``
+# (which CREATES them if absent) so the filter is in place even on the first
+# nlsq call; numerics are untouched (only a logging filter is attached).
+_WARM_START_PROBE_NOISE_LOGGERS = (
+    "xpcsjax.optimization.nlsq.heterodyne_adapter",
+    "xpcsjax.optimization.nlsq.heterodyne_result_builder",
+    "xpcsjax.optimization.nlsq.heterodyne_core",
+    "nlsq",
+    "nlsq.curve_fit",
+    "nlsq.least_squares",
+    "nlsq.optimizer",
+    "nlsq.optimizer.trf",
+)
+
+# Substrings identifying the EXPECTED, recovered-from failure records of a
+# warm-start probe. The filter drops ONLY records matching one of these, so a
+# genuinely unexpected message (an OOM, a dependency error, anything off-script)
+# from the same loggers still propagates — no blanket observability blackout.
+_WARM_START_PROBE_NOISE_PATTERNS = (
+    "Optimization failed",  # nlsq.curve_fit + heterodyne_adapter convergence error
+    "Inner optimization loop",  # nlsq.optimizer.trf trust-region inner-limit
+    "Convergence reason",  # nlsq.least_squares nan-gradient summary
+    "NLSQWrapper:",  # NLSQWrapper tier/attempt/retry messages
+    "falling back to NLSQWrapper",  # heterodyne_core adapter fallback
+    "NLSQ failed",  # heterodyne_result_builder
+    "degraded data-only SSR",  # heterodyne_core L2 keep-better floor revert
+)
+
+
+class _WarmStartProbeNoiseFilter(logging.Filter):
+    """Drop the known expected sub-solver failure records of a warm-start probe.
+
+    Returns ``False`` (drop) only for records whose message contains one of
+    :data:`_WARM_START_PROBE_NOISE_PATTERNS`; every other record passes through,
+    so unexpected failures during the probe stay visible.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except Exception:  # noqa: BLE001 - never let a formatting error hide a record
+            return True
+        return not any(pat in message for pat in _WARM_START_PROBE_NOISE_PATTERNS)
+
+
+@contextmanager
+def _quiet_warm_start_probe_logging() -> Iterator[None]:
+    """Attach a message-scoped noise filter to the probe loggers, then detach it.
+
+    Suppresses the EXPECTED, recovered-from sub-solver failure barrage of a
+    CMA-ES / multistart warm-start probe WITHOUT a blanket level mute: only
+    records matching :data:`_WARM_START_PROBE_NOISE_PATTERNS` are dropped, so an
+    unexpected error from the same loggers during the probe is still emitted. A
+    non-degenerate problem produces no such records, so this is a no-op there.
+    Idempotent per logger (a logger appearing twice gets one filter instance) and
+    fully removed on exit. Changes ONLY logging — no solver behavior or numerics.
+    """
+    names = set(_WARM_START_PROBE_NOISE_LOGGERS)
+    names.update(n for n in logging.root.manager.loggerDict if n.startswith("nlsq"))
+    noise_filter = _WarmStartProbeNoiseFilter()
+    loggers = [logging.getLogger(name) for name in names]
+    for lg in loggers:
+        lg.addFilter(noise_filter)
+    try:
+        yield
+    finally:
+        for lg in loggers:
+            lg.removeFilter(noise_filter)
+
 
 # ---------------------------------------------------------------------------
 # Optional imports — gated for graceful degradation
@@ -1585,18 +1664,27 @@ def _fit_joint_cmaes_multi_phi(
         prob = _build_joint_problem(model, c2_data, phi_angles, config, weights)
 
         # Phase 1: warm-start via the plain joint fit over the SAME problem.
+        # This is a PROBE: on a degenerate Jacobian (e.g. C044 two_component) the
+        # trust-region solve is EXPECTED to not converge — the keep-better floor
+        # reverts it to x0 and Phase 2's global search refines from there, so the
+        # run is healthy. The sub-solver ERROR/WARNING barrage for that expected,
+        # recovered probe is demoted to keep the log honest (numerics untouched).
         logger.info(
-            "Joint CMA-ES escape: Phase 1/2 — warm-start joint fit "
-            "(NLSQ trust-region; no per-iteration output)"
+            "Joint CMA-ES escape: Phase 1/2 — warm-start probe (NLSQ trust-region). "
+            "Non-convergence here is EXPECTED on a degenerate Jacobian and harmless: "
+            "it reverts to x0 and the Phase 2 global search refines from there. "
+            "Sub-solver failure diagnostics for this probe are demoted to DEBUG."
         )
-        warm = _fit_joint_multi_phi(
-            model=model,
-            c2_data=c2_data,
-            phi_angles=np.asarray(phi_angles),
-            config=config,
-            weights=weights,
-            prob=prob,
-        )
+        with _quiet_warm_start_probe_logging():
+            warm = _fit_joint_multi_phi(
+                model=model,
+                c2_data=c2_data,
+                phi_angles=np.asarray(phi_angles),
+                config=config,
+                weights=weights,
+                prob=prob,
+                warm_start_probe=True,
+            )
         x_warm = np.asarray(warm.parameters, dtype=np.float64)
         ssr_warm = float(warm.chi_squared)
 
@@ -1782,6 +1870,7 @@ def _fit_joint_multistart(
                 config=config,
                 weights=weights,
                 x0_override=np.asarray(x_start, dtype=np.float64),
+                warm_start_probe=True,
             )
             x_fit = np.asarray(res.parameters, dtype=np.float64)
             assert SingleStartResult is not None, "HAS_JOINT_MULTISTART guards entry"
@@ -1798,24 +1887,35 @@ def _fit_joint_multistart(
             return 0.5 * _data_ssr(np.asarray(x, dtype=np.float64))
 
         assert run_multistart_nlsq is not None, "HAS_JOINT_MULTISTART guards entry"
-        ms = run_multistart_nlsq(
-            data={"c2": c2_data, "phi": phi_angles},
-            bounds=bounds2,
-            config=ms_cfg,
-            single_fit_func=single_fit_func,
-            cost_func=cost_func,
+        # Each start + the default baseline are warm-start PROBES: non-convergence
+        # on a degenerate Jacobian is EXPECTED and recovered (revert to x0 / the
+        # keep-better below), so demote the per-start sub-solver failure noise.
+        logger.info(
+            "Joint multistart escape: running %d warm-start probes (non-convergence "
+            "on a degenerate Jacobian is EXPECTED and recovered; per-probe failure "
+            "diagnostics are demoted to DEBUG).",
+            ms_cfg.n_starts,
         )
-        x_ms = np.asarray(ms.best.final_params, dtype=np.float64)
-        ssr_ms = _data_ssr(x_ms)
+        with _quiet_warm_start_probe_logging():
+            ms = run_multistart_nlsq(
+                data={"c2": c2_data, "phi": phi_angles},
+                bounds=bounds2,
+                config=ms_cfg,
+                single_fit_func=single_fit_func,
+                cost_func=cost_func,
+            )
+            x_ms = np.asarray(ms.best.final_params, dtype=np.float64)
+            ssr_ms = _data_ssr(x_ms)
 
-        # Keep-better vs the default joint fit (no override).
-        default = _fit_joint_multi_phi(
-            model=model,
-            c2_data=c2_data,
-            phi_angles=np.asarray(phi_angles),
-            config=config,
-            weights=weights,
-        )
+            # Keep-better vs the default joint fit (no override).
+            default = _fit_joint_multi_phi(
+                model=model,
+                c2_data=c2_data,
+                phi_angles=np.asarray(phi_angles),
+                config=config,
+                weights=weights,
+                warm_start_probe=True,
+            )
         x_default = np.asarray(default.parameters, dtype=np.float64)
         ssr_default = _data_ssr(x_default)
 
@@ -2607,8 +2707,22 @@ def _fit_joint_multi_phi(
     weights: np.ndarray | None,
     x0_override: np.ndarray | None = None,
     prob: JointProblem | None = None,
+    warm_start_probe: bool = False,
 ) -> OptimizationResult:
     """Joint multi-angle fit over the canonical scaling-first vector.
+
+    Parameters
+    ----------
+    warm_start_probe
+        When True, this fit is a CMA-ES / multistart warm-start probe whose
+        non-convergence on a degenerate Jacobian is EXPECTED and recovered (the
+        keep-better floor reverts to x0; the global search refines). In that mode
+        the wrapper fallback runs a SINGLE deterministic attempt (no 3x retry —
+        the retries reproduce the identical degenerate result) and the
+        adapter-fallback / floor-revert messages drop to DEBUG. Numerics are
+        unchanged; only the retry count (deterministically identical) and log
+        levels differ. The caller additionally wraps the probe in
+        :func:`_quiet_warm_start_probe_logging` to demote the sub-solver noise.
 
     Builds and solves the canonical scaling-first joint problem
     ``[scaling_head | physics]`` via :func:`_build_joint_problem`, which resolves
@@ -2721,11 +2835,24 @@ def _fit_joint_multi_phi(
             # Adapter succeeded → the returned result IS the monitored run.
             used_monitored_backend = True
         except (ValueError, RuntimeError, TypeError) as adapter_exc:
-            logger.warning("Joint NLSQAdapter failed, falling back to NLSQWrapper: %s", adapter_exc)
+            # A warm-start probe failing here is EXPECTED + recovered (DEBUG);
+            # a standalone joint fit failing is a real fallback event (WARNING).
+            logger.log(
+                logging.DEBUG if warm_start_probe else logging.WARNING,
+                "Joint NLSQAdapter failed, falling back to NLSQWrapper: %s",
+                adapter_exc,
+            )
             joint_result = None
 
     if joint_result is None and NLSQWrapper is not None:
-        joint_wrapper = NLSQWrapper(parameter_names=joint_param_names)
+        # A warm-start probe runs ONE deterministic wrapper attempt: on the
+        # degenerate Jacobian every retry reproduces the identical failed result
+        # (verified: all 3 tiers report the same final cost), so the extra
+        # retries are pure wasted compute + noise. Standalone fits keep 3 retries.
+        joint_wrapper = NLSQWrapper(
+            parameter_names=joint_param_names,
+            max_retries=1 if warm_start_probe else 3,
+        )
         joint_result = joint_wrapper.fit(
             residual_fn=joint_residual_fn,
             initial_params=x0,
@@ -2763,7 +2890,11 @@ def _fit_joint_multi_phi(
     if _escape_keeps_candidate(ssr_warm=ssr_x0, ssr_cand=ssr_solved):
         final_params = solved_params
     else:
-        logger.warning(
+        # On a warm-start probe this revert is the EXPECTED, designed recovery
+        # (DEBUG); on a standalone joint fit it flags a real degraded solve
+        # (WARNING).
+        logger.log(
+            logging.DEBUG if warm_start_probe else logging.WARNING,
             "L2 joint solve degraded data-only SSR vs warm-start x0 "
             "(%.6e > %.6e); reverting to x0 (feasible warm-start) to preserve "
             "the keep-better floor",

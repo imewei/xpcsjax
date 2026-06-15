@@ -19,6 +19,7 @@ Pins two robustness fixes surfaced by the C044 ``two_component`` RCA
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 
 import numpy as np
@@ -225,4 +226,107 @@ def test_floor_revert_discards_degraded_solve_covariance(monkeypatch):
     )
     assert unc is None or np.all(np.isnan(unc)), (
         "reverted-to-x0 result carried the rejected solve's uncertainties"
+    )
+
+
+# ===========================================================================
+# Honest warm-start-probe logging (fixed 2026-06-15). A CMA-ES / multistart
+# warm-start probe that fails on a degenerate Jacobian is EXPECTED + recovered,
+# so its sub-solver failure noise is demoted instead of screaming ERROR/WARNING.
+# Pure logging/control-flow — numerics are unchanged.
+# ===========================================================================
+def test_quiet_warm_start_probe_logging_filters_only_known_noise(caplog):
+    """The probe-quieting context drops ONLY known noise messages (not a blanket
+    level mute): an unrelated record from the same logger still propagates, and
+    the filter is fully removed on exit."""
+    log = logging.getLogger("nlsq.curve_fit")  # in _WARM_START_PROBE_NOISE_LOGGERS
+    noise = "Optimization failed to converge"  # matches a noise pattern
+    unrelated = "an unexpected and unrelated diagnostic"  # must survive
+
+    with caplog.at_level(logging.DEBUG, logger="nlsq.curve_fit"):
+        with hc._quiet_warm_start_probe_logging():
+            log.error(noise)
+            log.error(unrelated)
+        inside = [r.getMessage() for r in caplog.records]
+
+    assert unrelated in inside, "unexpected records must NOT be suppressed by the probe filter"
+    assert noise not in inside, "known probe noise must be dropped inside the context"
+
+    # Filter removed on exit → the same noise message now propagates.
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="nlsq.curve_fit"):
+        log.error(noise)
+    assert any(noise in r.getMessage() for r in caplog.records), (
+        "the noise filter must be removed when the probe context exits"
+    )
+
+
+def test_quiet_warm_start_probe_logging_filter_fully_detached():
+    """No ``_WarmStartProbeNoiseFilter`` lingers on any probe logger after exit."""
+    with hc._quiet_warm_start_probe_logging():
+        pass
+    for name in hc._WARM_START_PROBE_NOISE_LOGGERS:
+        lg = logging.getLogger(name)
+        assert not any(
+            isinstance(f, hc._WarmStartProbeNoiseFilter) for f in lg.filters
+        ), f"{name} still carries the probe noise filter after exit"
+
+
+def _degraded_adapter(degraded, ssr):
+    class _FakeAdapter:
+        def __init__(self, parameter_names):
+            self.parameter_names = parameter_names
+
+        def fit(self, **_kwargs):
+            return SimpleNamespace(
+                success=True,
+                message="ok",
+                parameters=degraded,
+                uncertainties=None,
+                covariance=None,
+                chi_squared=ssr,
+                n_iterations=1,
+            )
+
+    return _FakeAdapter
+
+
+def test_warm_start_probe_demotes_floor_revert_to_debug(monkeypatch, caplog):
+    """The floor-revert message is WARNING for a standalone joint fit but DEBUG
+    for a warm-start probe (where the revert is the designed, expected recovery).
+    The numerics — the floored x0 — are identical either way.
+    """
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=16)
+    cfg = _individual_cfg()
+
+    prob = hc._build_joint_problem(model, c2, phi, cfg, weights=None)
+    x0 = np.asarray(prob.x0, dtype=np.float64)
+    base = prob.meta["base_residual_fn"]
+
+    def _ssr(x: np.ndarray) -> float:
+        return float(np.sum(np.asarray(base(x), dtype=np.float64) ** 2))
+
+    degraded = np.clip(x0 + 0.5 * (prob.ub - prob.lb), prob.lb, prob.ub)
+    assert _ssr(degraded) > _ssr(x0), "test precondition: degraded must be worse"
+
+    monkeypatch.setattr(hc, "NLSQAdapter", _degraded_adapter(degraded, _ssr(degraded)))
+
+    msg_key = "degraded data-only SSR"
+
+    def _revert_records(probe: bool):
+        caplog.clear()
+        with caplog.at_level(
+            logging.DEBUG, logger="xpcsjax.optimization.nlsq.heterodyne_core"
+        ):
+            hc._fit_joint_multi_phi(model, c2, phi, cfg, None, warm_start_probe=probe)
+        return [r for r in caplog.records if msg_key in r.getMessage()]
+
+    standalone = _revert_records(False)
+    probe = _revert_records(True)
+
+    assert standalone and standalone[0].levelno == logging.WARNING, (
+        "standalone joint fit must flag a degraded solve at WARNING"
+    )
+    assert probe and probe[0].levelno == logging.DEBUG, (
+        "warm-start probe must demote the expected floor revert to DEBUG"
     )
