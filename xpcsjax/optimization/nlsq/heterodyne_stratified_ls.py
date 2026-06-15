@@ -228,8 +228,10 @@ def make_scaling_expander(
         frozen_c = jnp.asarray(frozen[0], dtype=jnp.float64)
         frozen_o = jnp.asarray(frozen[1], dtype=jnp.float64)
 
-        def expand(_s: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
-            # The (empty) scaling head is ignored; per-angle scaling is frozen.
+        def expand(s: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+            # The (empty) scaling head ``s`` is ignored; per-angle scaling is frozen.
+            # (Param name matches the other branches so mypy sees identical
+            # conditional-variant signatures.)
             return frozen_c, frozen_o
 
         return expand, 0
