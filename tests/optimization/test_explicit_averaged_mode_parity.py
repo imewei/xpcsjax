@@ -105,10 +105,11 @@ def test_hybrid_streaming_routes_through_shared_resolver():
 
     src = _source_of(hs.fit_with_stratified_hybrid_streaming)
 
-    # Must call the shared seam.
-    assert "resolve_per_angle_mode(" in src, (
+    # Must call the shared static-pin seam (``_resolve_streaming_per_angle_mode``
+    # wraps ``resolve_per_angle_mode`` and enforces the static-individual pin).
+    assert "_resolve_streaming_per_angle_mode(" in src, (
         "hybrid-streaming driver no longer routes through the shared "
-        "resolve_per_angle_mode seam"
+        "_resolve_streaming_per_angle_mode seam"
     )
 
     # Must not re-raise the inline 'unknown per_angle_mode' that rejected
