@@ -532,6 +532,138 @@ def test_flat_multistart_skips_engine_route_on_auto_budget(monkeypatch):
     assert joint.get("yes") is True  # routed to fit_nlsq_multi_phi (owns the escape)
 
 
+def test_flat_multistart_precedence_over_hybrid(monkeypatch):
+    """Flat ``multistart=True`` + hybrid_streaming.enable=True at a streaming tier
+    must NOT take the hybrid local path — it must fall through to
+    fit_nlsq_multi_phi, which owns the joint multistart escape.
+
+    Regression for the Codex finding that the hybrid-streaming gate only checked
+    ``cmaes_on``: the flat ``multistart`` escape (like CMA-ES, owned by
+    fit_nlsq_multi_phi) was silently intercepted on LARGE/STREAMING data, so a
+    large two_component fit shipped a different optimizer than configured. Mirror
+    of ``test_cmaes_precedence_over_hybrid``.
+    """
+    import xpcsjax.optimization.nlsq as nlsq_pkg
+    from xpcsjax.optimization.nlsq import heterodyne_memory as hm
+
+    model, c2, phi = _make_synthetic_heterodyne()
+    _install_model_stub(monkeypatch, model)
+
+    class _Dec:
+        strategy = hm.NLSQStrategy.STREAMING
+        peak_memory_gb = 99.0
+        threshold_gb = 1.0
+
+    monkeypatch.setattr(hm, "select_nlsq_strategy", lambda *a, **k: _Dec())
+
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming.fit_with_stratified_hybrid_streaming_heterodyne",
+        lambda **k: (_ for _ in ()).throw(
+            AssertionError("hybrid must not run when flat multistart is on")
+        ),
+    )
+    # The engine route runs no global escape, so it must also be skipped when a
+    # flat multistart is requested (already gated; guard it so a regression here
+    # surfaces too).
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.heterodyne_engine_route.fit_two_component_via_engine",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("engine route must not run when flat multistart is on")
+        ),
+    )
+    import numpy as _np
+
+    class _R:
+        parameters = _np.zeros(1)
+        chi_squared = 0.0
+        reduced_chi_squared = 0.0
+        success = True
+        message = "ok"
+        nlsq_diagnostics: dict = {}
+
+    joint = {}
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.heterodyne_core.fit_nlsq_multi_phi",
+        lambda *a, **k: joint.setdefault("yes", True) or _R(),
+    )
+    cfg = _Cfg(
+        {
+            "analysis_mode": "two_component",
+            "optimization": {
+                "nlsq": {"multistart": True, "hybrid_streaming": {"enable": True}}
+            },
+        }
+    )
+    data = {"c2_exp": c2, "phi_angles_list": phi}
+    nlsq_pkg.fit_nlsq(data, cfg)
+    assert joint.get("yes") is True  # routed to fit_nlsq_multi_phi (owns the escape)
+
+
+def test_flat_multistart_skips_stratified_ls(monkeypatch):  # noqa: N802 - "1M" pins the boundary
+    """Flat ``multistart=True`` + >=1M points must NOT take the stratified-LS local
+    path — it must fall through to fit_nlsq_multi_phi, which owns the joint
+    multistart escape.
+
+    Regression for the Codex finding that the >=1M stratified-LS gate only checked
+    ``cmaes_on``, silently dropping the flat multistart escape on large data.
+    Mirror of ``test_flat_enable_cmaes_skips_stratified_ls``.
+    """
+    import xpcsjax.optimization.nlsq as nlsq_pkg
+    import xpcsjax.optimization.nlsq.heterodyne_stratified_ls as hsl
+
+    model, c2, phi = _make_synthetic_heterodyne()
+    _install_model_stub(monkeypatch, model)
+
+    called = {"strat": False}
+
+    def _fake_strat(**k):
+        called["strat"] = True
+        return object()
+
+    monkeypatch.setattr(hsl, "fit_heterodyne_stratified_least_squares", _fake_strat)
+    # Force the gate above 1M without allocating a huge array.
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq._estimate_heterodyne_points",
+        lambda c2, phi: 2_000_000,
+    )
+    # The engine route runs no global escape; it is already gated off by
+    # ``multistart_on`` — guard it so a regression surfaces here too.
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.heterodyne_engine_route.fit_two_component_via_engine",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("engine route must not run when flat multistart is on")
+        ),
+    )
+    import numpy as _np
+
+    class _R:
+        parameters = _np.zeros(1)
+        chi_squared = 0.0
+        reduced_chi_squared = 0.0
+        success = True
+        message = "ok"
+        nlsq_diagnostics: dict = {}
+
+    joint = {}
+    monkeypatch.setattr(
+        "xpcsjax.optimization.nlsq.heterodyne_core.fit_nlsq_multi_phi",
+        lambda *a, **k: joint.setdefault("yes", True) or _R(),
+    )
+    cfg = _Cfg(
+        {
+            "analysis_mode": "two_component",
+            "optimization": {"nlsq": {"multistart": True}},
+        }
+    )
+    data = {"c2_exp": c2, "phi_angles_list": phi}
+    nlsq_pkg.fit_nlsq(data, cfg)
+    assert called["strat"] is False, (
+        "Stratified-LS solver was called despite flat multistart=true "
+        "(multistart escape is owned by fit_nlsq_multi_phi)"
+    )
+    assert joint.get("yes") is True  # routed to fit_nlsq_multi_phi (owns the escape)
+
+
 def test_pointwise_data_excludes_t0_and_diagonal():
     """Pointwise training data must match the meshgrid residual support:
     no diagonal, no t=0 row/col -> (n_t-1)*(n_t-2) points per angle."""
