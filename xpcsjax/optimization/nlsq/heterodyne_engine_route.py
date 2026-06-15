@@ -350,8 +350,10 @@ def fit_two_component_via_engine(
     Raises
     ------
     NotImplementedError
-        For non-uniform weights (the engine solve is unweighted; the caller
-        falls back to ``fit_nlsq_multi_phi``).
+        For non-uniform weights (the engine solve is unweighted), an
+        out-of-scope ``per_angle_mode``, or an unresolved ``max_nfev`` (None /
+        "auto"). In every case the caller's best-effort guard falls back to
+        ``fit_nlsq_multi_phi``.
     """
     import jax.numpy as jnp
 
@@ -433,6 +435,26 @@ def fit_two_component_via_engine(
             "Use the existing fit_nlsq_multi_phi path for unsupported modes."
         )
 
+    # -- max_nfev must be a resolved integer --------------------------------
+    # The engine route builds the combined solver budget ``config.max_nfev *
+    # n_phi`` (mirroring the production joint paths). ``NLSQConfig.max_nfev``
+    # defaults to None ("auto" — nlsq later resolves it to 100*n_params), which
+    # the engine route cannot resolve here. Raise an explicit, self-describing
+    # NotImplementedError BEFORE the heavy engine build so the caller's
+    # best-effort guard (see ``__init__.py``) falls back to fit_nlsq_multi_phi
+    # (which resolves auto). Raising early also avoids the wasted stratification
+    # + JIT-compile that a late ``None * n_phi`` TypeError incurred on every
+    # auto-budget fit. Pinned by ``test_hybrid_does_not_fire_on_standard_tier``
+    # (must still bail to the fallback when max_nfev is None) and
+    # ``test_engine_route_raises_notimplemented_on_auto_max_nfev``.
+    if config.max_nfev is None:
+        raise NotImplementedError(
+            "fit_two_component_via_engine requires a resolved integer max_nfev; "
+            "got None ('auto'). Falling back to fit_nlsq_multi_phi, which resolves "
+            "the auto budget (100*n_params). This is the documented best-effort "
+            "fallback, not a failure."
+        )
+
     # -- Build frame-0-excluded engine chunks -------------------------------
     strat_full = build_heterodyne_stratified_data(model, c2, phi_arr)
     strat = _drop_frame0_stratified_data(strat_full, t=t, n_phi=n_phi)
@@ -512,12 +534,11 @@ def fit_two_component_via_engine(
         xtol=config.xtol,
         gtol=config.gtol,
         x_scale=config.x_scale,
-        # NOTE: when ``config.max_nfev`` is None this raises ``TypeError`` here by
-        # design — caught by the documented best-effort guard in ``_fit_nlsq_heterodyne``,
-        # which falls back to ``fit_nlsq_multi_phi`` (whose diagnostics several tests
-        # depend on). Do NOT pass None through: that makes the engine route run instead
-        # of falling back and regresses test_hybrid_does_not_fire_on_standard_tier.
-        max_nfev=config.max_nfev * n_phi,  # type: ignore[operator]
+        # ``config.max_nfev`` is guaranteed non-None here: the explicit guard above
+        # raises NotImplementedError on the "auto" (None) budget so the caller falls
+        # back to ``fit_nlsq_multi_phi``. The combined solve packs n_phi angles, so
+        # the per-set budget is scaled by ``n_phi`` (see NLSQConfig.max_nfev contract).
+        max_nfev=config.max_nfev * n_phi,
         n_params=len(x0_opt),
     )
     adapter = NLSQAdapter(parameter_names=[f"p{i}" for i in range(len(x0_opt))])
