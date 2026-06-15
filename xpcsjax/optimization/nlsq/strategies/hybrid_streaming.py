@@ -284,6 +284,38 @@ def fit_with_hybrid_streaming_optimizer(
             ) from e
 
 
+def _resolve_streaming_per_angle_mode(
+    per_angle_mode: str,
+    n_phi: int,
+    constant_scaling_threshold: int,
+    *,
+    is_laminar_flow: bool,
+) -> str:
+    """Resolve the streaming per-angle mode, enforcing the static-mode pin.
+
+    Wraps the shared :func:`resolve_per_angle_mode` seam and then applies the
+    "static keeps individual" invariant. Static modes have no flow direction, so
+    the laminar ``auto -> averaged`` scaling compression is a no-op for them; on
+    every other fit path (standard wrapper Step 6.5; CMA-ES + stratified-LS,
+    which gate the ``AntiDegeneracyController`` to laminar_flow / two_component)
+    a static fit is pinned to the dense ``individual`` layout (n_physics +
+    2*n_phi). The "static unification" that would let static honor
+    ``auto`` / ``averaged`` / ``constant`` is deferred (spec §9). Enforcing the
+    pin here keeps a static fit's optimized parameter count — and therefore its
+    DOF / reduced-chi2 / uncertainties — independent of whether the dataset
+    happened to cross the streaming threshold. Only homodyne modes reach the
+    streaming function, and ``is_laminar_flow`` is False for both static_isotropic
+    and static_anisotropic, so this targets static exactly. Laminar_flow is
+    unaffected and still honors the full resolver.
+    """
+    from xpcsjax.optimization.nlsq.per_angle_mode import resolve_per_angle_mode
+
+    mode = resolve_per_angle_mode(per_angle_mode, n_phi, constant_scaling_threshold)
+    if not is_laminar_flow and mode != "individual":
+        return "individual"
+    return mode
+
+
 def fit_with_stratified_hybrid_streaming(
     stratified_data: Any,
     per_angle_scaling: bool,
@@ -469,23 +501,30 @@ def fit_with_stratified_hybrid_streaming(
     constant_scaling_threshold = ad_config.get("constant_scaling_threshold", 3)
 
     # Determine actual per-angle mode through the single shared seam
-    # (``resolve_per_angle_mode``), keeping this streaming path symmetric with
-    # the standard wrapper path and the anti-degeneracy controller:
+    # (``resolve_per_angle_mode``), then apply the static-mode pin — see
+    # ``_resolve_streaming_per_angle_mode``. Keeps this streaming path symmetric
+    # with the standard wrapper path and the anti-degeneracy controller:
     #   - auto (n_phi >= threshold): "averaged" → OPTIMIZED averaged scaling
     #   - auto (n_phi <  threshold): "individual" → per-angle scaling OPTIMIZED
     #   - constant (explicit): "constant" → FIXED per-angle scaling
     #   - individual / averaged (explicit): pass-through resolved variant
-    # An explicit "averaged" token is now accepted here exactly as on the
-    # standard path; legacy/unknown tokens still raise via the resolver.
-    from xpcsjax.optimization.nlsq.per_angle_mode import resolve_per_angle_mode
-
-    per_angle_mode_actual = resolve_per_angle_mode(
-        per_angle_mode, n_phi, constant_scaling_threshold
+    #   - STATIC (is_laminar_flow=False): always "individual" (auto/averaged/
+    #     constant deferred, spec §9)
+    # An explicit "averaged" token is accepted here exactly as on the standard
+    # path; legacy/unknown tokens still raise via the resolver.
+    per_angle_mode_actual = _resolve_streaming_per_angle_mode(
+        per_angle_mode,
+        n_phi,
+        constant_scaling_threshold,
+        is_laminar_flow=is_laminar_flow,
     )
     logger.debug(
-        "ANTI-DEGENERACY: resolved per_angle_mode %r -> %r",
+        "ANTI-DEGENERACY: resolved per_angle_mode %r -> %r%s",
         per_angle_mode,
         per_angle_mode_actual,
+        " (static pinned to individual; auto->averaged deferred, spec §9)"
+        if not is_laminar_flow
+        else "",
     )
 
     # T031: Determine mode flags
