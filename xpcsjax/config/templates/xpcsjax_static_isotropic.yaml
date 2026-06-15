@@ -273,17 +273,21 @@ optimization:
     # -----------------------------------------------------------------------
     # ANTI-DEGENERACY — isotropic mode
     # -----------------------------------------------------------------------
-    # The whole point of isotropic mode is "one (contrast, offset) shared
-    # across angles" — so per_angle_mode is hard-pinned to "constant" with
-    # threshold=1, which forces the constant-per-angle path to engage for
-    # any n_phi >= 1. Other modes ("auto", "individual") would
-    # silently re-introduce per-angle scaling and defeat the purpose.
+    # Static modes (isotropic / anisotropic) have no flow direction, so the
+    # laminar "auto -> averaged" scaling compression is a no-op for them. The
+    # blessed invariant is "static keeps individual": every fit path pins a
+    # static fit to the dense per-angle layout, so its optimized parameter count
+    # — and its DOF / reduced-chi2 — is n_physics + 2*n_phi regardless of this
+    # token or dataset size (enforced by resolve_per_angle_mode_static_pinned).
+    # The prior "constant" token here was INERT on the optimizer path and only
+    # mis-sized reduced-chi2 DOF. Letting isotropic honor "constant" (one shared
+    # (contrast, offset) across angles) is the "static unification" deferred to
+    # spec §9; pin "individual" until it lands so config intent matches behavior.
     #
     # Parameter count (isotropic, any n_phi):
-    #   constant:  3 params  (3 physical only — scaling FROZEN per-angle)
+    #   individual:  3 + 2*n_phi params  (3 physical + per-angle contrast/offset)
     #
-    # Hierarchical is unnecessary here (constant scaling is frozen). L5
-    # shear_weighting is hard-gated to laminar_flow ONLY (see _LAYER_GATES in
+    # L5 shear_weighting is hard-gated to laminar_flow ONLY (see _LAYER_GATES in
     # anti_degeneracy_controller.py) — blocked for static modes, no flow/shear.
     anti_degeneracy:
       enable: true
@@ -301,8 +305,8 @@ optimization:
       # escape, lower hierarchical.max_outer_iterations (and inner iterations).
       execute_layers: false
 
-      per_angle_mode: "constant"           # FIXED for isotropic — do not change
-      constant_scaling_threshold: 1        # engage constant scaling immediately
+      per_angle_mode: "individual"         # PINNED for static (auto/constant deferred, spec §9)
+      constant_scaling_threshold: 3        # unused while pinned to individual; kept for forward-compat
 
       hierarchical:
         enable: false
