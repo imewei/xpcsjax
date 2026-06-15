@@ -67,27 +67,66 @@ def _make_config(production_mode: str) -> NLSQConfig:
 
 
 # ===========================================================================
-# Bug 3 — max_nfev=None ("auto") must raise an explicit, self-describing
-# NotImplementedError (not a cryptic ``None * n_phi`` TypeError) so the
-# caller's best-effort guard logs an intentional fallback, not a failure.
+# Bug 3 (fixed 2026-06-15) — max_nfev=None ("auto") must NOT bail the engine
+# route. It mirrors the production joint paths (heterodyne_core.py:1232/:2684,
+# heterodyne_constant_mode.py:244 — ``config.max_nfev * n_phi if
+# config.max_nfev is not None else None``): None is passed through so nlsq
+# auto-resolves 100*n_params for the engine's own joint solve. Previously the
+# route RAISED NotImplementedError on None, silently routing every
+# default-config two_component in-memory fit back to fit_nlsq_multi_phi and
+# making the Task #16b procedural-parity route inert for the common case.
 # ===========================================================================
-def test_engine_route_raises_notimplemented_on_auto_max_nfev():
-    """``max_nfev=None`` (the NLSQConfig "auto" default) cannot be resolved by the
-    engine route, which needs a concrete per-set budget to build ``max_nfev *
-    n_phi``. The route must raise a clear ``NotImplementedError`` so the caller in
-    ``fit_nlsq`` falls back to ``fit_nlsq_multi_phi`` (which resolves auto ->
-    100*n_params). Previously this surfaced as the cryptic ``TypeError:
-    unsupported operand type(s) for *: 'NoneType' and 'int'`` from
-    ``config.max_nfev * n_phi`` deep inside the function, AFTER the engine build.
-    """
-    import pytest
+def _spy_adapter_max_nfev(monkeypatch) -> dict:
+    """Capture the ``max_nfev`` on the NLSQConfig handed to the joint solve."""
+    from xpcsjax.optimization.nlsq import heterodyne_adapter
 
+    captured: dict = {}
+    real_fit = heterodyne_adapter.NLSQAdapter.fit
+
+    def spy_fit(self, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
+        cfg = kwargs.get("config")
+        if cfg is None and len(args) >= 4:
+            cfg = args[3]
+        captured["max_nfev"] = cfg.max_nfev
+        return real_fit(self, *args, **kwargs)
+
+    monkeypatch.setattr(heterodyne_adapter.NLSQAdapter, "fit", spy_fit)
+    return captured
+
+
+def test_engine_route_runs_on_auto_max_nfev(monkeypatch):
+    """``max_nfev=None`` (the NLSQConfig "auto" default) must NOT bail the engine
+    route. It mirrors the production joint paths: None is passed through to the
+    joint solve so nlsq auto-resolves 100*n_params. Previously the route raised
+    NotImplementedError on None, silently routing every default-config
+    two_component in-memory fit back to fit_nlsq_multi_phi (Task #16b inert).
+    """
     model, c2, phi = _make_well_posed_case()
     cfg = _make_config("individual")
     cfg.max_nfev = None  # the NLSQConfig "auto" default
 
-    with pytest.raises(NotImplementedError, match="max_nfev"):
-        fit_two_component_via_engine(model, c2, np.asarray(phi), cfg, None)
+    captured = _spy_adapter_max_nfev(monkeypatch)
+    result = fit_two_component_via_engine(model, c2, np.asarray(phi), cfg, None)
+
+    assert result is not None
+    assert captured["max_nfev"] is None, (
+        "auto (None) max_nfev must pass through to the joint solve so nlsq "
+        f"auto-resolves 100*n_params; got {captured['max_nfev']!r}"
+    )
+
+
+def test_engine_route_scales_explicit_max_nfev_by_n_phi(monkeypatch):
+    """An explicit per-set ``max_nfev`` is scaled by ``n_phi`` for the combined
+    joint solve, matching the production joint-path contract
+    (NLSQConfig.max_nfev docstring)."""
+    model, c2, phi = _make_well_posed_case()
+    n_phi = len(phi)
+    cfg = _make_config("individual")  # max_nfev=_PER_SET_NFEV
+
+    captured = _spy_adapter_max_nfev(monkeypatch)
+    fit_two_component_via_engine(model, c2, np.asarray(phi), cfg, None)
+
+    assert captured["max_nfev"] == _PER_SET_NFEV * n_phi
 
 
 # ===========================================================================

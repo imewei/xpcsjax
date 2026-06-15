@@ -350,10 +350,11 @@ def fit_two_component_via_engine(
     Raises
     ------
     NotImplementedError
-        For non-uniform weights (the engine solve is unweighted), an
-        out-of-scope ``per_angle_mode``, or an unresolved ``max_nfev`` (None /
-        "auto"). In every case the caller's best-effort guard falls back to
-        ``fit_nlsq_multi_phi``.
+        For non-uniform weights (the engine solve is unweighted) or an
+        out-of-scope ``per_angle_mode``; the caller's best-effort guard falls
+        back to ``fit_nlsq_multi_phi``. An "auto" (None) ``max_nfev`` does NOT
+        raise — it is passed through so nlsq auto-resolves ``100*n_params``,
+        mirroring the production joint paths.
     """
     import jax.numpy as jnp
 
@@ -435,25 +436,21 @@ def fit_two_component_via_engine(
             "Use the existing fit_nlsq_multi_phi path for unsupported modes."
         )
 
-    # -- max_nfev must be a resolved integer --------------------------------
+    # -- max_nfev: "auto" (None) is passed through, NOT a bail ----------------
     # The engine route builds the combined solver budget ``config.max_nfev *
     # n_phi`` (mirroring the production joint paths). ``NLSQConfig.max_nfev``
-    # defaults to None ("auto" — nlsq later resolves it to 100*n_params), which
-    # the engine route cannot resolve here. Raise an explicit, self-describing
-    # NotImplementedError BEFORE the heavy engine build so the caller's
-    # best-effort guard (see ``__init__.py``) falls back to fit_nlsq_multi_phi
-    # (which resolves auto). Raising early also avoids the wasted stratification
-    # + JIT-compile that a late ``None * n_phi`` TypeError incurred on every
-    # auto-budget fit. Pinned by ``test_hybrid_does_not_fire_on_standard_tier``
-    # (must still bail to the fallback when max_nfev is None) and
-    # ``test_engine_route_raises_notimplemented_on_auto_max_nfev``.
-    if config.max_nfev is None:
-        raise NotImplementedError(
-            "fit_two_component_via_engine requires a resolved integer max_nfev; "
-            "got None ('auto'). Falling back to fit_nlsq_multi_phi, which resolves "
-            "the auto budget (100*n_params). This is the documented best-effort "
-            "fallback, not a failure."
-        )
+    # defaults to None ("auto"). The production joint paths
+    # (heterodyne_core.py:1232/:2684, heterodyne_constant_mode.py:244) all use
+    # ``config.max_nfev * n_phi if config.max_nfev is not None else None`` —
+    # passing None straight through to the solve so nlsq auto-resolves
+    # ``100*n_params`` for the engine's own joint vector (whose param count
+    # matches the production joint solve, so the auto budget is identical). The
+    # engine route now mirrors that idiom at the joint_cfg build below rather
+    # than bailing on None: bailing silently routed every default-config
+    # two_component in-memory fit back to fit_nlsq_multi_phi, making the Task
+    # #16b procedural-parity route inert for the common case. Pinned by
+    # ``test_engine_route_runs_on_auto_max_nfev`` and
+    # ``test_engine_route_scales_explicit_max_nfev_by_n_phi``.
 
     # -- Build frame-0-excluded engine chunks -------------------------------
     strat_full = build_heterodyne_stratified_data(model, c2, phi_arr)
@@ -534,11 +531,12 @@ def fit_two_component_via_engine(
         xtol=config.xtol,
         gtol=config.gtol,
         x_scale=config.x_scale,
-        # ``config.max_nfev`` is guaranteed non-None here: the explicit guard above
-        # raises NotImplementedError on the "auto" (None) budget so the caller falls
-        # back to ``fit_nlsq_multi_phi``. The combined solve packs n_phi angles, so
-        # the per-set budget is scaled by ``n_phi`` (see NLSQConfig.max_nfev contract).
-        max_nfev=config.max_nfev * n_phi,
+        # Mirror the production joint paths exactly: an explicit per-set budget is
+        # scaled by ``n_phi`` (the combined solve packs n_phi angles — see the
+        # NLSQConfig.max_nfev contract), while "auto" (None) is passed straight
+        # through so nlsq auto-resolves ``100*n_params`` for the engine's own
+        # joint vector. NLSQAdapter._optimizer_kwargs omits a None max_nfev.
+        max_nfev=(config.max_nfev * n_phi if config.max_nfev is not None else None),
         n_params=len(x0_opt),
     )
     adapter = NLSQAdapter(parameter_names=[f"p{i}" for i in range(len(x0_opt))])
