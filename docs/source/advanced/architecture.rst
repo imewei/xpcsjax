@@ -93,7 +93,7 @@ but returns ``list[NLSQResult]`` and consults the
       │     ├─ OUT_OF_CORE       (chunk-wise J^T J accumulation)
       │     └─ HYBRID_STREAMING  (L-BFGS warmup + streaming GN)
       │
-      ├─► AntiDegeneracyController            (FourierReparam, Hierarchical,
+      ├─► AntiDegeneracyController            (PerAngleScalingPlan, Hierarchical,
       │                                        AdaptiveRegularizer,
       │                                        GradientCollapseMonitor,
       │                                        ShearSensitivityWeighting)

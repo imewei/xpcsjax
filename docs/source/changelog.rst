@@ -109,14 +109,14 @@ JAX-native package. Highlights:
   time; parameters span 6+ orders of magnitude and float32 is unsafe.
 * **Homodyne parity oracle.** Characterisation tests pin xpcsjax's homodyne
   output to upstream ``homodyne`` results at ``rtol=1e-10``.
-* **Heterodyne multi-angle.** Joint Fourier-reparameterised fitting across
+* **Heterodyne multi-angle.** Joint per-angle-reparameterised fitting across
   φ angles with χ²-exact residuals; returns one ``NLSQResult`` per angle.
 * **NLSQ engine split.** xpcsjax owns strategy routing, the 5-layer
   anti-degeneracy controller, CMA-ES escape, LHS multistart, angle-stratified
   chunking, and shear weighting. NLSQ owns the ``CurveFit`` JIT cache and
   the trust-region solve.
-* **Anti-degeneracy controller** with five composable layers: Fourier /
-  constant reparameterisation, hierarchical optimisation, adaptive
+* **Anti-degeneracy controller** with five composable layers: per-angle
+  reparameterisation, hierarchical optimisation, adaptive
   cross-validation regularisation, gradient-collapse monitoring, and
   shear-sensitivity weighting.
 * **Memory-aware strategy selection** via

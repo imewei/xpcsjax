@@ -107,8 +107,8 @@ responses, in order of priority:
 
 1. **Identify the regression in xpcsjax.** The most common cause is
    an unintentional change in residual ordering (summation order
-   matters at ``1e-10``), a misconfigured Fourier reparameterisation
-   harmonic count, or an accidental float32 cast on an intermediate
+   matters at ``1e-10``), a misresolved per-angle reparameterisation
+   mode, or an accidental float32 cast on an intermediate
    buffer. Fix the regression; the parity test passes; ship.
 
 2. **Acknowledge an upstream change in ``homodyne``.** If the

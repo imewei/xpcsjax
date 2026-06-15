@@ -53,9 +53,9 @@ layout is required:
    result.parameters = [c_0 … c_{n-1}, o_0 … o_{n-1}, physical_0 … physical_13]
 
 This layout is produced when fitting with ``per_angle_mode="individual"``.
-Results from ``constant``, ``fourier``, or ``auto`` modes (when auto resolves
-to non-individual) will raise :class:`NotImplementedError` at render time with
-a message identifying the parameter-count mismatch.
+Results from ``constant`` or ``averaged`` modes (including ``auto`` when it
+resolves to non-individual) will raise :class:`NotImplementedError` at render
+time with a message identifying the parameter-count mismatch.
 
 To plot a heterodyne fit from a non-individual mode, refit with
 ``per_angle_mode="individual"`` or use the upstream ``heterodyne`` package.

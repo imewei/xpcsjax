@@ -176,7 +176,7 @@ Next steps
 ----------
 
 * :doc:`user_guide/homodyne_workflow` — full homodyne example with shear flow.
-* :doc:`user_guide/heterodyne_workflow` — multi-angle heterodyne with Fourier
+* :doc:`user_guide/heterodyne_workflow` — multi-angle heterodyne with per-angle
   reparameterisation.
 * :doc:`examples/index` — worked end-to-end scripts.
 * :doc:`api/public` — every public symbol with full signatures.

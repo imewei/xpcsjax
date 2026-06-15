@@ -271,7 +271,7 @@ The NLSQ-facing surface in xpcsjax lives entirely under
 - **Escape**: :file:`cmaes_wrapper.py`.
 - **Multistart and stratification**: :file:`multistart.py`,
   :file:`hierarchical.py`, :file:`strategies/`.
-- **Parameter handling**: :file:`transforms.py`, :file:`fourier_reparam.py`,
+- **Parameter handling**: :file:`transforms.py`, :file:`per_angle_mode.py`,
   :file:`parameter_index_mapper.py`, :file:`parameter_utils.py`.
 - **Numerics support**: :file:`jacobian.py`, :file:`fit_computation.py`,
   :file:`parallel_accumulator.py`, :file:`memory.py`,
