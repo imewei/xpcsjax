@@ -175,8 +175,8 @@
     "semantic_hash": "2c2ce465e0cfc2efbb20a67703a95f52"
   },
   "tests/optimization/test_heterodyne_hybrid_streaming.py": {
-    "mtime": 1781555642.255867,
-    "ast_hash": "194e0a7e8adb54aeb24f173b92a424da",
+    "mtime": 1781560340.5817738,
+    "ast_hash": "87d4ac14a792c82d39ec542e0c7795c1",
     "semantic_hash": ""
   },
   "tests/optimization/_heterodyne_fixtures.py": {
@@ -965,8 +965,8 @@
     "semantic_hash": "ee72294efeade3a07e940561d4ff133f"
   },
   "xpcsjax/optimization/nlsq/__init__.py": {
-    "mtime": 1781555418.2643828,
-    "ast_hash": "99d060eddde505a64b574e72ee894d04",
+    "mtime": 1781560376.597966,
+    "ast_hash": "f6520276d81716dd9b2c4bf76ce506f3",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/cmaes_wrapper.py": {
