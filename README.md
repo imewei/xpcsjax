@@ -52,8 +52,9 @@ For heterodyne (`two_component`) fits, `fit_nlsq` returns a `list[NLSQResult]`
   multi-level cache (LRU + disk NPZ).
 - **JAX-native NLSQ engine** — `nlsq.CurveFit` (trust-region reflective LM,
   end-to-end on device). **Never** calls `scipy.optimize.least_squares`.
-- **5-layer anti-degeneracy controller** — `FourierReparameterizer`,
-  `HierarchicalOptimizer`, `AdaptiveRegularizer`, `GradientCollapseMonitor`,
+- **5-layer anti-degeneracy controller** — `PerAngleScalingPlan`
+  (per-angle reparameterization), `HierarchicalOptimizer`,
+  `AdaptiveRegularizer`, `GradientCollapseMonitor`,
   `ShearSensitivityWeighting`. Layer 5 is gated by model lineage (active for
   homodyne modes, inert for `two_component`).
 - **Memory-aware strategy routing** — `STANDARD` / `OUT_OF_CORE` /
@@ -61,8 +62,8 @@ For heterodyne (`two_component`) fits, `fit_nlsq` returns a `list[NLSQResult]`
 - **CMA-ES escape** — auto-triggers when bound `scale_ratio ≥ 1000`.
   Implementation: `nlsq.CMAESOptimizer` with `evosax` backend + BIPOP restart.
 - **Multi-angle heterodyne** — full parity with source heterodyne's
-  `fit_nlsq_multi_phi`: joint Fourier / independent / constant-averaged scaling
-  modes, plus CMA-ES multi-angle path.
+  `fit_nlsq_multi_phi`: per-angle scaling modes `constant` / `averaged` /
+  `individual` (resolved from `auto`), plus CMA-ES multi-angle path.
 - **Visualization** (`xpcsjax.viz`) — fit-comparison, residual-map, and
   simulated-data plots with an optional Datashader fast path and parallel
   multi-process rendering (`pip install 'xpcsjax[viz-fast]'`).
