@@ -57,7 +57,7 @@ Anti-degeneracy controller
 
 The 5-layer defence system is composed of:
 
-* :class:`~xpcsjax.optimization.nlsq.fourier_reparam.FourierReparameterizer`
+* :class:`~xpcsjax.optimization.nlsq.per_angle_mode.PerAngleScalingPlan`
 * :class:`~xpcsjax.optimization.nlsq.hierarchical.HierarchicalOptimizer`
 * :class:`~xpcsjax.optimization.nlsq.adaptive_regularization.AdaptiveRegularizer`
 * :class:`~xpcsjax.optimization.nlsq.gradient_monitor.GradientCollapseMonitor`
@@ -68,7 +68,7 @@ See :doc:`/advanced/anti_degeneracy` for the layering rationale.
 Layer classes
 ~~~~~~~~~~~~~
 
-.. autoclass:: xpcsjax.optimization.nlsq.fourier_reparam.FourierReparameterizer
+.. autoclass:: xpcsjax.optimization.nlsq.per_angle_mode.PerAngleScalingPlan
 
 
 
@@ -117,10 +117,6 @@ Layer classes
 
 
 .. autoclass:: xpcsjax.optimization.nlsq.anti_degeneracy_controller.AntiDegeneracyConfig
-
-
-
-.. autoclass:: xpcsjax.optimization.nlsq.fourier_reparam.FourierReparamConfig
 
 
 

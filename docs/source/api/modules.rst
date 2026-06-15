@@ -155,8 +155,6 @@ omitted here to avoid duplicate object descriptions.
 
 .. py:module:: xpcsjax.optimization.nlsq.fit_computation
 
-.. py:module:: xpcsjax.optimization.nlsq.fourier_reparam
-
 .. py:module:: xpcsjax.optimization.nlsq.gradient_diagnostics
 
 .. py:module:: xpcsjax.optimization.nlsq.gradient_monitor
