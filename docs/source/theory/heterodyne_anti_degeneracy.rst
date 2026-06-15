@@ -9,8 +9,9 @@ system minus L5 (shear-sensitivity weighting).
 Per-Angle Modes
 ---------------
 
-xpcsjax heterodyne supports the same four ``per_angle_mode`` values as
-homodyne (see
+xpcsjax heterodyne supports the same three ``per_angle_mode`` values as
+homodyne (``constant`` / ``averaged`` / ``individual``, resolved from the
+``auto`` default; see
 https://homodyne.readthedocs.io/en/latest/theory/anti_degeneracy.html
 for full theory):
 
