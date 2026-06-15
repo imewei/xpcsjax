@@ -32,7 +32,7 @@ _AUTO_THRESH = "four" + "ier_auto_threshold"
 
 @pytest.mark.parametrize("name", _TEMPLATES)
 def test_template_has_no_live_removed_keys(name: str) -> None:
-    doc = yaml.safe_load((_TEMPLATE_DIR / name).read_text())
+    doc = yaml.safe_load((_TEMPLATE_DIR / name).read_text(encoding="utf-8"))
 
     def _walk(node: object) -> None:
         if isinstance(node, dict):

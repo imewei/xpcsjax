@@ -48,7 +48,7 @@ _MODE_LITERAL = "``" + _REMOVED_MODE + "``"
 
 @pytest.mark.parametrize("path", _RST, ids=lambda p: p.name)
 def test_rst_has_no_removed_mode(path: Path) -> None:
-    text = path.read_text().lower()
+    text = path.read_text(encoding="utf-8").lower()
     assert _REMOVED_MODE not in text, f"{path.name} still mentions {_REMOVED_MODE}"
 
 
@@ -56,7 +56,7 @@ def test_all_rst_have_no_deleted_feature_tokens() -> None:
     """No rst under docs/source references the deleted Fourier-scaling feature."""
     offenders: list[str] = []
     for path in sorted(_DOCS.rglob("*.rst")):
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         lowered = text.lower()
         rel = path.relative_to(_DOCS)
         for token in _DELETED_TOKENS:
