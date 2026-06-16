@@ -230,6 +230,79 @@ def test_floor_revert_discards_degraded_solve_covariance(monkeypatch):
 
 
 # ===========================================================================
+# Success flag on floor-revert (parity BLOCKER, 2026-06-16). When the floor
+# rejects a degraded solve and reverts to x0 it drops ``joint_result`` (None) to
+# discard the rejected vector's covariance. ``_build_joint_result`` previously
+# read ``solve_success = ... else True`` on that None, so a reverted (i.e.
+# NON-converged) warm-start reported success=True. The joint CMA-ES auto-skip
+# reads ``warm.success`` (heterodyne_core.py:1721) — a spurious True there
+# auto-skips the very CMA-ES escape the success-gate exists to run on the
+# degenerate C044 ``two_component`` Jacobian, defeating laminar parity
+# (core.py:2320 sets warm params/chi2 ONLY on the solver's success flag).
+# An assembly NOT backed by a global escape (revert path) must report failure.
+# ===========================================================================
+def test_floor_revert_reports_failure_not_spurious_success(monkeypatch):
+    """A reverted-to-x0 warm-start must report success=False / 'failed'.
+
+    Exercises the REAL ``_build_joint_result`` (not a synthetic ``warm_success``
+    flag) through the production revert path: degraded solve → floor revert →
+    ``joint_result=None`` → result assembly. Pre-fix this reported success=True,
+    silently feeding the CMA-ES auto-skip gate a converged verdict on a
+    non-converged warm-start.
+    """
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=16)
+    cfg = _individual_cfg()
+
+    prob = hc._build_joint_problem(model, c2, phi, cfg, weights=None)
+    x0 = np.asarray(prob.x0, dtype=np.float64)
+    base = prob.meta["base_residual_fn"]
+
+    def _ssr(x: np.ndarray) -> float:
+        return float(np.sum(np.asarray(base(x), dtype=np.float64) ** 2))
+
+    degraded = np.clip(x0 + 0.5 * (prob.ub - prob.lb), prob.lb, prob.ub)
+    assert _ssr(degraded) > _ssr(x0), "test precondition: degraded must be worse"
+
+    monkeypatch.setattr(hc, "NLSQAdapter", _degraded_adapter(degraded, _ssr(degraded)))
+
+    res = hc._fit_joint_multi_phi(model, c2, phi, cfg, None)
+
+    assert res.success is False, (
+        "a warm-start that reverted to x0 must NOT report success=True — a "
+        "spurious True defeats the CMA-ES auto-skip success-gate (parity with "
+        "laminar core.py:2320)"
+    )
+    assert res.convergence_status == "failed"
+
+
+def test_escape_kept_assembly_still_reports_success():
+    """Blast-radius boundary: an assembly backed by a global escape (joint_result
+    is None but ``global_escape`` is set) still reports success=True — the escape
+    pre-accepted the vector. Only the no-escape revert path flips to False, so the
+    documented escape-result contract (kept escape carries a 'success' verdict) is
+    preserved. Guards the fix from over-reaching into the escape paths.
+    """
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=16)
+    cfg = _individual_cfg()
+    prob = hc._build_joint_problem(model, c2, phi, cfg, weights=None)
+
+    res = hc._build_joint_result(
+        model,
+        prob,
+        c2,
+        np.asarray(prob.x0, dtype=np.float64),
+        phi,
+        cfg,
+        None,
+        joint_result=None,
+        global_escape="cmaes_warmstart_kept",
+    )
+
+    assert res.success is True
+    assert res.convergence_status == "converged"
+
+
+# ===========================================================================
 # Honest warm-start-probe logging (fixed 2026-06-15). A CMA-ES / multistart
 # warm-start probe that fails on a degenerate Jacobian is EXPECTED + recovered,
 # so its sub-solver failure noise is demoted instead of screaming ERROR/WARNING.

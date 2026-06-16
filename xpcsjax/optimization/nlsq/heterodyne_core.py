@@ -3205,10 +3205,15 @@ def _build_joint_result(
         else np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
     )
 
-    # When no NLSQ result backs this assembly (a global escape that returns a
-    # pre-accepted vector) report success: the escape only emits a vector it
-    # has already compared and kept.
-    solve_success = joint_result.success if joint_result is not None else True
+    # When no NLSQ result backs this assembly, the verdict depends on WHY
+    # ``joint_result`` is None. A kept GLOBAL ESCAPE returns a pre-accepted
+    # vector it has already compared and kept — that is a success. But a
+    # REVERTED warm-start (keep-better floor reverted to x0 and dropped
+    # ``joint_result``) is NOT a converged solve and must report failure, so the
+    # CMA-ES auto-skip gate (which reads ``warm.success``) does not skip the
+    # escape on a degenerate fit (parity with laminar core.py:2320). Key on
+    # ``global_escape`` to distinguish the two.
+    solve_success = joint_result.success if joint_result is not None else (global_escape is not None)
     convergence_status: ConvergenceStatus = "converged" if solve_success else "failed"
     quality_flag: QualityFlag = "good" if solve_success else "marginal"
 
