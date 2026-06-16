@@ -1037,6 +1037,62 @@ def _fit_nlsq_heterodyne(
 
     _log_strategy("standard", f"{int(n_points):,} points (in-memory joint fit)")
 
+    # Laminar-parity anti-degeneracy banners for the IN-MEMORY path.
+    # The >=1M stratified-LS path already emits the shared controller's
+    # "Auto-selected mode" + "Layer 2/3/4" setup banners and the "Effective
+    # per-angle mode" banner (heterodyne_stratified_ls._emit_anti_degeneracy_parity_banners
+    # + heterodyne_logging.log_effective_mode). The in-memory joint-fit path (this
+    # branch — reached by the engine route AND every fit_nlsq_multi_phi sub-path:
+    # plain / cmaes / multistart escape / expansion fallback) historically skipped
+    # them, so its log read terser than laminar_flow's. Emit the SAME pair here so
+    # two_component in-memory logs match laminar. Banner-only: the numeric solve is
+    # untouched and the honest [AS EXECUTED] summary at fit end
+    # (log_anti_degeneracy_defense) still reports what actually RAN. Best-effort —
+    # a banner failure must never break a fit. Skipped on the stratified-LS failure
+    # fallback (``_stratified_ls_fallback``), where the stratified path already
+    # emitted these banners before failing (avoids a double emission).
+    if not _stratified_ls_fallback:
+        try:
+            from xpcsjax.optimization.nlsq import heterodyne_logging as _hlog
+            from xpcsjax.optimization.nlsq.heterodyne_core import (
+                _resolve_effective_mode,
+            )
+            from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+                _emit_anti_degeneracy_parity_banners,
+            )
+
+            _n_phi = len(phi)
+            # constant/averaged/individual; raises ValueError for out-of-scope
+            # tokens (e.g. "unsupported"), which the outer except turns into a no-op.
+            _eff_mode = _resolve_effective_mode(nlsq_cfg, _n_phi)
+            _n_physics = int(model.param_manager.n_varying)
+            _n_scaling = {"constant": 0, "averaged": 2}.get(_eff_mode, 2 * _n_phi)
+            _ad_dict = (
+                nlsq_dict.get("anti_degeneracy") if isinstance(nlsq_dict, dict) else None
+            )
+            # Controller construction banners ("Auto-selected mode" + Layer 2/3/4).
+            # No-ops when no nested anti_degeneracy block is configured (flat
+            # upstream YAMLs), exactly as on the stratified-LS path.
+            _emit_anti_degeneracy_parity_banners(
+                anti_degeneracy_dict=_ad_dict,
+                phi_deg=phi,
+                n_physical=_n_physics,
+            )
+            # "Effective per-angle mode" banner (controller-parity, 60 wide).
+            _hlog.log_effective_mode(
+                _eff_mode,
+                n_phi=_n_phi,
+                n_physics=_n_physics,
+                n_scaling=_n_scaling,
+                threshold=int(getattr(nlsq_cfg, "constant_scaling_threshold", 3)),
+            )
+        except Exception as _banner_exc:  # noqa: BLE001 - banners must never break a fit
+            from xpcsjax.utils.logging import get_logger as _get_logger
+
+            _get_logger(__name__).debug(
+                "In-memory anti-degeneracy parity banners skipped (%s)", _banner_exc
+            )
+
     # In-memory joint fit (<1M, non-escape). The three in-scope per-angle scaling
     # modes (constant / individual / averaged — production constant / individual /
     # auto-at-n_phi>=3) route through the SHARED stratification engine via
