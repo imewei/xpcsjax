@@ -77,6 +77,7 @@ def _fit_joint_constant_multi_phi(
     weights: np.ndarray | None,
     *,
     global_escape_kind: str | None = None,
+    warm_start_context: str | None = None,
 ) -> OptimizationResult:
     """Joint multi-angle fit with quantile-fixed per-angle scaling.
 
@@ -148,13 +149,19 @@ def _fit_joint_constant_multi_phi(
     physics_upper = np.asarray(physics_upper, dtype=np.float64)
     physics_initial = np.clip(physics_initial, physics_lower, physics_upper)
 
-    logger.info("=" * 60)
-    logger.info(
+    # When invoked as the L2 Stage-1 warm-start (``warm_start_context`` set),
+    # demote this routine's per-angle banner to DEBUG: the per-angle quantile
+    # arrays are a warm-start detail, NOT the fit's scaling mode, and at INFO
+    # they read as ``individual`` mode (see ``_build_joint_problem``). The
+    # genuine top-level ``constant`` fit keeps the INFO banner.
+    _banner = logger.debug if warm_start_context is not None else logger.info
+    _banner("=" * 60)
+    _banner(
         "Quantile-fixed per-angle scaling: %d physics params, %d angles",
         n_physics,
         n_phi,
     )
-    logger.info("=" * 60)
+    _banner("=" * 60)
 
     # ------------------------------------------------------------------
     # 1. Flatten (c2, t1, t2, phi_indices) for the quantile estimator.
@@ -180,7 +187,7 @@ def _fit_joint_constant_multi_phi(
     offset_fixed = np.clip(offset_fixed, offset_info.min_bound, offset_info.max_bound).astype(
         np.float64
     )
-    logger.info(
+    _banner(
         "Frozen per-angle scaling: contrast=%s, offset=%s",
         np.array2string(contrast_fixed, precision=4),
         np.array2string(offset_fixed, precision=4),
@@ -304,10 +311,18 @@ def _fit_joint_constant_multi_phi(
             varying_names,
             config,
             {"c2": c2_data, "phi": phi_angles_np},
+            warm_success=bool(nlsq_result.success),
         )
     else:
         global_escape_tag = None
     is_escape = global_escape_tag is not None
+    if global_escape_tag == "cmaes_warmstart_auto_skip":
+        # Auto-skip kept the CONVERGED warm-start vector UNCHANGED, so its NLSQ
+        # covariance / uncertainties / iteration stats are valid — preserve them
+        # (laminar parity: ``fit_nlsq_cmaes`` returns ``nlsq_warmstart_cov`` on
+        # skip). Build as a plain result for stats; the ``global_escape`` tag is
+        # set independently below, so the skip is still recorded.
+        is_escape = False
 
     full_fitted = param_manager.expand_varying_to_full(fitted_physics)
     model.set_params(full_fitted)
