@@ -23,12 +23,21 @@ def test_kept_cmaes_escape_carries_nan_covariance_and_zero_iterations():
             "analysis_mode": "two_component",
             "per_angle_mode": "averaged",
             "enable_cmaes": True,
+            # This gate is about a REAL vector-MOVING kept escape (the global
+            # search ran and no covariance solve was done on the kept vector).
+            # Disable the warm-start auto-skip so the search actually runs — on
+            # this near-perfect fixture the converged warm-start would otherwise
+            # auto-skip CMA-ES, and an auto-skip DELIBERATELY preserves the
+            # warm-start's covariance (laminar parity), a separate contract
+            # covered by test_heterodyne_cmaes_warmstart_success_gate.
+            "cmaes_warmstart_auto_skip": False,
         }
     )
     res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
 
     tag = res.global_escape  # typed accessor (F3)
     assert tag is not None and tag.startswith("cmaes")
+    assert tag != "cmaes_warmstart_auto_skip"
 
     # The escape path does NO covariance solve on the kept vector, so the result
     # carries NaN covariance/uncertainties and iterations==0 by construction —

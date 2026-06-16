@@ -1129,9 +1129,17 @@ def _fit_joint_averaged_multi_phi(
     # ------------------------------------------------------------------
     hierarchical_stage1_chi2: float | None = None
     if config.enable_hierarchical:
+        # The Stage-1 warm-start delegates to the (inherently per-angle)
+        # constant-mode solver. Name the FINAL averaged layout (2 scaling DOF)
+        # up front so the per-angle quantile arrays it logs are not misread as
+        # ``individual`` mode — the final fit re-optimizes averaged scaling and
+        # Stage-1's per-angle scaling is discarded.
         logger.info(
-            "L2 hierarchical (averaged mode) — Stage 1: physics-only solve "
-            "with quantile-fixed scaling"
+            "L2 Stage-1 warm-start (final mode: averaged): per-angle quantile "
+            "scaling frozen for WARM-START ONLY; final fit optimizes 2 averaged "
+            "scaling + %d physics = %d params",
+            n_physics_varying,
+            n_physics_varying + 2,
         )
         # Lazy import keeps the module out of heterodyne_core's namespace
         # except when explicitly used (consistent with the dispatch table).
@@ -1145,6 +1153,7 @@ def _fit_joint_averaged_multi_phi(
             phi_angles=phi_angles,
             config=config,
             weights=weights,
+            warm_start_context="L2 Stage-1 -> final mode averaged",
         )
         stage1_physics = np.asarray(stage1_result.parameters, dtype=np.float64)
         hierarchical_stage1_chi2 = float(stage1_result.chi_squared)
@@ -1375,8 +1384,16 @@ def _fit_joint_averaged_multi_phi(
         joint_param_names,
         config,
         {"c2": c2_data, "phi": phi_angles},
+        warm_success=bool(joint_result.success),
     )
     is_escape = global_escape_tag is not None
+    if global_escape_tag == "cmaes_warmstart_auto_skip":
+        # Auto-skip kept the CONVERGED warm-start vector UNCHANGED, so its NLSQ
+        # covariance / uncertainties / iteration stats are valid — preserve them
+        # (laminar parity: ``fit_nlsq_cmaes`` returns ``nlsq_warmstart_cov`` on
+        # skip). Build as a plain result for stats; the ``global_escape`` tag is
+        # set independently below, so the skip is still recorded.
+        is_escape = False
 
     fitted_physics = fitted_all[:n_physics_varying]
     fitted_contrast = float(fitted_all[n_physics_varying])
@@ -1694,6 +1711,33 @@ def _fit_joint_cmaes_multi_phi(
 
         def _data_ssr(x: np.ndarray) -> float:
             return float(np.sum(np.asarray(base_residual_fn(x), dtype=np.float64) ** 2))
+
+        # Phase 2 auto-skip — parity with laminar core.py:2354-2382 and the
+        # heterodyne per-angle escape (:func:`_fit_cmaes`): when the warm-start
+        # already lands a good fit (reduced χ² below threshold), skip the
+        # expensive global search and keep the warm-start.
+        _n_data_warm = int(np.asarray(base_residual_fn(x_warm)).size)
+        _skip, _reduced = _warmstart_auto_skip_decision(
+            config, "cmaes", ssr_warm, _n_data_warm, int(x_warm.size), bool(warm.success)
+        )
+        if _skip:
+            logger.info(
+                "Joint CMA-ES escape auto-skip: warm-start reduced χ²=%.4f < "
+                "threshold=%.1f; skipping global search (parity with laminar "
+                "core.py auto-skip).",
+                _reduced,
+                float(getattr(config, "cmaes_warmstart_skip_threshold", 5.0)),
+            )
+            # Auto-skip kept the CONVERGED warm-start UNCHANGED — return it
+            # verbatim so its real covariance / uncertainties / n_iterations are
+            # preserved (laminar parity: ``fit_nlsq_cmaes`` returns
+            # ``nlsq_warmstart_cov`` on skip), only re-tagged so callers see the
+            # auto-skip. Rebuilding via ``_build_joint_result(joint_result=None)``
+            # would NaN-fill the covariance the warm-start already solved.
+            _diag = dict(warm.nlsq_diagnostics) if warm.nlsq_diagnostics else {}
+            _diag["global_escape"] = "cmaes_warmstart_auto_skip"
+            warm.nlsq_diagnostics = _diag
+            return warm
 
         # Phase 2: CMA-ES global search over the joint residual. ``model_func``
         # returns the residual vector; ydata=zeros ⇒ CMA-ES minimises ||r||².
@@ -2151,6 +2195,58 @@ def _escape_keeps_candidate(ssr_warm: float, ssr_cand: float) -> bool:
     return bool(ssr_cand <= ssr_warm * (1.0 + 1e-12))
 
 
+def _warmstart_auto_skip_decision(
+    config: NLSQConfig,
+    escape_kind: str | None,
+    ssr_warm: float,
+    n_data: int,
+    n_params: int,
+    warm_success: bool = True,
+) -> tuple[bool, float]:
+    """CMA-ES warm-start auto-skip decision — parity with laminar core.py:2308-2382.
+
+    When the NLSQ warm-start CONVERGED and already lands a good fit (the
+    sigma-normalized reduced χ² ``SSR/dof`` is below
+    ``cmaes_warmstart_skip_threshold``), a warm-started global search is a local
+    refinement that rarely improves on it, so the expensive CMA-ES phase is
+    skipped. This mirrors laminar_flow's ``fit_nlsq_cmaes`` and the heterodyne
+    per-angle escape (:func:`_fit_cmaes`), which both honor the same knob; the
+    JOINT escapes previously dropped it.
+
+    ``warm_success`` is the deciding gate alongside the SSR threshold. Laminar
+    sets its warm-start params/chi2 to finite values ONLY on
+    ``warmstart_result["success"]`` (core.py:2316), so its auto-skip gate
+    (``params is not None and chi2 < inf``) fires ONLY for a CONVERGED
+    warm-start; the per-angle :func:`_fit_cmaes` likewise checks
+    ``nlsq_result.success``. This matters because XPCS ``C2`` data is normalized
+    (≈1), so ``SSR/dof`` is a tiny MSE that is essentially always below the
+    threshold — a DEGENERATE warm-start that does not converge but reverts to a
+    low-SSR ``x0`` (e.g. C044 ``two_component``) would otherwise be auto-skipped,
+    defeating the very CMA-ES escape that exists to rescue it. Gating on
+    ``warm_success`` keeps the global search running in exactly that case.
+
+    The decision is CMA-ES-specific (matches the knob name and laminar — a
+    ``multistart`` escape is never auto-skipped) and ``dof <= 0`` (more params
+    than data) never skips (a meaningless χ²/dof). Returns ``(skip, reduced_chi2)``
+    where ``reduced_chi2`` is ``inf`` whenever the decision short-circuits to
+    no-skip.
+    """
+    if escape_kind != "cmaes":
+        return False, float("inf")
+    if not warm_success:
+        # Non-converged warm-start: never auto-skip (parity with laminar +
+        # per-angle _fit_cmaes). The global search is what rescues it.
+        return False, float("inf")
+    if not bool(getattr(config, "cmaes_warmstart_auto_skip", True)):
+        return False, float("inf")
+    n_dof = n_data - n_params
+    if n_dof <= 0:
+        return False, float("inf")
+    reduced = ssr_warm / n_dof
+    threshold = float(getattr(config, "cmaes_warmstart_skip_threshold", 5.0))
+    return bool(np.isfinite(reduced) and reduced < threshold), reduced
+
+
 def _apply_global_escape(
     escape_kind: str | None,
     base_residual_fn: Any,
@@ -2161,6 +2257,8 @@ def _apply_global_escape(
     param_names: list[str],
     config: NLSQConfig,
     multistart_data: dict[str, Any],
+    *,
+    warm_success: bool = True,
 ) -> tuple[np.ndarray, str | None]:
     """Run a global escape over the data residual and keep-better vs ``x_warm``.
 
@@ -2178,7 +2276,25 @@ def _apply_global_escape(
     def _ssr(x: np.ndarray) -> float:
         return float(np.sum(np.asarray(base_residual_fn(x), dtype=np.float64) ** 2))
 
-    ssr_warm = _ssr(x_warm)
+    # Warm-start residual (one eval): SSR for keep-better + row count for the
+    # CMA-ES warm-start auto-skip decision below.
+    _r_warm = np.asarray(base_residual_fn(x_warm), dtype=np.float64)
+    ssr_warm = float(np.sum(_r_warm**2))
+
+    # Parity with laminar's CMA-ES auto-skip (core.py:2354-2382): when the NLSQ
+    # warm-start already lands a good fit, skip the expensive global search.
+    _skip, _reduced = _warmstart_auto_skip_decision(
+        config, escape_kind, ssr_warm, int(_r_warm.size), int(x_warm.size), warm_success
+    )
+    if _skip:
+        logger.info(
+            "Joint %s escape auto-skip: warm-start reduced χ²=%.4f < threshold=%.1f; "
+            "skipping global search (parity with laminar core.py auto-skip).",
+            escape_kind,
+            _reduced,
+            float(getattr(config, "cmaes_warmstart_skip_threshold", 5.0)),
+        )
+        return x_warm, "cmaes_warmstart_auto_skip"
     try:
         if escape_kind == "cmaes":
             cand = _cmaes_joint_candidate(base_residual_fn, x_warm, lb, ub, config)
@@ -2464,9 +2580,24 @@ def _build_joint_problem(
     # ------------------------------------------------------------------
     hierarchical_stage1_chi2: float | None = None
     if config.enable_hierarchical:
+        from xpcsjax.optimization.nlsq.per_angle_mode import n_optimized as _n_opt
+
+        # The Stage-1 warm-start delegates to the constant-mode solver, which is
+        # inherently per-angle (it freezes per-angle quantile scaling to converge
+        # physics cheaply). Name the resolved FINAL mode + its scaling DOF up
+        # front so the per-angle arrays the constant solver logs are not misread
+        # as the fit's scaling mode — the final fit re-optimizes under
+        # ``resolved_mode`` and Stage-1's per-angle scaling is discarded.
+        _final_scaling_dof = _n_opt(resolved_mode, n_phi)
         logger.info(
-            "L2 hierarchical (scaling-first) — Stage 1: physics-only solve "
-            "with quantile-fixed scaling"
+            "L2 Stage-1 warm-start (final mode: %s): per-angle quantile scaling "
+            "frozen for WARM-START ONLY; final fit optimizes %d %s scaling + "
+            "%d physics = %d params",
+            resolved_mode,
+            _final_scaling_dof,
+            resolved_mode,
+            n_physics_varying,
+            _final_scaling_dof + n_physics_varying,
         )
         from xpcsjax.optimization.nlsq.heterodyne_constant_mode import (
             _fit_joint_constant_multi_phi,
@@ -2478,6 +2609,7 @@ def _build_joint_problem(
             phi_angles=phi_angles,
             config=config,
             weights=weights,
+            warm_start_context=f"L2 Stage-1 -> final mode {resolved_mode}",
         )
         stage1_physics = np.asarray(stage1_result.parameters, dtype=np.float64)
         hierarchical_stage1_chi2 = float(stage1_result.chi_squared)
