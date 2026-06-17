@@ -2710,8 +2710,11 @@ def _build_floor_fallback_x0(
 
     from xpcsjax.optimization.nlsq.per_angle_mode import PerAngleScalingPlan
 
+    # The guard above proves ``resolved_mode == "individual"`` here; pass the literal
+    # so mypy can satisfy ``PerAngleScalingPlan.mode``'s ``Literal[...]`` annotation
+    # (it cannot narrow a broad ``str`` through a single ``!=`` comparison).
     fallback_plan = PerAngleScalingPlan(
-        mode=resolved_mode,
+        mode="individual",
         n_phi=n_phi,
         n_physics=n_physics_varying,
         quantile_scaling=(pac, pao),
