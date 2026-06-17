@@ -315,9 +315,9 @@
     "semantic_hash": "57749573517f3c424148dd5b38fefec2"
   },
   "tests/optimization/test_strategy_executors.py": {
-    "mtime": 1780525312.8033493,
-    "ast_hash": "7c90ff2636a8c31431a9573a1972a03b",
-    "semantic_hash": "7c90ff2636a8c31431a9573a1972a03b"
+    "mtime": 1781721623.0818386,
+    "ast_hash": "7b7b999cccf7daeeeb6f69ef254f3854",
+    "semantic_hash": ""
   },
   "tests/optimization/test_strategy_residual.py": {
     "mtime": 1780525312.8013494,
@@ -965,8 +965,8 @@
     "semantic_hash": "ee72294efeade3a07e940561d4ff133f"
   },
   "xpcsjax/optimization/nlsq/__init__.py": {
-    "mtime": 1781653527.8299074,
-    "ast_hash": "74d683e94156f9946c0427b29e350d51",
+    "mtime": 1781721627.1758354,
+    "ast_hash": "3cecd528258751b1022981095af45196",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/cmaes_wrapper.py": {
@@ -1075,8 +1075,8 @@
     "semantic_hash": "e1fcd9c5e60ce507b9bc764a04758823"
   },
   "xpcsjax/optimization/nlsq/heterodyne_core.py": {
-    "mtime": 1781666055.4386146,
-    "ast_hash": "3377a96bd7f258a0296050ab5f9e9ca3",
+    "mtime": 1781721627.1778355,
+    "ast_hash": "347502cdb2d248c95b96a76de7b0fd61",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/result_builder.py": {
@@ -1145,9 +1145,9 @@
     "semantic_hash": "84a5ebdf336c84b8d117a8a461f4b9e3"
   },
   "xpcsjax/optimization/nlsq/strategies/executors.py": {
-    "mtime": 1781049251.0927863,
-    "ast_hash": "028753c0d2f8f43b4ff46021ee23c78c",
-    "semantic_hash": "028753c0d2f8f43b4ff46021ee23c78c"
+    "mtime": 1781721623.0828385,
+    "ast_hash": "154e8eff001dddf5bf0415fb5c7197de",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/strategies/__init__.py": {
     "mtime": 1779410489.7128606,
@@ -1245,9 +1245,9 @@
     "semantic_hash": "68d46b11b2e74545134d998d5e005fb1"
   },
   "xpcsjax/data/xpcs_loader.py": {
-    "mtime": 1781469355.4567037,
-    "ast_hash": "f5e7d48cb62a0a9af25c1d4c2c170377",
-    "semantic_hash": "f5e7d48cb62a0a9af25c1d4c2c170377"
+    "mtime": 1781721618.507842,
+    "ast_hash": "b10aba50a57525ec156082045e424ab2",
+    "semantic_hash": ""
   },
   "xpcsjax/data/filtering_utils.py": {
     "mtime": 1780671715.0441997,
@@ -1275,9 +1275,9 @@
     "semantic_hash": "e113cc16b7b2a2032cb332c8437123c9"
   },
   "xpcsjax/config/heterodyne_parameter_space.py": {
-    "mtime": 1781209788.1365511,
-    "ast_hash": "aba977eb6e14b43cfe367f4c129ba107",
-    "semantic_hash": "aba977eb6e14b43cfe367f4c129ba107"
+    "mtime": 1781721613.7158456,
+    "ast_hash": "ac99d2ef659e72de38e031e87a68d550",
+    "semantic_hash": ""
   },
   "xpcsjax/config/parameter_registry.py": {
     "mtime": 1781207084.4767058,
@@ -1380,9 +1380,9 @@
     "semantic_hash": "8c447ee38eba506d2c51efd97168cfaf"
   },
   "xpcsjax/cli/config_generator.py": {
-    "mtime": 1780671715.0341997,
-    "ast_hash": "3f70d607197b3293aa30b1075b4cb611",
-    "semantic_hash": "3f70d607197b3293aa30b1075b4cb611"
+    "mtime": 1781721613.7148454,
+    "ast_hash": "4d28edf06f5af2c4a4be77492688a043",
+    "semantic_hash": ""
   },
   "xpcsjax/cli/xla_config.py": {
     "mtime": 1780671715.0361996,
@@ -1420,14 +1420,14 @@
     "semantic_hash": "626b77766edaa5c764c3006760932717"
   },
   "xpcsjax/core/jax_backend.py": {
-    "mtime": 1781180232.7429528,
-    "ast_hash": "fb567757349ee2fb33a8d1c4ad2eab6d",
-    "semantic_hash": "fb567757349ee2fb33a8d1c4ad2eab6d"
+    "mtime": 1781721613.7158456,
+    "ast_hash": "debf5178fd3cbccbf2f3bfc5c18df52b",
+    "semantic_hash": ""
   },
   "xpcsjax/core/models.py": {
-    "mtime": 1780671715.0421996,
-    "ast_hash": "d54726115d4f65ccb03bd791c4ea1225",
-    "semantic_hash": "d54726115d4f65ccb03bd791c4ea1225"
+    "mtime": 1781721613.7158456,
+    "ast_hash": "7c92a80d9c1e22cf3a975ea16c6ad0b3",
+    "semantic_hash": ""
   },
   "xpcsjax/core/heterodyne_physics_kernel.py": {
     "mtime": 1780671715.0401995,
@@ -1830,7 +1830,7 @@
     "semantic_hash": "c9a0ae8967b6fcf83942b9eac9d5aa23"
   },
   "xpcsjax/config/templates/xpcsjax_two_component.yaml": {
-    "mtime": 1781666016.955151,
+    "mtime": 1781697356.6159048,
     "ast_hash": "9d138e793f324d107991204a412e7fba",
     "semantic_hash": ""
   },
@@ -2080,9 +2080,9 @@
     "semantic_hash": "c9a61a64ebcc302739ed116ed1128437"
   },
   "tests/optimization/test_joint_ssr_floor.py": {
-    "mtime": 1781626105.1750662,
-    "ast_hash": "5bee07b7a88e5eb2072c3ebb8150863a",
-    "semantic_hash": "5bee07b7a88e5eb2072c3ebb8150863a"
+    "mtime": 1781721627.1758354,
+    "ast_hash": "653d1ae07d3594932f6de676abe7453b",
+    "semantic_hash": ""
   },
   "tests/optimization/test_heterodyne_cmaes_warmstart_auto_skip.py": {
     "mtime": 1781585905.197186,
@@ -2102,6 +2102,46 @@
   "tests/optimization/test_cmaes_multiseed_keep_best.py": {
     "mtime": 1781663825.7484698,
     "ast_hash": "51297fe1fb0994ab0b3ae7e0839ba425",
+    "semantic_hash": ""
+  },
+  "tests/cli/test_config_generator_yaml.py": {
+    "mtime": 1781721613.7148454,
+    "ast_hash": "e47951d75cca7784cd7aa179a25c3e20",
+    "semantic_hash": ""
+  },
+  "tests/config/test_heterodyne_grouped_coercion.py": {
+    "mtime": 1781721613.7148454,
+    "ast_hash": "d0027a94476816ad3b1fcef130a34d21",
+    "semantic_hash": ""
+  },
+  "tests/core/test_jax_backend_gradient_g2.py": {
+    "mtime": 1781721613.7148454,
+    "ast_hash": "91120e90a00f4130b888845c1798ad2f",
+    "semantic_hash": ""
+  },
+  "tests/core/test_models_chi_squared_dt.py": {
+    "mtime": 1781721613.7148454,
+    "ast_hash": "d5ade6d3e2b892cb4fb460baaf4dbedf",
+    "semantic_hash": ""
+  },
+  "tests/data/test_aps_u_empty_selection.py": {
+    "mtime": 1781721618.506842,
+    "ast_hash": "224032f756eb022e65970245655157ff",
+    "semantic_hash": ""
+  },
+  "tests/data/test_cache_q_validation.py": {
+    "mtime": 1781721618.506842,
+    "ast_hash": "fdcb658bf4d875996ad96317837d5f9a",
+    "semantic_hash": ""
+  },
+  "tests/optimization/test_escape_disabled_hint.py": {
+    "mtime": 1781721627.1748354,
+    "ast_hash": "59fa5365af5b9ed0eb3b2ab83b4bf0b8",
+    "semantic_hash": ""
+  },
+  "tests/optimization/test_heterodyne_completion_layout.py": {
+    "mtime": 1781721623.0818386,
+    "ast_hash": "371af47bb582ef707bde1f9b121a8c43",
     "semantic_hash": ""
   }
 }
