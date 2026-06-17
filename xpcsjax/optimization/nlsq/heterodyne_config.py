@@ -579,6 +579,9 @@ class NLSQConfig:
     cmaes_warmstart_skip_threshold: float = 5.0
     cmaes_restart_strategy: str = "bipop"
     cmaes_max_restarts: int = 9
+    # Independent seed draws for the joint CMA-ES escape; lowest data-only SSR is
+    # kept (the global search is not run-to-run reproducible). 1 = single seed.
+    cmaes_n_seeds: int = 1
 
     # ------------------------------------------------------------------
     # Hybrid streaming optimizer
@@ -679,6 +682,8 @@ class NLSQConfig:
             )
         if self.cmaes_max_restarts < 0:
             raise ValueError("cmaes_max_restarts must be >= 0")
+        if self.cmaes_n_seeds < 1:
+            raise ValueError("cmaes_n_seeds must be >= 1")
         if not (0 < self.hybrid_warmup_fraction < 1):
             raise ValueError("hybrid_warmup_fraction must be in (0, 1)")
         if not (0 < self.screen_keep_fraction <= 1):
@@ -886,6 +891,7 @@ class NLSQConfig:
             "cmaes_warmstart_skip_threshold": "float",
             "cmaes_restart_strategy": "str",
             "cmaes_max_restarts": "int",
+            "cmaes_n_seeds": "int",
             # Hybrid streaming optimizer
             "hybrid_enable": "bool",
             "hybrid_warmup_fraction": "float",
@@ -1036,6 +1042,7 @@ class NLSQConfig:
                 "cmaes_warmstart_skip_threshold",
                 raw_cmaes.get("warmstart_skip_threshold", _SENTINEL),
             )
+            _set_from_nested("cmaes_n_seeds", raw_cmaes.get("n_seeds", _SENTINEL))
         elif raw_cmaes is not None:
             logger.warning(
                 "NLSQConfig.from_dict: 'cmaes' must be a dict, got %r — ignoring",
@@ -1262,6 +1269,7 @@ class NLSQConfig:
             "cmaes_warmstart_skip_threshold": self.cmaes_warmstart_skip_threshold,
             "cmaes_restart_strategy": self.cmaes_restart_strategy,
             "cmaes_max_restarts": self.cmaes_max_restarts,
+            "cmaes_n_seeds": self.cmaes_n_seeds,
             # Hybrid streaming optimizer
             "hybrid_enable": self.hybrid_enable,
             "hybrid_warmup_fraction": self.hybrid_warmup_fraction,

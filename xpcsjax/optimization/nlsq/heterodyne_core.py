@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, get_args
@@ -1623,9 +1623,19 @@ def _fit_joint_averaged_multi_phi(
     )
 
 
-# Deterministic seed pinned on the joint CMA-ES escape. ``CMAESWrapperConfig``
-# (and NLSQ's ``CMAESConfig``) default ``seed=None`` → non-reproducible; the
-# escape MUST pin it so the global search is bit-reproducible run to run.
+# Base seed for the joint CMA-ES escape. ``CMAESWrapperConfig`` (and NLSQ's
+# ``CMAESConfig``) default ``seed=None`` → fully non-reproducible; pinning it
+# removes the sampler's own RNG as a variable.
+#
+# IMPORTANT — pinning the seed does NOT make the escape bit-reproducible run to
+# run. The objective is a ~3M-point JAX residual whose XLA float-reduction order
+# is not stable across runs, and the basin-fragile non-convex search amplifies
+# that into different basins (RCA 2026-06-16: C044 ``two_component`` drew SSR
+# 5546/beta=-0.41 on one run and SSR 8737/beta=-0.03 on the next, SAME seed,
+# 221 vs 354 generations). ``cmaes_n_seeds`` (default 1) runs the escape over
+# ``[_JOINT_CMAES_SEED + i]`` and keeps the lowest-SSR draw to raise the chance
+# of landing the good basin — strictly keep-better (see
+# :func:`_cmaes_keep_best_over_seeds`).
 _JOINT_CMAES_SEED = 42
 
 # Per-angle CMA-ES escape seed. Offset by ``angle_idx`` at the call site so each
@@ -1635,6 +1645,58 @@ _JOINT_CMAES_SEED = 42
 # per-angle ``_fit_cmaes`` path left ``CMAESWrapperConfig.seed=None`` →
 # non-reproducible, unlike the seed-pinned joint escapes.
 _PER_ANGLE_CMAES_SEED = 42
+
+
+def _cmaes_keep_best_over_seeds(
+    *,
+    run_one_seed: Callable[[int], Any],
+    seeds: Sequence[int],
+    data_ssr: Callable[[np.ndarray], float],
+) -> tuple[Any, float, int]:
+    """Run the joint CMA-ES escape once per seed; keep the lowest-SSR draw.
+
+    The joint global search is NOT bit-reproducible run to run (XLA reduction
+    order over the ~3M-point objective; basin-fragile non-convex search), so a
+    single seed gambles on the basin. Running ``len(seeds)`` separate draws
+    and keeping the one with the smallest DATA-ONLY SSR raises the probability of
+    landing the good basin. This is strictly keep-better: a worse draw can never
+    displace a better one.
+
+    Parameters
+    ----------
+    run_one_seed
+        Runs the CMA-ES escape with the given seed, returning its
+        :class:`OptimizationResult` (``success`` / ``parameters``).
+    seeds
+        Seeds to try, in order. ``len == 1`` returns that single run's result
+        object verbatim (byte-identical to the pre-multiseed path).
+    data_ssr
+        Data-only SSR at a parameter vector — the keep-better unit (excludes any
+        L3 penalty rows), matching the caller's warm-start comparison.
+
+    Returns
+    -------
+    tuple
+        ``(best_result, best_ssr, best_seed)``. A run that did not succeed (or
+        has no parameters) scores ``+inf`` so it is only kept when nothing better
+        exists (the caller still floors the survivor against the warm-start).
+        Ties keep the EARLIER seed, so a single-seed run and the first seed of a
+        multi-seed run select identically.
+    """
+    best_result: Any = None
+    best_ssr = float("inf")
+    best_seed = int(seeds[0])
+    for seed in seeds:
+        res = run_one_seed(int(seed))
+        if getattr(res, "success", False) and res.parameters is not None:
+            ssr = data_ssr(np.asarray(res.parameters, dtype=np.float64))
+        else:
+            ssr = float("inf")
+        # Strict ``<`` ⇒ earlier seed wins ties; first iteration always seeds best.
+        if best_result is None or ssr < best_ssr:
+            best_result, best_ssr, best_seed = res, ssr, int(seed)
+    assert best_result is not None, "seeds is non-empty so the loop ran at least once"
+    return best_result, best_ssr, best_seed
 
 
 def _fit_joint_cmaes_multi_phi(
@@ -1757,51 +1819,84 @@ def _fit_joint_cmaes_multi_phi(
 
         from xpcsjax.optimization.nlsq.cmaes_wrapper import CMAESWrapperConfig
 
-        # Build the wrapper config by hand (NOT ``from_nlsq_config``): that
-        # helper expects the *homodyne* NLSQConfig (different field names —
-        # heterodyne uses ``cmaes_max_iterations`` / ``cmaes_tolx`` /
-        # ``cmaes_tolfun``). Same rationale as the per-angle ``_fit_cmaes``.
-        # The seed is PINNED so the global search is bit-reproducible.
-        cfg_cmaes = CMAESWrapperConfig(
-            seed=_JOINT_CMAES_SEED,
-            refine_with_nlsq=True,
-            max_generations=getattr(config, "cmaes_max_iterations", None),
-            popsize=getattr(config, "cmaes_population_size", None),
-            tol_x=float(getattr(config, "cmaes_tolx", 1e-8)),
-            tol_fun=float(getattr(config, "cmaes_tolfun", 1e-8)),
-            restart_strategy=str(getattr(config, "cmaes_restart_strategy", "bipop")),
-            max_restarts=int(getattr(config, "cmaes_max_restarts", 9)),
-        )
-
         assert fit_with_cmaes is not None, "HAS_CMAES guards entry to the escape"
-        logger.info(
-            "Joint CMA-ES escape: Phase 2/2 — global search over %d-dim residual "
-            "(seed=%d, warm SSR=%.6e; this is the long, silent step — minutes are "
-            "normal, not a hang)",
-            rdim,
-            _JOINT_CMAES_SEED,
-            ssr_warm,
-        )
-        cres = fit_with_cmaes(
-            model_func=model_func,
-            xdata=np.arange(rdim, dtype=np.float64),
-            ydata=np.zeros(rdim, dtype=np.float64),
-            p0=x_warm,
-            bounds=(prob.lb, prob.ub),
-            sigma=None,
-            config=cfg_cmaes,
-        )
 
-        # Phase 3: keep-better. ``fit_with_cmaes`` reports the FULL residual SSR
-        # as ``chi_squared`` (sum of squared residuals over the vector we fed
-        # it); recompute the data-only SSR at the CMA-ES optimum for a clean
-        # comparison with the warm-start's data-only ``chi_squared``.
-        if cres.success and cres.parameters is not None:
-            x_cmaes = np.asarray(cres.parameters, dtype=np.float64)
-            cmaes_ssr = _data_ssr(x_cmaes)
-        else:
-            x_cmaes = x_warm
-            cmaes_ssr = float("inf")
+        # Multi-seed keep-best. The global search is NOT bit-reproducible run to
+        # run (XLA float-reduction order over the ~3M-point objective varies, and
+        # the basin-fragile non-convex search amplifies it into different basins —
+        # RCA 2026-06-16, C044 ``two_component``: SSR 5546/beta=-0.41 vs SSR
+        # 8737/beta=-0.03, SAME seed, 221 vs 354 generations). Running
+        # ``cmaes_n_seeds`` separate draws and keeping the lowest data-only SSR
+        # raises the chance of landing the good basin. ``cmaes_n_seeds`` defaults
+        # to 1 ⇒ a single ``seed=_JOINT_CMAES_SEED`` draw, byte-identical to the
+        # pre-multiseed path; draw ``i`` is seeded ``_JOINT_CMAES_SEED + i``.
+        n_seeds = max(1, int(getattr(config, "cmaes_n_seeds", 1)))
+        seeds = [_JOINT_CMAES_SEED + i for i in range(n_seeds)]
+
+        def _run_one_seed(seed: int) -> Any:
+            # Build the wrapper config by hand (NOT ``from_nlsq_config``): that
+            # helper expects the *homodyne* NLSQConfig (different field names —
+            # heterodyne uses ``cmaes_max_iterations`` / ``cmaes_tolx`` /
+            # ``cmaes_tolfun``). Same rationale as the per-angle ``_fit_cmaes``.
+            cfg_cmaes = CMAESWrapperConfig(
+                seed=seed,
+                refine_with_nlsq=True,
+                max_generations=getattr(config, "cmaes_max_iterations", None),
+                popsize=getattr(config, "cmaes_population_size", None),
+                tol_x=float(getattr(config, "cmaes_tolx", 1e-8)),
+                tol_fun=float(getattr(config, "cmaes_tolfun", 1e-8)),
+                restart_strategy=str(getattr(config, "cmaes_restart_strategy", "bipop")),
+                max_restarts=int(getattr(config, "cmaes_max_restarts", 9)),
+            )
+            logger.info(
+                "Joint CMA-ES escape: Phase 2/2 — global search over %d-dim "
+                "residual (seed=%d, warm SSR=%.6e; this is the long, silent step "
+                "— minutes are normal, not a hang)",
+                rdim,
+                seed,
+                ssr_warm,
+            )
+            return fit_with_cmaes(
+                model_func=model_func,
+                xdata=np.arange(rdim, dtype=np.float64),
+                ydata=np.zeros(rdim, dtype=np.float64),
+                p0=x_warm,
+                bounds=(prob.lb, prob.ub),
+                sigma=None,
+                config=cfg_cmaes,
+            )
+
+        if n_seeds > 1:
+            logger.info(
+                "Joint CMA-ES escape: multi-seed keep-best over %d seeds %s — the "
+                "non-convex objective is not run-to-run reproducible; keeping the "
+                "lowest data-only SSR draw (strictly keep-better).",
+                n_seeds,
+                seeds,
+            )
+
+        # Phase 3: keep-better. ``_cmaes_keep_best_over_seeds`` already computes
+        # the DATA-ONLY SSR (``_data_ssr``, excluding any L3 penalty rows) at each
+        # successful draw — the same unit as the warm-start's ``chi_squared`` — so
+        # ``cmaes_ssr`` is directly comparable below.
+        cres, cmaes_ssr, best_seed = _cmaes_keep_best_over_seeds(
+            run_one_seed=_run_one_seed,
+            seeds=seeds,
+            data_ssr=_data_ssr,
+        )
+        if n_seeds > 1:
+            logger.info(
+                "Joint CMA-ES escape: kept seed=%d (data-only SSR=%.6e) as the "
+                "best of %d draws.",
+                best_seed,
+                cmaes_ssr,
+                n_seeds,
+            )
+        x_cmaes = (
+            np.asarray(cres.parameters, dtype=np.float64)
+            if (cres.success and cres.parameters is not None)
+            else x_warm
+        )
 
         if cres.success and cmaes_ssr <= ssr_warm * (1.0 + 1e-12):
             x_final, escape = x_cmaes, "cmaes"

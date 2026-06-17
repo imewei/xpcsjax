@@ -637,6 +637,21 @@ optimization:
                                           # for 14-D — alternates large/small populations)
       max_restarts: 10                    # max BIPOP restarts. CONSTRAINT: >= 0
                                           # 14-D often needs more restarts than 3-D static.
+      n_seeds: 1                          # separate seed draws for the JOINT escape;
+                                          # the lowest data-only SSR is kept (strictly
+                                          # keep-better). CONSTRAINT: >= 1.
+                                          # WHY >1: the global search is NOT run-to-run
+                                          # reproducible even with a pinned seed — the
+                                          # ~3M-point objective's XLA reduction order
+                                          # varies, and the basin-fragile non-convex
+                                          # search amplifies it into different basins
+                                          # (C044 drew SSR 5546/v_beta=-0.41 = good fan
+                                          # on one run, SSR 8737/v_beta=-0.03 = flat fan
+                                          # on the next, SAME seed). Set 3+ for a
+                                          # degenerate 14-D fit to raise the chance of
+                                          # the good basin. Runtime scales ~linearly
+                                          # (each draw is a full CMA-ES global search).
+                                          # 1 = single seed (legacy behavior).
       memory_limit_gb: 8.0                # cap for auto-sizing. CONSTRAINT: > 0
       auto_select: true                   # ⚠ For 14-D heterodyne, auto-engagement is
                                           # the NORM — scale_ratio routinely > 1e5.

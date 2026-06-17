@@ -352,6 +352,11 @@ class NLSQConfig:
     cmaes_tol_x: float = 1e-8  # Parameter tolerance for convergence
     cmaes_restart_strategy: str = "bipop"  # "none" or "bipop" (alternating populations)
     cmaes_max_restarts: int = 9  # Maximum BIPOP restarts
+    # Number of separate seed draws for the joint CMA-ES escape; the lowest
+    # data-only SSR is kept (the global search is NOT run-to-run reproducible).
+    # 1 ⇒ single seed = pre-multiseed behavior. See heterodyne_core
+    # ``_cmaes_keep_best_over_seeds``. Runtime scales ~linearly with this.
+    cmaes_n_seeds: int = 1
     cmaes_population_batch_size: int | None = None  # Memory batching (None = auto)
     cmaes_data_chunk_size: int | None = None  # Data streaming (None = auto)
     cmaes_refine_with_nlsq: bool = True  # Refine CMA-ES solution with NLSQ TRF
@@ -544,6 +549,7 @@ class NLSQConfig:
             cmaes_tol_x=float(cmaes.get("tol_x", 1e-8)),
             cmaes_restart_strategy=cmaes.get("restart_strategy", "bipop"),
             cmaes_max_restarts=cmaes.get("max_restarts", 9),
+            cmaes_n_seeds=cmaes.get("n_seeds", 1),
             cmaes_population_batch_size=cmaes.get("population_batch_size"),
             cmaes_data_chunk_size=cmaes.get("data_chunk_size"),
             cmaes_refine_with_nlsq=cmaes.get("refine_with_nlsq", True),
@@ -903,6 +909,8 @@ class NLSQConfig:
                 f"cmaes_restart_strategy must be one of {valid_restart_strategies}, "
                 f"got: {self.cmaes_restart_strategy}"
             )
+        if self.cmaes_n_seeds < 1:
+            errors.append(f"cmaes_n_seeds must be >= 1, got: {self.cmaes_n_seeds}")
         if self.cmaes_max_restarts < 0:
             errors.append(
                 f"cmaes_max_restarts must be non-negative, got: {self.cmaes_max_restarts}"
@@ -1091,6 +1099,7 @@ class NLSQConfig:
                 "tol_x": self.cmaes_tol_x,
                 "restart_strategy": self.cmaes_restart_strategy,
                 "max_restarts": self.cmaes_max_restarts,
+                "n_seeds": self.cmaes_n_seeds,
                 "population_batch_size": self.cmaes_population_batch_size,
                 "data_chunk_size": self.cmaes_data_chunk_size,
                 "refine_with_nlsq": self.cmaes_refine_with_nlsq,
