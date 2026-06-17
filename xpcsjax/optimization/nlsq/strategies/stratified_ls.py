@@ -460,8 +460,13 @@ def fit_with_stratified_least_squares(
         # params = [contrast_avg, offset_avg, D0, ...], so D0 is at index 2.
         # In individual mode, D0 is at index 2*n_phi. In constant, D0
         # is at index 0 (no scaling params in vector).
+        # Discriminate on the controller state, NOT on len(initial_params): a
+        # constant vector is physical-only and also has length > 2, so the
+        # length test alone would mis-pick phys_idx=2 (a scaling slot) for it.
         if effective_per_angle_scaling:
-            phys_idx = 2 * residual_fn.n_phi  # individual mode
+            phys_idx = 2 * residual_fn.n_phi  # individual: [c_0..,o_0.., physics]
+        elif ad_controller is not None and ad_controller.use_fixed_scaling:
+            phys_idx = 0  # constant: physical-only vector, no scaling head
         elif len(initial_params) > 2:
             phys_idx = 2  # averaged: [contrast_avg, offset_avg, D0, ...]
         else:
@@ -494,10 +499,16 @@ def fit_with_stratified_least_squares(
                 log.error(
                     f"  Expected for per-angle scaling: {len(physical_param_names)} physical + 2*{residual_fn.n_phi} scaling = {expected_count}"
                 )
+            elif ad_controller is not None and ad_controller.use_fixed_scaling:
+                # constant freezes scaling out of the optimizer vector.
+                expected_count = len(physical_param_names)
+                log.error(
+                    f"  Expected for constant scaling: {len(physical_param_names)} physical + 0 scaling = {expected_count}"
+                )
             else:
                 expected_count = len(physical_param_names) + 2
                 log.error(
-                    f"  Expected for constant scaling: {len(physical_param_names)} physical + 2 scaling = {expected_count}"
+                    f"  Expected for averaged scaling: {len(physical_param_names)} physical + 2 scaling = {expected_count}"
                 )
             log.error(
                 f"  Residual function expects: per_angle_scaling={effective_per_angle_scaling}, n_phi={residual_fn.n_phi}"

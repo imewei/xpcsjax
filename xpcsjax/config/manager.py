@@ -1057,7 +1057,16 @@ class ConfigManager:
         memory_fraction = nlsq_config.get("memory_fraction")
         if memory_fraction:
             logger.debug(f"Memory fraction: {memory_fraction}")
-            if not (0 < memory_fraction < 1):
+            # Guard the ordered comparison: a non-numeric value (e.g. a quoted
+            # YAML scalar parsed as str) would raise TypeError on `0 < value`.
+            if not isinstance(memory_fraction, (int, float)) or isinstance(
+                memory_fraction, bool
+            ):
+                logger.warning(
+                    "memory_fraction=%s is not numeric; should be a float between 0 and 1",
+                    memory_fraction,
+                )
+            elif not (0 < memory_fraction < 1):
                 logger.warning(
                     "memory_fraction=%s outside valid range (0, 1); should be between 0 and 1",
                     memory_fraction,
@@ -1256,36 +1265,46 @@ class ConfigManager:
             folder_path = exp_data["data_folder_path"]
             filename = exp_data["data_file_name"]
 
-            # Skip normalization if either value is None
+            # Compose only when both values are present. Skip just this block on
+            # None (do not early-return — phi normalization below is separate
+            # and must still run).
             if folder_path is None or filename is None:
                 logger.debug(
                     "Skipping normalization: data_folder_path or data_file_name is None",
                 )
-                return
+            else:
+                folder = Path(folder_path)
 
-            folder = Path(folder_path)
+                # Resolve relative paths for consistency
+                # Note: Keep as-is if already absolute to preserve user intent
+                file_path = folder / filename
 
-            # Resolve relative paths for consistency
-            # Note: Keep as-is if already absolute to preserve user intent
-            file_path = folder / filename
-
-            # Add modern format while preserving legacy fields
-            exp_data["file_path"] = str(file_path)
-            logger.info(
-                f"Normalized legacy config format:\n"
-                f"   {folder} + {filename}\n"
-                f"   -> file_path: {file_path}",
-            )
+                # Add modern format while preserving legacy fields
+                exp_data["file_path"] = str(file_path)
+                logger.info(
+                    f"Normalized legacy config format:\n"
+                    f"   {folder} + {filename}\n"
+                    f"   -> file_path: {file_path}",
+                )
 
         # Handle phi angles similarly
         if "phi_angles_path" in exp_data and "phi_angles_file" in exp_data:
-            phi_folder = Path(exp_data["phi_angles_path"])
-            phi_file = exp_data["phi_angles_file"]
-            phi_path = phi_folder / phi_file
+            phi_path_val = exp_data["phi_angles_path"]
+            phi_file_val = exp_data["phi_angles_file"]
 
-            # Add combined path for convenience
-            exp_data["phi_angles_full_path"] = str(phi_path)
-            logger.debug(f"Normalized phi angles path: {phi_path}")
+            # Mirror the data-folder None guard: a present-but-null path/file
+            # would otherwise raise TypeError inside Path()/__truediv__.
+            if phi_path_val is None or phi_file_val is None:
+                logger.debug(
+                    "Skipping phi-angle normalization: phi_angles_path or "
+                    "phi_angles_file is None",
+                )
+            else:
+                phi_path = Path(phi_path_val) / phi_file_val
+
+                # Add combined path for convenience
+                exp_data["phi_angles_full_path"] = str(phi_path)
+                logger.debug(f"Normalized phi angles path: {phi_path}")
 
 
 def load_xpcs_config(config_path: str) -> dict[str, Any]:

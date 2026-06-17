@@ -946,6 +946,11 @@ class XPCSDataLoader:
 
         validate_save_path(cache_path, allowed_extensions=(".npz",), require_parent_exists=False)
 
+        # Track the genuine pre-filter correlation-matrix count for the
+        # quality-control retention metric. Reset per load; only the HDF paths
+        # populate it (a cache hit has no pre-filter baseline to compare against).
+        self._n_prefilter_matrices: int | None = None
+
         # If user provided a direct NPZ path, prefer it
         direct_path = os.path.join(data_folder, data_file) if data_file else ""
         if direct_path.endswith(".npz") and os.path.exists(direct_path):
@@ -1001,6 +1006,11 @@ class XPCSDataLoader:
 
         # Apply filtering with quality control validation
         if quality_controller:
+            # Hand the genuine pre-filter matrix count to the controller so the
+            # retention metric compares post-filter vs the TRUE pre-filter count
+            # (the loader already filtered `data` before either QC stage runs, so
+            # the RAW-stage shape is NOT a valid baseline). None on cache hits.
+            quality_controller._prefilter_matrix_count = self._n_prefilter_matrices
             filtered_validation_result = quality_controller.validate_data_stage(
                 data,
                 quality_controller.QualityControlStage.FILTERED_DATA,
@@ -1112,6 +1122,12 @@ class XPCSDataLoader:
                     "format stores metadata as JSON under "
                     "'cache_metadata_json'."
                 )
+            # No metadata key at all: this is a plain source NPZ (e.g. a
+            # user-provided data file via ``data_file_name``), NOT a q-selective
+            # cache. Its q lives in ``wavevector_q_list`` inside the file, so there
+            # is no cross-q reuse to guard against — load it directly. Only
+            # SELECTIVE caches (always carrying ``cache_metadata_json``) need the
+            # q-vector validation above.
 
             # Extract correlation data — np.array() copies from mmap before
             # the context manager closes the file (prevents dangling mmap views).
@@ -1275,6 +1291,8 @@ class XPCSDataLoader:
                     f"APS old-format HDF5 file contains no correlation matrices "
                     f"in 'exchange/C2T_all': {hdf_path}"
                 )
+            # Pre-filter baseline: all candidate matrices before (q,phi) selection.
+            self._n_prefilter_matrices = len(c2_keys)
 
             # Check if quality-based filtering is enabled (requires loading all matrices)
             filtering_config = self.config.get("data_filtering", {})
@@ -1490,6 +1508,8 @@ class XPCSDataLoader:
             logger.debug(
                 f"Processed bins: {len(processed_bins)} correlation matrices available",
             )
+            # Pre-filter baseline: all available bins before (q,phi) validity selection.
+            self._n_prefilter_matrices = len(processed_bins)
 
             # The processed_bins represent which (q,phi) combinations have correlation data
             # We need to map these to actual (q,phi) pairs using the grid structure

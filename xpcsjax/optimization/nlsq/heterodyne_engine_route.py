@@ -576,11 +576,26 @@ def fit_two_component_via_engine(
 
     n_total_params = int(popt_sf.size)
     data_valid = n_phi * (int(c2.shape[1]) - 1) * (int(c2.shape[1]) - 2)
+    # reduced-chi2 uses the EXPANDED constrained-model DOF (spec §5 decision 3),
+    # NOT the compressed optimizer count: averaged -> 2*n_phi + n_physics (the 2
+    # averaged scalars constrain 2*n_phi per-angle DOF), constant -> n_physics,
+    # individual -> len(popt). This matches heterodyne_result_builder so every
+    # averaged path reports a consistent metric. n_total_params (optimizer DOF)
+    # is still used for the covariance shape check below.
+    from xpcsjax.optimization.nlsq.per_angle_mode import effective_constrained_dof
+
+    _dof_params = n_total_params
+    if mode in ("constant", "averaged", "individual"):
+        _eff_dof = effective_constrained_dof(
+            mode, n_phi=n_phi, n_physical=int(physics_fitted.size)
+        )
+        if _eff_dof is not None:
+            _dof_params = int(_eff_dof)
     reduced_chi2 = noise_normalized_reduced_chi2(
         ssr=chi_squared,
         c2_data=np.asarray(c2, dtype=np.float64),
         n_data_valid=int(data_valid),
-        n_params=n_total_params,
+        n_params=_dof_params,
     )
 
     # -- Covariance / uncertainties (optimizer-DOF side, scaling-first) -----
@@ -711,6 +726,7 @@ def _assemble_diagnostics(
         return build_diag(
             per_angle_mode="averaged",
             scaling_source="averaged_then_fitted",
+            scaling_first=True,
             averaged_contrast=float(contrast_used[0]),
             averaged_offset=float(offset_used[0]),
             contrast_per_angle_quantile=np.asarray(contrast_quantile, dtype=np.float64),

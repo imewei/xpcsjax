@@ -40,7 +40,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import jax.numpy as jnp
-import matplotlib.pyplot as plt
+import matplotlib
+
+# Pin the headless Agg backend BEFORE importing pyplot. This module renders
+# PNGs to disk, including from multiprocessing "spawn" workers that cold-import
+# it; without this pin a worker on a machine with DISPLAY could auto-select an
+# interactive (Qt/Tk) backend and attempt GUI canvas creation off the main
+# thread of a subprocess (a GUI-thread violation that can hang/crash).
+matplotlib.use("Agg", force=True)
+
+import matplotlib.pyplot as plt  # noqa: E402  (must follow matplotlib.use)
 import numpy as np
 
 from xpcsjax.config.parameter_registry import AnalysisMode
@@ -249,12 +258,22 @@ def _unpack_result_params(
         # Averaged mode: canonical scaling-first layout [contrast, offset, physics...].
         # Scalar summary is the single fitted pair (physics is the trailing 14-vector).
         if mode == "averaged":
-            physical_params = params[-n_physical:].copy()
-            # Scaling-first layout: the (contrast, offset) HEAD is params[0]/[1];
-            # the physics tail is params[-n_physical:]. Fall back to the HEAD (not
-            # the tail) when the fitted scalars are absent from diagnostics.
-            contrast_scalar = float(diagnostics.get("averaged_contrast", params[0]))
-            offset_scalar = float(diagnostics.get("averaged_offset", params[1]))
+            # Two producers emit averaged with OPPOSITE orderings (audit #1):
+            # the engine route is SCALING-FIRST ([c, o | physics]) and the legacy
+            # _fit_joint_averaged_multi_phi is PHYSICS-FIRST ([physics | c, o]).
+            # Honour the explicit scaling_first marker; default True (canonical
+            # scaling-first) for marker-less results. Scaling scalars come from
+            # diagnostics regardless of layout; only the physics slice and the
+            # scalar fallback depend on the layout.
+            scaling_first = bool(diagnostics.get("scaling_first", True))
+            if scaling_first:
+                physical_params = params[-n_physical:].copy()
+                fallback_c, fallback_o = params[0], params[1]
+            else:
+                physical_params = params[:n_physical].copy()
+                fallback_c, fallback_o = params[-2], params[-1]
+            contrast_scalar = float(diagnostics.get("averaged_contrast", fallback_c))
+            offset_scalar = float(diagnostics.get("averaged_offset", fallback_o))
             return contrast_scalar, offset_scalar, physical_params, physical_names
         # Constant mode: [physics...] only (physics-only vector); scaling frozen in
         # diagnostics — params[:n_physical] is the entire vector.
@@ -359,9 +378,18 @@ def _unpack_heterodyne_scaling(
     # tail occupies params[-n_physical:]). Replicate across n_phi so the
     # per-angle evaluation path stays uniform with individual mode.
     if mode == "averaged":
-        physical_params = params[-n_physical:].copy()
-        contrast = float(diagnostics.get("averaged_contrast", params[0]))
-        offset = float(diagnostics.get("averaged_offset", params[1]))
+        # Marker-aware layout (audit #1): engine route is SCALING-FIRST,
+        # legacy _fit_joint_averaged_multi_phi is PHYSICS-FIRST. Default True
+        # (canonical scaling-first) when the marker is absent.
+        scaling_first = bool(diagnostics.get("scaling_first", True))
+        if scaling_first:
+            physical_params = params[-n_physical:].copy()
+            fallback_c, fallback_o = params[0], params[1]
+        else:
+            physical_params = params[:n_physical].copy()
+            fallback_c, fallback_o = params[-2], params[-1]
+        contrast = float(diagnostics.get("averaged_contrast", fallback_c))
+        offset = float(diagnostics.get("averaged_offset", fallback_o))
         contrasts = np.full(n_phi_expected, contrast, dtype=float)
         offsets = np.full(n_phi_expected, offset, dtype=float)
         return contrasts, offsets, physical_params, n_phi_expected
@@ -1317,12 +1345,15 @@ def _generate_plots_datashader(
 
 
 def _worker_init_cpu_only() -> None:
-    """Pool worker initializer — pin JAX to CPU + lazy allocator."""
+    """Pool worker initializer — pin JAX to CPU + lazy allocator + headless mpl."""
     import os
 
     os.environ["JAX_PLATFORMS"] = "cpu"
     os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
     os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
+    # Belt-and-suspenders headless pin for any matplotlib import path in the
+    # worker (the module-top matplotlib.use("Agg") already covers nlsq_plots).
+    os.environ["MPLBACKEND"] = "Agg"
 
 
 def _render_one_angle_worker(args: tuple) -> None:

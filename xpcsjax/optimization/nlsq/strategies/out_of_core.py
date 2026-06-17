@@ -458,8 +458,12 @@ def fit_with_out_of_core_accumulation(
             # Robust Levenberg-Marquardt Step Loop
             step_accepted = False
 
-            # Check for invalid Jacobian/Residuals
-            if jnp.any(jnp.isnan(total_Jtr)) or jnp.any(jnp.isinf(total_JtJ)):
+            # Check for invalid Jacobian/Residuals: reject any non-finite value
+            # (NaN OR Inf) in EITHER the gradient vector or the Hessian. The
+            # prior asymmetric check (NaN-only on Jtr, Inf-only on JtJ) let a
+            # NaN Hessian / Inf gradient slip past the i==0 hard-stop and
+            # silently poison the covariance solve below.
+            if not (jnp.all(jnp.isfinite(total_Jtr)) and jnp.all(jnp.isfinite(total_JtJ))):
                 log.warning("Gradient/Hessian contains NaNs/Infs. Checking params.")
                 if i == 0:
                     raise RuntimeError("Initial parameters produced invalid gradients.")

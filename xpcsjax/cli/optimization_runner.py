@@ -96,7 +96,11 @@ def apply_cli_overrides(
         ftol = float(tolerance)
         _set_nested(cfg, (*_NLSQ_SECTION, "ftol"), ftol)
         _set_nested(cfg, (*_NLSQ_SECTION, "xtol"), ftol)
-        logger.info("CLI override: nlsq.ftol = nlsq.xtol = %g", ftol)
+        # Also relax gtol (gradient-norm criterion): on degenerate fits trf
+        # frequently terminates on gtol before ftol/xtol, so omitting it makes
+        # --tolerance a partial no-op for exactly those cases.
+        _set_nested(cfg, (*_NLSQ_SECTION, "gtol"), ftol)
+        logger.info("CLI override: nlsq.ftol = nlsq.xtol = nlsq.gtol = %g", ftol)
 
     verbose = bool(getattr(args, "verbose", False))
     quiet = bool(getattr(args, "quiet", False))

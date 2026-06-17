@@ -647,7 +647,13 @@ class AnalysisSummaryLogger:
             lines.append("")
             lines.append("Metrics:")
             for name, value in self._metrics.items():
-                lines.append(f"  {name}: {value:.6g}")
+                # Coerce defensively: a non-numeric metric must not abort this
+                # observational summary via a format/TypeError (record_metric
+                # does not enforce its float type hint).
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    lines.append(f"  {name}: {value:.6g}")
+                else:
+                    lines.append(f"  {name}: {value}")
 
         # Add output files
         if self._output_files:

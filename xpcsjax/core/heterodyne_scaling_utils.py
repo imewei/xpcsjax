@@ -485,8 +485,22 @@ def estimate_per_angle_scaling(
     contrast_results = np.full(n_phi, contrast_mid)
     offset_results = np.full(n_phi, offset_mid)
 
-    points_per_angle = np.bincount(phi_idx, minlength=n_phi)
+    # Count FINITE points per angle: the quantile estimator filters non-finite
+    # c2 and falls back to midpoints when fewer than 100 finite points remain
+    # (estimate_contrast_offset_from_quantiles). Counting total points here would
+    # let an angle with >=100 total but <100 FINITE points pass the gate and then
+    # silently degrade to midpoints inside the helper.
+    finite_c2_mask = np.isfinite(c2)
+    points_per_angle = np.bincount(phi_idx[finite_c2_mask], minlength=n_phi)
     sufficient_mask = points_per_angle >= 100
+
+    n_insufficient = int(np.sum(~sufficient_mask))
+    if n_insufficient > 0:
+        log.debug(
+            "%d/%d angles have <100 finite points; using midpoint defaults for them",
+            n_insufficient,
+            n_phi,
+        )
 
     if not np.any(sufficient_mask):
         log.info(
