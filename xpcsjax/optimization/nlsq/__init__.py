@@ -698,7 +698,10 @@ def _fit_nlsq_heterodyne(
     from xpcsjax.optimization.nlsq.heterodyne_config import (
         NLSQConfig as _HeterodyneNLSQConfig,
     )
-    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
+    from xpcsjax.optimization.nlsq.heterodyne_core import (
+        fit_nlsq_multi_phi,
+        log_enable_escape_hint,
+    )
 
     # Raw YAML dict for HeterodyneModel.from_config and NLSQConfig.from_dict.
     # fit_nlsq has already coerced str/Path → ConfigManager, so config.config
@@ -1159,6 +1162,9 @@ def _fit_nlsq_heterodyne(
         result = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
     if _stratified_ls_fallback and result.nlsq_diagnostics is not None:
         result.nlsq_diagnostics["stratified_ls_fallback"] = True
+    # Actionable hint: a failed joint fit with no global escape enabled is the
+    # case the CMA-ES escape exists to rescue (C044). Best-effort, diagnostic-only.
+    log_enable_escape_hint(result, nlsq_cfg)
     _safe_log_heterodyne_completion(result, model, len(phi))
     return result
 

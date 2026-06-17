@@ -345,6 +345,146 @@ def test_quiet_warm_start_probe_logging_filter_fully_detached():
         ), f"{name} still carries the probe noise filter after exit"
 
 
+# ===========================================================================
+# Keep-better floor FALLBACK preserves Stage-1's per-angle scaling (C044
+# two_component RCA, 2026-06-17). ``_build_joint_problem`` seeds the individual
+# joint ``x0`` scaling head by broadcasting the SCALAR ``model.scaling.contrast[0]``
+# across all angles (legacy mirror). When Stage-1's quantile fit froze DISTINCT
+# per-angle scaling (real multi-angle data), that broadcast discards it, so the
+# keep-better floor's only fallback (``x0``) is as degraded as the failed solve —
+# and a degenerate joint fit finalized the WORSE Stage-2 vector (C044: 25663 vs
+# Stage-1 6796). The floor now reverts to the BEST of {x0, a fallback that
+# preserves the per-angle scaling = Stage-1's actual fit}. Strictly keep-better,
+# so the SUCCESS path and the uniform-scaling fixtures above are untouched.
+# ===========================================================================
+def test_build_floor_fallback_preserves_distinct_per_angle_scaling():
+    """The fallback reconstructs ``[per-angle scaling | physics]`` (NOT the
+    scalar-broadcast x0) when the frozen scaling is distinct across angles."""
+    n_phi, n_physics = 3, 4
+    per_angle_contrast = np.array([0.20, 0.35, 0.50], dtype=np.float64)
+    per_angle_offset = np.array([1.00, 1.05, 0.95], dtype=np.float64)
+    physics_initial = np.array([10.0, 0.5, -0.3, 100.0], dtype=np.float64)
+    # x0 collapses every angle to angle-0's scalar (the bug this fallback fixes).
+    x0 = np.concatenate(
+        [np.full(n_phi, 0.20), np.full(n_phi, 1.00), physics_initial]
+    )
+    lb = np.concatenate([np.full(2 * n_phi, -10.0), np.full(n_physics, -1e6)])
+    ub = np.concatenate([np.full(2 * n_phi, 10.0), np.full(n_physics, 1e6)])
+
+    fb = hc._build_floor_fallback_x0(
+        resolved_mode="individual",
+        n_phi=n_phi,
+        n_physics_varying=n_physics,
+        per_angle_contrast=per_angle_contrast,
+        per_angle_offset=per_angle_offset,
+        physics_initial=physics_initial,
+        lb=lb,
+        ub=ub,
+        x0=x0,
+    )
+
+    np.testing.assert_allclose(fb[:n_phi], per_angle_contrast)
+    np.testing.assert_allclose(fb[n_phi : 2 * n_phi], per_angle_offset)
+    np.testing.assert_allclose(fb[2 * n_phi :], physics_initial)
+    assert not np.allclose(fb, x0), "fallback must differ from the collapsed x0"
+
+
+def test_build_floor_fallback_is_x0_for_uniform_scaling():
+    """Uniform per-angle scaling → fallback IS x0 (the broadcast loses nothing)."""
+    n_phi, n_physics = 3, 2
+    uniform_c = np.full(n_phi, 0.30, dtype=np.float64)
+    uniform_o = np.full(n_phi, 1.00, dtype=np.float64)
+    physics_initial = np.array([5.0, -1.0], dtype=np.float64)
+    x0 = np.concatenate([uniform_c, uniform_o, physics_initial])
+    lb = np.concatenate([np.full(2 * n_phi, -10.0), np.full(n_physics, -1e6)])
+    ub = np.concatenate([np.full(2 * n_phi, 10.0), np.full(n_physics, 1e6)])
+
+    fb = hc._build_floor_fallback_x0(
+        resolved_mode="individual",
+        n_phi=n_phi,
+        n_physics_varying=n_physics,
+        per_angle_contrast=uniform_c,
+        per_angle_offset=uniform_o,
+        physics_initial=physics_initial,
+        lb=lb,
+        ub=ub,
+        x0=x0,
+    )
+    np.testing.assert_array_equal(fb, x0)
+
+
+def test_build_floor_fallback_is_x0_for_non_individual_modes():
+    """``averaged`` / ``constant`` have no scalar-broadcast collapse → pass x0 through."""
+    x0 = np.array([0.3, 1.0, 5.0, -1.0], dtype=np.float64)
+    lb = np.full_like(x0, -1e6)
+    ub = np.full_like(x0, 1e6)
+    for mode in ("averaged", "constant"):
+        fb = hc._build_floor_fallback_x0(
+            resolved_mode=mode,
+            n_phi=3,
+            n_physics_varying=2,
+            per_angle_contrast=np.array([0.2, 0.35, 0.5]),
+            per_angle_offset=np.array([1.0, 1.05, 0.95]),
+            physics_initial=np.array([5.0, -1.0]),
+            lb=lb,
+            ub=ub,
+            x0=x0,
+        )
+        np.testing.assert_array_equal(fb, x0, err_msg=f"mode={mode} must pass x0 through")
+
+
+def test_build_joint_problem_exposes_floor_fallback():
+    """``_build_joint_problem`` must publish a ``floor_fallback_x0`` of x0's shape."""
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=16)
+    prob = hc._build_joint_problem(model, c2, phi, _individual_cfg(), weights=None)
+    assert "floor_fallback_x0" in prob.meta, "joint problem must expose floor_fallback_x0"
+    fb = np.asarray(prob.meta["floor_fallback_x0"], dtype=np.float64)
+    assert fb.shape == np.asarray(prob.x0, dtype=np.float64).shape
+
+
+def test_floor_reverts_to_better_fallback_not_degraded_x0(monkeypatch):
+    """When x0 is degraded and the per-angle fallback is strictly better, the
+    floor reverts to the FALLBACK (Stage-1's fit), not the degraded x0.
+
+    Deterministic: x0 is overridden to a deliberately-suboptimal point and the
+    fallback is set to the near-optimal warm-start, so the keep-better revert has
+    an unambiguous winner without depending on a real degenerate C044 solve.
+    """
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=16)
+    cfg = _individual_cfg()
+
+    prob = hc._build_joint_problem(model, c2, phi, cfg, weights=None)
+    good = np.asarray(prob.x0, dtype=np.float64)  # near-optimal warm-start
+    base = prob.meta["base_residual_fn"]
+
+    def _ssr(x: np.ndarray) -> float:
+        return float(np.sum(np.asarray(base(x), dtype=np.float64) ** 2))
+
+    bad = np.clip(good + 0.30 * (prob.ub - prob.lb), prob.lb, prob.ub)  # worse x0
+    assert _ssr(bad) > _ssr(good), "precondition: overridden x0 must be worse than fallback"
+    prob.meta["floor_fallback_x0"] = good  # fallback preserves the good point
+
+    degraded = np.clip(good + 0.60 * (prob.ub - prob.lb), prob.lb, prob.ub)
+    assert _ssr(degraded) > _ssr(bad), "precondition: solve degrades vs x0"
+    monkeypatch.setattr(hc, "NLSQAdapter", _degraded_adapter(degraded, _ssr(degraded)))
+
+    captured: dict[str, np.ndarray] = {}
+
+    def _capture_build_result(*args, **_kwargs):
+        captured["params"] = np.asarray(args[3], dtype=np.float64)
+        return "SENTINEL"
+
+    monkeypatch.setattr(hc, "_build_joint_result", _capture_build_result)
+
+    hc._fit_joint_multi_phi(model, c2, phi, cfg, None, x0_override=bad, prob=prob)
+
+    np.testing.assert_allclose(
+        captured["params"],
+        good,
+        err_msg="degraded solve must floor to the better per-angle fallback, not x0",
+    )
+
+
 def _degraded_adapter(degraded, ssr):
     class _FakeAdapter:
         def __init__(self, parameter_names):

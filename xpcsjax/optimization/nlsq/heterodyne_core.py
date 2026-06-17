@@ -734,6 +734,48 @@ def _aggregate_individual_results(
     )
 
 
+def _should_hint_enable_escape(
+    *, success: bool, enable_cmaes: bool, multistart: bool
+) -> bool:
+    """Return whether a FAILED joint fit had NO global escape enabled.
+
+    The actionable case: a degenerate 14-D ``two_component`` fit did not converge
+    and neither the CMA-ES nor the multistart joint escape was enabled, so the
+    global rescue that would likely reach a good basin (e.g. C044) never ran.
+    """
+    return (not success) and (not enable_cmaes) and (not multistart)
+
+
+def log_enable_escape_hint(result: Any, config: Any) -> None:
+    """Emit an actionable hint when a joint fit failed with no global escape on.
+
+    Strictly diagnostic (no numeric effect). Silent when the fit converged or when
+    a global escape was already enabled — see :func:`_should_hint_enable_escape`.
+    The keep-better floor warm-starts the escape from the Stage-1 fit, so enabling
+    it cannot worsen the result. Robust to missing attributes (defaults to a
+    converged / escape-enabled reading, i.e. no hint) and never raises.
+    """
+    success = bool(getattr(result, "success", True))
+    enable_cmaes = bool(getattr(config, "enable_cmaes", False))
+    multistart = bool(getattr(config, "multistart", False))
+    if not _should_hint_enable_escape(
+        success=success, enable_cmaes=enable_cmaes, multistart=multistart
+    ):
+        return
+    logger.warning(
+        "Heterodyne joint fit did not converge and NO global escape is enabled. "
+        "A degenerate 14-D two_component fit (e.g. C044) usually needs the CMA-ES "
+        "global escape to reach a good basin. Enable it in the config under "
+        "optimization.nlsq:\n"
+        "    cmaes:\n"
+        "      enable: true\n"
+        "      n_seeds: 3   # >=3: single-seed CMA-ES is not run-to-run "
+        "reproducible on the large objective; 3 seeds keep-best.\n"
+        "The keep-better floor warm-starts the escape from the Stage-1 fit, so "
+        "enabling it cannot worsen the result."
+    )
+
+
 def fit_nlsq_multi_phi(
     model: HeterodyneModel,
     c2_data: np.ndarray,
@@ -2608,6 +2650,61 @@ def _split_scaling_first_joint(
     )
 
 
+def _build_floor_fallback_x0(
+    *,
+    resolved_mode: str,
+    n_phi: int,
+    n_physics_varying: int,
+    per_angle_contrast: np.ndarray,
+    per_angle_offset: np.ndarray,
+    physics_initial: np.ndarray,
+    lb: np.ndarray,
+    ub: np.ndarray,
+    x0: np.ndarray,
+) -> np.ndarray:
+    """Reconstruct a keep-better floor fallback that PRESERVES Stage-1's per-angle scaling.
+
+    ``_build_joint_problem`` seeds the ``individual`` joint ``x0`` scaling head by
+    broadcasting the SCALAR ``model.scaling.contrast[0]`` (and ``offset[0]``) across
+    all angles — a deliberate legacy mirror. When Stage-1's constant-mode quantile
+    fit froze DISTINCT per-angle scaling (real multi-angle data, e.g. C044), that
+    broadcast DISCARDS it, so the warm-start ``x0`` carries a degraded uniform
+    scaling head and can be as bad as a failed joint solve. The keep-better floor
+    (:func:`_fit_joint_multi_phi`) then has nothing genuinely better than the failed
+    vector to revert to, and finalizes the worse Stage-2 result (RCA: C044 reverted
+    to SSR 25663 while Stage-1 sat at 6796).
+
+    This returns the un-collapsed ``[per-angle scaling | physics_initial]`` so the
+    floor can revert to Stage-1's actual fit. The SOLVER START stays ``x0`` (this
+    feeds the floor ONLY), so the success path and the homodyne/heterodyne basin
+    behavior are unchanged. Returns ``x0`` for modes without a scalar-collapsed
+    per-angle head (``constant`` / ``averaged``) or when the per-angle scaling is
+    already uniform (the fallback would equal ``x0``).
+    """
+    if resolved_mode != "individual":
+        return x0
+    pac = np.asarray(per_angle_contrast, dtype=np.float64)
+    pao = np.asarray(per_angle_offset, dtype=np.float64)
+    if pac.shape != (n_phi,) or pao.shape != (n_phi,):
+        return x0
+    # Uniform per-angle scaling → the scalar broadcast loses nothing; fallback == x0.
+    if float(np.ptp(pac)) == 0.0 and float(np.ptp(pao)) == 0.0:
+        return x0
+
+    from xpcsjax.optimization.nlsq.per_angle_mode import PerAngleScalingPlan
+
+    fallback_plan = PerAngleScalingPlan(
+        mode=resolved_mode,
+        n_phi=n_phi,
+        n_physics=n_physics_varying,
+        quantile_scaling=(pac, pao),
+    )
+    fallback = np.concatenate(
+        [fallback_plan.seed_tail(), np.asarray(physics_initial, dtype=np.float64)]
+    )
+    return np.clip(fallback, lb, ub)
+
+
 def _build_joint_problem(
     model: HeterodyneModel,
     c2_data: np.ndarray,
@@ -2746,6 +2843,24 @@ def _build_joint_problem(
     x0 = np.concatenate([scaling_head_x0, physics_initial])
     lb = np.concatenate([scaling_head_lb, physics_lower])
     ub = np.concatenate([scaling_head_ub, physics_upper])
+
+    # Keep-better floor fallback (failure path ONLY): a second feasible seed that
+    # preserves Stage-1's DISTINCT per-angle frozen scaling instead of the scalar
+    # ``contrast[0]`` broadcast ``x0`` uses above. The solver still starts at ``x0``
+    # (parity-preserving); on a degenerate joint solve the floor reverts to the BEST
+    # of {x0, this fallback}, so it lands on Stage-1's actual fit rather than the
+    # degraded uniform-scaling x0. See :func:`_build_floor_fallback_x0`.
+    floor_fallback_x0 = _build_floor_fallback_x0(
+        resolved_mode=resolved_mode,
+        n_phi=n_phi,
+        n_physics_varying=n_physics_varying,
+        per_angle_contrast=np.asarray(scaling.contrast, dtype=np.float64),
+        per_angle_offset=np.asarray(scaling.offset, dtype=np.float64),
+        physics_initial=physics_initial,
+        lb=lb,
+        ub=ub,
+        x0=x0,
+    )
 
     logger.info(
         "Joint multi-angle fit (scaling-first, mode=%s): %d scaling + %d physics = "
@@ -2908,6 +3023,9 @@ def _build_joint_problem(
         "n_penalty_rows": int(n_penalty_rows),
         "hierarchical_stage1_chi2": hierarchical_stage1_chi2,
         "varying_names": list(varying_names),
+        # Keep-better floor fallback preserving Stage-1's per-angle scaling
+        # (== x0 unless the individual mode collapsed distinct per-angle scaling).
+        "floor_fallback_x0": floor_fallback_x0,
         # Scaling-first bookkeeping (Phase 1+2).
         "scaling_first": True,
         "resolved_mode": resolved_mode,
@@ -3117,18 +3235,40 @@ def _fit_joint_multi_phi(
     if _escape_keeps_candidate(ssr_warm=ssr_x0, ssr_cand=ssr_solved):
         final_params = solved_params
     else:
+        # Revert to the BEST feasible floor point. ``x0`` collapses Stage-1's
+        # per-angle scaling to a scalar ``contrast[0]`` broadcast and can be as
+        # degraded as the failed solve (RCA: C044 reverted to SSR 25663 while
+        # Stage-1 sat at 6796); ``floor_fallback_x0`` preserves the per-angle
+        # scaling = Stage-1's actual fit. Strictly keep-better (data-only SSR), so
+        # the revert can never return worse than x0 and the success path is
+        # untouched.
+        floor_fallback_x0 = prob.meta.get("floor_fallback_x0")
+        ssr_fallback = (
+            _data_ssr(np.asarray(floor_fallback_x0, dtype=np.float64))
+            if floor_fallback_x0 is not None
+            else np.inf
+        )
+        if np.isfinite(ssr_fallback) and ssr_fallback < ssr_x0:
+            final_params = np.asarray(floor_fallback_x0, dtype=np.float64)
+            revert_ssr = ssr_fallback
+            revert_label = "Stage-1 per-angle floor fallback"
+        else:
+            final_params = x0
+            revert_ssr = ssr_x0
+            revert_label = "x0 (feasible warm-start)"
         # On a warm-start probe this revert is the EXPECTED, designed recovery
         # (DEBUG); on a standalone joint fit it flags a real degraded solve
         # (WARNING).
         logger.log(
             logging.DEBUG if warm_start_probe else logging.WARNING,
             "L2 joint solve degraded data-only SSR vs warm-start x0 "
-            "(%.6e > %.6e); reverting to x0 (feasible warm-start) to preserve "
+            "(%.6e > %.6e); reverting to %s (SSR %.6e) to preserve "
             "the keep-better floor",
             ssr_solved,
             ssr_x0,
+            revert_label,
+            revert_ssr,
         )
-        final_params = x0
         # The covariance / uncertainties / iteration counts / L4-monitor data in
         # ``joint_result`` describe the DISCARDED degraded vector, not x0. Drop
         # them so ``_build_joint_result`` NaN-fills uncertainty for the accepted
