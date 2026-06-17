@@ -205,18 +205,21 @@ def plot_c2_heatmap_fast(
     vmin_use = auto_vmin if auto_vmin is not None else 1.0
     vmax_use = auto_vmax if auto_vmax is not None else 1.5
 
-    # c2[t1_idx, t2_idx] → c2.T so display axes match x=t1, y=t2.
-    img_pil = renderer.rasterize_heatmap(c2_data.T, t1, t2, cmap=cmap, vmin=vmin_use, vmax=vmax_use)
+    # c2[t1_idx, t2_idx]: rows=t1, cols=t2. Render with x=t2, y=t1 to match the
+    # matplotlib backend (imshow(c2, origin="lower") => x-axis=t2, y-axis=t1),
+    # so both backends label the same surface identically (rasterize_heatmap's
+    # own docstring example uses this x_coords=t2, y_coords=t1 convention).
+    img_pil = renderer.rasterize_heatmap(c2_data, t2, t1, cmap=cmap, vmin=vmin_use, vmax=vmax_use)
     img_array = np.array(img_pil)
     # Datashader y=0 at top, matplotlib origin='lower' y=0 at bottom.
     img_array = np.flipud(img_array)
 
     fig, ax = plt.subplots(figsize=(8, 7), dpi=100)
     try:
-        extent = (float(t1[0]), float(t1[-1]), float(t2[0]), float(t2[-1]))
+        extent = (float(t2[0]), float(t2[-1]), float(t1[0]), float(t1[-1]))
         ax.imshow(img_array, extent=extent, origin="lower", aspect="equal")
-        ax.set_xlabel("t₁ (s)", fontsize=11)
-        ax.set_ylabel("t₂ (s)", fontsize=11)
+        ax.set_xlabel("t₂ (s)", fontsize=11)
+        ax.set_ylabel("t₁ (s)", fontsize=11)
 
         if phi_angle is not None:
             title = f"{title} at φ={phi_angle:.1f}°" if title else f"φ={phi_angle:.1f}°"
@@ -298,11 +301,12 @@ def plot_c2_comparison_fast(
     vmin_shared = 1.0 if vmin_shared is None else vmin_shared
     vmax_shared = 1.5 if vmax_shared is None else vmax_shared
 
+    # Render with x=t2, y=t1 (untransposed c2) to match the matplotlib backend.
     img_exp = renderer.rasterize_heatmap(
-        c2_exp.T, t1, t2, cmap="jet", vmin=vmin_shared, vmax=vmax_shared
+        c2_exp, t2, t1, cmap="jet", vmin=vmin_shared, vmax=vmax_shared
     )
     img_fit = renderer.rasterize_heatmap(
-        c2_fit.T, t1, t2, cmap="jet", vmin=vmin_shared, vmax=vmax_shared
+        c2_fit, t2, t1, cmap="jet", vmin=vmin_shared, vmax=vmax_shared
     )
 
     # Residual colormap: symmetric ±99th-percentile of |residuals| so that
@@ -319,7 +323,7 @@ def plot_c2_comparison_fast(
         vmax_r = 1.0
     res_min, res_max = -vmax_r, vmax_r
     img_res = renderer.rasterize_heatmap(
-        residuals.T, t1, t2, cmap="RdBu_r", vmin=res_min, vmax=res_max
+        residuals, t2, t1, cmap="RdBu_r", vmin=res_min, vmax=res_max
     )
 
     img_exp_arr = np.flipud(np.array(img_exp))
@@ -328,12 +332,12 @@ def plot_c2_comparison_fast(
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
     try:
-        extent = (float(t1[0]), float(t1[-1]), float(t2[0]), float(t2[-1]))
+        extent = (float(t2[0]), float(t2[-1]), float(t1[0]), float(t1[-1]))
 
         axes[0].imshow(img_exp_arr, extent=extent, origin="lower", aspect="equal")
         axes[0].set_title(f"Experimental C₂ (φ={phi_angle:.1f}°)", fontsize=12)
-        axes[0].set_xlabel("t₁ (s)", fontsize=10)
-        axes[0].set_ylabel("t₂ (s)", fontsize=10)
+        axes[0].set_xlabel("t₂ (s)", fontsize=10)
+        axes[0].set_ylabel("t₁ (s)", fontsize=10)
         norm_shared = Normalize(vmin=vmin_shared, vmax=vmax_shared)
         sm_exp = ScalarMappable(cmap=matplotlib.colormaps.get_cmap("jet"), norm=norm_shared)
         sm_exp.set_array([])
@@ -341,16 +345,16 @@ def plot_c2_comparison_fast(
 
         axes[1].imshow(img_fit_arr, extent=extent, origin="lower", aspect="equal")
         axes[1].set_title(f"Fitted C₂ (φ={phi_angle:.1f}°)", fontsize=12)
-        axes[1].set_xlabel("t₁ (s)", fontsize=10)
-        axes[1].set_ylabel("t₂ (s)", fontsize=10)
+        axes[1].set_xlabel("t₂ (s)", fontsize=10)
+        axes[1].set_ylabel("t₁ (s)", fontsize=10)
         sm_fit = ScalarMappable(cmap=matplotlib.colormaps.get_cmap("jet"), norm=norm_shared)
         sm_fit.set_array([])
         fig.colorbar(sm_fit, ax=axes[1], label="C₂(t₁,t₂)").ax.tick_params(labelsize=8)
 
         axes[2].imshow(img_res_arr, extent=extent, origin="lower", aspect="equal")
         axes[2].set_title(f"Residuals (φ={phi_angle:.1f}°)", fontsize=12)
-        axes[2].set_xlabel("t₁ (s)", fontsize=10)
-        axes[2].set_ylabel("t₂ (s)", fontsize=10)
+        axes[2].set_xlabel("t₂ (s)", fontsize=10)
+        axes[2].set_ylabel("t₁ (s)", fontsize=10)
         norm_res = Normalize(vmin=res_min, vmax=res_max)
         sm_res = ScalarMappable(cmap=matplotlib.colormaps.get_cmap("RdBu_r"), norm=norm_res)
         sm_res.set_array([])

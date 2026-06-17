@@ -127,12 +127,14 @@ class PrefetchLoader(Iterator[R]):
         if self._exhausted and not self._has_prefetched:
             raise StopIteration
 
+        # Readiness is governed solely by `_has_prefetched`; the prefetched
+        # value itself may legitimately be None (load_fn is generic over R and
+        # may return None), so do not use `result is not None` as a proxy.
         result = self._prefetched
-        assert result is not None, "_has_prefetched is True but _prefetched is None"
         self._has_prefetched = False
         self._prefetched = None
         self._start_prefetch()
-        return result
+        return result  # type: ignore[return-value]
 
 
 class AsyncWriter:
@@ -280,9 +282,15 @@ class AsyncWriter:
 
     @staticmethod
     def _write_json(path: Path, data: dict[str, Any]) -> None:
+        from xpcsjax.io.json_utils import json_safe
+
         path.parent.mkdir(parents=True, exist_ok=True)
+        # Sanitize first: Python's json encoder emits the invalid JSON tokens
+        # NaN/Infinity for native non-finite floats (default= never fires for
+        # float). json_safe() maps NaN -> null and Inf -> "Infinity" string so
+        # the output is strict-JSON parseable.
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, default=str)
+            json.dump(json_safe(data), f, indent=2, default=str)
 
     def __enter__(self) -> AsyncWriter:
         """Enter the context manager, returning ``self``."""
