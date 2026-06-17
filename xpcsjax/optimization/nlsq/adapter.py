@@ -937,23 +937,22 @@ class NLSQAdapter(NLSQAdapterBase):
                     )
                 phi_idx_all = np.clip(phi_idx_all, 0, len(phi_unique) - 1)
 
-                # Batch compute g1 using model
-                g1_all = model.compute_g1(
-                    params_jax,
-                    jnp.asarray(t1_all, dtype=jnp.float64),
-                    jnp.asarray(t2_all, dtype=jnp.float64),
-                    jnp.asarray(phi_unique, dtype=jnp.float64),
-                    q_val,
-                    1.0,
+                # Point-wise g1 via vmap (mirrors the cached branch). compute_g1
+                # meshgrids t1/t2 into an (n,n) grid, so feeding per-point arrays
+                # to it returns a time x time grid — NOT the (n_points,) per-point
+                # g1 this path needs. compute_g1_batch evaluates each point with
+                # its OWN phi angle (phi_unique[phi_idx_all]).
+                phi_per_point = jnp.asarray(phi_unique, dtype=jnp.float64)[phi_idx_all]
+                g1_per_point = np.asarray(
+                    model.compute_g1_batch(
+                        params_jax,
+                        jnp.asarray(t1_all, dtype=jnp.float64),
+                        jnp.asarray(t2_all, dtype=jnp.float64),
+                        phi_per_point,
+                        q_val,
+                        1.0,
+                    )
                 )
-                g1_arr = np.asarray(g1_all)
-
-                # Select per-point g1 and compute g2
-                if g1_arr.ndim == 2:
-                    point_idx = np.arange(len(xdata))
-                    g1_per_point = g1_arr[phi_idx_all, point_idx]
-                else:
-                    g1_per_point = g1_arr.ravel()
 
                 g2_pred = offset_vals[phi_idx_all] + contrast_vals[phi_idx_all] * g1_per_point**2
                 return g2_pred

@@ -1486,7 +1486,20 @@ def _fit_joint_averaged_multi_phi(
     # Full residual (including any penalty rows) — diagnostic only.
     final_residual = np.asarray(joint_residual_fn(fitted_all))
     total_ssr_with_penalty = float(np.sum(final_residual**2))
+    # n_total_params is the ACTUAL fitted-parameter count — used below to size
+    # the NaN covariance / uncertainties arrays so they match `parameters`.
     n_total_params = int(joint_result.parameters.size)
+    # For the compressed averaged layout, popt is [c_avg, o_avg, physics]
+    # (n_physics + 2), but the constrained model consumes the EXPANDED
+    # 2*n_phi + n_physics scaling DOF. Use the expanded constrained-model DOF
+    # for reduced chi^2 ONLY (spec §5 decision 3), matching the large-data result
+    # builders (heterodyne_result_builder) so explicit/auto averaged report a
+    # consistent metric. SSR / chi2_per_angle / parameters / covariance shape are
+    # untouched.
+    from xpcsjax.optimization.nlsq.per_angle_mode import effective_constrained_dof
+
+    _eff_dof = effective_constrained_dof("averaged", n_phi=n_phi, n_physical=n_physics_varying)
+    _dof_params = int(_eff_dof) if _eff_dof is not None else n_total_params
     # Noise-normalised reduced chi^2 (targets ~1.0). The raw
     # ``joint_result.reduced_chi_squared`` is SSR/N² — i.e. MSE ≪ 1 on
     # normalised C2 data (C2 ~ 1, residuals ~ 5%) — which is not an
@@ -1503,7 +1516,7 @@ def _fit_joint_averaged_multi_phi(
         ssr=ssr,
         c2_data=c2_data,
         n_data_valid=int(data_only_residual.size),
-        n_params=n_total_params,
+        n_params=_dof_params,
     )
 
     # NaN-fill uncertainties / covariance when the NLSQ adapter could not
@@ -1612,6 +1625,10 @@ def _fit_joint_averaged_multi_phi(
         per_angle_mode="averaged",
         chi2_per_angle=chi2_per_angle,
         scaling_source="averaged_then_fitted",
+        # PHYSICS-FIRST layout: x0 = [physics | contrast, offset] (see above).
+        # The marker disambiguates this legacy averaged path from the engine
+        # route's SCALING-FIRST averaged result for downstream readers.
+        scaling_first=False,
         averaged_contrast=fitted_contrast,
         averaged_offset=fitted_offset,
         parameter_names=joint_param_names,
@@ -4507,15 +4524,20 @@ def log_heterodyne_completion(
     logger.info("Quality: %s", result.quality_flag)
 
     if n_physics > 0 and params.size >= n_physics:
-        # Most joint paths are scaling-first (`[scaling | physics]`), so physics
-        # is the TAIL. But two paths return PHYSICS-FIRST (`[physics | scaling]`)
-        # and must be read from the HEAD (audit C4):
-        #   * averaged joint fit (per_angle_mode="averaged")
-        #   * sequential individual aggregate
-        #     (covariance_structure="block_diagonal_sequential")
-        physics_first = mode == "averaged" or (
-            diag.get("covariance_structure") == "block_diagonal_sequential"
-        )
+        # Layout is authoritative when the producer emits an explicit
+        # ``scaling_first`` marker (audit 2026-06-17 #1): the averaged token is
+        # NOT a reliable layout signal because two producers emit it with
+        # OPPOSITE orderings — the legacy `_fit_joint_averaged_multi_phi` is
+        # PHYSICS-FIRST while the engine route is SCALING-FIRST. Honour the
+        # marker when present; otherwise fall back to the mode/covariance
+        # heuristic (averaged + sequential-individual aggregate are physics-first).
+        scaling_first_marker = diag.get("scaling_first")
+        if scaling_first_marker is not None:
+            physics_first = not bool(scaling_first_marker)
+        else:
+            physics_first = mode == "averaged" or (
+                diag.get("covariance_structure") == "block_diagonal_sequential"
+            )
         if physics_first:
             phys_vals = params[:n_physics]
             phys_unc = unc[:n_physics] if unc is not None and unc.size >= n_physics else None

@@ -462,7 +462,13 @@ class AntiDegeneracyController:
         )
         self.regularizer = AdaptiveRegularizer(
             reg_config,
-            self.mapper.n_per_group,  # T020: Use mapper-resolved n_per_group
+            # Pass the TRUE angle count: AdaptiveRegularizer's second positional
+            # arg is n_phi (used by the `mode=="auto" and n_phi > 5` gate), not a
+            # per-group count. The group layout is already supplied via
+            # reg_config.group_indices above, so n_per_group (1 for averaged/
+            # constant) must NOT be bound here or `auto` mode would silently fall
+            # back to absolute-variance regularization even with many angles.
+            self.mapper.n_phi,
         )
         logger.info("=" * 60)
         logger.info("ANTI-DEGENERACY: Layer 3 - Adaptive Regularization")

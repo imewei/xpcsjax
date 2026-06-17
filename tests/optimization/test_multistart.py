@@ -66,7 +66,12 @@ def test_config_to_nlsq_global_config() -> None:
     assert goc.n_starts == 8
     assert goc.sampler == "lhs"
     assert goc.elimination_rounds == 3  # screening on
-    assert goc.elimination_fraction == pytest.approx(0.5)
+    # screen_keep_fraction=0.5 is the TOTAL retention target. NLSQ eliminates
+    # per round, so the per-round fraction is derived so the compounded
+    # retention equals 0.5 over 3 rounds: (1 - frac)**3 == 0.5. A flat
+    # 1 - keep_fraction would over-eliminate to 12.5% retained.
+    assert goc.elimination_fraction == pytest.approx(1.0 - 0.5 ** (1.0 / 3.0))
+    assert (1.0 - goc.elimination_fraction) ** goc.elimination_rounds == pytest.approx(0.5)
 
 
 def test_config_to_nlsq_global_config_screening_off() -> None:

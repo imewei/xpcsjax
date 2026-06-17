@@ -2192,8 +2192,12 @@ def fit_nlsq_cmaes(
             and ad_controller.shear_weighter is not None
         ):
             # Get phi0 from current x0 (may be NLSQ warm-started)
-            # phi0 is stored in degrees in the parameter array (same as config/bounds)
-            physical_params = x0[2:] if len(x0) > n_physical else x0
+            # phi0 is stored in degrees in the parameter array (same as config/bounds).
+            # The physics block is ALWAYS the last n_physical entries regardless of the
+            # scaling-head layout (0 for physics-only, 2 for averaged, 2*n_phi for the
+            # individual/per-angle CMA-ES vector). Slicing a fixed 2-element head would
+            # read the wrong index (e.g. D_offset instead of phi0) in individual mode.
+            physical_params = x0[len(x0) - n_physical :]
             phi0_idx = _get_physical_param_names(analysis_mode).index("phi0")
             phi0_current_deg = float(physical_params[phi0_idx])
 

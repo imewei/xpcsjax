@@ -66,8 +66,14 @@ def reconstruct_per_angle_scaling(
         # to n_phi so the return contract matches individual/constant mode.
         diag = result.nlsq_diagnostics or {}
         params = np.asarray(result.parameters, dtype=np.float64)
-        c = float(diag.get("averaged_contrast", params[0]))
-        o = float(diag.get("averaged_offset", params[1]))
+        # Scaling scalars come from diagnostics regardless of layout. The
+        # positional fallback depends on the layout: scaling-first puts (c, o) in
+        # the HEAD, the legacy physics-first averaged path puts them in the TAIL
+        # (audit #1). Default scaling-first when the marker is absent.
+        scaling_first = bool(diag.get("scaling_first", True))
+        fallback_c, fallback_o = (params[0], params[1]) if scaling_first else (params[-2], params[-1])
+        c = float(diag.get("averaged_contrast", fallback_c))
+        o = float(diag.get("averaged_offset", fallback_o))
         return {
             "contrast": np.full(n_phi, c, dtype=np.float64),
             "offset": np.full(n_phi, o, dtype=np.float64),

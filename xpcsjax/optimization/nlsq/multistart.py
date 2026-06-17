@@ -169,10 +169,18 @@ class MultiStartConfig:
         }
         sampler = sampler_map.get(self.sampling_strategy, "lhs")
 
-        # Map screening to elimination rounds
-        # screen_keep_fraction=0.5 means 50% kept = 50% eliminated
-        elimination_fraction = 1.0 - self.screen_keep_fraction
+        # Map screening to elimination rounds. ``screen_keep_fraction`` is the
+        # TOTAL fraction of starts to retain after screening. NLSQ applies
+        # ``elimination_fraction`` PER ROUND, so a flat ``1 - keep_fraction``
+        # over 3 rounds over-eliminates (keep=0.5 -> 0.5**3 = 12.5% retained,
+        # not 50%). Derive the per-round fraction so the compounded retention
+        # equals keep_fraction: keep == (1 - per_round) ** rounds.
         elimination_rounds = 3 if self.use_screening else 0
+        if elimination_rounds > 0:
+            per_round_keep = self.screen_keep_fraction ** (1.0 / elimination_rounds)
+            elimination_fraction = 1.0 - per_round_keep
+        else:
+            elimination_fraction = 1.0 - self.screen_keep_fraction
 
         # ``sampler`` is a Literal['lhs','sobol','halton'] in NLSQ's API but
         # comes from a free-text config field here. Validation upstream
@@ -857,6 +865,9 @@ def run_multistart_nlsq(
     single_fit_func: Callable[[dict[str, Any], NDArray[np.float64]], SingleStartResult],
     cost_func: Callable[[NDArray[np.float64]], float] | None = None,
     custom_starts: list[list[float]] | NDArray[np.float64] | None = None,
+    refine_func: (
+        Callable[[dict[str, Any], NDArray[np.float64], float], SingleStartResult] | None
+    ) = None,
 ) -> MultiStartResult:
     """Run multi-start NLSQ optimization with FULL strategy.
 
@@ -879,6 +890,14 @@ def run_multistart_nlsq(
         Signature: (params) -> float
     custom_starts : list[list[float]] | NDArray, optional
         User-provided custom starting points (overrides config.custom_starts).
+    refine_func : Callable, optional
+        Optional refinement fit used by the PHASE 5 top-K polish. Signature:
+        ``(data, params, ftol) -> SingleStartResult``. When supplied and
+        ``config.refine_top_k > 0``, the best ``refine_top_k`` results are
+        re-fit (warm-started from their parameters) with ``config.refinement_ftol``
+        and the better of {original, refined} is kept per start (keep-better, so
+        the outcome is never worse). When ``None`` (the default) no refinement
+        runs and behavior is unchanged.
 
     Returns
     -------
@@ -1040,6 +1059,43 @@ def run_multistart_nlsq(
             logger.warning(f"Failed optimizations: {len(failed)}")
             for r in failed:
                 logger.debug(f"  Start {r.start_idx} failed: {r.message}")
+
+    # PHASE 5: optional top-K refinement (opt-in via refine_func). Re-fit the
+    # best refine_top_k successful results with the tighter refinement_ftol and
+    # keep the better of {original, refined} per start. No-op when refine_func is
+    # None (the default for all current callers), so existing fits are unchanged.
+    if refine_func is not None and config.refine_top_k > 0 and successful:
+        logger.info("-" * 40)
+        logger.info(
+            "PHASE 5: Refining top %d result(s) (ftol=%.1e)",
+            config.refine_top_k,
+            config.refinement_ftol,
+        )
+        logger.info("-" * 40)
+        success_idx = [i for i, r in enumerate(results) if r.success]
+        success_idx.sort(key=lambda i: results[i].chi_squared)
+        n_improved = 0
+        for i in success_idx[: config.refine_top_k]:
+            original = results[i]
+            try:
+                refined = refine_func(
+                    data,
+                    np.asarray(original.final_params, dtype=np.float64),
+                    config.refinement_ftol,
+                )
+            except (ValueError, RuntimeError, TypeError, FloatingPointError) as exc:
+                logger.debug("Refinement failed for start %d: %s", original.start_idx, exc)
+                continue
+            # keep-better: adopt the refined fit only when it strictly improves.
+            if refined is not None and refined.success and refined.chi_squared < original.chi_squared:
+                refined.start_idx = original.start_idx
+                refined.initial_params = original.initial_params
+                results[i] = refined
+                n_improved += 1
+        logger.info("PHASE 5: %d/%d refined result(s) improved", n_improved, config.refine_top_k)
+        successful = [r for r in results if r.success]
+        if successful:
+            best = min(successful, key=lambda r: r.chi_squared)
 
     # Degeneracy detection
     degeneracy_detected, n_unique_basins, basin_labels = detect_degeneracy(
