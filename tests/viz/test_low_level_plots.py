@@ -347,6 +347,11 @@ def test_plot_simulated_data_save_path_writes_png(
         assert f.read(4) == b"\x89PNG"
 
 
+# pytest-mpl snapshot tests return the Figure for image comparison (the plugin
+# contract). Without ``--mpl`` they run as plain smoke tests, so pytest emits a
+# PytestReturnNotNoneWarning for the returned Figure; suppress it per-test (the
+# global return-None check stays active for every other test).
+@pytest.mark.filterwarnings("ignore::pytest.PytestReturnNotNoneWarning")
 @pytest.mark.mpl_image_compare(
     baseline_dir="baseline",
     filename="plot_nlsq_fit_baseline.png",
@@ -364,6 +369,7 @@ def test_plot_nlsq_fit_snapshot(synthetic_single_angle_data):
     )
 
 
+@pytest.mark.filterwarnings("ignore::pytest.PytestReturnNotNoneWarning")
 @pytest.mark.mpl_image_compare(
     baseline_dir="baseline",
     filename="plot_residual_map_baseline.png",
@@ -375,6 +381,7 @@ def test_plot_residual_map_snapshot(synthetic_single_angle_data):
     return plot_residual_map(d["c2_exp"], d["c2_exp"] * 0.95, t=d["t"], phi_deg=45.0)
 
 
+@pytest.mark.filterwarnings("ignore::pytest.PytestReturnNotNoneWarning")
 @pytest.mark.mpl_image_compare(
     baseline_dir="baseline",
     filename="plot_simulated_data_baseline.png",

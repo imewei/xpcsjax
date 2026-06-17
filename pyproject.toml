@@ -126,6 +126,14 @@ filterwarnings = [
     # warning is the simulated condition itself, not a real defect.
     "ignore::numba.core.errors.NumbaSystemWarning",
 ]
+markers = [
+    # pytest-mpl only registers ``mpl_image_compare`` when invoked with ``--mpl``.
+    # The default ``make verify`` run does NOT pass ``--mpl`` (the snapshot tests
+    # execute as plain figure-generation smoke tests), so without this line every
+    # decorated test emits a PytestUnknownMarkWarning. Registering it here is a
+    # no-op when pytest-mpl is active and silences the warning otherwise.
+    "mpl_image_compare: pytest-mpl image-comparison snapshot test (see pytest-mpl).",
+]
 
 [tool.coverage.run]
 source = ["xpcsjax"]
