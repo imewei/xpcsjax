@@ -389,7 +389,10 @@ class ParameterManager:
             logger.debug(
                 f"Returning cached bounds for {len(parameter_names)} parameters",
             )
-            return self._bounds_cache[cache_key].copy()
+            # Deep-copy each BoundDict entry, not just the list container, so a
+            # caller mutating a returned bound cannot corrupt the cache for
+            # subsequent callers (mirrors the cold path at line 424).
+            return [b.copy() for b in self._bounds_cache[cache_key]]
 
         # Apply name mapping
         mapped_names = [self._param_name_mapping.get(name, name) for name in parameter_names]
@@ -774,7 +777,11 @@ class ParameterManager:
         """Return a concise string representation of manager state."""
         active_params = self.get_active_parameters()
         fixed_params = self.get_fixed_parameters()
-        optimizable = len(active_params) - len(fixed_params)
+        # Use the canonical set-difference (get_optimizable_parameters) rather
+        # than a cardinality subtraction: fixed_parameters may contain scaling
+        # or foreign names not present in active_params, which would otherwise
+        # yield a wrong or negative count.
+        optimizable = len(self.get_optimizable_parameters())
 
         return (
             f"ParameterManager(mode={self.analysis_mode}, "

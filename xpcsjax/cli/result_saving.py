@@ -140,9 +140,20 @@ def _config_summary(config_manager: ConfigManager | None) -> dict[str, Any]:
         return {}
 
     summary: dict[str, Any] = {}
-    for attr in ("mode", "data_type", "config_path"):
-        if hasattr(config_manager, attr):
-            summary[attr] = _json_safe(getattr(config_manager, attr))
+    # xpcsjax's ConfigManager exposes the mode via config["analysis_mode"] (the
+    # raw value, read directly to avoid the .analysis_mode property's deferred
+    # ValueError), the path via .config_file, and data_type from the config
+    # dict — NOT via mode/data_type/config_path attributes (heterodyne-style).
+    config = getattr(config_manager, "config", None)
+    if isinstance(config, dict):
+        summary["mode"] = _json_safe(config.get("analysis_mode"))
+        data_type = config.get("data_type")
+        if data_type is None:
+            exp = config.get("experimental_data")
+            if isinstance(exp, dict):
+                data_type = exp.get("data_type")
+        summary["data_type"] = _json_safe(data_type)
+    summary["config_path"] = _json_safe(getattr(config_manager, "config_file", None))
     # Parameter names are needed downstream for labeled output. xpcsjax's
     # ConfigManager exposes get_active_parameters() (not the heterodyne-style
     # get_parameter_names()).
@@ -263,10 +274,27 @@ def save_results_npz(
     output_dir.mkdir(parents=True, exist_ok=True)
     parameter_names = _resolve_parameter_names(config_manager)
 
+    params = np.asarray(result.parameters, dtype=np.float64)
+    n_params = params.size
+    # uncertainties/covariance are legitimately None (e.g. global-escape
+    # results, or when no covariance solve ran). Fill with NaN at the
+    # documented shapes (n,) and (n, n) instead of letting np.asarray(None)
+    # produce a 0-d scalar that breaks downstream indexing.
+    uncertainties = (
+        np.asarray(result.uncertainties, dtype=np.float64)
+        if result.uncertainties is not None
+        else np.full(n_params, np.nan, dtype=np.float64)
+    )
+    covariance = (
+        np.asarray(result.covariance, dtype=np.float64)
+        if result.covariance is not None
+        else np.full((n_params, n_params), np.nan, dtype=np.float64)
+    )
+
     arrays: dict[str, np.ndarray] = {
-        "parameters": np.asarray(result.parameters, dtype=np.float64),
-        "uncertainties": np.asarray(result.uncertainties, dtype=np.float64),
-        "covariance": np.asarray(result.covariance, dtype=np.float64),
+        "parameters": params,
+        "uncertainties": uncertainties,
+        "covariance": covariance,
         "chi_squared": np.asarray(result.chi_squared, dtype=np.float64),
         "reduced_chi_squared": np.asarray(result.reduced_chi_squared, dtype=np.float64),
         "iterations": np.asarray(result.iterations, dtype=np.int64),

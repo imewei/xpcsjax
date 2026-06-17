@@ -47,6 +47,11 @@ def captured_nlsq(monkeypatch):
     fake_model_mod.HeterodyneModel = _StubModel  # type: ignore[attr-defined]
     fake_core_mod = types.ModuleType("xpcsjax.optimization.nlsq.heterodyne_core")
     fake_core_mod.fit_nlsq_multi_phi = _stub_fit_nlsq_multi_phi  # type: ignore[attr-defined]
+    # _fit_nlsq_heterodyne imports BOTH fit_nlsq_multi_phi and
+    # log_enable_escape_hint from heterodyne_core; the fake module must expose
+    # every symbol the dispatch imports or the `from ... import (...)` raises
+    # ImportError. log_enable_escape_hint is diagnostic-only — stub it no-op.
+    fake_core_mod.log_enable_escape_hint = lambda *a, **k: None  # type: ignore[attr-defined]
 
     monkeypatch.setitem(
         __import__("sys").modules,

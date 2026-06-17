@@ -1410,8 +1410,15 @@ def compute_chi_squared(
 gradient_g2 = jit(jacobian(compute_g2_scaled, argnums=0))  # Jacobian w.r.t. params (g2 is array-valued)
 hessian_g2 = jit(hessian(compute_g2_scaled, argnums=0))  # Hessian w.r.t. params
 
-gradient_chi2 = jit(grad(compute_chi_squared, argnums=0))  # Gradient of chi-squared
-hessian_chi2 = jit(hessian(compute_chi_squared, argnums=0))  # Hessian of chi-squared
+# compute_chi_squared pins args (6, 7, 10) = q, L, dt as static; the outer jit
+# must declare the SAME static_argnums or it would forward them as tracers into
+# the inner static-arg jit (raising "Non-hashable static arguments").
+gradient_chi2 = jit(
+    grad(compute_chi_squared, argnums=0), static_argnums=(6, 7, 10)
+)  # Gradient of chi-squared
+hessian_chi2 = jit(
+    hessian(compute_chi_squared, argnums=0), static_argnums=(6, 7, 10)
+)  # Hessian of chi-squared
 
 # Module-level vmapped functions — created once to avoid per-call re-tracing.
 # params_batch axis 0 is batched; all other args are broadcast unchanged.
