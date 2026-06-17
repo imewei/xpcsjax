@@ -61,8 +61,14 @@ def normalize_angle_to_symmetric_range(angle: float | np.ndarray) -> float | np.
     array([180., -180.,   0.])
     """
     angle_array = np.asarray(angle)
-    normalized = angle_array % 360
-    normalized = np.where(normalized > 180, normalized - 360, normalized)
+    wrapped = angle_array % 360
+    wrapped = np.where(wrapped > 180, wrapped - 360, wrapped)
+    # Inputs already within the symmetric range are returned unchanged
+    # (per the "no change in [-180, 180]" rule). This preserves the -180
+    # boundary, which modulo arithmetic would otherwise fold to +180.
+    normalized = np.where(
+        (angle_array >= -180) & (angle_array <= 180), angle_array, wrapped
+    )
 
     # Return scalar if input was scalar
     if np.isscalar(angle):

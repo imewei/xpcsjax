@@ -355,6 +355,12 @@ class DataQualityController:
         # Performance tracking
         self._stage_timings: dict[str, float] = {}
 
+        # Genuine pre-filter correlation-matrix count, set by the loader before
+        # the FILTERED stage. None when unavailable (e.g. a cache hit), in which
+        # case the retention metric reports no measurable loss rather than a
+        # bogus ~100% from comparing the already-filtered data against itself.
+        self._prefilter_matrix_count: int | None = None
+
         logger.info(
             f"DataQualityController initialized with validation_level='{self.quality_config.validation_level}', "
             f"auto_repair='{self.quality_config.auto_repair}'",
@@ -628,45 +634,48 @@ class DataQualityController:
         """
         logger.debug("Validating filtered data stage")
 
-        if previous_result and previous_result.data_shape_before:
-            # Compare data sizes
-            current_shape = self._get_data_shape(data)
-            previous_shape = previous_result.data_shape_before
+        # Retention = post-filter matrix count vs the GENUINE pre-filter count
+        # supplied by the loader. The previous-stage shape is NOT a valid
+        # baseline: the loader filters `data` before either QC stage runs, so
+        # both stages see the same already-filtered array (retention ~100%).
+        baseline_count = self._prefilter_matrix_count
+        current_shape = self._get_data_shape(data)
+        current_size: int | None = None
+        if isinstance(current_shape, tuple) and current_shape and isinstance(current_shape[0], int):
+            current_size = current_shape[0]
 
-            if isinstance(current_shape, tuple) and isinstance(previous_shape, tuple):
-                if len(current_shape) > 0 and len(previous_shape) > 0:
-                    try:
-                        current_size = current_shape[0] if isinstance(current_shape[0], int) else 1
-                        previous_size = (
-                            previous_shape[0] if isinstance(previous_shape[0], int) else 1
-                        )
+        if baseline_count and baseline_count > 0 and current_size is not None:
+            try:
+                retention_fraction = current_size / baseline_count
+                result.metrics.filtering_efficiency = retention_fraction * 100
 
-                        if previous_size > 0:
-                            retention_fraction = current_size / previous_size
-                            result.metrics.filtering_efficiency = retention_fraction * 100
-
-                            if retention_fraction < 0.1:  # Less than 10% data retained
-                                result.issues.append(
-                                    ValidationIssue(
-                                        severity="warning",
-                                        category="data_quality",
-                                        message=f"Filtering removed {(1 - retention_fraction) * 100:.1f}% of data",
-                                        recommendation="Check filtering criteria - may be too restrictive",
-                                    ),
-                                )
-                            elif retention_fraction > 0.95:  # More than 95% retained
-                                result.issues.append(
-                                    ValidationIssue(
-                                        severity="info",
-                                        category="data_quality",
-                                        message=f"Filtering retained {retention_fraction * 100:.1f}% of data",
-                                        recommendation="Filtering may not be necessary with current settings",
-                                    ),
-                                )
-                    except (AttributeError, TypeError, IndexError):
-                        logger.warning(
-                            "Could not compare data sizes before/after filtering",
-                        )
+                if retention_fraction < 0.1:  # Less than 10% data retained
+                    result.issues.append(
+                        ValidationIssue(
+                            severity="warning",
+                            category="data_quality",
+                            message=f"Filtering removed {(1 - retention_fraction) * 100:.1f}% of data",
+                            recommendation="Check filtering criteria - may be too restrictive",
+                        ),
+                    )
+                elif retention_fraction > 0.95:  # More than 95% retained
+                    result.issues.append(
+                        ValidationIssue(
+                            severity="info",
+                            category="data_quality",
+                            message=f"Filtering retained {retention_fraction * 100:.1f}% of data",
+                            recommendation="Filtering may not be necessary with current settings",
+                        ),
+                    )
+            except (AttributeError, TypeError, IndexError):
+                logger.warning(
+                    "Could not compare data sizes before/after filtering",
+                )
+        else:
+            # No genuine pre-filter baseline (e.g. a cache hit): retention is
+            # unmeasurable here, so report no measurable loss and emit no
+            # (misleading) retention recommendation.
+            result.metrics.filtering_efficiency = 100.0
 
         # Validate filtered data quality
         self._basic_data_quality_checks(data, result)

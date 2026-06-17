@@ -78,11 +78,14 @@ def validate_frame_range(
     """
     errors: list[str] = []
 
+    # The lower-bound check is separate from end_frame: a supplied
+    # start_frame must satisfy >= min_frame even when end_frame is None.
+    if start_frame is not None and start_frame < min_frame:
+        errors.append(f"start_frame ({start_frame}) must be >= {min_frame}")
+
     if start_frame is not None and end_frame is not None:
         if end_frame != -1 and start_frame >= end_frame:
             errors.append(f"start_frame ({start_frame}) must be less than end_frame ({end_frame})")
-        if start_frame < min_frame:
-            errors.append(f"start_frame ({start_frame}) must be >= {min_frame}")
 
     return errors
 
