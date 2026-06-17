@@ -1616,12 +1616,12 @@ class XPCSDataLoader:
                     f"No phi filtering applied - using all {len(final_indices)} pairs for selected q-vector",
                 )
 
-            # Extract data for selected indices
-            if len(final_indices) == 0:
-                logger.warning(
-                    "No valid indices found, using first available entry as fallback",
-                )
-                final_indices = np.array([0], dtype=int)
+            # Extract data for selected indices. An empty selection must abort,
+            # not silently fall back to (q,phi) index 0 (which would fit an
+            # unrelated q-vector) — audit C9.
+            final_indices = self._require_nonempty_selection(
+                final_indices, selected_q=selected_q
+            )
 
             # Use final indices for both (q,phi) pairs and correlation matrices
             final_dqlist = filtered_dqlist[final_indices]
@@ -1634,7 +1634,8 @@ class XPCSDataLoader:
             # copy (~30-50% peak-RSS saving at 23M-point scale).
             _n_sel_u = len(final_indices)
             if _n_sel_u == 0:
-                # Fallback already handled above (final_indices = [0]); guard here for safety.
+                # Unreachable: _require_nonempty_selection above raises on an
+                # empty selection. Kept as a defensive guard.
                 c2_matrices_array = np.empty((0,), dtype=np.float64)
             else:
                 # Preserve source dtype (original was np.array(c2_matrices)); forcing
@@ -2215,16 +2216,44 @@ class XPCSDataLoader:
         )
         logger.debug(f"Q-vector: {actual_q:.6f} +/- {q_variance:.6f} A^-1")
 
+    @staticmethod
+    def _require_nonempty_selection(
+        final_indices: np.ndarray, *, selected_q: float
+    ) -> np.ndarray:
+        """Return *final_indices*, or raise if the (q, phi) selection is empty.
+
+        An empty selection means the configured q-vector / phi filter matched no
+        data. Falling back to index 0 here would silently return correlation data
+        for an unrelated q-vector (audit C9), so abort loudly instead — parity
+        with the APS-old branch.
+        """
+        if len(final_indices) == 0:
+            raise XPCSDataFormatError(
+                f"No (q, phi) pairs matched the selected q-vector "
+                f"{selected_q:.6f} AA^-1 after phi filtering. Check the configured "
+                f"wavevector_q and phi-angle range against the dataset.",
+            )
+        return final_indices
+
     def _validate_cache_q_vector(self, cache_metadata: dict[str, Any]) -> None:
         """Validate that cached q-vector is compatible with current configuration."""
         scattering_config = self.analyzer_config.get("scattering", {})
         current_config_q = scattering_config.get("wavevector_q", 0.0054)
         cached_config_q = cache_metadata.get("config_wavevector_q", current_config_q)
 
-        # Check if configuration q-vectors match (within floating point precision)
+        # Check if configuration q-vectors match (within floating point precision).
+        # The cache is q-keyed (selective_q_caching stores q-selected c2_exp /
+        # wavevector_q_list), so reusing it for a different configured q would
+        # return another q's correlation data. Refuse it — mirrors the existing
+        # legacy-cache refusal; the user must regenerate or point at a q-specific
+        # cache (audit C1).
         if abs(current_config_q - cached_config_q) > 1e-8:
-            logger.warning(
-                f"Cache q-vector mismatch: current={current_config_q:.6f}, cached={cached_config_q:.6f} AA^-1",
+            raise XPCSDataFormatError(
+                f"Cache q-vector mismatch: configured wavevector_q="
+                f"{current_config_q:.6f} AA^-1 but cache was built for "
+                f"{cached_config_q:.6f} AA^-1. The cache is q-specific; delete it "
+                f"and regenerate, or use a q-keyed cache_filename_template "
+                f"(e.g. include ${{wavevector_q}}).",
             )
 
         # Check if cache uses selective q-caching
