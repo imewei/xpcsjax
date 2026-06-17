@@ -542,9 +542,11 @@ optimization:
       #                     baseline (keep-better guard -> result is never worse).
       # COST: the escape is EXPENSIVE -- ~3-5x the baseline fit wall-time
       # (multi-minute at >=1M points; measured ~3.5x on C044). Enable only for a
-      # genuinely-stuck / degenerate fit; leave OFF by default. For a CHEAPER
+      # genuinely-stuck / degenerate fit. For a CHEAPER
       # escape, lower hierarchical.max_outer_iterations (and inner iterations).
-      execute_layers: false
+      # NOTE: true makes the >=1M result keep-better-guarded but NOT bit-identical
+      # to the baseline -- re-check the rtol=1e-10 parity oracle after changing.
+      execute_layers: true
 
       per_angle_mode: "auto"               # auto → "averaged" for n_phi >= constant_scaling_threshold (3), else "individual"; "constant" only when set explicitly here
       constant_scaling_threshold: 3
