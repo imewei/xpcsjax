@@ -157,21 +157,24 @@ def generate_config(
 
     substitutions: list[tuple[str, str]] = []
 
+    def _scalar(value: object) -> str:
+        # yaml.dump appends a "\n...\n" document-end marker to a bare scalar;
+        # taking the first non-empty line yields just the serialized scalar
+        # (quoted/escaped as needed) without splicing the "..." marker into the
+        # template mid-line (audit C2).
+        return yaml.dump(value, default_flow_style=True).splitlines()[0].strip()
+
     if data_path is not None:
-        safe = yaml.dump(data_path, default_flow_style=True).strip()
-        substitutions.append(("file_path: null", f"file_path: {safe}"))
+        substitutions.append(("file_path: null", f"file_path: {_scalar(data_path)}"))
 
     if q is not None:
-        safe = yaml.dump(q, default_flow_style=True).strip()
-        substitutions.append(("wavevector_q: 0.0237", f"wavevector_q: {safe}"))
+        substitutions.append(("wavevector_q: 0.0237", f"wavevector_q: {_scalar(q)}"))
 
     if dt is not None:
-        safe = yaml.dump(dt, default_flow_style=True).strip()
-        substitutions.append(("dt: 0.1", f"dt: {safe}"))
+        substitutions.append(("dt: 0.1", f"dt: {_scalar(dt)}"))
 
     if time_length is not None:
-        safe = yaml.dump(time_length, default_flow_style=True).strip()
-        substitutions.append(("end_frame: 1000", f"end_frame: {safe}"))
+        substitutions.append(("end_frame: 1000", f"end_frame: {_scalar(time_length)}"))
 
     for placeholder, replacement in substitutions:
         if placeholder not in content:

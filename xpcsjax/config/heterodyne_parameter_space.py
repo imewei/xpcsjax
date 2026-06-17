@@ -369,7 +369,10 @@ class ParameterSpace:
                 if isinstance(pconfig, dict):
                     reg_info = registry_info(param_name)
                     if "value" in pconfig:
-                        new_val = pconfig["value"]
+                        # Coerce to float on ingestion (PyYAML may hand us a
+                        # quoted string scalar) — mirrors the flat/list paths
+                        # (audit C10).
+                        new_val = float(pconfig["value"])
                         if new_val != reg_info.default:
                             logger.debug(
                                 "Config overrides %s value: %.6g -> %.6g",
@@ -379,7 +382,7 @@ class ParameterSpace:
                             )
                         space.values[param_name] = new_val
                     if "min" in pconfig and "max" in pconfig:
-                        new_bounds = (pconfig["min"], pconfig["max"])
+                        new_bounds = (float(pconfig["min"]), float(pconfig["max"]))
                         if (
                             new_bounds[0] != reg_info.min_bound
                             or new_bounds[1] != reg_info.max_bound

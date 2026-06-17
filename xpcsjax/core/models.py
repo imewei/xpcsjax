@@ -540,8 +540,16 @@ class CombinedModel(
         L: float,
         contrast: float,
         offset: float,
+        dt: float | None = None,
     ) -> float:
         """Compute chi-squared goodness of fit."""
+        # The backend compute_chi_squared requires dt (physics factors are
+        # dt-dependent); mirror the compute_g2 wrapper's None-guard + forward.
+        if dt is None:
+            raise TypeError(
+                "dt parameter is required and cannot be None. "
+                "Pass dt explicitly from configuration.",
+            )
         result: float = compute_chi_squared(
             params,
             data,
@@ -553,6 +561,7 @@ class CombinedModel(
             L,
             contrast,
             offset,
+            dt,
         )
         return result
 

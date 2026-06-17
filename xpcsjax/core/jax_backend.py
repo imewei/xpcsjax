@@ -32,7 +32,7 @@ from collections.abc import Callable
 try:
     import jax
     import jax.numpy as jnp
-    from jax import grad, hessian, jit, vmap
+    from jax import grad, hessian, jacobian, jit, vmap
 
     JAX_AVAILABLE = True
 except ImportError:
@@ -85,6 +85,15 @@ except ImportError:
             return _create_hessian_fallback(func, argnums)
         else:
             return _create_no_hessian_fallback(
+                func.__name__ if hasattr(func, "__name__") else "function",
+            )
+
+    def jacobian(func: Callable, argnums: int = 0) -> Callable:  # type: ignore[no-redef,misc,unused-ignore]
+        """Fallback Jacobian (NumPy) — mirrors grad for array-valued outputs."""
+        if NUMPY_GRADIENTS_AVAILABLE:
+            return _create_gradient_fallback(func, argnums)
+        else:
+            return _create_no_gradient_fallback(
                 func.__name__ if hasattr(func, "__name__") else "function",
             )
 
@@ -1398,7 +1407,7 @@ def compute_chi_squared(
 # Automatic differentiation functions with intelligent fallback
 # These will work with either JAX or NumPy fallbacks
 # Pre-JIT compiled for 50-100x faster first call (avoids compilation overhead)
-gradient_g2 = jit(grad(compute_g2_scaled, argnums=0))  # Gradient w.r.t. params
+gradient_g2 = jit(jacobian(compute_g2_scaled, argnums=0))  # Jacobian w.r.t. params (g2 is array-valued)
 hessian_g2 = jit(hessian(compute_g2_scaled, argnums=0))  # Hessian w.r.t. params
 
 gradient_chi2 = jit(grad(compute_chi_squared, argnums=0))  # Gradient of chi-squared
