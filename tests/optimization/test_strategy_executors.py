@@ -173,10 +173,26 @@ def test_large_executor_reraises(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class _FakeOpt:
+    # Mirrors the REAL NLSQ AdaptiveHybridStreamingOptimizer.fit signature
+    # (data_source, func, p0, ...) so the call site is actually exercised
+    # (audit C8). The previous fake used (fn, x, y, p0, bounds), which masked
+    # the positional/keyword collision in the real API.
+    last_call: dict = {}
+
     def __init__(self, config: Any) -> None:
         self.config = config
 
-    def fit(self, fn: Any, x: Any, y: Any, p0: Any, bounds: Any) -> dict:
+    def fit(
+        self,
+        data_source: Any,
+        func: Any,
+        p0: Any,
+        bounds: Any = None,
+        sigma: Any = None,
+        callback: Any = None,
+        verbose: int = 1,
+    ) -> dict:
+        _FakeOpt.last_call = {"data_source": data_source, "func": func, "p0": p0}
         return {"x": np.array([1.0, 2.0]), "pcov": np.eye(2), "success": True, "nit": 4}
 
 
@@ -202,6 +218,25 @@ def test_streaming_executor_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert res.convergence_status == "converged"
     assert res.info["strategy"] == "hybrid_streaming"
     assert res.info["iterations"] == 4
+
+
+def test_streaming_executor_calls_real_fit_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Executor must call fit(data_source=(x,y), func=model_fn, p0=...) — the real API."""
+    _enable_streaming(monkeypatch, _FakeOpt)
+    xdata = np.zeros(2)
+    ydata = np.array([3.0, 4.0])
+    p0 = np.array([1.0, 2.0])
+    ex.StreamingExecutor().execute(
+        _resid, xdata, ydata, p0, None, "soft_l1", 1.0, _logger()
+    )
+    call = _FakeOpt.last_call
+    # data_source is the (xdata, ydata) tuple, not the residual fn.
+    assert isinstance(call["data_source"], tuple)
+    np.testing.assert_array_equal(call["data_source"][0], xdata)
+    np.testing.assert_array_equal(call["data_source"][1], ydata)
+    # func is a model function: model(x, *params) == ydata - residual.
+    model = call["func"]
+    np.testing.assert_allclose(model(xdata, *p0), ydata - _resid(xdata, *p0))
 
 
 def test_streaming_executor_missing_pcov_uses_identity(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -4367,10 +4367,21 @@ def log_heterodyne_completion(
     logger.info("Quality: %s", result.quality_flag)
 
     if n_physics > 0 and params.size >= n_physics:
-        # Scaling-first canonical layout for every mode: physics is the TAIL.
-        # (constant -> empty scaling head, so the tail is the whole vector.)
-        phys_vals = params[-n_physics:]
-        phys_unc = unc[-n_physics:] if unc is not None and unc.size >= n_physics else None
+        # Most joint paths are scaling-first (`[scaling | physics]`), so physics
+        # is the TAIL. But two paths return PHYSICS-FIRST (`[physics | scaling]`)
+        # and must be read from the HEAD (audit C4):
+        #   * averaged joint fit (per_angle_mode="averaged")
+        #   * sequential individual aggregate
+        #     (covariance_structure="block_diagonal_sequential")
+        physics_first = mode == "averaged" or (
+            diag.get("covariance_structure") == "block_diagonal_sequential"
+        )
+        if physics_first:
+            phys_vals = params[:n_physics]
+            phys_unc = unc[:n_physics] if unc is not None and unc.size >= n_physics else None
+        else:
+            phys_vals = params[-n_physics:]
+            phys_unc = unc[-n_physics:] if unc is not None and unc.size >= n_physics else None
 
         logger.info("Fitted parameters (%d physical, %d angles):", n_physics, n_phi)
         logger.info("  Physical parameters:")

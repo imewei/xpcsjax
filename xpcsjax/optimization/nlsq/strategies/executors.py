@@ -13,6 +13,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+import jax.numpy as jnp
 import numpy as np
 
 from xpcsjax.utils.logging import get_logger
@@ -383,13 +384,30 @@ class StreamingExecutor(OptimizationExecutor):
 
         optimizer = AdaptiveHybridStreamingOptimizer(config)
 
+        # AdaptiveHybridStreamingOptimizer.fit expects a MODEL function
+        # func(x, *params) -> predictions plus a data_source tuple, NOT a
+        # residual fn. Our residual_fn computes y - predictions, so
+        # predictions = y - residual. Mirror fit_with_hybrid_streaming_optimizer
+        # (audit C8: the old positional call collided on `p0`).
+        if hasattr(residual_fn, "jax_residual"):
+
+            def model_fn(x: Any, *params: float) -> Any:
+                residuals = residual_fn.jax_residual(jnp.asarray(params))
+                return ydata - residuals
+
+        else:
+
+            def model_fn(x: Any, *params: float) -> Any:
+                residuals = residual_fn(x, *params)
+                return ydata - residuals
+
         try:
             result = optimizer.fit(
-                residual_fn,
-                xdata,
-                ydata,
+                data_source=(xdata, ydata),
+                func=model_fn,
                 p0=initial_params,
                 bounds=bounds,
+                sigma=None,
             )
 
             info = {
