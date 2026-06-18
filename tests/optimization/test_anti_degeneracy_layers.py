@@ -239,8 +239,17 @@ class TestExecuteLayersFlag:
                 f"The flag must be inert."
             )
 
-    def test_templates_contain_execute_layers_false(self) -> None:
-        """All FOUR YAML templates must parse and expose ``execute_layers: false``."""
+    def test_templates_expose_expected_execute_layers(self) -> None:
+        """All FOUR YAML templates parse and expose the intended ``execute_layers``.
+
+        The flow-bearing modes (``laminar_flow``, ``two_component``) enable the
+        L2 hierarchical (+L3 regularization) anti-degeneracy escape on the
+        ≥1M stratified-LS path (keep-better guarded), so they ship
+        ``execute_layers: true``. The static modes have no flow direction /
+        shear term and keep the escape off (``execute_layers: false``). The
+        dataclass / ``from_dict`` default stays ``False`` (asserted separately);
+        the templates set explicit per-mode overrides.
+        """
         import pathlib
 
         import yaml
@@ -251,12 +260,13 @@ class TestExecuteLayersFlag:
             / "config"
             / "templates"
         )
-        for template_name in (
-            "xpcsjax_laminar_flow.yaml",
-            "xpcsjax_two_component.yaml",
-            "xpcsjax_static_anisotropic.yaml",
-            "xpcsjax_static_isotropic.yaml",
-        ):
+        expected_execute_layers = {
+            "xpcsjax_laminar_flow.yaml": True,
+            "xpcsjax_two_component.yaml": True,
+            "xpcsjax_static_anisotropic.yaml": False,
+            "xpcsjax_static_isotropic.yaml": False,
+        }
+        for template_name, expected in expected_execute_layers.items():
             path = templates_dir / template_name
             assert path.exists(), f"Template not found: {path}"
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -266,8 +276,8 @@ class TestExecuteLayersFlag:
             assert "execute_layers" in ad_block, (
                 f"{template_name}: 'execute_layers' key missing from anti_degeneracy block"
             )
-            assert ad_block["execute_layers"] is False, (
-                f"{template_name}: execute_layers must default to false, "
+            assert ad_block["execute_layers"] is expected, (
+                f"{template_name}: execute_layers must be {expected!r}, "
                 f"got {ad_block['execute_layers']!r}"
             )
 
