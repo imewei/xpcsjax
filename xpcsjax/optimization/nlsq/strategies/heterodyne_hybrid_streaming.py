@@ -199,35 +199,22 @@ def build_heterodyne_pointwise_model(
             f"but phi_unique has {n_phi} entries."
         )
 
-    # Build phi_value → sorted_index mapping for the REINDEX step
-    # (handles any edge case where the raw function iterates in a different
-    # order; in practice they match, but explicit reindex is the safe path).
-    chunk_phi_order: list[float] = []
-    if hasattr(stratified_data, "chunks") and stratified_data.chunks:
-        for chunk in stratified_data.chunks:
-            # Each chunk corresponds to one angle; take representative phi
-            chunk_phi_order.append(float(chunk.phi[0]))
-    else:
-        # Flat format: phi_flat has one value per (t1,t2) pair per angle.
-        # Recover the per-angle phi by reading the first element of each slab.
-        seen: dict[float, int] = {}
-        for phi_val in stratified_data.phi_flat.tolist():
-            if phi_val not in seen:
-                seen[phi_val] = len(seen)
-        chunk_phi_order = list(seen.keys())
-
-    if len(chunk_phi_order) == n_phi:
-        # Build mapping: raw_slot → sorted_index
-        phi_to_sorted = {float(p): int(i) for i, p in enumerate(phi_unique.tolist())}
-        reindex = np.array([phi_to_sorted[float(p)] for p in chunk_phi_order], dtype=np.int64)
-        contrast_arr = np.empty(n_phi, dtype=np.float64)
-        offset_arr = np.empty(n_phi, dtype=np.float64)
-        contrast_arr[reindex] = np.asarray(contrast_raw, dtype=np.float64)
-        offset_arr[reindex] = np.asarray(offset_raw, dtype=np.float64)
-    else:
-        # Fallback: trust the raw order (matches phi_unique sorted order)
-        contrast_arr = np.asarray(contrast_raw, dtype=np.float64)
-        offset_arr = np.asarray(offset_raw, dtype=np.float64)
+    # The mapping is IDENTITY: compute_quantile_per_angle_scaling fills its
+    # output by iterating a SORTED phi_unique (parameter_utils builds phi_unique
+    # sorted and assigns contrast/offset by its enumerate index), so
+    # contrast_raw[k] / offset_raw[k] already correspond to phi_unique[k] — the
+    # same sorted order the JIT closure bins phi_idx against (_bin_to_grid uses
+    # the sorted phi_unique). We therefore use the raw arrays directly.
+    #
+    # A previous "defensive" reindex keyed the slots on the chunk/insertion phi
+    # order and assigned `contrast_arr[reindex] = contrast_raw`; that composes
+    # two different permutations and silently scattered the frozen per-angle
+    # scaling to the WRONG angles whenever the input phi was not already
+    # ascending. It was identity only for pre-sorted phi (the sole case the
+    # tests exercised), so the bug never surfaced. Dropping it restores the
+    # correct per-angle alignment with zero change for ascending phi.
+    contrast_arr = np.asarray(contrast_raw, dtype=np.float64)
+    offset_arr = np.asarray(offset_raw, dtype=np.float64)
 
     # ------------------------------------------------------------------
     # 6. Initial parameter vector (varying physics; optionally + scaling tail)

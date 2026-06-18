@@ -92,9 +92,16 @@ def _extract_parameters(
     else:
         names = list(parameter_names)
 
-    uncertainties: np.ndarray | None = (
-        np.asarray(result.uncertainties) if result.uncertainties is not None else None
-    )
+    # Flatten and use uncertainties ONLY when the count matches the parameter
+    # vector exactly. ``__post_init__`` lets a 0-D scalar (size==1, ndim==0) and
+    # other off-shape arrays through; ``.ravel()`` normalizes 0-D -> (1,) so
+    # ``unc[i]`` never raises IndexError, and the length-match gate drops any
+    # array that does not correspond 1:1 to the parameters.
+    uncertainties: np.ndarray | None = None
+    if result.uncertainties is not None:
+        unc_flat = np.asarray(result.uncertainties).ravel()
+        if unc_flat.size == n:
+            uncertainties = unc_flat
 
     out: dict[str, dict[str, float | None]] = {}
     for i, name in enumerate(names):
@@ -364,10 +371,13 @@ def save_results(
 
     residuals = getattr(args, "residuals", None) if args is not None else None
 
-    if fmt in ("json", "both"):
-        save_results_json(result, output_dir, config_manager, args)
+    # For "both", write the durable full-fidelity NPZ FIRST so a failure in the
+    # human-readable JSON serialization (e.g. an off-shape field) cannot discard
+    # the numeric artifact after an expensive run.
     if fmt in ("npz", "both"):
         save_results_npz(result, output_dir, config_manager, residuals=residuals)
+    if fmt in ("json", "both"):
+        save_results_json(result, output_dir, config_manager, args)
 
     logger.info(
         "save_results complete: format=%s, dir=%s, status=%s",

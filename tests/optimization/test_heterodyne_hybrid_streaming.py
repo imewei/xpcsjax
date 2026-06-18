@@ -1750,3 +1750,63 @@ def test_streaming_diagnostics_block_is_symmetric():
         "per_angle_mode",
     ):
         assert key in ad, f"streaming anti_degeneracy block missing {key!r}"
+
+
+def test_frozen_per_angle_scaling_invariant_to_input_phi_order():
+    """Regression (2026-06-18 audit, P1): the frozen per-angle scaling is keyed by
+    the SORTED phi_unique, so it must be invariant to the order the input angles
+    arrive in. The old ``reindex`` permuted the frozen contrast/offset onto the
+    WRONG angles whenever the input phi was not already ascending (identity only
+    for pre-sorted phi, the sole case the suite exercised).
+
+    Build the same (phi, c2) pairs in ascending and descending order; after both
+    resolve to the same sorted phi_unique, the frozen contrast/offset arrays must
+    match element-for-element. Each angle is given a distinct amplitude so a
+    permutation would be detectable.
+    """
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        build_heterodyne_pointwise_model,
+    )
+
+    # n_t large enough that each angle clears the estimator's >=100-point floor
+    # ((n_t-1)*(n_t-2) = 15*14 = 210); below it every angle falls back to the
+    # SAME midpoint default and the frozen scaling is uniform (can't detect a
+    # permutation).
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=3, n_t=16)
+    # Scale each angle distinctly (downward, to stay within the Siegert ceiling
+    # and the contrast/offset bounds) so the quantile estimator returns three
+    # distinct contrast/offset values — a mis-permutation then changes them.
+    factors = np.array([0.7, 0.85, 1.0])[:, None, None]
+    c2_distinct = c2 * factors
+
+    # Descending presentation: reverse BOTH phi and the matching c2 rows so each
+    # angle keeps its own data, only the arrival order changes.
+    phi_desc = phi[::-1].copy()
+    c2_desc = c2_distinct[::-1].copy()
+
+    def _frozen(c2_in, phi_in):
+        strat = build_heterodyne_stratified_data(model, c2_in, phi_in, weights=None)
+        _fn, _x, _y, _p0, meta = build_heterodyne_pointwise_model(
+            stratified_data=strat,
+            model=model,
+            physical_param_names=list(model.param_manager.varying_names),
+        )
+        return (
+            np.asarray(meta["phi_unique"]),
+            np.asarray(meta["contrast_arr"]),
+            np.asarray(meta["offset_arr"]),
+        )
+
+    phiu_a, contrast_a, offset_a = _frozen(c2_distinct, phi)
+    phiu_d, contrast_d, offset_d = _frozen(c2_desc, phi_desc)
+
+    # Both resolve to the same sorted phi grid.
+    np.testing.assert_allclose(phiu_a, phiu_d)
+    # The per-angle amplitudes are genuinely distinct (so the test could catch a
+    # permutation), and the frozen scaling is order-invariant.
+    assert np.ptp(contrast_a) > 0, "test setup: per-angle contrasts not distinct"
+    np.testing.assert_allclose(contrast_a, contrast_d, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(offset_a, offset_d, rtol=1e-12, atol=1e-12)

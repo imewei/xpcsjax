@@ -495,8 +495,9 @@ def get_optimal_batch_size(
         (total_memory_mb * target_memory_usage) / memory_per_point_mb,
     )
 
-    # Ensure batch size is reasonable
-    optimal_batch_size = max(min(optimal_batch_size, data_size), 1000)
+    # Ensure batch size is reasonable: prefer at least 1000, but never exceed
+    # the dataset size (the data-size cap must be the outermost bound).
+    optimal_batch_size = min(max(optimal_batch_size, 1000), data_size)
 
     logger.info(
         f"Optimal batch size: {optimal_batch_size} (memory: {available_memory_gb:.1f}GB)",

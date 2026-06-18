@@ -2115,6 +2115,17 @@ class XPCSDataLoader:
             end_frame = max_frames
             logger.warning(f"end_frame adjusted to {max_frames} (was {original_end_frame})")
 
+        # Fail loudly on an empty frame window rather than silently returning a
+        # degenerate (n_phi, 0, 0) stack. A start_frame at/after the last
+        # available frame slips past both bounds checks above (the default
+        # end_frame=-1 resolves to max_frames), so guard the window explicitly.
+        if start_frame >= end_frame:
+            raise XPCSDataFormatError(
+                f"start_frame ({start_frame + 1}) is at or after the last available "
+                f"frame ({max_frames}); the resulting correlation window is empty. "
+                f"Choose start_frame < {max_frames}.",
+            )
+
         # Apply frame slicing if needed
         if start_frame > 0 or end_frame < max_frames:
             c2_exp = c2_matrices[:, start_frame:end_frame, start_frame:end_frame]

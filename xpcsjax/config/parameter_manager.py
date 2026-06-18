@@ -135,7 +135,9 @@ class ParameterManager:
         if not self.config_dict:
             return
 
-        param_space = self.config_dict.get("parameter_space", {})
+        param_space = self.config_dict.get("parameter_space") or {}
+        if not isinstance(param_space, dict):
+            return
         if "bounds" not in param_space:
             return
 
@@ -460,7 +462,9 @@ class ParameterManager:
             active_params = self._get_default_active_parameters()
         else:
             # Try to get from initial_parameters section
-            initial_params = self.config_dict.get("initial_parameters", {})
+            initial_params = self.config_dict.get("initial_parameters") or {}
+            if not isinstance(initial_params, dict):
+                initial_params = {}
 
             # Check for explicit active_parameters list
             active_params_config = initial_params.get("active_parameters")
@@ -694,7 +698,9 @@ class ParameterManager:
         if not self.config_dict:
             return {}
 
-        initial_params = self.config_dict.get("initial_parameters", {})
+        initial_params = self.config_dict.get("initial_parameters") or {}
+        if not isinstance(initial_params, dict):
+            initial_params = {}
         fixed_params = initial_params.get("fixed_parameters", {})
 
         if not isinstance(fixed_params, dict):

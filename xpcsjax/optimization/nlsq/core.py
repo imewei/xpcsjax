@@ -2541,8 +2541,23 @@ def fit_nlsq_cmaes(
 
                 final_covariance = expanded_cov
 
-        # Convert CMAESResult to OptimizationResult
-        n_params = len(final_params)
+        # Convert CMAESResult to OptimizationResult.
+        # Reduced-chi2 DOF must reflect the EFFECTIVE constrained-model parameter
+        # count, not the dense expanded length. Fixed-constant mode freezes the
+        # per-angle scaling (zero scaling DOF), so the expanded 2*n_phi scaling
+        # slots over-count n_params and bias reduced_chi2 high. Mirror the shared
+        # authority the out-of-core / streaming / stratified result builders use.
+        if use_constant_mode and per_angle_scaling:
+            from xpcsjax.optimization.nlsq.per_angle_mode import (
+                effective_constrained_dof,
+            )
+
+            _resolved_mode = _broadcast_scaling_mode_label(use_averaged_scaling)
+            n_params = effective_constrained_dof(
+                _resolved_mode, n_phi=n_phi, n_physical=n_physical
+            )
+        else:
+            n_params = len(final_params)
         dof = max(1, n_data - n_params)
         reduced_chi_squared = cmaes_result.chi_squared / dof
 

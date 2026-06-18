@@ -737,16 +737,21 @@ def detect_degeneracy(
     successful.sort(key=lambda r: r.chi_squared)
     best_chi_sq = successful[0].chi_squared
 
-    # Cluster into basins
+    # Cluster into basins. Labels are scattered back into a full-length array
+    # indexed by each result's ORIGINAL position in ``results`` (sentinel -1 for
+    # failed results and the chi-squared "other" basin), so basin_labels[i]
+    # corresponds to results[i] and len(basin_labels) == len(results) — matching
+    # the per-result contract documented on MultiStartResult.basin_labels.
+    index_of = {id(r): i for i, r in enumerate(results)}
     basins: list[list[SingleStartResult]] = []
-    basin_assignments: list[int] = []
+    labels = np.full(len(results), -1, dtype=np.int64)
 
     for r in successful:
+        orig_i = index_of[id(r)]
         # Check chi-squared similarity
         chi_sq_diff = abs(r.chi_squared - best_chi_sq) / (best_chi_sq + 1e-10)
         if chi_sq_diff > chi_sq_threshold:
-            # Not similar enough, assign to "other" basin
-            basin_assignments.append(-1)
+            # Not similar enough, leave in the "other" basin (-1)
             continue
 
         # Check parameter distance to existing basins
@@ -760,19 +765,16 @@ def detect_degeneracy(
             )
             if param_dist < param_threshold:
                 basin.append(r)
-                basin_assignments.append(basin_idx)
+                labels[orig_i] = basin_idx
                 found_basin = True
                 break
 
         if not found_basin:
             basins.append([r])
-            basin_assignments.append(len(basins) - 1)
+            labels[orig_i] = len(basins) - 1
 
     n_unique_basins = len(basins)
     degeneracy_detected = n_unique_basins > 1
-
-    # Create labels array
-    labels = np.array(basin_assignments, dtype=np.int64)
 
     if degeneracy_detected:
         logger.warning(

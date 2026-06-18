@@ -1043,6 +1043,14 @@ class NLSQConfig:
                 raw_cmaes.get("warmstart_skip_threshold", _SENTINEL),
             )
             _set_from_nested("cmaes_n_seeds", raw_cmaes.get("n_seeds", _SENTINEL))
+            _set_from_nested(
+                "cmaes_restart_strategy",
+                raw_cmaes.get("restart_strategy", _SENTINEL),
+            )
+            _set_from_nested(
+                "cmaes_max_restarts",
+                raw_cmaes.get("max_restarts", _SENTINEL),
+            )
         elif raw_cmaes is not None:
             logger.warning(
                 "NLSQConfig.from_dict: 'cmaes' must be a dict, got %r — ignoring",

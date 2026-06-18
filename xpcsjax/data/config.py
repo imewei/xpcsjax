@@ -21,6 +21,7 @@ Configuration structure:
 - ``enhanced_features``: Enhanced features and optimizations.
 """
 
+import copy
 import json
 import os
 from dataclasses import dataclass
@@ -611,7 +612,10 @@ def apply_config_defaults(
     if schema is None:
         schema = XPCS_CONFIG_SCHEMA
 
-    config_with_defaults = config.copy()
+    # Deep-copy so defaults are applied only to the returned config; the
+    # previous shallow copy() left nested section dicts shared with the
+    # caller's input and mutated them in place (contract violation).
+    config_with_defaults = copy.deepcopy(config)
 
     for section_name, section_schema in schema.items():
         if not isinstance(section_schema, dict):

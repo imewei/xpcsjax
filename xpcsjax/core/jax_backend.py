@@ -311,13 +311,20 @@ def get_cache_stats() -> dict[str, int | float]:
         - ``cache_size``: Current number of cached entries.
         - ``max_cache_size``: Maximum number of entries the cache holds.
     """
-    total_lookups = _cache_stats["hits"] + _cache_stats["misses"]
-    hit_rate = _cache_stats["hits"] / total_lookups if total_lookups > 0 else 0.0
+    # Snapshot under the lock so the reported stats are a consistent view
+    # (the documented lock guards every mutation of _cache_stats /
+    # _meshgrid_cache; the read side must honor the same discipline).
+    with _cache_lock:
+        stats_snapshot = dict(_cache_stats)
+        cache_size = len(_meshgrid_cache)
+
+    total_lookups = stats_snapshot["hits"] + stats_snapshot["misses"]
+    hit_rate = stats_snapshot["hits"] / total_lookups if total_lookups > 0 else 0.0
 
     return {
-        **_cache_stats,
+        **stats_snapshot,
         "hit_rate": hit_rate,
-        "cache_size": len(_meshgrid_cache),
+        "cache_size": cache_size,
         "max_cache_size": _MESHGRID_CACHE_MAX_SIZE,
     }
 

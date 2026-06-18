@@ -276,8 +276,10 @@ class ShearSensitivityWeighting:
         if not self.config.enable:
             return
 
-        # Check if we should update this iteration
-        if iteration % self.config.update_frequency != 0:
+        # Check if we should update this iteration. Guard against a
+        # misconfigured update_frequency=0 (modulo-by-zero), mirroring the
+        # ``or 1`` defense in build_gradient_collapse_callback.
+        if iteration % (self.config.update_frequency or 1) != 0:
             return
 
         # Extract phi0 from parameters

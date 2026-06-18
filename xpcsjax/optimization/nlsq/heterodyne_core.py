@@ -1067,7 +1067,8 @@ def _compute_per_angle_chi2(
     ----------
     residuals : np.ndarray
         Flat off-diagonal residual vector from ``compute_residuals``, length
-        ``n * (n - 1)``.
+        ``(n - 1) * (n - 2)`` (the kernel mask excludes both the t=0 boundary
+        row/column and the ``t1 == t2`` diagonal).
     c2_matrix : np.ndarray
         Per-angle experimental C2 matrix, shape ``(n, n)``.
     n_params : int
@@ -1084,7 +1085,10 @@ def _compute_per_angle_chi2(
     per_angle_cost = 0.5 * ssr
 
     n_matrix = c2_matrix.shape[0]
-    n_valid = c2_matrix.size - n_matrix  # off-diagonal count (matches residuals length)
+    # Use the actual residual length: the kernel mask excludes the t=0 boundary
+    # row/column AND the diagonal, so the valid count is (n-1)*(n-2), not the
+    # N^2 - N that `size - n_matrix` (diagonal-only) would give.
+    n_valid = int(residuals.size)
     n_dof = max(n_valid - n_params, 1)
 
     # Far-lag photon-noise estimate — same formula as _fit_local

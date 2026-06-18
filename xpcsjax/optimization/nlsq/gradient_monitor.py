@@ -278,8 +278,10 @@ class GradientCollapseMonitor:
         if not self.config.enable:
             return "OK"
 
-        # Skip if not on check interval
-        if iteration % self.config.check_interval != 0:
+        # Skip if not on check interval. Guard against a misconfigured
+        # check_interval=0 (modulo-by-zero), mirroring the ``or 1`` defense
+        # in build_gradient_collapse_callback.
+        if iteration % (self.config.check_interval or 1) != 0:
             return "OK"
 
         # Track best params

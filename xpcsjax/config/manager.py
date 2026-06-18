@@ -482,6 +482,8 @@ class ConfigManager:
             return {"enabled": False}
 
         optimization = self.config.get("optimization", {})
+        if not isinstance(optimization, dict):
+            return {"enabled": False}
         angle_filtering = optimization.get("angle_filtering", {})
         if not isinstance(angle_filtering, dict):
             logger.warning(
@@ -887,7 +889,9 @@ class ConfigManager:
         if not self.config:
             return warnings
 
-        initial_params = self.config.get("initial_parameters", {})
+        initial_params = self.config.get("initial_parameters") or {}
+        if not isinstance(initial_params, dict):
+            return warnings
         per_angle_scaling = initial_params.get("per_angle_scaling")
 
         if not per_angle_scaling or not isinstance(per_angle_scaling, dict):
@@ -1004,7 +1008,8 @@ class ConfigManager:
             "static",  # accepted raw (deprecated); _normalize rewrites to "static_anisotropic"
         ]
         mode = self.config.get("analysis_mode", "")
-        if mode and mode not in valid_modes:
+        mode_normalized = mode.lower() if isinstance(mode, str) else mode
+        if mode_normalized and mode_normalized not in valid_modes:
             logger.warning(
                 "Unknown analysis_mode: '%s'. Valid modes: %s",
                 mode,
@@ -1033,6 +1038,8 @@ class ConfigManager:
 
         # Dataset info
         exp_data = self.config.get("experimental_data", {})
+        if not isinstance(exp_data, dict):
+            exp_data = {}
         file_path = exp_data.get("file_path")
         if file_path:
             logger.info(f"Data file: {file_path}")
@@ -1259,6 +1266,8 @@ class ConfigManager:
         from pathlib import Path
 
         exp_data = self.config["experimental_data"]
+        if not isinstance(exp_data, dict):
+            return
 
         # Handle legacy composite format (data_folder_path + data_file_name)
         if "data_folder_path" in exp_data and "data_file_name" in exp_data:
