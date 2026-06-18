@@ -4,8 +4,10 @@ Centralized parameter management system for handling parameter bounds,
 active parameters, and validation for the xpcsjax NLSQ analysis pipeline.
 """
 
+from __future__ import annotations
+
 import re
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -18,7 +20,16 @@ from xpcsjax.config.types import (
     BoundDict,
     HomodyneConfig,
 )
-from xpcsjax.core.physics import ValidationResult, validate_parameters_detailed
+
+if TYPE_CHECKING:
+    # Type-only import: xpcsjax.core.physics pulls in JAX, so it must not load at
+    # import time. Under `from __future__ import annotations` the `-> ValidationResult`
+    # return annotations are strings, so this TYPE_CHECKING import satisfies type
+    # checkers without loading JAX. `validate_parameters_detailed` is NOT imported
+    # here — it is used only at runtime, via the lazy local import added in Step 6
+    # (importing it here too would be an unused-import F401).
+    from xpcsjax.core.physics import ValidationResult
+
 from xpcsjax.utils.logging import get_logger
 
 # Import physics validators for constraint checking
@@ -251,6 +262,8 @@ class ParameterManager:
         - Subdiffusion (α < 0): Höfling & Franosch, Rep. Prog. Phys. 76, 046602 (2013)
         - XPCS theory: He et al., PNAS 121, e2401162121 (2024)
         """
+        from xpcsjax.core.physics import ValidationResult
+
         if HAS_PHYSICS_VALIDATORS:
             # Use registry-driven validation (reduced complexity)
             physics_violations = validate_all_parameters(params, ConstraintSeverity(severity_level))
@@ -596,6 +609,8 @@ class ParameterManager:
         >>> if not result.valid:
         ...     print(result.violations)
         """
+        from xpcsjax.core.physics import validate_parameters_detailed
+
         if param_names is None:
             param_names = self.get_all_parameter_names()
 
