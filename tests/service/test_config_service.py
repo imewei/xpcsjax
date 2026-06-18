@@ -32,7 +32,7 @@ def test_config_service_is_jax_free():
 
 
 def test_load_config_applies_mode_and_output(monkeypatch):
-    # Stub ConfigManager so the test is independent of any on-disk YAML.
+    # Stub ConfigManager so the test does not require any on-disk YAML.
     made = {}
 
     class _FakeCM:

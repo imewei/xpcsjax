@@ -416,64 +416,17 @@ def _generate_post_fit_plots(
     result: OptimizationResult,
     plots_dir: Path,
 ) -> Path | None:
-    """Generate the full 3-panel / residual / simulated artifact set.
+    """Generate the full 3-panel / residual / simulated artifact set (delegates)."""
+    from xpcsjax.service.plots import generate_plots
 
-    Delegates to ``xpcsjax.viz.generate_nlsq_plots``, which is the high-level
-    orchestrator and handles per-angle dispatch, datashader fallback, and
-    artifact serialization (NPZ + JSON) under ``output_dir``.
-    """
-    import matplotlib
-
-    matplotlib.use("Agg")
-
-    from xpcsjax.viz import generate_nlsq_plots
-
-    # Write the full artifact set under the ``plots/`` directory so the post-fit
-    # dispatch lands in the same place as every other plot path
-    # (``_plot_experimental_data``, ``_save_simulated_only``,
-    # ``_save_fit_comparison_only``) and matches the "Plots written to <root>/plots"
-    # message logged by ``dispatch_plots``. ``generate_nlsq_plots`` creates its
-    # own ``simulated_data/`` subdirectory beneath whatever output_dir it is given,
-    # so the fitted artifacts land at ``<root>/plots/simulated_data/``. The main
-    # NLSQ results (nlsq_result.json/.npz) are written separately to ``<root>`` by
-    # ``save_results`` and are intentionally not nested under ``plots/``.
-
-    use_datashader = should_use_datashader(getattr(args, "plotting_backend", "auto"))
-    parallel = bool(getattr(args, "parallel_plots", False))
-
-    try:
-        model = config_manager.get_model()
-    except Exception as exc:
-        log_exception(
-            logger,
-            exc,
-            context={"operation": "post_fit_plots_get_model"},
-            level=logging.WARNING,
-        )
-        return None
-
-    cfg = config_manager.get_config()
-
-    try:
-        generate_nlsq_plots(
-            model=model,
-            result=result,
-            data=data,
-            config=cfg,
-            output_dir=plots_dir,
-            use_datashader=use_datashader,
-            parallel=parallel,
-        )
-    except Exception as exc:
-        log_exception(
-            logger,
-            exc,
-            context={"operation": "generate_nlsq_plots"},
-            level=logging.WARNING,
-        )
-        return None
-
-    return plots_dir
+    return generate_plots(
+        result,
+        data,
+        config_manager,
+        plots_dir,
+        use_datashader=should_use_datashader(getattr(args, "plotting_backend", "auto")),
+        parallel=bool(getattr(args, "parallel_plots", False)),
+    )
 
 
 def _save_fit_comparison_only(
