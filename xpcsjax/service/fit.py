@@ -8,9 +8,12 @@ on ``xpcsjax.service.events``).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from xpcsjax import OptimizationResult, fit_nlsq
+from xpcsjax.service.events import FitEvent, Started
 from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -118,3 +121,65 @@ def apply_overrides(config_manager: ConfigManager, overrides: FitOverrides) -> N
         # 0 = silent, 1 = default, 2 = chatty; quiet wins.
         v = 0 if overrides.quiet else (2 if overrides.verbose else 1)
         _set_nested(cfg, (*_NLSQ_SECTION, "verbose"), v)
+
+
+def run_fit(
+    config_manager: ConfigManager,
+    data: dict[str, Any],
+    *,
+    overrides: FitOverrides | None = None,
+    run_id: str = "",
+    on_event: Callable[[FitEvent], None] | None = None,
+) -> OptimizationResult:
+    """Run an NLSQ fit and return the aggregate result.
+
+    Argparse-free core of ``cli.optimization_runner.run_nlsq``. Applies typed
+    ``overrides`` to the config, dispatches through :func:`xpcsjax.fit_nlsq`
+    (which routes ``two_component`` to the heterodyne multi-phi path and all
+    other modes to ``fit_nlsq_jax``), and normalizes the return to an
+    :class:`OptimizationResult`. CLI-flavored side effects (bound-saturation
+    warnings, summary logging, the homodyne JSON trio) live in the CLI adapter,
+    not here.
+
+    Parameters
+    ----------
+    config_manager : ConfigManager
+        Already-merged config; mode is set. Mutated in place by ``overrides``.
+    data : dict
+        XPCS data dict accepted by :func:`xpcsjax.fit_nlsq`.
+    overrides : FitOverrides, optional
+        Typed NLSQ runtime knobs. ``None`` applies nothing.
+    run_id : str, optional
+        Identifier stamped onto emitted events.
+    on_event : callable, optional
+        Sink for :class:`~xpcsjax.service.events.FitEvent` objects. ``None``
+        (the CLI default) emits nothing and reproduces legacy behavior exactly.
+
+    Returns
+    -------
+    OptimizationResult
+        The aggregate fit result.
+    """
+    apply_overrides(config_manager, overrides or FitOverrides())
+
+    mode = ""
+    if isinstance(getattr(config_manager, "config", None), dict):
+        mode = str(config_manager.config.get("analysis_mode", ""))
+
+    if on_event is not None:
+        on_event(Started(run_id=run_id, seq=0, mode=mode, settings_summary=repr(overrides)))
+
+    result = fit_nlsq(data, config_manager)
+
+    if not isinstance(result, OptimizationResult):
+        # MultiStartResult and similar wrappers expose ``.best``.
+        best = getattr(result, "best", None)
+        if isinstance(best, OptimizationResult):
+            result = best
+        else:
+            raise TypeError(
+                f"fit_nlsq returned unexpected type {type(result).__name__}; "
+                "expected OptimizationResult"
+            )
+
+    return result
