@@ -255,7 +255,7 @@ def test_save_results_both_writes_durable_npz_before_json(tmp_path, monkeypatch)
     """For output_format='both', the durable NPZ must be written before the JSON,
     so a human-readable serialization failure cannot discard the numeric artifact.
     """
-    from xpcsjax.cli import result_saving
+    from xpcsjax.service import persist as result_saving  # was: from xpcsjax.cli import result_saving
     from xpcsjax.optimization.nlsq.results import OptimizationResult
 
     result = OptimizationResult(
