@@ -25,8 +25,9 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from xpcsjax import OptimizationResult, fit_nlsq
+from xpcsjax import OptimizationResult
 from xpcsjax.io.nlsq_writers import save_nlsq_json_files
+from xpcsjax.service.fit import FitOverrides, apply_overrides, run_fit
 from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -47,67 +48,24 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
-_NLSQ_SECTION = ("optimization", "nlsq")
-
-
-def _set_nested(cfg: dict[str, Any], path: tuple[str, ...], value: Any) -> None:
-    """Set ``cfg[path[0]][path[1]]...`` = value, creating dicts as needed."""
-    node = cfg
-    for key in path[:-1]:
-        existing = node.get(key)
-        if not isinstance(existing, dict):
-            existing = {}
-            node[key] = existing
-        node = existing
-    node[path[-1]] = value
+def _overrides_from_args(args: argparse.Namespace) -> FitOverrides:
+    """Build typed :class:`FitOverrides` from parsed CLI args."""
+    return FitOverrides(
+        multistart=getattr(args, "multistart", None),
+        multistart_n=getattr(args, "multistart_n", None),
+        max_iterations=getattr(args, "max_iterations", None),
+        tolerance=getattr(args, "tolerance", None),
+        verbose=bool(getattr(args, "verbose", False)),
+        quiet=bool(getattr(args, "quiet", False)),
+    )
 
 
 def apply_cli_overrides(
     args: argparse.Namespace,
     config_manager: ConfigManager,
 ) -> None:
-    """Merge ``args`` flags into ``config_manager.config`` in place.
-
-    Only flags this module is responsible for (the NLSQ runtime knobs in
-    the task spec) are written here. Other flags — ``--mode``, ``--phi``,
-    ``--output`` — are handled in earlier CLI stages.
-    """
-    cfg = config_manager.config
-    if not isinstance(cfg, dict):
-        return
-
-    multistart = getattr(args, "multistart", None)
-    if multistart is not None:
-        _set_nested(cfg, (*_NLSQ_SECTION, "multi_start", "enable"), bool(multistart))
-        logger.info("CLI override: multi_start.enable = %s", bool(multistart))
-
-    multistart_n = getattr(args, "multistart_n", None)
-    if multistart_n is not None:
-        _set_nested(cfg, (*_NLSQ_SECTION, "multi_start", "n_starts"), int(multistart_n))
-        logger.info("CLI override: multi_start.n_starts = %d", int(multistart_n))
-
-    max_iterations = getattr(args, "max_iterations", None)
-    if max_iterations is not None:
-        _set_nested(cfg, (*_NLSQ_SECTION, "max_iterations"), int(max_iterations))
-        logger.info("CLI override: nlsq.max_iterations = %d", int(max_iterations))
-
-    tolerance = getattr(args, "tolerance", None)
-    if tolerance is not None:
-        ftol = float(tolerance)
-        _set_nested(cfg, (*_NLSQ_SECTION, "ftol"), ftol)
-        _set_nested(cfg, (*_NLSQ_SECTION, "xtol"), ftol)
-        # Also relax gtol (gradient-norm criterion): on degenerate fits trf
-        # frequently terminates on gtol before ftol/xtol, so omitting it makes
-        # --tolerance a partial no-op for exactly those cases.
-        _set_nested(cfg, (*_NLSQ_SECTION, "gtol"), ftol)
-        logger.info("CLI override: nlsq.ftol = nlsq.xtol = nlsq.gtol = %g", ftol)
-
-    verbose = bool(getattr(args, "verbose", False))
-    quiet = bool(getattr(args, "quiet", False))
-    if verbose or quiet:
-        # 0 = silent, 1 = default, 2 = chatty
-        v = 0 if quiet else (2 if verbose else 1)
-        _set_nested(cfg, (*_NLSQ_SECTION, "verbose"), v)
+    """Merge CLI flags into ``config_manager.config`` (delegates to the service)."""
+    apply_overrides(config_manager, _overrides_from_args(args))
 
 
 # ---------------------------------------------------------------------------
@@ -325,35 +283,21 @@ def run_nlsq(
     """
     logger.info("Starting NLSQ analysis")
 
-    apply_cli_overrides(args, config_manager)
-
     mode = ""
-    if hasattr(config_manager, "config") and isinstance(config_manager.config, dict):
+    if isinstance(getattr(config_manager, "config", None), dict):
         mode = str(config_manager.config.get("analysis_mode", ""))
     logger.info("Analysis mode: %s", mode or "<unset>")
 
     if getattr(args, "no_jit", False):
         logger.info("JAX_DISABLE_JIT=1 (set in main bootstrap); fit will run uncompiled")
 
-    # Dispatch through the public gateway. ``fit_nlsq`` routes
-    # ``two_component`` -> heterodyne multi-phi path, otherwise -> fit_nlsq_jax.
+    # Service owns override-application + dispatch + result normalization;
+    # this adapter keeps the CLI-flavored side effects below.
     try:
-        result = fit_nlsq(data, config_manager)
+        result = run_fit(config_manager, data, overrides=_overrides_from_args(args))
     except Exception:
         logger.exception("NLSQ fit raised an exception")
         raise
-
-    if not isinstance(result, OptimizationResult):
-        # MultiStartResult or other wrappers expose ``.best`` (OptimizationResult).
-        best = getattr(result, "best", None)
-        if isinstance(best, OptimizationResult):
-            result = best
-        else:
-            raise TypeError(
-                f"fit_nlsq returned unexpected type {type(result).__name__}; "
-                "expected OptimizationResult"
-            )
-    assert isinstance(result, OptimizationResult)  # Pyright narrowing
 
     _warn_nlsq_bound_saturation(result)
 
