@@ -41,3 +41,17 @@ def test_load_result_summary_missing_file_returns_none(tmp_path):
 def test_load_result_summary_corrupt_json_returns_none(tmp_path):
     (tmp_path / "nlsq_result.json").write_text("{not json", encoding="utf-8")
     assert load_result_summary(tmp_path) is None
+
+
+def test_load_result_summary_extracts_diagnostics(tmp_path):
+    _write_result(tmp_path, nlsq_diagnostics={"hierarchical_active": True})
+    s = load_result_summary(tmp_path)
+    assert s is not None
+    assert s.diagnostics == {"hierarchical_active": True}
+
+
+def test_load_result_summary_diagnostics_defaults_empty(tmp_path):
+    _write_result(tmp_path)
+    s = load_result_summary(tmp_path)
+    assert s is not None
+    assert s.diagnostics == {}
