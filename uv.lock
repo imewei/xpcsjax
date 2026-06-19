@@ -4534,6 +4534,11 @@ docs = [
     { name = "sphinx-copybutton" },
     { name = "sphinx-design" },
 ]
+gui = [
+    { name = "pyqtgraph" },
+    { name = "pyside6" },
+    { name = "pytest-qt" },
+]
 viz-fast = [
     { name = "colorcet" },
     { name = "datashader" },
@@ -4563,11 +4568,14 @@ requires-dist = [
     { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.7" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.0" },
     { name = "psutil", specifier = ">=7.2" },
+    { name = "pyqtgraph", marker = "extra == 'gui'", specifier = ">=0.13" },
+    { name = "pyside6", marker = "extra == 'gui'", specifier = ">=6.7" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.2" },
     { name = "pytest-benchmark", marker = "extra == 'dev'", specifier = ">=5.2" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "pytest-env", marker = "extra == 'dev'", specifier = ">=1.1" },
     { name = "pytest-mpl", marker = "extra == 'dev'", specifier = ">=0.17" },
+    { name = "pytest-qt", marker = "extra == 'gui'", specifier = ">=4.4" },
     { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.4" },
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.8" },
     { name = "pyyaml", specifier = ">=6.0.3" },
@@ -4583,7 +4591,7 @@ requires-dist = [
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.12.20250915" },
     { name = "xarray", marker = "extra == 'viz-fast'", specifier = ">=2024.0" },
 ]
-provides-extras = ["dev", "docs", "viz-fast"]
+provides-extras = ["dev", "docs", "viz-fast", "gui"]
 
 [[package]]
 name = "xxhash"
