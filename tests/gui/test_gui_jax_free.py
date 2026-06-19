@@ -88,3 +88,37 @@ def test_project_panel_is_jax_free():
     """xpcsjax.gui.views.project_panel must not import JAX."""
     pytest.importorskip("PySide6")
     assert _probe_import("xpcsjax.gui.views.project_panel") == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 4 guards: viz_bundle + export (JAX-free, no Qt dependency)
+# ---------------------------------------------------------------------------
+
+
+def test_viz_bundle_is_jax_free():
+    """xpcsjax.gui.viz_bundle must not import JAX (numpy + stdlib only)."""
+    assert _probe_import("xpcsjax.gui.viz_bundle") == 0
+
+
+def test_export_is_jax_free():
+    """xpcsjax.gui.export must not import JAX (shutil + stdlib only)."""
+    assert _probe_import("xpcsjax.gui.export") == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 3/4 guards: plots_view + raster (JAX-free, Qt + pyqtgraph required)
+# ---------------------------------------------------------------------------
+
+
+def test_plots_view_is_jax_free():
+    """xpcsjax.gui.views.plots_view must not import JAX at module level."""
+    pytest.importorskip("PySide6")
+    pytest.importorskip("pyqtgraph")
+    assert _probe_import("xpcsjax.gui.views.plots_view") == 0
+
+
+def test_raster_is_jax_free():
+    """xpcsjax.gui.views.raster must not import JAX at module level."""
+    pytest.importorskip("PySide6")
+    pytest.importorskip("pyqtgraph")
+    assert _probe_import("xpcsjax.gui.views.raster") == 0

@@ -16,16 +16,21 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPlainTextEdit,
+    QStackedWidget,
     QToolBar,
     QVBoxLayout,
     QWidget,
 )
 
 from xpcsjax.gui.controllers.fit_queue import FitQueueController
+from xpcsjax.gui.export import export_figures
 from xpcsjax.gui.project.model import Project
 from xpcsjax.gui.views.diagnostics_panel import BannerList, LayerStatusChips, SSRCurveWidget
+from xpcsjax.gui.views.plots_view import ResultPlots
 from xpcsjax.gui.views.project_panel import ComparisonView, ProjectSidebar
+from xpcsjax.gui.viz_bundle import load_viz_bundle
 
 
 class MainWindow(QMainWindow):
@@ -45,9 +50,18 @@ class MainWindow(QMainWindow):
         self._status = QLabel("idle")
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
+
+        # Central widget: a stacked widget with two pages.
+        # Page 0: plain-text summary (shown when no interactive bundle is available).
+        # Page 1: interactive ResultPlots (shown when a viz bundle loads).
         self._results = QPlainTextEdit()
         self._results.setReadOnly(True)
-        self.setCentralWidget(self._results)
+        self._result_plots = ResultPlots()
+        self._central_stack = QStackedWidget()
+        self._central_stack.addWidget(self._results)       # index 0 → text summary
+        self._central_stack.addWidget(self._result_plots)  # index 1 → interactive plots
+        self._central_stack.setCurrentIndex(0)
+        self.setCentralWidget(self._central_stack)
 
         self._sidebar = ProjectSidebar()
         self._comparison = ComparisonView()
@@ -68,6 +82,7 @@ class MainWindow(QMainWindow):
             ("action_output_dir", "Output Dir", self._on_choose_output),
             ("action_run", "Run", self._on_run),
             ("action_cancel", "Cancel", self._on_cancel),
+            ("action_export_figure", "Export Figure", self._on_export_figure),
         ]:
             action = QAction(text, self)
             action.setObjectName(key)
@@ -125,7 +140,7 @@ class MainWindow(QMainWindow):
         self._log.appendPlainText(f"[{level}] {message}")
 
     def show_result(self, summary: Any) -> None:
-        """Render the finished-fit summary (a ResultSummary or None)."""
+        """Render the finished-fit summary (a ResultSummary or None) in the text panel."""
         if summary is None:
             self._results.setPlainText("Fit finished, but no result file was found.")
             return
@@ -144,6 +159,32 @@ class MainWindow(QMainWindow):
             f"{summary.result_dir}/plots — use 'Output Dir' to locate them.",
         ]
         self._results.setPlainText("\n".join(lines))
+
+    def _show_result_with_bundle(self, summary: Any, result_dir: str | None) -> None:
+        """Render the result: interactive plots when a bundle exists, text otherwise.
+
+        Parameters
+        ----------
+        summary:
+            A ``ResultSummary`` (or ``None``) to show in the text fallback.
+        result_dir:
+            The run's result directory; used to locate the viz bundle.
+            ``None`` forces the text-summary path.
+        """
+        bundle = None
+        if result_dir:
+            try:
+                bundle = load_viz_bundle(result_dir)
+            except Exception:  # pragma: no cover — defensive only
+                bundle = None
+
+        if bundle is not None:
+            self._result_plots.set_bundle(bundle)
+            self._central_stack.setCurrentIndex(1)  # show interactive plots
+        else:
+            # Fall back to (or keep) the text summary.
+            self.show_result(summary)
+            self._central_stack.setCurrentIndex(0)
 
     def show_error(self, message: str) -> None:
         """Render a fit failure."""
@@ -191,7 +232,8 @@ class MainWindow(QMainWindow):
             self._sidebar.update_run(self._project, run_id)
         # Show the result in the main panel for the active run.
         if run_id == self._active_run_id:
-            self.show_result(summary)
+            result_dir = result_path or None
+            self._show_result_with_bundle(summary, result_dir)
 
     def _on_runs_selected(self, run_ids: list) -> None:
         pairs = []
@@ -201,6 +243,14 @@ class MainWindow(QMainWindow):
                 _, run = found
                 pairs.append((rid[:8], run.summary))
         self._comparison.show_runs(pairs)
+
+        # Update the main panel to show the most-recently selected run's result.
+        if run_ids:
+            first_rid = run_ids[0]
+            found = self._project.run_by_id(first_rid)
+            if found is not None:
+                _, run = found
+                self._show_result_with_bundle(run.summary, run.result_dir)
 
     # --- introspection for tests ----------------------------------------------
     def status_text(self) -> str:
@@ -246,6 +296,43 @@ class MainWindow(QMainWindow):
 
     def _on_cancel(self) -> None:
         self._queue.cancel(self._sidebar.current_run_id())
+
+    def _on_export_figure(self) -> None:
+        """Export publication figures from the selected run to a user-chosen directory."""
+        run_id = self._sidebar.current_run_id()
+        if run_id is None:
+            self.set_status("select a run first")
+            return
+        found = self._project.run_by_id(run_id)
+        if found is None:
+            self.set_status("select a run first")
+            return
+        _, run = found
+        if not getattr(run, "result_dir", None):
+            QMessageBox.information(
+                self,
+                "Export Figure",
+                "No result directory for this run — run the fit first.",
+            )
+            return
+
+        dest = QFileDialog.getExistingDirectory(self, "Export figures to…")
+        if not dest:
+            return  # user cancelled
+
+        copied = export_figures(run.result_dir, dest)
+        if not copied:
+            QMessageBox.information(
+                self,
+                "Export Figure",
+                "No figures to export — this run produced none.",
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "Export Figure",
+                f"Copied {len(copied)} figure(s) to:\n{dest}",
+            )
 
     # --- lifecycle ------------------------------------------------------------
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 — Qt override name
