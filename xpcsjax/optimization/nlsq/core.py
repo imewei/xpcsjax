@@ -247,6 +247,8 @@ def fit_nlsq_jax(
     per_angle_scaling: bool = True,  # REQUIRED: per-angle is physically correct
     use_adapter: bool = False,  # Experimental: use NLSQAdapter (CurveFit) instead of NLSQWrapper
     _skip_global_selection: bool = False,  # Internal: skip global opt check (for fallback)
+    *,
+    on_iteration: Callable[[int, float], None] | None = None,
 ) -> OptimizationResult:
     """NLSQ trust-region nonlinear least squares optimization with per-angle scaling.
 
@@ -541,6 +543,7 @@ def fit_nlsq_jax(
                 diagnostics_enabled=diagnostics_enabled,
                 shear_transforms=shear_transform_cfg,
                 per_angle_scaling_initial=per_angle_scaling_initial,
+                on_iteration=on_iteration,
             )
 
             # T023: Add fallback info to device_info

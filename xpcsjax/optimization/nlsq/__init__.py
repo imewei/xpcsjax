@@ -451,6 +451,7 @@ __all__ = [
 # ============================================================================
 # xpcsjax single-entry public wrapper
 # ============================================================================
+from collections.abc import Callable  # noqa: E402
 from pathlib import Path as _Path  # noqa: E402 - public API section is below the verbatim port
 from typing import TYPE_CHECKING, Any  # noqa: E402
 
@@ -461,6 +462,8 @@ if TYPE_CHECKING:
 def fit_nlsq(
     data: dict[str, Any],
     config: "ConfigManager | str | _Path",
+    *,
+    on_iteration: Callable[[int, float], None] | None = None,
 ) -> "OptimizationResult":
     """Run the xpcsjax NLSQ fit for either physics model.
 
@@ -523,6 +526,9 @@ def fit_nlsq(
 
     Notes
     -----
+    ``on_iteration`` is honored on the homodyne/laminar standard in-memory path
+    only; on ``two_component`` it is accepted and ignored.
+
     Mode dispatch is case- and separator-insensitive: ``"two-component"`` is
     normalized to ``"two_component"`` before routing.
 
@@ -554,8 +560,8 @@ def fit_nlsq(
     if mode in ("two_component", "heterodyne"):
         return _fit_nlsq_heterodyne(data, config)
 
-    # Homodyne path — unchanged.
-    return fit_nlsq_jax(data, config)
+    # Homodyne path — passes on_iteration to the core engine.
+    return fit_nlsq_jax(data, config, on_iteration=on_iteration)
 
 
 def _estimate_heterodyne_points(c2: "Any", phi: "Any") -> int:

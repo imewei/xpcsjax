@@ -295,6 +295,8 @@ def _build_homodyne_l4_callback(
     per_angle_scaling: bool,
     n_phi: int,
     n_physical: int,
+    *,
+    on_iteration: "Callable[[int, float], None] | None" = None,
 ) -> tuple[Any, Any]:
     """Build the L4 per-iteration gradient-collapse monitor + curve_fit callback.
 
@@ -308,10 +310,30 @@ def _build_homodyne_l4_callback(
     ``solver_residual_fn`` is the NLSQ MODEL function ``f(xdata, *params) -> y``
     (NLSQ forms residuals internally), so the monitored loss reconstructs the
     least-squares objective ``0.5 * sum((model(xdata, *p) - ydata) ** 2)``.
+
+    Parameters
+    ----------
+    on_iteration : callable or None, default None
+        Optional observer ``(iteration: int, cost: float) -> None`` called after
+        the existing L4 work on every solver iteration.  When ``None`` (default),
+        this function returns the existing callback object **unchanged** so the
+        call chain is byte-identical to today.  A raising observer is silently
+        swallowed so it cannot abort the fit.
     """
     enabled, ratio_threshold, consecutive_triggers = _homodyne_l4_monitoring_enabled(config)
     if not enabled:
-        return None, None
+        # L4 disabled: return (None, None) when no observer, or an observer-only
+        # callback when on_iteration is set (so the observer fires even without L4).
+        if on_iteration is None:
+            return None, None
+
+        def _observer_only(iteration: Any, cost: Any, params: Any, info: Any = None, **kw: Any) -> None:  # noqa: ANN401
+            try:
+                on_iteration(int(iteration), float(cost))
+            except Exception:  # noqa: BLE001
+                pass
+
+        return None, _observer_only
 
     from xpcsjax.optimization.nlsq.gradient_monitor import (
         GradientCollapseMonitor,
@@ -348,8 +370,22 @@ def _build_homodyne_l4_callback(
         return 0.5 * jnp.sum((model - _ydata) ** 2)
 
     grad_fn = jax.jit(jax.grad(_loss))
-    callback = build_gradient_collapse_callback(monitor, grad_fn)
-    return monitor, callback
+    _l4_callback = build_gradient_collapse_callback(monitor, grad_fn)
+
+    # None branch: return the existing callback UNCHANGED — byte-identical to today.
+    if on_iteration is None:
+        return monitor, _l4_callback
+
+    # Observer branch: wrap L4 callback + observer.  L4 work runs first,
+    # then the observer is called.  A raising observer is silently swallowed.
+    def _l4_plus_observer(iteration: Any, cost: Any, params: Any, info: Any = None, **kw: Any) -> None:  # noqa: ANN401
+        _l4_callback(iteration, cost, params, info, **kw)  # existing L4 work, unchanged
+        try:
+            on_iteration(int(iteration), float(cost))  # cost == SSR
+        except Exception:  # noqa: BLE001 — an observer callback must not abort the fit
+            pass
+
+    return monitor, _l4_plus_observer
 
 
 def _extract_n_points(data: Any) -> int:
@@ -747,6 +783,8 @@ class NLSQWrapper(NLSQAdapterBase):
         diagnostics_enabled: bool = False,
         shear_transforms: dict[str, Any] | None = None,
         per_angle_scaling_initial: dict[str, list[float]] | None = None,
+        *,
+        on_iteration: "Callable[[int, float], None] | None" = None,
     ) -> OptimizationResult:
         """Execute NLSQ optimization with automatic strategy selection.
 
@@ -2059,6 +2097,7 @@ class NLSQWrapper(NLSQAdapterBase):
             per_angle_scaling=per_angle_scaling,
             n_phi=n_phi_unique,
             n_physical=len(physical_param_names),
+            on_iteration=on_iteration,
         )
 
         # Step 8: Execute optimization with strategy fallback
