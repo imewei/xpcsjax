@@ -123,6 +123,7 @@ def test_cancel_and_shutdown(qtbot, tmp_path):
     assert h1.cancelled is True
     assert h1.joined is True  # reader QThread joined on shutdown (app close / atexit)
     assert q.pending_count() == 0  # queue cleared on shutdown
+    assert q._handles == {}  # dead handles dropped (no stale references after shutdown)
 
 
 def test_cancel_pending_removes_before_start(qtbot, tmp_path):

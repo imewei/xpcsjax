@@ -120,6 +120,7 @@ class FitQueueController(QObject):
             if handle.is_running():
                 handle.cancel()    # terminate the process + tear down its reader
             handle.shutdown()      # join the reader QThread (app close / atexit)
+        self._handles.clear()      # drop the now-dead handles (no stale references)
 
     def _try_start_next(self) -> None:
         while self._pending and len(self._handles) < self._max:

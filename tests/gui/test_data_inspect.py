@@ -50,9 +50,17 @@ def test_c2_preview_reconstructs_group_half_matrix(tmp_path):
     # Real formats store C₂ as a GROUP of per-angle 2-D half-matrices; the preview
     # reconstructs c2_half + c2_half.T (diag halved), mirroring the loader.
     p = tmp_path / "u.h5"
+    # Use a NON-symmetric lower-triangular half (distinct values) so that symmetry
+    # of the result is only achievable by a correct c2_half + c2_half.T reconstruction
+    # (the raw half is asymmetric), not vacuously true.
+    half = np.tril(np.arange(48 * 48, dtype=float).reshape(48, 48))
+    assert not np.allclose(half, half.T)  # sanity: the stored half is asymmetric
     with h5py.File(p, "w") as f:
         g = f.create_group("xpcs/twotime/correlation_map")
         for k in ("c2_00001", "c2_00002"):
-            g.create_dataset(k, data=np.tril(np.ones((48, 48))))
+            g.create_dataset(k, data=half)
     img = read_c2_preview(p, "unused", data_type="aps_u", phi_index=1, max_dim=32)
     assert img is not None and img.ndim == 2 and max(img.shape) <= 32
+    # The reconstructed two-time matrix must be symmetric (block-mean rasterization
+    # with equal row/col strides preserves symmetry).
+    np.testing.assert_allclose(img, img.T)

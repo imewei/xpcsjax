@@ -147,7 +147,11 @@ class DataPanel(QWidget):
             "HDF5 files (*.h5 *.hdf5 *.nxs);;All files (*)",
         )
         if path:
-            self.load(path, data_type=self._current_data_type)
+            # A manually-browsed file carries no config context, so don't reuse a
+            # stale config-driven data_type (which could apply the wrong layout to a
+            # different format and silently render the wrong angle). Fall back to the
+            # heuristic raw read; a config-driven load() still passes data_type explicitly.
+            self.load(path)
 
     def _on_dataset_changed(self, name: str) -> None:
         """Slot: re-run preview when the combo selection changes."""

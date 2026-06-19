@@ -278,6 +278,8 @@ class MainWindow(QMainWindow):
 
     def _on_run_failed(self, run_id: str, error_text: str) -> None:
         title, friendly, details = present_failure(error_text)
+        # Identify which run failed (matters once multiple runs share the window).
+        title = f"{title} (run {run_id[:8]})"
         ErrorDialog.show_failure(self, title, friendly, details)
 
     def _on_run_finished(self, run_id: str, result_path: str, summary: object) -> None:
@@ -314,13 +316,13 @@ class MainWindow(QMainWindow):
             if found is not None:
                 _, run = found
                 self._show_result_with_bundle(run.summary, run.result_dir)
-                # Mirror result into the inspector + Fit panel.
+                # Mirror the run's results into the inspector (params/uncertainties/
+                # diagnostics live there). The Fit panel shows the *resolved config*,
+                # which a ResultSummary does not carry — so clear it rather than
+                # fabricate a misleading analysis_mode from the convergence status.
+                # (Seam: recover the run's config from result_dir to repopulate it.)
                 self.show_inspector(run.summary)
-                if run.summary is not None:
-                    # Reload the run's config into FitPanel if we can recover it.
-                    self._fit_panel.show_settings(
-                        {"analysis_mode": str(run.summary.convergence_status)}, None
-                    )
+                self._fit_panel.clear()
 
     def _on_config_ready(self, cfg: dict) -> None:
         """Slot: ConfigEditor emitted config_ready — write to temp YAML + launch run.
