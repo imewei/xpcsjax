@@ -47,6 +47,32 @@ def test_show_result_renders_summary(qtbot, tmp_path):
     assert "1234.5" in win.result_text() or "D0" in win.result_text()
 
 
+def test_repeated_runs_get_distinct_output_dirs(qtbot, tmp_path, monkeypatch):
+    """Two runs for the SAME dataset must write to distinct dirs (no overwrite)."""
+    win = _window(qtbot)
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("analysis_mode: static_isotropic\n", encoding="utf-8")
+    win.add_dataset(str(cfg))
+
+    captured: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        win._queue,
+        "enqueue",
+        lambda run_id, _config_path, output_dir: captured.append((run_id, output_dir)),
+    )
+    win._on_run()
+    win._on_run()
+
+    assert len(captured) == 2
+    (rid1, out1), (rid2, out2) = captured
+    assert rid1 != rid2
+    assert out1 != out2  # per-run dirs — second run does not clobber the first's artifacts
+    # The unique dir is the run_id-namespaced one, recorded on the FitRun BEFORE enqueue.
+    runs = win._project.datasets[0].runs
+    assert runs[0].result_dir == out1 and rid1 in out1
+    assert runs[1].result_dir == out2 and rid2 in out2
+
+
 def test_close_event_calls_queue_shutdown(qtbot, monkeypatch):
     win = _window(qtbot)
     called = {"shutdown": False}

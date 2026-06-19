@@ -372,7 +372,8 @@ class MainWindow(QMainWindow):
         self._active_dataset_id = dataset.dataset_id
 
         run = self._project.add_run(dataset.dataset_id)
-        out_dir = self._output_dir or Path(temp_path).parent / "xpcsjax_gui_out"
+        out_dir = self._per_run_output_dir(temp_path, run.run_id)
+        run.result_dir = str(out_dir)  # durable per-run dir, recorded before enqueue
         self._queue.enqueue(run.run_id, temp_path, str(out_dir))
         self._sidebar.set_project(self._project)
 
@@ -485,6 +486,17 @@ class MainWindow(QMainWindow):
         if path:
             self._output_dir = Path(path)
 
+    def _per_run_output_dir(self, config_path: str, run_id: str) -> Path:
+        """Return a unique output dir for one run: ``<base>/runs/<run_id>``.
+
+        ``<base>`` is the user-chosen output directory (if set) or
+        ``<config_dir>/xpcsjax_gui_out``.  Namespacing by ``run_id`` keeps each
+        run's ``nlsq_result.*`` and ``plots/`` artifacts isolated, so re-running
+        a dataset never overwrites a prior run's durable outputs.
+        """
+        base = self._output_dir or Path(config_path).parent / "xpcsjax_gui_out"
+        return base / "runs" / run_id
+
     def _on_run(self) -> None:
         dataset_id = self._active_dataset_id
         if dataset_id is None:
@@ -495,7 +507,8 @@ class MainWindow(QMainWindow):
             self.set_status("pick a config first")
             return
         run = self._project.add_run(dataset_id)
-        out_dir = self._output_dir or Path(dataset.config_path).parent / "xpcsjax_gui_out"
+        out_dir = self._per_run_output_dir(dataset.config_path, run.run_id)
+        run.result_dir = str(out_dir)  # durable per-run dir, recorded before enqueue
         self._queue.enqueue(run.run_id, dataset.config_path, str(out_dir))
         self._sidebar.set_project(self._project)
 

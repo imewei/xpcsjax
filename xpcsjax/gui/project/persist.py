@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from xpcsjax.gui.project.model import Dataset, FitRun, Project
@@ -52,7 +54,21 @@ def save_project(project: Project, path: str | Path) -> None:
             for d in project.datasets
         ],
     }
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    # Atomic write: serialize to a temp file in the SAME directory, fsync, then
+    # os.replace() it into place. A crash / disk-full / FS error mid-write damages
+    # only the throwaway temp — an existing .xpcsproj is never truncated, since a
+    # reader sees either the complete old file or the complete new one.
+    text = json.dumps(payload, indent=2)
+    fd, tmp = tempfile.mkstemp(dir=str(base), prefix=f"{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)  # don't leak the temp on any failure
+        raise
 
 
 def load_project(path: str | Path) -> Project:

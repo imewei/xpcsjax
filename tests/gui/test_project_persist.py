@@ -26,6 +26,32 @@ def test_round_trip_preserves_datasets_and_runs(tmp_path):
     assert lr.summary is None                       # summaries re-loaded lazily
 
 
+def test_save_is_atomic_failed_write_keeps_original_intact(tmp_path, monkeypatch):
+    """A failure during the swap must leave the prior .xpcsproj intact (no torn write)."""
+    import os
+
+    proj_file = tmp_path / "session.xpcsproj"
+
+    v1 = Project()
+    v1.add_dataset(str(tmp_path / "cfg.yaml"), label="V1")
+    save_project(v1, proj_file)
+    original = proj_file.read_text(encoding="utf-8")
+
+    # Mutate, then make the atomic swap fail — the original must survive untouched.
+    v2 = Project()
+    v2.add_dataset(str(tmp_path / "cfg.yaml"), label="V2-CORRUPT")
+    monkeypatch.setattr(os, "replace", lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
+
+    with pytest.raises(OSError, match="boom"):
+        save_project(v2, proj_file)
+
+    assert proj_file.read_text(encoding="utf-8") == original  # untouched
+    assert load_project(proj_file).datasets[0].label == "V1"  # still valid + V1
+    # No temp turds left behind in the directory.
+    assert list(tmp_path.glob("*.tmp")) == []
+    assert [p.name for p in tmp_path.iterdir()] == ["session.xpcsproj"]
+
+
 def test_load_rejects_unknown_schema(tmp_path):
     bad = tmp_path / "bad.xpcsproj"
     bad.write_text('{"schema": "nope", "datasets": []}', encoding="utf-8")
