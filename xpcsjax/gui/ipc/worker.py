@@ -13,10 +13,11 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+from xpcsjax.gui.ipc.diagnostics import layer_status_from_diagnostics
 from xpcsjax.gui.ipc.emitter import EventEmitter
 from xpcsjax.gui.ipc.job import FitJob
-from xpcsjax.gui.ipc.log_capture import QueueLogHandler
-from xpcsjax.service.events import Failed, Finished
+from xpcsjax.gui.ipc.log_capture import BannerLogHandler, QueueLogHandler
+from xpcsjax.service.events import Failed, Finished, LayerStatus
 
 
 def run_worker(job: FitJob, event_queue: Any) -> None:
@@ -36,8 +37,11 @@ def run_worker(job: FitJob, event_queue: Any) -> None:
 
     emitter = EventEmitter(event_queue, job.run_id)
     handler = QueueLogHandler(emitter)
+    banner_handler = BannerLogHandler(emitter)
     root = logging.getLogger("xpcsjax")
+    root.setLevel(logging.INFO)  # so INFO banners + log lines actually reach the handlers
     root.addHandler(handler)
+    root.addHandler(banner_handler)
     try:
         from xpcsjax.service.config import load_config
         from xpcsjax.service.data import load_dataset
@@ -65,8 +69,19 @@ def run_worker(job: FitJob, event_queue: Any) -> None:
 
                 generate_plots(result, data, config_manager, out_dir / "plots")
 
+        diagnostics = getattr(result, "nlsq_diagnostics", None)
+        cfg = getattr(config_manager, "config", None) or {}  # config may be None
+        emitter.emit(
+            LayerStatus(
+                run_id="",
+                seq=0,
+                layers=layer_status_from_diagnostics(diagnostics),
+                mode=str(cfg.get("analysis_mode", "")),
+            )
+        )
         emitter.emit(Finished(run_id="", seq=0, result_path=str(out_dir) if out_dir else ""))
     except BaseException:  # noqa: BLE001 — report ANY failure as a terminal event
         emitter.emit(Failed(run_id="", seq=0, traceback=traceback.format_exc()))
     finally:
         root.removeHandler(handler)
+        root.removeHandler(banner_handler)
