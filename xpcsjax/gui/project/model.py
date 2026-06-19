@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 QUEUED = "queued"
+STARTING = "starting"  # spawned, JAX import/XLA cold-compile in flight (pre-``Started``)
 RUNNING = "running"
 DONE = "done"
 FAILED = "failed"
@@ -29,6 +30,7 @@ class FitRun:
     result_dir: str | None = None
     summary: Any = None
     created_at: str = ""
+    result_missing: bool = False  # dead path (spec §8): recorded result_dir gone on disk
 
 
 @dataclass
@@ -39,6 +41,7 @@ class Dataset:
     config_path: str
     label: str
     runs: list[FitRun] = field(default_factory=list)
+    config_missing: bool = False  # dead path (spec §8): recorded config_path gone on disk
 
 
 @dataclass

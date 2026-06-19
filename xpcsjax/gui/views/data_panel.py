@@ -68,12 +68,23 @@ class DataPanel(QWidget):
         # --- Two-time preview ---
         self._preview = TwoTimeMapView()
 
+        # Display-only downsampling notice (spec §5 / F12): the preview is
+        # block-mean decimated for *rendering only* — categorically distinct from
+        # the project's prohibited *analysis* downsampling. No fit ever consumes
+        # this decimated preview; labelling it keeps the integrity rule visible.
+        self._downsample_note = QLabel(
+            "Preview is downsampled for display only — fits always use the "
+            "full-resolution data."
+        )
+        self._downsample_note.setWordWrap(True)
+
         # --- Layout ---
         layout = QVBoxLayout(self)
         layout.addLayout(path_row)
         layout.addWidget(self._tree)
         layout.addLayout(combo_row)
         layout.addWidget(self._preview)
+        layout.addWidget(self._downsample_note)
         self.setLayout(layout)
 
         self._current_path: str | None = None

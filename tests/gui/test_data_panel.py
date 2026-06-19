@@ -70,6 +70,16 @@ def test_data_panel_preview_image_shown(qapp, h5_file):
     assert panel.preview_view().has_image()
 
 
+def test_data_panel_labels_preview_as_display_only(qapp):
+    """Spec §5 / F12: the C₂ preview carries a visible 'display-only downsampling'
+    label distinguishing it from the project's prohibited analysis downsampling."""
+    panel = DataPanel()
+    note = panel._downsample_note.text().lower()
+    assert "downsampled" in note
+    assert "display" in note
+    assert panel._downsample_note.isVisibleTo(panel)
+
+
 def test_data_panel_load_aps_u_group(qapp, tmp_path):
     """load(path, data_type='aps_u') uses the group layout and reconstructs the matrix."""
     p = tmp_path / "u.h5"

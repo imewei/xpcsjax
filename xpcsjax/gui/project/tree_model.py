@@ -9,11 +9,19 @@ from xpcsjax.gui.project.model import Dataset, FitRun, Project
 
 
 def _run_label(run: FitRun) -> str:
-    return f"{run.status} · {run.run_id[:8]}"
+    # Dead-path flag (spec §8): a restored run whose result_dir is gone is shown
+    # clearly flagged, never silently as a normal "done" run.
+    suffix = " · result missing" if run.result_missing else ""
+    return f"{run.status} · {run.run_id[:8]}{suffix}"
+
+
+def _dataset_label(dataset: Dataset) -> str:
+    # Dead-path flag (spec §8): a dataset whose config_path is gone is flagged in place.
+    return f"{dataset.label} (config missing)" if dataset.config_missing else dataset.label
 
 
 def _dataset_item(dataset: Dataset) -> QStandardItem:
-    item = QStandardItem(dataset.label)
+    item = QStandardItem(_dataset_label(dataset))
     item.setEditable(False)
     item.setData(dataset.dataset_id, Qt.ItemDataRole.UserRole)
     for run in dataset.runs:

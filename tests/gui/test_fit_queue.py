@@ -69,10 +69,52 @@ def test_status_and_finished_signals(qtbot, tmp_path):
     q.run_status_changed.connect(lambda rid, st: statuses.append((rid, st)))
     q.run_finished.connect(lambda rid, path, summ: finished.append((rid, path)))
     q.enqueue("r1", "a.yaml", str(tmp_path))
+    # Cold-spawn UX (spec §4 F10): "starting" precedes "running" (running arrives on Started).
+    assert ("r1", "starting") in statuses
+    assert ("r1", "running") not in statuses  # not yet — no Started seen
     q._handles["r1"].event.emit(Started(run_id="r1", seq=1, mode="m", settings_summary="s"))
     q._handles["r1"].finish(str(tmp_path))
     assert ("r1", "running") in statuses and ("r1", "done") in statuses
     assert finished == [("r1", str(tmp_path))]  # result_path is carried through
+    assert statuses.index(("r1", "starting")) < statuses.index(("r1", "running"))
+
+
+def test_cancel_active_removes_partial_output_dir(qtbot, tmp_path):
+    # Spec §4 cancellation: a cancelled run's partial per-run output dir
+    # (``<base>/runs/<run_id>``) is removed so half-written artifacts don't linger.
+    run_dir = tmp_path / "runs" / "r1"  # final component == run_id (per-run contract)
+    run_dir.mkdir(parents=True)
+    (run_dir / "nlsq_result.partial").write_text("half-written")
+    q = _queue(max_concurrent=1)
+    q.enqueue("r1", "a.yaml", str(run_dir))
+    q.cancel("r1")
+    assert not run_dir.exists()  # partial output swept on cancel
+
+
+def test_cancel_pending_removes_partial_output_dir(qtbot, tmp_path):
+    # Same cleanup contract for a queued-but-not-started run.
+    active_dir = tmp_path / "runs" / "r1"
+    active_dir.mkdir(parents=True)
+    pending_dir = tmp_path / "runs" / "r2"
+    pending_dir.mkdir(parents=True)
+    (pending_dir / "x").write_text("y")
+    q = _queue(max_concurrent=1)
+    q.enqueue("r1", "a.yaml", str(active_dir))  # active
+    q.enqueue("r2", "b.yaml", str(pending_dir))  # pending
+    q.cancel("r2")
+    assert not pending_dir.exists()
+
+
+def test_cancel_does_not_delete_non_per_run_dir(qtbot, tmp_path):
+    # Safety: if the output dir is NOT named after the run (a misconfigured shared
+    # dir), cancel must never delete it.
+    shared = tmp_path / "shared_out"  # final component != run_id
+    shared.mkdir()
+    (shared / "keepme").write_text("important")
+    q = _queue(max_concurrent=1)
+    q.enqueue("r1", "a.yaml", str(shared))
+    q.cancel("r1")
+    assert shared.exists() and (shared / "keepme").exists()
 
 
 def test_queue_forwards_per_run_diagnostics(qtbot, tmp_path):

@@ -23,12 +23,13 @@ def test_save_then_open_round_trips_through_window(qtbot, tmp_path):
 
 def test_open_tolerates_deleted_result_dir(qtbot, tmp_path):
     # Spec §8 dead-path: a restored run whose result_dir is gone must open
-    # without raising and leave summary None (run flagged "result missing").
+    # without raising, leave summary None, AND be flagged result_missing so the
+    # sidebar surfaces it as "missing" rather than a normal "done" run.
     from xpcsjax.gui.project.model import DONE, Project
     from xpcsjax.gui.project.persist import save_project
 
     p = Project()
-    d = p.add_dataset(str(tmp_path / "cfg.yaml"), label="DS-A")
+    d = p.add_dataset(str(tmp_path / "cfg.yaml"), label="DS-A")  # config never created either
     r = p.add_run(d.dataset_id)
     p.set_run_status(r.run_id, DONE, result_dir=str(tmp_path / "gone"))  # never created
     proj = tmp_path / "s.xpcsproj"
@@ -38,5 +39,7 @@ def test_open_tolerates_deleted_result_dir(qtbot, tmp_path):
     qtbot.addWidget(window)
     window.open_project_from(proj)  # must not raise
     assert window.sidebar_dataset_count() == 1
-    _, run = window._project.run_by_id(r.run_id)
+    dataset, run = window._project.run_by_id(r.run_id)
     assert run.summary is None
+    assert run.result_missing is True       # eagerly flagged at load (spec §8)
+    assert dataset.config_missing is True    # gone config_path is flagged too

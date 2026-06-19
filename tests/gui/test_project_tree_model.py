@@ -37,3 +37,21 @@ def test_update_run_refreshes_status_label(qtbot):
     run_item = model.item(0).child(0)
     assert DONE in run_item.text()
     assert run_item.data(Qt.ItemDataRole.UserRole) == r.run_id
+
+
+def test_dead_paths_are_flagged_missing_in_tree(qtbot):
+    # Spec §8 dead paths: a run with a gone result_dir and a dataset with a gone
+    # config_path must be surfaced as clearly-flagged "missing" entries, not
+    # rendered as normal rows.
+    p = Project()
+    d = p.add_dataset("gone.yaml", label="DS-A")
+    d.config_missing = True
+    r = p.add_run(d.dataset_id)
+    p.set_run_status(r.run_id, DONE)
+    p.run_by_id(r.run_id)[1].result_missing = True
+    model = ProjectTreeModel()
+    model.rebuild(p)
+
+    ds_item = model.item(0)
+    assert "config missing" in ds_item.text()
+    assert "result missing" in ds_item.child(0).text()

@@ -253,12 +253,19 @@ class MainWindow(QMainWindow):
         self._results.setPlainText(f"FIT FAILED\n\n{message}")
 
     def _on_run_status(self, run_id: str, status: str) -> None:
-        if status == "running":
-            self._active_run_id = run_id  # this run's stream now drives the monitor
-            self._ssr_curve.reset()
+        if status in ("starting", "running"):
+            # Attach the monitor as soon as the run begins (a cold spawn streams
+            # nothing until the worker is up), and reset the SSR curve once.
+            if self._active_run_id != run_id:
+                self._active_run_id = run_id  # this run's stream now drives the monitor
+                self._ssr_curve.reset()
         self._project.set_run_status(run_id, status)
         self._sidebar.update_run(self._project, run_id)
-        self.set_status(f"{run_id[:8]}: {status}")
+        if status == "starting":
+            # Cold-spawn pause is expected, not a hang (spec §4 F10).
+            self.set_status(f"{run_id[:8]}: starting (JAX import / XLA compile may take a moment)…")
+        else:
+            self.set_status(f"{run_id[:8]}: {status}")
 
     def _on_log(self, run_id: str, level: str, msg: str) -> None:
         if run_id == self._active_run_id:
@@ -438,11 +445,13 @@ class MainWindow(QMainWindow):
     def open_project_from(self, path: str | Path) -> None:
         """Deserialize a project from *path* and restore the sidebar.
 
-        Dead-path tolerance (spec §8): if a run's ``result_dir`` no longer
-        exists on disk, ``run.summary`` is left ``None`` — the run is shown
-        flagged "result missing" in the sidebar.  A dataset whose
-        ``config_path`` no longer exists is listed with its label preserved.
-        Neither missing path is a hard failure.
+        Dead-path tolerance (spec §8): every config/result reference is resolved
+        *eagerly at load*. A run whose ``result_dir`` is gone (or whose summary
+        will not load) is flagged ``result_missing`` and a dataset whose
+        ``config_path`` is gone is flagged ``config_missing`` — both surface as a
+        clearly-labelled "missing" entry in the sidebar tree, never as a deferred
+        ``FileNotFoundError`` thrown far from the load call. Neither is a hard
+        failure.
 
         Parameters
         ----------
@@ -451,14 +460,22 @@ class MainWindow(QMainWindow):
             :meth:`save_project_to`.
         """
         self._project = load_project(path)
-        # Re-load summaries best-effort (spec §8 dead-path rule).
+        # Resolve every reference eagerly at load (spec §8 dead-path rule).
         for dataset in self._project.datasets:
+            dataset.config_missing = bool(dataset.config_path) and not Path(
+                dataset.config_path
+            ).exists()
             for run in dataset.runs:
                 if run.result_dir:
+                    if not Path(run.result_dir).exists():
+                        run.summary = None
+                        run.result_missing = True
+                        continue
                     try:
                         run.summary = load_result_summary(run.result_dir)
                     except Exception:  # noqa: BLE001 — never raise on open
                         run.summary = None
+                        run.result_missing = True
         self._sidebar.set_project(self._project)
 
     # --- user actions ---------------------------------------------------------
