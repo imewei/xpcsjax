@@ -240,8 +240,7 @@ def build_heterodyne_pointwise_model(
         pass  # scaling frozen, applied in residual; head empty
     else:  # pragma: no cover - canonical() already rejected the unresolved token
         raise ValueError(
-            f"unknown per_angle_mode {per_angle_mode!r}; valid: "
-            "constant, averaged, individual"
+            f"unknown per_angle_mode {per_angle_mode!r}; valid: constant, averaged, individual"
         )
 
     # ------------------------------------------------------------------
@@ -514,9 +513,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     )
 
     requested_mode = ad_config.get("per_angle_mode", "auto")
-    threshold = int(
-        ad_config.get("constant_scaling_threshold", DEFAULT_CONSTANT_SCALING_THRESHOLD)
-    )
+    threshold = int(ad_config.get("constant_scaling_threshold", DEFAULT_CONSTANT_SCALING_THRESHOLD))
     # n_phi is derived set-wise from phi_flat, matching the builder's
     # deduplication (build_heterodyne_pointwise_model's phi_unique).
     n_phi_resolved = len(set(stratified_data.phi_flat.tolist()))
@@ -826,9 +823,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
             wl = jnp.mean(residuals**2) * y_data.shape[0]
             if adaptive_regularizer is not None:
                 mse = wl / y_data.shape[0]
-                wl = wl + adaptive_regularizer.compute_regularization_jax(
-                    ph, mse, y_data.shape[0]
-                )
+                wl = wl + adaptive_regularizer.compute_regularization_jax(ph, mse, y_data.shape[0])
             return wl
 
         _value_and_grad = jax.jit(jax.value_and_grad(_loss_jax))

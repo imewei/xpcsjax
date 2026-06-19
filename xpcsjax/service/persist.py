@@ -329,9 +329,7 @@ def save_results_npz(
     # np.savez appends ".npz" when the path doesn't already end with it, so we use
     # a NamedTemporaryFile with suffix=".npz" (already has the extension) to ensure
     # the temp name itself is a valid .npz path.
-    with tempfile.NamedTemporaryFile(
-        dir=output_dir, suffix=".npz", delete=False
-    ) as tmp_fh:
+    with tempfile.NamedTemporaryFile(dir=output_dir, suffix=".npz", delete=False) as tmp_fh:
         tmp_name = tmp_fh.name
     try:
         np.savez(tmp_name, **arrays)  # type: ignore[arg-type]  # numpy stub: **kwargs ArrayLike

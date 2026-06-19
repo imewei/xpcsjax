@@ -586,9 +586,7 @@ def fit_two_component_via_engine(
 
     _dof_params = n_total_params
     if mode in ("constant", "averaged", "individual"):
-        _eff_dof = effective_constrained_dof(
-            mode, n_phi=n_phi, n_physical=int(physics_fitted.size)
-        )
+        _eff_dof = effective_constrained_dof(mode, n_phi=n_phi, n_physical=int(physics_fitted.size))
         if _eff_dof is not None:
             _dof_params = int(_eff_dof)
     reduced_chi2 = noise_normalized_reduced_chi2(

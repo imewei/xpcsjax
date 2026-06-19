@@ -84,7 +84,9 @@ def _subset_data_by_phi(
         for key in _PHI_KEYS:
             if key in data:
                 data[key] = sliced_phi
-        logger.info("Subset data to %d requested phi angle(s): %s", len(idx), [float(a) for a in sliced_phi])
+        logger.info(
+            "Subset data to %d requested phi angle(s): %s", len(idx), [float(a) for a in sliced_phi]
+        )
     else:
         logger.warning(
             "c2 array shape %s has no leading phi axis matching %d data angles; "

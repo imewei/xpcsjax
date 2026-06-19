@@ -71,7 +71,9 @@ def reconstruct_per_angle_scaling(
         # the HEAD, the legacy physics-first averaged path puts them in the TAIL
         # (audit #1). Default scaling-first when the marker is absent.
         scaling_first = bool(diag.get("scaling_first", True))
-        fallback_c, fallback_o = (params[0], params[1]) if scaling_first else (params[-2], params[-1])
+        fallback_c, fallback_o = (
+            (params[0], params[1]) if scaling_first else (params[-2], params[-1])
+        )
         c = float(diag.get("averaged_contrast", fallback_c))
         o = float(diag.get("averaged_offset", fallback_o))
         return {

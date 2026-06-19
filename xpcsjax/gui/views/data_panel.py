@@ -73,8 +73,7 @@ class DataPanel(QWidget):
         # the project's prohibited *analysis* downsampling. No fit ever consumes
         # this decimated preview; labelling it keeps the integrity rule visible.
         self._downsample_note = QLabel(
-            "Preview is downsampled for display only — fits always use the "
-            "full-resolution data."
+            "Preview is downsampled for display only — fits always use the full-resolution data."
         )
         self._downsample_note.setWordWrap(True)
 
@@ -118,9 +117,7 @@ class DataPanel(QWidget):
         self._combo.blockSignals(True)
         self._combo.clear()
         for info in self._infos:
-            item = QTreeWidgetItem(
-                [info.name, str(info.shape), info.dtype]
-            )
+            item = QTreeWidgetItem([info.name, str(info.shape), info.dtype])
             self._tree.addTopLevelItem(item)
             self._combo.addItem(info.name)
         self._combo.blockSignals(False)

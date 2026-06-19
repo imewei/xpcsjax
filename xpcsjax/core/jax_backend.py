@@ -1414,7 +1414,9 @@ def compute_chi_squared(
 # Automatic differentiation functions with intelligent fallback
 # These will work with either JAX or NumPy fallbacks
 # Pre-JIT compiled for 50-100x faster first call (avoids compilation overhead)
-gradient_g2 = jit(jacobian(compute_g2_scaled, argnums=0))  # Jacobian w.r.t. params (g2 is array-valued)
+gradient_g2 = jit(
+    jacobian(compute_g2_scaled, argnums=0)
+)  # Jacobian w.r.t. params (g2 is array-valued)
 hessian_g2 = jit(hessian(compute_g2_scaled, argnums=0))  # Hessian w.r.t. params
 
 # compute_chi_squared pins args (6, 7, 10) = q, L, dt as static; the outer jit

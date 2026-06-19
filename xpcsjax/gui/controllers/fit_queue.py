@@ -118,8 +118,8 @@ class FitQueueController(QObject):
         # Died would leave the slot permanently stuck and never start queued jobs.
         handle = self._handles.get(run_id)
         if handle is not None and handle.is_running():
-            handle.cancel()           # terminate proc + interrupt/join the reader
-            handle.shutdown()         # idempotent reader-QThread join (Plan C)
+            handle.cancel()  # terminate proc + interrupt/join the reader
+            handle.shutdown()  # idempotent reader-QThread join (Plan C)
             try:
                 handle.event.disconnect()
             except (RuntimeError, TypeError):  # already disconnected
@@ -128,7 +128,7 @@ class FitQueueController(QObject):
             self._cancelled.discard(run_id)  # no Died will arrive; don't leak the marker
             self._cleanup_output_dir(run_id)  # remove the partial per-run output dir
             self.run_status_changed.emit(run_id, "cancelled")
-            self._try_start_next()           # promote the next queued job into the freed slot
+            self._try_start_next()  # promote the next queued job into the freed slot
         elif handle is not None:
             # Race: the worker already died and a terminal event is in flight but
             # not yet processed. Mark it so the pending Died/Failed maps to
@@ -142,9 +142,9 @@ class FitQueueController(QObject):
         self._pending.clear()
         for handle in list(self._handles.values()):
             if handle.is_running():
-                handle.cancel()    # terminate the process + tear down its reader
-            handle.shutdown()      # join the reader QThread (app close / atexit)
-        self._handles.clear()      # drop the now-dead handles (no stale references)
+                handle.cancel()  # terminate the process + tear down its reader
+            handle.shutdown()  # join the reader QThread (app close / atexit)
+        self._handles.clear()  # drop the now-dead handles (no stale references)
 
     def _try_start_next(self) -> None:
         while self._pending and len(self._handles) < self._max:

@@ -988,11 +988,7 @@ def _fit_nlsq_heterodyne(
                 "stratified_least_squares",
                 f"{int(n_points):,} points >= 1M, per_angle_mode={effective_mode}",
             )
-            ad_dict = (
-                nlsq_dict.get("anti_degeneracy")
-                if isinstance(nlsq_dict, dict)
-                else None
-            )
+            ad_dict = nlsq_dict.get("anti_degeneracy") if isinstance(nlsq_dict, dict) else None
             result = _hsl.fit_heterodyne_stratified_least_squares(
                 model=model,
                 c2=c2,
@@ -1076,9 +1072,7 @@ def _fit_nlsq_heterodyne(
             _eff_mode = _resolve_effective_mode(nlsq_cfg, _n_phi)
             _n_physics = int(model.param_manager.n_varying)
             _n_scaling = {"constant": 0, "averaged": 2}.get(_eff_mode, 2 * _n_phi)
-            _ad_dict = (
-                nlsq_dict.get("anti_degeneracy") if isinstance(nlsq_dict, dict) else None
-            )
+            _ad_dict = nlsq_dict.get("anti_degeneracy") if isinstance(nlsq_dict, dict) else None
             # Controller construction banners ("Auto-selected mode" + Layer 2/3/4).
             # No-ops when no nested anti_degeneracy block is configured (flat
             # upstream YAMLs), exactly as on the stratified-LS path.

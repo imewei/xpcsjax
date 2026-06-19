@@ -1344,9 +1344,7 @@ class AdvancedMemoryManager:
             )
             return
 
-        with logged_errors(
-            logger, "jax_memory_cleanup", policy="suppress", level=logging.DEBUG
-        ):
+        with logged_errors(logger, "jax_memory_cleanup", policy="suppress", level=logging.DEBUG):
             jax.clear_caches()
             logger.debug("Cleared JAX compilation cache")
 

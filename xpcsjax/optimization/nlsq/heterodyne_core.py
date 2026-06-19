@@ -734,9 +734,7 @@ def _aggregate_individual_results(
     )
 
 
-def _should_hint_enable_escape(
-    *, success: bool, enable_cmaes: bool, multistart: bool
-) -> bool:
+def _should_hint_enable_escape(*, success: bool, enable_cmaes: bool, multistart: bool) -> bool:
     """Return whether a FAILED joint fit had NO global escape enabled.
 
     The actionable case: a degenerate 14-D ``two_component`` fit did not converge
@@ -1949,8 +1947,7 @@ def _fit_joint_cmaes_multi_phi(
         )
         if n_seeds > 1:
             logger.info(
-                "Joint CMA-ES escape: kept seed=%d (data-only SSR=%.6e) as the "
-                "best of %d draws.",
+                "Joint CMA-ES escape: kept seed=%d (data-only SSR=%.6e) as the best of %d draws.",
                 best_seed,
                 cmaes_ssr,
                 n_seeds,
@@ -1967,8 +1964,7 @@ def _fit_joint_cmaes_multi_phi(
             x_final, escape = x_warm, "cmaes_warmstart_kept"
 
         logger.info(
-            "Joint CMA-ES escape: warm SSR=%.6e, cmaes SSR=%.6e → kept %s "
-            "(%.1fs total)",
+            "Joint CMA-ES escape: warm SSR=%.6e, cmaes SSR=%.6e → kept %s (%.1fs total)",
             ssr_warm,
             cmaes_ssr,
             escape,
@@ -3472,7 +3468,9 @@ def _build_joint_result(
     # CMA-ES auto-skip gate (which reads ``warm.success``) does not skip the
     # escape on a degenerate fit (parity with laminar core.py:2320). Key on
     # ``global_escape`` to distinguish the two.
-    solve_success = joint_result.success if joint_result is not None else (global_escape is not None)
+    solve_success = (
+        joint_result.success if joint_result is not None else (global_escape is not None)
+    )
     convergence_status: ConvergenceStatus = "converged" if solve_success else "failed"
     quality_flag: QualityFlag = "good" if solve_success else "marginal"
 

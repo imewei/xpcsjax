@@ -369,8 +369,7 @@ class CMAESWrapperConfig:
         """
         if not CMAES_AVAILABLE:
             raise ImportError(
-                "CMA-ES requires NLSQ with evosax backend. "
-                "Install with: pip install nlsq[evosax]"
+                "CMA-ES requires NLSQ with evosax backend. Install with: pip install nlsq[evosax]"
             )
 
         from nlsq.global_optimization import CMAESConfig, compute_default_popsize
@@ -830,8 +829,7 @@ class CMAESWrapper:
         """
         if not CMAES_AVAILABLE:
             raise ImportError(
-                "CMA-ES requires NLSQ with evosax backend. "
-                "Install with: pip install nlsq[evosax]"
+                "CMA-ES requires NLSQ with evosax backend. Install with: pip install nlsq[evosax]"
             )
 
         from nlsq.global_optimization import CMAESOptimizer

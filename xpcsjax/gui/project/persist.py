@@ -99,7 +99,9 @@ def load_project(path: str | Path) -> Project:
                     FitRun(
                         run_id=str(r["run_id"]),
                         status=str(r["status"]),
-                        result_dir=_abs(str(r["result_dir"]), base) if r.get("result_dir") else None,
+                        result_dir=_abs(str(r["result_dir"]), base)
+                        if r.get("result_dir")
+                        else None,
                         created_at=str(r.get("created_at", "")),
                     )
                 )

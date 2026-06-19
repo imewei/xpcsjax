@@ -43,8 +43,14 @@ def read_hdf5_metadata(path: str | Path) -> list[DatasetInfo]:
 # xpcs_loader.py:1283/1356-1357, :1553/1578-1580, :1695-1708). ``key_order`` matches
 # the loader: APS-old iterates keys in HDF5 creation order, APS-U sorts them.
 _C2_PREVIEW_LAYOUTS: dict[str, dict] = {
-    "aps_old": {"group": "exchange/C2T_all", "key_order": "creation"},          # integer keys, creation order
-    "aps_u": {"group": "xpcs/twotime/correlation_map", "key_order": "sorted"},  # zero-padded c2_* keys
+    "aps_old": {
+        "group": "exchange/C2T_all",
+        "key_order": "creation",
+    },  # integer keys, creation order
+    "aps_u": {
+        "group": "xpcs/twotime/correlation_map",
+        "key_order": "sorted",
+    },  # zero-padded c2_* keys
 }
 
 

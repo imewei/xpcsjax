@@ -74,7 +74,11 @@ class LayerStatusChips(QWidget):
         chip.setProperty("active", active)
         chip.setStyleSheet(
             "QLabel { padding: 2px 8px; border-radius: 8px; "
-            + ("background:#2e7d32; color:white; }" if active else "background:#bdbdbd; color:#444; }")
+            + (
+                "background:#2e7d32; color:white; }"
+                if active
+                else "background:#bdbdbd; color:#444; }"
+            )
         )
 
     def set_layers(self, layers: dict[str, bool]) -> None:

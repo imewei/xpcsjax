@@ -43,6 +43,7 @@ def registry_info(name: str):  # noqa: ANN201 - returns a ParameterInfo from the
     """
     return DEFAULT_REGISTRY[_REGISTRY_ALIAS.get(name, name)]
 
+
 # Public template names (``v_beta``, ``phi0_het``) disambiguate the heterodyne
 # velocity exponent and flow angle from homodyne's ``beta``/``phi0`` — see the
 # header of ``templates/xpcsjax_two_component.yaml``. The parameter space,

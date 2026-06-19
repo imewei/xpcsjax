@@ -1593,9 +1593,7 @@ def fit_nlsq_multistart(
     return result
 
 
-def _cmaes_failed_result(
-    x0: np.ndarray, execution_time: float, e: Exception
-) -> OptimizationResult:
+def _cmaes_failed_result(x0: np.ndarray, execution_time: float, e: Exception) -> OptimizationResult:
     """Build the standard failed CMA-ES result (extracted byte-identical, Phase 6)."""
     n_params = len(x0)
     return OptimizationResult(
@@ -1641,11 +1639,7 @@ def _anti_degeneracy_mode_summary(
     ``constant`` nor ``fixed``; see :func:`_broadcast_scaling_mode_label`.
     """
     mode = _broadcast_scaling_mode_label(use_averaged_scaling)
-    qualifier = (
-        "optimized broadcast scaling"
-        if use_averaged_scaling
-        else "fixed per-angle scaling"
-    )
+    qualifier = "optimized broadcast scaling" if use_averaged_scaling else "fixed per-angle scaling"
     return (
         f"Anti-degeneracy: {mode} mode with {qualifier} "
         f"({n_optimized} optimized -> {n_total} total params)"
@@ -1706,8 +1700,7 @@ def fit_nlsq_cmaes(
 
     if not HAS_CMAES:
         raise ImportError(
-            "CMA-ES requires NLSQ with evosax backend. "
-            "Install with: pip install nlsq[evosax]"
+            "CMA-ES requires NLSQ with evosax backend. Install with: pip install nlsq[evosax]"
         )
 
     # Extract CMA-ES config
@@ -2556,9 +2549,7 @@ def fit_nlsq_cmaes(
             )
 
             _resolved_mode = _broadcast_scaling_mode_label(use_averaged_scaling)
-            n_params = effective_constrained_dof(
-                _resolved_mode, n_phi=n_phi, n_physical=n_physical
-            )
+            n_params = effective_constrained_dof(_resolved_mode, n_phi=n_phi, n_physical=n_physical)
         else:
             n_params = len(final_params)
         dof = max(1, n_data - n_params)

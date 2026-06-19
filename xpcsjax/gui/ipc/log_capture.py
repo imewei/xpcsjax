@@ -21,7 +21,9 @@ class QueueLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         """Convert ``record`` to a LogLine and enqueue it; never raises."""
         try:
-            self._emitter.emit(LogLine(run_id="", seq=0, level=record.levelname, msg=record.getMessage()))
+            self._emitter.emit(
+                LogLine(run_id="", seq=0, level=record.levelname, msg=record.getMessage())
+            )
         except Exception:  # noqa: BLE001 — a logging handler must not raise
             pass
 

@@ -374,9 +374,7 @@ def apply_inverse_shear_transforms_to_vector_jax(
         vector = vector.at[gamma_idx].set(jnp.exp(vector[gamma_idx]))
     beta_idx = state.get("beta_center_idx")
     if beta_idx is not None:
-        vector = vector.at[beta_idx].set(
-            vector[beta_idx] + float(state.get("beta_reference", 0.0))
-        )
+        vector = vector.at[beta_idx].set(vector[beta_idx] + float(state.get("beta_reference", 0.0)))
     return vector
 
 
@@ -444,9 +442,7 @@ def wrap_model_function_with_transforms(
         # JIT-safe: this runs inside NLSQ's JIT-traced residual, so solver_params are
         # tracers — use the jnp inverse (the numpy one would raise
         # TracerArrayConversionError on np.asarray of a tracer).
-        physical = apply_inverse_shear_transforms_to_vector_jax(
-            jnp.asarray(solver_params), state
-        )
+        physical = apply_inverse_shear_transforms_to_vector_jax(jnp.asarray(solver_params), state)
         result: np.ndarray = model_fn(xdata, *physical)
         return result
 

@@ -1639,9 +1639,7 @@ class XPCSDataLoader:
             # Extract data for selected indices. An empty selection must abort,
             # not silently fall back to (q,phi) index 0 (which would fit an
             # unrelated q-vector) — audit C9.
-            final_indices = self._require_nonempty_selection(
-                final_indices, selected_q=selected_q
-            )
+            final_indices = self._require_nonempty_selection(final_indices, selected_q=selected_q)
 
             # Use final indices for both (q,phi) pairs and correlation matrices
             final_dqlist = filtered_dqlist[final_indices]
@@ -2219,9 +2217,7 @@ class XPCSDataLoader:
             "end_frame": getattr(
                 self,
                 "_applied_end_frame",
-                cache_data["c2_exp"].shape[-1]
-                + self.analyzer_config.get("start_frame", 1)
-                - 1,
+                cache_data["c2_exp"].shape[-1] + self.analyzer_config.get("start_frame", 1) - 1,
             ),
             "phi_count": len(cache_data["phi_angles_list"]),
             "cache_version": "2.0",
@@ -2248,9 +2244,7 @@ class XPCSDataLoader:
         logger.debug(f"Q-vector: {actual_q:.6f} +/- {q_variance:.6f} A^-1")
 
     @staticmethod
-    def _require_nonempty_selection(
-        final_indices: np.ndarray, *, selected_q: float
-    ) -> np.ndarray:
+    def _require_nonempty_selection(final_indices: np.ndarray, *, selected_q: float) -> np.ndarray:
         """Return *final_indices*, or raise if the (q, phi) selection is empty.
 
         An empty selection means the configured q-vector / phi filter matched no

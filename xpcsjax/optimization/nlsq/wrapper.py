@@ -327,7 +327,9 @@ def _build_homodyne_l4_callback(
         if on_iteration is None:
             return None, None
 
-        def _observer_only(iteration: Any, cost: Any, params: Any, info: Any = None, **kw: Any) -> None:  # noqa: ANN401
+        def _observer_only(
+            iteration: Any, cost: Any, params: Any, info: Any = None, **kw: Any
+        ) -> None:  # noqa: ANN401
             try:
                 on_iteration(int(iteration), float(cost))
             except Exception:  # noqa: BLE001
@@ -378,7 +380,9 @@ def _build_homodyne_l4_callback(
 
     # Observer branch: wrap L4 callback + observer.  L4 work runs first,
     # then the observer is called.  A raising observer is silently swallowed.
-    def _l4_plus_observer(iteration: Any, cost: Any, params: Any, info: Any = None, **kw: Any) -> None:  # noqa: ANN401
+    def _l4_plus_observer(
+        iteration: Any, cost: Any, params: Any, info: Any = None, **kw: Any
+    ) -> None:  # noqa: ANN401
         _l4_callback(iteration, cost, params, info, **kw)  # existing L4 work, unchanged
         try:
             on_iteration(int(iteration), float(cost))  # cost == SSR
@@ -979,9 +983,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 _ooc_init_n_phi = len(np.unique(np.asarray(data.phi)))
                 _ooc_init_n_physical = len(physical_param_names)
                 # Single resolver owner (spec Seam 1); same numeric outcome.
-                _ooc_resolved = _resolve_pam(
-                    _ooc_init_mode, _ooc_init_n_phi, _ooc_init_thresh
-                )
+                _ooc_resolved = _resolve_pam(_ooc_init_mode, _ooc_init_n_phi, _ooc_init_thresh)
                 if _ooc_resolved == "averaged":
                     _ooc_init_n_params_effective = 2 * _ooc_init_n_phi + _ooc_init_n_physical
                 elif _ooc_resolved == "constant":
@@ -1728,25 +1730,15 @@ class NLSQWrapper(NLSQAdapterBase):
         resolved_per_angle_mode: str | None = None
         scaling_mapper: Any = None
         scaling_plan: Any = None
-        if (
-            per_angle_scaling
-            and analysis_mode == AnalysisMode.LAMINAR_FLOW
-            and n_phi_unique >= 1
-        ):
+        if per_angle_scaling and analysis_mode == AnalysisMode.LAMINAR_FLOW and n_phi_unique >= 1:
             _ad_cfg6: dict[str, Any] = {}
             if config is not None and hasattr(config, "config"):
                 _ad_cfg6 = (
-                    config.config.get("optimization", {})
-                    .get("nlsq", {})
-                    .get("anti_degeneracy", {})
+                    config.config.get("optimization", {}).get("nlsq", {}).get("anti_degeneracy", {})
                 )
             _mode_token = _ad_cfg6.get("per_angle_mode", "auto")
-            _thresh = _ad_cfg6.get(
-                "constant_scaling_threshold", DEFAULT_CONSTANT_SCALING_THRESHOLD
-            )
-            resolved_per_angle_mode = resolve_per_angle_mode(
-                _mode_token, n_phi_unique, _thresh
-            )
+            _thresh = _ad_cfg6.get("constant_scaling_threshold", DEFAULT_CONSTANT_SCALING_THRESHOLD)
+            resolved_per_angle_mode = resolve_per_angle_mode(_mode_token, n_phi_unique, _thresh)
             scaling_mapper = ParameterIndexMapper.canonical(
                 mode=resolved_per_angle_mode,
                 n_phi=n_phi_unique,
@@ -1755,7 +1747,10 @@ class NLSQWrapper(NLSQAdapterBase):
             logger.info(
                 "Standard in-memory per-angle mode: token=%r -> resolved=%r "
                 "(n_phi=%d, threshold=%d, vector_length=%d)",
-                _mode_token, resolved_per_angle_mode, n_phi_unique, _thresh,
+                _mode_token,
+                resolved_per_angle_mode,
+                n_phi_unique,
+                _thresh,
                 scaling_mapper.vector_length,
             )
 
@@ -3756,11 +3751,11 @@ class NLSQWrapper(NLSQAdapterBase):
 
             # Scaling-first canonical slice per resolved per-angle mode.
             if _mode == "constant":
-                contrast = _fixed_c                      # frozen (n_phi,)
-                offset = _fixed_o                        # frozen (n_phi,)
-                physical_params = params_array           # physics-only vector
+                contrast = _fixed_c  # frozen (n_phi,)
+                offset = _fixed_o  # frozen (n_phi,)
+                physical_params = params_array  # physics-only vector
             elif _mode == "averaged":
-                contrast = jnp.full(n_phi, params_array[0])   # broadcast head scalar
+                contrast = jnp.full(n_phi, params_array[0])  # broadcast head scalar
                 offset = jnp.full(n_phi, params_array[1])
                 physical_params = params_array[2:]
             else:  # individual

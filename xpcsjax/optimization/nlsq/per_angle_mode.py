@@ -58,8 +58,7 @@ def resolve_per_angle_mode(
         threshold = max(int(constant_scaling_threshold), 1)
         return "averaged" if n_phi >= threshold else "individual"
     raise ValueError(
-        f"unknown per_angle_mode {token!r}; valid: "
-        "constant, averaged, individual, auto"
+        f"unknown per_angle_mode {token!r}; valid: constant, averaged, individual, auto"
     )
 
 
@@ -111,14 +110,10 @@ def n_optimized(mode: PerAngleMode, n_phi: int) -> int:
         return 2
     if mode == "individual":
         return 2 * int(n_phi)
-    raise ValueError(
-        f"unknown per_angle_mode {mode!r}; valid: constant, averaged, individual"
-    )
+    raise ValueError(f"unknown per_angle_mode {mode!r}; valid: constant, averaged, individual")
 
 
-def effective_constrained_dof(
-    mode: PerAngleMode, *, n_phi: int, n_physical: int
-) -> int | None:
+def effective_constrained_dof(mode: PerAngleMode, *, n_phi: int, n_physical: int) -> int | None:
     """Return the constrained-model parameter count for reduced-chi2 / covariance.
 
     This is the EXPANDED constrained-model DOF (spec §5 design decision 3), the
@@ -146,9 +141,7 @@ def effective_constrained_dof(
         return int(n_physical)
     if mode == "individual":
         return None
-    raise ValueError(
-        f"unknown per_angle_mode {mode!r}; valid: constant, averaged, individual"
-    )
+    raise ValueError(f"unknown per_angle_mode {mode!r}; valid: constant, averaged, individual")
 
 
 class PerAngleScalingPlan:
@@ -252,9 +245,7 @@ class PerAngleScalingPlan:
         if self.mode == "constant":
             return np.empty(0, dtype=np.float64)
         if self.mode == "averaged":
-            return np.array(
-                [self._contrast.mean(), self._offset.mean()], dtype=np.float64
-            )
+            return np.array([self._contrast.mean(), self._offset.mean()], dtype=np.float64)
         return np.concatenate([self._contrast, self._offset])
 
     def seed_bounds(
@@ -339,9 +330,7 @@ class PerAngleScalingPlan:
         # individual: head is [c_0..c_{nφ-1}, o_0..o_{nφ-1}]
         return theta_tail[: self.n_phi], theta_tail[self.n_phi :]
 
-    def expand_back(
-        self, popt: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def expand_back(self, popt: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Split a scaling-first optimizer vector into dense per-angle scaling + physics.
 
         Returns ``(contrast[n_phi], offset[n_phi], physics[n_physics])``. For
@@ -353,8 +342,7 @@ class PerAngleScalingPlan:
         expected = n_opt + self.n_physics
         if popt.shape != (expected,):
             raise ValueError(
-                f"expected popt of length {expected} for mode {self.mode!r}, "
-                f"got {popt.shape}"
+                f"expected popt of length {expected} for mode {self.mode!r}, got {popt.shape}"
             )
         scaling_tail = popt[:n_opt]
         physics = popt[n_opt:]
@@ -397,7 +385,7 @@ class PerAngleScalingPlan:
                 var = pcov[src, src]
                 dense[blk, blk] = var  # full block = shared variance (replicated)
                 # scalar<->physics cross terms replicated across the n_phi rows/cols
-                cross = pcov[src, 2:]            # (n_phys,)
+                cross = pcov[src, 2:]  # (n_phys,)
                 dense[blk, 2 * n_phi :] = cross  # broadcast over the block rows
                 dense[2 * n_phi :, blk] = cross[:, None]
         # constant: scaling rows/cols stay zero (frozen) — nothing else to fill.

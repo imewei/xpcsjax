@@ -300,7 +300,9 @@ class NLSQConfig:
     per_angle_mode: str = "auto"  # "individual", "constant", "auto"
     # Single threshold owner = per_angle_mode.py (MINOR 1): import the constant, do NOT
     # re-hardcode 3, so the default cannot drift between config files and the resolver.
-    constant_scaling_threshold: int = DEFAULT_CONSTANT_SCALING_THRESHOLD  # auto: averaged/constant when n_phi >= threshold
+    constant_scaling_threshold: int = (
+        DEFAULT_CONSTANT_SCALING_THRESHOLD  # auto: averaged/constant when n_phi >= threshold
+    )
     #
     # Layer 2: Hierarchical Optimization
     # Alternates between physical and per-angle params to break gradient cancellation

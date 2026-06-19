@@ -74,7 +74,7 @@ class MainWindow(QMainWindow):
         self._results.setReadOnly(True)
         self._result_plots = ResultPlots()
         self._central_stack = QStackedWidget()
-        self._central_stack.addWidget(self._results)       # index 0 → text summary
+        self._central_stack.addWidget(self._results)  # index 0 → text summary
         self._central_stack.addWidget(self._result_plots)  # index 1 → interactive plots
         self._central_stack.setCurrentIndex(0)
 
@@ -462,9 +462,9 @@ class MainWindow(QMainWindow):
         self._project = load_project(path)
         # Resolve every reference eagerly at load (spec §8 dead-path rule).
         for dataset in self._project.datasets:
-            dataset.config_missing = bool(dataset.config_path) and not Path(
-                dataset.config_path
-            ).exists()
+            dataset.config_missing = (
+                bool(dataset.config_path) and not Path(dataset.config_path).exists()
+            )
             for run in dataset.runs:
                 if run.result_dir:
                     if not Path(run.result_dir).exists():
@@ -480,7 +480,9 @@ class MainWindow(QMainWindow):
 
     # --- user actions ---------------------------------------------------------
     def _on_open_config(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Open config", "", "YAML configs (*.yaml *.yml)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open config", "", "YAML configs (*.yaml *.yml)"
+        )
         if path:
             self.add_dataset(path)
 

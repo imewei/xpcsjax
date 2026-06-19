@@ -341,8 +341,7 @@ class AntiDegeneracyController:
         # for every existing caller and the rtol=1e-10 homodyne baselines stay
         # green.
         _is_two_component = (
-            analysis_mode is not None
-            and cls._normalize_mode(str(analysis_mode)) == "two_component"
+            analysis_mode is not None and cls._normalize_mode(str(analysis_mode)) == "two_component"
         )
         if config.enable and per_angle_scaling and (is_laminar_flow or _is_two_component):
             controller._initialize_components()
@@ -400,7 +399,9 @@ class AntiDegeneracyController:
             logger.info("ANTI-DEGENERACY: Using explicit 'constant' mode -> constant")
             logger.info(f"  n_phi: {self.n_phi}")
             logger.info("  Behavior: Quantile estimates -> per-angle values FIXED (NOT optimized)")
-            logger.info(f"  Parameters: {self.n_physical} physical only (scaling FIXED from quantiles)")
+            logger.info(
+                f"  Parameters: {self.n_physical} physical only (scaling FIXED from quantiles)"
+            )
             logger.info("=" * 60)
         else:
             logger.debug(

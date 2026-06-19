@@ -273,9 +273,7 @@ class StratifiedResidualFunction:
         # Convert to flat grid indices: phi * (n_t1 * n_t2) + t1 * n_t2 + t2
         n_t1 = len(t1_unique)
         n_t2 = len(t2_unique)
-        flat_indices_np = (
-            phi_indices_np * (n_t1 * n_t2) + t1_indices_np * n_t2 + t2_indices_np
-        )
+        flat_indices_np = phi_indices_np * (n_t1 * n_t2) + t1_indices_np * n_t2 + t2_indices_np
 
         # Move the finished int64 index arrays onto the device once; the warm
         # residual gathers theory/sigma values with flat_indices_all and masks

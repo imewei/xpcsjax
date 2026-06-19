@@ -104,9 +104,7 @@ def log_effective_mode_from_controller(
     """
     if not getattr(controller, "is_enabled", False):
         return
-    mode = MODE_SHORT.get(
-        controller.per_angle_mode_actual, controller.per_angle_mode_actual
-    )
+    mode = MODE_SHORT.get(controller.per_angle_mode_actual, controller.per_angle_mode_actual)
     # Explicit 'constant' is not threshold-selected → no Reason line.
     threshold = None if mode == "constant" else controller.config.constant_scaling_threshold
     log_effective_per_angle_mode(

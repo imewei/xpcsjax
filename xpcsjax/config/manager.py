@@ -1066,9 +1066,7 @@ class ConfigManager:
             logger.debug(f"Memory fraction: {memory_fraction}")
             # Guard the ordered comparison: a non-numeric value (e.g. a quoted
             # YAML scalar parsed as str) would raise TypeError on `0 < value`.
-            if not isinstance(memory_fraction, (int, float)) or isinstance(
-                memory_fraction, bool
-            ):
+            if not isinstance(memory_fraction, (int, float)) or isinstance(memory_fraction, bool):
                 logger.warning(
                     "memory_fraction=%s is not numeric; should be a float between 0 and 1",
                     memory_fraction,
@@ -1305,8 +1303,7 @@ class ConfigManager:
             # would otherwise raise TypeError inside Path()/__truediv__.
             if phi_path_val is None or phi_file_val is None:
                 logger.debug(
-                    "Skipping phi-angle normalization: phi_angles_path or "
-                    "phi_angles_file is None",
+                    "Skipping phi-angle normalization: phi_angles_path or phi_angles_file is None",
                 )
             else:
                 phi_path = Path(phi_path_val) / phi_file_val

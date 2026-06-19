@@ -417,9 +417,7 @@ def _reconstruct_per_angle_scaling(
     if mode == "constant":
         if frozen is None:
             raise ValueError("constant mode L3 reconstruction requires frozen arrays")
-        return jnp.asarray(frozen[0], dtype=jnp.float64), jnp.asarray(
-            frozen[1], dtype=jnp.float64
-        )
+        return jnp.asarray(frozen[0], dtype=jnp.float64), jnp.asarray(frozen[1], dtype=jnp.float64)
     raise NotImplementedError(f"unknown per_angle_mode {mode!r} in L3 reconstruction")
 
 
@@ -430,9 +428,7 @@ def _per_angle_cv(contrasts: jnp.ndarray, offsets: jnp.ndarray) -> tuple[jnp.nda
         jnp.abs(c_mean) > 1e-10, jnp.std(contrasts) / jnp.abs(c_mean), jnp.std(contrasts)
     )
     o_mean = jnp.mean(offsets)
-    o_cv = jnp.where(
-        jnp.abs(o_mean) > 1e-10, jnp.std(offsets) / jnp.abs(o_mean), jnp.std(offsets)
-    )
+    o_cv = jnp.where(jnp.abs(o_mean) > 1e-10, jnp.std(offsets) / jnp.abs(o_mean), jnp.std(offsets))
     return c_cv, o_cv
 
 
@@ -674,10 +670,9 @@ def fit_heterodyne_stratified_least_squares(
         # Per-angle seed: contrast block then offset block, matching
         # make_scaling_expander("individual")'s layout (s[:n_phi], s[n_phi:2*n_phi]).
         init_scaling = np.concatenate([contrast_pa, offset_pa]).astype(np.float64)
-        scaling_names = (
-            [f"contrast_angle_{i}" for i in range(n_phi)]
-            + [f"offset_angle_{i}" for i in range(n_phi)]
-        )
+        scaling_names = [f"contrast_angle_{i}" for i in range(n_phi)] + [
+            f"offset_angle_{i}" for i in range(n_phi)
+        ]
 
     _hlog.log_effective_mode(
         mode,
@@ -835,11 +830,7 @@ def fit_heterodyne_stratified_least_squares(
                 from xpcsjax.utils.logging import get_logger as _get_logger
 
                 _bounds_log = _get_logger(__name__)
-            _pname = (
-                joint_param_names[_i]
-                if _i < len(joint_param_names)
-                else f"param_{_i}"
-            )
+            _pname = joint_param_names[_i] if _i < len(joint_param_names) else f"param_{_i}"
             _bounds_log.warning(
                 "Parameter '%s' violated bounds: %.6e not in [%.6e, %.6e]",
                 _pname,
@@ -891,9 +882,7 @@ def fit_heterodyne_stratified_least_squares(
         ssr_baseline = float(np.sum(np.asarray(residual_fn(popt), dtype=np.float64) ** 2))
         reg_mode = str(getattr(config, "regularization_mode", "none"))
         l3_configured = (
-            (reg_mode != "none")
-            and (n_scaling > 0)
-            and (mode in ("averaged", "individual"))
+            (reg_mode != "none") and (n_scaling > 0) and (mode in ("averaged", "individual"))
         )
         enable_hier = bool(getattr(config, "enable_hierarchical", False))
         use_constant = mode == "averaged"
@@ -950,12 +939,8 @@ def fit_heterodyne_stratified_least_squares(
                     frozen=frozen,
                     hier_cfg=_hier_cfg,
                 )
-                cand_popt = np.clip(
-                    np.asarray(candidate["popt"], dtype=np.float64), lower, upper
-                )
-                cand_ssr = float(
-                    np.sum(np.asarray(residual_fn(cand_popt), dtype=np.float64) ** 2)
-                )
+                cand_popt = np.clip(np.asarray(candidate["popt"], dtype=np.float64), lower, upper)
+                cand_ssr = float(np.sum(np.asarray(residual_fn(cand_popt), dtype=np.float64) ** 2))
                 if cand_ssr <= ssr_baseline * (1.0 + _keep_tol):
                     popt = cand_popt
                     hierarchical_active = True
@@ -970,9 +955,7 @@ def fit_heterodyne_stratified_least_squares(
                     # within tolerance yet solver did not meet outer_tolerance) is
                     # surfaced distinctly rather than silently labelled "executed".
                     execute_layers_status = (
-                        "executed"
-                        if candidate["success"]
-                        else "executed_not_converged"
+                        "executed" if candidate["success"] else "executed_not_converged"
                     )
                     _el_log.info(
                         "execute_layers: L2 hierarchical ACCEPTED "
@@ -1040,12 +1023,8 @@ def fit_heterodyne_stratified_least_squares(
                     bounds=(lower, upper),
                     config=config,
                 )
-                cand_popt = np.clip(
-                    np.asarray(fit_l3.parameters, dtype=np.float64), lower, upper
-                )
-                cand_ssr = float(
-                    np.sum(np.asarray(residual_fn(cand_popt), dtype=np.float64) ** 2)
-                )
+                cand_popt = np.clip(np.asarray(fit_l3.parameters, dtype=np.float64), lower, upper)
+                cand_ssr = float(np.sum(np.asarray(residual_fn(cand_popt), dtype=np.float64) ** 2))
                 if cand_ssr <= ssr_baseline * (1.0 + _keep_tol):
                     popt = cand_popt
                     regularization_active = True
@@ -1056,9 +1035,7 @@ def fit_heterodyne_stratified_least_squares(
                         "success": bool(getattr(fit_l3, "success", True)),
                     }
                     execute_layers_status = (
-                        "executed"
-                        if _layer_outcome["success"]
-                        else "executed_not_converged"
+                        "executed" if _layer_outcome["success"] else "executed_not_converged"
                     )
                     _el_log.info(
                         "execute_layers: L3 row-append ACCEPTED "
@@ -1202,9 +1179,7 @@ def fit_heterodyne_stratified_least_squares(
     # logged value and the result disagree for averaged. constant freezes scaling
     # (n_scaling=0 -> n_physics); individual is already dense (== popt.size).
     _n_phys_meta = int(meta["n_physics"])
-    _n_params_dof = (
-        _n_phys_meta if int(meta["n_scaling"]) == 0 else 2 * n_phi_meta + _n_phys_meta
-    )
+    _n_params_dof = _n_phys_meta if int(meta["n_scaling"]) == 0 else 2 * n_phi_meta + _n_phys_meta
     _n_dof = max(1, _n_data - _n_params_dof)
     _reduced_chi2 = ssr / (_sigma2_noise * _n_dof) if _sigma2_noise > 1e-12 else ssr / _n_dof
     _hlog.log_optimization_results(

@@ -49,9 +49,7 @@ def export_figures(
 
     # Collect all .png / .pdf recursively
     sources = [
-        p
-        for p in plots_dir.rglob("*")
-        if p.is_file() and p.suffix.lower() in {".png", ".pdf"}
+        p for p in plots_dir.rglob("*") if p.is_file() and p.suffix.lower() in {".png", ".pdf"}
     ]
     if not sources:
         return []

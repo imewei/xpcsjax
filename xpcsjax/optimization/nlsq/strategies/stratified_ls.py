@@ -88,7 +88,9 @@ def create_stratified_chunks(
     g2_flat = stratified_data.g2_flat
 
     # Get metadata (not chunked - shared across all chunks)
-    sigma = stratified_data.sigma  # 3D array (n_phi, n_t1, n_t2), or None (unweighted unit-sigma sentinel)
+    sigma = (
+        stratified_data.sigma
+    )  # 3D array (n_phi, n_t1, n_t2), or None (unweighted unit-sigma sentinel)
     q = stratified_data.q
     L = stratified_data.L
     dt = getattr(stratified_data, "dt", None)
@@ -923,8 +925,7 @@ def fit_with_stratified_least_squares(
 
         elif ad_controller.use_averaged_scaling:
             log.info(
-                f"Expanding parameters from averaged mode ({len(popt)} -> "
-                f"{2 * n_phi + n_physical})"
+                f"Expanding parameters from averaged mode ({len(popt)} -> {2 * n_phi + n_physical})"
             )
             popt_expanded = ad_controller.transform_params_from_constant(popt)
 
@@ -957,9 +958,7 @@ def fit_with_stratified_least_squares(
             anti_degeneracy_info["execute_layers_status"] = _lam_exec_status
             if _lam_layer_outcome is not None:
                 anti_degeneracy_info["execute_layers_kind"] = _lam_layer_outcome["kind"]
-                anti_degeneracy_info["execute_layers_n_outer"] = int(
-                    _lam_layer_outcome["n_outer"]
-                )
+                anti_degeneracy_info["execute_layers_n_outer"] = int(_lam_layer_outcome["n_outer"])
                 anti_degeneracy_info["execute_layers_converged"] = bool(
                     _lam_layer_outcome["success"]
                 )
@@ -968,9 +967,7 @@ def fit_with_stratified_least_squares(
             if _lam_hier_active and ad_controller.hierarchical is not None:
                 anti_degeneracy_info["hierarchical"] = ad_controller.hierarchical.get_diagnostics()
             if _lam_reg_active and ad_controller.regularizer is not None:
-                anti_degeneracy_info["regularization"] = (
-                    ad_controller.regularizer.get_diagnostics()
-                )
+                anti_degeneracy_info["regularization"] = ad_controller.regularizer.get_diagnostics()
 
     # Prepare info dict
     info = {

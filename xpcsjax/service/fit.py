@@ -171,6 +171,7 @@ def run_fit(
 
     on_iteration = None
     if on_event is not None:
+
         def on_iteration(n: int, ssr: float) -> None:
             on_event(Iteration(run_id="", seq=0, n=int(n), ssr=float(ssr), chi2=float(ssr)))
 

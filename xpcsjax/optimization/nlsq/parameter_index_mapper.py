@@ -282,18 +282,14 @@ class CanonicalIndexMapper:
     freeze: bool
 
 
-def _canonical_index_mapper(
-    mode: str, n_phi: int, n_physics: int
-) -> CanonicalIndexMapper:
+def _canonical_index_mapper(mode: str, n_phi: int, n_physics: int) -> CanonicalIndexMapper:
     if n_phi < 1:
         raise ValueError(f"n_phi must be >= 1, got {n_phi}")
     if n_physics < 1:
         raise ValueError(f"n_physics must be >= 1, got {n_physics}")
     # Reject the unresolved auto token: canonical layout requires a RESOLVED mode.
     if mode not in ("constant", "averaged", "individual"):
-        raise ValueError(
-            f"unknown per_angle_mode {mode!r}; valid: constant, averaged, individual"
-        )
+        raise ValueError(f"unknown per_angle_mode {mode!r}; valid: constant, averaged, individual")
     resolved: PerAngleMode = mode  # type: ignore[assignment]
     n_opt = _n_optimized(resolved, n_phi)
     scaling_block = slice(0, n_opt)

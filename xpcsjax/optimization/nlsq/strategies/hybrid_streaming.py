@@ -751,13 +751,9 @@ def fit_with_stratified_hybrid_streaming(
             if use_averaged_scaling
             else "individual"
         )
-        _mapper = ParameterIndexMapper.canonical(
-            mode=_canonical, n_phi=n_phi, n_physics=n_physical
-        )
+        _mapper = ParameterIndexMapper.canonical(mode=_canonical, n_phi=n_phi, n_physics=n_physical)
         mode_group_indices = _mapper.group_indices or None  # [] (constant) -> None
-        logger.debug(
-            f"L3 group indices from mapper ({_canonical}): {_mapper.group_indices}"
-        )
+        logger.debug(f"L3 group indices from mapper ({_canonical}): {_mapper.group_indices}")
 
         reg_config = AdaptiveRegularizationConfig(
             enable=True,

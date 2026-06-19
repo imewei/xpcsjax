@@ -155,8 +155,7 @@ class MultiStartConfig:
             from nlsq.global_optimization import GlobalOptimizationConfig
         except ImportError as e:
             raise ImportError(
-                "NLSQ GlobalOptimizationConfig not available. "
-                "Please install NLSQ: pip install nlsq"
+                "NLSQ GlobalOptimizationConfig not available. Please install NLSQ: pip install nlsq"
             ) from e
 
         # Map sampling strategy to NLSQ sampler
@@ -1089,7 +1088,11 @@ def run_multistart_nlsq(
                 logger.debug("Refinement failed for start %d: %s", original.start_idx, exc)
                 continue
             # keep-better: adopt the refined fit only when it strictly improves.
-            if refined is not None and refined.success and refined.chi_squared < original.chi_squared:
+            if (
+                refined is not None
+                and refined.success
+                and refined.chi_squared < original.chi_squared
+            ):
                 refined.start_idx = original.start_idx
                 refined.initial_params = original.initial_params
                 results[i] = refined
