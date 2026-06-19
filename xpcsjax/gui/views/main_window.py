@@ -1,4 +1,4 @@
-"""The workbench main window — a logic-free view driven by FitController.
+"""The workbench main window — a logic-free view driven by FitQueueController.
 
 All orchestration lives in the controller; this module only renders state and
 forwards user actions (Open Config / Output Dir / Run / Cancel).
@@ -22,21 +22,25 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from xpcsjax.gui.controllers.fit_controller import FitController
+from xpcsjax.gui.controllers.fit_queue import FitQueueController
+from xpcsjax.gui.project.model import Project
 from xpcsjax.gui.views.diagnostics_panel import BannerList, LayerStatusChips, SSRCurveWidget
+from xpcsjax.gui.views.project_panel import ComparisonView, ProjectSidebar
 
 
 class MainWindow(QMainWindow):
-    """Main workbench window for the single-dataset happy path."""
+    """Main workbench window — owns a Project and a FitQueueController."""
 
-    def __init__(self, controller: FitController) -> None:
-        super().__init__()
-        self._controller = controller
-        self._config_path: Path | None = None
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._project = Project()
+        self._queue = FitQueueController()
+        self._active_run_id: str | None = None
+        self._active_dataset_id: str | None = None
         self._output_dir: Path | None = None
 
         self.setWindowTitle("xpcsjax — analysis workbench")
-        self.resize(1000, 700)
+        self.resize(1100, 700)
 
         self._status = QLabel("idle")
         self._log = QPlainTextEdit()
@@ -44,9 +48,15 @@ class MainWindow(QMainWindow):
         self._results = QPlainTextEdit()
         self._results.setReadOnly(True)
         self.setCentralWidget(self._results)
+
+        self._sidebar = ProjectSidebar()
+        self._comparison = ComparisonView()
+
         self._build_toolbar()
+        self._build_sidebar_dock()
         self._build_monitor_dock()
-        self._connect_controller()
+        self._build_comparison_dock()
+        self._connect_signals()
 
     # --- construction helpers -------------------------------------------------
     def _build_toolbar(self) -> None:
@@ -57,13 +67,19 @@ class MainWindow(QMainWindow):
             ("action_open_config", "Open Config", self._on_open_config),
             ("action_output_dir", "Output Dir", self._on_choose_output),
             ("action_run", "Run", self._on_run),
-            ("action_cancel", "Cancel", self._controller.cancel),
+            ("action_cancel", "Cancel", self._on_cancel),
         ]:
             action = QAction(text, self)
             action.setObjectName(key)
             action.triggered.connect(slot)
             bar.addAction(action)
             self._actions[key] = action
+
+    def _build_sidebar_dock(self) -> None:
+        dock = QDockWidget("Project", self)
+        dock.setObjectName("dock_project_sidebar")
+        dock.setWidget(self._sidebar)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
 
     def _build_monitor_dock(self) -> None:
         dock = QDockWidget("Fit Monitor", self)
@@ -81,17 +97,25 @@ class MainWindow(QMainWindow):
         dock.setWidget(panel)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
 
-    def _connect_controller(self) -> None:
-        self._controller.status_changed.connect(self.set_status)
-        self._controller.log_received.connect(self.append_log)
-        self._controller.fit_finished.connect(self.show_result)
-        self._controller.fit_failed.connect(self.show_error)
-        self._controller.iteration_received.connect(self._ssr_curve.add_point)
-        self._controller.layer_status_received.connect(self._chips.set_layers)
-        self._controller.banner_received.connect(self._banners.add_banner)
-        self._controller.status_changed.connect(self._maybe_reset_curve)
+    def _build_comparison_dock(self) -> None:
+        dock = QDockWidget("Comparison", self)
+        dock.setObjectName("dock_comparison")
+        dock.setWidget(self._comparison)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
 
-    # --- view slots (driven by the controller) --------------------------------
+    def _connect_signals(self) -> None:
+        # Queue signals → window slots
+        self._queue.run_status_changed.connect(self._on_run_status)
+        self._queue.run_finished.connect(self._on_run_finished)
+        self._queue.run_failed.connect(self._on_run_failed)
+        self._queue.log_received.connect(self._on_log)
+        self._queue.iteration_received.connect(self._on_iteration)
+        self._queue.layer_status_received.connect(self._on_layer_status)
+        self._queue.banner_received.connect(self._on_banner)
+        # Sidebar selection signal
+        self._sidebar.runs_selected.connect(self._on_runs_selected)
+
+    # --- view slots (driven by the queue) -------------------------------------
     def set_status(self, status: str) -> None:
         """Render the current run status."""
         self._status.setText(status)
@@ -125,10 +149,58 @@ class MainWindow(QMainWindow):
         """Render a fit failure."""
         self._results.setPlainText(f"FIT FAILED\n\n{message}")
 
-    def _maybe_reset_curve(self, status: str) -> None:
-        """Clear the SSR curve when a new run starts."""
+    def _on_run_status(self, run_id: str, status: str) -> None:
         if status == "running":
+            self._active_run_id = run_id  # this run's stream now drives the monitor
             self._ssr_curve.reset()
+        self._project.set_run_status(run_id, status)
+        self._sidebar.update_run(self._project, run_id)
+        self.set_status(f"{run_id[:8]}: {status}")
+
+    def _on_log(self, run_id: str, level: str, msg: str) -> None:
+        if run_id == self._active_run_id:
+            self.append_log(level, msg)
+
+    def _on_iteration(self, run_id: str, n: int, ssr: float) -> None:
+        if run_id == self._active_run_id:
+            self._ssr_curve.add_point(n, ssr)
+
+    def _on_layer_status(self, run_id: str, layers: object) -> None:
+        if run_id == self._active_run_id:
+            self._chips.set_layers(layers)
+
+    def _on_banner(self, run_id: str, text: str, kind: str) -> None:
+        if run_id == self._active_run_id:
+            self._banners.add_banner(text, kind)
+
+    def _on_run_failed(self, run_id: str, error_text: str) -> None:
+        # Phase 4: surface via show_error; Plan H swaps this for the friendly
+        # ErrorDialog wired to the same run_failed signal.
+        self.show_error(error_text)
+
+    def _on_run_finished(self, run_id: str, result_path: str, summary: object) -> None:
+        # _on_run_status already set the terminal status; here we attach the result.
+        found = self._project.run_by_id(run_id)
+        if found is not None:
+            run = found[1]
+            # Store the durable result_dir ALWAYS (even when load_result_summary failed,
+            # so viz/export/restore still work); attach the summary when present.
+            if result_path:
+                run.result_dir = result_path
+            run.summary = summary
+            self._sidebar.update_run(self._project, run_id)
+        # Show the result in the main panel for the active run.
+        if run_id == self._active_run_id:
+            self.show_result(summary)
+
+    def _on_runs_selected(self, run_ids: list) -> None:
+        pairs = []
+        for rid in run_ids[:2]:  # compare up to two
+            found = self._project.run_by_id(rid)
+            if found is not None:
+                _, run = found
+                pairs.append((rid[:8], run.summary))
+        self._comparison.show_runs(pairs)
 
     # --- introspection for tests ----------------------------------------------
     def status_text(self) -> str:
@@ -147,8 +219,11 @@ class MainWindow(QMainWindow):
     def _on_open_config(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Open config", "", "YAML configs (*.yaml *.yml)")
         if path:
-            self._config_path = Path(path)
-            self.set_status(f"config: {self._config_path.name}")
+            dataset = self._project.add_dataset(path)
+            self._sidebar.set_project(self._project)
+            # Auto-select the freshly added dataset so a single-dataset Run works.
+            self._active_dataset_id = dataset.dataset_id
+            self.set_status(f"config: {Path(path).name}")
 
     def _on_choose_output(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Choose output directory")
@@ -156,14 +231,24 @@ class MainWindow(QMainWindow):
             self._output_dir = Path(path)
 
     def _on_run(self) -> None:
-        if self._config_path is None:
+        dataset_id = self._active_dataset_id
+        if dataset_id is None:
             self.set_status("pick a config first")
             return
-        out = self._output_dir or self._config_path.parent / "xpcsjax_gui_out"
-        self._controller.run(self._config_path, out)
+        dataset = self._project.dataset_by_id(dataset_id)
+        if dataset is None:
+            self.set_status("pick a config first")
+            return
+        run = self._project.add_run(dataset_id)
+        out_dir = self._output_dir or Path(dataset.config_path).parent / "xpcsjax_gui_out"
+        self._queue.enqueue(run.run_id, dataset.config_path, str(out_dir))
+        self._sidebar.set_project(self._project)
+
+    def _on_cancel(self) -> None:
+        self._queue.cancel(self._sidebar.current_run_id())
 
     # --- lifecycle ------------------------------------------------------------
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 — Qt override name
         """Terminate any running worker before the window closes."""
-        self._controller.shutdown()
+        self._queue.shutdown()
         super().closeEvent(event)

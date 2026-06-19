@@ -65,3 +65,26 @@ def test_diagnostics_panel_is_jax_free():
     pytest.importorskip("PySide6")
     pytest.importorskip("pyqtgraph")
     assert _probe_import("xpcsjax.gui.views.diagnostics_panel") == 0
+
+
+def test_project_modules_are_jax_free():
+    """xpcsjax.gui.project.model must not import JAX (stdlib-only)."""
+    assert _probe_import("xpcsjax.gui.project.model") == 0
+
+
+def test_project_tree_model_is_jax_free():
+    """xpcsjax.gui.project.tree_model must not import JAX."""
+    pytest.importorskip("PySide6")
+    assert _probe_import("xpcsjax.gui.project.tree_model") == 0
+
+
+def test_fit_queue_controller_is_jax_free():
+    """xpcsjax.gui.controllers.fit_queue must not import JAX."""
+    pytest.importorskip("PySide6")
+    assert _probe_import("xpcsjax.gui.controllers.fit_queue") == 0
+
+
+def test_project_panel_is_jax_free():
+    """xpcsjax.gui.views.project_panel must not import JAX."""
+    pytest.importorskip("PySide6")
+    assert _probe_import("xpcsjax.gui.views.project_panel") == 0

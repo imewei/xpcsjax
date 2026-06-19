@@ -6,21 +6,20 @@ import atexit
 
 
 def build_workbench() -> tuple[object, object]:
-    """Construct + wire the MainWindow and FitController (no event loop).
+    """Construct the controller-less MainWindow (which owns its own Project + FitQueueController).
 
-    Returns the ``(window, controller)`` pair. Worker cleanup on exit is the
-    caller's job: ``main`` registers the ``atexit`` hook and ``MainWindow.closeEvent``
-    also calls ``controller.shutdown``. Registration is kept OUT of here so
-    repeated construction (e.g. in tests) cannot accumulate stale atexit hooks.
-    Return type is ``object`` to keep this module import-light; concrete types
-    are ``MainWindow`` / ``FitController``.
+    Returns ``(window, window._queue)`` — the queue is the single execution path.
+    Worker cleanup on exit is the caller's job: ``main`` registers the ``atexit``
+    hook and ``MainWindow.closeEvent`` also calls ``queue.shutdown``. Registration
+    is kept OUT of here so repeated construction (e.g. in tests) cannot accumulate
+    stale atexit hooks.
+    Return type is ``object`` to keep this module import-light; concrete types are
+    ``MainWindow`` / ``FitQueueController``.
     """
-    from xpcsjax.gui.controllers.fit_controller import FitController
     from xpcsjax.gui.views.main_window import MainWindow
 
-    controller = FitController()
-    window = MainWindow(controller)
-    return window, controller
+    window = MainWindow()
+    return window, window._queue
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -28,9 +27,9 @@ def main(argv: list[str] | None = None) -> int:
     from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance() or QApplication(argv or [])
-    window, controller = build_workbench()
+    window, queue = build_workbench()
     # Registered here (once per process), not in build_workbench, so a hard exit
     # still terminates a running worker without accumulating hooks across tests.
-    atexit.register(controller.shutdown)
+    atexit.register(queue.shutdown)
     window.show()
     return int(app.exec())
