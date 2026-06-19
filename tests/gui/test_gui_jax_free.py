@@ -1,6 +1,7 @@
 """The GUI-importable surface must never pull JAX into the process.
 
-# Probes for ipc.worker (Task 3) and ipc.handle (Task 4) are added when those modules land.
+# Task 3 probe: ipc.worker (spawn target)
+# Task 4 probe: ipc.handle (parent)
 """
 
 import subprocess
@@ -30,3 +31,8 @@ def test_app_module_is_jax_free_at_import():
     """xpcsjax.gui.app must not import JAX at module level (deferred inside main())."""
     pytest.importorskip("PySide6")
     assert _probe_import("xpcsjax.gui.app") == 0
+
+
+def test_worker_module_is_jax_free_at_import():
+    """xpcsjax.gui.ipc.worker must not import JAX at module level (deferred inside run_worker())."""
+    assert _probe_import("xpcsjax.gui.ipc.worker") == 0
