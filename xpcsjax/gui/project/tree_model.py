@@ -1,0 +1,55 @@
+"""Mirror the in-memory Project into a QStandardItemModel for the sidebar tree."""
+
+from __future__ import annotations
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QStandardItem, QStandardItemModel
+
+from xpcsjax.gui.project.model import Dataset, FitRun, Project
+
+
+def _run_label(run: FitRun) -> str:
+    return f"{run.status} · {run.run_id[:8]}"
+
+
+def _dataset_item(dataset: Dataset) -> QStandardItem:
+    item = QStandardItem(dataset.label)
+    item.setEditable(False)
+    item.setData(dataset.dataset_id, Qt.ItemDataRole.UserRole)
+    for run in dataset.runs:
+        item.appendRow(_run_item(run))
+    return item
+
+
+def _run_item(run: FitRun) -> QStandardItem:
+    item = QStandardItem(_run_label(run))
+    item.setEditable(False)
+    item.setData(run.run_id, Qt.ItemDataRole.UserRole)
+    return item
+
+
+class ProjectTreeModel(QStandardItemModel):
+    """A datasets -> runs tree mirroring a :class:`Project`."""
+
+    def rebuild(self, project: Project) -> None:
+        """Replace the whole tree from ``project`` (full sync)."""
+        self.clear()
+        self.setHorizontalHeaderLabels(["Project"])
+        for dataset in project.datasets:
+            self.appendRow(_dataset_item(dataset))
+
+    def update_run(self, project: Project, run_id: str) -> None:
+        """Refresh the single run row's status label in place."""
+        found = project.run_by_id(run_id)
+        if found is None:
+            return
+        dataset, run = found
+        for i in range(self.rowCount()):
+            ds_item = self.item(i)
+            if ds_item.data(Qt.ItemDataRole.UserRole) != dataset.dataset_id:
+                continue
+            for j in range(ds_item.rowCount()):
+                run_item = ds_item.child(j)
+                if run_item.data(Qt.ItemDataRole.UserRole) == run_id:
+                    run_item.setText(_run_label(run))
+                    return
