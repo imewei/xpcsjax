@@ -87,7 +87,7 @@ def _fake_loader_data() -> dict:
 
 def test_load_and_validate_data_subsets_to_filtered_angles(tmp_path, monkeypatch):
     cfg = ConfigManager(_write_config(tmp_path))
-    monkeypatch.setattr(data_pipeline, "load_xpcs_data", lambda **_kw: _fake_loader_data())
+    monkeypatch.setattr("xpcsjax.service.data.load_xpcs_data", lambda **_kw: _fake_loader_data())
 
     args = argparse.Namespace(phi=None, phi_angles=None)
     out = data_pipeline.load_and_validate_data(args, cfg)
@@ -101,7 +101,7 @@ def test_load_and_validate_data_subsets_to_filtered_angles(tmp_path, monkeypatch
 def test_phi_filtering_disabled_keeps_all_angles(tmp_path, monkeypatch):
     cfg = ConfigManager(_write_config(tmp_path))
     cfg.config["phi_filtering"]["enabled"] = False
-    monkeypatch.setattr(data_pipeline, "load_xpcs_data", lambda **_kw: _fake_loader_data())
+    monkeypatch.setattr("xpcsjax.service.data.load_xpcs_data", lambda **_kw: _fake_loader_data())
 
     args = argparse.Namespace(phi=None, phi_angles=None)
     out = data_pipeline.load_and_validate_data(args, cfg)
