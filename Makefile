@@ -12,7 +12,7 @@
         benchmark profile-nlsq \
         docs docs-clean \
         clean clean-all clean-pyc clean-build clean-test clean-cache clean-venv \
-        build release run-example ci ci-full watch stats verify-nlsq \
+        build release package run-example ci ci-full watch stats verify-nlsq \
         verify verify-fast
 
 # Configuration
@@ -672,6 +672,9 @@ release: test quality build
 	@echo "$(BOLD)$(BLUE)Checking package...$(RESET)"
 	$(RUN_CMD) $(PYTHON) -m twine check dist/* 2>/dev/null || echo "Run 'make dev' (installs twine) for package validation"
 	@echo "$(BOLD)$(GREEN)✓ Package ready for release!$(RESET)"
+
+package:  ## Build the GUI app bundle (PyInstaller; per-OS, maintainer/CI)
+	$(RUN_CMD) pyinstaller packaging/xpcsjax-gui.spec --noconfirm
 
 # ===================
 # Example/Demo targets

@@ -336,3 +336,6 @@ requirements-audit.txt
 
 # subagent-driven-development scaffolding (briefs/reports/diffs) — never commit
 /sdd/
+
+# The hand-authored GUI PyInstaller spec is a tracked deliverable (overrides *.spec)
+!packaging/xpcsjax-gui.spec

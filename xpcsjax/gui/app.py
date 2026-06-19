@@ -24,6 +24,9 @@ def build_workbench() -> tuple[object, object]:
 
 def main(argv: list[str] | None = None) -> int:
     """Launch the workbench. Returns the Qt event-loop exit code."""
+    import multiprocessing
+
+    multiprocessing.freeze_support()  # frozen-app spawn safety — must be first
     from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance() or QApplication(argv or [])

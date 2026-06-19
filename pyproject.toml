@@ -73,6 +73,9 @@ gui = [
     "pyqtgraph>=0.13",
     "pytest-qt>=4.4",   # GUI controller/IPC tests; bundled with the Qt binding it needs
 ]
+packaging = [
+    "pyinstaller>=6.0",
+]
 
 [project.scripts]
 # Full names
