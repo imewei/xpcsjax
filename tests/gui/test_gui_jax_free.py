@@ -36,3 +36,9 @@ def test_app_module_is_jax_free_at_import():
 def test_worker_module_is_jax_free_at_import():
     """xpcsjax.gui.ipc.worker must not import JAX at module level (deferred inside run_worker())."""
     assert _probe_import("xpcsjax.gui.ipc.worker") == 0
+
+
+def test_handle_module_is_jax_free_at_import():
+    """xpcsjax.gui.ipc.handle must not import JAX at module level (GUI process stays JAX-free)."""
+    pytest.importorskip("PySide6")
+    assert _probe_import("xpcsjax.gui.ipc.handle") == 0
