@@ -6,9 +6,11 @@ forwards user actions (Open Config / Output Dir / Run / Cancel).
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+import yaml
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
@@ -19,6 +21,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QStackedWidget,
+    QTabWidget,
     QToolBar,
     QVBoxLayout,
     QWidget,
@@ -30,11 +33,18 @@ from xpcsjax.gui.export import export_figures
 from xpcsjax.gui.project.model import Project
 from xpcsjax.gui.project.persist import load_project, save_project
 from xpcsjax.gui.result_loader import load_result_summary
+from xpcsjax.gui.views.config_editor import ConfigEditor
+from xpcsjax.gui.views.data_panel import DataPanel
 from xpcsjax.gui.views.diagnostics_panel import BannerList, LayerStatusChips, SSRCurveWidget
 from xpcsjax.gui.views.error_dialog import ErrorDialog
+from xpcsjax.gui.views.fit_panel import FitPanel
+from xpcsjax.gui.views.inspector import InspectorDock
 from xpcsjax.gui.views.plots_view import ResultPlots
 from xpcsjax.gui.views.project_panel import ComparisonView, ProjectSidebar
 from xpcsjax.gui.viz_bundle import load_viz_bundle
+
+if TYPE_CHECKING:
+    from xpcsjax.gui.result_loader import ResultSummary
 
 
 class MainWindow(QMainWindow):
@@ -47,15 +57,17 @@ class MainWindow(QMainWindow):
         self._active_run_id: str | None = None
         self._active_dataset_id: str | None = None
         self._output_dir: Path | None = None
+        # Temp file path for ConfigEditor → worker config handoff.
+        self._config_temp_path: str | None = None
 
         self.setWindowTitle("xpcsjax — analysis workbench")
-        self.resize(1100, 700)
+        self.resize(1200, 750)
 
         self._status = QLabel("idle")
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
 
-        # Central widget: a stacked widget with two pages.
+        # Results area: a stacked widget with two pages.
         # Page 0: plain-text summary (shown when no interactive bundle is available).
         # Page 1: interactive ResultPlots (shown when a viz bundle loads).
         self._results = QPlainTextEdit()
@@ -65,16 +77,38 @@ class MainWindow(QMainWindow):
         self._central_stack.addWidget(self._results)       # index 0 → text summary
         self._central_stack.addWidget(self._result_plots)  # index 1 → interactive plots
         self._central_stack.setCurrentIndex(0)
-        self.setCentralWidget(self._central_stack)
+
+        # --- Center tab widget -------------------------------------------------
+        # Data / Config / Fit tabs are new; Results tab wraps the existing stack.
+        self._data_panel = DataPanel()
+        self._config_editor = ConfigEditor()
+        self._fit_panel = FitPanel()
+
+        self._center_tabs = QTabWidget()
+        self._center_tabs.setObjectName("center_tabs")
+        self._center_tabs.addTab(self._data_panel, "Data")
+        self._center_tabs.addTab(self._config_editor, "Config")
+        self._center_tabs.addTab(self._fit_panel, "Fit")
+        # Results tab wraps the existing central_stack so all prior behavior
+        # (show_result / _show_result_with_bundle / result_text) is unchanged.
+        results_container = QWidget()
+        rc_layout = QVBoxLayout(results_container)
+        rc_layout.setContentsMargins(0, 0, 0, 0)
+        rc_layout.addWidget(self._central_stack)
+        self._center_tabs.addTab(results_container, "Results")
+
+        self.setCentralWidget(self._center_tabs)
 
         self._sidebar = ProjectSidebar()
         self._comparison = ComparisonView()
+        self._inspector = InspectorDock()
 
         self._build_toolbar()
         self._build_file_menu()
         self._build_sidebar_dock()
         self._build_monitor_dock()
         self._build_comparison_dock()
+        self._build_inspector_dock()
         self._connect_signals()
 
     # --- construction helpers -------------------------------------------------
@@ -138,6 +172,12 @@ class MainWindow(QMainWindow):
         dock.setWidget(self._comparison)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
 
+    def _build_inspector_dock(self) -> None:
+        dock = QDockWidget("Inspector", self)
+        dock.setObjectName("dock_inspector")
+        dock.setWidget(self._inspector)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+
     def _connect_signals(self) -> None:
         # Queue signals → window slots
         self._queue.run_status_changed.connect(self._on_run_status)
@@ -149,6 +189,8 @@ class MainWindow(QMainWindow):
         self._queue.banner_received.connect(self._on_banner)
         # Sidebar selection signal
         self._sidebar.runs_selected.connect(self._on_runs_selected)
+        # ConfigEditor → run-launch path: validated config feeds _on_config_ready
+        self._config_editor.config_ready.connect(self._on_config_ready)
 
     # --- view slots (driven by the queue) -------------------------------------
     def set_status(self, status: str) -> None:
@@ -253,6 +295,8 @@ class MainWindow(QMainWindow):
         if run_id == self._active_run_id:
             result_dir = result_path or None
             self._show_result_with_bundle(summary, result_dir)
+            # Mirror finished result into the inspector dock.
+            self.show_inspector(summary)
 
     def _on_runs_selected(self, run_ids: list) -> None:
         pairs = []
@@ -270,6 +314,73 @@ class MainWindow(QMainWindow):
             if found is not None:
                 _, run = found
                 self._show_result_with_bundle(run.summary, run.result_dir)
+                # Mirror result into the inspector + Fit panel.
+                self.show_inspector(run.summary)
+                if run.summary is not None:
+                    # Reload the run's config into FitPanel if we can recover it.
+                    self._fit_panel.show_settings(
+                        {"analysis_mode": str(run.summary.convergence_status)}, None
+                    )
+
+    def _on_config_ready(self, cfg: dict) -> None:
+        """Slot: ConfigEditor emitted config_ready — write to temp YAML + launch run.
+
+        The validated dict is serialized to a NamedTemporaryFile (kept on disk
+        until the next config_ready or window close).  The run is enqueued via
+        the same ``FitQueueController`` path the toolbar "Run" button uses, so
+        all monitor/sidebar wiring is preserved.
+
+        The temp file is created with ``delete=False`` so the worker process can
+        open it after this method returns.  The previous temp file (if any) is
+        left on disk — the OS will clean it up at process exit / tmpdir GC.
+        """
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".yaml",
+            prefix="xpcsjax_gui_",
+            delete=False,
+            encoding="utf-8",
+        ) as fh:
+            yaml.safe_dump(cfg, fh, default_flow_style=False, sort_keys=False)
+            temp_path = fh.name
+
+        self._config_temp_path = temp_path
+
+        # Mirror the validated config into the Fit panel (informational).
+        self._fit_panel.show_settings(cfg, None)
+        # Switch the center tabs to Results so the user sees the run progress.
+        results_idx = next(
+            (
+                i
+                for i in range(self._center_tabs.count())
+                if self._center_tabs.tabText(i) == "Results"
+            ),
+            -1,
+        )
+        if results_idx >= 0:
+            self._center_tabs.setCurrentIndex(results_idx)
+
+        # Register a synthetic dataset for the temp config + enqueue run.
+        dataset = self._project.add_dataset(temp_path)
+        self._sidebar.set_project(self._project)
+        self._active_dataset_id = dataset.dataset_id
+
+        run = self._project.add_run(dataset.dataset_id)
+        out_dir = self._output_dir or Path(temp_path).parent / "xpcsjax_gui_out"
+        self._queue.enqueue(run.run_id, temp_path, str(out_dir))
+        self._sidebar.set_project(self._project)
+
+    # --- inspector public API -------------------------------------------------
+
+    def show_inspector(self, summary: ResultSummary | None) -> None:
+        """Populate the inspector dock with *summary* (or clear on None).
+
+        Parameters
+        ----------
+        summary:
+            A :class:`~xpcsjax.gui.result_loader.ResultSummary` or ``None``.
+        """
+        self._inspector.show_summary(summary)
 
     # --- introspection for tests ----------------------------------------------
     def status_text(self) -> str:

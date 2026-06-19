@@ -137,3 +137,43 @@ def test_project_persist_is_jax_free():
 def test_error_presenter_is_jax_free():
     """xpcsjax.gui.error_presenter must not import JAX (stdlib only)."""
     assert _probe_import("xpcsjax.gui.error_presenter") == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 5 guards: service.config + data_inspect + new view surfaces (JAX-free)
+# ---------------------------------------------------------------------------
+
+
+def test_service_config_is_jax_free():
+    """xpcsjax.service.config must not import JAX (config validator, JAX-free)."""
+    assert _probe_import("xpcsjax.service.config") == 0
+
+
+def test_data_inspect_is_jax_free():
+    """xpcsjax.gui.data_inspect must not import JAX (h5py + stdlib only)."""
+    assert _probe_import("xpcsjax.gui.data_inspect") == 0
+
+
+def test_config_editor_is_jax_free():
+    """xpcsjax.gui.views.config_editor must not import JAX at module level."""
+    pytest.importorskip("PySide6")
+    assert _probe_import("xpcsjax.gui.views.config_editor") == 0
+
+
+def test_data_panel_is_jax_free():
+    """xpcsjax.gui.views.data_panel must not import JAX at module level."""
+    pytest.importorskip("PySide6")
+    pytest.importorskip("pyqtgraph")
+    assert _probe_import("xpcsjax.gui.views.data_panel") == 0
+
+
+def test_fit_panel_is_jax_free():
+    """xpcsjax.gui.views.fit_panel must not import JAX at module level."""
+    pytest.importorskip("PySide6")
+    assert _probe_import("xpcsjax.gui.views.fit_panel") == 0
+
+
+def test_inspector_is_jax_free():
+    """xpcsjax.gui.views.inspector must not import JAX at module level."""
+    pytest.importorskip("PySide6")
+    assert _probe_import("xpcsjax.gui.views.inspector") == 0
