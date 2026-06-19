@@ -25,9 +25,11 @@ from PySide6.QtWidgets import (
 )
 
 from xpcsjax.gui.controllers.fit_queue import FitQueueController
+from xpcsjax.gui.error_presenter import present_failure
 from xpcsjax.gui.export import export_figures
 from xpcsjax.gui.project.model import Project
 from xpcsjax.gui.views.diagnostics_panel import BannerList, LayerStatusChips, SSRCurveWidget
+from xpcsjax.gui.views.error_dialog import ErrorDialog
 from xpcsjax.gui.views.plots_view import ResultPlots
 from xpcsjax.gui.views.project_panel import ComparisonView, ProjectSidebar
 from xpcsjax.gui.viz_bundle import load_viz_bundle
@@ -215,9 +217,8 @@ class MainWindow(QMainWindow):
             self._banners.add_banner(text, kind)
 
     def _on_run_failed(self, run_id: str, error_text: str) -> None:
-        # Phase 4: surface via show_error; Plan H swaps this for the friendly
-        # ErrorDialog wired to the same run_failed signal.
-        self.show_error(error_text)
+        title, friendly, details = present_failure(error_text)
+        ErrorDialog.show_failure(self, title, friendly, details)
 
     def _on_run_finished(self, run_id: str, result_path: str, summary: object) -> None:
         # _on_run_status already set the terminal status; here we attach the result.
