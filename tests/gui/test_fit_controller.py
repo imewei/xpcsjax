@@ -115,3 +115,20 @@ def test_cancel_and_shutdown_call_handle(tmp_path):
     assert ctrl._handle.joined is True
     FitController = type(ctrl)
     FitController(handle_factory=_FakeHandle).shutdown()  # no active handle -> no error
+
+
+def test_iteration_layerstatus_banner_routing(qtbot, tmp_path):
+    from xpcsjax.service.events import Banner, BannerKind, Iteration, LayerStatus
+
+    ctrl = _make_controller()
+    iters, layers, banners = [], [], []
+    ctrl.iteration_received.connect(lambda n, ssr: iters.append((n, ssr)))
+    ctrl.layer_status_received.connect(layers.append)
+    ctrl.banner_received.connect(lambda text, kind: banners.append((text, kind)))
+    ctrl.run("cfg.yaml", tmp_path)
+    ctrl._handle.event.emit(Iteration(run_id="r", seq=1, n=3, ssr=12.0, chi2=1.1))
+    ctrl._handle.event.emit(LayerStatus(run_id="r", seq=2, layers={"L1": True, "L2": False}, mode="laminar_flow"))
+    ctrl._handle.event.emit(Banner(run_id="r", seq=3, text="ANTI-DEGENERACY: Layer 2", kind=BannerKind.INFO))
+    assert iters == [(3, 12.0)]
+    assert layers == [{"L1": True, "L2": False}]
+    assert banners == [("ANTI-DEGENERACY: Layer 2", "info")]

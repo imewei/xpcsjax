@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from xpcsjax.gui.controllers.fit_controller import FitController
+from xpcsjax.gui.views.diagnostics_panel import BannerList, LayerStatusChips, SSRCurveWidget
 
 
 class MainWindow(QMainWindow):
@@ -70,6 +71,12 @@ class MainWindow(QMainWindow):
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.addWidget(self._status)
+        self._chips = LayerStatusChips()
+        self._ssr_curve = SSRCurveWidget()
+        self._banners = BannerList()
+        layout.addWidget(self._chips)
+        layout.addWidget(self._ssr_curve)
+        layout.addWidget(self._banners)
         layout.addWidget(self._log)
         dock.setWidget(panel)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
@@ -79,6 +86,10 @@ class MainWindow(QMainWindow):
         self._controller.log_received.connect(self.append_log)
         self._controller.fit_finished.connect(self.show_result)
         self._controller.fit_failed.connect(self.show_error)
+        self._controller.iteration_received.connect(self._ssr_curve.add_point)
+        self._controller.layer_status_received.connect(self._chips.set_layers)
+        self._controller.banner_received.connect(self._banners.add_banner)
+        self._controller.status_changed.connect(self._maybe_reset_curve)
 
     # --- view slots (driven by the controller) --------------------------------
     def set_status(self, status: str) -> None:
@@ -113,6 +124,11 @@ class MainWindow(QMainWindow):
     def show_error(self, message: str) -> None:
         """Render a fit failure."""
         self._results.setPlainText(f"FIT FAILED\n\n{message}")
+
+    def _maybe_reset_curve(self, status: str) -> None:
+        """Clear the SSR curve when a new run starts."""
+        if status == "running":
+            self._ssr_curve.reset()
 
     # --- introspection for tests ----------------------------------------------
     def status_text(self) -> str:

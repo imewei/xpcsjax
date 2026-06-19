@@ -54,3 +54,14 @@ def test_main_window_is_jax_free_at_import():
     """xpcsjax.gui.views.main_window must not import JAX at module level."""
     pytest.importorskip("PySide6")
     assert _probe_import("xpcsjax.gui.views.main_window") == 0
+
+
+def test_diagnostics_module_is_jax_free():
+    # stdlib + event schema only — no Qt / pyqtgraph needed.
+    assert _probe_import("xpcsjax.gui.ipc.diagnostics") == 0
+
+
+def test_diagnostics_panel_is_jax_free():
+    pytest.importorskip("PySide6")
+    pytest.importorskip("pyqtgraph")
+    assert _probe_import("xpcsjax.gui.views.diagnostics_panel") == 0

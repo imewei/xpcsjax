@@ -16,7 +16,16 @@ from PySide6.QtCore import QObject, Signal
 from xpcsjax.gui.ipc.handle import WorkerHandle
 from xpcsjax.gui.ipc.job import FitJob
 from xpcsjax.gui.result_loader import load_result_summary
-from xpcsjax.service.events import Died, Failed, Finished, LogLine, Started
+from xpcsjax.service.events import (
+    Banner,
+    Died,
+    Failed,
+    Finished,
+    Iteration,
+    LayerStatus,
+    LogLine,
+    Started,
+)
 
 
 class FitController(QObject):
@@ -26,6 +35,9 @@ class FitController(QObject):
     log_received = Signal(str, str)  # (level, message)
     fit_finished = Signal(object)  # ResultSummary | None
     fit_failed = Signal(str)  # human-readable error text
+    iteration_received = Signal(int, float)  # (n, ssr)
+    layer_status_received = Signal(object)  # layers dict[str, bool]
+    banner_received = Signal(str, str)  # (text, kind)
 
     def __init__(
         self,
@@ -82,6 +94,15 @@ class FitController(QObject):
             self._handle.shutdown()      # join the reader QThread (also for a finished run)
 
     def _on_event(self, event: Any) -> None:
+        if isinstance(event, Iteration):
+            self.iteration_received.emit(event.n, event.ssr)
+            return
+        if isinstance(event, LayerStatus):
+            self.layer_status_received.emit(event.layers)
+            return
+        if isinstance(event, Banner):
+            self.banner_received.emit(event.text, event.kind.value)
+            return
         if isinstance(event, LogLine):
             self.log_received.emit(event.level, event.msg)
             return
