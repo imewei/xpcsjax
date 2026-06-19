@@ -1,8 +1,11 @@
-"""Headless config-loading service.
+"""Headless config-loading and JAX-free validation service.
 
-Argparse-free core of ``cli.config_handling.load_and_merge_config`` (mode +
-output-directory overrides). JAX-free: imports only ``ConfigManager``; safe to
-call from the GUI process in-process.
+Provides config loading (``load_config``), template generation
+(``get_template_config``), and in-process YAML validation
+(``validate_config_dict``) without importing JAX or any xpcsjax engine module.
+Uses ``ConfigManager``, ``ParameterRegistry``, ``AnalysisMode``, ``yaml``, and
+``importlib.resources.files`` for packaged-template access.  Safe to call from
+the GUI process in-process.
 """
 
 from __future__ import annotations

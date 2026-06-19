@@ -60,8 +60,23 @@ def export_figures(
     dest.mkdir(parents=True, exist_ok=True)
 
     copied: list[Path] = []
+    used_names: set[str] = set()
     for src in sources:
-        dst = dest / src.name
+        candidate = src.name
+        if candidate in used_names:
+            # Disambiguate with the immediate parent directory name.
+            candidate = f"{src.parent.name}__{src.name}"
+        # If still colliding (two sub-dirs share both name and parent-name),
+        # fall back to a numeric suffix until unique.
+        base_candidate = candidate
+        counter = 1
+        while candidate in used_names:
+            stem = Path(base_candidate).stem
+            suffix = Path(base_candidate).suffix
+            candidate = f"{stem}__{counter}{suffix}"
+            counter += 1
+        used_names.add(candidate)
+        dst = dest / candidate
         shutil.copy2(src, dst)
         copied.append(dst)
     return copied

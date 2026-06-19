@@ -332,8 +332,12 @@ class MainWindow(QMainWindow):
 
         The temp file is created with ``delete=False`` so the worker process can
         open it after this method returns.  The previous temp file (if any) is
-        left on disk — the OS will clean it up at process exit / tmpdir GC.
+        unlinked before creating the new one to avoid accumulating stale files.
         """
+        # Unlink the previous temp YAML (if any) before creating the new one.
+        if self._config_temp_path is not None:
+            Path(self._config_temp_path).unlink(missing_ok=True)
+
         with tempfile.NamedTemporaryFile(
             mode="w",
             suffix=".yaml",

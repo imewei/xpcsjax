@@ -40,6 +40,38 @@ def test_export_copies_figures_to_dest(tmp_path: Path) -> None:
         assert p.exists(), f"expected {p} to exist in dest"
 
 
+def test_export_disambiguates_same_name_files(tmp_path: Path) -> None:
+    """Two PNGs with the same filename in different sub-dirs must both survive."""
+    from xpcsjax.gui.export import export_figures
+
+    result_dir = tmp_path / "run_002"
+    plots_dir = result_dir / "plots"
+    sub_a = plots_dir / "alpha"
+    sub_b = plots_dir / "beta"
+    sub_a.mkdir(parents=True)
+    sub_b.mkdir(parents=True)
+
+    # Both sub-dirs contain a file named "result.png" — would silently clobber.
+    (sub_a / "result.png").write_bytes(b"\x89PNG_A")
+    (sub_b / "result.png").write_bytes(b"\x89PNG_B")
+
+    dest = tmp_path / "exported"
+    copied = export_figures(result_dir, dest)
+
+    assert len(copied) == 2, f"expected 2 distinct files, got {len(copied)}: {copied}"
+    # All returned paths must be distinct.
+    assert len(set(copied)) == 2, "returned list must not contain duplicate paths"
+    # Both files must physically exist in dest.
+    for p in copied:
+        assert p.exists(), f"expected {p} to exist"
+    # The dest directory must contain exactly 2 files — no silent overwrite.
+    dest_files = list(dest.iterdir())
+    assert len(dest_files) == 2, f"dest must contain 2 distinct files, got {dest_files}"
+    # The two destination files must have different content (not overwritten).
+    contents = {p.read_bytes() for p in dest_files}
+    assert len(contents) == 2, "file contents must differ — one must not have clobbered the other"
+
+
 def test_export_returns_empty_when_plots_dir_absent(tmp_path: Path) -> None:
     """export_figures must return [] and NOT raise when there is no plots/ dir."""
     from xpcsjax.gui.export import export_figures

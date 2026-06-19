@@ -39,7 +39,9 @@ TEST_DIR := tests
 #     HEAVY_NODES is currently empty — kept as a seam for any future single-node
 #     deselect that shares a file with cheap tests (the old L4 bit-identity node
 #     that lived here was removed).
-HEAVY_NODES :=
+HEAVY_NODES := \
+  tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first \
+  tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit
 HEAVY_FILES := \
   tests/heterodyne/test_two_component_real_data.py \
   tests/parity/test_phase3_stratified_ls_c044_1m.py
