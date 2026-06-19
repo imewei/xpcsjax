@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from xpcsjax import OptimizationResult, fit_nlsq
-from xpcsjax.service.events import FitEvent, Started
+from xpcsjax.service.events import FitEvent, Iteration, Started
 from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -169,7 +169,17 @@ def run_fit(
     if on_event is not None:
         on_event(Started(run_id=run_id, seq=0, mode=mode, settings_summary=repr(overrides)))
 
-    result = fit_nlsq(data, config_manager)
+    on_iteration = None
+    if on_event is not None:
+        def on_iteration(n: int, ssr: float) -> None:
+            on_event(Iteration(run_id="", seq=0, n=int(n), ssr=float(ssr), chi2=float(ssr)))
+
+    # Only pass on_iteration when we actually have one, preserving the legacy
+    # 2-positional-arg call shape ``fit_nlsq(data, config_manager)`` on the
+    # default (no-observer) path — so pre-existing callers and Plan-1B stubs
+    # (``lambda data, cm: ...``) keep working unchanged (no cross-plan edits).
+    fit_kwargs = {} if on_iteration is None else {"on_iteration": on_iteration}
+    result = fit_nlsq(data, config_manager, **fit_kwargs)
 
     if not isinstance(result, OptimizationResult):
         # MultiStartResult and similar wrappers expose ``.best``.
