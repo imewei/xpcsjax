@@ -37,8 +37,13 @@ def test_show_result_renders_summary(qtbot, tmp_path):
     win = _window(qtbot)
     run_id = "aabbccdd1234567890abcdef12345678"
     summary = ResultSummary(
-        result_dir=tmp_path, success=True, convergence_status="converged",
-        chi_squared=1.5, reduced_chi_squared=1.04, quality_flag="good", parameters={"D0": 1234.5},
+        result_dir=tmp_path,
+        success=True,
+        convergence_status="converged",
+        chi_squared=1.5,
+        reduced_chi_squared=1.04,
+        quality_flag="good",
+        parameters={"D0": 1234.5},
     )
     # Simulate a finished run: first set it running (to set _active_run_id), then finish.
     win._queue.run_status_changed.emit(run_id, "running")

@@ -8,7 +8,10 @@ from xpcsjax.gui.result_loader import ResultSummary, load_result_summary
 def _write_result(dir_path, **meta):
     payload = {
         "schema": "xpcsjax.nlsq.result/v1",
-        "parameters": {"D0": {"value": 1234.5, "uncertainty": 1.0}, "alpha": {"value": 0.9, "uncertainty": None}},
+        "parameters": {
+            "D0": {"value": 1234.5, "uncertainty": 1.0},
+            "alpha": {"value": 0.9, "uncertainty": None},
+        },
         "metadata": {
             "success": True,
             "convergence_status": "converged",

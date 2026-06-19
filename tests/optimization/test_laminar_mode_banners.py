@@ -44,9 +44,7 @@ def test_individual_banner_uses_dynamic_less_than(caplog):
 def test_constant_banner_has_no_zero_scaling(caplog):
     log = logging.getLogger(_LOGGER)
     with caplog.at_level(logging.INFO, logger=_LOGGER):
-        log_effective_per_angle_mode(
-            log, mode="constant", n_phi=3, n_physics=7, n_scaling=0
-        )
+        log_effective_per_angle_mode(log, mode="constant", n_phi=3, n_physics=7, n_scaling=0)
     text = caplog.text
     assert "Parameters: 7 physical only (per-angle scaling fixed from quantiles)" in text
     assert "0 fixed scaling" not in text
@@ -182,9 +180,7 @@ def test_broadcast_mode_label_resolves_word():
 def test_summary_helper_averaged_has_no_constant_or_fixed_wording():
     from xpcsjax.optimization.nlsq.core import _anti_degeneracy_mode_summary
 
-    msg = _anti_degeneracy_mode_summary(
-        use_averaged_scaling=True, n_optimized=9, n_total=13
-    )
+    msg = _anti_degeneracy_mode_summary(use_averaged_scaling=True, n_optimized=9, n_total=13)
     assert "averaged mode" in msg
     assert "optimized broadcast scaling" in msg
     assert "9 optimized -> 13 total params" in msg
@@ -196,9 +192,7 @@ def test_summary_helper_averaged_has_no_constant_or_fixed_wording():
 def test_summary_helper_constant_keeps_fixed_wording():
     from xpcsjax.optimization.nlsq.core import _anti_degeneracy_mode_summary
 
-    msg = _anti_degeneracy_mode_summary(
-        use_averaged_scaling=False, n_optimized=7, n_total=13
-    )
+    msg = _anti_degeneracy_mode_summary(use_averaged_scaling=False, n_optimized=7, n_total=13)
     assert "constant mode with fixed per-angle scaling" in msg
     assert "7 optimized -> 13 total params" in msg
     assert "averaged" not in msg

@@ -1,4 +1,5 @@
 """Phase 5 — laminar standard in-memory honors the per-angle resolver."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -16,20 +17,31 @@ def _laminar_cfg(per_angle_mode: str | None, n_t: int = 8):
     cfg = {
         "analysis_mode": "laminar_flow",
         "analyzer_parameters": {
-            "dt": 0.1, "start_frame": 1, "end_frame": n_t,
+            "dt": 0.1,
+            "start_frame": 1,
+            "end_frame": n_t,
             "temporal": {"dt": 0.1, "start_frame": 1, "end_frame": n_t},
             "scattering": {"wavevector_q": 0.0237},
             "geometry": {"stator_rotor_gap": 2000000},
         },
         "initial_parameters": {
-            "parameter_names": ["D0", "alpha", "D_offset", "gamma_dot_t0",
-                                "beta", "gamma_dot_t_offset", "phi0"],
+            "parameter_names": [
+                "D0",
+                "alpha",
+                "D_offset",
+                "gamma_dot_t0",
+                "beta",
+                "gamma_dot_t_offset",
+                "phi0",
+            ],
             "values": [1000.0, 0.5, 10.0, 0.01, 0.0, 0.0, 0.0],
         },
         "optimization": {
             "method": "nlsq",
             "nlsq": {
-                "analysis_mode": "laminar_flow", "max_iterations": 30, "loss": "linear",
+                "analysis_mode": "laminar_flow",
+                "max_iterations": 30,
+                "loss": "linear",
                 "cmaes": {"enable": False, "auto_select": False},
                 "multi_start": {"enable": False},
                 "anti_degeneracy": ad,
@@ -52,8 +64,13 @@ def _fit(per_angle_mode, n_phi):
     model = HomodyneModel(cfg.config)
     c2 = np.asarray(model.compute_c2(true, phi, contrast=0.3, offset=1.0), dtype=np.float64)
     c2 = c2 + np.random.default_rng(7).normal(0.0, 5e-4, size=c2.shape)
-    data = {"phi_angles_list": phi, "c2_exp": c2, "t1": t, "t2": t,
-            "wavevector_q_list": np.array([0.0237], dtype=np.float64)}
+    data = {
+        "phi_angles_list": phi,
+        "c2_exp": c2,
+        "t1": t,
+        "t2": t,
+        "wavevector_q_list": np.array([0.0237], dtype=np.float64),
+    }
     return fit_nlsq(data, cfg)
 
 

@@ -16,11 +16,15 @@ def test_load_dataset_subsets_by_phi(monkeypatch):
         "c2_exp": np.arange(3 * 4 * 4, dtype=float).reshape(3, 4, 4),
         "phi_angles_list": np.array([0.0, 45.0, 90.0]),
     }
-    monkeypatch.setattr(svc_data, "load_xpcs_data", lambda config_dict: {k: v.copy() for k, v in base.items()})
+    monkeypatch.setattr(
+        svc_data, "load_xpcs_data", lambda config_dict: {k: v.copy() for k, v in base.items()}
+    )
     # Identity filter so the test isolates the --phi subsetting behavior.
     monkeypatch.setattr(svc_data, "apply_angle_filtering_for_optimization", lambda data, cm: data)
 
-    out = svc_data.load_dataset(_cm({"analysis_mode": "laminar_flow", "data_type": "aps_old"}), phi_subset=[45.0])
+    out = svc_data.load_dataset(
+        _cm({"analysis_mode": "laminar_flow", "data_type": "aps_old"}), phi_subset=[45.0]
+    )
     assert out["c2_exp"].shape[0] == 1
     assert list(out["phi_angles_list"]) == [45.0]
 
@@ -30,7 +34,9 @@ def test_load_dataset_no_subset_keeps_all(monkeypatch):
         "c2_exp": np.zeros((3, 4, 4)),
         "phi_angles_list": np.array([0.0, 45.0, 90.0]),
     }
-    monkeypatch.setattr(svc_data, "load_xpcs_data", lambda config_dict: {k: v.copy() for k, v in base.items()})
+    monkeypatch.setattr(
+        svc_data, "load_xpcs_data", lambda config_dict: {k: v.copy() for k, v in base.items()}
+    )
     monkeypatch.setattr(svc_data, "apply_angle_filtering_for_optimization", lambda data, cm: data)
 
     out = svc_data.load_dataset(_cm({"analysis_mode": "laminar_flow"}), phi_subset=None)
@@ -38,7 +44,9 @@ def test_load_dataset_no_subset_keeps_all(monkeypatch):
 
 
 def test_load_dataset_raises_when_no_correlation_matrix(monkeypatch):
-    monkeypatch.setattr(svc_data, "load_xpcs_data", lambda config_dict: {"phi_angles_list": np.array([0.0])})
+    monkeypatch.setattr(
+        svc_data, "load_xpcs_data", lambda config_dict: {"phi_angles_list": np.array([0.0])}
+    )
     monkeypatch.setattr(svc_data, "apply_angle_filtering_for_optimization", lambda data, cm: data)
     import pytest
 

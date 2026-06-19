@@ -163,8 +163,7 @@ def test_engine_route_result_is_contract_valid(mode):
         # averaged: scaling-first compressed [contrast_avg, offset_avg, physics]
         assert n_physics is not None
         assert n_params == 2 + n_physics, (
-            f"mode={mode}: engine parameters length {n_params} != "
-            f"2 + n_physics = {2 + n_physics}"
+            f"mode={mode}: engine parameters length {n_params} != 2 + n_physics = {2 + n_physics}"
         )
         assert eng.n_physics == ref.n_physics
 
@@ -278,8 +277,6 @@ def test_production_to_engine_mode_map_is_identity_on_canonical():
         "constant": "constant",
         "averaged": "averaged",
         "individual": "individual",
-    }, (
-        f"PRODUCTION_TO_ENGINE_MODE is not identity: {PRODUCTION_TO_ENGINE_MODE!r}"
-    )
+    }, f"PRODUCTION_TO_ENGINE_MODE is not identity: {PRODUCTION_TO_ENGINE_MODE!r}"
     # Retired token rebuilt from fragments so this absence check stays gate-clean.
     assert ("four" + "ier") not in PRODUCTION_TO_ENGINE_MODE

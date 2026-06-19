@@ -373,7 +373,9 @@ def test_l5_shear_weighting_is_homodyne_only() -> None:
     from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
 
     model = _build_minimal_heterodyne_model_for_fourier()
-    config = NLSQConfig(per_angle_mode="individual", max_nfev=30)  # repointed from the retired truncated-basis mode (removed Phase 1+2; L5 marker is mode-agnostic)
+    config = NLSQConfig(
+        per_angle_mode="individual", max_nfev=30
+    )  # repointed from the retired truncated-basis mode (removed Phase 1+2; L5 marker is mode-agnostic)
     n_phi = 6
     c2 = _build_synthetic_c2_stack_for_fourier(n_phi=n_phi, n_t=16, model=model)
     phi = np.linspace(0, 150, n_phi)

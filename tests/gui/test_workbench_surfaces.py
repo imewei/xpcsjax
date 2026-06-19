@@ -101,6 +101,6 @@ def test_results_area_inside_results_tab(qtbot):
     # container wrapping it), not the bare QStackedWidget.
     central = window.centralWidget()
     # The central widget should contain the tab widget
-    assert tab_widget.isAncestorOf(window._central_stack) or (
-        central is tab_widget
-    ), "Results area (central_stack) should live inside the center_tabs widget"
+    assert tab_widget.isAncestorOf(window._central_stack) or (central is tab_widget), (
+        "Results area (central_stack) should live inside the center_tabs widget"
+    )

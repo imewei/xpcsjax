@@ -18,6 +18,7 @@ These tests guard the four fit paths against drift:
     silently resolve auto -> averaged, making DOF depend on dataset size)
 and against the ``static_anisotropic`` template drifting back to ``auto``.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -28,9 +29,7 @@ import pytest
 import yaml
 
 _STATIC_PHYS = 3  # static_isotropic / static_anisotropic: [D0, alpha, D_offset]
-_TEMPLATE = pathlib.Path(
-    "xpcsjax/config/templates/xpcsjax_static_anisotropic.yaml"
-)
+_TEMPLATE = pathlib.Path("xpcsjax/config/templates/xpcsjax_static_anisotropic.yaml")
 
 
 # ---------------------------------------------------------------------------
@@ -45,9 +44,7 @@ def test_streaming_static_always_individual(requested, n_phi):
     )
 
     assert (
-        _resolve_streaming_per_angle_mode(
-            requested, n_phi, 3, is_laminar_flow=False
-        )
+        _resolve_streaming_per_angle_mode(requested, n_phi, 3, is_laminar_flow=False)
         == "individual"
     )
 
@@ -72,9 +69,7 @@ def test_streaming_function_routes_through_static_pin_helper():
     assert "_resolve_streaming_per_angle_mode(" in src
     # The bare resolver must NOT be called directly in the fit body (it would
     # bypass the static pin); it is reachable only inside the helper.
-    assert "resolve_per_angle_mode(" not in src.replace(
-        "_resolve_streaming_per_angle_mode(", ""
-    )
+    assert "resolve_per_angle_mode(" not in src.replace("_resolve_streaming_per_angle_mode(", "")
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +118,9 @@ def _static_cfg(per_angle_mode: str, n_t: int = 8):
     cfg = {
         "analysis_mode": "static_anisotropic",
         "analyzer_parameters": {
-            "dt": 0.1, "start_frame": 1, "end_frame": n_t,
+            "dt": 0.1,
+            "start_frame": 1,
+            "end_frame": n_t,
             "temporal": {"dt": 0.1, "start_frame": 1, "end_frame": n_t},
             "scattering": {"wavevector_q": 0.0237},
             "geometry": {"stator_rotor_gap": 2000000},
@@ -135,7 +132,8 @@ def _static_cfg(per_angle_mode: str, n_t: int = 8):
         "optimization": {
             "method": "nlsq",
             "nlsq": {
-                "analysis_mode": "static_anisotropic", "max_iterations": 30,
+                "analysis_mode": "static_anisotropic",
+                "max_iterations": 30,
                 "loss": "linear",
                 "cmaes": {"enable": False, "auto_select": False},
                 "multi_start": {"enable": False},
@@ -159,8 +157,13 @@ def test_standard_inmemory_static_is_individual_despite_auto():
     model = HomodyneModel(cfg.config)
     c2 = np.asarray(model.compute_c2(true, phi, contrast=0.3, offset=1.0), dtype=np.float64)
     c2 = c2 + np.random.default_rng(5).normal(0.0, 5e-4, size=c2.shape)
-    data = {"phi_angles_list": phi, "c2_exp": c2, "t1": t, "t2": t,
-            "wavevector_q_list": np.array([0.0237], dtype=np.float64)}
+    data = {
+        "phi_angles_list": phi,
+        "c2_exp": c2,
+        "t1": t,
+        "t2": t,
+        "wavevector_q_list": np.array([0.0237], dtype=np.float64),
+    }
 
     res = fit_nlsq(data, cfg)
     params = np.asarray(res.parameters, dtype=np.float64)
@@ -282,7 +285,9 @@ def test_routing_effective_n_params_static_is_dense_for_any_mode():
             got = _routing_effective_n_params(
                 am, ad, n_phi=n_phi, n_physical=n_physical, actual_n_params=dense
             )
-            assert got == dense, f"static {am.value}/{mode}: routing used {got}, expected dense {dense}"
+            assert got == dense, (
+                f"static {am.value}/{mode}: routing used {got}, expected dense {dense}"
+            )
 
 
 def test_routing_effective_n_params_laminar_reduction_unchanged():
@@ -300,8 +305,8 @@ def test_routing_effective_n_params_laminar_reduction_unchanged():
             lf, ad, n_phi=nphi, n_physical=n_physical, actual_n_params=2 * nphi + n_physical
         )
 
-    assert _r("averaged") == n_physical + 2          # 9
-    assert _r("constant") == n_physical              # 7
-    assert _r("auto") == n_physical + 2              # auto@5>=3 -> averaged
+    assert _r("averaged") == n_physical + 2  # 9
+    assert _r("constant") == n_physical  # 7
+    assert _r("auto") == n_physical + 2  # auto@5>=3 -> averaged
     assert _r("auto", nphi=2) == 2 * 2 + n_physical  # auto@2<3 -> individual -> dense
     assert _r("individual") == dense

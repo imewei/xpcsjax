@@ -21,6 +21,7 @@ import numpy as np
 # self-contained and does not import from another test.
 # ---------------------------------------------------------------------------
 
+
 def _tiny_static_config_and_data():
     """Return (config, data) for the smallest laminar_flow fit.
 
@@ -48,8 +49,13 @@ def _tiny_static_config_and_data():
         },
         "initial_parameters": {
             "parameter_names": [
-                "D0", "alpha", "D_offset", "gamma_dot_t0",
-                "beta", "gamma_dot_t_offset", "phi0",
+                "D0",
+                "alpha",
+                "D_offset",
+                "gamma_dot_t0",
+                "beta",
+                "gamma_dot_t_offset",
+                "phi0",
             ],
             "values": true_params.tolist(),
         },
@@ -91,6 +97,7 @@ def _tiny_static_config_and_data():
 # Test 1: on_iteration is accepted, completes, and any firings are well-formed
 # ---------------------------------------------------------------------------
 
+
 def test_on_iteration_accepted_and_wellformed():
     """fit_nlsq accepts on_iteration and completes without error.
 
@@ -109,8 +116,9 @@ def test_on_iteration_accepted_and_wellformed():
     fit_nlsq(data, cfg, on_iteration=lambda n, ssr: seen.append((n, ssr)))
 
     # Every firing must carry (int, positive float)
-    assert all(isinstance(n, int) and isinstance(ssr, float) and ssr > 0
-               for n, ssr in seen), f"Malformed firings: {seen}"
+    assert all(isinstance(n, int) and isinstance(ssr, float) and ssr > 0 for n, ssr in seen), (
+        f"Malformed firings: {seen}"
+    )
     # Iteration indices must be non-decreasing
     iters = [n for n, _ in seen]
     assert iters == sorted(iters), f"Iterations not monotone: {iters}"
@@ -119,6 +127,7 @@ def test_on_iteration_accepted_and_wellformed():
 # ---------------------------------------------------------------------------
 # Test 2: on_iteration=None is byte-identical to today (parity gate)
 # ---------------------------------------------------------------------------
+
 
 def test_default_none_does_not_change_result():
     """fit_nlsq() with on_iteration=None must be bit-identical to the default.
@@ -147,6 +156,7 @@ def test_default_none_does_not_change_result():
 # Test 3: observer that raises does NOT abort the fit
 # ---------------------------------------------------------------------------
 
+
 def test_raising_observer_does_not_abort_fit():
     """A raising observer must be silently swallowed; the fit must complete."""
     from xpcsjax.optimization.nlsq import fit_nlsq
@@ -166,6 +176,7 @@ def test_raising_observer_does_not_abort_fit():
 # ---------------------------------------------------------------------------
 # Test 4: two_component (heterodyne) accepts on_iteration and NEVER calls it
 # ---------------------------------------------------------------------------
+
 
 def test_two_component_accepts_on_iteration_and_never_calls_it():
     """fit_nlsq on two_component config: on_iteration accepted, never called.
@@ -188,6 +199,4 @@ def test_two_component_accepts_on_iteration_and_never_calls_it():
     result = fit_nlsq(data, cfg, on_iteration=_counting_observer)
     assert result is not None
     # Heterodyne ignores the observer — it must NOT be called
-    assert call_count == 0, (
-        f"two_component unexpectedly called on_iteration {call_count} time(s)"
-    )
+    assert call_count == 0, f"two_component unexpectedly called on_iteration {call_count} time(s)"

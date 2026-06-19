@@ -22,6 +22,7 @@ def _quantiles(n_phi):
 
 # ---- freeze flag --------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     ("mode", "expected"),
     [("constant", True), ("averaged", False), ("individual", False)],
@@ -33,6 +34,7 @@ def test_freeze_flag(mode, expected):
 
 
 # ---- seed_tail ----------------------------------------------------------------
+
 
 def test_seed_tail_constant_is_empty():
     c, o = _quantiles(5)
@@ -59,6 +61,7 @@ def test_seed_tail_individual_is_concat_per_angle():
 
 
 # ---- expand_tail round-trips --------------------------------------------------
+
 
 def test_expand_tail_individual_is_identity():
     c, o = _quantiles(5)
@@ -99,6 +102,7 @@ def test_expand_tail_individual_rejects_wrong_length():
 
 # ---- expand_back (full per-angle popt) ----------------------------------------
 
+
 def test_expand_back_individual_reorders_to_full_per_angle():
     # popt is scaling-first [c0..c4, o0..o4, physics(7)]; expand_back returns the
     # dense per-angle (contrast[n_phi], offset[n_phi], physics) split.
@@ -136,6 +140,7 @@ def test_expand_back_constant_uses_frozen_quantiles_physics_only_vector():
 
 # ---- expand_tail_jax: JIT-safe parity with the NumPy expand_tail --------------
 
+
 @pytest.mark.parametrize("mode", ["constant", "averaged", "individual"])
 def test_expand_tail_jax_matches_numpy(mode):
     """The jnp variant returns the same values as the NumPy one (so the traced
@@ -154,6 +159,7 @@ def test_expand_tail_jax_matches_numpy(mode):
 
 
 # ---- expand_covariance: dense scaling-first covariance ------------------------
+
 
 def test_expand_covariance_individual_is_identity():
     c, o = _quantiles(4)
@@ -195,6 +201,7 @@ def test_expand_covariance_none_passes_through():
 
 
 # ---- group_indices delegates to the mapper ------------------------------------
+
 
 @pytest.mark.parametrize(
     ("mode", "expected"),

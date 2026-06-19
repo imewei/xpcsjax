@@ -22,18 +22,14 @@ def test_config_manager_null_experimental_data() -> None:
     from xpcsjax.config import ConfigManager
 
     # Crashed at construction (_normalize_schema -> experimental_data block).
-    cm = ConfigManager(
-        config_override={"analysis_mode": "laminar_flow", "experimental_data": None}
-    )
+    cm = ConfigManager(config_override={"analysis_mode": "laminar_flow", "experimental_data": None})
     assert cm is not None
 
 
 def test_config_manager_null_optimization_angle_ranges() -> None:
     from xpcsjax.config import ConfigManager
 
-    cm = ConfigManager(
-        config_override={"analysis_mode": "laminar_flow", "optimization": None}
-    )
+    cm = ConfigManager(config_override={"analysis_mode": "laminar_flow", "optimization": None})
     assert cm.get_target_angle_ranges() == {"enabled": False}
 
 
@@ -80,9 +76,7 @@ def test_validate_config_accepts_case_variant_mode(caplog: pytest.LogCaptureFixt
     cm.config["analysis_mode"] = "HETERODYNE"
     with caplog.at_level(logging.WARNING):
         cm._validate_config()
-    assert not any(
-        "Unknown analysis_mode" in rec.getMessage() for rec in caplog.records
-    )
+    assert not any("Unknown analysis_mode" in rec.getMessage() for rec in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -112,9 +106,7 @@ def test_gradient_monitor_check_interval_zero_no_crash() -> None:
     )
 
     cfg = GradientMonitorConfig(enable=True, check_interval=0)
-    monitor = GradientCollapseMonitor(
-        cfg, physical_indices=[2], per_angle_indices=[0, 1]
-    )
+    monitor = GradientCollapseMonitor(cfg, physical_indices=[2], per_angle_indices=[0, 1])
     status = monitor.check(np.ones(3), iteration=1)  # would ZeroDivisionError pre-fix
     assert status in {"OK", "WARNING", "COLLAPSE_DETECTED"}
 
@@ -156,9 +148,7 @@ def test_detect_degeneracy_basin_labels_align_with_results() -> None:
         _single(np.inf, success=False),
         _single(1.01, success=True),
     ]
-    _, _, labels = ms.detect_degeneracy(
-        results, chi_sq_threshold=0.1, param_threshold=0.2
-    )
+    _, _, labels = ms.detect_degeneracy(results, chi_sq_threshold=0.1, param_threshold=0.2)
     assert labels is not None
     assert len(labels) == len(results)
     # The failed result carries the -1 sentinel, never a basin id.
@@ -279,6 +269,4 @@ def test_save_results_both_writes_durable_npz_before_json(tmp_path, monkeypatch)
     with pytest.raises(RuntimeError, match="json serialization failed"):
         result_saving.save_results(result, tmp_path, "both", None, None)
     # The durable NPZ must already be on disk despite the JSON failure.
-    assert list(tmp_path.glob("*.npz")), (
-        "NPZ must be written before JSON for output_format='both'"
-    )
+    assert list(tmp_path.glob("*.npz")), "NPZ must be written before JSON for output_format='both'"

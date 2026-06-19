@@ -81,7 +81,6 @@ def test_absent_analysis_mode_resolves_to_isotropic_consistently() -> None:
     assert "anisotropic" not in pm_mode
 
 
-
 def _make_aps_old_hdf5(path: str, n_pairs: int = 6, msize: int = 8) -> None:
     """Write a minimal APS-old-format HDF5 file the loader can parse."""
     import h5py

@@ -8,7 +8,9 @@ import xpcsjax.service.plots as svc_plots
 
 
 def _cm():
-    return SimpleNamespace(get_model=lambda: object(), get_config=lambda: {"analysis_mode": "laminar_flow"})
+    return SimpleNamespace(
+        get_model=lambda: object(), get_config=lambda: {"analysis_mode": "laminar_flow"}
+    )
 
 
 def test_generate_plots_forwards_to_viz_and_forces_agg(monkeypatch):

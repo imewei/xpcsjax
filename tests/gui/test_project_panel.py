@@ -11,8 +11,12 @@ from xpcsjax.gui.views.project_panel import ComparisonView, ProjectSidebar  # no
 
 def _summary(chi2):
     return ResultSummary(
-        result_dir=".", success=True, convergence_status="converged",
-        chi_squared=chi2, reduced_chi_squared=chi2, quality_flag="good",
+        result_dir=".",
+        success=True,
+        convergence_status="converged",
+        chi_squared=chi2,
+        reduced_chi_squared=chi2,
+        quality_flag="good",
         parameters={"D0": 100.0 + chi2},
     )
 

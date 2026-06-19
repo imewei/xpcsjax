@@ -130,12 +130,14 @@ def test_homodyne_nlsq_live_ab_parity(label: str) -> None:
     # individual either way (Finding 8).
     x_cfg.config.setdefault("optimization", {}).setdefault("nlsq", {}).setdefault(
         "anti_degeneracy", {}
-    ).update({
-        "enable": True,
-        "per_angle_mode": "individual",
-        "hierarchical": {"enable": False},
-        "regularization": {"enable": False},
-    })
+    ).update(
+        {
+            "enable": True,
+            "per_angle_mode": "individual",
+            "hierarchical": {"enable": False},
+            "regularization": {"enable": False},
+        }
+    )
     x_data = x_load_xpcs_data(str(config_path))
     x_result = x_fit_nlsq_jax(x_data, x_cfg)
 

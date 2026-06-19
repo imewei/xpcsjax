@@ -59,7 +59,8 @@ def test_pyinstaller_spec_covers_runtime_deps():
         deps += proj.get("optional-dependencies", {}).get(grp, [])
 
     missing = sorted(
-        n for n in (import_name(d) for d in deps)
+        n
+        for n in (import_name(d) for d in deps)
         if n not in listed and n not in COVERED and n not in TEST_ONLY
     )
     assert not missing, (

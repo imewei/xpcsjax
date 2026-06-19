@@ -52,9 +52,7 @@ _PHYS = ["D0", "alpha", "D_offset", "gamma_dot_t0", "beta", "gamma_dot_t_offset"
 def test_physical_index_map_honours_scaling_head_size(head_size, vec_len):
     """With ``scaling_head_size`` given, physics indices start at the head end and
     stay in-bounds for the compressed vector, for every per-angle mode."""
-    idx_map = build_physical_index_map(
-        True, 4, _PHYS, scaling_head_size=head_size
-    )
+    idx_map = build_physical_index_map(True, 4, _PHYS, scaling_head_size=head_size)
     assert idx_map["D0"] == head_size
     assert idx_map["phi0"] == head_size + len(_PHYS) - 1
     # every physics index must be addressable in the compressed vector
@@ -113,7 +111,9 @@ def _laminar_fit(mode, *, shear: bool, n_phi: int = 4, n_t: int = 10):
         config_override={
             "analysis_mode": "laminar_flow",
             "analyzer_parameters": {
-                "dt": 0.1, "start_frame": 1, "end_frame": n_t,
+                "dt": 0.1,
+                "start_frame": 1,
+                "end_frame": n_t,
                 "temporal": {"dt": 0.1, "start_frame": 1, "end_frame": n_t},
                 "scattering": {"wavevector_q": 0.0237},
                 "geometry": {"stator_rotor_gap": 2000000},
@@ -128,8 +128,13 @@ def _laminar_fit(mode, *, shear: bool, n_phi: int = 4, n_t: int = 10):
     )
     model = HomodyneModel(cfg.config)
     c2 = np.asarray(model.compute_c2(true, phi, contrast=0.3, offset=1.0))
-    data = {"phi_angles_list": phi, "c2_exp": c2, "t1": t, "t2": t,
-            "wavevector_q_list": np.array([0.0237])}
+    data = {
+        "phi_angles_list": phi,
+        "c2_exp": c2,
+        "t1": t,
+        "t2": t,
+        "wavevector_q_list": np.array([0.0237]),
+    }
     return fit_nlsq(data, cfg)
 
 

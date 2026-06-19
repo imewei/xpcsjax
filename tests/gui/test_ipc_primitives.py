@@ -30,7 +30,9 @@ def test_emitter_blocks_for_terminal_but_drops_telemetry_when_full():
     q = queue_mod.Queue(maxsize=1)
     emit = EventEmitter(q, run_id="r1")
     emit.emit(Iteration(run_id="", seq=0, n=1, ssr=1.0, chi2=1.0))  # first telemetry -> enqueued
-    emit.emit(Iteration(run_id="", seq=0, n=2, ssr=1.0, chi2=1.0))  # coalesced (within 20 Hz window)
+    emit.emit(
+        Iteration(run_id="", seq=0, n=2, ssr=1.0, chi2=1.0)
+    )  # coalesced (within 20 Hz window)
     first = q.get_nowait()
     assert isinstance(first, Iteration) and first.n == 1
     # Terminal must still get through after we free a slot.

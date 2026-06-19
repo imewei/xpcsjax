@@ -64,6 +64,4 @@ def test_all_rst_have_no_deleted_feature_tokens() -> None:
                 offenders.append(f"{rel}: deleted token {token!r}")
         if _MODE_LITERAL in text:
             offenders.append(f"{rel}: removed per-angle mode literal {_MODE_LITERAL!r}")
-    assert not offenders, "stale Fourier-scaling references found:\n" + "\n".join(
-        offenders
-    )
+    assert not offenders, "stale Fourier-scaling references found:\n" + "\n".join(offenders)

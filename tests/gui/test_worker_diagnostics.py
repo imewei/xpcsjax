@@ -11,7 +11,9 @@ from xpcsjax.service.events import Banner, LayerStatus
 
 def _install_fake_services(monkeypatch):
     cfg = types.ModuleType("xpcsjax.service.config")
-    cfg.load_config = lambda path, **_kw: types.SimpleNamespace(config={"analysis_mode": "laminar_flow"})
+    cfg.load_config = lambda path, **_kw: types.SimpleNamespace(
+        config={"analysis_mode": "laminar_flow"}
+    )
     data = types.ModuleType("xpcsjax.service.data")
     data.load_dataset = lambda cm, **_kw: {"c2_exp": None}
     fit = types.ModuleType("xpcsjax.service.fit")
@@ -21,8 +23,12 @@ def _install_fake_services(monkeypatch):
         # Emit a banner the way the engine logs it, then return a result with diagnostics.
         logging.getLogger("xpcsjax.fake").info("ANTI-DEGENERACY: Layer 3 - Adaptive Regularization")
         return types.SimpleNamespace(
-            nlsq_diagnostics={"hierarchical_active": False, "regularization_active": True,
-                              "gradient_monitor": {"collapse_detected": False}, "shear_weighting": "laminar_flow"}
+            nlsq_diagnostics={
+                "hierarchical_active": False,
+                "regularization_active": True,
+                "gradient_monitor": {"collapse_detected": False},
+                "shear_weighting": "laminar_flow",
+            }
         )
 
     fit.run_fit = _run_fit
@@ -30,9 +36,13 @@ def _install_fake_services(monkeypatch):
     persist.save_results = lambda *a, **k: None
     plots = types.ModuleType("xpcsjax.service.plots")
     plots.generate_plots = lambda *a, **k: None
-    for name, mod in [("xpcsjax.service.config", cfg), ("xpcsjax.service.data", data),
-                      ("xpcsjax.service.fit", fit), ("xpcsjax.service.persist", persist),
-                      ("xpcsjax.service.plots", plots)]:
+    for name, mod in [
+        ("xpcsjax.service.config", cfg),
+        ("xpcsjax.service.data", data),
+        ("xpcsjax.service.fit", fit),
+        ("xpcsjax.service.persist", persist),
+        ("xpcsjax.service.plots", plots),
+    ]:
         monkeypatch.setitem(sys.modules, name, mod)
 
 

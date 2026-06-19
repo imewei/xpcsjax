@@ -115,7 +115,15 @@ def test_apply_global_escape_never_auto_skips_multistart(monkeypatch):
 
     monkeypatch.setattr(hc, "_multistart_joint_candidate", _spy)
     _x_final, tag = hc._apply_global_escape(
-        "multistart", lambda _x: np.zeros(100), np.array([1.0, 2.0]), _LB, _UB, _cfg(), ["a", "b"], _cfg(), {}
+        "multistart",
+        lambda _x: np.zeros(100),
+        np.array([1.0, 2.0]),
+        _LB,
+        _UB,
+        _cfg(),
+        ["a", "b"],
+        _cfg(),
+        {},
     )
 
     assert called["ms"] is True

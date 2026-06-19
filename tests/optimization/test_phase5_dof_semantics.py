@@ -1,4 +1,5 @@
 """Phase 5 — averaged uses EXPANDED constrained-model DOF (2*n_phi + n_physics)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -6,6 +7,7 @@ import numpy as np
 
 def _fit(mode, n_phi):
     from tests.optimization.test_phase5_standard_resolver import _fit as f
+
     return f(mode, n_phi)
 
 
@@ -39,8 +41,13 @@ def test_constant_dof_basis_is_physics_only():
     cfg = _laminar_cfg("constant", n_t)
     model = HomodyneModel(cfg.config)
     c2 = np.asarray(model.compute_c2(true, phi, contrast=0.3, offset=1.0))
-    data = {"phi_angles_list": phi, "c2_exp": c2, "t1": t, "t2": t,
-            "wavevector_q_list": np.array([0.0237])}
+    data = {
+        "phi_angles_list": phi,
+        "c2_exp": c2,
+        "t1": t,
+        "t2": t,
+        "wavevector_q_list": np.array([0.0237]),
+    }
     res = fit_nlsq(data, cfg)
     diag = dict(res.nlsq_diagnostics or {})
     assert int(diag.get("n_dof_effective")) == 7  # physics only

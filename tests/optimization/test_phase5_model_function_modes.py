@@ -1,4 +1,5 @@
 """Phase 5 — the JIT model_function slices per resolved mode (no crash, correct length)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -6,6 +7,7 @@ import numpy as np
 
 def _data_obj(n_phi=4, n_t=6):
     """Raw (non-stratified) grid data object the standard path builds."""
+
     class _D:
         pass
 

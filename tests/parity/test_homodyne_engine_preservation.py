@@ -437,7 +437,9 @@ def test_explicit_individual_unaffected_by_threshold_at_high_nphi():
     cfg_dict = {
         "analysis_mode": "laminar_flow",
         "analyzer_parameters": {
-            "dt": 0.1, "start_frame": 1, "end_frame": n_t,
+            "dt": 0.1,
+            "start_frame": 1,
+            "end_frame": n_t,
             "temporal": {"dt": 0.1, "start_frame": 1, "end_frame": n_t},
             "scattering": {"wavevector_q": 0.0237},
             "geometry": {"stator_rotor_gap": 2000000},
@@ -449,11 +451,14 @@ def test_explicit_individual_unaffected_by_threshold_at_high_nphi():
         "optimization": {
             "method": "nlsq",
             "nlsq": {
-                "analysis_mode": "laminar_flow", "max_iterations": 30, "loss": "linear",
+                "analysis_mode": "laminar_flow",
+                "max_iterations": 30,
+                "loss": "linear",
                 "cmaes": {"enable": False, "auto_select": False},
                 "multi_start": {"enable": False},
                 "anti_degeneracy": {
-                    "enable": True, "per_angle_mode": "individual",
+                    "enable": True,
+                    "per_angle_mode": "individual",
                     "constant_scaling_threshold": 3,
                 },
             },
@@ -463,8 +468,13 @@ def test_explicit_individual_unaffected_by_threshold_at_high_nphi():
     cfg = ConfigManager(config_override=cfg_dict)
     model = HomodyneModel(cfg.config)
     c2 = np.asarray(model.compute_c2(true, phi, contrast=0.3, offset=1.0))
-    data = {"phi_angles_list": phi, "c2_exp": c2, "t1": t, "t2": t,
-            "wavevector_q_list": np.array([0.0237])}
+    data = {
+        "phi_angles_list": phi,
+        "c2_exp": c2,
+        "t1": t,
+        "t2": t,
+        "wavevector_q_list": np.array([0.0237]),
+    }
     res = fit_nlsq(data, cfg)
     diag = dict(res.nlsq_diagnostics or {})
     assert diag.get("per_angle_mode") == "individual"

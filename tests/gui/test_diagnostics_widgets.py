@@ -26,9 +26,9 @@ def test_ssr_curve_skips_nonpositive_and_nonfinite(qtbot):
     w = SSRCurveWidget()
     qtbot.addWidget(w)
     w.add_point(1, 10.0)
-    w.add_point(2, 0.0)            # log y-axis: 0 has no position -> skipped
+    w.add_point(2, 0.0)  # log y-axis: 0 has no position -> skipped
     w.add_point(3, float("nan"))  # skipped
-    w.add_point(4, -5.0)          # skipped
+    w.add_point(4, -5.0)  # skipped
     assert w.point_count() == 1
 
 

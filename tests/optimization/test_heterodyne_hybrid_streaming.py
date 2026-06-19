@@ -589,9 +589,7 @@ def test_flat_multistart_precedence_over_hybrid(monkeypatch):
     cfg = _Cfg(
         {
             "analysis_mode": "two_component",
-            "optimization": {
-                "nlsq": {"multistart": True, "hybrid_streaming": {"enable": True}}
-            },
+            "optimization": {"nlsq": {"multistart": True, "hybrid_streaming": {"enable": True}}},
         }
     )
     data = {"c2_exp": c2, "phi_angles_list": phi}
@@ -1595,10 +1593,13 @@ def test_streaming_resolves_canonical_mode(monkeypatch, token, n_phi, threshold,
         physical_param_names=list(model.param_manager.varying_names),
         initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
         bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
-        hybrid_config={"warmup_iterations": 5, "max_warmup_iterations": 10,
-                       "gauss_newton_max_iterations": 5, "verbose": 0},
-        anti_degeneracy_config={"per_angle_mode": token,
-                                "constant_scaling_threshold": threshold},
+        hybrid_config={
+            "warmup_iterations": 5,
+            "max_warmup_iterations": 10,
+            "gauss_newton_max_iterations": 5,
+            "verbose": 0,
+        },
+        anti_degeneracy_config={"per_angle_mode": token, "constant_scaling_threshold": threshold},
     )
     assert captured["mode"] == expected
     assert info["anti_degeneracy"]["per_angle_mode"] == expected
@@ -1641,8 +1642,10 @@ def test_l2_individual_runs_and_beats_frozen_baseline():
         initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
         bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
         hybrid_config={"verbose": 0},
-        anti_degeneracy_config={"per_angle_mode": "individual",
-                                "hierarchical": {"max_outer_iterations": 3}},
+        anti_degeneracy_config={
+            "per_angle_mode": "individual",
+            "hierarchical": {"max_outer_iterations": 3},
+        },
     )
     assert info["anti_degeneracy"]["hierarchical_active"] is True
     assert info["anti_degeneracy"]["per_angle_mode"] == "individual"
@@ -1673,8 +1676,10 @@ def test_diagnostics_stamps_canonical_token_and_n_optimized(mode, n_phi, n_opt):
         initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
         bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
         hybrid_config={"verbose": 0},
-        anti_degeneracy_config={"per_angle_mode": mode,
-                                "hierarchical": {"max_outer_iterations": 2}},
+        anti_degeneracy_config={
+            "per_angle_mode": mode,
+            "hierarchical": {"max_outer_iterations": 2},
+        },
     )
     ad = info["anti_degeneracy"]
     assert ad["per_angle_mode"] == mode  # canonical resolved token
@@ -1706,8 +1711,12 @@ def test_streaming_above_threshold_ssr_not_worse_after_unification():
         physical_param_names=list(model.param_manager.varying_names),
         initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
         bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
-        hybrid_config={"warmup_iterations": 10, "max_warmup_iterations": 20,
-                       "gauss_newton_max_iterations": 10, "verbose": 0},
+        hybrid_config={
+            "warmup_iterations": 10,
+            "max_warmup_iterations": 20,
+            "gauss_newton_max_iterations": 10,
+            "verbose": 0,
+        },
         anti_degeneracy_config={"per_angle_mode": "auto"},  # default threshold=3
     )
     assert info["anti_degeneracy"]["per_angle_mode"] == "averaged"

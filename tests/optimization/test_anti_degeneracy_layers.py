@@ -254,12 +254,7 @@ class TestExecuteLayersFlag:
 
         import yaml
 
-        templates_dir = (
-            pathlib.Path(__file__).parents[2]
-            / "xpcsjax"
-            / "config"
-            / "templates"
-        )
+        templates_dir = pathlib.Path(__file__).parents[2] / "xpcsjax" / "config" / "templates"
         expected_execute_layers = {
             "xpcsjax_laminar_flow.yaml": True,
             "xpcsjax_two_component.yaml": True,
@@ -270,9 +265,7 @@ class TestExecuteLayersFlag:
             path = templates_dir / template_name
             assert path.exists(), f"Template not found: {path}"
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
-            ad_block = (
-                data.get("optimization", {}).get("nlsq", {}).get("anti_degeneracy", {})
-            )
+            ad_block = data.get("optimization", {}).get("nlsq", {}).get("anti_degeneracy", {})
             assert "execute_layers" in ad_block, (
                 f"{template_name}: 'execute_layers' key missing from anti_degeneracy block"
             )

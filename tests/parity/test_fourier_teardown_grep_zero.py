@@ -52,6 +52,5 @@ def test_no_removed_per_angle_tokens_in_tests_or_package() -> None:
     # rg exit 1 == no matches (the success state); exit 0 == matches found (fail).
     matches = proc.stdout.strip()
     assert proc.returncode == 1 and matches == "", (
-        "Removed per-angle tokens still present (spec section 6 grep-zero failed):\n"
-        f"{matches}"
+        f"Removed per-angle tokens still present (spec section 6 grep-zero failed):\n{matches}"
     )

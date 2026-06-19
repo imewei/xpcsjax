@@ -69,7 +69,11 @@ def _stratified_info(per_angle_mode: str) -> dict:
     # physics at all-zeros collapses D0=0 -> zero gradient on the diffusion-only term.
     x0 = np.concatenate([np.full(n_phi, 0.3), np.full(n_phi, 1.0), truth])
     lo = np.concatenate(
-        [np.zeros(n_phi), np.full(n_phi, 0.5), np.array([1e-6, -2.0, -50.0, -1.0, -2.0, -50.0, -180.0])]
+        [
+            np.zeros(n_phi),
+            np.full(n_phi, 0.5),
+            np.array([1e-6, -2.0, -50.0, -1.0, -2.0, -50.0, -180.0]),
+        ]
     )
     hi = np.concatenate(
         [np.ones(n_phi), np.full(n_phi, 1.5), np.array([1e5, 2.0, 50.0, 1.0, 2.0, 50.0, 180.0])]

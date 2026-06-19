@@ -309,11 +309,9 @@ def test_stratified_ls_individual_mode():
     assert result.parameters is not None
     assert len(result.parameters) == expected_n_params, (
         f"Expected {expected_n_params} params (n_physics={n_physics}, "
-        f"2*n_phi={2*n_phi}), got {len(result.parameters)}"
+        f"2*n_phi={2 * n_phi}), got {len(result.parameters)}"
     )
-    assert np.isfinite(result.chi_squared), (
-        f"chi_squared must be finite, got {result.chi_squared}"
-    )
+    assert np.isfinite(result.chi_squared), f"chi_squared must be finite, got {result.chi_squared}"
     # Canonical scaling-first: scaling HEAD (contrast + offset per angle) must be
     # non-negative (the physics tail follows at index 2*n_phi).
     scaling_head = result.parameters[: 2 * n_phi]
@@ -355,8 +353,7 @@ def test_stratified_ls_constant_mode_runs_physics_only():
     # Physics-only optimizer vector: n_scaling == 0.
     assert result.parameters is not None
     assert len(result.parameters) == n_physics, (
-        f"constant -> physics-only vector of length {n_physics}, "
-        f"got {len(result.parameters)}"
+        f"constant -> physics-only vector of length {n_physics}, got {len(result.parameters)}"
     )
     assert np.isfinite(result.chi_squared)
     # The frozen per-angle scaling is surfaced in diagnostics (expand_back contract).
@@ -420,9 +417,7 @@ def test_stratified_ls_parameter_names_match_full_vector():
 
     # individual: head = per-angle contrast + offset blocks
     model_i, c2_i, phi_i = make_synthetic_two_component(n_phi=3, n_t=20)
-    cfg_i = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": "individual"}
-    )
+    cfg_i = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "individual"})
     res_i = fit_heterodyne_stratified_least_squares(
         model=model_i, c2=c2_i, phi=phi_i, config=cfg_i, weights=None, shuffle=False
     )
@@ -636,9 +631,7 @@ def test_stratified_ls_jacfwd_guard_on_linalg_error(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_bounds_clip_enforces_bounds_on_marginally_out_of_bounds_result(
-    monkeypatch, caplog
-):
+def test_bounds_clip_enforces_bounds_on_marginally_out_of_bounds_result(monkeypatch, caplog):
     """Post-solve clip: a solver result with one param just outside its bound.
 
     When the adapter returns popt with element 0 nudged just below its lower
@@ -667,9 +660,7 @@ def test_bounds_clip_enforces_bounds_on_marginally_out_of_bounds_result(
     class _OutOfBoundsAdapter(_OrigAdapter):
         """Return the normal solve but with param[0] nudged 1e-8 below its lower bound."""
 
-        def fit(
-            self, residual_fn, initial_params, bounds, config, jacobian_fn=None, callback=None
-        ):
+        def fit(self, residual_fn, initial_params, bounds, config, jacobian_fn=None, callback=None):
             result = super().fit(
                 residual_fn=residual_fn,
                 initial_params=initial_params,
@@ -684,7 +675,9 @@ def test_bounds_clip_enforces_bounds_on_marginally_out_of_bounds_result(
 
     monkeypatch.setattr(_ha_mod, "NLSQAdapter", _OutOfBoundsAdapter)
 
-    with caplog.at_level(logging.WARNING, logger="xpcsjax.optimization.nlsq.heterodyne_stratified_ls"):
+    with caplog.at_level(
+        logging.WARNING, logger="xpcsjax.optimization.nlsq.heterodyne_stratified_ls"
+    ):
         result = fit_heterodyne_stratified_least_squares(
             model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False
         )
@@ -705,9 +698,7 @@ def test_bounds_clip_enforces_bounds_on_marginally_out_of_bounds_result(
     assert np.all(params >= lower_full[: params.size]), (
         f"params[0]={params[0]:.6e} < lower[0]={lower_full[0]:.6e}: clip did not enforce bounds"
     )
-    assert np.all(params <= upper_full[: params.size]), (
-        "upper bounds violated after clip"
-    )
+    assert np.all(params <= upper_full[: params.size]), "upper bounds violated after clip"
 
     # The warning banner must have been emitted.
     assert "BOUNDS VIOLATION DETECTED" in caplog.text, (
@@ -743,9 +734,7 @@ def test_bounds_clip_is_noop_for_in_bounds_result(monkeypatch):
     class _RecordingAdapter(_OrigAdapter):
         """Pass-through adapter that records the raw parameters before clip."""
 
-        def fit(
-            self, residual_fn, initial_params, bounds, config, jacobian_fn=None, callback=None
-        ):
+        def fit(self, residual_fn, initial_params, bounds, config, jacobian_fn=None, callback=None):
             result = super().fit(
                 residual_fn=residual_fn,
                 initial_params=initial_params,

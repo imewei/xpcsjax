@@ -226,9 +226,7 @@ def test_streaming_executor_calls_real_fit_api(monkeypatch: pytest.MonkeyPatch) 
     xdata = np.zeros(2)
     ydata = np.array([3.0, 4.0])
     p0 = np.array([1.0, 2.0])
-    ex.StreamingExecutor().execute(
-        _resid, xdata, ydata, p0, None, "soft_l1", 1.0, _logger()
-    )
+    ex.StreamingExecutor().execute(_resid, xdata, ydata, p0, None, "soft_l1", 1.0, _logger())
     call = _FakeOpt.last_call
     # data_source is the (xdata, ydata) tuple, not the residual fn.
     assert isinstance(call["data_source"], tuple)

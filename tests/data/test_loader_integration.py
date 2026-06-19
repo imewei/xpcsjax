@@ -26,9 +26,9 @@ def _write_synthetic_npz_cache(path, *, n_phi: int = 3, n_t: int = 6, q: float =
     phi = np.linspace(0.0, 144.0, n_phi, dtype=np.float64)
     # Symmetric, finite, square per-angle correlation surface (g2-like decay).
     dtau = np.abs(t[:, None] - t[None, :])
-    c2 = np.stack(
-        [1.0 + (0.30 + 0.02 * i) * np.exp(-dtau / 2.0) for i in range(n_phi)]
-    ).astype(np.float64)
+    c2 = np.stack([1.0 + (0.30 + 0.02 * i) * np.exp(-dtau / 2.0) for i in range(n_phi)]).astype(
+        np.float64
+    )
     np.savez(
         path,
         c2_exp=c2,

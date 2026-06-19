@@ -18,12 +18,12 @@ def test_round_trip_preserves_datasets_and_runs(tmp_path):
 
     assert [ds.label for ds in loaded.datasets] == ["DS-A"]
     ld = loaded.datasets[0]
-    assert ld.dataset_id == d.dataset_id           # stable id preserved
+    assert ld.dataset_id == d.dataset_id  # stable id preserved
     assert len(ld.runs) == 1
     lr = ld.runs[0]
     assert lr.run_id == r.run_id and lr.status == DONE
     assert lr.result_dir == str(tmp_path / "out")  # path resolved back
-    assert lr.summary is None                       # summaries re-loaded lazily
+    assert lr.summary is None  # summaries re-loaded lazily
 
 
 def test_save_is_atomic_failed_write_keeps_original_intact(tmp_path, monkeypatch):

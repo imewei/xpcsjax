@@ -1,4 +1,5 @@
 """Phase 5 — quantile scaling accepts a raw (non-stratified, <100k) grid object."""
+
 from __future__ import annotations
 
 import numpy as np

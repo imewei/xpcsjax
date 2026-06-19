@@ -100,9 +100,7 @@ def test_scattered_matches_meshgrid_gather_pointwise():
     got = np.asarray(
         point.eval_scattered(params, phi_unique, t, phi_idx, t1_idx, t2_idx, contrast, offset)
     )
-    expected = np.asarray(
-        [grid0[1, 3], grid0[4, 0], grid1[2, 5], grid1[5, 1]], dtype=np.float64
-    )
+    expected = np.asarray([grid0[1, 3], grid0[4, 0], grid1[2, 5], grid1[5, 1]], dtype=np.float64)
     np.testing.assert_allclose(got, expected, rtol=1e-12, atol=0.0)
 
 

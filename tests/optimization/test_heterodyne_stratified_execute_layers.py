@@ -47,9 +47,7 @@ def _fit(model, c2, phi, cfg):
 def test_execute_layers_off_individual_is_inert():
     """With ``execute_layers=False`` (default) the markers stay False."""
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
-    cfg = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": "individual"}
-    )
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "individual"})
     assert _resolve_effective_mode(cfg, len(phi)) == "individual"
     res = _fit(model, c2, phi, cfg)
     assert res.nlsq_diagnostics["hierarchical_active"] is False
@@ -163,9 +161,7 @@ def test_execute_layers_l3_only_individual_row_append():
     never contaminate it).
     """
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
-    base = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": "individual"}
-    )
+    base = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "individual"})
     on = NLSQConfig.from_dict(
         {
             "analysis_mode": "two_component",
@@ -193,9 +189,7 @@ def test_execute_layers_l3_only_individual_row_append():
 def test_execute_layers_averaged_l3_is_flag_only():
     """Averaged L3 penalty is degenerate-zero: flag flips, numerics unchanged."""
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
-    off = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": "averaged"}
-    )
+    off = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged"})
     on = NLSQConfig.from_dict(
         {
             "analysis_mode": "two_component",

@@ -41,5 +41,5 @@ def test_open_tolerates_deleted_result_dir(qtbot, tmp_path):
     assert window.sidebar_dataset_count() == 1
     dataset, run = window._project.run_by_id(r.run_id)
     assert run.summary is None
-    assert run.result_missing is True       # eagerly flagged at load (spec §8)
-    assert dataset.config_missing is True    # gone config_path is flagged too
+    assert run.result_missing is True  # eagerly flagged at load (spec §8)
+    assert dataset.config_missing is True  # gone config_path is flagged too

@@ -30,9 +30,7 @@ from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 
 
 def _individual_cfg() -> NLSQConfig:
-    cfg = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": "individual"}
-    )
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "individual"})
     # Keep the L4 jax-grad monitor out of the unit test (observational only).
     cfg.enable_gradient_monitoring = False
     return cfg
@@ -164,9 +162,7 @@ def test_cmaes_escape_builds_joint_problem_once(monkeypatch):
         hc, "fit_with_cmaes", lambda **_kwargs: SimpleNamespace(success=False, parameters=None)
     )
 
-    hc._fit_joint_cmaes_multi_phi(
-        model=model, c2_data=c2, phi_angles=phi, config=cfg, weights=None
-    )
+    hc._fit_joint_cmaes_multi_phi(model=model, c2_data=c2, phi_angles=phi, config=cfg, weights=None)
 
     assert n_builds["count"] == 1, (
         f"Stage-1/joint problem built {n_builds['count']}x; expected 1 "
@@ -340,9 +336,9 @@ def test_quiet_warm_start_probe_logging_filter_fully_detached():
         pass
     for name in hc._WARM_START_PROBE_NOISE_LOGGERS:
         lg = logging.getLogger(name)
-        assert not any(
-            isinstance(f, hc._WarmStartProbeNoiseFilter) for f in lg.filters
-        ), f"{name} still carries the probe noise filter after exit"
+        assert not any(isinstance(f, hc._WarmStartProbeNoiseFilter) for f in lg.filters), (
+            f"{name} still carries the probe noise filter after exit"
+        )
 
 
 # ===========================================================================
@@ -365,9 +361,7 @@ def test_build_floor_fallback_preserves_distinct_per_angle_scaling():
     per_angle_offset = np.array([1.00, 1.05, 0.95], dtype=np.float64)
     physics_initial = np.array([10.0, 0.5, -0.3, 100.0], dtype=np.float64)
     # x0 collapses every angle to angle-0's scalar (the bug this fallback fixes).
-    x0 = np.concatenate(
-        [np.full(n_phi, 0.20), np.full(n_phi, 1.00), physics_initial]
-    )
+    x0 = np.concatenate([np.full(n_phi, 0.20), np.full(n_phi, 1.00), physics_initial])
     lb = np.concatenate([np.full(2 * n_phi, -10.0), np.full(n_physics, -1e6)])
     ub = np.concatenate([np.full(2 * n_phi, 10.0), np.full(n_physics, 1e6)])
 
@@ -528,9 +522,7 @@ def test_warm_start_probe_demotes_floor_revert_to_debug(monkeypatch, caplog):
 
     def _revert_records(probe: bool):
         caplog.clear()
-        with caplog.at_level(
-            logging.DEBUG, logger="xpcsjax.optimization.nlsq.heterodyne_core"
-        ):
+        with caplog.at_level(logging.DEBUG, logger="xpcsjax.optimization.nlsq.heterodyne_core"):
             hc._fit_joint_multi_phi(model, c2, phi, cfg, None, warm_start_probe=probe)
         return [r for r in caplog.records if msg_key in r.getMessage()]
 

@@ -1,5 +1,6 @@
 """Phase 1+2: shared L3 boundary reads the canonical mapper, and AdaptiveRegularizer
 handles constant mode (n_optimized==0) WITHOUT regularizing physics params as scaling."""
+
 from __future__ import annotations
 
 from xpcsjax.optimization.nlsq.adaptive_regularization import (

@@ -18,9 +18,7 @@ _SCAN_SUFFIXES = {".py", ".pyi", ".yaml", ".yml", ".rst", ".md", ".txt", ".toml"
 
 def test_old_l1_name_absent_from_package_and_claude() -> None:
     targets = [
-        p
-        for p in (_REPO_ROOT / "xpcsjax").rglob("*")
-        if p.is_file() and p.suffix in _SCAN_SUFFIXES
+        p for p in (_REPO_ROOT / "xpcsjax").rglob("*") if p.is_file() and p.suffix in _SCAN_SUFFIXES
     ]
     targets.append(_REPO_ROOT / "CLAUDE.md")
     offenders: list[str] = []

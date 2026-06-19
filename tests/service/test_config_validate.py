@@ -19,7 +19,10 @@ def _ip(names, values):
 
 
 def test_valid_config_passes():
-    cfg = {"analysis_mode": "static_isotropic", **_ip(["D0", "alpha", "D_offset"], [1000.0, -1.2, 0.0])}
+    cfg = {
+        "analysis_mode": "static_isotropic",
+        **_ip(["D0", "alpha", "D_offset"], [1000.0, -1.2, 0.0]),
+    }
     rep = validate_config(cfg)
     assert isinstance(rep, ValidationReport)
     assert rep.ok and rep.errors == []
@@ -33,7 +36,10 @@ def test_unknown_mode_is_an_error():
 
 def test_out_of_bounds_value_is_an_error():
     # D0 (diffusion) must be positive; a negative value is out of registry bounds.
-    cfg = {"analysis_mode": "static_isotropic", **_ip(["D0", "alpha", "D_offset"], [-5.0, -1.2, 0.0])}
+    cfg = {
+        "analysis_mode": "static_isotropic",
+        **_ip(["D0", "alpha", "D_offset"], [-5.0, -1.2, 0.0]),
+    }
     rep = validate_config(cfg)
     assert not rep.ok
     assert any("D0" in e for e in rep.errors)

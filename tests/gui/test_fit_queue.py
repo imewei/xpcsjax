@@ -151,8 +151,8 @@ def test_cancel_active_frees_slot_and_starts_next(qtbot, tmp_path):
     assert h1.cancelled is True and h1.joined is True
     assert ("r1", "cancelled") in statuses
     assert ("r1", "killed") not in statuses
-    assert failures == []                 # cancellation is not an error -> no OOM dialog
-    assert "r2" in q._handles             # the freed slot promoted the queued job
+    assert failures == []  # cancellation is not an error -> no OOM dialog
+    assert "r2" in q._handles  # the freed slot promoted the queued job
     assert q.active_count() == 1 and q.pending_count() == 0
 
 

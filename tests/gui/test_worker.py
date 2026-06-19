@@ -11,7 +11,9 @@ from xpcsjax.service.events import Failed, Finished, Iteration, Started
 def _install_fake_services(monkeypatch, *, fit_raises=False):
     """Inject JAX-free fake service modules into sys.modules."""
     cfg = types.ModuleType("xpcsjax.service.config")
-    cfg.load_config = lambda path, **_kw: types.SimpleNamespace(config={"analysis_mode": "laminar_flow"})
+    cfg.load_config = lambda path, **_kw: types.SimpleNamespace(
+        config={"analysis_mode": "laminar_flow"}
+    )
 
     data = types.ModuleType("xpcsjax.service.data")
     data.load_dataset = lambda cm, **_kw: {"c2_exp": None}

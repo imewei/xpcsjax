@@ -513,9 +513,7 @@ def test_multistart_path_returns_single_optimization_result() -> None:
         ("auto", 6),  # n_phi >= constant_scaling_threshold (3) → averaged
     ],
 )
-def test_fit_nlsq_multi_phi_top_level_returns_optimization_result(
-    mode: str, n_phi: int
-) -> None:
+def test_fit_nlsq_multi_phi_top_level_returns_optimization_result(mode: str, n_phi: int) -> None:
     """The public entry point returns one OptimizationResult in all modes.
 
     SSR conservation (``chi2_per_angle.sum() == chi_squared``) — the

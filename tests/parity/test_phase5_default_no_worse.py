@@ -4,6 +4,7 @@ Directionality (spec Risk 2): averaged is MORE constrained (2 scaling DOF vs 2*n
 so on the same data SSR can only stay equal or DEGRADE. "No worse" = the degradation
 stays within the parity threshold; it is the INTENDED default change, not a regression.
 """
+
 from __future__ import annotations
 
 import gc
@@ -34,35 +35,53 @@ def _fit(mode, n_phi, n_t=10, seed=11):
     t = np.linspace(0.0, float(n_t - 1), n_t, dtype=np.float64)
     true = np.array([1000.0, 0.5, 10.0, 0.01, 0.0, 0.0, 0.0])
     ad = {"enable": True, "per_angle_mode": mode, "constant_scaling_threshold": 3}
-    cfg = ConfigManager(config_override={
-        "analysis_mode": "laminar_flow",
-        "analyzer_parameters": {
-            "dt": 0.1, "start_frame": 1, "end_frame": n_t,
-            "temporal": {"dt": 0.1, "start_frame": 1, "end_frame": n_t},
-            "scattering": {"wavevector_q": 0.0237},
-            "geometry": {"stator_rotor_gap": 2000000},
-        },
-        "initial_parameters": {
-            "parameter_names": ["D0", "alpha", "D_offset", "gamma_dot_t0",
-                                "beta", "gamma_dot_t_offset", "phi0"],
-            "values": true.tolist(),
-        },
-        "optimization": {
-            "method": "nlsq",
-            "nlsq": {
-                "analysis_mode": "laminar_flow", "max_iterations": 80, "loss": "linear",
-                "cmaes": {"enable": False, "auto_select": False},
-                "multi_start": {"enable": False},
-                "anti_degeneracy": ad,
+    cfg = ConfigManager(
+        config_override={
+            "analysis_mode": "laminar_flow",
+            "analyzer_parameters": {
+                "dt": 0.1,
+                "start_frame": 1,
+                "end_frame": n_t,
+                "temporal": {"dt": 0.1, "start_frame": 1, "end_frame": n_t},
+                "scattering": {"wavevector_q": 0.0237},
+                "geometry": {"stator_rotor_gap": 2000000},
             },
-            "stratification": {"enabled": False},
-        },
-    })
+            "initial_parameters": {
+                "parameter_names": [
+                    "D0",
+                    "alpha",
+                    "D_offset",
+                    "gamma_dot_t0",
+                    "beta",
+                    "gamma_dot_t_offset",
+                    "phi0",
+                ],
+                "values": true.tolist(),
+            },
+            "optimization": {
+                "method": "nlsq",
+                "nlsq": {
+                    "analysis_mode": "laminar_flow",
+                    "max_iterations": 80,
+                    "loss": "linear",
+                    "cmaes": {"enable": False, "auto_select": False},
+                    "multi_start": {"enable": False},
+                    "anti_degeneracy": ad,
+                },
+                "stratification": {"enabled": False},
+            },
+        }
+    )
     model = HomodyneModel(cfg.config)
     c2 = np.asarray(model.compute_c2(true, phi, contrast=0.3, offset=1.0))
     c2 = c2 + np.random.default_rng(seed).normal(0.0, 5e-4, size=c2.shape)
-    data = {"phi_angles_list": phi, "c2_exp": c2, "t1": t, "t2": t,
-            "wavevector_q_list": np.array([0.0237])}
+    data = {
+        "phi_angles_list": phi,
+        "c2_exp": c2,
+        "t1": t,
+        "t2": t,
+        "wavevector_q_list": np.array([0.0237]),
+    }
     return fit_nlsq(data, cfg)
 
 
@@ -81,9 +100,7 @@ def test_synthetic_default_averaged_no_worse_than_individual():
 
 
 @pytest.mark.skipif(not _GATE_OPT_IN, reason=_SKIP)
-@pytest.mark.parametrize(
-    "label", sorted(k for k, v in CONFIGS.items() if Path(v).exists())
-)
+@pytest.mark.parametrize("label", sorted(k for k, v in CONFIGS.items() if Path(v).exists()))
 def test_c020_simon_default_no_worse(label):
     """Availability-gated: run the real homodyne config under explicit individual vs
     default auto(->averaged); averaged SSR must be no-worse within the band.
@@ -107,7 +124,9 @@ def test_c020_simon_default_no_worse(label):
     # kwarg is stale; the sibling A/B-parity suite passes the path positionally too).
     _probe = ConfigManager(config_file=config_path)
     if str(_probe.config.get("analysis_mode", "")).startswith("static"):
-        pytest.skip(f"{label}: static mode is deferred (auto->averaged is a no-op); not a Phase-5 oracle")
+        pytest.skip(
+            f"{label}: static mode is deferred (auto->averaged is a no-op); not a Phase-5 oracle"
+        )
     # individual baseline
     cfg_i = ConfigManager(config_file=config_path)
     cfg_i.config.setdefault("optimization", {}).setdefault("nlsq", {}).setdefault(
@@ -134,6 +153,5 @@ def test_c020_simon_default_no_worse(label):
     res_a = fit_nlsq(data_a, cfg_a)
     ssr_a = float(res_a.chi_squared)
     assert ssr_a <= ssr_i * (1.0 + _NO_WORSE_REL) + 1e-9, (
-        f"{label}: auto/averaged SSR {ssr_a} worse than individual {ssr_i} "
-        f"beyond no-worse band"
+        f"{label}: auto/averaged SSR {ssr_a} worse than individual {ssr_i} beyond no-worse band"
     )

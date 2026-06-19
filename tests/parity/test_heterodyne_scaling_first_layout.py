@@ -1,5 +1,6 @@
 # tests/parity/test_heterodyne_scaling_first_layout.py
 """Phase 1+2 — heterodyne scaling-first joint layout helpers."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -16,9 +17,14 @@ def test_individual_names_scaling_first():
     )
     # scaling head [c0,c1,c2,o0,o1,o2] then physics tail [D0, alpha]
     assert names == [
-        "contrast_0", "contrast_1", "contrast_2",
-        "offset_0", "offset_1", "offset_2",
-        "D0", "alpha",
+        "contrast_0",
+        "contrast_1",
+        "contrast_2",
+        "offset_0",
+        "offset_1",
+        "offset_2",
+        "D0",
+        "alpha",
     ]
 
 
@@ -41,15 +47,14 @@ def test_rejects_fourier():
     # stays gate-clean (the helper must still reject it as unknown).
     retired_mode = "four" + "ier"
     with pytest.raises(ValueError, match="unknown per_angle_mode"):
-        _joint_param_names_scaling_first(
-            mode=retired_mode, physics_names=["D0"], n_phi=4
-        )
+        _joint_param_names_scaling_first(mode=retired_mode, physics_names=["D0"], n_phi=4)
 
 
 def test_split_individual_scaling_first():
     from xpcsjax.optimization.nlsq.heterodyne_core import (
         _split_scaling_first_joint,
     )
+
     # [c0,c1, o0,o1, D0,alpha,beta]  (n_phi=2, n_physics=3)
     x = np.array([0.1, 0.2, 1.0, 1.1, 5.0, 6.0, 7.0])
     physics, contrast, offset = _split_scaling_first_joint(
@@ -64,11 +69,10 @@ def test_split_averaged_broadcasts():
     from xpcsjax.optimization.nlsq.heterodyne_core import (
         _split_scaling_first_joint,
     )
+
     # [c_avg, o_avg, D0, alpha]  (n_phi=4, n_physics=2)
     x = np.array([0.3, 1.2, 5.0, 6.0])
-    physics, contrast, offset = _split_scaling_first_joint(
-        x, mode="averaged", n_phi=4, n_physics=2
-    )
+    physics, contrast, offset = _split_scaling_first_joint(x, mode="averaged", n_phi=4, n_physics=2)
     np.testing.assert_array_equal(physics, [5.0, 6.0])
     np.testing.assert_array_equal(contrast, [0.3, 0.3, 0.3, 0.3])
     np.testing.assert_array_equal(offset, [1.2, 1.2, 1.2, 1.2])
@@ -78,10 +82,14 @@ def test_split_constant_uses_frozen():
     from xpcsjax.optimization.nlsq.heterodyne_core import (
         _split_scaling_first_joint,
     )
+
     # [D0, alpha] only; frozen scaling supplied
     x = np.array([5.0, 6.0])
     physics, contrast, offset = _split_scaling_first_joint(
-        x, mode="constant", n_phi=3, n_physics=2,
+        x,
+        mode="constant",
+        n_phi=3,
+        n_physics=2,
         frozen_contrast=np.array([0.4, 0.5, 0.6]),
         frozen_offset=np.array([1.4, 1.5, 1.6]),
     )
@@ -114,9 +122,7 @@ def test_build_joint_problem_x0_is_scaling_first():
     assert prob.meta["resolved_mode"] == "individual"
     # the joint names are scaling-first
     assert prob.meta["joint_param_names"][:1] == ["contrast_0"]
-    assert prob.meta["joint_param_names"][-n_physics:] == list(
-        model.param_manager.varying_names
-    )
+    assert prob.meta["joint_param_names"][-n_physics:] == list(model.param_manager.varying_names)
 
 
 @pytest.mark.parametrize("mode", ["constant", "averaged", "individual"])
@@ -141,10 +147,12 @@ def test_result_builder_roundtrips_scaling_first(mode):
     n_physics = model.param_manager.n_varying
     known_physics = model.param_manager.get_initial_values()
     if mode == "individual":
-        head = np.concatenate([
-            0.10 + 0.01 * np.arange(n_phi),      # contrast per angle
-            1.20 + 0.01 * np.arange(n_phi),      # offset per angle
-        ])
+        head = np.concatenate(
+            [
+                0.10 + 0.01 * np.arange(n_phi),  # contrast per angle
+                1.20 + 0.01 * np.arange(n_phi),  # offset per angle
+            ]
+        )
         x_final = np.concatenate([head, known_physics])
     elif mode == "averaged":
         x_final = np.concatenate([[0.33, 1.27], known_physics])
@@ -153,16 +161,20 @@ def test_result_builder_roundtrips_scaling_first(mode):
 
     plan = prob.meta["plan"]
     result = _build_joint_result(
-        model, prob, c2, x_final, phi, cfg, None,
+        model,
+        prob,
+        c2,
+        x_final,
+        phi,
+        cfg,
+        None,
     )
     # parameters surface is canonical scaling-first: physics live in the TAIL
     params = np.asarray(result.parameters, dtype=np.float64)
     np.testing.assert_allclose(params[-n_physics:], known_physics, rtol=0, atol=0)
     if mode == "individual":
         np.testing.assert_allclose(params[:n_phi], 0.10 + 0.01 * np.arange(n_phi))
-        np.testing.assert_allclose(
-            params[n_phi : 2 * n_phi], 1.20 + 0.01 * np.arange(n_phi)
-        )
+        np.testing.assert_allclose(params[n_phi : 2 * n_phi], 1.20 + 0.01 * np.arange(n_phi))
         # model.scaling reflects the SAME per-angle values (not transposed)
         np.testing.assert_allclose(model.scaling.contrast, 0.10 + 0.01 * np.arange(n_phi))
     elif mode == "averaged":

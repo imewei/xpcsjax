@@ -21,29 +21,25 @@ _LOGGER = "xpcsjax.optimization.nlsq.heterodyne_core"
 
 def test_should_hint_when_failed_and_no_escape():
     assert (
-        hc._should_hint_enable_escape(success=False, enable_cmaes=False, multistart=False)
-        is True
+        hc._should_hint_enable_escape(success=False, enable_cmaes=False, multistart=False) is True
     )
 
 
 def test_no_hint_when_fit_succeeded():
     assert (
-        hc._should_hint_enable_escape(success=True, enable_cmaes=False, multistart=False)
-        is False
+        hc._should_hint_enable_escape(success=True, enable_cmaes=False, multistart=False) is False
     )
 
 
 def test_no_hint_when_cmaes_already_enabled():
     assert (
-        hc._should_hint_enable_escape(success=False, enable_cmaes=True, multistart=False)
-        is False
+        hc._should_hint_enable_escape(success=False, enable_cmaes=True, multistart=False) is False
     )
 
 
 def test_no_hint_when_multistart_already_enabled():
     assert (
-        hc._should_hint_enable_escape(success=False, enable_cmaes=False, multistart=True)
-        is False
+        hc._should_hint_enable_escape(success=False, enable_cmaes=False, multistart=True) is False
     )
 
 

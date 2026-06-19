@@ -47,9 +47,9 @@ def test_live_array_pressure_skips_jax_cache_clear(monkeypatch, caplog):
             "jax.clear_caches() must be skipped when pressure is live JAX/NumPy "
             "arrays — clearing forces recompiles without freeing the working set"
         )
-        assert any(
-            "Skipping jax.clear_caches()" in r.getMessage() for r in caplog.records
-        ), "the skip must be logged honestly at DEBUG"
+        assert any("Skipping jax.clear_caches()" in r.getMessage() for r in caplog.records), (
+            "the skip must be logged honestly at DEBUG"
+        )
     finally:
         manager.shutdown()
 
@@ -70,8 +70,7 @@ def test_jax_cache_clear_respects_cooldown(monkeypatch):
         manager._emergency_memory_cleanup()  # second: within cooldown -> skipped
 
         assert calls == [1], (
-            f"expected exactly one cache clear within the cooldown window, "
-            f"got {len(calls)}"
+            f"expected exactly one cache clear within the cooldown window, got {len(calls)}"
         )
     finally:
         manager.shutdown()
@@ -168,9 +167,9 @@ def test_normal_regime_preserves_actionable_levels(caplog):
             r.levelno == logging.WARNING and "Memory pressure warning" in r.getMessage()
             for r in caplog.records
         ), "normal regime must keep the actionable WARNING"
-        assert any(
-            r.levelno == logging.CRITICAL for r in caplog.records
-        ), "normal regime must keep the actionable CRITICAL"
+        assert any(r.levelno == logging.CRITICAL for r in caplog.records), (
+            "normal regime must keep the actionable CRITICAL"
+        )
     finally:
         manager.shutdown()
 

@@ -21,7 +21,13 @@ def test_layer_status_l5_inactive_sentinels_are_false():
         assert status["L5"] is False
     # L1 is always active; missing keys default to inactive.
     assert layer_status_from_diagnostics({})["L1"] is True
-    assert layer_status_from_diagnostics(None) == {"L1": True, "L2": False, "L3": False, "L4": False, "L5": False}
+    assert layer_status_from_diagnostics(None) == {
+        "L1": True,
+        "L2": False,
+        "L3": False,
+        "L4": False,
+        "L5": False,
+    }
 
 
 def test_classify_banner_recognizes_engine_prefixes():
@@ -30,11 +36,25 @@ def test_classify_banner_recognizes_engine_prefixes():
 
     # Streaming + heterodyne paths emit the "DEFENSE" family — must also classify (verbatim
     # emissions from hybrid_streaming.py and heterodyne_logging.py)
-    assert classify_banner("INFO", "ANTI-DEGENERACY DEFENSE: Layer 2 - Hierarchical Optimization").kind is BannerKind.INFO
-    assert classify_banner("INFO", "ANTI-DEGENERACY DEFENSE [AS EXECUTED] (heterodyne two_component)").kind is BannerKind.INFO
+    assert (
+        classify_banner("INFO", "ANTI-DEGENERACY DEFENSE: Layer 2 - Hierarchical Optimization").kind
+        is BannerKind.INFO
+    )
+    assert (
+        classify_banner(
+            "INFO", "ANTI-DEGENERACY DEFENSE [AS EXECUTED] (heterodyne two_component)"
+        ).kind
+        is BannerKind.INFO
+    )
 
-    assert classify_banner("INFO", "[CMA-ES] Global search phase starting...").kind is BannerKind.CMAES_ESCAPE
-    assert classify_banner("WARNING", "GRADIENT COLLAPSE DETECTED at iteration 7!").kind is BannerKind.GRADIENT_COLLAPSE
+    assert (
+        classify_banner("INFO", "[CMA-ES] Global search phase starting...").kind
+        is BannerKind.CMAES_ESCAPE
+    )
+    assert (
+        classify_banner("WARNING", "GRADIENT COLLAPSE DETECTED at iteration 7!").kind
+        is BannerKind.GRADIENT_COLLAPSE
+    )
 
 
 def test_classify_banner_ignores_ordinary_log_lines():

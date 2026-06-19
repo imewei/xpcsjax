@@ -106,14 +106,9 @@ def test_averaged_path_stage1_warmstart_disambiguated(caplog):
     banner = [
         r.getMessage()
         for r in info_records
-        if "warm-start" in r.getMessage().lower()
-        and "averaged" in r.getMessage().lower()
+        if "warm-start" in r.getMessage().lower() and "averaged" in r.getMessage().lower()
     ]
-    leaked = [
-        r.getMessage()
-        for r in info_records
-        if "Frozen per-angle scaling" in r.getMessage()
-    ]
+    leaked = [r.getMessage() for r in info_records if "Frozen per-angle scaling" in r.getMessage()]
     assert banner, "averaged path missing the disambiguating warm-start banner"
     assert not leaked, f"averaged path leaked per-angle arrays to INFO: {leaked}"
 
@@ -121,14 +116,10 @@ def test_averaged_path_stage1_warmstart_disambiguated(caplog):
 def test_genuine_constant_fit_keeps_info_banner(caplog):
     """No-regression: a real top-level constant fit still logs at INFO."""
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=16)
-    cfg = NLSQConfig.from_dict(
-        {"analysis_mode": "two_component", "per_angle_mode": "constant"}
-    )
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "constant"})
     with caplog.at_level(logging.INFO, logger=_CONST_LOGGER):
         _fit_joint_constant_multi_phi(model, c2, phi, cfg, weights=None)
-    info_text = "\n".join(
-        r.getMessage() for r in caplog.records if r.levelno >= logging.INFO
-    )
+    info_text = "\n".join(r.getMessage() for r in caplog.records if r.levelno >= logging.INFO)
     assert "Frozen per-angle scaling" in info_text, (
         "The genuine constant-mode fit must keep its INFO per-angle banner; "
         "only the L2 warm-start caller should demote it."

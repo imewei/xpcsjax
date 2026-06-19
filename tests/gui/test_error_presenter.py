@@ -12,7 +12,7 @@ def test_oom_message_is_friendly():
 
 
 def test_traceback_is_summarized_with_details_retained():
-    tb = 'Traceback (most recent call last):\n  ...\nValueError: bad config: missing analysis_mode'
+    tb = "Traceback (most recent call last):\n  ...\nValueError: bad config: missing analysis_mode"
     title, friendly, details = present_failure(tb)
     assert "ValueError: bad config: missing analysis_mode" in friendly  # last line surfaced
     assert details == tb  # full traceback kept for the expander

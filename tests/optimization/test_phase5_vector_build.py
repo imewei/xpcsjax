@@ -1,4 +1,5 @@
 """Phase 5 — optimizer vector + bounds lengths per resolved mode."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -7,15 +8,13 @@ from xpcsjax.optimization.nlsq.parameter_index_mapper import ParameterIndexMappe
 
 
 def _vlen(mode: str, n_phi: int, n_physics: int = 7) -> int:
-    return ParameterIndexMapper.canonical(
-        mode=mode, n_phi=n_phi, n_physics=n_physics
-    ).vector_length
+    return ParameterIndexMapper.canonical(mode=mode, n_phi=n_phi, n_physics=n_physics).vector_length
 
 
 def test_vector_length_per_mode():
-    assert _vlen("individual", 4) == 7 + 2 * 4   # 15
-    assert _vlen("averaged", 4) == 7 + 2          # 9
-    assert _vlen("constant", 4) == 7              # 7
+    assert _vlen("individual", 4) == 7 + 2 * 4  # 15
+    assert _vlen("averaged", 4) == 7 + 2  # 9
+    assert _vlen("constant", 4) == 7  # 7
 
 
 def test_fit_vector_length_observed_individual():
@@ -38,4 +37,5 @@ def test_fit_vector_length_observed_averaged_expands_to_dense():
 
 def _run(mode, n_phi):
     from tests.optimization.test_phase5_standard_resolver import _fit
+
     return _fit(mode, n_phi)

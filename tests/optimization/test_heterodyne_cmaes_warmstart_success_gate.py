@@ -99,7 +99,15 @@ def test_apply_global_escape_still_skips_on_converged_warmstart(monkeypatch):
 
     monkeypatch.setattr(hc, "_cmaes_joint_candidate", _spy)
     _x, tag = hc._apply_global_escape(
-        "cmaes", lambda _x: np.zeros(100), np.array([1.0, 2.0]), _LB, _UB, _cfg(), ["a", "b"], _cfg(), {}
+        "cmaes",
+        lambda _x: np.zeros(100),
+        np.array([1.0, 2.0]),
+        _LB,
+        _UB,
+        _cfg(),
+        ["a", "b"],
+        _cfg(),
+        {},
     )
     assert tag == "cmaes_warmstart_auto_skip"
     assert called["cmaes"] is False

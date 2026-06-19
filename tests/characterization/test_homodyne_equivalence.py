@@ -57,6 +57,7 @@ def _release_jax_memory_between_fits():
         pass
     gc.collect()
 
+
 # Map baseline label → original config absolute path (lives outside the repo).
 # When fixtures get bundled in v0.2 these become repo-local.
 CONFIGS: dict[str, str] = {
@@ -157,12 +158,14 @@ def test_homodyne_bit_equivalence(label: str) -> None:
     # (=2*23+7) laminar_c020 baseline was generated from).
     cfg.config.setdefault("optimization", {}).setdefault("nlsq", {}).setdefault(
         "anti_degeneracy", {}
-    ).update({
-        "enable": True,
-        "per_angle_mode": "individual",
-        "hierarchical": {"enable": False},
-        "regularization": {"enable": False},
-    })
+    ).update(
+        {
+            "enable": True,
+            "per_angle_mode": "individual",
+            "hierarchical": {"enable": False},
+            "regularization": {"enable": False},
+        }
+    )
     result = fit_nlsq(data, cfg)
 
     actual_params = np.asarray(_extract_params(result), dtype=np.float64)

@@ -36,11 +36,11 @@ def test_from_config_initializes_for_two_component():
         analysis_mode="two_component",
     )
     assert ctrl.is_enabled is True
-    assert ctrl.use_hierarchical is True          # L2 component built
+    assert ctrl.use_hierarchical is True  # L2 component built
     assert ctrl.hierarchical is not None
-    assert ctrl.regularizer is not None           # L3 component built
-    assert ctrl.monitor is not None               # L4 component built
-    assert ctrl.use_shear_weighting is False      # L5 gated off for two_component
+    assert ctrl.regularizer is not None  # L3 component built
+    assert ctrl.monitor is not None  # L4 component built
+    assert ctrl.use_shear_weighting is False  # L5 gated off for two_component
     assert ctrl.shear_weighter is None
 
 
@@ -103,7 +103,9 @@ def test_driver_accepts_anti_degeneracy_dict_param():
 def test_emit_parity_banners_logs_layer_setup(caplog):
     """The driver's controller instantiation emits the laminar-style Layer 2/3/4 banners."""
     phi_deg = np.array([0.0, 60.0, 120.0], dtype=np.float64)
-    with caplog.at_level(logging.INFO, logger="xpcsjax.optimization.nlsq.anti_degeneracy_controller"):
+    with caplog.at_level(
+        logging.INFO, logger="xpcsjax.optimization.nlsq.anti_degeneracy_controller"
+    ):
         ctrl = _hsl._emit_anti_degeneracy_parity_banners(
             anti_degeneracy_dict=_ad_config_dict(),
             phi_deg=phi_deg,
@@ -121,9 +123,12 @@ def test_emit_parity_banners_logs_layer_setup(caplog):
 def test_emit_parity_banners_best_effort_on_none():
     """No anti_degeneracy dict -> returns None, emits nothing, never raises."""
     phi_deg = np.array([0.0, 60.0, 120.0], dtype=np.float64)
-    assert _hsl._emit_anti_degeneracy_parity_banners(
-        anti_degeneracy_dict=None, phi_deg=phi_deg, n_physical=14
-    ) is None
+    assert (
+        _hsl._emit_anti_degeneracy_parity_banners(
+            anti_degeneracy_dict=None, phi_deg=phi_deg, n_physical=14
+        )
+        is None
+    )
 
 
 def test_l2_banner_suppressed_when_hierarchical_disabled(caplog):
@@ -131,7 +136,9 @@ def test_l2_banner_suppressed_when_hierarchical_disabled(caplog):
     cfg = _ad_config_dict()
     cfg["hierarchical"] = {"enable": False}
     phi_deg = np.array([0.0, 60.0, 120.0], dtype=np.float64)
-    with caplog.at_level(logging.INFO, logger="xpcsjax.optimization.nlsq.anti_degeneracy_controller"):
+    with caplog.at_level(
+        logging.INFO, logger="xpcsjax.optimization.nlsq.anti_degeneracy_controller"
+    ):
         ctrl = _hsl._emit_anti_degeneracy_parity_banners(
             anti_degeneracy_dict=cfg, phi_deg=phi_deg, n_physical=14
         )
@@ -145,7 +152,9 @@ def test_l4_banner_suppressed_when_gradient_monitoring_disabled(caplog):
     cfg = _ad_config_dict()
     cfg["gradient_monitoring"] = {"enable": False}
     phi_deg = np.array([0.0, 60.0, 120.0], dtype=np.float64)
-    with caplog.at_level(logging.INFO, logger="xpcsjax.optimization.nlsq.anti_degeneracy_controller"):
+    with caplog.at_level(
+        logging.INFO, logger="xpcsjax.optimization.nlsq.anti_degeneracy_controller"
+    ):
         ctrl = _hsl._emit_anti_degeneracy_parity_banners(
             anti_degeneracy_dict=cfg, phi_deg=phi_deg, n_physical=14
         )
@@ -164,7 +173,9 @@ def test_l3_banner_always_on_even_when_regularization_disabled(caplog):
     cfg = _ad_config_dict()
     cfg["regularization"] = {"enable": False, "mode": "relative"}  # 'enable' ignored by design
     phi_deg = np.array([0.0, 60.0, 120.0], dtype=np.float64)
-    with caplog.at_level(logging.INFO, logger="xpcsjax.optimization.nlsq.anti_degeneracy_controller"):
+    with caplog.at_level(
+        logging.INFO, logger="xpcsjax.optimization.nlsq.anti_degeneracy_controller"
+    ):
         _hsl._emit_anti_degeneracy_parity_banners(
             anti_degeneracy_dict=cfg, phi_deg=phi_deg, n_physical=14
         )
@@ -179,7 +190,9 @@ def test_mode_banner_reports_heterodyne_physical_count(caplog):
     heterodyne path (the honest ``heterodyne_logging`` block reports 14).
     """
     phi_deg = np.array([0.0, 60.0, 120.0], dtype=np.float64)
-    with caplog.at_level(logging.INFO, logger="xpcsjax.optimization.nlsq.anti_degeneracy_controller"):
+    with caplog.at_level(
+        logging.INFO, logger="xpcsjax.optimization.nlsq.anti_degeneracy_controller"
+    ):
         _hsl._emit_anti_degeneracy_parity_banners(
             anti_degeneracy_dict=_ad_config_dict(), phi_deg=phi_deg, n_physical=14
         )
@@ -206,11 +219,13 @@ def test_stratified_ls_result_contains_controller_diagnostics_when_ad_config_pre
     # --- With anti_degeneracy config ---
     # Bind once so the nested config key and the driver kwarg can't diverge.
     _ad = _ad_config_dict()
-    cfg_with_ad = NLSQConfig.from_dict({
-        "analysis_mode": "two_component",
-        "per_angle_mode": "averaged",
-        "anti_degeneracy": _ad,
-    })
+    cfg_with_ad = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "averaged",
+            "anti_degeneracy": _ad,
+        }
+    )
     result_with = fit_heterodyne_stratified_least_squares(
         model=model,
         c2=c2,
@@ -234,10 +249,12 @@ def test_stratified_ls_result_contains_controller_diagnostics_when_ad_config_pre
     assert len(cd) > 0, "controller_diagnostics must be non-empty"
 
     # --- Without anti_degeneracy config: no controller_diagnostics key, no crash ---
-    cfg_plain = NLSQConfig.from_dict({
-        "analysis_mode": "two_component",
-        "per_angle_mode": "averaged",
-    })
+    cfg_plain = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "averaged",
+        }
+    )
     result_plain = fit_heterodyne_stratified_least_squares(
         model=model,
         c2=c2,

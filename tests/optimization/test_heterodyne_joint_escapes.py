@@ -273,6 +273,7 @@ def test_individual_cmaes_escape_returns_scaling_first():
     - Tag ``global_escape`` in ``nlsq_diagnostics``.
     """
     from xpcsjax.optimization.nlsq.heterodyne_core import HAS_CMAES
+
     if not HAS_CMAES:
         pytest.skip("cmaes backend not importable")
 

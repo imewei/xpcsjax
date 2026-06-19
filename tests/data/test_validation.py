@@ -81,9 +81,7 @@ def test_quality_score_drops_with_issues() -> None:
     assert clean.quality_score >= dirty.quality_score
 
 
-def _two_time_matrix(
-    n_t: int, beta: float, tau: float, diag_spike: float | None
-) -> np.ndarray:
+def _two_time_matrix(n_t: int, beta: float, tau: float, diag_spike: float | None) -> np.ndarray:
     """Build a symmetric two-time correlation matrix.
 
     ``g2(t1, t2) = 1 + beta * exp(-|t1 - t2| / tau)`` (Siegert form). When

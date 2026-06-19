@@ -25,9 +25,7 @@ def test_compute_chi_squared_accepts_and_forwards_dt():
     data = model.compute_g2(params, t1, t2, phi, q, L, contrast, offset, dt)
     sigma = jnp.ones_like(data)
 
-    chi2 = model.compute_chi_squared(
-        params, data, sigma, t1, t2, phi, q, L, contrast, offset, dt
-    )
+    chi2 = model.compute_chi_squared(params, data, sigma, t1, t2, phi, q, L, contrast, offset, dt)
     chi2 = float(chi2)
     # data == theory at the same params -> chi^2 is ~0 and finite.
     assert np.isfinite(chi2)

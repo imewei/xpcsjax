@@ -634,9 +634,7 @@ def test_heterodyne_averaged_fallback_reads_scaling_first_head(tmp_path):
         nlsq_diagnostics={"per_angle_mode": "averaged"},  # NO averaged_* scalars
     )
 
-    contrasts, offsets, phys, n = _unpack_heterodyne_scaling(
-        model, result, n_phi_expected=n_phi
-    )
+    contrasts, offsets, phys, n = _unpack_heterodyne_scaling(model, result, n_phi_expected=n_phi)
     assert n == n_phi
     np.testing.assert_allclose(contrasts, contrast_head)
     np.testing.assert_allclose(offsets, offset_head)
