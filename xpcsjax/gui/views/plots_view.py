@@ -45,6 +45,11 @@ class TwoTimeMapView(pg.GraphicsLayoutWidget):
         self._image_item.setImage(arr)
         self._has_image = True
 
+    def clear_map(self) -> None:
+        """Remove any displayed image (so a stale map is never shown for new input)."""
+        self._image_item.clear()
+        self._has_image = False
+
     def has_image(self) -> bool:
         """Return ``True`` after at least one successful ``show_map`` call."""
         return self._has_image
@@ -77,6 +82,11 @@ class ResidualMapView(pg.GraphicsLayoutWidget):
         arr = rasterize(np.asarray(residual_2d, dtype=float))
         self._image_item.setImage(arr)
         self._has_image = True
+
+    def clear_map(self) -> None:
+        """Remove any displayed image (so a stale residual is never shown for new input)."""
+        self._image_item.clear()
+        self._has_image = False
 
     def has_image(self) -> bool:
         """Return ``True`` after at least one successful ``show_map`` call."""
@@ -181,6 +191,10 @@ class ResultPlots(QWidget):
         if bundle is None:
             self._spinbox.setMaximum(0)
             self._spinbox.setValue(0)
+            # Clear every sub-view so a prior run's plots don't linger.
+            self._two_time.clear_map()
+            self._residual.clear_map()
+            self._overlay.clear()
             return
 
         n_phi = bundle.exp_c2.shape[0]
@@ -232,9 +246,11 @@ class ResultPlots(QWidget):
         # --- Two-time map ---
         self._two_time.show_map(bundle.exp_c2[idx])
 
-        # --- Residual map (skip if absent) ---
+        # --- Residual map (clear if absent, so a prior run's residual never lingers) ---
         if bundle.residuals is not None:
             self._residual.show_map(bundle.residuals[idx])
+        else:
+            self._residual.clear_map()
 
         # --- Per-angle overlay ---
         # Scalar per φ = mean of first superdiagonal (τ=dt).

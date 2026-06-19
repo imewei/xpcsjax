@@ -72,6 +72,11 @@ class ConfigEditor(QWidget):
         self._fields: dict[str, QLineEdit] = {}
 
         self._build_ui()
+        # Load the initial mode's template so a freshly-opened editor shows a
+        # populated form. Without this, ``_template`` stays ``{}`` and a first
+        # "Validate" would emit a config with empty parameter_names/values
+        # (validate_config passes it) — launching a worker with no parameters.
+        self.set_mode(self._mode_combo.currentText())
 
     # ------------------------------------------------------------------
     # UI construction
@@ -137,7 +142,9 @@ class ConfigEditor(QWidget):
             self._form_layout.removeRow(0)
         self._fields.clear()
 
-        ip = self._template.get("initial_parameters") or {}
+        ip = self._template.get("initial_parameters")
+        if not isinstance(ip, dict):  # malformed raw YAML (e.g. a scalar) → treat as empty
+            ip = {}
         names: list[str] = list(ip.get("parameter_names") or [])
         values = ip.get("values") or []
         self._param_names = names
@@ -170,6 +177,17 @@ class ConfigEditor(QWidget):
             return
         # Update template to reflect raw edits
         self._template = data
+        # Sync the mode combo to a raw-edited analysis_mode, otherwise
+        # current_config() (form mode) would silently overwrite the user's raw
+        # mode change with the stale combo value — a silent loss of their edit.
+        if isinstance(data, dict):
+            mode = data.get("analysis_mode")
+            if mode is not None:
+                idx = self._mode_combo.findText(str(mode))
+                if idx >= 0:
+                    self._mode_combo.blockSignals(True)
+                    self._mode_combo.setCurrentIndex(idx)
+                    self._mode_combo.blockSignals(False)
         self._rebuild_form()
 
     def _on_mode_changed(self, mode: str) -> None:

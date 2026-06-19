@@ -77,9 +77,18 @@ class DataPanel(QWidget):
         )
         self._downsample_note.setWordWrap(True)
 
+        # Error notice: a non-HDF5 / unreadable file must surface as a recoverable
+        # message, never an uncaught OSError out of the browse slot (PySide6 6.5+
+        # aborts the process on an unhandled exception in a slot).
+        self._error_label = QLabel("")
+        self._error_label.setWordWrap(True)
+        self._error_label.setStyleSheet("color: #c62828;")
+        self._error_label.setVisible(False)
+
         # --- Layout ---
         layout = QVBoxLayout(self)
         layout.addLayout(path_row)
+        layout.addWidget(self._error_label)
         layout.addWidget(self._tree)
         layout.addLayout(combo_row)
         layout.addWidget(self._preview)
@@ -89,6 +98,7 @@ class DataPanel(QWidget):
         self._current_path: str | None = None
         self._current_data_type: str | None = None
         self._infos: list[DatasetInfo] = []
+        self._last_error: str | None = None
 
     # ------------------------------------------------------------------
     # Public interface
@@ -111,8 +121,25 @@ class DataPanel(QWidget):
         self._current_data_type = data_type
         self._path_field.setText(path)
 
-        # Populate metadata tree
-        self._infos = read_hdf5_metadata(path)
+        # Populate metadata tree. A non-HDF5 / unreadable file raises OSError (or
+        # ValueError) from h5py — catch it and clear the panel rather than letting
+        # it escape the (browse) slot and abort the GUI process.
+        try:
+            self._infos = read_hdf5_metadata(path)
+        except (OSError, ValueError) as exc:
+            self._infos = []
+            self._last_error = f"Could not read '{Path(path).name}': {exc}"
+            self._tree.clear()
+            self._combo.blockSignals(True)
+            self._combo.clear()
+            self._combo.blockSignals(False)
+            self._preview.clear_map()
+            self._error_label.setText(self._last_error)
+            self._error_label.setVisible(True)
+            return
+
+        self._last_error = None
+        self._error_label.setVisible(False)
         self._tree.clear()
         self._combo.blockSignals(True)
         self._combo.clear()
@@ -142,6 +169,10 @@ class DataPanel(QWidget):
         """Return the embedded :class:`TwoTimeMapView`."""
         return self._preview
 
+    def last_error(self) -> str | None:
+        """Return the last load error message (or None if the last load succeeded)."""
+        return self._last_error
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
@@ -170,12 +201,19 @@ class DataPanel(QWidget):
         """Read and display the C₂ preview for ``dataset``."""
         if not self._current_path:
             return
-        arr = read_c2_preview(
-            self._current_path,
-            dataset,
-            data_type=self._current_data_type,
-            phi_index=0,
-            max_dim=512,
-        )
+        try:
+            arr = read_c2_preview(
+                self._current_path,
+                dataset,
+                data_type=self._current_data_type,
+                phi_index=0,
+                max_dim=512,
+            )
+        except (OSError, ValueError):
+            arr = None
+        # Clear a stale preview when this dataset has no renderable C₂ — never
+        # leave the previous dataset's image showing for a different selection.
         if arr is not None:
             self._preview.show_map(arr)
+        else:
+            self._preview.clear_map()

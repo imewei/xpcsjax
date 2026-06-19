@@ -117,7 +117,19 @@ class WorkerHandle(QObject):
         proc = self._proc
         if proc is None or not proc.is_alive():
             return
-        proc.terminate()
+        # Graceful stop of the WHOLE process group (worker + any grandchildren)
+        # while the pgid is still valid and the proc is unreaped. Signalling the
+        # group up-front — not just the leader — closes the leak where the worker
+        # exits on SIGTERM within the grace window (so the `is_alive()` escalation
+        # below never runs) yet left children behind. Doing it here, before the
+        # join/reap, also avoids the PID-reuse hazard of a killpg after waitpid.
+        if hasattr(os, "killpg") and self._pgid and self._pgid > 0:
+            try:
+                os.killpg(self._pgid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError, OSError):  # pragma: no cover
+                pass
+        else:
+            proc.terminate()
         proc.join(timeout=_TERMINATE_JOIN_S)
         if proc.is_alive():
             # Escalate BEFORE reaping: sweep the worker's process group (any
@@ -152,3 +164,30 @@ class WorkerHandle(QObject):
             self._reader.requestInterruption()
             self._reader.wait(_READER_JOIN_MS)
             self._reader = None
+        self._reap_process()
+
+    def _reap_process(self) -> None:
+        """Join + close the (already-exited) worker process and close the queue.
+
+        On the normal terminal path the worker has already exited before its
+        ``Finished``/``Failed`` reached us, so ``join`` returns immediately; this
+        reaps the zombie and releases the OS process handle + queue FDs that would
+        otherwise accumulate across many fits. Best-effort and idempotent.
+        """
+        proc = self._proc
+        if proc is not None:
+            try:
+                if proc.is_alive():
+                    proc.join(timeout=_KILL_JOIN_S)
+                if not proc.is_alive():
+                    proc.close()  # release the OS handle (only valid once exited)
+                    self._proc = None
+            except (ValueError, AssertionError):  # already closed / never started
+                self._proc = None
+        queue = self._queue
+        if queue is not None:
+            try:
+                queue.close()
+            except Exception:  # noqa: BLE001 — best-effort resource release
+                pass
+            self._queue = None

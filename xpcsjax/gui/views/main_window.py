@@ -6,6 +6,7 @@ forwards user actions (Open Config / Output Dir / Run / Cancel).
 
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -47,6 +48,15 @@ if TYPE_CHECKING:
     from xpcsjax.gui.result_loader import ResultSummary
 
 
+def _expand_path(path: str) -> Path:
+    """Expand ``${ENV}`` and ``~`` in a stored path before an existence check.
+
+    A no-op on plain absolute paths; keeps a config/result reference that merely
+    uses a shell variable from being mis-flagged "missing" on project load.
+    """
+    return Path(os.path.expandvars(path)).expanduser()
+
+
 class MainWindow(QMainWindow):
     """Main workbench window — owns a Project and a FitQueueController."""
 
@@ -57,8 +67,12 @@ class MainWindow(QMainWindow):
         self._active_run_id: str | None = None
         self._active_dataset_id: str | None = None
         self._output_dir: Path | None = None
-        # Temp file path for ConfigEditor → worker config handoff.
-        self._config_temp_path: str | None = None
+        # Temp config YAMLs (ConfigEditor → worker handoff), keyed by the synthetic
+        # dataset they back. Kept alive for the whole session — a worker opens its
+        # config by path and the same dataset may be re-run from the toolbar — and
+        # all are unlinked on close. (Never eagerly deleted on the next Validate,
+        # which would yank a file an active/pending worker still needs.)
+        self._dataset_temp_paths: dict[str, str] = {}
 
         self.setWindowTitle("xpcsjax — analysis workbench")
         self.resize(1200, 750)
@@ -258,7 +272,12 @@ class MainWindow(QMainWindow):
             # nothing until the worker is up), and reset the SSR curve once.
             if self._active_run_id != run_id:
                 self._active_run_id = run_id  # this run's stream now drives the monitor
+                # Reset ALL live-diagnostics views, not just the SSR curve — else
+                # the previous run's banners and lit layer-chips bleed into the
+                # new run's monitor.
                 self._ssr_curve.reset()
+                self._banners.clear()
+                self._chips.set_layers({})
         self._project.set_run_status(run_id, status)
         self._sidebar.update_run(self._project, run_id)
         if status == "starting":
@@ -340,13 +359,10 @@ class MainWindow(QMainWindow):
         all monitor/sidebar wiring is preserved.
 
         The temp file is created with ``delete=False`` so the worker process can
-        open it after this method returns.  The previous temp file (if any) is
-        unlinked before creating the new one to avoid accumulating stale files.
+        open it after this method returns. It is registered per-dataset and
+        unlinked on window close — never eagerly, so an active/pending worker is
+        never left pointing at a deleted config.
         """
-        # Unlink the previous temp YAML (if any) before creating the new one.
-        if self._config_temp_path is not None:
-            Path(self._config_temp_path).unlink(missing_ok=True)
-
         with tempfile.NamedTemporaryFile(
             mode="w",
             suffix=".yaml",
@@ -356,8 +372,6 @@ class MainWindow(QMainWindow):
         ) as fh:
             yaml.safe_dump(cfg, fh, default_flow_style=False, sort_keys=False)
             temp_path = fh.name
-
-        self._config_temp_path = temp_path
 
         # Mirror the validated config into the Fit panel (informational).
         self._fit_panel.show_settings(cfg, None)
@@ -375,6 +389,7 @@ class MainWindow(QMainWindow):
 
         # Register a synthetic dataset for the temp config + enqueue run.
         dataset = self._project.add_dataset(temp_path)
+        self._dataset_temp_paths[dataset.dataset_id] = temp_path  # unlinked on close
         self._sidebar.set_project(self._project)
         self._active_dataset_id = dataset.dataset_id
 
@@ -461,21 +476,29 @@ class MainWindow(QMainWindow):
         """
         self._project = load_project(path)
         # Resolve every reference eagerly at load (spec §8 dead-path rule).
+        # Expand ${ENV}/~ first so a path that merely uses a shell variable is not
+        # mis-flagged "missing" (mirrors config.data_folder_path resolution).
         for dataset in self._project.datasets:
-            dataset.config_missing = (
-                bool(dataset.config_path) and not Path(dataset.config_path).exists()
-            )
+            dataset.config_missing = bool(dataset.config_path) and not _expand_path(
+                dataset.config_path
+            ).exists()
             for run in dataset.runs:
                 if run.result_dir:
-                    if not Path(run.result_dir).exists():
+                    if not _expand_path(run.result_dir).exists():
                         run.summary = None
                         run.result_missing = True
                         continue
                     try:
-                        run.summary = load_result_summary(run.result_dir)
+                        run.summary = load_result_summary(str(_expand_path(run.result_dir)))
                     except Exception:  # noqa: BLE001 — never raise on open
                         run.summary = None
                         run.result_missing = True
+        # A freshly-opened project has no active dataset, so a subsequent "Run"
+        # would say "pick a config first". Default to the first dataset (matches
+        # add_dataset's auto-select), so Run works straight after Open Project.
+        self._active_dataset_id = (
+            self._project.datasets[0].dataset_id if self._project.datasets else None
+        )
         self._sidebar.set_project(self._project)
 
     # --- user actions ---------------------------------------------------------
@@ -573,6 +596,11 @@ class MainWindow(QMainWindow):
 
     # --- lifecycle ------------------------------------------------------------
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 — Qt override name
-        """Terminate any running worker before the window closes."""
+        """Terminate any running worker and delete temp configs before closing."""
         self._queue.shutdown()
+        # Unlink every session temp config (best-effort) — these are only deleted
+        # here, never mid-session, so no worker is ever left without its config.
+        for temp_path in self._dataset_temp_paths.values():
+            Path(temp_path).unlink(missing_ok=True)
+        self._dataset_temp_paths.clear()
         super().closeEvent(event)

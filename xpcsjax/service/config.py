@@ -174,7 +174,13 @@ def validate_config(config: dict) -> ValidationReport:
     registry = ParameterRegistry()
     expected = set(registry.get_all_param_names(mode_enum, include_scaling=False))
 
-    ip = config.get("initial_parameters") or {}
+    ip = config.get("initial_parameters")
+    if not isinstance(ip, dict):
+        # A malformed scalar (e.g. ``initial_parameters: invalid``) parses fine
+        # but is not a section — report it instead of raising AttributeError.
+        if ip is not None:
+            errors.append("initial_parameters must be a mapping (got a scalar)")
+        ip = {}
     names = list(ip.get("parameter_names", []) or [])
     values = ip.get("values")
 

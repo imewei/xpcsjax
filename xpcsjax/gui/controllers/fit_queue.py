@@ -183,9 +183,16 @@ class FitQueueController(QObject):
             return
         cancelled = run_id in self._cancelled
         if isinstance(event, Finished):
-            summary = load_result_summary(event.result_path) if event.result_path else None
-            self.run_status_changed.emit(run_id, "done")
-            self.run_finished.emit(run_id, event.result_path, summary)
+            # A worker that finished just as the user cancelled stays "cancelled":
+            # cancel() already deleted the per-run output dir, so emitting "done" +
+            # run_finished here would flip the UI back to done and then fail to load
+            # the (deleted) result — leaving an inconsistent "done · result missing".
+            if cancelled:
+                self.run_status_changed.emit(run_id, "cancelled")
+            else:
+                summary = load_result_summary(event.result_path) if event.result_path else None
+                self.run_status_changed.emit(run_id, "done")
+                self.run_finished.emit(run_id, event.result_path, summary)
         elif isinstance(event, Failed):
             # A user-cancelled worker may surface as Failed/Died — keep "cancelled".
             self.run_status_changed.emit(run_id, "cancelled" if cancelled else "failed")
