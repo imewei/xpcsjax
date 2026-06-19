@@ -57,6 +57,9 @@ Examples:
   # Plot simulated C2 heatmaps from config parameters
   xpcsjax --config analysis.yaml --plot-simulated-data --phi-angles 0,45,90,135
 
+  # Launch the interactive analysis workbench (GUI) — separate console script
+  xpcsjax-gui
+
 Exit codes:
   0   Analysis completed and the optimizer converged (or no convergence
       check applies, e.g. plot-only runs).

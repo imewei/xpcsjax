@@ -187,6 +187,21 @@ _xpcsjax_validate() {
     fi
 }
 
+# xpcsjax-gui completion
+_xpcsjax_gui() {
+    # shellcheck disable=SC2034  # words/cword used by _init_completion
+    local cur prev words cword
+    _init_completion -s || return
+
+    # The GUI launcher recognises only --version / --help; any other tokens are
+    # forwarded to Qt (e.g. -platform offscreen), which we do not enumerate.
+    local opts="--version --help"
+
+    if [[ "$cur" == -* ]]; then
+        mapfile -t COMPREPLY < <(compgen -W "${opts}" -- "${cur}")
+    fi
+}
+
 # xpcsjax-config-xla completion
 _xpcsjax_config_xla() {
     # shellcheck disable=SC2034  # words/cword used by _init_completion
@@ -216,6 +231,7 @@ complete -F _xpcsjax_config_xla xpcsjax-config-xla
 complete -F _xpcsjax_post_install xpcsjax-post-install
 complete -F _xpcsjax_cleanup xpcsjax-cleanup
 complete -F _xpcsjax_validate xpcsjax-validate
+complete -F _xpcsjax_gui xpcsjax-gui
 
 # Short aliases (xj = xpcsjax)
 complete -F _xpcsjax xj
@@ -224,6 +240,7 @@ complete -F _xpcsjax_config_xla xj-config-xla
 complete -F _xpcsjax_post_install xj-post-install
 complete -F _xpcsjax_cleanup xj-cleanup
 complete -F _xpcsjax_validate xj-validate
+complete -F _xpcsjax_gui xj-gui
 
 # Plot-only shortcuts
 complete -F _xpcsjax xjexp

@@ -22,14 +22,63 @@ def build_workbench() -> tuple[object, object]:
     return window, window._queue
 
 
+def _resolve_version() -> str:
+    """Best-effort version string, mirroring ``cli.args_parser._add_version_arg``."""
+    try:
+        import importlib.metadata as _md
+
+        return _md.version("xpcsjax")
+    except Exception:  # pragma: no cover — uninstalled / dev tree
+        try:
+            from xpcsjax import __version__ as version
+
+            return version
+        except Exception:
+            return "unknown"
+
+
+def _parse_cli_args(argv: list[str]) -> list[str]:
+    """Handle ``xpcsjax-gui``'s own flags; return the leftover args for Qt.
+
+    Recognises ``--help`` / ``--version`` (consistent with the other xpcsjax
+    console scripts) and forwards everything else — e.g. ``-platform offscreen``
+    — to Qt. ``--help`` / ``--version`` raise ``SystemExit`` via argparse, which
+    is the correct console-script behaviour.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="xpcsjax-gui",
+        description="Launch the xpcsjax analysis workbench (PySide6 GUI).",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {_resolve_version()}",
+    )
+    _, qt_extra = parser.parse_known_args(argv)
+    return qt_extra
+
+
 def main(argv: list[str] | None = None) -> int:
-    """Launch the workbench. Returns the Qt event-loop exit code."""
+    """Launch the workbench. Returns the Qt event-loop exit code.
+
+    Recognises ``--help`` / ``--version`` like the sibling console scripts; any
+    other arguments pass through to Qt (e.g. ``xpcsjax-gui -platform offscreen``
+    for a headless smoke run).
+    """
     import multiprocessing
 
     multiprocessing.freeze_support()  # frozen-app spawn safety — must be first
+
+    import sys
+
+    raw = list(sys.argv[1:] if argv is None else argv)
+    qt_extra = _parse_cli_args(raw)  # may SystemExit on --help / --version
+
     from PySide6.QtWidgets import QApplication
 
-    app = QApplication.instance() or QApplication(argv or [])
+    app = QApplication.instance() or QApplication([sys.argv[0], *qt_extra])
     window, queue = build_workbench()
     # Registered here (once per process), not in build_workbench, so a hard exit
     # still terminates a running worker without accumulating hooks across tests.

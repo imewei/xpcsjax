@@ -356,6 +356,10 @@ complete -c xpcsjax-validate -s v -l verbose -d 'Verbose output'
 complete -c xpcsjax-validate -l json -d 'Output results as JSON'
 complete -c xpcsjax-validate -s h -l help -d 'Show help'
 
+# xpcsjax-gui (launches the PySide6 analysis workbench; other args pass to Qt)
+complete -c xpcsjax-gui -l version -d 'Show version'
+complete -c xpcsjax-gui -s h -l help -d 'Show help'
+
 # Short-alias console scripts (registered in pyproject.toml [project.scripts]).
 # Each alias resolves to the same module entry as its full-name counterpart,
 # so we simply wrap their completions to inherit the full-name spec.
@@ -365,6 +369,7 @@ complete -c xj-config-xla -w xpcsjax-config-xla
 complete -c xj-post-install -w xpcsjax-post-install
 complete -c xj-cleanup -w xpcsjax-cleanup
 complete -c xj-validate -w xpcsjax-validate
+complete -c xj-gui -w xpcsjax-gui
 
 # Plot-only shortcuts (xjexp / xjsim are registered console scripts that
 # inject --plot-experimental-data / --plot-simulated-data; mirror xpcsjax's
