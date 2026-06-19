@@ -122,3 +122,18 @@ def test_raster_is_jax_free():
     pytest.importorskip("PySide6")
     pytest.importorskip("pyqtgraph")
     assert _probe_import("xpcsjax.gui.views.raster") == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 6 (H.4) guards: project persist + error_presenter (JAX-free, no Qt)
+# ---------------------------------------------------------------------------
+
+
+def test_project_persist_is_jax_free():
+    """xpcsjax.gui.project.persist must not import JAX (stdlib + project model only)."""
+    assert _probe_import("xpcsjax.gui.project.persist") == 0
+
+
+def test_error_presenter_is_jax_free():
+    """xpcsjax.gui.error_presenter must not import JAX (stdlib only)."""
+    assert _probe_import("xpcsjax.gui.error_presenter") == 0

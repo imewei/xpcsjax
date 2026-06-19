@@ -28,6 +28,8 @@ from xpcsjax.gui.controllers.fit_queue import FitQueueController
 from xpcsjax.gui.error_presenter import present_failure
 from xpcsjax.gui.export import export_figures
 from xpcsjax.gui.project.model import Project
+from xpcsjax.gui.project.persist import load_project, save_project
+from xpcsjax.gui.result_loader import load_result_summary
 from xpcsjax.gui.views.diagnostics_panel import BannerList, LayerStatusChips, SSRCurveWidget
 from xpcsjax.gui.views.error_dialog import ErrorDialog
 from xpcsjax.gui.views.plots_view import ResultPlots
@@ -69,6 +71,7 @@ class MainWindow(QMainWindow):
         self._comparison = ComparisonView()
 
         self._build_toolbar()
+        self._build_file_menu()
         self._build_sidebar_dock()
         self._build_monitor_dock()
         self._build_comparison_dock()
@@ -91,6 +94,21 @@ class MainWindow(QMainWindow):
             action.triggered.connect(slot)
             bar.addAction(action)
             self._actions[key] = action
+
+    def _build_file_menu(self) -> None:
+        """Add a File menu with Save Project / Open Project actions."""
+        menu_bar = self.menuBar()
+        file_menu = menu_bar.addMenu("File")
+
+        save_action = QAction("Save Project", self)
+        save_action.setObjectName("action_save_project")
+        save_action.triggered.connect(self._on_save_project)
+        file_menu.addAction(save_action)
+
+        open_action = QAction("Open Project", self)
+        open_action.setObjectName("action_open_project")
+        open_action.triggered.connect(self._on_open_project)
+        file_menu.addAction(open_action)
 
     def _build_sidebar_dock(self) -> None:
         dock = QDockWidget("Project", self)
@@ -266,15 +284,84 @@ class MainWindow(QMainWindow):
         """Return the current results-panel text (test/inspection helper)."""
         return self._results.toPlainText()
 
+    def sidebar_dataset_count(self) -> int:
+        """Return the number of datasets in the current project (test/inspection helper)."""
+        return len(self._project.datasets)
+
+    # --- project I/O slots (testable without dialogs) -------------------------
+
+    def add_dataset(self, config_path: str) -> None:
+        """Add a dataset to the project and refresh the sidebar.
+
+        This is the callable form of the Open-Config toolbar action, extracted
+        so tests and menu actions can invoke it without a file dialog.
+
+        Parameters
+        ----------
+        config_path:
+            Absolute path to the YAML config file.
+        """
+        dataset = self._project.add_dataset(config_path)
+        self._sidebar.set_project(self._project)
+        # Auto-select the freshly added dataset so a single-dataset Run works.
+        self._active_dataset_id = dataset.dataset_id
+        self.set_status(f"config: {Path(config_path).name}")
+
+    def save_project_to(self, path: str | Path) -> None:
+        """Serialize the current project to *path* (.xpcsproj).
+
+        Parameters
+        ----------
+        path:
+            Destination file path (created or overwritten).
+        """
+        save_project(self._project, path)
+
+    def open_project_from(self, path: str | Path) -> None:
+        """Deserialize a project from *path* and restore the sidebar.
+
+        Dead-path tolerance (spec §8): if a run's ``result_dir`` no longer
+        exists on disk, ``run.summary`` is left ``None`` — the run is shown
+        flagged "result missing" in the sidebar.  A dataset whose
+        ``config_path`` no longer exists is listed with its label preserved.
+        Neither missing path is a hard failure.
+
+        Parameters
+        ----------
+        path:
+            Path to a ``.xpcsproj`` file previously written by
+            :meth:`save_project_to`.
+        """
+        self._project = load_project(path)
+        # Re-load summaries best-effort (spec §8 dead-path rule).
+        for dataset in self._project.datasets:
+            for run in dataset.runs:
+                if run.result_dir:
+                    try:
+                        run.summary = load_result_summary(run.result_dir)
+                    except Exception:  # noqa: BLE001 — never raise on open
+                        run.summary = None
+        self._sidebar.set_project(self._project)
+
     # --- user actions ---------------------------------------------------------
     def _on_open_config(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Open config", "", "YAML configs (*.yaml *.yml)")
         if path:
-            dataset = self._project.add_dataset(path)
-            self._sidebar.set_project(self._project)
-            # Auto-select the freshly added dataset so a single-dataset Run works.
-            self._active_dataset_id = dataset.dataset_id
-            self.set_status(f"config: {Path(path).name}")
+            self.add_dataset(path)
+
+    def _on_save_project(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Project", "", "xpcsjax project (*.xpcsproj)"
+        )
+        if path:
+            self.save_project_to(path)
+
+    def _on_open_project(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Project", "", "xpcsjax project (*.xpcsproj)"
+        )
+        if path:
+            self.open_project_from(path)
 
     def _on_choose_output(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Choose output directory")
