@@ -42,3 +42,15 @@ def test_handle_module_is_jax_free_at_import():
     """xpcsjax.gui.ipc.handle must not import JAX at module level (GUI process stays JAX-free)."""
     pytest.importorskip("PySide6")
     assert _probe_import("xpcsjax.gui.ipc.handle") == 0
+
+
+def test_fit_controller_is_jax_free_at_import():
+    """xpcsjax.gui.controllers.fit_controller must not import JAX at module level."""
+    pytest.importorskip("PySide6")
+    assert _probe_import("xpcsjax.gui.controllers.fit_controller") == 0
+
+
+def test_main_window_is_jax_free_at_import():
+    """xpcsjax.gui.views.main_window must not import JAX at module level."""
+    pytest.importorskip("PySide6")
+    assert _probe_import("xpcsjax.gui.views.main_window") == 0
