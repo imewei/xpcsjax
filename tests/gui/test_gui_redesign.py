@@ -195,16 +195,25 @@ def test_file_menu_has_workflow_actions(qtbot):
 
     win = _window(qtbot)
     names = {a.objectName() for a in win.findChildren(QAction)}
+    # Project lifecycle (File menu) + config workflow (toolbar) all exist.
     assert {
         "action_create_project",
+        "action_open_project",
+        "action_save_project",
+        "action_close_project",
         "action_create_config",
         "action_edit_config",
         "action_load_config",
     } <= names
 
 
-def test_load_config_in_both_toolbar_and_menu_and_order(qtbot):
-    """Spec (d)/(e): Load Config on BOTH surfaces; File menu in the spec'd order."""
+def test_toolbar_and_menu_split_and_order(qtbot):
+    """Toolbar owns the operational actions; File menu owns project lifecycle.
+
+    Per the redesign: the quick-access toolbar holds Create/Edit/Load Config →
+    Run → Cancel → Export Figure, and the File menu holds only Create / Open /
+    Save / Close Project. The two surfaces share no actions.
+    """
     from PySide6.QtWidgets import QMenu, QToolBar
 
     win = _window(qtbot)
@@ -214,24 +223,24 @@ def test_load_config_in_both_toolbar_and_menu_and_order(qtbot):
     def names(widget):
         return [a.objectName() for a in widget.actions() if a.objectName()]
 
-    assert "action_load_config" in names(toolbar)
-    assert "action_load_config" in names(file_menu)
-    # The same QAction object is reused across both surfaces (never drifts).
-    tb_load = next(a for a in toolbar.actions() if a.objectName() == "action_load_config")
-    menu_load = next(a for a in file_menu.actions() if a.objectName() == "action_load_config")
-    assert tb_load is menu_load
-    # File-menu order matches the spec.
-    assert names(file_menu) == [
-        "action_create_project",
+    assert names(toolbar) == [
         "action_create_config",
         "action_edit_config",
         "action_load_config",
         "action_run",
         "action_cancel",
         "action_export_figure",
-        "action_save_project",
-        "action_open_project",
     ]
+    assert names(file_menu) == [
+        "action_create_project",
+        "action_open_project",
+        "action_save_project",
+        "action_close_project",
+    ]
+    # The Output Dir override action no longer exists on either surface.
+    assert "action_output_dir" not in names(toolbar)
+    # No action is shared between the two surfaces (clean split, no reuse).
+    assert set(names(toolbar)).isdisjoint(set(names(file_menu)))
 
 
 # ---------------------------------------------------------------------------
@@ -322,3 +331,26 @@ def test_main_window_shows_grid_on_valid_bundle(qtbot, tmp_path):
     win._show_result_with_bundle(summary, str(tmp_path))
     assert win._central_stack.currentIndex() == 1  # the per-phi grid page
     assert win._result_grid.section_count() == 2
+
+
+def test_close_project_resets_to_empty_state(qtbot, tmp_path):
+    """Close Project clears the project, selections, dirs, and every results surface."""
+    win = _window(qtbot)
+    # Build up some state: a project dir, a dataset, and a rendered result grid.
+    win.create_project(str(tmp_path))
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("analysis_mode: static_isotropic\n", encoding="utf-8")
+    win.add_dataset(str(cfg))
+    win._results.setPlainText("some prior result text")
+    win._central_stack.setCurrentIndex(1)
+    assert win.sidebar_dataset_count() == 1
+
+    win.close_project()
+
+    assert win.sidebar_dataset_count() == 0
+    assert win._project_dir is None
+    assert win._output_dir is None
+    assert win._active_dataset_id is None
+    assert win._active_run_id is None
+    assert win._central_stack.currentIndex() == 0  # back to the text-summary page
+    assert win.result_text() == ""

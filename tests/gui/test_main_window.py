@@ -20,7 +20,21 @@ def _window(qtbot):
 def test_window_constructs_with_expected_actions(qtbot):
     win = _window(qtbot)
     names = {a.objectName() for a in win.findChildren(QAction)}
-    assert {"action_load_config", "action_output_dir", "action_run", "action_cancel"} <= names
+    # Operational actions live on the toolbar; project lifecycle on the File menu.
+    assert {
+        "action_create_config",
+        "action_edit_config",
+        "action_load_config",
+        "action_run",
+        "action_cancel",
+        "action_export_figure",
+        "action_create_project",
+        "action_open_project",
+        "action_save_project",
+        "action_close_project",
+    } <= names
+    # The Output Dir override action was removed.
+    assert "action_output_dir" not in names
 
 
 def test_status_and_log_slots_update_widgets(qtbot):

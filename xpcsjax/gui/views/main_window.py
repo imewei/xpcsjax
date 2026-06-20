@@ -4,8 +4,9 @@ All orchestration lives in the controller; this module only renders state and
 forwards user actions. The workflow is config-first: the config file carries
 everything the NLSQ fit needs, so there are no data/config/fit setup tabs — the
 central area shows only the per-angle fitting results and residual analysis. The
-File menu drives the flow Create Project → Create Config → Edit Config →
-Load Config → Run → view Results.
+File menu holds the project lifecycle (Create / Open / Save / Close Project); the
+quick-access toolbar drives the flow Create Config → Edit Config → Load Config →
+Run → view Results.
 """
 
 from __future__ import annotations
@@ -65,8 +66,8 @@ class MainWindow(QMainWindow):
         self._active_run_id: str | None = None
         self._active_dataset_id: str | None = None
         # The project working directory (set by Create Project); also the default
-        # base for per-run output dirs. ``_output_dir`` can override it via the
-        # "Output Dir" toolbar action.
+        # base for per-run output dirs. ``_output_dir`` mirrors ``_project_dir``
+        # (both set by Create Project); there is no separate override action.
         self._project_dir: Path | None = None
         self._output_dir: Path | None = None
 
@@ -116,11 +117,13 @@ class MainWindow(QMainWindow):
         bar.setMovable(False)
         self.addToolBar(bar)
         self._actions: dict[str, QAction] = {}
-        # ``None`` markers insert a visual separator between logical groups:
-        # [load: config/output] | [execute: run/cancel] | [export].
+        # The quick-access toolbar owns every operational action. ``None`` markers
+        # insert a visual separator between logical groups:
+        # [config: create/edit/load] | [execute: run/cancel] | [export].
         spec: list[tuple[str, str, object] | None] = [
+            ("action_create_config", "Create Config", self._on_create_config),
+            ("action_edit_config", "Edit Config", self._on_edit_config),
             ("action_load_config", "Load Config", self._on_load_config),
-            ("action_output_dir", "Output Dir", self._on_choose_output),
             None,
             ("action_run", "Run", self._on_run),
             ("action_cancel", "Cancel", self._on_cancel),
@@ -139,12 +142,11 @@ class MainWindow(QMainWindow):
             self._actions[key] = action
 
     def _build_file_menu(self) -> None:
-        """Build the File menu reflecting the config-first workflow.
+        """Build the File menu: project-lifecycle actions only.
 
-        Order: Create Project → Create Config → Edit Config → Load Config →
-        Run → Cancel → Export Figure → Save/Open Project. The Load Config / Run /
-        Cancel / Export Figure entries reuse the toolbar ``QAction`` instances so
-        the menu and toolbar never drift.
+        Order: Create Project → Open Project → Save Project → Close Project. The
+        operational actions (Create/Edit/Load Config, Run, Cancel, Export Figure)
+        live solely on the quick-access toolbar — they are not duplicated here.
         """
         file_menu = self.menuBar().addMenu("File")
 
@@ -153,38 +155,27 @@ class MainWindow(QMainWindow):
         create_project.triggered.connect(self._on_create_project)
         file_menu.addAction(create_project)
 
-        create_config = QAction("Create Config", self)
-        create_config.setObjectName("action_create_config")
-        create_config.triggered.connect(self._on_create_config)
-        file_menu.addAction(create_config)
-
-        edit_config = QAction("Edit Config", self)
-        edit_config.setObjectName("action_edit_config")
-        edit_config.triggered.connect(self._on_edit_config)
-        file_menu.addAction(edit_config)
-
-        # Reuse the toolbar action so "Load Config" is a single source of truth.
-        file_menu.addAction(self._actions["action_load_config"])
-        self._actions["action_create_project"] = create_project
-        self._actions["action_create_config"] = create_config
-        self._actions["action_edit_config"] = edit_config
-
-        file_menu.addSeparator()
-        file_menu.addAction(self._actions["action_run"])
-        file_menu.addAction(self._actions["action_cancel"])
-        file_menu.addSeparator()
-        file_menu.addAction(self._actions["action_export_figure"])
-        file_menu.addSeparator()
+        open_action = QAction("Open Project", self)
+        open_action.setObjectName("action_open_project")
+        open_action.triggered.connect(self._on_open_project)
+        file_menu.addAction(open_action)
 
         save_action = QAction("Save Project", self)
         save_action.setObjectName("action_save_project")
         save_action.triggered.connect(self._on_save_project)
         file_menu.addAction(save_action)
 
-        open_action = QAction("Open Project", self)
-        open_action.setObjectName("action_open_project")
-        open_action.triggered.connect(self._on_open_project)
-        file_menu.addAction(open_action)
+        file_menu.addSeparator()
+
+        close_action = QAction("Close Project", self)
+        close_action.setObjectName("action_close_project")
+        close_action.triggered.connect(self._on_close_project)
+        file_menu.addAction(close_action)
+
+        self._actions["action_create_project"] = create_project
+        self._actions["action_open_project"] = open_action
+        self._actions["action_save_project"] = save_action
+        self._actions["action_close_project"] = close_action
 
     def _build_sidebar_dock(self) -> None:
         dock = QDockWidget("Project", self)
@@ -269,7 +260,7 @@ class MainWindow(QMainWindow):
             *[f"  {name} = {value}" for name, value in summary.parameters.items()],
             "",
             "Publication figures (Matplotlib) were written under "
-            f"{summary.result_dir}/plots — use 'Output Dir' to locate them.",
+            f"{summary.result_dir}/plots.",
         ]
         self._results.setPlainText("\n".join(lines))
 
@@ -527,6 +518,29 @@ class MainWindow(QMainWindow):
         )
         self._sidebar.set_project(self._project)
 
+    def close_project(self) -> None:
+        """Reset the workbench to its empty launch state (no project loaded).
+
+        This is the callable form of the Close-Project menu action, extracted so
+        tests and the menu can invoke it without a confirmation dialog. It clears
+        the in-memory project, the active selections, the project/output dirs, and
+        every results surface (sidebar tree, comparison, inspector, per-phi grid,
+        and the text summary), returning the central view to the summary page.
+        """
+        self._project = Project()
+        self._active_run_id = None
+        self._active_dataset_id = None
+        self._project_dir = None
+        self._output_dir = None
+        self._sidebar.set_project(self._project)
+        self._comparison.show_runs([])
+        self._inspector.show_summary(None)
+        self._result_grid.set_bundle(None)
+        self._results.clear()
+        self._central_stack.setCurrentIndex(0)
+        self._set_status_state("idle")
+        self.set_status("idle")
+
     # --- user actions ---------------------------------------------------------
     def _on_create_project(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Create / choose project directory")
@@ -590,10 +604,14 @@ class MainWindow(QMainWindow):
         if path:
             self.open_project_from(path)
 
-    def _on_choose_output(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Choose output directory")
-        if path:
-            self._output_dir = Path(path)
+    def _on_close_project(self) -> None:
+        resp = QMessageBox.question(
+            self,
+            "Close Project",
+            "Close the current project? Unsaved results will be cleared.",
+        )
+        if resp == QMessageBox.StandardButton.Yes:
+            self.close_project()
 
     def _per_run_output_dir(self, config_path: str, run_id: str) -> Path:
         """Return a unique output dir for one run: ``<base>/runs/<run_id>``.
