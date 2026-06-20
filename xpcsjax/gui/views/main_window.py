@@ -1,17 +1,19 @@
 """The workbench main window — a logic-free view driven by FitQueueController.
 
 All orchestration lives in the controller; this module only renders state and
-forwards user actions (Open Config / Output Dir / Run / Cancel).
+forwards user actions. The workflow is config-first: the config file carries
+everything the NLSQ fit needs, so there are no data/config/fit setup tabs — the
+central area shows only the per-angle fitting results and residual analysis. The
+File menu drives the flow Create Project → Create Config → Edit Config →
+Load Config → Run → view Results.
 """
 
 from __future__ import annotations
 
 import os
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import yaml
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
@@ -22,9 +24,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QStackedWidget,
-    QTabWidget,
     QToolBar,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -35,13 +35,10 @@ from xpcsjax.gui.project.model import Project
 from xpcsjax.gui.project.persist import load_project, save_project
 from xpcsjax.gui.result_loader import load_result_summary
 from xpcsjax.gui.theme import repolish
-from xpcsjax.gui.views.config_editor import ConfigEditor
-from xpcsjax.gui.views.data_panel import DataPanel
-from xpcsjax.gui.views.diagnostics_panel import BannerList, LayerStatusChips, SSRCurveWidget
+from xpcsjax.gui.views.config_dialogs import ConfigTextEditorDialog, CreateConfigDialog
 from xpcsjax.gui.views.error_dialog import ErrorDialog
-from xpcsjax.gui.views.fit_panel import FitPanel
 from xpcsjax.gui.views.inspector import InspectorDock
-from xpcsjax.gui.views.plots_view import ResultPlots
+from xpcsjax.gui.views.plots_view import PhiResultsGrid
 from xpcsjax.gui.views.project_panel import ComparisonView, ProjectSidebar
 from xpcsjax.gui.viz_bundle import load_viz_bundle
 
@@ -67,13 +64,11 @@ class MainWindow(QMainWindow):
         self._queue = FitQueueController()
         self._active_run_id: str | None = None
         self._active_dataset_id: str | None = None
+        # The project working directory (set by Create Project); also the default
+        # base for per-run output dirs. ``_output_dir`` can override it via the
+        # "Output Dir" toolbar action.
+        self._project_dir: Path | None = None
         self._output_dir: Path | None = None
-        # Temp config YAMLs (ConfigEditor → worker handoff), keyed by the synthetic
-        # dataset they back. Kept alive for the whole session — a worker opens its
-        # config by path and the same dataset may be re-run from the toolbar — and
-        # all are unlinked on close. (Never eagerly deleted on the next Validate,
-        # which would yank a file an active/pending worker still needs.)
-        self._dataset_temp_paths: dict[str, str] = {}
 
         self.setWindowTitle("xpcsjax — analysis workbench")
         self.resize(1320, 820)
@@ -81,43 +76,27 @@ class MainWindow(QMainWindow):
 
         # Status pill: themed via the global QSS (#status_pill) with a `state`
         # dynamic property (idle/running/finished/failed) driving its colour.
+        # It lives in the window status bar now that the bottom dock is log-only.
         self._status = QLabel("idle")
         self._status.setObjectName("status_pill")
+        self.statusBar().addWidget(self._status)
         self._set_status_state("idle")
+
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
 
-        # Results area: a stacked widget with two pages.
+        # Central results area: a stacked widget with two pages.
         # Page 0: plain-text summary (shown when no interactive bundle is available).
-        # Page 1: interactive ResultPlots (shown when a viz bundle loads).
+        # Page 1: the per-phi results grid (Exp/Fitted/Residual maps + diagnostics).
         self._results = QPlainTextEdit()
         self._results.setReadOnly(True)
-        self._result_plots = ResultPlots()
+        self._result_grid = PhiResultsGrid()
         self._central_stack = QStackedWidget()
+        self._central_stack.setObjectName("central_results")
         self._central_stack.addWidget(self._results)  # index 0 → text summary
-        self._central_stack.addWidget(self._result_plots)  # index 1 → interactive plots
+        self._central_stack.addWidget(self._result_grid)  # index 1 → per-phi grid
         self._central_stack.setCurrentIndex(0)
-
-        # --- Center tab widget -------------------------------------------------
-        # Data / Config / Fit tabs are new; Results tab wraps the existing stack.
-        self._data_panel = DataPanel()
-        self._config_editor = ConfigEditor()
-        self._fit_panel = FitPanel()
-
-        self._center_tabs = QTabWidget()
-        self._center_tabs.setObjectName("center_tabs")
-        self._center_tabs.addTab(self._data_panel, "Data")
-        self._center_tabs.addTab(self._config_editor, "Config")
-        self._center_tabs.addTab(self._fit_panel, "Fit")
-        # Results tab wraps the existing central_stack so all prior behavior
-        # (show_result / _show_result_with_bundle / result_text) is unchanged.
-        results_container = QWidget()
-        rc_layout = QVBoxLayout(results_container)
-        rc_layout.setContentsMargins(0, 0, 0, 0)
-        rc_layout.addWidget(self._central_stack)
-        self._center_tabs.addTab(results_container, "Results")
-
-        self.setCentralWidget(self._center_tabs)
+        self.setCentralWidget(self._central_stack)
 
         self._sidebar = ProjectSidebar()
         self._comparison = ComparisonView()
@@ -140,7 +119,7 @@ class MainWindow(QMainWindow):
         # ``None`` markers insert a visual separator between logical groups:
         # [load: config/output] | [execute: run/cancel] | [export].
         spec: list[tuple[str, str, object] | None] = [
-            ("action_open_config", "Open Config", self._on_open_config),
+            ("action_load_config", "Load Config", self._on_load_config),
             ("action_output_dir", "Output Dir", self._on_choose_output),
             None,
             ("action_run", "Run", self._on_run),
@@ -160,9 +139,42 @@ class MainWindow(QMainWindow):
             self._actions[key] = action
 
     def _build_file_menu(self) -> None:
-        """Add a File menu with Save Project / Open Project actions."""
-        menu_bar = self.menuBar()
-        file_menu = menu_bar.addMenu("File")
+        """Build the File menu reflecting the config-first workflow.
+
+        Order: Create Project → Create Config → Edit Config → Load Config →
+        Run → Cancel → Export Figure → Save/Open Project. The Load Config / Run /
+        Cancel / Export Figure entries reuse the toolbar ``QAction`` instances so
+        the menu and toolbar never drift.
+        """
+        file_menu = self.menuBar().addMenu("File")
+
+        create_project = QAction("Create Project", self)
+        create_project.setObjectName("action_create_project")
+        create_project.triggered.connect(self._on_create_project)
+        file_menu.addAction(create_project)
+
+        create_config = QAction("Create Config", self)
+        create_config.setObjectName("action_create_config")
+        create_config.triggered.connect(self._on_create_config)
+        file_menu.addAction(create_config)
+
+        edit_config = QAction("Edit Config", self)
+        edit_config.setObjectName("action_edit_config")
+        edit_config.triggered.connect(self._on_edit_config)
+        file_menu.addAction(edit_config)
+
+        # Reuse the toolbar action so "Load Config" is a single source of truth.
+        file_menu.addAction(self._actions["action_load_config"])
+        self._actions["action_create_project"] = create_project
+        self._actions["action_create_config"] = create_config
+        self._actions["action_edit_config"] = edit_config
+
+        file_menu.addSeparator()
+        file_menu.addAction(self._actions["action_run"])
+        file_menu.addAction(self._actions["action_cancel"])
+        file_menu.addSeparator()
+        file_menu.addAction(self._actions["action_export_figure"])
+        file_menu.addSeparator()
 
         save_action = QAction("Save Project", self)
         save_action.setObjectName("action_save_project")
@@ -181,20 +193,16 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
 
     def _build_monitor_dock(self) -> None:
-        dock = QDockWidget("Fit Monitor", self)
-        dock.setObjectName("dock_fit_monitor")
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-        layout.addWidget(self._status)
-        self._chips = LayerStatusChips()
-        self._ssr_curve = SSRCurveWidget()
-        self._banners = BannerList()
-        layout.addWidget(self._chips)
-        layout.addWidget(self._ssr_curve)
-        layout.addWidget(self._banners)
-        layout.addWidget(self._log)
-        dock.setWidget(panel)
+        """Build the bottom dock: the live fitting-process log, enlarged.
+
+        The old SSR curve, L1–L5 layer chips, banner list, and status pill were
+        removed — the bottom dock now shows only the streaming log.
+        """
+        dock = QDockWidget("Fitting Process", self)
+        dock.setObjectName("dock_fitting_process")
+        dock.setWidget(self._log)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
+        self._monitor_dock = dock
 
     def _build_comparison_dock(self) -> None:
         dock = QDockWidget("Comparison", self)
@@ -216,18 +224,15 @@ class MainWindow(QMainWindow):
         self._inspector_dock.raise_()
 
     def _connect_signals(self) -> None:
-        # Queue signals → window slots
+        # Queue signals → window slots. The per-iteration SSR / layer-status /
+        # banner streams are no longer rendered (the bottom dock is log-only), so
+        # only status / finished / failed / log are wired.
         self._queue.run_status_changed.connect(self._on_run_status)
         self._queue.run_finished.connect(self._on_run_finished)
         self._queue.run_failed.connect(self._on_run_failed)
         self._queue.log_received.connect(self._on_log)
-        self._queue.iteration_received.connect(self._on_iteration)
-        self._queue.layer_status_received.connect(self._on_layer_status)
-        self._queue.banner_received.connect(self._on_banner)
         # Sidebar selection signal
         self._sidebar.runs_selected.connect(self._on_runs_selected)
-        # ConfigEditor → run-launch path: validated config feeds _on_config_ready
-        self._config_editor.config_ready.connect(self._on_config_ready)
 
     # --- view slots (driven by the queue) -------------------------------------
     def set_status(self, status: str) -> None:
@@ -269,15 +274,15 @@ class MainWindow(QMainWindow):
         self._results.setPlainText("\n".join(lines))
 
     def _show_result_with_bundle(self, summary: Any, result_dir: str | None) -> None:
-        """Render the result: interactive plots when a bundle exists, text otherwise.
+        """Render the result: per-phi grid when a bundle exists, text otherwise.
 
         Parameters
         ----------
         summary:
             A ``ResultSummary`` (or ``None``) to show in the text fallback.
         result_dir:
-            The run's result directory; used to locate the viz bundle.
-            ``None`` forces the text-summary path.
+            The run's result directory; used to locate the viz bundle and the
+            per-angle diagnostics PNGs. ``None`` forces the text-summary path.
         """
         bundle = None
         if result_dir:
@@ -287,8 +292,8 @@ class MainWindow(QMainWindow):
                 bundle = None
 
         if bundle is not None:
-            self._result_plots.set_bundle(bundle)
-            self._central_stack.setCurrentIndex(1)  # show interactive plots
+            self._result_grid.set_bundle(bundle, result_dir)
+            self._central_stack.setCurrentIndex(1)  # show per-phi grid
         else:
             # Fall back to (or keep) the text summary.
             self.show_result(summary)
@@ -301,15 +306,9 @@ class MainWindow(QMainWindow):
     def _on_run_status(self, run_id: str, status: str) -> None:
         if status in ("starting", "running"):
             # Attach the monitor as soon as the run begins (a cold spawn streams
-            # nothing until the worker is up), and reset the SSR curve once.
+            # nothing until the worker is up).
             if self._active_run_id != run_id:
-                self._active_run_id = run_id  # this run's stream now drives the monitor
-                # Reset ALL live-diagnostics views, not just the SSR curve — else
-                # the previous run's banners and lit layer-chips bleed into the
-                # new run's monitor.
-                self._ssr_curve.reset()
-                self._banners.clear()
-                self._chips.set_layers({})
+                self._active_run_id = run_id  # this run's stream now drives the log
         self._project.set_run_status(run_id, status)
         self._sidebar.update_run(self._project, run_id)
         if status in ("starting", "running"):
@@ -323,18 +322,6 @@ class MainWindow(QMainWindow):
     def _on_log(self, run_id: str, level: str, msg: str) -> None:
         if run_id == self._active_run_id:
             self.append_log(level, msg)
-
-    def _on_iteration(self, run_id: str, n: int, ssr: float) -> None:
-        if run_id == self._active_run_id:
-            self._ssr_curve.add_point(n, ssr)
-
-    def _on_layer_status(self, run_id: str, layers: dict[str, bool]) -> None:
-        if run_id == self._active_run_id:
-            self._chips.set_layers(layers)
-
-    def _on_banner(self, run_id: str, text: str, kind: str) -> None:
-        if run_id == self._active_run_id:
-            self._banners.add_banner(text, kind)
 
     def _on_run_failed(self, run_id: str, error_text: str) -> None:
         if run_id == self._active_run_id:
@@ -382,62 +369,8 @@ class MainWindow(QMainWindow):
                 _, run = found
                 self._show_result_with_bundle(run.summary, run.result_dir)
                 # Mirror the run's results into the inspector (params/uncertainties/
-                # diagnostics live there). The Fit panel shows the *resolved config*,
-                # which a ResultSummary does not carry — so clear it rather than
-                # fabricate a misleading analysis_mode from the convergence status.
-                # (Seam: recover the run's config from result_dir to repopulate it.)
+                # diagnostics live there).
                 self.show_inspector(run.summary)
-                self._fit_panel.clear()
-
-    def _on_config_ready(self, cfg: dict) -> None:
-        """Slot: ConfigEditor emitted config_ready — write to temp YAML + launch run.
-
-        The validated dict is serialized to a NamedTemporaryFile (kept on disk
-        until the next config_ready or window close).  The run is enqueued via
-        the same ``FitQueueController`` path the toolbar "Run" button uses, so
-        all monitor/sidebar wiring is preserved.
-
-        The temp file is created with ``delete=False`` so the worker process can
-        open it after this method returns. It is registered per-dataset and
-        unlinked on window close — never eagerly, so an active/pending worker is
-        never left pointing at a deleted config.
-        """
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            suffix=".yaml",
-            prefix="xpcsjax_gui_",
-            delete=False,
-            encoding="utf-8",
-        ) as fh:
-            yaml.safe_dump(cfg, fh, default_flow_style=False, sort_keys=False)
-            temp_path = fh.name
-
-        # Mirror the validated config into the Fit panel (informational).
-        self._fit_panel.show_settings(cfg, None)
-        # Switch the center tabs to Results so the user sees the run progress.
-        results_idx = next(
-            (
-                i
-                for i in range(self._center_tabs.count())
-                if self._center_tabs.tabText(i) == "Results"
-            ),
-            -1,
-        )
-        if results_idx >= 0:
-            self._center_tabs.setCurrentIndex(results_idx)
-
-        # Register a synthetic dataset for the temp config + enqueue run.
-        dataset = self._project.add_dataset(temp_path)
-        self._dataset_temp_paths[dataset.dataset_id] = temp_path  # unlinked on close
-        self._active_dataset_id = dataset.dataset_id
-
-        run = self._project.add_run(dataset.dataset_id)
-        out_dir = self._per_run_output_dir(temp_path, run.run_id)
-        run.result_dir = str(out_dir)  # durable per-run dir, recorded before enqueue
-        self._queue.enqueue(run.run_id, temp_path, str(out_dir))
-        # Single sidebar rebuild: the dataset AND its run are both present now, so
-        # one rebuild suffices (previously rebuilt twice — once after add_dataset).
-        self._sidebar.set_project(self._project)
 
     # --- inspector public API -------------------------------------------------
 
@@ -468,13 +401,66 @@ class MainWindow(QMainWindow):
         """Return the number of datasets in the current project (test/inspection helper)."""
         return len(self._project.datasets)
 
-    # --- project I/O slots (testable without dialogs) -------------------------
+    # --- project / config I/O slots (testable without dialogs) ----------------
+
+    def create_project(self, directory: str | Path) -> None:
+        """Set the project working directory (and the default per-run output base).
+
+        This is the callable form of the Create-Project menu action, extracted so
+        tests and the menu can invoke it without a directory dialog.
+
+        Parameters
+        ----------
+        directory:
+            The project working directory; created if it does not exist.
+        """
+        path = Path(directory)
+        path.mkdir(parents=True, exist_ok=True)
+        self._project_dir = path
+        self._output_dir = path
+        self.set_status(f"project: {path}")
+
+    def create_config(
+        self,
+        mode: str,
+        output_path: str | Path,
+        *,
+        overwrite: bool = False,
+        **kwargs: Any,
+    ) -> Path:
+        """Generate a config from the *mode* template at *output_path*.
+
+        Thin wrapper over :func:`xpcsjax.cli.config_generator.generate_config`
+        (the same function the ``xpcsjax-config`` CLI uses), imported lazily to
+        keep the GUI process JAX-free at import time.
+
+        Parameters
+        ----------
+        mode:
+            One of the four analysis modes.
+        output_path:
+            Destination YAML path.
+        overwrite:
+            Replace an existing file at *output_path* when ``True``.
+        **kwargs:
+            Optional ``data_path`` / ``q`` / ``dt`` / ``time_length`` injections.
+
+        Returns
+        -------
+        pathlib.Path
+            The generated config path.
+        """
+        from xpcsjax.cli.config_generator import generate_config
+
+        written = generate_config(mode, output_path, overwrite=overwrite, **kwargs)
+        self.set_status(f"created config: {written.name} (mode={mode})")
+        return written
 
     def add_dataset(self, config_path: str) -> None:
         """Add a dataset to the project and refresh the sidebar.
 
-        This is the callable form of the Open-Config toolbar action, extracted
-        so tests and menu actions can invoke it without a file dialog.
+        This is the callable form of the Load-Config toolbar/menu action,
+        extracted so tests and menu actions can invoke it without a file dialog.
 
         Parameters
         ----------
@@ -542,9 +528,46 @@ class MainWindow(QMainWindow):
         self._sidebar.set_project(self._project)
 
     # --- user actions ---------------------------------------------------------
-    def _on_open_config(self) -> None:
+    def _on_create_project(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "Create / choose project directory")
+        if path:
+            self.create_project(path)
+
+    def _on_create_config(self) -> None:
+        dialog = CreateConfigDialog(self, default_dir=self._project_dir or self._output_dir)
+        if dialog.exec() != int(CreateConfigDialog.DialogCode.Accepted):
+            return
+        output_path = dialog.output_path()
+        if not output_path:
+            QMessageBox.information(self, "Create Config", "No output path was given.")
+            return
+        mode = dialog.selected_mode()
+        kwargs = dialog.generation_kwargs()
+        try:
+            self.create_config(mode, output_path, overwrite=False, **kwargs)
+        except FileExistsError:
+            resp = QMessageBox.question(
+                self,
+                "Create Config",
+                f"{output_path} exists. Overwrite?",
+            )
+            if resp == QMessageBox.StandardButton.Yes:
+                self.create_config(mode, output_path, overwrite=True, **kwargs)
+        except (ValueError, FileNotFoundError) as exc:
+            QMessageBox.warning(self, "Create Config", f"Could not create config:\n{exc}")
+
+    def _on_edit_config(self) -> None:
+        start_dir = str(self._project_dir) if self._project_dir else ""
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open config", "", "YAML configs (*.yaml *.yml)"
+            self, "Edit config", start_dir, "YAML configs (*.yaml *.yml)"
+        )
+        if path:
+            ConfigTextEditorDialog(path, self).exec()
+
+    def _on_load_config(self) -> None:
+        start_dir = str(self._project_dir) if self._project_dir else ""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load config", start_dir, "YAML configs (*.yaml *.yml)"
         )
         if path:
             self.add_dataset(path)
@@ -641,11 +664,6 @@ class MainWindow(QMainWindow):
 
     # --- lifecycle ------------------------------------------------------------
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 — Qt override name
-        """Terminate any running worker and delete temp configs before closing."""
+        """Terminate any running worker before closing."""
         self._queue.shutdown()
-        # Unlink every session temp config (best-effort) — these are only deleted
-        # here, never mid-session, so no worker is ever left without its config.
-        for temp_path in self._dataset_temp_paths.values():
-            Path(temp_path).unlink(missing_ok=True)
-        self._dataset_temp_paths.clear()
         super().closeEvent(event)

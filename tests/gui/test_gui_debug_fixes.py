@@ -15,56 +15,6 @@ from xpcsjax.service.config import validate_config  # noqa: E402
 
 
 # ----------------------------------------------------------------------------
-# config_editor.py
-# ----------------------------------------------------------------------------
-def test_fresh_config_editor_loads_initial_template(qtbot):
-    """codex#1: a freshly-opened ConfigEditor shows a populated form (set_mode in __init__).
-
-    Without the fix ``_template`` stays {} and a first Validate would emit a
-    config with empty parameter_names/values, launching a malformed worker.
-    """
-    from xpcsjax.gui.views.config_editor import ConfigEditor
-
-    w = ConfigEditor()
-    qtbot.addWidget(w)
-    cfg = w.current_config()
-    assert cfg.get("analysis_mode")  # a real mode, not empty
-    assert cfg["initial_parameters"]["parameter_names"]  # form is populated
-
-
-def test_scalar_initial_parameters_does_not_crash_form(qtbot):
-    """agy#2: a scalar `initial_parameters` must not raise AttributeError on raw→form."""
-    from xpcsjax.gui.views.config_editor import ConfigEditor
-
-    w = ConfigEditor()
-    qtbot.addWidget(w)
-    w.toggle_raw(True)
-    w._raw_edit.setPlainText("analysis_mode: laminar_flow\ninitial_parameters: invalid\n")
-    # Toggling raw off rebuilds the form from the malformed YAML — must not raise.
-    w.toggle_raw(False)
-    assert w._param_names == []  # treated as empty, no crash
-
-
-def test_raw_yaml_mode_edit_is_preserved(qtbot):
-    """agy#7: editing analysis_mode in raw YAML must survive the raw→form toggle."""
-    from xpcsjax.gui.views.config_editor import ConfigEditor
-
-    w = ConfigEditor()
-    qtbot.addWidget(w)
-    w.set_mode("static_isotropic")
-    w.toggle_raw(True)
-    w._raw_edit.setPlainText(
-        "analysis_mode: laminar_flow\n"
-        "initial_parameters:\n  parameter_names: [D0]\n  values: [100.0]\n"
-    )
-    w.toggle_raw(False)
-    # The combo (and therefore current_config) must reflect the raw-edited mode,
-    # not silently revert to static_isotropic.
-    assert w._mode_combo.currentText() == "laminar_flow"
-    assert w.current_config()["analysis_mode"] == "laminar_flow"
-
-
-# ----------------------------------------------------------------------------
 # service/config.py
 # ----------------------------------------------------------------------------
 def test_validate_config_scalar_initial_parameters_reports_not_crashes():
@@ -128,23 +78,6 @@ def test_residual_cleared_when_absent(qtbot):
     )
     rp.set_bundle(without_resid)
     assert not rp._residual.has_image()
-
-
-# ----------------------------------------------------------------------------
-# data_panel.py
-# ----------------------------------------------------------------------------
-def test_data_panel_non_hdf5_file_no_crash(qtbot, tmp_path):
-    """codex#5: a non-HDF5 file surfaces a recoverable error, never an uncaught OSError."""
-    from xpcsjax.gui.views.data_panel import DataPanel
-
-    bad = tmp_path / "not_really.h5"
-    bad.write_text("this is plain text, not HDF5", encoding="utf-8")
-    panel = DataPanel()
-    qtbot.addWidget(panel)
-    panel.load(str(bad))  # must not raise
-    assert panel.last_error() is not None
-    assert panel.metadata_tree().topLevelItemCount() == 0
-    assert not panel.preview_view().has_image()
 
 
 # ----------------------------------------------------------------------------
@@ -235,51 +168,6 @@ def _window(qtbot):
     return win
 
 
-def test_temp_config_not_unlinked_mid_session(qtbot, tmp_path, monkeypatch):
-    """codex#2/Claude#1: a second config_ready must NOT delete the first temp config.
-
-    The first run's worker still opens it by path; eagerly unlinking it on the
-    next Validate yanked the file out from under an active/pending worker.
-    """
-    win = _window(qtbot)
-    # Stop the queue from actually spawning workers.
-    monkeypatch.setattr(win._queue, "enqueue", lambda *a, **k: None)
-    cfg = {
-        "analysis_mode": "static_isotropic",
-        "initial_parameters": {"parameter_names": ["D0"], "values": [100.0]},
-    }
-    win._on_config_ready(dict(cfg))
-    first_paths = list(win._dataset_temp_paths.values())
-    assert len(first_paths) == 1
-    from pathlib import Path
-
-    assert Path(first_paths[0]).exists()
-    win._on_config_ready(dict(cfg))  # second validate
-    # The first temp file must still exist (not eagerly unlinked).
-    assert Path(first_paths[0]).exists()
-    assert len(win._dataset_temp_paths) == 2
-
-
-def test_close_event_deletes_temp_configs(qtbot, monkeypatch):
-    """agy#5/Claude#6: closeEvent unlinks every session temp config."""
-    from pathlib import Path
-
-    from PySide6.QtGui import QCloseEvent
-
-    win = _window(qtbot)
-    monkeypatch.setattr(win._queue, "enqueue", lambda *a, **k: None)
-    cfg = {
-        "analysis_mode": "static_isotropic",
-        "initial_parameters": {"parameter_names": ["D0"], "values": [100.0]},
-    }
-    win._on_config_ready(dict(cfg))
-    paths = [Path(p) for p in win._dataset_temp_paths.values()]
-    assert all(p.exists() for p in paths)
-    win.closeEvent(QCloseEvent())
-    assert all(not p.exists() for p in paths)
-    assert win._dataset_temp_paths == {}
-
-
 def test_open_project_sets_active_dataset(qtbot, tmp_path):
     """codex#4: after Open Project, Run works (an active dataset is established)."""
     win = _window(qtbot)
@@ -312,19 +200,3 @@ def test_expand_path_resolves_env_and_user(tmp_path, monkeypatch):
     # ~ is expanded too (no-op-safe on a plain absolute path).
     assert str(_expand_path("~/foo")).startswith(str(__import__("pathlib").Path.home()))
     assert _expand_path(str(real)) == real  # plain absolute path is unchanged
-
-
-def test_banners_and_chips_cleared_on_run_switch(qtbot):
-    """Claude#3: switching the active run clears the prior run's banners and lit chips."""
-    win = _window(qtbot)
-    r1 = "a" * 32
-    r2 = "b" * 32
-    win._queue.run_status_changed.emit(r1, "running")
-    win._queue.banner_received.emit(r1, "ANTI-DEGENERACY: Layer 2", "info")
-    win._queue.layer_status_received.emit(r1, {"L1": True, "L2": True})
-    assert win._banners.count() == 1
-    assert win._chips.active_layers()
-    # A new run becomes active.
-    win._queue.run_status_changed.emit(r2, "running")
-    assert win._banners.count() == 0  # prior run's banners cleared
-    assert not win._chips.active_layers()  # prior run's lit chips cleared

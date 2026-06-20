@@ -55,12 +55,6 @@ def test_diagnostics_module_is_jax_free():
     assert _probe_import("xpcsjax.gui.ipc.diagnostics") == 0
 
 
-def test_diagnostics_panel_is_jax_free():
-    pytest.importorskip("PySide6")
-    pytest.importorskip("pyqtgraph")
-    assert _probe_import("xpcsjax.gui.views.diagnostics_panel") == 0
-
-
 def test_project_modules_are_jax_free():
     """xpcsjax.gui.project.model must not import JAX (stdlib-only)."""
     assert _probe_import("xpcsjax.gui.project.model") == 0
@@ -148,23 +142,14 @@ def test_data_inspect_is_jax_free():
     assert _probe_import("xpcsjax.gui.data_inspect") == 0
 
 
-def test_config_editor_is_jax_free():
-    """xpcsjax.gui.views.config_editor must not import JAX at module level."""
+def test_config_dialogs_is_jax_free():
+    """xpcsjax.gui.views.config_dialogs must not import JAX at module level.
+
+    The dialog only collects inputs; ``generate_config`` (which pulls
+    ConfigManager) is imported lazily by MainWindow, keeping the GUI JAX-free.
+    """
     pytest.importorskip("PySide6")
-    assert _probe_import("xpcsjax.gui.views.config_editor") == 0
-
-
-def test_data_panel_is_jax_free():
-    """xpcsjax.gui.views.data_panel must not import JAX at module level."""
-    pytest.importorskip("PySide6")
-    pytest.importorskip("pyqtgraph")
-    assert _probe_import("xpcsjax.gui.views.data_panel") == 0
-
-
-def test_fit_panel_is_jax_free():
-    """xpcsjax.gui.views.fit_panel must not import JAX at module level."""
-    pytest.importorskip("PySide6")
-    assert _probe_import("xpcsjax.gui.views.fit_panel") == 0
+    assert _probe_import("xpcsjax.gui.views.config_dialogs") == 0
 
 
 def test_inspector_is_jax_free():
