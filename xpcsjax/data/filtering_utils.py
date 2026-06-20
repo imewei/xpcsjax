@@ -455,11 +455,21 @@ class XPCSDataFilter:
             if finite_fraction < 0.9:
                 return 0.0  # Poor quality if too many non-finite values
 
-            # Check diagonal values (should be around 1.0 at t=0)
-            diagonal = np.diag(matrix)
-            t0_correlation = diagonal[0] if len(diagonal) > 0 else 0.0
+            # Check the smallest *non-zero* lag (first off-diagonal), where the
+            # Siegert relation g2(tau) in [1.0, 2.0] actually holds. The EXACT
+            # tau=0 main diagonal (matrix[k, k]) is the self-correlation /
+            # shot-noise spike — for raw two-time XPCS it routinely sits at ~2.4
+            # (single pixels far higher) and is excluded from analysis. Reading
+            # diagonal[0] here penalized every clean angle of valid data and,
+            # because this score gates _apply_quality_filtering, silently dropped
+            # it from the fit. Mirrors the corrected check in data/validation.py.
+            if matrix.ndim == 2 and matrix.shape[1] > 1:
+                near_zero_lag_correlation = float(matrix[0, 1])
+            else:
+                diagonal = np.diag(matrix)
+                near_zero_lag_correlation = float(diagonal[0]) if len(diagonal) > 0 else 0.0
 
-            diagonal_quality = 1.0 if 0.5 <= t0_correlation <= 2.0 else 0.5
+            diagonal_quality = 1.0 if 0.5 <= near_zero_lag_correlation <= 2.0 else 0.5
 
             # Check matrix symmetry.
             # Use nanmean: up to 10% non-finite values pass the finite_fraction guard.

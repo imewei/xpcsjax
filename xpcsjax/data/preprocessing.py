@@ -567,6 +567,15 @@ class PreprocessingPipeline:
         corrected_data = {
             k: (np.array(v) if hasattr(v, "shape") else copy.deepcopy(v)) for k, v in data.items()
         }
+        # Diagonal correction yields fractional values. If the source c2_exp is an
+        # integer dtype, truncation occurs in two places: the per-matrix correction
+        # copies the int matrix and writes float diagonals back into it, and the
+        # buffer assignment below stores floats into an int array. Both silently
+        # lose precision, so upcast BOTH the read source and the write buffer to
+        # float64 (mirrors the guard in _normalize_data).
+        if hasattr(c2_exp, "shape") and not np.issubdtype(np.asarray(c2_exp).dtype, np.floating):
+            c2_exp = np.asarray(c2_exp, dtype=np.float64)
+            corrected_data["c2_exp"] = np.asarray(corrected_data["c2_exp"], dtype=np.float64)
 
         # Use unified module if available
         if HAS_DIAGONAL_CORRECTION and apply_diagonal_correction is not None:
