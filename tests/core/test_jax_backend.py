@@ -325,3 +325,48 @@ class TestSafeSincContinuity:
         # Both gradients should be finite (no discontinuity)
         assert math.isfinite(g_in), f"gradient inside threshold must be finite: {g_in}"
         assert math.isfinite(g_out), f"gradient outside threshold must be finite: {g_out}"
+
+
+# ---------------------------------------------------------------------------
+# T7: compute_g1_shear / ShearModel.compute_g1 raise a CLEAR error on dt=None
+#     Regression: the shear path has no dt fallback (sinc prefactor is
+#     dt-dependent). Its docstring documents "Raises TypeError if dt is None",
+#     but nothing enforced it — dt=None fell through to `0.5/π*q*L*dt`, raising a
+#     cryptic "unsupported operand type(s) for *: 'float' and 'NoneType'" deep in
+#     the kernel. ShearModel.compute_g1 advertised `dt: float | None = None`,
+#     so calling it with the default crashed (unlike its diffusion sibling, which
+#     estimates dt). The guard turns that into an explicit, documented error.
+# ---------------------------------------------------------------------------
+class TestShearDtNoneContract:
+    @staticmethod
+    def _grids():
+        t = jnp.linspace(0.0, 1.0, 4, dtype=jnp.float64)
+        phi = jnp.array([0.0, 45.0], dtype=jnp.float64)
+        # 7-param laminar vector [D0, alpha, D_offset, gamma0, beta, g_offset, phi0]
+        params = jnp.array([100.0, 0.0, 10.0, 0.01, 0.0, 0.0, 0.0], dtype=jnp.float64)
+        return params, t, phi
+
+    def test_backend_shear_dt_none_raises_typeerror(self) -> None:
+        from xpcsjax.core.jax_backend import compute_g1_shear
+
+        params, t, phi = self._grids()
+        with pytest.raises(TypeError, match="dt must be provided"):
+            compute_g1_shear(params, t, t, phi, q=0.01, L=1e7, dt=None)
+
+    def test_backend_shear_dt_provided_ok(self) -> None:
+        """A concrete dt still produces a finite sinc² surface (guard is None-only)."""
+        from xpcsjax.core.jax_backend import compute_g1_shear
+
+        params, t, phi = self._grids()
+        out = compute_g1_shear(params, t, t, phi, q=0.01, L=1e7, dt=0.1)
+        assert jnp.all(jnp.isfinite(out))
+
+    def test_shearmodel_compute_g1_default_dt_raises_clearly(self) -> None:
+        """ShearModel.compute_g1 default (dt=None) must raise the clear guard,
+        not a cryptic NoneType arithmetic error."""
+        from xpcsjax.core.models import ShearModel
+
+        _, t, phi = self._grids()
+        shear_params = jnp.array([0.01, 0.0, 0.0, 0.0], dtype=jnp.float64)
+        with pytest.raises(TypeError, match="dt must be provided"):
+            ShearModel().compute_g1(shear_params, t, t, phi, q=0.01, L=1e7)

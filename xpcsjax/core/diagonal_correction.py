@@ -498,6 +498,11 @@ def _interpolation_correction_numpy(
     """
     c2_corrected = c2_mat.copy()
     size = c2_mat.shape[0]
+    if size <= 1:
+        # No off-diagonal neighbors to interpolate from; the i == 0 / i == size-1
+        # edge branches below index columns 1 / size-2 which are out of bounds
+        # for a 1x1 matrix. Mirror the basic/jax short-circuit (lines 413, 281).
+        return c2_corrected
 
     interp_method = config.get("interpolation_method", "linear")
 

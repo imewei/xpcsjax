@@ -252,7 +252,7 @@ class ShearModel(PhysicsModelBase):
 
         # Create full parameter array with dummy diffusion parameters
         full_params = jnp.concatenate([jnp.array([100.0, 0.0, 10.0]), params])
-        return compute_g1_shear(full_params, t1, t2, phi, q, L, dt)  # type: ignore[arg-type]
+        return compute_g1_shear(full_params, t1, t2, phi, q, L, dt)
 
     def get_parameter_bounds(self) -> list[tuple[float, float]]:
         """Return the standard bounds for the shear parameters."""

@@ -1049,7 +1049,7 @@ def compute_g1_shear(
     phi: jnp.ndarray,
     q: float,
     L: float,
-    dt: float,
+    dt: float | None,
 ) -> jnp.ndarray:
     """Compute the g1 shear contribution using a configuration ``dt``.
 
@@ -1095,6 +1095,16 @@ def compute_g1_shear(
     # Note: dt validation moved to caller to avoid JAX tracing issues.
     # The residual function validates dt before JIT compilation.
     # If dt validation is needed here, it must be done before the function is traced.
+
+    # dt is REQUIRED — the sinc prefactor (0.5/π * q * L * dt) is dt-dependent and
+    # there is no safe default frame rate (mirrors compute_g1_total's policy). Raise
+    # explicitly on a Python-level None (before tracing) instead of letting the
+    # arithmetic below fail with a cryptic "float * NoneType" deep in the kernel.
+    if dt is None:
+        raise TypeError(
+            "compute_g1_shear: dt must be provided explicitly (seconds). "
+            "The sinc prefactor is dt-dependent; there is no safe default frame rate."
+        )
 
     # Handle 1D time arrays by creating meshgrids (cached for performance)
     t1, t2 = get_cached_meshgrid(t1, t2)

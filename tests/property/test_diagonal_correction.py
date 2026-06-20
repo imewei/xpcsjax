@@ -40,3 +40,22 @@ def test_off_diagonal_preserved():
 
     off_diag_mask = ~np.eye(N, dtype=bool)
     np.testing.assert_allclose(corrected[off_diag_mask], c2[off_diag_mask])
+
+
+@pytest.mark.parametrize("method", ["basic", "statistical", "interpolation"])
+def test_degenerate_1x1_does_not_crash(method):
+    """A 1x1 matrix has no off-diagonal neighbors; every method must return it
+    unchanged rather than crash.
+
+    Regression: ``_interpolation_correction_numpy`` lacked the ``size <= 1``
+    short-circuit that ``basic``/``jax`` paths have, so its ``i == 0`` edge
+    branch indexed ``c2_mat[0, 1]`` — out of bounds for a (1, 1) array —
+    raising ``IndexError`` while the other methods returned cleanly.
+    """
+    c2 = np.array([[5.0]])
+
+    corrected = apply_diagonal_correction(c2, method=method, backend="numpy")
+
+    assert corrected.shape == (1, 1)
+    # No neighbors to interpolate from → the single value is left untouched.
+    np.testing.assert_allclose(corrected, c2)

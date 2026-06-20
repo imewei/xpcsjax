@@ -389,8 +389,13 @@ def estimate_contrast_offset_from_quantiles(
     c2 = np.asarray(c2_data)
     dt = np.asarray(delta_t)
 
-    # Filter non-finite values
-    finite_mask = np.isfinite(c2)
+    # Filter non-finite values. Mask on BOTH arrays: a non-finite delta_t would
+    # poison the percentile-based lag thresholds below (np.percentile(dt, ...)
+    # → NaN), making both lag masks all-False and silently collapsing the
+    # lag-separated floor/ceiling estimation to undifferentiated global
+    # quantiles. delta_t is |t1 - t2| from monotone time axes today (so this is
+    # defensive), and on all-finite inputs the mask is unchanged.
+    finite_mask = np.isfinite(c2) & np.isfinite(dt)
     if not np.all(finite_mask):
         c2 = c2[finite_mask]
         dt = dt[finite_mask]
