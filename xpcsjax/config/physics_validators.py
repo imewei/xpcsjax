@@ -29,10 +29,26 @@ xpcsjax.config.heterodyne_physics_validators : Sibling validators for the
     14-parameter heterodyne (``two_component``) model.
 """
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
+
+
+def _is_non_finite(value: float) -> bool:
+    """Return ``True`` for ``NaN`` / ``±inf``; ``False`` for finite or non-numeric.
+
+    IEEE-754 makes every relational comparison with ``NaN`` return ``False``, so
+    the rule predicates in :data:`PHYSICS_CONSTRAINTS` would silently *accept* a
+    ``NaN``; this helper lets :func:`validate_single_parameter` flag it instead.
+    A non-numeric ``value`` returns ``False`` so it falls through to the existing
+    rule loop (which already tolerates non-numerics via its ``except`` clause).
+    """
+    try:
+        return not math.isfinite(value)
+    except (TypeError, ValueError):
+        return False
 
 
 # Severity levels for constraint violations
@@ -233,6 +249,21 @@ def validate_single_parameter(
     min_priority = SEVERITY_PRIORITY.get(min_severity, 2)
 
     if param not in PHYSICS_CONSTRAINTS:
+        return violations
+
+    # Non-finite values (NaN / ±inf) are physically impossible for any
+    # constrained parameter. Flag them explicitly and uniformly as an ERROR;
+    # the relational rules below cannot (NaN compares False to everything).
+    if _is_non_finite(value):
+        if SEVERITY_PRIORITY[ConstraintSeverity.ERROR] >= min_priority:
+            violations.append(
+                PhysicsViolation(
+                    param=param,
+                    value=value,
+                    message="non-finite value (NaN or infinity is physically impossible)",
+                    severity=ConstraintSeverity.ERROR,
+                )
+            )
         return violations
 
     for rule in PHYSICS_CONSTRAINTS[param]:

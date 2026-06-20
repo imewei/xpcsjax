@@ -177,11 +177,16 @@ class ParameterManager:
             # type-checks cleanly.
             param_name: str = self._param_name_mapping.get(raw_name, raw_name)
 
-            # Convert min/max to floats (handles YAML string parsing like "1e5")
-            if "min" in bound_dict:
-                bound_dict["min"] = float(bound_dict["min"])
-            if "max" in bound_dict:
-                bound_dict["max"] = float(bound_dict["max"])
+            # Convert min/max to floats (handles YAML string parsing like
+            # "1e5"). A null bound ("min:" left blank in YAML) is treated as
+            # unspecified and dropped so the registry default is preserved,
+            # instead of raising TypeError from float(None).
+            for _bound_key in ("min", "max"):
+                if _bound_key in bound_dict:
+                    if bound_dict[_bound_key] is None:
+                        del bound_dict[_bound_key]
+                    else:
+                        bound_dict[_bound_key] = float(bound_dict[_bound_key])
 
             # Update default bounds with config values. ``bound_dict`` is
             # typed ``dict[Any, Any]`` because it came from a YAML parse;

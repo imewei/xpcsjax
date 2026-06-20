@@ -199,6 +199,20 @@ PHYSICS_CONSTRAINTS: dict[str, list[ConstraintRule]] = {
 }
 
 
+def _is_non_finite(value: float) -> bool:
+    """Return ``True`` for ``NaN`` / ``±inf``; ``False`` for finite or non-numeric.
+
+    IEEE-754 makes relational comparisons with ``NaN`` return ``False``, so most
+    rules would silently accept it (only the ``f0`` / ``f3`` ``not (0 <= v <= 1)``
+    rules catch it, by accident). This helper lets
+    :func:`validate_single_parameter` flag non-finite values uniformly.
+    """
+    try:
+        return not bool(np.isfinite(value))
+    except (TypeError, ValueError):
+        return False
+
+
 def validate_single_parameter(
     param: str,
     value: float,
@@ -231,6 +245,22 @@ def validate_single_parameter(
 
     violations: list[PhysicsViolation] = []
     rules = PHYSICS_CONSTRAINTS.get(param, [])
+
+    # Non-finite values (NaN / ±inf) are physically impossible. Flag uniformly
+    # as an ERROR for every constrained parameter (the relational rules below
+    # accept NaN silently, since NaN compares False to everything).
+    if rules and _is_non_finite(value):
+        if severity_order[ConstraintSeverity.ERROR] >= min_level:
+            violations.append(
+                PhysicsViolation(
+                    parameter=param,
+                    value=value,
+                    message=f"{param}={value:.3e}: non-finite value "
+                    "(NaN or infinity is physically impossible)",
+                    severity=ConstraintSeverity.ERROR,
+                )
+            )
+        return violations
 
     for rule in rules:
         if severity_order[rule.severity] < min_level:

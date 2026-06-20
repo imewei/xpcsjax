@@ -466,10 +466,20 @@ class ConfigManager:
         keys = key.split(".")
         config_ref = self.config
 
-        # Navigate to the parent of the target key
+        # Navigate to the parent of the target key, creating intermediate
+        # mappings as needed. A ``None`` intermediate (an explicit null YAML
+        # section such as ``optimization:`` left blank) is treated as absent and
+        # replaced with a mapping; a non-dict scalar is a genuine shape conflict
+        # and raises a clear error instead of a cryptic TypeError downstream.
         for k in keys[:-1]:
-            if k not in config_ref:
+            existing = config_ref.get(k)
+            if existing is None:
                 config_ref[k] = {}
+            elif not isinstance(existing, dict):
+                raise TypeError(
+                    f"Cannot set {key!r}: intermediate key {k!r} holds a "
+                    f"{type(existing).__name__}, not a mapping"
+                )
             config_ref = config_ref[k]
 
         # Set the value
