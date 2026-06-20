@@ -21,6 +21,7 @@ xpcsjax.config.parameter_manager.ParameterManager : Resolves active parameters
 """
 
 import json
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -304,9 +305,12 @@ class ConfigManager:
                 version = self.config["metadata"].get("config_version", "Unknown")
                 logger.info(f"Configuration version: {version}")
 
-            # Optional validation (can be disabled via environment variable)
-            import os
+            # Anchor relative data paths to the config file's directory so the
+            # same config loads identically from the CLI (run inside the data
+            # folder) and the GUI worker subprocess (run elsewhere).
+            self._resolve_data_paths()
 
+            # Optional validation (can be disabled via environment variable)
             if os.environ.get("XPCSJAX_VALIDATE_CONFIG", "true").lower() == "true":
                 self._validate_config()
 
@@ -329,6 +333,59 @@ class ConfigManager:
             logger.error(f"Configuration parsing error: {e}")
             logger.info("Using default configuration...")
             self.config = self._get_default_config()
+
+    # Path keys under ``experimental_data`` that name a file or directory. These
+    # are the keys the loader resolves against ``data_folder_path`` / reads
+    # directly (see ``xpcsjax/data/xpcs_loader.py``).
+    _DATA_PATH_KEYS: tuple[str, ...] = (
+        "data_folder_path",
+        "cache_file_path",
+        "cache_directory",
+        "phi_angles_path",
+        "file_path",
+    )
+
+    def _resolve_data_paths(self) -> None:
+        """Anchor relative ``experimental_data`` paths to the config's directory.
+
+        Paths in a config file are interpreted relative to *that file*, not the
+        process working directory — so a config that uses ``data_folder_path:
+        "./"`` loads the same data whether launched from the CLI (run inside the
+        data folder) or from the GUI worker subprocess (a separate process whose
+        working directory is the launch dir, not the config dir). Without this,
+        ``./`` resolved against the wrong CWD and the loader raised
+        ``FileNotFoundError`` even though the data sat beside the config.
+
+        Resolution order per key: expand ``${VARS}`` and a leading ``~``; if the
+        result is still a plain relative path, join it onto the config file's
+        directory. No-ops (so the rtol=1e-10 parity baselines are untouched):
+
+        - absolute paths (``expandvars``/``expanduser`` are no-ops on them);
+        - ``${VARS}`` that stay unresolved — an unset env var is left literal so
+          the failure is honest, never silently re-anchored to the config dir;
+        - the ``config_override`` path, which has no backing file to anchor to.
+        """
+        if not self.config_file or not isinstance(self.config, dict):
+            return
+        exp = self.config.get("experimental_data")
+        if not isinstance(exp, dict):
+            return
+        try:
+            base = str(Path(self.config_file).expanduser().resolve().parent)
+        except (OSError, ValueError):  # pragma: no cover — defensive
+            return
+
+        for key in self._DATA_PATH_KEYS:
+            value = exp.get(key)
+            if not isinstance(value, str) or not value:
+                continue
+            expanded = os.path.expanduser(os.path.expandvars(value))
+            if "$" in expanded:
+                # Unresolved ${VAR}: leave it literal rather than mis-anchor it.
+                continue
+            if not os.path.isabs(expanded):
+                expanded = os.path.normpath(os.path.join(base, expanded))
+            exp[key] = expanded
 
     def _get_default_config(self) -> dict[str, Any]:
         """Build the minimal fallback configuration mapping.
