@@ -11,13 +11,11 @@ pytest.importorskip("pyqtgraph")
 from xpcsjax.gui.views.plots_view import (  # noqa: E402
     PerAngleOverlayView,
     ResidualMapView,
-    ResultPlots,
     TwoTimeMapView,
 )
-from xpcsjax.gui.viz_bundle import VizBundle  # noqa: E402, I001
 
 # ---------------------------------------------------------------------------
-# Verbatim tests from brief
+# Sub-widget tests (the reusable primitives PhiResultsGrid composes)
 # ---------------------------------------------------------------------------
 
 
@@ -34,20 +32,6 @@ def test_superdiag_mean_handles_degenerate_matrix():
         warnings.simplefilter("error")  # any RuntimeWarning becomes a hard failure
         val = _superdiag_mean(np.array([[5.0]]))
     assert np.isnan(val)
-
-
-def test_render_degenerate_bundle_is_finite_safe(qtbot):
-    # A degenerate (n_phi, 1, 1) bundle has no tau=dt lag; rendering must not raise
-    # or emit a RuntimeWarning (regression for the empty-superdiagonal NaN path).
-    import warnings
-
-    w = ResultPlots()
-    qtbot.addWidget(w)
-    exp = np.ones((3, 1, 1))
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        w.set_bundle(VizBundle(exp_c2=exp, phi_angles=np.array([0.0, 45.0, 90.0])))
-    assert w.phi_count() == 3
 
 
 def test_two_time_map_accepts_array(qtbot):
@@ -74,44 +58,5 @@ def test_per_angle_overlay_plots_curves(qtbot):
     )
     assert w.curve_count() == 2
 
-
-def test_result_plots_sets_bundle(qtbot):
-    w = ResultPlots()
-    qtbot.addWidget(w)
-    exp = np.random.default_rng(0).random((2, 16, 16))
-    w.set_bundle(
-        VizBundle(
-            exp_c2=exp,
-            residuals=np.zeros_like(exp),
-            phi_angles=np.array([0.0, 45.0]),
-        )
-    )
-    assert w.phi_count() == 2
-    assert w.two_time().has_image()
-
-
-# ---------------------------------------------------------------------------
-# Graceful-degradation tests (required by brief)
-# ---------------------------------------------------------------------------
-
-
-def test_set_bundle_none_does_not_crash(qtbot):
-    """set_bundle(None) must not raise; phi_count() == 0."""
-    w = ResultPlots()
-    qtbot.addWidget(w)
-    w.set_bundle(None)
-    assert w.phi_count() == 0
-
-
-def test_bundle_missing_optional_fields_does_not_crash(qtbot):
-    """A bundle with residuals=None, model_c2=None, phi_angles=None must render without error."""
-    w = ResultPlots()
-    qtbot.addWidget(w)
-    exp = np.random.default_rng(1).random((3, 8, 8))
-    # All optional fields absent
-    bundle = VizBundle(exp_c2=exp)
-    w.set_bundle(bundle)
-    # phi_count derived from exp_c2 leading dim when phi_angles is None
-    assert w.phi_count() == 3
-    # two-time view must still render the selected phi slice
-    assert w.two_time().has_image()
+# (ResultPlots removed in the redesign — per-phi grid behavior is covered by
+# tests/gui/test_gui_redesign.py::PhiResultsGrid tests.)

@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QScrollArea,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -40,6 +39,16 @@ def _superdiag_mean(matrix: np.ndarray) -> float:
     if diag.size == 0:
         return float("nan")
     return float(np.mean(diag))
+
+
+def _leading_dim_matches(arr: np.ndarray | None, n: int) -> bool:
+    """Return ``True`` iff *arr* is non-None and its leading dim equals *n*.
+
+    Used to reconcile a bundle's optional ``model_c2`` / ``residuals`` against
+    ``exp_c2``'s phi count so a mismatched (corrupt/partial) artifact degrades to
+    placeholders instead of raising mid-loop.
+    """
+    return arr is not None and np.asarray(arr).shape[0] == n
 
 
 class TwoTimeMapView(pg.GraphicsLayoutWidget):
@@ -166,139 +175,15 @@ class PerAngleOverlayView(pg.PlotWidget):
         return len(self._curves)
 
 
-class ResultPlots(QWidget):
-    """Composite widget: two-time map + residual map + per-angle overlay + phi spinbox.
-
-    ``set_bundle`` drives all three sub-views from a single :class:`VizBundle`.
-    The phi spinbox selects which phi slice is shown in the map views.
-
-    Parameters
-    ----------
-    parent : QWidget or None
-        Optional parent widget.
-    """
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent=parent)
-
-        self._two_time = TwoTimeMapView()
-        self._residual = ResidualMapView()
-        self._overlay = PerAngleOverlayView()
-
-        self._spinbox = QSpinBox()
-        self._spinbox.setMinimum(0)
-        self._spinbox.setMaximum(0)
-        self._spinbox.valueChanged.connect(self._on_phi_changed)
-
-        self._bundle: VizBundle | None = None
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(self._spinbox)
-        layout.addWidget(self._two_time)
-        layout.addWidget(self._residual)
-        layout.addWidget(self._overlay)
-        self.setLayout(layout)
-
-    # ------------------------------------------------------------------
-    # Public interface
-    # ------------------------------------------------------------------
-
-    def set_bundle(self, bundle: VizBundle | None) -> None:
-        """Load a :class:`VizBundle` into all plot views.
-
-        Parameters
-        ----------
-        bundle : VizBundle or None
-            Data bundle from the fit.  ``None`` clears all views.
-        """
-        self._bundle = bundle
-
-        if bundle is None:
-            self._spinbox.setMaximum(0)
-            self._spinbox.setValue(0)
-            # Clear every sub-view so a prior run's plots don't linger.
-            self._two_time.clear_map()
-            self._residual.clear_map()
-            self._overlay.clear()
-            return
-
-        n_phi = bundle.exp_c2.shape[0]
-        # Block signals while resetting range so _on_phi_changed doesn't
-        # fire until we call it explicitly with the initial slice.
-        self._spinbox.blockSignals(True)
-        self._spinbox.setMinimum(0)
-        self._spinbox.setMaximum(max(0, n_phi - 1))
-        self._spinbox.setValue(0)
-        self._spinbox.blockSignals(False)
-
-        self._render_phi(0)
-
-    def phi_count(self) -> int:
-        """Return number of phi slices in the current bundle (0 when no bundle)."""
-        if self._bundle is None:
-            return 0
-        return int(self._bundle.exp_c2.shape[0])
-
-    def two_time(self) -> TwoTimeMapView:
-        """Return the :class:`TwoTimeMapView` sub-widget."""
-        return self._two_time
-
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
-    def _on_phi_changed(self, idx: int) -> None:
-        """Slot: re-render map views when the spinbox value changes."""
-        if self._bundle is None:
-            return
-        self._render_phi(idx)
-
-    def _render_phi(self, idx: int) -> None:
-        """Render all views for phi slice ``idx``.
-
-        Parameters
-        ----------
-        idx : int
-            Phi index into the bundle's leading dimension.
-        """
-        bundle = self._bundle
-        if bundle is None:
-            return
-
-        n_phi = bundle.exp_c2.shape[0]
-        idx = max(0, min(idx, n_phi - 1))
-
-        # --- Two-time map ---
-        self._two_time.show_map(bundle.exp_c2[idx])
-
-        # --- Residual map (clear if absent, so a prior run's residual never lingers) ---
-        if bundle.residuals is not None:
-            self._residual.show_map(bundle.residuals[idx])
-        else:
-            self._residual.clear_map()
-
-        # --- Per-angle overlay ---
-        # Scalar per φ = mean of first superdiagonal (τ=dt).
-        phi_angles = bundle.phi_angles
-        if phi_angles is None:
-            phi_angles = np.arange(n_phi, dtype=float)
-
-        exp_g2 = np.array([_superdiag_mean(bundle.exp_c2[i]) for i in range(n_phi)])
-        model_g2: np.ndarray | None = None
-        if bundle.model_c2 is not None:
-            model_g2 = np.array([_superdiag_mean(bundle.model_c2[i]) for i in range(n_phi)])
-
-        self._overlay.show_overlay(phi_angles, exp_g2, model_g2)
-
-
 def find_diagnostics_png(result_dir: str | Path | None, phi_idx: int) -> Path | None:
     """Locate the per-angle residual-diagnostics PNG for slice ``phi_idx``.
 
     The fit writes ``residuals_phi_{idx:03d}_{deg:.3f}deg.png`` into the run's
     plot directory (``nlsq_plots.py``). The exact ``deg`` suffix is not known
-    here, so we glob by the zero-padded index and return the first match. Searches
-    recursively under *result_dir* so it works regardless of whether the PNGs sit
-    in ``<result_dir>/plots/`` or directly under the run dir.
+    here, so we glob by the zero-padded index and return the first match. The
+    search is non-recursive and bounded to the two known locations — the
+    ``<result_dir>/plots`` directory and the run dir itself — so it never walks
+    a large tree on the GUI thread.
 
     Parameters
     ----------
@@ -315,14 +200,19 @@ def find_diagnostics_png(result_dir: str | Path | None, phi_idx: int) -> Path | 
     if result_dir is None:
         return None
     root = Path(result_dir)
-    if not root.is_dir():
-        return None
     pattern = f"residuals_phi_{phi_idx:03d}_*.png"
-    try:
-        matches = sorted(root.rglob(pattern))
-    except OSError:
-        return None
-    return matches[0] if matches else None
+    # The fit writes PNGs under <result_dir>/plots/; also accept them directly in
+    # the run dir. Non-recursive glob on each — no rglob tree-walk on the GUI thread.
+    for search_dir in (root / "plots", root):
+        try:
+            if not search_dir.is_dir():
+                continue
+            matches = sorted(search_dir.glob(pattern))
+        except OSError:
+            continue
+        if matches:
+            return matches[0]
+    return None
 
 
 class _PhiSection(QWidget):
@@ -450,16 +340,22 @@ class PhiResultsGrid(QWidget):
             return
 
         n_phi = int(bundle.exp_c2.shape[0])
+        # Defensive length reconciliation: a malformed/partial artifact whose
+        # optional arrays disagree with exp_c2's leading dim must degrade to
+        # placeholders, never raise an IndexError mid-loop. (The in-package
+        # pipeline always agrees; this guards hand-edited / external bundles.)
+        model_c2 = bundle.model_c2 if _leading_dim_matches(bundle.model_c2, n_phi) else None
+        residuals = bundle.residuals if _leading_dim_matches(bundle.residuals, n_phi) else None
         phi_angles = bundle.phi_angles
-        if phi_angles is None:
+        if phi_angles is None or np.asarray(phi_angles).shape[0] != n_phi:
             phi_angles = np.arange(n_phi, dtype=float)
         phi_angles = np.asarray(phi_angles, dtype=float)
 
         # Summary overlay (g2 vs all phi) pinned at the top.
         exp_g2 = np.array([_superdiag_mean(bundle.exp_c2[i]) for i in range(n_phi)])
         model_g2: np.ndarray | None = None
-        if bundle.model_c2 is not None:
-            model_g2 = np.array([_superdiag_mean(bundle.model_c2[i]) for i in range(n_phi)])
+        if model_c2 is not None:
+            model_g2 = np.array([_superdiag_mean(model_c2[i]) for i in range(n_phi)])
         overlay = PerAngleOverlayView()
         overlay.setMinimumHeight(200)
         overlay.show_overlay(phi_angles, exp_g2, model_g2)
@@ -468,8 +364,8 @@ class PhiResultsGrid(QWidget):
 
         # One section per phi angle, sized to n_phi.
         for i in range(n_phi):
-            fitted = bundle.model_c2[i] if bundle.model_c2 is not None else None
-            residual = bundle.residuals[i] if bundle.residuals is not None else None
+            fitted = model_c2[i] if model_c2 is not None else None
+            residual = residuals[i] if residuals is not None else None
             section = _PhiSection(
                 exp_2d=bundle.exp_c2[i],
                 fitted_2d=fitted,

@@ -201,3 +201,124 @@ def test_file_menu_has_workflow_actions(qtbot):
         "action_edit_config",
         "action_load_config",
     } <= names
+
+
+def test_load_config_in_both_toolbar_and_menu_and_order(qtbot):
+    """Spec (d)/(e): Load Config on BOTH surfaces; File menu in the spec'd order."""
+    from PySide6.QtWidgets import QMenu, QToolBar
+
+    win = _window(qtbot)
+    toolbar = win.findChild(QToolBar)
+    file_menu = next(m for m in win.menuBar().findChildren(QMenu) if m.title() == "File")
+
+    def names(widget):
+        return [a.objectName() for a in widget.actions() if a.objectName()]
+
+    assert "action_load_config" in names(toolbar)
+    assert "action_load_config" in names(file_menu)
+    # The same QAction object is reused across both surfaces (never drifts).
+    tb_load = next(a for a in toolbar.actions() if a.objectName() == "action_load_config")
+    menu_load = next(a for a in file_menu.actions() if a.objectName() == "action_load_config")
+    assert tb_load is menu_load
+    # File-menu order matches the spec.
+    assert names(file_menu) == [
+        "action_create_project",
+        "action_create_config",
+        "action_edit_config",
+        "action_load_config",
+        "action_run",
+        "action_cancel",
+        "action_export_figure",
+        "action_save_project",
+        "action_open_project",
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Triangulated-review fixes (codex / agy / Claude workflow)
+# ---------------------------------------------------------------------------
+def test_phi_grid_degenerate_bundle_is_finite_safe(qtbot):
+    """codex/agy: a degenerate (n_phi,1,1) bundle (no tau=dt lag) renders without warning."""
+    import warnings
+
+    grid = PhiResultsGrid()
+    qtbot.addWidget(grid)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # any RuntimeWarning is a hard failure
+        grid.set_bundle(VizBundle(exp_c2=np.ones((3, 1, 1)), phi_angles=np.array([0.0, 45.0, 90.0])))
+    assert grid.section_count() == 3
+
+
+def test_phi_grid_tolerates_mismatched_optional_lengths(qtbot):
+    """codex MEDIUM: optional arrays shorter than n_phi must degrade, never IndexError."""
+    grid = PhiResultsGrid()
+    qtbot.addWidget(grid)
+    exp = np.ones((3, 8, 8))
+    bad = VizBundle(
+        exp_c2=exp,
+        model_c2=np.ones((2, 8, 8)),  # too short
+        residuals=np.ones((2, 8, 8)),  # too short
+        phi_angles=np.array([0.0, 45.0]),  # too short
+    )
+    grid.set_bundle(bad)  # must not raise
+    assert grid.section_count() == 3
+    # Mismatched fit surfaces are dropped to placeholders, not indexed.
+    assert all(not s._has_fitted and not s._has_residual for s in grid._sections)
+
+
+def test_config_text_editor_disables_save_on_load_failure(qtbot, tmp_path):
+    """agy HIGH: a failed load must disable Save so a blank editor can't truncate the file."""
+    from xpcsjax.gui.views.config_dialogs import ConfigTextEditorDialog
+
+    # Point at a directory: read_text raises OSError (IsADirectoryError).
+    dlg = ConfigTextEditorDialog(tmp_path)
+    qtbot.addWidget(dlg)
+    assert dlg.load_error() is not None
+    assert not dlg._save_btn.isEnabled()
+    # save() is a guarded no-op — does not raise and writes nothing.
+    dlg.save()
+    assert tmp_path.is_dir()  # untouched
+
+
+def test_create_config_dialog_raises_on_invalid_numeric(qtbot):
+    """workflow LOW/agy NIT: a non-blank malformed numeric surfaces (not silently dropped)."""
+    from xpcsjax.gui.views.config_dialogs import CreateConfigDialog
+
+    dlg = CreateConfigDialog()
+    qtbot.addWidget(dlg)
+    dlg._q_edit.setText("abc")  # not a float
+    with pytest.raises(ValueError, match="Wavevector q"):
+        dlg.generation_kwargs()
+
+
+def test_main_window_shows_grid_on_valid_bundle(qtbot, tmp_path):
+    """agy LOW: a finished run with a valid viz bundle switches the central stack to the grid."""
+    from xpcsjax.gui.result_loader import ResultSummary
+
+    # Write the artifact load_viz_bundle reads: <result_dir>/plots/simulated_data/c2_fitted_data.npz
+    sim = tmp_path / "plots" / "simulated_data"
+    sim.mkdir(parents=True)
+    exp = np.random.default_rng(0).random((2, 10, 10))
+    model = np.random.default_rng(1).random((2, 10, 10))
+    np.savez(
+        sim / "c2_fitted_data.npz",
+        c2_exp=exp,
+        c2_fitted=model,
+        residuals=exp - model,
+        t1=np.arange(10.0),
+        t2=np.arange(10.0),
+        phi_angles=np.array([0.0, 45.0]),
+    )
+    win = _window(qtbot)
+    summary = ResultSummary(
+        result_dir=tmp_path,
+        success=True,
+        convergence_status="converged",
+        chi_squared=1.0,
+        reduced_chi_squared=0.9,
+        quality_flag="good",
+        parameters={"D0": 1.0},
+    )
+    win._show_result_with_bundle(summary, str(tmp_path))
+    assert win._central_stack.currentIndex() == 1  # the per-phi grid page
+    assert win._result_grid.section_count() == 2

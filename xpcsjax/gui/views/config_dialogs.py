@@ -41,26 +41,22 @@ ANALYSIS_MODES: tuple[str, ...] = (
 )
 
 
-def _optional_float(text: str) -> float | None:
-    """Parse a stripped line-edit value to ``float``, or ``None`` when blank/invalid."""
+def _parse_optional(text: str, caster: type, label: str) -> float | int | None:
+    """Parse a stripped line-edit value, returning ``None`` only when BLANK.
+
+    A blank field means "leave the template default" (the intended optional
+    behavior). A NON-blank value that fails to cast raises ``ValueError`` naming
+    the field — so a typo is surfaced to the user rather than silently discarded
+    and written as the template placeholder (the project's no-silent-data-loss
+    rule applies to user input too).
+    """
     text = text.strip()
     if not text:
         return None
     try:
-        return float(text)
+        return caster(text)
     except ValueError:
-        return None
-
-
-def _optional_int(text: str) -> int | None:
-    """Parse a stripped line-edit value to ``int``, or ``None`` when blank/invalid."""
-    text = text.strip()
-    if not text:
-        return None
-    try:
-        return int(text)
-    except ValueError:
-        return None
+        raise ValueError(f"{label}: {text!r} is not a valid {caster.__name__}.") from None
 
 
 class CreateConfigDialog(QDialog):
@@ -149,18 +145,25 @@ class CreateConfigDialog(QDialog):
         return self._output_edit.text().strip()
 
     def generation_kwargs(self) -> dict[str, object]:
-        """Return kwargs for ``generate_config`` (omitting blank optional fields)."""
+        """Return kwargs for ``generate_config`` (omitting blank optional fields).
+
+        Raises
+        ------
+        ValueError
+            If a non-blank q/dt/frames field does not parse — surfaced to the
+            user by the caller rather than silently dropped.
+        """
         kwargs: dict[str, object] = {}
         data = self._data_edit.text().strip()
         if data:
             kwargs["data_path"] = data
-        q = _optional_float(self._q_edit.text())
+        q = _parse_optional(self._q_edit.text(), float, "Wavevector q")
         if q is not None:
             kwargs["q"] = q
-        dt = _optional_float(self._dt_edit.text())
+        dt = _parse_optional(self._dt_edit.text(), float, "dt")
         if dt is not None:
             kwargs["dt"] = dt
-        time_length = _optional_int(self._time_edit.text())
+        time_length = _parse_optional(self._time_edit.text(), int, "Frames / end_frame")
         if time_length is not None:
             kwargs["time_length"] = time_length
         return kwargs
@@ -206,18 +209,29 @@ class ConfigTextEditorDialog(QDialog):
         # Fixed-pitch font so YAML indentation reads correctly.
         self._editor.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
         self._load_error: str | None = None
-        self.load()
+
+        self._error_label = QLabel()
+        self._error_label.setObjectName("edit_config_error")
+        self._error_label.setStyleSheet("color: #e06c75;")
+        self._error_label.setWordWrap(True)
+        self._error_label.hide()
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.button(QDialogButtonBox.StandardButton.Save).clicked.connect(self._on_save)
+        self._save_btn = buttons.button(QDialogButtonBox.StandardButton.Save)
+        self._save_btn.clicked.connect(self._on_save)
         buttons.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(str(self._path)))
+        layout.addWidget(self._error_label)
         layout.addWidget(self._editor)
         layout.addWidget(buttons)
+
+        # Load AFTER the widgets exist so a read failure can disable Save and show
+        # the error — never let a blank editor silently overwrite the real file.
+        self.load()
 
     # --- text access (testable) -----------------------------------------------
     def text(self) -> str:
@@ -233,20 +247,40 @@ class ConfigTextEditorDialog(QDialog):
         return self._load_error
 
     def load(self) -> None:
-        """Read *path* into the editor; record a recoverable error on failure."""
+        """Read *path* into the editor; record a recoverable error on failure.
+
+        On a read failure the editor is left empty, Save is DISABLED, and the
+        error is shown — so a failed read can never be silently saved back as an
+        empty file, truncating the user's config.
+        """
         try:
             self._editor.setPlainText(self._path.read_text(encoding="utf-8"))
             self._load_error = None
         except OSError as exc:
             self._load_error = str(exc)
             self._editor.setPlainText("")
+        if self._load_error is None:
+            self._error_label.hide()
+            self._save_btn.setEnabled(True)
+        else:
+            self._error_label.setText(f"Could not read file — Save disabled:\n{self._load_error}")
+            self._error_label.show()
+            self._save_btn.setEnabled(False)
 
     def save(self) -> None:
-        """Write the editor text back to *path* (parent dirs created if needed)."""
+        """Write the editor text back to *path* (parent dirs created if needed).
+
+        A no-op when the file failed to load, so a blank editor never truncates
+        the on-disk config.
+        """
+        if self._load_error is not None:
+            return
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_text(self._editor.toPlainText(), encoding="utf-8")
 
     # --- slot ------------------------------------------------------------------
     def _on_save(self) -> None:
+        if self._load_error is not None:
+            return  # guarded: never overwrite when the load failed
         self.save()
         self.accept()

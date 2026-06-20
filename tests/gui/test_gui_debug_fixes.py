@@ -40,44 +40,8 @@ def test_map_views_clear_removes_image(qtbot):
         assert not v.has_image()
 
 
-def test_set_bundle_none_clears_all_views(qtbot):
-    """codex#6: set_bundle(None) clears every sub-view (no lingering prior-run plots)."""
-    from types import SimpleNamespace
-
-    from xpcsjax.gui.views.plots_view import ResultPlots
-
-    rp = ResultPlots()
-    qtbot.addWidget(rp)
-    bundle = SimpleNamespace(
-        exp_c2=np.ones((2, 8, 8)),
-        residuals=np.zeros((2, 8, 8)),
-        model_c2=None,
-        phi_angles=None,
-    )
-    rp.set_bundle(bundle)
-    assert rp.two_time().has_image()
-    rp.set_bundle(None)
-    assert not rp.two_time().has_image()
-
-
-def test_residual_cleared_when_absent(qtbot):
-    """codex#6: switching to a bundle with residuals=None clears the prior residual."""
-    from types import SimpleNamespace
-
-    from xpcsjax.gui.views.plots_view import ResultPlots
-
-    rp = ResultPlots()
-    qtbot.addWidget(rp)
-    with_resid = SimpleNamespace(
-        exp_c2=np.ones((1, 8, 8)), residuals=np.zeros((1, 8, 8)), model_c2=None, phi_angles=None
-    )
-    rp.set_bundle(with_resid)
-    assert rp._residual.has_image()
-    without_resid = SimpleNamespace(
-        exp_c2=np.ones((1, 8, 8)), residuals=None, model_c2=None, phi_angles=None
-    )
-    rp.set_bundle(without_resid)
-    assert not rp._residual.has_image()
+# (ResultPlots set_bundle(None)/residual-clearing regressions migrated to the
+# PhiResultsGrid suite in tests/gui/test_gui_redesign.py after the redesign.)
 
 
 # ----------------------------------------------------------------------------

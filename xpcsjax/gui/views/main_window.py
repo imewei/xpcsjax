@@ -542,7 +542,11 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Create Config", "No output path was given.")
             return
         mode = dialog.selected_mode()
-        kwargs = dialog.generation_kwargs()
+        try:
+            kwargs = dialog.generation_kwargs()
+        except ValueError as exc:
+            QMessageBox.warning(self, "Create Config", f"Invalid input:\n{exc}")
+            return
         try:
             self.create_config(mode, output_path, overwrite=False, **kwargs)
         except FileExistsError:
