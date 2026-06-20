@@ -344,7 +344,9 @@ class MainWindow(QMainWindow):
         title = f"{title} (run {run_id[:8]})"
         ErrorDialog.show_failure(self, title, friendly, details)
 
-    def _on_run_finished(self, run_id: str, result_path: str, summary: ResultSummary | None) -> None:
+    def _on_run_finished(
+        self, run_id: str, result_path: str, summary: ResultSummary | None
+    ) -> None:
         # _on_run_status already set the terminal status; here we attach the result.
         found = self._project.run_by_id(run_id)
         if found is not None:

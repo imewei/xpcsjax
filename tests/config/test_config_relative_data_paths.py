@@ -84,9 +84,7 @@ def test_env_var_path_expands_to_absolute(tmp_path: Path, monkeypatch: pytest.Mo
     assert os.path.normpath(got) == os.path.join("/srv", "scratch", "C020")
 
 
-def test_unset_env_var_is_not_mis_anchored(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_unset_env_var_is_not_mis_anchored(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("XPCSJAX_DEFINITELY_UNSET", raising=False)
     cfg_path = _write_config(tmp_path, {"data_folder_path": "${XPCSJAX_DEFINITELY_UNSET}/C020"})
     cm = ConfigManager(config_file=str(cfg_path))
