@@ -161,7 +161,8 @@ def validate_config(config: dict) -> ValidationReport:
     warnings: list[str] = []
 
     try:
-        mode_enum = AnalysisMode(config.get("analysis_mode"))
+        mode_value = config.get("analysis_mode")
+        mode_enum = AnalysisMode(mode_value if isinstance(mode_value, str) else "")
     except ValueError:
         return ValidationReport(
             ok=False,

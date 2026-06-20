@@ -58,8 +58,10 @@ def load_result_summary(result_dir: str | Path) -> ResultSummary | None:
     if not isinstance(payload, dict):
         return None
 
-    meta = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
-    params_blob = payload.get("parameters") if isinstance(payload.get("parameters"), dict) else {}
+    meta_raw = payload.get("metadata")
+    meta = meta_raw if isinstance(meta_raw, dict) else {}
+    params_raw = payload.get("parameters")
+    params_blob = params_raw if isinstance(params_raw, dict) else {}
     parameters = {
         str(name): _as_float(info.get("value"))
         for name, info in params_blob.items()

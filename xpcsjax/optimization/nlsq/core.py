@@ -2550,6 +2550,11 @@ def fit_nlsq_cmaes(
 
             _resolved_mode = _broadcast_scaling_mode_label(use_averaged_scaling)
             n_params = effective_constrained_dof(_resolved_mode, n_phi=n_phi, n_physical=n_physical)
+            # None == individual mode (dense optimizer vector); the documented
+            # contract is to fall back to the caller's len(popt). This branch
+            # resolves only to averaged/constant, but keep the guard honest.
+            if n_params is None:
+                n_params = len(final_params)
         else:
             n_params = len(final_params)
         dof = max(1, n_data - n_params)

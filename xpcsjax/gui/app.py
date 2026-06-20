@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import atexit
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from xpcsjax.gui.controllers.fit_queue import FitQueueController
+    from xpcsjax.gui.views.main_window import MainWindow
 
 
-def build_workbench() -> tuple[object, object]:
+def build_workbench() -> tuple[MainWindow, FitQueueController]:
     """Construct the controller-less MainWindow (which owns its own Project + FitQueueController).
 
     Returns ``(window, window._queue)`` — the queue is the single execution path.
@@ -13,8 +18,8 @@ def build_workbench() -> tuple[object, object]:
     hook and ``MainWindow.closeEvent`` also calls ``queue.shutdown``. Registration
     is kept OUT of here so repeated construction (e.g. in tests) cannot accumulate
     stale atexit hooks.
-    Return type is ``object`` to keep this module import-light; concrete types are
-    ``MainWindow`` / ``FitQueueController``.
+    Concrete types (``MainWindow`` / ``FitQueueController``) are annotated under
+    ``TYPE_CHECKING`` only, so the module stays import-light at runtime.
     """
     from xpcsjax.gui.views.main_window import MainWindow
 

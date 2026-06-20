@@ -35,7 +35,11 @@ _READER_JOIN_MS = 2000
 class _ReaderThread(QThread):
     """Drains the event queue onto a Qt signal; synthesizes Died on abnormal exit."""
 
-    event = Signal(object)
+    # The signal is intentionally named ``event``. It shadows QThread/QObject's
+    # ``event()`` handler at the Python level only — Qt's C++ event dispatch is
+    # unaffected — so this is a runtime-safe, deliberate PySide pattern that mypy
+    # cannot model. See the wiring in controllers/fit_queue.py.
+    event = Signal(object)  # type: ignore[assignment]
 
     def __init__(self, event_queue: Any, proc: Any, run_id: str) -> None:
         super().__init__()
@@ -79,7 +83,9 @@ class _ReaderThread(QThread):
 class WorkerHandle(QObject):
     """Spawns a fit worker and re-emits its events as the ``event`` signal."""
 
-    event = Signal(object)
+    # Intentional Qt-signal name shadowing QObject.event() at the Python level
+    # only; runtime-safe (see _ReaderThread above).
+    event = Signal(object)  # type: ignore[assignment]
 
     def __init__(self, job: FitJob) -> None:
         super().__init__()

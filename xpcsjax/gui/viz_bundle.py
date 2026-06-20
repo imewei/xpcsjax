@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from numpy.lib.npyio import NpzFile
 
 
 @dataclass
@@ -25,8 +26,8 @@ class VizBundle:
 _FITTED = ("plots", "simulated_data", "c2_fitted_data.npz")
 
 
-def _get(npz: object, key: str) -> np.ndarray | None:
-    return np.asarray(npz[key]) if key in npz.files else None  # type: ignore[attr-defined]
+def _get(npz: NpzFile, key: str) -> np.ndarray | None:
+    return np.asarray(npz[key]) if key in npz.files else None
 
 
 def load_viz_bundle(result_dir: str | Path) -> VizBundle | None:

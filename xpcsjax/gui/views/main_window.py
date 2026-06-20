@@ -294,7 +294,7 @@ class MainWindow(QMainWindow):
         if run_id == self._active_run_id:
             self._ssr_curve.add_point(n, ssr)
 
-    def _on_layer_status(self, run_id: str, layers: object) -> None:
+    def _on_layer_status(self, run_id: str, layers: dict[str, bool]) -> None:
         if run_id == self._active_run_id:
             self._chips.set_layers(layers)
 
@@ -308,7 +308,7 @@ class MainWindow(QMainWindow):
         title = f"{title} (run {run_id[:8]})"
         ErrorDialog.show_failure(self, title, friendly, details)
 
-    def _on_run_finished(self, run_id: str, result_path: str, summary: object) -> None:
+    def _on_run_finished(self, run_id: str, result_path: str, summary: ResultSummary | None) -> None:
         # _on_run_status already set the terminal status; here we attach the result.
         found = self._project.run_by_id(run_id)
         if found is not None:
@@ -555,7 +555,11 @@ class MainWindow(QMainWindow):
         self._sidebar.set_project(self._project)
 
     def _on_cancel(self) -> None:
-        self._queue.cancel(self._sidebar.current_run_id())
+        run_id = self._sidebar.current_run_id()
+        if run_id is None:
+            self.set_status("select a run first")
+            return
+        self._queue.cancel(run_id)
 
     def _on_export_figure(self) -> None:
         """Export publication figures from the selected run to a user-chosen directory."""
@@ -568,7 +572,8 @@ class MainWindow(QMainWindow):
             self.set_status("select a run first")
             return
         _, run = found
-        if not getattr(run, "result_dir", None):
+        result_dir = run.result_dir
+        if not result_dir:
             QMessageBox.information(
                 self,
                 "Export Figure",
@@ -580,7 +585,7 @@ class MainWindow(QMainWindow):
         if not dest:
             return  # user cancelled
 
-        copied = export_figures(run.result_dir, dest)
+        copied = export_figures(result_dir, dest)
         if not copied:
             QMessageBox.information(
                 self,
