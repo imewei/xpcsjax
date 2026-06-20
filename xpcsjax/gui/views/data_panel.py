@@ -81,8 +81,8 @@ class DataPanel(QWidget):
         # message, never an uncaught OSError out of the browse slot (PySide6 6.5+
         # aborts the process on an unhandled exception in a slot).
         self._error_label = QLabel("")
+        self._error_label.setObjectName("data_error")  # themed via global QSS
         self._error_label.setWordWrap(True)
-        self._error_label.setStyleSheet("color: #c62828;")
         self._error_label.setVisible(False)
 
         # --- Layout ---

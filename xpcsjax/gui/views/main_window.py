@@ -34,6 +34,7 @@ from xpcsjax.gui.export import export_figures
 from xpcsjax.gui.project.model import Project
 from xpcsjax.gui.project.persist import load_project, save_project
 from xpcsjax.gui.result_loader import load_result_summary
+from xpcsjax.gui.theme import repolish
 from xpcsjax.gui.views.config_editor import ConfigEditor
 from xpcsjax.gui.views.data_panel import DataPanel
 from xpcsjax.gui.views.diagnostics_panel import BannerList, LayerStatusChips, SSRCurveWidget
@@ -75,9 +76,14 @@ class MainWindow(QMainWindow):
         self._dataset_temp_paths: dict[str, str] = {}
 
         self.setWindowTitle("xpcsjax — analysis workbench")
-        self.resize(1200, 750)
+        self.resize(1320, 820)
+        self.setMinimumSize(960, 640)
 
+        # Status pill: themed via the global QSS (#status_pill) with a `state`
+        # dynamic property (idle/running/finished/failed) driving its colour.
         self._status = QLabel("idle")
+        self._status.setObjectName("status_pill")
+        self._set_status_state("idle")
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
 
@@ -128,18 +134,28 @@ class MainWindow(QMainWindow):
     # --- construction helpers -------------------------------------------------
     def _build_toolbar(self) -> None:
         bar = QToolBar("Main")
+        bar.setMovable(False)
         self.addToolBar(bar)
         self._actions: dict[str, QAction] = {}
-        for key, text, slot in [
+        # ``None`` markers insert a visual separator between logical groups:
+        # [load: config/output] | [execute: run/cancel] | [export].
+        spec: list[tuple[str, str, object] | None] = [
             ("action_open_config", "Open Config", self._on_open_config),
             ("action_output_dir", "Output Dir", self._on_choose_output),
+            None,
             ("action_run", "Run", self._on_run),
             ("action_cancel", "Cancel", self._on_cancel),
+            None,
             ("action_export_figure", "Export Figure", self._on_export_figure),
-        ]:
+        ]
+        for entry in spec:
+            if entry is None:
+                bar.addSeparator()
+                continue
+            key, text, slot = entry
             action = QAction(text, self)
             action.setObjectName(key)
-            action.triggered.connect(slot)
+            action.triggered.connect(slot)  # type: ignore[arg-type]
             bar.addAction(action)
             self._actions[key] = action
 
@@ -185,12 +201,19 @@ class MainWindow(QMainWindow):
         dock.setObjectName("dock_comparison")
         dock.setWidget(self._comparison)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        self._comparison_dock = dock
 
     def _build_inspector_dock(self) -> None:
         dock = QDockWidget("Inspector", self)
         dock.setObjectName("dock_inspector")
         dock.setWidget(self._inspector)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        self._inspector_dock = dock
+        # Stack Inspector + Comparison as tabs in the right dock area so neither
+        # is squeezed to a sliver; surface the Inspector (params/diagnostics)
+        # first since it is the primary post-fit readout.
+        self.tabifyDockWidget(self._comparison_dock, self._inspector_dock)
+        self._inspector_dock.raise_()
 
     def _connect_signals(self) -> None:
         # Queue signals → window slots
@@ -210,6 +233,15 @@ class MainWindow(QMainWindow):
     def set_status(self, status: str) -> None:
         """Render the current run status."""
         self._status.setText(status)
+
+    def _set_status_state(self, state: str) -> None:
+        """Set the status-pill colour state (``idle``/``running``/``finished``/``failed``).
+
+        Drives the ``#status_pill[state=...]`` QSS rule. Text is untouched — the
+        ``status_text`` contract (and tests reading it) stay exactly as before.
+        """
+        self._status.setProperty("state", state)
+        repolish(self._status)
 
     def append_log(self, level: str, message: str) -> None:
         """Append one forwarded log line to the tail."""
@@ -280,6 +312,8 @@ class MainWindow(QMainWindow):
                 self._chips.set_layers({})
         self._project.set_run_status(run_id, status)
         self._sidebar.update_run(self._project, run_id)
+        if status in ("starting", "running"):
+            self._set_status_state("running")
         if status == "starting":
             # Cold-spawn pause is expected, not a hang (spec §4 F10).
             self.set_status(f"{run_id[:8]}: starting (JAX import / XLA compile may take a moment)…")
@@ -303,6 +337,8 @@ class MainWindow(QMainWindow):
             self._banners.add_banner(text, kind)
 
     def _on_run_failed(self, run_id: str, error_text: str) -> None:
+        if run_id == self._active_run_id:
+            self._set_status_state("failed")
         title, friendly, details = present_failure(error_text)
         # Identify which run failed (matters once multiple runs share the window).
         title = f"{title} (run {run_id[:8]})"
@@ -321,6 +357,7 @@ class MainWindow(QMainWindow):
             self._sidebar.update_run(self._project, run_id)
         # Show the result in the main panel for the active run.
         if run_id == self._active_run_id:
+            self._set_status_state("finished")
             result_dir = result_path or None
             self._show_result_with_bundle(summary, result_dir)
             # Mirror finished result into the inspector dock.

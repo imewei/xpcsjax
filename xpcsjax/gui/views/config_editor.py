@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from xpcsjax.config.parameter_registry import ParameterRegistry
+from xpcsjax.gui.theme import repolish
 from xpcsjax.service.config import (
     ValidationReport,
     available_modes,
@@ -127,6 +128,7 @@ class ConfigEditor(QWidget):
         ctrl_row.addWidget(validate_btn)
 
         self._status_label = QLabel("")
+        self._status_label.setObjectName("config_status")
         ctrl_row.addWidget(self._status_label)
         ctrl_row.addStretch()
         root.addLayout(ctrl_row)
@@ -308,14 +310,16 @@ class ConfigEditor(QWidget):
 
         if rep.ok:
             self._status_label.setText("OK")
-            self._status_label.setStyleSheet("color: green;")
+            self._status_label.setProperty("status", "ok")
+            repolish(self._status_label)
             self.config_ready.emit(cfg)
         else:
             msgs = "; ".join(rep.errors)
             if rep.warnings:
                 msgs += " | " + "; ".join(rep.warnings)
             self._status_label.setText(f"Errors: {msgs}")
-            self._status_label.setStyleSheet("color: red;")
+            self._status_label.setProperty("status", "error")
+            repolish(self._status_label)
 
         return rep
 

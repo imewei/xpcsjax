@@ -83,7 +83,12 @@ def main(argv: list[str] | None = None) -> int:
 
     from PySide6.QtWidgets import QApplication
 
+    from xpcsjax.gui import theme
+
     app = QApplication.instance() or QApplication([sys.argv[0], *qt_extra])
+    # Apply the system-aware "instrument console" theme before any window is built
+    # so every widget is born styled (no first-paint flash of unstyled defaults).
+    theme.apply_theme(app)
     window, queue = build_workbench()
     # Registered here (once per process), not in build_workbench, so a hard exit
     # still terminates a running worker without accumulating hooks across tests.

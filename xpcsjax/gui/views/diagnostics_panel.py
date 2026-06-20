@@ -12,6 +12,8 @@ import math
 import pyqtgraph as pg
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QListWidget, QVBoxLayout, QWidget
 
+from xpcsjax.gui.theme import repolish
+
 _LAYER_ORDER = ("L1", "L2", "L3", "L4", "L5")
 
 
@@ -71,15 +73,12 @@ class LayerStatusChips(QWidget):
 
     @staticmethod
     def _style_chip(chip: QLabel, *, active: bool) -> None:
+        # Theme-aware styling lives in the global QSS (theme.stylesheet); here we
+        # only flip the dynamic properties it keys on and repolish so the new
+        # selector takes effect. No inline hex — the chip follows light/dark.
+        chip.setProperty("layer_chip", True)
         chip.setProperty("active", active)
-        chip.setStyleSheet(
-            "QLabel { padding: 2px 8px; border-radius: 8px; "
-            + (
-                "background:#2e7d32; color:white; }"
-                if active
-                else "background:#bdbdbd; color:#444; }"
-            )
-        )
+        repolish(chip)
 
     def set_layers(self, layers: dict[str, bool]) -> None:
         """Update the chips from an L1–L5 active map."""
