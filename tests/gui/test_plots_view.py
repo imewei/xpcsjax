@@ -21,6 +21,35 @@ from xpcsjax.gui.viz_bundle import VizBundle  # noqa: E402, I001
 # ---------------------------------------------------------------------------
 
 
+def test_superdiag_mean_handles_degenerate_matrix():
+    # The per-angle overlay scalar is the mean of the first superdiagonal (tau=dt).
+    # A 2x2 has a one-element superdiagonal; a 1x1 (or empty) has none. The latter
+    # must return NaN WITHOUT a RuntimeWarning (np.mean of an empty slice warns).
+    import warnings
+
+    from xpcsjax.gui.views.plots_view import _superdiag_mean
+
+    assert _superdiag_mean(np.array([[1.0, 2.0], [3.0, 4.0]])) == 2.0
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # any RuntimeWarning becomes a hard failure
+        val = _superdiag_mean(np.array([[5.0]]))
+    assert np.isnan(val)
+
+
+def test_render_degenerate_bundle_is_finite_safe(qtbot):
+    # A degenerate (n_phi, 1, 1) bundle has no tau=dt lag; rendering must not raise
+    # or emit a RuntimeWarning (regression for the empty-superdiagonal NaN path).
+    import warnings
+
+    w = ResultPlots()
+    qtbot.addWidget(w)
+    exp = np.ones((3, 1, 1))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        w.set_bundle(VizBundle(exp_c2=exp, phi_angles=np.array([0.0, 45.0, 90.0])))
+    assert w.phi_count() == 3
+
+
 def test_two_time_map_accepts_array(qtbot):
     w = TwoTimeMapView()
     qtbot.addWidget(w)

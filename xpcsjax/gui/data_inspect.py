@@ -93,6 +93,8 @@ def read_c2_preview(
                 return None  # C₂ group absent/empty → preview unavailable
             keys = sorted(grp.keys()) if layout["key_order"] == "sorted" else list(grp.keys())
             half_dset = grp[keys[max(0, min(int(phi_index), len(keys) - 1))]]
+            if not isinstance(half_dset, h5py.Dataset):
+                return None  # malformed: a nested Group where a 2-D dataset is expected
             if half_dset.ndim != 2 or half_dset.shape[0] != half_dset.shape[1]:
                 return None
             step = max(1, int(np.ceil(max(half_dset.shape) / max_dim)))
@@ -101,6 +103,8 @@ def read_c2_preview(
             return None
         else:  # data_type unknown: best-effort raw read, no reconstruction
             dset = f[dataset]
+            if not isinstance(dset, h5py.Dataset):
+                return None  # the path resolves to a Group, not a readable dataset
             if dset.ndim == 3:  # heuristic: assume (n_phi, t, t)
                 idx = max(0, min(int(phi_index), dset.shape[0] - 1))
                 step = max(1, int(np.ceil(max(dset.shape[1:]) / max_dim)))

@@ -84,3 +84,28 @@ def test_close_event_calls_queue_shutdown(qtbot, monkeypatch):
     monkeypatch.setattr(win._queue, "shutdown", lambda: called.__setitem__("shutdown", True))
     win.closeEvent(QCloseEvent())
     assert called["shutdown"] is True
+
+
+def test_config_ready_rebuilds_sidebar_once(qtbot, monkeypatch):
+    """_on_config_ready must rebuild the sidebar tree exactly once.
+
+    Regression: it called ``set_project`` twice (once after add_dataset, again
+    after add_run), clearing+repopulating the QStandardItemModel redundantly.
+    The dataset and run are both present by the time the single rebuild runs.
+    """
+    win = _window(qtbot)
+    monkeypatch.setattr(win._queue, "enqueue", lambda *a, **k: None)
+
+    calls = {"n": 0}
+    real = win._sidebar.set_project
+
+    def _counting(project):
+        calls["n"] += 1
+        real(project)
+
+    monkeypatch.setattr(win._sidebar, "set_project", _counting)
+    win._on_config_ready({"analysis_mode": "static_isotropic"})
+
+    assert calls["n"] == 1
+    # The single rebuild must reflect BOTH the dataset and its run.
+    assert win._project.datasets and win._project.datasets[-1].runs

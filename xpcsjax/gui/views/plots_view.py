@@ -17,6 +17,21 @@ if TYPE_CHECKING:
     from xpcsjax.gui.viz_bundle import VizBundle
 
 
+def _superdiag_mean(matrix: np.ndarray) -> float:
+    """Mean of the first superdiagonal (the τ=dt lag) of a two-time matrix.
+
+    Returns ``nan`` for a matrix too small to have a first superdiagonal
+    (``shape[1] < 2``) — e.g. a degenerate ``(1, 1)`` slice. Guarding here avoids
+    ``np.mean`` of an empty slice, which would emit a ``RuntimeWarning`` and yield
+    ``nan`` implicitly; ``nan`` is the correct "no τ=dt data" sentinel for the
+    overlay (pyqtgraph renders it as a gap).
+    """
+    diag = np.diagonal(np.asarray(matrix), offset=1)
+    if diag.size == 0:
+        return float("nan")
+    return float(np.mean(diag))
+
+
 class TwoTimeMapView(pg.GraphicsLayoutWidget):
     """Display a two-time correlation matrix as a pan/zoom-able image.
 
@@ -258,13 +273,9 @@ class ResultPlots(QWidget):
         if phi_angles is None:
             phi_angles = np.arange(n_phi, dtype=float)
 
-        exp_g2 = np.array(
-            [float(np.mean(np.diagonal(bundle.exp_c2[i], offset=1))) for i in range(n_phi)]
-        )
+        exp_g2 = np.array([_superdiag_mean(bundle.exp_c2[i]) for i in range(n_phi)])
         model_g2: np.ndarray | None = None
         if bundle.model_c2 is not None:
-            model_g2 = np.array(
-                [float(np.mean(np.diagonal(bundle.model_c2[i], offset=1))) for i in range(n_phi)]
-            )
+            model_g2 = np.array([_superdiag_mean(bundle.model_c2[i]) for i in range(n_phi)])
 
         self._overlay.show_overlay(phi_angles, exp_g2, model_g2)

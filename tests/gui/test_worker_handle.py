@@ -69,3 +69,47 @@ def test_cancel_and_shutdown_join_reader_thread(qtbot, monkeypatch):
     h.shutdown()
     qtbot.waitUntil(lambda: reader is not None and reader.isFinished(), timeout=10000)
     assert reader.isFinished()
+
+
+def test_reader_final_drain_recovers_terminal_after_grace(qtbot, monkeypatch):
+    """A terminal event still queued when the grace deadline expires must be
+    recovered by a final non-blocking drain — NOT discarded and replaced by a
+    synthetic ``Died``. Regression for the grace-period drain bug: the wall-clock
+    grace loop could break with a real ``Finished`` still sitting in the pipe.
+    """
+    import queue as _queue
+
+    from xpcsjax.gui.ipc import handle as handle_mod
+
+    # Force the grace deadline to expire on the first idle poll so the test is
+    # deterministic and fast (no real 1 s wait).
+    monkeypatch.setattr(handle_mod, "_DEATH_GRACE_S", 0.0)
+
+    class _FakeQueue:
+        """Empty during the timed loop; yields one late terminal via get_nowait."""
+
+        def __init__(self, late):
+            self._late = list(late)
+
+        def get(self, timeout=None):
+            raise _queue.Empty
+
+        def get_nowait(self):
+            if self._late:
+                return self._late.pop(0)
+            raise _queue.Empty
+
+    class _FakeProc:
+        exitcode = 0
+
+        def is_alive(self):
+            return False
+
+    fin = Finished(run_id="r1", seq=1, result_path="/tmp/out")
+    reader = handle_mod._ReaderThread(_FakeQueue([fin]), _FakeProc(), "r1")
+    seen: list = []
+    reader.event.connect(seen.append)
+    reader.run()  # drive synchronously in this thread for a deterministic result
+
+    assert any(isinstance(e, Finished) for e in seen), "late terminal event was lost"
+    assert not any(isinstance(e, Died) for e in seen), "synthesized Died despite a real terminal"
