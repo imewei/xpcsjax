@@ -479,9 +479,9 @@ class MainWindow(QMainWindow):
         # Expand ${ENV}/~ first so a path that merely uses a shell variable is not
         # mis-flagged "missing" (mirrors config.data_folder_path resolution).
         for dataset in self._project.datasets:
-            dataset.config_missing = bool(dataset.config_path) and not _expand_path(
-                dataset.config_path
-            ).exists()
+            dataset.config_missing = (
+                bool(dataset.config_path) and not _expand_path(dataset.config_path).exists()
+            )
             for run in dataset.runs:
                 if run.result_dir:
                     if not _expand_path(run.result_dir).exists():
