@@ -639,7 +639,18 @@ def build_hybrid_streaming_result(
     # ------------------------------------------------------------------
     # SSR + noise-normalized reduced chi^2
     # ------------------------------------------------------------------
-    ssr = float(info.get("cost", 0.0)) * 2.0  # optimizer cost = 0.5 * SSR
+    # Prefer the driver-computed authoritative SSR. The hybrid-streaming driver
+    # threads the true sum-of-squared-residuals under ``info['ssr']`` for EVERY
+    # branch; the L2/individual hierarchical branch builds ``info`` manually with
+    # NO ``'cost'`` key, so reading ``info.get('cost', 0.0)`` there silently
+    # yields ssr=0 -> chi_squared=0 -> quality='good' on a real fit. ``info['ssr']``
+    # is also the plain SSR (not the robust-loss optimizer cost), so it is the
+    # correct chi^2 source even when ``'cost'`` is present. Fall back to the scipy
+    # ``cost = 0.5 * SSR`` convention only when ssr is absent (legacy callers).
+    if "ssr" in info:
+        ssr = float(info["ssr"])
+    else:
+        ssr = float(info.get("cost", 0.0)) * 2.0  # optimizer cost = 0.5 * SSR
     # Finding 3: dof = n_data - n_params.  n_data_points is threaded from the
     # wrapper via info so this is always correct when the hybrid path ran.
     n_data = int(info.get("n_data_points", 0))

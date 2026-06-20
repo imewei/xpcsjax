@@ -332,8 +332,14 @@ class ShearSensitivityWeighting:
     def apply_weights_to_loss(self, residuals: Array, phi_indices: Array) -> Array:
         """Apply angle weights to residuals for loss computation.
 
-        Computes weighted mean squared error:
-            L = sum_i w[phi_idx[i]] * residuals[i]^2 / sum_i w[phi_idx[i]]
+        Computes a shear-weighted SUM of squared errors (NOT a weighted mean):
+            L = sum_i w[phi_idx[i]] * residuals[i]^2
+
+        The weights are mean-normalized (``mean(w) == 1``), so this stays at the
+        same SSE scale as the unweighted branch ``mean(residuals**2) *
+        len(residuals)`` returned when weighting is disabled. This is distinct
+        from the sibling :meth:`compute_weighted_mse`, which intentionally divides
+        by ``sum(w)`` to return a true weighted MEAN for gradient computation.
 
         Parameters
         ----------

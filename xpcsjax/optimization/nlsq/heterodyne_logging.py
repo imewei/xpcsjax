@@ -242,11 +242,13 @@ def log_gradient_sanity_check(
 
     Pure logging: the caller computes the 1% perturbation, the gradient estimate,
     and the ``passed`` verdict; this helper only renders the laminar banner
-    surface. Heterodyne's joint vector is PHYSICS-FIRST (``[physics | scaling]``),
-    so ``phys_idx`` is 0 (the first physical parameter) -- unlike the
-    homodyne/laminar SCALING-FIRST layout where the first physical parameter sits
-    at index ``2 * n_phi``. When ``passed`` is False the failure block is emitted
-    at ERROR level (mirroring laminar); the caller is responsible for raising.
+    surface. Heterodyne's joint vector is canonical SCALING-FIRST
+    (``[scaling | physics]``, Phase 3), so the first physical parameter sits at
+    index ``n_scaling`` -- matching the homodyne/laminar scaling-first layout
+    (where it sits at ``2 * n_phi``). The caller passes that position as
+    ``phys_idx`` (see ``heterodyne_stratified_ls.py``: ``phys_idx = n_scaling``).
+    When ``passed`` is False the failure block is emitted at ERROR level
+    (mirroring laminar); the caller is responsible for raising.
     """
     r = np.asarray(residuals_0, dtype=np.float64)
     logger.info(_W80)

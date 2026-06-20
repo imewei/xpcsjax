@@ -2475,67 +2475,110 @@ def fit_nlsq_cmaes(
         final_covariance = cmaes_result.covariance
 
         if use_constant_mode and per_angle_scaling:
-            # Expand constant mode (9 params) to per-angle format
-            from xpcsjax.optimization.nlsq.data_prep import (
-                expand_per_angle_parameters,
-            )
-
+            # use_constant is an umbrella over fixed-constant AND averaged scaling.
+            # The two sub-modes hand back DIFFERENT optimizer-vector layouts, so the
+            # post-solve expansion must branch on the resolved sub-mode:
+            #   - fixed-constant (use_fixed_scaling): vector is physics-only
+            #     (n_physical); per-angle scaling was FROZEN during the solve.
+            #   - averaged (use_averaged_scaling): vector is [contrast, offset,
+            #     physical] (n_physical + 2); single scaling broadcast to all angles.
             n_before = len(final_params)
-            expanded = expand_per_angle_parameters(
-                final_params,
-                None,
-                n_phi,
-                n_physical,
-            )
-            final_params = expanded.params
-
-            # use_constant is an umbrella over fixed-constant and averaged scaling;
-            # label the message with the actually-resolved mode (shared helper).
+            n_expanded = 2 * n_phi + n_physical
             _expand_mode_label = _broadcast_scaling_mode_label(use_averaged_scaling)
-            logger.info(
-                f"Expanding {_expand_mode_label} mode results: {n_before} -> "
-                f"{len(final_params)} parameters (broadcast contrast={final_params[0]:.4f}, offset={final_params[n_phi]:.4f})"
-            )
 
-            # Expand covariance matrix if available
-            # The covariance for single contrast/offset must be broadcast to per-angle
-            if final_covariance is not None:
-                _n_original = len(cmaes_result.parameters)  # noqa: F841
-                n_expanded = 2 * n_phi + n_physical
-                expanded_cov = np.zeros((n_expanded, n_expanded))
+            if use_fixed_scaling:
+                # FIXED CONSTANT MODE: the optimizer never saw contrast/offset as
+                # free parameters, so final_params is physics-only. Reconstruct the
+                # dense per-angle layout by prepending the SAME frozen per-angle
+                # scaling the model used (fixed_contrast_jax/fixed_offset_jax ==
+                # jnp.asarray(fixed_contrast_per_angle/fixed_offset_per_angle)).
+                final_params = np.concatenate(
+                    [
+                        np.asarray(fixed_contrast_per_angle, dtype=float),
+                        np.asarray(fixed_offset_per_angle, dtype=float),
+                        final_params,
+                    ]
+                )
+                logger.info(
+                    f"Expanding {_expand_mode_label} mode results: {n_before} -> "
+                    f"{len(final_params)} parameters (frozen per-angle scaling)"
+                )
 
-                # Original layout: [contrast, offset, physical(7)]
-                # Expanded layout: [contrast(n_phi), offset(n_phi), physical(7)]
+                # Covariance: frozen scaling has ZERO degrees of freedom, so the
+                # 2*n_phi scaling block carries no variance and no cross-covariance
+                # with the physics block. final_covariance here is the
+                # (n_physical, n_physical) physics covariance from the solve.
+                if final_covariance is not None:
+                    phys_cov = np.asarray(final_covariance)
+                    expanded_cov = np.zeros((n_expanded, n_expanded))
+                    k = min(n_physical, phys_cov.shape[0])
+                    expanded_cov[2 * n_phi : 2 * n_phi + k, 2 * n_phi : 2 * n_phi + k] = (
+                        phys_cov[:k, :k]
+                    )
+                    final_covariance = expanded_cov
+            else:
+                # AUTO AVERAGED MODE: expand 9 params [contrast, offset, *physical]
+                # to per-angle format (single contrast/offset broadcast to all
+                # angles).
+                from xpcsjax.optimization.nlsq.data_prep import (
+                    expand_per_angle_parameters,
+                )
 
-                # Contrast block: all entries = contrast_var (perfectly correlated
-                # since all angles share a single source parameter)
-                contrast_var = final_covariance[0, 0]
-                expanded_cov[:n_phi, :n_phi] = contrast_var
+                expanded = expand_per_angle_parameters(
+                    final_params,
+                    None,
+                    n_phi,
+                    n_physical,
+                )
+                final_params = expanded.params
+                logger.info(
+                    f"Expanding {_expand_mode_label} mode results: {n_before} -> "
+                    f"{len(final_params)} parameters (broadcast contrast={final_params[0]:.4f}, offset={final_params[n_phi]:.4f})"
+                )
 
-                # Offset block: all entries = offset_var (perfectly correlated)
-                offset_var = final_covariance[1, 1]
-                expanded_cov[n_phi : 2 * n_phi, n_phi : 2 * n_phi] = offset_var
+                # Expand covariance matrix if available
+                # The covariance for single contrast/offset must be broadcast to
+                # per-angle.
+                if final_covariance is not None:
+                    expanded_cov = np.zeros((n_expanded, n_expanded))
 
-                # Cross contrast-offset block
-                contrast_offset_cov = final_covariance[0, 1]
-                expanded_cov[:n_phi, n_phi : 2 * n_phi] = contrast_offset_cov
-                expanded_cov[n_phi : 2 * n_phi, :n_phi] = contrast_offset_cov
+                    # Original layout: [contrast, offset, physical(7)]
+                    # Expanded layout: [contrast(n_phi), offset(n_phi), physical(7)]
 
-                # Physical params block: direct slice copy
-                # Original indices [2:2+n_physical] -> expanded indices [2*n_phi:]
-                expanded_cov[2 * n_phi :, 2 * n_phi :] = final_covariance[
-                    2 : 2 + n_physical, 2 : 2 + n_physical
-                ]
+                    # Contrast block: all entries = contrast_var (perfectly
+                    # correlated since all angles share a single source parameter)
+                    contrast_var = final_covariance[0, 0]
+                    expanded_cov[:n_phi, :n_phi] = contrast_var
 
-                # Cross contrast-physical and offset-physical covariance
-                # Each physical param has one covariance value broadcast to all angles
-                for i in range(n_physical):
-                    expanded_cov[:n_phi, 2 * n_phi + i] = final_covariance[0, 2 + i]
-                    expanded_cov[2 * n_phi + i, :n_phi] = final_covariance[0, 2 + i]
-                    expanded_cov[n_phi : 2 * n_phi, 2 * n_phi + i] = final_covariance[1, 2 + i]
-                    expanded_cov[2 * n_phi + i, n_phi : 2 * n_phi] = final_covariance[1, 2 + i]
+                    # Offset block: all entries = offset_var (perfectly correlated)
+                    offset_var = final_covariance[1, 1]
+                    expanded_cov[n_phi : 2 * n_phi, n_phi : 2 * n_phi] = offset_var
 
-                final_covariance = expanded_cov
+                    # Cross contrast-offset block
+                    contrast_offset_cov = final_covariance[0, 1]
+                    expanded_cov[:n_phi, n_phi : 2 * n_phi] = contrast_offset_cov
+                    expanded_cov[n_phi : 2 * n_phi, :n_phi] = contrast_offset_cov
+
+                    # Physical params block: direct slice copy
+                    # Original indices [2:2+n_physical] -> expanded indices [2*n_phi:]
+                    expanded_cov[2 * n_phi :, 2 * n_phi :] = final_covariance[
+                        2 : 2 + n_physical, 2 : 2 + n_physical
+                    ]
+
+                    # Cross contrast-physical and offset-physical covariance
+                    # Each physical param has one covariance value broadcast to all
+                    # angles
+                    for i in range(n_physical):
+                        expanded_cov[:n_phi, 2 * n_phi + i] = final_covariance[0, 2 + i]
+                        expanded_cov[2 * n_phi + i, :n_phi] = final_covariance[0, 2 + i]
+                        expanded_cov[n_phi : 2 * n_phi, 2 * n_phi + i] = final_covariance[
+                            1, 2 + i
+                        ]
+                        expanded_cov[2 * n_phi + i, n_phi : 2 * n_phi] = final_covariance[
+                            1, 2 + i
+                        ]
+
+                    final_covariance = expanded_cov
 
         # Convert CMAESResult to OptimizationResult.
         # Reduced-chi2 DOF must reflect the EFFECTIVE constrained-model parameter

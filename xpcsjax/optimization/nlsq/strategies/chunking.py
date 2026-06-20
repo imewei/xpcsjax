@@ -355,11 +355,11 @@ def estimate_nlsq_optimization_memory(
     >>> print(f"Jacobian: {mem['jacobian_mb']:.0f} MB")
     Jacobian: 9,784 MB
     >>> print(f"Total: {mem['peak_gb']:.1f} GB")
-    Total: 14.3 GB
+    Total: 14.0 GB
     >>> print(f"Utilization: {mem['utilization_pct']:.1f}%")
-    Utilization: 22.8%
+    Utilization: 22.3%
     >>>
-    >>> # With old fixed 100K chunks: 51 GB actual vs 14.3 GB estimated
+    >>> # With old fixed 100K chunks: 51 GB actual vs 14.0 GB estimated
     >>> # Difference due to memory leak (fixed separately)
 
     Notes
@@ -374,7 +374,7 @@ def estimate_nlsq_optimization_memory(
     Root Cause (Nov 10, 2025):
     - Old estimate: Only data = 703 MB
     - Actual peak: 51 GB (includes Jacobian + leak)
-    - New estimate: 14.3 GB (without leak)
+    - New estimate: 14.0 GB (without leak)
     - With fixes: Expected ~15 GB actual
     """
     # 1. Data arrays (phi, t1, t2, g2)
@@ -402,7 +402,10 @@ def estimate_nlsq_optimization_memory(
     # Total with 20% safety margin
     safety_margin = 0.20
     total_mb = (data_mb + jacobian_mb + jax_overhead_mb + optimizer_mb) * (1 + safety_margin)
-    peak_gb = total_mb / 1000
+    # MiB -> GiB with the binary divisor so peak_gb is on the same (binary) scale
+    # as available_gb (= vm.available / 1024**3); a decimal /1000 here inflated
+    # peak_gb ~2.4% and skewed the is_safe utilization check.
+    peak_gb = total_mb / 1024
 
     # Check against available memory
     try:

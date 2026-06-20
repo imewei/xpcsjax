@@ -136,10 +136,34 @@ def _tiny_laminar_data(n_phi=5, n_t=10):
     }
 
 
-@pytest.mark.parametrize("mode", ["individual", "auto"])
+@pytest.mark.parametrize("mode", ["individual", "auto", "constant"])
 def test_cmaes_laminar_result_param_count(mode):
-    """Surviving modes expand back to the dense per-angle 2*n_phi + n_physical layout."""
+    """All resolved per-angle modes expand back to the dense per-angle
+    2*n_phi + n_physical layout.
+
+    ``constant`` (fixed-scaling) reduces the CMA-ES optimizer vector to
+    physics-only (n_physical); the post-solve expansion must reconstruct the
+    dense layout from the frozen per-angle scaling rather than crashing in
+    ``expand_per_angle_parameters`` (which would otherwise be swallowed into a
+    failed result).
+    """
     from xpcsjax.optimization.nlsq.core import fit_nlsq_cmaes
 
     res = fit_nlsq_cmaes(_tiny_laminar_data(), _laminar_cmaes_config(mode))
     assert len(res.parameters) == 2 * 5 + 7
+
+
+@pytest.mark.parametrize("mode", ["individual", "auto", "constant"])
+def test_cmaes_laminar_does_not_silently_fail(mode):
+    """A CMA-ES solve that actually ran must not be discarded into a failed
+    result. ``constant`` mode previously raised ValueError in the post-solve
+    expansion (wrong param-count contract), got caught, and returned
+    ``_cmaes_failed_result`` (inf chi-squared) despite a converged solve."""
+    from xpcsjax.optimization.nlsq.core import fit_nlsq_cmaes
+
+    res = fit_nlsq_cmaes(_tiny_laminar_data(), _laminar_cmaes_config(mode))
+    assert res.convergence_status == "converged", (
+        f"mode={mode}: converged solve was discarded into a failed result "
+        f"(status={res.convergence_status}, chi2={res.chi_squared})"
+    )
+    assert np.isfinite(res.chi_squared), f"mode={mode}: chi_squared={res.chi_squared}"

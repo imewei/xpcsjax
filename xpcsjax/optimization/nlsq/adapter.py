@@ -64,6 +64,7 @@ References
 from __future__ import annotations
 
 import time
+import weakref
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -476,7 +477,16 @@ def get_or_create_model(
     # Cache for xdata JAX conversion — avoids redundant jnp.array() on every call.
     # NLSQ passes the same xdata repeatedly during optimization; only params change.
     # Keyed by id(xdata); size-limited to 4 entries for streaming mode safety.
-    _xdata_cache: dict[int, tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]] = {}
+    # Cache xdata->JAX conversion keyed on id(xdata). CPython recycles object
+    # ids after an array is freed, so a bare id key can return a STALE conversion
+    # for a different array that happens to reuse the id (this closure persists in
+    # the module-level _model_cache, so the window spans fits). Guard it by storing
+    # a weakref to the source array in the value and verifying identity on a hit;
+    # an eviction callback drops the entry (releasing its device arrays) the moment
+    # the source array is GC'd, so a recycled id can never resolve to stale data.
+    _xdata_cache: dict[
+        int, tuple[weakref.ref, jnp.ndarray, jnp.ndarray, jnp.ndarray]
+    ] = {}
 
     def model_func(xdata: np.ndarray, *params: float) -> np.ndarray:
         """Compute predicted g2 values for NLSQ curve_fit.
@@ -529,19 +539,32 @@ def get_or_create_model(
         # Performance Optimization (Spec 001 - FR-006, T042): Use batched vmap
         # computation instead of Python loop for better performance.
 
-        # Extract time arrays from xdata with caching (xdata is always concrete numpy)
-        # jnp.array() copies data, so caching by id(xdata) is safe — the same
-        # numpy array object yields the same JAX arrays across optimizer iterations.
+        # Extract time arrays from xdata with caching (xdata is always concrete
+        # numpy). jnp.array() copies, so re-converting the SAME array object every
+        # optimizer iteration is pure waste — but keying on id(xdata) alone is
+        # unsafe because CPython recycles ids. Verify the cached entry's weakref
+        # still points to THIS array before trusting it; on a stale/dead entry,
+        # recompute. The eviction callback keeps the table free of dead entries.
         xdata_id = id(xdata)
-        if xdata_id in _xdata_cache:
-            t1_batch, t2_batch, phi_indices = _xdata_cache[xdata_id]
+        _cached = _xdata_cache.get(xdata_id)
+        if _cached is not None and _cached[0]() is xdata:
+            _, t1_batch, t2_batch, phi_indices = _cached
         else:
             t1_batch = jnp.array(xdata[:, 0])
             t2_batch = jnp.array(xdata[:, 1])
             # phi_idx is precomputed in _flatten_xpcs_data
             phi_indices = jnp.array(xdata[:, 2]).astype(jnp.int32)
             if len(_xdata_cache) < 4:  # Limit cache for streaming mode
-                _xdata_cache[xdata_id] = (t1_batch, t2_batch, phi_indices)
+
+                def _evict(_r: Any, _k: int = xdata_id) -> None:
+                    _xdata_cache.pop(_k, None)
+
+                try:
+                    _ref: weakref.ref | None = weakref.ref(xdata, _evict)
+                except TypeError:
+                    _ref = None  # unweakreferenceable source: skip caching
+                if _ref is not None:
+                    _xdata_cache[xdata_id] = (_ref, t1_batch, t2_batch, phi_indices)
 
         # Look up phi values from precomputed indices (simple indexing, no gather)
         phi_batch = phi_unique_jax[phi_indices]
@@ -1034,10 +1057,20 @@ class NLSQAdapter(NLSQAdapterBase):
         # Build xdata array [t1, t2, phi_idx]
         # Broadcast phi if needed
         if len(phi) != len(t1):
-            # phi has n_phi entries; broadcast to match flattened t1/t2/g2
-            # by repeating each phi value for all time points in that angle
+            # phi has n_phi entries; broadcast to match the flattened t1/t2/g2,
+            # which are angle-major in the INCOMING phi order (g2's angle axis
+            # lines up with the phi array, not with a sorted set). Repeat the
+            # incoming phi — NOT np.unique(phi) (sorted) — so an unsorted phi does
+            # not mis-pair each time-block with the wrong scattering angle. For
+            # already-sorted phi this is identical to the previous behavior.
+            if len(t1) % n_phi != 0:
+                raise ValueError(
+                    f"Cannot broadcast {n_phi} phi angles over {len(t1)} flattened "
+                    "time points: not an integer number of points per angle. "
+                    "Expected an angle-major rectangular layout."
+                )
             n_time_per_angle = len(t1) // n_phi
-            phi_broadcast = np.repeat(phi_unique, n_time_per_angle)
+            phi_broadcast = np.repeat(np.asarray(phi), n_time_per_angle)
         else:
             phi_broadcast = phi
 

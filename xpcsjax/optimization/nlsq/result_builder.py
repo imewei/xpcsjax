@@ -438,7 +438,12 @@ class ResultBuilder:
             "chi_squared": quality.chi_squared,
             "reduced_chi_squared": quality.reduced_chi_squared,
             "convergence_status": convergence_status,
-            "iterations": int(self.info.get("nfev", 0)),
+            # Optimizer iteration count (NOT function-eval count): prefer "nit",
+            # then an explicit "iterations" key, matching every sibling builder
+            # (heterodyne_result_builder/wrapper use "nit"). Do NOT fall back to
+            # "nfev" — for a trust-region solve nfev >> nit and the field documents
+            # "Number of optimizer iterations".
+            "iterations": int(self.info.get("nit", self.info.get("iterations", 0))),
             "execution_time": execution_time,
             "device_info": {"type": "cpu", "name": "CPU"},
             "recovery_actions": self.recovery_actions,

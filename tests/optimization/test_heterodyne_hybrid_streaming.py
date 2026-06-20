@@ -314,6 +314,49 @@ def test_build_hybrid_streaming_result_quality_reflects_reduced_chi2():
     assert res.quality_flag == "poor"
 
 
+def test_build_hybrid_streaming_result_uses_driver_ssr_not_missing_cost():
+    """The builder must honor the driver-computed authoritative ``info['ssr']``.
+
+    The production driver (heterodyne_hybrid_streaming.py) threads the real SSR
+    under ``info['ssr']`` (and NOT ``info['cost']``). The L2/individual
+    hierarchical branch builds ``info`` manually with no ``'cost'`` key, so
+    reading ``info.get('cost', 0.0)`` silently yielded ``ssr=0`` ->
+    ``chi_squared=0`` -> ``reduced_chi2=0`` -> ``quality_flag='good'`` on a real
+    converged fit (a false success). Unit tests masked it by feeding a synthetic
+    ``'cost'`` key that production never sets.
+    """
+    from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
+        build_hybrid_streaming_result,
+    )
+
+    model, _c2, phi = _make_synthetic_heterodyne()
+    n = model.param_manager.n_varying
+    ssr = 100.0
+    n_data = 1000
+    sigma2 = 1e-4  # large reduced chi2 -> must classify "poor", not "good"
+    # Production-shaped info: 'ssr' present, NO 'cost' (mirrors the L2 branch).
+    res = build_hybrid_streaming_result(
+        model=model,
+        popt=np.zeros(n),
+        pcov=np.eye(n),
+        info={
+            "nit": 4,
+            "success": True,
+            "ssr": ssr,
+            "n_data_points": n_data,
+            "sigma2_noise": sigma2,
+        },
+        phi_angles=phi,
+    )
+    assert res.chi_squared == pytest.approx(ssr), (
+        f"chi_squared must reflect the driver SSR ({ssr}), not a missing-'cost' "
+        f"default of 0; got {res.chi_squared}"
+    )
+    assert res.quality_flag == "poor", (
+        f"a large-SSR fit must not falsely report 'good'; got {res.quality_flag}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Phase 2 Task 4: dispatch gate tests
 # ---------------------------------------------------------------------------

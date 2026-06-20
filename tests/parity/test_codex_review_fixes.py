@@ -252,9 +252,12 @@ def test_heterodyne_streaming_averaged_reduced_chi2_uses_expanded_dof():
     assert len(popt) == 2 + n_physics
 
     # Override SSR/noise/n_data with controlled, DOF-sensitive values (the synthetic
-    # fit converges to ~0 residual, where any DOF gives reduced_chi2 ~ 0).
+    # fit converges to ~0 residual, where any DOF gives reduced_chi2 ~ 0). The
+    # builder takes its SSR from the driver's authoritative ``info["ssr"]`` (not a
+    # cost*2 recompute), so inject the controlled SSR there.
     info = dict(info)
-    info["cost"] = 50.0  # ssr = 2*cost = 100
+    info["ssr"] = 100.0
+    info.pop("cost", None)
     info["sigma2_noise"] = 1.0
     info["n_data_points"] = 1000
     result = build_hybrid_streaming_result(

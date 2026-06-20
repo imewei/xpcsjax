@@ -218,15 +218,29 @@ def _build_l4_callback(
     x0: np.ndarray,
     joint_residual_fn: Any,
     config: NLSQConfig,
+    *,
+    scaling_first: bool = False,
 ) -> tuple[Any, Any]:
     """Build the L4 per-iteration gradient-collapse monitor and curve_fit callback.
 
     Returns ``(None, None)`` when gradient monitoring is disabled (so the caller
     builds no monitor and passes no callback, leaving the fit unchanged). When
-    enabled, returns ``(monitor, callback)`` where the monitor watches the joint
-    parameter layout ``[physics (n_physics) | scaling tail]`` and the callback is
-    strictly observational — Phase-0 proved NLSQ's curve_fit callback fires
-    per-iteration and never perturbs the solve.
+    enabled, returns ``(monitor, callback)`` and the callback is strictly
+    observational — Phase-0 proved NLSQ's curve_fit callback fires per-iteration
+    and never perturbs the solve.
+
+    The monitor partitions the joint vector into physical vs per-angle (scaling)
+    index sets, which depends on the caller's layout:
+
+    - ``scaling_first=False`` (default): PHYSICS-FIRST ``[physics | scaling tail]``
+      — used by ``_fit_joint_averaged_multi_phi`` (x0 = ``[physics, contrast,
+      offset]``).
+    - ``scaling_first=True``: canonical SCALING-FIRST ``[scaling_head | physics]``
+      — used by ``_fit_joint_multi_phi`` (x0 = ``[scaling_head, physics]``).
+
+    Passing the wrong layout silently mislabels which gradients are "physical" vs
+    "per-angle" in the diagnostics (L4 is observation-only, so the SOLVE is
+    unaffected, but the reported ratios would be meaningless).
     """
     if not config.enable_gradient_monitoring:
         return None, None
@@ -241,6 +255,15 @@ def _build_l4_callback(
 
     n_physics = int(model.param_manager.n_varying)
     total = len(x0)
+    n_scaling = max(0, total - n_physics)
+    if scaling_first:
+        # SCALING-FIRST [scaling_head | physics]: physics is the tail.
+        physical_indices = list(range(n_scaling, total))
+        per_angle_indices = list(range(0, n_scaling))
+    else:
+        # PHYSICS-FIRST [physics | scaling tail]: physics is the head.
+        physical_indices = list(range(n_physics))
+        per_angle_indices = list(range(n_physics, total))
     gm_cfg = GradientMonitorConfig(
         ratio_threshold=float(config.gradient_ratio_threshold),
         consecutive_triggers=int(config.gradient_consecutive_triggers),
@@ -248,8 +271,8 @@ def _build_l4_callback(
     )
     monitor = GradientCollapseMonitor(
         gm_cfg,
-        physical_indices=list(range(n_physics)),
-        per_angle_indices=list(range(n_physics, total)),
+        physical_indices=physical_indices,
+        per_angle_indices=per_angle_indices,
     )
 
     def _loss(p: Any) -> Any:
@@ -638,8 +661,13 @@ def _aggregate_individual_results(
             # OptimizationResult.chi_squared is defined as data residual SSR.
             chi2_values.append(float(np.sum(residual[valid_mask] ** 2)))
         elif r.final_cost is not None:
-            # NLSQResult.final_cost follows least-squares convention:
-            # final_cost = 0.5 * SSR. Convert back to SSR for result-level chi2.
+            # On the sequential per-angle path the results are produced by
+            # ``_fit_local``, whose own chi2 correction uses ``ssr = 2.0 *
+            # result.final_cost`` (heterodyne_core.py ~4342) — i.e. for THIS path
+            # final_cost follows the least-squares convention final_cost = 0.5*SSR
+            # (the scipy/wrapper adapter cost), so 2*final_cost recovers SSR.
+            # (The joint paths use a different builder where final_cost = full SSR
+            # and recompute from raw residuals; do not conflate the two.)
             chi2_values.append(2.0 * float(r.final_cost))
         else:
             chi2_values.append(0.0)
@@ -3177,8 +3205,12 @@ def _fit_joint_multi_phi(
 
     # L4: per-iteration gradient-collapse monitor (strictly observational).
     # Joint layout is canonical scaling-first [scaling_head | physics] — the
-    # scaling head is the per-angle (scaling) block. See ``_build_l4_callback``.
-    _monitor, _l4_callback = _build_l4_callback(model, x0, joint_residual_fn, config)
+    # scaling head is the per-angle (scaling) block. See ``_build_l4_callback``;
+    # pass scaling_first=True so the monitor partitions physical/per-angle
+    # indices for THIS layout (the default is physics-first for the averaged path).
+    _monitor, _l4_callback = _build_l4_callback(
+        model, x0, joint_residual_fn, config, scaling_first=True
+    )
 
     # Tracks whether the RETURNED ``joint_result`` came from the monitored
     # adapter (the only backend the L4 callback is wired into). Stays False on
