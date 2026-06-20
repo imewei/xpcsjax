@@ -155,7 +155,14 @@ def _parse_version(version: str) -> tuple[int, ...]:
 def _version_at_least(actual: str, minimum: str) -> bool:
     """Return whether ``actual`` is at least ``minimum``.
 
-    Both versions are normalized via :func:`_parse_version` first.
+    Both versions are normalized via :func:`_parse_version` first, then
+    zero-padded to equal length before comparison so that semantically-equal
+    versions of differing component counts compare equal (e.g. ``"2.3"`` is
+    treated as ``"2.3.0"``). A raw tuple comparison would rank the shorter
+    tuple as *less* even when the missing trailing components are all zero
+    (``(2, 3) < (2, 3, 0)``), which would spuriously flag an up-to-date
+    dependency as outdated whenever a minimum is declared with a trailing
+    ``.0`` (or a distribution reports a coarser version than the requirement).
 
     Parameters
     ----------
@@ -169,7 +176,12 @@ def _version_at_least(actual: str, minimum: str) -> bool:
     bool
         ``True`` if ``actual >= minimum``.
     """
-    return _parse_version(actual) >= _parse_version(minimum)
+    a = _parse_version(actual)
+    m = _parse_version(minimum)
+    width = max(len(a), len(m))
+    a_padded = a + (0,) * (width - len(a))
+    m_padded = m + (0,) * (width - len(m))
+    return a_padded >= m_padded
 
 
 # ---------------------------------------------------------------------------

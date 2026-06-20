@@ -12,6 +12,7 @@ shutdown-loop WARNING is emitted once across repeated failures in the same run.
 """
 
 import logging
+import time
 
 import pytest
 
@@ -164,3 +165,47 @@ def test_second_wait_all_call_logs_independently(caplog):
         )
     finally:
         writer.shutdown()
+
+
+def test_shutdown_surfaces_write_failing_after_drain_timeout(caplog):
+    """A write that fails AFTER shutdown's wait_all() timeout must still be logged.
+
+    Regression guard: ``shutdown`` runs a bounded ``wait_all`` drain, then
+    ``executor.shutdown(wait=True)``. A write still in flight at the drain
+    timeout is kept and finished by the executor teardown — but ``wait_all``
+    never re-observes it, so a failure there used to be silently dropped,
+    violating the error-observation contract. ``shutdown`` must surface it.
+    """
+    import threading
+
+    writer = AsyncWriter(max_workers=1)
+    release = threading.Event()
+
+    def _blocked_then_fail() -> None:
+        # Stay in flight past shutdown's (tiny) drain timeout, then fail during
+        # the executor.shutdown(wait=True) drain.
+        release.wait(5.0)
+        raise RuntimeError("late drain boom")
+
+    writer.submit_task(_blocked_then_fail)
+
+    with caplog.at_level(logging.WARNING, logger="xpcsjax"):
+        # Run shutdown in a worker so its wait_all(drain_timeout=...) times out
+        # (the write is still blocked) and the future is kept; the worker then
+        # blocks in executor.shutdown(wait=True) until we release the write.
+        worker = threading.Thread(target=lambda: writer.shutdown(drain_timeout=0.05))
+        worker.start()
+        time.sleep(0.3)  # let wait_all time out and enter executor.shutdown(wait=True)
+        release.set()  # write now raises -> drained by executor teardown
+        worker.join(5.0)
+        assert not worker.is_alive(), "shutdown() did not complete"
+
+    late = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "late drain boom" in r.getMessage()
+    ]
+    assert len(late) == 1, (
+        "a write failing during the final shutdown drain must be surfaced as a "
+        f"WARNING; got {len(late)} (silent-drop regression)"
+    )

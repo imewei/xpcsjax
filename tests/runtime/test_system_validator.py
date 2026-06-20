@@ -51,7 +51,11 @@ def test_parse_version(text: str, expected: tuple[int, ...]) -> None:
     ("actual", "minimum", "ok"),
     [
         ("2.3.0", "2.3", True),
-        ("2.3", "2.3.0", True),  # (2,3) >= (2,3,0) is False actually -> check
+        # Semantically-equal versions of differing length must compare equal:
+        # "2.3" is treated as "2.3.0" (zero-padded) so it satisfies the minimum.
+        # A raw tuple compare would give (2,3) < (2,3,0) == False (the bug).
+        ("2.3", "2.3.0", True),
+        ("1.17", "1.17.0", True),
         ("1.9", "2.0", False),
         ("0.8.2", "0.8.2", True),
         ("0.8.1", "0.8.2", False),
@@ -59,11 +63,7 @@ def test_parse_version(text: str, expected: tuple[int, ...]) -> None:
     ],
 )
 def test_version_at_least(actual: str, minimum: str, ok: bool) -> None:
-    # Tuple comparison: (2,3) < (2,3,0) in Python, so adjust the one ambiguous case.
-    if actual == "2.3" and minimum == "2.3.0":
-        assert _version_at_least(actual, minimum) is False
-    else:
-        assert _version_at_least(actual, minimum) is ok
+    assert _version_at_least(actual, minimum) is ok
 
 
 # --- result dataclass -------------------------------------------------------

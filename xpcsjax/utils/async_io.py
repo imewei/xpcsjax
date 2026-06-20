@@ -246,8 +246,16 @@ class AsyncWriter:
                     pass
         return errors
 
-    def shutdown(self) -> None:
-        """Wait for pending writes and shut down. Idempotent."""
+    def shutdown(self, *, drain_timeout: float = 300.0) -> None:
+        """Wait for pending writes and shut down. Idempotent.
+
+        ``drain_timeout`` bounds the cooperative :meth:`wait_all` drain before
+        the executor is torn down. A write still in flight past it is kept and
+        finished by ``executor.shutdown(wait=True)``; any such write that *fails*
+        during that final drain is surfaced here rather than silently dropped,
+        honouring the error-observation contract (``wait_all`` never re-observes
+        a future it left behind on timeout).
+        """
         # Flip the flag under _lock so it serializes against the submit_*
         # check-and-submit. Release before wait_all()/executor.shutdown(), which
         # re-acquire _lock — holding it across them would deadlock.
@@ -255,10 +263,38 @@ class AsyncWriter:
             if self._shutdown:
                 return
             self._shutdown = True
-        errors = self.wait_all(timeout=300.0)
+        errors = self.wait_all(timeout=drain_timeout)
         if errors:
             logger.error("AsyncWriter.shutdown: %d background write(s) failed", len(errors))
         self._executor.shutdown(wait=True)
+
+        # wait_all() keeps any future still mid-write at its timeout; the
+        # executor.shutdown(wait=True) above has now finished those. Surface any
+        # that FAILED during that final drain — wait_all() never calls result()
+        # on them again, so without this their exception is silently lost.
+        with self._lock:
+            remaining = list(self._futures)
+            self._futures.clear()
+        late_failures = 0
+        for future in remaining:
+            try:
+                # Non-blocking: every submitted future is done after
+                # executor.shutdown(wait=True).
+                exc = future.exception()
+            except Exception:  # noqa: BLE001 - cancelled/never-ran; nothing to surface
+                continue
+            if exc is not None:
+                late_failures += 1
+                logger.warning(
+                    "Background write failed during shutdown drain (%s): %s",
+                    type(exc).__name__,
+                    exc,
+                )
+        if late_failures:
+            logger.error(
+                "AsyncWriter.shutdown: %d background write(s) failed during final drain",
+                late_failures,
+            )
 
     def __del__(self) -> None:
         """Warn if garbage-collected without an explicit :meth:`shutdown`.
