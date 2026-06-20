@@ -43,3 +43,34 @@ def test_save_results_rejects_bad_format(tmp_path):
 
     with pytest.raises(ValueError, match="Unknown output_format"):
         save_results(MagicMock(spec=OptimizationResult), tmp_path, "xml", None, None)
+
+
+def test_json_safe_handles_zero_dim_ndarray():
+    """0-D numpy arrays (scalar arrays) must coerce, not crash.
+
+    Regression: ``np.ndarray.tolist()`` collapses a 0-D array to a bare Python
+    scalar, so the old ``[_json_safe(v) for v in value.tolist()]`` iterated a
+    non-iterable and raised ``TypeError: 'float' object is not iterable``. A 0-D
+    array reaches ``_json_safe`` whenever a scalar numpy reduction lands in
+    ``nlsq_diagnostics`` / ``streaming_diagnostics`` / ``device_info`` / cli args.
+    """
+    import numpy as np
+
+    from xpcsjax.service.persist import _json_safe
+
+    # 0-D float / int route through the scalar branches and coerce to primitives.
+    assert _json_safe(np.array(3.5)) == 3.5
+    assert isinstance(_json_safe(np.array(3.5)), float)
+    assert _json_safe(np.array(7)) == 7
+    assert isinstance(_json_safe(np.array(7)), int)
+
+    # Non-finite 0-D mirrors the existing 1-D NaN/inf -> None contract.
+    assert _json_safe(np.array(np.nan)) is None
+    assert _json_safe(np.array(np.inf)) is None
+
+    # Nested inside the dict/list trees that the result payload is built from.
+    assert _json_safe({"metric": np.array(1.5)}) == {"metric": 1.5}
+    assert _json_safe([np.array(2.0), 3.0]) == [2.0, 3.0]
+
+    # 1-D arrays still expand to lists (no regression to the documented path).
+    assert _json_safe(np.array([1.0, np.nan, 2.0])) == [1.0, None, 2.0]

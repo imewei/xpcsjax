@@ -60,6 +60,12 @@ def _json_safe(value: Any) -> Any:
         fval = float(value)
         return fval if math.isfinite(fval) else None
     if isinstance(value, np.ndarray):
+        # A 0-D array (e.g. ``np.array(3.5)``) is a scalar: ``tolist()`` returns a
+        # bare Python scalar, not a list, so route it back through the scalar
+        # branches above (finite-float -> None coercion included) instead of
+        # iterating a non-iterable.
+        if value.ndim == 0:
+            return _json_safe(value.item())
         # Replace non-finite entries with None to keep the JSON valid.
         return [_json_safe(v) for v in value.tolist()]
     if isinstance(value, (Path, datetime.datetime, datetime.date)):
