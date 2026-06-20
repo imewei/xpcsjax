@@ -65,6 +65,10 @@ class _ReaderThread(QThread):
                 if grace_deadline is None:
                     grace_deadline = time.monotonic() + _DEATH_GRACE_S
                 if time.monotonic() >= grace_deadline:
+                    # The feeder thread may have pushed a real terminal event into
+                    # the pipe just before the process exited. Drain it now rather
+                    # than synthesize a spurious Died over a lost Finished/Failed.
+                    terminal_seen = self._drain_remaining()
                     break
                 continue
             self.event.emit(ev)
@@ -78,6 +82,29 @@ class _ReaderThread(QThread):
             code = self._proc.exitcode
             sig = -code if isinstance(code, int) and code < 0 else None
             self.event.emit(Died(run_id=self._run_id, seq=-1, exit_code=code, signal=sig))
+
+    def _drain_remaining(self) -> bool:
+        """Emit any still-queued events; return True if a terminal was among them.
+
+        multiprocessing's ``Queue.put`` hands the object to a background feeder
+        thread, so a terminal event the worker enqueued just before exiting can
+        still be sitting in the pipe when the timed ``get`` loop gives up. This
+        final non-blocking sweep recovers it instead of losing it to a synthetic
+        ``Died``. Stops at the first terminal (nothing follows it).
+        """
+        saw_terminal = False
+        while True:
+            try:
+                ev = self._queue.get_nowait()
+            except _queue.Empty:
+                break
+            except (OSError, ValueError):  # queue closed / broken mid-drain
+                break
+            self.event.emit(ev)
+            if isinstance(ev, TERMINAL_EVENTS):
+                saw_terminal = True
+                break
+        return saw_terminal
 
 
 class WorkerHandle(QObject):

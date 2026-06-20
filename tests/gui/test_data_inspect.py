@@ -64,3 +64,22 @@ def test_c2_preview_reconstructs_group_half_matrix(tmp_path):
     # The reconstructed two-time matrix must be symmetric (block-mean rasterization
     # with equal row/col strides preserves symmetry).
     np.testing.assert_allclose(img, img.T)
+
+
+def test_c2_preview_nested_group_at_key_returns_none(tmp_path):
+    # A malformed file where a C2 group key holds a nested GROUP (not a Dataset)
+    # must yield None — not raise AttributeError on Group.ndim.
+    p = tmp_path / "bad.h5"
+    with h5py.File(p, "w") as f:
+        g = f.create_group("xpcs/twotime/correlation_map")  # aps_u layout group
+        g.create_group("c2_00001")  # nested group where a 2-D dataset is expected
+    assert read_c2_preview(p, "unused", data_type="aps_u", phi_index=0) is None
+
+
+def test_c2_preview_unknown_type_group_path_returns_none(tmp_path):
+    # The data_type=None best-effort branch reads f[dataset] directly; if that path
+    # resolves to a GROUP rather than a Dataset, it must return None, not raise.
+    p = tmp_path / "grp.h5"
+    with h5py.File(p, "w") as f:
+        f.create_group("some/group")
+    assert read_c2_preview(p, "some/group") is None

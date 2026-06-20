@@ -427,13 +427,14 @@ class MainWindow(QMainWindow):
         # Register a synthetic dataset for the temp config + enqueue run.
         dataset = self._project.add_dataset(temp_path)
         self._dataset_temp_paths[dataset.dataset_id] = temp_path  # unlinked on close
-        self._sidebar.set_project(self._project)
         self._active_dataset_id = dataset.dataset_id
 
         run = self._project.add_run(dataset.dataset_id)
         out_dir = self._per_run_output_dir(temp_path, run.run_id)
         run.result_dir = str(out_dir)  # durable per-run dir, recorded before enqueue
         self._queue.enqueue(run.run_id, temp_path, str(out_dir))
+        # Single sidebar rebuild: the dataset AND its run are both present now, so
+        # one rebuild suffices (previously rebuilt twice — once after add_dataset).
         self._sidebar.set_project(self._project)
 
     # --- inspector public API -------------------------------------------------
