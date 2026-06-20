@@ -45,6 +45,24 @@ For a continuous-rebuild workflow:
    uv pip install sphinx-autobuild
    make -C docs livehtml
 
+GUI extras
+----------
+
+The desktop analysis workbench (:doc:`/user_guide/gui`) is optional. Install
+the ``gui`` extra for PySide6 + PyQtGraph, and the ``packaging`` extra if you
+want to freeze a standalone app with PyInstaller:
+
+.. code-block:: shell
+
+   uv pip install -e ".[gui]"        # PySide6 + PyQtGraph + pytest-qt
+   xpcsjax-gui                        # launch the workbench
+
+   uv pip install -e ".[packaging]"  # pyinstaller (frozen-app builds)
+
+The GUI process is JAX-free by design and runs every fit in a separate
+``spawn`` worker; see :doc:`/user_guide/gui` for the architecture and the
+PyInstaller freeze notes.
+
 Why uv?
 -------
 

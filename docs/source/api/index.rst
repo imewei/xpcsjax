@@ -18,3 +18,4 @@ implementation surface.
    viz
    cli
    runtime
+   service

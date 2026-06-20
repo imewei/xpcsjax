@@ -13,6 +13,29 @@ the rendered documentation.
 
 ### Added
 
+- **Desktop analysis workbench (GUI)** (`xpcsjax/gui/`). A PySide6 graphical
+  front-end registered as the `xpcsjax-gui` / `xj-gui` console script
+  (`xpcsjax.gui.app:main`; recognises `--help` / `--version`, forwards the rest
+  to Qt). Config tab (form + raw-YAML + live JAX-free validation), Data tab
+  (h5py-only HDF5 browser + two-time C₂ preview), Fit tab, Inspector dock
+  (params / uncertainties / diagnostics), live-diagnostics view (SSR curve,
+  L1–L5 layer chips, banner log), interactive PyQtGraph plots, and a
+  datasets→runs project sidebar with side-by-side comparison. Sessions persist
+  to `.xpcsproj` JSON (atomic writes, per-run output dirs).
+  **Architectural invariant:** the GUI process never imports JAX — every fit
+  runs in a separate `spawn` worker (`xpcsjax/gui/ipc/`) that lazily imports
+  JAX + the service layer and streams structured `FitEvent`s back to the UI.
+  Optional install: `pip install -e ".[gui]"`. PyInstaller freeze support via
+  `.[packaging]` + `packaging/xpcsjax-gui.spec` (one-dir bundle,
+  `multiprocessing.freeze_support()` first). Documentation:
+  `docs/source/user_guide/gui.rst`.
+- **Headless core-service layer** (`xpcsjax/service/`). The argparse-free,
+  Qt-free orchestration seam shared by the CLI and the GUI worker:
+  `service.config` (JAX-free `load_config` / `validate_config` / `available_modes`
+  / `template_dict`), `service.events` (JAX-free streamed `FitEvent` schema),
+  and the worker-side `service.data` / `service.fit` / `service.plots`, plus
+  `service.persist` (result serialisation, relocated from `cli.result_saving`).
+  Documentation: `docs/source/api/service.rst`.
 - **Command-line interface** (`xpcsjax/cli/`). Console scripts registered in
   `pyproject.toml`, each with an `xj` short alias:
     - `xpcsjax` / `xj` — single flat flag-driven command for NLSQ fits;

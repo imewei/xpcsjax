@@ -17,4 +17,5 @@ chapter scoped to one stage of the pipeline.
    interpreting_results
    visualization
    cli
+   gui
    troubleshooting

@@ -35,6 +35,9 @@ command has a short ``xj`` alias, so ``xpcsjax`` and ``xj`` are interchangeable.
    * - ``xjsim``
      - —
      - Shortcut for plotting simulated C₂ heatmaps.
+   * - ``xpcsjax-gui``
+     - ``xj-gui``
+     - Launch the PySide6 analysis workbench (GUI).
 
 .. note::
 
@@ -172,6 +175,21 @@ activation-script edits:
 .. code-block:: console
 
    $ xpcsjax-cleanup
+
+Launching the GUI workbench
+---------------------------
+
+``xpcsjax-gui`` (alias ``xj-gui``) opens the desktop analysis workbench — a
+graphical front-end over the same NLSQ fit path:
+
+.. code-block:: console
+
+   $ xpcsjax-gui
+
+It recognises ``--help`` / ``--version`` like the other scripts and forwards
+any remaining arguments to Qt (e.g. ``xpcsjax-gui -platform offscreen`` for a
+headless run). The GUI is an optional extra — ``uv pip install -e ".[gui]"``.
+See :doc:`/user_guide/gui` for the full workbench guide.
 
 See :doc:`/api/cli` and :doc:`/api/runtime` for the importable APIs behind
 these scripts.

@@ -70,12 +70,12 @@ only three actions:
    ``XLA_FLAGS`` string that disables ``constant_folding`` and forces
    four host platform devices.
 2. Silences a handful of JAX backend loggers.
-3. Registers six names in an internal ``_LAZY_EXPORTS`` dictionary.
+3. Registers seven names in an internal ``_LAZY_EXPORTS`` dictionary.
 
-The six public names — ``load_xpcs_data``, ``fit_nlsq``,
-``ConfigManager``, ``HomodyneModel``, ``HeterodyneModel``, and
-``OptimizationResult`` — are resolved on first attribute access through
-a module-level ``__getattr__``. This means:
+The seven public names — ``load_xpcs_data``, ``fit_nlsq``,
+``ConfigManager``, ``generate_nlsq_plots``, ``HomodyneModel``,
+``HeterodyneModel``, and ``OptimizationResult`` — are resolved on first
+attribute access through a module-level ``__getattr__``. This means:
 
 .. code-block:: python
 
@@ -153,4 +153,7 @@ What to read next
   transforms, anti-degeneracy controller.
 * :doc:`/user_guide/interpreting_results` —
   :class:`xpcsjax.optimization.nlsq.results.OptimizationResult` field reference.
+* :doc:`/user_guide/cli` — the ``xpcsjax`` console scripts.
+* :doc:`/user_guide/gui` — the ``xpcsjax-gui`` desktop analysis workbench, a
+  graphical front-end over the same fit path.
 * :doc:`/user_guide/troubleshooting` — common error paths.

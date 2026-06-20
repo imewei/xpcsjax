@@ -8,6 +8,20 @@ current release line.
 Unreleased
 ----------
 
+**Desktop analysis workbench (GUI).** A PySide6 graphical front-end launched
+with ``xpcsjax-gui`` (alias ``xj-gui``): Config / Data / Fit tabs, an Inspector
+dock, a live-diagnostics view, interactive PyQtGraph plots, and a
+datasets→runs project sidebar that persists to ``.xpcsproj`` files. The GUI
+process never imports JAX — every fit runs in a separate ``spawn`` worker that
+streams structured progress events back to the UI. Optional install:
+``uv pip install -e ".[gui]"``. See :doc:`/user_guide/gui`.
+
+**Headless core-service layer (``xpcsjax.service``).** The argparse-free,
+Qt-free orchestration seam shared by the CLI and the GUI worker — config
+loading / validation / templates (JAX-free), the streamed fit-event schema
+(JAX-free), and the worker-side data / fit / plot / persistence services. See
+:doc:`/api/service`.
+
 **Heterodyne config bounds overrides (``parameter_space.bounds``).** The
 ``two_component`` config loader now honors list-format
 ``parameter_space.bounds`` overrides — ``ParameterSpace.from_config`` applies
