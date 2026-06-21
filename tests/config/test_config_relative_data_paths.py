@@ -69,19 +69,29 @@ def test_relative_subdir_is_joined(tmp_path: Path) -> None:
 
 
 def test_absolute_path_is_left_unchanged(tmp_path: Path) -> None:
-    cfg_path = _write_config(tmp_path, {"data_folder_path": "/abs/data", "file_path": "/abs/x.hdf"})
+    # OS-native absolute paths ("/abs/data" on POSIX, "C:\\abs\\data" on
+    # Windows). A bare leading-slash path is *not* absolute on Windows since
+    # Python 3.13 changed ``ntpath.isabs`` — so it would be anchored, not left
+    # alone. ``tmp_path.anchor`` ("/" or "C:\\") makes the literal absolute on
+    # every platform, which is what this test is actually asserting.
+    abs_data = os.path.join(tmp_path.anchor, "abs", "data")
+    abs_file = os.path.join(tmp_path.anchor, "abs", "x.hdf")
+    cfg_path = _write_config(tmp_path, {"data_folder_path": abs_data, "file_path": abs_file})
     cm = ConfigManager(config_file=str(cfg_path))
     exp = cm.config["experimental_data"]
-    assert exp["data_folder_path"] == "/abs/data"
-    assert exp["file_path"] == "/abs/x.hdf"
+    assert exp["data_folder_path"] == abs_data
+    assert exp["file_path"] == abs_file
 
 
 def test_env_var_path_expands_to_absolute(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("XPCSJAX_TEST_ROOT", "/srv/scratch")
+    # OS-native absolute root so the expanded value is genuinely absolute on
+    # Windows too (see ``ntpath.isabs`` note above).
+    root = os.path.join(tmp_path.anchor, "srv", "scratch")
+    monkeypatch.setenv("XPCSJAX_TEST_ROOT", root)
     cfg_path = _write_config(tmp_path, {"data_folder_path": "${XPCSJAX_TEST_ROOT}/C020"})
     cm = ConfigManager(config_file=str(cfg_path))
     got = cm.config["experimental_data"]["data_folder_path"]
-    assert os.path.normpath(got) == os.path.join("/srv", "scratch", "C020")
+    assert os.path.normpath(got) == os.path.normpath(os.path.join(root, "C020"))
 
 
 def test_unset_env_var_is_not_mis_anchored(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

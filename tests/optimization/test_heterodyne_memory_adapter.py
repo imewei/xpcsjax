@@ -39,38 +39,47 @@ def test_estimate_peak_memory_gb() -> None:
 # the run context (serial vs pytest-xdist, which would otherwise divide further).
 
 
-def test_get_memory_threshold_default() -> None:
-    available = hm.detect_available_system_memory()
-    assert available is not None
+# A fixed available-memory basis. ``_get_memory_threshold`` calls
+# ``detect_available_system_memory`` internally; pinning it here makes the
+# test and the implementation read the *same* number. Reading live memory
+# twice (once here, once inside the call) drifts between the two reads — on
+# macOS the churn exceeds ``pytest.approx``'s default rel=1e-6 and the test
+# flakes. The pin removes that race on every platform.
+_PINNED_AVAILABLE_GB = 16.0
+
+
+def test_get_memory_threshold_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(hm, "detect_available_system_memory", lambda: _PINNED_AVAILABLE_GB)
     threshold = hm._get_memory_threshold(0.75, concurrency=1)
-    assert threshold == pytest.approx(available * 0.75)
+    assert threshold == pytest.approx(_PINNED_AVAILABLE_GB * 0.75)
 
 
 def test_get_memory_threshold_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(hm, "detect_available_system_memory", lambda: _PINNED_AVAILABLE_GB)
     monkeypatch.setenv(hm.MEMORY_FRACTION_ENV_VAR, "0.5")
-    available = hm.detect_available_system_memory()
-    assert available is not None
-    assert hm._get_memory_threshold(0.75, concurrency=1) == pytest.approx(available * 0.5)
+    assert hm._get_memory_threshold(0.75, concurrency=1) == pytest.approx(
+        _PINNED_AVAILABLE_GB * 0.5
+    )
 
 
 def test_get_memory_threshold_invalid_env_keeps_passed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(hm, "detect_available_system_memory", lambda: _PINNED_AVAILABLE_GB)
     monkeypatch.setenv(hm.MEMORY_FRACTION_ENV_VAR, "garbage")
-    available = hm.detect_available_system_memory()
-    assert available is not None
     # Invalid env -> logged, keeps the passed fraction (0.6).
-    assert hm._get_memory_threshold(0.6, concurrency=1) == pytest.approx(available * 0.6)
+    assert hm._get_memory_threshold(0.6, concurrency=1) == pytest.approx(
+        _PINNED_AVAILABLE_GB * 0.6
+    )
 
 
-def test_get_memory_threshold_clamps() -> None:
-    available = hm.detect_available_system_memory()
-    assert available is not None
+def test_get_memory_threshold_clamps(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(hm, "detect_available_system_memory", lambda: _PINNED_AVAILABLE_GB)
     assert hm._get_memory_threshold(0.99, concurrency=1) == pytest.approx(
-        available * 0.9
+        _PINNED_AVAILABLE_GB * 0.9
     )  # clamped high
     assert hm._get_memory_threshold(0.01, concurrency=1) == pytest.approx(
-        available * 0.1
+        _PINNED_AVAILABLE_GB * 0.1
     )  # clamped low
 
 
