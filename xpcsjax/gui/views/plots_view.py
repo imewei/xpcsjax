@@ -53,6 +53,22 @@ def _apply_colormap(image_item: pg.ImageItem, name: str) -> None:
         pass
 
 
+def _lock_square_box(plot: pg.PlotItem) -> None:
+    """Lock a heatmap to square data pixels with no auto-range padding.
+
+    ``setAspectLocked(True)`` keeps 1 t₁-unit == 1 t₂-unit so the rendered image
+    never shears (square data pixels). Zero default padding makes that square
+    image hug the plot box instead of floating inside the ~2 % margin PyQtGraph
+    adds by default — so once :class:`_SquareAspectMixin` has squared the widget
+    tile, the only remaining margin is the thin axis strip, not a wide letterbox.
+    """
+    plot.setAspectLocked(True)
+    try:
+        plot.getViewBox().setDefaultPadding(0.0)
+    except Exception:  # noqa: BLE001 - older pyqtgraph builds lack setDefaultPadding
+        pass
+
+
 def _time_rect(t1: np.ndarray | None, t2: np.ndarray | None) -> QRectF | None:
     """Map the (t1, t2) time axes to an image rect (x = t₁, y = t₂).
 
@@ -140,9 +156,9 @@ class TwoTimeMapView(_SquareAspectMixin, pg.GraphicsLayoutWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent=parent)
         self._plot = self.addPlot()
-        # Lock 1 t₁-unit to 1 t₂-unit so the displayed image keeps square data
-        # pixels (the square widget tile alone would otherwise stretch the array).
-        self._plot.setAspectLocked(True)
+        # Square data pixels (no shear) + no padding, so the square image hugs the
+        # square widget tile that _SquareAspectMixin enforces.
+        _lock_square_box(self._plot)
         # Col-major so array axis 0 (t₁) is horizontal and axis 1 (t₂) vertical.
         self._image_item = pg.ImageItem()
         self._image_item.setOpts(axisOrder="col-major")
@@ -199,9 +215,9 @@ class ResidualMapView(_SquareAspectMixin, pg.GraphicsLayoutWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent=parent)
         self._plot = self.addPlot()
-        # Lock 1 t₁-unit to 1 t₂-unit so the displayed image keeps square data
-        # pixels (the square widget tile alone would otherwise stretch the array).
-        self._plot.setAspectLocked(True)
+        # Square data pixels (no shear) + no padding, so the square image hugs the
+        # square widget tile that _SquareAspectMixin enforces.
+        _lock_square_box(self._plot)
         # Col-major so array axis 0 (t₁) is horizontal and axis 1 (t₂) vertical.
         self._image_item = pg.ImageItem()
         self._image_item.setOpts(axisOrder="col-major")
@@ -465,6 +481,15 @@ class PhiResultsGrid(QWidget):
         super().__init__(parent)
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
+        # Keep the viewport width constant. Every tile is squared by
+        # _SquareAspectMixin (height := width on resize); if the vertical
+        # scrollbar could toggle, each toggle would change the width, re-pin all
+        # tile heights, change the content height, and re-toggle the bar — an
+        # oscillation that left tiles rectangular mid-flight (stretched image,
+        # wide letterbox margins). Pinning the bar on (and the horizontal one
+        # off) fixes the width, so the square-tile loop converges immediately.
+        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._container = QWidget()
         self._vbox = QVBoxLayout(self._container)
         self._scroll.setWidget(self._container)

@@ -9,10 +9,12 @@ pytest.importorskip("PySide6")
 pytest.importorskip("pyqtgraph")
 
 import pyqtgraph as pg  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
 
 from xpcsjax.gui.views.plots_view import (  # noqa: E402
     _SCATTER_MAX_POINTS,
     DiagonalResidualView,
+    PhiResultsGrid,
     ResidualHistogramView,
     ResidualMapView,
     ResidualsVsFittedView,
@@ -104,6 +106,27 @@ def test_plot_widgets_render_square(qtbot, view_cls):
     w.resize(300, 120)  # wide + short -> resizeEvent must re-pin height to width
     qtbot.waitUntil(lambda: w.height() == w.width(), timeout=2000)
     assert w.height() == w.width()
+
+
+@pytest.mark.parametrize("view_cls", [TwoTimeMapView, ResidualMapView])
+def test_map_locks_square_data_pixels_without_padding(qtbot, view_cls):
+    # Heatmaps lock 1 t₁-unit == 1 t₂-unit (no shear) and drop auto-range padding
+    # so the square image hugs the square tile instead of floating in a margin.
+    w = view_cls()
+    qtbot.addWidget(w)
+    vb = w._plot.getViewBox()
+    assert vb.state["aspectLocked"]  # 1:1 data aspect -> square data pixels
+    assert vb.state["defaultPadding"] == pytest.approx(0.0)  # no letterbox padding
+
+
+def test_phi_grid_pins_scrollbars_to_keep_square_tiles(qtbot):
+    # The vertical scrollbar is pinned on (and the horizontal off) so the
+    # viewport width never toggles — otherwise the per-tile height:=width squaring
+    # oscillates and tiles render rectangular mid-resize.
+    grid = PhiResultsGrid()
+    qtbot.addWidget(grid)
+    assert grid._scroll.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOn
+    assert grid._scroll.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
 
 
 def test_c2_levels_clamp_to_unit_band():
