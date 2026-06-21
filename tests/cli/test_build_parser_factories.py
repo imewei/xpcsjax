@@ -37,3 +37,21 @@ def test_post_install_shell_choices_preserved():
         a for a in post_install.build_parser()._actions if "--shell" in a.option_strings
     )
     assert shell_action.choices == ["bash", "zsh", "fish"]
+
+
+def test_gui_build_parser_import_light():
+    # Run in a CLEAN subprocess: other tests in the same pytest process may have
+    # already imported PySide6 (and popping "PySide6" does not clear its
+    # submodules), so an in-process sys.modules check is flaky. A fresh
+    # interpreter is the only reliable assertion.
+    import subprocess
+    import sys
+
+    code = (
+        "import argparse, sys\n"
+        "from xpcsjax.gui import app\n"
+        "assert isinstance(app.build_parser(), argparse.ArgumentParser)\n"
+        "assert 'PySide6' not in sys.modules, sorted(m for m in sys.modules if 'PySide6' in m)\n"
+    )
+    res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert res.returncode == 0, res.stderr

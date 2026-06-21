@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import atexit
 from typing import TYPE_CHECKING
 
@@ -42,16 +43,15 @@ def _resolve_version() -> str:
             return "unknown"
 
 
-def _parse_cli_args(argv: list[str]) -> list[str]:
-    """Handle ``xpcsjax-gui``'s own flags; return the leftover args for Qt.
+def build_parser() -> argparse.ArgumentParser:
+    """Build the xpcsjax-gui launcher parser (--version / --help only).
 
-    Recognises ``--help`` / ``--version`` (consistent with the other xpcsjax
-    console scripts) and forwards everything else — e.g. ``-platform offscreen``
-    — to Qt. ``--help`` / ``--version`` raise ``SystemExit`` via argparse, which
-    is the correct console-script behaviour.
+    Returns
+    -------
+    argparse.ArgumentParser
+        Parser that handles ``--version`` and ``--help``; everything else is
+        forwarded to Qt via ``parse_known_args``.
     """
-    import argparse
-
     parser = argparse.ArgumentParser(
         prog="xpcsjax-gui",
         description="Launch the xpcsjax analysis workbench (PySide6 GUI).",
@@ -61,6 +61,18 @@ def _parse_cli_args(argv: list[str]) -> list[str]:
         action="version",
         version=f"%(prog)s {_resolve_version()}",
     )
+    return parser
+
+
+def _parse_cli_args(argv: list[str]) -> list[str]:
+    """Handle ``xpcsjax-gui``'s own flags; return the leftover args for Qt.
+
+    Recognises ``--help`` / ``--version`` (consistent with the other xpcsjax
+    console scripts) and forwards everything else — e.g. ``-platform offscreen``
+    — to Qt. ``--help`` / ``--version`` raise ``SystemExit`` via argparse, which
+    is the correct console-script behaviour.
+    """
+    parser = build_parser()
     _, qt_extra = parser.parse_known_args(argv)
     return qt_extra
 
