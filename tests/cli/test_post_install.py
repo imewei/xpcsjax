@@ -187,19 +187,11 @@ def test_install_zsh_completion(fake_venv: Path) -> None:
     assert (fake_venv / "etc" / "bash_completion.d" / "xpcsjax-completion.sh").is_file()
 
 
-def test_install_fish_completion(fake_venv: Path) -> None:
-    assert pi.install_fish_completion(fake_venv, verbose=True) is True
-    dest = fake_venv / "share" / "fish" / "vendor_completions.d" / "xpcsjax.fish"
-    assert dest.is_file()
-    assert "complete -c xpcsjax" in dest.read_text(encoding="utf-8")
-
-
 @pytest.mark.parametrize(
     ("shell", "marker_path"),
     [
         ("bash", "etc/bash_completion.d/xpcsjax-completion.sh"),
         ("zsh", "etc/zsh/xpcsjax-completion.sh"),
-        ("fish", "share/fish/vendor_completions.d/xpcsjax.fish"),
         ("unknown", "etc/bash_completion.d/xpcsjax-completion.sh"),
     ],
 )
@@ -234,18 +226,10 @@ def test_completion_bash_activation_injection_and_idempotency(fake_venv: Path) -
     assert activate.read_text(encoding="utf-8").count(pi.COMPLETION_BEGIN_MARKER) == 1
 
 
-def test_completion_fish_activation_injection(fake_venv: Path) -> None:
-    assert pi._install_completion_fish_activation(fake_venv, verbose=True) is True
-    text = (fake_venv / "bin" / "activate.fish").read_text(encoding="utf-8")
-    assert pi.COMPLETION_BEGIN_MARKER in text
-    assert "vendor_completions.d/xpcsjax.fish" in text
-
-
 def test_completion_activation_missing_script(tmp_path: Path) -> None:
     empty = tmp_path / "venv"
     (empty / "bin").mkdir(parents=True)
     assert pi._install_completion_bash_activation(empty, verbose=True) is False
-    assert pi._install_completion_fish_activation(empty, verbose=True) is False
 
 
 def test_install_completion_activation_routes(
@@ -253,7 +237,11 @@ def test_install_completion_activation_routes(
 ) -> None:
     monkeypatch.setattr(pi, "is_virtual_environment", lambda: True)
     monkeypatch.setattr(pi, "get_venv_path", lambda: fake_venv)
+    # Fish is a non-fatal no-op: returns True but writes nothing to activate.fish.
+    fish_activate = fake_venv / "bin" / "activate.fish"
+    original_fish = fish_activate.read_text(encoding="utf-8")
     assert pi.install_completion_activation("fish", verbose=True) is True
+    assert fish_activate.read_text(encoding="utf-8") == original_fish
     assert pi.install_completion_activation("bash", verbose=True) is True
 
 
@@ -262,6 +250,31 @@ def test_install_completion_activation_skips_outside_venv(
 ) -> None:
     monkeypatch.setattr(pi, "is_virtual_environment", lambda: False)
     assert pi.install_completion_activation("bash", verbose=True) is False
+
+
+def test_fish_completion_is_nonfatal_noop_but_xla_stays(
+    fake_venv: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pi, "is_virtual_environment", lambda: True)
+    monkeypatch.setattr(pi, "get_venv_path", lambda: fake_venv)
+
+    # Fish completion is unsupported but MUST NOT fail (non-fatal no-op).
+    assert pi.install_shell_completion("fish", verbose=True) is True
+    assert pi.install_completion_activation("fish", verbose=True) is True
+    # No fish completion artifacts were written.
+    assert not (fake_venv / "share" / "fish" / "vendor_completions.d" / "xpcsjax.fish").exists()
+    # Fish XLA support is untouched.
+    assert pi.get_xla_config_source_path("fish").name == "xla_config.fish"
+
+
+def test_main_fish_xla_only_succeeds(
+    monkeypatch: pytest.MonkeyPatch, fake_venv: Path
+) -> None:
+    monkeypatch.setattr(pi, "is_virtual_environment", lambda: True)
+    monkeypatch.setattr(pi, "get_venv_path", lambda: fake_venv)
+    # post-install on fish (completion skipped, XLA applied) must exit 0.
+    rc = pi.main(["--shell", "fish", "--xla-mode", "nlsq"])
+    assert rc == 0
 
 
 # ---------------------------------------------------------------------------

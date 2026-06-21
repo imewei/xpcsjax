@@ -285,108 +285,6 @@ true  # Ensure zero exit code regardless of completion system state
         return False
 
 
-def install_fish_completion(venv_path: Path, verbose: bool = False) -> bool:
-    """Install fish completions into the environment (basic support).
-
-    Writes a generated completion file to
-    ``venv_path/share/fish/vendor_completions.d/xpcsjax.fish`` covering the
-    xpcsjax console scripts and their short aliases.
-
-    Parameters
-    ----------
-    venv_path
-        Path to the virtual environment.
-    verbose
-        Print progress messages.
-
-    Returns
-    -------
-    bool
-        ``True`` if the completion file was written successfully.
-    """
-    # Fish completions go to a specific location
-    dest_dir = venv_path / "share" / "fish" / "vendor_completions.d"
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / "xpcsjax.fish"
-
-    try:
-        content = """# Fish completion for xpcsjax (generated)
-
-# xpcsjax
-complete -c xpcsjax -s c -l config -d 'Configuration file' -F
-complete -c xpcsjax -l mode -d 'Analysis mode' -a 'static_anisotropic static_isotropic laminar_flow two_component'
-complete -c xpcsjax -s o -l output -d 'Output directory' -F
-complete -c xpcsjax -s v -l verbose -d 'Verbose output'
-complete -c xpcsjax -s q -l quiet -d 'Quiet output'
-complete -c xpcsjax -l log-level -d 'Log level' -a 'DEBUG INFO WARNING ERROR'
-complete -c xpcsjax -s h -l help -d 'Show help'
-complete -c xpcsjax -l version -d 'Show version'
-
-# xpcsjax-config
-complete -c xpcsjax-config -s o -l output -d 'Output file' -F
-complete -c xpcsjax-config -s d -l data -d 'Data file path' -F
-complete -c xpcsjax-config -l q -d 'Wavevector magnitude'
-complete -c xpcsjax-config -l dt -d 'Time step'
-complete -c xpcsjax-config -l time-length -d 'Number of time points'
-complete -c xpcsjax-config -l overwrite -d 'Overwrite existing file'
-complete -c xpcsjax-config -l show-template -d 'Print template path'
-complete -c xpcsjax-config -s i -l interactive -d 'Interactive config builder'
-complete -c xpcsjax-config -s V -l validate -d 'Validate config file'
-complete -c xpcsjax-config -l mode -d 'Config mode' -a 'static_anisotropic static_isotropic laminar_flow two_component'
-complete -c xpcsjax-config -s h -l help -d 'Show help'
-
-# xpcsjax-post-install
-complete -c xpcsjax-post-install -s i -l interactive -d 'Interactive setup'
-complete -c xpcsjax-post-install -s s -l shell -d 'Shell type' -a 'bash zsh fish'
-complete -c xpcsjax-post-install -l no-completion -d 'Skip shell completion'
-complete -c xpcsjax-post-install -l no-xla -d 'Skip XLA configuration'
-complete -c xpcsjax-post-install -l xla-mode -d 'XLA mode' -a 'auto nlsq'
-complete -c xpcsjax-post-install -s v -l verbose -d 'Verbose output'
-complete -c xpcsjax-post-install -s h -l help -d 'Show help'
-
-# xpcsjax-cleanup
-complete -c xpcsjax-cleanup -s n -l dry-run -d 'Show what would be removed'
-complete -c xpcsjax-cleanup -s f -l force -d 'Force cleanup without confirmation'
-complete -c xpcsjax-cleanup -s i -l interactive -d 'Interactive cleanup'
-complete -c xpcsjax-cleanup -s v -l verbose -d 'Verbose output'
-complete -c xpcsjax-cleanup -s h -l help -d 'Show help'
-
-# xpcsjax-validate
-complete -c xpcsjax-validate -s v -l verbose -d 'Verbose output'
-complete -c xpcsjax-validate -l json -d 'Output results as JSON'
-complete -c xpcsjax-validate -s h -l help -d 'Show help'
-
-# xpcsjax-gui (launches the PySide6 analysis workbench; other args pass to Qt)
-complete -c xpcsjax-gui -l version -d 'Show version'
-complete -c xpcsjax-gui -s h -l help -d 'Show help'
-
-# Short-alias console scripts (registered in pyproject.toml [project.scripts]).
-# Each alias resolves to the same module entry as its full-name counterpart,
-# so we simply wrap their completions to inherit the full-name spec.
-complete -c xj -w xpcsjax
-complete -c xj-config -w xpcsjax-config
-complete -c xj-config-xla -w xpcsjax-config-xla
-complete -c xj-post-install -w xpcsjax-post-install
-complete -c xj-cleanup -w xpcsjax-cleanup
-complete -c xj-validate -w xpcsjax-validate
-complete -c xj-gui -w xpcsjax-gui
-
-# Plot-only shortcuts (xjexp / xjsim are registered console scripts that
-# inject --plot-experimental-data / --plot-simulated-data; mirror xpcsjax's
-# completion surface).
-complete -c xjexp -w xpcsjax
-complete -c xjsim -w xpcsjax
-"""
-        dest.write_text(content, encoding="utf-8")
-        if verbose:
-            print(f"Installed fish completion to: {dest}")
-        return True
-    except OSError as e:
-        if verbose:
-            print(f"Failed to install fish completion: {e}")
-        return False
-
-
 def install_shell_completion(
     shell: str | None = None,
     verbose: bool = False,
@@ -427,7 +325,9 @@ def install_shell_completion(
     if detected_shell == "zsh":
         return install_zsh_completion(venv_path, verbose)
     elif detected_shell == "fish":
-        return install_fish_completion(venv_path, verbose)
+        if verbose:
+            print("Shell completion is not provided for fish (bash/zsh only); skipping.")
+        return True
     else:
         return install_bash_completion(venv_path, verbose)
 
@@ -467,7 +367,7 @@ def install_completion_activation(
     if detected_shell in ("bash", "zsh", "unknown"):
         return _install_completion_bash_activation(venv_path, verbose)
     elif detected_shell == "fish":
-        return _install_completion_fish_activation(venv_path, verbose)
+        return True
     else:
         return False
 
@@ -513,44 +413,6 @@ fi
     except OSError as e:
         if verbose:
             print(f"Failed to modify activate script: {e}")
-        return False
-
-
-def _install_completion_fish_activation(
-    venv_path: Path,
-    verbose: bool,
-) -> bool:
-    """Add completion sourcing to fish activate script."""
-    activate_script = venv_path / "bin" / "activate.fish"
-    if not activate_script.exists():
-        if verbose:
-            print(f"Fish activate script not found: {activate_script}")
-        return False
-
-    content = activate_script.read_text(encoding="utf-8")
-
-    if COMPLETION_BEGIN_MARKER in content:
-        if verbose:
-            print("Completion activation already installed in fish activate script")
-        return True
-
-    addition = f"""
-{COMPLETION_BEGIN_MARKER}
-if test -f "$VIRTUAL_ENV/share/fish/vendor_completions.d/xpcsjax.fish"
-    source "$VIRTUAL_ENV/share/fish/vendor_completions.d/xpcsjax.fish"
-end
-{COMPLETION_END_MARKER}
-"""
-
-    try:
-        with open(activate_script, "a", encoding="utf-8") as f:
-            f.write(addition)
-        if verbose:
-            print(f"Added completion activation to: {activate_script}")
-        return True
-    except OSError as e:
-        if verbose:
-            print(f"Failed to modify fish activate script: {e}")
         return False
 
 
