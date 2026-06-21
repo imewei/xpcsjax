@@ -109,14 +109,19 @@ def test_plot_widgets_render_square(qtbot, view_cls):
 
 
 @pytest.mark.parametrize("view_cls", [TwoTimeMapView, ResidualMapView])
-def test_map_locks_square_data_pixels_without_padding(qtbot, view_cls):
-    # Heatmaps lock 1 t₁-unit == 1 t₂-unit (no shear) and drop auto-range padding
-    # so the square image hugs the square tile instead of floating in a margin.
+def test_map_keeps_equal_t1_t2_range_without_aspect_lock(qtbot, view_cls):
+    # Two-time C₂ is square (same delay axis on both dims), so t₁ and t₂ must show
+    # the SAME range. Aspect-locking would inflate one axis's range to keep square
+    # pixels in a non-square tile (the t₂→150 bug); fitting each axis to the data
+    # keeps the ranges identical and fills the tile gap-free.
     w = view_cls()
     qtbot.addWidget(w)
     vb = w._plot.getViewBox()
-    assert vb.state["aspectLocked"]  # 1:1 data aspect -> square data pixels
+    assert not vb.state["aspectLocked"]  # no data-aspect coupling
     assert vb.state["defaultPadding"] == pytest.approx(0.0)  # no letterbox padding
+    w.show_map(np.full((64, 64), 1.2))  # square matrix -> identical t₁/t₂ spans
+    (x0, x1), (y0, y1) = vb.viewRange()
+    assert (x1 - x0) == pytest.approx(y1 - y0)
 
 
 def test_phi_grid_pins_scrollbars_to_keep_square_tiles(qtbot):

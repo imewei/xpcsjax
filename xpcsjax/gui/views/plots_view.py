@@ -53,18 +53,24 @@ def _apply_colormap(image_item: pg.ImageItem, name: str) -> None:
         pass
 
 
-def _lock_square_box(plot: pg.PlotItem) -> None:
-    """Lock a heatmap to square data pixels with no auto-range padding.
+def _fit_square_view(plot: pg.PlotItem) -> None:
+    """Configure a heatmap to fill its tile with t₁ and t₂ on identical ranges.
 
-    ``setAspectLocked(True)`` keeps 1 t₁-unit == 1 t₂-unit so the rendered image
-    never shears (square data pixels). Zero default padding makes that square
-    image hug the plot box instead of floating inside the ~2 % margin PyQtGraph
-    adds by default — so once :class:`_SquareAspectMixin` has squared the widget
-    tile, the only remaining margin is the thin axis strip, not a wide letterbox.
+    Two-time C₂ matrices are square (the same delay axis on both dims), so the
+    requirement is that t₁ and t₂ show the *same range*. The fix is therefore the
+    opposite of a data-aspect lock: ``setAspectLocked(True)`` keeps square
+    *pixels* by inflating one axis's range whenever the tile isn't pixel-perfect
+    square (that is what pushed the t₂ axis past the t₁ range). Instead the view
+    is left aspect-unlocked and fit to the data on each axis independently — for
+    square data that yields identical t₁/t₂ ranges and a gap-free fill, while the
+    square widget tile (:class:`_SquareAspectMixin`) keeps the image square.
+    Zero default padding removes the ~2 % auto-range margin so the image hugs the
+    box edges.
     """
-    plot.setAspectLocked(True)
+    vb = plot.getViewBox()
+    vb.setAspectLocked(False)
     try:
-        plot.getViewBox().setDefaultPadding(0.0)
+        vb.setDefaultPadding(0.0)
     except Exception:  # noqa: BLE001 - older pyqtgraph builds lack setDefaultPadding
         pass
 
@@ -156,9 +162,9 @@ class TwoTimeMapView(_SquareAspectMixin, pg.GraphicsLayoutWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent=parent)
         self._plot = self.addPlot()
-        # Square data pixels (no shear) + no padding, so the square image hugs the
-        # square widget tile that _SquareAspectMixin enforces.
-        _lock_square_box(self._plot)
+        # Fit each axis to the data (no aspect lock) so t₁ and t₂ keep identical
+        # ranges and the image fills the square widget tile gap-free.
+        _fit_square_view(self._plot)
         # Col-major so array axis 0 (t₁) is horizontal and axis 1 (t₂) vertical.
         self._image_item = pg.ImageItem()
         self._image_item.setOpts(axisOrder="col-major")
@@ -191,6 +197,9 @@ class TwoTimeMapView(_SquareAspectMixin, pg.GraphicsLayoutWidget):
         rect = _time_rect(t1, t2)
         if rect is not None:
             self._image_item.setRect(rect)
+        # Fit the view to the image extent exactly (padding=0): t₁/t₂ ranges follow
+        # the data, so a square C₂ matrix gets identical axis ranges and a full fill.
+        self._plot.getViewBox().autoRange(padding=0.0)
         self._has_image = True
 
     def clear_map(self) -> None:
@@ -215,9 +224,9 @@ class ResidualMapView(_SquareAspectMixin, pg.GraphicsLayoutWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent=parent)
         self._plot = self.addPlot()
-        # Square data pixels (no shear) + no padding, so the square image hugs the
-        # square widget tile that _SquareAspectMixin enforces.
-        _lock_square_box(self._plot)
+        # Fit each axis to the data (no aspect lock) so t₁ and t₂ keep identical
+        # ranges and the image fills the square widget tile gap-free.
+        _fit_square_view(self._plot)
         # Col-major so array axis 0 (t₁) is horizontal and axis 1 (t₂) vertical.
         self._image_item = pg.ImageItem()
         self._image_item.setOpts(axisOrder="col-major")
@@ -250,6 +259,9 @@ class ResidualMapView(_SquareAspectMixin, pg.GraphicsLayoutWidget):
         rect = _time_rect(t1, t2)
         if rect is not None:
             self._image_item.setRect(rect)
+        # Fit the view to the image extent exactly (padding=0): t₁/t₂ ranges follow
+        # the data, so a square residual map gets identical axis ranges and a full fill.
+        self._plot.getViewBox().autoRange(padding=0.0)
         self._has_image = True
 
     def clear_map(self) -> None:
