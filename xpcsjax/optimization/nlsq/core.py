@@ -2512,9 +2512,9 @@ def fit_nlsq_cmaes(
                     phys_cov = np.asarray(final_covariance)
                     expanded_cov = np.zeros((n_expanded, n_expanded))
                     k = min(n_physical, phys_cov.shape[0])
-                    expanded_cov[2 * n_phi : 2 * n_phi + k, 2 * n_phi : 2 * n_phi + k] = (
-                        phys_cov[:k, :k]
-                    )
+                    expanded_cov[2 * n_phi : 2 * n_phi + k, 2 * n_phi : 2 * n_phi + k] = phys_cov[
+                        :k, :k
+                    ]
                     final_covariance = expanded_cov
             else:
                 # AUTO AVERAGED MODE: expand 9 params [contrast, offset, *physical]
@@ -2571,12 +2571,8 @@ def fit_nlsq_cmaes(
                     for i in range(n_physical):
                         expanded_cov[:n_phi, 2 * n_phi + i] = final_covariance[0, 2 + i]
                         expanded_cov[2 * n_phi + i, :n_phi] = final_covariance[0, 2 + i]
-                        expanded_cov[n_phi : 2 * n_phi, 2 * n_phi + i] = final_covariance[
-                            1, 2 + i
-                        ]
-                        expanded_cov[2 * n_phi + i, n_phi : 2 * n_phi] = final_covariance[
-                            1, 2 + i
-                        ]
+                        expanded_cov[n_phi : 2 * n_phi, 2 * n_phi + i] = final_covariance[1, 2 + i]
+                        expanded_cov[2 * n_phi + i, n_phi : 2 * n_phi] = final_covariance[1, 2 + i]
 
                     final_covariance = expanded_cov
 

@@ -140,8 +140,12 @@ def test_close_project_stops_active_and_pending_runs(qtbot, tmp_path):
     qtbot.addWidget(win)
     # Swap in a fake-handle queue so no real worker process is spawned.
     win._queue = FitQueueController(max_concurrent=1, handle_factory=_FakeHandle)
-    win._queue.enqueue("run-active", str(tmp_path / "a.yaml"), str(tmp_path / "runs" / "run-active"))
-    win._queue.enqueue("run-pending", str(tmp_path / "b.yaml"), str(tmp_path / "runs" / "run-pending"))
+    win._queue.enqueue(
+        "run-active", str(tmp_path / "a.yaml"), str(tmp_path / "runs" / "run-active")
+    )
+    win._queue.enqueue(
+        "run-pending", str(tmp_path / "b.yaml"), str(tmp_path / "runs" / "run-pending")
+    )
     assert win._queue.active_count() == 1 and win._queue.pending_count() == 1
 
     win.close_project()

@@ -265,9 +265,7 @@ class _PhiSection(QWidget):
             placeholder.setMinimumHeight(self._MAP_MIN_HEIGHT)
             col_layout.addWidget(placeholder)
             return col
-        view: ResidualMapView | TwoTimeMapView = (
-            ResidualMapView() if residual else TwoTimeMapView()
-        )
+        view: ResidualMapView | TwoTimeMapView = ResidualMapView() if residual else TwoTimeMapView()
         view.setMinimumHeight(self._MAP_MIN_HEIGHT)
         view.show_map(np.asarray(data))
         col_layout.addWidget(view)

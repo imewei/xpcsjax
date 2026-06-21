@@ -254,7 +254,9 @@ def test_phi_grid_degenerate_bundle_is_finite_safe(qtbot):
     qtbot.addWidget(grid)
     with warnings.catch_warnings():
         warnings.simplefilter("error")  # any RuntimeWarning is a hard failure
-        grid.set_bundle(VizBundle(exp_c2=np.ones((3, 1, 1)), phi_angles=np.array([0.0, 45.0, 90.0])))
+        grid.set_bundle(
+            VizBundle(exp_c2=np.ones((3, 1, 1)), phi_angles=np.array([0.0, 45.0, 90.0]))
+        )
     assert grid.section_count() == 3
 
 

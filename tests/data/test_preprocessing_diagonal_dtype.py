@@ -47,6 +47,4 @@ def test_diagonal_correction_upcasts_integer_c2_no_truncation():
     # (proving no integer truncation occurred).
     diag = np.diag(np.asarray(c2)[0])
     frac = np.abs(diag - np.round(diag))
-    assert np.max(frac) > 1e-9, (
-        f"corrected diagonal was truncated to integers: diag={diag}"
-    )
+    assert np.max(frac) > 1e-9, f"corrected diagonal was truncated to integers: diag={diag}"

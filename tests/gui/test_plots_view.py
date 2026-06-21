@@ -58,5 +58,6 @@ def test_per_angle_overlay_plots_curves(qtbot):
     )
     assert w.curve_count() == 2
 
+
 # (ResultPlots removed in the redesign — per-phi grid behavior is covered by
 # tests/gui/test_gui_redesign.py::PhiResultsGrid tests.)

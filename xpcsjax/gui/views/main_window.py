@@ -259,8 +259,7 @@ class MainWindow(QMainWindow):
             "parameters:",
             *[f"  {name} = {value}" for name, value in summary.parameters.items()],
             "",
-            "Publication figures (Matplotlib) were written under "
-            f"{summary.result_dir}/plots.",
+            f"Publication figures (Matplotlib) were written under {summary.result_dir}/plots.",
         ]
         self._results.setPlainText("\n".join(lines))
 
@@ -586,9 +585,7 @@ class MainWindow(QMainWindow):
                 try:
                     self.create_config(mode, output_path, overwrite=True, **kwargs)
                 except (ValueError, FileNotFoundError, OSError) as exc:
-                    QMessageBox.warning(
-                        self, "Create Config", f"Could not create config:\n{exc}"
-                    )
+                    QMessageBox.warning(self, "Create Config", f"Could not create config:\n{exc}")
         except (ValueError, FileNotFoundError, OSError) as exc:
             # OSError covers write failures on the initial create (FileExistsError,
             # an OSError subclass, is caught above first so its overwrite prompt

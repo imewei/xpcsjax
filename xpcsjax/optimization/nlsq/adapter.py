@@ -484,9 +484,7 @@ def get_or_create_model(
     # a weakref to the source array in the value and verifying identity on a hit;
     # an eviction callback drops the entry (releasing its device arrays) the moment
     # the source array is GC'd, so a recycled id can never resolve to stale data.
-    _xdata_cache: dict[
-        int, tuple[weakref.ref, jnp.ndarray, jnp.ndarray, jnp.ndarray]
-    ] = {}
+    _xdata_cache: dict[int, tuple[weakref.ref, jnp.ndarray, jnp.ndarray, jnp.ndarray]] = {}
 
     def model_func(xdata: np.ndarray, *params: float) -> np.ndarray:
         """Compute predicted g2 values for NLSQ curve_fit.

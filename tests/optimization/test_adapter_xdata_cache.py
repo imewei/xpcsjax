@@ -34,9 +34,7 @@ _PARAMS = (0.3, 1.0, 1000.0, 0.5, 10.0, 0.01, 0.0, 0.0, 0.0)
 def _xdata(t1_vals, t2_vals):
     """Build an [n,3] xdata array (columns t1, t2, phi_idx=0)."""
     n = len(t1_vals)
-    return np.column_stack(
-        [np.asarray(t1_vals, float), np.asarray(t2_vals, float), np.zeros(n)]
-    )
+    return np.column_stack([np.asarray(t1_vals, float), np.asarray(t2_vals, float), np.zeros(n)])
 
 
 def _coord_sensitive_model_func():

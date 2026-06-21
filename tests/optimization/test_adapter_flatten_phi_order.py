@@ -46,9 +46,7 @@ def test_flatten_sorted_phi_unchanged():
     t2 = np.tile(np.array([2.0, 3.0, 4.0, 5.0]), 3)
     g2 = np.concatenate([np.full(4, ang) for ang in phi])
     adapter = NLSQAdapter()
-    xdata, ydata, _ = adapter._flatten_xpcs_data(
-        {"phi": phi, "t1": t1, "t2": t2, "g2": g2}
-    )
+    xdata, ydata, _ = adapter._flatten_xpcs_data({"phi": phi, "t1": t1, "t2": t2, "g2": g2})
     resolved = np.array([0.0, 45.0, 90.0])[xdata[:, 2].astype(int)]
     np.testing.assert_array_equal(resolved, ydata)
 
