@@ -191,9 +191,14 @@ class TwoTimeMapView(_SquareAspectMixin, pg.GraphicsLayoutWidget):
             physical t₁/t₂ grid; otherwise the axes fall back to frame indices
             (still labelled t₁/t₂).
         """
-        arr = rasterize(np.asarray(c2_2d, dtype=float))
+        # Compute the color window from the FULL-resolution surface, then
+        # rasterize for display only — block-mean decimation would otherwise
+        # shrink the window so the map disagrees with the full-res diagnostics
+        # (histogram/diagonal/scatter) shown alongside it.
+        full = np.asarray(c2_2d, dtype=float)
+        arr = rasterize(full)
         self._image_item.setImage(arr, autoLevels=False)
-        self._image_item.setLevels(_c2_levels(arr))
+        self._image_item.setLevels(_c2_levels(full))
         rect = _time_rect(t1, t2)
         if rect is not None:
             self._image_item.setRect(rect)
@@ -253,9 +258,13 @@ class ResidualMapView(_SquareAspectMixin, pg.GraphicsLayoutWidget):
             physical t₁/t₂ grid; otherwise the axes fall back to frame indices
             (still labelled t₁/t₂).
         """
-        arr = rasterize(np.asarray(residual_2d, dtype=float))
+        # Levels from the FULL-resolution residuals (block-mean decimation cancels
+        # opposite-signed neighbours and would shrink the window vs the histogram/
+        # diagonal/scatter diagnostics fed the full surface); rasterize for display.
+        full = np.asarray(residual_2d, dtype=float)
+        arr = rasterize(full)
         self._image_item.setImage(arr, autoLevels=False)
-        self._image_item.setLevels(_residual_levels(arr))
+        self._image_item.setLevels(_residual_levels(full))
         rect = _time_rect(t1, t2)
         if rect is not None:
             self._image_item.setRect(rect)

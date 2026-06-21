@@ -64,6 +64,10 @@ class MainWindow(QMainWindow):
         self._project = Project()
         self._queue = FitQueueController()
         self._active_run_id: str | None = None
+        # The run the user is deliberately viewing (set by a sidebar click). The
+        # queue-driven finish refresh must not yank the central panel/inspector away
+        # from it. ``None`` means "follow the active run" (the common single-run path).
+        self._viewing_run_id: str | None = None
         self._active_dataset_id: str | None = None
         # The project working directory (set by Create Project); also the default
         # base for per-run output dirs. ``_output_dir`` mirrors ``_project_dir``
@@ -299,6 +303,10 @@ class MainWindow(QMainWindow):
             # nothing until the worker is up).
             if self._active_run_id != run_id:
                 self._active_run_id = run_id  # this run's stream now drives the log
+                # A freshly-started run takes focus: clear any prior deliberate
+                # selection and the stale per-run log so the new stream starts clean.
+                self._viewing_run_id = None
+                self._log.clear()
         self._project.set_run_status(run_id, status)
         self._sidebar.update_run(self._project, run_id)
         if status in ("starting", "running"):
@@ -334,13 +342,15 @@ class MainWindow(QMainWindow):
                 run.result_dir = result_path
             run.summary = summary
             self._sidebar.update_run(self._project, run_id)
-        # Show the result in the main panel for the active run.
+        # Show the result in the main panel for the active run — but never yank the
+        # panel/inspector away from a run the user has deliberately selected to view.
         if run_id == self._active_run_id:
             self._set_status_state("finished")
-            result_dir = result_path or None
-            self._show_result_with_bundle(summary, result_dir)
-            # Mirror finished result into the inspector dock.
-            self.show_inspector(summary)
+            if self._viewing_run_id is None or self._viewing_run_id == run_id:
+                result_dir = result_path or None
+                self._show_result_with_bundle(summary, result_dir)
+                # Mirror finished result into the inspector dock.
+                self.show_inspector(summary)
 
     def _on_runs_selected(self, run_ids: list) -> None:
         pairs = []
@@ -357,6 +367,9 @@ class MainWindow(QMainWindow):
             found = self._project.run_by_id(first_rid)
             if found is not None:
                 _, run = found
+                # Record the deliberate selection so a finishing active run can't
+                # clobber it (see _on_run_finished).
+                self._viewing_run_id = first_rid
                 self._show_result_with_bundle(run.summary, run.result_dir)
                 # Mirror the run's results into the inspector (params/uncertainties/
                 # diagnostics live there).
@@ -541,6 +554,7 @@ class MainWindow(QMainWindow):
         self._queue.shutdown()
         self._project = Project()
         self._active_run_id = None
+        self._viewing_run_id = None
         self._active_dataset_id = None
         self._project_dir = None
         self._output_dir = None
@@ -550,6 +564,7 @@ class MainWindow(QMainWindow):
         self._inspector.show_summary(None)
         self._result_grid.set_bundle(None)
         self._results.clear()
+        self._log.clear()  # the Fitting-Process dock belongs to the discarded project
         self._central_stack.setCurrentIndex(0)
         self._set_status_state("idle")
         self.set_status("idle")

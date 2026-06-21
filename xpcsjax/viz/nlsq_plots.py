@@ -218,6 +218,27 @@ def _homodyne_scaling_arrays(
     return contrasts, offsets, physical_params, names
 
 
+def _heterodyne_physics_is_head(diagnostics: dict[str, Any]) -> bool:
+    """Whether the heterodyne physics block is the HEAD of the param/uncertainty vector.
+
+    Single source of truth for the layout decision so the physical *params* slice
+    (:func:`_unpack_result_params` / :func:`_unpack_heterodyne_scaling`) and the
+    physical *uncertainty* slice (:func:`generate_nlsq_plots`) can never diverge:
+
+    - ``averaged`` — physics-first iff ``scaling_first`` is ``False`` (the legacy
+      ``_fit_joint_averaged_multi_phi`` producer); scaling-first (physics trailing)
+      otherwise, including the marker-less default.
+    - ``constant`` — physics-only vector; head and tail coincide (report head).
+    - ``individual`` / marker-less — canonical scaling-first → physics is the TAIL.
+    """
+    mode = diagnostics.get("per_angle_mode")
+    if mode == "averaged":
+        return not bool(diagnostics.get("scaling_first", True))
+    if mode == "constant":
+        return True
+    return False
+
+
 def _unpack_result_params(
     model: Any,
     result: Any,
@@ -265,13 +286,12 @@ def _unpack_result_params(
             # scaling-first) for marker-less results. Scaling scalars come from
             # diagnostics regardless of layout; only the physics slice and the
             # scalar fallback depend on the layout.
-            scaling_first = bool(diagnostics.get("scaling_first", True))
-            if scaling_first:
-                physical_params = params[-n_physical:].copy()
-                fallback_c, fallback_o = params[0], params[1]
-            else:
+            if _heterodyne_physics_is_head(diagnostics):
                 physical_params = params[:n_physical].copy()
                 fallback_c, fallback_o = params[-2], params[-1]
+            else:
+                physical_params = params[-n_physical:].copy()
+                fallback_c, fallback_o = params[0], params[1]
             contrast_scalar = float(diagnostics.get("averaged_contrast", fallback_c))
             offset_scalar = float(diagnostics.get("averaged_offset", fallback_o))
             return contrast_scalar, offset_scalar, physical_params, physical_names
@@ -381,13 +401,12 @@ def _unpack_heterodyne_scaling(
         # Marker-aware layout (audit #1): engine route is SCALING-FIRST,
         # legacy _fit_joint_averaged_multi_phi is PHYSICS-FIRST. Default True
         # (canonical scaling-first) when the marker is absent.
-        scaling_first = bool(diagnostics.get("scaling_first", True))
-        if scaling_first:
-            physical_params = params[-n_physical:].copy()
-            fallback_c, fallback_o = params[0], params[1]
-        else:
+        if _heterodyne_physics_is_head(diagnostics):
             physical_params = params[:n_physical].copy()
             fallback_c, fallback_o = params[-2], params[-1]
+        else:
+            physical_params = params[-n_physical:].copy()
+            fallback_c, fallback_o = params[0], params[1]
         contrast = float(diagnostics.get("averaged_contrast", fallback_c))
         offset = float(diagnostics.get("averaged_offset", fallback_o))
         contrasts = np.full(n_phi_expected, contrast, dtype=float)
@@ -1759,18 +1778,21 @@ def generate_nlsq_plots(
                     continue
                 _render_one_angle_worker(_render_args_for_index(i))
 
-    # Slice uncertainties to match physical_params.
-    # Both homodyne and heterodyne use scaling-first layout:
-    #   homodyne:   [c_0..n_phi-1, o_0..n_phi-1, physical...]
-    #   heterodyne: [c_0..N-1, o_0..N-1, physical...] (individual)
-    #               [contrast, offset, physical...]     (averaged)
-    #               [physical...]                       (constant, physics-only)
-    # In all cases the physical uncertainties are the TRAILING n_physical
-    # entries — all_unc[-n_physical:].
+    # Slice uncertainties to match physical_params — using the SAME layout
+    # decision as _unpack_result_params so values and uncertainties can never
+    # diverge (the 2026-06-21 twin-path bug). Homodyne is always scaling-first
+    # ([c_0..N-1, o_0..N-1, physical...]) so its physics uncertainties trail.
+    # Heterodyne honours _heterodyne_physics_is_head: physics-first averaged
+    # (scaling_first=False) and constant put physics at the HEAD; scaling-first
+    # averaged / individual put it at the TAIL.
     all_unc = np.asarray(result.uncertainties, dtype=float)
     if _is_heterodyne_family(model):
         n_physical_het = len(model.parameter_names)
-        phys_unc = all_unc[-n_physical_het:]
+        diagnostics = getattr(result, "nlsq_diagnostics", None) or {}
+        if _heterodyne_physics_is_head(diagnostics):
+            phys_unc = all_unc[:n_physical_het]
+        else:
+            phys_unc = all_unc[-n_physical_het:]
     else:
         # Use the already-extracted physical-parameter count (HomodyneModel has
         # no ``parameter_names`` attribute; physical_params is resolved robustly

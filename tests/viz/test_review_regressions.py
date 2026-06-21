@@ -788,3 +788,83 @@ def test_results_slices_scaling_first(mode, n_phi):
     else:
         np.testing.assert_array_equal(r.physics_parameters, physics)
         np.testing.assert_array_equal(r.scaling_parameters, scaling)
+
+
+# ---------------------------------------------------------------------------
+# 15. The PHYSICAL-uncertainty slice in generate_nlsq_plots must honour the same
+#     scaling_first decision as the params slice (_unpack_result_params). The
+#     2026-06-21 audit found the uncertainty slice unconditionally tail-sliced
+#     all_unc[-n_physical:], corrupting serialized uncertainties for the
+#     PHYSICS-FIRST averaged result emitted by _fit_joint_averaged_multi_phi
+#     (scaling_first=False). Twin-path sibling of the param-unpacking fix.
+# ---------------------------------------------------------------------------
+
+
+def test_heterodyne_physics_is_head_helper():
+    """The shared layout decision: physics is the HEAD only for averaged+
+    physics-first and constant (physics-only); scaling-first/individual put
+    physics in the TAIL."""
+    from xpcsjax.viz.nlsq_plots import _heterodyne_physics_is_head
+
+    assert _heterodyne_physics_is_head({"per_angle_mode": "averaged", "scaling_first": False}) is True
+    assert _heterodyne_physics_is_head({"per_angle_mode": "averaged", "scaling_first": True}) is False
+    assert _heterodyne_physics_is_head({"per_angle_mode": "averaged"}) is False  # default scaling-first
+    assert _heterodyne_physics_is_head({"per_angle_mode": "individual"}) is False
+    assert _heterodyne_physics_is_head({"per_angle_mode": "constant"}) is True
+    assert _heterodyne_physics_is_head({}) is False
+
+
+def test_averaged_physics_first_uncertainties_use_head_slice(tmp_path, monkeypatch):
+    """generate_nlsq_plots must serialize the HEAD physics uncertainties for a
+    physics-first averaged result, not the trailing slice (which would drop the
+    first 2 physics uncertainties and inject contrast/offset uncertainties)."""
+    import xpcsjax.viz.nlsq_plots as npl
+    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+
+    model = HeterodyneModel()
+    n_phi = 3
+    physical = np.asarray(model.get_default_parameters(), dtype=float)  # 14
+    n_phys = physical.size
+
+    # Physics-FIRST averaged layout: [physics(14) | contrast | offset].
+    params = np.concatenate([physical, [0.2, 1.0]])
+    phys_unc = np.arange(1, n_phys + 1) * 1e-3  # distinct, identifiable
+    scaling_unc = np.array([999.0, 888.0])  # sentinels — must NOT leak into physics
+    uncertainties = np.concatenate([phys_unc, scaling_unc])
+
+    result = OptimizationResult(
+        parameters=params,
+        uncertainties=uncertainties,
+        covariance=np.eye(params.size) * 0.01,
+        chi_squared=2.5,
+        reduced_chi_squared=0.9,
+        convergence_status="converged",
+        iterations=10,
+        execution_time=0.1,
+        device_info={"platform": "cpu"},
+        nlsq_diagnostics={
+            "per_angle_mode": "averaged",
+            "scaling_first": False,
+            "averaged_contrast": 0.2,
+            "averaged_offset": 1.0,
+        },
+    )
+
+    captured: dict = {}
+
+    def _capture(**kwargs):
+        captured["uncertainties"] = np.asarray(kwargs["uncertainties"], dtype=float)
+
+    monkeypatch.setattr(npl, "_save_fit_artifacts", _capture)
+
+    data = _make_heterodyne_data(n_phi=n_phi)
+    config = _make_heterodyne_config()
+    npl.generate_nlsq_plots(
+        model=model, result=result, data=data, config=config, output_dir=tmp_path
+    )
+
+    saved = captured["uncertainties"]
+    assert saved.size == n_phys
+    np.testing.assert_allclose(saved, phys_unc)
+    assert 999.0 not in saved and 888.0 not in saved

@@ -73,6 +73,11 @@ def load_result_summary(result_dir: str | Path) -> ResultSummary | None:
         if isinstance(info, dict) and _as_float(info.get("value")) is not None
     }
 
+    # Coerce a non-dict (e.g. null) nlsq_diagnostics to {} — symmetric with the
+    # metadata/parameters guards above — so a partial/external result JSON never
+    # yields a non-dict diagnostics that crashes the inspector on iteration.
+    diag_raw = meta.get("nlsq_diagnostics", {})
+    diagnostics = diag_raw if isinstance(diag_raw, dict) else {}
     return ResultSummary(
         result_dir=result_dir,
         success=bool(meta.get("success", False)),
@@ -82,5 +87,5 @@ def load_result_summary(result_dir: str | Path) -> ResultSummary | None:
         quality_flag=str(meta.get("quality_flag", "")),
         parameters={k: v for k, v in parameters.items() if v is not None},
         uncertainties=uncertainties,
-        diagnostics=meta.get("nlsq_diagnostics", {}),
+        diagnostics=diagnostics,
     )

@@ -180,6 +180,14 @@ class FitQueueController(QObject):
             handle.start()
 
     def _on_event(self, run_id: str, event: Any) -> None:
+        # Drop stale telemetry for a run the GUI has already freed or cancelled:
+        # the active-but-dead cancel() branch keeps the handle while its reader
+        # drains trailing queued events, so a late Started/LogLine/Iteration/Banner
+        # could otherwise be re-emitted under a cancelled run. Terminal events fall
+        # through to their own cancelled-aware cleanup below.
+        if not isinstance(event, (Finished, Failed, Died)):
+            if run_id not in self._handles or run_id in self._cancelled:
+                return
         # --- non-terminal: forward to the selected-run monitor (Plan-E/D widgets) ---
         if isinstance(event, Started):
             self.run_status_changed.emit(run_id, "running")

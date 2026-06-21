@@ -99,9 +99,13 @@ class InspectorDock(QWidget):
             unc_text = f"{unc:.4g}" if unc is not None else "—"
             self._param_table.setItem(row, 2, QTableWidgetItem(unc_text))
 
-    def _populate_diagnostics(self, diag: dict) -> None:
+    def _populate_diagnostics(self, diag: object) -> None:
         """Recursively walk *diag* and build a QTreeWidget."""
         self._diag_tree.clear()
+        if not isinstance(diag, dict):
+            # Defense-in-depth for a summary built outside the loader (the loader
+            # already coerces a non-dict nlsq_diagnostics to {}).
+            return
         for key, value in diag.items():
             item = self._make_tree_item(str(key), value)
             self._diag_tree.addTopLevelItem(item)
