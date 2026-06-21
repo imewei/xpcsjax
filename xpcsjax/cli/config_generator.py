@@ -26,6 +26,7 @@ from xpcsjax.utils.logging import get_logger
 logger = get_logger(__name__)
 
 __all__ = [
+    "build_parser",
     "generate_config",
     "get_template_path",
     "interactive_builder",
@@ -474,6 +475,17 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     return parser
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Public factory alias for the config-generator parser.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        The argument parser for the ``xpcsjax-config`` console script.
+    """
+    return _build_parser()
 
 
 def main() -> None:

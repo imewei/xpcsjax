@@ -561,8 +561,14 @@ def interactive_cleanup() -> None:
     print("Cleanup complete!")
 
 
-def main(argv: list[str] | None = None) -> int:
-    """CLI entry point for xpcsjax-cleanup."""
+def build_parser() -> argparse.ArgumentParser:
+    """Build the xpcsjax-cleanup argument parser.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        Parser for the ``xpcsjax-cleanup`` console script.
+    """
     parser = argparse.ArgumentParser(
         description="Clean up xpcsjax installation files",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -597,7 +603,12 @@ Examples:
         action="store_true",
         help="Verbose output",
     )
+    return parser
 
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point for xpcsjax-cleanup."""
+    parser = build_parser()
     args = parser.parse_args(argv)
 
     if args.dry_run:

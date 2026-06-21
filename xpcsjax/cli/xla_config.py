@@ -102,15 +102,13 @@ def get_cpu_info() -> dict[str, int | float | str]:
     return info
 
 
-def main() -> None:
-    """``xpcsjax-config-xla`` / ``xj-config-xla`` entry point.
+def build_parser() -> argparse.ArgumentParser:
+    """Build the xpcsjax-config-xla argument parser.
 
-    This command is **informational only**. By the time it runs, the
-    parent shim has already executed ``import xpcsjax`` (which triggered
-    JAX backend init), so any env-var mutation we perform here cannot
-    take effect on the current process. The command prints what WOULD be
-    set; to persist a configuration for future shells, use
-    ``xpcsjax-post-install --xla-mode``.
+    Returns
+    -------
+    argparse.ArgumentParser
+        Parser for the ``xpcsjax-config-xla`` / ``xj-config-xla`` command.
     """
     parser = argparse.ArgumentParser(
         prog="xpcsjax-config-xla",
@@ -141,7 +139,20 @@ def main() -> None:
         action="store_true",
         help="Print CPU/RAM info and exit.",
     )
+    return parser
 
+
+def main() -> None:
+    """``xpcsjax-config-xla`` / ``xj-config-xla`` entry point.
+
+    This command is **informational only**. By the time it runs, the
+    parent shim has already executed ``import xpcsjax`` (which triggered
+    JAX backend init), so any env-var mutation we perform here cannot
+    take effect on the current process. The command prints what WOULD be
+    set; to persist a configuration for future shells, use
+    ``xpcsjax-post-install --xla-mode``.
+    """
+    parser = build_parser()
     args = parser.parse_args()
 
     if args.info:

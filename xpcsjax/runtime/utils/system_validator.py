@@ -10,6 +10,7 @@ check for NumPyro / BlackJAX / ArviZ or any Bayesian / MCMC dependency.
 
 from __future__ import annotations
 
+import argparse
 import importlib
 import importlib.metadata as importlib_metadata
 import os
@@ -29,6 +30,7 @@ __all__ = [
     "Severity",
     "SystemValidator",
     "ValidationResult",
+    "build_parser",
     "main",
     "run_validation",
 ]
@@ -654,16 +656,14 @@ def run_validation(verbose: bool = False, as_json: bool = False) -> list[Validat
     return results
 
 
-def main() -> int:
-    """Run the ``xpcsjax-validate`` CLI command.
+def build_parser() -> argparse.ArgumentParser:
+    """Build the xpcsjax-validate argument parser.
 
     Returns
     -------
-    int
-        Process exit code: ``1`` if any ERROR-severity test failed, else ``0``.
+    argparse.ArgumentParser
+        Parser for the ``xpcsjax-validate`` console script.
     """
-    import argparse
-
     parser = argparse.ArgumentParser(
         prog="xpcsjax-validate",
         description="Validate the xpcsjax installation and configuration.",
@@ -679,6 +679,18 @@ def main() -> int:
         action="store_true",
         help="Emit results as a JSON array on stdout (suppresses the human report).",
     )
+    return parser
+
+
+def main() -> int:
+    """Run the ``xpcsjax-validate`` CLI command.
+
+    Returns
+    -------
+    int
+        Process exit code: ``1`` if any ERROR-severity test failed, else ``0``.
+    """
+    parser = build_parser()
     args = parser.parse_args()
 
     results = run_validation(verbose=args.verbose, as_json=args.json)

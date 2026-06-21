@@ -971,8 +971,14 @@ def interactive_setup() -> None:
     print("=" * 60)
 
 
-def main(argv: list[str] | None = None) -> int:
-    """CLI entry point for xpcsjax-post-install."""
+def build_parser() -> argparse.ArgumentParser:
+    """Build the xpcsjax-post-install argument parser.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        Parser for the ``xpcsjax-post-install`` console script.
+    """
     parser = argparse.ArgumentParser(
         description="Post-installation setup for xpcsjax",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1018,7 +1024,12 @@ Examples:
         action="store_true",
         help="Verbose output",
     )
+    return parser
 
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point for xpcsjax-post-install."""
+    parser = build_parser()
     args = parser.parse_args(argv)
 
     # Validate --xla-mode if provided

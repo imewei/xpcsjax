@@ -437,4 +437,6 @@ def validate_args(args: argparse.Namespace) -> list[str]:
     return warnings
 
 
-__all__ = ["create_parser", "validate_args"]
+build_parser = create_parser  # uniform factory name used by completion_spec
+
+__all__ = ["build_parser", "create_parser", "validate_args"]
