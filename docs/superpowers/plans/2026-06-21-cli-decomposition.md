@@ -165,7 +165,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 **Files:**
 - Create: `xpcsjax/cli/plot_families/simulated.py`
 - Modify: `xpcsjax/cli/plot_dispatch.py` (remove 3 symbols; import back)
-- Test: `tests/cli/test_simulated_data_grid.py` (string-form monkeypatch + call repoint)
+- Test: `tests/cli/test_simulated_data_grid.py` (object-form monkeypatch on the `simulated` module + call repoint)
 
 **Interfaces:**
 - Consumes: `_PLOT_DISPATCH_CALL_COUNTER` from `plot_backend` (Task 1).
@@ -173,7 +173,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Move the three functions verbatim**
 
-Cut `resolve_phi_angles_for_sim` (L106-…), `_plot_simulated_from_config` (L184-…), and `_evaluate_model_c2` (L345-…, including its inner `import jax.numpy as jnp`) into `xpcsjax/cli/plot_families/simulated.py`. Add the imports they reference: `numpy as np`, `from pathlib import Path`, `from typing import Any`, `from xpcsjax.cli.plot_backend import _PLOT_DISPATCH_CALL_COUNTER`, the `xpcsjax.viz` helpers, logging utils, and the `ConfigManager` `TYPE_CHECKING` import. Keep docstrings. `_plot_simulated_from_config` calls `_evaluate_model_c2` by bare name — keep that call so a module-level monkeypatch on `simulated._evaluate_model_c2` intercepts it.
+Cut `resolve_phi_angles_for_sim` (L106-…), `_plot_simulated_from_config` (L184-…), and `_evaluate_model_c2` (L345-…, including its inner `import jax.numpy as jnp`) into `xpcsjax/cli/plot_families/simulated.py`. Add the imports they reference: `numpy as np`, `from pathlib import Path`, `from typing import Any`, **`from xpcsjax.cli.plot_backend import _PLOT_DISPATCH_CALL_COUNTER, _current_run_id`** (`_plot_simulated_from_config` calls `_current_run_id()` at the rate-limited-warning sites, currently `plot_dispatch.py:301,331` — omitting it raises `NameError` at runtime), the `xpcsjax.viz` helpers, logging utils, and the `ConfigManager` `TYPE_CHECKING` import. Keep docstrings. `_plot_simulated_from_config` calls `_evaluate_model_c2` by bare name — keep that call so a module-level monkeypatch on `simulated._evaluate_model_c2` intercepts it.
 
 - [ ] **Step 2: Rewire `plot_dispatch.py`**
 
@@ -236,7 +236,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Move the two functions verbatim**
 
-Cut `_generate_post_fit_plots` (L412-…) and `_save_fit_comparison_only` (L432-…) into `xpcsjax/cli/plot_families/postfit.py`. Add imports they reference: `from pathlib import Path`, `from typing import Any`, `from xpcsjax.cli.plot_backend import _PLOT_DISPATCH_CALL_COUNTER`, `from xpcsjax.service.plots import generate_plots` (currently `plot_dispatch.py:420`), the `_evaluate_c2_per_angle` import from `xpcsjax.viz.nlsq_plots` (currently `plot_dispatch.py:494` — this is why postfit transitively uses JAX, by design), logging utils, and `ConfigManager` `TYPE_CHECKING`. Keep docstrings.
+Cut `_generate_post_fit_plots` (L412-…) and `_save_fit_comparison_only` (L432-…) into `xpcsjax/cli/plot_families/postfit.py`. Add imports they reference: `from pathlib import Path`, `from typing import Any`, **`from xpcsjax.cli.plot_backend import _PLOT_DISPATCH_CALL_COUNTER, _current_run_id, should_use_datashader`** (`_generate_post_fit_plots` calls `should_use_datashader` at L427; both functions call `_current_run_id()` at L498,522,542 — omitting either raises `NameError`), `from xpcsjax.service.plots import generate_plots` (currently `plot_dispatch.py:420`), logging utils, and `ConfigManager` `TYPE_CHECKING`. Note: the `_evaluate_c2_per_angle` import from `xpcsjax.viz.nlsq_plots` is a **function-local** import inside `_save_fit_comparison_only` (currently `plot_dispatch.py:494`) — it moves *verbatim with the function body* (do not hoist it to module top; keeping it local preserves the string-path monkeypatch `"xpcsjax.viz.nlsq_plots._evaluate_c2_per_angle"` used by the test, and is why postfit transitively uses JAX by design). Keep docstrings.
 
 - [ ] **Step 2: Rewire `plot_dispatch.py`**
 
@@ -245,7 +245,8 @@ Add `from xpcsjax.cli.plot_families.postfit import _generate_post_fit_plots, _sa
 - [ ] **Step 3: Update the tests**
 
 - `tests/cli/test_output_resolution.py:110,144`: these reference `plot_dispatch._generate_post_fit_plots(...)` via `from xpcsjax.cli import plot_dispatch` (`:138`). Change to `from xpcsjax.cli.plot_families import postfit` and call `postfit._generate_post_fit_plots(...)`.
-- `tests/cli/test_plot_dispatch_logging.py:117,163,171`: these call `pd._save_fit_comparison_only(...)`. Add `from xpcsjax.cli.plot_families import postfit` and change those calls to `postfit._save_fit_comparison_only(...)`. (The `xpcsjax.viz.*` string-form patches at `:111-112` stay unchanged.)
+- `tests/cli/test_plot_dispatch_logging.py:117,163,171`: these call `pd._save_fit_comparison_only(...)`. Add `from xpcsjax.cli.plot_families import postfit` and change those calls to `postfit._save_fit_comparison_only(...)`. (The `xpcsjax.viz.*` string-form patches at `:111-112` stay unchanged.) Note: `plot_dispatch` re-imports `_save_fit_comparison_only` (Step 2), so `pd._save_fit_comparison_only` would technically still resolve — repointing to `postfit` is the clearer home and is preferred.
+- `xpcsjax/service/plots.py:3` docstring: update the cross-reference `cli.plot_dispatch._generate_post_fit_plots` → `cli.plot_families.postfit._generate_post_fit_plots`.
 
 - [ ] **Step 4: Run the covering tests**
 
@@ -261,7 +262,7 @@ Expected: clean.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add xpcsjax/cli/plot_families/postfit.py xpcsjax/cli/plot_dispatch.py tests/cli/test_output_resolution.py tests/cli/test_plot_dispatch_logging.py
+git add xpcsjax/cli/plot_families/postfit.py xpcsjax/cli/plot_dispatch.py xpcsjax/service/plots.py tests/cli/test_output_resolution.py tests/cli/test_plot_dispatch_logging.py
 git commit -m "refactor(cli): extract plot_families/postfit
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
@@ -321,13 +322,15 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Move template logic verbatim into `config_template.py`**
 
-Cut `_MODE_TO_TEMPLATE` (L43), `get_template_path` (L53), `generate_config` (L90), `show_template` (L197), `validate_config` (L217), `_prompt` (L276), `interactive_builder` (L322) from `config_generator.py` into a new `xpcsjax/cli/config_template.py`. Add the imports they reference (e.g. `from pathlib import Path`, `from typing import Any`, `from xpcsjax.config import ConfigManager`, yaml, logging). Keep docstrings.
+Cut `_MODE_TO_TEMPLATE` (L43), `_VALID_MODES` (L50, `= tuple(_MODE_TO_TEMPLATE.keys())`), `get_template_path` (L53), `generate_config` (L90), `show_template` (L197), `validate_config` (L217), `_prompt` (L276), `interactive_builder` (L322) from `config_generator.py` into a new `xpcsjax/cli/config_template.py`. Add the imports they reference (e.g. `from pathlib import Path`, `from typing import Any`, `from xpcsjax.config import ConfigManager`, yaml, logging). Keep docstrings.
 
 - [ ] **Step 2: Make `config_generator.py` a facade**
 
 In `config_generator.py`, add a re-export so the GUI (`main_window.py:459`) and tests keep importing from `config_generator`:
 ```python
 from xpcsjax.cli.config_template import (
+    _MODE_TO_TEMPLATE,
+    _VALID_MODES,
     generate_config,
     get_template_path,
     interactive_builder,
@@ -335,7 +338,13 @@ from xpcsjax.cli.config_template import (
     validate_config,
 )
 ```
-Keep `_build_parser`, `build_parser`, `main`. Update `main` and any internal references to call the (now re-exported / imported) template functions. Update `config_generator.__all__` to include the re-exported names plus `build_parser`/`main`.
+`_VALID_MODES` is **required** by `_build_parser` (`choices=list(_VALID_MODES)`,
+currently L419) which stays in `config_generator.py` — omitting it raises
+`NameError` at parser construction. Keep `_build_parser`, `build_parser`, `main`.
+Update `main` and any internal references to call the (now imported) template
+functions. Update `config_generator.__all__` to include the public re-exported
+names plus `build_parser`/`main` (leave the underscore-prefixed `_VALID_MODES` /
+`_MODE_TO_TEMPLATE` out of `__all__` — they are imported for internal use).
 
 - [ ] **Step 3: Confirm contracts intact**
 
@@ -379,8 +388,8 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 Create `tests/cli/test_config_handling_errors.py`:
 ```python
+import argparse
 import logging
-from pathlib import Path
 
 import pytest
 
@@ -389,8 +398,11 @@ from xpcsjax.cli import config_handling
 
 def test_load_failure_names_the_file(tmp_path):
     bad = tmp_path / "missing.yaml"
+    # Real signature is load_and_merge_config(yaml_path, cli_args) — a missing
+    # config must fail with the path named in the message (type is NOT contracted;
+    # no existing test pins FileNotFoundError on this entry).
     with pytest.raises(Exception) as exc:
-        config_handling.load_and_merge_config(bad)  # adjust to the real loader entry
+        config_handling.load_and_merge_config(bad, argparse.Namespace())
     assert str(bad) in str(exc.value)  # error names which config failed
 
 
@@ -419,14 +431,19 @@ Expected: FAIL (load error lacks file context; non-dict reset is silent).
 
 - [ ] **Step 3: Harden L108 (load failure context)**
 
-Wrap the bare `ConfigManager(yaml_path)` (L108) load in try/except and re-raise with context:
+Wrap the bare `ConfigManager(str(yaml_path))` (L108) load in try/except and
+re-raise with file context:
 ```python
 try:
-    config_manager = ConfigManager(yaml_path)
+    config_manager = ConfigManager(str(yaml_path))
 except Exception as e:
-    raise type(e)(f"Failed to load config from {yaml_path}: {e}") from e
+    raise ValueError(f"Failed to load config from {yaml_path}: {e}") from e
 ```
-(Use a form that preserves the exception class if simple; otherwise raise `ValueError` with the message — choose to keep `FileNotFoundError` semantics if a test depends on the type.)
+Use `ValueError` (message-based), NOT `raise type(e)(...)`: verified no existing
+test pins the exception *type* on this entry, and reconstructing
+`FileNotFoundError(msg)` would silently set `.filename=None` (the one-arg `OSError`
+constructor). `from e` preserves the original traceback/cause. The regression
+test asserts the path appears in the message, not a specific type.
 
 - [ ] **Step 4: Harden L149-152 (defensive normalize gate)**
 
@@ -507,3 +524,30 @@ Expected: both `True`.
 **Type consistency:** moved functions keep verbatim signatures (listed once in the symbol→destination table and per-task Interfaces); `_PLOT_DISPATCH_CALL_COUNTER` single home (plot_backend) referenced consistently; facade re-export names match between Task 6's `config_template` Produces and `config_generator` re-export list.
 
 **Known judgment call:** Task 3 Step 5 records (not asserts) whether importing `plot_dispatch` pulls JAX — pre-refactor it did (the function was in-file), so matching that is acceptable; the isolation goal is about the *direct* import living in `simulated.py`, not about making `plot_dispatch` import-time JAX-free.
+
+## Review & validation (2026-06-21)
+
+Reviewed by **agy** and a **Claude** agent (both completed, converging); **codex**
+failed this round (hung on stdin, produced no findings). Every fix-driving fact
+was independently verified against the code before editing:
+
+- **MAJOR:** `_plot_simulated_from_config` calls `_current_run_id()` (`:301,331`)
+  → added to Task 3's `simulated.py` import list (was missing → `NameError`).
+- **MAJOR:** `_generate_post_fit_plots` calls `should_use_datashader` (`:427`) and
+  both postfit fns call `_current_run_id()` (`:498,522,542`) → both added to
+  Task 4's `postfit.py` import list.
+- **MAJOR:** `_build_parser` uses `choices=list(_VALID_MODES)` (`:419`) → Task 6
+  now moves `_VALID_MODES` (`:50`) to `config_template` and imports it back into
+  the facade (else `NameError` at parser build).
+- **MINOR:** Task 7 test skeleton now passes the required 2nd arg
+  (`load_and_merge_config(bad, argparse.Namespace())`); the L108 wrap uses a
+  message-based `ValueError` (no test pins the type; avoids
+  `FileNotFoundError.filename=None`).
+- **MINOR/NIT:** monkeypatch wording aligned to object-form; `service/plots.py:3`
+  docstring cross-ref added to Task 4; the postfit `_evaluate_c2_per_angle`
+  function-local import is kept local (preserves the string-path patch).
+
+Both reviewers confirmed: clean module DAG (no circular import), facade +
+`build_parser`/completion contracts intact, `config_template` stays JAX-free,
+task ordering sound (re-imports keep old attribute paths alive through the
+migration), and all symbol→destination line numbers correct.
