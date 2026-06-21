@@ -90,7 +90,7 @@ def test_post_fit_plots_write_under_plots_subdir(tmp_path: Path, monkeypatch: An
     output root while the dispatcher logged "Plots written to <root>/plots".
     """
     import xpcsjax.viz as viz
-    from xpcsjax.cli import plot_dispatch
+    from xpcsjax.cli.plot_families import postfit
 
     captured: dict[str, Any] = {}
 
@@ -107,7 +107,7 @@ def test_post_fit_plots_write_under_plots_subdir(tmp_path: Path, monkeypatch: An
         get_config=lambda: {},
     )
 
-    out = plot_dispatch._generate_post_fit_plots(
+    out = postfit._generate_post_fit_plots(
         args=_args(),
         config_manager=cfgmgr,
         data={},
@@ -130,7 +130,7 @@ def test_post_fit_plots_return_none_on_failure(tmp_path: Path, monkeypatch: Any)
     that nothing was written (return None) so dispatch_plots does not log a
     location that received no files."""
     import xpcsjax.viz as viz
-    from xpcsjax.cli import plot_dispatch
+    from xpcsjax.cli.plot_families import postfit
 
     def _boom(**_kwargs: Any) -> None:
         raise RuntimeError("plotting blew up")
@@ -141,7 +141,7 @@ def test_post_fit_plots_return_none_on_failure(tmp_path: Path, monkeypatch: Any)
     plots_dir.mkdir(parents=True)
     cfgmgr = SimpleNamespace(get_model=lambda: object(), get_config=lambda: {})
 
-    out = plot_dispatch._generate_post_fit_plots(
+    out = postfit._generate_post_fit_plots(
         args=_args(),
         config_manager=cfgmgr,
         data={},

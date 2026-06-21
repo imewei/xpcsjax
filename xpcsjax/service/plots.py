@@ -1,6 +1,6 @@
 """Headless post-fit plotting service.
 
-Argparse-free core of ``cli.plot_dispatch._generate_post_fit_plots``. Worker-side
+Argparse-free core of ``cli.plot_families.postfit._generate_post_fit_plots``. Worker-side
 (imports ``xpcsjax.viz``); forces the Matplotlib ``Agg`` backend so rendering in a
 child process never tries to grab a Qt backend. Do NOT import from the GUI process
 and do NOT re-export from ``xpcsjax.service.__init__``.

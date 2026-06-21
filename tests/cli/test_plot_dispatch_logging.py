@@ -19,7 +19,7 @@ import logging
 import numpy as np
 import pytest
 
-import xpcsjax.cli.plot_dispatch as pd
+from xpcsjax.cli.plot_families import postfit
 from xpcsjax.utils.logging import reset_log_once_cache
 
 
@@ -114,7 +114,7 @@ def test_per_phi_render_failure_logs_once_not_per_angle(
     data = _make_data(n_phi)
 
     with caplog.at_level(logging.WARNING, logger="xpcsjax"):
-        out = pd._save_fit_comparison_only(_FakeConfigManager(), data, _FakeResult(), tmp_path)
+        out = postfit._save_fit_comparison_only(_FakeConfigManager(), data, _FakeResult(), tmp_path)
 
     # Control flow unchanged: the loop skipped every failing angle and the
     # function still returned its normal fallback (the plots dir).
@@ -160,7 +160,7 @@ def test_second_dispatch_call_is_not_cross_call_suppressed(
     data = _make_data(n_phi)
 
     # First call — primes the process-global dedup cache.
-    out1 = pd._save_fit_comparison_only(_FakeConfigManager(), data, _FakeResult(), tmp_path)
+    out1 = postfit._save_fit_comparison_only(_FakeConfigManager(), data, _FakeResult(), tmp_path)
     assert out1 == tmp_path
 
     # Drop the first call's records so we count ONLY the second call's output.
@@ -168,7 +168,7 @@ def test_second_dispatch_call_is_not_cross_call_suppressed(
 
     # Second, separate call. Capture only its warnings.
     with caplog.at_level(logging.WARNING, logger="xpcsjax"):
-        out2 = pd._save_fit_comparison_only(_FakeConfigManager(), data, _FakeResult(), tmp_path)
+        out2 = postfit._save_fit_comparison_only(_FakeConfigManager(), data, _FakeResult(), tmp_path)
     assert out2 == tmp_path
 
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
