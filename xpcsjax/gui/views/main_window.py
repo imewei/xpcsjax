@@ -614,14 +614,14 @@ class MainWindow(QMainWindow):
 
     def _on_save_project(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save Project", "", "xpcsjax project (*.xpcsproj)"
+            self, "Save Project", "", "xpcsjax project (*.xpcsproj);;All files (*)"
         )
         if path:
             self.save_project_to(path)
 
     def _on_open_project(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open Project", "", "xpcsjax project (*.xpcsproj)"
+            self, "Open Project", "", "xpcsjax project (*.xpcsproj);;All files (*)"
         )
         if path:
             self.open_project_from(path)

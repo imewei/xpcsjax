@@ -140,6 +140,9 @@ class TwoTimeMapView(_SquareAspectMixin, pg.GraphicsLayoutWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent=parent)
         self._plot = self.addPlot()
+        # Lock 1 t₁-unit to 1 t₂-unit so the displayed image keeps square data
+        # pixels (the square widget tile alone would otherwise stretch the array).
+        self._plot.setAspectLocked(True)
         # Col-major so array axis 0 (t₁) is horizontal and axis 1 (t₂) vertical.
         self._image_item = pg.ImageItem()
         self._image_item.setOpts(axisOrder="col-major")
@@ -196,6 +199,9 @@ class ResidualMapView(_SquareAspectMixin, pg.GraphicsLayoutWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent=parent)
         self._plot = self.addPlot()
+        # Lock 1 t₁-unit to 1 t₂-unit so the displayed image keeps square data
+        # pixels (the square widget tile alone would otherwise stretch the array).
+        self._plot.setAspectLocked(True)
         # Col-major so array axis 0 (t₁) is horizontal and axis 1 (t₂) vertical.
         self._image_item = pg.ImageItem()
         self._image_item.setOpts(axisOrder="col-major")
