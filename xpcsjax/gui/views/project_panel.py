@@ -35,6 +35,10 @@ class ProjectSidebar(QWidget):
         self._model.rebuild(project)
         self._tree.expandAll()
 
+    def set_project_name(self, name: str | None) -> None:
+        """Show ``name`` as the sidebar header (the project name); ``None`` resets it."""
+        self._model.set_project_name(name)
+
     def update_run(self, project: Project, run_id: str) -> None:
         """Refresh one run row."""
         self._model.update_run(project, run_id)

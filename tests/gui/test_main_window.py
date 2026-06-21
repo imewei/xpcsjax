@@ -38,6 +38,28 @@ def test_window_constructs_with_expected_actions(qtbot):
     assert "action_output_dir" not in names
 
 
+def test_create_project_shows_folder_name_in_sidebar(qtbot, tmp_path):
+    from PySide6.QtCore import Qt
+
+    win = _window(qtbot)
+    project_dir = tmp_path / "my_xpcs_project"
+    win.create_project(project_dir)
+
+    model = win._sidebar.model()
+    assert model.headerData(0, Qt.Orientation.Horizontal) == "my_xpcs_project"
+
+
+def test_close_project_clears_folder_name_from_sidebar(qtbot, tmp_path):
+    from PySide6.QtCore import Qt
+
+    win = _window(qtbot)
+    win.create_project(tmp_path / "proj")
+    win.close_project()
+
+    model = win._sidebar.model()
+    assert model.headerData(0, Qt.Orientation.Horizontal) == "Project"
+
+
 def test_status_and_log_slots_update_widgets(qtbot):
     win = _window(qtbot)
     # Drive via queue signals prefixed with a run_id

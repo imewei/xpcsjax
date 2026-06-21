@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, Qt
 from PySide6.QtGui import QStandardItem, QStandardItemModel
 
 from xpcsjax.gui.project.model import Dataset, FitRun, Project
@@ -36,13 +36,33 @@ def _run_item(run: FitRun) -> QStandardItem:
     return item
 
 
+_DEFAULT_HEADER = "Project"
+
+
 class ProjectTreeModel(QStandardItemModel):
     """A datasets -> runs tree mirroring a :class:`Project`."""
+
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        # The project name shown as the tree header (set by Create / Open Project).
+        # ``None`` falls back to the generic ``"Project"`` label.
+        self._project_name: str | None = None
+
+    def _header_label(self) -> str:
+        return self._project_name or _DEFAULT_HEADER
+
+    def set_project_name(self, name: str | None) -> None:
+        """Set (or clear) the project name shown as the tree header.
+
+        Persists across :meth:`rebuild`; pass ``None`` to revert to ``"Project"``.
+        """
+        self._project_name = name or None
+        self.setHorizontalHeaderLabels([self._header_label()])
 
     def rebuild(self, project: Project) -> None:
         """Replace the whole tree from ``project`` (full sync)."""
         self.clear()
-        self.setHorizontalHeaderLabels(["Project"])
+        self.setHorizontalHeaderLabels([self._header_label()])
         for dataset in project.datasets:
             self.appendRow(_dataset_item(dataset))
 

@@ -408,6 +408,9 @@ class MainWindow(QMainWindow):
         path.mkdir(parents=True, exist_ok=True)
         self._project_dir = path
         self._output_dir = path
+        # Surface the project in the left sidebar: show the folder name as the
+        # project name in the tree header (root paths have no name -> full path).
+        self._sidebar.set_project_name(path.name or str(path))
         self.set_status(f"project: {path}")
 
     def create_config(
@@ -541,6 +544,7 @@ class MainWindow(QMainWindow):
         self._active_dataset_id = None
         self._project_dir = None
         self._output_dir = None
+        self._sidebar.set_project_name(None)
         self._sidebar.set_project(self._project)
         self._comparison.show_runs([])
         self._inspector.show_summary(None)

@@ -39,6 +39,26 @@ def test_update_run_refreshes_status_label(qtbot):
     assert run_item.data(Qt.ItemDataRole.UserRole) == r.run_id
 
 
+def test_project_name_shown_as_header_and_persists_across_rebuild(qtbot):
+    # Create Project must surface the folder name in the sidebar; the name is the
+    # tree header and survives a later rebuild (set_project) so it never reverts.
+    p = Project()
+    model = ProjectTreeModel()
+    model.set_project_name("my_experiment")
+    assert model.headerData(0, Qt.Orientation.Horizontal) == "my_experiment"
+
+    p.add_dataset("a.yaml", label="DS-A")
+    model.rebuild(p)
+    assert model.headerData(0, Qt.Orientation.Horizontal) == "my_experiment"
+
+
+def test_project_name_none_reverts_to_default_header(qtbot):
+    model = ProjectTreeModel()
+    model.set_project_name("proj")
+    model.set_project_name(None)
+    assert model.headerData(0, Qt.Orientation.Horizontal) == "Project"
+
+
 def test_dead_paths_are_flagged_missing_in_tree(qtbot):
     # Spec §8 dead paths: a run with a gone result_dir and a dataset with a gone
     # config_path must be surfaced as clearly-flagged "missing" entries, not
