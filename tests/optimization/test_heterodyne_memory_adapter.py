@@ -81,8 +81,13 @@ def test_get_memory_threshold_clamps(monkeypatch: pytest.MonkeyPatch) -> None:
     )  # clamped low
 
 
-def test_get_memory_threshold_concurrency_divides() -> None:
+def test_get_memory_threshold_concurrency_divides(monkeypatch: pytest.MonkeyPatch) -> None:
     """Overcommit prevention: the budget shrinks 1/N with the fit concurrency."""
+    # Pin the available-memory basis so both calls read the *same* number.
+    # Without the pin each call samples live memory, which drifts between the
+    # two reads and flakes ``pytest.approx``'s rel=1e-6 on macOS/Windows
+    # runners (see the ``_PINNED_AVAILABLE_GB`` note above).
+    monkeypatch.setattr(hm, "detect_available_system_memory", lambda: _PINNED_AVAILABLE_GB)
     single = hm._get_memory_threshold(0.75, concurrency=1)
     quad = hm._get_memory_threshold(0.75, concurrency=4)
     assert quad == pytest.approx(single / 4)
