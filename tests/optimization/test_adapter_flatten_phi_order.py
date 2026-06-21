@@ -51,6 +51,34 @@ def test_flatten_sorted_phi_unchanged():
     np.testing.assert_array_equal(resolved, ydata)
 
 
+def test_flatten_duplicate_phi_does_not_crash():
+    """Duplicate angles in phi must not crash the broadcast (agy review, P2).
+
+    ``n_phi`` counts UNIQUE angles, but g2 carries one block per phi ENTRY. The
+    fix's ``np.repeat(np.asarray(phi), len(t1)//n_phi)`` over-counted blocks when
+    ``len(phi) > n_phi`` (duplicate angles) and produced an over-long phi column
+    -> ``ValueError`` on the column stack. The block count must key on
+    ``len(phi)`` so duplicate angles map to their shared unique index instead.
+    """
+    phi = np.array([10.0, 10.0, 20.0])  # angle 10 appears twice -> 2 unique
+    n_t = 4
+    t1 = np.tile(np.arange(n_t, dtype=float), len(phi))
+    t2 = t1.copy()
+    # Tag each block with its incoming angle so we can verify the mapping.
+    g2 = np.concatenate([np.full(n_t, ang) for ang in phi])
+    adapter = NLSQAdapter()
+    xdata, ydata, n_phi = adapter._flatten_xpcs_data(
+        {"phi": phi, "t1": t1, "t2": t2, "g2": g2}
+    )
+    assert n_phi == 2  # only two distinct angles
+    assert xdata.shape == (len(t1), 3)
+    # Each row resolves to its block's incoming angle; the two angle-10 blocks
+    # share phi_idx 0, the angle-20 block is phi_idx 1.
+    phi_unique = np.array([10.0, 20.0])
+    resolved = phi_unique[xdata[:, 2].astype(int)]
+    np.testing.assert_array_equal(resolved, ydata)
+
+
 def test_flatten_non_rectangular_raises():
     # 13 time points cannot split evenly across 3 angles -> clear error.
     phi = np.array([0.0, 45.0, 90.0])

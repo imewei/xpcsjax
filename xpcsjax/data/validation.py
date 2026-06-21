@@ -557,11 +557,17 @@ def _validate_correlation_matrices(
             # spike — for raw two-time XPCS it routinely sits at ~2.4 (single
             # pixels far higher) and is excluded from analysis (frame-0 / diagonal
             # exclusion). Evaluating it here would flag every angle of valid data.
-            # Use the smallest *non-zero* lag (first off-diagonal) where the
-            # Siegert relation actually holds; this still catches genuinely
-            # over-normalized data (lag-1 g2 > 2.0) while passing clean matrices.
+            # Use the finite MEDIAN over the whole first superdiagonal (the
+            # smallest non-zero lag), where the Siegert relation actually holds;
+            # this still catches genuinely over-normalized data (lag-1 g2 > 2.0)
+            # while a single boundary artifact in an otherwise-clean angle cannot
+            # by itself trip the warning. Mirrors data/filtering_utils.py.
             if matrix.shape[1] > 1:
-                near_zero_lag_correlation = float(matrix[0, 1])
+                superdiag = np.diagonal(matrix, offset=1)
+                finite_superdiag = superdiag[np.isfinite(superdiag)]
+                near_zero_lag_correlation = (
+                    float(np.median(finite_superdiag)) if finite_superdiag.size > 0 else 0.0
+                )
             else:
                 diagonal = np.diag(matrix)
                 near_zero_lag_correlation = float(diagonal[0]) if len(diagonal) > 0 else 0.0

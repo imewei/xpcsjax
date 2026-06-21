@@ -462,9 +462,16 @@ class XPCSDataFilter:
             # (single pixels far higher) and is excluded from analysis. Reading
             # diagonal[0] here penalized every clean angle of valid data and,
             # because this score gates _apply_quality_filtering, silently dropped
-            # it from the fit. Mirrors the corrected check in data/validation.py.
+            # it from the fit. Use the finite MEDIAN over the whole first
+            # superdiagonal — a single boundary artifact (e.g. matrix[0, 1] == 0)
+            # is not representative of the lag-1 population and must not by itself
+            # drag the score below a strict drop threshold. Mirrors data/validation.py.
             if matrix.ndim == 2 and matrix.shape[1] > 1:
-                near_zero_lag_correlation = float(matrix[0, 1])
+                superdiag = np.diagonal(matrix, offset=1)
+                finite_superdiag = superdiag[np.isfinite(superdiag)]
+                near_zero_lag_correlation = (
+                    float(np.median(finite_superdiag)) if finite_superdiag.size > 0 else 0.0
+                )
             else:
                 diagonal = np.diag(matrix)
                 near_zero_lag_correlation = float(diagonal[0]) if len(diagonal) > 0 else 0.0

@@ -1055,19 +1055,26 @@ class NLSQAdapter(NLSQAdapterBase):
         # Build xdata array [t1, t2, phi_idx]
         # Broadcast phi if needed
         if len(phi) != len(t1):
-            # phi has n_phi entries; broadcast to match the flattened t1/t2/g2,
-            # which are angle-major in the INCOMING phi order (g2's angle axis
-            # lines up with the phi array, not with a sorted set). Repeat the
+            # phi has one entry per angle BLOCK; broadcast to match the flattened
+            # t1/t2/g2, which are angle-major in the INCOMING phi order (g2's angle
+            # axis lines up with the phi array, not with a sorted set). Repeat the
             # incoming phi — NOT np.unique(phi) (sorted) — so an unsorted phi does
             # not mis-pair each time-block with the wrong scattering angle. For
             # already-sorted phi this is identical to the previous behavior.
-            if len(t1) % n_phi != 0:
+            #
+            # Count blocks by len(phi), NOT n_phi (unique count): g2 carries one
+            # block per phi ENTRY, so a phi with duplicate angles still has
+            # len(phi) blocks. Keying the divisor on n_phi over-repeated the phi
+            # column when len(phi) > n_phi and raised a column-stack ValueError;
+            # duplicate angles instead collapse to a shared unique index below.
+            n_angles = len(phi)
+            if len(t1) % n_angles != 0:
                 raise ValueError(
-                    f"Cannot broadcast {n_phi} phi angles over {len(t1)} flattened "
+                    f"Cannot broadcast {n_angles} phi angles over {len(t1)} flattened "
                     "time points: not an integer number of points per angle. "
                     "Expected an angle-major rectangular layout."
                 )
-            n_time_per_angle = len(t1) // n_phi
+            n_time_per_angle = len(t1) // n_angles
             phi_broadcast = np.repeat(np.asarray(phi), n_time_per_angle)
         else:
             phi_broadcast = phi

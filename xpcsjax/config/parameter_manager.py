@@ -19,6 +19,7 @@ from xpcsjax.config.types import (
     STATIC_PARAM_NAMES,
     BoundDict,
     HomodyneConfig,
+    coerce_finite_float,
 )
 
 if TYPE_CHECKING:
@@ -180,13 +181,18 @@ class ParameterManager:
             # Convert min/max to floats (handles YAML string parsing like
             # "1e5"). A null bound ("min:" left blank in YAML) is treated as
             # unspecified and dropped so the registry default is preserved,
-            # instead of raising TypeError from float(None).
+            # instead of raising TypeError from float(None). A non-finite bound
+            # (NaN/±inf) is rejected at the coercion boundary — it would
+            # otherwise poison the (lower, upper) arrays handed to the solver.
             for _bound_key in ("min", "max"):
                 if _bound_key in bound_dict:
                     if bound_dict[_bound_key] is None:
                         del bound_dict[_bound_key]
                     else:
-                        bound_dict[_bound_key] = float(bound_dict[_bound_key])
+                        bound_dict[_bound_key] = coerce_finite_float(
+                            bound_dict[_bound_key],
+                            context=f"parameter_space.bounds[{param_name!r}].{_bound_key}",
+                        )
 
             # Update default bounds with config values. ``bound_dict`` is
             # typed ``dict[Any, Any]`` because it came from a YAML parse;

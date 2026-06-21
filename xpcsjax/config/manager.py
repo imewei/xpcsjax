@@ -814,14 +814,17 @@ class ConfigManager:
         _param_manager = self._get_parameter_manager()  # noqa: F841
 
         # Import name mapping once at the top of this section
-        from xpcsjax.config.types import PARAMETER_NAME_MAPPING
+        from xpcsjax.config.types import PARAMETER_NAME_MAPPING, coerce_finite_float
 
         # Build initial parameters dict with name mapping
         initial_params_dict: dict[str, float] = {}
         for param_name, value in zip(param_names_config, param_values, strict=False):
             # Apply name mapping (e.g., gamma_dot_0 → gamma_dot_t0)
             canonical_name = PARAMETER_NAME_MAPPING.get(param_name, param_name)
-            initial_params_dict[canonical_name] = float(value)
+            # Reject non-finite (NaN/±inf) — this value becomes the optimizer x0.
+            initial_params_dict[canonical_name] = coerce_finite_float(
+                value, context=f"initial_parameters.values[{canonical_name!r}]"
+            )
 
         # Filter by active_parameters if specified
         active_params_config = initial_params.get("active_parameters")
@@ -868,25 +871,37 @@ class ConfigManager:
             if contrast_values is not None and isinstance(contrast_values, list):
                 if len(contrast_values) == 1:
                     # Single-angle: use scalar contrast
-                    initial_params_dict["contrast"] = float(contrast_values[0])
+                    initial_params_dict["contrast"] = coerce_finite_float(
+                        contrast_values[0],
+                        context="initial_parameters.per_angle_scaling.contrast[0]",
+                    )
                     logger.info(
                         f"Loaded scalar contrast from per_angle_scaling: {contrast_values[0]}"
                     )
                 else:
                     # Multi-angle: use per-angle contrast_0, contrast_1, ...
                     for idx, val in enumerate(contrast_values):
-                        initial_params_dict[f"contrast_{idx}"] = float(val)
+                        initial_params_dict[f"contrast_{idx}"] = coerce_finite_float(
+                            val,
+                            context=f"initial_parameters.per_angle_scaling.contrast[{idx}]",
+                        )
                     logger.info(f"Loaded {len(contrast_values)} per-angle contrast values")
 
             if offset_values is not None and isinstance(offset_values, list):
                 if len(offset_values) == 1:
                     # Single-angle: use scalar offset
-                    initial_params_dict["offset"] = float(offset_values[0])
+                    initial_params_dict["offset"] = coerce_finite_float(
+                        offset_values[0],
+                        context="initial_parameters.per_angle_scaling.offset[0]",
+                    )
                     logger.info(f"Loaded scalar offset from per_angle_scaling: {offset_values[0]}")
                 else:
                     # Multi-angle: use per-angle offset_0, offset_1, ...
                     for idx, val in enumerate(offset_values):
-                        initial_params_dict[f"offset_{idx}"] = float(val)
+                        initial_params_dict[f"offset_{idx}"] = coerce_finite_float(
+                            val,
+                            context=f"initial_parameters.per_angle_scaling.offset[{idx}]",
+                        )
                     logger.info(f"Loaded {len(offset_values)} per-angle offset values")
 
         logger.info(f"Loaded initial parameters from config: {list(initial_params_dict.keys())}")

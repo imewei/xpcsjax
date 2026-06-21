@@ -4,6 +4,7 @@ TypedDict definitions for configuration structures and parameter management.
 Provides type safety and IDE autocomplete for configuration dictionaries.
 """
 
+import math
 from typing import Any, Literal, TypedDict
 
 from xpcsjax.config.parameter_registry import AnalysisMode
@@ -11,7 +12,51 @@ from xpcsjax.config.parameter_registry import AnalysisMode
 # Closed vocabulary for the (auto-detected, largely vestigial) data_type field.
 DataType = Literal["aps_old", "aps_u"]
 
-__all__ = ["AnalysisMode", "DataType", "XpcsConfig"]  # re-export for back-compat
+__all__ = [
+    "AnalysisMode",
+    "DataType",
+    "XpcsConfig",
+    "coerce_finite_float",
+]  # re-export for back-compat
+
+
+def coerce_finite_float(value: Any, *, context: str) -> float:
+    """Coerce a config numeric to ``float``, rejecting non-finite results.
+
+    YAML numerics arrive as ``int`` / ``float`` / numeric strings (e.g. ``"1e5"``)
+    and a bare ``float(value)`` happily yields ``NaN`` / ``±inf`` from an explicit
+    ``nan`` / ``inf`` (or string ``"nan"`` / ``"inf"``). Those then poison the
+    optimizer's initial guess, parameter bounds, residuals, and the covariance
+    solve — and config-load validation cannot catch it: ``_validate_config`` is
+    logging-only and never invokes the physics validators (whose ``_is_non_finite``
+    rejection therefore never runs on load). Reject at the coercion boundary so
+    the failure is honest and local instead of a silent corruption downstream.
+
+    Parameters
+    ----------
+    value
+        The raw config value (numeric or numeric string).
+    context
+        Human-readable location for the error message (e.g. the config key path).
+
+    Returns
+    -------
+    float
+        The finite coerced value.
+
+    Raises
+    ------
+    ValueError
+        If ``value`` coerces to ``NaN`` / ``±inf`` (or is not numeric — the
+        underlying ``float()`` raises, preserving the prior failure mode).
+    """
+    coerced = float(value)
+    if not math.isfinite(coerced):
+        raise ValueError(
+            f"{context}: non-finite value {value!r} "
+            "(NaN/±inf is not a valid configuration number)"
+        )
+    return coerced
 
 
 class BoundDict(TypedDict, total=False):
