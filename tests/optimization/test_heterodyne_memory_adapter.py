@@ -68,9 +68,7 @@ def test_get_memory_threshold_invalid_env_keeps_passed(
     monkeypatch.setattr(hm, "detect_available_system_memory", lambda: _PINNED_AVAILABLE_GB)
     monkeypatch.setenv(hm.MEMORY_FRACTION_ENV_VAR, "garbage")
     # Invalid env -> logged, keeps the passed fraction (0.6).
-    assert hm._get_memory_threshold(0.6, concurrency=1) == pytest.approx(
-        _PINNED_AVAILABLE_GB * 0.6
-    )
+    assert hm._get_memory_threshold(0.6, concurrency=1) == pytest.approx(_PINNED_AVAILABLE_GB * 0.6)
 
 
 def test_get_memory_threshold_clamps(monkeypatch: pytest.MonkeyPatch) -> None:

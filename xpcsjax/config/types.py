@@ -53,8 +53,7 @@ def coerce_finite_float(value: Any, *, context: str) -> float:
     coerced = float(value)
     if not math.isfinite(coerced):
         raise ValueError(
-            f"{context}: non-finite value {value!r} "
-            "(NaN/±inf is not a valid configuration number)"
+            f"{context}: non-finite value {value!r} (NaN/±inf is not a valid configuration number)"
         )
     return coerced
 

@@ -67,9 +67,7 @@ def test_flatten_duplicate_phi_does_not_crash():
     # Tag each block with its incoming angle so we can verify the mapping.
     g2 = np.concatenate([np.full(n_t, ang) for ang in phi])
     adapter = NLSQAdapter()
-    xdata, ydata, n_phi = adapter._flatten_xpcs_data(
-        {"phi": phi, "t1": t1, "t2": t2, "g2": g2}
-    )
+    xdata, ydata, n_phi = adapter._flatten_xpcs_data({"phi": phi, "t1": t1, "t2": t2, "g2": g2})
     assert n_phi == 2  # only two distinct angles
     assert xdata.shape == (len(t1), 3)
     # Each row resolves to its block's incoming angle; the two angle-10 blocks

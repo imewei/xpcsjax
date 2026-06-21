@@ -98,9 +98,7 @@ os.environ.setdefault("XLA_PYTHON_CLIENT_ALLOCATOR", "platform")
 # per-worker bound for any future GPU backend; setdefault leaves an explicit
 # user/operator override untouched.
 if _WORKER_COUNT > 1:
-    os.environ.setdefault(
-        "XLA_PYTHON_CLIENT_MEM_FRACTION", f"{max(0.05, 0.9 / _WORKER_COUNT):.4f}"
-    )
+    os.environ.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", f"{max(0.05, 0.9 / _WORKER_COUNT):.4f}")
 
 # Suppress NLSQ GPU warnings (CPU-only; no GPU support)
 os.environ.setdefault("NLSQ_SKIP_GPU_CHECK", "1")
