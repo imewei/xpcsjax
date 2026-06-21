@@ -7,7 +7,7 @@
         test-parallel test-all-parallel test-parallel-fast test-heavy-serial \
         test-core test-optimization test-heterodyne test-characterization test-property \
         test-viz test-nlsq test-quick test-full-local \
-        format lint type-check check quality quick pre-commit install-hooks \
+        format lint type-check check quality quick pre-commit install-hooks completion \
         security perf-baseline perf-compare \
         benchmark profile-nlsq \
         docs docs-clean \
@@ -470,6 +470,9 @@ install-hooks:
 	@echo "$(BOLD)$(BLUE)Installing pre-commit hooks...$(RESET)"
 	$(RUN_CMD) pre-commit install
 	@echo "$(BOLD)$(GREEN)✓ Hooks installed!$(RESET)"
+
+completion:  ## Regenerate the shell completion script from the CLI parsers
+	$(RUN_CMD) $(PYTHON) -m xpcsjax.runtime.shell.generate_completion
 
 # ===================
 # Pre-push verification

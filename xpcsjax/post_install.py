@@ -6,6 +6,9 @@ This module provides interactive setup for:
 - Virtual environment integration
 
 CLI Entry Point: xpcsjax-post-install
+
+Note: ``completion.sh`` is generated — after any CLI argument change, run
+``make completion`` (a parity test enforces this).
 """
 
 from __future__ import annotations
