@@ -46,13 +46,13 @@ GUI (sub-project 3, untouched here) keep working.
 | `plot_dispatch.dispatch_plots` | `cli/__init__.py` lazy export; `commands.py:24` | Stays in `plot_dispatch.py` |
 | `plot_dispatch.resolve_plots_dir` | `tests/cli/test_output_resolution.py:18` | Moves to `plot_backend`; update that import |
 | `plot_dispatch._generate_post_fit_plots` | `tests/cli/test_output_resolution.py:110,144` | Moves to `plot_families/postfit`; update test |
-| `plot_dispatch._plot_simulated_from_config`, `._evaluate_model_c2` | `tests/cli/test_simulated_data_grid.py:53` (object-form monkeypatch) + `:57` (direct call) | Move to `plot_families/simulated`; rewrite the monkeypatch to **string form** targeting `xpcsjax.cli.plot_families.simulated` (object-form `setattr(plot_dispatch, …)` would silently no-op after the move) and repoint the direct call to `simulated._plot_simulated_from_config` |
+| `plot_dispatch._plot_simulated_from_config`, `._evaluate_model_c2` | `tests/cli/test_simulated_data_grid.py:54` (monkeypatch) + `:57` (direct call) | Move to `plot_families/simulated`; `import xpcsjax.cli.plot_families.simulated as simulated` in the test and rewrite to object-form `monkeypatch.setattr(simulated, "_evaluate_model_c2", …)` (the old `setattr(plot_dispatch, …)` would silently no-op after the move); repoint the direct call to `simulated._plot_simulated_from_config` |
 | `plot_dispatch._save_fit_comparison_only` | `tests/cli/test_plot_dispatch_logging.py:117,163,171` (direct call via `pd.` module object) | Move to `plot_families/postfit`; update those calls to import/reference `postfit._save_fit_comparison_only` |
 | `plot_dispatch._PLOT_DISPATCH_CALL_COUNTER` (module-level shared state, `plot_dispatch.py:43`) | used by simulated (`:206`) **and** postfit (`:452`) | Move to `plot_backend.py` (shared infra); both families + the orchestrator import it from there — do not duplicate it per-family (would split the counter) |
-| `plot_dispatch` (module) | `tests/cli/test_plot_dispatch_logging.py` (viz patches at `:111-112` are string-form on `xpcsjax.viz.*` — safe) | Keep module; the only break is `_save_fit_comparison_only` (row above) |
-| `config_generator.generate_config` | `gui/views/main_window.py:459` (deferred import) only | **Re-exported** from `config_generator` (facade) — GUI untouched. (`config_dialogs.py` references it in docstrings only — NOT an importer; no change there.) |
+| `plot_dispatch` (module) | `tests/cli/test_plot_dispatch_logging.py:22`, `test_simulated_data_grid.py:20`, `test_output_resolution.py:93` (all `import … as`/`from xpcsjax.cli import plot_dispatch`; viz patches at `test_plot_dispatch_logging.py:111-112` are string-form on `xpcsjax.viz.*` — safe) | Keep the module; moved symbols accessed via it are covered by the symbol-specific rows + the `__all__` re-exports |
+| `config_generator.generate_config` | `gui/views/main_window.py:459` (deferred import); `tests/cli/test_config_generator_yaml.py:12` | **Re-exported** from `config_generator` (facade) — GUI + test untouched. (`config_dialogs.py` references it in docstrings/comments only — NOT an importer.) |
 | `config_generator.main` | `cli/__init__.py` lazy export `config_main` | Stays in `config_generator.py` |
-| `config_generator.build_parser` | `xpcsjax/runtime/shell/completion_spec.py:15,62` (module-attr access `config_generator.build_parser`) ; `tests/cli/test_build_parser_factories.py` | Stays in `config_generator.py` |
+| `config_generator.build_parser` | `xpcsjax/runtime/shell/completion_spec.py:15,60` (module-attr access `config_generator.build_parser`) ; `tests/cli/test_build_parser_factories.py` | Stays in `config_generator.py` |
 
 ## Components
 
@@ -81,24 +81,42 @@ GUI (sub-project 3, untouched here) keep working.
 Test updates required (behavior-preserving, same assertions):
 - `test_output_resolution.py`: `resolve_plots_dir` import → `plot_backend`;
   `_generate_post_fit_plots` reference → `plot_families.postfit`.
-- `test_simulated_data_grid.py`: rewrite `monkeypatch.setattr(plot_dispatch,
-  "_evaluate_model_c2", …)` (`:53`) to the **string form**
-  `monkeypatch.setattr("xpcsjax.cli.plot_families.simulated",
-  "_evaluate_model_c2", …)` — patching the module object the call no longer lives
-  on would silently no-op; and repoint the `:57` direct call to
+- `test_simulated_data_grid.py`: add `from xpcsjax.cli.plot_families import
+  simulated` and rewrite `monkeypatch.setattr(plot_dispatch, "_evaluate_model_c2",
+  …)` (`:54`) to the object-form `monkeypatch.setattr(simulated,
+  "_evaluate_model_c2", …)` (patching `plot_dispatch`, where the function no
+  longer lives, would silently no-op). Equivalent 2-arg string form
+  `monkeypatch.setattr("xpcsjax.cli.plot_families.simulated._evaluate_model_c2",
+  …)` is also valid — but NOT the 3-arg string form (pytest's string target is
+  a single dotted path). Repoint the `:57` direct call to
   `simulated._plot_simulated_from_config(…)`.
 - `test_plot_dispatch_logging.py`: repoint the `_save_fit_comparison_only`
   calls (`:117,163,171`) to `plot_families.postfit`. The `xpcsjax.viz.*` patches
   (`:111-112`) are string-form and need no change.
 
 Cross-cutting mechanics for the split (so the move stays behavior-preserving):
+- **Keep JAX / matplotlib imports function-local — do NOT hoist them to module
+  top.** Today `import jax.numpy` (`_evaluate_model_c2`, `:381`) and the
+  matplotlib/viz imports inside `_plot_experimental_data`/`_plot_simulated_from_config`
+  are *function-local*; importing `plot_dispatch` therefore loads neither. Because
+  `plot_dispatch` imports the family modules at module top, hoisting any of those
+  imports to a family module's top level would make `import plot_dispatch` (and
+  thus the CLI) eagerly load JAX/matplotlib — regressing the verified JAX-free
+  `--help`/config/completion startup. Verbatim moves preserve this; the implementer
+  must NOT "tidy up" by hoisting.
 - **Shared call counter:** `_PLOT_DISPATCH_CALL_COUNTER` (`plot_dispatch.py:43`)
   is used by both the simulated and post-fit paths. Move it to `plot_backend.py`
   and import it where needed — a per-family copy would fork the counter.
 - **`plot_dispatch.__all__`** (currently `["dispatch_plots", "resolve_plots_dir",
-  "resolve_phi_angles_for_sim", "should_use_datashader"]`) must be updated to the
-  orchestrator's real surface (`dispatch_plots` plus any intentional re-exports);
-  drop the names that moved out and have no external importer.
+  "resolve_phi_angles_for_sim", "should_use_datashader"]`) — **keep it unchanged
+  to preserve the public API** (those names are declared public via `__all__`).
+  `plot_dispatch` therefore **re-exports** the three moved helpers by importing
+  them back from their new homes (`resolve_plots_dir`, `should_use_datashader`
+  from `plot_backend`; `resolve_phi_angles_for_sim` from `plot_families.simulated`)
+  so `from xpcsjax.cli.plot_dispatch import resolve_plots_dir` (etc.) still works.
+  This keeps the orchestrator slightly thicker than a pure delegator but avoids a
+  public-contract break (the spec's behavior-preserving guarantee). `dispatch_plots`
+  is defined here; the rest are re-export lines.
 - **Logging utilities:** `plot_dispatch.py:24` imports `_LOG_CONTEXT, get_logger,
   log_exception, log_once`. `_current_run_id` (→ `plot_backend`) uses
   `_LOG_CONTEXT`; distribute each logging import to the file that uses it rather
@@ -108,11 +126,14 @@ Cross-cutting mechanics for the split (so the move stays behavior-preserving):
 
 - **`xpcsjax/cli/config_template.py`** (new) — template/generation/validation:
   `get_template_path`, `generate_config`, `show_template`, `validate_config`,
-  `interactive_builder`, `_prompt`, and the `_MODE_TO_TEMPLATE` map.
+  `interactive_builder`, `_prompt`, the `_MODE_TO_TEMPLATE` map **and
+  `_VALID_MODES`** (`= tuple(_MODE_TO_TEMPLATE.keys())`).
 - **`config_generator.py`** (refactored) — keeps `build_parser`, `main`, and
   **re-exports** the template API (`generate_config`, etc.) from
   `config_template` so `config_generator.generate_config` stays importable for
-  the GUI and tests. This facade is deliberate (preserves the public surface
+  the GUI and tests. It also imports `_VALID_MODES` back, because the retained
+  `_build_parser` uses `choices=list(_VALID_MODES)` (currently `config_generator.py:419`)
+  — omitting it raises `NameError` at parser construction. This facade is deliberate (preserves the public surface
   without touching GUI sub-project 3). `config_generator` stays JAX-free
   (verified) — importing it imports `config_template` → `ConfigManager`, which is
   already the case today.
@@ -143,9 +164,12 @@ Each fix gets a regression test asserting the message/behavior.
 
 `args_parser.py` and `optimization_runner.py` unchanged. Fix the stale
 "eagerly imports JAX" comment in `main.py:26` to reflect the lazy `__getattr__`
-reality. Also update the `config_handling.py:37` docstring cross-reference
-`plot_dispatch.resolve_plots_dir` → `plot_backend.resolve_plots_dir` after the
-move (otherwise it points at a relocated symbol).
+reality. Update these doc/comment cross-references that point at relocated
+symbols after the move (cosmetic, but keep them honest):
+- `config_handling.py:37`: `plot_dispatch.resolve_plots_dir` → `plot_backend.resolve_plots_dir`.
+- `service/plots.py:3` and `:68`: `cli.plot_dispatch._generate_post_fit_plots` → `cli.plot_families.postfit._generate_post_fit_plots`.
+- `viz/nlsq_plots.py:504`: `plot_dispatch._evaluate_model_c2` → `plot_families.simulated._evaluate_model_c2`.
+- `gui/views/config_dialogs.py:34`: comment referencing `config_generator._MODE_TO_TEMPLATE` → `config_template._MODE_TO_TEMPLATE` (it duplicates the values as a literal; comment-only).
 
 ## Data flow (unchanged externally)
 
@@ -193,7 +217,28 @@ exit codes, or the NLSQ result.
 6. All pre-existing CLI tests pass after import-path updates; `make verify` +
    `mypy xpcsjax` green.
 
-## Review & validation (2026-06-21)
+## Review & validation (2026-06-21, round 2)
+
+Second review pass by **codex**, **agy**, and **Claude** (all three completed
+this round — codex run with stdin redirected from `/dev/null` to avoid the
+no-TTY hang). All three verified the JAX-isolation wording, the L149 getattr
+guard, and that fresh imports of the affected modules do not load JAX. Round-2
+fixes applied:
+
+- **MAJOR (codex):** `plot_dispatch.__all__` is kept **unchanged**; the three
+  moved public helpers are re-exported from their new homes (no public-API break).
+- **MAJOR (agy):** explicit "keep JAX/matplotlib imports function-local — do not
+  hoist" guideline added (hoisting would regress JAX-free startup).
+- **MINOR (agy):** the spec's invalid 3-arg-string `monkeypatch.setattr` example
+  replaced with the correct object-form (and the valid 2-arg string alternative).
+- **MINOR (codex):** `_VALID_MODES` placement made explicit (owned by
+  `config_template`, imported back by the facade for `_build_parser`).
+- **MINOR/NIT:** added `test_config_generator_yaml.py:12` + extra `plot_dispatch`
+  module-import sites to the contract table; extended the docstring-cleanup list
+  (`service/plots.py:3,68`, `viz/nlsq_plots.py:504`, `config_dialogs.py:34`);
+  line-citation nits (`:53`→`:54`, `:62`→`:60`).
+
+## Review & validation (2026-06-21, round 1)
 
 Reviewed by **codex**, **agy**, and a **Claude** agent (all three completed,
 converging). Fixes applied, each verified against code:

@@ -15,7 +15,8 @@
 - **NLSQ-only package** — no Bayesian/MCMC anything. Plotting/config are NOT part of the `rtol=1e-10` homodyne parity contract.
 - Ruff: line-length 100, rules `E,F,W,I,B,UP,N`, + numpydoc `D` gate on `xpcsjax/` (tests exempt). New modules + public functions need NumPy docstrings; **moved functions keep their existing docstrings**.
 - `uv run mypy xpcsjax` is the HARD CI gate — must stay clean.
-- After moving any function, **distribute its imports** to the new home (e.g. `import jax.numpy`, `numpy`, logging utils) and remove now-unused imports from the source (ruff `F401`).
+- After moving any function, **distribute its imports** to the new home (`numpy`, logging utils, etc.) and remove now-unused imports from the source (ruff `F401`).
+- **Keep JAX / matplotlib imports exactly where they are — function-local — do NOT hoist them to a module top.** `import jax.numpy` (in `_evaluate_model_c2`) and the matplotlib/viz imports (in the experimental/simulated/postfit functions) are currently function-local; verbatim moves preserve that. `plot_dispatch` imports the family modules at module top, so hoisting any of these into a family module's top level would make `import plot_dispatch` eagerly load JAX/matplotlib and regress the verified JAX-free `--help`/config/completion startup. After Tasks 3–4, verify: `uv run python -c "import sys; import xpcsjax.cli.plot_dispatch; print('jax' in sys.modules)"` (compare to the pre-refactor baseline recorded in Task 3 Step 5 — must not newly become `True`).
 - One commit per task (move + rewire + test updates together — a half-moved symbol does not pass tests).
 - `make verify` green before the branch is done.
 
@@ -280,7 +281,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Sweep imports and update `__all__`**
 
-In `plot_dispatch.py`: the body should now be the `from xpcsjax.cli.plot_backend …` / `…plot_families.* import …` lines plus `dispatch_plots` and its inner `_record`. Remove any import now unused by the remaining code (e.g. `itertools` if the counter moved; `numpy` if no longer referenced; unused logging utils). Update `__all__` (currently `["dispatch_plots", "resolve_plots_dir", "resolve_phi_angles_for_sim", "should_use_datashader"]`) to `["dispatch_plots"]` — the other three moved out and have no external importer requiring re-export.
+In `plot_dispatch.py`: the body should now be the import lines plus `dispatch_plots` and its inner `_record`. Remove imports now unused by the remaining code (e.g. `itertools` if the counter moved; unused logging utils) — but see the next sentence before removing the re-exported helpers. **Keep `__all__` UNCHANGED** (`["dispatch_plots", "resolve_plots_dir", "resolve_phi_angles_for_sim", "should_use_datashader"]`) to preserve the public API: ensure `plot_dispatch` re-exports the three moved helpers by importing them back — `from xpcsjax.cli.plot_backend import resolve_plots_dir, should_use_datashader` and `from xpcsjax.cli.plot_families.simulated import resolve_phi_angles_for_sim` (some are already imported for `dispatch_plots`' own use; add the rest purely as re-exports). Do NOT reduce `__all__` to `["dispatch_plots"]` — that would drop three names currently declared public (a contract break). Because these names are intentionally re-exported, ruff will not flag them as unused (`__all__` membership counts as use).
 
 - [ ] **Step 2: Verify the orchestrator is thin and dispatch_plots is intact**
 
@@ -470,6 +471,12 @@ if not isinstance(out, dict):
 
 In `xpcsjax/cli/main.py` (~L26), correct the comment that says `xpcsjax/__init__.py` "eagerly imports JAX" to reflect reality: `__init__.py` only sets JAX env vars; JAX is imported lazily via `__getattr__` on first use of a JAX-backed export (verified: `xpcsjax --help` is JAX-free).
 
+Also update these stale doc/comment cross-references to relocated symbols (cosmetic; `config_handling.py:37` is already covered in Task 1, `service/plots.py:3` in Task 4):
+- `xpcsjax/service/plots.py:68`: `_generate_post_fit_plots` mention → `cli.plot_families.postfit._generate_post_fit_plots`.
+- `xpcsjax/viz/nlsq_plots.py:504`: comment `plot_dispatch._evaluate_model_c2` → `plot_families.simulated._evaluate_model_c2`.
+- `xpcsjax/gui/views/config_dialogs.py:34`: comment `config_generator._MODE_TO_TEMPLATE` → `config_template._MODE_TO_TEMPLATE` (comment-only; the values are duplicated as a literal there).
+Add these files to this task's `git add`.
+
 - [ ] **Step 7: Run tests to verify they pass**
 
 Run: `uv run pytest tests/cli/test_config_handling_errors.py -q`
@@ -484,7 +491,7 @@ Expected: clean.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add xpcsjax/cli/config_handling.py xpcsjax/cli/main.py tests/cli/test_config_handling_errors.py
+git add xpcsjax/cli/config_handling.py xpcsjax/cli/main.py xpcsjax/service/plots.py xpcsjax/viz/nlsq_plots.py xpcsjax/gui/views/config_dialogs.py tests/cli/test_config_handling_errors.py
 git commit -m "fix(cli): actionable config-load errors; non-silent guards; correct main.py JAX comment
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
