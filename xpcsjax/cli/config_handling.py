@@ -34,7 +34,7 @@ def resolve_output_dir(
 
     This is the **single source of truth** for output-directory resolution,
     shared by result saving (``commands._resolve_output_dir``) and plot
-    writing (``plot_dispatch.resolve_plots_dir``) so the two cannot drift
+    writing (``plot_backend.resolve_plots_dir``) so the two cannot drift
     apart -- a normal run must not scatter JSON/NPZ results under the
     configured output tree while writing plots to the process cwd.
 

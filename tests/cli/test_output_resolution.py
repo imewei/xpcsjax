@@ -15,7 +15,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from xpcsjax.cli.config_handling import resolve_output_dir
-from xpcsjax.cli.plot_dispatch import resolve_plots_dir
+from xpcsjax.cli.plot_backend import resolve_plots_dir
 
 
 def _args(output: object = None) -> Any:
