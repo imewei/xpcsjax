@@ -33,44 +33,64 @@ def test_estimate_peak_memory_gb() -> None:
     assert peak == pytest.approx(expected)
 
 
+# The threshold is now concurrency-aware and based on AVAILABLE memory:
+#   effective = available * fraction / max(1, concurrency)
+# Each test pins ``concurrency=1`` so the value is deterministic regardless of
+# the run context (serial vs pytest-xdist, which would otherwise divide further).
+
+
 def test_get_memory_threshold_default() -> None:
-    total = hm.detect_total_system_memory()
-    assert total is not None
-    threshold = hm._get_memory_threshold(0.75)
-    assert threshold == pytest.approx(total * 0.75)
+    available = hm.detect_available_system_memory()
+    assert available is not None
+    threshold = hm._get_memory_threshold(0.75, concurrency=1)
+    assert threshold == pytest.approx(available * 0.75)
 
 
 def test_get_memory_threshold_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(hm.MEMORY_FRACTION_ENV_VAR, "0.5")
-    total = hm.detect_total_system_memory()
-    assert total is not None
-    assert hm._get_memory_threshold(0.75) == pytest.approx(total * 0.5)
+    available = hm.detect_available_system_memory()
+    assert available is not None
+    assert hm._get_memory_threshold(0.75, concurrency=1) == pytest.approx(available * 0.5)
 
 
 def test_get_memory_threshold_invalid_env_keeps_passed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(hm.MEMORY_FRACTION_ENV_VAR, "garbage")
-    total = hm.detect_total_system_memory()
-    assert total is not None
+    available = hm.detect_available_system_memory()
+    assert available is not None
     # Invalid env -> logged, keeps the passed fraction (0.6).
-    assert hm._get_memory_threshold(0.6) == pytest.approx(total * 0.6)
+    assert hm._get_memory_threshold(0.6, concurrency=1) == pytest.approx(available * 0.6)
 
 
 def test_get_memory_threshold_clamps() -> None:
-    total = hm.detect_total_system_memory()
-    assert total is not None
-    assert hm._get_memory_threshold(0.99) == pytest.approx(total * 0.9)  # clamped high
-    assert hm._get_memory_threshold(0.01) == pytest.approx(total * 0.1)  # clamped low
+    available = hm.detect_available_system_memory()
+    assert available is not None
+    assert hm._get_memory_threshold(0.99, concurrency=1) == pytest.approx(
+        available * 0.9
+    )  # clamped high
+    assert hm._get_memory_threshold(0.01, concurrency=1) == pytest.approx(
+        available * 0.1
+    )  # clamped low
+
+
+def test_get_memory_threshold_concurrency_divides() -> None:
+    """Overcommit prevention: the budget shrinks 1/N with the fit concurrency."""
+    single = hm._get_memory_threshold(0.75, concurrency=1)
+    quad = hm._get_memory_threshold(0.75, concurrency=4)
+    assert quad == pytest.approx(single / 4)
 
 
 def test_get_memory_threshold_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Fallback requires BOTH the available- and total-memory detectors to fail.
+    monkeypatch.setattr(hm, "detect_available_system_memory", lambda: None)
     monkeypatch.setattr(hm, "detect_total_system_memory", lambda: None)
-    assert hm._get_memory_threshold(0.75) == hm.FALLBACK_THRESHOLD_GB
+    assert hm._get_memory_threshold(0.75, concurrency=1) == hm.FALLBACK_THRESHOLD_GB
 
 
 def _patch_threshold(monkeypatch: pytest.MonkeyPatch, gb: float) -> None:
-    monkeypatch.setattr(hm, "_get_memory_threshold", lambda f: gb)
+    # Accept the new ``concurrency`` kwarg select_nlsq_strategy now forwards.
+    monkeypatch.setattr(hm, "_get_memory_threshold", lambda *a, **k: gb)
 
 
 def test_select_strategy_standard(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -24,19 +24,20 @@ def test_small_data_routes_to_standard():
 def test_large_data_with_tight_threshold_escalates():
     """When peak Jacobian memory exceeds the adaptive threshold, the router escalates.
 
-    Uses memory_fraction=0.1 (minimum after clamping). On a 62.5 GB box that
-    yields a 6.25 GB threshold; 100M points × 14 params × 8 bytes = ~11 GB peak
-    Jacobian, which exceeds the threshold and triggers OUT_OF_CORE or beyond.
-    On larger hosts (>100 GB RAM) we bump up n_points so the assertion stays
-    machine-portable."""
-    import psutil
+    Uses memory_fraction=0.1 (minimum after clamping) and pins ``concurrency=1``
+    so the assertion is deterministic regardless of the run context (serial vs
+    pytest-xdist, which would otherwise shrink the budget further). Sizes are
+    derived from the *actual* threshold the router computes (available-basis), so
+    the test stays machine-portable across RAM sizes."""
+    from xpcsjax.optimization.nlsq.memory import get_adaptive_memory_threshold
 
-    total_gb = psutil.virtual_memory().total / 1e9
-    threshold_gb = 0.1 * total_gb  # mirrors the router's clamped fraction floor
-    # Peak Jacobian = n_points * 14 * 8 bytes. Want peak > 2× threshold.
-    n_points = max(100_000_000, int(2 * threshold_gb * 1e9 / (14 * 8)))
+    threshold_gb, _ = get_adaptive_memory_threshold(0.1, concurrency=1)
+    # Peak Jacobian = n_points * 14 * 8 * 6.5 bytes. Want peak > 2× threshold.
+    n_points = int(2 * threshold_gb * (1024**3) / (14 * 8 * 6.5))
 
-    decision = select_nlsq_strategy(n_points=n_points, n_params=14, memory_fraction=0.1)
+    decision = select_nlsq_strategy(
+        n_points=n_points, n_params=14, memory_fraction=0.1, concurrency=1
+    )
     name = _strategy_name(decision)
     assert any(token in name for token in ("OUT_OF_CORE", "CHUNK", "STREAM", "HYBRID")), (
         f"expected escalation beyond STANDARD on n_points={n_points} with mem_fraction=0.1, "
@@ -64,15 +65,18 @@ def test_out_of_core_isolated_from_hybrid_streaming():
     """Audit finding #17: exercise the OUT_OF_CORE branch specifically — peak
     Jacobian exceeds the threshold while the int64 index array stays under it (so
     HYBRID_STREAMING, which checks the index first, does not fire)."""
-    import psutil
+    from xpcsjax.optimization.nlsq.memory import get_adaptive_memory_threshold
 
-    total_gb = psutil.virtual_memory().total / 1e9
-    threshold_gb = 0.1 * total_gb  # mirrors the clamped fraction floor
-    threshold_points = threshold_gb * 1e9 / 8.0
-    # index ~ 0.5 * threshold (< threshold); peak ~ n_points * 50 * 8 >> threshold.
+    # Pin concurrency=1 and derive sizes from the actual (available-basis)
+    # threshold so the index<threshold<peak bracketing holds in any run context.
+    threshold_gb, _ = get_adaptive_memory_threshold(0.1, concurrency=1)
+    threshold_points = threshold_gb * (1024**3) / 8.0
+    # index ~ 0.5 * threshold (< threshold); peak ~ n_points * 50 * 8 * 6.5 >> threshold.
     n_points = int(threshold_points / 2)
 
-    decision = select_nlsq_strategy(n_points=n_points, n_params=50, memory_fraction=0.1)
+    decision = select_nlsq_strategy(
+        n_points=n_points, n_params=50, memory_fraction=0.1, concurrency=1
+    )
     assert _strategy_name(decision) == "OUT_OF_CORE", (
         f"expected OUT_OF_CORE for index<threshold<peak, got {_strategy_name(decision)}"
     )

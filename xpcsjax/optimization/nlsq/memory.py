@@ -52,6 +52,17 @@ FALLBACK_THRESHOLD_GB = 16.0
 MIN_MEMORY_FRACTION = 0.1
 MAX_MEMORY_FRACTION = 0.9
 
+# Concurrency-awareness: a single fit budgets ``available * fraction`` as if it
+# owned the box. When N fits run at once (pytest-xdist workers, or the production
+# multistart / parallel-accumulator ProcessPool children), each one believing it
+# owns the box overcommits RAM ~N-fold -> kernel OOM-kill. The effective budget
+# is therefore divided by the detected concurrency:
+#   * XPCSJAX_FIT_CONCURRENCY    — set by the production fit pools on their children
+#   * PYTEST_XDIST_WORKER_COUNT  — set by pytest-xdist (one worker per CPU)
+# defaulting to 1 (a lone fit gets the full budget — no behavior change).
+FIT_CONCURRENCY_ENV_VAR = "XPCSJAX_FIT_CONCURRENCY"
+XDIST_WORKER_COUNT_ENV_VAR = "PYTEST_XDIST_WORKER_COUNT"
+
 
 def detect_total_system_memory() -> float | None:
     """Detect total system memory in bytes using multiple methods.
@@ -92,8 +103,70 @@ def detect_total_system_memory() -> float | None:
     return None
 
 
+def detect_available_system_memory() -> float | None:
+    """Detect currently *available* system memory in bytes.
+
+    Available memory (free + reclaimable cache) is preferred over total for the
+    budget basis: it reflects what a fit can actually claim right now, so the
+    threshold naturally shrinks when other processes hold RAM.
+
+    Returns
+    -------
+    float | None
+        Available system memory in bytes, or None if detection fails.
+    """
+    try:
+        import psutil
+
+        available_bytes = psutil.virtual_memory().available
+        if available_bytes > 0:
+            return float(available_bytes)
+    except ImportError:
+        logger.debug("psutil not available for available-memory detection")
+    except (OSError, ValueError, AttributeError) as e:
+        logger.debug(f"psutil available-memory detection failed: {e}")
+
+    return None
+
+
+def _detect_fit_concurrency(concurrency: int | None = None) -> int:
+    """Resolve the number of fits expected to run concurrently.
+
+    Precedence: explicit ``concurrency`` argument > ``XPCSJAX_FIT_CONCURRENCY``
+    (set by the production fit pools) > ``PYTEST_XDIST_WORKER_COUNT`` (set by
+    pytest-xdist) > 1. The result is floored at 1, so the budget is never
+    multiplied and a lone fit always gets the full share.
+    """
+    if concurrency is not None:
+        return max(1, int(concurrency))
+
+    for env_var in (FIT_CONCURRENCY_ENV_VAR, XDIST_WORKER_COUNT_ENV_VAR):
+        raw = os.environ.get(env_var)
+        if raw:
+            try:
+                return max(1, int(raw))
+            except ValueError:
+                logger.debug("Ignoring non-integer %s=%r", env_var, raw)
+
+    return 1
+
+
+def set_fit_concurrency_env(n_workers: int) -> None:
+    """Advertise the fit-pool worker count to child processes.
+
+    The production multistart / parallel-accumulator ``ProcessPoolExecutor``
+    pools call this (via a pool ``initializer``) so each worker's memory budget
+    is divided by the pool size, mirroring the pytest-xdist mechanism. Setting an
+    env-var rather than threading an argument through the fit call chain keeps the
+    change local to pool construction.
+    """
+    os.environ[FIT_CONCURRENCY_ENV_VAR] = str(max(1, int(n_workers)))
+
+
 def get_adaptive_memory_threshold(
     memory_fraction: float | None = None,
+    *,
+    concurrency: int | None = None,
 ) -> tuple[float, dict[str, Any]]:
     """Compute adaptive memory threshold based on system memory.
 
@@ -185,14 +258,30 @@ def get_adaptive_memory_threshold(
     info["memory_fraction"] = effective_fraction
     info["source"] = fraction_source
 
-    # Step 3: Detect total system memory
+    # Step 3: Resolve concurrency divisor (overcommit prevention).
+    divisor = _detect_fit_concurrency(concurrency)
+    info["concurrency"] = divisor
+
+    # Step 4: Detect memory. Available is the preferred basis (reflects what the
+    # fit can claim right now); total is the secondary basis.
+    available_bytes = detect_available_system_memory()
     total_bytes = detect_total_system_memory()
+    available_gb = available_bytes / (1024**3) if available_bytes is not None else 0.0
+    total_gb = total_bytes / (1024**3) if total_bytes is not None else 0.0
+    info["available_memory_gb"] = available_gb
+    info["total_memory_gb"] = total_gb
 
-    if total_bytes is not None:
-        total_gb = total_bytes / (1024**3)
-        threshold_gb = total_gb * effective_fraction
+    if available_bytes is not None:
+        basis_gb, memory_basis = available_gb, "available"
+    elif total_bytes is not None:
+        basis_gb, memory_basis = total_gb, "total"
+    else:
+        basis_gb, memory_basis = None, "fallback"
 
-        # Determine detection method for logging
+    if basis_gb is not None:
+        info["basis_memory_gb"] = basis_gb
+        info["memory_basis"] = memory_basis
+
         try:
             import psutil  # noqa: F401
 
@@ -200,17 +289,20 @@ def get_adaptive_memory_threshold(
         except ImportError:
             info["detection_method"] = "sysconf"
 
-        info["total_memory_gb"] = total_gb
+        threshold_gb = basis_gb * effective_fraction / divisor
 
         logger.info(
             f"Adaptive memory threshold: {threshold_gb:.1f} GB "
-            f"({effective_fraction * 100:.0f}% of {total_gb:.1f} GB total, "
-            f"source={fraction_source}, method={info['detection_method']})"
+            f"({effective_fraction * 100:.0f}% of {basis_gb:.1f} GB {memory_basis} "
+            f"/ {divisor} concurrent, source={fraction_source}, "
+            f"method={info['detection_method']})"
         )
 
         return threshold_gb, info
 
-    # Step 4: Fallback if memory detection fails
+    # Step 5: Fallback if both detectors fail. The fallback is a fixed blind-safety
+    # floor and is NOT divided by concurrency (detection failed, so concurrency
+    # scaling would be guesswork on guesswork).
     warnings.warn(
         f"Could not detect system memory. "
         f"Using fallback threshold of {FALLBACK_THRESHOLD_GB} GB. "
@@ -219,7 +311,8 @@ def get_adaptive_memory_threshold(
         stacklevel=2,
     )
 
-    info["total_memory_gb"] = 0.0
+    info["basis_memory_gb"] = 0.0
+    info["memory_basis"] = "fallback"
     info["detection_method"] = "fallback"
 
     logger.warning(f"Memory detection failed. Using fallback threshold: {FALLBACK_THRESHOLD_GB} GB")
@@ -307,6 +400,8 @@ def select_nlsq_strategy(
     n_points: int,
     n_params: int,
     memory_fraction: float = DEFAULT_MEMORY_FRACTION,
+    *,
+    concurrency: int | None = None,
 ) -> StrategyDecision:
     """Unified memory-based NLSQ strategy selection.
 
@@ -324,6 +419,11 @@ def select_nlsq_strategy(
         Number of optimization parameters
     memory_fraction : float, optional
         Fraction of system RAM to use as threshold (default: 0.75)
+    concurrency : int | None, optional
+        Number of fits expected to run concurrently. The memory budget is
+        divided by this so N parallel fits don't each claim the whole box.
+        ``None`` (default) auto-detects from the fit-pool / pytest-xdist
+        env-vars, falling back to 1 (full budget for a lone fit).
 
     Returns
     -------
@@ -342,8 +442,8 @@ def select_nlsq_strategy(
     # The with-block covers the full decision tree so that log_phase
     # captures the complete selection time, not just the metric computation.
     with log_phase("memory_strategy_selection", logger=logger):
-        # Get unified memory threshold
-        threshold_gb, _ = get_adaptive_memory_threshold(memory_fraction)
+        # Get unified memory threshold (concurrency-aware)
+        threshold_gb, _ = get_adaptive_memory_threshold(memory_fraction, concurrency=concurrency)
 
         # Compute memory metrics
         index_memory_bytes = n_points * 8  # int64 indices
@@ -410,7 +510,10 @@ __all__ = [
     "DEFAULT_MEMORY_FRACTION",
     "MEMORY_FRACTION_ENV_VAR",
     "FALLBACK_THRESHOLD_GB",
+    "FIT_CONCURRENCY_ENV_VAR",
     "detect_total_system_memory",
+    "detect_available_system_memory",
+    "set_fit_concurrency_env",
     "get_adaptive_memory_threshold",
     "estimate_peak_memory_gb",
     # Unified strategy selection

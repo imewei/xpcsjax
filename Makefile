@@ -31,6 +31,14 @@ TEST_DIR := tests
 # (also the env-gated ones). They still execute & assert there, and self-skip on
 # CI / fresh clones.
 #
+# DEFENCE-IN-DEPTH: the per-fit memory budget is now concurrency-aware
+# (get_adaptive_memory_threshold divides `available * fraction` by
+# PYTEST_XDIST_WORKER_COUNT / XPCSJAX_FIT_CONCURRENCY), so a fit landing on a
+# busy xdist worker self-limits to streaming instead of overcommitting. This
+# denylist is kept as a belt-and-suspenders backstop (the heavy oracles are also
+# wall-clock heavy); it can be revisited once the concurrency-aware budget has
+# soaked. Do NOT remove it without a deliberate decision.
+#
 # (a) Availability-gated — run automatically when datasets are present (no env
 #     var), so they fire the OOM TODAY. These real-data files are heavy wholesale
 #     (module-scoped fixtures) -> ignore them entirely.

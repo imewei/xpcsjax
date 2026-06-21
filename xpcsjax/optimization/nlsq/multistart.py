@@ -1166,6 +1166,21 @@ class _OptimizeWorker:
         return result
 
 
+def _pool_worker_init_concurrency(n_workers: int) -> None:
+    """ProcessPool ``initializer``: advertise the pool size to the memory budgeter.
+
+    Each multistart worker runs a *full* fit, which re-selects its NLSQ strategy
+    via ``select_nlsq_strategy`` -> ``get_adaptive_memory_threshold``. Without this
+    each of N workers would budget the whole box and overcommit RAM N-fold (the
+    production twin of the pytest-xdist OOM). Setting ``XPCSJAX_FIT_CONCURRENCY``
+    in the child (a top-level, picklable function as ProcessPoolExecutor requires)
+    makes each worker's budget ``available * fraction / N``.
+    """
+    from xpcsjax.optimization.nlsq.memory import set_fit_concurrency_env
+
+    set_fit_concurrency_env(n_workers)
+
+
 def _run_full_strategy(
     data: dict[str, Any],
     starts: NDArray[np.float64],
@@ -1314,7 +1329,12 @@ def _run_parallel_with_progress(
 
         parallel_start_time = time.perf_counter()
 
-        with ProcessPoolExecutor(max_workers=n_workers, mp_context=mp_context) as executor:
+        with ProcessPoolExecutor(
+            max_workers=n_workers,
+            mp_context=mp_context,
+            initializer=_pool_worker_init_concurrency,
+            initargs=(n_workers,),
+        ) as executor:
             futures = {
                 executor.submit(optimize_func, idx, start): idx for idx, start in enumerate(starts)
             }

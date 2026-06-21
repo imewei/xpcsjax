@@ -201,7 +201,11 @@ def test_adaptive_threshold_argument_source() -> None:
     threshold, info = mem.get_adaptive_memory_threshold(memory_fraction=0.5)
     assert info["source"] == "argument"
     assert info["memory_fraction"] == 0.5
-    assert threshold == pytest.approx(info["total_memory_gb"] * 0.5)
+    # Threshold is now concurrency-aware and based on AVAILABLE memory:
+    #   effective = available * fraction / max(1, concurrency)
+    # Use the reported basis + concurrency so this holds under serial *and*
+    # pytest-xdist runs (where PYTEST_XDIST_WORKER_COUNT raises `concurrency`).
+    assert threshold == pytest.approx(info["available_memory_gb"] * 0.5 / info["concurrency"])
 
 
 def test_adaptive_threshold_env_source(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -234,6 +238,9 @@ def test_adaptive_threshold_invalid_env_warns(monkeypatch: pytest.MonkeyPatch) -
 def test_adaptive_threshold_fallback_on_detection_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Fallback now requires BOTH the available- and total-memory detectors to
+    # fail (available is preferred, total is the secondary basis).
+    monkeypatch.setattr(mem, "detect_available_system_memory", lambda: None)
     monkeypatch.setattr(mem, "detect_total_system_memory", lambda: None)
     with pytest.warns(UserWarning, match="Could not detect"):
         threshold, info = mem.get_adaptive_memory_threshold(memory_fraction=0.5)

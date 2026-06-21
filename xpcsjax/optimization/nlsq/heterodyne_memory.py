@@ -23,6 +23,11 @@ import os
 from dataclasses import dataclass
 from enum import Enum
 
+# Shared concurrency detector (single source of truth for the divisor precedence:
+# explicit arg > XPCSJAX_FIT_CONCURRENCY > PYTEST_XDIST_WORKER_COUNT > 1). Only the
+# strategy *names* differ between the homodyne and heterodyne flavors; the
+# overcommit-prevention divisor is identical, so it is imported, not duplicated.
+from xpcsjax.optimization.nlsq.memory import _detect_fit_concurrency
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -120,6 +125,32 @@ def detect_total_system_memory() -> float | None:
     return None
 
 
+def detect_available_system_memory() -> float | None:
+    """Detect currently *available* system memory in GB.
+
+    Available memory is the preferred budget basis (see the homodyne flavor in
+    :func:`xpcsjax.optimization.nlsq.memory.detect_available_system_memory`).
+    Returns GB to match :func:`detect_total_system_memory` in this module.
+
+    Returns
+    -------
+    float | None
+        Available memory in GB, or ``None`` if detection fails.
+    """
+    try:
+        import psutil
+
+        available = psutil.virtual_memory().available
+        if available > 0:
+            return float(available) / (1024**3)
+    except ImportError:
+        logger.debug("psutil not available for available-memory detection")
+    except (OSError, ValueError, AttributeError) as exc:
+        logger.debug("psutil available-memory detection failed: %s", exc)
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Memory estimation
 # ---------------------------------------------------------------------------
@@ -163,12 +194,13 @@ def estimate_peak_memory_gb(
 # ---------------------------------------------------------------------------
 
 
-def _get_memory_threshold(memory_fraction: float) -> float:
-    """Compute memory threshold in GB.
+def _get_memory_threshold(memory_fraction: float, *, concurrency: int | None = None) -> float:
+    """Compute memory threshold in GB (concurrency-aware).
 
-    Checks ``HETERODYNE_MEMORY_FRACTION`` env-var, clamps the fraction
-    to ``[0.1, 0.9]``, and falls back to :data:`FALLBACK_THRESHOLD_GB`
-    when detection fails.
+    Checks ``HETERODYNE_MEMORY_FRACTION`` env-var, clamps the fraction to
+    ``[0.1, 0.9]``, prefers *available* over total memory as the basis, divides
+    by the detected fit concurrency (overcommit prevention — see the homodyne
+    flavor), and falls back to :data:`FALLBACK_THRESHOLD_GB` when detection fails.
     """
     # Environment override
     env_val = os.environ.get(MEMORY_FRACTION_ENV_VAR)
@@ -186,18 +218,27 @@ def _get_memory_threshold(memory_fraction: float) -> float:
     # Clamp
     memory_fraction = max(_MIN_FRACTION, min(_MAX_FRACTION, memory_fraction))
 
-    total_gb = detect_total_system_memory()
-    if total_gb is None:
+    divisor = _detect_fit_concurrency(concurrency)
+
+    # Available is the preferred basis; total is the secondary basis.
+    basis_gb = detect_available_system_memory()
+    memory_basis = "available"
+    if basis_gb is None:
+        basis_gb = detect_total_system_memory()
+        memory_basis = "total"
+    if basis_gb is None:
         logger.warning(
             "Could not detect system memory; using fallback threshold %.1f GB",
             FALLBACK_THRESHOLD_GB,
         )
         return FALLBACK_THRESHOLD_GB
 
-    threshold = total_gb * memory_fraction
+    threshold = basis_gb * memory_fraction / divisor
     logger.debug(
-        "System memory: %.1f GB, threshold: %.1f GB (%.0f%%)",
-        total_gb,
+        "System memory: %.1f GB %s / %d concurrent, threshold: %.1f GB (%.0f%%)",
+        basis_gb,
+        memory_basis,
+        divisor,
         threshold,
         memory_fraction * 100,
     )
@@ -208,6 +249,8 @@ def select_nlsq_strategy(
     n_points: int,
     n_params: int,
     memory_fraction: float = DEFAULT_MEMORY_FRACTION,
+    *,
+    concurrency: int | None = None,
 ) -> StrategyDecision:
     """Select NLSQ strategy based on estimated memory usage.
 
@@ -225,13 +268,17 @@ def select_nlsq_strategy(
         Number of varying parameters.
     memory_fraction : float
         Fraction of system memory to use as threshold (default 0.75).
+    concurrency : int | None, optional
+        Number of fits expected to run concurrently; the budget is divided by
+        this so N parallel fits don't each claim the whole box. ``None``
+        auto-detects from the fit-pool / pytest-xdist env-vars (default 1).
 
     Returns
     -------
     StrategyDecision
         Decision with selected strategy and rationale.
     """
-    threshold_gb = _get_memory_threshold(memory_fraction)
+    threshold_gb = _get_memory_threshold(memory_fraction, concurrency=concurrency)
 
     # Index array cost (int64 per point)
     index_gb = (n_points * 8) / (1024**3)

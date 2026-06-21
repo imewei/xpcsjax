@@ -60,6 +60,12 @@ def test_env_setup_mirrors_homodyne():
         import os
         for var in ("JAX_ENABLE_X64", "XLA_FLAGS", "NLSQ_SKIP_GPU_CHECK"):
             os.environ.pop(var, None)
+        # Clear the concurrency hints so this subprocess exercises the canonical
+        # SERIAL env setup (4 host devices). Under `pytest -n auto` the parent's
+        # PYTEST_XDIST_WORKER_COUNT is inherited and would gate the device count
+        # down to 1 (covered separately by test_xla_host_device_count_drops_under_parallel).
+        for var in ("PYTEST_XDIST_WORKER_COUNT", "XPCSJAX_FIT_CONCURRENCY"):
+            os.environ.pop(var, None)
         import xpcsjax  # noqa: F401
         import json, sys
         sys.stdout.write(json.dumps({
