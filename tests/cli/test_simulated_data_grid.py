@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 
 import xpcsjax.viz as viz
-from xpcsjax.cli import plot_dispatch
+from xpcsjax.cli.plot_families import simulated
 from xpcsjax.config import ConfigManager
 
 
@@ -51,10 +51,10 @@ def test_simulated_grid_uses_elapsed_time(tmp_path, monkeypatch):
         n = len(np.asarray(t1))
         return np.zeros((n, n))
 
-    monkeypatch.setattr(plot_dispatch, "_evaluate_model_c2", _capture)
+    monkeypatch.setattr(simulated, "_evaluate_model_c2", _capture)
     monkeypatch.setattr(viz, "plot_simulated_data", lambda *a, **k: None)
 
-    plot_dispatch._plot_simulated_from_config(
+    simulated._plot_simulated_from_config(
         cm,
         contrast=0.5,
         offset=1.0,
