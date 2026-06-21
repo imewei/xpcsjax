@@ -596,12 +596,12 @@ def plot_nlsq_fit(
     c2_exp, c2_fit
         Experimental and fitted correlation surfaces, shape ``(n_t1, n_t2)``.
     t
-        Optional time axis (seconds) — used as the y-axis (t₁). If ``t2``
+        Optional time axis (seconds) — used as the x-axis (t₁). If ``t2``
         is also ``None``, the same vector is used for both axes (square
         assumption). If ``None``, uses index axes.
     t2
-        Optional x-axis (t₂). When supplied with ``t``, lets rectangular
-        grids (n_t1 ≠ n_t2) render with the correct horizontal extent.
+        Optional y-axis (t₂). When supplied with ``t``, lets rectangular
+        grids (n_t1 ≠ n_t2) render with the correct vertical extent.
     phi_deg
         Optional phi angle for per-panel titles.
     reduced_chi_squared
@@ -647,13 +647,15 @@ def plot_nlsq_fit(
         return fig
 
     n_t1, n_t2 = c2_exp.shape
-    t_y = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
-    t_x = (
+    t1_vec = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
+    t2_vec = (
         np.asarray(t2)
         if t2 is not None
-        else (t_y if t is not None else np.arange(n_t2, dtype=float))
+        else (t1_vec if t is not None else np.arange(n_t2, dtype=float))
     )
-    extent = (float(t_x[0]), float(t_x[-1]), float(t_y[0]), float(t_y[-1]))
+    # x = t₁ (horizontal), y = t₂ (vertical): the (n_t1, n_t2) surfaces are
+    # transposed at imshow so rows→t₂→y and cols→t₁→x, with extent following.
+    extent = (float(t1_vec[0]), float(t1_vec[-1]), float(t2_vec[0]), float(t2_vec[-1]))
 
     combined = np.concatenate([c2_exp.ravel(), c2_fit.ravel()])
     finite = combined[np.isfinite(combined)]
@@ -667,7 +669,7 @@ def plot_nlsq_fit(
     phi_str = f" (φ={phi_deg:.1f}°)" if phi_deg is not None else ""
 
     im0 = axes[0].imshow(
-        c2_exp,
+        c2_exp.T,
         origin="lower",
         extent=extent,
         aspect="auto",
@@ -675,13 +677,14 @@ def plot_nlsq_fit(
         vmin=vmin_shared,
         vmax=vmax_shared,
     )
+    axes[0].set_box_aspect(1)
     axes[0].set_title(f"Experimental Data{phi_str}")
-    axes[0].set_xlabel("t₂")
-    axes[0].set_ylabel("t₁")
+    axes[0].set_xlabel("t₁")
+    axes[0].set_ylabel("t₂")
     plt.colorbar(im0, ax=axes[0], label="c₂")
 
     im1 = axes[1].imshow(
-        c2_fit,
+        c2_fit.T,
         origin="lower",
         extent=extent,
         aspect="auto",
@@ -689,9 +692,10 @@ def plot_nlsq_fit(
         vmin=vmin_shared,
         vmax=vmax_shared,
     )
+    axes[1].set_box_aspect(1)
     axes[1].set_title(f"Fitted Model{phi_str}")
-    axes[1].set_xlabel("t₂")
-    axes[1].set_ylabel("t₁")
+    axes[1].set_xlabel("t₁")
+    axes[1].set_ylabel("t₂")
     plt.colorbar(im1, ax=axes[1], label="c₂")
 
     residual = c2_exp - c2_fit
@@ -700,7 +704,7 @@ def plot_nlsq_fit(
     if vmax_r == 0.0 or not np.isfinite(vmax_r):
         vmax_r = 1.0
     im2 = axes[2].imshow(
-        residual,
+        residual.T,
         origin="lower",
         extent=extent,
         aspect="auto",
@@ -708,9 +712,10 @@ def plot_nlsq_fit(
         vmin=-vmax_r,
         vmax=vmax_r,
     )
+    axes[2].set_box_aspect(1)
     axes[2].set_title(f"Residuals{phi_str}")
-    axes[2].set_xlabel("t₂")
-    axes[2].set_ylabel("t₁")
+    axes[2].set_xlabel("t₁")
+    axes[2].set_ylabel("t₂")
     plt.colorbar(im2, ax=axes[2], label="Residual")
 
     if reduced_chi_squared is not None:
@@ -752,10 +757,10 @@ def plot_residual_map(
     c2_exp, c2_fit
         Experimental and fitted correlation surfaces, shape ``(n_t1, n_t2)``.
     t
-        Optional time axis (y / t₁). Falls back to index axis when None.
+        Optional time axis (x / t₁). Falls back to index axis when None.
     t2
-        Optional x-axis (t₂). When supplied with ``t``, lets rectangular
-        grids (n_t1 ≠ n_t2) render with the correct horizontal extent.
+        Optional y-axis (t₂). When supplied with ``t``, lets rectangular
+        grids (n_t1 ≠ n_t2) render with the correct vertical extent.
     phi_deg
         Optional phi for super-title.
     save_path
@@ -798,13 +803,14 @@ def plot_residual_map(
 
     residuals = c2_exp - c2_fit
     n_t1, n_t2 = residuals.shape
-    t_y = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
-    t_x = (
+    t1_vec = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
+    t2_vec = (
         np.asarray(t2)
         if t2 is not None
-        else (t_y if t is not None else np.arange(n_t2, dtype=float))
+        else (t1_vec if t is not None else np.arange(n_t2, dtype=float))
     )
-    extent = (float(t_x[0]), float(t_x[-1]), float(t_y[0]), float(t_y[-1]))
+    # x = t₁ (horizontal), y = t₂ (vertical): transpose the (n_t1, n_t2) map.
+    extent = (float(t1_vec[0]), float(t1_vec[-1]), float(t2_vec[0]), float(t2_vec[-1]))
 
     # [0,0] Residual Map
     finite_r = residuals[np.isfinite(residuals)]
@@ -812,7 +818,7 @@ def plot_residual_map(
     if vmax == 0.0 or not np.isfinite(vmax):
         vmax = 1.0
     im = axes[0, 0].imshow(
-        residuals,
+        residuals.T,
         origin="lower",
         extent=extent,
         aspect="auto",
@@ -820,9 +826,10 @@ def plot_residual_map(
         vmin=-vmax,
         vmax=vmax,
     )
+    axes[0, 0].set_box_aspect(1)
     axes[0, 0].set_title("Residual Map")
-    axes[0, 0].set_xlabel("t₂")
-    axes[0, 0].set_ylabel("t₁")
+    axes[0, 0].set_xlabel("t₁")
+    axes[0, 0].set_ylabel("t₂")
     plt.colorbar(im, ax=axes[0, 0])
 
     # [0,1] Histogram + Normal overlay
@@ -838,6 +845,7 @@ def plot_residual_map(
             va="center",
             transform=axes[0, 1].transAxes,
         )
+    axes[0, 1].set_box_aspect(1)
     axes[0, 1].set_xlabel("Residual Value")
     axes[0, 1].set_ylabel("Density")
     axes[0, 1].set_title("Residual Distribution")
@@ -857,10 +865,11 @@ def plot_residual_map(
         )
         axes[0, 1].legend()
 
-    # [1,0] Diagonal residuals — length is min(n_t1, n_t2); plot against t_y truncated.
+    # [1,0] Diagonal residuals — length is min(n_t1, n_t2); plot against t1 truncated.
     diag = np.diag(residuals)
-    axes[1, 0].plot(t_y[: diag.size], diag, "b-", lw=1)
+    axes[1, 0].plot(t1_vec[: diag.size], diag, "b-", lw=1)
     axes[1, 0].axhline(0, color="k", linestyle="--", alpha=0.5)
+    axes[1, 0].set_box_aspect(1)
     axes[1, 0].set_xlabel("Time")
     axes[1, 0].set_ylabel("Residual")
     axes[1, 0].set_title("Diagonal Residuals")
@@ -868,6 +877,7 @@ def plot_residual_map(
     # [1,1] Residuals vs Fitted
     axes[1, 1].scatter(c2_fit.ravel(), residuals.ravel(), alpha=0.1, s=1)
     axes[1, 1].axhline(0, color="r", linestyle="--")
+    axes[1, 1].set_box_aspect(1)
     axes[1, 1].set_xlabel("Fitted Value")
     axes[1, 1].set_ylabel("Residual")
     axes[1, 1].set_title("Residuals vs Fitted")
@@ -910,10 +920,10 @@ def plot_simulated_data(
     c2_sim
         Theoretical or fitted c2 surface, shape ``(n_t1, n_t2)``.
     t
-        Optional time axis (y / t₁).
+        Optional time axis (x / t₁).
     t2
-        Optional x-axis (t₂). When supplied with ``t``, lets rectangular
-        grids (n_t1 ≠ n_t2) render with the correct horizontal extent.
+        Optional y-axis (t₂). When supplied with ``t``, lets rectangular
+        grids (n_t1 ≠ n_t2) render with the correct vertical extent.
     phi_deg
         Optional phi angle for title.
     contrast, offset, analysis_mode
@@ -969,10 +979,10 @@ def plot_simulated_data(
         if t2 is not None
         else (t1_vec if t is not None else np.arange(n_t2, dtype=float))
     )
-    # No transpose — rows=y=t1, cols=x=t2, consistent with plot_nlsq_fit and
-    # plot_residual_map. The previous .T + swapped extent was inconsistent with
-    # those functions on non-square grids (n_t1 ≠ n_t2).
-    extent = (float(t2_vec[0]), float(t2_vec[-1]), float(t1_vec[0]), float(t1_vec[-1]))
+    # x = t₁ (horizontal), y = t₂ (vertical): transpose the (n_t1, n_t2) surface
+    # so rows→t₂→y and cols→t₁→x, consistent with plot_nlsq_fit and
+    # plot_residual_map (which also transpose + use a (t₁, t₂) extent).
+    extent = (float(t1_vec[0]), float(t1_vec[-1]), float(t2_vec[0]), float(t2_vec[-1]))
 
     vmin, vmax = _resolve_color_limits(c2_sim, percentile_min=1.0, percentile_max=99.0)
     vmin = max(1.0, vmin)
@@ -982,21 +992,22 @@ def plot_simulated_data(
         vmax = vmin + 0.5
 
     im = ax.imshow(
-        c2_sim,
+        c2_sim.T,
         origin="lower",
         extent=extent,
-        aspect="equal",
+        aspect="auto",
         cmap="jet",
         interpolation="bilinear",
         vmin=vmin,
         vmax=vmax,
     )
+    ax.set_box_aspect(1)
     base_title = title if title is not None else "Simulated C₂(t₁, t₂)"
     if phi_deg is not None:
         base_title = f"{base_title} at φ={phi_deg:.1f}°"
     ax.set_title(base_title, fontsize=13, fontweight="bold")
-    ax.set_xlabel("t₂ (s)" if t is not None else "t₂ Index", fontsize=11)
-    ax.set_ylabel("t₁ (s)" if t is not None else "t₁ Index", fontsize=11)
+    ax.set_xlabel("t₁ (s)" if t is not None else "t₁ Index", fontsize=11)
+    ax.set_ylabel("t₂ (s)" if t is not None else "t₂ Index", fontsize=11)
     cbar = plt.colorbar(im, ax=ax, label="C₂", shrink=0.9)
     cbar.ax.tick_params(labelsize=9)
 

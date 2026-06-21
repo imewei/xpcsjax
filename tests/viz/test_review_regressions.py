@@ -189,11 +189,26 @@ def test_plot_nlsq_fit_uses_distinct_t1_t2_extent():
     t2 = np.linspace(0.0, 1.9, n_t2)
     fig = plot_nlsq_fit(c2, c2, t=t1, t2=t2)
     assert fig is not None
-    # Check the image extent on the first panel matches (t2[0], t2[-1], t1[0], t1[-1]).
+    # x = t₁, y = t₂: the first panel's extent matches (t1[0], t1[-1], t2[0], t2[-1]).
     image_axes = [ax for ax in fig.axes if ax.images]
     assert image_axes, "no image axes created"
     extent = image_axes[0].images[0].get_extent()
-    assert extent == pytest.approx((float(t2[0]), float(t2[-1]), float(t1[0]), float(t1[-1])))
+    assert extent == pytest.approx((float(t1[0]), float(t1[-1]), float(t2[0]), float(t2[-1])))
+
+
+def test_plot_nlsq_fit_labels_t1_x_t2_y_and_square_box():
+    # t₁ on x, t₂ on y, with each heatmap panel forced to a square box.
+    from xpcsjax.viz import plot_nlsq_fit
+
+    c2 = np.ones((12, 20)) + 0.1
+    fig = plot_nlsq_fit(c2, c2, t=np.linspace(0, 1.1, 12), t2=np.linspace(0, 1.9, 20))
+    assert fig is not None
+    image_axes = [ax for ax in fig.axes if ax.images]
+    assert len(image_axes) == 3  # Exp | Fitted | Residual
+    for ax in image_axes:
+        assert "t₁" in ax.get_xlabel()
+        assert "t₂" in ax.get_ylabel()
+        assert ax.get_box_aspect() == pytest.approx(1.0)
 
 
 # ---------------------------------------------------------------------------

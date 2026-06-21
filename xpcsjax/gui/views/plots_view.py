@@ -54,12 +54,11 @@ def _apply_colormap(image_item: pg.ImageItem, name: str) -> None:
 
 
 def _time_rect(t1: np.ndarray | None, t2: np.ndarray | None) -> QRectF | None:
-    """Map the (t1, t2) time axes to an image rect (x = t₂, y = t₁).
+    """Map the (t1, t2) time axes to an image rect (x = t₁, y = t₂).
 
-    Mirrors the publication ``imshow`` extent (nlsq_plots.py): t₂ is horizontal,
-    t₁ is vertical. Returns ``None`` — so the view falls back to pixel-index
-    (frame) coordinates while still being labelled t₁/t₂ — when either axis is
-    missing, too short, non-finite, or degenerate.
+    t₁ is horizontal, t₂ is vertical. Returns ``None`` — so the view falls back
+    to pixel-index (frame) coordinates while still being labelled t₁/t₂ — when
+    either axis is missing, too short, non-finite, or degenerate.
     """
     if t1 is None or t2 is None:
         return None
@@ -69,8 +68,8 @@ def _time_rect(t1: np.ndarray | None, t2: np.ndarray | None) -> QRectF | None:
         return None
     if not (np.isfinite(a1).all() and np.isfinite(a2).all()):
         return None
-    x0, x1 = float(np.min(a2)), float(np.max(a2))
-    y0, y1 = float(np.min(a1)), float(np.max(a1))
+    x0, x1 = float(np.min(a1)), float(np.max(a1))
+    y0, y1 = float(np.min(a2)), float(np.max(a2))
     if x1 <= x0 or y1 <= y0:
         return None
     return QRectF(x0, y0, x1 - x0, y1 - y0)
@@ -101,7 +100,35 @@ def _residual_levels(arr: np.ndarray) -> tuple[float, float]:
     return (-vmax, vmax)
 
 
-class TwoTimeMapView(pg.GraphicsLayoutWidget):
+# A plain ``object`` mixin at runtime: subclassing ``QWidget`` here would make the
+# concrete views inherit the C++ ``QWidget`` twice and PySide6 segfaults on the
+# diamond. For the type-checker we pretend the base is ``QWidget`` so the
+# cooperative ``super().resizeEvent`` and the geometry calls (width/height/
+# setFixedHeight) resolve — they exist on the real pyqtgraph base at runtime.
+if TYPE_CHECKING:
+    _SquareBase = QWidget
+else:
+    _SquareBase = object
+
+
+class _SquareAspectMixin(_SquareBase):
+    """Keep a plot widget square on screen by locking height to its width.
+
+    Height-for-width propagation through nested ``QHBoxLayout``/``QVBoxLayout``
+    is unreliable in Qt, so squareness is enforced imperatively: every resize
+    re-pins the widget's height to its current width. The guard (only act when
+    height differs) prevents the set-height → relayout → resize feedback loop.
+    Applied to every result plot so the per-φ grid renders uniform square tiles.
+    """
+
+    def resizeEvent(self, ev) -> None:  # noqa: N802, ANN001 - Qt event override
+        super().resizeEvent(ev)
+        side = self.width()
+        if side > 0 and self.height() != side:
+            self.setFixedHeight(side)
+
+
+class TwoTimeMapView(_SquareAspectMixin, pg.GraphicsLayoutWidget):
     """Display a two-time correlation matrix as a pan/zoom-able image.
 
     Parameters
@@ -113,14 +140,13 @@ class TwoTimeMapView(pg.GraphicsLayoutWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent=parent)
         self._plot = self.addPlot()
-        # Row-major so array axis 0 (t₁) is vertical and axis 1 (t₂) horizontal,
-        # matching the publication imshow orientation.
+        # Col-major so array axis 0 (t₁) is horizontal and axis 1 (t₂) vertical.
         self._image_item = pg.ImageItem()
-        self._image_item.setOpts(axisOrder="row-major")
+        self._image_item.setOpts(axisOrder="col-major")
         _apply_colormap(self._image_item, _C2_COLORMAP)
         self._plot.addItem(self._image_item)
-        self._plot.setLabel("bottom", "t₂")
-        self._plot.setLabel("left", "t₁")
+        self._plot.setLabel("bottom", "t₁")
+        self._plot.setLabel("left", "t₂")
         self._has_image = False
 
     def show_map(
@@ -158,7 +184,7 @@ class TwoTimeMapView(pg.GraphicsLayoutWidget):
         return self._has_image
 
 
-class ResidualMapView(pg.GraphicsLayoutWidget):
+class ResidualMapView(_SquareAspectMixin, pg.GraphicsLayoutWidget):
     """Display a residual map as a pan/zoom-able image.
 
     Parameters
@@ -170,14 +196,13 @@ class ResidualMapView(pg.GraphicsLayoutWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent=parent)
         self._plot = self.addPlot()
-        # Row-major so array axis 0 (t₁) is vertical and axis 1 (t₂) horizontal,
-        # matching the publication imshow orientation.
+        # Col-major so array axis 0 (t₁) is horizontal and axis 1 (t₂) vertical.
         self._image_item = pg.ImageItem()
-        self._image_item.setOpts(axisOrder="row-major")
+        self._image_item.setOpts(axisOrder="col-major")
         _apply_colormap(self._image_item, _RESIDUAL_COLORMAP)
         self._plot.addItem(self._image_item)
-        self._plot.setLabel("bottom", "t₂")
-        self._plot.setLabel("left", "t₁")
+        self._plot.setLabel("bottom", "t₁")
+        self._plot.setLabel("left", "t₂")
         self._has_image = False
 
     def show_map(
@@ -222,7 +247,7 @@ class ResidualMapView(pg.GraphicsLayoutWidget):
 _SCATTER_MAX_POINTS = 20000
 
 
-class ResidualHistogramView(pg.PlotWidget):
+class ResidualHistogramView(_SquareAspectMixin, pg.PlotWidget):
     """Density histogram of residual values with a Normal(μ, σ) overlay.
 
     Interactive twin of the ``[0, 1]`` panel of the publication
@@ -252,7 +277,7 @@ class ResidualHistogramView(pg.PlotWidget):
             self.plot(x, pdf, pen=pg.mkPen("r", width=2))
 
 
-class DiagonalResidualView(pg.PlotWidget):
+class DiagonalResidualView(_SquareAspectMixin, pg.PlotWidget):
     """Residual along the t₁ = t₂ diagonal vs time, with a zero reference line.
 
     Interactive twin of the ``[1, 0]`` panel of ``plot_residual_map``.
@@ -277,7 +302,7 @@ class DiagonalResidualView(pg.PlotWidget):
         self.plot(axis[: diag.size], diag, pen=pg.mkPen("b", width=1), connect="finite")
 
 
-class ResidualsVsFittedView(pg.PlotWidget):
+class ResidualsVsFittedView(_SquareAspectMixin, pg.PlotWidget):
     """Scatter of residual vs fitted value (heteroscedasticity check).
 
     Interactive twin of the ``[1, 1]`` panel of ``plot_residual_map``. The point

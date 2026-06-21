@@ -50,8 +50,8 @@ def test_residual_map_accepts_array(qtbot):
 def test_map_axes_labelled_t1_t2(qtbot, view_cls):
     w = view_cls()
     qtbot.addWidget(w)
-    assert "t₂" in w._plot.getAxis("bottom").labelText  # x = t₂
-    assert "t₁" in w._plot.getAxis("left").labelText  # y = t₁
+    assert "t₁" in w._plot.getAxis("bottom").labelText  # x = t₁
+    assert "t₂" in w._plot.getAxis("left").labelText  # y = t₂
 
 
 @pytest.mark.parametrize("view_cls", [TwoTimeMapView, ResidualMapView])
@@ -66,12 +66,12 @@ def test_map_applies_color_lookup_table(qtbot, view_cls):
 def test_two_time_map_places_image_on_physical_t1_t2_grid(qtbot):
     w = TwoTimeMapView()
     qtbot.addWidget(w)
-    t1 = np.linspace(0.0, 2.5, 32)  # vertical extent (height)
-    t2 = np.linspace(0.0, 5.0, 32)  # horizontal extent (width)
+    t1 = np.linspace(0.0, 2.5, 32)  # horizontal extent (width), x = t₁
+    t2 = np.linspace(0.0, 5.0, 32)  # vertical extent (height), y = t₂
     w.show_map(np.full((32, 32), 1.2), t1=t1, t2=t2)
     mapped = w._image_item.mapRectToParent(w._image_item.boundingRect())
-    assert mapped.width() == pytest.approx(5.0)
-    assert mapped.height() == pytest.approx(2.5)
+    assert mapped.width() == pytest.approx(2.5)
+    assert mapped.height() == pytest.approx(5.0)
 
 
 def test_two_time_map_falls_back_to_frame_indices(qtbot):
@@ -82,6 +82,28 @@ def test_two_time_map_falls_back_to_frame_indices(qtbot):
     mapped = w._image_item.mapRectToParent(w._image_item.boundingRect())
     assert mapped.width() == pytest.approx(40.0)
     assert mapped.height() == pytest.approx(40.0)
+
+
+@pytest.mark.parametrize(
+    "view_cls",
+    [
+        TwoTimeMapView,
+        ResidualMapView,
+        ResidualHistogramView,
+        DiagonalResidualView,
+        ResidualsVsFittedView,
+    ],
+)
+def test_plot_widgets_render_square(qtbot, view_cls):
+    # Every result plot locks height to width on resize, so the per-φ grid tiles
+    # render square regardless of the (wider, shorter) space the layout hands them.
+    w = view_cls()
+    qtbot.addWidget(w)
+    w.show()
+    qtbot.waitExposed(w)
+    w.resize(300, 120)  # wide + short -> resizeEvent must re-pin height to width
+    qtbot.waitUntil(lambda: w.height() == w.width(), timeout=2000)
+    assert w.height() == w.width()
 
 
 def test_c2_levels_clamp_to_unit_band():
