@@ -8,30 +8,23 @@ import pytest
 pytest.importorskip("PySide6")
 pytest.importorskip("pyqtgraph")
 
+import pyqtgraph as pg  # noqa: E402
+
 from xpcsjax.gui.views.plots_view import (  # noqa: E402
-    PerAngleOverlayView,
+    _SCATTER_MAX_POINTS,
+    DiagonalResidualView,
+    ResidualHistogramView,
     ResidualMapView,
+    ResidualsVsFittedView,
     TwoTimeMapView,
+    _c2_levels,
+    _residual_levels,
+    _time_rect,
 )
 
 # ---------------------------------------------------------------------------
 # Sub-widget tests (the reusable primitives PhiResultsGrid composes)
 # ---------------------------------------------------------------------------
-
-
-def test_superdiag_mean_handles_degenerate_matrix():
-    # The per-angle overlay scalar is the mean of the first superdiagonal (tau=dt).
-    # A 2x2 has a one-element superdiagonal; a 1x1 (or empty) has none. The latter
-    # must return NaN WITHOUT a RuntimeWarning (np.mean of an empty slice warns).
-    import warnings
-
-    from xpcsjax.gui.views.plots_view import _superdiag_mean
-
-    assert _superdiag_mean(np.array([[1.0, 2.0], [3.0, 4.0]])) == 2.0
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")  # any RuntimeWarning becomes a hard failure
-        val = _superdiag_mean(np.array([[5.0]]))
-    assert np.isnan(val)
 
 
 def test_two_time_map_accepts_array(qtbot):
@@ -48,15 +41,114 @@ def test_residual_map_accepts_array(qtbot):
     assert w.has_image()
 
 
-def test_per_angle_overlay_plots_curves(qtbot):
-    w = PerAngleOverlayView()
+# ---------------------------------------------------------------------------
+# Colormap + t₁/t₂ axes (the changes requested over the grayscale frame-index view)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("view_cls", [TwoTimeMapView, ResidualMapView])
+def test_map_axes_labelled_t1_t2(qtbot, view_cls):
+    w = view_cls()
     qtbot.addWidget(w)
-    w.show_overlay(
-        np.array([0.0, 45.0]),
-        exp_g2=np.array([1.3, 1.2]),
-        model_g2=np.array([1.29, 1.21]),
-    )
-    assert w.curve_count() == 2
+    assert "t₂" in w._plot.getAxis("bottom").labelText  # x = t₂
+    assert "t₁" in w._plot.getAxis("left").labelText  # y = t₁
+
+
+@pytest.mark.parametrize("view_cls", [TwoTimeMapView, ResidualMapView])
+def test_map_applies_color_lookup_table(qtbot, view_cls):
+    # A colormap (jet / RdBu_r) is installed on the ImageItem — no longer the
+    # default grayscale. getColorMap() returns the active pg.ColorMap.
+    w = view_cls()
+    qtbot.addWidget(w)
+    assert w._image_item.getColorMap() is not None
+
+
+def test_two_time_map_places_image_on_physical_t1_t2_grid(qtbot):
+    w = TwoTimeMapView()
+    qtbot.addWidget(w)
+    t1 = np.linspace(0.0, 2.5, 32)  # vertical extent (height)
+    t2 = np.linspace(0.0, 5.0, 32)  # horizontal extent (width)
+    w.show_map(np.full((32, 32), 1.2), t1=t1, t2=t2)
+    mapped = w._image_item.mapRectToParent(w._image_item.boundingRect())
+    assert mapped.width() == pytest.approx(5.0)
+    assert mapped.height() == pytest.approx(2.5)
+
+
+def test_two_time_map_falls_back_to_frame_indices(qtbot):
+    # No usable time axes → image keeps its pixel-index extent (still labelled t₁/t₂).
+    w = TwoTimeMapView()
+    qtbot.addWidget(w)
+    w.show_map(np.full((40, 40), 1.2))
+    mapped = w._image_item.mapRectToParent(w._image_item.boundingRect())
+    assert mapped.width() == pytest.approx(40.0)
+    assert mapped.height() == pytest.approx(40.0)
+
+
+def test_c2_levels_clamp_to_unit_band():
+    # The bright τ=0 diagonal spike (~2.4) must not blow out the [1.0, 1.5] window.
+    arr = np.full((8, 8), 1.0)
+    arr[np.diag_indices(8)] = 2.4
+    assert _c2_levels(arr) == (1.0, 1.5)
+
+
+def test_residual_levels_are_symmetric_about_zero():
+    lo, hi = _residual_levels(np.array([[-0.3, 0.1], [0.05, 0.2]]))
+    assert lo == pytest.approx(-hi)
+    assert hi > 0.0
+
+
+def test_time_rect_none_on_degenerate_axes():
+    assert _time_rect(None, np.arange(4.0)) is None
+    assert _time_rect(np.array([1.0]), np.array([1.0])) is None  # too short
+    assert _time_rect(np.array([np.nan, 1.0]), np.array([0.0, 1.0])) is None  # non-finite
+
+
+# ---------------------------------------------------------------------------
+# Interactive residual diagnostics (replaced the static residuals PNG)
+# ---------------------------------------------------------------------------
+
+
+def test_residual_histogram_renders_and_tolerates_all_nan(qtbot):
+    w = ResidualHistogramView()
+    qtbot.addWidget(w)
+    assert "Residual Value" in w.getAxis("bottom").labelText
+    w.show_distribution(np.random.default_rng(0).normal(0.0, 0.05, (30, 30)))
+    assert len(w.plotItem.listDataItems()) >= 1  # histogram (+ normal overlay)
+    w.show_distribution(np.full((4, 4), np.nan))  # no finite values -> no curves, no raise
+    assert w.plotItem.listDataItems() == []
+
+
+def test_diagonal_residual_traces_diag_against_t1(qtbot):
+    w = DiagonalResidualView()
+    qtbot.addWidget(w)
+    assert "t₁" in w.getAxis("bottom").labelText
+    res = np.random.default_rng(0).normal(0.0, 0.05, (16, 16))
+    w.show_diagonal(res, np.linspace(0.0, 1.5, 16))
+    curves = w.plotItem.listDataItems()
+    assert len(curves) == 1
+    x = curves[0].getData()[0]
+    assert len(x) == 16  # one point per diagonal lag
+    assert x[-1] == pytest.approx(1.5)  # physical t₁ axis, not frame index
+
+
+def test_residuals_vs_fitted_decimates_large_cloud(qtbot):
+    w = ResidualsVsFittedView()
+    qtbot.addWidget(w)
+    n = _SCATTER_MAX_POINTS + 5000
+    fitted = np.random.default_rng(0).random((n, 1))
+    residuals = np.random.default_rng(1).normal(0.0, 0.05, (n, 1))
+    w.show_scatter(fitted, residuals)
+    scatters = [it for it in w.plotItem.items if isinstance(it, pg.ScatterPlotItem)]
+    assert len(scatters) == 1
+    assert len(scatters[0].data) == _SCATTER_MAX_POINTS  # display-only decimation cap
+
+
+def test_residuals_vs_fitted_tolerates_all_nan(qtbot):
+    w = ResidualsVsFittedView()
+    qtbot.addWidget(w)
+    w.show_scatter(np.full((4, 4), np.nan), np.full((4, 4), np.nan))  # no finite pairs, no raise
+    scatters = [it for it in w.plotItem.items if isinstance(it, pg.ScatterPlotItem)]
+    assert scatters == []
 
 
 # (ResultPlots removed in the redesign — per-phi grid behavior is covered by

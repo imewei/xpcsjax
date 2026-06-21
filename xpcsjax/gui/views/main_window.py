@@ -271,8 +271,8 @@ class MainWindow(QMainWindow):
         summary:
             A ``ResultSummary`` (or ``None``) to show in the text fallback.
         result_dir:
-            The run's result directory; used to locate the viz bundle and the
-            per-angle diagnostics PNGs. ``None`` forces the text-summary path.
+            The run's result directory; used to locate the viz bundle.
+            ``None`` forces the text-summary path.
         """
         bundle = None
         if result_dir:
@@ -282,7 +282,7 @@ class MainWindow(QMainWindow):
                 bundle = None
 
         if bundle is not None:
-            self._result_grid.set_bundle(bundle, result_dir)
+            self._result_grid.set_bundle(bundle)
             self._central_stack.setCurrentIndex(1)  # show per-phi grid
         else:
             # Fall back to (or keep) the text summary.

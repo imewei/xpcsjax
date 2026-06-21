@@ -3,7 +3,7 @@
 Covers the new surfaces that replaced the Data/Config/Fit tabs and the Fit
 Monitor SSR view:
   - ``PhiResultsGrid`` (one section per phi angle, graceful on missing data).
-  - ``find_diagnostics_png`` (locate per-angle residual diagnostics PNG).
+  - Interactive residual-diagnostics row (distribution / diagonal / vs-fitted).
   - ``CreateConfigDialog`` / ``ConfigTextEditorDialog`` File-menu dialogs.
   - ``MainWindow.create_project`` / ``create_config`` workflow methods.
 """
@@ -17,7 +17,7 @@ import yaml
 pytest.importorskip("PySide6")
 pytest.importorskip("pyqtgraph")
 
-from xpcsjax.gui.views.plots_view import PhiResultsGrid, find_diagnostics_png  # noqa: E402
+from xpcsjax.gui.views.plots_view import PhiResultsGrid  # noqa: E402
 from xpcsjax.gui.viz_bundle import VizBundle  # noqa: E402
 
 _MODES = ("static_anisotropic", "static_isotropic", "laminar_flow", "two_component")
@@ -71,45 +71,22 @@ def test_phi_grid_set_bundle_none_clears(qtbot):
     assert grid.phi_count() == 0
 
 
-def test_phi_grid_missing_png_is_placeholder(qtbot, tmp_path):
-    """A result dir with no diagnostics PNGs degrades to placeholders (no PNG)."""
+def test_phi_grid_builds_interactive_diagnostics_with_fit(qtbot):
+    """A bundle with a fitted surface gives every section the 3-plot diagnostics row."""
     grid = PhiResultsGrid()
     qtbot.addWidget(grid)
-    grid.set_bundle(_bundle(2), result_dir=str(tmp_path))
+    grid.set_bundle(_bundle(2))
     assert grid.section_count() == 2
-    assert all(not s._has_png for s in grid._sections)
+    assert all(s._has_diagnostics for s in grid._sections)
 
 
-def test_phi_grid_embeds_present_png(qtbot, tmp_path):
-    """When residuals_phi_NNN.png exists, the matching section embeds it."""
-    from PySide6.QtGui import QPixmap
-
-    plots = tmp_path / "plots"
-    plots.mkdir()
-    png = plots / "residuals_phi_000_0.000deg.png"
-    pm = QPixmap(16, 16)
-    pm.fill()
-    assert pm.save(str(png), "PNG")
-
+def test_phi_grid_exp_only_has_no_diagnostics(qtbot):
+    """An exp-only bundle (no fitted surface) degrades the diagnostics to a placeholder."""
     grid = PhiResultsGrid()
     qtbot.addWidget(grid)
-    grid.set_bundle(_bundle(2), result_dir=str(tmp_path))
-    assert grid._sections[0]._has_png  # section 0 found its PNG
-    assert not grid._sections[1]._has_png  # section 1 has none
-
-
-# ---------------------------------------------------------------------------
-# find_diagnostics_png
-# ---------------------------------------------------------------------------
-def test_find_diagnostics_png_locates_by_index(tmp_path):
-    plots = tmp_path / "plots"
-    plots.mkdir()
-    target = plots / "residuals_phi_001_4.878deg.png"
-    target.write_bytes(b"not really a png but the locator only globs by name")
-    found = find_diagnostics_png(str(tmp_path), 1)
-    assert found == target
-    assert find_diagnostics_png(str(tmp_path), 2) is None  # no slice-2 file
-    assert find_diagnostics_png(None, 0) is None  # no result dir
+    grid.set_bundle(_bundle(2, with_fit=False))
+    assert grid.section_count() == 2
+    assert all(not s._has_diagnostics for s in grid._sections)
 
 
 # ---------------------------------------------------------------------------
