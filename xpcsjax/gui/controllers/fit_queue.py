@@ -137,6 +137,26 @@ class FitQueueController(QObject):
             self._cleanup_output_dir(run_id)
             self.run_status_changed.emit(run_id, "cancelled")
 
+    def cancel_all(self) -> None:
+        """Cancel every active AND pending run, with per-run output cleanup.
+
+        Routes each run through :meth:`cancel` — the same path the user's Cancel
+        action uses — so partial per-run output dirs are removed and a
+        ``cancelled`` status is emitted for each. Unlike :meth:`shutdown` (which
+        is the app-close/atexit teardown: terminate + join, no cleanup or status),
+        this is for closing the *owning project* while the app stays alive:
+        leaving workers running would orphan them (their terminal events can no
+        longer attach to a project run, yet they keep consuming RAM and writing
+        artifacts under the old output dir). After this returns the queue holds
+        no active or pending work.
+        """
+        # Snapshot ids before mutating: cancel() pops from _pending / _handles.
+        # Pending first, so a slot freed by cancelling an active worker never
+        # promotes a job we are about to cancel anyway.
+        run_ids = [job.run_id for job in self._pending] + list(self._handles)
+        for run_id in run_ids:
+            self.cancel(run_id)
+
     def shutdown(self) -> None:
         """Cancel every active worker, join its reader thread, and clear the queue."""
         self._pending.clear()

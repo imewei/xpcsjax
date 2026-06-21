@@ -2614,14 +2614,26 @@ def fit_nlsq_cmaes(
 
         from xpcsjax.optimization.nlsq.result_builder import compute_uncertainties
 
+        # `n_params` above is the EFFECTIVE constrained DOF (used only for
+        # reduced-chi2 and the diagnostics banner). The result's
+        # uncertainties/covariance, however, must match the dense parameter
+        # VECTOR (`final_params`), which fixed-constant / averaged modes expanded
+        # to `2*n_phi + n_physical`. When the solve carried no covariance (e.g. a
+        # CMA-ES global search with no L-M refinement -> `pcov` is None), the
+        # placeholders must be sized by `len(final_params)`, not `n_params` —
+        # otherwise OptimizationResult.__post_init__ raises a shape ValueError
+        # that the surrounding `except` silently downgrades into a failed result.
+        result_param_count = len(final_params)
         result = OptimizationResult(
             parameters=final_params,
             uncertainties=(
                 compute_uncertainties(final_covariance)
                 if final_covariance is not None
-                else np.zeros(n_params)
+                else np.zeros(result_param_count)
             ),
-            covariance=(final_covariance if final_covariance is not None else np.eye(n_params)),
+            covariance=(
+                final_covariance if final_covariance is not None else np.eye(result_param_count)
+            ),
             chi_squared=cmaes_result.chi_squared,
             reduced_chi_squared=reduced_chi_squared,
             convergence_status="converged" if cmaes_result.success else "failed",

@@ -4,6 +4,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import QObject, Signal  # noqa: E402
 from PySide6.QtGui import QAction, QCloseEvent  # noqa: E402
 
 from xpcsjax.gui.result_loader import ResultSummary  # noqa: E402
@@ -98,3 +99,52 @@ def test_close_event_calls_queue_shutdown(qtbot, monkeypatch):
     monkeypatch.setattr(win._queue, "shutdown", lambda: called.__setitem__("shutdown", True))
     win.closeEvent(QCloseEvent())
     assert called["shutdown"] is True
+
+
+class _FakeHandle(QObject):
+    """Minimal WorkerHandle stand-in: never spawns a real process."""
+
+    event = Signal(object)
+
+    def __init__(self, job):
+        super().__init__()
+        self.job = job
+        self._alive = False
+
+    def start(self):
+        self._alive = True
+
+    def cancel(self):
+        self._alive = False
+
+    def is_running(self):
+        return self._alive
+
+    def shutdown(self):
+        self._alive = False
+
+
+def test_close_project_stops_active_and_pending_runs(qtbot, tmp_path):
+    """Closing a project must not orphan queued/active fit workers (codex review).
+
+    ``close_project()`` used to rebuild the Project and null ``_active_run_id``
+    while leaving ``FitQueueController`` untouched: the worker kept running in
+    its child process, now unreachable (terminal signals could no longer attach,
+    logs were filtered out), still consuming RAM and writing artifacts under the
+    old output dir. Closing the project must drain the queue.
+    """
+    from xpcsjax.gui.controllers.fit_queue import FitQueueController
+    from xpcsjax.gui.views.main_window import MainWindow
+
+    win = MainWindow()
+    qtbot.addWidget(win)
+    # Swap in a fake-handle queue so no real worker process is spawned.
+    win._queue = FitQueueController(max_concurrent=1, handle_factory=_FakeHandle)
+    win._queue.enqueue("run-active", str(tmp_path / "a.yaml"), str(tmp_path / "runs" / "run-active"))
+    win._queue.enqueue("run-pending", str(tmp_path / "b.yaml"), str(tmp_path / "runs" / "run-pending"))
+    assert win._queue.active_count() == 1 and win._queue.pending_count() == 1
+
+    win.close_project()
+
+    assert win._queue.active_count() == 0, "active worker was orphaned by close_project()"
+    assert win._queue.pending_count() == 0, "pending run survived close_project()"

@@ -167,3 +167,53 @@ def test_cmaes_laminar_does_not_silently_fail(mode):
         f"(status={res.convergence_status}, chi2={res.chi_squared})"
     )
     assert np.isfinite(res.chi_squared), f"mode={mode}: chi_squared={res.chi_squared}"
+
+
+def test_cmaes_fixed_constant_survives_none_covariance(monkeypatch):
+    """A converged fixed-constant CMA-ES solve whose covariance is ``None`` must
+    not be discarded into a failed result (codex adversarial review).
+
+    When CMA-ES runs without L-M refinement, ``CMAESResult.covariance`` is
+    ``None`` (it comes from ``result.get("pcov", None)``). Fixed-constant mode
+    expands ``final_params`` to the dense ``2*n_phi + n_physical`` layout, but
+    the ``None``-covariance placeholders (``np.zeros`` / ``np.eye``) were sized
+    by the EFFECTIVE constrained DOF (``n_physical``) rather than the expanded
+    length. ``OptimizationResult.__post_init__`` then raised a shape ValueError
+    that the surrounding ``except ValueError`` silently converted into
+    ``_cmaes_failed_result`` — losing an otherwise-successful global search.
+    """
+    from xpcsjax.optimization.nlsq.cmaes_wrapper import CMAESResult, CMAESWrapper
+    from xpcsjax.optimization.nlsq.core import fit_nlsq_cmaes
+
+    n_phi, n_physical = 5, 7
+
+    def _fake_fit(self, **_kwargs):
+        # Fixed-constant optimizer vector is physics-only; no refinement ran,
+        # so pcov is absent -> covariance None.
+        return CMAESResult(
+            parameters=np.array([1000.0, 0.5, 10.0, 0.01, 0.0, 0.0, 0.0]),
+            covariance=None,
+            chi_squared=1.0,
+            success=True,
+            diagnostics={},
+            nlsq_refined=False,
+        )
+
+    monkeypatch.setattr(CMAESWrapper, "fit", _fake_fit)
+
+    cfg = _laminar_cmaes_config("constant")
+    # Disable the NLSQ warm-start so the (covariance=None) CMA-ES result is the
+    # one finalized; otherwise a warm-start covariance would mask the defect.
+    cfg.config["optimization"]["nlsq"]["cmaes"]["nlsq_warmstart"] = False
+
+    res = fit_nlsq_cmaes(_tiny_laminar_data(n_phi=n_phi), cfg)
+
+    assert res.convergence_status == "converged", (
+        f"converged fixed-constant solve with None covariance was discarded "
+        f"(status={res.convergence_status}, chi2={res.chi_squared})"
+    )
+    assert np.isfinite(res.chi_squared)
+    # Dense per-angle layout, with placeholders sized to MATCH it.
+    assert len(res.parameters) == 2 * n_phi + n_physical
+    assert len(res.uncertainties) == len(res.parameters)
+    assert np.asarray(res.covariance).shape == (len(res.parameters), len(res.parameters))

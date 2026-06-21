@@ -526,13 +526,16 @@ class MainWindow(QMainWindow):
         the in-memory project, the active selections, the project/output dirs, and
         every results surface (sidebar tree, comparison, inspector, per-phi grid,
         and the text summary), returning the central view to the summary page.
+
+        Active/queued fits belong to the project being discarded, so they are
+        cancelled first — otherwise the workers would keep running unreachable
+        (terminal events can no longer attach to a project run, logs are filtered
+        out because ``_active_run_id`` is cleared) while still consuming RAM and
+        writing artifacts under the old output dir.
         """
-        # Tear down any in-flight/queued fit workers first — otherwise Close
-        # Project orphans a running worker subprocess with no cancel handle, and
-        # its later terminal events would leak into the freshly-reset workbench.
         # shutdown() cancels every active worker, joins its reader, and clears
-        # the queue while leaving the controller reusable for the next fit (same
-        # teardown closeEvent uses).
+        # the pending queue while leaving the controller reusable for the next
+        # fit (the same teardown closeEvent uses).
         self._queue.shutdown()
         self._project = Project()
         self._active_run_id = None
