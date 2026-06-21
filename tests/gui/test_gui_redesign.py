@@ -354,3 +354,120 @@ def test_close_project_resets_to_empty_state(qtbot, tmp_path):
     assert win._active_run_id is None
     assert win._central_stack.currentIndex() == 0  # back to the text-summary page
     assert win.result_text() == ""
+
+
+# ---------------------------------------------------------------------------
+# Review fixes (unpushed-commits adversarial review, 2026-06-20)
+# ---------------------------------------------------------------------------
+def test_config_text_editor_surfaces_write_failure(qtbot, tmp_path):
+    """A write OSError must surface and keep the dialog open — never escape the
+    slot silently. Mirrors the read-failure handling (no-silent-loss contract)."""
+    from xpcsjax.gui.views.config_dialogs import ConfigTextEditorDialog
+
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("analysis_mode: static_isotropic\n", encoding="utf-8")
+    dlg = ConfigTextEditorDialog(cfg)
+    qtbot.addWidget(dlg)
+    assert dlg.load_error() is None  # loaded cleanly, Save enabled
+
+    # Force the write to fail: a file standing where a parent directory is needed
+    # makes mkdir(parents=True) raise NotADirectoryError (an OSError subclass).
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x", encoding="utf-8")
+    dlg._path = blocker / "sub" / "cfg.yaml"
+
+    accepted = {"v": False}
+    dlg.accept = lambda: accepted.__setitem__("v", True)  # spy on accept
+    dlg._on_save()  # must NOT raise
+
+    assert accepted["v"] is False  # dialog not accepted on write failure
+    assert "save" in dlg._error_label.text().lower()
+
+
+@pytest.mark.parametrize("bad", ["nan", "inf", "-inf", "NaN", "Infinity"])
+def test_parse_optional_rejects_non_finite(bad):
+    """NaN/Inf parse as floats but must be rejected — they would otherwise be
+    serialized (.nan/.inf) into the generated config (reject-non-finite rule)."""
+    from xpcsjax.gui.views.config_dialogs import _parse_optional
+
+    with pytest.raises(ValueError):
+        _parse_optional(bad, float, "Wavevector q")
+
+
+def test_close_project_tears_down_active_worker(qtbot):
+    """Close Project must not orphan a running fit worker (no cancel handle left)."""
+    win = _window(qtbot)
+
+    calls = {"cancel": 0, "shutdown": 0}
+
+    class _FakeHandle:
+        def is_running(self):
+            return True
+
+        def cancel(self):
+            calls["cancel"] += 1
+
+        def shutdown(self):
+            calls["shutdown"] += 1
+
+    win._queue._handles["r1"] = _FakeHandle()
+    assert win._queue.active_count() == 1
+
+    win.close_project()
+
+    assert win._queue.active_count() == 0  # the orphaned worker was torn down
+    assert calls["cancel"] == 1 and calls["shutdown"] == 1
+
+
+def test_on_create_config_guards_overwrite_retry_failure(qtbot, tmp_path, monkeypatch):
+    """A write failure during the overwrite retry must surface as a warning,
+    not escape the create-config slot."""
+    import xpcsjax.gui.views.main_window as mw
+
+    win = _window(qtbot)
+    accepted = int(mw.CreateConfigDialog.DialogCode.Accepted)
+
+    class _FakeDialog:
+        # Production resolves ``CreateConfigDialog.DialogCode.Accepted`` on the
+        # patched name, so the stand-in must expose the real enum.
+        DialogCode = mw.CreateConfigDialog.DialogCode
+
+        def __init__(self, *a, **k):
+            pass
+
+        def exec(self):
+            return accepted
+
+        def output_path(self):
+            return str(tmp_path / "out.yaml")
+
+        def selected_mode(self):
+            return "static_isotropic"
+
+        def generation_kwargs(self):
+            return {}
+
+    monkeypatch.setattr(mw, "CreateConfigDialog", _FakeDialog)
+
+    calls = {"n": 0}
+
+    def _fake_create(mode, output_path, overwrite=False, **kw):
+        calls["n"] += 1
+        if not overwrite:
+            raise FileExistsError(output_path)  # first call -> overwrite prompt
+        raise OSError("disk full")  # the overwrite retry itself fails
+
+    monkeypatch.setattr(win, "create_config", _fake_create)
+
+    warned = {"v": False}
+    monkeypatch.setattr(
+        mw.QMessageBox, "question", staticmethod(lambda *a, **k: mw.QMessageBox.StandardButton.Yes)
+    )
+    monkeypatch.setattr(
+        mw.QMessageBox, "warning", staticmethod(lambda *a, **k: warned.__setitem__("v", True))
+    )
+
+    win._on_create_config()  # must NOT raise
+
+    assert calls["n"] == 2  # initial + overwrite retry both attempted
+    assert warned["v"] is True  # the retry failure surfaced as a warning

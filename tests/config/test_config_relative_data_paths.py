@@ -95,6 +95,34 @@ def test_unset_env_var_is_not_mis_anchored(tmp_path: Path, monkeypatch: pytest.M
     assert str(tmp_path.resolve()) not in got
 
 
+def test_parent_traversal_path_is_left_literal_for_downstream_guard(tmp_path: Path) -> None:
+    """A ``..`` relative path must NOT be anchored to an absolute path.
+
+    ``os.path.normpath(os.path.join(base, "../../secret"))`` collapses the
+    ``..`` away, producing an absolute path with no ``..`` left — which silently
+    defeats the loader's literal-``..`` traversal guard
+    (``xpcs_loader._validate_configuration``) and ``validate_save_path``. Such
+    paths were rejected downstream before this anchoring existed, so they are
+    left literal here to preserve that posture.
+    """
+    cfg_path = _write_config(
+        tmp_path,
+        {
+            "data_folder_path": "../../secret",
+            "cache_file_path": "../escape/cache.npz",
+            "file_path": "sub/../../up.hdf",
+        },
+    )
+    cm = ConfigManager(config_file=str(cfg_path))
+    exp = cm.config["experimental_data"]
+    # Left exactly as written — the '..' survives for the downstream guard.
+    assert exp["data_folder_path"] == "../../secret"
+    assert exp["cache_file_path"] == "../escape/cache.npz"
+    assert exp["file_path"] == "sub/../../up.hdf"
+    for v in (exp["data_folder_path"], exp["cache_file_path"], exp["file_path"]):
+        assert ".." in v.split("/")
+
+
 def test_override_path_is_not_resolved() -> None:
     # config_override never reads a file, so there is no config dir to anchor to;
     # relative paths must pass through untouched.

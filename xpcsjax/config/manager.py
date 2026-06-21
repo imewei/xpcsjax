@@ -383,6 +383,14 @@ class ConfigManager:
             if "$" in expanded:
                 # Unresolved ${VAR}: leave it literal rather than mis-anchor it.
                 continue
+            if ".." in expanded.replace("\\", "/").split("/"):
+                # A ``..`` component is left literal. ``normpath(join(base, ...))``
+                # would collapse the ``..`` into an absolute path with no ``..``
+                # left, silently defeating the loader's literal-``..`` traversal
+                # guard and ``validate_save_path``. These paths were rejected
+                # downstream before this anchoring existed, so leaving them
+                # untouched preserves that posture (an honest downstream error).
+                continue
             if not os.path.isabs(expanded):
                 expanded = os.path.normpath(os.path.join(base, expanded))
             exp[key] = expanded

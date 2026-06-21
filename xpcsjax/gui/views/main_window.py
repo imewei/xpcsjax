@@ -527,6 +527,13 @@ class MainWindow(QMainWindow):
         every results surface (sidebar tree, comparison, inspector, per-phi grid,
         and the text summary), returning the central view to the summary page.
         """
+        # Tear down any in-flight/queued fit workers first — otherwise Close
+        # Project orphans a running worker subprocess with no cancel handle, and
+        # its later terminal events would leak into the freshly-reset workbench.
+        # shutdown() cancels every active worker, joins its reader, and clears
+        # the queue while leaving the controller reusable for the next fit (same
+        # teardown closeEvent uses).
+        self._queue.shutdown()
         self._project = Project()
         self._active_run_id = None
         self._active_dataset_id = None
@@ -570,8 +577,19 @@ class MainWindow(QMainWindow):
                 f"{output_path} exists. Overwrite?",
             )
             if resp == QMessageBox.StandardButton.Yes:
-                self.create_config(mode, output_path, overwrite=True, **kwargs)
-        except (ValueError, FileNotFoundError) as exc:
+                # The overwrite retry can itself fail (permission denied, disk
+                # full, read-only FS) — guard it so the error surfaces as a
+                # warning instead of escaping the slot through the event loop.
+                try:
+                    self.create_config(mode, output_path, overwrite=True, **kwargs)
+                except (ValueError, FileNotFoundError, OSError) as exc:
+                    QMessageBox.warning(
+                        self, "Create Config", f"Could not create config:\n{exc}"
+                    )
+        except (ValueError, FileNotFoundError, OSError) as exc:
+            # OSError covers write failures on the initial create (FileExistsError,
+            # an OSError subclass, is caught above first so its overwrite prompt
+            # still runs).
             QMessageBox.warning(self, "Create Config", f"Could not create config:\n{exc}")
 
     def _on_edit_config(self) -> None:

@@ -12,6 +12,7 @@ actual generation via a deferred import, keeping the GUI process JAX-free.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from PySide6.QtGui import QFontDatabase
@@ -48,15 +49,21 @@ def _parse_optional(text: str, caster: type, label: str) -> float | int | None:
     behavior). A NON-blank value that fails to cast raises ``ValueError`` naming
     the field — so a typo is surfaced to the user rather than silently discarded
     and written as the template placeholder (the project's no-silent-data-loss
-    rule applies to user input too).
+    rule applies to user input too). ``float("nan")``/``float("inf")`` cast
+    without error, so a non-finite result is rejected explicitly — otherwise it
+    would be serialized (``.nan``/``.inf``) into the generated config and feed a
+    NaN/Inf wavevector or dt into the fit (the reject-non-finite rule).
     """
     text = text.strip()
     if not text:
         return None
     try:
-        return caster(text)
+        result = caster(text)
     except ValueError:
         raise ValueError(f"{label}: {text!r} is not a valid {caster.__name__}.") from None
+    if isinstance(result, float) and not math.isfinite(result):
+        raise ValueError(f"{label}: {text!r} is not a finite {caster.__name__}.")
+    return result
 
 
 class CreateConfigDialog(QDialog):
@@ -282,5 +289,14 @@ class ConfigTextEditorDialog(QDialog):
     def _on_save(self) -> None:
         if self._load_error is not None:
             return  # guarded: never overwrite when the load failed
-        self.save()
+        try:
+            self.save()
+        except OSError as exc:
+            # Mirror the read-path treatment: surface the failure and keep the
+            # dialog open with the user's edits intact, rather than letting the
+            # OSError escape the slot silently (the no-silent-loss contract
+            # applies to the write the user actually cares about, not just read).
+            self._error_label.setText(f"Could not save file:\n{exc}")
+            self._error_label.show()
+            return
         self.accept()
