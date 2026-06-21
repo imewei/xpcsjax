@@ -140,14 +140,24 @@ Covers: `xpcsjax`/`xj` (+ `xjexp`/`xjsim` reuse `_xpcsjax`),
 `xpcsjax-validate`/`xj-validate`, `xpcsjax-gui`/`xj-gui`.
 
 `dynamic_hints` is **per-`CommandSpec`** (not global by flag name) — the same
-flag means different things in different commands. The four hint kinds:
+flag means different things in different commands. The hint kinds:
 
 | Hint | Emits | Example flags |
 |---|---|---|
 | `configfile` | cached YAML discovery (`_xpcsjax_get_config_files`) | `xpcsjax --config/-c` |
 | `dir` | `_filedir -d` | `xpcsjax --output/-o` |
 | `file` | `_filedir` | `xpcsjax-config --output/-o`, `xpcsjax-config --data/-d` |
-| `threads` | nproc-based numeric list | `--threads` |
+| `threads` | nproc-based numeric list (`1 2 4 8 $(nproc)`) | `--threads` |
+| literal list (e.g. `("auto", "nlsq")`) | `compgen -W "auto nlsq"` | `xpcsjax-post-install --xla-mode` |
+
+The literal-list kind exists for **intentionally free-form** args that argparse
+cannot constrain with `choices` but where common values are worth suggesting.
+Concrete case: `post-install --xla-mode` is `type=str` accepting `auto`, `nlsq`,
+**or an integer device count** (with manual validation + a test pinning its
+error message), so it must stay free-form — `choices` would break the integer
+path. The literal list supplies `auto`/`nlsq` as suggestions without constraining
+input. This is the *only* sanctioned place for hand-listed values; anything a
+parser *can* express via `choices` MUST use `choices` (single source of truth).
 
 Per-command necessity (concrete cases the reviewers flagged):
 - `xpcsjax --output/-o` is a **directory**; `xpcsjax-config --output/-o` is a
@@ -186,6 +196,7 @@ Classification rules (evaluated top-to-bottom; first match wins):
 | `dynamic_hints[flag] == "dir"` | `_filedir -d` |
 | `dynamic_hints[flag] == "file"` | `_filedir` |
 | `dynamic_hints[flag] == "threads"` | nproc-based numeric list |
+| `dynamic_hints[flag]` is a tuple/list of words | `compgen -W "<words>"` |
 | `action.choices` set | `compgen -W "<choices>"` |
 | `action.type is Path`, no hint | `_filedir` (file) |
 | takes a value (any `nargs != 0`), no choices | `return` (no value hint) |
