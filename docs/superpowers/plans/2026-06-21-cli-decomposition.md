@@ -85,7 +85,7 @@ from xpcsjax.cli.plot_backend import (
     should_use_datashader,
 )
 ```
-(Do not yet prune other now-unused imports — later plot tasks revisit `plot_dispatch.py`; Task 5 does the final import sweep.)
+**Prune the imports THIS task orphans, now** (each move task must leave `plot_dispatch.py` ruff-clean at its own commit, since Step 6 runs `ruff check` on it): moving `_PLOT_DISPATCH_CALL_COUNTER` orphans `import itertools` (L18); moving `_current_run_id` orphans `_LOG_CONTEXT` from the `xpcsjax.utils.logging` import (L25) **unless** another still-present function uses it — grep `_LOG_CONTEXT` in `plot_dispatch.py` after the move and drop it from the import if unused. Do not defer pruning to Task 5; F401 would fail this task's ruff gate.
 
 - [ ] **Step 3: Update the test import**
 
@@ -133,7 +133,7 @@ Create `xpcsjax/cli/plot_families/__init__.py` containing only a one-line module
 
 - [ ] **Step 2: Move `_plot_experimental_data` verbatim**
 
-Cut `_plot_experimental_data` (L129-…) into `xpcsjax/cli/plot_families/experimental.py`. Add its needed imports (`from pathlib import Path`, `from typing import Any`, the `xpcsjax.viz` plotting helpers it calls, and the logging utils it uses — copy only the imports it references). Keep its docstring.
+Cut `_plot_experimental_data` (L129-…) into `xpcsjax/cli/plot_families/experimental.py`. Add EVERY name it references: `import numpy as np` (uses `np.asarray` at L144-145), `import logging` (uses `logging.WARNING` at L173 — this is the **stdlib** `logging`, distinct from the `xpcsjax.utils.logging` helpers), `from pathlib import Path`, `from typing import Any`, the `xpcsjax.viz` plotting helpers, and the `xpcsjax.utils.logging` utils it calls (e.g. `log_once`). Keep its docstring. **Verification (not enumeration) is the safety net:** after the move run `ruff check` (F821 undefined-name / F401 unused) + `mypy` on the new file and add/drop imports until clean — do not rely on this list being exhaustive.
 
 - [ ] **Step 3: Rewire `plot_dispatch.py`**
 
@@ -174,7 +174,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Move the three functions verbatim**
 
-Cut `resolve_phi_angles_for_sim` (L106-…), `_plot_simulated_from_config` (L184-…), and `_evaluate_model_c2` (L345-…, including its inner `import jax.numpy as jnp`) into `xpcsjax/cli/plot_families/simulated.py`. Add the imports they reference: `numpy as np`, `from pathlib import Path`, `from typing import Any`, **`from xpcsjax.cli.plot_backend import _PLOT_DISPATCH_CALL_COUNTER, _current_run_id`** (`_plot_simulated_from_config` calls `_current_run_id()` at the rate-limited-warning sites, currently `plot_dispatch.py:301,331` — omitting it raises `NameError` at runtime), the `xpcsjax.viz` helpers, logging utils, and the `ConfigManager` `TYPE_CHECKING` import. Keep docstrings. `_plot_simulated_from_config` calls `_evaluate_model_c2` by bare name — keep that call so a module-level monkeypatch on `simulated._evaluate_model_c2` intercepts it.
+Cut `resolve_phi_angles_for_sim` (L106-…), `_plot_simulated_from_config` (L184-…), and `_evaluate_model_c2` (L345-…, including its inner `import jax.numpy as jnp`) into `xpcsjax/cli/plot_families/simulated.py`. Add the imports they reference: `import numpy as np`, `import logging` (**stdlib**, for `logging.WARNING` at L222/233/282/304/334 — distinct from the `xpcsjax.utils.logging` helpers), `from pathlib import Path`, `from typing import Any`, **`from xpcsjax.cli.plot_backend import _PLOT_DISPATCH_CALL_COUNTER, _current_run_id`** (`_plot_simulated_from_config` calls `_current_run_id()` at the rate-limited-warning sites, currently `plot_dispatch.py:301,331` — omitting it raises `NameError` at runtime), the `xpcsjax.viz` helpers, the `xpcsjax.utils.logging` utils, and the `ConfigManager` `TYPE_CHECKING` import. After the move, `ruff`+`mypy` on the new file must be clean (catches any missed/spurious import). Keep docstrings. `_plot_simulated_from_config` calls `_evaluate_model_c2` by bare name — keep that call so a module-level monkeypatch on `simulated._evaluate_model_c2` intercepts it.
 
 - [ ] **Step 2: Rewire `plot_dispatch.py`**
 
@@ -202,10 +202,10 @@ simulated._plot_simulated_from_config(...)
 Run: `uv run pytest tests/cli/test_simulated_data_grid.py -q`
 Expected: PASS — the monkeypatch intercepts `_evaluate_model_c2` (verify the captured-call assertion still fires; if the grid is empty, the patch missed the right module).
 
-- [ ] **Step 5: Confirm JAX still lazy on cheap paths**
+- [ ] **Step 5: Assert JAX stays unloaded on `import plot_dispatch` (STRICT — regression gate)**
 
-Run: `uv run python -c "import sys; import xpcsjax.cli.plot_dispatch; print('jax after plot_dispatch import:', 'jax' in sys.modules)"`
-Expected: depends on existing behavior — record it. The goal is that importing `simulated` is where the direct `import jax` lives; if `plot_dispatch` no longer imports `_evaluate_model_c2`, importing `plot_dispatch` should not eagerly import jax via the simulated module unless it imports `simulated` at top. (If `plot_dispatch` importing `simulated` pulls jax, that matches pre-refactor behavior where the function was in-file — acceptable, not a regression.)
+Run: `uv run python -c "import sys; import xpcsjax.cli.plot_dispatch; print('jax:', 'jax' in sys.modules, 'matplotlib:', 'matplotlib' in sys.modules)"`
+Expected (STRICT): `jax: False matplotlib: False`. Verified baseline: importing `plot_dispatch` today loads neither (the `import jax.numpy` is function-local in `_evaluate_model_c2`). Because `plot_dispatch` imports `simulated` at module top, this stays `False` ONLY IF `simulated.py` keeps `import jax.numpy` function-local inside `_evaluate_model_c2` (per the Global Constraint). If this prints `jax: True`, you hoisted the import — move it back inside the function. This is a regression gate, not a "record it" — a `True` here fails the task.
 
 - [ ] **Step 6: Lint + type-check**
 
@@ -237,7 +237,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Move the two functions verbatim**
 
-Cut `_generate_post_fit_plots` (L412-…) and `_save_fit_comparison_only` (L432-…) into `xpcsjax/cli/plot_families/postfit.py`. Add imports they reference: `from pathlib import Path`, `from typing import Any`, **`from xpcsjax.cli.plot_backend import _PLOT_DISPATCH_CALL_COUNTER, _current_run_id, should_use_datashader`** (`_generate_post_fit_plots` calls `should_use_datashader` at L427; both functions call `_current_run_id()` at L498,522,542 — omitting either raises `NameError`), `from xpcsjax.service.plots import generate_plots` (currently `plot_dispatch.py:420`), logging utils, and `ConfigManager` `TYPE_CHECKING`. Note: the `_evaluate_c2_per_angle` import from `xpcsjax.viz.nlsq_plots` is a **function-local** import inside `_save_fit_comparison_only` (currently `plot_dispatch.py:494`) — it moves *verbatim with the function body* (do not hoist it to module top; keeping it local preserves the string-path monkeypatch `"xpcsjax.viz.nlsq_plots._evaluate_c2_per_angle"` used by the test, and is why postfit transitively uses JAX by design). Keep docstrings.
+Cut `_generate_post_fit_plots` (L412-…) and `_save_fit_comparison_only` (L432-…) into `xpcsjax/cli/plot_families/postfit.py`. Add imports they reference: `from pathlib import Path`, `from typing import Any`, **`from xpcsjax.cli.plot_backend import _PLOT_DISPATCH_CALL_COUNTER, _current_run_id, should_use_datashader`** (`_generate_post_fit_plots` calls `should_use_datashader` at L427; both functions call `_current_run_id()` at L498,522,542 — omitting either raises `NameError`), `from xpcsjax.service.plots import generate_plots` (currently `plot_dispatch.py:420`), `import logging` (**stdlib**, for `logging.WARNING` at L461/501/525/545), the `xpcsjax.utils.logging` utils, and under `TYPE_CHECKING` both `ConfigManager` and `OptimizationResult` (from `xpcsjax.optimization.nlsq.results`, used in the `result:` parameter annotation). Run `ruff`+`mypy` on the new file after the move and add/drop imports until clean. Note: the `_evaluate_c2_per_angle` import from `xpcsjax.viz.nlsq_plots` is a **function-local** import inside `_save_fit_comparison_only` (currently `plot_dispatch.py:494`) — it moves *verbatim with the function body* (do not hoist it to module top; keeping it local preserves the string-path monkeypatch `"xpcsjax.viz.nlsq_plots._evaluate_c2_per_angle"` used by the test, and is why postfit transitively uses JAX by design). Keep docstrings.
 
 - [ ] **Step 2: Rewire `plot_dispatch.py`**
 
@@ -277,7 +277,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Modify: `xpcsjax/cli/plot_dispatch.py` (`__all__`, import sweep, confirm thinness)
 
 **Interfaces:**
-- Produces: `dispatch_plots(...)` (signature unchanged) — the only public symbol.
+- Produces: `dispatch_plots(...)` (signature unchanged) — the primary public entry point; `resolve_plots_dir`, `resolve_phi_angles_for_sim`, `should_use_datashader` remain public **re-exports** via the unchanged `__all__`.
 
 - [ ] **Step 1: Sweep imports and update `__all__`**
 
@@ -323,7 +323,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Move template logic verbatim into `config_template.py`**
 
-Cut `_MODE_TO_TEMPLATE` (L43), `_VALID_MODES` (L50, `= tuple(_MODE_TO_TEMPLATE.keys())`), `get_template_path` (L53), `generate_config` (L90), `show_template` (L197), `validate_config` (L217), `_prompt` (L276), `interactive_builder` (L322) from `config_generator.py` into a new `xpcsjax/cli/config_template.py`. Add the imports they reference (e.g. `from pathlib import Path`, `from typing import Any`, `from xpcsjax.config import ConfigManager`, yaml, logging). Keep docstrings.
+Cut `_MODE_TO_TEMPLATE` (L43), `_VALID_MODES` (L50, `= tuple(_MODE_TO_TEMPLATE.keys())`), `get_template_path` (L53), `generate_config` (L90), `show_template` (L197), `validate_config` (L217), `_prompt` (L276), `interactive_builder` (L322) from `config_generator.py` into a new `xpcsjax/cli/config_template.py`. Add the imports they reference: `import sys` (`show_template` writes via `sys.stdout.write`, `config_generator.py:214`), `from importlib.resources import files` (`get_template_path` calls `files("xpcsjax.config")`, `config_generator.py:82`), `from pathlib import Path`, `from typing import Any`, `from xpcsjax.config import ConfigManager` (used by `validate_config`; stays JAX-free), plus yaml/logging as referenced. Run `ruff`+`mypy` on the new file until clean. Keep docstrings.
 
 - [ ] **Step 2: Make `config_generator.py` a facade**
 
@@ -398,37 +398,46 @@ from xpcsjax.cli import config_handling
 
 
 def test_load_failure_names_the_file(tmp_path):
-    bad = tmp_path / "missing.yaml"
-    # Real signature is load_and_merge_config(yaml_path, cli_args) — a missing
-    # config must fail with the path named in the message (type is NOT contracted;
-    # no existing test pins FileNotFoundError on this entry).
+    # Signatures (verified): load_and_merge_config(yaml_path, cli_args);
+    # ConfigManager(str(yaml_path)) raises on a bad file. The wrap must name the
+    # path for load errors that don't already (e.g. malformed YAML). Type is NOT
+    # contracted (no existing test pins it).
+    bad = tmp_path / "broken.yaml"
+    bad.write_text("not: [valid: yaml", encoding="utf-8")  # malformed
     with pytest.raises(Exception) as exc:
         config_handling.load_and_merge_config(bad, argparse.Namespace())
     assert str(bad) in str(exc.value)  # error names which config failed
 
 
 def test_normalize_gate_tolerates_object_without_method():
+    # apply_cli_overrides(config_manager, args) reads config_manager.config and,
+    # when args.mode is set, calls config_manager._normalize_analysis_mode().
+    # A config-manager-shaped double WITHOUT that method must not crash the
+    # override (the defensive gate, formerly `except AttributeError: pass`).
     class _NoNormalize:
-        pass
+        config = {"analysis_mode": "static_anisotropic"}
 
-    # apply_cli_overrides must not crash when the config-manager-shaped object
-    # lacks _normalize_analysis_mode (defensive gate, was `except AttributeError`).
-    # Build the minimal args/config the function needs; assert no exception.
-    # (Fill args/config per apply_cli_overrides' real signature.)
+    config_handling.apply_cli_overrides(
+        _NoNormalize(), argparse.Namespace(mode="static_isotropic", output=None)
+    )  # no exception == gate works
 
 
-def test_non_dict_output_block_is_logged(caplog, tmp_path):
-    # When config['output'] is not a dict, the reset is logged (not silent).
+def test_non_dict_output_block_is_logged(caplog):
+    # When config['output'] is not a mapping, the reset must be logged (not silent).
+    class _BadConfig:
+        config = {"output": "not_a_dict"}
+
     with caplog.at_level(logging.WARNING):
-        ...  # invoke the override path with output set to a string
+        config_handling.apply_cli_overrides(
+            _BadConfig(), argparse.Namespace(mode=None, output="/tmp/out")
+        )
     assert any("output" in r.message for r in caplog.records)
 ```
-Adjust the three test bodies to the real function signatures (`load_and_merge_config`, `apply_cli_overrides`) — read `config_handling.py` for the exact params. Each test pins one hardening behavior.
 
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `uv run pytest tests/cli/test_config_handling_errors.py -q`
-Expected: FAIL (load error lacks file context; non-dict reset is silent).
+Expected: `test_non_dict_output_block_is_logged` FAILS (the reset is currently silent — no warning). `test_normalize_gate_tolerates_object_without_method` already passes (the current `try/except AttributeError` tolerates the missing method — the Step 4 getattr rewrite keeps it green; it's a guard against regressing that). `test_load_failure_names_the_file` FAILS iff `ConfigManager` does not already name the file on a YAML parse error — if it passes pre-fix, that is acceptable (it documents the contract; the Step 3 wrap guarantees it). The genuine RED→GREEN driver is the non-dict-output test.
 
 - [ ] **Step 3: Harden L108 (load failure context)**
 
@@ -530,9 +539,37 @@ Expected: both `True`.
 
 **Type consistency:** moved functions keep verbatim signatures (listed once in the symbol→destination table and per-task Interfaces); `_PLOT_DISPATCH_CALL_COUNTER` single home (plot_backend) referenced consistently; facade re-export names match between Task 6's `config_template` Produces and `config_generator` re-export list.
 
-**Known judgment call:** Task 3 Step 5 records (not asserts) whether importing `plot_dispatch` pulls JAX — pre-refactor it did (the function was in-file), so matching that is acceptable; the isolation goal is about the *direct* import living in `simulated.py`, not about making `plot_dispatch` import-time JAX-free.
+**JAX-free invariant (verified):** importing `plot_dispatch` today loads neither `jax` nor `matplotlib` (the `import jax.numpy` is function-local in `_evaluate_model_c2`). Task 3 Step 5 **strictly asserts** this stays `False` post-refactor; the Global Constraint forbids hoisting JAX/matplotlib imports to module top in the family modules, which is what preserves it. (An earlier draft wrongly called an eager import "acceptable" — corrected.)
 
-## Review & validation (2026-06-21)
+## Review & validation (2026-06-21, round 2)
+
+Second plan-review pass by **codex**, **agy**, and **Claude** (all three completed;
+codex run with stdin `< /dev/null`; codex also ran the named CLI tests → 27 passed).
+They re-confirmed the round-1 cross-module-import fixes and the `__all__`/`_VALID_MODES`
+decisions are correct. Round-2 fixes applied (each verified against code):
+
+- **MAJOR (codex):** per-task ruff gate would fail — Task 1 deferred pruning but
+  runs `ruff check`; moving the counter/`_current_run_id` orphans `itertools` +
+  `_LOG_CONTEXT`. Now: **prune per task** before the gate.
+- **MAJOR (codex):** importing `plot_dispatch` is JAX/matplotlib-free **today**
+  (verified). Task 3 Step 5 is now a **strict** `jax: False` regression gate (was
+  "record it / acceptable"); self-review note corrected.
+- **MAJOR (agy):** family modules' import lists omitted stdlib imports the moved
+  functions use — added `numpy`/`logging` (experimental, simulated), `logging` +
+  `OptimizationResult` typing (postfit), `sys` + `importlib.resources.files`
+  (config_template); plus a "verify with ruff F821/mypy, don't rely on the list"
+  procedure.
+- **MINOR (codex):** Task 5 "only public symbol" wording fixed (re-exports stay).
+- **MINOR (Claude/agy):** Task 7 test bodies fleshed out against the verified
+  `apply_cli_overrides(config_manager, args)` signature; Step 2 RED expectation
+  corrected (the non-dict-output test is the genuine driver; the missing-file case
+  is already named by `ConfigManager`).
+
+Optional follow-up (NIT, pre-existing, out of scope): `service/config.py:24-25`
+comment claims importing `config_generator` pulls JAX — `ConfigManager` is
+JAX-free, so the comment is already stale independent of this refactor.
+
+## Review & validation (2026-06-21, round 1)
 
 Reviewed by **agy** and a **Claude** agent (both completed, converging); **codex**
 failed this round (hung on stdin, produced no findings). Every fix-driving fact
