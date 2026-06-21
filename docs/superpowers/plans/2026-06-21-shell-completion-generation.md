@@ -142,6 +142,10 @@ def build_parser() -> argparse.ArgumentParser:
     return _build_parser()
 ```
 
+Also add `"build_parser"` to `config_generator.py`'s existing `__all__` (it
+currently lists only the other public names) — otherwise the new alias is
+importable but not advertised, and a `ruff`/consistency check may flag it.
+
 - [ ] **Step 4: Extract `build_parser()` in the four inline modules**
 
 For each of `xpcsjax/cli/xla_config.py`, `xpcsjax/post_install.py`,
@@ -220,17 +224,21 @@ Append to `tests/cli/test_build_parser_factories.py`:
 
 ```python
 def test_gui_build_parser_import_light():
+    # Run in a CLEAN subprocess: other tests in the same pytest process may have
+    # already imported PySide6 (and popping "PySide6" does not clear its
+    # submodules), so an in-process sys.modules check is flaky. A fresh
+    # interpreter is the only reliable assertion.
+    import subprocess
     import sys
 
-    sys.modules.pop("PySide6", None)
-    from xpcsjax.gui import app
-
-    parser = app.build_parser()
-    import argparse
-
-    assert isinstance(parser, argparse.ArgumentParser)
-    # Importing the GUI module must NOT pull in PySide6.
-    assert "PySide6" not in sys.modules
+    code = (
+        "import argparse, sys\n"
+        "from xpcsjax.gui import app\n"
+        "assert isinstance(app.build_parser(), argparse.ArgumentParser)\n"
+        "assert 'PySide6' not in sys.modules, sorted(m for m in sys.modules if 'PySide6' in m)\n"
+    )
+    res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert res.returncode == 0, res.stderr
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -260,7 +268,9 @@ def _parse_cli_args(argv: list[str]) -> list[str]:
     # ... existing parse_known_args / passthrough logic, unchanged ...
 ```
 
-Keep `import argparse` at module top (stdlib, import-light). Do not move any Qt import.
+**Add** `import argparse` at module top (currently it is imported *inside*
+`_parse_cli_args`; the module-level `build_parser()` needs it at top). `argparse`
+is stdlib, so this keeps `app.py` import-light. Do not add or move any Qt import.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -559,7 +569,10 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
-from xpcsjax.runtime.shell.completion_spec import COMMAND_SPECS, CommandSpec, Hint
+# Task 4 uses ONLY Hint. COMMAND_SPECS / CommandSpec are imported in Task 5 when
+# the emitters that use them are added — importing them now would trip ruff F401
+# (unused import) and fail this task's own lint step.
+from xpcsjax.runtime.shell.completion_spec import Hint
 
 
 @dataclass(frozen=True)
@@ -587,7 +600,7 @@ def classify_option(action: argparse.Action, hints: dict[str, Hint]) -> Completi
     flag = action.option_strings[0] if action.option_strings else ""
     hint = _lookup_hint(action.option_strings, hints)
     if hint is not None:
-        if isinstance(hint, tuple):
+        if isinstance(hint, (tuple, list)):  # literal word list
             return Completion(kind="words", payload=" ".join(hint))
         if hint in {"configfile", "file", "dir", "threads"}:
             return Completion(kind=hint)
@@ -650,14 +663,35 @@ Create `tests/cli/test_completion_parity.py`:
 ```python
 import shutil
 import subprocess
+import sys
 
 import pytest
 
-from xpcsjax.runtime.shell.generate_completion import COMPLETION_SH_PATH, generate
+from xpcsjax.runtime.shell.generate_completion import COMPLETION_SH_PATH
 
 
-def test_committed_completion_matches_generator():
-    generated = generate()
+def _generate_via_subprocess() -> str:
+    """Run generate() in a CLEAN interpreter (spec hermeticity).
+
+    Keeps any import-time side effects of the parser modules out of the pytest
+    process, and matches exactly what `python -m ...generate_completion` writes.
+    """
+    code = (
+        "import sys\n"
+        "from xpcsjax.runtime.shell.generate_completion import generate\n"
+        "sys.stdout.write(generate())\n"
+    )
+    res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert res.returncode == 0, res.stderr
+    return res.stdout
+
+
+@pytest.fixture(scope="module")
+def generated() -> str:
+    return _generate_via_subprocess()
+
+
+def test_committed_completion_matches_generator(generated: str):
     committed = COMPLETION_SH_PATH.read_text(encoding="utf-8")
     if generated != committed:
         import difflib
@@ -679,22 +713,28 @@ def test_generated_script_is_valid_bash():
     assert r.returncode == 0, r.stderr
 
 
-def test_three_drift_defects_resolved():
-    text = generate()
+def test_three_drift_defects_resolved(generated: str):
     # Phantom flags gone:
-    assert "--initial-contrast" not in text
-    assert "--initial-offset" not in text
+    assert "--initial-contrast" not in generated
+    assert "--initial-offset" not in generated
     # Previously-missing flags present:
-    assert "--initial-beta" in text
-    assert "--no-multistart" in text
+    assert "--initial-beta" in generated
+    assert "--no-multistart" in generated
 
 
-def test_config_data_is_file_completed_and_validate_is_not():
-    text = generate()
-    # --data gets _filedir (file hint); --validate is a flag (store_true), so it
-    # must not appear in a `--validate)` value-completion case arm.
-    assert "--data|-d" in text or "--data)" in text
-    assert "--validate)" not in text
+def test_config_data_is_file_completed(generated: str):
+    # --data/-d carries a `file` hint -> a value case arm with _filedir.
+    assert "--data|-d)" in generated
+
+
+def test_config_validate_is_flag_not_file(generated: str):
+    # --validate/-V is store_true: it must appear in the option list but NEVER as
+    # a value-completion case arm (today's hand-written completion file-completes
+    # it — the bug this fixes). Check all arm spellings.
+    assert "--validate" in generated and "-V" in generated  # present as options
+    assert "--validate)" not in generated
+    assert "--validate|-V)" not in generated
+    assert "-V)" not in generated
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -704,7 +744,14 @@ Expected: FAIL — `ImportError: cannot import name 'generate'` (and `COMPLETION
 
 - [ ] **Step 3: Implement the emitters + `generate()`**
 
-Append to `xpcsjax/runtime/shell/generate_completion.py`:
+First extend the import at the top of `generate_completion.py` to add the two
+names deferred from Task 4 (now used by the emitters):
+
+```python
+from xpcsjax.runtime.shell.completion_spec import COMMAND_SPECS, CommandSpec, Hint
+```
+
+Then append to `xpcsjax/runtime/shell/generate_completion.py`:
 
 ```python
 COMPLETION_SH_PATH = Path(__file__).with_name("completion.sh")
@@ -791,10 +838,11 @@ def _value_completion_bash(comp: Completion) -> str:
     if comp.kind == "words" or comp.kind == "choices":
         return f'mapfile -t COMPREPLY < <(compgen -W "{comp.payload}" -- "${{cur}}")'
     if comp.kind == "threads":
+        # Un-indented lines; _emit_function indents continuation lines to 12.
         return (
             "local cpu_count\n"
-            "        cpu_count=$(nproc 2>/dev/null || echo 4)\n"
-            '        mapfile -t COMPREPLY < <(compgen -W "1 2 4 8 ${cpu_count}" -- "${cur}")'
+            "cpu_count=$(nproc 2>/dev/null || echo 4)\n"
+            'mapfile -t COMPREPLY < <(compgen -W "1 2 4 8 ${cpu_count}" -- "${cur}")'
         )
     return ""  # kind == "none": no value hint
 
@@ -812,7 +860,11 @@ def _emit_function(spec: CommandSpec) -> str:
         if comp is None or comp.kind == "none":
             continue
         pattern = "|".join(action.option_strings)
-        body = _value_completion_bash(comp)
+        # Indent continuation lines to 12 spaces. The "threads" body is
+        # multi-line; the f-string only indents its first line, so join the
+        # remaining lines with newline+12-spaces. (Single-line bodies are
+        # unaffected — splitlines() yields one element.)
+        body = "\n            ".join(_value_completion_bash(comp).splitlines())
         arms.append(f"        {pattern})\n            {body}\n            return\n            ;;")
 
     case_block = ""
@@ -876,6 +928,16 @@ Expected: `wrote .../completion.sh`. Inspect the diff: `git diff -- xpcsjax/runt
 Run: `uv run pytest tests/cli/test_completion_parity.py -q`
 Expected: PASS (committed file now equals generator output; `bash -n` clean; defects resolved).
 
+- [ ] **Step 5b: Prove the gate catches drift (negative test)**
+
+Temporarily add a throwaway option to a parser to confirm the parity gate fails:
+
+Run: append `parser.add_argument("--zzz-drift-probe", action="store_true")` just before `return parser` in `xpcsjax/cli/args_parser.py::create_parser`, then:
+`uv run pytest tests/cli/test_completion_parity.py::test_committed_completion_matches_generator -q`
+Expected: FAIL with the "completion.sh is stale — run `make completion`" message and a diff showing `--zzz-drift-probe`.
+Then **revert** the throwaway line (`git checkout -- xpcsjax/cli/args_parser.py`) and re-run the test:
+Expected: PASS. Do not commit the probe.
+
 - [ ] **Step 6: Lint + type-check**
 
 Run: `uv run ruff check xpcsjax/runtime/shell/generate_completion.py tests/cli/test_completion_parity.py`
@@ -905,53 +967,104 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: nothing new.
-- Produces: `install_shell_completion(...)` no longer installs a fish *completion* file; fish XLA activation paths unchanged.
+- Produces: fish requests are a **non-fatal no-op** on both completion paths
+  (`install_shell_completion`, `install_completion_activation` return `True`
+  without writing files); fish XLA activation paths unchanged.
 
-- [ ] **Step 1: Identify the fish completion vs fish XLA references**
+**Verified facts (post_install.py):** `install_shell_completion` (L390) and
+`install_completion_activation` (L435) both early-`return False` *outside a venv*
+(L411/L459) regardless of shell. `install_completion_activation` routes fish →
+`_install_completion_fish_activation` (L470). `main()` (L1044-1048) sets
+`success=False` and exits 1 if either returns falsy. So fish completion must
+return **`True`** (non-fatal), and the dispatcher branch + the dedicated fish
+helpers must be neutralized together. Fish XLA lives in separate functions
+(`_install_xla_fish_activation`, `XLA_CONFIG_FISH`, `get_xla_config_source_path`)
+— do not touch them.
 
-Run: `grep -n "fish" xpcsjax/post_install.py`
-Classify each hit as **completion** (e.g. `install_fish_completion`, `_install_completion_fish_activation`, completion-path dispatch) or **XLA** (`_install_xla_fish_activation`, `XLA_CONFIG_FISH`, `get_xla_config_source_path("fish")`). Only completion hits are in scope.
+Existing tests that will break (must be updated/removed, all in
+`tests/cli/test_post_install.py`): `test_install_fish_completion` (L190),
+the `("fish", …)` row of `test_install_shell_completion_routes` (L202/206),
+`test_completion_fish_activation_injection` (L237),
+the `install_completion_activation("fish") is True` assertion in
+`test_install_completion_activation_routes` (L256).
 
-- [ ] **Step 2: Write/adjust the failing test**
+- [ ] **Step 1: Write the failing test (venv-monkeypatched)**
 
-In `tests/cli/test_post_install.py`, add a test asserting fish completion is not installed while fish XLA still is:
+In `tests/cli/test_post_install.py`, add a test that fish completion is a
+non-fatal no-op while fish XLA stays. It MUST simulate a venv (the existing
+`fake_venv` fixture + monkeypatching `is_virtual_environment`/`get_venv_path`),
+otherwise the early out-of-venv `return False` makes the test pass for the wrong
+reason. Mirror the venv setup the other route tests use (see L206-212).
 
 ```python
-def test_fish_gets_no_completion_but_keeps_xla(tmp_path, monkeypatch):
-    import xpcsjax.post_install as pi
+def test_fish_completion_is_nonfatal_noop_but_xla_stays(fake_venv, monkeypatch):
+    monkeypatch.setattr(pi, "is_virtual_environment", lambda: True)
+    monkeypatch.setattr(pi, "get_venv_path", lambda: fake_venv)
 
-    # install_shell_completion for fish should be a no-op / unsupported now.
-    result = pi.install_shell_completion("fish", verbose=False)
-    assert result is False or result is None  # completion not installed for fish
-    # XLA activation for fish remains available.
+    # Fish completion is unsupported but MUST NOT fail (non-fatal no-op).
+    assert pi.install_shell_completion("fish", verbose=True) is True
+    assert pi.install_completion_activation("fish", verbose=True) is True
+    # No fish completion artifacts were written.
+    assert not (fake_venv / "share" / "fish" / "vendor_completions.d" / "xpcsjax.fish").exists()
+    # Fish XLA support is untouched.
     assert pi.get_xla_config_source_path("fish").name == "xla_config.fish"
+
+
+def test_main_fish_xla_only_succeeds(monkeypatch, fake_venv, capsys):
+    monkeypatch.setattr(pi, "is_virtual_environment", lambda: True)
+    monkeypatch.setattr(pi, "get_venv_path", lambda: fake_venv)
+    # post-install on fish (completion skipped, XLA applied) must exit 0.
+    rc = pi.main(["--shell", "fish", "--xla-mode", "nlsq"])
+    assert rc == 0
 ```
 
-Adjust any existing test that asserts fish *completion* is installed (search for `install_fish_completion` / fish completion assertions) to expect it removed. Leave fish XLA tests intact.
+- [ ] **Step 2: Run test to verify it fails**
 
-- [ ] **Step 3: Run test to verify it fails**
+Run: `uv run pytest tests/cli/test_post_install.py -q -k "fish_completion_is_nonfatal or fish_xla_only"`
+Expected: FAIL — current fish completion writes files / returns the old value, and `main()` may exit 1.
 
-Run: `uv run pytest tests/cli/test_post_install.py -q -k fish`
-Expected: FAIL (current code still installs fish completion).
+- [ ] **Step 3: Neutralize fish on both completion paths (non-fatal)**
 
-- [ ] **Step 4: Remove fish from the completion path**
+In `install_shell_completion()`: replace the fish branch with a non-fatal skip:
 
-In `install_shell_completion()` (and its dispatch), drop the `fish` branch so
-fish requests skip completion installation (return `False` with a one-line
-log: "shell completion not provided for fish; bash/zsh only"). Delete
-`install_fish_completion` / `_install_completion_fish_activation` if they are
-solely for completion. Do NOT touch `_install_xla_fish_activation`,
+```python
+    if shell == "fish":
+        if verbose:
+            print("Shell completion is not provided for fish (bash/zsh only); skipping.")
+        return True
+```
+
+In `install_completion_activation()`: replace the fish branch (currently
+`return _install_completion_fish_activation(venv_path, verbose)`, L470) with the
+same non-fatal skip:
+
+```python
+    if shell == "fish":
+        return True
+```
+
+Delete the now-unreferenced completion-only helpers `install_fish_completion`
+and `_install_completion_fish_activation`. Do NOT touch `_install_xla_fish_activation`,
 `XLA_CONFIG_FISH`, `get_xla_config_source_path`, or `detect_shell_type`.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [ ] **Step 4: Update the four breaking existing tests**
 
-Run: `uv run pytest tests/cli/test_post_install.py -q`
-Expected: PASS.
+In `tests/cli/test_post_install.py`: delete `test_install_fish_completion`
+(L190) and `test_completion_fish_activation_injection` (L237); remove the
+`("fish", "share/fish/vendor_completions.d/xpcsjax.fish")` row from
+`test_install_shell_completion_routes`'s parametrization (L202); change the
+fish assertion in `test_install_completion_activation_routes` (L256) to expect
+the new non-fatal no-op (returns `True`, writes nothing to `activate.fish`).
+
+- [ ] **Step 5: Run the post-install suite**
+
+Run: `uv run pytest tests/cli/test_post_install.py tests/cli/test_post_install_fish.py -q`
+Expected: PASS (fish XLA suite stays green; completion fish tests updated).
 
 - [ ] **Step 6: Confirm completion.sh is unaffected**
 
 Run: `uv run python -m xpcsjax.runtime.shell.generate_completion && git diff --exit-code -- xpcsjax/runtime/shell/completion.sh`
-Expected: exit 0 (no change — `--shell` keeps `choices=["bash","zsh","fish"]`, so completion output is identical). If it changed, investigate before proceeding.
+Expected: exit 0 (no change — `--shell` keeps `choices=["bash","zsh","fish"]`, so the generated `_xpcsjax_post_install` block is identical). If it changed, investigate before proceeding.
 
 - [ ] **Step 7: Lint + commit**
 
@@ -959,7 +1072,7 @@ Run: `uv run ruff check xpcsjax/post_install.py tests/cli/test_post_install.py`
 
 ```bash
 git add xpcsjax/post_install.py tests/cli/test_post_install.py
-git commit -m "refactor(post-install): drop fish completion install (keep fish XLA)
+git commit -m "refactor(post-install): fish completion is a non-fatal no-op (keep fish XLA)
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
@@ -976,15 +1089,18 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Add the make target**
 
-In `Makefile`, add (match the existing `uv`-detection idiom used by other targets):
+In `Makefile`, add (the real Makefile defines `RUN_CMD := uv run` at L97 and
+`PYTHON := python` at L19, used together as `$(RUN_CMD) $(PYTHON)` — there is NO
+`UVRUN` variable):
 
 ```makefile
 .PHONY: completion
 completion:  ## Regenerate the shell completion script from the CLI parsers
-	$(UVRUN) python -m xpcsjax.runtime.shell.generate_completion
+	$(RUN_CMD) $(PYTHON) -m xpcsjax.runtime.shell.generate_completion
 ```
 
-(Use whatever variable the Makefile already uses for `uv run`, e.g. `$(UVRUN)` / `uv run`. Match the surrounding style.)
+Place it near the other developer-tooling targets and match the surrounding
+tab-indentation (Makefiles require a real tab, not spaces).
 
 - [ ] **Step 2: Verify the target works and is idempotent**
 
@@ -1030,3 +1146,37 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 **Type consistency:** `build_parser` name uniform across Tasks 1–3; `Hint`/`CommandSpec`/`COMMAND_SPECS` defined in Task 3 and consumed unchanged in Tasks 4–5; `Completion(kind, payload)` and `classify_option(action, hints)` defined in Task 4 and used consistently in Task 5; `COMPLETION_SH_PATH`/`generate()` defined in Task 5 and used by its tests.
 
 **Known judgment calls flagged for the implementer:** (a) the historical bare-word config-discovery in `_xpcsjax` is intentionally dropped (Task 5 note) — if byte-parity reveals it's wanted, add it to the emitter and regenerate; (b) Task 6 must classify each `post_install` fish reference as completion vs XLA before deleting — only completion is in scope.
+
+## Review & validation (2026-06-21)
+
+Reviewed by **codex**, **agy**, and a **Claude** agent (three independent passes,
+all completed; agy ran clean once given absolute paths + a no-filesystem-search
+guard). Fixes applied to this plan, each verified against the real code:
+
+- **BLOCKER (codex):** Task 4's classifier file imported `COMMAND_SPECS`/`CommandSpec`
+  (used only in Task 5) → ruff F401 would fail Task 4. Now imports only `Hint`;
+  Task 5 adds the rest.
+- **MAJOR (all):** fish completion returning `False` made `post_install.main()`
+  exit 1 even when fish XLA succeeds. Fish completion is now a **non-fatal no-op**
+  (returns `True`); both completion dispatchers handled; the second dispatcher
+  (`install_completion_activation` fish branch → `_install_completion_fish_activation`)
+  is fixed alongside helper deletion.
+- **MAJOR (codex/claude):** Task 6 fish test would have passed for the wrong
+  reason (out-of-venv early `return False`); it now monkeypatches venv state, and
+  the four breaking existing tests are named explicitly.
+- **MAJOR (all):** Makefile uses `$(RUN_CMD) $(PYTHON)`, not the nonexistent
+  `$(UVRUN)`.
+- **MAJOR (agy):** `threads` multi-line case-arm body is now correctly indented
+  (continuation lines joined at 12 spaces).
+- **MAJOR (codex/agy):** parity + import-light tests now run the generator in a
+  clean **subprocess** (spec hermeticity; avoids any parser-module import side
+  effects in the pytest process).
+- **MINOR:** list-or-tuple hint accepted; `--validate`/`-V` regression assertion
+  strengthened; explicit `config_generator.__all__ += build_parser`; Task 2 now
+  *adds* `import argparse` at module top (it was function-local); added a Step 5b
+  proving the parity gate fails on drift.
+
+All three reviewers confirmed the core architecture sound and the parser facts
+correct (`nargs == 0` flag rule, `type is Path` identity, `--data/-d` str-path,
+`--validate/-V`, free-form `--xla-mode`, `--shell` fish choices, deterministic
+`generate()`, import-light `gui/app`).
