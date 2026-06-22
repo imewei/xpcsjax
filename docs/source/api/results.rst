@@ -56,7 +56,7 @@ The homodyne path of :func:`xpcsjax.optimization.nlsq.fit_nlsq` returns a single
      - Diagnostic trail of any fallback paths taken (e.g. CMA-ES escape).
    * - ``quality_flag``
      - ``str``
-     - One of ``'good'``, ``'warn'``, ``'bad'`` — set by the result builder.
+     - One of ``'good'``, ``'marginal'``, ``'poor'``, ``'unknown'`` — set by the result builder.
    * - ``streaming_diagnostics``
      - ``dict[str, Any] | None``
      - Per-shard metadata when the HYBRID_STREAMING strategy was used.

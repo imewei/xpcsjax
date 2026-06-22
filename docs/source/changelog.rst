@@ -83,8 +83,8 @@ validation (CPU, RAM, JAX, dependency, template/public-API integrity checks —
 NLSQ-only, no Bayesian probes) and the bash/zsh completion (fish is a non-fatal
 no-op) and bash/zsh/fish XLA activation assets.
 
-**Breaking change — ``analysis_mode`` taxonomy.** The bare value
-``analysis_mode: static`` is no longer accepted. It was ambiguous
+**Deprecation — ``analysis_mode`` taxonomy.** The bare value
+``analysis_mode: static`` is deprecated. It was ambiguous
 between ``static_isotropic`` (angle-collapsed) and ``static_anisotropic``
 (angle-resolved) and silently collapsed downstream. The canonical set
 is now exactly four modes:
@@ -95,10 +95,12 @@ is now exactly four modes:
 * ``two_component`` (with ``heterodyne`` accepted as a case-insensitive
   synonym, normalised to ``two_component`` at config load time)
 
-Old configs using ``analysis_mode: static`` must be migrated. The
-recommended drop-in default is ``static_anisotropic`` (preserves
-angular resolution). See :doc:`/user_guide/analysis_modes` for the
-full description of each mode and the data-preparation distinction.
+Configs using ``analysis_mode: static`` are still accepted: the loader
+rewrites the value to ``static_anisotropic`` (preserves angular
+resolution) and emits a deprecation warning. Migrate to one of the
+canonical modes to silence it. See :doc:`/user_guide/analysis_modes`
+for the full description of each mode and the data-preparation
+distinction.
 
 **Internal dead-code cleanup.** Removed code that was unreachable, superseded,
 or never wired into the NLSQ pipeline — the unused ``xpcsjax.core.theory``

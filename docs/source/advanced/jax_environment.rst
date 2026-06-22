@@ -41,21 +41,27 @@ XLA_FLAGS
 
 .. code-block:: python
 
+    # device_count is computed at import time (see below).
     os.environ["XLA_FLAGS"] = (
-        "--xla_force_host_platform_device_count=4 "
+        f"--xla_force_host_platform_device_count={device_count} "
         "--xla_disable_hlo_passes=constant_folding"
     )
 
 Two flags, each with a specific motivation.
 
-``--xla_force_host_platform_device_count=4``
-    Forces XLA to expose four logical CPU devices regardless of the
+``--xla_force_host_platform_device_count=<N>``
+    Forces XLA to expose ``N`` logical CPU devices regardless of the
     physical core count. xpcsjax uses this for parallel-path
     decisions inside the multistart and parallel-accumulator code:
     when the strategy is ``OUT_OF_CORE`` (see
     :doc:`memory_routing`), J^T J accumulation can vmap across the
-    four virtual devices. Setting this to less than four disables
-    that parallelism.
+    virtual devices. **The count is concurrency-aware**: a lone fit
+    gets ``4``, but when more than one fit runs concurrently the count
+    drops to ``1`` per process so that ``N`` workers do not force
+    ``4*N`` logical devices contending for the physical cores.
+    Concurrency is detected from ``XPCSJAX_FIT_CONCURRENCY`` (or
+    ``PYTEST_XDIST_WORKER_COUNT``) by ``_detect_worker_count`` /
+    ``_xla_host_device_count`` in :mod:`xpcsjax`.
 
 ``--xla_disable_hlo_passes=constant_folding``
     Disables XLA's constant-folding HLO pass. On the

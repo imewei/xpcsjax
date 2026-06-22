@@ -22,13 +22,14 @@ Two homodyne modules were deliberately not ported. Don't flag their absence as p
 
 ### Public API is lazy-loaded via `__getattr__`
 
-`xpcsjax/__init__.py` does **not** import its public symbols at module top-level. Six names are registered in `_LAZY_EXPORTS` and resolved on first attribute access via a module-level `__getattr__`:
+`xpcsjax/__init__.py` does **not** import its public symbols at module top-level. Seven names are registered in `_LAZY_EXPORTS` and resolved on first attribute access via a module-level `__getattr__`:
 
 ```python
 _LAZY_EXPORTS = {
     "load_xpcs_data":     "xpcsjax.data",
     "fit_nlsq":           "xpcsjax.optimization.nlsq",
     "ConfigManager":      "xpcsjax.config",
+    "generate_nlsq_plots": "xpcsjax.viz",
     "HomodyneModel":      "xpcsjax.core",
     "HeterodyneModel":    "xpcsjax.core",          # public lazy export (Phase 6)
     "OptimizationResult": "xpcsjax.optimization.nlsq.results",
@@ -37,7 +38,7 @@ _LAZY_EXPORTS = {
 
 Adding a new public symbol means: (a) add it to `_LAZY_EXPORTS`, (b) add to literal `__all__`, (c) ensure the target submodule actually exposes the symbol (the runtime `assert` will catch (a)/(b) drift but not (c)). Pyright's `reportUnsupportedDunderAll` requires `__all__` to be a literal list, so don't generate it from `_LAZY_EXPORTS`.
 
-`xpcsjax.viz` is a separate lazy-loaded subpackage (not in the top-level `_LAZY_EXPORTS`). Import directly:
+`generate_nlsq_plots` is the one viz symbol re-exported at the top level (in `_LAZY_EXPORTS`). The rest of `xpcsjax.viz` is a separate lazy-loaded subpackage; import those directly:
 `from xpcsjax.viz import plot_nlsq_fit, plot_residual_map, plot_simulated_data, generate_nlsq_plots, compute_diagonal_overlay_stats, DiagonalOverlayResult`
 
 `xpcsjax/config/parameter_registry.py` is the single source of truth for parameter names, bounds, and physical constraints across all modes. When adding a new physics parameter, register it there first — `ConfigManager` and the NLSQ bounds builder both read from the registry.
@@ -46,7 +47,7 @@ Adding a new public symbol means: (a) add it to `_LAZY_EXPORTS`, (b) add to lite
 
 The module top sets:
 - `JAX_ENABLE_X64=1` (parameters span 6+ orders of magnitude — float32 is unsafe)
-- `XLA_FLAGS` including `--xla_force_host_platform_device_count=4` (parallel paths) and `--xla_disable_hlo_passes=constant_folding` (avoids > 1 s slow-compile warnings on HYBRID_STREAMING with 23M+ points)
+- `XLA_FLAGS` including `--xla_force_host_platform_device_count=<N>` (parallel paths; `N` is concurrency-aware — `4` for a lone fit, `1` under detected concurrency via `_detect_worker_count`/`_xla_host_device_count`, keyed on `XPCSJAX_FIT_CONCURRENCY`/`PYTEST_XDIST_WORKER_COUNT`) and `--xla_disable_hlo_passes=constant_folding` (avoids > 1 s slow-compile warnings on HYBRID_STREAMING with 23M+ points)
 - `NLSQ_SKIP_GPU_CHECK=1` (v0.1 is CPU-only; GPU support is v0.2+)
 
 If you need to add or amend these flags, do it **inside `xpcsjax/__init__.py` only** — adding env-mutation elsewhere will race the first JAX import.

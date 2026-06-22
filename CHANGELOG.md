@@ -94,8 +94,8 @@ the rendered documentation.
   `shear_weighting` is reported inactive for heterodyne by design (L5 is
   `laminar_flow`-only).
 
-- **Breaking — `analysis_mode` taxonomy.** The bare value
-  `analysis_mode: static` is no longer accepted. It was ambiguous between
+- **Deprecation — `analysis_mode` taxonomy.** The bare value
+  `analysis_mode: static` is deprecated. It was ambiguous between
   `static_isotropic` (angle-collapsed) and `static_anisotropic`
   (angle-resolved) and silently collapsed downstream. The canonical set
   is now exactly four modes:
@@ -105,10 +105,11 @@ the rendered documentation.
     - `two_component` (with `heterodyne` accepted as a case-insensitive
       synonym, normalised to `two_component` at config load time)
 
-  `ConfigManager._normalize_analysis_mode` now raises `ValueError` at
-  config-load time when it sees the legacy bare value, with an explicit
-  migration hint. The error message names `static_anisotropic` as the
-  recommended drop-in replacement (preserves angle resolution).
+  `ConfigManager._normalize_analysis_mode` still accepts the legacy bare
+  value but rewrites it to `static_anisotropic` (the drop-in replacement
+  that preserves angle resolution) and emits a deprecation warning at
+  config-load time. Migrate old configs to one of the canonical modes to
+  silence the warning.
 
   See `docs/source/user_guide/analysis_modes.rst` for the full mode
   reference and `docs/MIGRATION.md` for the migration table.

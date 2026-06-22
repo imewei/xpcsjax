@@ -174,7 +174,7 @@ What to do when convergence_status != 'converged'
    well above what your data quality justifies usually means the bound
    on one of the parameters is too tight.
 3. Re-run with multistart enabled
-   (``optimization.nlsq.multistart.n_starts: 8`` is a reasonable
+   (``optimization.nlsq.multi_start.n_starts: 8`` is a reasonable
    default). The LHS multistart fights initial-condition sensitivity,
    which is by far the most common cause of ``max_iter``.
 4. If multistart cannot rescue the fit, enable the CMA-ES escape. This

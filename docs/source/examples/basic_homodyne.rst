@@ -67,7 +67,7 @@ Running the fit
 ---------------
 
 The public entry points are lazily loaded; importing ``xpcsjax`` itself
-is cheap because JAX is not pulled in until one of the six exported
+is cheap because JAX is not pulled in until one of the seven exported
 names is first accessed.
 
 .. code-block:: python

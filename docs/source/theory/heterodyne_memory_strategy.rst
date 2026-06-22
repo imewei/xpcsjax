@@ -19,9 +19,9 @@ classifies the dataset into one of three memory tiers (``STANDARD``,
 
 1. **CMA-ES escape** — highest precedence; triggered when the anti-degeneracy
    controller raises the CMA-ES flag.
-2. **Multi-start** — LHS multistart when ``config.multistart.enabled``.
+2. **Multi-start** — LHS multistart when ``optimization.nlsq.multi_start.enable``.
 3. **Hybrid streaming** — when ``tier ∈ {LARGE, STREAMING}`` and
-   ``optimization.hybrid_streaming.enable = true``; this path is inherently
+   ``optimization.nlsq.hybrid_streaming.enable = true``; this path is inherently
    stratified by angle chunk.  The streaming path **optimizes** the per-angle
    scaling tail (contrast + offset) via the ``per_angle_mode`` dispatch
    (``anti_degeneracy_config.per_angle_mode``) and runs L1–L4 anti-degeneracy

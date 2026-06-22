@@ -6,9 +6,9 @@ Homodyne Model
 The homodyne model in xpcsjax describes a single scattering population whose
 intensity correlation function follows the Siegert relation
 :eq:`cf_siegert`. The class :class:`xpcsjax.core.HomodyneModel` provides
-four analysis modes selected by the ``mode`` argument:
+three analysis modes, selected by the ``analysis_mode`` key of the
+``config`` dict passed to the constructor:
 
-* ``static`` -- single-component quiescent sample,
 * ``static_isotropic`` -- static sample treated as :math:`\phi`-averaged,
 * ``static_anisotropic`` -- static sample with angle-resolved dynamics,
 * ``laminar_flow`` -- shear-flow geometry with gap integration.
@@ -73,20 +73,8 @@ relation reduces to
    \;+\; \beta(\phi)\,
          \exp\!\left(-q^2\,\mathcal{D}(t_1, t_2)\right).
 
-The three static sub-modes differ only in how they treat the
+The two static sub-modes differ only in how they treat the
 :math:`\phi`-dependence of the scaling parameters.
-
-``static`` mode
-~~~~~~~~~~~~~~~
-
-Treats the full set of azimuthal sectors as independent samples of one
-isotropic kernel. The kernel itself does not depend on :math:`\phi`; only the
-nuisance scaling parameters :math:`(\beta(\phi), c_\mathrm{offset}(\phi))`
-do. The physical parameter vector has three entries:
-
-.. math::
-
-   \theta_\mathrm{static} = (D_0, \alpha, D_\mathrm{offset}).
 
 ``static_isotropic`` mode
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -297,7 +285,15 @@ The class :class:`xpcsjax.core.HomodyneModel` exposes the kernel through
    from xpcsjax import HomodyneModel
    import jax.numpy as jnp
 
-   model = HomodyneModel(mode="laminar_flow", q=q, h=h_gap)
+   config = {
+       "analyzer_parameters": {
+           "temporal": {"dt": 0.05, "start_frame": 0, "end_frame": 1000},
+           "scattering": {"wavevector_q": q},
+           "geometry": {"stator_rotor_gap": h_gap},
+       },
+       "analysis_mode": "laminar_flow",
+   }
+   model = HomodyneModel(config)
 
    params = jnp.array([
        D0, alpha, D_offset,
@@ -319,7 +315,7 @@ The signature is
        params, phi_angles, contrast=0.5, offset=1.0
    ) -> jnp.ndarray  # shape (n_phi, n_time, n_time)
 
-For ``static``/``static_isotropic``/``static_anisotropic`` the ``params``
+For ``static_isotropic``/``static_anisotropic`` the ``params``
 vector is truncated to the 3-entry diffusion block. The ``contrast`` and
 ``offset`` arguments are scalars when the anti-degeneracy controller uses
 ``constant`` or ``averaged`` scaling, and per-angle arrays when it uses

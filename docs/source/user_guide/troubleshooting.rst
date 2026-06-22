@@ -110,7 +110,7 @@ Fix
    stage ``"anti_degeneracy"``. If the controller saw the NaN and
    replaced rows, it will say so; if not, the problem entered after
    the controller's hygiene pass.
-2. Re-run ``xpcsjax.data.validators.validate_xpcs_data`` against the loaded
+2. Re-run ``xpcsjax.data.validate_xpcs_data`` against the loaded
    data dictionary to confirm there are no NaNs in ``c2_exp``.
 3. Tighten the bounds. Diffusion coefficients spanning more than
    ~6 orders of magnitude in a single fit are unusual and worth
@@ -124,7 +124,7 @@ All-zeros or "flat" fit
 Symptom
 ~~~~~~~
 
-The fit converged, ``quality_flag`` is ``"good"`` or ``"warn"``, but
+The fit converged, ``quality_flag`` is ``"good"`` or ``"marginal"``, but
 the fitted parameters are uniformly the initial values (or very close
 to them) and the reduced :math:`\chi^2` is suspiciously high.
 
@@ -150,7 +150,7 @@ Fix
 
 * Widen the bounds on the offending parameters.
 * If the bounds genuinely should be tight, force a multistart with
-  ``optimization.nlsq.multistart.n_starts: 8``. If even multistart
+  ``optimization.nlsq.multi_start.n_starts: 8``. If even multistart
   cannot move the parameters, the data is not sensitive to them — a
   scientifically interesting result on its own.
 
@@ -161,7 +161,7 @@ Symptom
 ~~~~~~~
 
 The fit ran but did not satisfy the tolerance within the iteration
-budget. ``quality_flag`` is typically ``"warn"`` or ``"bad"``.
+budget. ``quality_flag`` is typically ``"marginal"`` or ``"poor"``.
 
 Cause
 ~~~~~

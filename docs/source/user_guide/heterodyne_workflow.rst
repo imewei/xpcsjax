@@ -30,14 +30,26 @@ The public-API surface is identical to homodyne:
    import xpcsjax
 
    data = xpcsjax.load_xpcs_data("heterodyne_config.yaml")
-   results = xpcsjax.fit_nlsq(data, "heterodyne_config.yaml")
+   result = xpcsjax.fit_nlsq(data, "heterodyne_config.yaml")
 
-   for i, r in enumerate(results):
-       phi = data["phi_angles_list"][i]
-       print(f"phi={phi:6.1f} deg  reduced chi2={r.reduced_chi_squared:.3f}")
+   print(f"joint reduced chi2={result.reduced_chi_squared:.3f}  "
+         f"status={result.convergence_status}")
 
-Note that ``results`` is now a list. The list order matches the order
-of ``phi_angles_list`` in the loaded data dictionary.
+As for homodyne, ``result`` is a single ``OptimizationResult`` for the
+joint multi-angle fit. The per-angle detail lives under
+``result.nlsq_diagnostics`` — read the per-stratum reduced
+:math:`\chi^2` with the helper in
+:mod:`xpcsjax.optimization.nlsq.heterodyne_views`:
+
+.. code-block:: python
+
+   from xpcsjax.optimization.nlsq.heterodyne_views import per_angle_chi2
+
+   for phi, c in zip(data["phi_angles_list"], per_angle_chi2(result)):
+       print(f"phi={phi:6.1f} deg  reduced chi2={c:.3f}")
+
+The per-angle order matches ``phi_angles_list`` in the loaded data
+dictionary.
 
 The two-component physics model
 -------------------------------
@@ -120,14 +132,13 @@ Single-angle fits
 If the dataset contains a single phi angle, the per-angle
 reparameterisation collapses to "constant contrast, constant offset",
 i.e. the two scaling parameters revert to ordinary unknowns. The fit
-proceeds as a sixteen-parameter problem at that one angle, and the
-returned list has length one:
+proceeds as a sixteen-parameter problem at that one angle and still
+returns a single ``OptimizationResult``:
 
 .. code-block:: python
 
-   results = xpcsjax.fit_nlsq(single_angle_data, "single_angle_config.yaml")
-   assert len(results) == 1
-   r = results[0]
+   result = xpcsjax.fit_nlsq(single_angle_data, "single_angle_config.yaml")
+   print(result.reduced_chi_squared)
 
 Multi-angle fits
 ----------------
@@ -189,36 +200,37 @@ And a driver script:
 
    import xpcsjax
 
+   from xpcsjax.optimization.nlsq.heterodyne_views import per_angle_chi2
+
    data = xpcsjax.load_xpcs_data("heterodyne_config.yaml")
-   results = xpcsjax.fit_nlsq(data, "heterodyne_config.yaml")
+   result = xpcsjax.fit_nlsq(data, "heterodyne_config.yaml")
 
-   converged = [r for r in results if r.convergence_status == "converged"]
-   bad      = [r for r in results if r.quality_flag == "bad"]
+   print(f"joint fit: status={result.convergence_status}  "
+         f"quality={result.quality_flag}  "
+         f"reduced chi2={result.reduced_chi_squared:.3f}")
 
-   print(f"{len(converged)}/{len(results)} strata converged, "
-         f"{len(bad)} flagged 'bad'")
-
-   for phi, r in zip(data["phi_angles_list"], results):
-       if r.quality_flag != "good":
-           print(f"  phi={phi:6.1f}  status={r.convergence_status}  "
-                 f"flag={r.quality_flag}  redchi2={r.reduced_chi_squared:.3f}")
+   # Per-angle reduced chi-squared spots which strata fit worst.
+   for phi, c in zip(data["phi_angles_list"], per_angle_chi2(result)):
+       print(f"  phi={phi:6.1f}  reduced_chi2={c:.3f}")
 
 When to dig into per-stratum results
 ------------------------------------
 
-A heterodyne fit is healthy when most strata land at
-``quality_flag == "good"`` and ``convergence_status == "converged"``.
-Triaging is per-stratum:
+A heterodyne fit is healthy when the joint ``quality_flag`` is
+``"good"`` (or ``"marginal"``), ``convergence_status == "converged"``,
+and the per-angle reduced :math:`\chi^2` (``per_angle_chi2``) values are
+close to unity. Triage by stratum:
 
-* If only a handful of strata are bad, suspect the underlying data
-  quality at those phi angles (beam-stop, detector defects).
-* If most strata are bad, the configuration itself is likely
+* If only a handful of strata have a high reduced :math:`\chi^2`,
+  suspect the underlying data quality at those phi angles (beam-stop,
+  detector defects).
+* If most strata fit poorly, the configuration itself is likely
   mis-specified — check bounds, initial values, and the active
   parameter list (see :doc:`/user_guide/analysis_modes`).
-* If everything converged but the reduced :math:`\chi^2` values are
-  uniformly far from unity, the model family is probably wrong for the
-  data — consider whether ``two_component`` is the appropriate
-  analysis mode in the first place.
+* If every stratum's reduced :math:`\chi^2` is uniformly far from
+  unity, the model family is probably wrong for the data — consider
+  whether ``two_component`` is the appropriate analysis mode in the
+  first place.
 
 See :doc:`/user_guide/interpreting_results` for the full triage
 playbook.
@@ -235,10 +247,10 @@ to keep the schema unified with homodyne:
      nlsq:
        max_iterations: 2000
        tolerance: 1.0e-8
-       multistart:
+       multi_start:
          n_starts: 8
        anti_degeneracy:
-         enabled: true
+         enable: true
          per_angle_mode: auto
 
 Any keys not understood by the heterodyne adapter are forwarded
@@ -253,4 +265,4 @@ Where to look next
 * :doc:`/user_guide/nlsq_fitting` — strategy selection, bounds,
   parameter transforms, multistart and CMA-ES escape.
 * :doc:`/user_guide/interpreting_results` — meaning of every field
-  on each per-stratum result.
+  on the result, plus the per-angle diagnostics.

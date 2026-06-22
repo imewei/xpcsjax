@@ -81,7 +81,7 @@ The result object can be inspected directly and serialised to disk:
    print(result.iterations)
    print(result.execution_time)     # wall seconds
    print(result.device_info)        # populated by xpcsjax.device
-   print(result.quality_flag)       # 'good' | 'warn' | 'bad'
+   print(result.quality_flag)       # 'good' | 'marginal' | 'poor' | 'unknown'
 
 The ``nlsq_diagnostics``, ``streaming_diagnostics``, and
 ``stratification_diagnostics`` fields are structured dictionaries that

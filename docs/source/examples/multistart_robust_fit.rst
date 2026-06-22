@@ -10,8 +10,9 @@ the seven-parameter ``laminar_flow`` model and the heterodyne models,
 non-convex landscapes are common enough that a single starting point
 is unsafe. The
 :func:`~xpcsjax.optimization.nlsq.core.fit_nlsq_multistart` wrapper draws
-multiple starts via Latin Hypercube Sampling (LHS) and returns the
-best run.
+multiple starts via Latin Hypercube Sampling (LHS) and returns a
+:class:`~xpcsjax.optimization.nlsq.multistart.MultiStartResult`
+aggregating every start, with the winning run on its ``best`` field.
 
 When to use multistart
 ----------------------
@@ -50,18 +51,21 @@ The multistart entry point lives one level deeper than the public
     cm = ConfigManager(str(config_path))
     cm.load_config()
 
-    result = fit_nlsq_multistart(
-        data,
-        config=cm,
-        n_starts=16,
-    )
+    ms_result = fit_nlsq_multistart(data, cm)
+    best = ms_result.best                         # winning SingleStartResult
+    result = ms_result.to_optimization_result()   # winner as an OptimizationResult
 
-The signature accepts the same data/config pair as
-:func:`~xpcsjax.optimization.nlsq.fit_nlsq`, plus ``n_starts`` (the number of LHS
-samples to draw). The returned object is the best-of-N
-:class:`~xpcsjax.optimization.nlsq.results.OptimizationResult` —
-"best" is decided by minimum unweighted residual sum of squares on
-converged starts.
+``fit_nlsq_multistart(data, config)`` takes the same data/config pair as
+:func:`~xpcsjax.optimization.nlsq.fit_nlsq`. The number of LHS samples is
+**not** a call argument — it is read from the configuration
+(``optimization.nlsq.multi_start.n_starts``), and multistart must be
+enabled there (``optimization.nlsq.multi_start.enable: true``) or the
+call raises ``ValueError``. The return value is a
+:class:`~xpcsjax.optimization.nlsq.multistart.MultiStartResult`; its
+``best`` field is the winning start ("best" is decided by minimum
+unweighted residual sum of squares on converged starts) and
+``to_optimization_result()`` repacks that winner as an ordinary
+:class:`~xpcsjax.optimization.nlsq.results.OptimizationResult`.
 
 How the LHS sampling works
 --------------------------
@@ -91,37 +95,37 @@ NLSQ ``CurveFit`` JIT cache so per-start compile cost is amortised.
 Inspecting per-start outcomes
 -----------------------------
 
-The returned :class:`~xpcsjax.optimization.nlsq.results.OptimizationResult`
-is the single best run; the per-start audit lives on
-``result.recovery_actions`` and ``result.nlsq_diagnostics``. To
-inspect every start, call the lower-level helper:
+The :class:`~xpcsjax.optimization.nlsq.multistart.MultiStartResult` keeps
+every start, not just the winner. Iterate ``all_results`` to audit the
+basin structure:
 
 .. code-block:: python
 
-    from xpcsjax.optimization.nlsq.multistart import run_lhs_starts
+    ms_result = fit_nlsq_multistart(data, cm)
 
-    all_results, best_idx = run_lhs_starts(
-        data, config=cm, n_starts=16, return_all=True,
-    )
-    for i, r in enumerate(all_results):
-        marker = "*" if i == best_idx else " "
+    for i, r in enumerate(ms_result.all_results):
+        marker = "*" if r is ms_result.best else " "
         print(
             f"{marker} start={i:2d}  "
             f"chi2_red={float(r.reduced_chi_squared): .4e}  "
             f"success={r.success}"
         )
+    print(f"{ms_result.n_successful} converged, "
+          f"{ms_result.n_unique_basins} distinct basins")
 
-(The ``return_all=True`` form is intended for diagnostics; production
-pipelines should call :func:`~xpcsjax.optimization.nlsq.core.fit_nlsq_multistart`
-and trust the picked best.)
+Each entry is a
+:class:`~xpcsjax.optimization.nlsq.multistart.SingleStartResult`; the
+aggregate counters (``n_successful``, ``n_unique_basins``,
+``degeneracy_detected``) summarise the run.
 
 Choosing n_starts
 -----------------
 
-A useful default scaling is ``n_starts = 4 * d`` for ``d`` free
-parameters, capped at ``32``. For the 7-parameter laminar-flow model
-this yields ``n_starts = 28``. For static isotropic (3 parameters)
-``n_starts = 12`` is usually enough.
+Set ``optimization.nlsq.multi_start.n_starts`` in the config. A useful
+default scaling is ``n_starts = 4 * d`` for ``d`` free parameters,
+capped at ``32``. For the 7-parameter laminar-flow model this yields
+``n_starts = 28``. For static isotropic (3 parameters) ``n_starts = 12``
+is usually enough.
 
 Larger values cost compute roughly linearly but the marginal benefit
 flattens beyond ``8 * d``.

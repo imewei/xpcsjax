@@ -135,17 +135,18 @@ Public methods
 
 :meth:`xpcsjax.config.ConfigManager.load_config`
     Reads the file (and applies the override), validates the result,
-    and stores it on the ``config`` attribute. Returns the loaded
-    ``dict``.
+    and stores it on the ``config`` attribute. Returns ``None`` — use
+    ``get_config`` (or the ``config`` attribute) to retrieve the dict.
 
 :meth:`xpcsjax.config.ConfigManager.get_config`
     Returns the loaded configuration ``dict``. Equivalent to reading
     the ``config`` attribute, but explicit at call sites.
 
 :meth:`xpcsjax.config.ConfigManager.get_model`
-    Returns the analysis-mode string. Equivalent to
-    ``cfg.config["analysis_mode"]`` but raises a clear error if the
-    config has not yet been loaded.
+    Constructs and returns the physics model instance for this config's
+    analysis mode (``HomodyneModel`` or ``HeterodyneModel``), a thin
+    wrapper over :func:`xpcsjax.core.models.make_model`. To read the
+    mode string itself, use the ``analysis_mode`` property.
 
 :meth:`xpcsjax.config.ConfigManager.get_target_angle_ranges`
     Returns the phi-angle ranges to use for anisotropic analyses. For

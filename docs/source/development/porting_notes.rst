@@ -25,8 +25,11 @@ Relationship to the upstream packages
 
 ``heterodyne``
     The reference implementation for the two-component heterodyne
-    XPCS model. xpcsjax consumes this only as a port source for now;
-    the heterodyne parity oracle will follow in Phase 6 (see below).
+    XPCS model. The port is complete (Phase 6):
+    :class:`xpcsjax.core.HeterodyneModel` is a fully public model with
+    per-angle-mode parity. Parity is guarded by the availability-gated
+    real-data oracle (:file:`tests/heterodyne/test_two_component_real_data.py`,
+    the C044 dataset) rather than a byte-exact characterisation fixture.
 
 The dual role of homodyne — port source *and* parity oracle — is the
 strongest correctness guarantee xpcsjax has. Any commit that breaks
@@ -98,14 +101,16 @@ release that triggered the regeneration.
 Heterodyne port status
 ----------------------
 
-The heterodyne migration is mid-port. The public API gate currently
-``xfail``-marks :class:`xpcsjax.core.HeterodyneModel` (see
-:file:`tests/test_lazy_imports.py`). The physics and engine modules
-are present, but the end-to-end Phase 6 parity gate has not yet
-landed.
+The heterodyne migration is complete (Phase 6).
+:class:`xpcsjax.core.HeterodyneModel` is a public lazy export (it is in
+``_LAZY_EXPORTS`` / ``__all__`` and exercised — not ``xfail``-marked —
+by :file:`tests/test_lazy_imports.py`), and the two-component model has
+full per-angle-mode parity with homodyne. The remaining heterodyne work
+is architectural cleanup (procedural-parity convergence), not a missing
+capability.
 
-Heterodyne modules already in xpcsjax
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Heterodyne modules in xpcsjax
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Under :mod:`xpcsjax.core` (physics):
 
@@ -134,23 +139,23 @@ on real data (:file:`test_two_component_real_data.py`), the smoke
 variant (:file:`test_two_component_smoke.py`), and the config
 unwrap path (:file:`test_config_unwrap.py`).
 
-What still has to happen for Phase 6
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+How heterodyne parity is guarded
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-When the heterodyne port reaches end-to-end parity:
+Heterodyne fits a different model from homodyne, so it is verified by
+**mechanism + objective** parity rather than the byte-exact
+``rtol=1e-10`` characterisation gate used for homodyne:
 
-1. Add a heterodyne characterisation harness alongside
-   :file:`tests/characterization/test_homodyne_equivalence.py`,
-   loading baselines from a new
-   :file:`tests/characterization/fixtures/heterodyne/` directory.
-2. Extend :file:`scripts/generate_homodyne_baselines.py` (or add a
-   sibling) to drive the upstream ``heterodyne`` package end-to-end.
-3. Flip the ``xfail`` marker in :file:`tests/test_lazy_imports.py`
-   to ``xpass`` / passing.
-4. Confirm the ``HeterodyneModel`` re-export from
-   :mod:`xpcsjax.core` is exercised in the lazy-import test.
-5. Update :doc:`/api/index` to drop the xfail caveat on
-   :class:`xpcsjax.core.HeterodyneModel`.
+1. The availability-gated real-data oracle
+   :file:`tests/heterodyne/test_two_component_real_data.py` runs the
+   two-component fit against the C044 dataset whenever that data is
+   present and skips cleanly otherwise.
+2. The smoke variant :file:`tests/heterodyne/test_two_component_smoke.py`
+   exercises the pipeline on tiny synthetic data with no external
+   dependencies.
+3. Per-angle-mode parity (``constant`` / ``averaged`` / ``individual``)
+   is asserted by the no-worse-SSR contracts described in
+   :doc:`/advanced/parity_testing`.
 
 The NLSQ-only filter: what xpcsjax intentionally omits
 ------------------------------------------------------
@@ -174,22 +179,20 @@ reintroduced:
 - Parallel tempering and any other replica-exchange sampler.
 - BlackJAX samplers.
 
-Stale references survive in a handful of places from the port:
-
-- :file:`xpcsjax/config/manager.py` — ``get_cmc_config``,
-  ``_get_default_cmc_config``, and the ``"mcmc"`` config block.
-- Scattered string literals in :mod:`xpcsjax.core`,
-  :mod:`xpcsjax.data`, and :mod:`xpcsjax.utils.logging`.
-
-Treat all of these as **scheduled-for-removal dead code**:
+The homodyne port's CMC/MCMC machinery (``get_cmc_config``,
+``_get_default_cmc_config``, and the ``"mcmc"`` config block) has
+already been **removed** — those symbols no longer exist anywhere in
+the package. What remains are a handful of **defensive guards** that
+*name* Bayesian sampling only to reject it as out of scope (for example
+the ``ValueError`` in :file:`xpcsjax/data/optimization.py` that rejects
+non-NLSQ methods). Those guards reject invalid input; they are not dead
+code, so keep them.
 
 .. warning::
 
-   - Do not add new call sites that depend on the stale CMC / MCMC
-     entries.
-   - Do not write new tests that exercise these code paths.
-   - When you find a stale reference incidentally, remove it as part
-     of the surrounding change rather than working around it.
+   - Do not add new call sites that introduce a CMC / MCMC pathway.
+   - Do not write new tests that exercise a Bayesian path.
+   - Keep the existing defensive guards that reject Bayesian methods.
 
 Users who need Bayesian XPCS analysis should use the upstream
 ``homodyne`` or ``heterodyne`` packages directly; that capability is

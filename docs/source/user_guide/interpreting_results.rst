@@ -57,7 +57,7 @@ The result dataclass
        fallback chain.
    * - ``quality_flag``
      - str
-     - One of ``"good"``, ``"warn"``, ``"bad"``. See triage below.
+     - One of ``"good"``, ``"marginal"``, ``"poor"``, ``"unknown"``. See triage below.
    * - ``streaming_diagnostics``
      - dict
      - Strategy router decisions, hybrid-streaming chunking, memory
@@ -77,8 +77,9 @@ The result dataclass
 Two convenience properties are exposed:
 
 :attr:`xpcsjax.optimization.nlsq.results.OptimizationResult.success`
-    ``True`` iff ``convergence_status == "converged"`` and
-    ``quality_flag != "bad"``.
+    ``True`` iff ``convergence_status == "converged"``. It does not
+    consult ``quality_flag`` -- a converged fit can still carry a
+    ``"poor"`` quality flag, so inspect both.
 
 :attr:`xpcsjax.optimization.nlsq.results.OptimizationResult.message`
     A short human-readable summary suitable for logging or display.
@@ -139,27 +140,29 @@ absolute. The ranking between fits is still meaningful.
 Quality flag triage
 -------------------
 
-The ``quality_flag`` is a coarse three-level summary:
+The ``quality_flag`` is a coarse four-level summary driven by the
+reduced :math:`\chi^2` band and the number of parameters pinned at a
+bound:
 
 ``"good"``
-    Convergence is clean, residuals look sensible, no recovery actions
-    were needed.
+    Reduced :math:`\chi^2 < 2.0` and no parameter ended up at a bound.
 
-``"warn"``
-    Fit converged but the controller flagged at least one warning sign
-    — for example, the parameter ended up at a bound, a recovery
-    action was applied, or the reduced :math:`\chi^2` is outside the
-    expected band.
+``"marginal"``
+    Reduced :math:`\chi^2 < 5.0` with at most two parameters at a bound
+    — converged, but worth a second look at the diagnostics.
 
-``"bad"``
-    The fit either failed (``convergence_status`` is ``"failed"`` or
-    ``"max_iter"``) or recovered only via aggressive CMA-ES fallback.
-    Do not use the parameter values for scientific reporting without
-    re-inspecting the diagnostics.
+``"poor"``
+    Reduced :math:`\chi^2 \ge 5.0`, several parameters pinned at bounds,
+    or the solve failed / was forced. Do not use the parameter values
+    for scientific reporting without re-inspecting the diagnostics.
+
+``"unknown"``
+    The reduced :math:`\chi^2` was ``None`` or non-finite, so the fit
+    could not be classified.
 
 Always inspect ``recovery_actions`` when ``quality_flag`` is
-``"warn"`` or ``"bad"``. The structured trail tells you which
-intervention fired and what its outcome was.
+``"marginal"``, ``"poor"``, or ``"unknown"``. The structured trail
+tells you which intervention fired and what its outcome was.
 
 Reading ``recovery_actions``
 ----------------------------
@@ -229,30 +232,26 @@ high is a strong signal to check bounds and/or the analysis mode.
 Per-angle results in heterodyne fits
 ------------------------------------
 
-For ``two_component`` and ``heterodyne`` modes, the return value is a
-list with one entry per phi-angle stratum. Iterate the list against
-``data["phi_angles_list"]``:
+For ``two_component`` and ``heterodyne`` modes, :func:`xpcsjax.fit_nlsq`
+still returns a **single** :class:`OptimizationResult` -- the joint fit
+across all phi-angles. The per-angle detail is recorded under
+``result.nlsq_diagnostics`` (e.g. ``chi2_per_angle``, the per-angle
+scaling, and ``per_angle_mode``). Read the per-angle reduced
+:math:`\chi^2` with the helper in
+:mod:`xpcsjax.optimization.nlsq.heterodyne_views`:
 
 .. code-block:: python
 
-   results = xpcsjax.fit_nlsq(data, "heterodyne_config.yaml")
-   for phi, r in zip(data["phi_angles_list"], results):
-       if r.quality_flag != "good":
-           print(f"  phi={phi:6.1f}  status={r.convergence_status}  "
-                 f"flag={r.quality_flag}")
+   from xpcsjax.optimization.nlsq.heterodyne_views import per_angle_chi2
 
-Aggregating across strata is dataset-specific. A common pattern is to
-compute the mean and dispersion of each physics parameter across the
-"good" strata and to use that as the headline reported value, with the
-"warn" and "bad" strata recorded but excluded:
+   result = xpcsjax.fit_nlsq(data, "heterodyne_config.yaml")
+   chi2 = per_angle_chi2(result)          # one entry per phi stratum
+   for phi, c in zip(data["phi_angles_list"], chi2):
+       print(f"  phi={phi:6.1f}  reduced_chi2={c:.3g}")
 
-.. code-block:: python
-
-   good = [r for r in results if r.quality_flag == "good"]
-   import numpy as np
-   params = np.stack([r.parameters for r in good], axis=0)
-   mean   = params.mean(axis=0)
-   std    = params.std(axis=0)
+The headline parameters and uncertainties on ``result`` already describe
+the joint fit; ``per_angle_chi2`` is the diagnostic for spotting which
+strata fit worst.
 
 Serialisation
 -------------
@@ -269,6 +268,6 @@ What to read next
 -----------------
 
 * :doc:`/user_guide/troubleshooting` — what to do when the result
-  comes back with ``quality_flag`` of ``"warn"`` or ``"bad"``.
+  comes back with ``quality_flag`` of ``"marginal"`` or ``"poor"``.
 * :doc:`/user_guide/nlsq_fitting` — the mechanics behind the
   diagnostics on the result.

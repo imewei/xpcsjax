@@ -14,7 +14,7 @@ Quick start
 
    model  = xpcsjax.HomodyneModel(config_dict)
    data   = xpcsjax.load_xpcs_data(data_path)
-   result = xpcsjax.fit_nlsq(model, data, config_dict)
+   result = xpcsjax.fit_nlsq(data, config_dict)
 
    xpcsjax.generate_nlsq_plots(
        model=model,

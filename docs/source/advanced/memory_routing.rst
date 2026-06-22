@@ -51,9 +51,16 @@ pure memory-based selector:
 2. Compute ``peak_memory_gb = estimate_peak_memory_gb(n_points,
    n_params)``. This estimates Jacobian + normal-equations matrices
    plus a small overhead.
-3. Compute ``threshold_gb = memory_fraction *
-   detect_total_system_memory()``. By default ``memory_fraction``
-   is the package default; it can be overridden per call.
+3. Compute ``threshold_gb = basis_gb * memory_fraction / concurrency``.
+   The basis is **available** system memory
+   (``detect_available_system_memory()``) when detectable — it reflects
+   what the fit can claim right now — falling back to total memory only
+   when available is unknown. ``memory_fraction`` defaults to the
+   package default and can be overridden per call. ``concurrency`` is
+   the detected number of concurrent fit processes
+   (``_detect_fit_concurrency``, from ``XPCSJAX_FIT_CONCURRENCY`` >
+   ``PYTEST_XDIST_WORKER_COUNT`` > 1), so the per-process budget shrinks
+   when several fits share the machine, preventing RAM overcommit.
 4. If ``index_memory_gb > threshold_gb`` → ``HYBRID_STREAMING``.
 5. Elif ``peak_memory_gb > threshold_gb`` → ``OUT_OF_CORE``.
 6. Else → ``STANDARD``.

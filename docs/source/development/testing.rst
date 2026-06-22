@@ -198,8 +198,9 @@ characterisation or heterodyne real-data fixtures are excluded in
        "xpcsjax/utils/path_validation.py",
    ]
 
-The current v0.1 floor is 50 % across the non-engine-orchestration
-surface. Run coverage locally with:
+The current v0.1 floor is 55 % across the non-engine-orchestration
+surface (``fail_under = 55`` in :file:`pyproject.toml`, raised from 50
+after a unit-test campaign). Run coverage locally with:
 
 .. code-block:: shell
 
