@@ -42,6 +42,17 @@ def test_committed_completion_matches_generator(generated: str):
         pytest.fail(f"completion.sh is stale — run `make completion`.\n{diff}")
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "completion.sh is a POSIX (bash/zsh) artifact; on Windows runners "
+        "shutil.which('bash') resolves to the System32 WSL launcher stub "
+        "(C:\\Windows\\System32\\bash.exe), which exits 1 with a "
+        "'no installed distributions' message rather than syntax-checking the "
+        "script. Bash-syntax validity is platform-independent and is covered by "
+        "the Linux/macOS jobs."
+    ),
+)
 def test_generated_script_is_valid_bash():
     assert shutil.which("bash"), "bash required"
     r = subprocess.run(
