@@ -39,10 +39,10 @@ from xpcsjax.gui.theme import repolish
 from xpcsjax.gui.views.config_dialogs import ConfigTextEditorDialog, CreateConfigDialog
 from xpcsjax.gui.views.error_dialog import ErrorDialog
 from xpcsjax.gui.views.inspector import InspectorDock
+from xpcsjax.gui.views.main_window_support.result_presenter import ResultPresenter
 from xpcsjax.gui.views.main_window_support.status_manager import StatusManager
 from xpcsjax.gui.views.plots_view import PhiResultsGrid
 from xpcsjax.gui.views.project_panel import ComparisonView, ProjectSidebar
-from xpcsjax.gui.viz_bundle import load_viz_bundle
 
 if TYPE_CHECKING:
     from xpcsjax.gui.result_loader import ResultSummary
@@ -108,6 +108,7 @@ class MainWindow(QMainWindow):
         self._comparison = ComparisonView()
         self._inspector = InspectorDock()
         self._status_manager = StatusManager(self)
+        self._result_presenter = ResultPresenter(self)
 
         self._build_toolbar()
         self._build_file_menu()
@@ -251,23 +252,7 @@ class MainWindow(QMainWindow):
 
     def show_result(self, summary: Any) -> None:
         """Render the finished-fit summary (a ResultSummary or None) in the text panel."""
-        if summary is None:
-            self._results.setPlainText("Fit finished, but no result file was found.")
-            return
-        lines = [
-            f"status:          {summary.convergence_status}",
-            f"success:         {summary.success}",
-            f"chi^2:           {summary.chi_squared}",
-            f"reduced chi^2:   {summary.reduced_chi_squared}",
-            f"quality:         {summary.quality_flag}",
-            f"results dir:     {summary.result_dir}",
-            "",
-            "parameters:",
-            *[f"  {name} = {value}" for name, value in summary.parameters.items()],
-            "",
-            f"Publication figures (Matplotlib) were written under {summary.result_dir}/plots.",
-        ]
-        self._results.setPlainText("\n".join(lines))
+        self._result_presenter.show_result(summary)
 
     def _show_result_with_bundle(self, summary: Any, result_dir: str | None) -> None:
         """Render the result: per-phi grid when a bundle exists, text otherwise.
@@ -280,24 +265,11 @@ class MainWindow(QMainWindow):
             The run's result directory; used to locate the viz bundle.
             ``None`` forces the text-summary path.
         """
-        bundle = None
-        if result_dir:
-            try:
-                bundle = load_viz_bundle(result_dir)
-            except Exception:  # pragma: no cover — defensive only
-                bundle = None
-
-        if bundle is not None:
-            self._result_grid.set_bundle(bundle)
-            self._central_stack.setCurrentIndex(1)  # show per-phi grid
-        else:
-            # Fall back to (or keep) the text summary.
-            self.show_result(summary)
-            self._central_stack.setCurrentIndex(0)
+        self._result_presenter.show_result_with_bundle(summary, result_dir)
 
     def show_error(self, message: str) -> None:
         """Render a fit failure."""
-        self._results.setPlainText(f"FIT FAILED\n\n{message}")
+        self._result_presenter.show_error(message)
 
     def _on_run_status(self, run_id: str, status: str) -> None:
         if status in ("starting", "running"):
@@ -387,7 +359,7 @@ class MainWindow(QMainWindow):
         summary:
             A :class:`~xpcsjax.gui.result_loader.ResultSummary` or ``None``.
         """
-        self._inspector.show_summary(summary)
+        self._result_presenter.show_inspector(summary)
 
     # --- introspection for tests ----------------------------------------------
     def status_text(self) -> str:
