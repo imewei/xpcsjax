@@ -49,7 +49,7 @@ def test_committed_completion_matches_generator(generated: str):
         "shutil.which('bash') resolves to the System32 WSL launcher stub "
         "(C:\\Windows\\System32\\bash.exe), which exits 1 with a "
         "'no installed distributions' message rather than syntax-checking the "
-        "script. Bash-syntax validity is platform-independent and is covered by "
+        "script. Bash-syntax validity is platform-agnostic and is covered by "
         "the Linux/macOS jobs."
     ),
 )
