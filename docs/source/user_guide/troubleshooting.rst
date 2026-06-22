@@ -278,9 +278,11 @@ The package-level settings are:
 
 * ``JAX_ENABLE_X64=1`` — mandatory; parameters span 6+ orders of
   magnitude.
-* ``XLA_FLAGS`` — adds ``--xla_force_host_platform_device_count=4``
-  and ``--xla_disable_hlo_passes=constant_folding`` to any existing
-  value.
+* ``XLA_FLAGS`` — adds ``--xla_disable_hlo_passes=constant_folding`` plus
+  ``--xla_force_host_platform_device_count=<N>`` to any existing value.
+  ``N`` is concurrency-aware: ``4`` for a lone process, ``1`` when more
+  than one fit runs concurrently (detected via ``XPCSJAX_FIT_CONCURRENCY``
+  / ``PYTEST_XDIST_WORKER_COUNT``).
 * ``NLSQ_SKIP_GPU_CHECK=1`` — v0.1 is CPU-only.
 
 Fix

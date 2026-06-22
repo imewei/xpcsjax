@@ -64,7 +64,7 @@ Common overrides (all optional; each takes precedence over the YAML):
        --output results/run1 \
        --output-format both \
        --mode static_anisotropic \
-       --phi 0,45,90 \
+       --phi 0 45 90 \
        --multistart --multistart-n 20 \
        --max-iterations 500 --tolerance 1e-8 \
        --threads 8
@@ -81,7 +81,10 @@ Key fit flags:
    Force the analysis mode (``static_isotropic``, ``static_anisotropic``,
    ``laminar_flow``, ``two_component``); overrides the YAML.
 ``--phi``
-   Comma-separated φ angles in degrees to analyse; overrides the config.
+   Space-separated φ angles in degrees to analyse (``type=float``,
+   ``nargs="+"``, e.g. ``--phi 0 45 90``); overrides the config. The
+   comma-separated string flag is the separate ``--phi-angles``, scoped to
+   simulated-data plotting.
 ``--multistart`` / ``--no-multistart`` / ``--multistart-n N``
    Enable, disable, or size the Latin-hypercube multistart.
 ``--max-iterations`` / ``--tolerance``

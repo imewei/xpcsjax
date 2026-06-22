@@ -464,17 +464,16 @@ automatically when ``per_angle_mode`` is non-``individual`` and
    from xpcsjax import fit_nlsq, load_xpcs_data
 
    data = load_xpcs_data("experiment.hdf5")
-   result = fit_nlsq(
-       data=data,
-       mode="laminar_flow",
-       per_angle_mode="auto",   # default
-       # all other anti-degeneracy settings inherit dataclass defaults
-   )
+   # analysis_mode ("laminar_flow") and per_angle_mode ("auto", the default)
+   # are set in the config (ConfigManager / YAML), not passed as kwargs.
+   result = fit_nlsq(data, config)
 
 The fitted parameter vector and the per-angle scaling are stored on
 :class:`~xpcsjax.optimization.nlsq.results.OptimizationResult`. Diagnostics
 including the gradient-monitor decisions and the per-angle CV are exposed
-through the ``diagnostics`` attribute.
+through the ``nlsq_diagnostics`` attribute (streaming / out-of-core and
+stratified paths additionally populate ``streaming_diagnostics`` /
+``stratification_diagnostics``).
 
 When to use which mode
 ----------------------

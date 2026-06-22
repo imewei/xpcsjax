@@ -76,7 +76,7 @@ The rule set is declared in :file:`pyproject.toml`:
    target-version = "py312"
 
    [tool.ruff.lint]
-   select = ["E", "F", "W", "I", "B", "UP", "N"]
+   select = ["E", "F", "W", "I", "B", "UP", "N", "D"]
    ignore = ["E501", "N806", "N803"]
 
 Notes:

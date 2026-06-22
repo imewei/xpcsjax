@@ -202,11 +202,12 @@ The public loader :func:`xpcsjax.data.xpcs_loader.load_xpcs_data` returns a cont
 core array is ``c2_exp`` of shape ``(n_phi, n_time, n_time)``. The companion
 arrays describe the experimental geometry:
 
-* ``phi_angles``  --- azimuthal angles of the :math:`q`-ring sectors
-  (radians, shape ``(n_phi,)``);
-* ``t_lab``       --- laboratory time grid (seconds);
-* ``q``           --- magnitude of the scattering vector for the selected
-  ring (\ :math:`\text{\AA}^{-1}`).
+* ``phi_angles_list`` --- azimuthal angles of the :math:`q`-ring sectors
+  (degrees, shape ``(n_phi,)``; accessor ``.phi``, alias key ``phi_angles``);
+* ``t1`` / ``t2``     --- the two frame-time grids in seconds
+  (accessors ``.t1`` / ``.t2``);
+* ``wavevector_q_list`` --- magnitude of the scattering vector for the
+  selected ring (\ :math:`\text{\AA}^{-1}`).
 
 The :class:`xpcsjax.core.HomodyneModel` and
 :class:`xpcsjax.core.HeterodyneModel` classes provide the forward map
@@ -218,7 +219,15 @@ against ``c2_exp``. For homodyne the forward call is:
    from xpcsjax import HomodyneModel
    import jax.numpy as jnp
 
-   model = HomodyneModel(mode="laminar_flow", q=q, h=h_gap)
+   config = {
+       "analyzer_parameters": {
+           "temporal": {"dt": 0.05, "start_frame": 0, "end_frame": 1000},
+           "scattering": {"wavevector_q": q},
+           "geometry": {"stator_rotor_gap": h_gap},
+       },
+       "analysis_mode": "laminar_flow",
+   }
+   model = HomodyneModel(config)
    c2_model = model.compute_c2(
        params=jnp.array([D0, alpha, D_offset,
                          gamma_dot_t0, beta, gamma_dot_t_offset, phi0]),

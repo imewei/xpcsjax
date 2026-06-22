@@ -131,21 +131,14 @@ Model support
 -------------
 
 Both :class:`~xpcsjax.core.HomodyneModel` and :class:`~xpcsjax.core.HeterodyneModel`
-are supported, with one caveat: heterodyne plotting in v0.1 requires the
-``individual`` per-angle scaling layout
-
-.. code-block:: text
-
-   result.parameters = [c_0..n_phi-1, o_0..n_phi-1, physical_0..13]
-
-The orchestrator validates this upfront before any rendering starts.
-Heterodyne results from the ``constant`` or ``averaged`` scaling modes
-(including ``auto`` when it resolves to ``averaged``) will raise
-:class:`NotImplementedError` with a clear message naming the
-parameter-count mismatch. Full mode parity (``constant`` / ``averaged``)
-is scheduled for v0.2; in the meantime, refit with
-``per_angle_mode="individual"`` if you need plotting, or pin the upstream
-``heterodyne`` package for non-individual workflows.
+are supported. For heterodyne, the orchestrator handles the per-angle
+``individual``, ``averaged`` (including ``auto`` when it resolves to
+``averaged``), and reconstructable ``constant`` scaling layouts — it
+validates the layout upfront and reconstructs the per-angle scaling as
+needed. A :class:`NotImplementedError` is raised only for a genuinely
+unsupported/unreconstructable layout (e.g. a physics-only parameter vector
+with no ``per_angle_mode`` / ``constant`` diagnostics to reconstruct the
+scaling from), with a clear message.
 
 The 4-layer anti-degeneracy contract for heterodyne fitting is unaffected
 by this restriction — see :doc:`../theory/heterodyne_anti_degeneracy`.

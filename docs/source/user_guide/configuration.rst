@@ -144,14 +144,16 @@ Public methods
 
 :meth:`xpcsjax.config.ConfigManager.get_model`
     Constructs and returns the physics model instance for this config's
-    analysis mode (``HomodyneModel`` or ``HeterodyneModel``), a thin
+    analysis mode — a ``CombinedModel`` for the homodyne modes
+    (``static_anisotropic`` / ``static_isotropic`` / ``laminar_flow``) or a
+    ``HeterodyneModel`` for ``two_component`` / ``heterodyne`` — a thin
     wrapper over :func:`xpcsjax.core.models.make_model`. To read the
     mode string itself, use the ``analysis_mode`` property.
 
 :meth:`xpcsjax.config.ConfigManager.get_target_angle_ranges`
-    Returns the phi-angle ranges to use for anisotropic analyses. For
-    isotropic and static modes this is typically ``None`` or an
-    "all-angles" sentinel.
+    Returns the ``optimization.angle_filtering`` configuration block as a
+    ``dict``, or ``{"enabled": False}`` when no config is loaded, the block
+    is absent, or it is not a mapping. It never returns ``None``.
 
 :meth:`xpcsjax.config.ConfigManager.get_parameter_bounds`
     Returns the bounds ``(lower, upper)`` arrays for the active
@@ -237,11 +239,14 @@ homodyne behaviour exposed through
 How :func:`xpcsjax.optimization.nlsq.fit_nlsq` consumes the configuration
 -------------------------------------------------------
 
-:func:`xpcsjax.optimization.nlsq.fit_nlsq` accepts the configuration in three forms:
+:func:`xpcsjax.optimization.nlsq.fit_nlsq` accepts the configuration in two forms:
 
-1. A path to a YAML or JSON file (``str`` or ``pathlib.Path``).
+1. A path to a YAML or JSON file (``str`` or ``pathlib.Path``), which is
+   coerced to a :class:`xpcsjax.config.ConfigManager`.
 2. A pre-built :class:`xpcsjax.config.ConfigManager` instance.
-3. A bare ``dict`` (mostly used in tests).
+
+A bare ``dict`` is **not** accepted — it is not coerced and, lacking a
+``.config`` attribute, would not route by ``analysis_mode``.
 
 Internally the function extracts ``analysis_mode`` first and dispatches
 to either the homodyne or the heterodyne entry point. The selected

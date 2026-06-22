@@ -41,7 +41,7 @@ The result dataclass
        residuals and :math:`p` the active parameter count.
    * - ``convergence_status``
      - str
-     - One of ``"converged"``, ``"max_iter"``, ``"failed"``.
+     - One of ``"converged"``, ``"max_iter"``, ``"failed"``, ``"partial"``.
    * - ``iterations``
      - int
      - Number of trust-region iterations consumed.
@@ -52,9 +52,9 @@ The result dataclass
      - dict
      - JAX device record (CPU only in v0.1).
    * - ``recovery_actions``
-     - list[dict]
+     - list[str]
      - Trail of interventions by the anti-degeneracy controller and
-       fallback chain.
+       fallback chain, as short string tags.
    * - ``quality_flag``
      - str
      - One of ``"good"``, ``"marginal"``, ``"poor"``, ``"unknown"``. See triage below.
@@ -167,24 +167,23 @@ tells you which intervention fired and what its outcome was.
 Reading ``recovery_actions``
 ----------------------------
 
-Each entry is a ``dict`` describing one intervention:
+Each entry is a short ``str`` tag naming one intervention:
 
 .. code-block:: python
 
    for action in result.recovery_actions:
-       print(action["stage"], action["action"], action.get("outcome"))
+       print(action)
 
-Typical stages are:
+Typical tags are:
 
-* ``"strategy_router"`` — strategy was changed mid-fit.
-* ``"anti_degeneracy"`` — one of the five anti-degeneracy layers
-  triggered.
-* ``"multistart"`` — a multistart re-seed produced a better point.
-* ``"cmaes_escape"`` — CMA-ES global escape was invoked.
-* ``"polish"`` — final NLSQ polish step after a CMA-ES escape.
+* ``"detected_parameter_stagnation"`` — the controller saw the solver
+  stall.
+* ``"stagnation_after_all_retries"`` — retries did not break the stall.
+* ``"strategy_fallback_to_<strategy>"`` — the strategy router fell back
+  to another strategy mid-fit (e.g. ``strategy_fallback_to_out_of_core``).
 
-The trail is append-only and survives serialisation, so it can be
-audited after the fact.
+The trail is a plain ``list[str]``, append-only, and survives
+serialisation, so it can be audited after the fact.
 
 The diagnostics dictionaries
 ----------------------------

@@ -335,13 +335,11 @@ velocities can be extracted given the geometry.
 * **Multiple frequencies:** three or more components or shear banding;
   not implemented in v0.1.
 
-.. warning::
+.. note::
 
-   The heterodyne port is in progress. The public symbol
-   :class:`xpcsjax.core.HeterodyneModel` is registered in the lazy export
-   table but is currently ``xfail``-marked at the API gate. Treat the
-   physics modules under ``xpcsjax.core.heterodyne_*`` as the source of
-   truth while the gate flips.
+   :class:`xpcsjax.core.HeterodyneModel` is a fully public, Phase-6-complete
+   lazy export (one of the seven top-level public symbols) with per-angle-mode
+   parity. The physics modules under ``xpcsjax.core.heterodyne_*`` implement it.
 
 Comparison with the homodyne model
 ----------------------------------
@@ -375,6 +373,5 @@ Comparison with the homodyne model
    * :doc:`correlation_functions` -- Siegert relation and :math:`c_2`.
    * :doc:`transport_coefficient` -- definition of :math:`J(t)`.
    * :doc:`anti_degeneracy` -- per-angle scaling and the five-layer defence.
-   * :class:`xpcsjax.core.HeterodyneModel` -- JAX implementation
-     (\ ``xfail``-marked at the API gate during the v0.1 port).
+   * :class:`xpcsjax.core.HeterodyneModel` -- JAX implementation.
    * :doc:`citations` -- including [He2024]_, [He2025]_.

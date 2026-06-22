@@ -169,7 +169,7 @@ shear modulation :eq:`hm_sinc2`,
    c_2(\mathbf{q}, t_1, t_2)
    \;=\; c_\mathrm{offset}(\phi)
    \;+\; \beta(\phi)\,
-       \exp\!\left(-q^2\!\int_{t_1}^{t_2} J(t')\,dt'\right)
+       \exp\!\left(-q^2\,\mathcal{D}(t_1, t_2)\right)
        \,
        \mathrm{sinc}^2\!\left(\tfrac{q h \cos(\phi - \phi_0)\,\Gamma(t_1, t_2)}{2\pi}\right),
 

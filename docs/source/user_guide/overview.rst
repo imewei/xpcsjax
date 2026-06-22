@@ -67,7 +67,9 @@ only three actions:
 
 1. Sets ``JAX_ENABLE_X64=1``, ``NLSQ_SKIP_GPU_CHECK=1``, and an
    ``XLA_FLAGS`` string that disables ``constant_folding`` and forces
-   four host platform devices.
+   four host platform devices for a lone fit (dropping to one device per
+   process under concurrency, detected via ``XPCSJAX_FIT_CONCURRENCY`` /
+   ``PYTEST_XDIST_WORKER_COUNT``).
 2. Silences a handful of JAX backend loggers.
 3. Registers seven names in an internal ``_LAZY_EXPORTS`` dictionary.
 

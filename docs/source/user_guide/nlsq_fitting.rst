@@ -64,7 +64,8 @@ the configuration is parsed. It inspects:
 * The active parameter count for the configured analysis mode.
 * The current process memory budget.
 
-…and returns one of four strategy tags:
+…and returns one of three strategy tags (the ``NLSQStrategy`` enum
+``STANDARD`` / ``OUT_OF_CORE`` / ``HYBRID_STREAMING``):
 
 .. list-table::
    :header-rows: 1
@@ -72,22 +73,22 @@ the configuration is parsed. It inspects:
 
    * - Strategy
      - When it is selected
-   * - in-memory
+   * - in-memory (``STANDARD``)
      - Datasets that fit comfortably in RAM with headroom for the
        Jacobian. The default for typical static and isotropic fits.
-   * - stratified-LS
-     - Many phi-angle strata that individually fit in memory but whose
-       joint Jacobian would not. Each stratum is solved independently
-       with shared parameters via the per-angle (averaged/constant)
-       reparameterisation layer.
-   * - hybrid-streaming
+   * - hybrid-streaming (``HYBRID_STREAMING``)
      - Very large datasets (typically 10M+ correlation entries). Data
        arrays are captured in JIT closures; this is the case where the
        package-level ``XLA_FLAGS`` ``constant_folding`` disable is load
        bearing for compile times.
-   * - out-of-core
+   * - out-of-core (``OUT_OF_CORE``)
      - Datasets too large for any in-memory strategy. The residual is
        accumulated over disk-backed chunks.
+
+Angle-stratified least squares (the per-angle averaged/constant
+reparameterisation solved over chunked strata) is a **separate** dispatch
+path that engages at :math:`\geq 1\text{M}` correlation points; it is not a
+value returned by :func:`~xpcsjax.optimization.nlsq.select_nlsq_strategy`.
 
 The selected strategy is recorded on the returned
 :class:`xpcsjax.optimization.nlsq.results.OptimizationResult` in ``streaming_diagnostics`` and
@@ -142,7 +143,7 @@ Convergence is governed by:
 * ``optimization.nlsq.max_iterations`` — hard cap on iteration count.
 * The internal trust-region step-size floor.
 
-A run terminates with one of three statuses, recorded on the result
+A run terminates with one of four statuses, recorded on the result
 as :attr:`xpcsjax.optimization.nlsq.results.OptimizationResult.convergence_status`:
 
 ``"converged"``
@@ -160,6 +161,12 @@ as :attr:`xpcsjax.optimization.nlsq.results.OptimizationResult.convergence_statu
     NaN/Inf in the Jacobian, etc.). When this status appears, check
     the ``recovery_actions`` trail on the result; xpcsjax usually
     attempts at least one rescue before giving up.
+
+``"partial"``
+    The fit only partially converged — e.g. mixed per-angle success in a
+    heterodyne joint fit, or a fallback/executor path that finished
+    without a clean success flag. Typically pairs with a ``"marginal"``
+    ``quality_flag``; inspect the per-angle diagnostics before reporting.
 
 What to do when convergence_status != 'converged'
 -------------------------------------------------
@@ -217,21 +224,24 @@ Anti-degeneracy controller
 
 The anti-degeneracy controller is the five-layer system in
 :mod:`xpcsjax.optimization.nlsq.anti_degeneracy_controller`. It is on
-by default. Its layers, in increasing severity:
+by default. Its layers (gating declared in ``_LAYER_GATES``):
 
-1. **Numerical hygiene.** Replace non-finite Jacobian rows; clip
-   parameters back into bounds.
-2. **Adaptive regularisation.** Add a Levenberg damping term scaled
-   by the residual magnitude.
-3. **Gradient monitoring.** Detect saddle-like behaviour and inject a
-   small perturbation.
-4. **Multistart re-launch.** Re-seed from a fresh LHS point if the
-   solver is stuck.
-5. **CMA-ES escape.** As above.
+1. **L1 — Per-Angle Reparameterization.** Collapse per-angle scaling
+   onto a shared, identifiable parameterisation.
+2. **L2 — Hierarchical Optimization.** Two-stage warm-start that fits
+   per-angle scaling before the joint physics solve.
+3. **L3 — Adaptive CV-based Regularization.** Coefficient-of-variation
+   regularisation on the per-angle parameters.
+4. **L4 — Gradient Collapse Monitoring.** Strictly diagnostic
+   per-iteration (or post-solve fallback) gradient-ratio monitor.
+5. **L5 — Shear-Sensitivity Weighting.** Up-weights data near the flow
+   direction; gated to ``laminar_flow`` **only**.
 
-The controller is conservative — it intervenes only when a degeneracy
-is detected, not preemptively. Every intervention shows up in
-``recovery_actions``, so you can audit it after the fact.
+Multistart re-launch and the CMA-ES escape are **separate** escape
+mechanisms (described above), not controller layers. The controller is
+conservative — it intervenes only when a degeneracy is detected, not
+preemptively. Interventions show up in ``recovery_actions``, so you can
+audit them after the fact.
 
 What goes on the result
 -----------------------

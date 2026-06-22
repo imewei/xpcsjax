@@ -105,9 +105,10 @@ L2: Hierarchical optimization
   uses); stage 2 warm-starts the joint solve from the stage-1 estimate.
   Stage-1 χ² and the stage-1/stage-2 χ² ratio are recorded in
   ``result.nlsq_diagnostics['hierarchical']``.  Note this is an inline
-  two-stage implementation, not a delegation to
-  ``xpcsjax.optimization.nlsq.hierarchical.fit_hierarchical_two_stage`` —
-  see the follow-up tracking item for unifying with homodyne's helper.
+  two-stage implementation, not a delegation to the shared
+  :class:`~xpcsjax.optimization.nlsq.hierarchical.HierarchicalOptimizer`
+  (used by the STREAMING path below) — see the follow-up tracking item for
+  unifying with homodyne's helper.
 
   **STREAMING path:** wired via
   :class:`~xpcsjax.optimization.nlsq.hierarchical.HierarchicalOptimizer`

@@ -16,9 +16,11 @@ grouped into two families:
 
 .. note::
 
-   The bare value ``"static"`` is **not accepted** — it was ambiguous
-   between the isotropic and anisotropic variants. Configs must
-   specify one explicitly. See
+   The bare value ``"static"`` is a **deprecated alias** — it was
+   ambiguous between the isotropic and anisotropic variants.
+   ``ConfigManager`` still accepts it but normalises it to
+   ``static_anisotropic`` and emits a deprecation warning; set one of the
+   canonical modes explicitly to silence it. See
    :doc:`/development/porting_notes` for the migration path.
 
 The choice of mode determines the active parameter count, the
@@ -88,10 +90,12 @@ in :math:`g_2(q, \phi, t)` that an isotropic fit would average away.
 .. note::
 
    Pre-rename, a bare ``"static"`` value was treated as a third static
-   mode and silently collapsed to one of these two downstream. It has
-   been removed; if you have an old config, replace
-   ``analysis_mode: static`` with either ``static_anisotropic`` (the
-   safer default — preserves angle resolution) or ``static_isotropic``.
+   mode and silently collapsed to one of these two downstream. It is now
+   a deprecated alias: ``ConfigManager`` still accepts
+   ``analysis_mode: static`` and automatically maps it to
+   ``static_anisotropic`` with a deprecation warning. For clarity, set
+   ``static_anisotropic`` (the safer default — preserves angle
+   resolution) or ``static_isotropic`` explicitly to silence the warning.
 
 Laminar flow (7 parameters)
 ---------------------------
@@ -188,8 +192,9 @@ fit is run:
    cfg = ConfigManager("xpcs_config.yaml")
    cfg.load_config()
 
-   print(cfg.get_model())                  # e.g. "laminar_flow"
-   print(cfg.get_active_parameters())      # e.g. ["D0", "alpha", "D_offset", ...]
+   print(cfg.analysis_mode)                 # AnalysisMode.LAMINAR_FLOW
+   print(cfg.analysis_mode.value)           # "laminar_flow"  (bare string)
+   print(cfg.get_active_parameters())       # e.g. ["D0", "alpha", "D_offset", ...]
    lo, hi = cfg.get_parameter_bounds()
    print(list(zip(cfg.get_active_parameters(), lo, hi)))
 

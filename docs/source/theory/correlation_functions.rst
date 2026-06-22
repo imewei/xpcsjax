@@ -219,8 +219,9 @@ projection :math:`g_2(\tau)` corresponds to the mean along the anti-diagonal
 at lag :math:`\tau = (j - i)\,\Delta t`.
 
 The xpcsjax data loader :func:`xpcsjax.data.xpcs_loader.load_xpcs_data` returns the array
-``c2_exp`` of shape ``(n_phi, n_time, n_time)`` together with the laboratory
-time grid ``t_lab`` and the angle vector ``phi_angles``. The angle axis is
+``c2_exp`` of shape ``(n_phi, n_time, n_time)`` together with the two
+frame-time grids ``t1`` / ``t2`` (accessors ``.t1`` / ``.t2``) and the angle
+vector ``phi_angles_list`` (accessor ``.phi``). The angle axis is
 preserved because the homodyne laminar-flow kernel and the heterodyne
 two-component kernel both depend explicitly on :math:`\phi`.
 

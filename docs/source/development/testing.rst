@@ -11,7 +11,10 @@ configures automatically.
 Test layout
 -----------
 
-The :file:`tests/` directory has six top-level entries:
+The :file:`tests/` directory is sharded by domain. The most-used shards
+(the full tree also has ``cli/``, ``config/``, ``data/``, ``gui/``,
+``integration/``, ``parity/``, ``runtime/``, ``service/``, ``viz/`` and
+several top-level ``test_*.py`` modules) are:
 
 .. code-block:: text
 
@@ -22,6 +25,7 @@ The :file:`tests/` directory has six top-level entries:
    |- heterodyne/         # heterodyne end-to-end fits
    |- optimization/       # NLSQ engine, anti-degeneracy, CMA-ES
    |- property/           # Hypothesis property-based invariants
+   |- ...                 # cli/, config/, data/, gui/, integration/, etc.
    |- test_lazy_imports.py
 
 Each shard owns a specific class of guarantee:
@@ -63,8 +67,9 @@ Each shard owns a specific class of guarantee:
 ``tests/test_lazy_imports.py``
     Top-level smoke check that the public API in
     :mod:`xpcsjax` resolves correctly through its lazy
-    ``__getattr__`` mechanism. ``HeterodyneModel`` is currently
-    ``xfail``-marked at this gate; see :doc:`porting_notes`.
+    ``__getattr__`` mechanism. ``HeterodyneModel`` is exercised here as a
+    public lazy export (Phase 6 complete), not ``xfail``-marked; see
+    :doc:`porting_notes`.
 
 Running the test shards
 -----------------------
