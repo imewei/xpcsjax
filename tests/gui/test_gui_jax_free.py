@@ -156,3 +156,15 @@ def test_inspector_is_jax_free():
     """xpcsjax.gui.views.inspector must not import JAX at module level."""
     pytest.importorskip("PySide6")
     assert _probe_import("xpcsjax.gui.views.inspector") == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 1: plots/ subpackage (JAX-free, Qt + pyqtgraph required)
+# ---------------------------------------------------------------------------
+
+
+def test_plots_subpackage_is_jax_free():
+    pytest.importorskip("PySide6")
+    pytest.importorskip("pyqtgraph")
+    for m in ("helpers", "squares", "maps", "residuals", "grid"):
+        assert _probe_import(f"xpcsjax.gui.views.plots.{m}") == 0
