@@ -39,6 +39,7 @@ from xpcsjax.gui.theme import repolish
 from xpcsjax.gui.views.config_dialogs import ConfigTextEditorDialog, CreateConfigDialog
 from xpcsjax.gui.views.error_dialog import ErrorDialog
 from xpcsjax.gui.views.inspector import InspectorDock
+from xpcsjax.gui.views.main_window_support.status_manager import StatusManager
 from xpcsjax.gui.views.plots_view import PhiResultsGrid
 from xpcsjax.gui.views.project_panel import ComparisonView, ProjectSidebar
 from xpcsjax.gui.viz_bundle import load_viz_bundle
@@ -106,6 +107,7 @@ class MainWindow(QMainWindow):
         self._sidebar = ProjectSidebar()
         self._comparison = ComparisonView()
         self._inspector = InspectorDock()
+        self._status_manager = StatusManager(self)
 
         self._build_toolbar()
         self._build_file_menu()
@@ -232,7 +234,7 @@ class MainWindow(QMainWindow):
     # --- view slots (driven by the queue) -------------------------------------
     def set_status(self, status: str) -> None:
         """Render the current run status."""
-        self._status.setText(status)
+        self._status_manager.set_status(status)
 
     def _set_status_state(self, state: str) -> None:
         """Set the status-pill colour state (``idle``/``running``/``finished``/``failed``).
@@ -245,7 +247,7 @@ class MainWindow(QMainWindow):
 
     def append_log(self, level: str, message: str) -> None:
         """Append one forwarded log line to the tail."""
-        self._log.appendPlainText(f"[{level}] {message}")
+        self._status_manager.append_log(level, message)
 
     def show_result(self, summary: Any) -> None:
         """Render the finished-fit summary (a ResultSummary or None) in the text panel."""
