@@ -161,9 +161,9 @@ validator does **not** look for any Bayesian / MCMC dependency.
 Shell completion and activation
 -------------------------------
 
-``xpcsjax-post-install`` installs shell completion (bash/zsh/fish) and the XLA
-activation scripts that export the tuned CPU ``XLA_FLAGS`` on virtual-env
-activation:
+``xpcsjax-post-install`` installs shell completion (bash/zsh; fish completion is
+a non-fatal no-op) and the XLA activation scripts (bash/zsh/fish) that export the
+tuned CPU ``XLA_FLAGS`` on virtual-env activation:
 
 .. code-block:: console
 

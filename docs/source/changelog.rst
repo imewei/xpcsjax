@@ -80,8 +80,8 @@ activation scripts. See :doc:`/user_guide/cli`, :doc:`/api/cli`, and
 
 **Runtime utilities.** New :mod:`xpcsjax.runtime` package providing system
 validation (CPU, RAM, JAX, dependency, template/public-API integrity checks —
-NLSQ-only, no Bayesian probes) and the bash/zsh/fish completion and XLA
-activation assets.
+NLSQ-only, no Bayesian probes) and the bash/zsh completion (fish is a non-fatal
+no-op) and bash/zsh/fish XLA activation assets.
 
 **Breaking change — ``analysis_mode`` taxonomy.** The bare value
 ``analysis_mode: static`` is no longer accepted. It was ambiguous

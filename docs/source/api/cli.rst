@@ -100,7 +100,8 @@ Install / uninstall helpers
 ---------------------------
 
 ``xpcsjax-post-install`` (alias ``xj-post-install``) installs shell completion
-(bash/zsh/fish), XLA activation scripts, and virtual-environment integration.
+(bash/zsh; fish completion is a non-fatal no-op), XLA activation scripts
+(bash/zsh/fish), and virtual-environment integration.
 ``xpcsjax-cleanup`` (alias ``xj-cleanup``) removes everything the post-install
 step created.
 
