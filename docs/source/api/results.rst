@@ -88,13 +88,16 @@ Fallback markers
 
 
 
-NLSQResult (heterodyne path)
-----------------------------
+NLSQResult (heterodyne internal container)
+------------------------------------------
 
-The heterodyne dispatch returns a ``list[NLSQResult]`` — one element per φ
-angle. Its layout mirrors ``OptimizationResult`` for the per-angle subset of
-parameters; see :mod:`xpcsjax.optimization.nlsq.heterodyne_results` for the
-authoritative dataclass definition.
+The heterodyne dispatch returns a single ``OptimizationResult`` (per-angle
+detail under ``nlsq_diagnostics``). Internally, the heterodyne solver adapters
+use a separate ``NLSQResult`` dataclass — physics-first ``[physics | contrast |
+offset]`` — to carry each fit's parameters and diagnostics before they are
+aggregated into that ``OptimizationResult``; see
+:mod:`xpcsjax.optimization.nlsq.heterodyne_results` for the authoritative
+dataclass definition.
 
 Heterodyne-specific results
 ---------------------------

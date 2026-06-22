@@ -10,7 +10,7 @@ constraints that show up everywhere in the codebase:
    XLA passes, and device-count emulation; if any code imports JAX
    before they are set, those settings cannot be undone.
 2. **Importing the package must stay cheap.** JAX itself is slow to
-   import. The six public symbols are lazy-loaded.
+   import. The seven public symbols are lazy-loaded.
 3. **NLSQ owns the trust-region solve; xpcsjax owns the strategy.**
    The upstream ``nlsq`` library provides ``CurveFit``; xpcsjax
    provides memory routing, anti-degeneracy, multistart, CMA-ES
@@ -54,7 +54,7 @@ Subpackage layout
 Lazy public API
 ---------------
 
-:mod:`xpcsjax` exports exactly six names. They are listed in
+:mod:`xpcsjax` exports exactly seven names. They are listed in
 ``_LAZY_EXPORTS`` and resolved on first attribute access by a
 module-level ``__getattr__``:
 
@@ -64,6 +64,7 @@ module-level ``__getattr__``:
         "load_xpcs_data":     "xpcsjax.data",
         "fit_nlsq":           "xpcsjax.optimization.nlsq",
         "ConfigManager":      "xpcsjax.config",
+        "generate_nlsq_plots": "xpcsjax.viz",
         "HomodyneModel":      "xpcsjax.core",
         "HeterodyneModel":    "xpcsjax.core",
         "OptimizationResult": "xpcsjax.optimization.nlsq.results",
@@ -75,7 +76,8 @@ End-to-end call graph
 ---------------------
 
 A typical homodyne fit walks the following path. Heterodyne is similar
-but returns ``list[NLSQResult]`` and consults the
+but packs its per-angle detail into the single returned
+``OptimizationResult`` (under ``nlsq_diagnostics``) and consults the
 ``optimization.nlsq`` sub-block of the YAML.
 
 .. code-block:: text

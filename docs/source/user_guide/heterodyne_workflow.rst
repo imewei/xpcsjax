@@ -14,9 +14,11 @@ homodyne pipeline in three places:
 2. Per-angle scaling is collapsed onto a small, shared set of
    parameters via the xpcsjax per-angle reparameterisation layer,
    making the multi-angle problem identifiable.
-3. The return value of :func:`xpcsjax.optimization.nlsq.fit_nlsq` is a
-   ``list[NLSQResult]`` (one entry per phi-angle group) rather than a
-   single :class:`xpcsjax.optimization.nlsq.results.OptimizationResult`.
+3. :func:`xpcsjax.optimization.nlsq.fit_nlsq` returns a single
+   :class:`xpcsjax.optimization.nlsq.results.OptimizationResult` (as for
+   homodyne); the joint fit's per-angle detail (``chi2_per_angle``,
+   ``contrast_per_angle`` / ``offset_per_angle``) is recorded under
+   ``result.nlsq_diagnostics``.
 
 The two-function path
 ---------------------
@@ -133,10 +135,11 @@ Multi-angle fits
 In the more common multi-angle case, the strata are defined by the
 phi-angle filter (see :doc:`/user_guide/data_loading`). The optimiser
 walks the strata in the order they appear in the data dictionary and
-returns one ``NLSQResult`` per stratum. Each result records its own
-parameters, uncertainties, covariance, and diagnostics — they are not
-shared across strata even though the shared scaling parameters tying
-them together are shared during optimisation.
+returns a single :class:`xpcsjax.optimization.nlsq.results.OptimizationResult`.
+Its ``nlsq_diagnostics`` records each stratum's chi-squared (``chi2_per_angle``)
+and per-angle scaling (``contrast_per_angle`` / ``offset_per_angle``); the 14
+physics parameters are shared across strata, while the per-angle scaling is
+allowed to vary.
 
 A complete heterodyne example
 -----------------------------

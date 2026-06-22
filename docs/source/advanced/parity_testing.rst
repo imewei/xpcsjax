@@ -134,7 +134,8 @@ Heterodyne parity
 Heterodyne baselines are produced by the same script when the
 upstream ``heterodyne`` package is installed in the environment.
 The characterisation tests for two-component fits compare the
-returned ``list[NLSQResult]`` entry-by-entry. The same ``1e-10``
+returned ``OptimizationResult`` angle-by-angle (per-angle entries under
+``nlsq_diagnostics``). The same ``1e-10``
 ``rtol`` applies, although the per-angle chi-squared may differ in
 the least-significant digit because of the angle-stratified chunking
 in :mod:`xpcsjax.optimization.nlsq.strategies` — this is captured

@@ -221,15 +221,15 @@ against ``c2_exp``. For homodyne the forward call is:
    model = HomodyneModel(mode="laminar_flow", q=q, h=h_gap)
    c2_model = model.compute_c2(
        params=jnp.array([D0, alpha, D_offset,
-                         gamma_dot_0, beta_gamma, gamma_dot_offset, phi_0]),
+                         gamma_dot_t0, beta, gamma_dot_t_offset, phi0]),
        phi_angles=phi_angles,
        contrast=0.5,
        offset=1.0,
    )  # shape (n_phi, n_time, n_time)
 
-For heterodyne the multi-angle dispatch returns one
-:class:`xpcsjax.optimization.nlsq.heterodyne_results.NLSQResult` per :math:`\phi` angle;
-see :doc:`heterodyne_model`.
+For heterodyne the multi-angle dispatch returns a single
+:class:`xpcsjax.optimization.nlsq.results.OptimizationResult`, with per-angle
+detail recorded under ``nlsq_diagnostics``; see :doc:`heterodyne_model`.
 
 Fit objective
 -------------

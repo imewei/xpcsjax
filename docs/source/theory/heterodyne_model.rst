@@ -13,9 +13,10 @@ the Siegert relation, following the derivation of [He2025]_ (PNAS 2025
 SI Section F, Equations S-77 through S-98).
 
 This page derives the two-component kernel, lists the 14 physical parameters
-together with the 2 scaling parameters, and describes the multi-angle
-dispatch that returns one :class:`~xpcsjax.optimization.nlsq.heterodyne_results.NLSQResult`
-per :math:`\phi` angle.
+together with the 2 scaling parameters, and describes the multi-angle dispatch,
+which returns a single
+:class:`~xpcsjax.optimization.nlsq.results.OptimizationResult` with per-angle
+detail recorded under ``nlsq_diagnostics``.
 
 Multi-component scattered field
 -------------------------------
@@ -306,13 +307,12 @@ small, shared set of parameters, which is especially useful for heterodyne
 because the oscillatory cross term carries genuine angular signal that the
 controller must not smear into per-angle nuisance variation.
 
-The dispatch returns a Python list of
-:class:`xpcsjax.optimization.nlsq.heterodyne_results.NLSQResult`, one per :math:`\phi`
-angle. Each :class:`~xpcsjax.optimization.nlsq.heterodyne_results.NLSQResult` carries
-the optimised parameter vector for that angle, the residual norm, the
-trust-region diagnostics, and the per-angle scaling that was used. The
-caller is responsible for verifying that the 14 physics parameters agree
-across angles (they should, since they are shared in the joint fit).
+The dispatch returns a single
+:class:`xpcsjax.optimization.nlsq.results.OptimizationResult`. Its
+``nlsq_diagnostics`` records the per-angle chi-squared (``chi2_per_angle``) and
+the per-angle scaling (``contrast_per_angle`` / ``offset_per_angle``) that was
+used; the 14 physics parameters are shared across angles by construction, since
+they are jointly fit.
 
 Oscillatory diagnostics
 -----------------------

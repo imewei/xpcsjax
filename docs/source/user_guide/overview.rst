@@ -48,14 +48,13 @@ The full layout is documented in :doc:`/user_guide/data_loading`.
 
 :func:`xpcsjax.optimization.nlsq.fit_nlsq` consumes that ``dict`` plus a configuration
 reference (a path, a :class:`xpcsjax.config.ConfigManager` instance, or a
-loaded ``dict``) and returns either:
+loaded ``dict``) and returns a single
+:class:`xpcsjax.optimization.nlsq.results.OptimizationResult` for **every**
+analysis mode. For the heterodyne / two-component modes the joint multi-angle
+fit additionally records its per-angle detail (``chi2_per_angle``,
+``contrast_per_angle`` / ``offset_per_angle``) under ``nlsq_diagnostics``.
 
-* an :class:`xpcsjax.optimization.nlsq.results.OptimizationResult` for the homodyne analysis
-  modes, or
-* a ``list[NLSQResult]`` (one entry per phi-angle stratum) for the
-  heterodyne / two-component analysis modes.
-
-Both objects expose the same fitted parameters, uncertainties,
+The result exposes the fitted parameters, uncertainties,
 covariance, reduced :math:`\chi^2`, and a diagnostics trail. See
 :doc:`/user_guide/interpreting_results` for the field-by-field
 walk-through.

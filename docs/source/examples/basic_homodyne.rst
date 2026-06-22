@@ -84,10 +84,10 @@ names is first accessed.
 
     result = fit_nlsq(data, str(config_path))
 
-The :func:`~xpcsjax.optimization.nlsq.fit_nlsq` call returns an
-:class:`~xpcsjax.optimization.nlsq.results.OptimizationResult` for
-homodyne modes (heterodyne returns ``list[NLSQResult]``; see
-:doc:`heterodyne_multiangle`).
+The :func:`~xpcsjax.optimization.nlsq.fit_nlsq` call returns a single
+:class:`~xpcsjax.optimization.nlsq.results.OptimizationResult` for every mode
+(for heterodyne, the per-angle detail is recorded under ``nlsq_diagnostics``;
+see :doc:`heterodyne_multiangle`).
 
 Inspecting the result
 ---------------------

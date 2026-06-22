@@ -4,35 +4,42 @@ Heterodyne Multi-angle Fit (two_component mode)
 .. currentmodule:: xpcsjax
 
 
-Heterodyne XPCS fits resolve a two-component model (reference + sample)
-with shared physics but per-angle scaling factors. Unlike homodyne,
-:func:`~xpcsjax.optimization.nlsq.fit_nlsq` returns a ``list[NLSQResult]`` — one element
-per angle — so iteration over the list is the standard pattern.
+Heterodyne XPCS fits resolve a two-component model (reference + sample) with a
+velocity (flow) term and a time-dependent mixing fraction. The 14 physics
+parameters are shared across angles while per-angle scaling is fit jointly.
+Like homodyne, :func:`~xpcsjax.optimization.nlsq.fit_nlsq` returns a **single**
+:class:`~xpcsjax.optimization.nlsq.results.OptimizationResult`; the joint
+multi-:math:`\phi` fit packs its per-angle detail (``chi2_per_angle``,
+``parameter_names``, ``contrast_per_angle`` / ``offset_per_angle``) into
+:attr:`result.nlsq_diagnostics <xpcsjax.optimization.nlsq.results.OptimizationResult.nlsq_diagnostics>`.
 
-.. important::
+.. note::
 
-   The public :class:`~xpcsjax.core.HeterodyneModel` symbol is still gated
-   by an ``xfail`` marker at the lazy-API boundary (see
-   :doc:`/advanced/lazy_api`). Construction through
+   :class:`~xpcsjax.core.HeterodyneModel` is a fully public lazy export (Phase 6
+   brought it to per-angle-mode parity with homodyne).
    ``HeterodyneModel.from_config(yaml_dict)`` in
-   :mod:`xpcsjax.core.heterodyne_model_stateful` is the supported path
-   for production fits until that gate is lifted in Phase 6.
+   :mod:`xpcsjax.core.heterodyne_model_stateful` is the supported construction
+   path for production fits.
 
 Configuration
 -------------
 
-The crucial detail in a heterodyne YAML is the
-``optimization.nlsq`` block. Heterodyne nests NLSQ tuning options one
-level deeper than homodyne; xpcsjax unwraps this nesting before
-handing the dictionary to the adapter, so omitting the ``nlsq:`` key
-silently turns off optimizer-level overrides.
+The crucial detail in a heterodyne YAML is the ``optimization.nlsq`` block.
+Heterodyne nests NLSQ tuning options one level deeper than homodyne; xpcsjax
+unwraps this nesting before handing the dictionary to the adapter, so omitting
+the ``nlsq:`` key silently turns off optimizer-level overrides.
+
+The 14 physics parameters use the registry's canonical heterodyne names. Note in
+particular ``v_beta`` (the velocity exponent, **not** ``beta``) and ``phi0_het``
+(the heterodyne flow angle in degrees, **not** ``phi0``) — both are renamed in
+``xpcsjax/config/parameter_registry.py`` to disambiguate them from the homodyne
+shear exponent ``beta`` and flow angle ``phi0``.
 
 .. code-block:: yaml
 
     # config_heterodyne.yaml
     analysis_settings:
       analysis_mode: two_component
-      heterodyne_submode: full
 
     experimental_data:
       data_folder_path: ./data/
@@ -47,32 +54,41 @@ silently turns off optimizer-level overrides.
         end_frame: 801
       scattering:
         wavevector_q: 0.0072
-      geometry:
-        stator_rotor_gap: 2.0e6
 
     initial_parameters:
       values:
-        [1.0e3, -1.5, 1.0e2,
-         1.0e-3, 0.0, 0.0,
+        [1.0e4, 0.0, 0.0,
+         1.0e4, 0.0, 0.0,
+         1.0e3, 1.0, 0.0,
+         0.5, 0.0, 0.0, 0.0,
          0.0,
-         0.05, 1.05]
+         0.5, 1.0]
       parameter_names:
-        [D0, alpha, D_offset,
-         gamma_dot_t0, beta, gamma_dot_t_offset,
-         phi0,
+        [D0_ref, alpha_ref, D_offset_ref,
+         D0_sample, alpha_sample, D_offset_sample,
+         v0, v_beta, v_offset,
+         f0, f1, f2, f3,
+         phi0_het,
          contrast, offset]
 
     parameter_space:
       bounds:
-        - {name: D0,                  min: 1.0,    max: 1.0e6}
-        - {name: alpha,               min: -2.0,   max: 2.0}
-        - {name: D_offset,            min: 0.0,    max: 1.0e4}
-        - {name: gamma_dot_t0,        min: 0.0,    max: 1.0}
-        - {name: beta,                min: -2.0,   max: 2.0}
-        - {name: gamma_dot_t_offset,  min: 0.0,    max: 1.0}
-        - {name: phi0,                min: -90.0,  max: 90.0}
-        - {name: contrast,            min: 0.0,    max: 1.0}
-        - {name: offset,              min: 0.5,    max: 1.5}
+        - {name: D0_ref,            min: 1.0,     max: 1.0e6}
+        - {name: alpha_ref,         min: -2.0,    max: 2.0}
+        - {name: D_offset_ref,      min: 0.0,     max: 1.0e4}
+        - {name: D0_sample,         min: 1.0,     max: 1.0e6}
+        - {name: alpha_sample,      min: -2.0,    max: 2.0}
+        - {name: D_offset_sample,   min: 0.0,     max: 1.0e4}
+        - {name: v0,                min: 0.0,     max: 1.0e5}
+        - {name: v_beta,            min: -2.0,    max: 2.0}
+        - {name: v_offset,          min: -1.0e3,  max: 1.0e3}
+        - {name: f0,                min: 0.0,     max: 1.0}
+        - {name: f1,                min: -1.0,    max: 1.0}
+        - {name: f2,                min: 0.0,     max: 100.0}
+        - {name: f3,                min: 0.0,     max: 1.0}
+        - {name: phi0_het,          min: -10.0,   max: 10.0}
+        - {name: contrast,          min: 0.0,     max: 1.0}
+        - {name: offset,            min: 0.5,     max: 1.5}
 
     optimization:
       nlsq:
@@ -89,9 +105,9 @@ silently turns off optimizer-level overrides.
 
 .. warning::
 
-   ``optimization.nlsq`` is **not** the same as the top-level
-   ``nlsq:`` key used by homodyne. Keep the ``optimization:`` parent
-   in heterodyne configs — the heterodyne adapter looks there first.
+   ``optimization.nlsq`` is **not** the same as the top-level ``nlsq:`` key used
+   by homodyne. Keep the ``optimization:`` parent in heterodyne configs — the
+   heterodyne adapter looks there first.
 
 Running the fit
 ---------------
@@ -105,61 +121,56 @@ Running the fit
     config_path = Path("config_heterodyne.yaml")
 
     data = load_xpcs_data(str(config_path))
-    results = fit_nlsq(data, str(config_path))
-    # heterodyne path → list of per-angle NLSQResult
+    result = fit_nlsq(data, str(config_path))
+    # heterodyne path → a single OptimizationResult (per-angle detail in
+    # result.nlsq_diagnostics)
 
-    print(type(results).__name__, len(results))
-    # list 12   (for a 12-angle dataset, say)
+    print(type(result).__name__, float(result.reduced_chi_squared))
+    # OptimizationResult 1.07   (illustrative)
 
-Iterating per angle
--------------------
+Inspecting per-angle results
+----------------------------
 
-Each entry is an
-:class:`~xpcsjax.optimization.nlsq.heterodyne_results.NLSQResult`
-holding the per-angle best parameters, uncertainties, and diagnostics.
+The joint fit's per-angle quality and scaling live under
+``result.nlsq_diagnostics``. The
+:func:`~xpcsjax.optimization.nlsq.heterodyne_views.per_angle_chi2` helper reads
+the ``chi2_per_angle`` entry as an array, and
+:func:`~xpcsjax.optimization.nlsq.heterodyne_views.reconstruct_per_angle_scaling`
+recovers the per-angle ``contrast`` / ``offset``.
 
 .. code-block:: python
 
     import numpy as np
 
+    from xpcsjax.optimization.nlsq.heterodyne_views import per_angle_chi2
+
     phi = np.asarray(data["phi_angles_list"])
+    chi2 = per_angle_chi2(result)  # one entry per angle
 
-    for angle_deg, r in zip(phi, results, strict=True):
-        if not r.success:
-            print(f"phi={float(angle_deg):7.2f}: FAILED ({r.message})")
-            continue
-        print(
-            f"phi={float(angle_deg):7.2f}  "
-            f"chi2_red={float(r.reduced_chi_squared): .4e}  "
-            f"iters={int(r.iterations):4d}  "
-            f"t={float(r.execution_time): .2f}s"
-        )
+    for angle_deg, c in zip(phi, chi2, strict=True):
+        print(f"phi={float(angle_deg):7.2f}  chi2_red={float(c): .4e}")
 
-Cross-angle parameter consistency is the usual sanity check: shared
-physics parameters (e.g. ``D0``, ``alpha``) should agree within their
-reported uncertainties across angles, while per-angle scaling
-parameters (e.g. ``contrast``, ``offset``) are allowed to vary.
+    diag = result.nlsq_diagnostics or {}
+    print("physics params:", diag.get("parameter_names"))
+    print("contrast/angle:", diag.get("contrast_per_angle"))
+    print("offset/angle:  ", diag.get("offset_per_angle"))
 
-.. code-block:: python
-
-    names = ["D0", "alpha", "D_offset"]
-    for k, name in enumerate(names):
-        vals = np.array([float(r.parameters[k]) for r in results if r.success])
-        print(f"{name:>10s}  mean={vals.mean(): .4e}  std={vals.std(): .2e}")
+The 14 shared physics parameters are the same across all angles and are read
+straight off ``result.parameters`` (named in ``diag["parameter_names"]``); only
+the per-angle ``contrast`` / ``offset`` scaling varies with angle.
 
 Per-angle reparameterisation in the multi-angle setting
 -------------------------------------------------------
 
 With many angles, the per-angle scaling space picks up additional null
-directions: angles near ``phi0`` are insensitive, angles in the
+directions: angles near ``phi0_het`` are insensitive, angles in the
 flow-perpendicular direction are dominant. Layer 1
 (:class:`~xpcsjax.optimization.nlsq.per_angle_mode.PerAngleScalingPlan`,
 resolved from ``per_angle_mode`` by
 :func:`~xpcsjax.optimization.nlsq.per_angle_mode.resolve_per_angle_mode`)
 collapses the per-angle scaling onto a small, shared set of parameters
-(``constant`` / ``averaged`` / ``individual``), which absorbs that
-anisotropy cleanly. You will see the controller log entries on each
-angle's ``recovery_actions`` field.
+(``constant`` / ``averaged`` / ``individual``), which absorbs that anisotropy
+cleanly. Controller activity is recorded on ``result.recovery_actions``.
 
 Next steps
 ----------

@@ -301,7 +301,7 @@ The class :class:`xpcsjax.core.HomodyneModel` exposes the kernel through
 
    params = jnp.array([
        D0, alpha, D_offset,
-       gamma_dot_0, beta_gamma, gamma_dot_offset, phi_0,
+       gamma_dot_t0, beta, gamma_dot_t_offset, phi0,
    ])
 
    c2 = model.compute_c2(

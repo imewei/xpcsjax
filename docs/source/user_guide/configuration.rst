@@ -250,9 +250,10 @@ analysis mode determines:
   (:class:`xpcsjax.core.HomodyneModel` or the heterodyne stateful model).
 * Which parameter registry is consulted for bounds and active-parameter
   ordering.
-* Which result type is returned
-  (:class:`xpcsjax.optimization.nlsq.results.OptimizationResult` for homodyne, ``list[NLSQResult]``
-  for heterodyne).
+* Which diagnostics the single returned
+  :class:`xpcsjax.optimization.nlsq.results.OptimizationResult` carries (every
+  mode returns one ``OptimizationResult``; heterodyne adds per-angle detail under
+  ``nlsq_diagnostics``).
 
 Because the dispatch happens at fit time, you can hold one
 :class:`xpcsjax.config.ConfigManager` instance and call :func:`xpcsjax.optimization.nlsq.fit_nlsq` on it

@@ -124,7 +124,8 @@ JAX-native package. Highlights:
 * **Homodyne parity oracle.** Characterisation tests pin xpcsjax's homodyne
   output to upstream ``homodyne`` results at ``rtol=1e-10``.
 * **Heterodyne multi-angle.** Joint per-angle-reparameterised fitting across
-  φ angles with χ²-exact residuals; returns one ``NLSQResult`` per angle.
+  φ angles with χ²-exact residuals; returns a single ``OptimizationResult`` with
+  per-angle detail under ``nlsq_diagnostics``.
 * **NLSQ engine split.** xpcsjax owns strategy routing, the 5-layer
   anti-degeneracy controller, CMA-ES escape, LHS multistart, angle-stratified
   chunking, and shear weighting. NLSQ owns the ``CurveFit`` JIT cache and

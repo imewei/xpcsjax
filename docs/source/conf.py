@@ -124,7 +124,7 @@ suppress_warnings = [
     "myst.xref_missing",
     "autosummary.import_cycle",
     "ref.python",
-    # The six public lazy-loaded symbols are intentionally documented twice:
+    # The seven public lazy-loaded symbols are intentionally documented twice:
     # once at the user-facing ``xpcsjax.<name>`` path (api/public.rst) and
     # once at the canonical backing-module path (api/core.rst etc.). Sphinx
     # 8+ emits `python.duplicate_object` for each pair; suppress it.

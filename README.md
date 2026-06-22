@@ -53,16 +53,20 @@ The YAML config's `analysis_mode` field selects the physics model and parameter 
 | `laminar_flow` | homodyne | Diffusion + sinc-shear | 7 |
 | `two_component` (or `heterodyne`) | heterodyne | Two-component: reference + sample + velocity + mixing | 14 |
 
-For heterodyne (`two_component`) fits, `fit_nlsq` returns a `list[NLSQResult]` (one per
-phi angle, jointly fit). For homodyne modes, it returns a single `OptimizationResult`.
-Two per-angle scaling parameters (`contrast`, `offset`) are appended automatically for
-every azimuthal angle in all modes.
+`fit_nlsq` returns a single `OptimizationResult` for every mode (`result.parameters` is a
+NumPy array). Heterodyne (`two_component`) fits all phi angles jointly and packs the
+multi-angle result into that same object. Two per-angle scaling parameters (`contrast`,
+`offset`) are appended automatically for every azimuthal angle in all modes.
 
 ### Data flow
 
 ```
 YAML config --> XPCSDataLoader(HDF5) --> HomodyneModel / HeterodyneModel --> NLSQ engine --> Results (JSON + NPZ)
 ```
+
+`save_results` (`xpcsjax/service/persist.py`) writes `nlsq_result.json` (fitted
+parameters, uncertainties, χ², diagnostics) and `nlsq_result.npz` (correlation and
+residual arrays) to the configured output directory.
 
 ---
 
@@ -74,25 +78,30 @@ integrals are evaluated **numerically** via cumulative trapezoid on the discrete
 
 ### Homodyne (`static_*`, `laminar_flow`)
 
-Single-component scattering where correlation decay encodes diffusion and shear:
+Single-component scattering where correlation decay encodes diffusion and shear. The
+laminar-flow two-time kernel (xpcsjax `core/physics_nlsq.py`; derived in
+`docs/source/theory/homodyne_model.rst`) is
 
-$$c_2(\vec{q}, t_1, t_2) = 1 + \beta \times [c_1(\vec{q}, t_1, t_2)]^2$$
+$$c_2(\vec{q}, t_1, t_2) = c_{\text{offset}}(\phi) + \beta(\phi)\,\exp\!\left(-q^2\!\int_{t_1}^{t_2} J(t')\,dt'\right)\,\mathrm{sinc}^2\!\left(\frac{q\,h\,\cos(\phi - \phi_0)\,\Gamma(t_1, t_2)}{2\pi}\right)$$
 
-$$c_1(\vec{q}, t_1, t_2) = \exp\left(-q^2 \int_{t_1}^{t_2} J(t')\,dt'\right) \times \mathrm{sinc}\left(\frac{qL\cos(\phi)}{2} \int_{t_1}^{t_2} \dot{\gamma}(t')\,dt'\right)$$
-
-where $\beta$ is the optical contrast and $\phi$ is the angle between the scattering
-vector and the flow direction. Transport and shear follow power-law forms:
+with $\mathrm{sinc}(x) = \sin(\pi x)/(\pi x)$, accumulated strain
+$\Gamma(t_1, t_2) = \int_{t_1}^{t_2}\dot{\gamma}(t)\,dt$, rheometer gap $h$ (instrument
+geometry, **not** fitted), flow angle $\phi_0$, and per-angle scaling $\beta(\phi)$ /
+$c_{\text{offset}}(\phi)$ (the `contrast` / `offset` parameters). The static modes drop
+the shear term ($\mathrm{sinc}^2 \to 1$). Transport and shear follow power-law forms:
 
 $$J(t) = D_0\,t^{\alpha} + D_{\text{offset}} \qquad \dot{\gamma}(t) = \dot{\gamma}_0\,t^{\beta} + \dot{\gamma}_{\text{offset}}$$
 
+Registry parameter names (`xpcsjax/config/parameter_registry.py`) and their defaults:
+
 | Group | Parameter | Description | Default | Units |
 |---|---|---|---|---|
-| Diffusion | `D0` | Diffusion prefactor | 1e4 | Å²/s |
-| | `alpha` | Transport exponent (0 = Wiener, 1 = ballistic) | 0.0 | — |
-| | `D_offset` | Transport rate offset | 0.0 | Å²/s |
-| Shear (`laminar_flow` only) | `gamma_dot_0` | Shear-rate prefactor | 1e-3 | s⁻¹ |
-| | `beta` | Shear-rate exponent (0 = constant shear) | 0.0 | — |
-| | `gamma_dot_offset` | Shear-rate offset | 0.0 | s⁻¹ |
+| Diffusion | `D0` | Diffusion prefactor | 1e3 | Å²/s |
+| | `alpha` | Transport exponent (0 = Wiener, 1 = ballistic) | 0.5 | — |
+| | `D_offset` | Transport rate offset | 10 | Å²/s |
+| Shear (`laminar_flow` only) | `gamma_dot_t0` | Shear-rate prefactor | 0.01 | s⁻¹ |
+| | `beta` | Shear-rate exponent (0 = constant shear) | 0.5 | — |
+| | `gamma_dot_t_offset` | Shear-rate offset | 0.0 | s⁻¹ |
 | Flow angle | `phi0` | Flow angle offset relative to q-vector | 0.0 | degrees |
 | Per-angle scaling | `contrast` | Optical (speckle) contrast | 0.5 | — |
 | | `offset` | Baseline offset | 1.0 | — |
@@ -121,16 +130,21 @@ scaling, $c_2^{\text{model}} = \text{offset} + \text{contrast}\times(C_{\text{re
 Each transport coefficient and the velocity follow power laws, and the sample fraction is
 time-dependent — **14 physics parameters** in five groups:
 
+Registry parameter names (`xpcsjax/config/parameter_registry.py`, canonical order) and
+their defaults:
+
 | Group | Parameters | Rate function | Defaults | Units |
 |---|---|---|---|---|
-| Reference transport (3) | `D0_ref`, `alpha_ref`, `D_offset_ref` | $J_r(t) = D_{0,r}\,t^{\alpha_r} + D_{\text{offset},r}$ | 1e4, 0, 0 | Å²/s^(α+1), —, Å²/s |
-| Sample transport (3) | `D0_sample`, `alpha_sample`, `D_offset_sample` | $J_s(t) = D_{0,s}\,t^{\alpha_s} + D_{\text{offset},s}$ | 1e4, 0, 0 | Å²/s^(α+1), —, Å²/s |
-| Velocity (3) | `v0`, `beta`, `v_offset` | $v(t) = v_0\,t^{\beta} + v_{\text{offset}}$ | 1e3, 0, 0 | Å/s^(β+1), —, Å/s |
-| Sample fraction (4) | `f0`, `f1`, `f2`, `f3` | $f_s(t) = f_0\,\exp\!\big(f_1(t - f_2)\big) + f_3$ | 0.5, 0, 0, 0 | —, s⁻¹, s, — |
-| Flow angle (1) | `phi0` | — | 0 | degrees |
+| Reference transport (3) | `D0_ref`, `alpha_ref`, `D_offset_ref` | $J_r(t) = D_{0,r}\,t^{\alpha_r} + D_{\text{offset},r}$ | 1e4, 0, 0 | Å²/s, —, Å²/s |
+| Sample transport (3) | `D0_sample`, `alpha_sample`, `D_offset_sample` | $J_s(t) = D_{0,s}\,t^{\alpha_s} + D_{\text{offset},s}$ | 1e4, 0, 0 | Å²/s, —, Å²/s |
+| Velocity (3) | `v0`, `v_beta`, `v_offset` | $v(t) = v_0\,t^{\beta} + v_{\text{offset}}$ | 1e3, 1, 0 | Å/s, —, Å/s |
+| Sample fraction (4) | `f0`, `f1`, `f2`, `f3` | $f_s(t) = f_0\,\exp\!\big(f_1(t - f_2)\big) + f_3$ | 0.5, 0, 0, 0 | —, —, —, — |
+| Flow angle (1) | `phi0_het` | — | 0 | degrees |
 
-As with homodyne, 2 per-angle scaling parameters (`contrast`, `offset`) are tracked per
-azimuthal angle but live outside the 14-element physics vector. Per-angle scaling modes
+The velocity exponent is `v_beta` and the flow angle `phi0_het` in the registry —
+deliberately distinct from homodyne's `beta` / `phi0` to avoid name collisions. As with
+homodyne, 2 per-angle scaling parameters (`contrast`, `offset`) are tracked per azimuthal
+angle but live outside the 14-element physics vector. Per-angle scaling modes
 `constant` / `averaged` / `individual` (resolved from `auto`) reach full parity with the
 source heterodyne package's `fit_nlsq_multi_phi`.
 
@@ -138,8 +152,9 @@ source heterodyne package's `fit_nlsq_multi_phi`.
 
 ## What's here in v0.1
 
-- **Data loading** — verbatim port of `homodyne/data/`: HDF5 reader, diagonal
-  correction (mandatory, three methods: basic / statistical / interpolation),
+- **Data loading** — verbatim port of `homodyne/data/`: HDF5 reader with
+  auto-detection of the `aps_old` (legacy APS) and `aps_u` (unified APS-U) formats,
+  diagonal correction (mandatory, three methods: basic / statistical / interpolation),
   multi-level cache (LRU + disk NPZ).
 - **JAX-native NLSQ engine** — `nlsq.CurveFit` (trust-region reflective LM,
   end-to-end on device). **Never** calls `scipy.optimize.least_squares`.
@@ -150,8 +165,9 @@ source heterodyne package's `fit_nlsq_multi_phi`.
   homodyne modes, inert for `two_component`).
 - **Memory-aware strategy routing** — `STANDARD` / `OUT_OF_CORE` /
   `HYBRID_STREAMING` selected adaptively from system RAM via `psutil`.
-- **CMA-ES escape** — auto-triggers when bound `scale_ratio ≥ 1000`.
-  Implementation: `nlsq.CMAESOptimizer` with `evosax` backend + BIPOP restart.
+- **CMA-ES escape** — auto-triggers when the bound scale ratio reaches
+  `cmaes_scale_threshold` (default 1000). Implementation: xpcsjax's `CMAESWrapper`
+  (evosax backend, BIPOP restart strategy).
 - **Multi-angle heterodyne** — full parity with source heterodyne's
   `fit_nlsq_multi_phi`: per-angle scaling modes `constant` / `averaged` /
   `individual` (resolved from `auto`), plus CMA-ES multi-angle path.
@@ -182,21 +198,19 @@ xpcsjax reproduces source-package fits with strong guarantees:
 
 | Gate | Tolerance | Verification |
 |---|---|---|
-| Homodyne static (`static_simon` fixture, 3 params) | `rtol=1e-10` | bit-equivalent |
-| Homodyne laminar (`laminar_c020`, 53 params w/ CMA-ES path) | `rtol=1e-10` | bit-equivalent |
-| Heterodyne joint multi-angle (`two_component_c044`, 14 physics params) | within a few percent; χ² exact; `f0/f2` degeneracy invariant matched | per-parameter |
+| Homodyne static (`static_simon` baseline, 3 params) | `rtol=1e-10` | bit-equivalent |
+| Homodyne laminar (`laminar_c020` baseline, 53 params) | `rtol=1e-10` | bit-equivalent |
+| Heterodyne joint multi-angle (`two_component_c044` baseline, 14 physics params) | χ² exact; per-parameter within a few percent; `f0/f2` degeneracy invariant matched | per-parameter |
 
-Run the slow gates manually:
-
-```bash
-XPCSJAX_RUN_CHARACTERIZATION=1 uv run pytest tests/ -v
-```
-
-The fast suite (68 tests, ~2 s) runs by default:
+Run the default suite — fast, with the maintainer-local live oracles self-skipping:
 
 ```bash
-uv run pytest tests/ --ignore=tests/characterization --ignore=tests/heterodyne/test_two_component_real_data.py -v
+make test
 ```
+
+The homodyne-equivalence characterization gate is a maintainer-local live oracle: it needs
+the upstream `homodyne` package plus the reference datasets, and runs only under
+`make test-full-local` (or with `XPCSJAX_RUN_CHARACTERIZATION=1`).
 
 ---
 
@@ -238,6 +252,19 @@ xpcsjax implements the transport-coefficient framework introduced in:
   number  = {42},
   year    = {2025},
   doi     = {10.1073/pnas.2514216122}
+}
+```
+
+To cite the software itself:
+
+```bibtex
+@software{xpcsjax,
+  author      = {Chen, Wei},
+  title       = {xpcsjax: JAX-native NLSQ fitting for X-ray Photon Correlation Spectroscopy},
+  year        = {2026},
+  version     = {0.1.0},
+  institution = {Argonne National Laboratory},
+  url         = {https://github.com/imewei/xpcsjax}
 }
 ```
 

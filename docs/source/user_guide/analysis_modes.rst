@@ -132,10 +132,12 @@ The fourteen physics parameters cover:
 * Per-angle scaling parameters that, after per-angle reparameterisation,
   collapse into a small, shared set of parameters for multi-angle fits.
 
-Each phi-angle stratum is fit jointly. The return type of
-:func:`xpcsjax.optimization.nlsq.fit_nlsq` in this mode is ``list[NLSQResult]`` — one
-entry per phi-angle group, in the same order as the angle list in the
-input data dictionary.
+Each phi-angle stratum is fit jointly. :func:`xpcsjax.optimization.nlsq.fit_nlsq`
+in this mode returns a single
+:class:`~xpcsjax.optimization.nlsq.results.OptimizationResult`; the per-angle
+detail (``chi2_per_angle``, ``contrast_per_angle`` / ``offset_per_angle``) is
+recorded under ``result.nlsq_diagnostics``, in the same order as the angle list
+in the input data dictionary.
 
 .. note::
 

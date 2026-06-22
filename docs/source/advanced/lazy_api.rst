@@ -1,12 +1,12 @@
 Lazy Public API
 ===============
 
-xpcsjax exposes six public symbols, all resolved lazily through the
+xpcsjax exposes seven public symbols, all resolved lazily through the
 ``_LAZY_EXPORTS`` table and a module-level ``__getattr__`` in
 :mod:`xpcsjax`. The point of the indirection is to keep
-``import xpcsjax`` cheap: JAX, NumPyro-free NLSQ, ``optimistix``, and
-the rest of the heavyweight scientific stack only get imported when a
-user actually touches one of the six names.
+``import xpcsjax`` cheap: JAX, the NLSQ engine, and the rest of the
+heavyweight scientific stack only get imported when a user actually
+touches one of the seven names.
 
 The three pieces of the pattern
 -------------------------------
@@ -20,6 +20,7 @@ The three pieces of the pattern
         "load_xpcs_data":     "xpcsjax.data",
         "fit_nlsq":           "xpcsjax.optimization.nlsq",
         "ConfigManager":      "xpcsjax.config",
+        "generate_nlsq_plots": "xpcsjax.viz",
         "HomodyneModel":      "xpcsjax.core",
         "HeterodyneModel":    "xpcsjax.core",
         "OptimizationResult": "xpcsjax.optimization.nlsq.results",
@@ -34,12 +35,13 @@ path that owns the symbol's real definition.
 .. code-block:: python
 
     __all__ = [
-        "ConfigManager",
-        "HeterodyneModel",
-        "HomodyneModel",
-        "OptimizationResult",
-        "fit_nlsq",
         "load_xpcs_data",
+        "fit_nlsq",
+        "ConfigManager",
+        "generate_nlsq_plots",
+        "HomodyneModel",
+        "HeterodyneModel",
+        "OptimizationResult",
     ]
 
 This must be a **literal list of string literals**, not a derivation
@@ -48,7 +50,7 @@ from ``_LAZY_EXPORTS.keys()``. Pyright's
 static analysers cannot follow comprehensions, ``list()``
 conversions, or any other runtime expression. The literal form is
 the contract that ``from xpcsjax import *`` (discouraged but legal)
-imports exactly these six names and nothing else.
+imports exactly these seven names and nothing else.
 
 3. The ``__getattr__`` hook
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -99,11 +101,11 @@ This matters most for:
 Extending the API
 -----------------
 
-Adding a seventh public symbol requires touching three places:
+Adding an eighth public symbol requires touching three places:
 
 1. **Add an entry to** ``_LAZY_EXPORTS`` with the dotted module path.
-2. **Add the name to** ``__all__`` (literal-list form — alphabetical
-   order, no comprehension).
+2. **Add the name to** ``__all__`` (literal-list form, no
+   comprehension — the two are kept in the same order).
 3. **Expose the symbol from the target submodule.** That is,
    ``getattr(<target_module>, <name>)`` must succeed once the lazy
    import runs.

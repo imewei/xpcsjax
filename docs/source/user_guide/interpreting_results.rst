@@ -4,11 +4,11 @@ Interpreting results
 .. currentmodule:: xpcsjax
 
 
-:func:`xpcsjax.optimization.nlsq.fit_nlsq` returns either a single
-:class:`xpcsjax.optimization.nlsq.results.OptimizationResult` (homodyne) or a ``list[NLSQResult]``
-(heterodyne / two-component). The two types share their public field
-shape; this page documents that shape and explains what each field is
-useful for.
+:func:`xpcsjax.optimization.nlsq.fit_nlsq` returns a single
+:class:`xpcsjax.optimization.nlsq.results.OptimizationResult` for every analysis
+mode (homodyne and heterodyne alike); for heterodyne the joint multi-angle fit
+records its per-angle detail under ``nlsq_diagnostics``. This page documents that
+result shape and explains what each field is useful for.
 
 The result dataclass
 --------------------

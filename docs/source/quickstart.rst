@@ -111,12 +111,14 @@ The second argument can be a path *or* a pre-built
 and re-uses the same YAML you used to load the data; the wrapper instantiates
 ``ConfigManager`` internally.
 
-What you get back depends on ``analysis_mode``:
+Every mode returns a single
+:class:`~xpcsjax.optimization.nlsq.results.OptimizationResult`:
 
-* **Homodyne** (``static``, ``static_isotropic``, ``laminar_flow``): a single
-  :class:`~xpcsjax.optimization.nlsq.results.OptimizationResult`.
-* **Heterodyne** (``two_component``): a list of ``NLSQResult`` objects, one
-  per φ angle from the joint multi-angle fit.
+* **Homodyne** (``static_isotropic``, ``static_anisotropic``, ``laminar_flow``):
+  the fitted physics + per-angle scaling.
+* **Heterodyne** (``two_component``): the joint multi-angle fit, with per-angle
+  detail (``chi2_per_angle``, ``contrast_per_angle`` / ``offset_per_angle``)
+  recorded under ``result.nlsq_diagnostics``.
 
 This is the verbatim dispatch contract in :func:`xpcsjax.optimization.nlsq.fit_nlsq`.
 
