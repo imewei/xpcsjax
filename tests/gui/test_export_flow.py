@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 
 def test_export_copies_figures_to_dest(tmp_path: Path) -> None:
     """export_figures copies *.png/pdf from <result_dir>/plots recursively."""
@@ -85,3 +87,44 @@ def test_export_returns_empty_when_plots_dir_absent(tmp_path: Path) -> None:
 
     assert copied == [], f"expected [], got {copied}"
     # Must not raise — already asserted by getting here
+
+
+pytest.importorskip("PySide6")
+
+
+def test_on_export_figure_routes_through_run_controller(
+    qtbot, monkeypatch, tmp_path: Path
+) -> None:
+    """_on_export_figure shim delegates to RunController; export_figures is called."""
+    import xpcsjax.gui.views.main_window_support.run_controller as rc
+    from xpcsjax.gui.views.main_window import MainWindow
+
+    # Patch dialog + export helper inside the run_controller namespace.
+    monkeypatch.setattr(rc.QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path))
+    monkeypatch.setattr(rc.QMessageBox, "information", lambda *a, **k: None)
+    called: dict[str, bool] = {}
+    def _fake_export(*a, **k):
+        called["ran"] = True
+        return []
+
+    monkeypatch.setattr(rc, "export_figures", _fake_export)
+
+    win = MainWindow()
+    qtbot.addWidget(win)
+
+    # Set up one dataset so add_run works; manually enqueue a run so the sidebar
+    # has a selection and run_by_id returns a result with a result_dir set.
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("analysis_mode: static_isotropic\n", encoding="utf-8")
+    # Suppress real enqueue (would spawn a worker process).
+    monkeypatch.setattr(win._queue, "enqueue", lambda *a, **k: None)
+    win.add_dataset(str(cfg))
+    # Trigger a run to create a FitRun with result_dir set.
+    win._on_run()
+    # The run is now in the project; grab its id and plant it as sidebar selection.
+    run = win._project.datasets[0].runs[0]
+    monkeypatch.setattr(win._sidebar, "current_run_id", lambda: run.run_id)
+
+    win._on_export_figure()
+
+    assert called.get("ran"), "export_figures was not called — shim did not route through RunController"

@@ -19,10 +19,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QDockWidget,
-    QFileDialog,
     QLabel,
     QMainWindow,
-    QMessageBox,
     QPlainTextEdit,
     QStackedWidget,
     QToolBar,
@@ -31,7 +29,6 @@ from PySide6.QtWidgets import (
 
 from xpcsjax.gui.controllers.fit_queue import FitQueueController
 from xpcsjax.gui.error_presenter import present_failure
-from xpcsjax.gui.export import export_figures
 from xpcsjax.gui.project.model import Project
 from xpcsjax.gui.project.persist import load_project, save_project
 from xpcsjax.gui.result_loader import load_result_summary
@@ -40,6 +37,7 @@ from xpcsjax.gui.views.error_dialog import ErrorDialog
 from xpcsjax.gui.views.inspector import InspectorDock
 from xpcsjax.gui.views.main_window_support.project_dialog_handler import ProjectDialogHandler
 from xpcsjax.gui.views.main_window_support.result_presenter import ResultPresenter
+from xpcsjax.gui.views.main_window_support.run_controller import RunController
 from xpcsjax.gui.views.main_window_support.status_manager import StatusManager
 from xpcsjax.gui.views.plots_view import PhiResultsGrid
 from xpcsjax.gui.views.project_panel import ComparisonView, ProjectSidebar
@@ -110,6 +108,7 @@ class MainWindow(QMainWindow):
         self._status_manager = StatusManager(self)
         self._result_presenter = ResultPresenter(self)
         self._dialog_handler = ProjectDialogHandler(self)
+        self._run_controller = RunController(self)
 
         self._build_toolbar()
         self._build_file_menu()
@@ -578,64 +577,13 @@ class MainWindow(QMainWindow):
         return base / "runs" / run_id
 
     def _on_run(self) -> None:
-        dataset_id = self._active_dataset_id
-        if dataset_id is None:
-            self.set_status("pick a config first")
-            return
-        dataset = self._project.dataset_by_id(dataset_id)
-        if dataset is None:
-            self.set_status("pick a config first")
-            return
-        run = self._project.add_run(dataset_id)
-        out_dir = self._per_run_output_dir(dataset.config_path, run.run_id)
-        run.result_dir = str(out_dir)  # durable per-run dir, recorded before enqueue
-        self._queue.enqueue(run.run_id, dataset.config_path, str(out_dir))
-        self._sidebar.set_project(self._project)
+        self._run_controller.on_run()
 
     def _on_cancel(self) -> None:
-        run_id = self._sidebar.current_run_id()
-        if run_id is None:
-            self.set_status("select a run first")
-            return
-        self._queue.cancel(run_id)
+        self._run_controller.on_cancel()
 
     def _on_export_figure(self) -> None:
-        """Export publication figures from the selected run to a user-chosen directory."""
-        run_id = self._sidebar.current_run_id()
-        if run_id is None:
-            self.set_status("select a run first")
-            return
-        found = self._project.run_by_id(run_id)
-        if found is None:
-            self.set_status("select a run first")
-            return
-        _, run = found
-        result_dir = run.result_dir
-        if not result_dir:
-            QMessageBox.information(
-                self,
-                "Export Figure",
-                "No result directory for this run — run the fit first.",
-            )
-            return
-
-        dest = QFileDialog.getExistingDirectory(self, "Export figures to…")
-        if not dest:
-            return  # user cancelled
-
-        copied = export_figures(result_dir, dest)
-        if not copied:
-            QMessageBox.information(
-                self,
-                "Export Figure",
-                "No figures to export — this run produced none.",
-            )
-        else:
-            QMessageBox.information(
-                self,
-                "Export Figure",
-                f"Copied {len(copied)} figure(s) to:\n{dest}",
-            )
+        self._run_controller.on_export_figure()
 
     # --- lifecycle ------------------------------------------------------------
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 — Qt override name
