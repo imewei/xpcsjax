@@ -191,7 +191,7 @@ graphical front-end over the same NLSQ fit path:
 
 It recognises ``--help`` / ``--version`` like the other scripts and forwards
 any remaining arguments to Qt (e.g. ``xpcsjax-gui -platform offscreen`` for a
-headless run). The GUI is an optional extra — ``uv pip install -e ".[gui]"``.
+headless run). The GUI is an optional extra — ``uv pip install "xpcsjax[gui]"``.
 See :doc:`/user_guide/gui` for the full workbench guide.
 
 See :doc:`/api/cli` and :doc:`/api/runtime` for the importable APIs behind

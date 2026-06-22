@@ -28,7 +28,7 @@ PyQtGraph), see :doc:`/installation`:
 
 .. code-block:: shell
 
-   uv pip install -e ".[gui]"
+   uv pip install "xpcsjax[gui]"   # or: pip install "xpcsjax[gui]"
 
 Architecture: the GUI never imports JAX
 ---------------------------------------

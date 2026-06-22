@@ -76,6 +76,11 @@ gui = [
 packaging = [
     "pyinstaller>=6.0",
 ]
+# Everything bundle: all optional extras (runtime features + dev/docs/packaging
+# tooling) in one install, so `xpcsjax[all]` pulls the complete dependency set.
+all = [
+    "xpcsjax[dev,docs,viz-fast,gui,packaging]",
+]
 
 [project.scripts]
 # Full names

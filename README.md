@@ -23,14 +23,34 @@ nonequilibrium dynamics in flowing soft-matter systems.
 
 ## Install
 
+To get every feature and avoid missing-dependency issues, install with the `all` extra
+(pulls every optional dependency — GUI, fast-viz, plus the dev/docs/packaging tooling).
+
+With [uv](https://docs.astral.sh/uv/) (recommended):
+
 ```bash
-uv sync --extra dev
+uv pip install "xpcsjax[all]"
 ```
+
+In a mamba/conda environment — or any other virtualenv (`venv`, `virtualenv`, `pyenv`) —
+use pip:
+
+```bash
+pip install "xpcsjax[all]"
+```
+
+For a minimal core install (NLSQ fitting only, no GUI/fast-viz), drop the extra:
+`uv pip install xpcsjax` or `pip install xpcsjax`. Individual extras are also available:
+`xpcsjax[gui]` (desktop workbench) and `xpcsjax[viz-fast]` (datashader-accelerated plots).
 
 Python 3.12+ required, CPU-only in v0.1 (GPU support is v0.2+). Runtime dependencies are
 managed via `pyproject.toml` and mirror what the source `homodyne` package pins (versions
 of `jax`, `nlsq`, `evosax`, `h5py`, `interpax`, `jaxopt`, `psutil`, `scikit-learn`,
 `tqdm`, etc.).
+
+**From source (development):** clone the repo and use an editable install —
+`uv sync && uv pip install -e ".[dev]"`. See
+[`docs/source/development/contributing.rst`](docs/source/development/contributing.rst).
 
 ---
 

@@ -10,10 +10,44 @@ Requirements
 * A CPU build of JAX. v0.1 sets ``NLSQ_SKIP_GPU_CHECK=1`` and runs CPU-only;
   GPU support is planned for v0.2+.
 
-Quick install (uv, editable)
-----------------------------
+Quick install (uv)
+------------------
 
-From a clone of the repository:
+The recommended installer is `uv <https://docs.astral.sh/uv/>`_. To get every
+feature and avoid missing-dependency issues, install with the ``all`` extra,
+which pulls **every** optional dependency — the ``gui``, ``viz-fast``, ``dev``,
+``docs``, and ``packaging`` extras combined:
+
+.. code-block:: shell
+
+   uv pip install "xpcsjax[all]"
+
+mamba / conda / other virtual environments
+------------------------------------------
+
+Inside an activated ``mamba`` or ``conda`` environment — or any other virtualenv
+(``venv``, ``virtualenv``, ``pyenv``) — install with ``pip``:
+
+.. code-block:: shell
+
+   pip install "xpcsjax[all]"
+
+Either installer pulls the core runtime dependencies declared in
+``pyproject.toml`` (``jax``, ``nlsq``, ``evosax``, ``h5py``, ``interpax``,
+``jaxopt``, ``psutil``, ``scikit-learn``, ``tqdm``, …); the ``all`` extra adds
+the GUI (PySide6 + PyQtGraph), fast-viz (datashader), and the full dev/docs/
+packaging toolchains (pytest, ruff, mypy, Sphinx, PyInstaller, …) on top.
+
+For a **minimal core install** (NLSQ fitting only, no GUI or fast viz), drop the
+extra — ``uv pip install xpcsjax`` / ``pip install xpcsjax``. Individual extras
+can also be requested by name, e.g. ``uv pip install "xpcsjax[gui]"`` or
+``pip install "xpcsjax[viz-fast]"``.
+
+From source (development)
+-------------------------
+
+To contribute or track ``main``, clone the repository and use an editable
+install with the ``dev`` extra:
 
 .. code-block:: shell
 
@@ -54,30 +88,35 @@ want to freeze a standalone app with PyInstaller:
 
 .. code-block:: shell
 
-   uv pip install -e ".[gui]"        # PySide6 + PyQtGraph + pytest-qt
-   xpcsjax-gui                        # launch the workbench
+   uv pip install "xpcsjax[gui]"        # PySide6 + PyQtGraph
+   pip install "xpcsjax[gui]"           # same, inside conda/mamba/other venvs
+   xpcsjax-gui                          # launch the workbench
 
-   uv pip install -e ".[packaging]"  # pyinstaller (frozen-app builds)
+   uv pip install "xpcsjax[packaging]"  # pyinstaller (frozen-app builds)
 
 The GUI process is JAX-free by design and runs every fit in a separate
 ``spawn`` worker; see :doc:`/user_guide/gui` for the architecture and the
 PyInstaller freeze notes.
 
-Why uv?
--------
+Why uv for development?
+-----------------------
+
+For **end users**, ``pip install xpcsjax`` into a conda/mamba/venv environment
+is fully supported — the section above is all you need. The note here only
+concerns *contributing* to xpcsjax from a source clone.
 
 The project's ``CLAUDE.md`` mandates uv as the **single source of truth** for
-dependency management:
+the development dependency graph:
 
 * ``uv.lock`` is the lockfile. Never run a bare ``pip install`` against the
   project venv.
 * The ``Makefile`` auto-detects ``uv`` and prefixes the test/lint/typecheck
   commands with ``uv run`` so they route through ``.venv``.
 
-Pip / Poetry / Conda are all *technically* able to install xpcsjax, but they
-won't reproduce the locked dependency graph. If you must use pip, install
-into a fresh virtualenv from ``pyproject.toml`` and accept that the
-characterisation tests are not guaranteed to be bit-equivalent to the
+Pip / Poetry / Conda are all *technically* able to install the dev environment,
+but they won't reproduce the locked dependency graph. If you must use pip for a
+dev checkout, install into a fresh virtualenv from ``pyproject.toml`` and accept
+that the characterisation tests are not guaranteed to be bit-equivalent to the
 upstream homodyne baselines.
 
 Verifying the install
