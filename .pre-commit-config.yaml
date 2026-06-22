@@ -41,8 +41,8 @@ repos:
       - id: ruff-format
 
   # Security scanning
-  # Note: requires a [tool.bandit] section in pyproject.toml to be configured;
-  # without one, bandit falls back to defaults (still functional).
+  # Reads the [tool.bandit] section in pyproject.toml (via `-c pyproject.toml`),
+  # which sets exclude_dirs and the B101/B110/B403/B404/B603 skip list.
   - repo: https://github.com/PyCQA/bandit
     rev: 1.9.4
     hooks:
@@ -52,27 +52,42 @@ repos:
         exclude: ^tests/
 
   # Type checking
-  # Pre-commit runs mypy in an isolated venv (does NOT see uv.lock), so every
-  # third-party type stub or import-resolvable package used by xpcsjax/ must
-  # be listed here explicitly, or mypy will report missing-import errors.
+  # Pre-commit runs mypy in an isolated venv (does NOT see uv.lock), unlike
+  # CI's `uv run mypy xpcsjax` which checks against the full locked venv. The
+  # [tool.mypy] config sets ignore_missing_imports=true, so an unlisted package
+  # won't raise a missing-import error — but listing the import-resolvable
+  # packages xpcsjax/ imports lets this isolated run resolve their inline types
+  # the same way CI does, keeping the two mypy passes in agreement.
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.19.1
+    # Pinned to match the mypy version uv.lock resolves (CI runs `uv run mypy`).
+    # A stale rev here (older mypy) diverges from CI: e.g. mypy 1.19 flagged a
+    # dict.get(...) chain that 2.1 infers cleanly. Bump in lockstep with uv.lock.
+    rev: v2.1.0
     hooks:
       - id: mypy
-        args: [--config-file=pyproject.toml]
+        # Mirror the CI type gate exactly: `uv run mypy xpcsjax` (ci.yml "Type
+        # check"). Run in package mode against the xpcsjax/ target with
+        # pass_filenames: false, NOT per-changed-file — so the hook and CI
+        # analyze the same import graph and agree. Per-file invocation diverges
+        # (different inference, and it would also pull in scripts/, which is
+        # outside the type contract).
+        pass_filenames: false
+        args: [xpcsjax, --config-file=pyproject.toml]
         additional_dependencies:
           # Type stubs for the third-party libs xpcsjax actually imports.
           - types-psutil>=7.2
           - types-pyyaml>=6.0
           # Real packages so mypy resolves their (inline) types at import time.
+          # Lower bounds mirror the [project] dependencies in pyproject.toml.
           - numpy>=2.3
+          - scipy>=1.17
           - jax>=0.8.2
           - jaxopt>=0.8.3
           - interpax>=0.3.12
           - nlsq>=0.6.10
           - evosax>=0.2.0
           - scikit-learn>=1.6
-        exclude: ^(tests/|docs/)
+          - matplotlib>=3.10
 
   # Markdown formatting
   - repo: https://github.com/executablebooks/mdformat
