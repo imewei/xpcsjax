@@ -35,9 +35,10 @@ def _bootstrap_xla_env(argv: list[str] | None) -> None:
     -----
     JAX reads ``XLA_FLAGS`` exactly once during backend initialization; any
     configuration written after the first ``import jax`` is silently ignored.
-    The xpcsjax package init triggers that first import, so thread-count and
-    disable-JIT flags must be set in ``os.environ`` before
-    ``xpcsjax.cli.args_parser`` is imported.
+    JAX is imported lazily on the first use of a JAX-backed export (e.g. a fit
+    dispatch), not at package import, so thread-count and disable-JIT flags must
+    be written to ``os.environ`` here — at the top of ``main()`` — before any
+    such use.
     """
     raw = list(sys.argv[1:] if argv is None else argv)
 

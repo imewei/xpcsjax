@@ -60,7 +60,12 @@
 - Modify: `xpcsjax/gui/views/plots_view.py` (→ facade), `tests/gui/test_gui_jax_free.py`
 
 **Interfaces:**
-- Produces: every name in the plots_view move table, importable from BOTH its new module and (re-exported) from `xpcsjax.gui.views.plots_view`.
+- Produces: every name in the plots_view move table importable from its new
+  module, and every name in the `__all__` contract (the test-imported/public
+  surface) ALSO re-exported from `xpcsjax.gui.views.plots_view`. The two
+  importerless helpers `_apply_colormap`/`_leading_dim_matches` are NOT in
+  `__all__` and stay importable only from `plots.helpers` (re-exporting them
+  from the facade without `__all__` membership would trip ruff F401).
 
 - [ ] **Step 1: Create the package + move helpers/squares verbatim**
 
@@ -77,9 +82,12 @@ Replace `plots_view.py` body with imports + `__all__`:
 """Facade re-exporting the GUI plot widgets (now in the plots/ subpackage)."""
 from xpcsjax.gui.views.plots.grid import PhiResultsGrid, _PhiSection
 from xpcsjax.gui.views.plots.helpers import (
-    _SCATTER_MAX_POINTS, _apply_colormap, _c2_levels, _leading_dim_matches,
-    _residual_levels, _time_rect,
+    _SCATTER_MAX_POINTS, _c2_levels, _residual_levels, _time_rect,
 )
+# NOTE: `_apply_colormap` and `_leading_dim_matches` are intentionally NOT
+# re-exported here — they have zero importers via `plots_view` and are absent
+# from `__all__`, so importing them would trip ruff F401 (see the `__all__`
+# note below). They remain importable from `plots.helpers` directly.
 from xpcsjax.gui.views.plots.maps import ResidualMapView, TwoTimeMapView
 from xpcsjax.gui.views.plots.residuals import (
     DiagonalResidualView, ResidualHistogramView, ResidualsVsFittedView,

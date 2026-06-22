@@ -1,7 +1,7 @@
 """Post-installation setup for xpcsjax package.
 
 This module provides interactive setup for:
-- Shell completion installation (bash/zsh/fish)
+- Shell completion installation (bash/zsh; fish completion is a non-fatal no-op)
 - XLA_FLAGS configuration
 - Virtual environment integration
 
@@ -345,7 +345,8 @@ def install_completion_activation(
     ``source activate`` without requiring manual shell init changes.
 
     No-ops (returns ``False``) outside a virtual environment. bash, zsh, and an
-    undetectable shell route through the bash activate hook; fish uses its own.
+    undetectable shell route through the bash activate hook; fish is a non-fatal
+    no-op (completion is bash/zsh only), and any other shell is skipped.
 
     Parameters
     ----------
@@ -779,27 +780,30 @@ def interactive_setup() -> None:
             print("Aborted.")
             return
 
-    # Shell completion
+    # Shell completion (bash/zsh only — fish completion is a non-fatal no-op)
     print("\n--- Shell Completion ---")
-    response = input(f"Install {shell} shell completion? [Y/n]: ").strip().lower()
-    if response != "n":
-        success = install_shell_completion(shell, verbose=True)
-        if success:
-            act_success = install_completion_activation(shell, verbose=True)
-            if act_success:
-                print("Shell completion installed and activated!")
-                print("Deactivate and reactivate your venv to load aliases.")
+    if shell == "fish":
+        print("Shell completion is not available for fish (bash/zsh only); skipping.")
+    else:
+        response = input(f"Install {shell} shell completion? [Y/n]: ").strip().lower()
+        if response != "n":
+            success = install_shell_completion(shell, verbose=True)
+            if success:
+                act_success = install_completion_activation(shell, verbose=True)
+                if act_success:
+                    print("Shell completion installed and activated!")
+                    print("Deactivate and reactivate your venv to load aliases.")
+                else:
+                    print("Shell completion installed (activate hook failed).")
+                    env_var = "$CONDA_PREFIX" if is_conda else "$VIRTUAL_ENV"
+                    if shell == "zsh":
+                        print(f"Add to ~/.zshrc: source {env_var}/etc/zsh/xpcsjax-completion.sh")
+                    elif shell == "bash":
+                        print(
+                            f"Add to ~/.bashrc: source {env_var}/etc/bash_completion.d/xpcsjax-completion.sh"
+                        )
             else:
-                print("Shell completion installed (activate hook failed).")
-                env_var = "$CONDA_PREFIX" if is_conda else "$VIRTUAL_ENV"
-                if shell == "zsh":
-                    print(f"Add to ~/.zshrc: source {env_var}/etc/zsh/xpcsjax-completion.sh")
-                elif shell == "bash":
-                    print(
-                        f"Add to ~/.bashrc: source {env_var}/etc/bash_completion.d/xpcsjax-completion.sh"
-                    )
-        else:
-            print("Shell completion installation failed.")
+                print("Shell completion installation failed.")
     print()
 
     # XLA Configuration
