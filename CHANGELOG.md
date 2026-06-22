@@ -11,8 +11,55 @@ the rendered documentation.
 
 ## [Unreleased]
 
+_No unreleased changes yet._
+
+## [0.1.0] - 2026-06-22
+
 ### Added
 
+- Initial consolidated release. xpcsjax v0.1 ports the homodyne and
+  heterodyne NLSQ pipelines into a single JAX-native package.
+- **Unified public API** — seven lazy-loaded symbols:
+  `xpcsjax.data.xpcs_loader.load_xpcs_data`,
+  `xpcsjax.optimization.nlsq.fit_nlsq`,
+  `xpcsjax.config.ConfigManager`,
+  `xpcsjax.core.HomodyneModel`,
+  `xpcsjax.core.HeterodyneModel`,
+  `xpcsjax.optimization.nlsq.results.OptimizationResult`,
+  `xpcsjax.viz.nlsq_plots.generate_nlsq_plots`.
+- **JAX-first with float64.** `JAX_ENABLE_X64=1` is set at package
+  import time; parameters span 6+ orders of magnitude and float32 is
+  unsafe.
+- **Homodyne parity oracle.** Characterisation tests pin xpcsjax's
+  homodyne output to upstream `homodyne` results at `rtol=1e-10`.
+- **Heterodyne multi-angle.** Joint fitting across φ angles with
+  χ²-exact residuals using the per-angle scaling layouts `constant` /
+  `individual` / `auto` (`auto` resolves to `averaged` at `n_phi ≥ 3`,
+  else `individual`); returns a single `OptimizationResult`.
+- **NLSQ engine split.** xpcsjax owns strategy routing, the 5-layer
+  anti-degeneracy controller, CMA-ES escape, LHS multistart,
+  angle-stratified chunking, and shear weighting. NLSQ owns the
+  `CurveFit` JIT cache and the trust-region solve.
+- **Anti-degeneracy controller** with five composable layers: per-angle
+  reparameterisation, hierarchical optimisation, adaptive
+  cross-validation regularisation, gradient-collapse monitoring, and
+  shear-sensitivity weighting.
+- **Memory-aware strategy selection** via
+  `xpcsjax.optimization.nlsq.select_nlsq_strategy` — picks between
+  in-memory, hybrid-streaming, and out-of-core paths based on dataset
+  size and available RAM. (Angle-stratified least squares is a separate
+  ≥1M-point dispatch path.)
+- **Visualization module** (`xpcsjax.viz`) — three public plot
+  functions (`plot_nlsq_fit` 3-panel comparison, `plot_residual_map`
+  4-panel diagnostic, `plot_simulated_data` single-panel theoretical
+  heatmap), orchestrated by `generate_nlsq_plots`. Artifacts are
+  serialised as LZMA-compressed NPZ + JSON under
+  `output_dir/simulated_data/`. Optional Datashader fast path (5–10×
+  per-call speedup; install via `pip install 'xpcsjax[viz-fast]'`)
+  with transparent matplotlib fallback. Parallel multi-process
+  rendering via `multiprocessing.Pool(spawn)`.
+  `xpcsjax.viz.diagnostics.compute_diagonal_overlay_stats` extracts
+  the t₁ = t₂ diagonal from experimental and fitted c² surfaces.
 - **Desktop analysis workbench (GUI)** (`xpcsjax/gui/`). A PySide6 graphical
   front-end registered as the `xpcsjax-gui` / `xj-gui` console script
   (`xpcsjax.gui.app:main`; recognises `--help` / `--version`, forwards the rest
@@ -196,54 +243,6 @@ the rendered documentation.
   modules added since (CLI, runtime, viz, and the new heterodyne NLSQ
   modules), and fixed stale `:mod:`/`:func:`/`:class:` cross-references in the
   user-guide and theory pages so the strict `-W` build is warning-clean.
-
-## [0.1.0]
-
-### Added
-
-- Initial consolidated release. xpcsjax v0.1 ports the homodyne and
-  heterodyne NLSQ pipelines into a single JAX-native package.
-- **Unified public API** — seven lazy-loaded symbols:
-  `xpcsjax.data.xpcs_loader.load_xpcs_data`,
-  `xpcsjax.optimization.nlsq.fit_nlsq`,
-  `xpcsjax.config.ConfigManager`,
-  `xpcsjax.core.HomodyneModel`,
-  `xpcsjax.core.HeterodyneModel`,
-  `xpcsjax.optimization.nlsq.results.OptimizationResult`,
-  `xpcsjax.viz.nlsq_plots.generate_nlsq_plots`.
-- **JAX-first with float64.** `JAX_ENABLE_X64=1` is set at package
-  import time; parameters span 6+ orders of magnitude and float32 is
-  unsafe.
-- **Homodyne parity oracle.** Characterisation tests pin xpcsjax's
-  homodyne output to upstream `homodyne` results at `rtol=1e-10`.
-- **Heterodyne multi-angle.** Joint fitting across φ angles with
-  χ²-exact residuals using the per-angle scaling layouts `constant` /
-  `individual` / `auto` (`auto` resolves to `averaged` at `n_phi ≥ 3`,
-  else `individual`); returns a single `OptimizationResult`.
-- **NLSQ engine split.** xpcsjax owns strategy routing, the 5-layer
-  anti-degeneracy controller, CMA-ES escape, LHS multistart,
-  angle-stratified chunking, and shear weighting. NLSQ owns the
-  `CurveFit` JIT cache and the trust-region solve.
-- **Anti-degeneracy controller** with five composable layers: per-angle
-  reparameterisation, hierarchical optimisation, adaptive
-  cross-validation regularisation, gradient-collapse monitoring, and
-  shear-sensitivity weighting.
-- **Memory-aware strategy selection** via
-  `xpcsjax.optimization.nlsq.select_nlsq_strategy` — picks between
-  in-memory, hybrid-streaming, and out-of-core paths based on dataset
-  size and available RAM. (Angle-stratified least squares is a separate
-  ≥1M-point dispatch path.)
-- **Visualization module** (`xpcsjax.viz`) — three public plot
-  functions (`plot_nlsq_fit` 3-panel comparison, `plot_residual_map`
-  4-panel diagnostic, `plot_simulated_data` single-panel theoretical
-  heatmap), orchestrated by `generate_nlsq_plots`. Artifacts are
-  serialised as LZMA-compressed NPZ + JSON under
-  `output_dir/simulated_data/`. Optional Datashader fast path (5–10×
-  per-call speedup; install via `pip install 'xpcsjax[viz-fast]'`)
-  with transparent matplotlib fallback. Parallel multi-process
-  rendering via `multiprocessing.Pool(spawn)`.
-  `xpcsjax.viz.diagnostics.compute_diagonal_overlay_stats` extracts
-  the t₁ = t₂ diagonal from experimental and fitted c² surfaces.
 
 ### Out of scope (v0.x series)
 

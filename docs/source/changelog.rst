@@ -8,110 +8,12 @@ current release line.
 Unreleased
 ----------
 
-**Desktop analysis workbench (GUI).** A PySide6 graphical front-end launched
-with ``xpcsjax-gui`` (alias ``xj-gui``): Config / Data / Fit tabs, an Inspector
-dock, a live-diagnostics view, interactive PyQtGraph plots, and a
-datasets→runs project sidebar that persists to ``.xpcsproj`` files. The GUI
-process never imports JAX — every fit runs in a separate ``spawn`` worker that
-streams structured progress events back to the UI. Optional install:
-``uv pip install -e ".[gui]"``. See :doc:`/user_guide/gui`.
-
-**Headless core-service layer (``xpcsjax.service``).** The argparse-free,
-Qt-free orchestration seam shared by the CLI and the GUI worker — config
-loading / validation / templates (JAX-free), the streamed fit-event schema
-(JAX-free), and the worker-side data / fit / plot / persistence services. See
-:doc:`/api/service`.
-
-**Heterodyne config bounds overrides (``parameter_space.bounds``).** The
-``two_component`` config loader now honors list-format
-``parameter_space.bounds`` overrides — ``ParameterSpace.from_config`` applies
-them through its ``_apply_parameter_space_bounds`` helper, reaching parity with
-homodyne's ``ParameterManager._load_config_bounds``.
-Previously the heterodyne path silently ignored config bounds and fell back to
-registry defaults, so a narrow default window could clamp a valid warm-start
-(e.g. the C044 creep-flow fit needs ``v_beta ≈ -0.43``, outside the conservative
-``[0, 2]`` registry default). Template/alias names (``v_beta``, ``phi0_het``)
-are translated to their canonical kernel entries (``beta``, ``phi0``) so the
-override lands on the right registry parameter. The registry default for
-``v_beta`` stays ``[0, 2]`` by design — widening it destabilised the non-convex
-engine-route single-angle solve, so configs needing negative exponents must opt
-in explicitly. See :ref:`Overriding bounds (parameter_space.bounds)
-<parameter_space_bounds>`.
-
-**Heterodyne streaming anti-degeneracy (parity gap D closed).** The
-``two_component`` STREAMING tier previously froze the quantile-estimated
-per-angle scaling and ran no anti-degeneracy layers. It now **optimizes** the
-scaling tail (contrast + offset) and runs **L1–L4**, reaching mechanism parity
-with ``laminar_flow`` streaming. The scaling treatment is selected by
-``anti_degeneracy_config.per_angle_mode``, with ``"auto"`` as the default —
-including when ``anti_degeneracy_config`` is absent or ``None`` (no
-"freeze when unconfigured" special case). ``"auto"`` resolves to
-``auto_averaged`` at ``n_phi ≥ constant_scaling_threshold`` (default 3), else
-``individual``; ``per_angle_mode="constant"`` is the explicit frozen-scaling
-opt-out. See :ref:`Streaming anti-degeneracy <streaming_antidegeneracy>`.
-
-**Heterodyne joint global escapes (parity gap C closed).** The heterodyne
-joint CMA-ES (``enable_cmaes=True``) and joint multistart (``multistart=True``)
-escapes are now **real global escapes** over the full ``[physics | scaling]``
-vector — seed-pinned, **keep-better** vs. the plain NLSQ joint fit, and
-**best-effort fall back** to the plain joint fit on failure (reusing the shared
-``fit_with_cmaes`` / ``run_multistart_nlsq``). An escape result is tagged
-``nlsq_diagnostics["global_escape"]`` and, by construction, carries NaN
-covariance / uncertainties and ``n_iterations=0``. See
-:doc:`/theory/heterodyne_anti_degeneracy`.
-
-**Symmetric anti-degeneracy diagnostics.** Both ``laminar_flow`` and
-``two_component`` now emit the same top-level ``nlsq_diagnostics`` activation
-keys (``hierarchical_active``, ``regularization_active``, ``shear_weighting``,
-plus ``gradient_monitor`` when L4 ran) via the shared
-``assemble_anti_degeneracy_diagnostics`` across every dataset-size path, with
-honest per-path values. ``shear_weighting`` is reported as inactive for
-heterodyne by design (L5 is ``laminar_flow``-only — heterodyne's velocity/flow
-term is structurally different from a shear rate).
-
-**Command-line interface.** xpcsjax now ships console scripts (with ``xj``
-short aliases): ``xpcsjax`` runs flag-driven NLSQ fits and standalone
-QC/simulation plots; ``xpcsjax-config`` generates, prints, and validates
-configs from the four mode templates; ``xpcsjax-validate`` checks the
-installation; ``xjexp`` / ``xjsim`` are plotting shortcuts; and
-``xpcsjax-post-install`` / ``xpcsjax-cleanup`` manage shell completion and XLA
-activation scripts. See :doc:`/user_guide/cli`, :doc:`/api/cli`, and
-:doc:`/api/runtime`.
-
-**Runtime utilities.** New :mod:`xpcsjax.runtime` package providing system
-validation (CPU, RAM, JAX, dependency, template/public-API integrity checks —
-NLSQ-only, no Bayesian probes) and the bash/zsh completion (fish is a non-fatal
-no-op) and bash/zsh/fish XLA activation assets.
-
-**Deprecation — ``analysis_mode`` taxonomy.** The bare value
-``analysis_mode: static`` is deprecated. It was ambiguous
-between ``static_isotropic`` (angle-collapsed) and ``static_anisotropic``
-(angle-resolved) and silently collapsed downstream. The canonical set
-is now exactly four modes:
-
-* ``static_isotropic``
-* ``static_anisotropic``
-* ``laminar_flow``
-* ``two_component`` (with ``heterodyne`` accepted as a case-insensitive
-  synonym, normalised to ``two_component`` at config load time)
-
-Configs using ``analysis_mode: static`` are still accepted: the loader
-rewrites the value to ``static_anisotropic`` (preserves angular
-resolution) and emits a deprecation warning. Migrate to one of the
-canonical modes to silence it. See :doc:`/user_guide/analysis_modes`
-for the full description of each mode and the data-preparation
-distinction.
-
-**Internal dead-code cleanup.** Removed code that was unreachable, superseded,
-or never wired into the NLSQ pipeline — the unused ``xpcsjax.core.theory``
-module, the deprecated streaming shims and their dead wrapper caller, a dead
-``_compute_chunk_residuals_raw`` path, a duplicate
-``compute_g2_scaled_with_factors`` (the live copy stays in
-``xpcsjax.core.jax_backend``), and a handful of unused symbols. No behavioural
-change; the full test suite passes. See ``CHANGELOG.md`` for the itemised list.
+*No unreleased changes yet.*
 
 v0.1.0 — initial consolidated release
 -------------------------------------
+
+*Released 2026-06-22.*
 
 xpcsjax v0.1 ports the homodyne and heterodyne NLSQ pipelines into a single
 JAX-native package. Highlights:
@@ -153,6 +55,110 @@ JAX-native package. Highlights:
   ``multiprocessing.Pool(spawn)``. Diagnostic helper
   :func:`~xpcsjax.viz.diagnostics.compute_diagonal_overlay_stats` extracts the
   t₁ = t₂ diagonal from experimental and fitted c² surfaces.
+
+This release also includes:
+
+**Desktop analysis workbench (GUI).** A PySide6 graphical front-end launched
+with ``xpcsjax-gui`` (alias ``xj-gui``): Config / Data / Fit tabs, an Inspector
+dock, a live-diagnostics view, interactive PyQtGraph plots, and a
+datasets→runs project sidebar that persists to ``.xpcsproj`` files. The GUI
+process never imports JAX — every fit runs in a separate ``spawn`` worker that
+streams structured progress events back to the UI. Optional install:
+``uv pip install -e ".[gui]"``. See :doc:`/user_guide/gui`.
+
+**Headless core-service layer (``xpcsjax.service``).** The argparse-free,
+Qt-free orchestration seam shared by the CLI and the GUI worker — config
+loading / validation / templates (JAX-free), the streamed fit-event schema
+(JAX-free), and the worker-side data / fit / plot / persistence services. See
+:doc:`/api/service`.
+
+**Command-line interface.** xpcsjax ships console scripts (with ``xj``
+short aliases): ``xpcsjax`` runs flag-driven NLSQ fits and standalone
+QC/simulation plots; ``xpcsjax-config`` generates, prints, and validates
+configs from the four mode templates; ``xpcsjax-validate`` checks the
+installation; ``xjexp`` / ``xjsim`` are plotting shortcuts; and
+``xpcsjax-post-install`` / ``xpcsjax-cleanup`` manage shell completion and XLA
+activation scripts. See :doc:`/user_guide/cli`, :doc:`/api/cli`, and
+:doc:`/api/runtime`.
+
+**Runtime utilities.** New :mod:`xpcsjax.runtime` package providing system
+validation (CPU, RAM, JAX, dependency, template/public-API integrity checks —
+NLSQ-only, no Bayesian probes) and the bash/zsh completion (fish is a non-fatal
+no-op) and bash/zsh/fish XLA activation assets.
+
+**Heterodyne config bounds overrides (``parameter_space.bounds``).** The
+``two_component`` config loader honors list-format
+``parameter_space.bounds`` overrides — ``ParameterSpace.from_config`` applies
+them through its ``_apply_parameter_space_bounds`` helper, reaching parity with
+homodyne's ``ParameterManager._load_config_bounds``.
+Previously the heterodyne path silently ignored config bounds and fell back to
+registry defaults, so a narrow default window could clamp a valid warm-start
+(e.g. the C044 creep-flow fit needs ``v_beta ≈ -0.43``, outside the conservative
+``[0, 2]`` registry default). Template/alias names (``v_beta``, ``phi0_het``)
+are translated to their canonical kernel entries (``beta``, ``phi0``) so the
+override lands on the right registry parameter. The registry default for
+``v_beta`` stays ``[0, 2]`` by design — widening it destabilised the non-convex
+engine-route single-angle solve, so configs needing negative exponents must opt
+in explicitly. See :ref:`Overriding bounds (parameter_space.bounds)
+<parameter_space_bounds>`.
+
+**Heterodyne streaming anti-degeneracy (parity gap D closed).** The
+``two_component`` STREAMING tier previously froze the quantile-estimated
+per-angle scaling and ran no anti-degeneracy layers. It now **optimizes** the
+scaling tail (contrast + offset) and runs **L1–L4**, reaching mechanism parity
+with ``laminar_flow`` streaming. The scaling treatment is selected by
+``anti_degeneracy_config.per_angle_mode``, with ``"auto"`` as the default —
+including when ``anti_degeneracy_config`` is absent or ``None`` (no
+"freeze when unconfigured" special case). ``"auto"`` resolves to
+``auto_averaged`` at ``n_phi ≥ constant_scaling_threshold`` (default 3), else
+``individual``; ``per_angle_mode="constant"`` is the explicit frozen-scaling
+opt-out. See :ref:`Streaming anti-degeneracy <streaming_antidegeneracy>`.
+
+**Heterodyne joint global escapes (parity gap C closed).** The heterodyne
+joint CMA-ES (``enable_cmaes=True``) and joint multistart (``multistart=True``)
+escapes are now **real global escapes** over the full ``[physics | scaling]``
+vector — seed-pinned, **keep-better** vs. the plain NLSQ joint fit, and
+**best-effort fall back** to the plain joint fit on failure (reusing the shared
+``fit_with_cmaes`` / ``run_multistart_nlsq``). An escape result is tagged
+``nlsq_diagnostics["global_escape"]`` and, by construction, carries NaN
+covariance / uncertainties and ``n_iterations=0``. See
+:doc:`/theory/heterodyne_anti_degeneracy`.
+
+**Symmetric anti-degeneracy diagnostics.** Both ``laminar_flow`` and
+``two_component`` emit the same top-level ``nlsq_diagnostics`` activation
+keys (``hierarchical_active``, ``regularization_active``, ``shear_weighting``,
+plus ``gradient_monitor`` when L4 ran) via the shared
+``assemble_anti_degeneracy_diagnostics`` across every dataset-size path, with
+honest per-path values. ``shear_weighting`` is reported as inactive for
+heterodyne by design (L5 is ``laminar_flow``-only — heterodyne's velocity/flow
+term is structurally different from a shear rate).
+
+**Deprecation — ``analysis_mode`` taxonomy.** The bare value
+``analysis_mode: static`` is deprecated. It was ambiguous
+between ``static_isotropic`` (angle-collapsed) and ``static_anisotropic``
+(angle-resolved) and silently collapsed downstream. The canonical set
+is now exactly four modes:
+
+* ``static_isotropic``
+* ``static_anisotropic``
+* ``laminar_flow``
+* ``two_component`` (with ``heterodyne`` accepted as a case-insensitive
+  synonym, normalised to ``two_component`` at config load time)
+
+Configs using ``analysis_mode: static`` are still accepted: the loader
+rewrites the value to ``static_anisotropic`` (preserves angular
+resolution) and emits a deprecation warning. Migrate to one of the
+canonical modes to silence it. See :doc:`/user_guide/analysis_modes`
+for the full description of each mode and the data-preparation
+distinction.
+
+**Internal dead-code cleanup.** Removed code that was unreachable, superseded,
+or never wired into the NLSQ pipeline — the unused ``xpcsjax.core.theory``
+module, the deprecated streaming shims and their dead wrapper caller, a dead
+``_compute_chunk_residuals_raw`` path, a duplicate
+``compute_g2_scaled_with_factors`` (the live copy stays in
+``xpcsjax.core.jax_backend``), and a handful of unused symbols. No behavioural
+change; the full test suite passes. See ``CHANGELOG.md`` for the itemised list.
 
 Out of scope for v0.1 (and the v0.x series):
 
