@@ -13,8 +13,8 @@
 - **Strictly behavior-preserving.** Plotting/window behavior, signal semantics, and the public API are unchanged. The existing GUI suite is the safety net.
 - **Public + test contracts unchanged.** `MainWindow` (imported by `app.py` + 4 test files) and module-level `_expand_path` stay in `main_window.py`. ALL `_on_*` slots + `_show_result_with_bundle` stay as methods on `MainWindow` (signal wiring connects `self._on_*`; tests call `win._on_run()`/`win._on_create_config()`/`win._on_runs_selected()`/`win._show_result_with_bundle()`). `plots_view.py` re-exports all 10 test/src-imported names.
 - **GUI process stays JAX-free** — no collaborator/plots module imports JAX. `test_gui_jax_free.py` must pass (and gains probes for the new modules).
-- **Collaborators are `QObject` subclasses** parented to the `MainWindow` instance (`super().__init__(main_window)`), holding `self._mw = main_window`. Constructed in `MainWindow.__init__` and stored on `self` BEFORE signal wiring.
-- **Body-move transform:** moving a method body into `Collaborator.method` means copying it verbatim EXCEPT every `self.<x>` reference becomes `self._mw.<x>` (the collaborator reaches `MainWindow` state/methods through the back-ref). `MainWindow.<method>` then becomes a one-line shim `return self._<collab>.<method>(...)` preserving its name/signature.
+- **Collaborators are `QObject` subclasses** parented to the `MainWindow` instance (`super().__init__(main_window)`), holding `self._mw = main_window`. Construct all four **right after `self._inspector = InspectorDock()` (main_window.py:108) and BEFORE `self._build_toolbar()` (main_window.py:110)** — every widget the collaborator bodies touch (`_status`, `_log`, `_results`, `_result_grid`, `_central_stack`, `_sidebar`, `_inspector`) exists by L108, and `_build_toolbar`/`_build_file_menu` wire `self._on_*` slots (the shims), so collaborators must already exist as `self._<collab>`.
+- **Body-move transform (TWO substitutions, not one):** copy the method body verbatim EXCEPT (a) every `self.<x>` reference becomes `self._mw.<x>`, AND (b) every **bare `self`** passed as a Qt parent argument (e.g. `QFileDialog.getExistingDirectory(self, …)`, `CreateConfigDialog(self, …)`, `QMessageBox.question(self, …)`) becomes `self._mw` — a literal `self.`-only rewrite would leave the *collaborator* (a `QObject`, not the window) as the dialog parent, changing dialog ownership. `MainWindow.<method>` then becomes a one-line shim `return self._<collab>.<method>(...)` preserving its name/signature. Note `self._per_run_output_dir(...)` is a *method call* on `MainWindow` that stays there → becomes `self._mw._per_run_output_dir(...)`.
 - Ruff: line-length 100, `E,F,W,I,B,UP,N` + numpydoc `D` gate (`xpcsjax/` only; tests exempt). New modules/classes/public methods need NumPy docstrings; moved methods keep theirs.
 - `uv run mypy xpcsjax` is the HARD CI gate.
 - One commit per task. After moving any function, run `ruff` (F401/F821) + `mypy` on the touched files and fix until clean — the import lists below are a guide, the gates are the safety net.
@@ -64,11 +64,11 @@
 
 - [ ] **Step 1: Create the package + move helpers/squares verbatim**
 
-Create `plots/__init__.py` (one-line docstring). Move into `plots/helpers.py`: `_leading_dim_matches`, `_apply_colormap`, `_time_rect`, `_c2_levels`, `_residual_levels` + the constants `_C2_COLORMAP`, `_RESIDUAL_COLORMAP`, `_SCATTER_MAX_POINTS` (with their imports: `numpy as np`, `pyqtgraph as pg`, `QRectF` from `PySide6.QtCore`, as referenced). Move into `plots/squares.py`: `_SquareBase`, `_SquareAspectMixin`, `_fit_square_view` (with `pyqtgraph as pg` etc.). `squares.py` imports nothing from the plot widgets.
+Create `plots/__init__.py` (one-line docstring). Move into `plots/helpers.py`: `_leading_dim_matches`, `_apply_colormap`, `_time_rect`, `_c2_levels`, `_residual_levels` + the constants `_C2_COLORMAP`, `_RESIDUAL_COLORMAP`, `_SCATTER_MAX_POINTS` (with their imports: `numpy as np`, `pyqtgraph as pg`, `QRectF` from `PySide6.QtCore`, as referenced). Move into `plots/squares.py`: `_SquareBase`, `_SquareAspectMixin`, `_fit_square_view` (with `pyqtgraph as pg` etc.). **`_SquareBase` is a `TYPE_CHECKING` conditional, not a real class** (`plots_view.py:131-135`: `if TYPE_CHECKING: _SquareBase = QWidget` / `else: _SquareBase = object`) — `squares.py` must include `from typing import TYPE_CHECKING` and `if TYPE_CHECKING: from PySide6.QtWidgets import QWidget` so the guard + the `_SquareAspectMixin(_SquareBase)` annotation type-check. `squares.py` imports nothing from the plot widgets.
 
 - [ ] **Step 2: Move the widget classes verbatim**
 
-`plots/maps.py` ← `TwoTimeMapView`, `ResidualMapView`; `plots/residuals.py` ← `ResidualHistogramView`, `DiagonalResidualView`, `ResidualsVsFittedView`; `plots/grid.py` ← `_PhiSection`, `PhiResultsGrid`. Each imports what it uses from `..helpers` / `..squares` (e.g. maps/residuals use `_SquareAspectMixin`, the level/colormap helpers, `_SCATTER_MAX_POINTS`; grid imports the widget classes from `.maps`/`.residuals`). Keep all docstrings.
+`plots/maps.py` ← `TwoTimeMapView`, `ResidualMapView`; `plots/residuals.py` ← `ResidualHistogramView`, `DiagonalResidualView`, `ResidualsVsFittedView`; `plots/grid.py` ← `_PhiSection`, `PhiResultsGrid`. Each imports what it uses: **`maps.py` needs `from ..squares import _SquareAspectMixin, _fit_square_view`** (`_fit_square_view` is called in `TwoTimeMapView.__init__`/`ResidualMapView.__init__`) plus the colormap/level helpers + `_C2_COLORMAP`/`_RESIDUAL_COLORMAP` from `..helpers`; `residuals.py` needs `_SquareAspectMixin` from `..squares` + `_SCATTER_MAX_POINTS`/level helpers from `..helpers`; `grid.py` imports the widget classes from `.maps`/`.residuals` + `_leading_dim_matches` from `..helpers`. (DAG: helpers/squares ← maps/residuals ← grid; no cycle.) Keep all docstrings.
 
 - [ ] **Step 3: Make `plots_view.py` a re-export facade**
 
@@ -99,9 +99,12 @@ __all__ = [
 In `tests/gui/test_gui_jax_free.py` add:
 ```python
 def test_plots_subpackage_is_jax_free():
+    pytest.importorskip("PySide6")
+    pytest.importorskip("pyqtgraph")
     for m in ("helpers", "squares", "maps", "residuals", "grid"):
         assert _probe_import(f"xpcsjax.gui.views.plots.{m}") == 0
 ```
+(Mirror the `importorskip` guards the existing probe tests use — without them `_probe_import` returns non-zero on a missing-Qt env and the test errors instead of skipping.)
 
 - [ ] **Step 5: Run the covering tests**
 
@@ -180,14 +183,15 @@ Keep the `status_text`/`log_text` properties on `MainWindow` (they read the widg
 
 Create `tests/gui/test_status_manager.py` (uses the offscreen-Qt fixture pattern from the other GUI tests — see `tests/gui/conftest.py`):
 ```python
-def test_status_manager_sets_status_and_appends_log(qtbot_or_app_fixture):
+def test_status_manager_sets_status_and_appends_log(qtbot):
     win = MainWindow()
+    qtbot.addWidget(win)
     win.set_status("ready")
-    assert win.status_text == "ready"   # delegates through StatusManager
+    assert win.status_text() == "ready"      # status_text() is a METHOD, delegates via StatusManager
     win.append_log("INFO", "hello")
-    assert "hello" in win.log_text
+    assert "hello" in win.log_text()         # log_text() is a METHOD
 ```
-Adjust the fixture/assertions to the real `status_text`/`log_text` behavior (read `conftest.py` + `test_main_window.py` for the pattern).
+Use the `qtbot` pytest-qt fixture (the pattern in `test_main_window.py` — `conftest.py` only sets `QT_QPA_PLATFORM=offscreen`) and `qtbot.addWidget(win)`. Note `status_text`/`log_text` are **methods** (call with `()`), not properties.
 
 - [ ] **Step 4: Run tests**
 
@@ -218,12 +222,12 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Modify: `xpcsjax/gui/views/main_window.py`
 
 **Interfaces:**
-- Consumes: nothing from Task 2 (independent).
+- Consumes: the `main_window_support/` package created in Task 2 (Tasks 2-5 are **sequential** — they each add a collaborator to the same package and edit the same `MainWindow.__init__` collaborator-construction block; if running a task standalone, create `main_window_support/__init__.py` if absent).
 - Produces: `ResultPresenter(main_window)` (`QObject`) with `show_result(summary)`, `show_error(message)`, `show_inspector(summary)`, and `show_result_with_bundle(summary, result_dir)`. `MainWindow.show_result`/`.show_error`/`.show_inspector`/`._show_result_with_bundle` become shims.
 
 - [ ] **Step 1: Create ResultPresenter**
 
-Create `result_presenter.py` with a `QObject` subclass (same skeleton as StatusManager: `__init__(self, main_window)` → `super().__init__(main_window); self._mw = main_window`). Move the bodies of `show_result` (L250-269), `show_error` (L296-…), `show_inspector` (L380-…), and `_show_result_with_bundle` (L270-295) into methods `show_result`/`show_error`/`show_inspector`/`show_result_with_bundle`, applying `self.`→`self._mw.` (they touch `_result_grid`, `_inspector`, `_results`, `_central_stack`, and call `self.show_result`/`set_status` → `self._mw.show_result`/`self._mw.set_status`). `show_error` must keep using `present_failure` from `xpcsjax.gui.error_presenter` exactly as today. Import what the bodies reference (`present_failure`, `ResultSummary` under `TYPE_CHECKING`, etc.).
+Create `result_presenter.py` with a `QObject` subclass (same skeleton as StatusManager: `__init__(self, main_window)` → `super().__init__(main_window); self._mw = main_window`). Move the bodies of `show_result` (L250-269), `show_error` (L296-…), `show_inspector` (L380-…), and `_show_result_with_bundle` (L270-295) into methods `show_result`/`show_error`/`show_inspector`/`show_result_with_bundle`, applying the body-move transform (`self.X`→`self._mw.X`). Note the actual bodies: `show_result` (L250) is **text-only** (`self._results.setPlainText(...)`); `_show_result_with_bundle` (L270) does the grid routing (`self._result_grid.…`, `self._central_stack.setCurrentIndex(1)`) and calls `self.show_result(...)` for the no-bundle case → after the move that becomes `self._mw.show_result(...)` (which hits the `MainWindow.show_result` shim → back into the presenter — **intentional indirect re-entry; do NOT "simplify" it to a direct `self.show_result` call, which would recurse**); `show_error` (L296) is **text-only** (`self._mw._results.setPlainText(f"FIT FAILED\n\n{message}")`) and does **NOT** use `present_failure` — that is called by `_on_run_failed`, which stays on `MainWindow` (so `present_failure` stays imported in `main_window.py`; do NOT import it into `ResultPresenter`). Import only what these four bodies actually reference (`ResultSummary` under `TYPE_CHECKING`, etc.); run ruff (F401) to confirm no spurious import.
 
 - [ ] **Step 2: Wire + shims**
 
@@ -242,7 +246,7 @@ The run-lifecycle slots that call `self._show_result_with_bundle`/`self.show_ins
 
 - [ ] **Step 3: Focused unit test**
 
-Create `tests/gui/test_result_presenter.py` exercising `show_result` / `show_error` routing through a real `MainWindow` (offscreen Qt). Assert: after `win.show_result(summary)`, `win._central_stack.currentIndex()` reflects the grid (index 1) for a bundle-bearing summary; after `win.show_error("boom")`, `win.result_text`/status reflect the error. Read `test_gui_redesign.py:310` (`_show_result_with_bundle`) and `test_main_window.py` for the real summary shapes + assertions to mirror.
+Create `tests/gui/test_result_presenter.py` (use the `qtbot` fixture + `qtbot.addWidget(win)`). Assert the CORRECT routes: `win.show_result(summary)` is **text-only** → assert `win.result_text()` contains the summary text and `win._central_stack.currentIndex() == 0`; **grid routing** is via `win._show_result_with_bundle(summary, str(tmp_path))` → assert `win._central_stack.currentIndex() == 1`; `win.show_error("boom")` → assert `win.result_text()` contains "FIT FAILED". (`show_result` does NOT switch to the grid — only `_show_result_with_bundle` does.) Mirror the real summary shapes from `test_gui_redesign.py:310` + `test_main_window.py`.
 
 - [ ] **Step 4: Run tests**
 
@@ -286,18 +290,31 @@ In `MainWindow.__init__` add `self._dialog_handler = ProjectDialogHandler(self)`
 def _on_create_config(self) -> None:
     self._dialog_handler.on_create_config()
 ```
-(same for the other six). The menu/button `connect(self._on_create_project)` wiring is unchanged. If `main_window.py` no longer references `CreateConfigDialog`/`QMessageBox` after the moves, remove those now-unused imports from `main_window.py` (ruff F401) — they live in `project_dialog_handler.py` now.
+(same for the other six). The menu/button `connect(self._on_create_project)` wiring is unchanged. The dialog bodies construct dialogs with bare `self` as the Qt parent (`CreateConfigDialog(self, …)`, `QMessageBox.question(self, …)`, `ConfigTextEditorDialog(self, …)`) → per the global body-move rule those bare `self` become `self._mw`. **Run `ruff check xpcsjax/gui/views/main_window.py` and remove every import this task's moves orphaned** — expect `CreateConfigDialog` and `ConfigTextEditorDialog` (used only by `_on_create_config`/`_on_edit_config`) to become unused; `QMessageBox` becomes unused too UNLESS a still-retained method uses it (it is also used by `_on_export_figure`, which moves in Task 5 — so `QMessageBox` may remain until Task 5; let ruff decide). The dialog classes now live in `project_dialog_handler.py`.
 
 - [ ] **Step 3: Repoint the monkeypatch in test_gui_redesign.py**
 
-`test_on_create_config_guards_overwrite_retry_failure` (around L401-451) does `import xpcsjax.gui.views.main_window as mw` then `monkeypatch.setattr(mw, "CreateConfigDialog", _FakeDialog)` and `monkeypatch.setattr(mw.QMessageBox, "question"/"warning", …)`. Since `_on_create_config`'s body now looks up those names in `project_dialog_handler`, change the patches to target that module:
+`test_on_create_config_guards_overwrite_retry_failure` (around L401-451) does
+`import xpcsjax.gui.views.main_window as mw` and references `mw.CreateConfigDialog`
+in **four** ways: the binding patch (`monkeypatch.setattr(mw, "CreateConfigDialog", _FakeDialog)`, L429),
+enum access (`mw.CreateConfigDialog.DialogCode` at L407/412), and
+`mw.QMessageBox.question`/`.warning` patches (L443/446) + `mw.QMessageBox.StandardButton.Yes`.
+Once `CreateConfigDialog`/`QMessageBox` are removed from `main_window.py`, **every
+`mw.CreateConfigDialog` / `mw.QMessageBox` reference in this test breaks**, not just
+the patches. Repoint ALL of them to the handler module:
 ```python
 import xpcsjax.gui.views.main_window_support.project_dialog_handler as pdh
+# binding swap — REQUIRED (name lookup moved to pdh):
 monkeypatch.setattr(pdh, "CreateConfigDialog", _FakeDialog)
+# enum accesses — repoint mw.* -> pdh.*:
+_FakeDialog.DialogCode = pdh.CreateConfigDialog.DialogCode   # was mw.CreateConfigDialog.DialogCode
+# class-method patches — pdh.QMessageBox is the SAME class object as mw.QMessageBox,
+# so these mutate it globally (would work via mw too); use pdh for consistency:
 monkeypatch.setattr(pdh.QMessageBox, "question", …)
 monkeypatch.setattr(pdh.QMessageBox, "warning", …)
+# and pdh.QMessageBox.StandardButton.Yes for the response comparison.
 ```
-The `win._on_create_config()` call at the end is unchanged (it routes through the shim). Assertions unchanged.
+The `win._on_create_config()` call and all assertions are unchanged (it routes through the shim).
 
 - [ ] **Step 4: Run tests**
 
@@ -336,12 +353,27 @@ Create `run_controller.py` (`QObject` skeleton). Move the bodies of `_on_run` (L
 
 - [ ] **Step 2: Wire + shims**
 
-In `MainWindow.__init__` add `self._run_controller = RunController(self)`. Replace the three slot bodies with shims (`def _on_run(self): self._run_controller.on_run()`, etc.). Wiring of these slots to buttons is unchanged.
+In `MainWindow.__init__` add `self._run_controller = RunController(self)`. Replace the three slot bodies with shims (`def _on_run(self): self._run_controller.on_run()`, etc.). Wiring of these slots to buttons is unchanged. **Run `ruff check xpcsjax/gui/views/main_window.py` and remove imports this task orphaned** — `export_figures` (used only by `_on_export_figure`), and `QFileDialog`/`QMessageBox` if no retained method still uses them (they now live in `run_controller.py`).
 
-- [ ] **Step 3: Run tests**
+- [ ] **Step 3: Add a focused `_on_export_figure` test + run tests**
+
+No existing test calls `_on_export_figure` (the export-flow test only exercises `export.export_figures` directly). Add to `tests/gui/test_export_flow.py` (or a new `test_run_controller.py`) a `qtbot` test that monkeypatches the dialog/helper in the `run_controller` namespace and calls the shim:
+```python
+def test_on_export_figure_routes_through_run_controller(qtbot, monkeypatch, tmp_path):
+    import xpcsjax.gui.views.main_window_support.run_controller as rc
+    monkeypatch.setattr(rc.QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path))
+    monkeypatch.setattr(rc.QMessageBox, "information", lambda *a, **k: None)
+    called = {}
+    monkeypatch.setattr(rc, "export_figures", lambda *a, **k: called.setdefault("ran", True))
+    win = MainWindow(); qtbot.addWidget(win)
+    # ... set up an active dataset/run as the other tests do, then:
+    win._on_export_figure()
+    # assert called.get("ran") or the appropriate no-op/guard per the real body
+```
+Adjust to the real `_on_export_figure` guards (read its body for the active-run precondition).
 
 Run: `uv run pytest tests/gui/test_main_window.py tests/gui/test_export_flow.py tests/gui/test_fit_queue.py -q`
-Expected: PASS (`test_main_window.py:105-106` calls `win._on_run()` → shim; export flow unchanged).
+Expected: PASS (`test_main_window.py:105-106` calls `win._on_run()` → shim; export flow unchanged + the new routing test).
 
 - [ ] **Step 4: Lint + type-check**
 
@@ -370,6 +402,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 In `tests/gui/test_gui_jax_free.py` add:
 ```python
 def test_main_window_support_is_jax_free():
+    pytest.importorskip("PySide6")
     for m in ("status_manager", "result_presenter", "project_dialog_handler", "run_controller"):
         assert _probe_import(f"xpcsjax.gui.views.main_window_support.{m}") == 0
 ```
@@ -406,3 +439,37 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 **Type consistency:** `self._status_manager`/`self._result_presenter`/`self._dialog_handler`/`self._run_controller` names used consistently between the wire step and the shims; collaborator method names (`set_status`, `show_result`, `on_create_config`, `on_run`, …) match between their "Produces" blocks and the shims that call them; `_mw` back-ref name uniform across all four collaborators.
 
 **Known judgment call:** the `self.`→`self._mw.` transform is mechanical but pervasive; ruff F821 (undefined name) + mypy + the per-task GUI tests are the net that catches a missed reference. Each task lints/types only its touched files; Task 6 runs the whole suite + `make verify`.
+
+## Review & validation (2026-06-21)
+
+Reviewed by **codex**, **agy**, and a **Claude** agent (all three completed,
+converging). Fixes applied, each verified against code:
+
+- **MAJOR (codex):** the body-move transform must rewrite **bare `self` used as a
+  Qt parent** (`QFileDialog(self,…)`, `CreateConfigDialog(self,…)`,
+  `QMessageBox.question(self,…)`) → `self._mw`, not just `self.<attr>`. Global rule
+  extended (else collaborator becomes the dialog parent).
+- **MAJOR (Claude):** `maps.py` must import `_fit_square_view` from `..squares`
+  (called in the map widgets' `__init__`) — was omitted (`NameError`).
+- **MAJOR (all 3):** `show_error` is text-only and does NOT use `present_failure`
+  (that's in the retained `_on_run_failed`); dropped the spurious
+  `ResultPresenter` import (F401).
+- **MAJOR (codex):** ResultPresenter test asserted the wrong route — `show_result`
+  is text-only; grid routing is `_show_result_with_bundle`. Test skeleton fixed.
+- **MAJOR (all 3):** Task 4 must repoint ALL `mw.CreateConfigDialog`/`mw.QMessageBox`
+  references in the test (binding patch + `DialogCode`/`StandardButton` enum
+  accesses), not just the patches (else `AttributeError` after import removal).
+- **MAJOR (agy):** new JAX-free probe tests need `pytest.importorskip("PySide6"/
+  "pyqtgraph")` guards (else error instead of skip on no-Qt envs).
+- **MAJOR (codex/agy):** construct collaborators after `_inspector` (L108) /
+  before `_build_toolbar` (L110); `squares.py` needs the `TYPE_CHECKING`/`QWidget`
+  guard for the `_SquareBase` conditional.
+- **MINOR:** remove orphaned imports (`CreateConfigDialog`/`ConfigTextEditorDialog`/
+  `export_figures`/`QMessageBox`) via ruff per task; `status_text()`/`log_text()`
+  are **methods** not properties; `qtbot` fixture + `qtbot.addWidget`; Tasks 2-5
+  sequential (shared package); added a focused `_on_export_figure` test; flagged
+  the intentional `show_result_with_bundle → self._mw.show_result` re-entry.
+
+All three confirmed: no plots import cycle, collaborator construction ordering is
+safe, the slot shims preserve signal wiring + direct test calls, and the
+`QObject`-parent design is clean for Qt lifetime.
