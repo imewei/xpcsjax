@@ -183,7 +183,7 @@ source heterodyne package's `fit_nlsq_multi_phi`.
 |---|---|
 | `xpcsjax` / `xj` | Run an XPCS NLSQ fit (and standalone QC / simulation plots) |
 | `xpcsjax-config` | Generate and validate config templates |
-| `xpcsjax-validate` | Validate a config without running a fit |
+| `xpcsjax-validate` | Validate the installation/environment (JAX + float64, deps, templates, CPU/RAM) — not a config file; use `xpcsjax-config --validate` for that |
 | `xjexp` / `xjsim` | Experimental-data / simulated-data plotting shortcuts |
 | `xpcsjax-post-install` | Install shell completion + XLA activation |
 | `xpcsjax-cleanup` | Remove shell completion files |

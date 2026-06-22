@@ -138,8 +138,9 @@ JAX-native package. Highlights:
   shear-sensitivity weighting.
 * **Memory-aware strategy selection** via
   :func:`xpcsjax.optimization.nlsq.select_nlsq_strategy` — picks between
-  in-memory, stratified-least-squares, hybrid-streaming, and out-of-core
-  paths based on dataset size and available RAM.
+  in-memory, hybrid-streaming, and out-of-core paths based on dataset
+  size and available RAM. (Angle-stratified least squares is a separate
+  :math:`\geq` 1M-point dispatch path.)
 * **Visualization module** (``xpcsjax.viz``) — three public plot functions
   (:func:`~xpcsjax.viz.nlsq_plots.plot_nlsq_fit` 3-panel comparison,
   :func:`~xpcsjax.viz.nlsq_plots.plot_residual_map` 4-panel diagnostic,

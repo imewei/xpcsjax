@@ -96,12 +96,11 @@ shear exponent ``beta`` and flow angle ``phi0``.
         ftol: 1.0e-10
         xtol: 1.0e-10
         gtol: 1.0e-10
-        cmaes_escape:
-          enabled: true
-
-    anti_degeneracy:
-      enabled: true
-      per_angle_mode: auto
+        cmaes:
+          enable: true
+        anti_degeneracy:
+          enable: true
+          per_angle_mode: auto
 
 .. warning::
 

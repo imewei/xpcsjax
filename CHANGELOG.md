@@ -216,21 +216,23 @@ the rendered documentation.
   unsafe.
 - **Homodyne parity oracle.** Characterisation tests pin xpcsjax's
   homodyne output to upstream `homodyne` results at `rtol=1e-10`.
-- **Heterodyne multi-angle.** Joint Fourier-reparameterised fitting
-  across φ angles with χ²-exact residuals; returns one `NLSQResult` per
-  angle.
+- **Heterodyne multi-angle.** Joint fitting across φ angles with
+  χ²-exact residuals using the per-angle scaling layouts `constant` /
+  `individual` / `auto` (`auto` resolves to `averaged` at `n_phi ≥ 3`,
+  else `individual`); returns a single `OptimizationResult`.
 - **NLSQ engine split.** xpcsjax owns strategy routing, the 5-layer
   anti-degeneracy controller, CMA-ES escape, LHS multistart,
   angle-stratified chunking, and shear weighting. NLSQ owns the
   `CurveFit` JIT cache and the trust-region solve.
-- **Anti-degeneracy controller** with five composable layers: Fourier /
-  constant reparameterisation, hierarchical optimisation, adaptive
+- **Anti-degeneracy controller** with five composable layers: per-angle
+  reparameterisation, hierarchical optimisation, adaptive
   cross-validation regularisation, gradient-collapse monitoring, and
   shear-sensitivity weighting.
 - **Memory-aware strategy selection** via
   `xpcsjax.optimization.nlsq.select_nlsq_strategy` — picks between
-  in-memory, stratified-least-squares, hybrid-streaming, and
-  out-of-core paths based on dataset size and available RAM.
+  in-memory, hybrid-streaming, and out-of-core paths based on dataset
+  size and available RAM. (Angle-stratified least squares is a separate
+  ≥1M-point dispatch path.)
 - **Visualization module** (`xpcsjax.viz`) — three public plot
   functions (`plot_nlsq_fit` 3-panel comparison, `plot_residual_map`
   4-panel diagnostic, `plot_simulated_data` single-panel theoretical

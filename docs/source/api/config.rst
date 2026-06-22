@@ -13,9 +13,10 @@ ConfigManager
    :members:
 
    The constructor accepts ``config_file`` (path string, default
-   ``"xpcsjax_config.yaml"``) and optional ``config_override`` (a dict that
-   is shallow-merged into the loaded YAML). Both YAML and JSON files are
-   supported via auto-detection.
+   ``"xpcsjax_config.yaml"``) and optional ``config_override`` (an
+   in-memory mapping used *instead* of loading from file — a shallow copy
+   becomes the entire config and ``config_file`` is ignored when it is
+   provided). Both YAML and JSON files are supported via auto-detection.
 
    Calling :func:`xpcsjax.optimization.nlsq.fit_nlsq` with a path-like argument constructs a
    ``ConfigManager`` for you. Pre-build one yourself when you need to

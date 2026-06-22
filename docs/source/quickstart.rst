@@ -168,8 +168,9 @@ The single :func:`~xpcsjax.optimization.nlsq.fit_nlsq` call ran the full xpcsjax
 5. **CMA-ES escape** triggered automatically if the trust-region solve
    plateaued above a threshold (heterodyne only by default).
 6. **Result builder** packed parameters, covariance, χ², and diagnostics
-   into :class:`~xpcsjax.optimization.nlsq.results.OptimizationResult` (or
-   a per-angle list for heterodyne).
+   into a single :class:`~xpcsjax.optimization.nlsq.results.OptimizationResult`
+   (every mode, heterodyne included; heterodyne per-angle detail lives
+   under ``result.nlsq_diagnostics``).
 
 For deeper coverage of any one of those, follow the links above or read
 :doc:`user_guide/nlsq_fitting`.

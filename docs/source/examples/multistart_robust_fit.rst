@@ -87,10 +87,13 @@ NLSQ ``CurveFit`` JIT cache so per-start compile cost is amortised.
 
 .. note::
 
-   ``fit_nlsq_multistart`` does **not** parallelise across starts in
-   v0.1 — the runs are serial. This keeps RAM pressure predictable
-   under the same memory router that
-   :func:`~xpcsjax.optimization.nlsq.fit_nlsq` uses (see :doc:`/advanced/memory_routing`).
+   ``fit_nlsq_multistart`` runs the starts **in parallel by default**:
+   with the default config (``multi_start.n_workers: 0`` → auto =
+   ``min(os.cpu_count(), n_starts)``) it dispatches each start to a
+   spawn-context ``ProcessPoolExecutor``. It falls back to serial only
+   for large datasets (> 500,000 points when ``n_workers > 1``) or when
+   ``n_workers == 1``. Set ``multi_start.n_workers: 1`` to force serial
+   execution and keep RAM pressure predictable.
 
 Inspecting per-start outcomes
 -----------------------------

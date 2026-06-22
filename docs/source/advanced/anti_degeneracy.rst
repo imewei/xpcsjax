@@ -10,9 +10,11 @@ solution is reached.
 
 xpcsjax addresses this with a five-layer controller in
 :mod:`xpcsjax.optimization.nlsq.anti_degeneracy_controller`. The
-controller is constructed by ``make_controller`` from the
-``anti_degeneracy`` section of the YAML config and is consulted on
-every iteration of the fit.
+controller is constructed by the classmethod
+:meth:`AntiDegeneracyController.from_config` (internally via
+``AntiDegeneracyConfig.from_dict``) from the ``anti_degeneracy``
+section of the YAML config, and is consulted on every iteration of the
+fit.
 
 The five layers
 ---------------
@@ -43,14 +45,14 @@ Layer 2 — Hierarchical optimisation
 
 :class:`~xpcsjax.optimization.nlsq.hierarchical.HierarchicalOptimizer`
 
-- **What it does.** Splits the parameter vector into a "fast"
-  inner block (diffusion coefficients) and a "slow" outer block
-  (shear coefficients, contrast/offset). Solves the inner problem
-  to convergence at each outer step, similar in spirit to a
-  block-coordinate descent.
-- **When it activates.** When the controller detects that the
-  active parameter set spans both physics and scaling sub-spaces
-  (typically heterodyne).
+- **What it does.** Two-stage *alternating* (block-coordinate)
+  optimisation between the physical-parameter block and the per-angle
+  scaling block: stage 1 fits the physical parameters with the
+  per-angle scaling frozen, stage 2 fits the per-angle scaling with the
+  physical parameters frozen, iterating to convergence. The split is
+  physics-vs-per-angle, not diffusion-vs-shear.
+- **When it activates.** Default-active for all modes (it is not gated
+  in ``_LAYER_GATES``; only L5 is mode-gated).
 - **What it costs.** Roughly 2× the number of trust-region
   iterations on simple problems; the savings on degenerate problems
   justify it.
@@ -60,41 +62,50 @@ Layer 3 — Adaptive regularisation
 
 :class:`~xpcsjax.optimization.nlsq.adaptive_regularization.AdaptiveRegularizer`
 
-- **What it does.** Adds a Tikhonov-style regularisation term whose
-  strength is set by the smallest singular value of the local
-  Jacobian. As the fit progresses and the Jacobian becomes
-  better-conditioned, the regularisation strength decays.
-- **When it activates.** Whenever the Jacobian condition number
-  exceeds a configurable threshold (default 1e8).
-- **What it costs.** Negligible at well-conditioned iterations; one
-  extra small linear solve at ill-conditioned ones.
+- **What it does.** Adaptive CV-based (coefficient-of-variation)
+  regularisation that penalises the relative spread of the per-angle
+  parameters: ``L_reg = lambda * CV^2 * MSE * n_points`` with
+  ``CV = std(params) / abs(mean(params))``. ``lambda`` is auto-tuned as
+  ``target_contribution / target_cv^2``.
+- **When it activates.** When ``regularization`` is enabled and there
+  is a per-angle scaling tail to constrain. Configured via
+  ``regularization.{mode, lambda, target_cv, target_contribution,
+  max_cv}``.
+- **What it costs.** A small per-iteration penalty term; negligible.
 
 Layer 4 — Gradient collapse monitor
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 :class:`~xpcsjax.optimization.nlsq.gradient_monitor.GradientCollapseMonitor`
 
-- **What it does.** Watches the norm of the cost-function gradient
-  across iterations. If it drops below a threshold without the
-  parameter step converging, the controller declares "gradient
-  collapse" and triggers a recovery action — most commonly the
-  CMA-ES escape (see :doc:`cma_es_escape`).
-- **When it activates.** Anytime; checked at every iteration.
-- **What it costs.** O(n_params) per iteration for the norm; no
-  extra solve.
+- **What it does.** Watches the *ratio*
+  ``norm(grad_physical) / norm(grad_per_angle)`` against
+  ``gradient_ratio_threshold`` (default ``0.01``) over consecutive
+  iterations. On detection it applies a configurable response — one of
+  ``warn`` / ``hierarchical`` / ``reset`` / ``abort`` (default
+  ``hierarchical``). It is strictly diagnostic and does **not** trigger
+  the CMA-ES escape (a separate mechanism, see :doc:`cma_es_escape`).
+- **When it activates.** Checked at every iteration where a solver
+  callback fires; otherwise a post-solve covariance-condition fallback.
+- **What it costs.** O(n_params) per iteration for the gradient ratio;
+  no extra solve.
 
 Layer 5 — Shear sensitivity weighting
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 :class:`~xpcsjax.optimization.nlsq.shear_weighting.ShearSensitivityWeighting`
 
-- **What it does.** Computes a per-angle weight proportional to the
-  squared shear-mode amplitude ``cos^2(2(phi - phi0))``. Angles
-  near ``phi0`` carry little shear information and are down-weighted
-  in the residual so they do not drown the contribution from
-  flow-perpendicular angles.
-- **When it activates.** For ``laminar_flow`` and ``two_component``
-  modes when ``anti_degeneracy.shear_weighting.enabled`` is true.
+- **What it does.** Computes a per-angle weight
+  ``w(phi) = w_min + (1 - w_min) * |cos(phi0 - phi)|^alpha`` (defaults
+  ``alpha = 1``, ``w_min = 0.3``). Angles near ``phi0``
+  (parallel/antiparallel to the flow) carry the most shear-sensitivity
+  information and are *up-weighted*; flow-perpendicular angles
+  (``|cos| ~ 0``) are damped toward ``w_min``. The ``w_min`` floor keeps
+  every angle contributing.
+- **When it activates.** ``laminar_flow`` **only** (gated in
+  ``_LAYER_GATES``), when ``anti_degeneracy.shear_weighting.enable`` is
+  true. ``two_component`` has a structurally different velocity term, so
+  L5 does not transfer to it.
 - **What it costs.** One ``cos`` evaluation per angle per fit;
   trivial.
 
@@ -118,11 +129,9 @@ The controller runs as a sequence:
       │
       ├─► AdaptiveRegularizer.lambda_for(J)
       │
-      ├─► residuals weighted by ShearSensitivityWeighting
+      ├─► residuals weighted by ShearSensitivityWeighting (laminar only)
       │
-      └─► GradientCollapseMonitor.check(grad_norm)
-            │
-            └─[collapse]─► request CMA-ES escape
+      └─► GradientCollapseMonitor.check(grad_ratio)   (diagnostic only)
 
 The order is fixed in :mod:`xpcsjax.optimization.nlsq.anti_degeneracy_controller`; do not
 reorder without re-running the parity tests
@@ -135,22 +144,25 @@ The relevant YAML block:
 
 .. code-block:: yaml
 
-    anti_degeneracy:
-      enabled: true
-      per_angle_mode: auto
-      hierarchical:
-        enabled: true
-        inner_max_iters: 50
-      adaptive_regularization:
-        enabled: true
-        cond_threshold: 1.0e8
-      gradient_collapse:
-        enabled: true
-        grad_norm_threshold: 1.0e-8
-      shear_weighting:
-        enabled: true
+    optimization:
+      nlsq:
+        anti_degeneracy:
+          enable: true
+          per_angle_mode: auto
+          hierarchical:
+            enable: true
+            max_outer_iterations: 10
+          regularization:
+            enable: true
+            target_cv: 0.10
+          gradient_monitoring:
+            enable: true
+            ratio_threshold: 0.01
+            response: hierarchical
+          shear_weighting:
+            enable: true
 
-Setting ``anti_degeneracy.enabled: false`` disables all five layers.
+Setting ``anti_degeneracy.enable: false`` disables all five layers.
 This is useful for parity tests against the unmodified trust-region
 solve but not recommended for production fits.
 

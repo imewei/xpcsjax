@@ -75,10 +75,12 @@ is surfaced on
 Implementation pieces
 ---------------------
 
-:class:`~xpcsjax.optimization.nlsq.NLSQMemoryManager`
-    The owner of the threshold computation and the strategy
-    selector. One per process; obtained via
-    :func:`~xpcsjax.optimization.nlsq.get_memory_manager`.
+``select_nlsq_strategy`` / ``get_adaptive_memory_threshold`` / ``estimate_peak_memory_gb``
+    The module-level functions in
+    :mod:`xpcsjax.optimization.nlsq.memory` that own xpcsjax's threshold
+    computation and strategy selection. (``NLSQMemoryManager`` and
+    ``get_memory_manager`` are re-exports of the upstream
+    ``nlsq.caching`` cache manager, not xpcsjax's routing logic.)
 
 :func:`~xpcsjax.optimization.nlsq.detect_total_system_memory`
     Wraps ``psutil.virtual_memory().total`` with a fallback to a

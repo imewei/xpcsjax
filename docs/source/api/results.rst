@@ -41,7 +41,7 @@ The homodyne path of :func:`xpcsjax.optimization.nlsq.fit_nlsq` returns a single
      - ``chi_squared / (n_data - n_params)``.
    * - ``convergence_status``
      - ``str``
-     - One of ``'converged'``, ``'max_iter'``, ``'failed'``.
+     - One of ``'converged'``, ``'max_iter'``, ``'failed'``, ``'partial'``.
    * - ``iterations``
      - ``int``
      - Number of NLSQ iterations used.

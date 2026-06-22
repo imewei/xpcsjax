@@ -63,11 +63,13 @@ A representative seven-parameter config:
           - {min_angle: 170.0, max_angle: 190.0}
         fallback_to_all_angles: true
 
-    anti_degeneracy:
-      enabled: true
-      per_angle_mode: auto
-      shear_weighting:
-        enabled: true
+    optimization:
+      nlsq:
+        anti_degeneracy:
+          enable: true
+          per_angle_mode: auto
+          shear_weighting:
+            enable: true
 
 .. note::
 
@@ -146,8 +148,10 @@ layers that matter most here are:
   so weakly constrained per-angle directions no longer inflate the
   condition number of the trust-region solve.
 - :class:`~xpcsjax.optimization.nlsq.shear_weighting.ShearSensitivityWeighting`
-  applies a per-angle weight derived from ``cos(2(phi - phi0))`` so
-  that low-sensitivity angles contribute less to the Jacobian.
+  applies a per-angle weight ``w_min + (1 - w_min) * |cos(phi0 - phi)|^alpha``
+  (single-angle ``|cos(phi0 - phi)|``, no double-angle term) so that
+  low-sensitivity (flow-perpendicular) angles contribute less to the
+  Jacobian.
 
 Audit trail
 ~~~~~~~~~~~

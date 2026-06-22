@@ -116,7 +116,7 @@ but does NOT rename parameter keys automatically.
 |---|---|
 | `homodyne` returned `OptimizationResult` (numpy params array, chi_squared, convergence_status) | Same `OptimizationResult` in `xpcsjax.optimization.nlsq.results` |
 | `heterodyne` returned `NLSQResult` (parameters, parameter_names, success, message, uncertainties, ...) | `NLSQResult` ported as `xpcsjax.optimization.nlsq.heterodyne_results.NLSQResult` |
-| Heterodyne multi-angle fits returned `list[NLSQResult]` | Same — `fit_nlsq` returns `list[NLSQResult]` for `two_component` mode |
+| Heterodyne multi-angle fits returned `list[NLSQResult]` | Changed — `fit_nlsq` returns a single `OptimizationResult` for `two_component` mode; per-angle detail (`chi2_per_angle`, scaling) lives under `result.nlsq_diagnostics` |
 
 ---
 

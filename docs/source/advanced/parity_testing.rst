@@ -131,20 +131,18 @@ What you must **not** do:
 Heterodyne parity
 -----------------
 
-Heterodyne baselines are produced by the same script when the
-upstream ``heterodyne`` package is installed in the environment.
-The characterisation tests for two-component fits compare the
-returned ``OptimizationResult`` angle-by-angle (per-angle entries under
-``nlsq_diagnostics``). The same ``1e-10``
-``rtol`` applies, although the per-angle chi-squared may differ in
-the least-significant digit because of the angle-stratified chunking
-in :mod:`xpcsjax.optimization.nlsq.strategies` — this is captured
-explicitly in the test with an ``atol=1e-12``.
+Heterodyne fits a different model from homodyne, so it is **not** held to
+the byte-exact ``rtol=1e-10`` characterisation oracle. There is no
+heterodyne baseline generator and no ``XPCSJAX_RUN_HETERODYNE`` flag.
+Instead, heterodyne parity is a **mechanism + objective** contract:
 
-Heterodyne parity is currently gated by the same
-``XPCSJAX_RUN_CHARACTERIZATION=1`` flag and additionally by
-``XPCSJAX_RUN_HETERODYNE=1`` to allow homodyne-only baseline runs
-during the mid-port phase.
+- The availability-gated real-data oracle
+  ``tests/heterodyne/test_two_component_real_data.py`` runs the
+  two-component fit against the C044 dataset whenever that data is
+  present, and skips cleanly otherwise.
+- Per-angle-mode parity (``constant`` / ``averaged`` / ``individual``) is
+  asserted as **no-worse SSR** (engine SSR :math:`\leq` production SSR
+  within ~1e-3), not bit-identity.
 
 Workflow summary
 ----------------

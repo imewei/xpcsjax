@@ -135,12 +135,11 @@ overlay it on the data at one ``phi`` slice.
     import matplotlib.pyplot as plt
     import numpy as np
 
-    from xpcsjax import HomodyneModel
-
     cm = ConfigManager(str(config_path))
     cm.load_config()
-    model_cfg = cm.get_model()
-    model = HomodyneModel(model_cfg)
+    # get_model() returns the physics model instance (a CombinedModel for
+    # the homodyne modes); use it directly — it exposes compute_c2.
+    model = cm.get_model()
 
     phi = np.asarray(data["phi_angles_list"])
     c2_exp = np.asarray(data["c2_exp"])

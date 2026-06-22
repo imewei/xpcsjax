@@ -53,13 +53,13 @@ layout is required:
    result.parameters = [c_0 … c_{n-1}, o_0 … o_{n-1}, physical_0 … physical_13]
 
 This layout is produced when fitting with ``per_angle_mode="individual"``.
-Results from ``constant`` or ``averaged`` modes (including ``auto`` when it
-resolves to non-individual) will raise :class:`NotImplementedError` at render
-time with a message identifying the parameter-count mismatch.
-
-To plot a heterodyne fit from a non-individual mode, refit with
-``per_angle_mode="individual"`` or use the upstream ``heterodyne`` package.
-Full mode parity is scheduled for v0.2.
+The orchestrator also supports the ``averaged`` (including ``auto`` when it
+resolves to ``averaged``) and reconstructable ``constant`` layouts,
+reconstructing the per-angle scaling as needed. A
+:class:`NotImplementedError` is raised only for a genuinely
+unsupported/unreconstructable layout — e.g. a physics-only parameter
+vector with no ``per_angle_mode`` / ``constant`` diagnostics to
+reconstruct the scaling from.
 
 .. _viz-datashader:
 
