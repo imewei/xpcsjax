@@ -401,15 +401,15 @@ def test_close_project_tears_down_active_worker(qtbot):
 def test_on_create_config_guards_overwrite_retry_failure(qtbot, tmp_path, monkeypatch):
     """A write failure during the overwrite retry must surface as a warning,
     not escape the create-config slot."""
-    import xpcsjax.gui.views.main_window as mw
+    import xpcsjax.gui.views.main_window_support.project_dialog_handler as pdh
 
     win = _window(qtbot)
-    accepted = int(mw.CreateConfigDialog.DialogCode.Accepted)
+    accepted = int(pdh.CreateConfigDialog.DialogCode.Accepted)
 
     class _FakeDialog:
         # Production resolves ``CreateConfigDialog.DialogCode.Accepted`` on the
         # patched name, so the stand-in must expose the real enum.
-        DialogCode = mw.CreateConfigDialog.DialogCode
+        DialogCode = pdh.CreateConfigDialog.DialogCode
 
         def __init__(self, *a, **k):
             pass
@@ -426,7 +426,7 @@ def test_on_create_config_guards_overwrite_retry_failure(qtbot, tmp_path, monkey
         def generation_kwargs(self):
             return {}
 
-    monkeypatch.setattr(mw, "CreateConfigDialog", _FakeDialog)
+    monkeypatch.setattr(pdh, "CreateConfigDialog", _FakeDialog)
 
     calls = {"n": 0}
 
@@ -440,10 +440,12 @@ def test_on_create_config_guards_overwrite_retry_failure(qtbot, tmp_path, monkey
 
     warned = {"v": False}
     monkeypatch.setattr(
-        mw.QMessageBox, "question", staticmethod(lambda *a, **k: mw.QMessageBox.StandardButton.Yes)
+        pdh.QMessageBox,
+        "question",
+        staticmethod(lambda *a, **k: pdh.QMessageBox.StandardButton.Yes),
     )
     monkeypatch.setattr(
-        mw.QMessageBox, "warning", staticmethod(lambda *a, **k: warned.__setitem__("v", True))
+        pdh.QMessageBox, "warning", staticmethod(lambda *a, **k: warned.__setitem__("v", True))
     )
 
     win._on_create_config()  # must NOT raise

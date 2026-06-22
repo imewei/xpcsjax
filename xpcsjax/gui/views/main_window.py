@@ -36,9 +36,9 @@ from xpcsjax.gui.project.model import Project
 from xpcsjax.gui.project.persist import load_project, save_project
 from xpcsjax.gui.result_loader import load_result_summary
 from xpcsjax.gui.theme import repolish
-from xpcsjax.gui.views.config_dialogs import ConfigTextEditorDialog, CreateConfigDialog
 from xpcsjax.gui.views.error_dialog import ErrorDialog
 from xpcsjax.gui.views.inspector import InspectorDock
+from xpcsjax.gui.views.main_window_support.project_dialog_handler import ProjectDialogHandler
 from xpcsjax.gui.views.main_window_support.result_presenter import ResultPresenter
 from xpcsjax.gui.views.main_window_support.status_manager import StatusManager
 from xpcsjax.gui.views.plots_view import PhiResultsGrid
@@ -109,6 +109,7 @@ class MainWindow(QMainWindow):
         self._inspector = InspectorDock()
         self._status_manager = StatusManager(self)
         self._result_presenter = ResultPresenter(self)
+        self._dialog_handler = ProjectDialogHandler(self)
 
         self._build_toolbar()
         self._build_file_menu()
@@ -545,84 +546,25 @@ class MainWindow(QMainWindow):
 
     # --- user actions ---------------------------------------------------------
     def _on_create_project(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Create / choose project directory")
-        if path:
-            self.create_project(path)
+        self._dialog_handler.on_create_project()
 
     def _on_create_config(self) -> None:
-        dialog = CreateConfigDialog(self, default_dir=self._project_dir or self._output_dir)
-        if dialog.exec() != int(CreateConfigDialog.DialogCode.Accepted):
-            return
-        output_path = dialog.output_path()
-        if not output_path:
-            QMessageBox.information(self, "Create Config", "No output path was given.")
-            return
-        mode = dialog.selected_mode()
-        try:
-            kwargs = dialog.generation_kwargs()
-        except ValueError as exc:
-            QMessageBox.warning(self, "Create Config", f"Invalid input:\n{exc}")
-            return
-        try:
-            self.create_config(mode, output_path, overwrite=False, **kwargs)
-        except FileExistsError:
-            resp = QMessageBox.question(
-                self,
-                "Create Config",
-                f"{output_path} exists. Overwrite?",
-            )
-            if resp == QMessageBox.StandardButton.Yes:
-                # The overwrite retry can itself fail (permission denied, disk
-                # full, read-only FS) — guard it so the error surfaces as a
-                # warning instead of escaping the slot through the event loop.
-                try:
-                    self.create_config(mode, output_path, overwrite=True, **kwargs)
-                except (ValueError, FileNotFoundError, OSError) as exc:
-                    QMessageBox.warning(self, "Create Config", f"Could not create config:\n{exc}")
-        except (ValueError, FileNotFoundError, OSError) as exc:
-            # OSError covers write failures on the initial create (FileExistsError,
-            # an OSError subclass, is caught above first so its overwrite prompt
-            # still runs).
-            QMessageBox.warning(self, "Create Config", f"Could not create config:\n{exc}")
+        self._dialog_handler.on_create_config()
 
     def _on_edit_config(self) -> None:
-        start_dir = str(self._project_dir) if self._project_dir else ""
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Edit config", start_dir, "YAML configs (*.yaml *.yml)"
-        )
-        if path:
-            ConfigTextEditorDialog(path, self).exec()
+        self._dialog_handler.on_edit_config()
 
     def _on_load_config(self) -> None:
-        start_dir = str(self._project_dir) if self._project_dir else ""
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Load config", start_dir, "YAML configs (*.yaml *.yml)"
-        )
-        if path:
-            self.add_dataset(path)
+        self._dialog_handler.on_load_config()
 
     def _on_save_project(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save Project", "", "xpcsjax project (*.xpcsproj);;All files (*)"
-        )
-        if path:
-            self.save_project_to(path)
+        self._dialog_handler.on_save_project()
 
     def _on_open_project(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Open Project", "", "xpcsjax project (*.xpcsproj);;All files (*)"
-        )
-        if path:
-            self.open_project_from(path)
+        self._dialog_handler.on_open_project()
 
     def _on_close_project(self) -> None:
-        resp = QMessageBox.question(
-            self,
-            "Close Project",
-            "Close the current project? Unsaved results will be cleared.",
-        )
-        if resp == QMessageBox.StandardButton.Yes:
-            self.close_project()
+        self._dialog_handler.on_close_project()
 
     def _per_run_output_dir(self, config_path: str, run_id: str) -> Path:
         """Return a unique output dir for one run: ``<base>/runs/<run_id>``.
