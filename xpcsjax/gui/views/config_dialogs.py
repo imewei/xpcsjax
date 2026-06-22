@@ -31,9 +31,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-# The four production analysis modes, mirroring config_generator._MODE_TO_TEMPLATE.
+# The four production analysis modes, mirroring config_template._MODE_TO_TEMPLATE.
 # Duplicated as a literal (not imported) so this view stays import-light and
-# JAX-free; config_generator validates the mode again at generation time.
+# JAX-free; config_template validates the mode again at generation time.
 ANALYSIS_MODES: tuple[str, ...] = (
     "static_anisotropic",
     "static_isotropic",

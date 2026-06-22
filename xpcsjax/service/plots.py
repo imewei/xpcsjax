@@ -65,7 +65,7 @@ def generate_plots(
     pathlib.Path or None
         ``plots_dir`` on success, or ``None`` if the model cannot be built or
         rendering raises. Failures are logged at WARNING and never re-raised
-        (mirrors the legacy ``_generate_post_fit_plots`` helper).
+        (mirrors ``cli.plot_families.postfit._generate_post_fit_plots``).
     """
     import matplotlib
 

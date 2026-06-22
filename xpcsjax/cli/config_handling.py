@@ -20,6 +20,11 @@ import argparse
 from pathlib import Path
 from typing import Any
 
+try:
+    import yaml as _yaml
+except ImportError:  # pragma: no cover
+    _yaml = None  # type: ignore[assignment]
+
 from xpcsjax.config.manager import ConfigManager
 from xpcsjax.utils.logging import get_logger
 
@@ -105,7 +110,19 @@ def load_and_merge_config(
         Configuration manager holding the merged effective config.
     """
     logger.info("Loading configuration from %s", yaml_path)
-    config_manager = ConfigManager(str(yaml_path))
+    # Pre-validate YAML syntax so that a malformed file raises with the path
+    # named rather than silently falling back to ConfigManager defaults.
+    _yaml_path = Path(yaml_path)
+    if _yaml_path.suffix.lower() in (".yaml", ".yml") and _yaml is not None:
+        try:
+            with _yaml_path.open(encoding="utf-8") as _f:
+                _yaml.safe_load(_f)
+        except Exception as e:
+            raise ValueError(f"Failed to load config from {yaml_path}: {e}") from e
+    try:
+        config_manager = ConfigManager(str(yaml_path))
+    except Exception as e:
+        raise ValueError(f"Failed to load config from {yaml_path}: {e}") from e
     apply_cli_overrides(config_manager, cli_args)
     return config_manager
 
@@ -145,17 +162,21 @@ def apply_cli_overrides(
         config["analysis_mode"] = cli_mode
         if old_mode != cli_mode:
             logger.info("CLI override: analysis_mode = %s (was %s)", cli_mode, old_mode)
-        # Re-normalize after mutation
-        try:
-            config_manager._normalize_analysis_mode()
-        except AttributeError:  # pragma: no cover
-            pass
+        # Re-normalize after mutation.
+        # Defensive: lightweight config-manager doubles may omit this private method.
+        _normalize = getattr(config_manager, "_normalize_analysis_mode", None)
+        if callable(_normalize):  # pragma: no cover
+            _normalize()
 
     # --- output dir override ---
     # Canonical schema (per the shipped templates) is ``output.directory``.
     if getattr(args, "output", None) is not None:
         out = config.setdefault("output", {})
-        if not isinstance(out, dict):  # pragma: no cover — defensive
+        if not isinstance(out, dict):
+            logger.warning(
+                "config 'output' expected a mapping, got %s; resetting to {}",
+                type(out).__name__,
+            )
             out = {}
             config["output"] = out
         old = out.get("directory")

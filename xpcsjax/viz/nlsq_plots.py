@@ -501,7 +501,7 @@ def _evaluate_c2_per_angle(
         # CombinedModel that ``make_model`` returns for static_*/laminar_flow
         # does not, so drive its ``compute_g2`` with q/L/dt from the config and
         # the data's time grids (``compute_g2`` applies ``offset + contrast*g1**2``
-        # internally — mirrors plot_dispatch._evaluate_model_c2). Capability
+        # internally — mirrors plot_families.simulated._evaluate_model_c2). Capability
         # dispatch rather than isinstance-per-type keeps any future
         # homodyne-family model working as long as it exposes one of these APIs.
         if hasattr(model, "compute_c2_single_angle"):

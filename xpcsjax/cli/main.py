@@ -23,7 +23,8 @@ def _bootstrap_xla_env(argv: list[str] | None) -> None:
 
     Pre-parses the thread-count and disable-JIT flags out of ``argv`` and
     writes the corresponding environment variables, which must happen *before*
-    ``xpcsjax/__init__.py`` runs (it eagerly imports JAX).
+    ``xpcsjax/__init__.py`` runs (it sets JAX env vars; JAX itself is imported
+    lazily via ``__getattr__`` on first use of a JAX-backed export).
 
     Parameters
     ----------
