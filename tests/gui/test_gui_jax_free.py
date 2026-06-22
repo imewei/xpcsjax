@@ -168,3 +168,14 @@ def test_plots_subpackage_is_jax_free():
     pytest.importorskip("pyqtgraph")
     for m in ("helpers", "squares", "maps", "residuals", "grid"):
         assert _probe_import(f"xpcsjax.gui.views.plots.{m}") == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 6: main_window_support collaborators (JAX-free, Qt required)
+# ---------------------------------------------------------------------------
+
+
+def test_main_window_support_is_jax_free():
+    pytest.importorskip("PySide6")
+    for m in ("status_manager", "result_presenter", "project_dialog_handler", "run_controller"):
+        assert _probe_import(f"xpcsjax.gui.views.main_window_support.{m}") == 0
