@@ -13,12 +13,6 @@ physics-model dispatch. It implements the transport-coefficient framework of
 [He et al. PNAS 2025](https://doi.org/10.1073/pnas.2514216122) for characterizing
 nonequilibrium dynamics in flowing soft-matter systems.
 
-> [!NOTE]
-> **xpcsjax is NLSQ-only by design.** Bayesian sampling — NumPyro, BlackJAX, ArviZ,
-> Consensus Monte Carlo (CMC), NUTS, HMC, parallel tempering — is **permanently out of
-> scope.** If you need Bayesian XPCS analysis, use the upstream `homodyne` / `heterodyne`
-> packages instead.
-
 ---
 
 ## Install
