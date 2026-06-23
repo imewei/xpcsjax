@@ -35,13 +35,6 @@ from typing import Any
 
 from xpcsjax.utils.logging import get_logger, log_phase
 
-# Check if NLSQ MemoryManager is available
-try:
-    _NLSQ_MEMORY_MANAGER_AVAILABLE = True
-except ImportError:
-    _nlsq_get_memory_manager = None
-    _NLSQ_MEMORY_MANAGER_AVAILABLE = False
-
 # Module-level logger
 logger = get_logger(__name__)
 

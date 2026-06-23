@@ -1,0 +1,59 @@
+name: "xpcsjax CodeQL config"
+
+# Keep the security-and-quality suite (security rules + maintainability rules),
+# but filter out the maintainability rules that are either (a) already owned and
+# enforced by ruff / mypy in CI, or (b) structural false positives against
+# xpcsjax's intentional architecture (lazy ``__getattr__`` import-cycle breaking,
+# optional-dependency import guards, ``typing.Protocol`` stub bodies).
+#
+# The genuine *security* rules and the real-bug correctness rules
+# (py/uninitialized-local-variable, py/call/*, py/comparison-of-identical-expressions,
+# py/unreachable-statement, py/empty-except, py/multiple-definition,
+# py/non-iterable-in-for-loop, ...) stay ACTIVE so future regressions are caught.
+queries:
+  - uses: security-and-quality
+
+# Test fixtures and Sphinx docs are not shipped product code; security-and-quality
+# maintainability scanning of them is pure noise (duplicate imports in fixtures,
+# intentionally-unreachable test branches, Sphinx config globals read by Sphinx).
+paths-ignore:
+  - tests
+  - docs
+
+query-filters:
+  # --- Import / local-variable hygiene: owned by ruff (F401, F811, F841, I) and
+  #     enforced by `make verify` / `make lint`. CodeQL only adds false positives
+  #     here because its flow analysis flags the optional-import guard idiom
+  #     (`try: import X; HAS_X = True / except ImportError: X = None`) and
+  #     redefinition shadowing that Pyflakes intentionally allows.
+  - exclude:
+      id: py/unused-import
+  - exclude:
+      id: py/unused-local-variable
+  - exclude:
+      id: py/repeated-import
+  - exclude:
+      id: py/import-and-import-from
+  - exclude:
+      id: py/import-own-module
+  # --- Unused module-level globals: dominated by false positives on cross-module
+  #     data tables / singletons / TypeVars (used via `from module import X`) and
+  #     on optional-dependency availability flags (HAS_JAX, HAS_NUMPY, ...).
+  - exclude:
+      id: py/unused-global-variable
+  # --- Cyclic imports: xpcsjax's public API is lazy-loaded via a module-level
+  #     `__getattr__` and `TYPE_CHECKING` forward refs specifically to break these
+  #     cycles. The "may not be defined" warning never materializes at runtime.
+  - exclude:
+      id: py/cyclic-import
+  - exclude:
+      id: py/unsafe-cyclic-import
+  # --- `def method(self) -> T: ...` Protocol / ABC stub bodies. The `...` Ellipsis
+  #     expression statement is the idiomatic stub body (PEP 544); flagging it as
+  #     "no effect" is a false positive.
+  - exclude:
+      id: py/ineffectual-statement
+  # --- Single-call lambdas: a style preference outside ruff's enforced set; low
+  #     signal and overlaps with intentional closures that reorder/partial args.
+  - exclude:
+      id: py/unnecessary-lambda
