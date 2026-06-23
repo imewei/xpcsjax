@@ -28,7 +28,7 @@ Primary references
    .. code-block:: bibtex
 
       @article{He2024PNAS,
-        author  = {He, Hongrui and Liang, Hao and Chu, Miaoqi and Jiang, Zhang and
+        author  = {He, Hongrui and Liang, Heyi and Chu, Miaoqi and Jiang, Zhang and
                    de Pablo, Juan J and Tirrell, Matthew V and Narayanan, Suresh
                    and Chen, Wei},
         title   = {Transport coefficient approach for characterizing nonequilibrium
@@ -101,7 +101,7 @@ XPCS methodology
    based photon correlation in the regime of short data batches: Data
    reduction for dynamic X-ray scattering." *Review of Scientific
    Instruments*, **71**\ (9), 3274--3289 (2000).
-   `doi:10.1063/1.1287334 <https://doi.org/10.1063/1.1287334>`_.
+   `doi:10.1063/1.1287637 <https://doi.org/10.1063/1.1287637>`_.
 
    Introduces the two-time correlation matrix as a practical estimator for
    non-stationary XPCS, and defines the diagonal-averaging approximation
@@ -112,21 +112,22 @@ XPCS methodology
       @article{Lumma2000,
         author  = {Lumma, D. and Lurio, L. B. and Mochrie, S. G. J. and Sutton, M.},
         title   = {Area detector based photon correlation in the regime
-                   of short data batches},
+                   of short data batches: Data reduction for dynamic
+                   x-ray scattering},
         journal = {Review of Scientific Instruments},
         year    = {2000},
         volume  = {71},
+        number  = {9},
         pages   = {3274--3289},
-        doi     = {10.1063/1.1287334},
+        doi     = {10.1063/1.1287637},
       }
 
 .. [Duri2005]
    Duri, A., Bissig, H., Trappe, V., and Cipelletti, L.
-   "Time-resolved-correlation: A new tool for studying temporally
-   heterogeneous dynamics." *Journal of Physics: Condensed Matter*,
-   **17**, S3455 (2005).
-   `doi:10.1088/0953-8984/17/31/003
-   <https://doi.org/10.1088/0953-8984/17/31/003>`_.
+   "Time-resolved-correlation measurements of temporally heterogeneous
+   dynamics." *Physical Review E*, **72**\ (5), 051401 (2005).
+   `doi:10.1103/PhysRevE.72.051401
+   <https://doi.org/10.1103/PhysRevE.72.051401>`_.
 
    Establishes the two-time correlation function as a diagnostic for
    temporally heterogeneous ("aging") dynamics.
@@ -135,13 +136,14 @@ XPCS methodology
 
       @article{Duri2005,
         author  = {Duri, A. and Bissig, H. and Trappe, V. and Cipelletti, L.},
-        title   = {Time-resolved-correlation: A new tool for studying temporally
+        title   = {Time-resolved-correlation measurements of temporally
                    heterogeneous dynamics},
-        journal = {Journal of Physics: Condensed Matter},
+        journal = {Physical Review E},
         year    = {2005},
-        volume  = {17},
-        pages   = {S3455},
-        doi     = {10.1088/0953-8984/17/31/003},
+        volume  = {72},
+        number  = {5},
+        pages   = {051401},
+        doi     = {10.1103/PhysRevE.72.051401},
       }
 
 Stochastic processes and fluctuation--dissipation

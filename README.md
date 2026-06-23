@@ -249,7 +249,7 @@ xpcsjax implements the transport-coefficient framework introduced in:
 
 ```bibtex
 @article{He2024,
-  author  = {He, Hongrui and Liang, Hao and Chu, Miaoqi and Jiang, Zhang and
+  author  = {He, Hongrui and Liang, Heyi and Chu, Miaoqi and Jiang, Zhang and
              de Pablo, Juan J and Tirrell, Matthew V and Narayanan, Suresh
              and Chen, Wei},
   title   = {Transport coefficient approach for characterizing nonequilibrium
