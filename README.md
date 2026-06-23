@@ -1,5 +1,9 @@
 # xpcsjax
 
+<p align="center">
+  <img src="docs/source/_static/xpcsjax_logo.jpg" alt="xpcsjax logo" width="200"/>
+</p>
+
 JAX-native NLSQ fitting for X-ray Photon Correlation Spectroscopy (XPCS).
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)

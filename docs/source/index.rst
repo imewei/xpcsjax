@@ -1,6 +1,11 @@
 xpcsjax — JAX-native XPCS NLSQ fitting
 ======================================
 
+.. image:: _static/xpcsjax_logo.jpg
+   :align: center
+   :width: 200px
+   :alt: xpcsjax logo
+
 .. only:: html
 
    .. image:: https://img.shields.io/badge/JAX-native-2EA44F
