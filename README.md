@@ -90,6 +90,46 @@ residual arrays) to the configured output directory.
 
 ---
 
+## Running xpcsjax
+
+Three front-ends drive the same YAML config and NLSQ engine — pick whichever fits
+your workflow.
+
+**Command line.** The `xpcsjax` console script (alias `xj`) runs a flag-driven fit:
+
+```bash
+xpcsjax --config analysis.yaml                          # run an NLSQ fit
+xpcsjax --config analysis.yaml --output ./results       # override the output dir
+xpcsjax --config analysis.yaml --multistart --multistart-n 16
+xpcsjax --config analysis.yaml --plot-experimental-data # plot only, skip the fit
+```
+
+Exit codes: `0` converged · `2` ran but did **not** converge (outputs still written)
+· `1` error · `130` interrupted. `xjexp` / `xjsim` are experimental-/simulated-data
+plotting shortcuts. See the [CLI commands](#cli-commands) table and the
+[CLI guide](docs/source/user_guide/cli.rst) for the full reference.
+
+**Interactive workbench (GUI).** Needs the `gui` extra (`pip install "xpcsjax[gui]"`).
+Launch the PySide6 analysis workbench with:
+
+```bash
+xpcsjax-gui      # or: xj-gui
+```
+
+Load a config, run fits, and browse per-angle results and residual maps. The fit
+runs in a JAX-free worker process so the UI stays responsive;
+`xpcsjax-gui -platform offscreen` does a headless smoke run.
+
+**Shell completion.** After install, wire up tab-completion (bash/zsh; fish is a
+non-fatal no-op) and optional XLA flags into your environment:
+
+```bash
+xpcsjax-post-install   # interactive: completion + XLA_FLAGS into the venv activate script
+xpcsjax-cleanup        # remove what post-install added
+```
+
+---
+
 ## Physics models
 
 xpcsjax fits two-time intensity correlation functions $c_2(\vec{q}, t_1, t_2)$. All time
@@ -102,15 +142,15 @@ Single-component scattering where correlation decay encodes diffusion and shear.
 laminar-flow two-time kernel (xpcsjax `core/physics_nlsq.py`; derived in
 `docs/source/theory/homodyne_model.rst`) is
 
-$$c_2(\vec{q}, t_1, t_2) = c_{\text{offset}}(\phi) + \beta(\phi)\,\exp\!\left(-q^2\!\int_{t_1}^{t_2} J(t')\,dt'\right)\,\mathrm{sinc}^2\!\left(\frac{q\,h\,\cos(\phi - \phi_0)\,\Gamma(t_1, t_2)}{2\pi}\right)$$
+$$c_2(\vec{q}, t_1, t_2) = c_{\text{offset}}(\phi) + \beta(\phi) \exp\left(-q^2\int_{t_1}^{t_2} J(t') dt'\right) \mathrm{sinc}^2\left(\frac{q h \cos(\phi - \phi_0) \Gamma(t_1, t_2)}{2\pi}\right)$$
 
 with $\mathrm{sinc}(x) = \sin(\pi x)/(\pi x)$, accumulated strain
-$\Gamma(t_1, t_2) = \int_{t_1}^{t_2}\dot{\gamma}(t)\,dt$, rheometer gap $h$ (instrument
+$\Gamma(t_1, t_2) = \int_{t_1}^{t_2}\dot{\gamma}(t) dt$, rheometer gap $h$ (instrument
 geometry, **not** fitted), flow angle $\phi_0$, and per-angle scaling $\beta(\phi)$ /
 $c_{\text{offset}}(\phi)$ (the `contrast` / `offset` parameters). The static modes drop
 the shear term ($\mathrm{sinc}^2 \to 1$). Transport and shear follow power-law forms:
 
-$$J(t) = D_0\,t^{\alpha} + D_{\text{offset}} \qquad \dot{\gamma}(t) = \dot{\gamma}_0\,t^{\beta} + \dot{\gamma}_{\text{offset}}$$
+$$J(t) = D_0 t^{\alpha} + D_{\text{offset}} \qquad \dot{\gamma}(t) = \dot{\gamma}_0 t^{\beta} + \dot{\gamma}_{\text{offset}}$$
 
 Registry parameter names (`xpcsjax/config/parameter_registry.py`) and their defaults:
 
@@ -137,9 +177,9 @@ by the sample velocity. The two-time correlation (Eq. S-95) is
 
 $$c_2(\vec{q}, t_1, t_2) = 1 + \frac{\beta}{f^2}\left[C_{\text{ref}} + C_{\text{sample}} + C_{\text{cross}}\right]$$
 
-$$C_{\text{ref}} = [x_r(t_1)x_r(t_2)]^2 \exp\left(-q^2\int_{t_1}^{t_2} J_r\,dt'\right) \qquad C_{\text{sample}} = [x_s(t_1)x_s(t_2)]^2 \exp\left(-q^2\int_{t_1}^{t_2} J_s\,dt'\right)$$
+$$C_{\text{ref}} = [x_r(t_1)x_r(t_2)]^2 \exp\left(-q^2\int_{t_1}^{t_2} J_r dt'\right) \qquad C_{\text{sample}} = [x_s(t_1)x_s(t_2)]^2 \exp\left(-q^2\int_{t_1}^{t_2} J_s dt'\right)$$
 
-$$C_{\text{cross}} = 2\,x_r(t_1)x_r(t_2)x_s(t_1)x_s(t_2)\,\exp\left(-\tfrac{1}{2}q^2\int_{t_1}^{t_2}[J_s + J_r]\,dt'\right)\cos\left[q\cos(\varphi)\int_{t_1}^{t_2}\mathbb{E}[v]\,dt'\right]$$
+$$C_{\text{cross}} = 2 x_r(t_1)x_r(t_2)x_s(t_1)x_s(t_2) \exp\left(-\tfrac{1}{2}q^2\int_{t_1}^{t_2}[J_s + J_r] dt'\right)\cos\left[q\cos(\varphi)\int_{t_1}^{t_2}\mathbb{E}[v] dt'\right]$$
 
 where $x_s(t)$ is the sample fraction, $x_r = 1 - x_s$ the reference fraction, $\varphi$
 the angle between velocity and $\vec{q}$, and
@@ -155,10 +195,10 @@ their defaults:
 
 | Group | Parameters | Rate function | Defaults | Units |
 |---|---|---|---|---|
-| Reference transport (3) | `D0_ref`, `alpha_ref`, `D_offset_ref` | $J_r(t) = D_{0,r}\,t^{\alpha_r} + D_{\text{offset},r}$ | 1e4, 0, 0 | Å²/s, —, Å²/s |
-| Sample transport (3) | `D0_sample`, `alpha_sample`, `D_offset_sample` | $J_s(t) = D_{0,s}\,t^{\alpha_s} + D_{\text{offset},s}$ | 1e4, 0, 0 | Å²/s, —, Å²/s |
-| Velocity (3) | `v0`, `v_beta`, `v_offset` | $v(t) = v_0\,t^{\beta} + v_{\text{offset}}$ | 1e3, 1, 0 | Å/s, —, Å/s |
-| Sample fraction (4) | `f0`, `f1`, `f2`, `f3` | $f_s(t) = f_0\,\exp\!\big(f_1(t - f_2)\big) + f_3$ | 0.5, 0, 0, 0 | —, —, —, — |
+| Reference transport (3) | `D0_ref`, `alpha_ref`, `D_offset_ref` | $J_r(t) = D_{0,r} t^{\alpha_r} + D_{\text{offset},r}$ | 1e4, 0, 0 | Å²/s, —, Å²/s |
+| Sample transport (3) | `D0_sample`, `alpha_sample`, `D_offset_sample` | $J_s(t) = D_{0,s} t^{\alpha_s} + D_{\text{offset},s}$ | 1e4, 0, 0 | Å²/s, —, Å²/s |
+| Velocity (3) | `v0`, `v_beta`, `v_offset` | $v(t) = v_0 t^{\beta} + v_{\text{offset}}$ | 1e3, 1, 0 | Å/s, —, Å/s |
+| Sample fraction (4) | `f0`, `f1`, `f2`, `f3` | $f_s(t) = f_0 \exp\big(f_1(t - f_2)\big) + f_3$ | 0.5, 0, 0, 0 | —, —, —, — |
 | Flow angle (1) | `phi0_het` | — | 0 | degrees |
 
 The velocity exponent is `v_beta` and the flow angle `phi0_het` in the registry —
