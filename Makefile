@@ -12,7 +12,7 @@
         benchmark profile-nlsq \
         docs docs-clean \
         clean clean-all clean-pyc clean-build clean-test clean-cache clean-venv \
-        build release package run-example ci ci-full watch stats verify-nlsq \
+        build release package ci ci-full watch stats verify-nlsq \
         verify verify-fast
 
 # Configuration
@@ -23,55 +23,26 @@ PACKAGE_NAME := xpcsjax
 SRC_DIR := xpcsjax
 TEST_DIR := tests
 
-# Heavy LIVE-FIT oracles that overcommit RAM under `-n auto` (one worker/CPU):
-# they run real fits on maintainer datasets allocating multi-GB working sets.
-# Landing on a busy worker tips the box past available RAM -> kernel OOM-kill
-# (SIGKILL / returncode -9). All are EXCLUDED from every parallel pass and run
-# via `make test-heavy-serial` (availability-gated) or `make test-full-local`
-# (also the env-gated ones). They still execute & assert there, and self-skip on
-# CI / fresh clones.
+# HEAVY_NODES: individually-deselected slow/flaky nodes that share a file with
+# cheap tests (so the whole file can't be wholesale-ignored). They are dropped
+# from every parallel pass and run SERIALLY via `make test-heavy-serial`.
 #
-# DEFENCE-IN-DEPTH: the per-fit memory budget is now concurrency-aware
-# (get_adaptive_memory_threshold divides `available * fraction` by
-# PYTEST_XDIST_WORKER_COUNT / XPCSJAX_FIT_CONCURRENCY), so a fit landing on a
-# busy xdist worker self-limits to streaming instead of overcommitting. This
-# denylist is kept as a belt-and-suspenders backstop (the heavy oracles are also
-# wall-clock heavy); it can be revisited once the concurrency-aware budget has
-# soaked. Do NOT remove it without a deliberate decision.
-#
-# (a) Availability-gated — run automatically when datasets are present (no env
-#     var), so they fire the OOM TODAY. These real-data files are heavy wholesale
-#     (module-scoped fixtures) -> ignore them entirely.
-#     NOTE: --ignore drops EVERY test in these files from all parallel targets;
-#     add any future non-heavy test to a separate file to keep it in `-n auto`.
-#     HEAVY_NODES is currently empty — kept as a seam for any future single-node
-#     deselect that shares a file with cheap tests (the old L4 bit-identity node
-#     that lived here was removed).
+# The real-data live-fit oracles (C020 / Simon / C044, upstream-homodyne A/B and
+# characterization) were REMOVED, so HEAVY_FILES / ENV_GATED_FILES are now empty.
+# The per-fit memory budget is also concurrency-aware (get_adaptive_memory_threshold
+# divides `available * fraction` by PYTEST_XDIST_WORKER_COUNT / XPCSJAX_FIT_CONCURRENCY),
+# so a heavy synthetic fit landing on a busy xdist worker self-limits to streaming.
 HEAVY_NODES := \
   tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first \
   tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit
-HEAVY_FILES := \
-  tests/heterodyne/test_two_component_real_data.py \
-  tests/parity/test_phase3_stratified_ls_c044_1m.py
-#
-# (b) Env-gated — self-skip under `-n auto` (no XPCSJAX_RUN_* set), so they do
-#     NOT fire today; ignored purely as insurance against an accidental
-#     `XPCSJAX_RUN_*=1 make test-parallel`. Live coverage = `make test-full-local`.
-ENV_GATED_FILES := \
-  tests/characterization/test_homodyne_equivalence.py \
-  tests/characterization/test_homodyne_nlsq_ab_parity.py
+HEAVY_FILES :=
+ENV_GATED_FILES :=
 #
 PARALLEL_DESELECT := \
   $(foreach n,$(HEAVY_NODES),--deselect "$(n)") \
   $(foreach f,$(HEAVY_FILES) $(ENV_GATED_FILES),--ignore=$(f))
 DOCS_DIR := docs
 VENV := .venv
-
-# Maintainer-local data root for the env-gated live-oracle suite (test-full-local).
-# Holds the upstream datasets (C020/, Simon/, C044/) the characterization, A/B
-# parity, and real-data heterodyne gates read. Override on the CLI or via the
-# environment:  make test-full-local XPCSJAX_DATA_ROOT=/path/to/Projects/data
-XPCSJAX_DATA_ROOT ?= /home/wei/Documents/Projects/data
 
 # Platform detection
 UNAME_S := $(shell uname -s 2>/dev/null || echo "Windows")
@@ -159,12 +130,12 @@ help:
 	@echo "  $(CYAN)test-core$(RESET)              Run core/model tests only"
 	@echo "  $(CYAN)test-optimization$(RESET)      Run optimization (NLSQ) tests only"
 	@echo "  $(CYAN)test-heterodyne$(RESET)        Run heterodyne tests only"
-	@echo "  $(CYAN)test-characterization$(RESET)  Run characterization (homodyne-equivalence) tests"
+	@echo "  $(CYAN)test-characterization$(RESET)  Run characterization (residual-parity) tests"
 	@echo "  $(CYAN)test-property$(RESET)          Run property-based tests (Hypothesis)"
 	@echo "  $(CYAN)test-viz$(RESET)               Run viz tests with pytest-mpl snapshot comparison"
 	@echo "  $(CYAN)test-nlsq$(RESET)              Alias for test-optimization"
 	@echo "  $(CYAN)test-quick$(RESET)             Quick tests with minimal output"
-	@echo "  $(CYAN)test-full-local$(RESET)        Maintainer-local FULL run, zero skips (live oracles; needs upstream + data)"
+	@echo "  $(CYAN)test-full-local$(RESET)        Full suite + forced synthetic parity gates (CPU-microarch goldens)"
 	@echo ""
 	@echo "$(BOLD)$(GREEN)CODE QUALITY$(RESET)"
 	@echo "  $(CYAN)format$(RESET)           Format code with ruff"
@@ -318,13 +289,12 @@ test-all-parallel:
 	@$(MAKE) test-heavy-serial
 	@echo "$(BOLD)$(GREEN)✓ Full test suite passed!$(RESET)"
 
-# Availability-gated heavy oracles, run SERIALLY (never under xdist) so they
-# never overlap the parallel pass. NO env vars forced -> safe on CI / fresh
-# clones (each self-skips via its own availability gate when datasets are
-# absent). The env-gated oracles (A/B parity, direct characterization) are
-# NOT here — their live coverage is `make test-full-local`.
+# The HEAVY_NODES (slow/flaky SYNTHETIC nodes deselected from the parallel pass)
+# run SERIALLY here (never under xdist) so they never overlap a parallel run.
+# HEAVY_FILES is empty (the real-data oracles were removed) but is kept in the
+# invocation as a no-op seam for any future heavy file.
 test-heavy-serial:
-	@echo "$(BOLD)$(BLUE)Running availability-gated heavy oracles SERIALLY (no xdist)...$(RESET)"
+	@echo "$(BOLD)$(BLUE)Running heavy (slow/flaky) nodes SERIALLY (no xdist)...$(RESET)"
 	$(RUN_CMD) $(PYTEST) $(HEAVY_NODES) $(HEAVY_FILES) -p no:xdist -v --tb=short -rs
 
 test-parallel-fast:
@@ -383,29 +353,18 @@ test-quick:
 	@echo "$(BOLD)$(BLUE)Running quick tests...$(RESET)"
 	$(RUN_CMD) $(PYTEST) $(TEST_DIR) -v -x --tb=no -q
 
-# Maintainer-local FULL run with ZERO skips. Enables the env-gated live oracles
-# that the default suite intentionally skips (CLAUDE.md: "never enable in CI"):
-#   * XPCSJAX_RUN_CHARACTERIZATION=1 — homodyne-equivalence + L4 bit-parity +
-#     real-data two_component oracles (live fits vs upstream, ~6 min each)
-#   * XPCSJAX_RUN_AB_PARITY=1        — live A/B parity vs upstream homodyne NLSQ
-#   * XPCSJAX_RUN_ENGINE_PARITY=1    — strict-numeric engine-route parity +
-#     end-to-end golden value compare (CPU-microarch-specific; synthetic, no data)
-#   * XPCSJAX_DATA_ROOT              — the maintainer datasets the gates read
-# Requires the upstream `homodyne` package installed and the datasets on disk;
-# DO NOT wire these into `test`/`verify`/CI — fresh clones lack both and would
-# fail loudly. `-rs` reports anything that still skips so zero-skip is verifiable.
+# FULL run that also forces the CPU-microarch-gated SYNTHETIC parity tests the
+# default suite skips on CI (engine-route strict-numeric parity + the end-to-end
+# golden value compare in test_homodyne_engine_preservation). These need no
+# datasets and no upstream homodyne; they self-skip on CI unless forced because
+# their golden values are recorded on a specific CPU. `-rs` reports anything that
+# still skips so zero-skip is verifiable. (The real-data live oracles that used
+# to need XPCSJAX_RUN_AB_PARITY / XPCSJAX_DATA_ROOT were removed.)
 test-full-local:
-	@echo "$(BOLD)$(BLUE)Running FULL maintainer-local suite (live oracles, zero skips)...$(RESET)"
-	@test -d "$(XPCSJAX_DATA_ROOT)" || { \
-		echo "$(BOLD)$(RED)XPCSJAX_DATA_ROOT not found: $(XPCSJAX_DATA_ROOT)$(RESET)"; \
-		echo "Set it to the directory holding C020/ Simon/ C044/ — e.g."; \
-		echo "  make test-full-local XPCSJAX_DATA_ROOT=/path/to/Projects/data"; \
-		exit 1; }
-	@XPCSJAX_RUN_CHARACTERIZATION=1 XPCSJAX_RUN_AB_PARITY=1 \
-		XPCSJAX_RUN_ENGINE_PARITY=1 \
-		XPCSJAX_DATA_ROOT="$(XPCSJAX_DATA_ROOT)" \
+	@echo "$(BOLD)$(BLUE)Running FULL suite + forced synthetic parity gates...$(RESET)"
+	@XPCSJAX_RUN_CHARACTERIZATION=1 XPCSJAX_RUN_ENGINE_PARITY=1 \
 		$(RUN_CMD) $(PYTEST) $(TEST_DIR) -rs --tb=short
-	@echo "$(BOLD)$(GREEN)✓ Full maintainer-local suite complete$(RESET)"
+	@echo "$(BOLD)$(GREEN)✓ Full suite complete$(RESET)"
 
 # ===================
 # Code quality targets
@@ -692,10 +651,6 @@ package:  ## Build the GUI app bundle (PyInstaller; per-OS, maintainer/CI)
 # ===================
 # Example/Demo targets
 # ===================
-run-example:
-	@echo "$(BOLD)$(BLUE)Running homodyne baseline generator...$(RESET)"
-	$(RUN_CMD) $(PYTHON) scripts/generate_homodyne_baselines.py
-
 # ===================
 # CI targets
 # ===================

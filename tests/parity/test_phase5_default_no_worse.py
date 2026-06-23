@@ -7,23 +7,9 @@ stays within the parity threshold; it is the INTENDED default change, not a regr
 
 from __future__ import annotations
 
-import gc
-import importlib.util
-import os
-from pathlib import Path
-
 import numpy as np
-import pytest
-
-# Reuse the live homodyne config registry + availability gate from the A/B suite.
-from tests.characterization.test_homodyne_equivalence import CONFIGS
 
 _NO_WORSE_REL = 1e-3  # ~1e-3 no-worse contract (CLAUDE.md two_component engine-unification)
-_GATE_OPT_IN = os.environ.get("XPCSJAX_RUN_AB_PARITY") == "1"
-_SKIP = (
-    "C020/Simon no-worse oracle needs the registered datasets on disk + "
-    "XPCSJAX_RUN_AB_PARITY=1; skips on CI / fresh clones."
-)
 
 
 def _fit(mode, n_phi, n_t=10, seed=11):
@@ -97,61 +83,3 @@ def test_synthetic_default_averaged_no_worse_than_individual():
     )
     # sanity: averaged actually ran averaged
     assert dict(res_avg.nlsq_diagnostics or {}).get("per_angle_mode") == "averaged"
-
-
-@pytest.mark.skipif(not _GATE_OPT_IN, reason=_SKIP)
-@pytest.mark.parametrize("label", sorted(k for k, v in CONFIGS.items() if Path(v).exists()))
-def test_c020_simon_default_no_worse(label):
-    """Availability-gated: run the real homodyne config under explicit individual vs
-    default auto(->averaged); averaged SSR must be no-worse within the band.
-
-    NOTE (Finding 8): only LAMINAR configs exercise the auto->averaged default change.
-    Static modes (e.g. `static_simon`) are gated OUT of Phase 5 (the laminar-only
-    `analysis_mode == LAMINAR_FLOW` branch keeps individual), so an `auto` fit there
-    still resolves individual and SSR is trivially EQUAL — a vacuous pass. Skip static
-    labels explicitly so the oracle is honestly scoped to `laminar_c020`; Simon becomes a
-    real averaged case only when static unification lands (deferred, spec §9)."""
-    if importlib.util.find_spec("homodyne") is None:
-        pytest.skip("upstream homodyne not importable")
-    from xpcsjax.config import ConfigManager
-    from xpcsjax.data import load_xpcs_data
-    from xpcsjax.optimization.nlsq import fit_nlsq
-
-    config_path = CONFIGS[label]
-    # Skip static configs: auto->averaged does not change a static fit (no flow direction;
-    # static keeps individual), so the no-worse comparison is vacuous (SSR equal).
-    # NOTE: ConfigManager's path argument is `config_file` (the plan's `config_path=`
-    # kwarg is stale; the sibling A/B-parity suite passes the path positionally too).
-    _probe = ConfigManager(config_file=config_path)
-    if str(_probe.config.get("analysis_mode", "")).startswith("static"):
-        pytest.skip(
-            f"{label}: static mode is deferred (auto->averaged is a no-op); not a Phase-5 oracle"
-        )
-    # individual baseline
-    cfg_i = ConfigManager(config_file=config_path)
-    cfg_i.config.setdefault("optimization", {}).setdefault("nlsq", {}).setdefault(
-        "anti_degeneracy", {}
-    ).update({"enable": True, "per_angle_mode": "individual"})
-    # load_xpcs_data takes the path (the data load does not depend on per_angle_mode,
-    # which only affects the fit); the mutated cfg drives fit_nlsq.
-    # The registered laminar config (C020) is a ~23M-point dataset routed to the
-    # heavy stratified-LS tier; keep only the scalar SSR and release the data +
-    # result between the two fits so two in-process 23M fits don't overcommit RAM
-    # (the documented OOM hazard — never run this under pytest-xdist `-n auto`).
-    data_i = load_xpcs_data(config_path)
-    res_i = fit_nlsq(data_i, cfg_i)
-    ssr_i = float(res_i.chi_squared)
-    del data_i, res_i, cfg_i
-    gc.collect()
-
-    # default auto baseline
-    cfg_a = ConfigManager(config_file=config_path)
-    cfg_a.config.setdefault("optimization", {}).setdefault("nlsq", {}).setdefault(
-        "anti_degeneracy", {}
-    ).update({"enable": True, "per_angle_mode": "auto"})
-    data_a = load_xpcs_data(config_path)
-    res_a = fit_nlsq(data_a, cfg_a)
-    ssr_a = float(res_a.chi_squared)
-    assert ssr_a <= ssr_i * (1.0 + _NO_WORSE_REL) + 1e-9, (
-        f"{label}: auto/averaged SSR {ssr_a} worse than individual {ssr_i} beyond no-worse band"
-    )
