@@ -159,7 +159,7 @@ _No unreleased changes yet._
   silence the warning.
 
   See `docs/source/user_guide/analysis_modes.rst` for the full mode
-  reference and `docs/MIGRATION.md` for the migration table.
+  reference.
 
 ### Removed
 

@@ -2,8 +2,7 @@
 
 Import discipline: the GUI process must never import JAX. Modules here import
 only Qt + the JAX-free ``xpcsjax.service.events`` schema and (lazily, inside the
-worker child) the ``xpcsjax.service`` functions. See docs/superpowers/specs for
-the architecture.
+worker child) the ``xpcsjax.service`` functions.
 """
 
 from __future__ import annotations

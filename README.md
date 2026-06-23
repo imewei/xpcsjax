@@ -234,15 +234,6 @@ the upstream `homodyne` package plus the reference datasets, and runs only under
 
 ---
 
-## See also
-
-- [MIGRATION.md](docs/MIGRATION.md) — moving downstream code from `homodyne` /
-  `heterodyne` to `xpcsjax`.
-- [Design spec](docs/superpowers/specs/2026-05-18-xpcsjax-nlsq-merge-design.md)
-- [Implementation plan](docs/superpowers/plans/2026-05-18-xpcsjax-nlsq-merge.md)
-
----
-
 ## Citation
 
 xpcsjax implements the transport-coefficient framework introduced in:
