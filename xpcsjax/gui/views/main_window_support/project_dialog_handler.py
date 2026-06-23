@@ -1,4 +1,5 @@
 """Project and config dialog slot collaborator for MainWindow."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -39,9 +40,7 @@ class ProjectDialogHandler(QObject):
         Delegates to ``MainWindow.create_project`` after the user selects a
         directory.
         """
-        path = QFileDialog.getExistingDirectory(
-            self._mw, "Create / choose project directory"
-        )
+        path = QFileDialog.getExistingDirectory(self._mw, "Create / choose project directory")
         if path:
             self._mw.create_project(path)
 

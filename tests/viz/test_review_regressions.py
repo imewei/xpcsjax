@@ -806,9 +806,15 @@ def test_heterodyne_physics_is_head_helper():
     physics in the TAIL."""
     from xpcsjax.viz.nlsq_plots import _heterodyne_physics_is_head
 
-    assert _heterodyne_physics_is_head({"per_angle_mode": "averaged", "scaling_first": False}) is True
-    assert _heterodyne_physics_is_head({"per_angle_mode": "averaged", "scaling_first": True}) is False
-    assert _heterodyne_physics_is_head({"per_angle_mode": "averaged"}) is False  # default scaling-first
+    assert (
+        _heterodyne_physics_is_head({"per_angle_mode": "averaged", "scaling_first": False}) is True
+    )
+    assert (
+        _heterodyne_physics_is_head({"per_angle_mode": "averaged", "scaling_first": True}) is False
+    )
+    assert (
+        _heterodyne_physics_is_head({"per_angle_mode": "averaged"}) is False
+    )  # default scaling-first
     assert _heterodyne_physics_is_head({"per_angle_mode": "individual"}) is False
     assert _heterodyne_physics_is_head({"per_angle_mode": "constant"}) is True
     assert _heterodyne_physics_is_head({}) is False

@@ -4,13 +4,22 @@ from xpcsjax.runtime.shell.completion_spec import COMMAND_SPECS
 def test_every_console_script_is_covered():
     names = {n for spec in COMMAND_SPECS for n in spec.command_names}
     expected = {
-        "xpcsjax", "xj", "xjexp", "xjsim",
-        "xpcsjax-config", "xj-config",
-        "xpcsjax-config-xla", "xj-config-xla",
-        "xpcsjax-post-install", "xj-post-install",
-        "xpcsjax-cleanup", "xj-cleanup",
-        "xpcsjax-validate", "xj-validate",
-        "xpcsjax-gui", "xj-gui",
+        "xpcsjax",
+        "xj",
+        "xjexp",
+        "xjsim",
+        "xpcsjax-config",
+        "xj-config",
+        "xpcsjax-config-xla",
+        "xj-config-xla",
+        "xpcsjax-post-install",
+        "xj-post-install",
+        "xpcsjax-cleanup",
+        "xj-cleanup",
+        "xpcsjax-validate",
+        "xj-validate",
+        "xpcsjax-gui",
+        "xj-gui",
     }
     assert names == expected
 

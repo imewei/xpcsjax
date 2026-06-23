@@ -92,9 +92,7 @@ def test_export_returns_empty_when_plots_dir_absent(tmp_path: Path) -> None:
 pytest.importorskip("PySide6")
 
 
-def test_on_export_figure_routes_through_run_controller(
-    qtbot, monkeypatch, tmp_path: Path
-) -> None:
+def test_on_export_figure_routes_through_run_controller(qtbot, monkeypatch, tmp_path: Path) -> None:
     """_on_export_figure shim delegates to RunController; export_figures is called."""
     import xpcsjax.gui.views.main_window_support.run_controller as rc
     from xpcsjax.gui.views.main_window import MainWindow
@@ -103,6 +101,7 @@ def test_on_export_figure_routes_through_run_controller(
     monkeypatch.setattr(rc.QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path))
     monkeypatch.setattr(rc.QMessageBox, "information", lambda *a, **k: None)
     called: dict[str, bool] = {}
+
     def _fake_export(*a, **k):
         called["ran"] = True
         return []
@@ -127,4 +126,6 @@ def test_on_export_figure_routes_through_run_controller(
 
     win._on_export_figure()
 
-    assert called.get("ran"), "export_figures was not called — shim did not route through RunController"
+    assert called.get("ran"), (
+        "export_figures was not called — shim did not route through RunController"
+    )

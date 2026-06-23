@@ -267,9 +267,7 @@ def test_fish_completion_is_nonfatal_noop_but_xla_stays(
     assert pi.get_xla_config_source_path("fish").name == "xla_config.fish"
 
 
-def test_main_fish_xla_only_succeeds(
-    monkeypatch: pytest.MonkeyPatch, fake_venv: Path
-) -> None:
+def test_main_fish_xla_only_succeeds(monkeypatch: pytest.MonkeyPatch, fake_venv: Path) -> None:
     monkeypatch.setattr(pi, "is_virtual_environment", lambda: True)
     monkeypatch.setattr(pi, "get_venv_path", lambda: fake_venv)
     # post-install on fish (completion skipped, XLA applied) must exit 0.

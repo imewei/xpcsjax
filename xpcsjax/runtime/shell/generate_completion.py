@@ -100,7 +100,7 @@ _BANNER = (
 # Static preamble: cache vars + _init_completion/_filedir fallback (bare
 # conda/mamba shells) + cached config-file discovery. Copied verbatim from the
 # historical completion.sh; byte-exact parity depends on this block being fixed.
-_PREAMBLE = r'''
+_PREAMBLE = r"""
 _XPCSJAX_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/xpcsjax"
 _XPCSJAX_CACHE_TTL=300  # 5 minutes
 
@@ -149,7 +149,7 @@ _xpcsjax_get_config_files() {
         [[ -d "configs" ]] && find configs \( -name "*.yaml" -o -name "*.yml" \) -type f 2>/dev/null
     } | sort -u | tee "$cache_file"
 }
-'''
+"""
 
 
 def _all_option_strings(parser: argparse.ArgumentParser) -> list[str]:

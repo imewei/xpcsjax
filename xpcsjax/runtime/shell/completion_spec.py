@@ -49,8 +49,10 @@ COMMAND_SPECS: list[CommandSpec] = [
         command_names=("xpcsjax", "xj", "xjexp", "xjsim"),
         parser_factory=args_parser.build_parser,
         dynamic_hints={
-            "--config": "configfile", "-c": "configfile",
-            "--output": "dir", "-o": "dir",
+            "--config": "configfile",
+            "-c": "configfile",
+            "--output": "dir",
+            "-o": "dir",
             "--threads": "threads",
         },
     ),
@@ -59,8 +61,10 @@ COMMAND_SPECS: list[CommandSpec] = [
         command_names=("xpcsjax-config", "xj-config"),
         parser_factory=config_generator.build_parser,
         dynamic_hints={
-            "--output": "file", "-o": "file",
-            "--data": "file", "-d": "file",
+            "--output": "file",
+            "-o": "file",
+            "--data": "file",
+            "-d": "file",
         },
     ),
     CommandSpec(

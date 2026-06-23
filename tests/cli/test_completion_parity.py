@@ -35,8 +35,11 @@ def test_committed_completion_matches_generator(generated: str):
 
         diff = "\n".join(
             difflib.unified_diff(
-                committed.splitlines(), generated.splitlines(),
-                "committed completion.sh", "generated", lineterm="",
+                committed.splitlines(),
+                generated.splitlines(),
+                "committed completion.sh",
+                "generated",
+                lineterm="",
             )
         )
         pytest.fail(f"completion.sh is stale — run `make completion`.\n{diff}")
@@ -55,9 +58,7 @@ def test_committed_completion_matches_generator(generated: str):
 )
 def test_generated_script_is_valid_bash():
     assert shutil.which("bash"), "bash required"
-    r = subprocess.run(
-        ["bash", "-n", str(COMPLETION_SH_PATH)], capture_output=True, text=True
-    )
+    r = subprocess.run(["bash", "-n", str(COMPLETION_SH_PATH)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
 
 

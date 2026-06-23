@@ -168,7 +168,9 @@ def test_second_dispatch_call_is_not_cross_call_suppressed(
 
     # Second, separate call. Capture only its warnings.
     with caplog.at_level(logging.WARNING, logger="xpcsjax"):
-        out2 = postfit._save_fit_comparison_only(_FakeConfigManager(), data, _FakeResult(), tmp_path)
+        out2 = postfit._save_fit_comparison_only(
+            _FakeConfigManager(), data, _FakeResult(), tmp_path
+        )
     assert out2 == tmp_path
 
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]

@@ -1,4 +1,5 @@
 """Run / cancel / export-figure slot collaborator for MainWindow."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
