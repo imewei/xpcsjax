@@ -56,8 +56,16 @@ except ImportError:
         NUMPY_GRADIENTS_AVAILABLE = False
 
     # Create fallback decorators
-    def jit(func: Callable) -> Callable:  # type: ignore[no-redef,misc,unused-ignore]
-        """No-op JIT decorator for NumPy fallback."""
+    def jit(  # type: ignore[no-redef,misc,unused-ignore]
+        func: Callable, *args: object, **kwargs: object
+    ) -> Callable:
+        """No-op JIT decorator for NumPy fallback.
+
+        Accepts and ignores ``jax.jit`` keyword arguments (``static_argnums``,
+        ``donate_argnums``, ...) so module-level pre-JIT calls such as
+        ``jit(grad(f), static_argnums=(6, 7, 10))`` do not raise ``TypeError``
+        when JAX is unavailable and this no-op shim is bound instead.
+        """
         return func
 
     def vmap(func: Callable, *args: object, **kwargs: object) -> Callable:  # type: ignore[no-redef,misc,unused-ignore]

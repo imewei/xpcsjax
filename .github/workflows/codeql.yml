@@ -27,9 +27,12 @@ jobs:
         uses: github/codeql-action/init@84498526a009a99c875e83ef4821a8ba52de7c22  # codeql-bundle-v2.25.5
         with:
           languages: python
-          # security-and-quality adds maintainability queries on top of the
-          # default security set; drop to "security-extended" if too noisy.
-          queries: security-and-quality
+          # Query suite, path scoping, and noise-rule filters live in the config
+          # file so they are reviewable in one place. The suite is still
+          # security-and-quality; the config filters out maintainability rules
+          # already owned by ruff/mypy or that are structural false positives
+          # against xpcsjax's lazy-import / optional-dependency architecture.
+          config-file: ./.github/codeql/codeql-config.yml
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@84498526a009a99c875e83ef4821a8ba52de7c22  # codeql-bundle-v2.25.5
         with:

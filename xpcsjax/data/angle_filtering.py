@@ -322,16 +322,16 @@ def apply_angle_filtering_for_optimization(
         phi_angles, c2_exp, normalized_config
     )
 
-    # Check if any angles were filtered
-    if len(filtered_indices) == 0 or len(filtered_indices) == len(phi_angles):
-        if len(filtered_indices) == 0:
-            logger.warning("No angles matched phi_filtering criteria, using all angles")
-            # Return data with normalized angles
-            normalized_data = data.copy()
-            normalized_data["phi_angles_list"] = phi_angles
-            return normalized_data
-        # All angles matched - no filtering needed
-        pass
+    # No angles matched the criteria: fall back to all (normalized) angles.
+    # When *all* angles match, the filtered arrays equal the originals, so we
+    # simply fall through and build the filtered dictionary below — no special
+    # case is needed for that.
+    if len(filtered_indices) == 0:
+        logger.warning("No angles matched phi_filtering criteria, using all angles")
+        # Return data with normalized angles
+        normalized_data = data.copy()
+        normalized_data["phi_angles_list"] = phi_angles
+        return normalized_data
 
     # Create filtered data dictionary
     filtered_data = data.copy()
