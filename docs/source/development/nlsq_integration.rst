@@ -231,17 +231,17 @@ floor in :file:`pyproject.toml` safely.
    change that needs to be either absorbed (by updating xpcsjax) or
    reverted.
 
-5. **Run the characterisation gate.**
+5. **Run the synthetic parity tests.**
 
    .. code-block:: shell
 
-      XPCSJAX_RUN_CHARACTERIZATION=1 make test-characterization
+      uv run pytest tests/parity/ -v
 
-   This is the strongest check available short of running the full
-   characterisation matrix. If a parity test starts failing at
-   ``rtol=1e-10``, the NLSQ release changed solver behaviour in a way
-   that drifts xpcsjax off the homodyne baseline. Investigate before
-   merging the bump; do not loosen the tolerance.
+   These pin xpcsjax's engine behaviour against committed synthetic
+   baselines. If a parity test starts failing, the NLSQ release changed
+   solver behaviour in a way that drifts xpcsjax off its pinned engine
+   output. Investigate before merging the bump; do not loosen the
+   tolerance.
 
 6. **Update the changelog.**
 

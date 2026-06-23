@@ -183,8 +183,8 @@ Pull request expectations:
   :doc:`/api/index`.
 - If you added a new test category, update :doc:`testing`.
 - If the change touches porting from upstream homodyne or heterodyne,
-  update :doc:`porting_notes` and regenerate baselines as described
-  there.
+  update :doc:`porting_notes` and the synthetic parity tests under
+  :file:`tests/parity/` as described there.
 
 The "don't touch" list
 ----------------------
@@ -195,13 +195,12 @@ removed upstream APIs.
 
 .. warning::
 
-   **Do not loosen characterisation tolerances.**
-   :file:`tests/characterization/test_homodyne_equivalence.py` asserts
-   bit-comparable output against the upstream ``homodyne`` package at
-   ``rtol=1e-10``. If a regression makes this test fail, fix the code,
-   do not loosen the tolerance. The only legitimate reason to
-   regenerate the baseline is that the upstream ``homodyne`` package
-   itself changed; see :doc:`porting_notes` for the procedure.
+   **Do not loosen the synthetic parity tolerances.**
+   The engine-preservation and engine-route parity tests under
+   :file:`tests/parity/` pin xpcsjax's behaviour against committed
+   synthetic baselines. If a regression makes one of these tests fail,
+   fix the code, do not loosen the tolerance. See :doc:`porting_notes`
+   for the parity coverage overview.
 
 .. warning::
 
@@ -246,7 +245,7 @@ Where to ask questions
 - For an architectural question that spans multiple modules, read
   :doc:`/advanced/architecture` first, then file an issue.
 - For a porting question (homodyne or heterodyne parity), read
-  :doc:`porting_notes` and inspect
-  :file:`scripts/generate_homodyne_baselines.py`.
+  :doc:`porting_notes` and inspect the synthetic parity tests under
+  :file:`tests/parity/`.
 - For an NLSQ-engine question, read :doc:`nlsq_integration` and
   inspect :mod:`xpcsjax.optimization.nlsq`.

@@ -113,7 +113,6 @@ Each block has a dedicated advanced page:
 - :doc:`memory_routing` for ``select_nlsq_strategy``.
 - :doc:`anti_degeneracy` for the controller layers.
 - :doc:`cma_es_escape` for the global-search fallback.
-- :doc:`parity_testing` for the upstream-homodyne equivalence contract.
 
 NLSQ engine split
 -----------------

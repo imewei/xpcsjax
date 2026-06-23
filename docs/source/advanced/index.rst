@@ -14,4 +14,3 @@ NLSQ engine itself.
    memory_routing
    anti_degeneracy
    cma_es_escape
-   parity_testing

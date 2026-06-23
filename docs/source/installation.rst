@@ -116,8 +116,8 @@ the development dependency graph:
 Pip / Poetry / Conda are all *technically* able to install the dev environment,
 but they won't reproduce the locked dependency graph. If you must use pip for a
 dev checkout, install into a fresh virtualenv from ``pyproject.toml`` and accept
-that the characterisation tests are not guaranteed to be bit-equivalent to the
-upstream homodyne baselines.
+that the synthetic parity tests are not guaranteed to reproduce xpcsjax's pinned
+engine output bit-for-bit on an unlocked dependency graph.
 
 Verifying the install
 ---------------------
@@ -157,9 +157,8 @@ A correct install satisfies four checks:
       make test-smoke   # fast subset
       make verify       # lint + advisory mypy + smoke under -x -n auto
 
-   The full characterisation suite (homodyne parity baselines) is env-gated
-   behind ``XPCSJAX_RUN_CHARACTERIZATION=1``; see
-   :doc:`development/index`.
+   The synthetic parity tests live under :file:`tests/parity/` and run
+   as part of the normal suite; see :doc:`development/index`.
 
 Optional GPU build (v0.2+)
 --------------------------

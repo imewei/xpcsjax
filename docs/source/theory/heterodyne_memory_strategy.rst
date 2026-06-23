@@ -250,9 +250,9 @@ Future work (not implemented — each alters results and needs parity verificati
   the ≈ 2.9 GB / iteration peak without basin risk is to feed fewer points to
   the dense solve — e.g. an out-of-core tier below the in-memory stratified-LS
   path, or a coarser ``stratification.target_chunk_size``.  Both change the
-  numerics and must be validated against the C044 objective oracle
-  (``tests/heterodyne/test_two_component_real_data.py``).  Subsampling the data
-  is **not** an option (no silent downsampling).
+  numerics and must be validated against the objective (optimized SSR ≤ frozen
+  baseline) before adoption.  Subsampling the data is **not** an option (no
+  silent downsampling).
 * **Upstream chunked/blockwise Jacobian.** A memory-bounded Jacobian that
   accumulates ``JᵀJ`` blockwise belongs in ``nlsq`` itself (or in a future
   solver robust to the pointwise evaluator).  Tracked alongside the

@@ -134,8 +134,8 @@ The controller runs as a sequence:
       └─► GradientCollapseMonitor.check(grad_ratio)   (diagnostic only)
 
 The order is fixed in :mod:`xpcsjax.optimization.nlsq.anti_degeneracy_controller`; do not
-reorder without re-running the parity tests
-(:doc:`parity_testing`).
+reorder without re-running the synthetic golden / engine-preservation
+parity tests under :file:`tests/parity/`.
 
 Configuration
 -------------
@@ -188,5 +188,3 @@ Cross-references
 - :doc:`cma_es_escape` — the escape path triggered by Layer 4.
 - :doc:`/theory/anti_degeneracy` — derivation of the degeneracies
   and motivation for each layer.
-- :doc:`parity_testing` — the regression tests that pin the
-  controller's behaviour.

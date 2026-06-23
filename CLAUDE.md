@@ -92,11 +92,28 @@ xpcsjax ships four mode-specific YAML templates under `xpcsjax/config/templates/
 
 **`data_type` valid values:** `"aps_old"` (legacy APS format) or `"aps_u"` (unified APS format). No other strings are accepted.
 
-### Homodyne is both a port source and a parity oracle
+### Homodyne parity is synthetic-only (real-data oracles removed)
 
-`scripts/generate_homodyne_baselines.py` runs the upstream homodyne package and serializes results into `tests/characterization/fixtures/`. `tests/characterization/test_homodyne_equivalence.py` then asserts xpcsjax produces bit-comparable output. **When porting any new module from homodyne, generate a fresh baseline before changing behavior.** That's how regressions are caught.
+The upstream-homodyne **real-data parity oracles** — the C020/Simon characterization
+suite (`test_homodyne_equivalence.py`, `test_homodyne_nlsq_ab_parity.py`), the C044
+real-data heterodyne tests, their generated baselines, and the `scripts/` generators
+(`generate_homodyne_baselines.py` et al.) — were **removed**. xpcsjax no longer
+depends on the upstream `homodyne` package or the maintainer datasets (C020/Simon/C044)
+for testing, and the default suite has **zero skips** from them.
 
-**The homodyne baseline is DUAL-GATED (Phase 5, 2026-06-12).** Since Phase 5 the laminar `<100k` standard path honors the per-angle resolver and the `auto` default resolves to `averaged` at `n_phi >= constant_scaling_threshold` (3). The baselines were generated from an **individual** fit (`laminar_c020` = 53 params = `2*23 + 7`), so the parity contract split in two: **(a)** explicit `per_angle_mode="individual"` stays a strict `rtol=1e-10` permutation tripwire (the `:138`/`:146` asserts in `test_homodyne_equivalence.py`, the `:119`/`:126` asserts in `test_homodyne_nlsq_ab_parity.py`, and `test_homodyne_engine_preservation.py`'s `_RUN_ENGINE_PARITY` value block all pin explicit individual); **(b)** the `auto → averaged@n_phi≥3` default is **no-worse-SSR within ~1e-3** (`averaged` is *more constrained* — 2 scaling DOF vs `2*n_phi` — so SSR can only degrade-or-equal; the no-worse siblings `test_homodyne_default_no_worse` / `test_homodyne_nlsq_default_no_worse` / `test_phase5_default_no_worse.py` assert `chi2_default <= chi2_individual * (1 + 1e-3)`). Static modes are gated OUT of Phase 5 (`auto → averaged` is a no-op there), so the no-worse oracle is honestly scoped to laminar labels only. Pinning explicit individual with `hierarchical/regularization` disabled is a verified no-op on the `≥1 M` stratified path (L2/L3 don't execute there — `execute_layers` defaults `False`).
+Remaining parity coverage is **synthetic and committed**:
+- `tests/parity/test_homodyne_engine_preservation.py` — golden snapshots under
+  `tests/parity/_golden/` at `rtol=1e-10` (the model-agnostic engine seam tripwire).
+- `tests/parity/test_engine_heterodyne_fit_parity.py` / `test_engine_route_result_contract.py`
+  — engine-route parity on synthetic fixtures.
+- `tests/parity/test_phase5_default_no_worse.py::test_synthetic_default_averaged_no_worse_than_individual`
+  — the Phase-5 `auto → averaged@n_phi≥3` no-worse-SSR contract (`averaged` is
+  *more constrained* — 2 scaling DOF vs `2*n_phi` — so SSR can only degrade-or-equal,
+  asserted within `1e-3`), exercised on synthetic data.
+
+These run on every `make verify` (no datasets, no env vars). The CPU-microarch-sensitive
+golden value-compares self-skip on CI and are forced by `make test-full-local`
+(`XPCSJAX_RUN_CHARACTERIZATION=1 XPCSJAX_RUN_ENGINE_PARITY=1`).
 
 ### Heterodyne is a fully public model with per-angle-mode parity
 
@@ -259,17 +276,16 @@ Use the project Makefile rather than reinventing pytest/ruff invocations — the
 | Type-check | `make type-check` (mypy non-strict, `ignore_missing_imports=true`) |
 | Format | `make format` (ruff format + `ruff check --fix`) |
 | Verify NLSQ integration end-to-end | `make verify-nlsq` |
-| Generate homodyne baselines | `make run-example` (= `python scripts/generate_homodyne_baselines.py`) |
-| Maintainer-local FULL run (zero skips) | `make test-full-local` (enables the env-gated live oracles) |
-| Run heavy live-fit oracles serially | `make test-heavy-serial` |
+| FULL run (forces synthetic parity gates) | `make test-full-local` |
+| Run heavy (slow/flaky) nodes serially | `make test-heavy-serial` |
 
 Notes:
 - `pytest` auto-loads `JAX_ENABLE_X64=1` from `[tool.pytest.ini_options]` — no need to set it manually for tests.
-- **A real-data oracle is AVAILABILITY-gated, not env-gated.** `tests/heterodyne/test_two_component_real_data.py::test_heterodyne_multi_angle_matches_source` RUNS automatically whenever its prerequisites are present (the C044 dataset/baseline) and SKIPS with a clear reason otherwise. So on a maintainer machine it runs under a plain `make test` (no env var, no skip); on CI / fresh clones it skips gracefully and **never fails**. Do **not** re-gate it on `XPCSJAX_RUN_CHARACTERIZATION` — that env-var-in-CI footgun is exactly what the availability check (dataset-path existence) replaces.
-- **The remaining live oracles are still env-gated; `make test-full-local` runs them with *zero* skips.** The default `make test`/`make verify` still skip the env-gated set — the homodyne-equivalence characterization suite (`tests/characterization/test_homodyne_equivalence.py`, `XPCSJAX_RUN_CHARACTERIZATION=1`), A/B parity (`XPCSJAX_RUN_AB_PARITY=1`), and the `${XPCSJAX_DATA_ROOT}` loader fixture. `test-full-local` sets all three env vars (`XPCSJAX_DATA_ROOT` default `/home/wei/Documents/Projects/data`, override on the CLI) and runs them. They need the upstream `homodyne` package installed and the maintainer datasets (`C020/`, `Simon/`, `C044/`) on disk — so it is **maintainer-local only; never wire these env vars into `test`/`verify`/CI** (fresh clones lack both and would fail loudly). Config `data_folder_path` now resolves `${ENV_VAR}`/`~` (no-op on plain absolute paths), which is what lets the loader fixture point at `${XPCSJAX_DATA_ROOT}`.
+- **There are no real-data / upstream-homodyne oracles anymore.** The C020/Simon/C044 live-fit tests and the env-gated characterization + A/B-parity suites were removed, so `make test`/`make verify` need **no datasets, no upstream `homodyne`, and report zero skips** from them. The surviving parity tests are synthetic (see "Homodyne parity is synthetic-only" above).
+- **`make test-full-local` only forces the CPU-microarch-gated SYNTHETIC parity tests** (the engine-route strict-numeric parity + the `test_homodyne_engine_preservation` golden value-compare) via `XPCSJAX_RUN_CHARACTERIZATION=1 XPCSJAX_RUN_ENGINE_PARITY=1`. Those self-skip on CI (golden values are recorded on a specific CPU) and are otherwise the only thing the default suite leaves un-forced. No data root, no upstream package. Config `data_folder_path` still resolves `${ENV_VAR}`/`~` (no-op on plain absolute paths) for normal data loading.
 - `make type-check` will surface many findings because `strict = false`; `make verify` runs mypy in **advisory** mode (`| tail -1 || true`) so type findings don't block push.
 - Python 3.12+ required (per `pyproject.toml`).
-- **Heavy live-fit oracles are serial-routed out of every `-n auto` target.** Running the suite under pytest-xdist `-n auto` (one worker per CPU) concurrently with the availability-gated live-fit oracles overcommits RAM and triggers a kernel OOM-kill (SIGKILL/returncode -9). So `PARALLEL_DESELECT` (top of the Makefile) `--deselect`s/`--ignore`s those heavy tests from **all** parallel targets, and they run serially via `make test-heavy-serial` (availability-gated: the real-data two_component C044 oracle + the ≥1M stratified-LS C044 oracle) or `make test-full-local` (also the env-gated characterization/A-B parity). `make test-all-parallel` chains `test-heavy-serial` after its parallel pass. Do **not** re-add these tests to a bare `-n auto` invocation, and do **not** `--ignore` a file that also holds cheap tests (use `--deselect` on the specific node instead).
+- **A few slow/flaky SYNTHETIC nodes are serial-routed out of every `-n auto` target.** `PARALLEL_DESELECT` (top of the Makefile) `--deselect`s the `HEAVY_NODES` (currently a CMA-ES escape test + a GUI worker-handle test) from **all** parallel targets; they run serially via `make test-heavy-serial`, and `make test-all-parallel` chains it after the parallel pass. `HEAVY_FILES`/`ENV_GATED_FILES` are now **empty** (the real-data oracles that populated them were removed). Do **not** `--ignore` a file that also holds cheap tests — use `--deselect` on the specific node instead. The per-fit memory budget is also concurrency-aware (divides `available*fraction` by `PYTEST_XDIST_WORKER_COUNT`/`XPCSJAX_FIT_CONCURRENCY`).
 
 ## Workflow conventions
 
@@ -277,8 +293,7 @@ Notes:
 - **Float64 everywhere.** `JAX_ENABLE_X64=1` is mandatory — parameters span 6+ orders of magnitude.
 - **No `from module import *`.** Enforced by user CLAUDE.md and by ruff (`F` rule).
 - **JIT-safe interpolation only.** Use `interpax`, never `jax.numpy.interp` in JIT'd paths.
-- **Characterization tests are the parity contract — now DUAL-GATED (Phase 5).** If `tests/characterization/test_homodyne_equivalence.py`'s **strict** half (explicit `per_angle_mode="individual"`, the `rtol=1e-10` asserts) starts failing after a port change, do **not** loosen tolerances — regenerate the baseline only if the homodyne package itself changed. The "do not loosen tolerances" rule applies to the **explicit-individual strict half only**. The **no-worse half** (`auto → averaged` default, `test_homodyne_default_no_worse`) is a `chi2_default <= chi2_individual * (1 + 1e-3)` band, NOT a tolerance to be tightened to `rtol=1e-10`: averaged is more-constrained, so a small SSR degradation there is the *intended* Phase-5 default change, not a regression. Do not "fix" the no-worse band by forcing it to bit-identity.
-- **The homodyne characterization suite is a maintainer-local LIVE oracle.** `tests/characterization/test_homodyne_equivalence.py` runs **only** when `XPCSJAX_RUN_CHARACTERIZATION=1`; otherwise it self-skips. When run, it does a **live fit against the upstream `homodyne` package** and reads its configs/datasets at **hardcoded absolute paths outside the repo** (e.g. `/home/wei/Documents/Projects/data/C020/...`), so it passes only on a maintainer machine that has both. Setting `XPCSJAX_RUN_CHARACTERIZATION=1` directly in CI fails loudly with "homodyne not importable" / "registered config path is dead" (see the CI-facts memory). The test module imports only stdlib + numpy at top level, but that does **not** mean the comparison runs without upstream: the gated test bodies pull in `homodyne` and the local datasets at runtime. `make run-example` (`scripts/generate_homodyne_baselines.py`) likewise needs the upstream packages — install with `uv pip install -e /path/to/homodyne` (and `/path/to/heterodyne` when its generator lands). Neither upstream package is declared in `pyproject.toml`; deliberate — xpcsjax is a JAX-native rewrite and shouldn't pull its predecessors into normal installs.
+- **Parity coverage is synthetic — the real-data/upstream-homodyne oracles were removed.** The Phase-5 no-worse band (`chi2_default <= chi2_individual * (1 + 1e-3)`; `averaged` is more-constrained, so a small SSR degradation is the *intended* default change, not a regression) is checked synthetically by `tests/parity/test_phase5_default_no_worse.py::test_synthetic_default_averaged_no_worse_than_individual` — do **not** "fix" that band by forcing it to bit-identity. The engine seam is pinned by `tests/parity/test_homodyne_engine_preservation.py` goldens (`tests/parity/_golden/`, `rtol=1e-10`); if a strict golden value-compare fails after a port change, regenerate the golden only if the kernel legitimately changed — never loosen the tolerance. There is no longer any `XPCSJAX_RUN_CHARACTERIZATION` / `XPCSJAX_RUN_AB_PARITY` live fit against upstream `homodyne`.
 
 ## graphify
 

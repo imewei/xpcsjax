@@ -4,7 +4,7 @@ Porting Notes
 xpcsjax is a port. Its two upstream sources are the ``homodyne`` and
 ``heterodyne`` Python packages, which xpcsjax merges into a single
 JAX-native NLSQ pipeline. This page documents the relationship to
-both upstreams, the parity contract that gates the port, the current
+both upstreams, the parity coverage that gates the port, the current
 state of the heterodyne migration, what xpcsjax intentionally drops
 from the upstreams, and the workflow to follow when porting a new
 module.
@@ -13,90 +13,33 @@ Relationship to the upstream packages
 -------------------------------------
 
 ``homodyne``
-    The reference implementation for the homodyne XPCS model. xpcsjax
-    consumes this package in two distinct ways:
-
-    1. As a **port source**. The physics kernels, NLSQ engine
-       structure, and anti-degeneracy controller in xpcsjax derive
-       from homodyne's implementation.
-    2. As a **parity oracle**. The characterisation test suite runs
-       homodyne against a canonical fixture set, serialises the
-       output, and asserts that xpcsjax reproduces it exactly.
+    The reference implementation for the homodyne XPCS model. The
+    physics kernels, NLSQ engine structure, and anti-degeneracy
+    controller in xpcsjax derive from homodyne's implementation.
 
 ``heterodyne``
     The reference implementation for the two-component heterodyne
     XPCS model. The port is complete (Phase 6):
     :class:`xpcsjax.core.HeterodyneModel` is a fully public model with
-    per-angle-mode parity. Parity is guarded by the availability-gated
-    real-data oracle (:file:`tests/heterodyne/test_two_component_real_data.py`,
-    the C044 dataset) rather than a byte-exact characterisation fixture.
-
-The dual role of homodyne — port source *and* parity oracle — is the
-strongest correctness guarantee xpcsjax has. Any commit that breaks
-parity is a bug in the port, by construction.
+    per-angle-mode parity.
 
 The parity contract
 -------------------
 
-The homodyne parity contract is encoded in a single file:
-:file:`tests/characterization/test_homodyne_equivalence.py`. The
-contract has three components:
+.. note::
 
-1. **Tolerance.** Bit-comparable output at ``rtol=1e-10``. This is
-   tight enough to catch every algorithmic drift the port can plausibly
-   introduce while permitting last-bit float64 reductions ordering
-   differences.
-2. **Baselines.** Serialised under
-   :file:`tests/characterization/fixtures/`. Each baseline is the
-   output of running the upstream ``homodyne`` package against a
-   canonical fixture set. The script that regenerates them is
-   :file:`scripts/generate_homodyne_baselines.py`.
-3. **Gating.** End-to-end paths are env-gated on
-   ``XPCSJAX_RUN_CHARACTERIZATION=1`` so local smoke runs stay fast.
-   CI sets the env var; local pre-push runs do not, by default.
-
-Regeneration discipline
-~~~~~~~~~~~~~~~~~~~~~~~
-
-There is exactly one situation in which baselines should be
-regenerated: **the upstream ``homodyne`` package itself changed**.
-Concretely:
-
-- A homodyne release fixed a bug whose effect is observable in the
-  fixture set.
-- A homodyne release deliberately changed an algorithm (for example,
-  a new Jacobian scaling) and you have explicit confirmation from
-  the upstream maintainers that the change is intentional.
-
-In every other situation — a failing characterisation test means
-xpcsjax has a regression. Fix the xpcsjax code; do not regenerate
-the baseline.
-
-To regenerate when the situation genuinely calls for it:
-
-.. code-block:: shell
-
-   make run-example
-   # which is equivalent to:
-   uv run python scripts/generate_homodyne_baselines.py
-
-Then run the characterisation gate to confirm the fresh baselines
-match the (unchanged) xpcsjax implementation:
-
-.. code-block:: shell
-
-   XPCSJAX_RUN_CHARACTERIZATION=1 make test-characterization
-
-Commit the regenerated fixtures and the corresponding upstream version
-bump in a single commit, with a message that names the upstream
-release that triggered the regeneration.
-
-.. warning::
-
-   Do not regenerate baselines to make a failing parity test pass.
-   The contract is one-directional: xpcsjax tracks homodyne, not the
-   other way around. A drift detected by the gate is a port bug, and
-   the correct response is to fix the port.
+   The real-data / upstream parity oracles were removed from the
+   repository. xpcsjax no longer ships the generated homodyne
+   baselines, the upstream-homodyne equivalence test, or the
+   real-data heterodyne C044 oracle. The remaining parity coverage is
+   the **synthetic golden / engine-preservation** tests under
+   :file:`tests/parity/` — most importantly
+   :file:`tests/parity/test_homodyne_engine_preservation.py` (golden
+   tests in :file:`tests/parity/_golden/`),
+   :file:`tests/parity/test_engine_heterodyne_fit_parity.py`, and
+   :file:`tests/parity/test_engine_route_result_contract.py`. These run
+   from data committed in the repository and need no external upstream
+   package or dataset.
 
 Heterodyne port status
 ----------------------
@@ -135,27 +78,25 @@ Under :mod:`xpcsjax.optimization.nlsq` (engine):
 - :mod:`xpcsjax.optimization.nlsq.heterodyne_results`
 
 Tests under :file:`tests/heterodyne/` cover the two-component model
-on real data (:file:`test_two_component_real_data.py`), the smoke
-variant (:file:`test_two_component_smoke.py`), and the config
-unwrap path (:file:`test_config_unwrap.py`).
+via the smoke variant (:file:`test_two_component_smoke.py`) and the
+config unwrap path (:file:`test_config_unwrap.py`).
 
 How heterodyne parity is guarded
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Heterodyne fits a different model from homodyne, so it is verified by
-**mechanism + objective** parity rather than the byte-exact
-``rtol=1e-10`` characterisation gate used for homodyne:
+**mechanism + objective** parity rather than a byte-exact
+``rtol=1e-10`` gate:
 
-1. The availability-gated real-data oracle
-   :file:`tests/heterodyne/test_two_component_real_data.py` runs the
-   two-component fit against the C044 dataset whenever that data is
-   present and skips cleanly otherwise.
-2. The smoke variant :file:`tests/heterodyne/test_two_component_smoke.py`
+1. The smoke variant :file:`tests/heterodyne/test_two_component_smoke.py`
    exercises the pipeline on tiny synthetic data with no external
    dependencies.
-3. Per-angle-mode parity (``constant`` / ``averaged`` / ``individual``)
-   is asserted by the no-worse-SSR contracts described in
-   :doc:`/advanced/parity_testing`.
+2. Engine-route parity on committed synthetic data is asserted by
+   :file:`tests/parity/test_engine_heterodyne_fit_parity.py` and
+   :file:`tests/parity/test_engine_route_result_contract.py`.
+3. The ``auto → averaged`` default no-worse-SSR contract is asserted
+   by the synthetic test in
+   :file:`tests/parity/test_phase5_default_no_worse.py`.
 
 The NLSQ-only filter: what xpcsjax intentionally omits
 ------------------------------------------------------
@@ -220,26 +161,15 @@ Porting workflow for new modules
 When porting a new module from upstream — homodyne or heterodyne —
 follow this order:
 
-1. **Generate a fresh baseline first, before changing xpcsjax.**
+1. **Write or extend a synthetic parity test first.**
 
-   If the new module participates in an end-to-end path covered by
-   the characterisation harness, regenerate baselines from the
-   current upstream release before you touch xpcsjax code:
+   If the new module participates in an end-to-end path, add or
+   extend a synthetic test under :file:`tests/parity/` that pins the
+   expected behaviour on data committed in the repository (golden
+   tests live in :file:`tests/parity/_golden/`). Without a failing
+   test to drive the port, regressions accumulate silently.
 
-   .. code-block:: shell
-
-      make run-example
-
-   This pins the parity target. Without this step you cannot
-   distinguish "xpcsjax has a port bug" from "upstream changed".
-
-2. **Write the parity test next.**
-
-   Add the corresponding test under :file:`tests/characterization/`
-   if it doesn't already exist. The test should load the baseline
-   and assert ``rtol=1e-10`` against the xpcsjax output.
-
-3. **Port the code.**
+2. **Port the code.**
 
    Place physics in :mod:`xpcsjax.core`; place engine code in
    :mod:`xpcsjax.optimization.nlsq`. Reuse the existing wiring
@@ -247,35 +177,19 @@ follow this order:
    routing) rather than reimplementing it. See :doc:`nlsq_integration`
    for the ownership split.
 
-4. **Run the gate.**
-
-   .. code-block:: shell
-
-      XPCSJAX_RUN_CHARACTERIZATION=1 make test-characterization
-
-   Iterate on the xpcsjax code until the test passes at
-   ``rtol=1e-10``. Do not loosen the tolerance.
-
-5. **Run the full pre-push gate.**
+3. **Run the full pre-push gate.**
 
    .. code-block:: shell
 
       make verify
 
-   This catches lint and smoke regressions outside the parity
-   contract.
+   This catches lint and smoke regressions, and runs the synthetic
+   parity tests under :file:`tests/parity/`.
 
-6. **Update documentation.**
+4. **Update documentation.**
 
    If the new module exposes a public symbol, add it to
    ``_LAZY_EXPORTS`` and the literal ``__all__`` in
    :mod:`xpcsjax`, and document it under :doc:`/api/index`.
    If the module is part of the heterodyne push, update the status
    list above.
-
-.. note::
-
-   The "baseline first, test second, port third" order is what
-   converts the port from an open-ended translation exercise into a
-   bounded one. Without the baseline in place, there is no failing
-   test to drive the port, and regressions accumulate silently.

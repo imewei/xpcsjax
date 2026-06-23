@@ -149,32 +149,32 @@ but does NOT rename parameter keys automatically.
 
 ---
 
-## Bit-equivalence guarantee for homodyne fits
+## Parity coverage
 
-xpcsjax reproduces source `homodyne` NLSQ fits **bit-equivalently** (`rtol=1e-10`)
-on the configs in `tests/characterization/fixtures/configs/`. This includes the
-full CMA-ES escape, anti-degeneracy controller, and memory-aware strategy
-routing.
+> **Note:** The real-data / upstream parity oracles were removed from the
+> repository. xpcsjax no longer ships generated `homodyne` baselines, the
+> upstream-homodyne equivalence test, or the real-data heterodyne C044 oracle.
+> The remaining parity coverage is the **synthetic golden / engine-preservation**
+> tests under `tests/parity/`, which run from data committed in the repository
+> and need no external upstream package or dataset.
 
-Run the gate locally with:
+The homodyne engine path is pinned by the golden / engine-preservation tests
+(`tests/parity/test_homodyne_engine_preservation.py`, golden data in
+`tests/parity/_golden/`). The heterodyne engine route is pinned by
+`tests/parity/test_engine_heterodyne_fit_parity.py` and
+`tests/parity/test_engine_route_result_contract.py`, with the `auto → averaged`
+default no-worse-SSR contract in `tests/parity/test_phase5_default_no_worse.py`.
 
-```bash
-XPCSJAX_RUN_CHARACTERIZATION=1 uv run pytest tests/characterization/ -v
-```
-
-## Multi-angle heterodyne agreement
-
-xpcsjax reproduces source `heterodyne`'s joint multi-angle NLSQ fit χ²
-**exactly** (7131.31 for the C044 reference dataset) and recovers the 14
-physics parameters within a few percent (worst case 1.5% on `D_offset_ref`).
-The `f0/f2` parameters are physically degenerate along `f0·exp(-f1·f2)`; the
-invariant matches.
-
-Run the gate locally with:
+Run them locally with:
 
 ```bash
-XPCSJAX_RUN_CHARACTERIZATION=1 uv run pytest tests/heterodyne/test_two_component_real_data.py -v
+uv run pytest tests/parity/ -v
 ```
+
+Historically, xpcsjax reproduced source `heterodyne`'s joint multi-angle NLSQ
+fit χ² closely (χ² ≈ 7131.31 on the C044 reference dataset, the 14 physics
+parameters recovered within a few percent), but that real-data comparison is no
+longer part of the shipped test suite.
 
 ---
 
