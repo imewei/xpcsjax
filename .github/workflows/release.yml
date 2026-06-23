@@ -1,0 +1,84 @@
+name: Release
+
+# Publish xpcsjax to PyPI when a GitHub Release is published.
+#
+# Authentication is PyPI Trusted Publishing (OIDC) -- there is NO API token
+# secret. The `build` job runs the project's own build code with NO
+# credentials; only the minimal `publish` job is granted the short-lived OIDC
+# token (id-token: write) and runs in the protected `pypi` environment. This
+# build/publish split follows the PyPA Trusted Publishing guidance so build
+# code can never reach the publishing credential.
+#
+# One-time setup before the first run: register a Trusted Publisher on PyPI
+# (https://pypi.org/manage/account/publishing/) with
+#   owner=imewei  repository=xpcsjax  workflow=release.yml  environment=pypi
+on:
+  release:
+    types: [published]
+  # Manual fallback (e.g. to publish a tag that predates this workflow, or to
+  # retry a failed upload). The version guard below is skipped for this path.
+  workflow_dispatch:
+
+# Never cancel an in-flight publish; a half-cancelled upload is worse than a
+# duplicate run (PyPI rejects re-uploads of an existing version idempotently).
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build sdist + wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
+        with:
+          enable-cache: true
+      - name: Build sdist and wheel
+        run: uv build
+      - name: Verify package version matches the release tag
+        # Guard against publishing a build whose version disagrees with the tag
+        # that triggered the release (e.g. pyproject not bumped). Reads the
+        # version with stdlib tomllib -- no project install needed. Skipped on
+        # workflow_dispatch, where there is no release tag.
+        if: github.event_name == 'release'
+        run: |
+          pkg_version="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')"
+          tag="${GITHUB_REF_NAME#v}"
+          echo "package version: $pkg_version | release tag: $tag"
+          if [ "$pkg_version" != "$tag" ]; then
+            echo "::error::pyproject version '$pkg_version' does not match release tag '$tag'"
+            exit 1
+          fi
+      - name: Check distribution metadata
+        run: uvx twine check --strict dist/*
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    # The `pypi` environment is where the Trusted Publisher is registered on
+    # PyPI; add required reviewers / branch filters here to gate releases.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/xpcsjax
+    permissions:
+      id-token: write  # mint the OIDC token PyPI verifies (Trusted Publishing)
+      contents: read
+    steps:
+      - name: Download dist artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@ecb4c3dfd4790f14e30aaeac04855c7413ee9368  # v1.12.2
