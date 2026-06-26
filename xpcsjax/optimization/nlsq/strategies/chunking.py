@@ -542,33 +542,12 @@ def calculate_adaptive_chunk_size(
             available_bytes = psutil.virtual_memory().available
             available_memory_gb = available_bytes / (1024**3)
             logger.debug(f"Auto-detected available memory: {available_memory_gb:.1f} GB")
-        except ImportError:
-            # Fallback: try os.sysconf for total memory, then estimate 50% available
-            try:
-                import os
-
-                page_size = os.sysconf("SC_PAGE_SIZE")
-                phys_pages = os.sysconf("SC_PHYS_PAGES")
-                if page_size > 0 and phys_pages > 0:
-                    total_gb = (page_size * phys_pages) / (1024**3)
-                    # Conservative estimate: assume 50% of total memory available
-                    available_memory_gb = total_gb * 0.5
-                    logger.warning(
-                        f"psutil not available, estimated available memory from total: "
-                        f"{available_memory_gb:.1f} GB (50% of {total_gb:.1f} GB)"
-                    )
-                else:
-                    logger.warning(
-                        "psutil not available and os.sysconf failed, "
-                        "using conservative default of 16 GB"
-                    )
-                    available_memory_gb = 16.0
-            except (ValueError, OSError, AttributeError):
-                logger.warning(
-                    "psutil not available and os.sysconf failed, "
-                    "using conservative default of 16 GB"
-                )
-                available_memory_gb = 16.0
+        except (OSError, ValueError, AttributeError) as exc:
+            available_memory_gb = 16.0
+            logger.warning(
+                "psutil memory detection failed (%s), using conservative default of 16 GB",
+                exc,
+            )
 
     # Memory per point for Jacobian (dominant memory consumer)
     jacobian_bytes_per_point = n_params * 8  # 8 bytes per float64

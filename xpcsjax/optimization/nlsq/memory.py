@@ -12,7 +12,7 @@ Provides adaptive memory threshold detection and unified memory-based strategy
 selection for NLSQ optimization.
 
 Key Features:
-- Cross-platform system memory detection (psutil + os.sysconf fallback)
+- Cross-platform system memory detection (psutil, a required dependency)
 - Adaptive threshold calculation based on available memory
 - Unified memory-based strategy selection (NLSQStrategy, select_nlsq_strategy)
 - Environment variable override support (NLSQ_MEMORY_FRACTION)
@@ -67,31 +67,16 @@ def detect_total_system_memory() -> float | None:
 
     Notes
     -----
-    Detection priority:
-    1. psutil.virtual_memory().total (preferred, cross-platform)
-    2. os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') (Linux fallback)
+    Uses ``psutil.virtual_memory().total`` (psutil is a required dependency).
     """
-    # Method 1: psutil (preferred, cross-platform)
     try:
         import psutil
 
         total_bytes = psutil.virtual_memory().total
         if total_bytes > 0:
             return float(total_bytes)
-    except ImportError:
-        logger.debug("psutil not available, trying os.sysconf fallback")
     except (OSError, ValueError, AttributeError) as e:
         logger.debug(f"psutil memory detection failed: {e}")
-
-    # Method 2: os.sysconf (Linux/Unix fallback)
-    try:
-        page_size = os.sysconf("SC_PAGE_SIZE")
-        phys_pages = os.sysconf("SC_PHYS_PAGES")
-        if page_size > 0 and phys_pages > 0:
-            total_bytes = page_size * phys_pages
-            return float(total_bytes)
-    except (ValueError, OSError, AttributeError) as e:
-        logger.debug(f"os.sysconf memory detection failed: {e}")
 
     return None
 
@@ -114,8 +99,6 @@ def detect_available_system_memory() -> float | None:
         available_bytes = psutil.virtual_memory().available
         if available_bytes > 0:
             return float(available_bytes)
-    except ImportError:
-        logger.debug("psutil not available for available-memory detection")
     except (OSError, ValueError, AttributeError) as e:
         logger.debug(f"psutil available-memory detection failed: {e}")
 
@@ -185,7 +168,7 @@ def get_adaptive_memory_threshold(
         - 'total_memory_gb': Detected total system memory (GB)
         - 'memory_fraction': Fraction used
         - 'source': How the fraction was determined ('argument', 'env', 'default')
-        - 'detection_method': How memory was detected ('psutil', 'sysconf', 'fallback')
+        - 'detection_method': How memory was detected ('psutil', 'fallback')
 
     Notes
     -----
@@ -275,12 +258,7 @@ def get_adaptive_memory_threshold(
         info["basis_memory_gb"] = basis_gb
         info["memory_basis"] = memory_basis
 
-        try:
-            import psutil  # noqa: F401
-
-            info["detection_method"] = "psutil"
-        except ImportError:
-            info["detection_method"] = "sysconf"
+        info["detection_method"] = "psutil"
 
         threshold_gb = basis_gb * effective_fraction / divisor
 

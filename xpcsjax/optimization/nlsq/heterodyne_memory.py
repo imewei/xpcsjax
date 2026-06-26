@@ -27,7 +27,15 @@ from enum import Enum
 # explicit arg > XPCSJAX_FIT_CONCURRENCY > PYTEST_XDIST_WORKER_COUNT > 1). Only the
 # strategy *names* differ between the homodyne and heterodyne flavors; the
 # overcommit-prevention divisor is identical, so it is imported, not duplicated.
-from xpcsjax.optimization.nlsq.memory import _detect_fit_concurrency
+from xpcsjax.optimization.nlsq.memory import (
+    _detect_fit_concurrency,
+)
+from xpcsjax.optimization.nlsq.memory import (
+    detect_available_system_memory as _detect_available_bytes,
+)
+from xpcsjax.optimization.nlsq.memory import (
+    detect_total_system_memory as _detect_total_bytes,
+)
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -91,64 +99,39 @@ class StrategyDecision:
 # ---------------------------------------------------------------------------
 
 
+_BYTES_PER_GB: float = 1024**3
+
+
 def detect_total_system_memory() -> float | None:
     """Detect total system memory in GB.
 
-    Tries ``psutil`` first, then ``os.sysconf`` (Linux/macOS).
+    Thin GB-returning wrapper over the homodyne flavor
+    (:func:`xpcsjax.optimization.nlsq.memory.detect_total_system_memory`), which
+    returns bytes. The detection logic is shared, not duplicated.
 
     Returns
     -------
     float | None
         Total memory in GB, or ``None`` if detection fails.
     """
-    # Method 1: psutil (preferred, cross-platform)
-    try:
-        import psutil
-
-        total = psutil.virtual_memory().total
-        if total > 0:
-            return float(total) / (1024**3)
-    except ImportError:
-        logger.debug("psutil not available, trying os.sysconf fallback")
-    except (OSError, ValueError, AttributeError) as exc:
-        logger.debug("psutil memory detection failed: %s", exc)
-
-    # Method 2: os.sysconf (Linux/Unix)
-    try:
-        page_size = os.sysconf("SC_PAGE_SIZE")
-        phys_pages = os.sysconf("SC_PHYS_PAGES")
-        if page_size > 0 and phys_pages > 0:
-            return float(page_size * phys_pages) / (1024**3)
-    except (ValueError, OSError, AttributeError) as exc:
-        logger.debug("os.sysconf memory detection failed: %s", exc)
-
-    return None
+    total_bytes = _detect_total_bytes()
+    return None if total_bytes is None else total_bytes / _BYTES_PER_GB
 
 
 def detect_available_system_memory() -> float | None:
     """Detect currently *available* system memory in GB.
 
-    Available memory is the preferred budget basis (see the homodyne flavor in
-    :func:`xpcsjax.optimization.nlsq.memory.detect_available_system_memory`).
-    Returns GB to match :func:`detect_total_system_memory` in this module.
+    Thin GB-returning wrapper over the homodyne flavor
+    (:func:`xpcsjax.optimization.nlsq.memory.detect_available_system_memory`),
+    which returns bytes. Available memory is the preferred budget basis.
 
     Returns
     -------
     float | None
         Available memory in GB, or ``None`` if detection fails.
     """
-    try:
-        import psutil
-
-        available = psutil.virtual_memory().available
-        if available > 0:
-            return float(available) / (1024**3)
-    except ImportError:
-        logger.debug("psutil not available for available-memory detection")
-    except (OSError, ValueError, AttributeError) as exc:
-        logger.debug("psutil available-memory detection failed: %s", exc)
-
-    return None
+    available_bytes = _detect_available_bytes()
+    return None if available_bytes is None else available_bytes / _BYTES_PER_GB
 
 
 # ---------------------------------------------------------------------------
