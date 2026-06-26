@@ -62,19 +62,3 @@ class NLSQAdapterBase(ABC):
             The optimization result with fitted parameters and diagnostics.
         """
         ...
-
-    @abstractmethod
-    def supports_bounds(self) -> bool:
-        """Return whether this adapter supports bounded (box-constrained) optimization."""
-        ...
-
-    @abstractmethod
-    def supports_jacobian(self) -> bool:
-        """Return whether this adapter can consume an analytic Jacobian."""
-        ...
-
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """Human-readable name of the underlying optimization backend."""
-        ...

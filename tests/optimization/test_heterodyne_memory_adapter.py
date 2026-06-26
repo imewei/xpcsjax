@@ -233,19 +233,9 @@ def test_assess_convergence_no_progress() -> None:
 # ===========================================================================
 
 
-def test_nlsq_wrapper_metadata_and_retry_clamp() -> None:
+def test_nlsq_wrapper_retry_clamp() -> None:
     w = ad.NLSQWrapper(["a", "b"], max_retries=0)
-    assert w.name == "nlsq.NLSQWrapper"
-    assert w.supports_bounds() is True
-    assert w.supports_jacobian() is True
     assert w._max_retries == 1  # clamped up from 0
-
-
-def test_nlsq_adapter_metadata() -> None:
-    a = ad.NLSQAdapter(["a", "b", "c"])
-    assert a.name == "nlsq.CurveFit"
-    assert a.supports_bounds() is True
-    assert a.supports_jacobian() is True
 
 
 def test_build_tier_list_from_each_start() -> None:

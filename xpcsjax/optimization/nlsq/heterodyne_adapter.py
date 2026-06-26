@@ -244,19 +244,6 @@ class NLSQAdapter(NLSQAdapterBase):
         """
         self._parameter_names = parameter_names
 
-    @property
-    def name(self) -> str:
-        """Adapter name (``"nlsq.CurveFit"``)."""
-        return "nlsq.CurveFit"
-
-    def supports_bounds(self) -> bool:
-        """Return whether the adapter supports box bounds (always ``True``)."""
-        return True
-
-    def supports_jacobian(self) -> bool:
-        """Return whether the adapter accepts an analytic Jacobian (always ``True``)."""
-        return True
-
     def fit(
         self,
         residual_fn: Callable[[np.ndarray], np.ndarray],
@@ -603,19 +590,6 @@ class NLSQWrapper(NLSQAdapterBase):
         self._enable_large_dataset = enable_large_dataset
         self._enable_recovery = enable_recovery
         self._max_retries = max(1, max_retries)
-
-    @property
-    def name(self) -> str:
-        """Adapter name (``"nlsq.NLSQWrapper"``)."""
-        return "nlsq.NLSQWrapper"
-
-    def supports_bounds(self) -> bool:
-        """Return whether the adapter supports box bounds (always ``True``)."""
-        return True
-
-    def supports_jacobian(self) -> bool:
-        """Return whether the adapter accepts an analytic Jacobian (always ``True``)."""
-        return True
 
     def fit(
         self,
