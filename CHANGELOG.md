@@ -13,6 +13,28 @@ the rendered documentation.
 
 _No unreleased changes yet._
 
+## [0.1.1] - 2026-06-26
+
+Maintenance release. No user-facing behavioural or API changes; the fitting
+results, public API, and config formats are identical to 0.1.0.
+
+### Changed
+
+- **System memory detection unified and simplified** in the optimization
+  memory-strategy layer — a single detection path replaces the previous
+  duplicated logic. Behaviour-preserving.
+- Removed obsolete adapter metadata methods that were no longer referenced by
+  any live path.
+
+### Internal / CI
+
+- Mirror pushes to the OSTI GitLab instance (`wchen/xpcsjax`) via a new
+  `.github/workflows/mirror.yml`.
+- Repinned `pypa/gh-action-pypi-publish` to a valid `v1.14.0` commit SHA in the
+  release workflow.
+- Rebuilt the graphify codebase knowledge graph and refreshed the README
+  badges.
+
 ## [0.1.0] - 2026-06-22
 
 ### Added

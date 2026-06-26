@@ -10,6 +10,23 @@ Unreleased
 
 *No unreleased changes yet.*
 
+v0.1.1 — maintenance release
+----------------------------
+
+*Released 2026-06-26.*
+
+A maintenance release with no user-facing behavioural or API changes — fitting
+results, the public API, and config formats are identical to v0.1.0.
+
+* **System memory detection** in the optimization memory-strategy layer was
+  unified and simplified into a single detection path (behaviour-preserving),
+  and obsolete adapter metadata methods were removed.
+* Internal / CI: GitHub→GitLab mirror workflow (``wchen/xpcsjax``), repinned
+  ``pypa/gh-action-pypi-publish`` to a valid ``v1.14.0`` SHA, and refreshed the
+  knowledge graph and README badges.
+
+See ``CHANGELOG.md`` for the itemised list.
+
 v0.1.0 — initial consolidated release
 -------------------------------------
 
