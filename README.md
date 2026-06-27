@@ -6,7 +6,7 @@
 
 JAX-native NLSQ fitting for X-ray Photon Correlation Spectroscopy (XPCS).
 
-[![Docs](https://github.com/imewei/xpcsjax/actions/workflows/docs.yml/badge.svg)](https://github.com/imewei/xpcsjax/actions/workflows/docs.yml)
+[![PyPI version](https://badge.fury.io/py/rheojax.svg)](https://badge.fury.io/py/rheojax)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.12%2B-blue)](https://www.python.org/)
 [![Documentation](https://img.shields.io/badge/docs-latest-brightgreen.svg)](https://xpcsjax.readthedocs.io)
