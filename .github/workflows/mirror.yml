@@ -21,7 +21,7 @@ jobs:
     steps:
       # 3.1: Check out the repository with full history and LFS.
       - name: Checkout Source Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
         with:
           fetch-depth: 0 # Fetches all history for all branches and tags
           lfs: true      # Ensures Git LFS files are downloaded
