@@ -122,7 +122,6 @@ try:
 except ImportError:
     HAS_NLSQ_WRAPPER = False
     NLSQWrapper = None  # type: ignore[assignment,misc]
-    WrapperOptimizationResult = None  # type: ignore[assignment,misc]
 
 # Results module import (for return type)
 try:
@@ -159,9 +158,7 @@ try:
     HAS_MULTISTART = True
 except ImportError:
     HAS_MULTISTART = False
-    MultiStartConfig = None  # type: ignore[assignment,misc]
-    MultiStartResult = None  # type: ignore[assignment,misc]
-    SingleStartResult = None  # type: ignore[assignment,misc]
+    MultiStartConfig = MultiStartResult = SingleStartResult = None  # type: ignore[assignment,misc]
     run_multistart_nlsq = None  # type: ignore[assignment]
 
 # CMA-ES global optimization import
@@ -177,9 +174,7 @@ try:
     HAS_CMAES = CMAES_AVAILABLE
 except ImportError:
     HAS_CMAES = False
-    CMAESWrapper = None  # type: ignore[assignment,misc]
-    CMAESWrapperConfig = None  # type: ignore[assignment,misc]
-    CMAESResult = None  # type: ignore[assignment,misc]
+    CMAESWrapper = CMAESWrapperConfig = CMAESResult = None  # type: ignore[assignment,misc]
     fit_with_cmaes = None  # type: ignore[assignment]
 
 # CPU threading configuration (FR-005, T026)

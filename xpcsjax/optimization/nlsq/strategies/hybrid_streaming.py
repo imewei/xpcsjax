@@ -23,6 +23,7 @@ from xpcsjax.optimization.nlsq.adaptive_regularization import (
     AdaptiveRegularizationConfig,
     AdaptiveRegularizer,
 )
+from xpcsjax.optimization.nlsq.config import HybridRecoveryConfig
 from xpcsjax.optimization.nlsq.gradient_monitor import (
     GradientCollapseMonitor,
     GradientMonitorConfig,
@@ -202,86 +203,119 @@ def fit_with_hybrid_streaming_optimizer(
             residuals = residual_fn(x, *params)
             return ydata - residuals
 
-    try:
-        # Run optimization
-        result = optimizer.fit(
-            data_source=(xdata, ydata),
-            func=model_fn,
-            p0=initial_params,
-            bounds=bounds,
-            sigma=None,  # TODO: Add sigma support if needed
-            verbose=1 if not fast_mode else 0,
-        )
+    # T029/T030: progressive-recovery retry. On failure, retry up to
+    # ``max_retries`` times with a more conservative config (reduced learning
+    # rate, increased regularization, smaller trust region) before giving up
+    # and raising to trigger the caller's fallback to basic streaming.
+    recovery_config = HybridRecoveryConfig()
+    recoverable_errors = (ValueError, RuntimeError, TypeError, AttributeError, OSError, MemoryError)
 
-        # Extract results
-        popt = np.asarray(result["x"])
-        pcov = np.asarray(result.get("pcov", np.eye(len(popt))))
-        perr = np.asarray(result.get("perr", safe_uncertainties_from_pcov(pcov, len(popt))))
+    for attempt in range(recovery_config.max_retries + 1):
+        if attempt > 0:
+            settings = recovery_config.get_retry_settings(attempt)
+            config.warmup_lr_refinement *= settings["lr_multiplier"]
+            config.warmup_lr_careful *= settings["lr_multiplier"]
+            config.regularization_factor *= settings["lambda_multiplier"]
+            config.trust_region_initial *= settings["trust_multiplier"]
+            if recovery_config.log_retries:
+                logger.warning(
+                    f"Retrying hybrid streaming optimizer "
+                    f"(attempt {attempt}/{recovery_config.max_retries}): "
+                    f"lr×{settings['lr_multiplier']:.3g}, "
+                    f"lambda×{settings['lambda_multiplier']:.3g}, "
+                    f"trust×{settings['trust_multiplier']:.3g}"
+                )
+            optimizer = AdaptiveHybridStreamingOptimizer(config)
 
-        # Build info dict with phase diagnostics
-        info = {
-            "success": result.get("success", False),
-            "message": result.get("message", "Hybrid optimization completed"),
-            "hybrid_streaming_diagnostics": result.get("streaming_diagnostics", {}),
-            "perr": perr,
-            "sigma_sq": result.get("streaming_diagnostics", {})
-            .get("gauss_newton_diagnostics", {})
-            .get("final_cost"),
-            "phase_timings": result.get("streaming_diagnostics", {}).get("phase_timings", {}),
-        }
-
-        logger.info("Hybrid streaming optimization completed successfully")
-        phase_timings = info.get("phase_timings", {})
-        if phase_timings:
-            logger.info(
-                f"  Phase 0 (normalization): {phase_timings.get('phase0_normalization', 0):.3f}s"
+        try:
+            # Run optimization
+            result = optimizer.fit(
+                data_source=(xdata, ydata),
+                func=model_fn,
+                p0=initial_params,
+                bounds=bounds,
+                sigma=None,  # TODO: Add sigma support if needed
+                verbose=1 if not fast_mode else 0,
             )
-            logger.info(f"  Phase 1 (L-BFGS warmup): {phase_timings.get('phase1_warmup', 0):.3f}s")
-            logger.info(
-                f"  Phase 2 (Gauss-Newton): {phase_timings.get('phase2_gauss_newton', 0):.3f}s"
+
+            # Extract results
+            popt = np.asarray(result["x"])
+            pcov = np.asarray(result.get("pcov", np.eye(len(popt))))
+            perr = np.asarray(result.get("perr", safe_uncertainties_from_pcov(pcov, len(popt))))
+
+            # Build info dict with phase diagnostics
+            info = {
+                "success": result.get("success", False),
+                "message": result.get("message", "Hybrid optimization completed"),
+                "hybrid_streaming_diagnostics": result.get("streaming_diagnostics", {}),
+                "perr": perr,
+                "sigma_sq": result.get("streaming_diagnostics", {})
+                .get("gauss_newton_diagnostics", {})
+                .get("final_cost"),
+                "phase_timings": result.get("streaming_diagnostics", {}).get("phase_timings", {}),
+            }
+            if attempt > 0:
+                info["recovery_attempt"] = attempt
+
+            logger.info("Hybrid streaming optimization completed successfully")
+            phase_timings = info.get("phase_timings", {})
+            if phase_timings:
+                logger.info(
+                    f"  Phase 0 (normalization): "
+                    f"{phase_timings.get('phase0_normalization', 0):.3f}s"
+                )
+                logger.info(
+                    f"  Phase 1 (L-BFGS warmup): {phase_timings.get('phase1_warmup', 0):.3f}s"
+                )
+                logger.info(
+                    f"  Phase 2 (Gauss-Newton): {phase_timings.get('phase2_gauss_newton', 0):.3f}s"
+                )
+                logger.info(
+                    f"  Phase 3 (covariance): {phase_timings.get('phase3_finalize', 0):.3f}s"
+                )
+
+            return popt, pcov, info
+
+        except recoverable_errors as e:
+            if attempt < recovery_config.max_retries:
+                logger.warning(f"AdaptiveHybridStreamingOptimizer attempt {attempt} failed: {e}")
+                continue
+
+            # T031: Log detailed warning explaining failure and lost capabilities
+            logger.error(f"AdaptiveHybridStreamingOptimizer failed: {e}")
+            logger.warning(
+                "=" * 60 + "\n"
+                "HYBRID OPTIMIZER FAILURE - Falling back to basic streaming\n"
+                "=" * 60 + "\n"
+                f"The AdaptiveHybridStreamingOptimizer failed after "
+                f"{recovery_config.max_retries + 1} attempts.\n"
+                "\n"
+                "Capabilities lost with fallback:\n"
+                "  - Parameter normalization (gradient equalization)\n"
+                "  - L-BFGS warmup + Gauss-Newton hybrid convergence\n"
+                "  - Exact J^T J covariance accumulation\n"
+                "\n"
+                "Fallback uses basic streaming optimizer which may:\n"
+                "  - Converge slower (1000+ vs ~110 iterations)\n"
+                "  - Miss shear parameters (imbalanced gradients)\n"
+                "  - Produce less accurate uncertainties\n"
+                "\n"
+                f"Error details: {type(e).__name__}: {str(e)}\n"
+                "=" * 60
             )
-            logger.info(f"  Phase 3 (covariance): {phase_timings.get('phase3_finalize', 0):.3f}s")
+            if isinstance(e, NLSQOptimizationError):
+                raise
+            else:
+                raise NLSQOptimizationError(
+                    f"AdaptiveHybridStreamingOptimizer failed: {str(e)}",
+                    error_context={"original_error": type(e).__name__},
+                ) from e
 
-        return popt, pcov, info
+    # Unreachable: recovery_config.max_retries >= 0 guarantees the loop runs at
+    # least once, and every iteration either returns or raises. This satisfies
+    # mypy's return-flow analysis, which (unlike pyright) can't prove that.
+    raise AssertionError("unreachable: fit_with_hybrid_streaming_optimizer loop exited without return/raise")
 
-    except (
-        ValueError,
-        RuntimeError,
-        TypeError,
-        AttributeError,
-        OSError,
-        MemoryError,
-    ) as e:
-        # T031: Log detailed warning explaining failure and lost capabilities
-        logger.error(f"AdaptiveHybridStreamingOptimizer failed: {e}")
-        logger.warning(
-            "=" * 60 + "\n"
-            "HYBRID OPTIMIZER FAILURE - Falling back to basic streaming\n"
-            "=" * 60 + "\n"
-            "The AdaptiveHybridStreamingOptimizer encountered an error.\n"
-            "\n"
-            "Capabilities lost with fallback:\n"
-            "  - Parameter normalization (gradient equalization)\n"
-            "  - L-BFGS warmup + Gauss-Newton hybrid convergence\n"
-            "  - Exact J^T J covariance accumulation\n"
-            "\n"
-            "Fallback uses basic streaming optimizer which may:\n"
-            "  - Converge slower (1000+ vs ~110 iterations)\n"
-            "  - Miss shear parameters (imbalanced gradients)\n"
-            "  - Produce less accurate uncertainties\n"
-            "\n"
-            f"Error details: {type(e).__name__}: {str(e)}\n"
-            "=" * 60
-        )
-        # T030: TODO - Implement 3-attempt retry with HybridRecoveryConfig
-        # For now, immediately raise to trigger fallback to streaming
-        if isinstance(e, NLSQOptimizationError):
-            raise
-        else:
-            raise NLSQOptimizationError(
-                f"AdaptiveHybridStreamingOptimizer failed: {str(e)}",
-                error_context={"original_error": type(e).__name__},
-            ) from e
 
 
 def _resolve_streaming_per_angle_mode(

@@ -72,7 +72,10 @@ from typing import Any
 import numpy as np
 
 from xpcsjax.config.parameter_registry import AnalysisMode
-from xpcsjax.optimization.nlsq.adapter_base import NLSQAdapterBase
+from xpcsjax.optimization.nlsq.adapter_base import (
+    PER_ANGLE_SCALING_REMOVED_MSG,
+    NLSQAdapterBase,
+)
 from xpcsjax.optimization.nlsq.results import OptimizationResult
 from xpcsjax.utils.logging import get_logger
 
@@ -1261,10 +1264,7 @@ class NLSQAdapter(NLSQAdapterBase):
 
         # Validate per-angle scaling
         if not per_angle_scaling:
-            raise ValueError(
-                "per_angle_scaling=False is deprecated and removed. "
-                "Use per_angle_scaling=True (default) for physically correct behavior."
-            )
+            raise ValueError(PER_ANGLE_SCALING_REMOVED_MSG)
 
         # Validate initial params
         if initial_params is None:

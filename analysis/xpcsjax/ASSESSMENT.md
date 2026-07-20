@@ -17,6 +17,29 @@ three god-files at the optimization engine's core seams, resolve one deprecated 
 (`jaxopt`), and close a handful of documented-but-deferred parity gaps — none of it blocks
 continued feature work.
 
+## Remediation Status (2026-07-20)
+
+All findings below were triaged and actioned in a follow-up pass. Status per item:
+
+| # | Finding | Status |
+|---|---|---|
+| Debt #1 | Silent bare `except Exception` in `heterodyne_result_builder.py` | **Fixed** — narrowed to `AttributeError` + `logger.debug` |
+| Debt #2 | `jaxopt` deprecated, no migration timeline | **Documented** (CLAUDE.md) — migration to `optimistix` is real work, not mechanical; not attempted here |
+| Debt #3 | Unimplemented T030 retry in hybrid-streaming optimizer | **Fixed** — wired `HybridRecoveryConfig`'s progressive-recovery retry (3 tests added) |
+| Debt #4 | Duplicated `per_angle_scaling=False` rejection message | **Fixed** — extracted `PER_ANGLE_SCALING_REMOVED_MSG` to `adapter_base.py` |
+| Debt #5 | Three-way joint-fit result-assembly split (`TODO(C3)`) | **Documented** (CLAUDE.md) — real architectural convergence work, not attempted here |
+| Debt #6 | Three god-files at the engine's central seams | **Documented** (CLAUDE.md) — assessment itself says this is not a blanket-refactor candidate |
+| Debt #7 | `core.py` `type: ignore` repetition (46 sites) | **Partially fixed** — removed one dead symbol (`WrapperOptimizationResult`, never referenced anywhere), chain-assigned the two genuinely multi-symbol blocks (MultiStart, CMA-ES). A generic dynamic-import helper was considered and rejected: it would route through `importlib`/`globals()`, breaking the static import-graph analysis this repo's own tooling (graphify, mypy) depends on. |
+| Debt #8 | Golden parity gate never runs in CI | **Investigated, not automated** — the gated test files themselves document (verified 2026-06-07) that the `rtol=1e-10` value-compare is CPU-microarch-specific and fails on every GitHub-hosted Ubuntu runner. Adding a hosted nightly job would be permanently red with zero signal. Documented in CLAUDE.md as a maintainer-local pre-release check instead; only revisit if a self-hosted runner pinned to the goldens' recording machine becomes available. |
+| Debt #9 | Broad `except Exception` (93 sites) | **Not attempted** — assessment explicitly flags this as not a blanket fix; a lint-rule policy change affecting 93 call sites needs its own scoped review, not a drive-by edit |
+| Debt #10 | `fourier` mode permanently excluded from shared engine | **Documented** (CLAUDE.md) — flagged as needing an explicit owner decision, no code change |
+| Security | `mistune`/`pillow`/`setuptools` transitive CVEs | **Fixed** — floors bumped in `pyproject.toml`, `uv.lock` regenerated, `pip-audit` now reports zero known vulnerabilities |
+| Doc gap 1 | No `jaxopt` migration note | **Fixed** — added to CLAUDE.md |
+| Doc gap 2 | No owner/decision record for `fourier` gap | **Fixed** — added to CLAUDE.md |
+| Doc gap 3 | Three-way consolidation not documented | **Fixed** — added to CLAUDE.md |
+| Doc gap 4 | `graphify-out/wiki/index.md` referenced but missing | **Not a bug** — re-checked; the repo's own `CLAUDE.md` already phrases it conditionally ("If `graphify-out/wiki/index.md` exists, navigate it") — the original finding overstated this |
+| Doc gap 5 | No extraction-convention note for god-files | **Fixed** — added to CLAUDE.md |
+
 ## System Inventory
 
 | Metric | Value |
@@ -144,11 +167,13 @@ IPC uses `multiprocessing.spawn` between trusted same-machine processes (not unt
 deserialization). `cloudpickle` is a declared dependency but appears unused anywhere in the tree —
 hygiene note, not a vulnerability.
 
-| CWE | Severity | Location | Description | Remediation |
-|---|---|---|---|---|
-| CWE-1104 | Low | `pyproject.toml:60` (docs extra → `mistune`) | Installed `mistune==3.2.1` has 10 known advisories, fixed in `3.3.0`; docs-build-only, never parses attacker-supplied Markdown at runtime | Bump to `mistune>=3.3.0` when convenient |
-| CWE-1104 | Low–Medium | `pyproject.toml:31` (`matplotlib` → transitively `pillow`) | Installed `pillow==12.2.0` has 8 advisories, fixed in `12.3.0`; xpcsjax only writes images via matplotlib, never decodes untrusted images | Bump `pillow>=12.3.0` proactively (drop-in patch) |
-| CWE-1104 | Low | `pyproject.toml:37` (dev extra) | Installed `setuptools==82.0.1` has 1 advisory, fixed in `83.0.0`; build-time only | Bump floor when convenient |
+| CWE | Severity | Location | Description | Remediation | Status |
+|---|---|---|---|---|---|
+| CWE-1104 | Low | `pyproject.toml` (docs extra → `mistune`) | `mistune==3.2.1` had 10 known advisories, fixed in `3.3.0`; docs-build-only, never parses attacker-supplied Markdown at runtime | Bump to `mistune>=3.3.0` | **Fixed** — floor added, resolved to `3.3.3` |
+| CWE-1104 | Low–Medium | `pyproject.toml` (`matplotlib` → transitively `pillow`) | `pillow==12.2.0` had 8 advisories, fixed in `12.3.0`; xpcsjax only writes images via matplotlib, never decodes untrusted images | Bump `pillow>=12.3.0` | **Fixed** — floor added, resolved to `12.3.0` |
+| CWE-1104 | Low | `pyproject.toml` (dev extra) | `setuptools==82.0.1` had 1 advisory, fixed in `83.0.0`; build-time only | Bump floor | **Fixed** — floor added, resolved to `83.0.0` |
+
+`pip-audit` now reports **zero known vulnerabilities** against the locked environment.
 
 No credentials found in source; `analysis/.gitignore`/`SECRETS.local.md` were not created since
 nothing needed quarantining.

@@ -31,6 +31,7 @@ dependencies = [
     # nlsq already hard-requires matplotlib>=3.10.0 so it is always present
     # transitively; declared explicitly here to match the direct top-level use.
     "matplotlib>=3.10",
+    "pillow>=12.3.0",            # matplotlib's transitive image backend; floor closes PYSEC-2026-2253..2257/3451-3453
 ]
 
 [project.optional-dependencies]
@@ -54,6 +55,7 @@ dev = [
     "pre-commit>=4.0",          # make install-hooks / make pre-commit
     "build>=1.2",               # make build (python -m build)
     "twine>=5.0",               # make release (twine check dist/*)
+    "setuptools>=83.0.0",       # build-time only; floor closes 1 known advisory
 ]
 docs = [
     "sphinx>=8.0",
@@ -62,6 +64,7 @@ docs = [
     "sphinx-autodoc-typehints>=2.5",
     "sphinx-design>=0.6",
     "myst-parser>=4.0",
+    "mistune>=3.3.0",             # myst-parser's transitive Markdown parser; floor closes PYSEC-2026-2210..2218/2652
 ]
 viz-fast = [
     "datashader>=0.16",

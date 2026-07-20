@@ -667,7 +667,11 @@ def build_hybrid_streaming_result(
 
         try:
             _n_physics = len(model.param_manager.varying_names)
-        except Exception:
+        except AttributeError:
+            logger.debug(
+                "model.param_manager.varying_names unavailable; "
+                "falling back to len(popt) for reduced-chi2 DOF"
+            )
             _n_physics = None
         if _n_physics is not None:
             _eff = effective_constrained_dof(_resolved_mode, n_phi=n_phi, n_physical=_n_physics)
