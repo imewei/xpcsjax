@@ -74,3 +74,40 @@ def test_json_safe_handles_zero_dim_ndarray():
 
     # 1-D arrays still expand to lists (no regression to the documented path).
     assert _json_safe(np.array([1.0, np.nan, 2.0])) == [1.0, None, 2.0]
+
+
+def test_save_results_npz_readable_without_allow_pickle(tmp_path):
+    """nlsq_result.npz must round-trip with allow_pickle=False (no SEC-1 regression).
+
+    Regression: parameter_names/metadata_json/config_json were previously written
+    with dtype=object, which numpy can only pickle-serialize -- forcing every
+    reader to pass allow_pickle=True to open the file at all, the exact pattern
+    data/xpcs_loader.py and data/performance_engine.py deliberately avoid.
+    """
+    import numpy as np
+
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+    from xpcsjax.service.persist import save_results_npz
+
+    result = OptimizationResult(
+        parameters=np.array([1.0, 2.0]),
+        uncertainties=np.array([0.1, 0.2]),
+        covariance=np.eye(2),
+        chi_squared=1.0,
+        reduced_chi_squared=1.0,
+        convergence_status="converged",
+        iterations=3,
+        execution_time=0.01,
+        device_info={"device": "cpu"},
+    )
+
+    class _FakeConfigManager:
+        def get_active_parameters(self):
+            return ["D0", "alpha"]
+
+    path = save_results_npz(result, tmp_path, config_manager=_FakeConfigManager())
+
+    with np.load(path, allow_pickle=False) as npz:
+        assert list(npz["parameter_names"]) == ["D0", "alpha"]
+        assert "success" in str(npz["metadata_json"])
+        assert npz["parameters"].dtype == np.float64

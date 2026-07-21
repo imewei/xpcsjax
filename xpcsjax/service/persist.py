@@ -319,15 +319,18 @@ def save_results_npz(
     }
 
     if parameter_names is not None:
-        arrays["parameter_names"] = np.array(parameter_names, dtype=object)
+        # No dtype=object: a fixed-width unicode array (numpy infers '<U...')
+        # holds the same strings without forcing readers to pass
+        # allow_pickle=True, matching the SEC-1 no-pickle convention this
+        # project already enforces in data/xpcs_loader.py and
+        # data/performance_engine.py.
+        arrays["parameter_names"] = np.array(parameter_names)
     if residuals is not None:
         arrays["residuals"] = np.asarray(residuals, dtype=np.float64)
 
     metadata_blob = json.dumps(_json_safe(_extract_metadata(result)))
-    arrays["metadata_json"] = np.array(metadata_blob, dtype=object)
-    arrays["config_json"] = np.array(
-        json.dumps(_json_safe(_config_summary(config_manager))), dtype=object
-    )
+    arrays["metadata_json"] = np.array(metadata_blob)
+    arrays["config_json"] = np.array(json.dumps(_json_safe(_config_summary(config_manager))))
 
     path = output_dir / filename
     # Atomic write: np.savez writes to a temp file first, then os.replace moves it
