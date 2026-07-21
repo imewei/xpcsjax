@@ -198,7 +198,7 @@ agent-os/
 # build, tests, or distribution. To flip the policy and check one of these
 # in (e.g. as a shared onboarding contract), remove the corresponding line.
 AGENTS.md
-CLAUDE.md
+# CLAUDE.md
 GEMINI.md
 WARP.md
 
