@@ -100,7 +100,8 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication.instance() or QApplication([sys.argv[0], *qt_extra])
     # Apply the system-aware "instrument console" theme before any window is built
     # so every widget is born styled (no first-paint flash of unstyled defaults).
-    theme.apply_theme(app)
+    palette = theme.apply_theme(app)
+    app.setWindowIcon(theme.app_icon(palette))  # type: ignore[attr-defined]
     window, queue = build_workbench()
     # Registered here (once per process), not in build_workbench, so a hard exit
     # still terminates a running worker without accumulating hooks across tests.

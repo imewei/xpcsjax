@@ -8,6 +8,7 @@ from PySide6.QtCore import QObject
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from xpcsjax.gui.views.config_dialogs import ConfigTextEditorDialog, CreateConfigDialog
+from xpcsjax.gui.views.data_inspect_dialog import DataInspectDialog
 
 if TYPE_CHECKING:
     from xpcsjax.gui.views.main_window import MainWindow
@@ -116,22 +117,33 @@ class ProjectDialogHandler(QObject):
             self._mw.add_dataset(path)
 
     def on_save_project(self) -> None:
-        """Open a save-file dialog and persist the current project to disk."""
+        """Open a save-file dialog and persist the current project to disk.
+
+        Defaults the start directory to the active project directory, like
+        on_edit_config/on_load_config — a hardcoded blank start dir forced
+        re-navigation to the project folder on every save.
+        """
+        start_dir = str(self._mw._project_dir) if self._mw._project_dir else ""
         path, _ = QFileDialog.getSaveFileName(
             self._mw,
             "Save Project",
-            "",
+            start_dir,
             "xpcsjax project (*.xpcsproj);;All files (*)",
         )
         if path:
             self._mw.save_project_to(path)
 
     def on_open_project(self) -> None:
-        """Open a file-chooser and load a previously saved project file."""
+        """Open a file-chooser and load a previously saved project file.
+
+        Defaults the start directory to the active project directory, like
+        on_edit_config/on_load_config.
+        """
+        start_dir = str(self._mw._project_dir) if self._mw._project_dir else ""
         path, _ = QFileDialog.getOpenFileName(
             self._mw,
             "Open Project",
-            "",
+            start_dir,
             "xpcsjax project (*.xpcsproj);;All files (*)",
         )
         if path:
@@ -146,3 +158,16 @@ class ProjectDialogHandler(QObject):
         )
         if resp == QMessageBox.StandardButton.Yes:
             self._mw.close_project()
+
+    def on_inspect_data(self) -> None:
+        """Open a file-chooser, then a read-only HDF5 dataset/C₂ inspector dialog.
+
+        The dialog itself was already built and tested (``data_inspect.py`) but
+        had no caller anywhere in the GUI until this action.
+        """
+        start_dir = str(self._mw._project_dir) if self._mw._project_dir else ""
+        path, _ = QFileDialog.getOpenFileName(
+            self._mw, "Inspect data file", start_dir, "HDF5 files (*.h5 *.hdf5);;All files (*)"
+        )
+        if path:
+            DataInspectDialog(path, self._mw).exec()

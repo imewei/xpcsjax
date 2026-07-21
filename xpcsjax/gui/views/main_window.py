@@ -244,10 +244,23 @@ class MainWindow(QMainWindow):
         close_action.triggered.connect(self._on_close_project)
         file_menu.addAction(close_action)
 
+        file_menu.addSeparator()
+
+        # A read-only side tool, not project lifecycle — kept in its own group.
+        # Wires the previously-orphaned data_inspect.py (HDF5 metadata + C₂
+        # preview) into the GUI; it had no caller anywhere before this.
+        inspect_data = QAction("Inspect Data File…", self)
+        inspect_data.setObjectName("action_inspect_data")
+        inspect_data.setShortcut("Ctrl+I")
+        inspect_data.setToolTip("Browse an HDF5 file's datasets and preview a C₂ matrix (Ctrl+I)")
+        inspect_data.triggered.connect(self._on_inspect_data)
+        file_menu.addAction(inspect_data)
+
         self._actions["action_create_project"] = create_project
         self._actions["action_open_project"] = open_action
         self._actions["action_save_project"] = save_action
         self._actions["action_close_project"] = close_action
+        self._actions["action_inspect_data"] = inspect_data
 
     def _update_target_label(self) -> None:
         """Refresh the persistent "Run will act on: <dataset>" status-bar label."""
@@ -641,6 +654,9 @@ class MainWindow(QMainWindow):
 
     def _on_close_project(self) -> None:
         self._dialog_handler.on_close_project()
+
+    def _on_inspect_data(self) -> None:
+        self._dialog_handler.on_inspect_data()
 
     def _per_run_output_dir(self, config_path: str, run_id: str) -> Path:
         """Return a unique output dir for one run: ``<base>/runs/<run_id>``.

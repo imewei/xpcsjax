@@ -418,7 +418,62 @@ def apply_theme(app: object, palette: Palette | None = None) -> Palette:
     except Exception:
         pass
 
+    global _active_palette
+    _active_palette = p
     return p
+
+
+def current_palette() -> Palette:
+    """Return the palette last applied by :func:`apply_theme` (``DARK`` before any apply).
+
+    Widgets that need a resolved hex value for rich text (log/result severity
+    coloring, where QSS attribute selectors can't reach into free-form appended
+    HTML) read it from here instead of hardcoding a color.
+    """
+    return _active_palette
+
+
+_active_palette: Palette = DARK
+
+
+def app_icon(palette: Palette | None = None) -> object:
+    """Build a window/taskbar icon from the active palette (no bundled asset).
+
+    No icon file exists anywhere in the repo, so without this the app shows
+    the generic Python interpreter icon in the taskbar/dock/alt-tab. A
+    monogram on the accent color keeps the icon in lock-step with the
+    dark/light theme instead of shipping a static asset that could drift.
+
+    Parameters
+    ----------
+    palette:
+        An explicit :class:`Palette`; ``None`` uses :func:`current_palette`.
+
+    Returns
+    -------
+    QIcon
+        A generated icon (an "X" monogram on an accent-colored rounded tile).
+    """
+    from PySide6.QtCore import QRectF, Qt
+    from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
+
+    p = palette or current_palette()
+    size = 64
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setBrush(QColor(p.accent))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawRoundedRect(QRectF(0, 0, size, size), size * 0.2, size * 0.2)
+    painter.setPen(QColor(p.accent_text))
+    font = QFont("IBM Plex Mono")
+    font.setBold(True)
+    font.setPixelSize(int(size * 0.6))
+    painter.setFont(font)
+    painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "X")
+    painter.end()
+    return QIcon(pixmap)
 
 
 def repolish(widget: object) -> None:

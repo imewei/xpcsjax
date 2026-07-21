@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject
 
+from xpcsjax.gui.theme import current_palette
 from xpcsjax.gui.viz_bundle import load_viz_bundle
 
 if TYPE_CHECKING:
@@ -90,14 +91,21 @@ class ResultPresenter(QObject):
             self._mw._central_stack.setCurrentIndex(0)
 
     def show_error(self, message: str) -> None:
-        """Render a fit failure in the text panel.
+        """Render a fit failure in the text panel, with a color-coded header.
 
         Parameters
         ----------
         message : str
             The error message text to display.
         """
-        self._mw._results.setPlainText(f"FIT FAILED\n\n{message}")
+        # A colored "FIT FAILED" header is a secondary signal (the status pill
+        # and the modal ErrorDialog already carry the primary one), but plain
+        # text gave a scanning eye zero anchor between this and a normal result.
+        color = current_palette().danger
+        self._mw._results.clear()
+        self._mw._results.appendHtml(f'<b style="color:{color};">FIT FAILED</b>')
+        self._mw._results.appendPlainText("")
+        self._mw._results.appendPlainText(message)
 
     def show_inspector(self, summary: ResultSummary | None) -> None:
         """Populate the inspector dock with *summary* (or clear on None).

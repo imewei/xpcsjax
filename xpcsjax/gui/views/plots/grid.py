@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QScrollArea,
@@ -25,6 +26,13 @@ from .residuals import DiagonalResidualView, ResidualHistogramView, ResidualsVsF
 
 if TYPE_CHECKING:
     from xpcsjax.gui.viz_bundle import VizBundle
+
+# Above this many angles, every section (up to 6 live pyqtgraph widgets each)
+# is still built eagerly — the grid has no lazy/virtualized rendering — but the
+# grid surfaces a loading-cost notice and a jump navigator instead of leaving
+# the user to scroll an unbounded list with zero feedback (Doherty Threshold +
+# Wayfinding).
+_MANY_ANGLES_THRESHOLD = 8
 
 
 class _PhiSection(QWidget):
@@ -141,8 +149,10 @@ class PhiResultsGrid(QWidget):
 
     One :class:`_PhiSection` per phi angle — each showing the experimental /
     fitted / residual two-time maps (live, interactive) plus an interactive
-    residual-diagnostics row. No spinbox: every angle is laid out at once and
-    the whole grid scrolls.
+    residual-diagnostics row. Every angle is still laid out at once (no lazy
+    rendering), but a "Jump to φ" combo scrolls straight to a section, and a
+    notice appears above ``_MANY_ANGLES_THRESHOLD`` angles since the eager
+    build cost grows with n_phi.
 
     Parameters
     ----------
@@ -167,8 +177,24 @@ class PhiResultsGrid(QWidget):
         self._vbox = QVBoxLayout(self._container)
         self._scroll.setWidget(self._container)
 
+        # Jump-to-angle navigator: every section still builds eagerly (below),
+        # but a long unlabeled scroll with no way to jump to a specific angle is
+        # its own friction on top of the render cost.
+        nav = QHBoxLayout()
+        nav.addWidget(QLabel("Jump to φ:"))
+        self._jump_combo = QComboBox()
+        self._jump_combo.setObjectName("phi_grid_jump")
+        self._jump_combo.currentIndexChanged.connect(self._on_jump)
+        nav.addWidget(self._jump_combo)
+        nav.addStretch(1)
+        self._many_angles_notice = QLabel()
+        self._many_angles_notice.setObjectName("phi_grid_notice")
+        self._many_angles_notice.hide()
+        nav.addWidget(self._many_angles_notice)
+
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
+        outer.addLayout(nav)
         outer.addWidget(self._scroll)
 
         self._bundle: VizBundle | None = None
@@ -216,8 +242,23 @@ class PhiResultsGrid(QWidget):
             )
             self._vbox.addWidget(section)
             self._sections.append(section)
+            self._jump_combo.addItem(f"φ = {phi_angles[i]:.3f}°", i)
 
         self._vbox.addStretch(1)
+
+        if n_phi > _MANY_ANGLES_THRESHOLD:
+            self._many_angles_notice.setText(
+                f"{n_phi} angles — rendering every section may take a moment"
+            )
+            self._many_angles_notice.show()
+        else:
+            self._many_angles_notice.hide()
+
+    def _on_jump(self, index: int) -> None:
+        """Scroll the viewport to the section selected in the jump combo."""
+        if index < 0 or index >= len(self._sections):
+            return
+        self._scroll.ensureWidgetVisible(self._sections[index])
 
     def section_count(self) -> int:
         """Return the number of per-phi sections currently built (0 when no bundle)."""
@@ -243,3 +284,7 @@ class PhiResultsGrid(QWidget):
                 widget.setParent(None)
                 widget.deleteLater()
         self._sections = []
+        self._jump_combo.blockSignals(True)
+        self._jump_combo.clear()
+        self._jump_combo.blockSignals(False)
+        self._many_angles_notice.hide()

@@ -46,6 +46,14 @@ class TwoTimeMapView(_SquareAspectMixin, pg.GraphicsLayoutWidget):
         self._plot.addItem(self._image_item)
         self._plot.setLabel("bottom", "t₁")
         self._plot.setLabel("left", "t₂")
+        # Levels are auto-scaled per tile (see show_map / _c2_levels), so without
+        # a colorbar the same color can mean different values on two different
+        # angle tiles with no way to tell — color would be the sole, unreadable
+        # carrier of the actual correlation value.
+        self._colorbar = pg.ColorBarItem(
+            colorMap=pg.colormap.get(_C2_COLORMAP, source="matplotlib")
+        )
+        self._colorbar.setImageItem(self._image_item, insert_in=self._plot)
         self._has_image = False
 
     def show_map(
@@ -71,8 +79,10 @@ class TwoTimeMapView(_SquareAspectMixin, pg.GraphicsLayoutWidget):
         # (histogram/diagonal/scatter) shown alongside it.
         full = np.asarray(c2_2d, dtype=float)
         arr = rasterize(full)
+        levels = _c2_levels(full)
         self._image_item.setImage(arr, autoLevels=False)
-        self._image_item.setLevels(_c2_levels(full))
+        self._image_item.setLevels(levels)
+        self._colorbar.setLevels(low=levels[0], high=levels[1])
         rect = _time_rect(t1, t2)
         if rect is not None:
             self._image_item.setRect(rect)
@@ -113,6 +123,10 @@ class ResidualMapView(_SquareAspectMixin, pg.GraphicsLayoutWidget):
         self._plot.addItem(self._image_item)
         self._plot.setLabel("bottom", "t₁")
         self._plot.setLabel("left", "t₂")
+        self._colorbar = pg.ColorBarItem(
+            colorMap=pg.colormap.get(_RESIDUAL_COLORMAP, source="matplotlib")
+        )
+        self._colorbar.setImageItem(self._image_item, insert_in=self._plot)
         self._has_image = False
 
     def show_map(
@@ -137,8 +151,10 @@ class ResidualMapView(_SquareAspectMixin, pg.GraphicsLayoutWidget):
         # diagonal/scatter diagnostics fed the full surface); rasterize for display.
         full = np.asarray(residual_2d, dtype=float)
         arr = rasterize(full)
+        levels = _residual_levels(full)
         self._image_item.setImage(arr, autoLevels=False)
-        self._image_item.setLevels(_residual_levels(full))
+        self._image_item.setLevels(levels)
+        self._colorbar.setLevels(low=levels[0], high=levels[1])
         rect = _time_rect(t1, t2)
         if rect is not None:
             self._image_item.setRect(rect)
