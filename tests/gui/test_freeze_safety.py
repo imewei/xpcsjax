@@ -2,6 +2,22 @@
 
 import importlib.metadata
 import inspect
+import re
+
+
+def _extract_collect_all_names(spec_src: str) -> set[str]:
+    """Lowercase package names from the spec's ``collect_all()`` for-loop tuple.
+
+    Strips ``#``-comments line-by-line first so comment prose — which may
+    contain quoted words or a ``"):"``-shaped sequence — can't be mis-parsed
+    as tuple content (a real bug PR #10's review caught: an added comment's
+    punctuation truncated the match and leaked a comment-only word into the
+    result).
+    """
+    clean = "\n".join(line.split("#", 1)[0] for line in spec_src.splitlines())
+    match = re.search(r"for pkg in \((.*?)\):", clean, re.S)
+    assert match is not None, "collect_all() for-loop tuple not found in spec"
+    return {p.lower() for p in re.findall(r'"([A-Za-z0-9_]+)"', match.group(1))}
 
 
 def test_main_calls_freeze_support_before_qapplication():
@@ -28,7 +44,6 @@ def test_pyinstaller_spec_covers_runtime_deps():
     # fails here — forcing a conscious "bundle it or allowlist it" decision instead
     # of a silent runtime-only break in the frozen app.
     import pathlib
-    import re
     import tomllib
 
     root = pathlib.Path(__file__).resolve().parents[2]
@@ -50,8 +65,7 @@ def test_pyinstaller_spec_covers_runtime_deps():
         name = re.split(r"[<>=!~ \[]", dep, maxsplit=1)[0].strip().lower()
         return ALIAS.get(name, name)
 
-    tuple_src = re.search(r"for pkg in \((.*?)\):", spec_src, re.S).group(1)
-    listed = {p.lower() for p in re.findall(r'"([A-Za-z0-9_]+)"', tuple_src)}
+    listed = _extract_collect_all_names(spec_src)
 
     proj = pyproject["project"]
     deps = list(proj.get("dependencies", []))
@@ -68,3 +82,18 @@ def test_pyinstaller_spec_covers_runtime_deps():
         "Add each to the spec's collect_all() list (if it ships extensions/data) "
         "or to COVERED (if pure-python / transitively collected)."
     )
+
+
+def test_collect_all_extraction_ignores_comment_text():
+    # Regression guard (PR #10 review): a `#` comment inside the collect_all()
+    # tuple must not corrupt extraction — neither a quoted word that only
+    # appears in comment prose ("pytz" below, never actually bundled) should
+    # leak into the result, nor should a "):"-shaped sequence inside a
+    # comment truncate the match before the tuple's real closing paren.
+    synthetic_spec = """
+for pkg in (
+    "matplotlib",  # also handles "pytz" (a real dep, not bundled here):
+    "numpy",
+):
+"""
+    assert _extract_collect_all_names(synthetic_spec) == {"matplotlib", "numpy"}
