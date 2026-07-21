@@ -1,5 +1,7 @@
 """Round-trip tests for .xpcsproj save/load."""
 
+import json
+
 import pytest
 
 from xpcsjax.gui.project.model import DONE, Project
@@ -57,3 +59,126 @@ def test_load_rejects_unknown_schema(tmp_path):
     bad.write_text('{"schema": "nope", "datasets": []}', encoding="utf-8")
     with pytest.raises(ValueError, match="schema"):
         load_project(bad)
+
+
+def test_load_rejects_relative_path_that_escapes_project_directory(tmp_path):
+    """A crafted/hand-edited .xpcsproj can't use ``..`` to point outside its own dir.
+
+    save_project() only ever writes a relative config_path/result_dir when the
+    original path resolves inside the project directory -- a relative string
+    with a ".." segment can only come from a file that wasn't produced by
+    save_project itself.
+    """
+    evil = tmp_path / "evil.xpcsproj"
+    evil.write_text(
+        json.dumps(
+            {
+                "schema": "xpcsjax.project/v1",
+                "datasets": [
+                    {
+                        "dataset_id": "ds-1",
+                        "config_path": "../../../etc/passwd",
+                        "label": "evil",
+                        "runs": [],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="escapes project directory"):
+        load_project(evil)
+
+
+def test_load_rejects_backslash_style_traversal(tmp_path):
+    """Windows-style ``..\\`` segments must be normalized and rejected like ``../``."""
+    evil = tmp_path / "evil.xpcsproj"
+    evil.write_text(
+        json.dumps(
+            {
+                "schema": "xpcsjax.project/v1",
+                "datasets": [
+                    {
+                        "dataset_id": "ds-1",
+                        "config_path": "..\\..\\secret.yaml",
+                        "label": "evil",
+                        "runs": [],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="escapes project directory"):
+        load_project(evil)
+
+
+def test_load_rejects_null_byte_in_path(tmp_path):
+    evil = tmp_path / "evil.xpcsproj"
+    evil.write_text(
+        json.dumps(
+            {
+                "schema": "xpcsjax.project/v1",
+                "datasets": [
+                    {
+                        "dataset_id": "ds-1",
+                        "config_path": "a\x00/etc/passwd",
+                        "label": "evil",
+                        "runs": [],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="invalid path"):
+        load_project(evil)
+
+
+def test_load_rejects_relative_result_dir_that_escapes_project_directory(tmp_path):
+    """The ``..`` guard applies to result_dir too, not just config_path."""
+    evil = tmp_path / "evil.xpcsproj"
+    evil.write_text(
+        json.dumps(
+            {
+                "schema": "xpcsjax.project/v1",
+                "datasets": [
+                    {
+                        "dataset_id": "ds-1",
+                        "config_path": str(tmp_path / "cfg.yaml"),
+                        "label": "evil",
+                        "runs": [
+                            {
+                                "run_id": "run-1",
+                                "status": DONE,
+                                "result_dir": "../../../etc",
+                                "created_at": "",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="escapes project directory"):
+        load_project(evil)
+
+
+def test_load_accepts_absolute_path_by_design(tmp_path):
+    """Absolute paths are the documented invariant (GUI file-dialog paths) -- not a vuln."""
+    proj = tmp_path / "session.xpcsproj"
+    abs_cfg = str(tmp_path / "cfg.yaml")
+    proj.write_text(
+        json.dumps(
+            {
+                "schema": "xpcsjax.project/v1",
+                "datasets": [
+                    {"dataset_id": "ds-1", "config_path": abs_cfg, "label": "ok", "runs": []}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    loaded = load_project(proj)
+    assert loaded.datasets[0].config_path == abs_cfg

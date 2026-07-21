@@ -20,8 +20,24 @@ def _rel(path: str, base: Path) -> str:
 
 
 def _abs(stored: str, base: Path) -> str:
+    """Resolve a project-relative or absolute path stored in a ``.xpcsproj``.
+
+    ``save_project`` only ever writes a *relative* string when the original
+    path resolved inside ``base`` (see ``_rel``); every other path is stored
+    absolute, by design (the GUI records wherever the user's own file dialog
+    pointed). So a relative string containing a ``..`` segment here is not
+    something ``save_project`` ever produces itself -- it can only come from
+    a hand-edited or maliciously crafted project file trying to escape
+    ``base``, and is rejected rather than silently joined and opened.
+    """
+    if "\x00" in stored:
+        raise ValueError(f"invalid path in .xpcsproj: {stored!r}")
     p = Path(stored)
-    return str(p if p.is_absolute() else (base / p))
+    if p.is_absolute():
+        return str(p)
+    if ".." in stored.replace("\\", "/").split("/"):
+        raise ValueError(f"path escapes project directory in .xpcsproj: {stored!r}")
+    return str(base / p)
 
 
 def save_project(project: Project, path: str | Path) -> None:
