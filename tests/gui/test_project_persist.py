@@ -90,6 +90,81 @@ def test_load_rejects_relative_path_that_escapes_project_directory(tmp_path):
         load_project(evil)
 
 
+def test_load_rejects_backslash_style_traversal(tmp_path):
+    """Windows-style ``..\\`` segments must be normalized and rejected like ``../``."""
+    evil = tmp_path / "evil.xpcsproj"
+    evil.write_text(
+        json.dumps(
+            {
+                "schema": "xpcsjax.project/v1",
+                "datasets": [
+                    {
+                        "dataset_id": "ds-1",
+                        "config_path": "..\\..\\secret.yaml",
+                        "label": "evil",
+                        "runs": [],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="escapes project directory"):
+        load_project(evil)
+
+
+def test_load_rejects_null_byte_in_path(tmp_path):
+    evil = tmp_path / "evil.xpcsproj"
+    evil.write_text(
+        json.dumps(
+            {
+                "schema": "xpcsjax.project/v1",
+                "datasets": [
+                    {
+                        "dataset_id": "ds-1",
+                        "config_path": "a\x00/etc/passwd",
+                        "label": "evil",
+                        "runs": [],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="invalid path"):
+        load_project(evil)
+
+
+def test_load_rejects_relative_result_dir_that_escapes_project_directory(tmp_path):
+    """The ``..`` guard applies to result_dir too, not just config_path."""
+    evil = tmp_path / "evil.xpcsproj"
+    evil.write_text(
+        json.dumps(
+            {
+                "schema": "xpcsjax.project/v1",
+                "datasets": [
+                    {
+                        "dataset_id": "ds-1",
+                        "config_path": str(tmp_path / "cfg.yaml"),
+                        "label": "evil",
+                        "runs": [
+                            {
+                                "run_id": "run-1",
+                                "status": DONE,
+                                "result_dir": "../../../etc",
+                                "created_at": "",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="escapes project directory"):
+        load_project(evil)
+
+
 def test_load_accepts_absolute_path_by_design(tmp_path):
     """Absolute paths are the documented invariant (GUI file-dialog paths) -- not a vuln."""
     proj = tmp_path / "session.xpcsproj"

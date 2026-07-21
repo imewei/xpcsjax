@@ -84,6 +84,8 @@ def test_save_results_npz_readable_without_allow_pickle(tmp_path):
     reader to pass allow_pickle=True to open the file at all, the exact pattern
     data/xpcs_loader.py and data/performance_engine.py deliberately avoid.
     """
+    import json
+
     import numpy as np
 
     from xpcsjax.optimization.nlsq.results import OptimizationResult
@@ -109,5 +111,9 @@ def test_save_results_npz_readable_without_allow_pickle(tmp_path):
 
     with np.load(path, allow_pickle=False) as npz:
         assert list(npz["parameter_names"]) == ["D0", "alpha"]
+        assert npz["parameter_names"].dtype.kind == "U"  # not object -- true string dtype
         assert "success" in str(npz["metadata_json"])
+        assert npz["metadata_json"].dtype.kind == "U"
+        assert npz["config_json"].dtype.kind == "U"
+        assert json.loads(str(npz["config_json"]))  # round-trips as real JSON, not a pickle blob
         assert npz["parameters"].dtype == np.float64
