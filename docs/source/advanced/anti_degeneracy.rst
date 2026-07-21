@@ -185,6 +185,7 @@ A typical sequence on a ``laminar_flow`` fit:
 Cross-references
 ----------------
 
-- :doc:`cma_es_escape` — the escape path triggered by Layer 4.
+- :doc:`cma_es_escape` — a separate, config-gated escape path; not
+  triggered by Layer 4 (see above).
 - :doc:`/theory/anti_degeneracy` — derivation of the degeneracies
   and motivation for each layer.

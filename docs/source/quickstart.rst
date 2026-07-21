@@ -165,8 +165,12 @@ The single :func:`~xpcsjax.optimization.nlsq.fit_nlsq` call ran the full xpcsjax
 4. **NLSQ** ran the trust-region (Levenberg–Marquardt) solve via the JIT
    ``CurveFit`` cache. xpcsjax never calls NLSQ's higher-level ``fit()``
    wrapper.
-5. **CMA-ES escape** triggered automatically if the trust-region solve
-   plateaued above a threshold (heterodyne only by default).
+5. **CMA-ES escape** — config-gated: homodyne's ``cmaes.enable`` additionally
+   requires the parameter bounds' scale ratio to exceed a static threshold
+   (default 1000) before engaging; heterodyne's flat ``enable_cmaes`` has no
+   such check — the flag alone decides. Either way it is decided before the
+   trust-region solve runs, not triggered by a runtime plateau; see
+   :doc:`advanced/cma_es_escape`.
 6. **Result builder** packed parameters, covariance, χ², and diagnostics
    into a single :class:`~xpcsjax.optimization.nlsq.results.OptimizationResult`
    (every mode, heterodyne included; heterodyne per-angle detail lives

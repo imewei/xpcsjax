@@ -64,9 +64,12 @@ xpcsjax provides
 :func:`xpcsjax.optimization.nlsq.select_nlsq_strategy`
     The memory-aware strategy router. Inspects available system RAM
     (via ``psutil``), the dataset shape, and the chunk-budget config
-    to choose between ``DIRECT``, ``STRATIFIED_LS``, ``SEQUENTIAL``,
-    ``OUT_OF_CORE``, and ``HYBRID_STREAMING``. NLSQ's own memory
-    selector is not used (see below).
+    to choose between the three ``NLSQStrategy`` members — ``STANDARD``
+    (in-memory), ``OUT_OF_CORE``, and ``HYBRID_STREAMING``. See
+    :doc:`../advanced/memory_routing` for the full decision tree.
+    Angle-stratified and sequential execution (below) are separate
+    execution tiers layered on top, not members of this enum. NLSQ's
+    own memory selector is not used (see below).
 
 The 5-layer anti-degeneracy controller
     Implemented in :mod:`xpcsjax.optimization.nlsq.anti_degeneracy_controller`.
@@ -77,10 +80,13 @@ The 5-layer anti-degeneracy controller
 
 The CMA-ES escape
     Implemented in :mod:`xpcsjax.optimization.nlsq.cmaes_wrapper`.
-    Auto-triggered above a configurable degeneracy threshold;
-    delegates to the ``evosax`` BIPOP-CMA-ES backend for global
-    search, then hands the best point back to the trust-region solve
-    for local refinement.
+    Config-gated: homodyne's ``cmaes.enable`` additionally requires the
+    parameter bounds' scale ratio to exceed a static threshold before
+    engaging; heterodyne's flat ``enable_cmaes`` has no such check — the
+    flag alone decides. Either way it is decided before the trust-region
+    solve runs, not a runtime auto-trigger. Delegates to the ``evosax``
+    BIPOP-CMA-ES backend for global search, then hands the best point
+    back to the trust-region solve for local refinement.
 
 LHS multistart
     Implemented in :mod:`xpcsjax.optimization.nlsq.multistart`.

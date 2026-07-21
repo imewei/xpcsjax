@@ -100,9 +100,12 @@ but packs its per-angle detail into the single returned
       │                                        GradientCollapseMonitor,
       │                                        ShearSensitivityWeighting)
       │
+      ├─► CMAESWrapper                        (config-gated: cmaes.enable +
+      │                                        bounds scale-ratio >= threshold;
+      │                                        decided before the solve runs,
+      │                                        not a runtime fallback)
+      │
       ├─► nlsq.CurveFit                       (trust-region LM solve)
-      │     │
-      │     └─[plateau]─► CMAESWrapper        (BIPOP restart escape)
       │
       └─► OptimizationResult                  (built by result_builder)
 
