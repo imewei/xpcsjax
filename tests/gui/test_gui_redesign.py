@@ -136,6 +136,43 @@ def test_config_text_editor_round_trip(qtbot, tmp_path):
     assert cfg.read_text(encoding="utf-8") == "analysis_mode: laminar_flow\n"
 
 
+def test_config_text_editor_rejects_invalid_yaml_on_save(qtbot, tmp_path):
+    """Malformed YAML must not be written to disk — the on-disk config stays intact."""
+    from xpcsjax.gui.views.config_dialogs import ConfigTextEditorDialog
+
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text("analysis_mode: static_isotropic\n", encoding="utf-8")
+    dlg = ConfigTextEditorDialog(cfg)
+    qtbot.addWidget(dlg)
+    dlg.set_text("analysis_mode: [unterminated\n")
+
+    accepted = {"v": False}
+    dlg.accept = lambda: accepted.__setitem__("v", True)
+    dlg._on_save()
+
+    assert accepted["v"] is False
+    assert "Invalid YAML" in dlg._error_label.text()
+    assert cfg.read_text(encoding="utf-8") == "analysis_mode: static_isotropic\n"
+
+
+def test_config_text_editor_accepts_valid_yaml_on_save(qtbot, tmp_path):
+    """Valid YAML still saves and accepts the dialog (validation isn't over-strict)."""
+    from xpcsjax.gui.views.config_dialogs import ConfigTextEditorDialog
+
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text("analysis_mode: static_isotropic\n", encoding="utf-8")
+    dlg = ConfigTextEditorDialog(cfg)
+    qtbot.addWidget(dlg)
+    dlg.set_text("analysis_mode: laminar_flow\n")
+
+    accepted = {"v": False}
+    dlg.accept = lambda: accepted.__setitem__("v", True)
+    dlg._on_save()
+
+    assert accepted["v"] is True
+    assert cfg.read_text(encoding="utf-8") == "analysis_mode: laminar_flow\n"
+
+
 # ---------------------------------------------------------------------------
 # MainWindow workflow methods
 # ---------------------------------------------------------------------------
@@ -185,11 +222,13 @@ def test_file_menu_has_workflow_actions(qtbot):
 
 
 def test_toolbar_and_menu_split_and_order(qtbot):
-    """Toolbar owns the operational actions; File menu owns project lifecycle.
+    """Toolbar owns the operational actions; File menu owns project lifecycle
+    plus the standalone Inspect Data tool.
 
     Per the redesign: the quick-access toolbar holds Create/Edit/Load Config →
-    Run → Cancel → Export Figure, and the File menu holds only Create / Open /
-    Save / Close Project. The two surfaces share no actions.
+    Run → Cancel → Export Figure, and the File menu holds Create / Open /
+    Save / Close Project plus Inspect Data File. The two surfaces share no
+    actions.
     """
     from PySide6.QtWidgets import QMenu, QToolBar
 
@@ -213,6 +252,7 @@ def test_toolbar_and_menu_split_and_order(qtbot):
         "action_open_project",
         "action_save_project",
         "action_close_project",
+        "action_inspect_data",
     ]
     # The Output Dir override action no longer exists on either surface.
     assert "action_output_dir" not in names(toolbar)

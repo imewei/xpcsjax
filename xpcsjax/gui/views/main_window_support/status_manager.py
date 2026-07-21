@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
+from html import escape
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject
 
+from xpcsjax.gui.theme import current_palette
+
 if TYPE_CHECKING:
     from xpcsjax.gui.views.main_window import MainWindow
+
+# Levels mapped to the active Palette's semantic tokens (danger/warning) — every
+# other level (INFO, DEBUG, ...) inherits the widget's default text color, no
+# entry needed. Without this every log line looked identical regardless of
+# severity, so scanning a long fitting-process log for the one ERROR line had
+# no visual anchor.
+_LEVEL_TOKEN = {
+    "ERROR": "danger",
+    "CRITICAL": "danger",
+    "WARNING": "warning",
+}
 
 
 class StatusManager(QObject):
@@ -51,4 +65,9 @@ class StatusManager(QObject):
         message : str
             The log message text.
         """
-        self._mw._log.appendPlainText(f"[{level}] {message}")
+        token = _LEVEL_TOKEN.get(level.upper())
+        tag = f"[{escape(level)}]"
+        if token is not None:
+            color = getattr(current_palette(), token)
+            tag = f'<span style="color:{color}; font-weight:600;">{tag}</span>'
+        self._mw._log.appendHtml(f"{tag} {escape(message)}")

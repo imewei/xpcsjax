@@ -48,10 +48,12 @@ class RunController(QObject):
         dataset_id = self._mw._active_dataset_id
         if dataset_id is None:
             self._mw.set_status("pick a config first")
+            QMessageBox.information(self._mw, "Run", "Load or select a config first.")
             return
         dataset = self._mw._project.dataset_by_id(dataset_id)
         if dataset is None:
             self._mw.set_status("pick a config first")
+            QMessageBox.information(self._mw, "Run", "Load or select a config first.")
             return
         run = self._mw._project.add_run(dataset_id)
         out_dir = self._mw._per_run_output_dir(dataset.config_path, run.run_id)
@@ -60,10 +62,22 @@ class RunController(QObject):
         self._mw._sidebar.set_project(self._mw._project)
 
     def on_cancel(self) -> None:
-        """Cancel the currently selected run in the sidebar."""
+        """Cancel the currently selected run in the sidebar, after confirmation.
+
+        A run may include a multi-minute JAX/XLA compile and fit; cancelling
+        discards that progress with no undo, so — unlike Run — this asks first.
+        """
         run_id = self._mw._sidebar.current_run_id()
         if run_id is None:
             self._mw.set_status("select a run first")
+            QMessageBox.information(self._mw, "Cancel", "Select a run first.")
+            return
+        resp = QMessageBox.question(
+            self._mw,
+            "Cancel Run",
+            f"Cancel run {run_id[:8]}? Progress will be lost.",
+        )
+        if resp != QMessageBox.StandardButton.Yes:
             return
         self._mw._queue.cancel(run_id)
 
@@ -77,10 +91,12 @@ class RunController(QObject):
         run_id = self._mw._sidebar.current_run_id()
         if run_id is None:
             self._mw.set_status("select a run first")
+            QMessageBox.information(self._mw, "Export Figure", "Select a run first.")
             return
         found = self._mw._project.run_by_id(run_id)
         if found is None:
             self._mw.set_status("select a run first")
+            QMessageBox.information(self._mw, "Export Figure", "Select a run first.")
             return
         _, run = found
         result_dir = run.result_dir

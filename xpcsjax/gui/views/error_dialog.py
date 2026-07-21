@@ -37,5 +37,6 @@ class ErrorDialog:
         box.setWindowTitle(title)
         box.setText(friendly)
         box.setDetailedText(details)
-        box.setIcon(QMessageBox.Icon.Warning)
+        # Critical, not Warning — a fit run outright failed, not a soft caution.
+        box.setIcon(QMessageBox.Icon.Critical)
         box.exec()

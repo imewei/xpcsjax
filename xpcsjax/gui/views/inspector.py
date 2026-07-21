@@ -109,7 +109,12 @@ class InspectorDock(QWidget):
         for key, value in diag.items():
             item = self._make_tree_item(str(key), value)
             self._diag_tree.addTopLevelItem(item)
-        self._diag_tree.expandAll()
+        # Expand only the top level — fully expanding every nested group dumped
+        # the whole anti-degeneracy diagnostics payload (hierarchical_active,
+        # gradient_monitor, per_angle_mode, ...) as a wall of jargon on every
+        # single result. Top-level keys stay scannable; nested detail is a click
+        # away (progressive disclosure).
+        self._diag_tree.expandToDepth(0)
 
     def _make_tree_item(self, key: str, value: object) -> QTreeWidgetItem:
         """Return a QTreeWidgetItem for *key*/*value*, recursing into dicts."""

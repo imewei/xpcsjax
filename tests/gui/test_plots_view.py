@@ -43,6 +43,23 @@ def test_residual_map_accepts_array(qtbot):
     assert w.has_image()
 
 
+@pytest.mark.parametrize("view_cls", [TwoTimeMapView, ResidualMapView])
+def test_map_view_survives_unresolvable_colormap(qtbot, monkeypatch, view_cls):
+    """Colorbar construction must degrade gracefully, like the image item's own
+    colormap resolution, when pg.colormap.get() can't resolve a name — not
+    crash widget construction (regression: the colorbar's resolver call was
+    unguarded, unlike the sibling _apply_colormap call it sits next to)."""
+
+    def _raise(*_a, **_k):
+        raise RuntimeError("colormap unavailable in this environment")
+
+    monkeypatch.setattr(pg.colormap, "get", _raise)
+    w = view_cls()
+    qtbot.addWidget(w)
+    w.show_map(np.random.default_rng(0).random((30, 30)))
+    assert w.has_image()
+
+
 # ---------------------------------------------------------------------------
 # Colormap + t₁/t₂ axes (the changes requested over the grayscale frame-index view)
 # ---------------------------------------------------------------------------

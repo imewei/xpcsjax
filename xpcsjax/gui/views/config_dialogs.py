@@ -15,6 +15,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+import yaml
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (
     QComboBox,
@@ -119,9 +120,16 @@ class CreateConfigDialog(QDialog):
         data_row_w = QWidget()
         data_row_w.setLayout(data_row)
 
+        # Placeholder examples — these fields had only a jargon label ("Wavevector
+        # q") and no format hint, so a first-time user had nothing to anchor a
+        # guess to. Placeholder text, not a default value: the field stays blank
+        # (template default) unless the user actually types something.
         self._q_edit = QLineEdit()
+        self._q_edit.setPlaceholderText("e.g. 0.0025 (Å⁻¹)")
         self._dt_edit = QLineEdit()
+        self._dt_edit.setPlaceholderText("e.g. 0.001 (s)")
         self._time_edit = QLineEdit()
+        self._time_edit.setPlaceholderText("e.g. 5000 (frames)")
 
         form = QFormLayout()
         form.addRow("Analysis mode", self._mode_combo)
@@ -218,8 +226,9 @@ class ConfigTextEditorDialog(QDialog):
         self._load_error: str | None = None
 
         self._error_label = QLabel()
-        self._error_label.setObjectName("edit_config_error")
-        self._error_label.setStyleSheet("color: #e06c75;")
+        # objectName "data_error" reuses the themed QSS rule (theme.py) instead of a
+        # hardcoded hex — keeps this label in sync with the dark/light palette.
+        self._error_label.setObjectName("data_error")
         self._error_label.setWordWrap(True)
         self._error_label.hide()
 
@@ -289,6 +298,15 @@ class ConfigTextEditorDialog(QDialog):
     def _on_save(self) -> None:
         if self._load_error is not None:
             return  # guarded: never overwrite when the load failed
+        # Validate YAML syntax before writing — a raw text editor has no inline
+        # guardrails like CreateConfigDialog's field validation, so a typo would
+        # otherwise only surface much later when the fit itself fails to parse it.
+        try:
+            yaml.safe_load(self._editor.toPlainText())
+        except yaml.YAMLError as exc:
+            self._error_label.setText(f"Invalid YAML — not saved:\n{exc}")
+            self._error_label.show()
+            return
         try:
             self.save()
         except OSError as exc:
