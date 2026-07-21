@@ -74,23 +74,66 @@ class ComparisonView(QWidget):
         layout.addWidget(self._text)
 
     def show_runs(self, summaries: list[tuple[str, Any]]) -> None:
-        """Render ``[(label, ResultSummary|None), ...]`` as a comparison block."""
-        blocks: list[str] = []
-        for label, summary in summaries:
+        """Render ``[(label, ResultSummary|None), ...]`` as a real side-by-side table.
+
+        Runs are columns, not stacked text blocks, so values line up for direct
+        comparison. Any field row where the runs' values disagree is prefixed
+        with ``≠`` — a "side-by-side" view that never marks what differs was not
+        actually doing the job of a comparison tool.
+        """
+        if not summaries:
+            self._text.setPlainText("")
+            return
+
+        labels = [label for label, _ in summaries]
+        col_w = max(12, max(len(label) for label in labels) + 2)
+        label_w = 16
+
+        def row(field_label: str, values: list[str | None]) -> str:
+            rendered = [v if v is not None else "—" for v in values]
+            present = {v for v in rendered if v != "—"}
+            prefix = "≠ " if len(present) > 1 else "  "
+            cells = "".join(v.ljust(col_w) for v in rendered)
+            return f"{prefix}{field_label.ljust(label_w - 2)}{cells}"
+
+        lines = [" " * label_w + "".join(label.ljust(col_w) for label in labels)]
+        lines.append("-" * len(lines[0]))
+        lines.append(row("status", [s.convergence_status if s else None for _, s in summaries]))
+        lines.append(row("chi^2", [f"{s.chi_squared:.6g}" if s else None for _, s in summaries]))
+        lines.append(
+            row(
+                "reduced chi^2",
+                [f"{s.reduced_chi_squared:.6g}" if s else None for _, s in summaries],
+            )
+        )
+        lines.append(row("quality", [s.quality_flag if s else None for _, s in summaries]))
+
+        # Union of parameter names across present summaries, first-seen order.
+        param_names: list[str] = []
+        seen: set[str] = set()
+        for _, summary in summaries:
             if summary is None:
-                blocks.append(f"=== {label} ===\n(no result)")
                 continue
-            lines = [
-                f"=== {label} ===",
-                f"status:        {summary.convergence_status}",
-                f"chi^2:         {summary.chi_squared}",
-                f"reduced chi^2: {summary.reduced_chi_squared}",
-                f"quality:       {summary.quality_flag}",
-                "parameters:",
-                *[f"  {name} = {value}" for name, value in summary.parameters.items()],
-            ]
-            blocks.append("\n".join(lines))
-        self._text.setPlainText("\n\n".join(blocks))
+            for name in summary.parameters:
+                if name not in seen:
+                    seen.add(name)
+                    param_names.append(name)
+        if param_names:
+            lines.append("")
+            lines.append("parameters:")
+            for name in param_names:
+                values = [
+                    f"{s.parameters[name]:.6g}" if s is not None and name in s.parameters else None
+                    for _, s in summaries
+                ]
+                lines.append(row(name, values))
+
+        missing = [label for label, s in summaries if s is None]
+        if missing:
+            lines.append("")
+            lines.extend(f"{label}: no result" for label in missing)
+
+        self._text.setPlainText("\n".join(lines))
 
     def rendered_text(self) -> str:
         """Return the rendered comparison text (inspection helper)."""

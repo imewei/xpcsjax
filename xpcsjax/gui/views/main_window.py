@@ -86,6 +86,16 @@ class MainWindow(QMainWindow):
         self.statusBar().addWidget(self._status)
         self._set_status_state("idle")
 
+        # Persistent "what will Run act on" indicator. _active_dataset_id is set
+        # implicitly (last loaded/opened dataset) with nothing on screen naming
+        # it, so a user managing several datasets only found out what Run did
+        # after clicking it. addPermanentWidget keeps it right-aligned and
+        # visible regardless of the transient status text above.
+        self._target_label = QLabel()
+        self._target_label.setObjectName("active_dataset_label")
+        self.statusBar().addPermanentWidget(self._target_label)
+        self._update_target_label()
+
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
 
@@ -126,24 +136,71 @@ class MainWindow(QMainWindow):
         self._actions: dict[str, QAction] = {}
         # The quick-access toolbar owns every operational action. ``None`` markers
         # insert a visual separator between logical groups:
-        # [config: create/edit/load] | [execute: run/cancel] | [export].
-        spec: list[tuple[str, str, object] | None] = [
-            ("action_create_config", "Create Config", self._on_create_config),
-            ("action_edit_config", "Edit Config", self._on_edit_config),
-            ("action_load_config", "Load Config", self._on_load_config),
+        # [config: create/edit/load] | [run] | [cancel] | [export].
+        # Run and Cancel are split by their own separator (not grouped together):
+        # they are opposite-effect actions (start vs. destroy in-progress work) and
+        # sitting flush against each other invited a misclick that discards a
+        # possibly multi-minute fit with no confirmation (see on_cancel's guard).
+        # Each entry also carries a keyboard shortcut and a tooltip: every toolbar
+        # action was previously mouse-only with no hover context, which fails
+        # keyboard-only operation (WCAG 2.2 Operable) and slows down repeat use.
+        # Run/Cancel mirror the common IDE run/stop pairing (F5 / Shift+F5).
+        spec: list[tuple[str, str, object, str, str] | None] = [
+            (
+                "action_create_config",
+                "Create Config",
+                self._on_create_config,
+                "Ctrl+Shift+N",
+                "Create a new config from a mode template",
+            ),
+            (
+                "action_edit_config",
+                "Edit Config",
+                self._on_edit_config,
+                "Ctrl+E",
+                "Edit the selected config's raw YAML",
+            ),
+            (
+                "action_load_config",
+                "Load Config",
+                self._on_load_config,
+                "Ctrl+L",
+                "Load an existing config into the project",
+            ),
             None,
-            ("action_run", "Run", self._on_run),
-            ("action_cancel", "Cancel", self._on_cancel),
+            (
+                "action_run",
+                "Run",
+                self._on_run,
+                "F5",
+                "Run the NLSQ fit for the active config",
+            ),
             None,
-            ("action_export_figure", "Export Figure", self._on_export_figure),
+            (
+                "action_cancel",
+                "Cancel",
+                self._on_cancel,
+                "Shift+F5",
+                "Cancel the selected run (asks for confirmation)",
+            ),
+            None,
+            (
+                "action_export_figure",
+                "Export Figure",
+                self._on_export_figure,
+                "Ctrl+Shift+E",
+                "Export the selected run's figures to a folder",
+            ),
         ]
         for entry in spec:
             if entry is None:
                 bar.addSeparator()
                 continue
-            key, text, slot = entry
+            key, text, slot, shortcut, tooltip = entry
             action = QAction(text, self)
             action.setObjectName(key)
+            action.setShortcut(shortcut)
+            action.setToolTip(f"{tooltip} ({shortcut})")
             action.triggered.connect(slot)  # type: ignore[arg-type]
             bar.addAction(action)
             self._actions[key] = action
@@ -159,16 +216,22 @@ class MainWindow(QMainWindow):
 
         create_project = QAction("Create Project", self)
         create_project.setObjectName("action_create_project")
+        create_project.setShortcut("Ctrl+N")
+        create_project.setToolTip("Create a new project working directory (Ctrl+N)")
         create_project.triggered.connect(self._on_create_project)
         file_menu.addAction(create_project)
 
         open_action = QAction("Open Project", self)
         open_action.setObjectName("action_open_project")
+        open_action.setShortcut("Ctrl+O")
+        open_action.setToolTip("Open an existing .xpcsproj project (Ctrl+O)")
         open_action.triggered.connect(self._on_open_project)
         file_menu.addAction(open_action)
 
         save_action = QAction("Save Project", self)
         save_action.setObjectName("action_save_project")
+        save_action.setShortcut("Ctrl+S")
+        save_action.setToolTip("Save the current project (Ctrl+S)")
         save_action.triggered.connect(self._on_save_project)
         file_menu.addAction(save_action)
 
@@ -176,6 +239,8 @@ class MainWindow(QMainWindow):
 
         close_action = QAction("Close Project", self)
         close_action.setObjectName("action_close_project")
+        close_action.setShortcut("Ctrl+W")
+        close_action.setToolTip("Close the current project, cancelling active runs (Ctrl+W)")
         close_action.triggered.connect(self._on_close_project)
         file_menu.addAction(close_action)
 
@@ -183,6 +248,15 @@ class MainWindow(QMainWindow):
         self._actions["action_open_project"] = open_action
         self._actions["action_save_project"] = save_action
         self._actions["action_close_project"] = close_action
+
+    def _update_target_label(self) -> None:
+        """Refresh the persistent "Run will act on: <dataset>" status-bar label."""
+        dataset = (
+            self._project.dataset_by_id(self._active_dataset_id)
+            if self._active_dataset_id
+            else None
+        )
+        self._target_label.setText(f"target: {dataset.label}" if dataset else "target: (none)")
 
     def _build_sidebar_dock(self) -> None:
         dock = QDockWidget("Project", self)
@@ -451,6 +525,7 @@ class MainWindow(QMainWindow):
         self._sidebar.set_project(self._project)
         # Auto-select the freshly added dataset so a single-dataset Run works.
         self._active_dataset_id = dataset.dataset_id
+        self._update_target_label()
         self.set_status(f"config: {Path(config_path).name}")
 
     def save_project_to(self, path: str | Path) -> None:
@@ -505,6 +580,7 @@ class MainWindow(QMainWindow):
         self._active_dataset_id = (
             self._project.datasets[0].dataset_id if self._project.datasets else None
         )
+        self._update_target_label()
         self._sidebar.set_project(self._project)
 
     def close_project(self) -> None:
@@ -530,6 +606,7 @@ class MainWindow(QMainWindow):
         self._active_run_id = None
         self._viewing_run_id = None
         self._active_dataset_id = None
+        self._update_target_label()
         self._project_dir = None
         self._output_dir = None
         self._sidebar.set_project_name(None)
