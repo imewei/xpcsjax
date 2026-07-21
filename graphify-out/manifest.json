@@ -1,8 +1,8 @@
 {
   "docs/source/conf.py": {
-    "mtime": 1782115788.537947,
-    "ast_hash": "a1b6dfa2b17e867501f87ac06398b699",
-    "semantic_hash": "a1b6dfa2b17e867501f87ac06398b699"
+    "mtime": 1782508539.7796984,
+    "ast_hash": "90cf8efc0302680623f82b52a8b61e8b",
+    "semantic_hash": ""
   },
   "tests/test_lazy_imports.py": {
     "mtime": 1782013400.1745303,
@@ -800,9 +800,9 @@
     "semantic_hash": "c474f51c3e99fad67e5283ec922dba18"
   },
   "xpcsjax/__init__.py": {
-    "mtime": 1782026751.9757562,
-    "ast_hash": "8e23aca84db3609c63f93f7b3958366e",
-    "semantic_hash": "8e23aca84db3609c63f93f7b3958366e"
+    "mtime": 1782508538.8407052,
+    "ast_hash": "fd23cf0710e10859927f96de0efda442",
+    "semantic_hash": ""
   },
   "xpcsjax/uninstall_scripts.py": {
     "mtime": 1782075837.1894038,
@@ -1505,14 +1505,14 @@
     "semantic_hash": "57f801d71e967b47d4eb8b99dddb782d"
   },
   "docs/source/installation.rst": {
-    "mtime": 1782187930.310076,
-    "ast_hash": "e87fda2d137fc282ddd4e7632c7c8606",
-    "semantic_hash": "e87fda2d137fc282ddd4e7632c7c8606"
+    "mtime": 1782508541.1896884,
+    "ast_hash": "2cad6faa880e01de435a4af07ffcc374",
+    "semantic_hash": ""
   },
   "docs/source/changelog.rst": {
-    "mtime": 1782173320.6596475,
-    "ast_hash": "6c1b6107936726bda5740b1e667b7a67",
-    "semantic_hash": "6c1b6107936726bda5740b1e667b7a67"
+    "mtime": 1782508558.8565671,
+    "ast_hash": "8f0710cbbb6b737c38a4078ed4182f41",
+    "semantic_hash": ""
   },
   "docs/source/index.rst": {
     "mtime": 1782173647.4144678,
@@ -2690,9 +2690,9 @@
     "semantic_hash": "5f9c3800a3a1b1ecc92232e4268d2db4"
   },
   "docs/source/development/releasing.rst": {
-    "mtime": 1782195080.954608,
-    "ast_hash": "b62ceac63b7ff9ea4d55adf3d52268bd",
-    "semantic_hash": "b62ceac63b7ff9ea4d55adf3d52268bd"
+    "mtime": 1782508600.1723006,
+    "ast_hash": "fc5b6b01836cf59bcb1d230764d2812c",
+    "semantic_hash": ""
   },
   "docs/diagrams/architecture.md": {
     "mtime": 1782198165.8685927,
