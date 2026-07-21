@@ -168,7 +168,10 @@ tempCodeRunnerFile.py
 .agent/
 .agents/
 .antigravitycli/
-.claude/
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+!.claude/hooks/quality-gate.sh
 .claude-progress.md
 .claude-scratch
 .claude-flow
