@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```mermaid
 graph TD
-    A["(根) xpcsjax"] --> CLI["cli"];
+    A["(root) xpcsjax"] --> CLI["cli"];
     A --> CFG["config"];
     A --> CORE["core"];
     A --> DATA["data"];
@@ -19,19 +19,21 @@ graph TD
     A --> UTIL["utils"];
     A --> VIZ["viz"];
 
-    click CLI "./xpcsjax/cli/CLAUDE.md" "CLI 模块文档"
-    click CFG "./xpcsjax/config/CLAUDE.md" "config 模块文档"
-    click CORE "./xpcsjax/core/CLAUDE.md" "core 模块文档"
-    click DATA "./xpcsjax/data/CLAUDE.md" "data 模块文档"
-    click DEV "./xpcsjax/device/CLAUDE.md" "device 模块文档"
-    click GUI "./xpcsjax/gui/CLAUDE.md" "gui 模块文档"
-    click IO "./xpcsjax/io/CLAUDE.md" "io 模块文档"
-    click OPT "./xpcsjax/optimization/CLAUDE.md" "optimization 模块文档"
-    click RT "./xpcsjax/runtime/CLAUDE.md" "runtime 模块文档"
-    click SVC "./xpcsjax/service/CLAUDE.md" "service 模块文档"
-    click UTIL "./xpcsjax/utils/CLAUDE.md" "utils 模块文档"
-    click VIZ "./xpcsjax/viz/CLAUDE.md" "viz 模块文档"
+    click CLI "./xpcsjax/cli/CLAUDE.md" "cli module doc"
+    click CFG "./xpcsjax/config/CLAUDE.md" "config module doc"
+    click CORE "./xpcsjax/core/CLAUDE.md" "core module doc"
+    click DATA "./xpcsjax/data/CLAUDE.md" "data module doc"
+    click DEV "./xpcsjax/device/CLAUDE.md" "device module doc"
+    click GUI "./xpcsjax/gui/CLAUDE.md" "gui module doc"
+    click IO "./xpcsjax/io/CLAUDE.md" "io module doc"
+    click OPT "./xpcsjax/optimization/CLAUDE.md" "optimization module doc"
+    click RT "./xpcsjax/runtime/CLAUDE.md" "runtime module doc"
+    click SVC "./xpcsjax/service/CLAUDE.md" "service module doc"
+    click UTIL "./xpcsjax/utils/CLAUDE.md" "utils module doc"
+    click VIZ "./xpcsjax/viz/CLAUDE.md" "viz module doc"
 ```
+
+The 12 module `CLAUDE.md` files above (and `.claude/index.json`) are generated locally and are **not** part of this repo — like the root file you're reading, module `CLAUDE.md`s match this project's `.gitignore` "local-only AI scratch" policy, but unlike the root file they were not force-added as a tracked exception. The `click` links resolve on a machine that has generated them; on a fresh clone or on GitHub they won't exist. Regenerate them locally (e.g. via `/ccg:init`) if you want the per-module detail.
 
 | Module | Path | Responsibility |
 |---|---|---|
@@ -42,13 +44,13 @@ graph TD
 | device | `xpcsjax/device/` | CPU-only HPC device detection & thread/NUMA optimization (GPU support removed) |
 | gui | `xpcsjax/gui/` | PySide6 desktop workbench; JAX-free process, delegates fits to a worker subprocess via `service` |
 | io | `xpcsjax/io/` | Result/data serialization: JSON-safe helpers, NLSQ NPZ/JSON writers |
-| optimization | `xpcsjax/optimization/` | JAX-native NLSQ engine: strategy routing, 5-layer anti-degeneracy controller, CMA-ES/multistart escapes (see the "NLSQ engine" and "5 anti-degeneracy layers" sections below for the full architecture — this is the most deeply covered module in this file already) |
+| optimization | `xpcsjax/optimization/` | JAX-native NLSQ engine: strategy routing, 5-layer anti-degeneracy controller, CMA-ES/multistart escapes (see the "NLSQ engine" section below, which also covers the 5 anti-degeneracy layers — this is the most deeply covered module in this file already) |
 | runtime | `xpcsjax/runtime/` | System validation (CPU/RAM/JAX/deps) + shell completion & XLA env activation scripts |
 | service | `xpcsjax/service/` | Headless, argparse/Qt-free orchestration seam shared by CLI and the GUI worker (fit/data/config/plots/persist/events) |
 | utils | `xpcsjax/utils/` | Logging primitives, async I/O helpers, path validation |
 | viz | `xpcsjax/viz/` | Lazy-loaded NLSQ result plotting (matplotlib/datashader) + diagnostic overlays |
 
-Each module's `CLAUDE.md` covers: 模块职责 / 入口与启动 / 对外接口 / 关键依赖与配置 / 数据模型 / 测试与质量 / 常见问题 / 相关文件清单. Deep architectural narrative for `optimization`/`core`/`config` lives in this root file (below) — the module docs for those three are intentionally short and point back here rather than duplicating it. See `.claude/index.json` for the machine-readable module index, scan coverage, and gap list (generated 2026-07-20).
+Each module's `CLAUDE.md` covers: responsibility / entry points & startup / public interface / key dependencies & config / data model / tests & quality / FAQ / related files. Deep architectural narrative for `optimization`/`core`/`config` lives in this root file (below) — the module docs for those three are intentionally short and point back here rather than duplicating it. `.claude/index.json` (also local-only, see above) holds the machine-readable module index, scan coverage, and gap list (generated 2026-07-20).
 
 ## Project scope and what it is *not*
 
@@ -105,7 +107,7 @@ If you need to add or amend these flags, do it **inside `xpcsjax/__init__.py` on
 The split with the upstream NLSQ library (`nlsq>=0.6.10`) is:
 
 - **NLSQ owns:** `CurveFit` JIT cache, `curve_fit()`, the trust-region (Levenberg-Marquardt) solve. `WorkflowSelector` was removed in NLSQ v0.6.0 — do **not** call it.
-- **xpcsjax owns:** memory-aware strategy routing (`select_nlsq_strategy`), the 5-layer anti-degeneracy controller (`anti_degeneracy_controller.py`), CMA-ES escape (auto-triggered above a threshold), LHS multistart, bounds + parameter transforms, angle-stratified chunking for large datasets, and shear-weighting.
+- **xpcsjax owns:** memory-aware strategy routing (`select_nlsq_strategy`), the 5-layer anti-degeneracy controller (`anti_degeneracy_controller.py`), CMA-ES escape (config-gated — homodyne additionally requires the parameter bounds' scale ratio to exceed a static threshold; heterodyne's flat `enable_cmaes` is flag-only — decided before the solve runs, never a runtime auto-trigger), LHS multistart, bounds + parameter transforms, angle-stratified chunking for large datasets, and shear-weighting.
 
 When working inside `xpcsjax/optimization/nlsq/`, the convention is: call NLSQ's `CurveFit` directly, never NLSQ's higher-level `fit()` unified API or its `MemoryBudgetSelector`. xpcsjax routes memory itself.
 

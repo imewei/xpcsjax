@@ -80,12 +80,13 @@ The 5-layer anti-degeneracy controller
 
 The CMA-ES escape
     Implemented in :mod:`xpcsjax.optimization.nlsq.cmaes_wrapper`.
-    Config-gated (``cmaes.enable`` / heterodyne's ``enable_cmaes``) and,
-    when enabled, engaged if the parameter bounds' scale ratio exceeds a
-    static threshold — decided before the trust-region solve runs, not a
-    runtime auto-trigger. Delegates to the ``evosax`` BIPOP-CMA-ES
-    backend for global search, then hands the best point back to the
-    trust-region solve for local refinement.
+    Config-gated: homodyne's ``cmaes.enable`` additionally requires the
+    parameter bounds' scale ratio to exceed a static threshold before
+    engaging; heterodyne's flat ``enable_cmaes`` has no such check — the
+    flag alone decides. Either way it is decided before the trust-region
+    solve runs, not a runtime auto-trigger. Delegates to the ``evosax``
+    BIPOP-CMA-ES backend for global search, then hands the best point
+    back to the trust-region solve for local refinement.
 
 LHS multistart
     Implemented in :mod:`xpcsjax.optimization.nlsq.multistart`.
