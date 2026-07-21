@@ -96,14 +96,23 @@ class ComparisonView(QWidget):
             cells = "".join(v.ljust(col_w) for v in rendered)
             return f"{prefix}{field_label.ljust(label_w - 2)}{cells}"
 
+        def fmt(x: float | None) -> str | None:
+            """Format a possibly-``None`` numeric field.
+
+            chi_squared/reduced_chi_squared can themselves be ``None`` on an
+            incomplete/older result — ``f"{None:.6g}"`` raises, so the
+            summary-presence check above isn't enough on its own.
+            """
+            return f"{x:.6g}" if x is not None else None
+
         lines = [" " * label_w + "".join(label.ljust(col_w) for label in labels)]
         lines.append("-" * len(lines[0]))
         lines.append(row("status", [s.convergence_status if s else None for _, s in summaries]))
-        lines.append(row("chi^2", [f"{s.chi_squared:.6g}" if s else None for _, s in summaries]))
+        lines.append(row("chi^2", [fmt(s.chi_squared) if s else None for _, s in summaries]))
         lines.append(
             row(
                 "reduced chi^2",
-                [f"{s.reduced_chi_squared:.6g}" if s else None for _, s in summaries],
+                [fmt(s.reduced_chi_squared) if s else None for _, s in summaries],
             )
         )
         lines.append(row("quality", [s.quality_flag if s else None for _, s in summaries]))

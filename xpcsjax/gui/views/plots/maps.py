@@ -19,6 +19,7 @@ from .helpers import (
     _apply_colormap,
     _c2_levels,
     _residual_levels,
+    _resolve_colormap,
     _time_rect,
 )
 from .squares import _fit_square_view, _SquareAspectMixin
@@ -50,9 +51,7 @@ class TwoTimeMapView(_SquareAspectMixin, pg.GraphicsLayoutWidget):
         # a colorbar the same color can mean different values on two different
         # angle tiles with no way to tell — color would be the sole, unreadable
         # carrier of the actual correlation value.
-        self._colorbar = pg.ColorBarItem(
-            colorMap=pg.colormap.get(_C2_COLORMAP, source="matplotlib")
-        )
+        self._colorbar = pg.ColorBarItem(colorMap=_resolve_colormap(_C2_COLORMAP))
         self._colorbar.setImageItem(self._image_item, insert_in=self._plot)
         self._has_image = False
 
@@ -123,9 +122,7 @@ class ResidualMapView(_SquareAspectMixin, pg.GraphicsLayoutWidget):
         self._plot.addItem(self._image_item)
         self._plot.setLabel("bottom", "t₁")
         self._plot.setLabel("left", "t₂")
-        self._colorbar = pg.ColorBarItem(
-            colorMap=pg.colormap.get(_RESIDUAL_COLORMAP, source="matplotlib")
-        )
+        self._colorbar = pg.ColorBarItem(colorMap=_resolve_colormap(_RESIDUAL_COLORMAP))
         self._colorbar.setImageItem(self._image_item, insert_in=self._plot)
         self._has_image = False
 

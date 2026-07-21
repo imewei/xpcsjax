@@ -48,6 +48,41 @@ def test_comparison_view_tolerates_missing_summary(qtbot):
     assert "run B" in cv.rendered_text()  # rendered as "no result"
 
 
+def test_comparison_view_tolerates_none_chi_squared(qtbot):
+    """A present summary with chi_squared=None (incomplete/older result) must
+    not crash the render — regression for a TypeError in f"{None:.6g}"."""
+    cv = ComparisonView()
+    qtbot.addWidget(cv)
+    partial = ResultSummary(
+        result_dir=".",
+        success=False,
+        convergence_status="unknown",
+        chi_squared=None,
+        reduced_chi_squared=None,
+        quality_flag="unknown",
+        parameters={},
+    )
+    cv.show_runs([("run A", _summary(1.0)), ("run B", partial)])
+    text = cv.rendered_text()
+    assert "run A" in text and "run B" in text
+
+
+def test_comparison_view_marks_differing_values(qtbot):
+    """A field where the two runs disagree is prefixed with the diff marker;
+    a field where they agree is not."""
+    cv = ComparisonView()
+    qtbot.addWidget(cv)
+    cv.show_runs([("run A", _summary(1.0)), ("run B", _summary(2.0))])
+    lines = cv.rendered_text().splitlines()
+    chi2_line = next(line for line in lines if "chi^2" in line and "reduced" not in line)
+    d0_line = next(line for line in lines if "D0" in line)
+    status_line = next(line for line in lines if "status" in line)
+    assert chi2_line.startswith("≠")  # chi_squared differs (1.0 vs 2.0)
+    assert d0_line.startswith("≠")  # D0 differs (101.0 vs 102.0)
+    assert status_line.startswith(" ")  # both "converged" — not flagged
+    assert not status_line.startswith("≠")
+
+
 def test_sidebar_selected_run_ids_returns_run_rows_only(qtbot):
     from PySide6.QtCore import QItemSelectionModel
 

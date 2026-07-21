@@ -41,3 +41,22 @@ def test_preview_renders_selected_dataset(qtbot, tmp_path):
     dlg._on_preview()
     assert dlg.load_error() is None
     assert dlg._preview.has_image()
+
+
+def test_corrupt_file_error_shown_not_crash(qtbot, tmp_path, monkeypatch):
+    """A corrupt-but-signature-valid HDF5 file can raise RuntimeError/KeyError/
+    ValueError from h5py, not just OSError — the dialog must degrade to the
+    error label, not propagate the exception through __init__."""
+    import xpcsjax.gui.views.data_inspect_dialog as dlg_mod
+
+    p = tmp_path / "d.h5"
+    _make_h5(p)
+
+    def _raise(*_a, **_k):
+        raise RuntimeError("Unable to synchronously visit object (bad object header)")
+
+    monkeypatch.setattr(dlg_mod, "read_hdf5_metadata", _raise)
+    dlg = DataInspectDialog(p)
+    qtbot.addWidget(dlg)
+    assert dlg.dataset_count() == 0
+    assert dlg.load_error() is not None

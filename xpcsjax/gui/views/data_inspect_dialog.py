@@ -104,7 +104,13 @@ class DataInspectDialog(QDialog):
         """Populate the dataset list; show an error label on a read failure."""
         try:
             infos = read_hdf5_metadata(self._path)
-        except OSError as exc:
+        except (OSError, RuntimeError, KeyError, ValueError) as exc:
+            # h5py's failure surface for a corrupt-but-signature-valid file (a
+            # truncated mid-write copy off a flaky beamline network mount, a
+            # damaged B-tree/chunk index) isn't limited to OSError — it also
+            # raises RuntimeError/KeyError/ValueError depending on where the
+            # corruption is discovered. A narrower catch here left those escape
+            # uncaught through this dialog's whole call chain.
             self._set_error(f"Could not read file:\n{exc}")
             return
         for info in infos:
@@ -123,7 +129,13 @@ class DataInspectDialog(QDialog):
                 data_type=data_type,
                 phi_index=self._phi_spin.value(),
             )
-        except OSError as exc:
+        except (OSError, RuntimeError, KeyError, ValueError) as exc:
+            # h5py's failure surface for a corrupt-but-signature-valid file (a
+            # truncated mid-write copy off a flaky beamline network mount, a
+            # damaged B-tree/chunk index) isn't limited to OSError — it also
+            # raises RuntimeError/KeyError/ValueError depending on where the
+            # corruption is discovered. A narrower catch here left those escape
+            # uncaught through this dialog's whole call chain.
             self._set_error(f"Could not read file:\n{exc}")
             return
         if arr is None:

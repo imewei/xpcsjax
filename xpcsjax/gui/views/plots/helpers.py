@@ -33,16 +33,29 @@ def _leading_dim_matches(arr: np.ndarray | None, n: int) -> bool:
     return arr is not None and np.asarray(arr).shape[0] == n
 
 
+def _resolve_colormap(name: str) -> pg.ColorMap | None:
+    """Resolve a named matplotlib colormap (best-effort); ``None`` if unavailable.
+
+    Shared by every colormap consumer (the image item AND its colorbar) so
+    "colormap availability is environment-dependent" is guarded exactly once —
+    an unguarded second call site would crash widget construction on the same
+    environments this degrades gracefully on.
+    """
+    try:
+        return pg.colormap.get(name, source="matplotlib")
+    except Exception:  # noqa: BLE001 - colormap availability is environment-dependent
+        return None
+
+
 def _apply_colormap(image_item: pg.ImageItem, name: str) -> None:
     """Apply a named matplotlib colormap to *image_item* (best-effort).
 
     Falls back to PyQtGraph's default grayscale if the colormap can't be
     resolved (keeps the GUI usable on an unexpected pyqtgraph/matplotlib build).
     """
-    try:
-        image_item.setColorMap(pg.colormap.get(name, source="matplotlib"))
-    except Exception:  # noqa: BLE001 - colormap availability is environment-dependent
-        pass
+    cmap = _resolve_colormap(name)
+    if cmap is not None:
+        image_item.setColorMap(cmap)
 
 
 def _time_rect(t1: np.ndarray | None, t2: np.ndarray | None) -> QRectF | None:
