@@ -17,8 +17,10 @@ classifies the dataset into one of three memory tiers (``STANDARD``,
 ``LARGE``, ``STREAMING``).  For heterodyne the dispatch in
 ``_fit_nlsq_heterodyne`` (``xpcsjax/optimization/nlsq/__init__.py``) is:
 
-1. **CMA-ES escape** — highest precedence; triggered when the anti-degeneracy
-   controller raises the CMA-ES flag.
+1. **CMA-ES escape** — highest precedence; config-gated (``enable_cmaes``)
+   and, when enabled, engaged if the parameter bounds' scale ratio exceeds a
+   static threshold — decided before dispatch, not raised by the
+   anti-degeneracy controller.
 2. **Multi-start** — LHS multistart when ``optimization.nlsq.multi_start.enable``.
 3. **Hybrid streaming** — when ``tier ∈ {LARGE, STREAMING}`` and
    ``optimization.nlsq.hybrid_streaming.enable = true``; this path is inherently
