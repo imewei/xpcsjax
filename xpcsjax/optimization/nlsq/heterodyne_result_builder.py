@@ -666,8 +666,17 @@ def build_hybrid_streaming_result(
         from xpcsjax.optimization.nlsq.per_angle_mode import effective_constrained_dof
 
         try:
+            # Assumes varying_names only raises AttributeError (missing
+            # attribute on a None model/param_manager) — widen this except if
+            # the property ever grows validation that raises something else,
+            # since this whole block is a cosmetic DOF display value and must
+            # never take down result assembly for an otherwise-successful fit.
             _n_physics = len(model.param_manager.varying_names)
-        except Exception:
+        except AttributeError:
+            logger.debug(
+                "model.param_manager.varying_names unavailable; "
+                "falling back to len(popt) for reduced-chi2 DOF"
+            )
             _n_physics = None
         if _n_physics is not None:
             _eff = effective_constrained_dof(_resolved_mode, n_phi=n_phi, n_physical=_n_physics)

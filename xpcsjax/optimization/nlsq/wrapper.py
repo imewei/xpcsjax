@@ -118,7 +118,10 @@ from xpcsjax.utils.logging import get_logger
 
 from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.optimization.batch_statistics import BatchStatistics
-from xpcsjax.optimization.nlsq.adapter_base import NLSQAdapterBase
+from xpcsjax.optimization.nlsq.adapter_base import (
+    PER_ANGLE_SCALING_REMOVED_MSG,
+    NLSQAdapterBase,
+)
 from xpcsjax.optimization.nlsq.results import (
     FunctionEvaluationCounter,
     OptimizationResult,
@@ -854,10 +857,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 "angle has different optical properties and detector responses. "
                 "Per-angle scaling is required for physically correct NLSQ optimization."
             )
-            raise ValueError(
-                "per_angle_scaling=False is deprecated and removed. "
-                "Use per_angle_scaling=True (default) for physically correct behavior."
-            )
+            raise ValueError(PER_ANGLE_SCALING_REMOVED_MSG)
 
         # Start timing
         start_time = time.time()
