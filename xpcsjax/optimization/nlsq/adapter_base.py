@@ -16,7 +16,7 @@ from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Shared by NLSQAdapter.fit() and NLSQWrapper.fit_nlsq_wrapper() — both reject
+# Shared by NLSQAdapter.fit() (adapter.py) and NLSQWrapper.fit() (wrapper.py) — both reject
 # the removed per_angle_scaling=False legacy mode with this exact message.
 PER_ANGLE_SCALING_REMOVED_MSG = (
     "per_angle_scaling=False is deprecated and removed. "

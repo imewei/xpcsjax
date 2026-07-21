@@ -19,6 +19,31 @@ continued feature work.
 
 ## Remediation Status (2026-07-20)
 
+**PR review addendum:** a 4-agent review (code-reviewer, pr-test-analyzer, silent-failure-hunter,
+comment-analyzer) of the remediation commit itself found — and this PR then fixed — 4 real issues
+introduced by the remediation, all independently confirmed by 2-3 agents each:
+1. **Bug:** the Debt #3 retry loop compounded its per-attempt config multipliers quadratically
+   instead of applying them fresh from the original config each attempt (e.g. by the 3rd retry the
+   learning rate had collapsed to 0.5⁶ instead of the documented 0.5³). Fixed by snapshotting base
+   config values and assigning (not `*=`) each retry.
+2. **Regression:** the retry loop's `try` block was too broad — it wrapped result-extraction/
+   info-building in addition to the optimizer call, so an unrelated post-processing bug would get
+   mistaken for an optimizer failure and retried up to 3x against a large dataset. Fixed by
+   narrowing the `try` to only the `optimizer.fit()` call.
+3. **False documentation claim:** the jaxopt→optimistix CLAUDE.md note (written for this PR's own
+   Doc Gap 1) claimed `optimistix` was "already an xpcsjax dependency" — verified false
+   (`import optimistix` fails, absent from `pyproject.toml`/`uv.lock`). Corrected in both CLAUDE.md
+   and this file.
+4. **Comment referencing a non-existent method:** `adapter_base.py`'s shared-constant comment named
+   `NLSQWrapper.fit_nlsq_wrapper()`, which doesn't exist (the real method is `fit()`). Corrected.
+
+Also added: 4 new regression tests closing coverage gaps the same review surfaced (config-magnitude
+assertion, non-recoverable-exception passthrough, retry-count/error-context assertion in the
+exhaustion test, and a test for the Debt #1 `AttributeError` fallback path that had zero coverage
+either before or after the original fix). Softened one CLAUDE.md historical claim (god-files
+extraction precedent) per a LOW-confidence comment-accuracy finding.
+
+
 All findings below were triaged and actioned in a follow-up pass. Status per item:
 
 | # | Finding | Status |
@@ -114,8 +139,10 @@ Ranked by remediation value; full evidence trail in the underlying analyst repor
    Fix: narrow to `except AttributeError` + add `logger.debug(...)`.
 2. **Deprecated, unmaintained dependency (`jaxopt`) with a globally-suppressed warning.**
    `pyproject.toml:14,123-126`, `xpcsjax/optimization/nlsq/hierarchical.py:56-61` — used for L2's
-   bounded L-BFGS warm-start; upstream is unmaintained. Migration to `optimistix` (already a
-   declared NLSQ dependency per `CLAUDE.md`) is noted in-code as deferred with no tracking issue.
+   bounded L-BFGS warm-start; upstream is unmaintained. Planned replacement is `optimistix`, but
+   (corrected during PR review — the original claim that it's "already a dependency" was false,
+   verified by `import optimistix` failing) it is **not currently installed**; migration would need
+   to add it as a new dependency first. No tracking issue exists for this migration.
 3. **Unimplemented retry logic left as a TODO on the hot-path streaming optimizer.**
    `strategies/hybrid_streaming.py:276` (`# T030: TODO - Implement 3-attempt retry`) — any transient
    failure falls back immediately to the slower plain streaming optimizer (10x+ slower, may miss
