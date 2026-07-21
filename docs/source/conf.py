@@ -77,7 +77,10 @@ nitpick_ignore_regex = [
     (r"py:(class|data|obj)", r"(np|jnp|sp)\..*"),
     (r"py:(class|data|obj)", r"collections\..*"),
     (r"py:(class|data|obj)", r"pathlib\..*"),
-    (r"py:(class|data|obj)", r"(int|float|str|bool|bytes|list|tuple|dict|set|frozenset|type|object|None|NoneType|Any|Optional|optional|Union|Callable|Iterable|Iterator|Mapping|Sequence|Generator|Ellipsis|NDArray|Path|ArrayLike|DType|DTypeLike)"),
+    (
+        r"py:(class|data|obj)",
+        r"(int|float|str|bool|bytes|list|tuple|dict|set|frozenset|type|object|None|NoneType|Any|Optional|optional|Union|Callable|Iterable|Iterator|Mapping|Sequence|Generator|Ellipsis|NDArray|Path|ArrayLike|DType|DTypeLike)",
+    ),
     # Private autodoc protocol references that leak from class hierarchies.
     (r"py:class", r".*\._[A-Z][A-Za-z0-9_]*Protocol"),
     # Bare class refs that appear inside autodoc'd docstrings of xpcsjax
@@ -86,7 +89,10 @@ nitpick_ignore_regex = [
     # full path. Fixing these would mean editing every docstring; suppress
     # the bare-name lookups instead.
     (r"py:class", r"PhysicsModelBase|DiffusionModel|CombinedModel|PhysicsFactors"),
-    (r"py:meth", r"from_config|HomodyneModel\.compute_c2|HeterodyneModel\.compute_g1|compute_g1|compute_c2_single_angle"),
+    (
+        r"py:meth",
+        r"from_config|HomodyneModel\.compute_c2|HeterodyneModel\.compute_g1|compute_g1|compute_c2_single_angle",
+    ),
     (r"py:func", r"xpcsjax\.core\.models\.make_model"),
     # Bare attribute names referenced from inside autodoc'd docstrings.
     (r"py:attr", r"parameter_names|param_names"),

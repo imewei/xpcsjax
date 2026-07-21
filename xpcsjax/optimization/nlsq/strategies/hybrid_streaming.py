@@ -329,8 +329,9 @@ def fit_with_hybrid_streaming_optimizer(
     # Unreachable: recovery_config.max_retries >= 0 guarantees the loop runs at
     # least once, and every iteration either returns or raises. This satisfies
     # mypy's return-flow analysis, which (unlike pyright) can't prove that.
-    raise AssertionError("unreachable: fit_with_hybrid_streaming_optimizer loop exited without return/raise")
-
+    raise AssertionError(
+        "unreachable: fit_with_hybrid_streaming_optimizer loop exited without return/raise"
+    )
 
 
 def _resolve_streaming_per_angle_mode(
