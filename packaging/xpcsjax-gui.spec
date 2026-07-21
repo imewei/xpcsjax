@@ -17,6 +17,10 @@ for pkg in (
     "matplotlib",  # worker-rendered publication figures ship mpl-data
     "numpy",        # direct runtime dep; pulled transitively by jax/scipy but
                     # listed explicitly so the drift guard requires no special-case
+    "PIL",          # Pillow — dist name "pillow", import name "PIL"; matplotlib's
+                    # image backend, ships a compiled _imaging extension plus
+                    # dynamically loaded format plugins PyInstaller's static
+                    # analysis misses
 ):  # xarray/colorcet are datashader's array backend + colormap data (ship data files);
     # they are direct `viz-fast` deps, so the drift-guard test below requires them here.
     d, b, h = collect_all(pkg)
