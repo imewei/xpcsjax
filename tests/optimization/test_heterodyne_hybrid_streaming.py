@@ -158,6 +158,47 @@ def test_build_hybrid_streaming_result():
     assert res.nlsq_diagnostics.get("shear_weighting") == "not_applicable_heterodyne"
 
 
+def test_build_hybrid_streaming_result_dof_fallback_on_missing_varying_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Debt #1 regression: if ``model.param_manager.varying_names`` raises
+    ``AttributeError``, the reduced-chi2 DOF calc must degrade gracefully to
+    ``len(popt)`` rather than crash result assembly for an otherwise-
+    successful fit (this block is a cosmetic DOF display value)."""
+    from xpcsjax.optimization.nlsq.heterodyne_result_builder import build_hybrid_streaming_result
+
+    model, _c2, phi = _make_synthetic_heterodyne()
+    n = model.param_manager.n_varying
+    # Capture before monkeypatching: the builder has an EARLIER, unguarded
+    # ``varying_names`` read for the ``parameter_names`` default (line ~573)
+    # that must be bypassed via an explicit ``parameter_names=`` so this test
+    # isolates the guarded DOF-fallback site (line ~674) it targets.
+    param_names = list(model.param_manager.varying_names)
+
+    def _raise_attribute_error(self: object) -> None:
+        raise AttributeError("varying_names unavailable (simulated)")
+
+    monkeypatch.setattr(
+        type(model.param_manager), "varying_names", property(_raise_attribute_error)
+    )
+
+    res = build_hybrid_streaming_result(
+        model=model,
+        popt=np.zeros(n),
+        pcov=np.eye(n),
+        info={
+            "nit": 4,
+            "success": True,
+            "n_data_points": 1000,
+            "anti_degeneracy": {"per_angle_mode": "constant"},
+        },
+        phi_angles=phi,
+        parameter_names=param_names,
+    )
+    assert hasattr(res, "parameters")
+    assert np.isfinite(res.reduced_chi_squared)
+
+
 def test_build_hybrid_streaming_result_max_nfev_is_max_iter_not_failed():
     """A solve that exhausts ``max_nfev`` but lands on a good fit must report
     ``convergence_status='max_iter'`` and grade quality from the real reduced
