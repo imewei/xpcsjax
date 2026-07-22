@@ -316,8 +316,9 @@ class MainWindow(QMainWindow):
         self._queue.run_finished.connect(self._on_run_finished)
         self._queue.run_failed.connect(self._on_run_failed)
         self._queue.log_received.connect(self._on_log)
-        # Sidebar selection signal
+        # Sidebar selection signals
         self._sidebar.runs_selected.connect(self._on_runs_selected)
+        self._sidebar.dataset_selected.connect(self._on_dataset_selected)
 
     # --- view slots (driven by the queue) -------------------------------------
     def set_status(self, status: str) -> None:
@@ -383,9 +384,14 @@ class MainWindow(QMainWindow):
             self.append_log(level, msg)
 
     def _on_run_failed(self, run_id: str, error_text: str) -> None:
+        title, friendly, details = present_failure(error_text)
         if run_id == self._active_run_id:
             self._set_status_state("failed")
-        title, friendly, details = present_failure(error_text)
+            # Mirror _on_run_finished's guard: never yank the central panel away
+            # from a run the user deliberately pinned to view.
+            if self._viewing_run_id is None or self._viewing_run_id == run_id:
+                self.show_error(friendly)
+                self._central_stack.setCurrentIndex(0)  # show_error is text-only
         # Identify which run failed (matters once multiple runs share the window).
         title = f"{title} (run {run_id[:8]})"
         ErrorDialog.show_failure(self, title, friendly, details)
@@ -435,6 +441,17 @@ class MainWindow(QMainWindow):
                 # Mirror the run's results into the inspector (params/uncertainties/
                 # diagnostics live there).
                 self.show_inspector(run.summary)
+
+    def _on_dataset_selected(self, dataset_id: str) -> None:
+        """Retarget Run at the dataset the user just clicked in the sidebar.
+
+        A dataset row carries no run, so ``_on_runs_selected`` never fires for
+        it — without this, ``_active_dataset_id`` (what Run acts on) silently
+        kept pointing at whatever dataset was last loaded/opened/run, with no
+        on-screen sign that clicking a different dataset changed nothing.
+        """
+        self._active_dataset_id = dataset_id
+        self._update_target_label()
 
     # --- inspector public API -------------------------------------------------
 
@@ -536,8 +553,12 @@ class MainWindow(QMainWindow):
         """
         dataset = self._project.add_dataset(config_path)
         self._sidebar.set_project(self._project)
-        # Auto-select the freshly added dataset so a single-dataset Run works.
-        self._active_dataset_id = dataset.dataset_id
+        # Auto-select the freshly added dataset so a single-dataset Run works —
+        # but only when nothing is already active/viewed, so loading a second
+        # config while a run is in flight or on screen doesn't silently
+        # retarget what "Run" acts on out from under the user.
+        if self._active_run_id is None and self._viewing_run_id is None:
+            self._active_dataset_id = dataset.dataset_id
         self._update_target_label()
         self.set_status(f"config: {Path(config_path).name}")
 
@@ -568,6 +589,10 @@ class MainWindow(QMainWindow):
             Path to a ``.xpcsproj`` file previously written by
             :meth:`save_project_to`.
         """
+        # The project being replaced may have an in-flight run or a pinned/
+        # displayed result; tear that down first so none of it leaks into the
+        # newly loaded project (see _reset_run_view_state).
+        self._reset_run_view_state()
         self._project = load_project(path)
         # Resolve every reference eagerly at load (spec §8 dead-path rule).
         # Expand ${ENV}/~ first so a path that merely uses a shell variable is not
@@ -596,6 +621,30 @@ class MainWindow(QMainWindow):
         self._update_target_label()
         self._sidebar.set_project(self._project)
 
+    def _reset_run_view_state(self) -> None:
+        """Cancel in-flight work and clear every results surface.
+
+        Shared by :meth:`close_project` (full teardown) and
+        :meth:`open_project_from` — both are about to replace ``_project``
+        with a different project's data, so both must first make sure nothing
+        belonging to the discarded project (an active worker, a pinned
+        ``_viewing_run_id``, a stale log/result panel) keeps driving the
+        window afterward. Skipping this on the open-project path let a run or
+        result from the just-discarded project leak into the newly loaded one.
+        """
+        # shutdown() cancels every active worker, joins its reader, and clears
+        # the pending queue while leaving the controller reusable for the next
+        # fit (the same teardown closeEvent uses).
+        self._queue.shutdown()
+        self._active_run_id = None
+        self._viewing_run_id = None
+        self._comparison.show_runs([])
+        self._inspector.show_summary(None)
+        self._result_grid.set_bundle(None)
+        self._results.clear()
+        self._log.clear()  # the Fitting-Process dock belongs to the discarded project
+        self._central_stack.setCurrentIndex(0)
+
     def close_project(self) -> None:
         """Reset the workbench to its empty launch state (no project loaded).
 
@@ -611,25 +660,14 @@ class MainWindow(QMainWindow):
         out because ``_active_run_id`` is cleared) while still consuming RAM and
         writing artifacts under the old output dir.
         """
-        # shutdown() cancels every active worker, joins its reader, and clears
-        # the pending queue while leaving the controller reusable for the next
-        # fit (the same teardown closeEvent uses).
-        self._queue.shutdown()
+        self._reset_run_view_state()
         self._project = Project()
-        self._active_run_id = None
-        self._viewing_run_id = None
         self._active_dataset_id = None
         self._update_target_label()
         self._project_dir = None
         self._output_dir = None
         self._sidebar.set_project_name(None)
         self._sidebar.set_project(self._project)
-        self._comparison.show_runs([])
-        self._inspector.show_summary(None)
-        self._result_grid.set_bundle(None)
-        self._results.clear()
-        self._log.clear()  # the Fitting-Process dock belongs to the discarded project
-        self._central_stack.setCurrentIndex(0)
         self._set_status_state("idle")
         self.set_status("idle")
 

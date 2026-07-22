@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QItemSelectionModel, Qt, Signal
 from PySide6.QtWidgets import QPlainTextEdit, QTreeView, QVBoxLayout, QWidget
 
 from xpcsjax.gui.project.model import Project
@@ -15,6 +15,7 @@ class ProjectSidebar(QWidget):
     """A tree of datasets -> runs with multi-select."""
 
     runs_selected = Signal(list)  # list[str] of run_ids
+    dataset_selected = Signal(str)  # dataset_id, emitted when a dataset row is selected
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -30,10 +31,31 @@ class ProjectSidebar(QWidget):
         """Return the backing tree model (inspection helper)."""
         return self._model
 
-    def set_project(self, project: Project) -> None:
-        """Rebuild the tree from ``project``."""
+    def set_project(self, project: Project, *, select_run_id: str | None = None) -> None:
+        """Rebuild the tree from ``project``.
+
+        ``rebuild`` fully resets the underlying ``QStandardItemModel``, which
+        drops the tree's current selection. Restore it afterward — the
+        explicitly requested *select_run_id* if given, else whatever run was
+        selected before the rebuild — so a Run/Load-Config refresh doesn't
+        silently strand Cancel/Export Figure with no selected run.
+        """
+        keep = select_run_id if select_run_id is not None else self.current_run_id()
         self._model.rebuild(project)
         self._tree.expandAll()
+        if keep is not None:
+            self._select_run(keep)
+
+    def _select_run(self, run_id: str) -> None:
+        """Select *run_id*'s row in the tree, if it still exists."""
+        index = self._model.index_for_run(run_id)
+        if index is not None:
+            self._tree.selectionModel().select(
+                index,
+                QItemSelectionModel.SelectionFlag.ClearAndSelect
+                | QItemSelectionModel.SelectionFlag.Rows,
+            )
+            self._tree.setCurrentIndex(index)
 
     def set_project_name(self, name: str | None) -> None:
         """Show ``name`` as the sidebar header (the project name); ``None`` resets it."""
@@ -59,8 +81,24 @@ class ProjectSidebar(QWidget):
         ids = self.selected_run_ids()
         return ids[0] if ids else None
 
+    def selected_dataset_ids(self) -> list[str]:
+        """Return the dataset ids of selected dataset (top-level) rows."""
+        ids: list[str] = []
+        for index in self._tree.selectionModel().selectedIndexes():
+            # Dataset rows have no parent; run rows do.
+            if not index.parent().isValid():
+                did = index.data(Qt.ItemDataRole.UserRole)
+                if did is not None:
+                    ids.append(str(did))
+        return ids
+
     def _on_selection(self, *_args: Any) -> None:
-        self.runs_selected.emit(self.selected_run_ids())
+        run_ids = self.selected_run_ids()
+        self.runs_selected.emit(run_ids)
+        if not run_ids:
+            dataset_ids = self.selected_dataset_ids()
+            if len(dataset_ids) == 1:
+                self.dataset_selected.emit(dataset_ids[0])
 
 
 class ComparisonView(QWidget):
