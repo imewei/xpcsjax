@@ -591,20 +591,16 @@ class MainWindow(QMainWindow):
             Path to a ``.xpcsproj`` file previously written by
             :meth:`save_project_to`.
         """
-        # Load first — a malformed .xpcsproj raises ValueError here, before
-        # anything is torn down, so a failed Open Project leaves the current
-        # project (and any of its in-flight runs) untouched.
+        # Load AND resolve everything on the local `project` var first — a
+        # malformed .xpcsproj (load_project) or an unresolvable path below can
+        # both raise, and doing all of it before any teardown/reassignment
+        # means either failure leaves the current project (and any of its
+        # in-flight runs) completely untouched.
         project = load_project(path)
-        # The project being replaced may have an in-flight run or a pinned/
-        # displayed result; tear that down only now that loading succeeded,
-        # so none of it leaks into the newly loaded project (see
-        # _reset_run_view_state).
-        self._reset_run_view_state()
-        self._project = project
         # Resolve every reference eagerly at load (spec §8 dead-path rule).
         # Expand ${ENV}/~ first so a path that merely uses a shell variable is not
         # mis-flagged "missing" (mirrors config.data_folder_path resolution).
-        for dataset in self._project.datasets:
+        for dataset in project.datasets:
             dataset.config_missing = (
                 bool(dataset.config_path) and not _expand_path(dataset.config_path).exists()
             )
@@ -619,6 +615,12 @@ class MainWindow(QMainWindow):
                     except Exception:  # noqa: BLE001 — never raise on open
                         run.summary = None
                         run.result_missing = True
+        # Only now, with the new project fully loaded and resolved, tear down
+        # the old one — it may have an in-flight run or a pinned/displayed
+        # result that must not leak into the newly loaded project (see
+        # _reset_run_view_state).
+        self._reset_run_view_state()
+        self._project = project
         # A freshly-opened project has no active dataset, so a subsequent "Run"
         # would say "pick a config first". Default to the first dataset (matches
         # add_dataset's auto-select), so Run works straight after Open Project.
