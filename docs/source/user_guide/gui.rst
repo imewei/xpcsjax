@@ -59,41 +59,65 @@ subclasses for the wire schema.
 Workbench layout
 ----------------
 
-The main window is a logic-free view driven by the ``FitQueueController``. It
-is organised into tabs plus docks:
+The main window is a logic-free view driven by the ``FitQueueController``.
+The workflow is **config-first and toolbar-driven** — there is no tabbed
+config/data/fit setup area; the central area shows only the per-angle fitting
+results. A quick-access toolbar carries every operational action, in flow
+order, each with a keyboard shortcut and hover tooltip:
 
-**Config tab**
-   A configuration editor with a form view and a raw-YAML toggle, backed by
-   **live JAX-free validation** (:func:`xpcsjax.service.config.validate_config`).
-   Invalid fields are flagged as you type, before any fit is launched.
+**Create Config** (``Ctrl+Shift+N``)
+   Generate a new YAML config from one of the four mode templates via a
+   dialog (numeric fields show placeholder format examples); an
+   overwrite-confirmation prompt guards an existing file at the same path.
 
-**Data tab**
-   A JAX-free HDF5 metadata browser (h5py only — it does *not* import the
-   JAX-bearing loader) plus a two-time :math:`C_2` preview of the selected
-   dataset. Large arrays are block-mean rasterised for display only.
+**Edit Config** (``Ctrl+E``)
+   Open the selected config in a raw-YAML text editor that validates syntax
+   before writing, instead of silently saving invalid YAML.
 
-**Fit tab**
-   A read-only summary of the resolved configuration and any overrides that
-   will be sent to the worker, and the controls to enqueue the fit.
+**Load Config** (``Ctrl+L``)
+   Add a config as a new *dataset* to the project (see below); the freshly
+   loaded dataset is auto-selected as Run's target unless a run is already
+   active or being viewed, in which case the target is left alone.
 
-**Inspector dock**
-   The fitted parameters / uncertainties table, the diagnostics tree, and the
-   fit summary (reduced :math:`\chi^2`, iteration count, strategy).
+**Run** (``F5``) / **Cancel** (``Shift+F5``)
+   Enqueue a fit for the active dataset, or cancel the selected run. Run and
+   Cancel sit in their own toolbar groups (not flush against each other) and
+   Cancel always asks for confirmation first — cancelling discards a
+   possibly multi-minute fit with no undo.
 
-**Live diagnostics**
-   A streaming view of the in-progress fit: the SSR curve, the L1–L5
-   anti-degeneracy layer status chips, and the banner log — fed by the
-   worker's event stream. See :doc:`/user_guide/interpreting_results` and
-   :doc:`/advanced/anti_degeneracy` for what the layers mean.
+**Export Figure** (``Ctrl+Shift+E``)
+   Copy the selected run's ``*.png`` / ``*.pdf`` plot files to a chosen
+   directory.
 
-**Interactive plots**
-   PyQtGraph two-time, residual, and diagonal-overlay views, built from the
-   fit's own JAX-free artifact bundle, so plotting never re-imports JAX into
-   the GUI process.
+A persistent status-bar label always names which dataset Run currently
+targets, and the status pill (idle / running / finished / failed) plus a
+streaming **Fitting Process** log dock report progress. Docks:
 
 **Project sidebar**
-   A *datasets → runs* tree plus a side-by-side comparison view for inspecting
-   two runs together.
+   A *datasets → runs* tree (multi-select). Selecting a run drives the
+   central panel and the Inspector; selecting a dataset row retargets Run.
+
+**Comparison** / **Inspector** (tabbed together)
+   Comparison renders a real side-by-side table for up to two selected runs,
+   marking disagreeing rows with ``≠``. Inspector shows the fitted
+   parameters / uncertainties table, the diagnostics tree (top level
+   expanded only, by default), and the fit summary (reduced
+   :math:`\chi^2`, iteration count, strategy) for the run currently shown.
+
+**Central results area**
+   A stacked view: the per-phi results grid (Exp/Fitted/Residual maps with a
+   shared color-bar legend per view, plus a "Jump to φ" navigator above 8
+   angles) when a viz bundle is available, otherwise a plain-text summary.
+   Built from the fit's own JAX-free artifact bundle, so viewing a result
+   never imports JAX into the GUI process. See
+   :doc:`/user_guide/interpreting_results` and :doc:`/advanced/anti_degeneracy`
+   for what the diagnostics mean.
+
+**Inspect Data File…** (File menu, ``Ctrl+I``)
+   A read-only HDF5 metadata browser (h5py only — it does *not* import the
+   JAX-bearing loader) plus a two-time :math:`C_2` preview, independent of
+   any loaded project dataset. Large arrays are block-mean rasterised for
+   display only.
 
 Projects (``.xpcsproj``)
 ------------------------

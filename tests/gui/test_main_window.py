@@ -103,6 +103,11 @@ def test_repeated_runs_get_distinct_output_dirs(qtbot, tmp_path, monkeypatch):
         lambda run_id, _config_path, output_dir: captured.append((run_id, output_dir)),
     )
     win._on_run()
+    # Advance the first run to a terminal status before re-running — on_run()
+    # now blocks a second run for a dataset that still has one queued/active
+    # (click-path-audit CLICK-PATH-006), so this must model a real re-run
+    # after the first finished, not a same-instant duplicate.
+    win._project.set_run_status(captured[0][0], "done")
     win._on_run()
 
     assert len(captured) == 2

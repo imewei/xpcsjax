@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, Qt
+from PySide6.QtCore import QModelIndex, QObject, Qt
 from PySide6.QtGui import QStandardItem, QStandardItemModel
 
 from xpcsjax.gui.project.model import Dataset, FitRun, Project
@@ -65,6 +65,16 @@ class ProjectTreeModel(QStandardItemModel):
         self.setHorizontalHeaderLabels([self._header_label()])
         for dataset in project.datasets:
             self.appendRow(_dataset_item(dataset))
+
+    def index_for_run(self, run_id: str) -> QModelIndex | None:
+        """Return the model index of the row for *run_id*, or ``None``."""
+        for i in range(self.rowCount()):
+            ds_item = self.item(i)
+            for j in range(ds_item.rowCount()):
+                run_item = ds_item.child(j)
+                if run_item.data(Qt.ItemDataRole.UserRole) == run_id:
+                    return run_item.index()
+        return None
 
     def update_run(self, project: Project, run_id: str) -> None:
         """Refresh the single run row's status label in place."""

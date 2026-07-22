@@ -8,6 +8,7 @@ from PySide6.QtCore import QObject
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from xpcsjax.gui.export import export_figures
+from xpcsjax.gui.project.model import QUEUED, RUNNING, STARTING
 
 if TYPE_CHECKING:
     from xpcsjax.gui.views.main_window import MainWindow
@@ -55,11 +56,22 @@ class RunController(QObject):
             self._mw.set_status("pick a config first")
             QMessageBox.information(self._mw, "Run", "Load or select a config first.")
             return
+        if any(r.status in (QUEUED, STARTING, RUNNING) for r in dataset.runs):
+            self._mw.set_status("a run for this dataset is already in progress")
+            QMessageBox.information(
+                self._mw,
+                "Run",
+                "This dataset already has a run queued or in progress.",
+            )
+            return
         run = self._mw._project.add_run(dataset_id)
         out_dir = self._mw._per_run_output_dir(dataset.config_path, run.run_id)
         run.result_dir = str(out_dir)  # durable per-run dir, recorded before enqueue
         self._mw._queue.enqueue(run.run_id, dataset.config_path, str(out_dir))
-        self._mw._sidebar.set_project(self._mw._project)
+        # Select the just-started run so Cancel/Export Figure (which read the
+        # sidebar's current selection) act on it immediately, instead of on
+        # whatever was selected before the tree rebuild wiped it.
+        self._mw._sidebar.set_project(self._mw._project, select_run_id=run.run_id)
 
     def on_cancel(self) -> None:
         """Cancel the currently selected run in the sidebar, after confirmation.
