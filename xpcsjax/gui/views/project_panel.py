@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QItemSelectionModel, Qt, Signal
+from PySide6.QtCore import QItemSelectionModel, QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import QPlainTextEdit, QTreeView, QVBoxLayout, QWidget
 
 from xpcsjax.gui.project.model import Project
@@ -47,15 +47,23 @@ class ProjectSidebar(QWidget):
             self._select_run(keep)
 
     def _select_run(self, run_id: str) -> None:
-        """Select *run_id*'s row in the tree, if it still exists."""
+        """Select *run_id*'s row in the tree, if it still exists.
+
+        This is a widget-state fixup after a full tree rebuild, not a user
+        action — block ``selectionChanged`` so it doesn't re-fire
+        ``runs_selected``/``_on_runs_selected`` and repaint the results panel
+        with that run's (possibly not-yet-existing) summary, or re-pin
+        ``_viewing_run_id`` to a run nobody actually clicked.
+        """
         index = self._model.index_for_run(run_id)
         if index is not None:
-            self._tree.selectionModel().select(
-                index,
-                QItemSelectionModel.SelectionFlag.ClearAndSelect
-                | QItemSelectionModel.SelectionFlag.Rows,
-            )
-            self._tree.setCurrentIndex(index)
+            with QSignalBlocker(self._tree.selectionModel()):
+                self._tree.selectionModel().select(
+                    index,
+                    QItemSelectionModel.SelectionFlag.ClearAndSelect
+                    | QItemSelectionModel.SelectionFlag.Rows,
+                )
+                self._tree.setCurrentIndex(index)
 
     def set_project_name(self, name: str | None) -> None:
         """Show ``name`` as the sidebar header (the project name); ``None`` resets it."""

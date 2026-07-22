@@ -70,6 +70,27 @@ def test_run_failed_renders_error_in_central_panel(qtbot, monkeypatch):
     assert "boom" in win.result_text()
 
 
+# CLICK-PATH-001 edge case: a background failure for a DIFFERENT run must not
+# clobber the panel pinned to the run the user is deliberately viewing.
+def test_run_failed_does_not_clobber_a_different_pinned_view(qtbot, monkeypatch):
+    import xpcsjax.gui.views.main_window as mw
+
+    monkeypatch.setattr(mw.ErrorDialog, "show_failure", staticmethod(lambda *a, **k: None))
+
+    win = _window(qtbot)
+    viewed_run_id = "11112222333344445555666677778888"
+    failing_run_id = "aabbccdd1234567890abcdef12345678"
+    win._results.setPlainText("pinned view content")
+    win._viewing_run_id = viewed_run_id  # user deliberately viewing a different run
+    win._active_run_id = failing_run_id  # the run that's about to fail is the active one
+
+    win._queue.run_failed.emit(failing_run_id, "boom: unrelated run failed")
+
+    assert win.result_text() == "pinned view content", (
+        "a different run's background failure clobbered the pinned view's panel"
+    )
+
+
 # CLICK-PATH-002: open_project_from skipped the teardown close_project does.
 def test_open_project_resets_stale_run_state(qtbot, tmp_path):
     win = _window(qtbot)
@@ -136,16 +157,19 @@ def test_dataset_row_selection_updates_active_dataset(qtbot, tmp_path):
     cfg2 = tmp_path / "cfg2.yaml"
     cfg2.write_text("analysis_mode: static_isotropic\n", encoding="utf-8")
     win.add_dataset(str(cfg2))
-    second_dataset_id = win._project.datasets[1].dataset_id
+    first_dataset_id = win._project.datasets[0].dataset_id
+    # add_dataset's own auto-select already made the SECOND dataset active —
+    # select the FIRST instead, so this only passes if the click actually fires.
+    assert win._active_dataset_id != first_dataset_id
 
     model = win._sidebar.model()
-    dataset_index = model.index(1, 0)  # second dataset's row (top-level, no parent)
+    dataset_index = model.index(0, 0)  # first dataset's row (top-level, no parent)
     win._sidebar._tree.selectionModel().select(
         dataset_index,
         QItemSelectionModel.SelectionFlag.ClearAndSelect | QItemSelectionModel.SelectionFlag.Rows,
     )
 
-    assert win._active_dataset_id == second_dataset_id
+    assert win._active_dataset_id == first_dataset_id
 
 
 # CLICK-PATH-005: Load Config silently retargeted Run while a run was active/viewed.

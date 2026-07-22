@@ -445,10 +445,12 @@ class MainWindow(QMainWindow):
     def _on_dataset_selected(self, dataset_id: str) -> None:
         """Retarget Run at the dataset the user just clicked in the sidebar.
 
-        A dataset row carries no run, so ``_on_runs_selected`` never fires for
-        it — without this, ``_active_dataset_id`` (what Run acts on) silently
-        kept pointing at whatever dataset was last loaded/opened/run, with no
-        on-screen sign that clicking a different dataset changed nothing.
+        A dataset row carries no run, so it emits ``runs_selected([])`` (still
+        clearing the Comparison dock as an unrelated side effect) instead of
+        this signal's ``_on_runs_selected`` path — without this handler,
+        ``_active_dataset_id`` (what Run acts on) silently kept pointing at
+        whatever dataset was last loaded/opened/run, with no on-screen sign
+        that clicking a different dataset changed nothing.
         """
         self._active_dataset_id = dataset_id
         self._update_target_label()
@@ -589,11 +591,16 @@ class MainWindow(QMainWindow):
             Path to a ``.xpcsproj`` file previously written by
             :meth:`save_project_to`.
         """
+        # Load first — a malformed .xpcsproj raises ValueError here, before
+        # anything is torn down, so a failed Open Project leaves the current
+        # project (and any of its in-flight runs) untouched.
+        project = load_project(path)
         # The project being replaced may have an in-flight run or a pinned/
-        # displayed result; tear that down first so none of it leaks into the
-        # newly loaded project (see _reset_run_view_state).
+        # displayed result; tear that down only now that loading succeeded,
+        # so none of it leaks into the newly loaded project (see
+        # _reset_run_view_state).
         self._reset_run_view_state()
-        self._project = load_project(path)
+        self._project = project
         # Resolve every reference eagerly at load (spec §8 dead-path rule).
         # Expand ${ENV}/~ first so a path that merely uses a shell variable is not
         # mis-flagged "missing" (mirrors config.data_folder_path resolution).

@@ -137,7 +137,10 @@ class ProjectDialogHandler(QObject):
         """Open a file-chooser and load a previously saved project file.
 
         Defaults the start directory to the active project directory, like
-        on_edit_config/on_load_config.
+        on_edit_config/on_load_config. A malformed/unrecognized ``.xpcsproj``
+        raises ``ValueError`` from ``load_project`` — guarded here (like
+        ``on_create_config``'s overwrite retry) so it surfaces as a warning
+        instead of an unhandled traceback, leaving the current project intact.
         """
         start_dir = str(self._mw._project_dir) if self._mw._project_dir else ""
         path, _ = QFileDialog.getOpenFileName(
@@ -147,7 +150,10 @@ class ProjectDialogHandler(QObject):
             "xpcsjax project (*.xpcsproj);;All files (*)",
         )
         if path:
-            self._mw.open_project_from(path)
+            try:
+                self._mw.open_project_from(path)
+            except ValueError as exc:
+                QMessageBox.warning(self._mw, "Open Project", f"Could not open project:\n{exc}")
 
     def on_close_project(self) -> None:
         """Prompt for confirmation and close the current project."""
