@@ -1032,9 +1032,11 @@ def plot_simulated_data(
 
     finite = c2_sim[np.isfinite(c2_sim)]
     if finite.size > 0:
-        mean_v = float(np.nanmean(c2_sim))
-        min_v = float(np.nanmin(c2_sim))
-        max_v = float(np.nanmax(c2_sim))
+        # Use the finite subset, not raw c2_sim: nanmean/nanmin/nanmax only
+        # skip NaN, not inf, so a single inf would poison the annotation.
+        mean_v = float(np.mean(finite))
+        min_v = float(np.min(finite))
+        max_v = float(np.max(finite))
         ax.text(
             0.02,
             0.98,

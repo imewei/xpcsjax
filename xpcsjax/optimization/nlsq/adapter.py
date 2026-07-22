@@ -1139,8 +1139,14 @@ class NLSQAdapter(NLSQAdapterBase):
         # NLSQ/scipy cost = 0.5 * sum(rho(r²)), so chi² = 2 * cost for linear loss.
         # If "fun" (raw residuals) is available, prefer computing from those directly.
         raw_fun = info.get("fun", None)
-        if raw_fun is not None and isinstance(raw_fun, np.ndarray):
-            chi_squared = float(np.sum(raw_fun**2))
+        # Duck-typed (not isinstance(np.ndarray)): "fun" may be a JAX array,
+        # which fails an np.ndarray isinstance check and would silently fall
+        # through to the cost*2 formula below -- only exact for linear loss,
+        # but this adapter defaults to loss="soft_l1" (robust), where
+        # cost = 0.5*sum(rho(r^2)) != 0.5*sum(r^2). Mirrors
+        # result_builder.py::_chi_squared_from_info.
+        if raw_fun is not None and np.ndim(raw_fun) > 0:
+            chi_squared = float(np.sum(np.asarray(raw_fun) ** 2))
         else:
             # Default to NaN, not 0.0: a missing objective means the solve
             # reported no cost, which must surface as a non-finite chi-squared
@@ -1348,10 +1354,14 @@ class NLSQAdapter(NLSQAdapterBase):
                 else:
                     raise TypeError(f"Unexpected tuple length: {len(result)}")
             elif hasattr(result, "popt"):
-                # CurveFitResult object
+                # CurveFitResult object. CurveFitResult subclasses
+                # OptimizeResult (a dict) with success/cost/fun/nfev/status/
+                # message etc. as TOP-LEVEL keys -- there is no nested
+                # `.info` attribute, so `getattr(result, "info", {})` was
+                # always `{}`. dict(result) copies those top-level keys.
                 popt = result.popt
                 pcov = result.pcov
-                info = getattr(result, "info", {})
+                info = dict(result) if isinstance(result, dict) else {}
             else:
                 raise TypeError(f"Unexpected result type: {type(result)}")
 

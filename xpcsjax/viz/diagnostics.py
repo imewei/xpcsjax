@@ -119,8 +119,10 @@ def compute_diagonal_overlay_stats(
     fitted_diag = np.diag(c2_fit[phi_index])
     # ddof=1 matches the docstring claim of "sample variance" (N-1 denominator).
     # Guard against n<2 to avoid division-by-zero; return NaN for degenerate inputs.
-    n_raw = int(np.isfinite(raw_diag).sum())
-    n_fit = int(np.isfinite(fitted_diag).sum())
+    # np.nanvar only masks NaN, not inf — mask to the finite subset explicitly
+    # so a single inf doesn't poison the variance (mirrors pair_mask below).
+    raw_finite = raw_diag[np.isfinite(raw_diag)]
+    fitted_finite = fitted_diag[np.isfinite(fitted_diag)]
     # RMSE over pairs where BOTH diagonals are finite — nanmean ignores NaN but
     # not inf, so an inf entry would otherwise poison the mean.
     pair_mask = np.isfinite(raw_diag) & np.isfinite(fitted_diag)
@@ -133,7 +135,9 @@ def compute_diagonal_overlay_stats(
         phi_index=phi_index,
         raw_diagonal=raw_diag,
         fitted_diagonal=fitted_diag,
-        raw_variance=float(np.nanvar(raw_diag, ddof=1)) if n_raw > 1 else float("nan"),
-        fitted_variance=float(np.nanvar(fitted_diag, ddof=1)) if n_fit > 1 else float("nan"),
+        raw_variance=float(np.var(raw_finite, ddof=1)) if raw_finite.size > 1 else float("nan"),
+        fitted_variance=(
+            float(np.var(fitted_finite, ddof=1)) if fitted_finite.size > 1 else float("nan")
+        ),
         fitted_rmse=fitted_rmse,
     )

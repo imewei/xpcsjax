@@ -99,3 +99,32 @@ def test_datashader_heatmap_rejects_traversal(tmp_path):
             output_path=tmp_path / ".." / ".." / "evil.png",
             title="t",
         )
+
+
+def test_datashader_heatmap_creates_missing_parent_dir(tmp_path):
+    import numpy as np
+
+    from xpcsjax.viz.datashader_backend import plot_c2_heatmap_fast
+
+    data = np.random.rand(8, 8)
+    t1 = np.arange(8.0)
+    t2 = np.arange(8.0)
+    out = tmp_path / "nested" / "sub" / "heatmap.png"
+    plot_c2_heatmap_fast(data, t1, t2, output_path=out, title="t")
+    assert out.exists()
+
+
+def test_datashader_comparison_creates_missing_parent_dir(tmp_path):
+    import numpy as np
+
+    from xpcsjax.viz.datashader_backend import plot_c2_comparison_fast
+
+    n = 8
+    c2_exp = np.random.rand(n, n)
+    c2_fit = np.random.rand(n, n)
+    residuals = c2_exp - c2_fit
+    t1 = np.arange(float(n))
+    t2 = np.arange(float(n))
+    out = tmp_path / "nested" / "sub" / "comparison.png"
+    plot_c2_comparison_fast(c2_exp, c2_fit, residuals, t1, t2, out, phi_angle=0.0)
+    assert out.exists()

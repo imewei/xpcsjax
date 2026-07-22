@@ -670,8 +670,14 @@ def fit_heterodyne_stratified_least_squares(
         # Per-angle seed: contrast block then offset block, matching
         # make_scaling_expander("individual")'s layout (s[:n_phi], s[n_phi:2*n_phi]).
         init_scaling = np.concatenate([contrast_pa, offset_pa]).astype(np.float64)
-        scaling_names = [f"contrast_angle_{i}" for i in range(n_phi)] + [
-            f"offset_angle_{i}" for i in range(n_phi)
+        # ``contrast_pa``/``offset_pa`` come from ``compute_quantile_per_angle_scaling``,
+        # which deduplicates phi internally — their length is the DEDUPLICATED
+        # angle count, not the raw (possibly duplicate-containing) ``n_phi`` from
+        # ``len(phi)`` above. Build the labels from that same deduplicated length
+        # so ``scaling_names`` always matches the actual scaling vector.
+        n_phi_scaling = len(contrast_pa)
+        scaling_names = [f"contrast_angle_{i}" for i in range(n_phi_scaling)] + [
+            f"offset_angle_{i}" for i in range(n_phi_scaling)
         ]
 
     _hlog.log_effective_mode(

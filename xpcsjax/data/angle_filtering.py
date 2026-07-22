@@ -388,16 +388,37 @@ def apply_angle_filtering_for_plot(
         logger.debug("No config available for angle filtering, plotting all angles")
         return list(range(len(phi_angles))), phi_angles, c2_exp
 
+    # Normalize phi angles and target_ranges to [-180, 180] deg, mirroring
+    # apply_angle_filtering_for_optimization's normalization step, so both
+    # paths apply identical wrap-aware filtering logic instead of diverging
+    # on raw (possibly >180 deg or negative-wrapped) angle values.
+    normalized_phi_angles = np.asarray(normalize_angle_to_symmetric_range(np.asarray(phi_angles)))
+
+    phi_filtering_config = config.get("phi_filtering", {})
+    target_ranges = phi_filtering_config.get("target_ranges", [])
+    if target_ranges:
+        normalized_ranges = [
+            {
+                "min_angle": normalize_angle_to_symmetric_range(range_spec.get("min_angle", -180)),
+                "max_angle": normalize_angle_to_symmetric_range(range_spec.get("max_angle", 180)),
+                "description": range_spec.get("description", ""),
+            }
+            for range_spec in target_ranges
+        ]
+        normalized_config = config.copy()
+        normalized_config["phi_filtering"] = phi_filtering_config.copy()
+        normalized_config["phi_filtering"]["target_ranges"] = normalized_ranges
+    else:
+        normalized_config = config
+
     # Call shared filtering function
     filtered_indices, filtered_phi_angles, filtered_c2_exp = apply_angle_filtering(
-        phi_angles,
+        normalized_phi_angles,
         c2_exp,
-        config,
+        normalized_config,
     )
 
-    # Add plot-specific logging
-    phi_filtering_config = config.get("phi_filtering", {})
-
+    # Add plot-specific logging (phi_filtering_config already extracted above)
     if not phi_filtering_config.get("enabled", False):
         logger.debug("Phi filtering not enabled, plotting all angles")
     elif not phi_filtering_config.get("target_ranges", []):

@@ -51,6 +51,37 @@ def test_background_write_failure_logs_warning(caplog):
         writer.shutdown()
 
 
+def test_wait_all_reports_task_raised_timeout_error_not_pending(caplog):
+    """A task that itself raises TimeoutError must surface as an error.
+
+    concurrent.futures.TimeoutError is the builtin TimeoutError (3.11+) — the
+    same exception Future.result(timeout=...) raises for a still-pending
+    future. wait_all must disambiguate via future.done(): a DONE future that
+    raised TimeoutError is a real failure, not "still in progress".
+    """
+    writer = AsyncWriter(max_workers=1)
+    try:
+
+        def _raises_timeout() -> None:
+            raise TimeoutError("write timed out")
+
+        writer.submit_task(_raises_timeout)
+        with caplog.at_level(logging.WARNING, logger="xpcsjax"):
+            errors = writer.wait_all(timeout=10.0)
+
+        assert len(errors) == 1
+        assert isinstance(errors[0], TimeoutError)
+        assert any(
+            r.levelno == logging.WARNING and "write timed out" in r.getMessage()
+            for r in caplog.records
+        )
+        # The future must not linger forever waiting for a shutdown that will
+        # never observe a new completion.
+        assert len(writer._futures) == 0
+    finally:
+        writer.shutdown()
+
+
 def test_wait_all_distinct_failures_each_logged(caplog):
     """#8: DISTINCT failures in one wait_all() must each surface a WARNING.
 

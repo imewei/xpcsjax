@@ -213,13 +213,31 @@ class AsyncWriter:
             try:
                 future.result(timeout=timeout)
                 completed.append(future)
-            except TimeoutError:
-                logger.info(
-                    "Background write still in progress after %.0fs "
-                    "(will complete during shutdown)",
-                    timeout,
+            except TimeoutError as e:
+                # concurrent.futures.TimeoutError is builtin TimeoutError (3.11+),
+                # the same exception a real completed-but-raised task would surface.
+                # Disambiguate via future.done(): only a still-pending future means
+                # "in progress"; a done future that raised TimeoutError is a real
+                # error and must flow into the errors/completed accounting below.
+                if not future.done():
+                    logger.info(
+                        "Background write still in progress after %.0fs "
+                        "(will complete during shutdown)",
+                        timeout,
+                    )
+                    continue  # keep in _futures so shutdown() sees it
+                run_id = _current_run_id()
+                log_once(
+                    logger,
+                    logging.WARNING,
+                    f"{run_id}:{call_token}:async_writer_write_fail:{type(e).__name__}:{e}",
+                    "Background write failed (%s): %s",
+                    type(e).__name__,
+                    e,
                 )
-                # Do NOT mark as completed — keep in _futures so shutdown() sees it
+                logger.debug("Background write traceback:", exc_info=True)
+                errors.append(e)
+                completed.append(future)
             except Exception as e:
                 run_id = _current_run_id()
                 # Key on the call token PLUS the error type+message so DISTINCT

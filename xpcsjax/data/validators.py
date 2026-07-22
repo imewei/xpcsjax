@@ -252,6 +252,9 @@ VALIDATION_RULES: dict[str, dict[str, Any]] = {
     "phi_range": {
         "type": "range",
         "value_bounds": (-360, 360),
+        # Mirrors config.py's production phi-range validator: wrapped ranges
+        # (e.g. min=170, max=-170 crossing the -180/180 boundary) are legal.
+        "allow_wrapped": True,
     },
 }
 
@@ -311,6 +314,7 @@ def validate_by_rules(
                     field_name,
                     require_positive=rule.get("require_positive", False),
                     value_bounds=rule.get("value_bounds"),
+                    allow_wrapped=rule.get("allow_wrapped", False),
                 )
             )
 

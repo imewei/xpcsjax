@@ -335,6 +335,21 @@ def test_plot_simulated_data_single_image_axis(synthetic_single_angle_data) -> N
     plt.close(fig)
 
 
+def test_plot_simulated_data_annotation_ignores_single_inf(
+    synthetic_single_angle_data,
+) -> None:
+    # Regression: nanmean/nanmin/nanmax only skip NaN, not inf — a single inf
+    # value must not poison the Mean/Range annotation text.
+    d = synthetic_single_angle_data
+    c2_sim = d["c2_exp"].copy()
+    c2_sim[0, 0] = np.inf
+    finite = c2_sim[np.isfinite(c2_sim)]
+    fig = plot_simulated_data(c2_sim, t=d["t"])
+    texts = [t.get_text() for ax in fig.axes for t in ax.texts]
+    assert any(f"Mean: {np.mean(finite):.4f}" in t for t in texts)
+    plt.close(fig)
+
+
 def test_plot_simulated_data_save_path_writes_png(
     synthetic_single_angle_data,
     tmp_path: Path,

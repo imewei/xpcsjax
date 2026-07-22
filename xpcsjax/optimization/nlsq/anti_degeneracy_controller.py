@@ -34,6 +34,7 @@ from xpcsjax.optimization.nlsq.adaptive_regularization import (
     AdaptiveRegularizationConfig,
     AdaptiveRegularizer,
 )
+from xpcsjax.optimization.nlsq.config import safe_float, safe_int
 from xpcsjax.optimization.nlsq.gradient_monitor import (
     GradientCollapseMonitor,
     GradientMonitorConfig,
@@ -163,41 +164,51 @@ class AntiDegeneracyConfig:
         AntiDegeneracyConfig
             Validated configuration object.
         """
-        hierarchical = config_dict.get("hierarchical", {})
-        regularization = config_dict.get("regularization", {})
-        gradient_monitoring = config_dict.get("gradient_monitoring", {})
-        shear_weighting = config_dict.get("shear_weighting", {})
+        # `or {}` degrades a present-but-null nested section (bare YAML
+        # header / explicit `null`) to defaults instead of crashing the
+        # `.get()` chains below.
+        hierarchical = config_dict.get("hierarchical") or {}
+        regularization = config_dict.get("regularization") or {}
+        gradient_monitoring = config_dict.get("gradient_monitoring") or {}
+        shear_weighting = config_dict.get("shear_weighting") or {}
 
         return cls(
             enable=config_dict.get("enable", True),
             per_angle_mode=config_dict.get("per_angle_mode", "auto"),
-            constant_scaling_threshold=config_dict.get(
-                "constant_scaling_threshold", DEFAULT_CONSTANT_SCALING_THRESHOLD
+            constant_scaling_threshold=safe_int(
+                config_dict.get("constant_scaling_threshold"),
+                DEFAULT_CONSTANT_SCALING_THRESHOLD,
             ),
             # Hierarchical
             hierarchical_enable=hierarchical.get("enable", True),
-            hierarchical_max_outer_iterations=hierarchical.get("max_outer_iterations", 5),
-            hierarchical_outer_tolerance=float(hierarchical.get("outer_tolerance", 1e-6)),
-            hierarchical_physical_max_iterations=hierarchical.get("physical_max_iterations", 100),
-            hierarchical_per_angle_max_iterations=hierarchical.get("per_angle_max_iterations", 50),
+            hierarchical_max_outer_iterations=safe_int(hierarchical.get("max_outer_iterations"), 5),
+            hierarchical_outer_tolerance=safe_float(hierarchical.get("outer_tolerance"), 1e-6),
+            hierarchical_physical_max_iterations=safe_int(
+                hierarchical.get("physical_max_iterations"), 100
+            ),
+            hierarchical_per_angle_max_iterations=safe_int(
+                hierarchical.get("per_angle_max_iterations"), 50
+            ),
             # Regularization
             regularization_mode=regularization.get("mode", "relative"),
-            regularization_lambda=float(regularization.get("lambda", 1.0)),
-            regularization_target_cv=float(regularization.get("target_cv", 0.10)),
-            regularization_target_contribution=float(
-                regularization.get("target_contribution", 0.10)
+            regularization_lambda=safe_float(regularization.get("lambda"), 1.0),
+            regularization_target_cv=safe_float(regularization.get("target_cv"), 0.10),
+            regularization_target_contribution=safe_float(
+                regularization.get("target_contribution"), 0.10
             ),
-            regularization_max_cv=float(regularization.get("max_cv", 0.20)),
+            regularization_max_cv=safe_float(regularization.get("max_cv"), 0.20),
             # Gradient monitoring
             gradient_monitoring_enable=gradient_monitoring.get("enable", True),
-            gradient_ratio_threshold=float(gradient_monitoring.get("ratio_threshold", 0.01)),
-            gradient_consecutive_triggers=gradient_monitoring.get("consecutive_triggers", 5),
+            gradient_ratio_threshold=safe_float(gradient_monitoring.get("ratio_threshold"), 0.01),
+            gradient_consecutive_triggers=safe_int(
+                gradient_monitoring.get("consecutive_triggers"), 5
+            ),
             gradient_response_mode=gradient_monitoring.get("response", "hierarchical"),
             # Shear weighting
             shear_weighting_enable=shear_weighting.get("enable", True),
-            shear_weighting_min_weight=float(shear_weighting.get("min_weight", 0.3)),
-            shear_weighting_alpha=float(shear_weighting.get("alpha", 1.0)),
-            shear_weighting_update_frequency=int(shear_weighting.get("update_frequency", 1)),
+            shear_weighting_min_weight=safe_float(shear_weighting.get("min_weight"), 0.3),
+            shear_weighting_alpha=safe_float(shear_weighting.get("alpha"), 1.0),
+            shear_weighting_update_frequency=safe_int(shear_weighting.get("update_frequency"), 1),
             shear_weighting_normalize=shear_weighting.get("normalize", True),
             # Future gate: numeric L2/L3 execution on stratified-LS path (currently inert)
             execute_layers=bool(config_dict.get("execute_layers", False)),

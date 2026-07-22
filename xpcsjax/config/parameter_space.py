@@ -12,7 +12,7 @@ import numpy as np
 
 from xpcsjax.config.parameter_manager import ParameterManager
 from xpcsjax.config.parameter_registry import AnalysisMode
-from xpcsjax.config.types import PARAMETER_NAME_MAPPING
+from xpcsjax.config.types import PARAMETER_NAME_MAPPING, coerce_finite_float
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -163,8 +163,12 @@ class ParameterSpace:
 
             # Extract bounds (with fallback to ParameterManager defaults)
             if "min" in config_entry and "max" in config_entry:
-                min_val = float(config_entry["min"])
-                max_val = float(config_entry["max"])
+                min_val = coerce_finite_float(
+                    config_entry["min"], context=f"parameter_space.bounds[{param_name!r}].min"
+                )
+                max_val = coerce_finite_float(
+                    config_entry["max"], context=f"parameter_space.bounds[{param_name!r}].max"
+                )
             else:
                 # Fallback to ParameterManager defaults
                 default_bounds = param_manager.get_parameter_bounds([param_name])

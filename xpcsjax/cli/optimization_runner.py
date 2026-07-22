@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from xpcsjax import OptimizationResult
+from xpcsjax.cli.config_handling import resolve_output_dir
 from xpcsjax.io.nlsq_writers import save_nlsq_json_files
 from xpcsjax.service.fit import FitOverrides, apply_overrides, run_fit
 from xpcsjax.utils.logging import get_logger
@@ -247,14 +248,6 @@ def _save_results(
 # ---------------------------------------------------------------------------
 
 
-def _resolve_output_dir(args: argparse.Namespace) -> Path | None:
-    """Return the ``--output`` directory if specified, else None."""
-    out = getattr(args, "output", None)
-    if out is None:
-        return None
-    return Path(out)
-
-
 def run_nlsq(
     args: argparse.Namespace,
     config_manager: ConfigManager,
@@ -321,7 +314,7 @@ def run_nlsq(
     # for downstream homodyne tooling. The CLI dispatcher (commands._dispatch_fit
     # -> result_saving.save_results) separately writes the native
     # nlsq_result.json/.npz. Distinct filenames in the same directory; keep both.
-    output_dir = _resolve_output_dir(args)
+    output_dir = resolve_output_dir(args, config_manager)
     if output_dir is not None:
         _save_results(result, config_manager, data, output_dir)
 

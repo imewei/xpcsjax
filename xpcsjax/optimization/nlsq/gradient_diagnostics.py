@@ -76,6 +76,10 @@ def _create_residual_function(
     t1 = jnp.asarray(data.t1)
     t2 = jnp.asarray(data.t2)
     g2_exp = jnp.asarray(data.g2)
+    # Full unique-time grid covering the real data range, so compute_g1_total's
+    # element-wise path (triggered when t1 is 1D with >2000 points) does not
+    # silently truncate the integral at the hardcoded 10001-point fallback grid.
+    time_grid = jnp.asarray(np.unique(np.asarray(data.t1)))
     q = float(data.q)
     L = float(data.L)
     if hasattr(data, "dt") and data.dt is not None:
@@ -113,7 +117,7 @@ def _create_residual_function(
 
     @jax.jit
     def residual_fn(params: jnp.ndarray) -> jnp.ndarray:
-        g1 = compute_g1_total(params, t1, t2, phi, q, L, dt)
+        g1 = compute_g1_total(params, t1, t2, phi, q, L, dt, time_grid=time_grid)
         phi_idx = jnp.searchsorted(phi_unique_sorted, phi)
         contrast_per_point = contrasts[phi_idx]
         offset_per_point = offsets[phi_idx]

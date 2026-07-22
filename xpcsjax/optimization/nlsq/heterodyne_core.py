@@ -1443,6 +1443,14 @@ def _fit_joint_averaged_multi_phi(
 
     fitted_all = np.asarray(joint_result.parameters, dtype=np.float64)
 
+    # L2 keep-better SSR floor (mirrors the individual-mode protection in
+    # ``_fit_joint_multi_phi`` — the original C044 RCA fix): revert to the
+    # pre-solve warm-start when the plain solve regressed past its own start,
+    # BEFORE this (possibly degraded) vector is used as the escape warm-start.
+    fitted_all, floor_reverted = _apply_joint_keep_better_floor(
+        base_residual_fn, x0, fitted_all, mode_label="averaged mode"
+    )
+
     # Global escape (CMA-ES / multistart): warm-started at the plain solve,
     # keep-better over the SAME averaged data residual. ``global_escape_tag`` is
     # None on the plain path (no behaviour change) or when the search failed.
@@ -1456,9 +1464,13 @@ def _fit_joint_averaged_multi_phi(
         joint_param_names,
         config,
         {"c2": c2_data, "phi": phi_angles},
-        warm_success=bool(joint_result.success),
+        warm_success=bool(joint_result.success) and not floor_reverted,
     )
-    is_escape = global_escape_tag is not None
+    # A pure floor-revert (no escape) also loses the covariance / iteration
+    # stats tied to the discarded solve — treat it as escape-shaped for the
+    # NaN-fill + zeroed-stats bookkeeping below (matches individual-mode
+    # convention: a reverted joint_result carries no valid covariance).
+    is_escape = global_escape_tag is not None or floor_reverted
     if global_escape_tag == "cmaes_warmstart_auto_skip":
         # Auto-skip kept the CONVERGED warm-start vector UNCHANGED, so its NLSQ
         # covariance / uncertainties / iteration stats are valid — preserve them
@@ -1569,8 +1581,9 @@ def _fit_joint_averaged_multi_phi(
             else np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
         )
 
-    convergence_status: ConvergenceStatus = "converged" if joint_result.success else "failed"
-    quality_flag: QualityFlag = "good" if joint_result.success else "marginal"
+    solve_success = bool(joint_result.success) and not floor_reverted
+    convergence_status: ConvergenceStatus = "converged" if solve_success else "failed"
+    quality_flag: QualityFlag = "good" if solve_success else "marginal"
 
     # ------------------------------------------------------------------
     # L2 anti-degeneracy: hierarchical two-stage solve.
@@ -2377,6 +2390,71 @@ def _escape_keeps_candidate(ssr_warm: float, ssr_cand: float) -> bool:
     return bool(ssr_cand <= ssr_warm * (1.0 + 1e-12))
 
 
+def _apply_joint_keep_better_floor(
+    base_residual_fn: Any,
+    x0: np.ndarray,
+    solved_params: np.ndarray,
+    *,
+    floor_fallback_x0: np.ndarray | None = None,
+    warm_start_probe: bool = False,
+    mode_label: str = "",
+) -> tuple[np.ndarray, bool]:
+    """L2 keep-better SSR floor, shared by every joint per-angle-mode solve.
+
+    A trust-region solve must never return worse than its own start. Compares
+    the DATA-ONLY SSR (``base_residual_fn`` — excludes any L3 penalty rows) at
+    ``solved_params`` vs the pre-solve warm-start ``x0`` via the NaN-safe
+    :func:`_escape_keeps_candidate`; when the solve regressed (or failed and
+    yielded a degraded vector), reverts to the best feasible floor point —
+    ``floor_fallback_x0`` when supplied and strictly better than ``x0`` (the
+    individual-mode Stage-1 per-angle scaling fallback), else ``x0`` itself.
+
+    Extracted from :func:`_fit_joint_multi_phi` (the original C044 RCA fix,
+    individual per-angle mode) so the sibling averaged/constant joint solves
+    — which previously had NO such protection — get the same floor.
+
+    Returns ``(final_params, reverted)``. When ``reverted`` is True the
+    caller is responsible for treating any NLSQ result tied to the discarded
+    ``solved_params`` as invalid (NaN covariance/uncertainties, mirroring the
+    global-escape contract).
+    """
+
+    def _data_ssr(x: np.ndarray) -> float:
+        return float(np.sum(np.asarray(base_residual_fn(x), dtype=np.float64) ** 2))
+
+    ssr_solved = _data_ssr(solved_params)
+    ssr_x0 = _data_ssr(x0)
+    if _escape_keeps_candidate(ssr_warm=ssr_x0, ssr_cand=ssr_solved):
+        return np.asarray(solved_params, dtype=np.float64), False
+
+    ssr_fallback = (
+        _data_ssr(np.asarray(floor_fallback_x0, dtype=np.float64))
+        if floor_fallback_x0 is not None
+        else np.inf
+    )
+    if np.isfinite(ssr_fallback) and ssr_fallback < ssr_x0:
+        final_params = np.asarray(floor_fallback_x0, dtype=np.float64)
+        revert_ssr = ssr_fallback
+        revert_label = "Stage-1 per-angle floor fallback"
+    else:
+        final_params = np.asarray(x0, dtype=np.float64)
+        revert_ssr = ssr_x0
+        revert_label = "x0 (feasible warm-start)"
+
+    logger.log(
+        logging.DEBUG if warm_start_probe else logging.WARNING,
+        "L2 joint solve degraded data-only SSR vs warm-start x0%s "
+        "(%.6e > %.6e); reverting to %s (SSR %.6e) to preserve "
+        "the keep-better floor",
+        f" ({mode_label})" if mode_label else "",
+        ssr_solved,
+        ssr_x0,
+        revert_label,
+        revert_ssr,
+    )
+    return final_params, True
+
+
 def _warmstart_auto_skip_decision(
     config: NLSQConfig,
     escape_kind: str | None,
@@ -2878,11 +2956,22 @@ def _build_joint_problem(
         quantile_scaling=(quantile_contrast, quantile_offset),
     )
 
-    # Scaling-first x0/bounds: ``[scaling_head | physics]``. Pass the ACTUAL
-    # contrast/offset bounds the per-angle individual path uses so the feasible
-    # box is unchanged, not the loose ``seed_bounds()`` defaults.
-    contrast_bounds = (0.1, 0.8)  # per-angle contrast bounds default
-    offset_bounds = (0.5, 1.5)  # per-angle offset bounds default
+    # Scaling-first x0/bounds: ``[scaling_head | physics]``. Source contrast/
+    # offset bounds from the parameter registry (single source of truth,
+    # matches every sibling per-angle-mode solver — averaged, constant, and
+    # the engine route's ``_scaling_first_bounds``) instead of hardcoded
+    # literals, so the feasible box is the physically valid one, not a
+    # stale copy-pasted range.
+    from xpcsjax.config.parameter_registry import SCALING_PARAMS
+
+    contrast_bounds = (
+        SCALING_PARAMS["contrast"].min_bound,
+        SCALING_PARAMS["contrast"].max_bound,
+    )
+    offset_bounds = (
+        SCALING_PARAMS["offset"].min_bound,
+        SCALING_PARAMS["offset"].max_bound,
+    )
     scaling_head_x0 = plan.seed_tail()
     scaling_head_lb, scaling_head_ub = plan.seed_bounds(
         contrast_bounds=contrast_bounds, offset_bounds=offset_bounds
@@ -3278,49 +3367,16 @@ def _fit_joint_multi_phi(
     # finalized SSR 8737 after discarding a 6796 Stage-1 point).
     base_residual_fn = prob.meta["base_residual_fn"]
 
-    def _data_ssr(x: np.ndarray) -> float:
-        return float(np.sum(np.asarray(base_residual_fn(x), dtype=np.float64) ** 2))
-
     solved_params = np.asarray(joint_result.parameters, dtype=np.float64)
-    ssr_solved = _data_ssr(solved_params)
-    ssr_x0 = _data_ssr(x0)
-    if _escape_keeps_candidate(ssr_warm=ssr_x0, ssr_cand=ssr_solved):
-        final_params = solved_params
-    else:
-        # Revert to the BEST feasible floor point. ``x0`` collapses Stage-1's
-        # per-angle scaling to a scalar ``contrast[0]`` broadcast and can be as
-        # degraded as the failed solve (RCA: C044 reverted to SSR 25663 while
-        # Stage-1 sat at 6796); ``floor_fallback_x0`` preserves the per-angle
-        # scaling = Stage-1's actual fit. Strictly keep-better (data-only SSR), so
-        # the revert can never return worse than x0 and the success path is
-        # untouched.
-        floor_fallback_x0 = prob.meta.get("floor_fallback_x0")
-        ssr_fallback = (
-            _data_ssr(np.asarray(floor_fallback_x0, dtype=np.float64))
-            if floor_fallback_x0 is not None
-            else np.inf
-        )
-        if np.isfinite(ssr_fallback) and ssr_fallback < ssr_x0:
-            final_params = np.asarray(floor_fallback_x0, dtype=np.float64)
-            revert_ssr = ssr_fallback
-            revert_label = "Stage-1 per-angle floor fallback"
-        else:
-            final_params = x0
-            revert_ssr = ssr_x0
-            revert_label = "x0 (feasible warm-start)"
-        # On a warm-start probe this revert is the EXPECTED, designed recovery
-        # (DEBUG); on a standalone joint fit it flags a real degraded solve
-        # (WARNING).
-        logger.log(
-            logging.DEBUG if warm_start_probe else logging.WARNING,
-            "L2 joint solve degraded data-only SSR vs warm-start x0 "
-            "(%.6e > %.6e); reverting to %s (SSR %.6e) to preserve "
-            "the keep-better floor",
-            ssr_solved,
-            ssr_x0,
-            revert_label,
-            revert_ssr,
-        )
+    final_params, reverted = _apply_joint_keep_better_floor(
+        base_residual_fn,
+        x0,
+        solved_params,
+        floor_fallback_x0=prob.meta.get("floor_fallback_x0"),
+        warm_start_probe=warm_start_probe,
+        mode_label="individual mode",
+    )
+    if reverted:
         # The covariance / uncertainties / iteration counts / L4-monitor data in
         # ``joint_result`` describe the DISCARDED degraded vector, not x0. Drop
         # them so ``_build_joint_result`` NaN-fills uncertainty for the accepted

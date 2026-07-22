@@ -529,32 +529,17 @@ def _compute_g1_diffusion_core(
             # Legacy fallback for direct calls: use static max size for JIT compat
             # T3-1: Use jnp.result_type(dt) to infer dtype from context instead of
             # hardcoding float64, which silently downcasts to float32 without X64.
+            # NOTE: the eager try/except diagnostic that used to live here to
+            # warn on silent truncation was dead code — this function is
+            # always @jit, so t1_arr/t2_arr are abstract tracers at trace
+            # time and float() unconditionally raises, landing in the
+            # except branch on every call. Removed rather than kept as
+            # theatre; callers should pass an explicit time_grid instead
+            # (see model_for_cmaes in optimization/nlsq/core.py and
+            # gradient_diagnostics.py for real callers threading one).
             _FALLBACK_GRID_SIZE = 10001
             grid_indices = jnp.arange(_FALLBACK_GRID_SIZE, dtype=jnp.result_type(dt))
             time_grid_used = grid_indices * dt
-
-            # Eager-only guard: surface silent integral truncation when a direct
-            # call requests times beyond the fixed fallback-grid extent. searchsorted
-            # clips those to the last grid point, biasing g1 with no warning. Under
-            # JIT the operands are abstract tracers and float() raises, so this check
-            # self-disables during tracing (production NLSQ uses matrix mode).
-            try:
-                _grid_extent = float(time_grid_used[-1])
-                _t_max_req = float(max(jnp.max(t1_arr), jnp.max(t2_arr)))
-            except Exception:  # noqa: BLE001 - abstract tracer / non-concrete value
-                _grid_extent = None
-                _t_max_req = None
-            if _grid_extent is not None and _t_max_req is not None and _t_max_req > _grid_extent:
-                logger.warning(
-                    "Element-wise integral: requested time %.6g exceeds the fallback "
-                    "time-grid extent %.6g (%d points x dt=%.6g); times beyond the grid "
-                    "are clipped, truncating the integral. Pass an explicit time_grid "
-                    "covering the full range.",
-                    _t_max_req,
-                    _grid_extent,
-                    _FALLBACK_GRID_SIZE,
-                    float(dt),
-                )
 
         grid_size = time_grid_used.shape[0]
 
@@ -680,10 +665,13 @@ def _compute_g1_shear_core(
             # return 1D ones to match g1_diff shape in _compute_g1_total_core
             return jnp.ones_like(t1)
         else:
-            # Matrix mode: return (n_phi, n_times, n_times) to broadcast with g1_diff
+            # Matrix mode: return (n_phi, n_times, n_times) to broadcast with g1_diff.
+            # atleast_1d handles a 0-d scalar t1 the same way the general
+            # (shear-active) branch below already does.
+            t1_matrix = jnp.atleast_1d(t1)
             phi_array = jnp.atleast_1d(phi)
             n_phi = phi_array.shape[0]
-            n_times = t1.shape[0]
+            n_times = t1_matrix.shape[0]
             return jnp.ones((n_phi, n_times, n_times))
 
     gamma_dot_0, beta, gamma_dot_offset, phi0 = (
@@ -707,32 +695,17 @@ def _compute_g1_shear_core(
             time_grid_used = time_grid
         else:
             # T3-1: Use jnp.result_type(dt) instead of hardcoding float64.
+            # NOTE: the eager try/except diagnostic that used to live here to
+            # warn on silent truncation was dead code — this function is
+            # always @jit, so t1_arr/t2_arr are abstract tracers at trace
+            # time and float() unconditionally raises, landing in the
+            # except branch on every call. Removed rather than kept as
+            # theatre; callers should pass an explicit time_grid instead
+            # (see model_for_cmaes in optimization/nlsq/core.py and
+            # gradient_diagnostics.py for real callers threading one).
             _FALLBACK_GRID_SIZE = 10001
             grid_indices = jnp.arange(_FALLBACK_GRID_SIZE, dtype=jnp.result_type(dt))
             time_grid_used = grid_indices * dt
-
-            # Eager-only guard: surface silent integral truncation when a direct
-            # call requests times beyond the fixed fallback-grid extent. searchsorted
-            # clips those to the last grid point, biasing g1 with no warning. Under
-            # JIT the operands are abstract tracers and float() raises, so this check
-            # self-disables during tracing (production NLSQ uses matrix mode).
-            try:
-                _grid_extent = float(time_grid_used[-1])
-                _t_max_req = float(max(jnp.max(t1_arr), jnp.max(t2_arr)))
-            except Exception:  # noqa: BLE001 - abstract tracer / non-concrete value
-                _grid_extent = None
-                _t_max_req = None
-            if _grid_extent is not None and _t_max_req is not None and _t_max_req > _grid_extent:
-                logger.warning(
-                    "Element-wise integral: requested time %.6g exceeds the fallback "
-                    "time-grid extent %.6g (%d points x dt=%.6g); times beyond the grid "
-                    "are clipped, truncating the integral. Pass an explicit time_grid "
-                    "covering the full range.",
-                    _t_max_req,
-                    _grid_extent,
-                    _FALLBACK_GRID_SIZE,
-                    float(dt),
-                )
 
         grid_size = time_grid_used.shape[0]
 
@@ -1001,6 +974,7 @@ def compute_g1_diffusion(
     t2: jnp.ndarray,
     q: float,
     dt: float | None = None,
+    time_grid: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Compute the g1 diffusion contribution using a configuration ``dt``.
 
@@ -1021,6 +995,12 @@ def compute_g1_diffusion(
     dt : float, optional
         Time step from configuration. Required for correct physics; estimated
         from the time array when omitted.
+    time_grid : jnp.ndarray, optional
+        Full 1D time grid covering the real data range, forwarded to
+        :func:`_compute_g1_diffusion_core` for element-wise (large ``t1``)
+        callers. Without it, element-wise mode falls back to a hardcoded
+        10001-point grid that silently truncates the integral for datasets
+        spanning more than 10000 lag steps. Ignored in matrix mode.
 
     Returns
     -------
@@ -1046,7 +1026,9 @@ def compute_g1_diffusion(
     wavevector_q_squared_half_dt = 0.5 * (q**2) * dt_value
 
     return jnp.asarray(
-        _compute_g1_diffusion_core(params, t1, t2, wavevector_q_squared_half_dt, dt_value)
+        _compute_g1_diffusion_core(
+            params, t1, t2, wavevector_q_squared_half_dt, dt_value, time_grid=time_grid
+        )
     )
 
 
@@ -1058,6 +1040,7 @@ def compute_g1_shear(
     q: float,
     L: float,
     dt: float | None,
+    time_grid: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Compute the g1 shear contribution using a configuration ``dt``.
 
@@ -1082,6 +1065,12 @@ def compute_g1_shear(
         Sample-detector distance (stator_rotor_gap) [Å].
     dt : float
         Time step from configuration [s] (required).
+    time_grid : jnp.ndarray, optional
+        Full 1D time grid covering the real data range, forwarded to
+        :func:`_compute_g1_shear_core` for element-wise (large ``t1``)
+        callers. Without it, element-wise mode falls back to a hardcoded
+        10001-point grid that silently truncates the integral for datasets
+        spanning more than 10000 lag steps. Ignored in matrix mode.
 
     Returns
     -------
@@ -1120,7 +1109,9 @@ def compute_g1_shear(
     # Compute the physics factor using configuration dt
     sinc_prefactor = 0.5 / PI * q * L * dt
 
-    return jnp.asarray(_compute_g1_shear_core(params, t1, t2, phi, sinc_prefactor, dt))
+    return jnp.asarray(
+        _compute_g1_shear_core(params, t1, t2, phi, sinc_prefactor, dt, time_grid=time_grid)
+    )
 
 
 def compute_g1_total(
@@ -1131,6 +1122,7 @@ def compute_g1_total(
     q: float,
     L: float,
     dt: float | None,
+    time_grid: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Compute the total g1 (diffusion × shear) using a configuration ``dt``.
 
@@ -1155,6 +1147,12 @@ def compute_g1_total(
         Sample-detector distance (stator_rotor_gap) [Å].
     dt : float or None
         Time step from configuration [s] (required; None raises).
+    time_grid : jnp.ndarray, optional
+        Full 1D time grid covering the real data range, forwarded to
+        :func:`_compute_g1_total_core` for element-wise (large ``t1``)
+        callers. Without it, element-wise mode falls back to a hardcoded
+        10001-point grid that silently truncates the integral for datasets
+        spanning more than 10000 lag steps. Ignored in matrix mode.
 
     Returns
     -------
@@ -1197,6 +1195,7 @@ def compute_g1_total(
             wavevector_q_squared_half_dt,
             sinc_prefactor,
             dt_value,
+            time_grid=time_grid,
         )
     )
 

@@ -162,3 +162,99 @@ def test_cache_hit_rate_is_a_true_hit_rate(tmp_path, monkeypatch) -> None:
     assert stats["hit_rate"] == pytest.approx(3 / 5)
     # A real hit rate is bounded by 1.0 regardless of how many keys are resident.
     assert 0.0 <= stats["hit_rate"] <= 1.0
+
+
+def test_aps_old_quality_filter_guards_allocation_before_accumulation(
+    tmp_path, monkeypatch
+) -> None:
+    """2026-07-22 audit Fix 1: the APS-old quality-filtering branch must
+    probe-then-guard the allocation budget BEFORE accumulating candidate
+    matrices into a Python list — mirroring
+    ``_guard_aps_u_intermediate_allocation``'s APS-U ordering — not only
+    after, via ``_validate_loaded_arrays`` on the final stacked buffer.
+    """
+    pytest.importorskip("h5py")
+    from xpcsjax.data import xpcs_loader as xl
+    from xpcsjax.data.xpcs_loader import XPCSDataFormatError, XPCSDataLoader
+
+    hdf = tmp_path / "aps_old_quality.h5"
+    _make_aps_old_hdf5(str(hdf), n_pairs=6, msize=8)
+
+    config = {
+        "analysis_mode": "static_isotropic",
+        "experimental_data": {
+            "data_folder_path": str(tmp_path),
+            "data_file_name": "aps_old_quality.h5",
+        },
+        "analyzer_parameters": {
+            "dt": 0.1,
+            "start_frame": 1,
+            "end_frame": 8,
+            "scattering": {"wavevector_q": 0.03},
+        },
+        "data_filtering": {
+            "enabled": True,
+            "quality_filtering": {"enabled": True},
+        },
+    }
+    loader = XPCSDataLoader(config_dict=config, configure_logging=False)
+    # Every candidate survives metadata pre-filter -> the guard has real
+    # candidates to bound before the accumulation loop runs.
+    monkeypatch.setattr(
+        loader, "_get_selected_indices", lambda dq, dphi, matrices=None: np.arange(len(dq))
+    )
+    # Tiny budget: even one 8x8 float64 matrix (512 bytes) trips it.
+    monkeypatch.setattr(xl, "MAX_CORRELATION_ALLOC_BYTES", 100)
+
+    with pytest.raises(XPCSDataFormatError, match="Refusing to allocate"):
+        loader._load_aps_old_format(str(hdf))
+
+
+def test_memory_map_manager_refcount_blocks_concurrent_eviction(tmp_path) -> None:
+    """2026-07-22 audit Fix 2: MemoryMapManager must not evict (close) a file
+    handle that is currently checked out via ``open_memory_mapped_hdf5``, even
+    if it is the LRU-oldest candidate and ``max_open_files`` is exceeded. Once
+    the checkout's ``with`` block exits and it becomes LRU-oldest again, it
+    must be evictable.
+    """
+    h5py = pytest.importorskip("h5py")
+    import threading
+
+    from xpcsjax.data.performance_engine import MemoryMapManager
+
+    file_a = tmp_path / "a.h5"
+    file_b = tmp_path / "b.h5"
+    for p in (file_a, file_b):
+        with h5py.File(p, "w") as f:
+            f.create_dataset("data", data=np.zeros(4))
+
+    manager = MemoryMapManager(max_open_files=1)
+
+    checked_out = threading.Event()
+    release = threading.Event()
+
+    def hold_a():
+        with manager.open_memory_mapped_hdf5(str(file_a)):
+            checked_out.set()
+            release.wait(timeout=5)
+
+    reader = threading.Thread(target=hold_a)
+    reader.start()
+    assert checked_out.wait(timeout=5), "reader thread never checked out file A"
+
+    # Opening B while A is checked out must not evict A, even though A is the
+    # only (hence LRU-oldest) open handle and max_open_files=1.
+    with manager.open_memory_mapped_hdf5(str(file_b)):
+        assert str(file_a) in manager._open_maps, "in-use handle A was evicted mid-read"
+
+    release.set()
+    reader.join(timeout=5)
+    assert not reader.is_alive()
+
+    # A is no longer in use. Force it to look LRU-oldest and confirm cleanup
+    # can now evict it.
+    manager._last_access[str(file_a)] = 0.0
+    manager._cleanup_old_mappings()
+    assert str(file_a) not in manager._open_maps, "released handle A was never evicted"
+
+    manager.close_all()

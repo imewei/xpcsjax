@@ -858,6 +858,14 @@ class PreprocessingPipeline:
         denoised_data = {
             k: (np.array(v) if hasattr(v, "shape") else copy.deepcopy(v)) for k, v in data.items()
         }
+        # Gaussian/Wiener/Savitzky-Golay filters yield fractional values. If the
+        # source c2_exp is an integer dtype, truncation occurs when the fractional
+        # filter output is written back into it. Upcast BOTH the read source and
+        # the write buffer to float64 (mirrors the guard in
+        # _correct_diagonal_enhanced / _normalize_data).
+        if hasattr(c2_exp, "shape") and not np.issubdtype(np.asarray(c2_exp).dtype, np.floating):
+            c2_exp = np.asarray(c2_exp, dtype=np.float64)
+            denoised_data["c2_exp"] = np.asarray(denoised_data["c2_exp"], dtype=np.float64)
 
         if method == NoiseReductionMethod.MEDIAN:
             # Median filtering

@@ -1190,27 +1190,38 @@ class ConfigManager:
                 type(nlsq_config).__name__,
             )
             nlsq_config = {}
+        # Guard the ordered comparisons: a non-numeric value (e.g. a quoted
+        # YAML scalar parsed as str) would raise TypeError on `max_iter > ...`,
+        # mirroring the memory_fraction guard above (audit P1: an unguarded
+        # TypeError here propagates out of _validate_config and, on the
+        # config_file= path, is swallowed by load_config()'s broad except,
+        # silently discarding the whole parsed config).
         max_iter = nlsq_config.get("max_iterations", 10000)
-        if max_iter > 50000:
-            logger.warning(
-                f"High max_iterations ({max_iter}) may cause long runtimes. "
-                f"Consider 10000-20000 for most analyses."
-            )
+        if isinstance(max_iter, (int, float)) and not isinstance(max_iter, bool):
+            if max_iter > 50000:
+                logger.warning(
+                    f"High max_iterations ({max_iter}) may cause long runtimes. "
+                    f"Consider 10000-20000 for most analyses."
+                )
+        else:
+            logger.warning("max_iterations=%s is not numeric; ignoring", max_iter)
 
-        # Warn about very loose tolerance
+        # Warn about very loose/tight tolerance
         tolerance = nlsq_config.get("tolerance", 1e-8)
-        if tolerance > 1e-4:
-            logger.warning(
-                f"Loose tolerance ({tolerance}) may produce imprecise results. "
-                f"Consider 1e-8 or tighter for production."
-            )
+        if isinstance(tolerance, (int, float)) and not isinstance(tolerance, bool):
+            if tolerance > 1e-4:
+                logger.warning(
+                    f"Loose tolerance ({tolerance}) may produce imprecise results. "
+                    f"Consider 1e-8 or tighter for production."
+                )
 
-        # Warn about very tight tolerance
-        if tolerance < 1e-14:
-            logger.warning(
-                f"Very tight tolerance ({tolerance}) may cause convergence issues. "
-                f"Machine precision limits apply."
-            )
+            if tolerance < 1e-14:
+                logger.warning(
+                    f"Very tight tolerance ({tolerance}) may cause convergence issues. "
+                    f"Machine precision limits apply."
+                )
+        else:
+            logger.warning("tolerance=%s is not numeric; ignoring", tolerance)
 
         # Warn about force_stratified_ls with large datasets
         force_stratified = nlsq_config.get("force_stratified_ls", False)
@@ -1220,8 +1231,22 @@ class ConfigManager:
                 "This uses full Jacobian (high memory) - ensure sufficient RAM."
             )
 
-        # Warn about disabled anti-degeneracy for laminar_flow
-        mode = self.config.get("analysis_mode", "static_anisotropic")
+        # Warn about disabled anti-degeneracy for laminar_flow. Normalize the
+        # raw analysis_mode string the same way _validate_config's valid_modes
+        # check tolerates both orderings (this method may run before or after
+        # _normalize_analysis_mode() depending on the load path) — otherwise a
+        # case-variant or synonym mode string (e.g. "LAMINAR_FLOW") silently
+        # skips this warning even when hierarchical is explicitly disabled.
+        mode_raw = self.config.get("analysis_mode", "static_anisotropic")
+        if isinstance(mode_raw, str):
+            from xpcsjax.config.parameter_registry import AnalysisMode
+
+            try:
+                mode = AnalysisMode.parse(mode_raw, allow_bare_static=True).value
+            except ValueError:
+                mode = mode_raw
+        else:
+            mode = mode_raw
         anti_deg = nlsq_config.get("anti_degeneracy", {})
         if not isinstance(anti_deg, dict):
             anti_deg = {}

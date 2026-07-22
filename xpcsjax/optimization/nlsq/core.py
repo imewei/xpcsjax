@@ -2153,6 +2153,11 @@ def fit_nlsq_cmaes(
         t1_all = jnp.tile(t1_flat, n_phi)
         t2_all = jnp.tile(t2_flat, n_phi)
 
+        # Full unique-time grid (pre-tiling) for the element-wise g1 integral —
+        # avoids the hardcoded 10001-point fallback grid silently truncating
+        # datasets with more unique lag times (see model_for_cmaes below).
+        t1_time_grid = jnp.asarray(t1)
+
         # Get dt and L from config if available
         config_dict = config.config if hasattr(config, "config") else config
         dt_val = config_dict.get("analyzer_parameters", {}).get("dt", 0.1)
@@ -2269,7 +2274,10 @@ def fit_nlsq_cmaes(
             offset_per_point = offsets[phi_indices]
 
             # Use element-wise g1 computation (triggered when len > 2000)
-            # This is a pure JAX function that can be JIT-traced
+            # This is a pure JAX function that can be JIT-traced.
+            # time_grid=t1_grid covers the full unique-time range so the
+            # element-wise integral is not silently truncated at the
+            # hardcoded 10001-point fallback grid (see docstring above).
             g1_all = _compute_g1_total_core(
                 physical,
                 t1_all,
@@ -2278,6 +2286,7 @@ def fit_nlsq_cmaes(
                 wavevector_q_squared_half_dt,
                 sinc_prefactor,
                 dt_val,
+                time_grid=t1_time_grid,
             )
 
             # Compute g2 = offset + contrast * g1^2

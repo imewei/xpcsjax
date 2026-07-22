@@ -295,6 +295,17 @@ def _fit_joint_constant_multi_phi(
     # ------------------------------------------------------------------
     fitted_physics = np.asarray(nlsq_result.parameters, dtype=np.float64)
 
+    # L2 keep-better SSR floor (mirrors the individual-mode protection in
+    # ``heterodyne_core._fit_joint_multi_phi`` — the original C044 RCA fix):
+    # revert to the pre-solve physics warm-start when the plain solve
+    # regressed past its own start, BEFORE this (possibly degraded) vector is
+    # used as the escape warm-start.
+    from xpcsjax.optimization.nlsq.heterodyne_core import _apply_joint_keep_better_floor
+
+    fitted_physics, floor_reverted = _apply_joint_keep_better_floor(
+        joint_residual_fn, physics_initial, fitted_physics, mode_label="constant mode"
+    )
+
     # Global escape (CMA-ES / multistart): warm-started at the plain solve,
     # keep-better over the SAME physics-only data residual (scaling frozen).
     # ``global_escape_tag`` is None on the plain path (no behaviour change).
@@ -311,11 +322,14 @@ def _fit_joint_constant_multi_phi(
             varying_names,
             config,
             {"c2": c2_data, "phi": phi_angles_np},
-            warm_success=bool(nlsq_result.success),
+            warm_success=bool(nlsq_result.success) and not floor_reverted,
         )
     else:
         global_escape_tag = None
-    is_escape = global_escape_tag is not None
+    # A pure floor-revert (no escape) also loses the covariance/iteration
+    # stats tied to the discarded solve — treat it as escape-shaped for the
+    # NaN-fill + zeroed-stats bookkeeping below.
+    is_escape = global_escape_tag is not None or floor_reverted
     if global_escape_tag == "cmaes_warmstart_auto_skip":
         # Auto-skip kept the CONVERGED warm-start vector UNCHANGED, so its NLSQ
         # covariance / uncertainties / iteration stats are valid — preserve them
@@ -388,8 +402,9 @@ def _fit_joint_constant_multi_phi(
     )
 
     wall_time = time.perf_counter() - t_start
-    convergence_status: ConvergenceStatus = "converged" if nlsq_result.success else "failed"
-    quality_flag: QualityFlag = "good" if nlsq_result.success else "marginal"
+    solve_success = bool(nlsq_result.success) and not floor_reverted
+    convergence_status: ConvergenceStatus = "converged" if solve_success else "failed"
+    quality_flag: QualityFlag = "good" if solve_success else "marginal"
 
     # L2 hierarchical: no-op for constant mode. The whole solve IS the
     # "stage 1" of the two-stage pattern (physics-only with quantile-fixed

@@ -390,17 +390,20 @@ def _check_frame_count(n_frames: int, *, source: str) -> None:
 def _guard_aps_u_intermediate_allocation(
     corr_group: Any, c2_keys: list[str], valid_bin_indices: Any, *, source: str
 ) -> None:
-    """Bound the APS-U intermediate matrix list BEFORE it is accumulated.
+    """Bound an intermediate correlation-matrix list BEFORE it is accumulated.
 
-    The APS-U loader reconstructs and appends every valid correlation matrix to a
-    Python list (``c2_matrices_for_filtering``) prior to the post-selection
-    allocation guard on the final stacked buffer. A crafted file with many large
-    bins could therefore exhaust RAM during that accumulation, defeating
-    :data:`MAX_CORRELATION_ALLOC_BYTES`. Probe the first valid matrix's shape via
-    h5py metadata (``.shape``/``.dtype`` only — no full array read) and apply the
-    same square/frame/budget guards used on the final buffer, scaled by the number
-    of matrices that will be loaded. Mirrors the APS-old probe-then-guard ordering
-    (SEC-2 parity). A no-op when no valid bin index is in range.
+    Both the APS-U loader and the APS-old quality-filtering branch reconstruct
+    and append every candidate correlation matrix to a Python list
+    (``c2_matrices_for_filtering`` / ``candidate_matrices``) prior to the
+    post-selection allocation guard on the final stacked buffer. A crafted file
+    with many large bins could therefore exhaust RAM during that accumulation,
+    defeating :data:`MAX_CORRELATION_ALLOC_BYTES`. Probe the first valid
+    matrix's shape via h5py metadata (``.shape``/``.dtype`` only — no full
+    array read) and apply the same square/frame/budget guards used on the
+    final buffer, scaled by the number of matrices that will be loaded
+    (SEC-2 parity). A no-op when no valid bin index is in range. Despite the
+    name (kept for git-blame continuity), this helper is format-agnostic —
+    reused as-is for both loader paths rather than duplicated.
     """
     in_range = [bi for bi in valid_bin_indices if bi < len(c2_keys)]
     if not in_range:
@@ -1350,6 +1353,15 @@ class XPCSDataLoader:
                 )
 
                 # Pass 2: load only candidate matrices from HDF5
+                # SEC-2 (parity with APS-U): bound the intermediate accumulation
+                # up front so a crafted file with many large candidate bins cannot
+                # exhaust RAM before the post-selection guard on the final buffer.
+                _guard_aps_u_intermediate_allocation(
+                    c2t_group,
+                    c2_keys,
+                    candidate_indices,
+                    source="HDF5 correlation dataset (APS-old quality-filter intermediate)",
+                )
                 candidate_matrices = []
                 for idx in candidate_indices:
                     key = c2_keys[int(idx)]
