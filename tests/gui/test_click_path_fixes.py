@@ -111,6 +111,52 @@ def test_open_project_resets_stale_run_state(qtbot, tmp_path):
     assert "stale log line" not in win.log_text()
 
 
+# CLICK-PATH-002 follow-up: a malformed .xpcsproj must raise BEFORE any teardown,
+# so the current project (and its in-flight run) survives intact.
+def test_open_project_raises_on_malformed_file_leaves_state_untouched(qtbot, tmp_path):
+    win = _window(qtbot)
+    win._queue = FitQueueController(max_concurrent=1, handle_factory=_FakeHandle)
+    win._queue.enqueue("stale-run", str(tmp_path / "a.yaml"), str(tmp_path / "runs" / "stale-run"))
+    win._active_run_id = "stale-run"
+    win._viewing_run_id = "stale-run"
+    win._log.appendPlainText("stale log line")
+
+    bad_file = tmp_path / "bad.xpcsproj"
+    bad_file.write_text("not json at all", encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        win.open_project_from(bad_file)
+
+    assert win._queue.active_count() == 1, "teardown ran before the malformed load failed"
+    assert win._active_run_id == "stale-run"
+    assert win._viewing_run_id == "stale-run"
+    assert "stale log line" in win.log_text()
+
+
+# CLICK-PATH-002 follow-up: the ValueError above must surface as a warning
+# dialog through the real dialog-handler path, not an unhandled traceback.
+def test_on_open_project_surfaces_malformed_file_as_warning_not_crash(qtbot, tmp_path, monkeypatch):
+    import xpcsjax.gui.views.main_window_support.project_dialog_handler as pdh
+
+    win = _window(qtbot)
+    bad_file = tmp_path / "bad.xpcsproj"
+    bad_file.write_text("not json at all", encoding="utf-8")
+
+    monkeypatch.setattr(
+        pdh.QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(bad_file), ""))
+    )
+    warned = {"called": False}
+    monkeypatch.setattr(
+        pdh.QMessageBox,
+        "warning",
+        staticmethod(lambda *a, **k: warned.__setitem__("called", True)),
+    )
+
+    win._dialog_handler.on_open_project()  # must not raise
+
+    assert warned["called"], "a malformed .xpcsproj escaped on_open_project unhandled"
+
+
 # CLICK-PATH-003: sidebar tree rebuild wiped the selection on every Run click.
 def test_run_reselects_new_run_in_sidebar(qtbot, tmp_path, monkeypatch):
     win = _window(qtbot)
@@ -125,6 +171,23 @@ def test_run_reselects_new_run_in_sidebar(qtbot, tmp_path, monkeypatch):
     assert win._sidebar.current_run_id() == new_run_id, (
         "Run cleared the sidebar selection instead of selecting the new run "
         "(breaks immediate Cancel/Export Figure)"
+    )
+
+
+# CLICK-PATH-003 follow-up: the reselect above must NOT cascade into
+# _on_runs_selected (QSignalBlocker) -- nobody actually clicked this run.
+def test_run_reselect_does_not_pin_viewing_run_id(qtbot, tmp_path, monkeypatch):
+    win = _window(qtbot)
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("analysis_mode: static_isotropic\n", encoding="utf-8")
+    win.add_dataset(str(cfg))
+    monkeypatch.setattr(win._queue, "enqueue", lambda *a, **k: None)
+
+    win._on_run()
+
+    assert win._viewing_run_id is None, (
+        "reselecting the new run in the sidebar re-fired runs_selected and pinned "
+        "_viewing_run_id, even though nobody actually clicked it"
     )
 
 
