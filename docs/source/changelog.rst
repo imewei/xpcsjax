@@ -8,7 +8,23 @@ current release line.
 Unreleased
 ----------
 
-*No unreleased changes yet.*
+* **GUI design-critique findings addressed** (#11): a Cancel confirmation
+  dialog, keyboard shortcuts/tooltips on every toolbar/File-menu action,
+  YAML-validating Edit Config, a real side-by-side Comparison table, a
+  color-bar legend + "Jump to φ" navigator on the per-phi results grid,
+  severity-colored log/failure text, a persistent Run-target status label,
+  and a new "Inspect Data File…" action wiring the previously-orphaned
+  HDF5/C₂ inspector into the UI — plus follow-up crash/exception-handling
+  fixes on the same surfaces.
+* Packaging: the PyInstaller spec was missing a real ``collect_all("PIL")``
+  entry for Pillow (matplotlib's transitive image-backend dependency),
+  failing the freeze-safety test on every push.
+* Internal / CI: hardened the PyInstaller spec's drift-guard extraction
+  against comment text, added a repo-level write-time Python quality gate,
+  bumped GitHub Actions to their Node 24 majors, and rebuilt the knowledge
+  graph.
+
+See ``CHANGELOG.md`` for the itemised list.
 
 v0.1.1 — maintenance release
 ----------------------------
@@ -76,12 +92,14 @@ JAX-native package. Highlights:
 This release also includes:
 
 **Desktop analysis workbench (GUI).** A PySide6 graphical front-end launched
-with ``xpcsjax-gui`` (alias ``xj-gui``): Config / Data / Fit tabs, an Inspector
-dock, a live-diagnostics view, interactive PyQtGraph plots, and a
-datasets→runs project sidebar that persists to ``.xpcsproj`` files. The GUI
-process never imports JAX — every fit runs in a separate ``spawn`` worker that
-streams structured progress events back to the UI. Optional install:
-``uv pip install -e ".[gui]"``. See :doc:`/user_guide/gui`.
+with ``xpcsjax-gui`` (alias ``xj-gui``): a config-first, toolbar-driven
+workflow (Create Config → Edit Config → Load Config → Run → Cancel → Export
+Figure, no tabs), an Inspector dock, a streaming Fitting-Process log, interactive
+PyQtGraph per-phi result/residual plots, and a datasets→runs project sidebar
+that persists to ``.xpcsproj`` files. The GUI process never imports JAX —
+every fit runs in a separate ``spawn`` worker that streams structured progress
+events back to the UI. Optional install: ``uv pip install -e ".[gui]"``.
+See :doc:`/user_guide/gui`.
 
 **Headless core-service layer (``xpcsjax.service``).** The argparse-free,
 Qt-free orchestration seam shared by the CLI and the GUI worker — config

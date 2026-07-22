@@ -11,7 +11,47 @@ the rendered documentation.
 
 ## [Unreleased]
 
-_No unreleased changes yet._
+### Fixed
+
+- **GUI design-critique findings addressed** (#11). Cancel now asks for
+  confirmation and gets its own toolbar separator from Run (previously one
+  misclick discarded a possibly multi-minute fit with no undo); every
+  toolbar/File-menu action gained a keyboard shortcut and tooltip; Edit
+  Config validates YAML syntax before writing instead of silently saving
+  invalid YAML; the Comparison dock renders a real side-by-side table with a
+  `≠` marker on disagreeing rows; the per-phi results grid gained a
+  color-bar legend (values were previously auto-scaled per tile with no
+  legend, so identical colors could mean different numbers on different
+  tiles) and a "Jump to φ" navigator above 8 angles; log lines and the
+  FIT FAILED header are now severity color-coded; a persistent status-bar
+  label now names which dataset Run targets; and the previously-orphaned
+  HDF5/C₂ inspector (`data_inspect.py`) is now reachable via a new
+  "Inspect Data File…" File-menu action. Follow-up bugfixes from the same PR:
+  `ComparisonView` no longer crashes on a `None` chi-squared value, the
+  color-bar's colormap resolution is now guarded the same way the sibling
+  plot-colormap call already was, and `DataInspectDialog` catches the wider
+  `RuntimeError`/`KeyError`/`ValueError` surface a corrupted-but-valid HDF5
+  file can raise (previously only `OSError` was caught).
+- **PyInstaller spec was missing Pillow.** `pillow>=12.3.0` (matplotlib's
+  transitive image-backend dependency) was absent from both
+  `xpcsjax-gui.spec`'s `collect_all()` list and the freeze-safety test's
+  covered-dependency allowlist, failing
+  `test_pyinstaller_spec_covers_runtime_deps` on every push. Added a real
+  `collect_all("PIL")` entry (Pillow ships a compiled extension and
+  dynamically-loaded format plugins that static analysis misses) plus the
+  `pillow` → `PIL` dist/import-name alias.
+
+### Internal / CI
+
+- Hardened the PyInstaller spec's `collect_all()` drift-guard extraction
+  against comment text — a `):`-shaped sequence or a quoted word inside any
+  spec comment could corrupt the regex-extracted dependency list; extraction
+  now strips comments first via a shared `_extract_collect_all_names()`
+  helper.
+- Added a repo-level write-time Python quality gate (#7).
+- Bumped GitHub Actions to their Node 24 majors (`checkout` v5,
+  `setup-python` v6, `upload/download-artifact` v5).
+- Rebuilt the graphify codebase knowledge graph.
 
 ## [0.1.1] - 2026-06-26
 
@@ -85,10 +125,10 @@ results, public API, and config formats are identical to 0.1.0.
 - **Desktop analysis workbench (GUI)** (`xpcsjax/gui/`). A PySide6 graphical
   front-end registered as the `xpcsjax-gui` / `xj-gui` console script
   (`xpcsjax.gui.app:main`; recognises `--help` / `--version`, forwards the rest
-  to Qt). Config tab (form + raw-YAML + live JAX-free validation), Data tab
-  (h5py-only HDF5 browser + two-time C₂ preview), Fit tab, Inspector dock
-  (params / uncertainties / diagnostics), live-diagnostics view (SSR curve,
-  L1–L5 layer chips, banner log), interactive PyQtGraph plots, and a
+  to Qt). Config-first, toolbar-driven workflow (Create Config → Edit Config →
+  Load Config → Run → Cancel → Export Figure, no tabs), an Inspector dock
+  (params / uncertainties / diagnostics), a streaming Fitting-Process log
+  dock, interactive PyQtGraph per-phi result/residual plots, and a
   datasets→runs project sidebar with side-by-side comparison. Sessions persist
   to `.xpcsproj` JSON (atomic writes, per-run output dirs).
   **Architectural invariant:** the GUI process never imports JAX — every fit
