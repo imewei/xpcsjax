@@ -172,6 +172,7 @@ tempCodeRunnerFile.py
 !.claude/settings.json
 !.claude/hooks/
 !.claude/hooks/*
+.claude/worktrees/
 .claude-progress.md
 .claude-scratch
 .claude-flow
