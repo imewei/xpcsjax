@@ -828,10 +828,16 @@ class ConfigManager:
             )
 
         # Load per-angle scaling parameters (contrast, offset) if present.
-        # Injected BEFORE the active/fixed filters below so contrast/offset keys
-        # are subject to the same active_parameters filter and fixed_parameters
-        # exclusion as the physics parameters (otherwise they leak past both,
-        # contradicting the fixed-parameter exclusion this method promises).
+        # Injected BEFORE the fixed_parameters filter below so contrast/offset
+        # keys are excluded the same as physics parameters (otherwise they'd
+        # leak past it, contradicting the fixed-parameter exclusion this method
+        # promises). They are deliberately EXEMPT from the active_parameters
+        # filter: active_parameters is a physics-oriented whitelist that never
+        # names contrast/offset (or their per-angle contrast_N/offset_N forms),
+        # so subjecting these injected keys to it would silently drop every
+        # explicitly-configured per-angle scaling value whenever
+        # active_parameters is set.
+        per_angle_scaling_keys: set[str] = set()
         per_angle_scaling = initial_params.get("per_angle_scaling")
         if per_angle_scaling and isinstance(per_angle_scaling, dict):
             # Extract contrast and offset arrays
@@ -845,16 +851,19 @@ class ConfigManager:
                         contrast_values[0],
                         context="initial_parameters.per_angle_scaling.contrast[0]",
                     )
+                    per_angle_scaling_keys.add("contrast")
                     logger.info(
                         f"Loaded scalar contrast from per_angle_scaling: {contrast_values[0]}"
                     )
                 else:
                     # Multi-angle: use per-angle contrast_0, contrast_1, ...
                     for idx, val in enumerate(contrast_values):
-                        initial_params_dict[f"contrast_{idx}"] = coerce_finite_float(
+                        key = f"contrast_{idx}"
+                        initial_params_dict[key] = coerce_finite_float(
                             val,
                             context=f"initial_parameters.per_angle_scaling.contrast[{idx}]",
                         )
+                        per_angle_scaling_keys.add(key)
                     logger.info(f"Loaded {len(contrast_values)} per-angle contrast values")
 
             if offset_values is not None and isinstance(offset_values, list):
@@ -864,17 +873,21 @@ class ConfigManager:
                         offset_values[0],
                         context="initial_parameters.per_angle_scaling.offset[0]",
                     )
+                    per_angle_scaling_keys.add("offset")
                     logger.info(f"Loaded scalar offset from per_angle_scaling: {offset_values[0]}")
                 else:
                     # Multi-angle: use per-angle offset_0, offset_1, ...
                     for idx, val in enumerate(offset_values):
-                        initial_params_dict[f"offset_{idx}"] = coerce_finite_float(
+                        key = f"offset_{idx}"
+                        initial_params_dict[key] = coerce_finite_float(
                             val,
                             context=f"initial_parameters.per_angle_scaling.offset[{idx}]",
                         )
+                        per_angle_scaling_keys.add(key)
                     logger.info(f"Loaded {len(offset_values)} per-angle offset values")
 
-        # Filter by active_parameters if specified
+        # Filter by active_parameters if specified (per-angle-scaling keys are
+        # exempt — see the comment at their injection above).
         active_params_config = initial_params.get("active_parameters")
         if active_params_config and isinstance(active_params_config, list):
             # Map active parameter names to canonical names
@@ -883,9 +896,11 @@ class ConfigManager:
                 canonical = PARAMETER_NAME_MAPPING.get(name, name)
                 active_canonical.add(canonical)
 
-            # Filter to only active parameters
+            # Filter to only active parameters (plus exempt per-angle-scaling keys)
             initial_params_dict = {
-                k: v for k, v in initial_params_dict.items() if k in active_canonical
+                k: v
+                for k, v in initial_params_dict.items()
+                if k in active_canonical or k in per_angle_scaling_keys
             }
             logger.info(
                 f"Filtered to {len(initial_params_dict)} active parameters: {list(initial_params_dict.keys())}"

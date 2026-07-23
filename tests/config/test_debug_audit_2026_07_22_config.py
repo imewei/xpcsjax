@@ -82,6 +82,27 @@ def test_fixed_per_angle_scaling_name_is_excluded() -> None:
     assert {"D0", "alpha"} <= set(params)
 
 
+def test_active_parameters_does_not_drop_per_angle_scaling() -> None:
+    # active_parameters is a physics-only whitelist and can never name
+    # contrast/offset (or contrast_N/offset_N) — those injected keys must
+    # survive this filter untouched, or every explicitly-configured per-angle
+    # scaling value silently vanishes whenever active_parameters is set.
+    config = {
+        "analysis_mode": "laminar_flow",
+        "initial_parameters": {
+            "parameter_names": ["D0", "alpha"],
+            "values": [100.0, 1.0],
+            "per_angle_scaling": {"contrast": [0.3, 0.4], "offset": [1.0, 1.1]},
+            "active_parameters": ["D0"],
+        },
+    }
+    params = ConfigManager(config_override=config).get_initial_parameters()
+    assert "alpha" not in params, "active_parameters must still filter physics params"
+    assert {"contrast_0", "contrast_1", "offset_0", "offset_1"} <= set(params), (
+        "per-angle scaling keys must be exempt from the active_parameters whitelist"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # #4 — ParameterSpace.from_config accepts bare 'static' like ConfigManager
 # --------------------------------------------------------------------------- #

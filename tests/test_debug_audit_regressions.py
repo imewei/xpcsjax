@@ -307,15 +307,13 @@ def test_fallback_no_recovery_reports_failed_on_stagnation() -> None:
 def test_sequential_reduced_chi2_no_zerodiv_when_underdetermined() -> None:
     """Audit [2026-07-22]: the sequential per-angle fallback's reduced-chi2
     normalization must guard n_data <= n_params (dof <= 0) instead of dividing
-    by zero. This pins the arithmetic guard used at wrapper.py's sequential
-    chi-squared site."""
-
-    def reduced_chi2(chi_squared: float, n_data: int, n_params: int) -> float:
-        dof = n_data - n_params
-        return chi_squared / dof if dof > 0 else float("inf")
+    by zero. Calls the actual guard wrapper.py's sequential chi-squared site
+    uses (extracted to ``_safe_reduced_chi_squared`` so this test exercises
+    the real function, not a restatement of its arithmetic)."""
+    from xpcsjax.optimization.nlsq.wrapper import _safe_reduced_chi_squared
 
     # dof == 0 and dof < 0 must not raise and must be finite-or-inf.
-    assert reduced_chi2(5.0, 3, 3) == float("inf")
-    assert reduced_chi2(5.0, 2, 3) == float("inf")
+    assert _safe_reduced_chi_squared(5.0, 3, 3) == float("inf")
+    assert _safe_reduced_chi_squared(5.0, 2, 3) == float("inf")
     # Normal case still divides.
-    assert reduced_chi2(6.0, 5, 3) == 3.0
+    assert _safe_reduced_chi_squared(6.0, 5, 3) == 3.0
