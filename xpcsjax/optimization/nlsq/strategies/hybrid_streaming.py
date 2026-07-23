@@ -787,6 +787,7 @@ def fit_with_stratified_hybrid_streaming(
     target_cv = float(regularization_config.get("target_cv", 0.10))
     target_contribution = float(regularization_config.get("target_contribution", 0.10))
     max_cv = float(regularization_config.get("max_cv", 0.20))
+    auto_tune_lambda = bool(regularization_config.get("auto_tune_lambda", True))
 
     adaptive_regularizer = None
     if per_angle_scaling:
@@ -812,6 +813,7 @@ def fit_with_stratified_hybrid_streaming(
             target_cv=target_cv,
             target_contribution=target_contribution,
             max_cv=max_cv,
+            auto_tune_lambda=auto_tune_lambda,
             group_indices=mode_group_indices,
         )
         adaptive_regularizer = AdaptiveRegularizer(reg_config, n_phi)

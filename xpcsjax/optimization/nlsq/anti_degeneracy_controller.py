@@ -128,6 +128,7 @@ class AntiDegeneracyConfig:
     regularization_target_cv: float = 0.10
     regularization_target_contribution: float = 0.10
     regularization_max_cv: float = 0.20
+    regularization_auto_tune_lambda: bool = True
     gradient_monitoring_enable: bool = True
     gradient_ratio_threshold: float = 0.01
     gradient_consecutive_triggers: int = 5
@@ -197,6 +198,7 @@ class AntiDegeneracyConfig:
                 regularization.get("target_contribution"), 0.10
             ),
             regularization_max_cv=safe_float(regularization.get("max_cv"), 0.20),
+            regularization_auto_tune_lambda=bool(regularization.get("auto_tune_lambda", True)),
             # Gradient monitoring
             gradient_monitoring_enable=gradient_monitoring.get("enable", True),
             gradient_ratio_threshold=safe_float(gradient_monitoring.get("ratio_threshold"), 0.01),
@@ -470,6 +472,7 @@ class AntiDegeneracyController:
             target_cv=config.regularization_target_cv,
             target_contribution=config.regularization_target_contribution,
             max_cv=config.regularization_max_cv,
+            auto_tune_lambda=config.regularization_auto_tune_lambda,
             group_indices=self.mapper.get_group_indices(),  # T020: Use mapper indices
         )
         self.regularizer = AdaptiveRegularizer(

@@ -117,7 +117,7 @@ def _save_fit_comparison_only(
             # passing the whole scaling-prefixed vector as physics with defaults.
             from xpcsjax.viz.nlsq_plots import _evaluate_c2_per_angle
 
-            c2_fit = _evaluate_c2_per_angle(model, result, data, cfg, float(phi))
+            c2_fit = _evaluate_c2_per_angle(model, result, data, cfg, float(phi), phi_index=i)
         except Exception as exc:
             run_id = _current_run_id()
             log_once(

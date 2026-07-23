@@ -113,7 +113,8 @@ class ParameterSpace:
                     param_space_config.get("model")
                     or config_dict.get("analysis_mode")
                     or "laminar_flow"
-                )
+                ),
+                allow_bare_static=True,
             )
 
         model_type = analysis_mode.lower()

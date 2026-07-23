@@ -240,3 +240,35 @@ def test_shutdown_surfaces_write_failing_after_drain_timeout(caplog):
         "a write failing during the final shutdown drain must be surfaced as a "
         f"WARNING; got {len(late)} (silent-drop regression)"
     )
+
+
+def test_wait_all_timeout_is_a_shared_budget():
+    """``timeout`` bounds the whole wait_all() call, not each pending future.
+
+    Regression: the old per-future ``result(timeout=T)`` loop blocked up to
+    N*T seconds for N still-pending writes, breaking shutdown()'s drain_timeout
+    contract. ``wait(pending, timeout=T)`` bounds the whole call to ~T.
+    """
+    import threading
+
+    release = threading.Event()
+    writer = AsyncWriter(max_workers=3)
+    try:
+        for _ in range(3):
+            writer.submit_task(lambda: release.wait(10.0))
+
+        budget = 0.3
+        start = time.monotonic()
+        errors = writer.wait_all(timeout=budget)
+        elapsed = time.monotonic() - start
+
+        # All three writes are still blocked, so none completed and no errors.
+        assert errors == []
+        # A shared budget returns in ~budget; the N*budget bug would take >= 0.9s.
+        assert elapsed < 2 * budget, (
+            f"wait_all(timeout={budget}) took {elapsed:.2f}s; expected a single "
+            "shared budget, not one timeout per pending future"
+        )
+    finally:
+        release.set()
+        writer.shutdown(drain_timeout=5.0)

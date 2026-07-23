@@ -10,7 +10,7 @@ import itertools
 import json
 import logging
 from collections.abc import Callable, Iterator
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from threading import Lock, Thread
 from typing import Any, TypeVar
@@ -194,7 +194,7 @@ class AsyncWriter:
                 raise RuntimeError("AsyncWriter is shut down; cannot submit new writes")
             self._futures.append(self._executor.submit(fn, *args, **kwargs))
 
-    def wait_all(self, timeout: float = 60.0) -> list[Exception]:
+    def wait_all(self, timeout: float = 60.0) -> list[BaseException]:
         """Wait for all pending writes. Returns list of errors.
 
         TimeoutError is not treated as a failure — the write is still
@@ -203,58 +203,43 @@ class AsyncWriter:
         """
         with self._lock:
             pending = list(self._futures)
-        errors: list[Exception] = []
+        errors: list[BaseException] = []
         completed: list[Future[None]] = []
         # Unique token per wait_all() invocation: scopes the rate-limit so the
         # WARNING fires once per call (not once per process), with no cross-call
         # or cross-test suppression.
         call_token = next(_WAIT_ALL_CALL_COUNTER)
-        for future in pending:
-            try:
-                future.result(timeout=timeout)
-                completed.append(future)
-            except TimeoutError as e:
-                # concurrent.futures.TimeoutError is builtin TimeoutError (3.11+),
-                # the same exception a real completed-but-raised task would surface.
-                # Disambiguate via future.done(): only a still-pending future means
-                # "in progress"; a done future that raised TimeoutError is a real
-                # error and must flow into the errors/completed accounting below.
-                if not future.done():
-                    logger.info(
-                        "Background write still in progress after %.0fs "
-                        "(will complete during shutdown)",
-                        timeout,
-                    )
-                    continue  # keep in _futures so shutdown() sees it
-                run_id = _current_run_id()
-                log_once(
-                    logger,
-                    logging.WARNING,
-                    f"{run_id}:{call_token}:async_writer_write_fail:{type(e).__name__}:{e}",
-                    "Background write failed (%s): %s",
-                    type(e).__name__,
-                    e,
-                )
-                logger.debug("Background write traceback:", exc_info=True)
-                errors.append(e)
-                completed.append(future)
-            except Exception as e:
-                run_id = _current_run_id()
-                # Key on the call token PLUS the error type+message so DISTINCT
-                # failures in one wait_all() each surface once (a bare per-call key
-                # collapsed N different errors into a single record, hiding all but
-                # the first). Identical repeats within the call still dedup.
-                log_once(
-                    logger,
-                    logging.WARNING,
-                    f"{run_id}:{call_token}:async_writer_write_fail:{type(e).__name__}:{e}",
-                    "Background write failed (%s): %s",
-                    type(e).__name__,
-                    e,
-                )
-                logger.debug("Background write traceback:", exc_info=True)
-                errors.append(e)
-                completed.append(future)
+        # Single shared time budget across all pending futures: `timeout` bounds
+        # the whole call, not each future. (Looping future.result(timeout=timeout)
+        # blocked up to N*timeout, breaking shutdown()'s drain_timeout contract.)
+        done, not_done = wait(pending, timeout=timeout)
+        if not_done:
+            logger.info(
+                "%d background write(s) still in progress after %.0fs "
+                "(will complete during shutdown)",
+                len(not_done),
+                timeout,
+            )
+        for future in done:
+            completed.append(future)
+            exc = future.exception()
+            if exc is None:
+                continue
+            run_id = _current_run_id()
+            # Key on the call token PLUS the error type+message so DISTINCT
+            # failures in one wait_all() each surface once (a bare per-call key
+            # collapsed N different errors into a single record, hiding all but
+            # the first). Identical repeats within the call still dedup.
+            log_once(
+                logger,
+                logging.WARNING,
+                f"{run_id}:{call_token}:async_writer_write_fail:{type(exc).__name__}:{exc}",
+                "Background write failed (%s): %s",
+                type(exc).__name__,
+                exc,
+            )
+            logger.debug("Background write traceback:", exc_info=True)
+            errors.append(exc)
         # Remove only futures that finished (succeeded or errored); keep timed-out ones
         with self._lock:
             for f in completed:

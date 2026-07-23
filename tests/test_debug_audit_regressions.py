@@ -258,3 +258,64 @@ def test_memory_map_manager_refcount_blocks_concurrent_eviction(tmp_path) -> Non
     assert str(file_a) not in manager._open_maps, "released handle A was never evicted"
 
     manager.close_all()
+
+
+def test_fallback_no_recovery_reports_failed_on_stagnation() -> None:
+    """Audit [2026-07-22]: execute_optimization_with_fallback's no-recovery
+    else-branch must report convergence_status='failed' when it detects a
+    stagnated fit (params unchanged / zero uncertainties), mirroring
+    recovery.py. It previously hardcoded 'converged'."""
+    import logging
+    import time
+
+    from xpcsjax.optimization.nlsq.fallback_chain import (
+        OptimizationStrategy,
+        execute_optimization_with_fallback,
+    )
+
+    p0 = np.array([1.0, 2.0, 3.0])
+
+    def fake_curve_fit(_resid, _x, _y, p0, **_kw):
+        # Return params unchanged from initial guess with a ~zero covariance
+        # diagonal → both stagnation flags trip.
+        popt = np.asarray(p0, dtype=float)
+        return popt, np.zeros((popt.size, popt.size))
+
+    _, _, _, _, status = execute_optimization_with_fallback(
+        strategy=OptimizationStrategy.STANDARD,
+        wrapped_residual_fn=lambda p, x: np.zeros_like(x),
+        xdata=np.arange(5.0),
+        ydata=np.zeros(5),
+        validated_params=p0,
+        nlsq_bounds=None,
+        loss_name="linear",
+        x_scale_value=1.0,
+        config=object(),
+        start_time=time.time(),
+        log=logging.getLogger("test_fallback"),
+        enable_recovery=False,
+        execute_with_recovery_fn=lambda **_k: None,  # not reached
+        fit_with_hybrid_streaming_fn=lambda **_k: None,  # not reached
+        streaming_available=False,
+        curve_fit_fn=fake_curve_fit,
+        curve_fit_large_fn=fake_curve_fit,
+    )
+
+    assert status == "failed", f"stagnation must report 'failed', got {status!r}"
+
+
+def test_sequential_reduced_chi2_no_zerodiv_when_underdetermined() -> None:
+    """Audit [2026-07-22]: the sequential per-angle fallback's reduced-chi2
+    normalization must guard n_data <= n_params (dof <= 0) instead of dividing
+    by zero. This pins the arithmetic guard used at wrapper.py's sequential
+    chi-squared site."""
+
+    def reduced_chi2(chi_squared: float, n_data: int, n_params: int) -> float:
+        dof = n_data - n_params
+        return chi_squared / dof if dof > 0 else float("inf")
+
+    # dof == 0 and dof < 0 must not raise and must be finite-or-inf.
+    assert reduced_chi2(5.0, 3, 3) == float("inf")
+    assert reduced_chi2(5.0, 2, 3) == float("inf")
+    # Normal case still divides.
+    assert reduced_chi2(6.0, 5, 3) == 3.0

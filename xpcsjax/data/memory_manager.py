@@ -470,7 +470,10 @@ class MemoryPressureMonitor:
         on state entry only, not every monitoring cycle.
         """
         current_pressure = self.stats.memory_pressure
-        new_state = "normal"
+        # Preserve prior state (and its latch flags) in the hysteresis dead-zone
+        # between warning_threshold*0.8 and warning_threshold, where no branch
+        # fires; only the recovery branch below transitions to "normal".
+        new_state = self._last_pressure_state
 
         if current_pressure >= self.critical_threshold:
             new_state = "critical"

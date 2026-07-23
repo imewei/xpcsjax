@@ -204,7 +204,16 @@ class ParameterManager:
                 # Ensure name is canonical after mapping
                 self._default_bounds[param_name]["name"] = param_name
             else:
-                # New parameter not in defaults
+                # New parameter not in defaults: require min/max so the registry
+                # doesn't "know" an incomplete parameter and defer a confusing raw
+                # KeyError('min') to a much later get_bounds_as_arrays() call.
+                missing = [k for k in ("min", "max") if k not in bound_typed]
+                if missing:
+                    raise ValueError(
+                        f"parameter_space.bounds entry for unregistered parameter "
+                        f"{param_name!r} is missing required key(s): {missing}. "
+                        f"New parameters must specify both 'min' and 'max'."
+                    )
                 self._default_bounds[param_name] = bound_typed
 
         logger.debug(f"Loaded bounds from config for {len(config_bounds)} parameters")

@@ -120,6 +120,51 @@ def test_anti_degeneracy_config_overrides_defaults():
     assert cfg.constant_scaling_threshold == 7 != defaults.constant_scaling_threshold
 
 
+def test_regularization_auto_tune_lambda_wired_through_controller():
+    """``regularization.auto_tune_lambda: False`` must reach the built regularizer.
+
+    Regression: the flag was documented in every mode template but silently
+    dropped by ``AntiDegeneracyConfig.from_dict``, so the L3 regularizer always
+    auto-tuned λ and ignored the configured ``lambda`` value. With auto-tune off
+    the regularizer must use ``lambda_base`` verbatim; with the key omitted the
+    default (auto-tune on) must be preserved.
+    """
+    import numpy as np
+    import pytest
+
+    from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
+        AntiDegeneracyConfig,
+        AntiDegeneracyController,
+    )
+
+    # from_dict parsing
+    assert AntiDegeneracyConfig.from_dict({}).regularization_auto_tune_lambda is True
+    off_cfg = AntiDegeneracyConfig.from_dict({"regularization": {"auto_tune_lambda": False}})
+    assert off_cfg.regularization_auto_tune_lambda is False
+
+    phi_angles = np.array([0.0, 30.0, 60.0])
+
+    # auto_tune_lambda: False -> regularizer uses the configured lambda_base verbatim.
+    ctrl_off = AntiDegeneracyController.from_config(
+        config_dict={"regularization": {"auto_tune_lambda": False, "lambda": 3.14}},
+        n_phi=3,
+        phi_angles=phi_angles,
+        n_physical=7,
+    )
+    assert ctrl_off.regularizer.lambda_value == 3.14
+
+    # Key omitted -> default auto-tune stays on: lambda_base is overridden by the
+    # target_contribution/target_cv**2 auto-tune (0.10 / 0.10**2 == 10.0), NOT 3.14.
+    ctrl_default = AntiDegeneracyController.from_config(
+        config_dict={"regularization": {"lambda": 3.14}},
+        n_phi=3,
+        phi_angles=phi_angles,
+        n_physical=7,
+    )
+    assert ctrl_default.regularizer.lambda_value != 3.14
+    assert ctrl_default.regularizer.lambda_value == pytest.approx(10.0)
+
+
 # ---------------------------------------------------------------------------
 # Task 5: execute_layers flag registration (INERT gate, default False)
 # ---------------------------------------------------------------------------

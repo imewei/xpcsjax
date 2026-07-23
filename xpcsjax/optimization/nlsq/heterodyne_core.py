@@ -1943,6 +1943,10 @@ def _fit_joint_cmaes_multi_phi(
             cfg_cmaes = CMAESWrapperConfig(
                 seed=seed,
                 refine_with_nlsq=True,
+                # Honor the configured CMA-ES initial step size (config field,
+                # NOT the sigma= arg to fit_with_cmaes). cmaes_sigma0 was
+                # previously dropped → wrapper used its 0.5 default.
+                sigma=float(getattr(config, "cmaes_sigma0", 0.5)),
                 max_generations=getattr(config, "cmaes_max_iterations", None),
                 popsize=getattr(config, "cmaes_population_size", None),
                 tol_x=float(getattr(config, "cmaes_tolx", 1e-8)),
@@ -2282,6 +2286,10 @@ def _cmaes_joint_candidate(
     cfg_cmaes = CMAESWrapperConfig(
         seed=_JOINT_CMAES_SEED,
         refine_with_nlsq=True,
+        # Honor the configured CMA-ES initial step size (config field, NOT the
+        # sigma= arg to fit_with_cmaes). cmaes_sigma0 was previously dropped →
+        # wrapper used its 0.5 default.
+        sigma=float(getattr(config, "cmaes_sigma0", 0.5)),
         max_generations=getattr(config, "cmaes_max_iterations", None),
         popsize=getattr(config, "cmaes_population_size", None),
         tol_x=float(getattr(config, "cmaes_tolx", 1e-8)),
@@ -4077,7 +4085,10 @@ def _fit_cmaes(
     # Apply same chi2 correction as _fit_local (DOF + σ² normalization)
     if result.final_cost is not None:
         n_matrix = c2_jax.shape[0]
-        n_valid = c2_jax.size - n_matrix
+        # Residual mask excludes the t=0 boundary row/column AND the diagonal,
+        # so the valid count is (n-1)*(n-2), matching _compute_per_angle_chi2 —
+        # not the N^2 - N that `size - n_matrix` (diagonal-only) would give.
+        n_valid = (n_matrix - 1) * (n_matrix - 2)
         n_dof_valid = max(n_valid - len(param_manager.varying_names), 1)
         c2_np = np.asarray(c2_jax)
         row_idx = np.arange(n_matrix)
@@ -4385,7 +4396,10 @@ def _fit_local(
     # ------------------------------------------------------------------
     if result.final_cost is not None:
         n_matrix = c2_jax.shape[0]
-        n_valid = c2_jax.size - n_matrix  # exclude N diagonal zeros
+        # Residual mask excludes the t=0 boundary row/column AND the diagonal,
+        # so the valid count is (n-1)*(n-2), matching _compute_per_angle_chi2 —
+        # not the N^2 - N that `size - n_matrix` (diagonal-only) would give.
+        n_valid = (n_matrix - 1) * (n_matrix - 2)
         n_dof_valid = max(n_valid - n_varying, 1)
 
         c2_np = np.asarray(c2_jax)

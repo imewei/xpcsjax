@@ -41,6 +41,19 @@ def test_physics_and_scaling_split_when_n_physics_known():
     assert np.array_equal(res.scaling_parameters, np.array([0.5, 0.1]))  # HEAD
 
 
+def test_physics_parameters_empty_when_n_physics_zero():
+    # n_physics == 0: physics_parameters must be EMPTY, not the whole array.
+    # NumPy's arr[-0:] == arr[0:] (full array) would silently return everything.
+    res = _result(
+        n_physics=0,
+        parameters=np.array([0.5, 0.1, 1.0]),
+        uncertainties=np.zeros(3),
+        covariance=np.eye(3),
+    )
+    assert res.physics_parameters.size == 0
+    assert np.array_equal(res.scaling_parameters, np.array([0.5, 0.1, 1.0]))  # all scaling
+
+
 def test_accessors_raise_clearly_when_n_physics_unknown():
     res = _result()  # n_physics defaults to None
     with pytest.raises(ValueError, match="n_physics"):

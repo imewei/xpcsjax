@@ -46,7 +46,9 @@ def _stub_c2_eval(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.setattr(
         "xpcsjax.viz.nlsq_plots._evaluate_c2_per_angle",
-        lambda model, result, data, config, phi_deg: np.ones((4, 4), dtype=np.float64),
+        lambda model, result, data, config, phi_deg, phi_index=None: np.ones(
+            (4, 4), dtype=np.float64
+        ),
         raising=False,
     )
 

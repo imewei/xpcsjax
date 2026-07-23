@@ -407,7 +407,12 @@ def execute_optimization_with_fallback(
                     )
 
                 recovery_actions = []
-                convergence_status = "converged"
+                # Honest status: a detected stagnation on the final attempt is a
+                # failure, not a convergence (mirrors recovery.py).
+                if params_unchanged or uncertainties_zero:
+                    convergence_status = "failed"
+                else:
+                    convergence_status = "converged"
 
             if strategy_attempts:
                 recovery_actions.append(f"strategy_fallback_to_{current_strategy.value}")

@@ -119,6 +119,12 @@ def _warn_nlsq_bound_saturation(result: OptimizationResult) -> None:
 
     saturated: list[str] = []
     for i, unc in enumerate(uncertainties):
+        # NaN/inf uncertainty means no covariance solve was run (e.g. a global
+        # escape: CMA-ES/multistart returns np.full(n, np.nan)) -- not bound
+        # saturation. `nan >= 1e-30` is False, so without this guard it would
+        # fall through and be misreported as "+/- 0".
+        if not np.isfinite(unc):
+            continue
         if float(unc) >= 1e-30:
             continue
         name = param_names[i] if param_names and i < len(param_names) else f"param[{i}]"

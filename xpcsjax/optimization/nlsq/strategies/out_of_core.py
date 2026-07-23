@@ -43,7 +43,9 @@ def _effective_param_count_for_ooc(
 
     if per_angle_mode == "constant":
         return n_physical
-    if per_angle_mode == "auto" and n_phi >= threshold and n_params == n_physical + 2:
+    # Explicit "averaged" is a first-class token equivalent to resolved-auto-
+    # averaged (mirrors anti_degeneracy_controller / hybrid_streaming).
+    if per_angle_mode in ("auto", "averaged") and n_phi >= threshold and n_params == n_physical + 2:
         return 2 * n_phi + n_physical
 
     return n_params

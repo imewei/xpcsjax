@@ -301,8 +301,9 @@ class ConfigManager:
                 self.config = self._get_default_config()
                 return
 
-            if "metadata" in self.config:
-                version = self.config["metadata"].get("config_version", "Unknown")
+            metadata = self.config.get("metadata")
+            if isinstance(metadata, dict):
+                version = metadata.get("config_version", "Unknown")
                 logger.info(f"Configuration version: {version}")
 
             # Anchor relative data paths to the config file's directory so the
@@ -826,42 +827,11 @@ class ConfigManager:
                 value, context=f"initial_parameters.values[{canonical_name!r}]"
             )
 
-        # Filter by active_parameters if specified
-        active_params_config = initial_params.get("active_parameters")
-        if active_params_config and isinstance(active_params_config, list):
-            # Map active parameter names to canonical names
-            active_canonical = set()
-            for name in active_params_config:
-                canonical = PARAMETER_NAME_MAPPING.get(name, name)
-                active_canonical.add(canonical)
-
-            # Filter to only active parameters
-            initial_params_dict = {
-                k: v for k, v in initial_params_dict.items() if k in active_canonical
-            }
-            logger.info(
-                f"Filtered to {len(initial_params_dict)} active parameters: {list(initial_params_dict.keys())}"
-            )
-
-        # Exclude fixed_parameters
-        fixed_params = initial_params.get("fixed_parameters")
-        if fixed_params and isinstance(fixed_params, dict):
-            # Map fixed parameter names to canonical names
-            fixed_canonical = set()
-            for name in fixed_params.keys():
-                canonical = PARAMETER_NAME_MAPPING.get(name, name)
-                fixed_canonical.add(canonical)
-
-            # Remove fixed parameters from initial_params_dict
-            initial_params_dict = {
-                k: v for k, v in initial_params_dict.items() if k not in fixed_canonical
-            }
-            logger.info(
-                f"Excluded {len(fixed_canonical)} fixed parameters, "
-                f"{len(initial_params_dict)} remaining"
-            )
-
-        # Load per-angle scaling parameters (contrast, offset) if present
+        # Load per-angle scaling parameters (contrast, offset) if present.
+        # Injected BEFORE the active/fixed filters below so contrast/offset keys
+        # are subject to the same active_parameters filter and fixed_parameters
+        # exclusion as the physics parameters (otherwise they leak past both,
+        # contradicting the fixed-parameter exclusion this method promises).
         per_angle_scaling = initial_params.get("per_angle_scaling")
         if per_angle_scaling and isinstance(per_angle_scaling, dict):
             # Extract contrast and offset arrays
@@ -903,6 +873,41 @@ class ConfigManager:
                             context=f"initial_parameters.per_angle_scaling.offset[{idx}]",
                         )
                     logger.info(f"Loaded {len(offset_values)} per-angle offset values")
+
+        # Filter by active_parameters if specified
+        active_params_config = initial_params.get("active_parameters")
+        if active_params_config and isinstance(active_params_config, list):
+            # Map active parameter names to canonical names
+            active_canonical = set()
+            for name in active_params_config:
+                canonical = PARAMETER_NAME_MAPPING.get(name, name)
+                active_canonical.add(canonical)
+
+            # Filter to only active parameters
+            initial_params_dict = {
+                k: v for k, v in initial_params_dict.items() if k in active_canonical
+            }
+            logger.info(
+                f"Filtered to {len(initial_params_dict)} active parameters: {list(initial_params_dict.keys())}"
+            )
+
+        # Exclude fixed_parameters
+        fixed_params = initial_params.get("fixed_parameters")
+        if fixed_params and isinstance(fixed_params, dict):
+            # Map fixed parameter names to canonical names
+            fixed_canonical = set()
+            for name in fixed_params.keys():
+                canonical = PARAMETER_NAME_MAPPING.get(name, name)
+                fixed_canonical.add(canonical)
+
+            # Remove fixed parameters from initial_params_dict
+            initial_params_dict = {
+                k: v for k, v in initial_params_dict.items() if k not in fixed_canonical
+            }
+            logger.info(
+                f"Excluded {len(fixed_canonical)} fixed parameters, "
+                f"{len(initial_params_dict)} remaining"
+            )
 
         logger.info(f"Loaded initial parameters from config: {list(initial_params_dict.keys())}")
 
@@ -1067,6 +1072,11 @@ class ConfigManager:
             "output",
             "validation",
             "config_version",
+            # Heterodyne grouped config format (two_component)
+            "parameters",
+            "temporal",
+            "scattering",
+            "scaling",
         }
 
         if not self.config:
@@ -1333,10 +1343,11 @@ class ConfigManager:
         Warns if config version doesn't match package version, which may
         indicate incompatible configuration schema.
         """
-        if "metadata" not in self.config:
+        metadata = self.config.get("metadata")
+        if not isinstance(metadata, dict):
             return
 
-        config_version = self.config["metadata"].get("config_version")
+        config_version = metadata.get("config_version")
         if not config_version:
             return
 

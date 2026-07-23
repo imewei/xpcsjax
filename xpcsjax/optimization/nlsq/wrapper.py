@@ -3365,7 +3365,8 @@ class NLSQWrapper(NLSQAdapterBase):
         chi_squared = float(np.sum(final_residuals**2))
         n_data = len(phi_flat)
         n_params = len(sequential_result.combined_parameters)
-        reduced_chi_squared = chi_squared / (n_data - n_params)
+        dof = n_data - n_params
+        reduced_chi_squared = chi_squared / dof if dof > 0 else float("inf")
 
         # Diagnostics payload
         param_status = {}
