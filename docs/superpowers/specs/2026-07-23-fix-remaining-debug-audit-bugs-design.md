@@ -300,6 +300,13 @@ converged on after PR #14's review caught exactly that anti-pattern once):
 3. STREAMING escalation: force `fit_with_hybrid_streaming_fn` to return
    `success=False` (monkeypatch/stub), assert the fallback loop actually
    invokes the CHUNKED path next (not an immediate terminal "partial").
+   Also cover the recovery-branch half of this same fix (the default
+   `enable_recovery=True` flow, not an edge case): stub
+   `execute_with_recovery_fn` to return `convergence_status="failed"`
+   (its real return value on retry exhaustion, per `recovery.py:280` — a
+   `return`, not a raised exception) and assert this also escalates to the
+   next fallback strategy under the shared success predicate, not just the
+   STREAMING path.
 4. Sigma-weighting (both files): construct a small synthetic per-angle
    dataset with non-uniform `sigma`, assert the L2 hierarchical loss value
    changes when `sigma` is non-uniform vs uniform (proving it's now
