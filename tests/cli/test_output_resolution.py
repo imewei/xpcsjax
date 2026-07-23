@@ -125,6 +125,47 @@ def test_post_fit_plots_write_under_plots_subdir(tmp_path: Path, monkeypatch: An
     assert out == plots_dir
 
 
+def test_run_nlsq_writes_trio_when_output_dir_only_in_yaml(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """``run_nlsq``'s Writer 1 (parameters/analysis_results_nlsq/convergence_metrics)
+    must honor ``output.directory`` from YAML alone, with no ``--output`` CLI
+    flag — the documented default workflow. Previously it used a private
+    ``_resolve_output_dir`` that only checked ``args.output`` and silently
+    no-op'd whenever output dir came from YAML only.
+    """
+    import numpy as np
+
+    from xpcsjax.cli import optimization_runner
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+
+    fake_result = OptimizationResult(
+        parameters=np.array([1.0, 2.0]),
+        uncertainties=np.array([0.1, 0.2]),
+        covariance=np.eye(2),
+        chi_squared=1.0,
+        reduced_chi_squared=1.0,
+        convergence_status="converged",
+        iterations=5,
+        execution_time=0.01,
+        device_info={},
+    )
+    monkeypatch.setattr(optimization_runner, "run_fit", lambda *a, **k: fake_result)
+
+    cfgmgr = _cfg({"analysis_mode": "static_isotropic", "output": {"directory": str(tmp_path)}})
+    args = _args()  # no --output CLI flag — output dir comes only from YAML
+    for attr in ("multistart", "multistart_n", "max_iterations", "tolerance", "no_jit"):
+        setattr(args, attr, None)
+    args.verbose = False
+    args.quiet = False
+
+    optimization_runner.run_nlsq(args, cfgmgr, data={})
+
+    assert (tmp_path / "parameters.json").is_file()
+    assert (tmp_path / "analysis_results_nlsq.json").is_file()
+    assert (tmp_path / "convergence_metrics.json").is_file()
+
+
 def test_post_fit_plots_return_none_on_failure(tmp_path: Path, monkeypatch: Any) -> None:
     """When generate_nlsq_plots raises, _generate_post_fit_plots must report
     that nothing was written (return None) so dispatch_plots does not log a

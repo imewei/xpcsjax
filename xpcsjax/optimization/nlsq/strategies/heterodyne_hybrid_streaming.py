@@ -610,6 +610,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
             mode=reg_cfg_dict.get("mode", "relative"),
             lambda_base=float(reg_cfg_dict.get("lambda", 1.0)),
             target_cv=float(reg_cfg_dict.get("target_cv", 0.10)),
+            auto_tune_lambda=bool(reg_cfg_dict.get("auto_tune_lambda", True)),
             group_indices=group_indices_full,
         )
         adaptive_regularizer = AdaptiveRegularizer(reg_config, n_phi_meta)

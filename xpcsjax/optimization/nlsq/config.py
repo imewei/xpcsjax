@@ -407,28 +407,32 @@ class NLSQConfig:
         NLSQConfig
             Validated configuration object.
         """
-        # Extract nested sections
-        diagnostics = config_dict.get("diagnostics", {})
-        streaming = config_dict.get("streaming", {})
-        stratified = config_dict.get("stratified", {})
-        recovery = config_dict.get("recovery", {})
-        hybrid_streaming = config_dict.get("hybrid_streaming", {})
-        multi_start = config_dict.get("multi_start", {})
+        # Extract nested sections. `.get(key, {})` only substitutes the
+        # default for a MISSING key -- a present-but-null YAML section (bare
+        # header or explicit `null`) still yields None, so `or {}` degrades
+        # that to defaults too instead of crashing on the `.get()` chains
+        # below.
+        diagnostics = config_dict.get("diagnostics") or {}
+        streaming = config_dict.get("streaming") or {}
+        stratified = config_dict.get("stratified") or {}
+        recovery = config_dict.get("recovery") or {}
+        hybrid_streaming = config_dict.get("hybrid_streaming") or {}
+        multi_start = config_dict.get("multi_start") or {}
 
         # Extract progress/logging settings
-        progress = config_dict.get("progress", {})
+        progress = config_dict.get("progress") or {}
 
         # Extract anti-degeneracy settings
-        anti_degeneracy = config_dict.get("anti_degeneracy", {})
-        hierarchical = anti_degeneracy.get("hierarchical", {})
-        regularization = anti_degeneracy.get("regularization", {})
-        gradient_monitoring = anti_degeneracy.get("gradient_monitoring", {})
+        anti_degeneracy = config_dict.get("anti_degeneracy") or {}
+        hierarchical = anti_degeneracy.get("hierarchical") or {}
+        regularization = anti_degeneracy.get("regularization") or {}
+        gradient_monitoring = anti_degeneracy.get("gradient_monitoring") or {}
 
         # Extract CMA-ES global optimization settings
-        cmaes = config_dict.get("cmaes", {})
+        cmaes = config_dict.get("cmaes") or {}
 
         # Extract fit quality validation settings
-        quality_validation = config_dict.get("quality_validation", {})
+        quality_validation = config_dict.get("quality_validation") or {}
 
         config = cls(
             # NLSQ Workflow Settings

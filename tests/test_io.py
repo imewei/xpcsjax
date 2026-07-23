@@ -99,6 +99,32 @@ class TestJsonSafeEdgeCases:
         result = json_safe(ok)
         assert len(result) == _JSON_ARRAY_SIZE_LIMIT
 
+    def test_non_ndarray_array_like_over_limit_raises(self) -> None:
+        # Regression: the size guard was implemented only for np.ndarray, so a
+        # duck-typed array-like (e.g. jax.Array) exposing .size/.tolist() fell
+        # through to the generic tolist() branch with NO size check at all.
+        class _ArrayLike:
+            def __init__(self, n: int) -> None:
+                self.size = n
+
+            def tolist(self) -> list[float]:
+                return [0.0] * self.size
+
+        big = _ArrayLike(_JSON_ARRAY_SIZE_LIMIT + 1)
+        with pytest.raises(ValueError, match="too large to embed in JSON"):
+            json_safe(big)
+
+    def test_non_ndarray_array_like_under_limit_passes(self) -> None:
+        class _ArrayLike:
+            def __init__(self, n: int) -> None:
+                self.size = n
+
+            def tolist(self) -> list[float]:
+                return [1.0] * self.size
+
+        result = json_safe(_ArrayLike(3))
+        assert result == [1.0, 1.0, 1.0]
+
 
 class TestJsonSafeRoundTrip:
     """Verify json_safe output is always valid JSON (no NaN/Inf tokens)."""

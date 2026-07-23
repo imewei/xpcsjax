@@ -252,11 +252,11 @@ def test_orchestrator_fail_soft_on_bad_angle(
     call_count = {"n": 0}
     real = mod._evaluate_c2_per_angle
 
-    def flaky(model, result, data, config, phi_deg):
+    def flaky(model, result, data, config, phi_deg, phi_index=None):
         call_count["n"] += 1
         if call_count["n"] == 2:
             raise RuntimeError("simulated compute failure")
-        return real(model, result, data, config, phi_deg)
+        return real(model, result, data, config, phi_deg, phi_index=phi_index)
 
     monkeypatch.setattr(mod, "_evaluate_c2_per_angle", flaky)
 

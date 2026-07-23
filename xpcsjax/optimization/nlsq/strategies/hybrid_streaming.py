@@ -787,6 +787,7 @@ def fit_with_stratified_hybrid_streaming(
     target_cv = float(regularization_config.get("target_cv", 0.10))
     target_contribution = float(regularization_config.get("target_contribution", 0.10))
     max_cv = float(regularization_config.get("max_cv", 0.20))
+    auto_tune_lambda = bool(regularization_config.get("auto_tune_lambda", True))
 
     adaptive_regularizer = None
     if per_angle_scaling:
@@ -812,6 +813,7 @@ def fit_with_stratified_hybrid_streaming(
             target_cv=target_cv,
             target_contribution=target_contribution,
             max_cv=max_cv,
+            auto_tune_lambda=auto_tune_lambda,
             group_indices=mode_group_indices,
         )
         adaptive_regularizer = AdaptiveRegularizer(reg_config, n_phi)
@@ -1397,6 +1399,53 @@ def fit_with_stratified_hybrid_streaming(
             )
             fit_bounds = (fit_lower, fit_upper)
         logger.info("=" * 60)
+    elif use_constant:
+        # Fallback: explicit "constant" mode where quantile-based fixed-scaling
+        # estimation raised (use_fixed_scaling stayed False, see the except
+        # block above). Without this branch fit_initial_params/fit_bounds stay
+        # at the full per-angle length (2*n_phi + n_physical) while
+        # model_fn_pointwise's `elif use_constant:` branch (and n_per_angle=2
+        # above) expect only 2 + n_physical params — a silent parameter-vector
+        # corruption (per-angle contrast/offset leaking into physics slots).
+        # Mirror the averaged-mode transform above, but using the mean of the
+        # raw per-angle initial values (quantile estimates are unavailable).
+        logger.warning("=" * 60)
+        logger.warning("ANTI-DEGENERACY EXECUTION: Constant Scaling (quantile fallback)")
+        logger.warning("  Quantile-based fixed scaling failed; using mean of initial values")
+        per_angle_params = initial_params[: 2 * n_phi]
+        physical_params = initial_params[2 * n_phi :]
+        contrast_per_angle = per_angle_params[:n_phi]
+        offset_per_angle = per_angle_params[n_phi : 2 * n_phi]
+        contrast_mean = np.nanmean(contrast_per_angle)
+        offset_mean = np.nanmean(offset_per_angle)
+
+        # New parameter layout: [contrast_const, offset_const, physical_params]
+        fit_initial_params = np.concatenate([[contrast_mean], [offset_mean], physical_params])
+
+        logger.warning(f"  Original params: {len(initial_params)}")
+        logger.warning(f"  Constant params: {len(fit_initial_params)}")
+        logger.warning(f"  Per-angle reduction: {2 * n_phi} -> 2")
+        logger.warning(f"  Contrast mean: {contrast_mean:.6f}")
+        logger.warning(f"  Offset mean: {offset_mean:.6f}")
+
+        if bounds is not None:
+            lower_bounds, upper_bounds = bounds
+            fit_lower = np.concatenate(
+                [
+                    [lower_bounds[0]],
+                    [lower_bounds[n_phi]],
+                    lower_bounds[2 * n_phi :],
+                ]
+            )
+            fit_upper = np.concatenate(
+                [
+                    [upper_bounds[0]],
+                    [upper_bounds[n_phi]],
+                    upper_bounds[2 * n_phi :],
+                ]
+            )
+            fit_bounds = (fit_lower, fit_upper)
+        logger.warning("=" * 60)
 
     # Phase 6: per-angle scaling uses the standard pointwise model on all resolved modes.
     active_model_fn = model_fn_pointwise
@@ -1736,6 +1785,64 @@ def fit_with_stratified_hybrid_streaming(
             result["pcov_transformed"] = None
 
         logger.info("=" * 60)
+    elif use_constant:
+        # Inverse of the forward-transform quantile-fallback branch above:
+        # explicit "constant" mode whose quantile-based fixed-scaling estimation
+        # failed used the same [contrast_const, offset_const, physical_params]
+        # layout as use_averaged_scaling, so popt/pcov must be expanded back to
+        # the per-angle layout the same way — otherwise popt stays at length
+        # 2 + n_physical instead of the 2*n_phi + n_physical the caller
+        # (residual_fn, diagnostics) expects.
+        logger.warning("=" * 60)
+        logger.warning("ANTI-DEGENERACY EXECUTION: Inverse Constant Transform (quantile fallback)")
+        from xpcsjax.optimization.nlsq.data_prep import (
+            expand_per_angle_parameters,
+        )
+
+        contrast_const = popt[0]
+        offset_const = popt[1]
+        n_physical_opt = len(popt) - 2
+        expanded = expand_per_angle_parameters(
+            popt,
+            None,
+            n_phi,
+            n_physical_opt,
+        )
+        popt = expanded.params
+
+        logger.warning(f"  Constant params: 2 + {n_physical_opt} physical")
+        logger.warning(f"  Restored per-angle params: {len(popt)}")
+        logger.warning(f"  Contrast (uniform): {contrast_const:.6f}")
+        logger.warning(f"  Offset (uniform): {offset_const:.6f}")
+
+        pcov_constant = result.get("pcov", None)
+        n_constant_total = 2 + n_physical_opt
+
+        if (
+            pcov_constant is not None
+            and pcov_constant.shape[0] == n_constant_total
+            and pcov_constant.shape[1] == n_constant_total
+        ):
+            n_per_angle_total = 2 * n_phi
+            n_physical = n_physical_opt
+            n_total_restored = n_per_angle_total + n_physical
+
+            J_full = np.zeros((n_total_restored, n_constant_total))
+            J_full[:n_phi, 0] = 1.0
+            J_full[n_phi : 2 * n_phi, 1] = 1.0
+            J_full[2 * n_phi :, 2:] = np.eye(n_physical)
+
+            try:
+                pcov_transformed = J_full @ pcov_constant @ J_full.T
+                result["pcov_transformed"] = pcov_transformed
+                logger.warning("  Covariance transformed from constant to per-angle space")
+            except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
+                logger.warning(f"  Covariance transformation failed: {e}. Using identity fallback.")
+                result["pcov_transformed"] = None
+        else:
+            result["pcov_transformed"] = None
+
+        logger.warning("=" * 60)
 
     # Log gradient monitor summary if available
     if gradient_monitor is not None:

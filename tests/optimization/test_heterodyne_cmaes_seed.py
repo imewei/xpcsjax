@@ -151,6 +151,42 @@ def test_all_cmaes_config_sites_pin_seed() -> None:
     )
 
 
+def test_all_cmaes_config_sites_pin_sigma() -> None:
+    """Every ``CMAESWrapperConfig(...)`` literal in heterodyne_core passes ``sigma=``.
+
+    Prevention guard for the same root cause that dropped ``cmaes_sigma0`` on the
+    joint escapes: the per-angle site threaded ``sigma=`` while the two joint
+    sites silently used the wrapper default (0.5). A new call site that forgets
+    ``sigma=`` fails here rather than shipping the wrong initial step size.
+    """
+    source = inspect.getsource(heterodyne_core)
+    tree = ast.parse(source)
+
+    offenders: list[int] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = (
+            func.id
+            if isinstance(func, ast.Name)
+            else func.attr
+            if isinstance(func, ast.Attribute)
+            else None
+        )
+        if name != "CMAESWrapperConfig":
+            continue
+        kwarg_names = {kw.arg for kw in node.keywords}
+        if "sigma" not in kwarg_names:
+            offenders.append(node.lineno)
+
+    assert not offenders, (
+        "every CMAESWrapperConfig(...) in heterodyne_core.py must pin sigma= "
+        "(cmaes_sigma0 initial step size); sites missing sigma= at lines: "
+        f"{offenders}"
+    )
+
+
 @pytest.mark.skipif(
     not getattr(heterodyne_core, "HAS_CMAES", False),
     reason="CMA-ES backend (evosax) not installed; determinism not testable",

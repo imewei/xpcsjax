@@ -248,6 +248,7 @@ class MemoryMapManager:
         self._open_maps: dict[str, Any] = {}
         self._access_counts: dict[str, int] = {}
         self._last_access: dict[str, float] = {}
+        self._in_use: dict[str, int] = {}
         self._lock = threading.RLock()
 
         logger.info(
@@ -312,17 +313,34 @@ class MemoryMapManager:
                     logger.error(f"Failed to open memory-mapped HDF5 {file_path}: {e}")
                     raise
 
+            # Mark checked out so _cleanup_old_mappings won't evict it mid-use.
+            self._in_use[file_path] = self._in_use.get(file_path, 0) + 1
+
         # Yield outside the lock — callers can use the file handle without
         # blocking other threads from registering/opening files.
-        yield hdf_file
+        try:
+            yield hdf_file
+        finally:
+            with self._lock:
+                self._in_use[file_path] -= 1
+                if self._in_use[file_path] <= 0:
+                    del self._in_use[file_path]
+                # Refresh so a long-held handle isn't immediately LRU-oldest
+                # the moment it's released.
+                if file_path in self._last_access:
+                    self._last_access[file_path] = time.time()
 
     def _cleanup_old_mappings(self) -> None:
         """Clean up old memory mappings to stay under limits."""
         if len(self._open_maps) < self.max_open_files:
             return
 
-        # Sort by last access time, oldest first
-        sorted_files = sorted(self._last_access.items(), key=lambda x: x[1])
+        # Sort by last access time, oldest first; skip handles currently checked
+        # out (refcount > 0) so a concurrent in-flight read is never evicted.
+        sorted_files = sorted(
+            (item for item in self._last_access.items() if not self._in_use.get(item[0])),
+            key=lambda x: x[1],
+        )
 
         # Close oldest files until under limit
         files_to_close = len(self._open_maps) - self.max_open_files + 5  # Extra buffer

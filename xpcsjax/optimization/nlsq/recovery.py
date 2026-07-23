@@ -433,9 +433,14 @@ def diagnose_error(
             "Verify parameter bounds are reasonable",
         ]
 
+        # Absolute-value scale with a unit floor (mirrors the stagnation-retry
+        # perturbation above) so a parameter that starts at exactly 0 still
+        # receives a non-zero perturbation — a purely multiplicative kick
+        # (``params * (1 + noise)``) can never move it.
+        perturb_scale = np.where(np.abs(params) > 1e-12, np.abs(params), 1.0)
         if attempt == 0:
             perturbation = np.random.default_rng(seed=42).standard_normal(params.shape) * 0.1
-            new_params = params * (1.0 + perturbation)
+            new_params = params + perturb_scale * perturbation
             if bounds is not None:
                 new_params = np.clip(new_params, bounds[0], bounds[1])
             diagnostic["recovery_strategy"] = {
@@ -444,7 +449,7 @@ def diagnose_error(
             }
         else:
             perturbation = np.random.default_rng(seed=123).standard_normal(params.shape) * 0.2
-            new_params = params * (1.0 + perturbation)
+            new_params = params + perturb_scale * perturbation
             if bounds is not None:
                 new_params = np.clip(new_params, bounds[0], bounds[1])
             diagnostic["recovery_strategy"] = {
@@ -518,7 +523,10 @@ def diagnose_error(
             "Consult error message for details",
         ]
         perturbation = np.random.default_rng(seed=99 + attempt).standard_normal(params.shape) * 0.05
-        new_params = params * (1.0 + perturbation)
+        # Absolute-value scale with a unit floor (mirrors the stagnation-retry
+        # perturbation) so a zero-valued parameter still moves.
+        perturb_scale = np.where(np.abs(params) > 1e-12, np.abs(params), 1.0)
+        new_params = params + perturb_scale * perturbation
         if bounds is not None:
             new_params = np.clip(new_params, bounds[0], bounds[1])
         diagnostic["recovery_strategy"] = {

@@ -425,7 +425,11 @@ def compute_chi_squared(
 ) -> jnp.ndarray:
     """Compute chi-squared (JIT-compiled).
 
-    Evaluates ``chi2 = sum((c2_model - c2_data)**2 * weights)``.
+    Evaluates ``chi2 = sum((c2_model - c2_data)**2 * weights)`` over the same
+    off-diagonal, frame-0-excluded support ``_compute_residuals_jit`` uses for
+    the real NLSQ fit — the t=0 row/column and the ``t1==t2`` diagonal are not
+    physically meaningful data and were previously included here despite
+    being excluded from the residual path.
 
     Parameters
     ----------
@@ -454,7 +458,9 @@ def compute_chi_squared(
         Chi-squared scalar.
     """
     c2_model = compute_c2_heterodyne(params, t, q, dt, phi_angle, contrast, offset)
-    return jnp.sum((c2_model - c2_data) ** 2 * weights)
+    rows, cols = _offdiag_indices(c2_data.shape[0])
+    diff = c2_model[rows, cols] - c2_data[rows, cols]
+    return jnp.sum(diff**2 * weights[rows, cols])
 
 
 def batch_chi_squared(

@@ -14,6 +14,7 @@ from xpcsjax.config.heterodyne_parameter_names import (
     SCALING_PARAMS,
 )
 from xpcsjax.config.parameter_registry import DEFAULT_REGISTRY
+from xpcsjax.config.types import coerce_finite_float
 from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -372,8 +373,10 @@ class ParameterSpace:
                     if "value" in pconfig:
                         # Coerce to float on ingestion (PyYAML may hand us a
                         # quoted string scalar) — mirrors the flat/list paths
-                        # (audit C10).
-                        new_val = float(pconfig["value"])
+                        # (audit C10). Rejects NaN/±inf at the boundary.
+                        new_val = coerce_finite_float(
+                            pconfig["value"], context=f"parameters.{group_name}.{param_name}.value"
+                        )
                         if new_val != reg_info.default:
                             logger.debug(
                                 "Config overrides %s value: %.6g -> %.6g",
@@ -383,7 +386,16 @@ class ParameterSpace:
                             )
                         space.values[param_name] = new_val
                     if "min" in pconfig and "max" in pconfig:
-                        new_bounds = (float(pconfig["min"]), float(pconfig["max"]))
+                        new_bounds = (
+                            coerce_finite_float(
+                                pconfig["min"],
+                                context=f"parameters.{group_name}.{param_name}.min",
+                            ),
+                            coerce_finite_float(
+                                pconfig["max"],
+                                context=f"parameters.{group_name}.{param_name}.max",
+                            ),
+                        )
                         if (
                             new_bounds[0] != reg_info.min_bound
                             or new_bounds[1] != reg_info.max_bound
@@ -469,7 +481,9 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
 
     for name, value in zip(param_names, param_values, strict=True):
         if name in space.values:
-            space.values[name] = float(value)
+            space.values[name] = coerce_finite_float(
+                value, context=f"initial_parameters.values[{name!r}]"
+            )
             logger.debug("initial_parameters: set %s = %.6g (flat-format override)", name, value)
         else:
             logger.warning("initial_parameters: unknown parameter '%s', skipping", name)
@@ -541,7 +555,12 @@ def _apply_parameter_space_bounds(space: ParameterSpace, config: dict[str, Any])
             logger.warning("parameter_space.bounds: unknown parameter '%s', skipping", raw_name)
             continue
         if "min" in entry and "max" in entry:
-            lo, hi = float(entry["min"]), float(entry["max"])
+            lo = coerce_finite_float(
+                entry["min"], context=f"parameter_space.bounds[{raw_name!r}].min"
+            )
+            hi = coerce_finite_float(
+                entry["max"], context=f"parameter_space.bounds[{raw_name!r}].max"
+            )
             reg = registry_info(name)
             if lo != reg.min_bound or hi != reg.max_bound:
                 logger.debug(
@@ -556,6 +575,8 @@ def _apply_parameter_space_bounds(space: ParameterSpace, config: dict[str, Any])
         # Optional value / vary overrides (value None means "leave warm-start").
         val = entry.get("value")
         if val is not None:
-            space.values[name] = float(val)
+            space.values[name] = coerce_finite_float(
+                val, context=f"parameter_space.bounds[{raw_name!r}].value"
+            )
         if "vary" in entry:
             space.vary[name] = bool(entry["vary"])

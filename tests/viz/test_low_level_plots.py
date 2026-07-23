@@ -227,6 +227,116 @@ def test_evaluate_unsupported_raises() -> None:
         _evaluate_c2_per_angle(FakeModel(), None, {}, {}, phi_deg=0.0)  # type: ignore[arg-type]
 
 
+def test_resolve_phi_index_prefers_explicit_index() -> None:
+    """Duplicate-valued phi entries must resolve by loop index, not first match."""
+    from xpcsjax.viz.nlsq_plots import _resolve_phi_index
+
+    data = {"phi_angles_list": np.array([0.0, 45.0, 45.0, 90.0])}
+    # Explicit index wins even when the nominal value is duplicated.
+    assert _resolve_phi_index(data, 45.0, phi_index=2) == 2
+    assert _resolve_phi_index(data, 45.0, phi_index=1) == 1
+    # Fallback (no index) picks the first matching value — the legacy path.
+    assert _resolve_phi_index(data, 45.0, phi_index=None) == 1
+    with pytest.raises(ValueError, match="not found"):
+        _resolve_phi_index(data, 12.5, phi_index=None)
+
+
+def test_evaluate_heterodyne_duplicate_phi_uses_own_scaling(
+    heterodyne_model,
+    synthetic_multi_angle_data,
+) -> None:
+    """Two angles sharing a phi value each render with THEIR OWN contrast/offset.
+
+    Regression for the index re-derivation bug: ``np.isclose`` returned the
+    FIRST duplicate, so every later duplicate-valued angle silently rendered
+    with the first duplicate's scaling. c2 = offset[i] + contrast[i] * g1²; for
+    a shared phi the g1² surface is identical, so any difference must come from
+    the per-index scaling.
+    """
+    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+
+    t = synthetic_multi_angle_data["t1"]
+    # phi_angles_list has index 1 and index 2 sharing the value 45.0.
+    phi_angles = np.array([0.0, 45.0, 45.0, 90.0])
+    n_phi = phi_angles.size
+    data = {
+        "c2_exp": np.empty((n_phi, t.size, t.size)),
+        "phi_angles_list": phi_angles,
+        "t1": t,
+        "t2": t,
+        "dt": 0.1,
+    }
+    het = HeterodyneModel()
+    physical = np.asarray(het.get_default_parameters(), dtype=float)
+    # Distinct scaling for the duplicate pair: idx1 -> (0.2, 1.0), idx2 -> (0.5, 2.0).
+    contrasts = np.array([0.2, 0.2, 0.5, 0.2])
+    offsets = np.array([1.0, 1.0, 2.0, 1.0])
+    result = OptimizationResult(
+        parameters=np.concatenate([contrasts, offsets, physical]),
+        uncertainties=np.ones(2 * n_phi + physical.size) * 0.01,
+        covariance=np.eye(2 * n_phi + physical.size) * 0.01,
+        chi_squared=2.5,
+        reduced_chi_squared=0.9,
+        convergence_status="converged",
+        iterations=1,
+        execution_time=1.0,
+        device_info={"platform": "cpu"},
+    )
+    config = {
+        "analyzer_parameters": {
+            "dt": 0.1,
+            "scattering": {"wavevector_q": 0.0054},
+            "geometry": {"stator_rotor_gap": 2_000_000.0},
+        },
+        "analysis_mode": "heterodyne",
+    }
+
+    c2_idx1 = _evaluate_c2_per_angle(
+        heterodyne_model, result, data, config, phi_deg=45.0, phi_index=1
+    )
+    c2_idx2 = _evaluate_c2_per_angle(
+        heterodyne_model, result, data, config, phi_deg=45.0, phi_index=2
+    )
+
+    # The two duplicate angles must render differently (buggy code made them equal).
+    assert not np.allclose(c2_idx1, c2_idx2)
+    # Recovering g1² from each surface using ITS OWN scaling must agree — proving
+    # each render used its own (contrast, offset), not the first duplicate's.
+    g1_from_1 = (c2_idx1 - 1.0) / 0.2
+    g1_from_2 = (c2_idx2 - 2.0) / 0.5
+    assert np.allclose(g1_from_1, g1_from_2)
+
+
+def test_evaluate_null_scattering_section_raises_valueerror(
+    heterodyne_model,
+    converged_heterodyne_result,
+    synthetic_multi_angle_data,
+) -> None:
+    """A null (present-but-None) config section degrades to the intended ValueError.
+
+    ``analyzer_parameters: {scattering: null}`` in YAML yields ``{"scattering":
+    None}``; the old ``.get("scattering", {})`` returned None and the chained
+    ``.get(...)`` raised an opaque AttributeError instead of the clear ValueError.
+    """
+    config = {
+        "analyzer_parameters": {
+            "dt": 0.1,
+            "scattering": None,
+            "geometry": {"stator_rotor_gap": 2_000_000.0},
+        },
+        "analysis_mode": "heterodyne",
+    }
+    with pytest.raises(ValueError, match="wavevector_q"):
+        _evaluate_c2_per_angle(
+            heterodyne_model,
+            converged_heterodyne_result,
+            synthetic_multi_angle_data,
+            config,
+            phi_deg=45.0,
+        )
+
+
 def test_plot_nlsq_fit_three_image_axes(synthetic_single_angle_data) -> None:
     d = synthetic_single_angle_data
     fig = plot_nlsq_fit(
@@ -332,6 +442,21 @@ def test_plot_simulated_data_single_image_axis(synthetic_single_angle_data) -> N
     )
     image_axes = [ax for ax in fig.axes if ax.images]
     assert len(image_axes) == 1
+    plt.close(fig)
+
+
+def test_plot_simulated_data_annotation_ignores_single_inf(
+    synthetic_single_angle_data,
+) -> None:
+    # Regression: nanmean/nanmin/nanmax only skip NaN, not inf — a single inf
+    # value must not poison the Mean/Range annotation text.
+    d = synthetic_single_angle_data
+    c2_sim = d["c2_exp"].copy()
+    c2_sim[0, 0] = np.inf
+    finite = c2_sim[np.isfinite(c2_sim)]
+    fig = plot_simulated_data(c2_sim, t=d["t"])
+    texts = [t.get_text() for ax in fig.axes for t in ax.texts]
+    assert any(f"Mean: {np.mean(finite):.4f}" in t for t in texts)
     plt.close(fig)
 
 

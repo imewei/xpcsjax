@@ -177,7 +177,17 @@ class DatasetOptimizer:
             Strategy (chunk/batch sizes, worker count, JAX config) optimized
             for the dataset.
         """
-        cache_key = hash((dataset_info.size, method, self.memory_limit_mb))
+        cache_key = hash(
+            (
+                dataset_info.size,
+                dataset_info.category,
+                dataset_info.recommended_chunk_size,
+                dataset_info.recommended_batch_size,
+                dataset_info.use_progressive_loading,
+                method,
+                self.memory_limit_mb,
+            )
+        )
 
         if cache_key in self._strategy_cache:
             return self._strategy_cache[cache_key]

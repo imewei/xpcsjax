@@ -61,6 +61,17 @@ def json_safe(value: Any) -> Any:
             )
         # Recurse through tolist() result to sanitize any NaN/Inf floats
         return json_safe(value.tolist())
+    elif hasattr(value, "size") and hasattr(value, "tolist") and not np.isscalar(value):
+        # Non-ndarray array-likes (e.g. jax.Array) that reach here must get the
+        # same size guard as the np.ndarray branch above — otherwise they skip
+        # the check entirely via the generic tolist() fallback further down.
+        size = value.size
+        if size > _JSON_ARRAY_SIZE_LIMIT:
+            raise ValueError(
+                f"Array with {size} elements is too large to embed in JSON "
+                f"(limit {_JSON_ARRAY_SIZE_LIMIT}). Save large arrays as NPZ instead."
+            )
+        return json_safe(value.tolist())
     elif isinstance(value, (np.integer, np.floating)):
         v = value.item()
         if isinstance(v, float):

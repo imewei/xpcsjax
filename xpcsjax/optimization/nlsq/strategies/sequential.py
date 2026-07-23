@@ -65,9 +65,12 @@ def _jax_jacobian(
     # Convert to JAX array
     params_jax = jnp.asarray(params)
 
-    # Wrap function for JAX compatibility
-    def jax_func(p: jnp.ndarray) -> jnp.ndarray:
-        return jnp.asarray(func(np.asarray(p)))
+    # Wrap function for JAX compatibility. Pass the tracer straight through —
+    # np.asarray(p) on a jacfwd tracer raises TracerArrayConversionError. `func`
+    # is typed for a concrete np.ndarray, but under jacfwd `p` is a JAX tracer;
+    # Any reflects that this call intentionally crosses that type boundary.
+    def jax_func(p: Any) -> jnp.ndarray:
+        return jnp.asarray(func(p))
 
     # Compute Jacobian using forward-mode autodiff
     jac_fn = jax.jacfwd(jax_func)

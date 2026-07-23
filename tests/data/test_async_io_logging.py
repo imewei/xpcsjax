@@ -51,6 +51,37 @@ def test_background_write_failure_logs_warning(caplog):
         writer.shutdown()
 
 
+def test_wait_all_reports_task_raised_timeout_error_not_pending(caplog):
+    """A task that itself raises TimeoutError must surface as an error.
+
+    concurrent.futures.TimeoutError is the builtin TimeoutError (3.11+) — the
+    same exception Future.result(timeout=...) raises for a still-pending
+    future. wait_all must disambiguate via future.done(): a DONE future that
+    raised TimeoutError is a real failure, not "still in progress".
+    """
+    writer = AsyncWriter(max_workers=1)
+    try:
+
+        def _raises_timeout() -> None:
+            raise TimeoutError("write timed out")
+
+        writer.submit_task(_raises_timeout)
+        with caplog.at_level(logging.WARNING, logger="xpcsjax"):
+            errors = writer.wait_all(timeout=10.0)
+
+        assert len(errors) == 1
+        assert isinstance(errors[0], TimeoutError)
+        assert any(
+            r.levelno == logging.WARNING and "write timed out" in r.getMessage()
+            for r in caplog.records
+        )
+        # The future must not linger forever waiting for a shutdown that will
+        # never observe a new completion.
+        assert len(writer._futures) == 0
+    finally:
+        writer.shutdown()
+
+
 def test_wait_all_distinct_failures_each_logged(caplog):
     """#8: DISTINCT failures in one wait_all() must each surface a WARNING.
 
@@ -209,3 +240,35 @@ def test_shutdown_surfaces_write_failing_after_drain_timeout(caplog):
         "a write failing during the final shutdown drain must be surfaced as a "
         f"WARNING; got {len(late)} (silent-drop regression)"
     )
+
+
+def test_wait_all_timeout_is_a_shared_budget():
+    """``timeout`` bounds the whole wait_all() call, not each pending future.
+
+    Regression: the old per-future ``result(timeout=T)`` loop blocked up to
+    N*T seconds for N still-pending writes, breaking shutdown()'s drain_timeout
+    contract. ``wait(pending, timeout=T)`` bounds the whole call to ~T.
+    """
+    import threading
+
+    release = threading.Event()
+    writer = AsyncWriter(max_workers=3)
+    try:
+        for _ in range(3):
+            writer.submit_task(lambda: release.wait(10.0))
+
+        budget = 0.3
+        start = time.monotonic()
+        errors = writer.wait_all(timeout=budget)
+        elapsed = time.monotonic() - start
+
+        # All three writes are still blocked, so none completed and no errors.
+        assert errors == []
+        # A shared budget returns in ~budget; the N*budget bug would take >= 0.9s.
+        assert elapsed < 2 * budget, (
+            f"wait_all(timeout={budget}) took {elapsed:.2f}s; expected a single "
+            "shared budget, not one timeout per pending future"
+        )
+    finally:
+        release.set()
+        writer.shutdown(drain_timeout=5.0)

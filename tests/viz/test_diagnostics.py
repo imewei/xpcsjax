@@ -33,6 +33,17 @@ def test_diagonal_overlay_rmse_matches_manual() -> None:
     assert result.fitted_variance == pytest.approx(0.0)
 
 
+def test_diagonal_overlay_variance_ignores_single_inf() -> None:
+    # Regression: a single +inf on the diagonal must not poison variance to
+    # NaN — np.nanvar only masks NaN, not inf, so the guard must pre-mask to
+    # the finite subset (mirrors the pair_mask pattern used for fitted_rmse).
+    c2_exp = np.diag([1.0, 2.0, np.inf])[None, ...]
+    c2_fit = np.diag([1.0, 2.0, 3.0])[None, ...]
+    result = compute_diagonal_overlay_stats(c2_exp, c2_fit, phi_index=0)
+    assert result.raw_variance == pytest.approx(np.var([1.0, 2.0], ddof=1))
+    assert not np.isnan(result.raw_variance)
+
+
 def test_diagonal_overlay_out_of_bounds_raises() -> None:
     n_phi, n = 3, 8
     c2_exp = np.ones((n_phi, n, n))

@@ -301,8 +301,9 @@ class ConfigManager:
                 self.config = self._get_default_config()
                 return
 
-            if "metadata" in self.config:
-                version = self.config["metadata"].get("config_version", "Unknown")
+            metadata = self.config.get("metadata")
+            if isinstance(metadata, dict):
+                version = metadata.get("config_version", "Unknown")
                 logger.info(f"Configuration version: {version}")
 
             # Anchor relative data paths to the config file's directory so the
@@ -826,7 +827,67 @@ class ConfigManager:
                 value, context=f"initial_parameters.values[{canonical_name!r}]"
             )
 
-        # Filter by active_parameters if specified
+        # Load per-angle scaling parameters (contrast, offset) if present.
+        # Injected BEFORE the fixed_parameters filter below so contrast/offset
+        # keys are excluded the same as physics parameters (otherwise they'd
+        # leak past it, contradicting the fixed-parameter exclusion this method
+        # promises). They are deliberately EXEMPT from the active_parameters
+        # filter: active_parameters is a physics-oriented whitelist that never
+        # names contrast/offset (or their per-angle contrast_N/offset_N forms),
+        # so subjecting these injected keys to it would silently drop every
+        # explicitly-configured per-angle scaling value whenever
+        # active_parameters is set.
+        per_angle_scaling_keys: set[str] = set()
+        per_angle_scaling = initial_params.get("per_angle_scaling")
+        if per_angle_scaling and isinstance(per_angle_scaling, dict):
+            # Extract contrast and offset arrays
+            contrast_values = per_angle_scaling.get("contrast")
+            offset_values = per_angle_scaling.get("offset")
+
+            if contrast_values is not None and isinstance(contrast_values, list):
+                if len(contrast_values) == 1:
+                    # Single-angle: use scalar contrast
+                    initial_params_dict["contrast"] = coerce_finite_float(
+                        contrast_values[0],
+                        context="initial_parameters.per_angle_scaling.contrast[0]",
+                    )
+                    per_angle_scaling_keys.add("contrast")
+                    logger.info(
+                        f"Loaded scalar contrast from per_angle_scaling: {contrast_values[0]}"
+                    )
+                else:
+                    # Multi-angle: use per-angle contrast_0, contrast_1, ...
+                    for idx, val in enumerate(contrast_values):
+                        key = f"contrast_{idx}"
+                        initial_params_dict[key] = coerce_finite_float(
+                            val,
+                            context=f"initial_parameters.per_angle_scaling.contrast[{idx}]",
+                        )
+                        per_angle_scaling_keys.add(key)
+                    logger.info(f"Loaded {len(contrast_values)} per-angle contrast values")
+
+            if offset_values is not None and isinstance(offset_values, list):
+                if len(offset_values) == 1:
+                    # Single-angle: use scalar offset
+                    initial_params_dict["offset"] = coerce_finite_float(
+                        offset_values[0],
+                        context="initial_parameters.per_angle_scaling.offset[0]",
+                    )
+                    per_angle_scaling_keys.add("offset")
+                    logger.info(f"Loaded scalar offset from per_angle_scaling: {offset_values[0]}")
+                else:
+                    # Multi-angle: use per-angle offset_0, offset_1, ...
+                    for idx, val in enumerate(offset_values):
+                        key = f"offset_{idx}"
+                        initial_params_dict[key] = coerce_finite_float(
+                            val,
+                            context=f"initial_parameters.per_angle_scaling.offset[{idx}]",
+                        )
+                        per_angle_scaling_keys.add(key)
+                    logger.info(f"Loaded {len(offset_values)} per-angle offset values")
+
+        # Filter by active_parameters if specified (per-angle-scaling keys are
+        # exempt — see the comment at their injection above).
         active_params_config = initial_params.get("active_parameters")
         if active_params_config and isinstance(active_params_config, list):
             # Map active parameter names to canonical names
@@ -835,9 +896,11 @@ class ConfigManager:
                 canonical = PARAMETER_NAME_MAPPING.get(name, name)
                 active_canonical.add(canonical)
 
-            # Filter to only active parameters
+            # Filter to only active parameters (plus exempt per-angle-scaling keys)
             initial_params_dict = {
-                k: v for k, v in initial_params_dict.items() if k in active_canonical
+                k: v
+                for k, v in initial_params_dict.items()
+                if k in active_canonical or k in per_angle_scaling_keys
             }
             logger.info(
                 f"Filtered to {len(initial_params_dict)} active parameters: {list(initial_params_dict.keys())}"
@@ -860,49 +923,6 @@ class ConfigManager:
                 f"Excluded {len(fixed_canonical)} fixed parameters, "
                 f"{len(initial_params_dict)} remaining"
             )
-
-        # Load per-angle scaling parameters (contrast, offset) if present
-        per_angle_scaling = initial_params.get("per_angle_scaling")
-        if per_angle_scaling and isinstance(per_angle_scaling, dict):
-            # Extract contrast and offset arrays
-            contrast_values = per_angle_scaling.get("contrast")
-            offset_values = per_angle_scaling.get("offset")
-
-            if contrast_values is not None and isinstance(contrast_values, list):
-                if len(contrast_values) == 1:
-                    # Single-angle: use scalar contrast
-                    initial_params_dict["contrast"] = coerce_finite_float(
-                        contrast_values[0],
-                        context="initial_parameters.per_angle_scaling.contrast[0]",
-                    )
-                    logger.info(
-                        f"Loaded scalar contrast from per_angle_scaling: {contrast_values[0]}"
-                    )
-                else:
-                    # Multi-angle: use per-angle contrast_0, contrast_1, ...
-                    for idx, val in enumerate(contrast_values):
-                        initial_params_dict[f"contrast_{idx}"] = coerce_finite_float(
-                            val,
-                            context=f"initial_parameters.per_angle_scaling.contrast[{idx}]",
-                        )
-                    logger.info(f"Loaded {len(contrast_values)} per-angle contrast values")
-
-            if offset_values is not None and isinstance(offset_values, list):
-                if len(offset_values) == 1:
-                    # Single-angle: use scalar offset
-                    initial_params_dict["offset"] = coerce_finite_float(
-                        offset_values[0],
-                        context="initial_parameters.per_angle_scaling.offset[0]",
-                    )
-                    logger.info(f"Loaded scalar offset from per_angle_scaling: {offset_values[0]}")
-                else:
-                    # Multi-angle: use per-angle offset_0, offset_1, ...
-                    for idx, val in enumerate(offset_values):
-                        initial_params_dict[f"offset_{idx}"] = coerce_finite_float(
-                            val,
-                            context=f"initial_parameters.per_angle_scaling.offset[{idx}]",
-                        )
-                    logger.info(f"Loaded {len(offset_values)} per-angle offset values")
 
         logger.info(f"Loaded initial parameters from config: {list(initial_params_dict.keys())}")
 
@@ -1067,6 +1087,11 @@ class ConfigManager:
             "output",
             "validation",
             "config_version",
+            # Heterodyne grouped config format (two_component)
+            "parameters",
+            "temporal",
+            "scattering",
+            "scaling",
         }
 
         if not self.config:
@@ -1190,27 +1215,38 @@ class ConfigManager:
                 type(nlsq_config).__name__,
             )
             nlsq_config = {}
+        # Guard the ordered comparisons: a non-numeric value (e.g. a quoted
+        # YAML scalar parsed as str) would raise TypeError on `max_iter > ...`,
+        # mirroring the memory_fraction guard above (audit P1: an unguarded
+        # TypeError here propagates out of _validate_config and, on the
+        # config_file= path, is swallowed by load_config()'s broad except,
+        # silently discarding the whole parsed config).
         max_iter = nlsq_config.get("max_iterations", 10000)
-        if max_iter > 50000:
-            logger.warning(
-                f"High max_iterations ({max_iter}) may cause long runtimes. "
-                f"Consider 10000-20000 for most analyses."
-            )
+        if isinstance(max_iter, (int, float)) and not isinstance(max_iter, bool):
+            if max_iter > 50000:
+                logger.warning(
+                    f"High max_iterations ({max_iter}) may cause long runtimes. "
+                    f"Consider 10000-20000 for most analyses."
+                )
+        else:
+            logger.warning("max_iterations=%s is not numeric; ignoring", max_iter)
 
-        # Warn about very loose tolerance
+        # Warn about very loose/tight tolerance
         tolerance = nlsq_config.get("tolerance", 1e-8)
-        if tolerance > 1e-4:
-            logger.warning(
-                f"Loose tolerance ({tolerance}) may produce imprecise results. "
-                f"Consider 1e-8 or tighter for production."
-            )
+        if isinstance(tolerance, (int, float)) and not isinstance(tolerance, bool):
+            if tolerance > 1e-4:
+                logger.warning(
+                    f"Loose tolerance ({tolerance}) may produce imprecise results. "
+                    f"Consider 1e-8 or tighter for production."
+                )
 
-        # Warn about very tight tolerance
-        if tolerance < 1e-14:
-            logger.warning(
-                f"Very tight tolerance ({tolerance}) may cause convergence issues. "
-                f"Machine precision limits apply."
-            )
+            if tolerance < 1e-14:
+                logger.warning(
+                    f"Very tight tolerance ({tolerance}) may cause convergence issues. "
+                    f"Machine precision limits apply."
+                )
+        else:
+            logger.warning("tolerance=%s is not numeric; ignoring", tolerance)
 
         # Warn about force_stratified_ls with large datasets
         force_stratified = nlsq_config.get("force_stratified_ls", False)
@@ -1220,8 +1256,22 @@ class ConfigManager:
                 "This uses full Jacobian (high memory) - ensure sufficient RAM."
             )
 
-        # Warn about disabled anti-degeneracy for laminar_flow
-        mode = self.config.get("analysis_mode", "static_anisotropic")
+        # Warn about disabled anti-degeneracy for laminar_flow. Normalize the
+        # raw analysis_mode string the same way _validate_config's valid_modes
+        # check tolerates both orderings (this method may run before or after
+        # _normalize_analysis_mode() depending on the load path) — otherwise a
+        # case-variant or synonym mode string (e.g. "LAMINAR_FLOW") silently
+        # skips this warning even when hierarchical is explicitly disabled.
+        mode_raw = self.config.get("analysis_mode", "static_anisotropic")
+        if isinstance(mode_raw, str):
+            from xpcsjax.config.parameter_registry import AnalysisMode
+
+            try:
+                mode = AnalysisMode.parse(mode_raw, allow_bare_static=True).value
+            except ValueError:
+                mode = mode_raw
+        else:
+            mode = mode_raw
         anti_deg = nlsq_config.get("anti_degeneracy", {})
         if not isinstance(anti_deg, dict):
             anti_deg = {}
@@ -1308,10 +1358,11 @@ class ConfigManager:
         Warns if config version doesn't match package version, which may
         indicate incompatible configuration schema.
         """
-        if "metadata" not in self.config:
+        metadata = self.config.get("metadata")
+        if not isinstance(metadata, dict):
             return
 
-        config_version = self.config["metadata"].get("config_version")
+        config_version = metadata.get("config_version")
         if not config_version:
             return
 

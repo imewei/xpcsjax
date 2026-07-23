@@ -162,3 +162,158 @@ def test_cache_hit_rate_is_a_true_hit_rate(tmp_path, monkeypatch) -> None:
     assert stats["hit_rate"] == pytest.approx(3 / 5)
     # A real hit rate is bounded by 1.0 regardless of how many keys are resident.
     assert 0.0 <= stats["hit_rate"] <= 1.0
+
+
+def test_aps_old_quality_filter_guards_allocation_before_accumulation(
+    tmp_path, monkeypatch
+) -> None:
+    """2026-07-22 audit Fix 1: the APS-old quality-filtering branch must
+    probe-then-guard the allocation budget BEFORE accumulating candidate
+    matrices into a Python list — mirroring
+    ``_guard_aps_u_intermediate_allocation``'s APS-U ordering — not only
+    after, via ``_validate_loaded_arrays`` on the final stacked buffer.
+    """
+    pytest.importorskip("h5py")
+    from xpcsjax.data import xpcs_loader as xl
+    from xpcsjax.data.xpcs_loader import XPCSDataFormatError, XPCSDataLoader
+
+    hdf = tmp_path / "aps_old_quality.h5"
+    _make_aps_old_hdf5(str(hdf), n_pairs=6, msize=8)
+
+    config = {
+        "analysis_mode": "static_isotropic",
+        "experimental_data": {
+            "data_folder_path": str(tmp_path),
+            "data_file_name": "aps_old_quality.h5",
+        },
+        "analyzer_parameters": {
+            "dt": 0.1,
+            "start_frame": 1,
+            "end_frame": 8,
+            "scattering": {"wavevector_q": 0.03},
+        },
+        "data_filtering": {
+            "enabled": True,
+            "quality_filtering": {"enabled": True},
+        },
+    }
+    loader = XPCSDataLoader(config_dict=config, configure_logging=False)
+    # Every candidate survives metadata pre-filter -> the guard has real
+    # candidates to bound before the accumulation loop runs.
+    monkeypatch.setattr(
+        loader, "_get_selected_indices", lambda dq, dphi, matrices=None: np.arange(len(dq))
+    )
+    # Tiny budget: even one 8x8 float64 matrix (512 bytes) trips it.
+    monkeypatch.setattr(xl, "MAX_CORRELATION_ALLOC_BYTES", 100)
+
+    with pytest.raises(XPCSDataFormatError, match="Refusing to allocate"):
+        loader._load_aps_old_format(str(hdf))
+
+
+def test_memory_map_manager_refcount_blocks_concurrent_eviction(tmp_path) -> None:
+    """2026-07-22 audit Fix 2: MemoryMapManager must not evict (close) a file
+    handle that is currently checked out via ``open_memory_mapped_hdf5``, even
+    if it is the LRU-oldest candidate and ``max_open_files`` is exceeded. Once
+    the checkout's ``with`` block exits and it becomes LRU-oldest again, it
+    must be evictable.
+    """
+    h5py = pytest.importorskip("h5py")
+    import threading
+
+    from xpcsjax.data.performance_engine import MemoryMapManager
+
+    file_a = tmp_path / "a.h5"
+    file_b = tmp_path / "b.h5"
+    for p in (file_a, file_b):
+        with h5py.File(p, "w") as f:
+            f.create_dataset("data", data=np.zeros(4))
+
+    manager = MemoryMapManager(max_open_files=1)
+
+    checked_out = threading.Event()
+    release = threading.Event()
+
+    def hold_a():
+        with manager.open_memory_mapped_hdf5(str(file_a)):
+            checked_out.set()
+            release.wait(timeout=5)
+
+    reader = threading.Thread(target=hold_a)
+    reader.start()
+    assert checked_out.wait(timeout=5), "reader thread never checked out file A"
+
+    # Opening B while A is checked out must not evict A, even though A is the
+    # only (hence LRU-oldest) open handle and max_open_files=1.
+    with manager.open_memory_mapped_hdf5(str(file_b)):
+        assert str(file_a) in manager._open_maps, "in-use handle A was evicted mid-read"
+
+    release.set()
+    reader.join(timeout=5)
+    assert not reader.is_alive()
+
+    # A is no longer in use. Force it to look LRU-oldest and confirm cleanup
+    # can now evict it.
+    manager._last_access[str(file_a)] = 0.0
+    manager._cleanup_old_mappings()
+    assert str(file_a) not in manager._open_maps, "released handle A was never evicted"
+
+    manager.close_all()
+
+
+def test_fallback_no_recovery_reports_failed_on_stagnation() -> None:
+    """Audit [2026-07-22]: execute_optimization_with_fallback's no-recovery
+    else-branch must report convergence_status='failed' when it detects a
+    stagnated fit (params unchanged / zero uncertainties), mirroring
+    recovery.py. It previously hardcoded 'converged'."""
+    import logging
+    import time
+
+    from xpcsjax.optimization.nlsq.fallback_chain import (
+        OptimizationStrategy,
+        execute_optimization_with_fallback,
+    )
+
+    p0 = np.array([1.0, 2.0, 3.0])
+
+    def fake_curve_fit(_resid, _x, _y, p0, **_kw):
+        # Return params unchanged from initial guess with a ~zero covariance
+        # diagonal → both stagnation flags trip.
+        popt = np.asarray(p0, dtype=float)
+        return popt, np.zeros((popt.size, popt.size))
+
+    _, _, _, _, status = execute_optimization_with_fallback(
+        strategy=OptimizationStrategy.STANDARD,
+        wrapped_residual_fn=lambda p, x: np.zeros_like(x),
+        xdata=np.arange(5.0),
+        ydata=np.zeros(5),
+        validated_params=p0,
+        nlsq_bounds=None,
+        loss_name="linear",
+        x_scale_value=1.0,
+        config=object(),
+        start_time=time.time(),
+        log=logging.getLogger("test_fallback"),
+        enable_recovery=False,
+        execute_with_recovery_fn=lambda **_k: None,  # not reached
+        fit_with_hybrid_streaming_fn=lambda **_k: None,  # not reached
+        streaming_available=False,
+        curve_fit_fn=fake_curve_fit,
+        curve_fit_large_fn=fake_curve_fit,
+    )
+
+    assert status == "failed", f"stagnation must report 'failed', got {status!r}"
+
+
+def test_sequential_reduced_chi2_no_zerodiv_when_underdetermined() -> None:
+    """Audit [2026-07-22]: the sequential per-angle fallback's reduced-chi2
+    normalization must guard n_data <= n_params (dof <= 0) instead of dividing
+    by zero. Calls the actual guard wrapper.py's sequential chi-squared site
+    uses (extracted to ``_safe_reduced_chi_squared`` so this test exercises
+    the real function, not a restatement of its arithmetic)."""
+    from xpcsjax.optimization.nlsq.wrapper import _safe_reduced_chi_squared
+
+    # dof == 0 and dof < 0 must not raise and must be finite-or-inf.
+    assert _safe_reduced_chi_squared(5.0, 3, 3) == float("inf")
+    assert _safe_reduced_chi_squared(5.0, 2, 3) == float("inf")
+    # Normal case still divides.
+    assert _safe_reduced_chi_squared(6.0, 5, 3) == 3.0

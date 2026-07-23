@@ -395,6 +395,18 @@ def _build_homodyne_l4_callback(
     return monitor, _l4_plus_observer
 
 
+def _safe_reduced_chi_squared(chi_squared: float, n_data: int, n_params: int) -> float:
+    """Reduced chi-squared, guarded against n_data <= n_params.
+
+    A degenerate/underdetermined fit (too few points per angle) would
+    otherwise raise ``ZeroDivisionError`` (dof == 0) or silently return a
+    negative reduced chi-squared (dof < 0) — neither of which is caught by
+    the exception tuples wrapping the solve.
+    """
+    dof = n_data - n_params
+    return chi_squared / dof if dof > 0 else float("inf")
+
+
 def _extract_n_points(data: Any) -> int:
     """Extract number of data points from various data formats.
 
@@ -3365,7 +3377,7 @@ class NLSQWrapper(NLSQAdapterBase):
         chi_squared = float(np.sum(final_residuals**2))
         n_data = len(phi_flat)
         n_params = len(sequential_result.combined_parameters)
-        reduced_chi_squared = chi_squared / (n_data - n_params)
+        reduced_chi_squared = _safe_reduced_chi_squared(chi_squared, n_data, n_params)
 
         # Diagnostics payload
         param_status = {}

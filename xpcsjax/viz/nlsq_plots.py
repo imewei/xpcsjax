@@ -453,12 +453,34 @@ def _unpack_heterodyne_scaling(
     return contrasts, offsets, physical_params, n_phi_expected
 
 
+def _resolve_phi_index(data: dict[str, Any], phi_deg: float, phi_index: int | None) -> int:
+    """Resolve the per-angle index for ``phi_deg``.
+
+    Prefer the caller's loop index (``phi_index``) when provided — it is
+    authoritative and unambiguous even when ``phi_angles_list`` contains two
+    entries with the same nominal value. Fall back to a value-based
+    ``np.isclose`` lookup only when the index is not known (e.g. an external
+    caller that has just a phi value).
+    """
+    if phi_index is not None:
+        return int(phi_index)
+    phi_array = np.asarray(data["phi_angles_list"], dtype=float)
+    matches = np.where(np.isclose(phi_array, phi_deg, atol=1e-6))[0]
+    if matches.size == 0:
+        raise ValueError(
+            f"phi_deg={phi_deg!r} not found in data['phi_angles_list'] "
+            f"(values: {phi_array.tolist()})"
+        )
+    return int(matches[0])
+
+
 def _evaluate_c2_per_angle(
     model: Any,
     result: Any,
     data: dict[str, Any],
     config: dict[str, Any],
     phi_deg: float,
+    phi_index: int | None = None,
 ) -> np.ndarray:
     """Compute fitted c2 surface at one phi angle.
 
@@ -486,14 +508,7 @@ def _evaluate_c2_per_angle(
             contrast = float(contrasts[0]) if contrasts.size else 0.0
             offset = float(offsets[0]) if offsets.size else 1.0
         else:
-            phi_array = np.asarray(data["phi_angles_list"], dtype=float)
-            matches = np.where(np.isclose(phi_array, phi_deg, atol=1e-6))[0]
-            if matches.size == 0:
-                raise ValueError(
-                    f"phi_deg={phi_deg!r} not found in data['phi_angles_list'] "
-                    f"(values: {phi_array.tolist()})"
-                )
-            i = int(matches[0])
+            i = _resolve_phi_index(data, phi_deg, phi_index)
             contrast = float(contrasts[i])
             offset = float(offsets[i])
         # HomodyneModel (the stateful wrapper) carries pre-computed grids /
@@ -507,17 +522,17 @@ def _evaluate_c2_per_angle(
         if hasattr(model, "compute_c2_single_angle"):
             c2 = model.compute_c2_single_angle(physical_params, phi_deg, contrast, offset)
             return np.asarray(c2)
-        ap = config.get("analyzer_parameters", {})
-        q_raw = ap.get("scattering", {}).get("wavevector_q")
+        ap = config.get("analyzer_parameters") or {}
+        q_raw = (ap.get("scattering") or {}).get("wavevector_q")
         if q_raw is None:
             raise ValueError("Missing analyzer_parameters.scattering.wavevector_q")
-        L_raw = ap.get("geometry", {}).get("stator_rotor_gap")
+        L_raw = (ap.get("geometry") or {}).get("stator_rotor_gap")
         if L_raw is None:
             raise ValueError("Missing analyzer_parameters.geometry.stator_rotor_gap")
         # Explicit None-check so dt=0 is not treated as falsy.
         dt_raw = ap.get("dt")
         if dt_raw is None:
-            dt_raw = ap.get("temporal", {}).get("dt")
+            dt_raw = (ap.get("temporal") or {}).get("dt")
         if dt_raw is None:
             raise ValueError("Missing analyzer_parameters: 'dt' or 'temporal.dt' is required")
         t1 = jnp.asarray(data["t1"], dtype=jnp.float64)
@@ -541,31 +556,25 @@ def _evaluate_c2_per_angle(
         # right per-angle contrast/offset. Tolerance is loose since phi
         # angles are user-provided floats; exact match expected.
         phi_array = np.asarray(data["phi_angles_list"], dtype=float)
-        matches = np.where(np.isclose(phi_array, phi_deg, atol=1e-6))[0]
-        if matches.size == 0:
-            raise ValueError(
-                f"phi_deg={phi_deg!r} not found in data['phi_angles_list'] "
-                f"(values: {phi_array.tolist()})"
-            )
-        i = int(matches[0])
+        i = _resolve_phi_index(data, phi_deg, phi_index)
         n_phi_expected = int(phi_array.size)
         contrasts, offsets, physical_params, _ = _unpack_heterodyne_scaling(
             model, result, n_phi_expected=n_phi_expected
         )
 
-        ap = config.get("analyzer_parameters", {})
-        q_raw = ap.get("scattering", {}).get("wavevector_q")
+        ap = config.get("analyzer_parameters") or {}
+        q_raw = (ap.get("scattering") or {}).get("wavevector_q")
         if q_raw is None:
             raise ValueError("Missing analyzer_parameters.scattering.wavevector_q")
         q = float(q_raw)
-        L_raw = ap.get("geometry", {}).get("stator_rotor_gap")
+        L_raw = (ap.get("geometry") or {}).get("stator_rotor_gap")
         if L_raw is None:
             raise ValueError("Missing analyzer_parameters.geometry.stator_rotor_gap")
         L = float(L_raw)
         # Use explicit None-check so dt=0 is not treated as falsy.
         dt_raw = ap.get("dt")
         if dt_raw is None:
-            dt_raw = ap.get("temporal", {}).get("dt")
+            dt_raw = (ap.get("temporal") or {}).get("dt")
         if dt_raw is None:
             raise ValueError("Missing analyzer_parameters: 'dt' or 'temporal.dt' is required")
         dt = float(dt_raw)
@@ -1032,9 +1041,11 @@ def plot_simulated_data(
 
     finite = c2_sim[np.isfinite(c2_sim)]
     if finite.size > 0:
-        mean_v = float(np.nanmean(c2_sim))
-        min_v = float(np.nanmin(c2_sim))
-        max_v = float(np.nanmax(c2_sim))
+        # Use the finite subset, not raw c2_sim: nanmean/nanmin/nanmax only
+        # skip NaN, not inf, so a single inf would poison the annotation.
+        mean_v = float(np.mean(finite))
+        min_v = float(np.min(finite))
+        max_v = float(np.max(finite))
         ax.text(
             0.02,
             0.98,
@@ -1597,13 +1608,13 @@ def generate_nlsq_plots(
             f"c2_exp.shape {c2_exp.shape} does not match (n_phi, n_t1, n_t2) {expected_shape}"
         )
 
-    ap = config_dict.get("analyzer_parameters", {})
-    q = ap.get("scattering", {}).get("wavevector_q")
-    L = ap.get("geometry", {}).get("stator_rotor_gap")
+    ap = config_dict.get("analyzer_parameters") or {}
+    q = (ap.get("scattering") or {}).get("wavevector_q")
+    L = (ap.get("geometry") or {}).get("stator_rotor_gap")
     dt = ap.get("dt")
     if dt is None:
         # Fall back to temporal.dt — homodyne configs nest it there.
-        dt = ap.get("temporal", {}).get("dt")
+        dt = (ap.get("temporal") or {}).get("dt")
     if q is None or L is None or dt is None:
         raise ValueError(
             "config.analyzer_parameters must contain scattering.wavevector_q, "
@@ -1686,7 +1697,9 @@ def generate_nlsq_plots(
     for i, phi_deg in enumerate(phi_angles):
         phi_deg_f = float(phi_deg)
         try:
-            c2_fitted[i] = _evaluate_c2_per_angle(model, result, data, config_dict, phi_deg_f)
+            c2_fitted[i] = _evaluate_c2_per_angle(
+                model, result, data, config_dict, phi_deg_f, phi_index=i
+            )
         except Exception:
             logger.exception(
                 "Angle %d (phi=%.1f) compute failed; leaving NaN in c2_fitted",

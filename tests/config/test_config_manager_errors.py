@@ -35,3 +35,36 @@ def test_unknown_analysis_mode_logs_warning(caplog: pytest.LogCaptureFixture) ->
     with caplog.at_level(logging.WARNING):
         ConfigManager(config_override={"analysis_mode": "bogus_mode"})
     assert any("analysis_mode" in rec.message.lower() for rec in caplog.records)
+
+
+# --- Fix 3: quoted-string max_iterations/tolerance must not TypeError (and
+# must not silently discard the parsed config) ------------------------------
+
+
+def test_quoted_max_iterations_does_not_raise_or_discard_config() -> None:
+    mgr = ConfigManager(config_override={"optimization": {"nlsq": {"max_iterations": "10000"}}})
+    # No TypeError from the unguarded `max_iter > 50000` comparison, and the
+    # real config survives (not silently replaced by _get_default_config()).
+    assert mgr.config["optimization"]["nlsq"]["max_iterations"] == "10000"
+
+
+def test_quoted_tolerance_does_not_raise(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING):
+        mgr = ConfigManager(config_override={"optimization": {"nlsq": {"tolerance": "1e-8"}}})
+    assert mgr.config["optimization"]["nlsq"]["tolerance"] == "1e-8"
+    assert any("tolerance=1e-8 is not numeric" in rec.message for rec in caplog.records)
+
+
+# --- Fix 4: laminar_flow anti-degeneracy warning must fire regardless of
+# analysis_mode case/synonym -------------------------------------------------
+
+
+def test_laminar_flow_warning_fires_on_uppercase_mode(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING):
+        ConfigManager(
+            config_override={
+                "analysis_mode": "LAMINAR_FLOW",
+                "optimization": {"nlsq": {"anti_degeneracy": {"hierarchical": {"enable": False}}}},
+            }
+        )
+    assert any("gradient cancellation" in rec.message for rec in caplog.records)

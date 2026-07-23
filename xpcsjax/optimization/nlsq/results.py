@@ -269,7 +269,8 @@ class OptimizationResult:
                 "physics_parameters requires n_physics to be set on the result "
                 "(the physics/scaling split point is unknown)."
             )
-        return np.asarray(self.parameters)[-self.n_physics :]
+        n = self.n_physics
+        return np.asarray(self.parameters)[-n:] if n > 0 else np.asarray([])
 
     @property
     def scaling_parameters(self) -> np.ndarray:

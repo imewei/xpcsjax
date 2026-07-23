@@ -713,6 +713,7 @@ class CMAESWrapper:
         self,
         n_data: int,
         n_params: int,
+        popsize: int | None = None,
     ) -> tuple[int | None, int | None]:
         """Auto-configure memory parameters for large datasets.
 
@@ -722,6 +723,15 @@ class CMAESWrapper:
             Number of data points.
         n_params : int
             Number of parameters.
+        popsize : int, optional
+            Final (post-adaptive-scaling) population size to size the batch
+            budget against. When ``None``, falls back to ``self.config.popsize``
+            (or the NLSQ default) — the pre-scaling value. Callers that have
+            already resolved the scale-ratio-adaptive popsize (see the
+            ``scale_ratio > 1e3`` block) should pass it explicitly here;
+            otherwise a large scale_ratio's 3x-20x popsize multiplier is
+            decided AFTER this sizing call and the batch budget silently
+            undersizes for the population CMA-ES actually runs.
 
         Returns
         -------
@@ -741,11 +751,15 @@ class CMAESWrapper:
                 compute_default_popsize,
             )
 
-            # Use configured popsize if specified, otherwise compute default
-            if self.config.popsize is not None:
-                popsize = self.config.popsize
+            # Prefer the explicit (final) popsize; else configured popsize;
+            # else the NLSQ default for n_params.
+            if popsize is not None:
+                resolved_popsize = popsize
+            elif self.config.popsize is not None:
+                resolved_popsize = self.config.popsize
             else:
-                popsize = compute_default_popsize(n_params)
+                resolved_popsize = compute_default_popsize(n_params)
+            popsize = resolved_popsize
             pop_batch, data_chunk = auto_configure_cmaes_memory(
                 n_data=n_data,
                 popsize=popsize,
@@ -872,9 +886,6 @@ class CMAESWrapper:
         else:
             effective_sigma = None  # Use config default
 
-        # Configure memory batching
-        pop_batch, data_chunk = self._configure_memory(n_data, n_params)
-
         # Build CMAESConfig with memory settings
         cmaes_config = self.config.to_cmaes_config(n_params, sigma_override=effective_sigma)
 
@@ -935,6 +946,16 @@ class CMAESWrapper:
                 )
                 cmaes_config.popsize = adaptive_pop
                 cmaes_config.max_generations = adaptive_gen
+
+        # Configure memory batching using the FINAL (post-adaptive-scaling)
+        # popsize -- sizing this before the scale_ratio > 1e3 block above would
+        # derive the batch budget from the pre-scaling popsize (~11 typical),
+        # silently undersizing/defeating memory_limit_gb for exactly the
+        # laminar_flow case (scale_ratio routinely >1e3) the docstring calls
+        # typical.
+        pop_batch, data_chunk = self._configure_memory(
+            n_data, n_params, popsize=cmaes_config.popsize
+        )
 
         # Override with auto-configured memory settings
         if pop_batch is not None:

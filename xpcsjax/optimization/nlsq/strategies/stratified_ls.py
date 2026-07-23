@@ -929,14 +929,20 @@ def fit_with_stratified_least_squares(
             )
             popt_expanded = ad_controller.transform_params_from_constant(popt)
 
-            pcov_expanded = np.zeros((len(popt_expanded), len(popt_expanded)))
-            pcov_expanded[:n_phi, :n_phi] = np.eye(n_phi) * pcov[0, 0]
-            pcov_expanded[n_phi : 2 * n_phi, n_phi : 2 * n_phi] = np.eye(n_phi) * pcov[1, 1]
-            pcov_expanded[2 * n_phi :, 2 * n_phi :] = pcov[2:, 2:]
-            pcov_expanded[2 * n_phi :, :n_phi] = np.tile(pcov[2:, 0:1], (1, n_phi))
-            pcov_expanded[:n_phi, 2 * n_phi :] = np.tile(pcov[0:1, 2:], (n_phi, 1))
-            pcov_expanded[2 * n_phi :, n_phi : 2 * n_phi] = np.tile(pcov[2:, 1:2], (1, n_phi))
-            pcov_expanded[n_phi : 2 * n_phi, 2 * n_phi :] = np.tile(pcov[1:2, 2:], (n_phi, 1))
+            # Broadcast Jacobian transform (mirrors hybrid_streaming.py's inverse
+            # averaged-mode covariance expansion): every per-angle contrast is a
+            # literal broadcast copy of the single fitted contrast (and likewise
+            # for offset), so J[:n_phi, 0] = 1, J[n_phi:2*n_phi, 1] = 1, and
+            # physical params pass through via identity. The prior manual
+            # assignment approximated this with an identity-scaled diagonal
+            # (dropping the cross-angle correlation, which equals pcov[0, 0]/
+            # pcov[1, 1], and the contrast-offset cross block entirely).
+            n_constant_total = 2 + n_physical
+            J_full = np.zeros((len(popt_expanded), n_constant_total))
+            J_full[:n_phi, 0] = 1.0
+            J_full[n_phi : 2 * n_phi, 1] = 1.0
+            J_full[2 * n_phi :, 2:] = np.eye(n_physical)
+            pcov_expanded = J_full @ pcov @ J_full.T
 
             popt = popt_expanded
             pcov = pcov_expanded
