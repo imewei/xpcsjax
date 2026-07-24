@@ -1437,13 +1437,36 @@ class DataQualityController:
             try:
                 arr = np.asarray(c2_exp)
                 negative_mask = arr < 0
+                normalized_mask = data.get("_normalized_mask")
 
-                if np.any(negative_mask):
-                    # Simple approach: set negatives to small positive value
-                    arr[negative_mask] = 1e-6
+                # Finding #6 (2026-07-23): a matrix that was genuinely
+                # normalized (STATISTICAL/ROBUST actually ran, not skipped
+                # for near-zero variance/IQR) legitimately holds negative
+                # values by design -- don't clamp those. Matrices with no
+                # tracked mask (no preprocessing, or a non-normalizing
+                # method) keep today's behavior: clamp unconditionally.
+                if normalized_mask is not None and arr.ndim >= 1:
+                    skip_repair = np.zeros_like(negative_mask, dtype=bool)
+                    n_marked = min(len(normalized_mask), arr.shape[0])
+                    for i in range(n_marked):
+                        if normalized_mask[i]:
+                            skip_repair[i] = True
+                    effective_mask = negative_mask & ~skip_repair
+                else:
+                    effective_mask = negative_mask
+
+                if np.any(effective_mask):
+                    arr[effective_mask] = 1e-6
                     data["c2_exp"] = arr
                     data_modified = True
-                    repairs_applied.append("Repaired negative correlation values")
+                    if normalized_mask is not None:
+                        n_skipped_matrices = int(np.sum(normalized_mask[:n_marked]))
+                        repairs_applied.append(
+                            f"Repaired negative correlation values "
+                            f"({n_skipped_matrices} normalized matrix/matrices exempted)"
+                        )
+                    else:
+                        repairs_applied.append("Repaired negative correlation values")
             except (AttributeError, TypeError, IndexError):
                 pass
 
