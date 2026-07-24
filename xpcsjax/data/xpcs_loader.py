@@ -27,7 +27,8 @@ Capabilities:
 * Integration with structured logging and physics validation.
 
 Runtime validation runs unconditionally at the I/O boundary: loaded arrays are
-checked for finite values (no NaN/inf), square 2-D correlation matrices, bounded
+checked for finite values (no NaN/inf, except ``wavevector_q_list`` which
+tolerates NaN — see below), square 2-D correlation matrices, bounded
 allocation size, and monotonic time axes. Any violation raises
 :class:`XPCSDataFormatError`.
 
@@ -325,8 +326,10 @@ def _validate_loaded_arrays(data: dict[str, Any], *, source: str) -> None:
     Enforces the project's I/O contract *unconditionally*, rather than behind an
     opt-in flag:
 
-    * **Finite values** — no NaN/inf in any loaded array. Corrupt data must stop
-      the run, not silently drive a numerically wrong fit.
+    * **Finite values** — no NaN/inf in any loaded array, EXCEPT
+      ``wavevector_q_list`` which tolerates NaN (legitimate bad-pixel masking,
+      one entry per (q, phi) pair) but still hard-rejects inf. Corrupt data
+      must stop the run, not silently drive a numerically wrong fit.
     * **Bounded buffer** — a 3-D ``c2_exp`` is re-checked for square trailing
       axes, frame count, and total allocation budget. This also guards the
       ``.npz`` cache path (threat-03), which otherwise bypasses the HDF5
@@ -338,7 +341,7 @@ def _validate_loaded_arrays(data: dict[str, Any], *, source: str) -> None:
 
     Raises ``XPCSDataFormatError`` on any violation.
     """
-    for key in ("c2_exp", "t1", "t2", "wavevector_q_list", "phi_angles_list"):
+    for key in ("c2_exp", "t1", "t2", "phi_angles_list"):
         if key not in data:
             continue
         arr = np.asarray(data[key])
@@ -346,6 +349,18 @@ def _validate_loaded_arrays(data: dict[str, Any], *, source: str) -> None:
             raise XPCSDataFormatError(
                 f"{key} from {source!r} contains NaN/inf values; refusing to "
                 "proceed with corrupt correlation data."
+            )
+
+    # wavevector_q_list gets its own, NaN-tolerant check: NaN there is
+    # legitimate (one entry per (q, phi) pair; a bad/masked detector pixel
+    # legitimately produces NaN at that pair's q-value), but inf/-inf still
+    # indicates corrupt data and must keep hard-failing.
+    if "wavevector_q_list" in data:
+        q_arr = np.asarray(data["wavevector_q_list"])
+        if q_arr.size and np.isinf(q_arr).any():
+            raise XPCSDataFormatError(
+                f"wavevector_q_list from {source!r} contains inf values; "
+                "refusing to proceed with corrupt correlation data."
             )
 
     c2 = np.asarray(data.get("c2_exp"))

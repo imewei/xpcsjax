@@ -55,10 +55,33 @@ def test_rejects_nan_in_c2_exp():
         _validate_loaded_arrays(data, source="evil.h5")
 
 
+def test_accepts_nan_in_q_list():
+    # Bad-pixel NaN in wavevector_q_list is legitimate and must not raise.
+    data = _good_data()
+    data["wavevector_q_list"] = np.array([0.01, np.nan, 0.02])
+    assert _validate_loaded_arrays(data, source="ok.h5") is None
+
+
+def test_accepts_all_nan_q_list():
+    # An all-NaN q-list must also not raise the hard-fail gate (downstream
+    # nan-safe consumers degrade gracefully; this validator's job is only
+    # to reject non-NaN corruption like inf).
+    data = _good_data()
+    data["wavevector_q_list"] = np.full(3, np.nan)
+    assert _validate_loaded_arrays(data, source="ok.h5") is None
+
+
+def test_still_rejects_negative_inf_in_q_list():
+    data = _good_data()
+    data["wavevector_q_list"] = np.array([0.01, -np.inf, 0.02])
+    with pytest.raises(XPCSDataFormatError, match="inf"):
+        _validate_loaded_arrays(data, source="evil.h5")
+
+
 def test_rejects_inf_in_q_list():
     data = _good_data()
     data["wavevector_q_list"] = np.array([0.01, np.inf, 0.02])
-    with pytest.raises(XPCSDataFormatError, match="NaN/inf"):
+    with pytest.raises(XPCSDataFormatError, match="inf"):
         _validate_loaded_arrays(data, source="evil.h5")
 
 
