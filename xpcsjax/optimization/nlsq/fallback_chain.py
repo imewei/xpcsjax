@@ -25,6 +25,20 @@ from xpcsjax.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _is_soft_failure(convergence_status: str) -> bool:
+    """Detect a completed-but-unconverged strategy attempt.
+
+    Shared escalation predicate: Finding #3 of the 2026-07-23
+    debug-audit-fixes spec. Both the STREAMING branch's
+    success=False->"partial" and the recovery branch's "failed" (a plain
+    return from execute_with_recovery, not a raise) must escalate to the
+    next fallback strategy exactly like a caught exception does, per
+    :func:`execute_optimization_with_fallback`'s docstring ("degrades...
+    until one succeeds or all are exhausted").
+    """
+    return convergence_status in ("partial", "failed")
+
+
 class OptimizationStrategy(Enum):
     """Local optimization strategy enum for internal use.
 
@@ -312,6 +326,11 @@ def execute_optimization_with_fallback(
                 )
                 recovery_actions = info.get("recovery_actions", [])
                 convergence_status = "converged" if info.get("success", False) else "partial"
+                if _is_soft_failure(convergence_status):
+                    raise RuntimeError(
+                        f"STREAMING strategy completed without converging "
+                        f"(convergence_status={convergence_status!r}); escalating"
+                    )
 
             elif enable_recovery:
                 popt, pcov, info, recovery_actions, convergence_status = execute_with_recovery_fn(
@@ -326,6 +345,12 @@ def execute_optimization_with_fallback(
                     x_scale_value=x_scale_value,
                     callback=callback,
                 )
+                if _is_soft_failure(convergence_status):
+                    raise RuntimeError(
+                        f"{current_strategy.value} strategy (recovery path) completed "
+                        f"without converging (convergence_status={convergence_status!r}); "
+                        "escalating"
+                    )
             else:
                 use_large = current_strategy != OptimizationStrategy.STANDARD
 

@@ -304,6 +304,119 @@ def test_fallback_no_recovery_reports_failed_on_stagnation() -> None:
     assert status == "failed", f"stagnation must report 'failed', got {status!r}"
 
 
+def test_streaming_soft_failure_escalates_to_chunked() -> None:
+    """Audit [2026-07-23]: a STREAMING soft-failure (success=False, no
+    exception) must escalate to the next fallback strategy (CHUNKED), not
+    terminate immediately with convergence_status='partial'. Finding #3 of
+    the 2026-07-23 debug-audit-fixes spec."""
+    import logging
+    import time
+
+    from xpcsjax.optimization.nlsq.fallback_chain import (
+        OptimizationStrategy,
+        execute_optimization_with_fallback,
+    )
+
+    p0 = np.array([1.0, 2.0])
+    attempted_strategies = []
+
+    def fake_streaming(**kwargs):
+        attempted_strategies.append("streaming")
+        return p0, np.eye(2), {"success": False}
+
+    def fake_curve_fit_large(_resid, _x, _y, p0, **_kw):
+        attempted_strategies.append("chunked")
+        popt = np.asarray(p0, dtype=float) + 1.0  # visibly different -> "converged"
+        return popt, np.eye(len(popt)), {}
+
+    popt, pcov, info, recovery_actions, status = execute_optimization_with_fallback(
+        strategy=OptimizationStrategy.STREAMING,
+        wrapped_residual_fn=lambda p, x: np.zeros_like(x),
+        xdata=np.arange(5.0),
+        ydata=np.zeros(5),
+        validated_params=p0,
+        nlsq_bounds=None,
+        loss_name="linear",
+        x_scale_value=1.0,
+        config=object(),
+        start_time=time.time(),
+        log=logging.getLogger("test_streaming_escalation"),
+        enable_recovery=False,
+        execute_with_recovery_fn=lambda **_k: None,  # not reached
+        fit_with_hybrid_streaming_fn=fake_streaming,
+        streaming_available=True,
+        curve_fit_fn=lambda *a, **k: (_ for _ in ()).throw(AssertionError("STANDARD not reached")),
+        curve_fit_large_fn=fake_curve_fit_large,
+    )
+
+    assert attempted_strategies == ["streaming", "chunked"], (
+        f"expected escalation streaming->chunked, got {attempted_strategies!r}"
+    )
+    assert status == "converged"
+
+
+def test_recovery_soft_failure_escalates_to_next_strategy() -> None:
+    """Audit [2026-07-23]: enable_recovery=True's execute_with_recovery
+    returning convergence_status='failed' (a plain return, not a raise)
+    must also escalate to the next fallback strategy — the default
+    (enable_recovery=True) flow, not an edge case. Finding #3."""
+    import logging
+    import time
+
+    from xpcsjax.optimization.nlsq.fallback_chain import (
+        OptimizationStrategy,
+        execute_optimization_with_fallback,
+    )
+
+    p0 = np.array([1.0, 2.0])
+    attempted_strategies = []
+
+    def fake_recovery(**kwargs):
+        attempted_strategies.append("recovery_standard")
+        return p0, np.eye(2), {}, [], "failed"
+
+    def fake_curve_fit(_resid, _x, _y, p0, **_kw):
+        # STANDARD is the base of the chain; get_fallback_strategy(STANDARD)
+        # returns None, so this scenario must be entered via a strategy that
+        # HAS a fallback -- use CHUNKED so the next attempt is STANDARD via
+        # the enable_recovery branch too (both attempts are "recovery"-shaped
+        # because enable_recovery=True routes every non-STREAMING strategy
+        # through execute_with_recovery_fn).
+        raise AssertionError("plain curve_fit path not reached under enable_recovery=True")
+
+    # fake_recovery always returns "failed" regardless of strategy, so the
+    # fallback chain exhausts CHUNKED -> LARGE -> STANDARD and, per the
+    # spec's corrected Guardrail, execute_optimization_with_fallback raises
+    # RuntimeError rather than returning a partial result once STANDARD (the
+    # base of the chain) also reports "failed" -- confirmed empirically, not
+    # assumed; see task-3-report.md.
+    with pytest.raises(RuntimeError, match="all strategies"):
+        execute_optimization_with_fallback(
+            strategy=OptimizationStrategy.CHUNKED,
+            wrapped_residual_fn=lambda p, x: np.zeros_like(x),
+            xdata=np.arange(5.0),
+            ydata=np.zeros(5),
+            validated_params=p0,
+            nlsq_bounds=None,
+            loss_name="linear",
+            x_scale_value=1.0,
+            config=object(),
+            start_time=time.time(),
+            log=logging.getLogger("test_recovery_escalation"),
+            enable_recovery=True,
+            execute_with_recovery_fn=fake_recovery,
+            fit_with_hybrid_streaming_fn=lambda **_k: None,  # not reached
+            streaming_available=False,
+            curve_fit_fn=fake_curve_fit,
+            curve_fit_large_fn=fake_curve_fit,
+        )
+
+    assert len(attempted_strategies) >= 2, (
+        f"expected recovery-soft-failure to escalate past the first strategy, "
+        f"got {attempted_strategies!r}"
+    )
+
+
 def test_sequential_reduced_chi2_no_zerodiv_when_underdetermined() -> None:
     """Audit [2026-07-22]: the sequential per-angle fallback's reduced-chi2
     normalization must guard n_data <= n_params (dof <= 0) instead of dividing
