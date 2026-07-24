@@ -62,6 +62,38 @@ except ImportError:
     HybridStreamingConfig = None
 
 
+def _sigma_weighted_residuals(residuals: Any, sigma: Any | None) -> Any:
+    """Per-point residuals divided by sigma, EXCLUDING invalid points.
+
+    Mirrors the safe_sigma/valid_sigma EPS-guard convention used in
+    strategies/residual_jit.py EXACTLY: points with sigma <= EPS are excluded
+    from the loss entirely (residual set to zero for that point, matching
+    residual_jit.py's `jnp.where(valid_sigma, (obs-theory)/safe_sigma, 0.0)`)
+    rather than falling back to the raw unweighted residual, which would be a
+    materially different (and uncited) aggregation behavior. When sigma is
+    None, this is the identity (residuals unchanged) -- both call sites below
+    then reduce to their pre-existing unweighted form.
+    """
+    if sigma is None:
+        return residuals
+    EPS = 1e-10
+    sigma_jax = jnp.asarray(sigma)
+    valid_sigma = sigma_jax > EPS
+    safe_sigma = jnp.where(valid_sigma, sigma_jax, 1.0)
+    return jnp.where(valid_sigma, residuals / safe_sigma, 0.0)
+
+
+def _sigma_weighted_mse(residuals: Any, sigma: Any | None) -> Any:
+    """Mean-squared residual, optionally weighted by per-point sigma.
+
+    Built on :func:`_sigma_weighted_residuals` so the same EPS-guard
+    convention applies here as in the shear-combined branch below. When
+    sigma is None, this is exactly the pre-existing unweighted
+    jnp.mean(residuals**2).
+    """
+    return jnp.mean(_sigma_weighted_residuals(residuals, sigma) ** 2)
+
+
 def fit_with_hybrid_streaming_optimizer(
     residual_fn: Any,
     xdata: np.ndarray,
@@ -1299,6 +1331,19 @@ def fit_with_stratified_hybrid_streaming(
     y_data = y_data[non_diagonal_mask]
     n_diagonal_removed = n_points_before - len(y_data)
 
+    # Sigma plumbing (Finding #4, 2026-07-23): stratified_data.sigma exists
+    # (wrapper.py's StratifiedData copies it from original_data.sigma) but was
+    # never threaded into this function before. Align it to x_data/y_data's
+    # flattened, non-diagonal-filtered order the same way heterodyne's
+    # build_heterodyne_pointwise_model does: index the raw (n_phi, n_t, n_t)
+    # sigma grid by the pre-filter (phi_idx, t1_idx, t2_idx) triples, then
+    # apply the same non_diagonal_mask.
+    sigma: np.ndarray | None = None
+    if getattr(stratified_data, "sigma", None) is not None:
+        sigma_3d = np.asarray(stratified_data.sigma, dtype=np.float64)
+        sigma_sel = sigma_3d[phi_idx_arr, t1_idx_arr, t2_idx_arr]
+        sigma = sigma_sel[non_diagonal_mask]
+
     prep_time = time.perf_counter() - prep_start
     logger.info(f"Data preparation completed in {prep_time:.2f}s")
     logger.info(f"  Dataset size: {len(y_data):,} points")
@@ -1489,15 +1534,25 @@ def fit_with_stratified_hybrid_streaming(
             # Layer 5: Apply shear-sensitivity weighting if enabled
             # This emphasizes angles parallel/antiparallel to flow direction,
             # preventing gradient cancellation for shear parameters
+            # sigma weighting (Finding #4, 2026-07-23) is orthogonal to shear
+            # weighting and must apply in BOTH branches below -- pre-divide
+            # residuals by sigma once (identity when sigma is None) so shear
+            # weighting, when also active, combines with it rather than
+            # silently overriding it.
+            residuals_sw = _sigma_weighted_residuals(residuals, sigma)
             if shear_weighter_local is not None:
-                # Use shear-weighted loss instead of uniform MSE
+                # Use shear-weighted loss instead of uniform MSE. Passing the
+                # already sigma-divided residuals means apply_weights_to_loss's
+                # sum(w * r**2) becomes sum(w * (r/sigma)**2) -- both layers
+                # combined, matching the sibling plain-path branch's
+                # optimizer.fit(sigma=sigma, ...).
                 weighted_loss = shear_weighter_local.apply_weights_to_loss(
-                    residuals, phi_indices_jax
+                    residuals_sw, phi_indices_jax
                 )
             else:
-                # CRITICAL: Use jnp.mean, NOT np.mean!
-                # np.mean breaks JAX autodiff and causes zero gradients
-                weighted_loss = jnp.mean(residuals**2) * len(y_data)
+                # CRITICAL: Use jnp operations, NOT np -- np.mean breaks JAX
+                # autodiff and causes zero gradients.
+                weighted_loss = jnp.mean(residuals_sw**2) * len(y_data)
 
             # Add adaptive regularization if enabled
             if adaptive_regularizer is not None:

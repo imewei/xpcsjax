@@ -86,3 +86,207 @@ def test_heterodyne_hier_loss_actually_wired_to_sigma_weighted_mse(monkeypatch):
         "_hier_loss/_loss_jax never called _sigma_weighted_mse -- the helper "
         "exists but is not wired into the hierarchical loss closures"
     )
+
+
+class _FakeStratifiedDataWithSigma:
+    def __init__(self, phi_flat, t1_flat, t2_flat, g2_flat, sigma):
+        self.phi_flat = phi_flat
+        self.t1_flat = t1_flat
+        self.t2_flat = t2_flat
+        self.g2_flat = g2_flat
+        self.sigma = sigma
+        self.q = 0.0237
+        self.L = 2_000_000.0
+        self.dt = 0.1
+
+
+class _HierarchicalOptimizerSpy:
+    """Stand-in for HierarchicalOptimizer: captures loss_fn/grad_fn and
+    returns a stub result without running real optimization."""
+
+    captured: dict = {}
+
+    def __init__(self, config, n_phi, n_physical):
+        self.config = config
+        self.n_phi = n_phi
+        self.n_physical = n_physical
+
+    def get_diagnostics(self) -> dict:
+        # ponytail: minimal stub -- real caller only needs the dict shape,
+        # not real diagnostic values, since .fit() never actually runs.
+        return {
+            "enabled": True,
+            "n_phi": self.n_phi,
+            "n_physical": self.n_physical,
+            "n_per_angle": 2,
+            "max_outer_iterations": getattr(self.config, "max_outer_iterations", 1),
+            "outer_tolerance": getattr(self.config, "outer_tolerance", 1e-6),
+        }
+
+    def fit(self, loss_fn, grad_fn, p0, bounds, outer_iteration_callback=None):
+        type(self).captured["loss_fn"] = loss_fn
+        type(self).captured["grad_fn"] = grad_fn
+
+        class _Result:
+            x = p0
+            fun = 0.0
+            success = True
+            n_outer_iterations = 0
+            message = "stub"
+            history = []
+
+        return _Result()
+
+
+def test_laminar_loss_fn_honors_nonuniform_sigma(monkeypatch):
+    from xpcsjax.optimization.nlsq.strategies import hybrid_streaming as hs
+
+    n_phi = 2
+    n_t = 4
+    phi = np.repeat([0.0, 45.0], n_t * n_t)
+    t1 = np.tile(np.repeat(np.arange(n_t, dtype=float), n_t), n_phi)
+    t2 = np.tile(np.tile(np.arange(n_t, dtype=float), n_t), n_phi)
+    g2 = np.ones_like(phi) + 0.01 * np.arange(phi.size)
+    # sigma must be the raw (n_phi, n_t, n_t) GRID, matching production
+    # StratifiedData.sigma (wrapper.py copies it verbatim from
+    # original_data.sigma, never flattened) -- the plumbing this task adds
+    # in Step 3 indexes it as sigma_3d[phi_idx_arr, t1_idx_arr, t2_idx_arr],
+    # which requires 3 real grid axes, not a flat per-point array.
+    sigma_3d = np.ones((n_phi, n_t, n_t))
+    sigma_3d[0] = 0.1  # non-uniform: first phi angle tightly weighted
+
+    stratified_data = _FakeStratifiedDataWithSigma(phi, t1, t2, g2, sigma_3d)
+
+    monkeypatch.setattr(hs, "HierarchicalOptimizer", _HierarchicalOptimizerSpy)
+    _HierarchicalOptimizerSpy.captured = {}
+
+    n_physical = 7
+    initial_params = np.concatenate([np.ones(2 * n_phi), np.ones(n_physical)])
+    bounds = (np.zeros_like(initial_params), np.ones_like(initial_params) * 10)
+
+    hs.fit_with_stratified_hybrid_streaming(
+        stratified_data=stratified_data,
+        per_angle_scaling=True,
+        physical_param_names=[
+            "D0",
+            "alpha",
+            "D_offset",
+            "gamma_dot_t0",
+            "beta",
+            "gamma_dot_t_offset",
+            "phi0",
+        ],
+        initial_params=initial_params,
+        bounds=bounds,
+        logger=__import__("logging").getLogger("test_laminar_sigma"),
+    )
+
+    loss_fn = _HierarchicalOptimizerSpy.captured.get("loss_fn")
+    assert loss_fn is not None, "hierarchical path was not entered -- check gating config"
+
+    p0 = initial_params
+    loss_with_sigma = float(loss_fn(p0))
+
+    # Now re-run with uniform sigma and confirm the loss differs -- proving
+    # sigma is actually consulted, not just present but unused.
+    stratified_data_uniform = _FakeStratifiedDataWithSigma(
+        phi, t1, t2, g2, np.ones((n_phi, n_t, n_t))
+    )
+    _HierarchicalOptimizerSpy.captured = {}
+    hs.fit_with_stratified_hybrid_streaming(
+        stratified_data=stratified_data_uniform,
+        per_angle_scaling=True,
+        physical_param_names=[
+            "D0",
+            "alpha",
+            "D_offset",
+            "gamma_dot_t0",
+            "beta",
+            "gamma_dot_t_offset",
+            "phi0",
+        ],
+        initial_params=initial_params,
+        bounds=bounds,
+        logger=__import__("logging").getLogger("test_laminar_sigma"),
+    )
+    loss_fn_uniform = _HierarchicalOptimizerSpy.captured.get("loss_fn")
+    loss_uniform = float(loss_fn_uniform(p0))
+
+    assert loss_with_sigma != loss_uniform, (
+        "loss must change when sigma is non-uniform -- sigma is not being consulted"
+    )
+
+
+def test_laminar_loss_fn_combines_sigma_with_shear_weighting(monkeypatch):
+    """Audit follow-up (2026-07-23): the plan's initial fix only edited the
+    `else` branch of loss_fn (no shear weighter), leaving sigma silently
+    ignored whenever L5 shear weighting is ALSO active -- the common
+    laminar_flow case: shear_weighter is constructed whenever
+    `is_laminar_flow and shear_weighting_enabled(default True) and n_phi > 3`
+    (hybrid_streaming.py). n_phi=4 here (>3) activates shear; explicit
+    per_angle_mode='individual' keeps L2 hierarchical active too (n_phi>=3
+    would otherwise auto-resolve to 'averaged', which disables hierarchical
+    -- see use_constant/per_angle_mode_actual gating). Both layers active
+    simultaneously is the scenario Step 4's combined fix must cover."""
+    from xpcsjax.optimization.nlsq.strategies import hybrid_streaming as hs
+
+    n_phi = 4
+    n_t = 4
+    phi = np.repeat([0.0, 30.0, 60.0, 90.0], n_t * n_t)
+    t1 = np.tile(np.repeat(np.arange(n_t, dtype=float), n_t), n_phi)
+    t2 = np.tile(np.tile(np.arange(n_t, dtype=float), n_t), n_phi)
+    g2 = np.ones_like(phi) + 0.01 * np.arange(phi.size)
+    sigma_3d = np.ones((n_phi, n_t, n_t))
+    sigma_3d[0] = 0.1  # non-uniform: first phi angle tightly weighted
+
+    stratified_data = _FakeStratifiedDataWithSigma(phi, t1, t2, g2, sigma_3d)
+
+    monkeypatch.setattr(hs, "HierarchicalOptimizer", _HierarchicalOptimizerSpy)
+    _HierarchicalOptimizerSpy.captured = {}
+
+    n_physical = 7
+    initial_params = np.concatenate([np.ones(2 * n_phi), np.ones(n_physical)])
+    bounds = (np.zeros_like(initial_params), np.ones_like(initial_params) * 10)
+    physical_param_names = [
+        "D0",
+        "alpha",
+        "D_offset",
+        "gamma_dot_t0",
+        "beta",
+        "gamma_dot_t_offset",
+        "phi0",
+    ]
+
+    hs.fit_with_stratified_hybrid_streaming(
+        stratified_data=stratified_data,
+        per_angle_scaling=True,
+        physical_param_names=physical_param_names,
+        initial_params=initial_params,
+        bounds=bounds,
+        logger=__import__("logging").getLogger("test_laminar_sigma_shear"),
+        anti_degeneracy_config={"per_angle_mode": "individual"},
+    )
+    loss_fn = _HierarchicalOptimizerSpy.captured.get("loss_fn")
+    assert loss_fn is not None, "hierarchical path was not entered -- check gating config"
+    loss_with_sigma = float(loss_fn(initial_params))
+
+    stratified_data_uniform = _FakeStratifiedDataWithSigma(
+        phi, t1, t2, g2, np.ones((n_phi, n_t, n_t))
+    )
+    _HierarchicalOptimizerSpy.captured = {}
+    hs.fit_with_stratified_hybrid_streaming(
+        stratified_data=stratified_data_uniform,
+        per_angle_scaling=True,
+        physical_param_names=physical_param_names,
+        initial_params=initial_params,
+        bounds=bounds,
+        logger=__import__("logging").getLogger("test_laminar_sigma_shear"),
+        anti_degeneracy_config={"per_angle_mode": "individual"},
+    )
+    loss_fn_uniform = _HierarchicalOptimizerSpy.captured.get("loss_fn")
+    loss_uniform = float(loss_fn_uniform(initial_params))
+
+    assert loss_with_sigma != loss_uniform, (
+        "loss must change when sigma is non-uniform even with shear weighting "
+        "active -- the shear_weighter_local branch must also honor sigma"
+    )
