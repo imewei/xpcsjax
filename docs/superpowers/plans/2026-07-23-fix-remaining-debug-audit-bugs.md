@@ -60,12 +60,32 @@ def test_still_rejects_negative_inf_in_q_list():
         _validate_loaded_arrays(data, source="evil.h5")
 ```
 
-Note: `test_rejects_inf_in_q_list` already exists in this file (asserts `+inf` still raises) — do not remove it; it must keep passing after this change.
+Note: `test_rejects_inf_in_q_list` already exists in this file (asserts `+inf` still raises) — do not remove it; it must keep passing after this change. **However its assertion's `match="NaN/inf"` will NOT survive Step 3 as-is**: Step 3 gives `wavevector_q_list` its own branch whose message is `"...contains inf values..."` (no literal "NaN" substring), so `re.search("NaN/inf", msg)` would fail post-fix. Update that pre-existing test's `pytest.raises` call in this same step, from:
+
+```python
+def test_rejects_inf_in_q_list():
+    data = _good_data()
+    data["wavevector_q_list"] = np.array([0.01, np.inf, 0.02])
+    with pytest.raises(XPCSDataFormatError, match="NaN/inf"):
+        _validate_loaded_arrays(data, source="evil.h5")
+```
+
+to:
+
+```python
+def test_rejects_inf_in_q_list():
+    data = _good_data()
+    data["wavevector_q_list"] = np.array([0.01, np.inf, 0.02])
+    with pytest.raises(XPCSDataFormatError, match="inf"):
+        _validate_loaded_arrays(data, source="evil.h5")
+```
+
+`match="inf"` is a substring of both the pre-fix message ("...contains NaN/inf values...") and the post-fix message ("...contains inf values..."), so this edit is safe to make now, before Step 3's implementation exists.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/data/test_loaded_array_validation.py -v`
-Expected: `test_accepts_nan_in_q_list` and `test_accepts_all_nan_q_list` FAIL with `XPCSDataFormatError: wavevector_q_list from 'ok.h5' contains NaN/inf values...` (the current blanket check rejects NaN too). `test_still_rejects_negative_inf_in_q_list` and the pre-existing `test_rejects_inf_in_q_list` should already PASS (nothing to verify-fail there, just confirming no regression yet).
+Expected: `test_accepts_nan_in_q_list` and `test_accepts_all_nan_q_list` FAIL with `XPCSDataFormatError: wavevector_q_list from 'ok.h5' contains NaN/inf values...` (the current blanket check rejects NaN too). `test_still_rejects_negative_inf_in_q_list` and the pre-existing `test_rejects_inf_in_q_list` (now asserting `match="inf"` per the edit above) should already PASS (nothing to verify-fail there, just confirming no regression yet).
 
 - [ ] **Step 3: Implement the validator change**
 
@@ -109,10 +129,45 @@ with:
             )
 ```
 
+Also update the two docstrings that describe this function/module as rejecting NaN/inf in *every* loaded array — after this change `wavevector_q_list` is the one exception (NaN-tolerant, inf-rejecting). In this same file's module docstring, change:
+
+```
+Runtime validation runs unconditionally at the I/O boundary: loaded arrays are
+checked for finite values (no NaN/inf), square 2-D correlation matrices, bounded
+allocation size, and monotonic time axes. Any violation raises
+:class:`XPCSDataFormatError`.
+```
+
+to:
+
+```
+Runtime validation runs unconditionally at the I/O boundary: loaded arrays are
+checked for finite values (no NaN/inf, except ``wavevector_q_list`` which
+tolerates NaN — see below), square 2-D correlation matrices, bounded
+allocation size, and monotonic time axes. Any violation raises
+:class:`XPCSDataFormatError`.
+```
+
+And in `_validate_loaded_arrays`'s own docstring, change:
+
+```
+    * **Finite values** — no NaN/inf in any loaded array. Corrupt data must stop
+      the run, not silently drive a numerically wrong fit.
+```
+
+to:
+
+```
+    * **Finite values** — no NaN/inf in any loaded array, EXCEPT
+      ``wavevector_q_list`` which tolerates NaN (legitimate bad-pixel masking,
+      one entry per (q, phi) pair) but still hard-rejects inf. Corrupt data
+      must stop the run, not silently drive a numerically wrong fit.
+```
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/data/test_loaded_array_validation.py -v`
-Expected: all PASS, including the pre-existing `test_rejects_inf_in_q_list` and `test_rejects_nan_in_c2_exp`.
+Expected: all PASS, including the pre-existing `test_rejects_inf_in_q_list` (with its `match="inf"` update from Step 1) and `test_rejects_nan_in_c2_exp`.
 
 - [ ] **Step 5: Write the failing tests for the extraction-site guards**
 
@@ -422,12 +477,66 @@ def test_loader_applies_mandatory_correction_when_not_preprocessed(monkeypatch):
     data = _synthetic_data()
     xl._maybe_apply_mandatory_diagonal_correction(data)
     assert len(calls) == 1, "mandatory correction must still run by default"
+
+
+def test_loader_applies_configured_diagonal_correction_end_to_end(tmp_path, monkeypatch):
+    """End-to-end (design spec Testing item 2): drive the REAL
+    load_experimental_data with preprocessing enabled and a non-'basic'
+    correct_diagonal.method, and confirm both that the mandatory post-load
+    'basic' pass is skipped AND that the final c2_exp diagonal reflects the
+    configured method's own correction -- not just the isolated helper's
+    unit behavior. A wiring bug between _apply_preprocessing_pipeline and
+    _maybe_apply_mandatory_diagonal_correction inside load_experimental_data
+    itself would not be caught by the helper-level tests above; this is."""
+    import xpcsjax.data.xpcs_loader as xl
+
+    hdf_path = tmp_path / "fake.h5"
+    hdf_path.write_bytes(b"")  # existence is all load_experimental_data checks
+    # before handing off to _load_from_hdf, which is replaced below.
+
+    def fake_load_from_hdf(self, path):
+        return _synthetic_data()
+
+    monkeypatch.setattr(xl.XPCSDataLoader, "_load_from_hdf", fake_load_from_hdf)
+
+    calls = []
+    original = xl.apply_diagonal_correction_batch
+
+    def spy(*args, **kwargs):
+        calls.append((args, kwargs))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(xl, "apply_diagonal_correction_batch", spy)
+
+    config = {
+        "experimental_data": {
+            "data_folder_path": str(tmp_path),
+            "data_file_name": "fake.h5",
+        },
+        "v2_features": {"cache_strategy": "none"},
+        "preprocessing": {
+            "enabled": True,
+            "stages": {"correct_diagonal": {"method": "statistical"}},
+        },
+    }
+    loader = xl.XPCSDataLoader(config_dict=config, configure_logging=False)
+    result = loader.load_experimental_data()
+
+    assert calls == [], (
+        "the mandatory post-load 'basic' correction must be skipped end-to-end "
+        "-- preprocessing's 'statistical' correction already ran"
+    )
+    c2 = np.asarray(result["c2_exp"])
+    assert not np.allclose(np.diagonal(c2[0]), 5.0), (
+        "preprocessing's configured 'statistical' correction must actually "
+        "have changed the deliberately-wrong seeded diagonal, end-to-end"
+    )
 ```
 
 - [ ] **Step 6: Run test to verify it fails**
 
 Run: `uv run pytest tests/data/test_debug_audit_2026_07_23_diagonal_skip.py -v`
-Expected: both new tests FAIL with `AttributeError: module 'xpcsjax.data.xpcs_loader' has no attribute '_maybe_apply_mandatory_diagonal_correction'` — this helper doesn't exist yet; Step 7 extracts the mandatory-correction call site into it (a small, independently-testable unit, per this plan's Task Right-Sizing convention) rather than testing it only in the middle of the much larger `load_experimental_data`.
+Expected: `test_loader_skips_mandatory_correction_when_already_corrected` and `test_loader_applies_mandatory_correction_when_not_preprocessed` FAIL with `AttributeError: module 'xpcsjax.data.xpcs_loader' has no attribute '_maybe_apply_mandatory_diagonal_correction'` — this helper doesn't exist yet; Step 7 extracts the mandatory-correction call site into it (a small, independently-testable unit, per this plan's Task Right-Sizing convention) rather than testing it only in the middle of the much larger `load_experimental_data`. `test_loader_applies_configured_diagonal_correction_end_to_end` FAILS with `assert calls == []` failing (`len(calls) == 1` today, since the mandatory correction always runs pre-fix) — this is the real end-to-end bug the whole task fixes.
 
 - [ ] **Step 7: Extract the call site into a testable helper and wire the skip**
 
@@ -487,7 +596,7 @@ def _maybe_apply_mandatory_diagonal_correction(
 - [ ] **Step 8: Run tests to verify they pass**
 
 Run: `uv run pytest tests/data/test_debug_audit_2026_07_23_diagonal_skip.py -v`
-Expected: all 4 tests PASS.
+Expected: all 5 tests PASS (the 2 marker/skip-helper tests from Step 1/5, the skip/apply helper tests, and the new end-to-end test).
 
 - [ ] **Step 9: Run the full existing xpcs_loader test suite to confirm no regression**
 
@@ -788,28 +897,22 @@ hybrid_streaming.py (laminar_flow).
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 
 def test_heterodyne_hier_loss_honors_nonuniform_sigma():
-    """_hier_loss must divide residuals by sigma when sigma is non-uniform,
-    not just compute an unweighted mean(residuals**2)."""
+    """_sigma_weighted_mse (the arithmetic building block _hier_loss/_loss_jax
+    call) must divide residuals by sigma when sigma is non-uniform, not just
+    compute an unweighted mean(residuals**2). This is a pure arithmetic check
+    of the helper in isolation -- see
+    test_heterodyne_hier_loss_actually_wired_to_sigma_weighted_mse below for
+    the separate proof that _hier_loss/_loss_jax actually CALL this helper
+    (an implementation could add the helper without wiring it in and this
+    test alone would not catch that)."""
     from xpcsjax.optimization.nlsq.strategies import heterodyne_hybrid_streaming as hhs
 
     y_data = np.array([1.0, 2.0, 3.0, 4.0])
     pred = np.array([1.5, 1.5, 3.5, 3.5])  # residuals = [-0.5, 0.5, -0.5, 0.5]
-
-    def model_fn(_x, *params):
-        return pred
-
-    x_data = np.zeros((4, 1))
-
-    # Build the closure directly by calling the module's own construction
-    # path -- exercise the real _hier_loss the module builds. Since
-    # _hier_loss is a nested closure inside
-    # fit_with_stratified_hybrid_streaming_heterodyne, use the exposed
-    # sigma-weighted-residual helper this fix adds instead of driving the
-    # full function (avoids a large, brittle end-to-end fixture for what is
-    # fundamentally an arithmetic check).
     residuals = y_data - pred
     uniform_sigma = np.ones(4)
     nonuniform_sigma = np.array([0.1, 1.0, 0.1, 1.0])
@@ -818,20 +921,68 @@ def test_heterodyne_hier_loss_honors_nonuniform_sigma():
     loss_nonuniform = hhs._sigma_weighted_mse(residuals, nonuniform_sigma) * y_data.shape[0]
     loss_unweighted = np.mean(residuals**2) * y_data.shape[0]
 
-    assert loss_uniform == pytest_approx(loss_unweighted)
-    assert loss_nonuniform != pytest_approx(loss_unweighted)
+    assert loss_uniform == pytest.approx(loss_unweighted)
+    assert loss_nonuniform != pytest.approx(loss_unweighted)
 
 
-def pytest_approx(x):
-    import pytest
+def test_heterodyne_hier_loss_actually_wired_to_sigma_weighted_mse(monkeypatch):
+    """Wiring check: drive the REAL fit_with_stratified_hybrid_streaming_heterodyne
+    through its L2 hierarchical branch (per_angle_mode='individual') with
+    non-uniform per-point weights, and spy on the module-level
+    _sigma_weighted_mse to prove _hier_loss/_loss_jax actually call it. Reuses
+    the proven synthetic-heterodyne fixture from
+    tests/optimization/test_heterodyne_hybrid_streaming.py's own
+    test_l2_individual_runs_and_beats_frozen_baseline (n_phi=2 -> auto
+    resolves to individual, exercising the L2 branch)."""
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies import heterodyne_hybrid_streaming as hs
 
-    return pytest.approx(x)
+    from tests.optimization.test_heterodyne_hybrid_streaming import (
+        _make_synthetic_heterodyne,
+    )
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=2, n_t=8)
+    rng = np.random.default_rng(0)
+    weights = 1.0 + rng.random(c2.shape)  # non-uniform -> non-uniform sigma
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=weights)
+    lo, hi = model.param_manager.get_bounds()
+
+    call_count = [0]
+    original = hs._sigma_weighted_mse
+
+    def spy(residuals, sigma):
+        call_count[0] += 1
+        return original(residuals, sigma)
+
+    monkeypatch.setattr(hs, "_sigma_weighted_mse", spy)
+
+    hs.fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={"verbose": 0},
+        anti_degeneracy_config={
+            "per_angle_mode": "individual",
+            "hierarchical": {"max_outer_iterations": 3},
+        },
+    )
+
+    assert call_count[0] > 0, (
+        "_hier_loss/_loss_jax never called _sigma_weighted_mse -- the helper "
+        "exists but is not wired into the hierarchical loss closures"
+    )
 ```
+
+Note: if the L2 branch isn't entered with this fixture (`call_count[0]` stays 0 for a reason unrelated to wiring), inspect the same gating `test_l2_individual_runs_and_beats_frozen_baseline` already relies on (`per_angle_mode="individual"` forces the L2 branch regardless of `n_phi`) before concluding the wiring is broken.
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `uv run pytest tests/optimization/test_debug_audit_2026_07_23_sigma_weighting.py::test_heterodyne_hier_loss_honors_nonuniform_sigma -v`
-Expected: FAILS with `AttributeError: module '...heterodyne_hybrid_streaming' has no attribute '_sigma_weighted_mse'` — this helper doesn't exist yet.
+Run: `uv run pytest tests/optimization/test_debug_audit_2026_07_23_sigma_weighting.py::test_heterodyne_hier_loss_honors_nonuniform_sigma tests/optimization/test_debug_audit_2026_07_23_sigma_weighting.py::test_heterodyne_hier_loss_actually_wired_to_sigma_weighted_mse -v`
+Expected: both FAIL with `AttributeError: module '...heterodyne_hybrid_streaming' has no attribute '_sigma_weighted_mse'` — this helper doesn't exist yet.
 
 - [ ] **Step 3: Implement `_sigma_weighted_mse` and use it in both closures**
 
@@ -842,10 +993,12 @@ def _sigma_weighted_mse(residuals: Any, sigma: Any | None) -> Any:
     """Mean-squared residual, optionally weighted by per-point sigma.
 
     Mirrors the safe_sigma/valid_sigma EPS-guard convention used in
-    strategies/residual_jit.py: points with sigma <= EPS are excluded from
-    the weighting (treated as sigma=1, i.e. unweighted for that point)
-    rather than dividing by a near-zero value. When sigma is None, this is
-    exactly the pre-existing unweighted jnp.mean(residuals**2).
+    strategies/residual_jit.py EXACTLY: points with sigma <= EPS are excluded
+    from the loss entirely (residual treated as zero for that point, matching
+    residual_jit.py's `jnp.where(valid_sigma, (obs-theory)/safe_sigma, 0.0)`)
+    rather than falling back to an unweighted raw residual, which would be a
+    materially different (and uncited) aggregation behavior. When sigma is
+    None, this is exactly the pre-existing unweighted jnp.mean(residuals**2).
     """
     if sigma is None:
         return jnp.mean(residuals**2)
@@ -853,7 +1006,7 @@ def _sigma_weighted_mse(residuals: Any, sigma: Any | None) -> Any:
     sigma_jax = jnp.asarray(sigma)
     valid_sigma = sigma_jax > EPS
     safe_sigma = jnp.where(valid_sigma, sigma_jax, 1.0)
-    weighted_sq = jnp.where(valid_sigma, (residuals / safe_sigma) ** 2, residuals**2)
+    weighted_sq = jnp.where(valid_sigma, (residuals / safe_sigma) ** 2, 0.0)
     return jnp.mean(weighted_sq)
 ```
 
@@ -911,8 +1064,8 @@ to:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `uv run pytest tests/optimization/test_debug_audit_2026_07_23_sigma_weighting.py::test_heterodyne_hier_loss_honors_nonuniform_sigma -v`
-Expected: PASS.
+Run: `uv run pytest tests/optimization/test_debug_audit_2026_07_23_sigma_weighting.py::test_heterodyne_hier_loss_honors_nonuniform_sigma tests/optimization/test_debug_audit_2026_07_23_sigma_weighting.py::test_heterodyne_hier_loss_actually_wired_to_sigma_weighted_mse -v`
+Expected: both PASS.
 
 - [ ] **Step 5: Run the existing heterodyne hybrid-streaming test suite to confirm no regression**
 
@@ -997,10 +1150,15 @@ def test_laminar_loss_fn_honors_nonuniform_sigma(monkeypatch):
     t1 = np.tile(np.repeat(np.arange(n_t, dtype=float), n_t), n_phi)
     t2 = np.tile(np.tile(np.arange(n_t, dtype=float), n_t), n_phi)
     g2 = np.ones_like(phi) + 0.01 * np.arange(phi.size)
-    sigma = np.ones_like(phi)
-    sigma[: sigma.size // 2] = 0.1  # non-uniform: first phi angle tightly weighted
+    # sigma must be the raw (n_phi, n_t, n_t) GRID, matching production
+    # StratifiedData.sigma (wrapper.py copies it verbatim from
+    # original_data.sigma, never flattened) -- the plumbing this task adds
+    # in Step 3 indexes it as sigma_3d[phi_idx_arr, t1_idx_arr, t2_idx_arr],
+    # which requires 3 real grid axes, not a flat per-point array.
+    sigma_3d = np.ones((n_phi, n_t, n_t))
+    sigma_3d[0] = 0.1  # non-uniform: first phi angle tightly weighted
 
-    stratified_data = _FakeStratifiedDataWithSigma(phi, t1, t2, g2, sigma)
+    stratified_data = _FakeStratifiedDataWithSigma(phi, t1, t2, g2, sigma_3d)
 
     monkeypatch.setattr(hs, "HierarchicalOptimizer", _HierarchicalOptimizerSpy)
     _HierarchicalOptimizerSpy.captured = {}
@@ -1030,7 +1188,7 @@ def test_laminar_loss_fn_honors_nonuniform_sigma(monkeypatch):
     # Now re-run with uniform sigma and confirm the loss differs -- proving
     # sigma is actually consulted, not just present but unused.
     stratified_data_uniform = _FakeStratifiedDataWithSigma(
-        phi, t1, t2, g2, np.ones_like(phi)
+        phi, t1, t2, g2, np.ones((n_phi, n_t, n_t))
     )
     _HierarchicalOptimizerSpy.captured = {}
     hs.fit_with_stratified_hybrid_streaming(
@@ -1050,14 +1208,84 @@ def test_laminar_loss_fn_honors_nonuniform_sigma(monkeypatch):
     assert loss_with_sigma != loss_uniform, (
         "loss must change when sigma is non-uniform -- sigma is not being consulted"
     )
+
+
+def test_laminar_loss_fn_combines_sigma_with_shear_weighting(monkeypatch):
+    """Audit follow-up (2026-07-23): the plan's initial fix only edited the
+    `else` branch of loss_fn (no shear weighter), leaving sigma silently
+    ignored whenever L5 shear weighting is ALSO active -- the common
+    laminar_flow case: shear_weighter is constructed whenever
+    `is_laminar_flow and shear_weighting_enabled(default True) and n_phi > 3`
+    (hybrid_streaming.py). n_phi=4 here (>3) activates shear; explicit
+    per_angle_mode='individual' keeps L2 hierarchical active too (n_phi>=3
+    would otherwise auto-resolve to 'averaged', which disables hierarchical
+    -- see use_constant/per_angle_mode_actual gating). Both layers active
+    simultaneously is the scenario Step 4's combined fix must cover."""
+    from xpcsjax.optimization.nlsq.strategies import hybrid_streaming as hs
+
+    n_phi = 4
+    n_t = 4
+    phi = np.repeat([0.0, 30.0, 60.0, 90.0], n_t * n_t)
+    t1 = np.tile(np.repeat(np.arange(n_t, dtype=float), n_t), n_phi)
+    t2 = np.tile(np.tile(np.arange(n_t, dtype=float), n_t), n_phi)
+    g2 = np.ones_like(phi) + 0.01 * np.arange(phi.size)
+    sigma_3d = np.ones((n_phi, n_t, n_t))
+    sigma_3d[0] = 0.1  # non-uniform: first phi angle tightly weighted
+
+    stratified_data = _FakeStratifiedDataWithSigma(phi, t1, t2, g2, sigma_3d)
+
+    monkeypatch.setattr(hs, "HierarchicalOptimizer", _HierarchicalOptimizerSpy)
+    _HierarchicalOptimizerSpy.captured = {}
+
+    n_physical = 7
+    initial_params = np.concatenate([np.ones(2 * n_phi), np.ones(n_physical)])
+    bounds = (np.zeros_like(initial_params), np.ones_like(initial_params) * 10)
+    physical_param_names = [
+        "D0", "alpha", "D_offset", "gamma_dot_t0", "beta",
+        "gamma_dot_t_offset", "phi0",
+    ]
+
+    hs.fit_with_stratified_hybrid_streaming(
+        stratified_data=stratified_data,
+        per_angle_scaling=True,
+        physical_param_names=physical_param_names,
+        initial_params=initial_params,
+        bounds=bounds,
+        logger=__import__("logging").getLogger("test_laminar_sigma_shear"),
+        anti_degeneracy_config={"per_angle_mode": "individual"},
+    )
+    loss_fn = _HierarchicalOptimizerSpy.captured.get("loss_fn")
+    assert loss_fn is not None, "hierarchical path was not entered -- check gating config"
+    loss_with_sigma = float(loss_fn(initial_params))
+
+    stratified_data_uniform = _FakeStratifiedDataWithSigma(
+        phi, t1, t2, g2, np.ones((n_phi, n_t, n_t))
+    )
+    _HierarchicalOptimizerSpy.captured = {}
+    hs.fit_with_stratified_hybrid_streaming(
+        stratified_data=stratified_data_uniform,
+        per_angle_scaling=True,
+        physical_param_names=physical_param_names,
+        initial_params=initial_params,
+        bounds=bounds,
+        logger=__import__("logging").getLogger("test_laminar_sigma_shear"),
+        anti_degeneracy_config={"per_angle_mode": "individual"},
+    )
+    loss_fn_uniform = _HierarchicalOptimizerSpy.captured.get("loss_fn")
+    loss_uniform = float(loss_fn_uniform(initial_params))
+
+    assert loss_with_sigma != loss_uniform, (
+        "loss must change when sigma is non-uniform even with shear weighting "
+        "active -- the shear_weighter_local branch must also honor sigma"
+    )
 ```
 
-Note: if `fit_with_stratified_hybrid_streaming`'s hierarchical path is not entered with this minimal fixture (the `loss_fn is not None` assertion fails), inspect the function's gating conditions (`enable_hierarchical`, `per_angle_scaling`, `use_constant` — derived from `per_angle_mode_actual`, which defaults to resolving "auto" based on `n_phi` vs `constant_scaling_threshold`) and adjust `n_phi`/config until the hierarchical branch is reached, per the plan's research (small `n_phi`, default config, `per_angle_scaling=True` should resolve to `per_angle_mode_actual="individual"` and enter the hierarchical path by default). Do not weaken the assertion — fix the fixture.
+Note: if `fit_with_stratified_hybrid_streaming`'s hierarchical path is not entered with this minimal fixture (the `loss_fn is not None` assertion fails), inspect the function's gating conditions (`enable_hierarchical`, `per_angle_scaling`, `use_constant` — derived from `per_angle_mode_actual`, which defaults to resolving "auto" based on `n_phi` vs `constant_scaling_threshold`) and adjust `n_phi`/config until the hierarchical branch is reached, per the plan's research (small `n_phi`, default config, `per_angle_scaling=True` should resolve to `per_angle_mode_actual="individual"` and enter the hierarchical path by default). Do not weaken the assertion — fix the fixture. For the shear-combination test above, confirm `shear_weighter_local is not None` is actually reached (e.g. via a temporary print/log of `anti_degeneracy_components.get("shear_weighter")`) before concluding a fixture problem — the `n_phi > 3` and `per_angle_mode="individual"` gates are independent per the source read during planning, but re-verify against the checkout being implemented against.
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `uv run pytest tests/optimization/test_debug_audit_2026_07_23_sigma_weighting.py::test_laminar_loss_fn_honors_nonuniform_sigma -v`
-Expected: FAILS — either `loss_with_sigma == loss_uniform` (sigma not consulted, the actual bug) or a `NameError`/`AttributeError` if `sigma` isn't in scope in `loss_fn` at all yet (also expected pre-fix, per the spec's finding that laminar has no `sigma` name in scope). Confirm which failure mode you see before proceeding.
+Run: `uv run pytest tests/optimization/test_debug_audit_2026_07_23_sigma_weighting.py -k laminar -v`
+Expected: `test_laminar_loss_fn_honors_nonuniform_sigma` FAILS — either `loss_with_sigma == loss_uniform` (sigma not consulted, the actual bug) or a `NameError`/`AttributeError` if `sigma` isn't in scope in `loss_fn` at all yet (also expected pre-fix, per the spec's finding that laminar has no `sigma` name in scope). `test_laminar_loss_fn_combines_sigma_with_shear_weighting` FAILS the same way (sigma not consulted at all, pre-fix, regardless of shear). Confirm which failure mode you see before proceeding.
 
 - [ ] **Step 3: Implement the prerequisite sigma plumbing**
 
@@ -1093,26 +1321,46 @@ Add sigma alignment immediately after it (same indentation level):
 In the same file, add the module-level helper near the top (mirroring Task 4a's, in this separate module):
 
 ```python
-def _sigma_weighted_mse(residuals: Any, sigma: Any | None) -> Any:
-    """Mean-squared residual, optionally weighted by per-point sigma.
+def _sigma_weighted_residuals(residuals: Any, sigma: Any | None) -> Any:
+    """Per-point residuals divided by sigma, EXCLUDING invalid points.
 
     Mirrors the safe_sigma/valid_sigma EPS-guard convention used in
-    strategies/residual_jit.py. When sigma is None, this is exactly the
-    pre-existing unweighted jnp.mean(residuals**2).
+    strategies/residual_jit.py EXACTLY: points with sigma <= EPS are excluded
+    from the loss entirely (residual set to zero for that point, matching
+    residual_jit.py's `jnp.where(valid_sigma, (obs-theory)/safe_sigma, 0.0)`)
+    rather than falling back to the raw unweighted residual, which would be a
+    materially different (and uncited) aggregation behavior. When sigma is
+    None, this is the identity (residuals unchanged) -- both call sites below
+    then reduce to their pre-existing unweighted form.
     """
     if sigma is None:
-        return jnp.mean(residuals**2)
+        return residuals
     EPS = 1e-10
     sigma_jax = jnp.asarray(sigma)
     valid_sigma = sigma_jax > EPS
     safe_sigma = jnp.where(valid_sigma, sigma_jax, 1.0)
-    weighted_sq = jnp.where(valid_sigma, (residuals / safe_sigma) ** 2, residuals**2)
-    return jnp.mean(weighted_sq)
+    return jnp.where(valid_sigma, residuals / safe_sigma, 0.0)
+
+
+def _sigma_weighted_mse(residuals: Any, sigma: Any | None) -> Any:
+    """Mean-squared residual, optionally weighted by per-point sigma.
+
+    Built on :func:`_sigma_weighted_residuals` so the same EPS-guard
+    convention applies here as in the shear-combined branch below. When
+    sigma is None, this is exactly the pre-existing unweighted
+    jnp.mean(residuals**2).
+    """
+    return jnp.mean(_sigma_weighted_residuals(residuals, sigma) ** 2)
 ```
 
 Then in `loss_fn` (hierarchical branch), change:
 
 ```python
+            if shear_weighter_local is not None:
+                # Use shear-weighted loss instead of uniform MSE
+                weighted_loss = shear_weighter_local.apply_weights_to_loss(
+                    residuals, phi_indices_jax
+                )
             else:
                 # CRITICAL: Use jnp.mean, NOT np.mean!
                 # np.mean breaks JAX autodiff and causes zero gradients
@@ -1122,21 +1370,33 @@ Then in `loss_fn` (hierarchical branch), change:
 to:
 
 ```python
+            # sigma weighting (Finding #4, 2026-07-23) is orthogonal to shear
+            # weighting and must apply in BOTH branches below -- pre-divide
+            # residuals by sigma once (identity when sigma is None) so shear
+            # weighting, when also active, combines with it rather than
+            # silently overriding it.
+            residuals_sw = _sigma_weighted_residuals(residuals, sigma)
+            if shear_weighter_local is not None:
+                # Use shear-weighted loss instead of uniform MSE. Passing the
+                # already sigma-divided residuals means apply_weights_to_loss's
+                # sum(w * r**2) becomes sum(w * (r/sigma)**2) -- both layers
+                # combined, matching the sibling plain-path branch's
+                # optimizer.fit(sigma=sigma, ...).
+                weighted_loss = shear_weighter_local.apply_weights_to_loss(
+                    residuals_sw, phi_indices_jax
+                )
             else:
                 # CRITICAL: Use jnp operations, NOT np -- np.mean breaks JAX
-                # autodiff and causes zero gradients. _sigma_weighted_mse
-                # (Finding #4, 2026-07-23) honors per-point sigma weighting
-                # when available, matching the sibling plain-path branch's
-                # optimizer.fit(sigma=sigma, ...).
-                weighted_loss = _sigma_weighted_mse(residuals, sigma) * len(y_data)
+                # autodiff and causes zero gradients.
+                weighted_loss = jnp.mean(residuals_sw**2) * len(y_data)
 ```
 
-Leave the `shear_weighter_local is not None` branch immediately above it untouched — shear weighting and sigma weighting are independent, orthogonal concerns and the spec does not ask to combine them.
+Both branches now honor sigma weighting — the earlier plan draft left the `shear_weighter_local is not None` branch untouched, which silently no-op'd this fix whenever L5 shear weighting was also active (the common `laminar_flow` + `n_phi > 3` case, since `shear_weighting_enabled` defaults to `True`). Pre-dividing residuals once, before the branch, closes that gap with a single shared edit instead of duplicating the sigma logic into both branches.
 
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `uv run pytest tests/optimization/test_debug_audit_2026_07_23_sigma_weighting.py -v`
-Expected: all PASS.
+Expected: all PASS, including `test_laminar_loss_fn_combines_sigma_with_shear_weighting` (the shear-active combination case).
 
 - [ ] **Step 6: Run the existing laminar hybrid-streaming test suites to confirm no regression**
 
@@ -1154,8 +1414,12 @@ Unlike heterodyne, laminar_flow's fit_with_stratified_hybrid_streaming
 had no sigma name in scope in its loss_fn/grad_fn closures at all --
 stratified_data.sigma was populated upstream but never threaded into this
 function. Added the prerequisite alignment step (mirroring
-build_heterodyne_pointwise_model's approach) before applying the same
-divide-by-sigma edit as the heterodyne commit."
+build_heterodyne_pointwise_model's approach), then applied a
+_sigma_weighted_residuals pre-division shared by BOTH the shear-weighted
+and plain-mean branches of loss_fn -- an earlier draft of this fix only
+edited the plain branch, silently no-op'ing on every laminar_flow run
+with n_phi > 3 (L5 shear weighting active by default), which is the
+common case, not an edge case."
 ```
 
 ---
@@ -1371,12 +1635,83 @@ def test_repair_negative_correlations_clamps_everything_when_unmarked():
     assert modified is True
     assert data["c2_exp"][0, 0, 0] == 1e-6
     assert data["c2_exp"][1, 0, 0] == 1e-6
+
+
+def _data_with_one_skipped_matrix_robust(n_t: int = 6) -> dict:
+    rng = np.random.default_rng(2)
+    normal_matrix = 1.0 + 0.3 * rng.standard_normal((n_t, n_t))
+    constant_matrix = np.full((n_t, n_t), 3.0)  # zero IQR -> ROBUST skip branch
+    c2 = np.stack([normal_matrix, constant_matrix])
+    return {
+        "c2_exp": c2,
+        "t1": np.arange(n_t, dtype=np.float64),
+        "t2": np.arange(n_t, dtype=np.float64),
+        "wavevector_q_list": np.array([0.01, 0.01]),
+        "phi_angles_list": np.array([0.0, 45.0]),
+    }
+
+
+def test_normalize_data_tracks_per_matrix_mask_robust():
+    """ROBUST method's zero-IQR skip branch must also be tracked per-matrix,
+    mirroring the STATISTICAL zero-variance skip branch tested above. The
+    design spec covers both normalization methods symmetrically (both gate on
+    the same np.finfo-eps skip-guard shape); the plan's first draft only
+    exercised STATISTICAL, leaving ROBUST's skip path completely untested."""
+    pipeline = PreprocessingPipeline(
+        {"preprocessing": {"stages": {"normalize_data": {"method": "robust"}}}}
+    )
+    data = _data_with_one_skipped_matrix_robust()
+    result = pipeline._normalize_data(data, {"method": "robust"})
+    mask = result.get("_normalized_mask")
+    assert mask is not None
+    assert list(mask) == [True, False], (
+        "matrix 0 (real IQR) must be marked normalized, "
+        "matrix 1 (zero IQR, ROBUST skip branch) must not be"
+    )
+
+
+def test_repair_negative_correlations_respects_real_pipeline_mask():
+    """End-to-end (design spec Testing item 6): thread the REAL
+    _normalize_data output into DataQualityController._repair_negative_correlations,
+    not a hand-injected _normalized_mask. The hand-injected-mask test above
+    (test_repair_negative_correlations_respects_per_matrix_mask) proves the
+    controller reads the mask correctly, but never proves the mask-producing
+    pipeline and the mask-consuming controller actually agree on what the
+    mask means -- a real seam bug between the two would not be caught there."""
+    pipeline = PreprocessingPipeline(
+        {"preprocessing": {"stages": {"normalize_data": {"method": "statistical"}}}}
+    )
+    data = _data_with_one_skipped_matrix()
+    normalized = pipeline._normalize_data(data, {"method": "statistical"})
+    normalized["c2_exp"] = np.asarray(normalized["c2_exp"], dtype=np.float64)
+
+    # Z-scoring matrix 0 legitimately produces negatives (it's mean-centered);
+    # confirm the fixture assumption, then inject a definite negative into
+    # matrix 1 (the skipped, never-transformed matrix), which would
+    # otherwise have no reason to go negative on its own.
+    assert np.any(normalized["c2_exp"][0] < 0), (
+        "z-score normalization of matrix 0 should legitimately produce a "
+        "negative somewhere -- fixture assumption broken"
+    )
+    normalized["c2_exp"][1, 0, 0] = -2.5
+
+    controller = DataQualityController.__new__(DataQualityController)
+    repairs_applied: list[str] = []
+    modified = controller._repair_negative_correlations(normalized, repairs_applied)
+
+    assert modified is True
+    assert np.any(normalized["c2_exp"][0] < 0), (
+        "matrix 0's real normalization-produced negatives must survive repair"
+    )
+    assert normalized["c2_exp"][1, 0, 0] == 1e-6, (
+        "matrix 1 (never normalized) must still be clamped"
+    )
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/data/test_debug_audit_2026_07_23_negative_correlation_repair.py -v`
-Expected: `test_normalize_data_tracks_per_matrix_mask` FAILS (`mask is None`). `test_repair_negative_correlations_respects_per_matrix_mask` FAILS (`data["c2_exp"][0, 0, 0] == 1e-6`, not `-1.5` — currently everything gets clamped regardless of the mask). `test_repair_negative_correlations_clamps_everything_when_unmarked` should already PASS (this pins today's existing behavior for the no-marker case).
+Expected: `test_normalize_data_tracks_per_matrix_mask` FAILS (`mask is None`). `test_normalize_data_tracks_per_matrix_mask_robust` FAILS the same way for the ROBUST branch. `test_repair_negative_correlations_respects_per_matrix_mask` and `test_repair_negative_correlations_respects_real_pipeline_mask` FAIL (`data["c2_exp"][...] == 1e-6`, not the expected surviving negative — currently everything gets clamped regardless of the mask). `test_repair_negative_correlations_clamps_everything_when_unmarked` should already PASS (this pins today's existing behavior for the no-marker case).
 
 - [ ] **Step 3: Implement the per-matrix mask in `_normalize_data`**
 
@@ -1497,10 +1832,10 @@ to:
         return normalized_data
 ```
 
-- [ ] **Step 4: Run the `_normalize_data` test to verify it passes**
+- [ ] **Step 4: Run the `_normalize_data` tests to verify they pass**
 
-Run: `uv run pytest tests/data/test_debug_audit_2026_07_23_negative_correlation_repair.py::test_normalize_data_tracks_per_matrix_mask -v`
-Expected: PASS.
+Run: `uv run pytest tests/data/test_debug_audit_2026_07_23_negative_correlation_repair.py::test_normalize_data_tracks_per_matrix_mask tests/data/test_debug_audit_2026_07_23_negative_correlation_repair.py::test_normalize_data_tracks_per_matrix_mask_robust -v`
+Expected: both PASS (STATISTICAL and ROBUST skip-tracking).
 
 - [ ] **Step 5: Implement the per-matrix gating in `_repair_negative_correlations`**
 
@@ -1573,10 +1908,10 @@ to:
         return data_modified
 ```
 
-- [ ] **Step 6: Run all 4 tests to verify they pass**
+- [ ] **Step 6: Run all 5 tests to verify they pass**
 
 Run: `uv run pytest tests/data/test_debug_audit_2026_07_23_negative_correlation_repair.py -v`
-Expected: all PASS.
+Expected: all 5 PASS (`test_normalize_data_tracks_per_matrix_mask`, `test_normalize_data_tracks_per_matrix_mask_robust`, `test_repair_negative_correlations_respects_per_matrix_mask`, `test_repair_negative_correlations_respects_real_pipeline_mask`, `test_repair_negative_correlations_clamps_everything_when_unmarked`).
 
 - [ ] **Step 7: Run the existing quality controller smoke test to confirm no regression**
 
