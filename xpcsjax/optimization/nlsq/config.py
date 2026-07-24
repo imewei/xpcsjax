@@ -344,6 +344,7 @@ class NLSQConfig:
     )
     cmaes_max_generations: int | None = None  # None = use preset + adaptive scaling
     cmaes_popsize: int | None = None  # Population size (None = auto from 4+3*ln(n))
+    cmaes_seed: int | None = None  # Deterministic seed; None = nondeterministic (default)
     cmaes_sigma: float = 0.5  # Initial step size (fraction of search range)
     cmaes_sigma_warmstart: float = 0.05  # Reduced sigma for warm-start mode (local refinement)
     cmaes_warmstart_auto_skip: bool = True  # Auto-skip CMA-ES when warm-start chi2 is good
@@ -547,6 +548,7 @@ class NLSQConfig:
             cmaes_preset=cmaes.get("preset", "cmaes"),
             cmaes_max_generations=cmaes.get("max_generations"),  # None = adaptive
             cmaes_popsize=cmaes.get("popsize"),  # None = auto
+            cmaes_seed=cmaes.get("seed"),  # None = nondeterministic (default)
             cmaes_sigma=float(cmaes.get("sigma", 0.5)),
             cmaes_sigma_warmstart=float(cmaes.get("sigma_warmstart", 0.05)),
             cmaes_warmstart_auto_skip=cmaes.get("warmstart_auto_skip", True),
@@ -1097,6 +1099,7 @@ class NLSQConfig:
                 "preset": self.cmaes_preset,
                 "max_generations": self.cmaes_max_generations,
                 "popsize": self.cmaes_popsize,
+                "seed": self.cmaes_seed,
                 "sigma": self.cmaes_sigma,
                 "sigma_warmstart": self.cmaes_sigma_warmstart,
                 "warmstart_auto_skip": self.cmaes_warmstart_auto_skip,
