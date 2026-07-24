@@ -1,7 +1,7 @@
 # Fix remaining debug-audit findings — design
 
 Date: 2026-07-23
-Status: Approved
+Status: Implemented
 
 ## Context
 
