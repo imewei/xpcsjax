@@ -495,6 +495,7 @@ class PreprocessingPipeline:
         # Execute stage based on type
         if stage == PreprocessingStage.CORRECT_DIAGONAL:
             processed_data = self._correct_diagonal_enhanced(data, stage_config)
+            processed_data["_diagonal_corrected"] = True
             method = stage_config.get("method", "statistical")
 
         elif stage == PreprocessingStage.NORMALIZE_DATA:

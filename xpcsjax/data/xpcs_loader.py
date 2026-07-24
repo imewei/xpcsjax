@@ -252,6 +252,34 @@ def _migrate_cache_template(template: str) -> str:
     return template
 
 
+def _maybe_apply_mandatory_diagonal_correction(
+    data: dict[str, Any],
+    fallback_correct_diagonal_batch: Callable[[Any], Any] | None = None,
+) -> dict[str, Any]:
+    """Apply the mandatory post-load diagonal correction, unless already done.
+
+    Preprocessing's CORRECT_DIAGONAL stage sets ``data["_diagonal_corrected"]
+    = True`` on success (xpcsjax/data/preprocessing.py's ``_execute_stage``).
+    Re-applying the mandatory 'basic' correction on top of that would
+    silently discard whatever method the user configured
+    (statistical/interpolation) — see Finding #2 of the 2026-07-23
+    debug-audit-fixes spec.
+    """
+    if data.get("_diagonal_corrected", False):
+        logger.debug(
+            "Skipping mandatory diagonal correction: preprocessing already "
+            "corrected the diagonal (_diagonal_corrected=True)"
+        )
+        return data
+
+    logger.debug("Applying mandatory diagonal correction to correlation matrices")
+    if HAS_DIAGONAL_CORRECTION:
+        data["c2_exp"] = apply_diagonal_correction_batch(data["c2_exp"])
+    elif fallback_correct_diagonal_batch is not None:
+        data["c2_exp"] = fallback_correct_diagonal_batch(data["c2_exp"])
+    return data
+
+
 class XPCSDataFormatError(Exception):
     """Raised when XPCS data format is not recognized or invalid."""
 
@@ -1046,14 +1074,9 @@ class XPCSDataLoader:
         # Convert to target array format (JAX or numpy)
         data = self._convert_arrays_to_target_format(data)
 
-        # Apply mandatory diagonal correction (post-load for consistent behavior)
-        # Uses unified diagonal_correction module
-        logger.debug("Applying mandatory diagonal correction to correlation matrices")
-        if HAS_DIAGONAL_CORRECTION:
-            data["c2_exp"] = apply_diagonal_correction_batch(data["c2_exp"])
-        else:
-            # Fallback to local implementation if unified module not available
-            data["c2_exp"] = self._correct_diagonal_batch(data["c2_exp"])
+        # Apply mandatory diagonal correction (post-load for consistent behavior),
+        # unless preprocessing's CORRECT_DIAGONAL stage already corrected it.
+        data = _maybe_apply_mandatory_diagonal_correction(data, self._correct_diagonal_batch)
 
         # Final quality control validation
         if quality_controller:
