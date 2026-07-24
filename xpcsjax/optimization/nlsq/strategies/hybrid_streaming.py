@@ -83,17 +83,6 @@ def _sigma_weighted_residuals(residuals: Any, sigma: Any | None) -> Any:
     return jnp.where(valid_sigma, residuals / safe_sigma, 0.0)
 
 
-def _sigma_weighted_mse(residuals: Any, sigma: Any | None) -> Any:
-    """Mean-squared residual, optionally weighted by per-point sigma.
-
-    Built on :func:`_sigma_weighted_residuals` so the same EPS-guard
-    convention applies here as in the shear-combined branch below. When
-    sigma is None, this is exactly the pre-existing unweighted
-    jnp.mean(residuals**2).
-    """
-    return jnp.mean(_sigma_weighted_residuals(residuals, sigma) ** 2)
-
-
 def fit_with_hybrid_streaming_optimizer(
     residual_fn: Any,
     xdata: np.ndarray,
