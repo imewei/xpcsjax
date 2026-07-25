@@ -439,6 +439,13 @@ def execute_optimization_with_fallback(
                 else:
                     convergence_status = "converged"
 
+                if _is_soft_failure(convergence_status):
+                    raise RuntimeError(
+                        f"{current_strategy.value} strategy (no-recovery path) completed "
+                        f"without converging (convergence_status={convergence_status!r}); "
+                        "escalating"
+                    )
+
             if strategy_attempts:
                 recovery_actions.append(f"strategy_fallback_to_{current_strategy.value}")
                 log.info(

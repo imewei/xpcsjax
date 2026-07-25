@@ -261,12 +261,21 @@ def test_memory_map_manager_refcount_blocks_concurrent_eviction(tmp_path) -> Non
 
 
 def test_fallback_no_recovery_reports_failed_on_stagnation() -> None:
-    """Audit [2026-07-22]: execute_optimization_with_fallback's no-recovery
-    else-branch must report convergence_status='failed' when it detects a
-    stagnated fit (params unchanged / zero uncertainties), mirroring
-    recovery.py. It previously hardcoded 'converged'."""
+    """Audit [2026-07-22], updated [2026-07-23] (PR #15 review, Finding #3
+    scope extended to the plain enable_recovery=False branch for full
+    3-branch consistency): execute_optimization_with_fallback's no-recovery
+    else-branch must escalate a stagnated fit (params unchanged / zero
+    uncertainties) to the next fallback strategy, exactly like the
+    STREAMING and recovery branches already do. strategy=STANDARD has no
+    fallback (get_fallback_strategy(STANDARD) is None), so once STANDARD
+    itself stagnates the chain is fully exhausted and the function raises
+    RuntimeError (matching the corrected Guardrail in the design spec) --
+    it no longer hardcodes a graceful 'converged', and now it doesn't
+    silently return a graceful 'failed' either."""
     import logging
     import time
+
+    import pytest
 
     from xpcsjax.optimization.nlsq.fallback_chain import (
         OptimizationStrategy,
@@ -281,8 +290,65 @@ def test_fallback_no_recovery_reports_failed_on_stagnation() -> None:
         popt = np.asarray(p0, dtype=float)
         return popt, np.zeros((popt.size, popt.size))
 
-    _, _, _, _, status = execute_optimization_with_fallback(
-        strategy=OptimizationStrategy.STANDARD,
+    with pytest.raises(RuntimeError, match="all strategies"):
+        execute_optimization_with_fallback(
+            strategy=OptimizationStrategy.STANDARD,
+            wrapped_residual_fn=lambda p, x: np.zeros_like(x),
+            xdata=np.arange(5.0),
+            ydata=np.zeros(5),
+            validated_params=p0,
+            nlsq_bounds=None,
+            loss_name="linear",
+            x_scale_value=1.0,
+            config=object(),
+            start_time=time.time(),
+            log=logging.getLogger("test_fallback"),
+            enable_recovery=False,
+            execute_with_recovery_fn=lambda **_k: None,  # not reached
+            fit_with_hybrid_streaming_fn=lambda **_k: None,  # not reached
+            streaming_available=False,
+            curve_fit_fn=fake_curve_fit,
+            curve_fit_large_fn=fake_curve_fit,
+        )
+
+
+def test_plain_soft_failure_escalates_to_next_strategy() -> None:
+    """Audit [2026-07-23] (PR #15 review): the plain (enable_recovery=False,
+    non-STREAMING) branch's stagnation detection previously only relabeled
+    the status ('failed' instead of hardcoded 'converged', see the test
+    above) without ever escalating to the next fallback strategy -- unlike
+    STREAMING and the recovery branch, which this same PR's Finding #3
+    already fixed. Starting from CHUNKED (which has a real fallback chain,
+    unlike STANDARD) proves the escalation actually happens: CHUNKED and
+    LARGE both stagnate, STANDARD succeeds."""
+    import logging
+    import time
+
+    from xpcsjax.optimization.nlsq.fallback_chain import (
+        OptimizationStrategy,
+        execute_optimization_with_fallback,
+    )
+
+    p0 = np.array([1.0, 2.0])
+    attempted_strategies = []
+
+    def fake_curve_fit_large_stagnates(_resid, _x, _y, p0, **_kw):
+        # CHUNKED and LARGE both stagnate (params unchanged, zero pcov).
+        # curve_fit_large_fn is called with full_output=True, i.e. a 3-tuple
+        # (popt, pcov, info) -- a 2-tuple here would raise ValueError on
+        # unpack and escalate for the wrong reason (accidental exception,
+        # not the stagnation-detection path under test).
+        attempted_strategies.append("large_or_chunked")
+        popt = np.asarray(p0, dtype=float)
+        return popt, np.zeros((popt.size, popt.size)), {}
+
+    def fake_curve_fit_standard_succeeds(_resid, _x, _y, p0, **_kw):
+        attempted_strategies.append("standard")
+        popt = np.asarray(p0, dtype=float) + 1.0  # visibly different -> "converged"
+        return popt, np.eye(len(popt))
+
+    popt, pcov, info, recovery_actions, status = execute_optimization_with_fallback(
+        strategy=OptimizationStrategy.CHUNKED,
         wrapped_residual_fn=lambda p, x: np.zeros_like(x),
         xdata=np.arange(5.0),
         ydata=np.zeros(5),
@@ -292,16 +358,19 @@ def test_fallback_no_recovery_reports_failed_on_stagnation() -> None:
         x_scale_value=1.0,
         config=object(),
         start_time=time.time(),
-        log=logging.getLogger("test_fallback"),
+        log=logging.getLogger("test_plain_escalation"),
         enable_recovery=False,
         execute_with_recovery_fn=lambda **_k: None,  # not reached
         fit_with_hybrid_streaming_fn=lambda **_k: None,  # not reached
         streaming_available=False,
-        curve_fit_fn=fake_curve_fit,
-        curve_fit_large_fn=fake_curve_fit,
+        curve_fit_fn=fake_curve_fit_standard_succeeds,
+        curve_fit_large_fn=fake_curve_fit_large_stagnates,
     )
 
-    assert status == "failed", f"stagnation must report 'failed', got {status!r}"
+    assert attempted_strategies == ["large_or_chunked", "large_or_chunked", "standard"], (
+        f"expected escalation CHUNKED->LARGE->STANDARD, got {attempted_strategies!r}"
+    )
+    assert status == "converged"
 
 
 def test_streaming_soft_failure_escalates_to_chunked() -> None:
