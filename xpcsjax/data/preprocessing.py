@@ -495,6 +495,7 @@ class PreprocessingPipeline:
         # Execute stage based on type
         if stage == PreprocessingStage.CORRECT_DIAGONAL:
             processed_data = self._correct_diagonal_enhanced(data, stage_config)
+            processed_data["_diagonal_corrected"] = True
             method = stage_config.get("method", "statistical")
 
         elif stage == PreprocessingStage.NORMALIZE_DATA:
@@ -755,6 +756,17 @@ class PreprocessingPipeline:
         normalized_data = {
             k: (np.array(v) if hasattr(v, "shape") else copy.deepcopy(v)) for k, v in data.items()
         }
+        # Per-matrix normalization-applied tracking (Finding #6, 2026-07-23):
+        # STATISTICAL/ROBUST skip individual near-zero-variance matrices
+        # without failing the stage, so a dataset-level flag would be wrong
+        # -- it would suppress negative-correlation repair even on matrices
+        # that were never actually transformed. Only set for the methods
+        # whose "skip" branches produce legitimate negatives when they DO
+        # run; other methods (BASELINE/MINMAX/PHYSICS_BASED) don't produce
+        # negatives by design and don't need this tracking.
+        normalized_mask: list[bool] | None = None
+        if method in (NormalizationMethod.STATISTICAL, NormalizationMethod.ROBUST):
+            normalized_mask = [False] * len(c2_exp)
         # Normalization yields fractional values; if the source c2_exp is an integer
         # dtype, assigning floats back into it would truncate. Upcast the buffer.
         if hasattr(c2_exp, "shape") and not np.issubdtype(np.asarray(c2_exp).dtype, np.floating):
@@ -783,6 +795,8 @@ class PreprocessingPipeline:
                 # zero (subnormal) would pass != 0 but cause overflow on division.
                 if abs(std_val) > np.finfo(np.float64).eps:
                     normalized_data["c2_exp"][i] = (c2_matrix - mean_val) / std_val
+                    if normalized_mask is not None:
+                        normalized_mask[i] = True
                 else:
                     logger.warning(
                         f"Zero standard deviation at matrix {i}, skipping normalization",
@@ -810,6 +824,8 @@ class PreprocessingPipeline:
                 if q75 - q25 > np.finfo(float).eps * max(abs(q75), 1.0):
                     median_val = np.nanmedian(c2_matrix)
                     normalized_data["c2_exp"][i] = (c2_matrix - median_val) / (q75 - q25)
+                    if normalized_mask is not None:
+                        normalized_mask[i] = True
                 else:
                     logger.warning(
                         f"No variance in percentile range at matrix {i}, skipping normalization",
@@ -837,6 +853,9 @@ class PreprocessingPipeline:
                     logger.warning(
                         f"Zero maximum value at matrix {i}, skipping normalization",
                     )
+
+        if normalized_mask is not None:
+            normalized_data["_normalized_mask"] = normalized_mask
 
         return normalized_data
 

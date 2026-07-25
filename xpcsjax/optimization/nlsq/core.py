@@ -715,7 +715,13 @@ def _normalize_data_to_object(data: Any, config: Any, logger: Any) -> Any:
         if hasattr(data_obj, "wavevector_q_list"):
             q_list = np.atleast_1d(np.asarray(data_obj.wavevector_q_list))
             if q_list.size > 0:
-                data_obj.q = float(q_list[0])
+                extracted_q = float(q_list[0])
+                if not np.isfinite(extracted_q):
+                    raise ValueError(
+                        "wavevector_q_list[0] is not finite (NaN/inf); a "
+                        "bad-pixel q-value must not silently reach the fit"
+                    )
+                data_obj.q = extracted_q
                 logger.debug(f"Extracted q = {data_obj.q:.6f} from wavevector_q_list")
 
         # Generate default sigma (uncertainty) if missing
@@ -1801,6 +1807,11 @@ def fit_nlsq_cmaes(
         # Get q value
         if "wavevector_q_list" in data:
             q = float(np.asarray(data["wavevector_q_list"])[0])
+            if not np.isfinite(q):
+                raise ValueError(
+                    "wavevector_q_list[0] is not finite (NaN/inf); a "
+                    "bad-pixel q-value must not silently reach the fit"
+                )
         else:
             q = float(data.get("q", 0.01))
 

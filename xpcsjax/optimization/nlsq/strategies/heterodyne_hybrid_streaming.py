@@ -40,6 +40,28 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+
+def _sigma_weighted_mse(residuals: Any, sigma: Any | None) -> Any:
+    """Mean-squared residual, optionally weighted by per-point sigma.
+
+    Mirrors the safe_sigma/valid_sigma EPS-guard convention used in
+    strategies/residual_jit.py EXACTLY: points with sigma <= EPS are excluded
+    from the loss entirely (residual treated as zero for that point, matching
+    residual_jit.py's `jnp.where(valid_sigma, (obs-theory)/safe_sigma, 0.0)`)
+    rather than falling back to an unweighted raw residual, which would be a
+    materially different (and uncited) aggregation behavior. When sigma is
+    None, this is exactly the pre-existing unweighted jnp.mean(residuals**2).
+    """
+    if sigma is None:
+        return jnp.mean(residuals**2)
+    EPS = 1e-10
+    sigma_jax = jnp.asarray(sigma)
+    valid_sigma = sigma_jax > EPS
+    safe_sigma = jnp.where(valid_sigma, sigma_jax, 1.0)
+    weighted_sq = jnp.where(valid_sigma, (residuals / safe_sigma) ** 2, 0.0)
+    return jnp.mean(weighted_sq)
+
+
 # ---------------------------------------------------------------------------
 # Optional NLSQ import — mirrors hybrid_streaming.py pattern
 # ---------------------------------------------------------------------------
@@ -802,12 +824,14 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         def _hier_loss(params: np.ndarray) -> float:
             """Loss in the native scaling-first param space [scaling | physics].
 
-            Includes L3 adaptive regularization when active.
+            Includes L3 adaptive regularization when active. Honors sigma
+            weighting (Finding #4, 2026-07-23) matching the plain-path
+            branch's optimizer.fit(sigma=sigma, ...) below.
             """
             params_jax = jnp.asarray(params)
             pred = model_fn(x_data_jax, *params_jax)
             residuals = y_data_jax - pred
-            wl = jnp.mean(residuals**2) * y_data.shape[0]
+            wl = _sigma_weighted_mse(residuals, sigma) * y_data.shape[0]
             if adaptive_regularizer is not None:
                 mse = wl / y_data.shape[0]
                 wl = wl + adaptive_regularizer.compute_regularization_jax(
@@ -821,7 +845,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
             """Loss in the native scaling-first param space [scaling | physics] (JAX)."""
             pred = model_fn(x_data_jax, *ph)
             residuals = y_data_jax - pred
-            wl = jnp.mean(residuals**2) * y_data.shape[0]
+            wl = _sigma_weighted_mse(residuals, sigma) * y_data.shape[0]
             if adaptive_regularizer is not None:
                 mse = wl / y_data.shape[0]
                 wl = wl + adaptive_regularizer.compute_regularization_jax(ph, mse, y_data.shape[0])

@@ -27,7 +27,8 @@ Capabilities:
 * Integration with structured logging and physics validation.
 
 Runtime validation runs unconditionally at the I/O boundary: loaded arrays are
-checked for finite values (no NaN/inf), square 2-D correlation matrices, bounded
+checked for finite values (no NaN/inf, except ``wavevector_q_list`` which
+tolerates NaN — see below), square 2-D correlation matrices, bounded
 allocation size, and monotonic time axes. Any violation raises
 :class:`XPCSDataFormatError`.
 
@@ -251,6 +252,34 @@ def _migrate_cache_template(template: str) -> str:
     return template
 
 
+def _maybe_apply_mandatory_diagonal_correction(
+    data: dict[str, Any],
+    fallback_correct_diagonal_batch: Callable[[Any], Any] | None = None,
+) -> dict[str, Any]:
+    """Apply the mandatory post-load diagonal correction, unless already done.
+
+    Preprocessing's CORRECT_DIAGONAL stage sets ``data["_diagonal_corrected"]
+    = True`` on success (xpcsjax/data/preprocessing.py's ``_execute_stage``).
+    Re-applying the mandatory 'basic' correction on top of that would
+    silently discard whatever method the user configured
+    (statistical/interpolation) — see Finding #2 of the 2026-07-23
+    debug-audit-fixes spec.
+    """
+    if data.get("_diagonal_corrected", False):
+        logger.debug(
+            "Skipping mandatory diagonal correction: preprocessing already "
+            "corrected the diagonal (_diagonal_corrected=True)"
+        )
+        return data
+
+    logger.debug("Applying mandatory diagonal correction to correlation matrices")
+    if HAS_DIAGONAL_CORRECTION:
+        data["c2_exp"] = apply_diagonal_correction_batch(data["c2_exp"])
+    elif fallback_correct_diagonal_batch is not None:
+        data["c2_exp"] = fallback_correct_diagonal_batch(data["c2_exp"])
+    return data
+
+
 class XPCSDataFormatError(Exception):
     """Raised when XPCS data format is not recognized or invalid."""
 
@@ -325,8 +354,10 @@ def _validate_loaded_arrays(data: dict[str, Any], *, source: str) -> None:
     Enforces the project's I/O contract *unconditionally*, rather than behind an
     opt-in flag:
 
-    * **Finite values** — no NaN/inf in any loaded array. Corrupt data must stop
-      the run, not silently drive a numerically wrong fit.
+    * **Finite values** — no NaN/inf in any loaded array, EXCEPT
+      ``wavevector_q_list`` which tolerates NaN (legitimate bad-pixel masking,
+      one entry per (q, phi) pair) but still hard-rejects inf. Corrupt data
+      must stop the run, not silently drive a numerically wrong fit.
     * **Bounded buffer** — a 3-D ``c2_exp`` is re-checked for square trailing
       axes, frame count, and total allocation budget. This also guards the
       ``.npz`` cache path (threat-03), which otherwise bypasses the HDF5
@@ -338,7 +369,7 @@ def _validate_loaded_arrays(data: dict[str, Any], *, source: str) -> None:
 
     Raises ``XPCSDataFormatError`` on any violation.
     """
-    for key in ("c2_exp", "t1", "t2", "wavevector_q_list", "phi_angles_list"):
+    for key in ("c2_exp", "t1", "t2", "phi_angles_list"):
         if key not in data:
             continue
         arr = np.asarray(data[key])
@@ -346,6 +377,18 @@ def _validate_loaded_arrays(data: dict[str, Any], *, source: str) -> None:
             raise XPCSDataFormatError(
                 f"{key} from {source!r} contains NaN/inf values; refusing to "
                 "proceed with corrupt correlation data."
+            )
+
+    # wavevector_q_list gets its own, NaN-tolerant check: NaN there is
+    # legitimate (one entry per (q, phi) pair; a bad/masked detector pixel
+    # legitimately produces NaN at that pair's q-value), but inf/-inf still
+    # indicates corrupt data and must keep hard-failing.
+    if "wavevector_q_list" in data:
+        q_arr = np.asarray(data["wavevector_q_list"])
+        if q_arr.size and np.isinf(q_arr).any():
+            raise XPCSDataFormatError(
+                f"wavevector_q_list from {source!r} contains inf values; "
+                "refusing to proceed with corrupt correlation data."
             )
 
     c2 = np.asarray(data.get("c2_exp"))
@@ -1031,14 +1074,9 @@ class XPCSDataLoader:
         # Convert to target array format (JAX or numpy)
         data = self._convert_arrays_to_target_format(data)
 
-        # Apply mandatory diagonal correction (post-load for consistent behavior)
-        # Uses unified diagonal_correction module
-        logger.debug("Applying mandatory diagonal correction to correlation matrices")
-        if HAS_DIAGONAL_CORRECTION:
-            data["c2_exp"] = apply_diagonal_correction_batch(data["c2_exp"])
-        else:
-            # Fallback to local implementation if unified module not available
-            data["c2_exp"] = self._correct_diagonal_batch(data["c2_exp"])
+        # Apply mandatory diagonal correction (post-load for consistent behavior),
+        # unless preprocessing's CORRECT_DIAGONAL stage already corrected it.
+        data = _maybe_apply_mandatory_diagonal_correction(data, self._correct_diagonal_batch)
 
         # Final quality control validation
         if quality_controller:

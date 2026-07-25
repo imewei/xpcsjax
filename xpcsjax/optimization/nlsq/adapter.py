@@ -875,6 +875,11 @@ class NLSQAdapter(NLSQAdapterBase):
             q = self._get_attr(data, "wavevector_q_list", [1.0])
         if isinstance(q, (list, np.ndarray)):
             q = q[0]
+        if not np.isfinite(float(q)):
+            raise ValueError(
+                "wavevector_q_list[0] is not finite (NaN/inf); a bad-pixel "
+                "q-value must not silently reach the fit"
+            )
 
         # Get unique phi angles
         phi = self._get_attr(data, "phi")

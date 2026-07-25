@@ -217,3 +217,27 @@ def test_cmaes_fixed_constant_survives_none_covariance(monkeypatch):
     assert len(res.parameters) == 2 * n_phi + n_physical
     assert len(res.uncertainties) == len(res.parameters)
     assert np.asarray(res.covariance).shape == (len(res.parameters), len(res.parameters))
+
+
+def test_cmaes_nan_q_is_rejected_not_silently_fit(monkeypatch):
+    """Audit [2026-07-23] (PR #15 review, pr15-test-review): a NaN
+    ``wavevector_q_list[0]`` (bad detector pixel) must not silently reach
+    the fit. ``fit_nlsq_cmaes`` raises ``ValueError`` for this internally,
+    but the surrounding ``except ValueError as e`` (core.py, ~line 2690)
+    swallows anything not matching "per_angle_mode" into
+    ``_cmaes_failed_result`` -- a graceful ``failed``/``inf`` result rather
+    than a crash. This pins that swallowed-to-failed-result contract: the
+    guard's message must still be visible in ``device_info['error']`` so a
+    caller inspecting a failed result can distinguish "bad q" from any
+    other CMA-ES failure.
+    """
+    from xpcsjax.optimization.nlsq.core import fit_nlsq_cmaes
+
+    data = _tiny_laminar_data()
+    data["wavevector_q_list"] = np.array([np.nan])
+
+    res = fit_nlsq_cmaes(data, _laminar_cmaes_config("individual"))
+
+    assert res.success is False
+    assert res.convergence_status == "failed"
+    assert "not finite" in res.device_info["error"]
