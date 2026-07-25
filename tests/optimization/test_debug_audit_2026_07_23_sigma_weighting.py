@@ -290,3 +290,94 @@ def test_laminar_loss_fn_combines_sigma_with_shear_weighting(monkeypatch):
         "loss must change when sigma is non-uniform even with shear weighting "
         "active -- the shear_weighter_local branch must also honor sigma"
     )
+
+
+class _CapturingAdaptiveOptimizerSpy:
+    """Stand-in for NLSQ's AdaptiveHybridStreamingOptimizer: captures the
+    fit() kwargs it was given (in particular sigma) and returns a stub
+    result without running a real solve."""
+
+    captured: dict = {}
+
+    def __init__(self, config):
+        self.config = config
+
+    def fit(
+        self,
+        *,
+        data_source,
+        func,
+        p0,
+        bounds=None,
+        sigma=None,
+        absolute_sigma=False,
+        callback=None,
+        verbose=1,
+    ):
+        type(self).captured["sigma"] = sigma
+        n = len(p0)
+        return {
+            "x": np.asarray(p0, dtype=float),
+            "pcov": np.eye(n),
+            "success": True,
+            "streaming_diagnostics": {},
+        }
+
+
+def test_laminar_plain_path_threads_sigma_into_optimizer_fit(monkeypatch):
+    """Audit follow-up (2026-07-23, PR #15 review): the plain (non-hierarchical)
+    branch of fit_with_stratified_hybrid_streaming never passed sigma= to
+    optimizer.fit(), unlike heterodyne_hybrid_streaming.py's equivalent plain
+    path (which does, at line ~918) -- contradicting both the design spec's own
+    premise ("the sibling plain-path branch...correctly threads sigma") and a
+    comment added by this same PR that (incorrectly, until this fix) claimed
+    that parity already held for laminar. per_angle_scaling=False forces the
+    plain path (hierarchical requires per_angle_scaling=True)."""
+    from xpcsjax.optimization.nlsq.strategies import hybrid_streaming as hs
+
+    n_t = 4
+    t1 = np.tile(np.arange(n_t, dtype=float), n_t)
+    t2 = np.repeat(np.arange(n_t, dtype=float), n_t)
+    keep = t1 != t2
+    phi = np.zeros(keep.sum())
+    t1 = t1[keep]
+    t2 = t2[keep]
+    g2 = np.ones_like(phi) + 0.01 * np.arange(phi.size)
+    sigma_3d = np.ones((1, n_t, n_t))
+    sigma_3d[0, 0, 1] = 0.1  # non-uniform, arbitrary off-diagonal entry
+
+    stratified_data = _FakeStratifiedDataWithSigma(phi, t1, t2, g2, sigma_3d)
+
+    monkeypatch.setattr(hs, "AdaptiveHybridStreamingOptimizer", _CapturingAdaptiveOptimizerSpy)
+    _CapturingAdaptiveOptimizerSpy.captured = {}
+
+    n_physical = 7
+    initial_params = np.ones(n_physical)
+    bounds = (np.zeros_like(initial_params), np.ones_like(initial_params) * 10)
+
+    hs.fit_with_stratified_hybrid_streaming(
+        stratified_data=stratified_data,
+        per_angle_scaling=False,
+        physical_param_names=[
+            "D0",
+            "alpha",
+            "D_offset",
+            "gamma_dot_t0",
+            "beta",
+            "gamma_dot_t_offset",
+            "phi0",
+        ],
+        initial_params=initial_params,
+        bounds=bounds,
+        logger=__import__("logging").getLogger("test_laminar_plain_sigma"),
+    )
+
+    captured_sigma = _CapturingAdaptiveOptimizerSpy.captured.get("sigma")
+    assert captured_sigma is not None, (
+        "plain-path optimizer.fit() must receive sigma when stratified_data.sigma "
+        "is set -- it was silently dropped before this fix"
+    )
+    assert np.asarray(captured_sigma).size == len(g2), (
+        "sigma passed to optimizer.fit() must be aligned to y_data's flattened, "
+        "non-diagonal-filtered length"
+    )

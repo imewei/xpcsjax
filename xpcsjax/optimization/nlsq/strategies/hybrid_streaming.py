@@ -1646,12 +1646,17 @@ def fit_with_stratified_hybrid_streaming(
         logger.info(f"  Final loss: {hier_result.fun:.6e}")
         logger.info("=" * 60)
     else:
-        # Standard hybrid streaming optimization path
+        # Standard hybrid streaming optimization path. sigma (Finding #4,
+        # 2026-07-23 PR #15 review) is threaded through here to match
+        # heterodyne_hybrid_streaming.py's equivalent plain-path call --
+        # previously silently dropped despite the design spec's premise that
+        # this parity already held.
         result = optimizer.fit(
             data_source=(x_data, y_data),
             func=active_model_fn,
             p0=fit_initial_params,
             bounds=fit_bounds,
+            sigma=sigma,
             verbose=1,
         )
 

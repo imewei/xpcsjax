@@ -67,7 +67,14 @@ class _CapturingOptimizer:
         self.config = config
 
     def fit(
-        self, *, data_source: Any, func: Any, p0: np.ndarray, bounds: Any, verbose: int = 1
+        self,
+        *,
+        data_source: Any,
+        func: Any,
+        p0: np.ndarray,
+        bounds: Any,
+        sigma: Any = None,
+        verbose: int = 1,
     ) -> dict:
         _CapturingOptimizer.last_p0 = np.asarray(p0, dtype=float)
         _CapturingOptimizer.last_bounds = bounds
