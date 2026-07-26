@@ -106,8 +106,8 @@ xpcsjax --config analysis.yaml --plot-experimental-data # plot only, skip the fi
 
 Exit codes: `0` converged · `2` ran but did **not** converge (outputs still written)
 · `1` error · `130` interrupted. `xjexp` / `xjsim` are experimental-/simulated-data
-plotting shortcuts. See the [CLI commands](#cli-commands) table and the
-[CLI guide](docs/source/user_guide/cli.rst) for the full reference.
+plotting shortcuts. See the [CLI guide](docs/source/user_guide/cli.rst) for
+the full command reference.
 
 **Interactive workbench (GUI).** Needs the `gui` extra (`pip install "xpcsjax[gui]"`).
 Launch the PySide6 analysis workbench with:
