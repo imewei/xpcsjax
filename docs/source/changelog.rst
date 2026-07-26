@@ -8,6 +8,11 @@ current release line.
 Unreleased
 ----------
 
+v0.1.2 — GUI polish and packaging fix
+--------------------------------------
+
+*Released 2026-07-25.*
+
 * **GUI design-critique findings addressed** (#11): a Cancel confirmation
   dialog, keyboard shortcuts/tooltips on every toolbar/File-menu action,
   YAML-validating Edit Config, a real side-by-side Comparison table, a

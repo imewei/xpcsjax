@@ -11,6 +11,8 @@ the rendered documentation.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-07-25
+
 ### Fixed
 
 - **GUI design-critique findings addressed** (#11). Cancel now asks for
@@ -313,3 +315,8 @@ results, public API, and config formats are identical to 0.1.0.
   / `heterodyne` packages for Bayesian XPCS analysis.
 - GPU support. v0.1 sets `NLSQ_SKIP_GPU_CHECK=1` and runs CPU-only;
   GPU paths are planned for v0.2+.
+
+[Unreleased]: https://github.com/imewei/xpcsjax/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/imewei/xpcsjax/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/imewei/xpcsjax/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/imewei/xpcsjax/releases/tag/v0.1.0

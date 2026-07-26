@@ -106,8 +106,8 @@ xpcsjax --config analysis.yaml --plot-experimental-data # plot only, skip the fi
 
 Exit codes: `0` converged · `2` ran but did **not** converge (outputs still written)
 · `1` error · `130` interrupted. `xjexp` / `xjsim` are experimental-/simulated-data
-plotting shortcuts. See the [CLI commands](#cli-commands) table and the
-[CLI guide](docs/source/user_guide/cli.rst) for the full reference.
+plotting shortcuts. See the [CLI guide](docs/source/user_guide/cli.rst) for
+the full command reference.
 
 **Interactive workbench (GUI).** Needs the `gui` extra (`pip install "xpcsjax[gui]"`).
 Launch the PySide6 analysis workbench with:
@@ -249,7 +249,7 @@ To cite the software itself:
   author      = {Chen, Wei},
   title       = {xpcsjax: JAX-native NLSQ fitting for X-ray Photon Correlation Spectroscopy},
   year        = {2026},
-  version     = {0.1.1},
+  version     = {0.1.2},
   institution = {Argonne National Laboratory},
   url         = {https://github.com/imewei/xpcsjax}
 }
