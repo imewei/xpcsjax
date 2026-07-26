@@ -34,7 +34,12 @@ import pytest
 
 from xpcsjax.optimization.nlsq import heterodyne_core
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
-from xpcsjax.optimization.nlsq.heterodyne_core import _PER_ANGLE_CMAES_SEED, _fit_cmaes
+from xpcsjax.optimization.nlsq.heterodyne_core import (
+    _PER_ANGLE_CMAES_SEED,
+    _cmaes_joint_candidate,
+    _fit_cmaes,
+    _fit_joint_cmaes_multi_phi,
+)
 
 from ._heterodyne_fixtures import make_synthetic_two_component
 
@@ -224,3 +229,122 @@ def test_per_angle_cmaes_is_bit_reproducible() -> None:
             "deterministically into the evosax backend."
         ),
     )
+
+
+def test_joint_cmaes_candidate_sigma0_is_honored(monkeypatch) -> None:
+    """``_cmaes_joint_candidate`` (the averaged/constant joint-escape hook)
+    threads ``cmaes_sigma0`` into ``CMAESWrapperConfig.sigma``, mirroring
+    ``test_per_angle_cmaes_sigma0_is_honored`` but at the joint-escape site.
+
+    ``test_all_cmaes_config_sites_pin_sigma`` only proves every
+    ``CMAESWrapperConfig(...)`` literal passes SOME ``sigma=`` kwarg (a static
+    AST presence check); it cannot catch a value-level regression such as
+    ``sigma=0.5`` (a hardcoded default) or a swapped field. This test pins the
+    actual float.
+    """
+    config = NLSQConfig(cmaes_sigma0=0.17)
+    x_warm = np.array([1.0, 2.0, 3.0])
+    lb = np.zeros(3)
+    ub = np.full(3, 10.0)
+    captured = _install_capturing_spy(monkeypatch)
+
+    with pytest.raises(_CaptureAndStopError):
+        _cmaes_joint_candidate(lambda x: np.asarray(x, dtype=np.float64), x_warm, lb, ub, config)
+
+    assert captured["config"].sigma == pytest.approx(0.17), (
+        "cmaes_sigma0 must be threaded into CMAESWrapperConfig.sigma at the "
+        f"averaged/constant joint-escape site; got {captured['config'].sigma}. "
+        "Regression: this site could silently fall back to the wrapper's 0.5 "
+        "default while test_all_cmaes_config_sites_pin_sigma stays green "
+        "(it only checks the kwarg is present, not its value)."
+    )
+
+
+def test_joint_multi_phi_cmaes_sigma0_is_honored(monkeypatch) -> None:
+    """``_fit_joint_cmaes_multi_phi`` (the individual-mode joint-escape entry)
+    threads ``cmaes_sigma0`` into ``CMAESWrapperConfig.sigma``.
+
+    Unlike ``_cmaes_joint_candidate``, this function wraps its body in a
+    best-effort ``except Exception: fall back to the plain joint fit`` — so a
+    raise-and-capture spy would be silently swallowed and never surface the
+    regression. Instead the spy returns a non-raising, unsuccessful result
+    (``success=False``): ``_cmaes_keep_best_over_seeds`` short-circuits on
+    ``success`` before touching ``.parameters``, so the escape completes
+    normally (keeping the warm-start) while still letting us inspect the
+    captured config.
+    """
+    from types import SimpleNamespace
+
+    model, c2, phi = make_synthetic_two_component(n_phi=2, n_t=8)
+    config = NLSQConfig(enable_cmaes=True, cmaes_sigma0=0.17, cmaes_warmstart_auto_skip=False)
+
+    captured: dict = {}
+
+    def spy(**kwargs):
+        captured["config"] = kwargs["config"]
+        return SimpleNamespace(success=False, parameters=None)
+
+    monkeypatch.setattr(heterodyne_core, "fit_with_cmaes", spy)
+
+    result = _fit_joint_cmaes_multi_phi(model, c2, phi, config, weights=None)
+
+    assert result is not None and result.parameters is not None, (
+        "the escape must fall back to the warm-start (not raise/crash) when "
+        "the spy reports an unsuccessful CMA-ES draw"
+    )
+    assert "config" in captured, "fit_with_cmaes must have been invoked"
+    assert captured["config"].sigma == pytest.approx(0.17), (
+        "cmaes_sigma0 must be threaded into CMAESWrapperConfig.sigma at the "
+        f"individual-mode joint-escape site; got {captured['config'].sigma}. "
+        "Regression: this site could silently fall back to the wrapper's 0.5 "
+        "default while test_all_cmaes_config_sites_pin_sigma stays green "
+        "(it only checks the kwarg is present, not its value)."
+    )
+
+
+def test_fit_cmaes_dof_clamp_prevents_negative_reduced_chi_squared(monkeypatch) -> None:
+    """``_fit_cmaes``'s post-fit χ² correction clamps ``n_dof_valid`` to at
+    least 1 (``max(n_valid - n_params, 1)``) so a tiny matrix with more
+    varying parameters than valid (off-diagonal, non-boundary) data points
+    cannot drive the degrees-of-freedom negative.
+
+    With ``n_phi=1, n_t=5``: ``n_valid = (5-1)*(5-2) = 12`` and the
+    two-component per-angle model has 14 varying parameters, so
+    ``n_valid - n_params = -2`` -- exactly the case the clamp guards. Without
+    it, ``reduced_chi_squared`` would flip sign (negative), which is
+    unphysical and would silently corrupt downstream quality classification.
+
+    CMA-ES itself is stubbed to a non-raising, unsuccessful result (mirroring
+    ``test_joint_multi_phi_cmaes_sigma0_is_honored``'s technique) purely to
+    keep this test fast and evosax-independent; the DOF clamp under test
+    runs in the shared post-Phase-3 block regardless of which optimizer won.
+    """
+    from types import SimpleNamespace
+
+    model, c2, phi = make_synthetic_two_component(n_phi=1, n_t=5)
+    n_params = len(model.param_manager.varying_names)
+    n_matrix = c2.shape[1]
+    n_valid = (n_matrix - 1) * (n_matrix - 2)
+    assert n_valid - n_params < 0, (
+        "fixture assumption broken: this test requires n_valid < n_params so "
+        f"the clamp is exercised; got n_valid={n_valid}, n_params={n_params}. "
+        "Adjust n_t if the model's varying-parameter count changes."
+    )
+
+    def spy(**kwargs):
+        return SimpleNamespace(success=False, parameters=None, covariance=None, diagnostics={})
+
+    monkeypatch.setattr(heterodyne_core, "fit_with_cmaes", spy)
+
+    config = NLSQConfig(enable_cmaes=True, cmaes_warmstart_auto_skip=False)
+    result = _fit_cmaes(model, c2[0], float(phi[0]), config, weights=None, angle_idx=0)
+
+    assert result.success, "warm-start NLSQ fit must succeed for this DOF check to be meaningful"
+    assert result.reduced_chi_squared is not None
+    assert result.reduced_chi_squared > 0, (
+        "reduced_chi_squared must stay positive even when n_valid < n_params; "
+        f"got {result.reduced_chi_squared}. Regression: an unclamped "
+        "n_dof_valid = n_valid - n_params (negative here) flips the sign of "
+        "ssr / (sigma2_noise * n_dof_valid)."
+    )
+    assert np.isfinite(result.reduced_chi_squared)
