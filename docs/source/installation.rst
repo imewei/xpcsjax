@@ -128,7 +128,7 @@ A correct install satisfies four checks:
 
       >>> import xpcsjax
       >>> xpcsjax.__version__
-      '0.1.1'
+      '0.1.2'
 
    The module exposes ``__all__`` but does not actually pull JAX in until
    you touch one of the lazy attributes — that's the public-API contract

@@ -11,6 +11,8 @@ the rendered documentation.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-07-25
+
 ### Fixed
 
 - **GUI design-critique findings addressed** (#11). Cancel now asks for
