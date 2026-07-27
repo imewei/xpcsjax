@@ -137,9 +137,7 @@ docs/superpowers/
 # ----------------------------------------------------------------------------
 # Jupyter / IPython / Marimo
 # ----------------------------------------------------------------------------
-.ipynb_checkpoints
-*.ipynb_checkpoints/
-*/.ipynb_checkpoints/*
+.ipynb_checkpoints/
 profile_default/
 ipython_config.py
 .jupyter/
@@ -158,6 +156,7 @@ __marimo__/
 .ropeproject
 *.swp
 *.swo
+*~
 \#*\#
 .\#*
 tempCodeRunnerFile.py
@@ -189,6 +188,10 @@ tempCodeRunnerFile.py
 .ultracode/
 .abstra/
 .firecrawl/
+.impeccable/
+.reports/
+.windsurf/
+.clinerules/
 agent-os/
 
 # AI assistant project memos
@@ -242,7 +245,6 @@ Desktop.ini
 *.bak
 *.backup
 *.orig
-*~
 tmp/
 
 # ----------------------------------------------------------------------------
