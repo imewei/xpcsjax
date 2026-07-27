@@ -2300,7 +2300,6 @@ class NLSQWrapper(NLSQAdapterBase):
             if pcov is not None:
                 pcov = adjust_covariance_for_transforms(
                     np.asarray(pcov, dtype=float),
-                    solver_params,
                     physical_params,
                     transform_state,
                 )
