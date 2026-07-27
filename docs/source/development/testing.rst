@@ -132,12 +132,15 @@ checkpoint.
 
 ``make test-smoke``
     Runs the full ``tests/`` tree in parallel under ``-x`` (fail
-    fast) and ``-q`` (quiet output). This is the same command
-    ``make verify`` uses for its test step.
+    fast) and ``-q`` (quiet output), with the heavy/flaky nodes listed
+    in the Makefile's ``HEAVY_NODES`` deselected (currently a CMA-ES
+    escape test and a GUI worker-handle test — see the Makefile's
+    ``PARALLEL_DESELECT``/``HEAVY_NODES`` variables). This is the same
+    command ``make verify`` uses for its test step.
 
     .. code-block:: shell
 
-       uv run pytest tests -n auto -v --tb=short -x -q
+       uv run pytest tests -n auto -v --tb=short -x -q $(PARALLEL_DESELECT)
 
 ``make verify``
     The pre-push gate. Runs three steps in order:
