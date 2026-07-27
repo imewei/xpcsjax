@@ -49,7 +49,10 @@ def test_simulated_close_angles_get_distinct_files(tmp_path, monkeypatch):
         cm,
         contrast=0.5,
         offset=1.0,
-        phi_angles_str="12.3,12.6",
+        # 12.3 and 12.4 both round to 12 under the old int(round(phi)) naming
+        # (12.3 vs 12.6 would already be distinct under the OLD code — this
+        # pair is required to actually exercise the collision this test guards).
+        phi_angles_str="12.3,12.4",
         plots_dir=Path(tmp_path),
         data=None,
     )
@@ -89,11 +92,15 @@ def test_postfit_close_angles_get_distinct_files(tmp_path, monkeypatch):
 
     postfit._save_fit_comparison_only(
         _CM(),
-        {"c2_exp": np.zeros((2, 4, 4)), "phi_angles_list": [12.3, 12.6]},
+        # 12.3 and 12.4 both round to 12 under the old int(round(phi)) naming
+        # (12.3 vs 12.6 would already be distinct under the OLD code — this
+        # pair is required to actually exercise the collision this test guards).
+        {"c2_exp": np.zeros((2, 4, 4)), "phi_angles_list": [12.3, 12.4]},
         _Result(),
         Path(tmp_path),
     )
 
     assert len(fits) == 2
     assert len(set(fits)) == 2
+    assert len(residuals) == 2
     assert len(set(residuals)) == 2

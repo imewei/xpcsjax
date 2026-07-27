@@ -8,9 +8,11 @@ counts leak into every sibling test in the same xdist worker otherwise).
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import mock_open
 
 import pytest
 
+import xpcsjax.device as device_pkg
 from xpcsjax.device import benchmark_device_performance
 from xpcsjax.device import cpu as device_cpu
 
@@ -68,10 +70,23 @@ def _fake_lscpu(monkeypatch: pytest.MonkeyPatch, numa_value: str) -> None:
     monkeypatch.setattr(device_cpu.subprocess, "run", lambda *a, **k: _Result())
 
 
+def _fake_cpuinfo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin detect_cpu_info's /proc/cpuinfo brand+flags read to a fixed Intel/AVX2
+    CPU, so ``optimization_flags`` is deterministic regardless of the runner's
+    real hardware (an unrecognized brand/flag set would otherwise degrade
+    ``optimization_flags`` to ``[]``, letting a broken flags-preservation path
+    pass as ``[] == []``).
+    """
+    fake_cpuinfo = "model name\t: Intel(R) Xeon(R) CPU\nflags\t\t: fpu avx avx2\n"
+    monkeypatch.setattr(device_cpu.platform, "system", lambda: "Linux")
+    monkeypatch.setattr("builtins.open", mock_open(read_data=fake_cpuinfo))
+
+
 def test_malformed_lscpu_numa_value_does_not_skip_optimization_flags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A non-integer NUMA count falls back to 1 without losing the flags block."""
+    _fake_cpuinfo(monkeypatch)
     _fake_lscpu(monkeypatch, "2")
     good: dict[str, Any] = device_cpu.detect_cpu_info()
 
@@ -80,7 +95,31 @@ def test_malformed_lscpu_numa_value_does_not_skip_optimization_flags(
 
     assert good["numa_nodes"] == 2
     assert malformed["numa_nodes"] == 1
+    assert good["optimization_flags"] == ["intel_mkl", "avx2"]
     assert malformed["optimization_flags"] == good["optimization_flags"]
+
+
+def test_benchmark_device_performance_reports_memory_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A MemoryError from the CPU benchmark surfaces as the documented error
+    dict rather than crashing the caller.
+
+    ``benchmark_cpu_performance``'s own ``test_size``-vs-available-memory guard
+    (a ValueError) now fires before a real allocation failure would, so this
+    exercises the sibling MemoryError branch directly via a mock rather than
+    relying on an actual out-of-memory condition.
+    """
+
+    def _raise_memory_error(*_a: object, **_k: object) -> None:
+        raise MemoryError("simulated allocation failure")
+
+    monkeypatch.setattr(device_pkg, "benchmark_cpu_performance", _raise_memory_error)
+
+    results = device_pkg.benchmark_device_performance(test_size=100)
+
+    assert "error" in results
+    assert "simulated allocation failure" in results["error"]
 
 
 def test_benchmark_rejects_test_size_larger_than_available_memory() -> None:

@@ -122,7 +122,8 @@ class OptimizationResult:
         ``reduced_chi_squared`` is sigma-normalized rather than an absolute
         goodness-of-fit. Defaults to ``False``.
     n_physics : int | None, optional
-        Length of the leading physics block in :attr:`parameters`. Enables the
+        Length of the trailing physics block in :attr:`parameters` (the
+        canonical scaling-first ``[scaling | physics]`` layout). Enables the
         :attr:`physics_parameters` / :attr:`scaling_parameters` accessors;
         ``None`` when the physics/scaling split is unknown (e.g. homodyne paths
         with no scaling tail).
@@ -173,10 +174,10 @@ class OptimizationResult:
     stratification_diagnostics: StratificationDiagnostics | None = None
     nlsq_diagnostics: dict[str, Any] | None = None
     sigma_is_default: bool = False
-    # Length of the leading physics block in ``parameters`` (physics-first
-    # ``[physics | scaling]`` layout). Enables the typed physics/scaling
-    # accessors; ``None`` when the split is unknown (e.g. homodyne paths that
-    # do not carry a scaling tail).
+    # Length of the trailing physics block in ``parameters`` (the canonical
+    # scaling-first ``[scaling | physics]`` layout). Enables the typed
+    # physics/scaling accessors; ``None`` when the split is unknown (e.g.
+    # homodyne paths that do not carry a scaling tail).
     n_physics: int | None = None
 
     def __post_init__(self) -> None:
