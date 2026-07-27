@@ -121,7 +121,10 @@ def detect_cpu_info() -> dict[str, Any]:
                         if "NUMA node(s):" in line:
                             info["numa_nodes"] = int(line.split(":")[1].strip())
                             break
-        except (subprocess.SubprocessError, FileNotFoundError) as exc:
+        except (subprocess.SubprocessError, FileNotFoundError, ValueError) as exc:
+            # ValueError: a non-integer "NUMA node(s):" value must not escape to
+            # the outer handler, which would skip the optimization-flags block
+            # below and leave Intel CPUs without MKL thread configuration.
             logger.debug("NUMA detection via lscpu failed: %s", exc)
 
         # Set optimization recommendations
@@ -195,9 +198,9 @@ def configure_cpu_hpc(
 
         # For HPC environments, often better to leave some cores for system
         if num_threads >= 32:
-            num_threads = max(num_threads - 4, 32)  # Reserve 4 cores for system
+            num_threads -= 4  # Reserve 4 cores for system
         elif num_threads >= 16:
-            num_threads = max(num_threads - 2, 16)  # Reserve 2 cores for system
+            num_threads -= 2  # Reserve 2 cores for system
 
     logger.info(
         f"Using {num_threads} threads on {cpu_info['physical_cores']} physical cores",
@@ -249,6 +252,12 @@ def _set_cpu_environment_variables(
     Mutates ``os.environ`` in place (OpenMP, MKL, OpenBLAS thread counts,
     glibc malloc trim/mmap thresholds, and NUMA policy) and returns the
     subset of variables echoed into the configuration summary.
+
+    Call this before any BLAS/OpenMP work happens in the process: libgomp, MKL,
+    OpenBLAS and Accelerate latch their thread counts when their pool first
+    initializes, so a later write is a silent no-op. There is no in-process
+    signal for "already latched" (unlike JAX's backend registry), so the
+    returned values report what was requested, not what the runtime honoured.
 
     Parameters
     ----------
@@ -346,7 +355,20 @@ def _configure_jax_cpu(
         # per-iteration host<->device transfer), so enabling GPU is an
         # install + device-flag change, NOT an optimizer rewrite. The pin is a
         # workload decision, not an engineering barrier -- see the record.
-        os.environ["JAX_PLATFORMS"] = "cpu"
+        #
+        # Like XLA_FLAGS (see H-1 below), JAX_PLATFORMS is read once at backend
+        # init, so writing it afterwards is a silent no-op. The device pin that
+        # does take effect at any time is the jax_default_device update below.
+        backend_live = _jax_backend_initialized()
+        if backend_live:
+            logger.warning(
+                "JAX backend already initialized; JAX_PLATFORMS cannot take "
+                "effect (read once, at init). Skipping env mutation.",
+            )
+            jax_config["jax_platforms_applied"] = False
+        else:
+            os.environ["JAX_PLATFORMS"] = "cpu"
+            jax_config["jax_platforms_applied"] = True
         jax_config["platform"] = "cpu"
 
         # Note: x64 precision automatically enabled by nlsq import (when imported before JAX)
@@ -406,7 +428,7 @@ def _configure_jax_cpu(
         # already live (the common case — xpcsjax/__init__.py imports JAX at
         # import time, before this runs), writing the env var here is silently
         # ignored. Warn and skip rather than write stale flags and imply success.
-        if _jax_backend_initialized():
+        if backend_live:
             logger.warning(
                 "JAX backend already initialized; CPU XLA flags %s cannot take "
                 "effect (XLA_FLAGS is read once, at init). Set them before "
@@ -523,7 +545,23 @@ def benchmark_cpu_performance(
     -------
     dict
         Benchmark results with timing information
+
+    Raises
+    ------
+    ValueError
+        If ``test_size`` would need more memory than is currently available.
     """
+    # The float64 input, its complex128 FFT and the float64 power spectrum are
+    # all live at once, and the previous iteration's arrays are still bound when
+    # the next ones allocate: ~48 bytes per element, quadratic in test_size.
+    estimated_bytes = 48 * test_size**2
+    available_bytes = psutil.virtual_memory().available
+    if estimated_bytes > available_bytes:
+        raise ValueError(
+            f"test_size={test_size} needs ~{estimated_bytes / 1024**3:.1f} GB of RAM but "
+            f"only {available_bytes / 1024**3:.1f} GB is available; use a smaller test_size"
+        )
+
     logger.info(f"Running CPU benchmark with {test_size} data points")
 
     import time

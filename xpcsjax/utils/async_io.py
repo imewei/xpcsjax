@@ -74,19 +74,31 @@ class PrefetchLoader(Iterator[R]):
 
         def _load() -> None:
             try:
-                item = next(self._source)
+                # Only the source's StopIteration means "iteration complete"; keep
+                # the load_fn call outside that except so its own StopIteration is
+                # not misread as exhaustion.
+                try:
+                    item = next(self._source)
+                except StopIteration:
+                    self._exhausted = True
+                    return
                 self._prefetched = self._load_fn(item)
                 self._has_prefetched = True
-            except StopIteration:
-                self._exhausted = True
             except Exception as e:
+                # __next__ re-raises _error, and a bare StopIteration there would
+                # still silently end the caller's for-loop — re-tag it.
+                err: Exception = (
+                    RuntimeError(f"prefetch load_fn raised StopIteration: {e!r}")
+                    if isinstance(e, StopIteration)
+                    else e
+                )
                 log_exception(
                     logger,
-                    e,
+                    err,
                     context={"operation": "prefetch_load"},
                     level=logging.WARNING,
                 )
-                self._error = e
+                self._error = err
                 self._exhausted = True
 
         # daemon=True: prefetch is read-only; safe to abandon on exit

@@ -131,7 +131,8 @@ def _save_fit_comparison_only(
             )
             continue
 
-        suffix = f"_phi{int(round(float(phi)))}"
+        # Mirrors viz/nlsq_plots.py naming: bare int(round(phi)) collides.
+        suffix = f"_phi_{i:03d}_{float(phi):.3f}deg"
         try:
             plot_nlsq_fit(
                 c2_exp[i],

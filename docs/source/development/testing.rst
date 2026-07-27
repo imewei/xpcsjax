@@ -69,6 +69,15 @@ Each shard owns a specific class of guarantee:
     public lazy export (Phase 6 complete), not ``xfail``-marked; see
     :doc:`porting_notes`.
 
+``tests/test_docs_structure.py``
+    Structural check that every top-level ``xpcsjax`` submodule has a
+    matching :file:`docs/source/api/{name}.rst` page (page existence
+    only, not content — adding a new top-level package without a page
+    fails this test). See
+    ``docs/adr/0001-automated-structural-doc-coverage-check.md`` for why
+    symbol-level and content checks are deliberately *not* automated
+    here.
+
 Running the test shards
 -----------------------
 
@@ -123,12 +132,20 @@ checkpoint.
 
 ``make test-smoke``
     Runs the full ``tests/`` tree in parallel under ``-x`` (fail
-    fast) and ``-q`` (quiet output). This is the same command
-    ``make verify`` uses for its test step.
+    fast) and ``-q`` (quiet output), with the heavy/flaky nodes listed
+    in the Makefile's ``HEAVY_NODES`` deselected (currently a CMA-ES
+    escape test and a GUI worker-handle test). Equivalent to:
 
     .. code-block:: shell
 
-       uv run pytest tests -n auto -v --tb=short -x -q
+       uv run pytest tests -n auto -v --tb=short -x -q \
+         --deselect "tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first" \
+         --deselect "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit"
+
+    Run ``make test-smoke`` directly rather than copying this by hand —
+    the Makefile's ``HEAVY_NODES``/``PARALLEL_DESELECT`` variables are the
+    source of truth and this list drifts if either changes. This is the
+    same command ``make verify`` uses for its test step.
 
 ``make verify``
     The pre-push gate. Runs three steps in order:

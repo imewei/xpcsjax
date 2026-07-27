@@ -17,7 +17,7 @@ import time
 import pytest
 
 from xpcsjax.utils import logging as xlog
-from xpcsjax.utils.async_io import AsyncWriter
+from xpcsjax.utils.async_io import AsyncWriter, PrefetchLoader
 
 
 @pytest.fixture(autouse=True)
@@ -272,3 +272,29 @@ def test_wait_all_timeout_is_a_shared_budget():
     finally:
         release.set()
         writer.shutdown(drain_timeout=5.0)
+
+
+def test_prefetch_loader_load_fn_stopiteration_is_not_exhaustion(caplog):
+    """StopIteration from load_fn must surface as an error, not silent truncation."""
+    loader = PrefetchLoader(iter([1, 2, 3]), lambda _item: next(iter([])))
+    with caplog.at_level(logging.DEBUG, logger="xpcsjax"):
+        with pytest.raises(RuntimeError, match="StopIteration"):
+            next(loader)
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
+def test_prefetch_loader_source_failure_still_surfaces():
+    """A non-StopIteration error from the source must still be re-raised."""
+
+    def _bad_source():
+        yield 1
+        raise ValueError("source boom")
+
+    loader = PrefetchLoader(_bad_source(), lambda item: item)
+    assert next(loader) == 1
+    with pytest.raises(ValueError, match="source boom"):
+        next(loader)
+
+
+def test_prefetch_loader_normal_exhaustion_terminates_loop():
+    assert list(PrefetchLoader(iter([1, 2, 3]), lambda item: item * 2)) == [2, 4, 6]

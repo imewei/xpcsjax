@@ -313,6 +313,13 @@ def test_configure_from_dict_disabled() -> None:
     assert lm._logger_manager.configure_from_dict({"enabled": False}) is None
 
 
+def test_configure_from_dict_null_levels_default_to_info() -> None:
+    # A hand-edited YAML `level:` parses to null, which dict.get's default does not
+    # replace — the root level must fall back to INFO instead of crashing min().
+    lm.configure_logging({"level": None, "file": {"enabled": False, "level": None}})
+    assert logging.getLogger("xpcsjax").level == logging.INFO
+
+
 def test_configure_from_dict_with_file_run_id(tmp_path: Path) -> None:
     cfg = {
         "enabled": True,

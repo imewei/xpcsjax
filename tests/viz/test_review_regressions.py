@@ -621,6 +621,50 @@ def test_heterodyne_averaged_mode_does_not_raise(tmp_path):
     generate_nlsq_plots(model=model, result=result, data=data, config=config, output_dir=tmp_path)
 
 
+def test_heterodyne_individual_markerless_is_scaling_first():
+    """Marker-less individual mode reads the scaling HEAD, physics TAIL.
+
+    Tripwire against reverting to the pre-unification physics-first layout: the
+    three blocks carry disjoint value ranges, so any head/tail swap fails here
+    rather than silently mis-plotting (the C044 failure mode).
+    """
+    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+    from xpcsjax.viz.nlsq_plots import _unpack_heterodyne_scaling, _unpack_result_params
+
+    model = HeterodyneModel()
+    n_phi = 3
+    n_physical = len(model.parameter_names)
+    contrasts_in = np.array([1.1, 1.2, 1.3])
+    offsets_in = np.array([0.01, 0.02, 0.03])
+    physical = np.arange(n_physical, dtype=float) + 100.0
+    params = np.concatenate([contrasts_in, offsets_in, physical])
+
+    result = OptimizationResult(
+        parameters=params,
+        uncertainties=np.full(params.size, 0.01),
+        covariance=np.eye(params.size) * 0.01,
+        chi_squared=2.5,
+        reduced_chi_squared=0.9,
+        convergence_status="converged",
+        iterations=10,
+        execution_time=0.1,
+        device_info={"platform": "cpu"},
+        nlsq_diagnostics=None,  # marker-less -> individual branch
+    )
+
+    contrasts, offsets, phys, n = _unpack_heterodyne_scaling(model, result, n_phi_expected=n_phi)
+    assert n == n_phi
+    np.testing.assert_allclose(contrasts, contrasts_in)
+    np.testing.assert_allclose(offsets, offsets_in)
+    np.testing.assert_allclose(phys, physical)
+
+    c_scalar, o_scalar, phys2, _ = _unpack_result_params(model, result, {})
+    assert c_scalar == pytest.approx(contrasts_in.mean())
+    assert o_scalar == pytest.approx(offsets_in.mean())
+    np.testing.assert_allclose(phys2, physical)
+
+
 def test_heterodyne_averaged_fallback_reads_scaling_first_head(tmp_path):
     """F4: averaged fallback (no averaged_* diag keys) reads the scaling-FIRST
     HEAD params[0]/[1], not the physics-first tail params[-2]/[-1].

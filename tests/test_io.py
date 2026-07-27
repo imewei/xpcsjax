@@ -230,6 +230,23 @@ class TestSaveNlsqJsonFiles:
             save_nlsq_json_files(param, analysis, convergence, subdir)
             assert (subdir / "parameters.json").exists()
 
+    def test_stat_failure_does_not_report_write_failure(self, monkeypatch) -> None:
+        param, analysis, convergence = self._make_dicts()
+
+        def boom(self) -> None:
+            raise OSError("stale file handle")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            monkeypatch.setattr(Path, "stat", boom)
+            save_nlsq_json_files(param, analysis, convergence, Path(tmp))
+            monkeypatch.undo()
+            for fname in (
+                "parameters.json",
+                "analysis_results_nlsq.json",
+                "convergence_metrics.json",
+            ):
+                json.loads((Path(tmp) / fname).read_text())
+
 
 # ---------------------------------------------------------------------------
 # save_nlsq_npz_file

@@ -167,7 +167,9 @@ Before pushing a branch or opening a pull request, run:
 
 1. Linting (``ruff check`` on ``xpcsjax/`` and ``tests/``).
 2. Type checking (advisory, output truncated to the summary line).
-3. Smoke tests (``pytest tests -n auto -v --tb=short -x -q``).
+3. Smoke tests (``pytest tests -n auto -v --tb=short -x -q``, with the
+   Makefile's ``HEAVY_NODES`` — currently a CMA-ES escape test and a
+   GUI worker-handle test — deselected; see :doc:`testing`).
 
 If only static checks are needed, use:
 

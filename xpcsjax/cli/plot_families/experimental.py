@@ -48,7 +48,9 @@ def _plot_experimental_data(data: dict[str, Any], plots_dir: Path) -> Path | Non
 
     for i in range(c2_exp.shape[0]):
         phi = float(phi_list[i]) if i < len(phi_list) else 0.0
-        save_path = plots_dir / f"experimental_data_phi{int(round(phi))}.png"
+        # Mirrors viz/nlsq_plots.py naming: bare int(round(phi)) collides,
+        # and an absent phi_angles_list makes every frame fall back to 0.0.
+        save_path = plots_dir / f"experimental_data_phi_{i:03d}_{phi:.3f}deg.png"
         try:
             plot_simulated_data(
                 c2_exp[i],

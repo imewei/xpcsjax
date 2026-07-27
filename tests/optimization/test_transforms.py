@@ -252,9 +252,8 @@ def test_adjust_covariance_log_jacobian() -> None:
     # C_x[i,j] = J_i C_y[i,j] J_j, with J_gamma = physical gamma value.
     cov = np.array([[4.0, 1.0], [1.0, 9.0]])
     physical = np.array([3.0, 7.0])
-    transformed = np.array([np.log(3.0), 7.0])
     state = {"gamma_log_idx": 0, "beta_center_idx": None}
-    adj = tr.adjust_covariance_for_transforms(cov, transformed, physical, state)
+    adj = tr.adjust_covariance_for_transforms(cov, physical, state)
     assert adj[0, 0] == pytest.approx(4.0 * 3.0 * 3.0)
     assert adj[0, 1] == pytest.approx(1.0 * 3.0)
     assert adj[1, 0] == pytest.approx(1.0 * 3.0)
@@ -265,17 +264,15 @@ def test_adjust_covariance_beta_unchanged() -> None:
     # beta centering derivative is 1, so covariance is unchanged.
     cov = np.array([[4.0, 1.0], [1.0, 9.0]])
     state = {"gamma_log_idx": None, "beta_center_idx": 1}
-    adj = tr.adjust_covariance_for_transforms(
-        cov, np.array([1.0, 1.0]), np.array([1.0, 1.0]), state
-    )
+    adj = tr.adjust_covariance_for_transforms(cov, np.array([1.0, 1.0]), state)
     np.testing.assert_array_equal(adj, cov)
 
 
 def test_adjust_covariance_no_state_or_empty() -> None:
     cov = np.array([[1.0]])
-    assert tr.adjust_covariance_for_transforms(cov, cov, cov, None) is cov
+    assert tr.adjust_covariance_for_transforms(cov, cov, None) is cov
     empty = np.array([])
-    out = tr.adjust_covariance_for_transforms(empty, empty, empty, {"gamma_log_idx": 0})
+    out = tr.adjust_covariance_for_transforms(empty, empty, {"gamma_log_idx": 0})
     assert out.size == 0
 
 

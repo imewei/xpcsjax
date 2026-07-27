@@ -291,13 +291,21 @@ class StratificationConfig:
             candidate = opt_block.get("stratification")
             if isinstance(candidate, dict):
                 strat = candidate
+
+        # A present-but-null YAML value means "unset", so fall back to the
+        # dataclass default rather than crashing (numerics) or silently
+        # collapsing to False (bools).
+        def _flag(key: str, default: bool) -> bool:
+            raw = strat.get(key)
+            return default if raw is None else bool(raw)
+
         return cls(
             enabled=strat.get("enabled", "auto"),
-            target_chunk_size=int(strat.get("target_chunk_size", 100_000)),
-            max_imbalance_ratio=float(strat.get("max_imbalance_ratio", 5.0)),
-            force_sequential_fallback=bool(strat.get("force_sequential_fallback", False)),
-            check_memory_safety=bool(strat.get("check_memory_safety", True)),
-            use_index_based=bool(strat.get("use_index_based", False)),
+            target_chunk_size=safe_int(strat.get("target_chunk_size"), 100_000),
+            max_imbalance_ratio=safe_float(strat.get("max_imbalance_ratio"), 5.0),
+            force_sequential_fallback=_flag("force_sequential_fallback", False),
+            check_memory_safety=_flag("check_memory_safety", True),
+            use_index_based=_flag("use_index_based", False),
         )
 
     def is_disabled(self) -> bool:

@@ -62,6 +62,24 @@ def test_parameter_space_bounds_list_rejects_inf_value():
         ParameterSpace.from_config(config)
 
 
+def test_grouped_format_rejects_inverted_bounds():
+    config = {"parameters": {"velocity": {"v0": {"min": "1000.0", "max": "0.0"}}}}
+    with pytest.raises(ValueError, match="exceeds max"):
+        ParameterSpace.from_config(config)
+
+
+def test_parameter_space_bounds_list_rejects_inverted_bounds():
+    config = {"parameter_space": {"bounds": [{"name": "v_beta", "min": "2.0", "max": "-2.0"}]}}
+    with pytest.raises(ValueError, match="exceeds max"):
+        ParameterSpace.from_config(config)
+
+
+def test_equal_bounds_allowed():
+    """min == max is a fixed parameter, not an error (mirrors the registry)."""
+    config = {"parameters": {"velocity": {"v0": {"min": "50.0", "max": "50.0"}}}}
+    assert ParameterSpace.from_config(config).bounds["v0"] == (50.0, 50.0)
+
+
 def test_initial_parameters_flat_format_rejects_nan():
     config = {
         "initial_parameters": {

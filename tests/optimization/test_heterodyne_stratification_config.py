@@ -256,3 +256,21 @@ def test_use_index_based_flows_into_diagnostics() -> None:
     )
     assert res.stratification_diagnostics is not None
     assert res.stratification_diagnostics.use_index_based is False
+
+
+def test_stratification_null_scalars_fall_back_to_defaults() -> None:
+    """Explicit YAML nulls mean "unset" -- fall back to defaults, don't crash."""
+    sc = StratificationConfig.from_optimization_block(
+        {"stratification": {"target_chunk_size": None, "max_imbalance_ratio": None}}
+    )
+    assert sc.target_chunk_size == 100_000
+    assert sc.max_imbalance_ratio == 5.0
+
+
+def test_stratification_null_bool_does_not_silently_disable_memory_safety() -> None:
+    """`bool(None)` is False -- a null must not turn the safety check off."""
+    sc = StratificationConfig.from_optimization_block(
+        {"stratification": {"check_memory_safety": None, "use_index_based": None}}
+    )
+    assert sc.check_memory_safety is True
+    assert sc.use_index_based is False

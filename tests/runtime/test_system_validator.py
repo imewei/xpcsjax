@@ -8,8 +8,12 @@ exception-to-ERROR mapping in ``validate()``, the report/JSON emitters, and the
 from __future__ import annotations
 
 import json
+import tomllib
+from pathlib import Path
 
 import pytest
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 from xpcsjax.runtime.utils import system_validator as sv
 from xpcsjax.runtime.utils.system_validator import (
@@ -106,6 +110,25 @@ def test_xpcsjax_import_probe_resolves_public_symbols() -> None:
     r = SystemValidator().test_xpcsjax_import()
     assert r.success is True, r.details
     assert str(len(PUBLIC_API_SYMBOLS)) in r.message
+
+
+def test_required_dependencies_mirror_pyproject() -> None:
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    declared = {}
+    for dep in tomllib.loads(pyproject.read_text())["project"]["dependencies"]:
+        req = Requirement(dep)
+        # Only the >= floor is mirrored; upper caps (nlsq<1.0, h5py<4.0) are not probed.
+        floors = [s.version for s in req.specifier if s.operator == ">="]
+        declared[canonicalize_name(req.name)] = floors[0]
+
+    probed = {canonicalize_name(dist): floor for dist, floor, _ in sv.REQUIRED_DEPENDENCIES}
+    assert probed == declared
+
+
+def test_public_api_symbols_cover_xpcsjax_all() -> None:
+    import xpcsjax
+
+    assert set(PUBLIC_API_SYMBOLS) == set(xpcsjax.__all__)
 
 
 def test_config_templates_probe_finds_all() -> None:
