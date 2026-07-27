@@ -7,11 +7,15 @@ This page registers every xpcsjax submodule as a :mod: target so that
 internal cross-references resolve in the rendered documentation. It is
 intentionally light: each ``py:module`` entry is members-suppressed because
 the user-visible API surface is covered by the dedicated pages under
-:doc:`index`. Modules already documented with ``automodule``/``autoclass``/
-``autofunction`` on a dedicated page (the ``xpcsjax.cli`` submodules,
-``xpcsjax.runtime``, ``xpcsjax.device``, ``xpcsjax.io``, and ``xpcsjax.utils``
-and their submodules) are intentionally omitted here to avoid duplicate
-object descriptions.
+:doc:`index`. A submodule is omitted here **only** when a dedicated page
+uses an ``automodule`` directive for it (``automodule`` registers the
+``py:module`` target itself; bare ``autoclass``/``autofunction`` directives
+do not) — currently the ``xpcsjax.cli`` submodules, ``xpcsjax.runtime``,
+and the ``xpcsjax.device``/``xpcsjax.io``/``xpcsjax.utils`` packages
+themselves. Their own submodules that are documented via ``autoclass``/
+``autofunction`` only (``device.config``, ``device.cpu``, ``io.json_utils``,
+``io.nlsq_writers``, ``utils.async_io``, ``utils.logging``,
+``utils.path_validation``) still need their ``py:module`` entry below.
 
 .. py:module:: xpcsjax
 
@@ -114,6 +118,14 @@ object descriptions.
 .. py:module:: xpcsjax.data.validators
 
 .. py:module:: xpcsjax.data.xpcs_loader
+
+.. py:module:: xpcsjax.device.config
+
+.. py:module:: xpcsjax.device.cpu
+
+.. py:module:: xpcsjax.io.json_utils
+
+.. py:module:: xpcsjax.io.nlsq_writers
 
 .. py:module:: xpcsjax.optimization
 
@@ -242,6 +254,12 @@ object descriptions.
 .. py:module:: xpcsjax.runtime.utils.system_validator
 
 .. py:module:: xpcsjax.uninstall_scripts
+
+.. py:module:: xpcsjax.utils.async_io
+
+.. py:module:: xpcsjax.utils.logging
+
+.. py:module:: xpcsjax.utils.path_validation
 
 .. py:module:: xpcsjax.viz
 

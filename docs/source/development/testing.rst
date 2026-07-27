@@ -134,13 +134,18 @@ checkpoint.
     Runs the full ``tests/`` tree in parallel under ``-x`` (fail
     fast) and ``-q`` (quiet output), with the heavy/flaky nodes listed
     in the Makefile's ``HEAVY_NODES`` deselected (currently a CMA-ES
-    escape test and a GUI worker-handle test — see the Makefile's
-    ``PARALLEL_DESELECT``/``HEAVY_NODES`` variables). This is the same
-    command ``make verify`` uses for its test step.
+    escape test and a GUI worker-handle test). Equivalent to:
 
     .. code-block:: shell
 
-       uv run pytest tests -n auto -v --tb=short -x -q $(PARALLEL_DESELECT)
+       uv run pytest tests -n auto -v --tb=short -x -q \
+         --deselect "tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first" \
+         --deselect "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit"
+
+    Run ``make test-smoke`` directly rather than copying this by hand —
+    the Makefile's ``HEAVY_NODES``/``PARALLEL_DESELECT`` variables are the
+    source of truth and this list drifts if either changes. This is the
+    same command ``make verify`` uses for its test step.
 
 ``make verify``
     The pre-push gate. Runs three steps in order:

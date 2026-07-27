@@ -30,16 +30,25 @@ automated. It stays a manual/agent-driven audit, run occasionally.
 - **Assert every `__all__` name appears (as literal text, or via a
   page-level `automodule`/`:members:` directive) in its package's `.rst`
   page.** Explored in depth and rejected on empirical grounds, not
-  hypothetically: `xpcsjax.cli.__all__` has 12 names, `cli.rst` mentions 2;
-  `xpcsjax.optimization.__all__` has 19, `optimization.rst` mentions 8;
-  `core.rst` misses 2/7, `data.rst` misses 1/8. These pages are already
-  audit-confirmed accurate and complete in the sense that matters to a
-  reader — they deliberately curate the *user-facing* subset of `__all__`,
-  which also holds internal/implementation-detail exports (`NLSQ_AVAILABLE`,
-  `OPTIMIZATION_STATUS`, `create_angle_stratified_indices`) that were never
-  meant to get a doc entry. `__all__` in this codebase means "import-star
-  safe," not "doc-worthy" — see [CONTEXT.md](../../CONTEXT.md)'s `__all__`
-  member vs documented symbol` entry. Any name-coverage check built on
+  hypothetically. A literal-text grep was tried first and rejected on its
+  own terms: `xpcsjax.cli.__all__` has 12 names, only 2 appear as literal
+  text in `cli.rst` — but that's a grep artifact, not a real gap, since
+  every one of the other 10 is defined in a submodule `cli.rst` documents
+  wholesale via `automodule:: xpcsjax.cli.<submodule> :members:` (verified:
+  every submodule that defines a `cli.__all__` name has its own
+  `automodule` block in the page). The genuine, unambiguous gaps are on
+  pages with **zero** `automodule` directives anywhere, where no such
+  hidden coverage is possible: `xpcsjax.optimization.__all__` has 19 names,
+  `optimization.rst` mentions 8; `core.rst` misses 2/7 (`ShearModel`,
+  `make_model`); `data.rst` misses 1/8 (`get_data_module_info`). These
+  pages are already audit-confirmed accurate and complete in the sense
+  that matters to a reader — they deliberately curate the *user-facing*
+  subset of `__all__`, which also holds internal/implementation-detail
+  exports (`NLSQ_AVAILABLE`, `OPTIMIZATION_STATUS`,
+  `create_angle_stratified_indices`) that were never meant to get a doc
+  entry. `__all__` in this codebase means "import-star safe," not
+  "doc-worthy" — see [CONTEXT.md](../../CONTEXT.md)'s `` `__all__` member
+  vs documented symbol `` entry. Any name-coverage check built on
   `__all__` would immediately red-flag 7 of 11 correctly-documented pages.
   There is no cheaper substitute (a curated "doc-worthy names" list would
   have to be maintained by hand per package, which is real ongoing work and

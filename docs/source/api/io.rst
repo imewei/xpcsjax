@@ -12,16 +12,8 @@ Package surface
 .. automodule:: xpcsjax.io
    :members:
 
-NLSQ result writers
---------------------
-
-.. autofunction:: xpcsjax.io.nlsq_writers.save_nlsq_json_files
-
-.. autofunction:: xpcsjax.io.nlsq_writers.save_nlsq_npz_file
-
-JSON utilities
---------------
-
-.. autofunction:: xpcsjax.io.json_utils.json_safe
-
-.. autofunction:: xpcsjax.io.json_utils.json_serializer
+All four public names — the two NLSQ result writers
+(``save_nlsq_json_files``, ``save_nlsq_npz_file``) and the two JSON
+utilities (``json_safe``, ``json_serializer``) — are re-exported through
+``xpcsjax.io``'s ``__all__`` and rendered above; there is nothing left to
+document separately.

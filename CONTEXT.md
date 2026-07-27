@@ -10,13 +10,18 @@ sampling.
 Two different sets that do *not* coincide in this codebase. A package's
 `__init__.py` `__all__` marks names safe for `from xpcsjax.pkg import *` and
 worth re-exporting from the package — it does **not** mean "worth a
-dedicated prose/autodoc entry in the `.rst` page." Verified empirically:
-`xpcsjax.cli.__all__` has 12 names, only 2 (`main`, `configure_xla`) appear
-in `cli.rst`; `xpcsjax.optimization.__all__` has 19, only 8 appear in
-`optimization.rst`. Internal/implementation-detail exports (`NLSQ_AVAILABLE`,
-`OPTIMIZATION_STATUS`, `create_angle_stratified_indices`) are legitimately
-`__all__` members with no doc entry. Do not treat `__all__` as a "doc-worthy
-public API" list — see
+dedicated prose/autodoc entry in the `.rst` page." Verified empirically on
+pages with **zero** `automodule` directives (so no hidden coverage is
+possible): `xpcsjax.optimization.__all__` has 19 names, only 8 appear in
+`optimization.rst`; `core.rst` misses `ShearModel`/`make_model`; `data.rst`
+misses `get_data_module_info`. Internal/implementation-detail exports
+(`NLSQ_AVAILABLE`, `OPTIMIZATION_STATUS`, `create_angle_stratified_indices`)
+are legitimately `__all__` members with no doc entry. (A literal-text grep
+against `cli.rst` looks like a bigger gap — 2 of 12 names — but that's a
+grep artifact: the other 10 are each defined in a submodule `cli.rst`
+documents wholesale via `automodule`, just never named as literal text; see
+`Structural doc coverage` below for why that mechanism matters.) Do not
+treat `__all__` as a "doc-worthy public API" list — see
 [ADR-0001](docs/adr/0001-automated-structural-doc-coverage-check.md) for the
 plan this broke.
 _Avoid_: "public surface" as a synonym for either set — ambiguous which one
