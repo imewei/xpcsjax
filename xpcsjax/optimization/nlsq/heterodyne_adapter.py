@@ -783,28 +783,20 @@ class NLSQWrapper(NLSQAdapterBase):
                     reduced_chi2=result.reduced_chi_squared,
                 )
                 if not success:
+                    # Ran without raising, but the fit itself is poor (non-finite
+                    # params / chi2 too high / no progress) -- treat this the
+                    # same as an exception: retry, and if this was the last
+                    # attempt, fall through to `return None` below so the
+                    # caller's tier cascade (STREAMING -> LARGE -> STANDARD)
+                    # actually escalates instead of accepting a bad fit.
                     logger.warning(
-                        "NLSQWrapper: tier %s convergence check failed: %s",
+                        "NLSQWrapper: tier %s attempt %d/%d converged to a poor fit, retrying: %s",
                         tier.value,
+                        attempt + 1,
+                        self._max_retries,
                         message,
                     )
-                    result = NLSQResult(
-                        parameters=result.parameters,
-                        parameter_names=self._parameter_names,
-                        success=False,
-                        message=message,
-                        uncertainties=result.uncertainties,
-                        covariance=result.covariance,
-                        final_cost=result.final_cost,
-                        reduced_chi_squared=result.reduced_chi_squared,
-                        n_iterations=result.n_iterations,
-                        n_function_evals=result.n_function_evals,
-                        convergence_reason=reason,
-                        residuals=result.residuals,
-                        jacobian=result.jacobian,
-                        wall_time_seconds=wall_time,
-                        metadata=result.metadata,
-                    )
+                    continue
 
                 logger.info(
                     "NLSQWrapper: tier %s succeeded on attempt %d/%d",

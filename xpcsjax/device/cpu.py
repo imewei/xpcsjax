@@ -293,18 +293,26 @@ def _set_cpu_environment_variables(
     os.environ["VECLIB_MAXIMUM_THREADS"] = str(num_threads)
     env_vars["OPENBLAS_NUM_THREADS"] = str(num_threads)
 
-    # Memory optimization
+    # Memory optimization. Clear the non-matching branch's vars so a later
+    # call with a different value doesn't leave a stale threshold from an
+    # earlier call in effect (e.g. "aggressive" then "standard"/"minimal").
     if memory_optimization == "aggressive":
         os.environ["MALLOC_TRIM_THRESHOLD_"] = "65536"
         os.environ["MALLOC_MMAP_THRESHOLD_"] = "65536"
     elif memory_optimization == "standard":
         os.environ["MALLOC_TRIM_THRESHOLD_"] = "131072"
+        os.environ.pop("MALLOC_MMAP_THRESHOLD_", None)
+    else:
+        os.environ.pop("MALLOC_TRIM_THRESHOLD_", None)
+        os.environ.pop("MALLOC_MMAP_THRESHOLD_", None)
 
-    # NUMA policy
+    # NUMA policy. Same staleness concern as above.
     if numa_policy == "local" and cpu_info["numa_nodes"] > 1:
         os.environ["NUMA_POLICY"] = "local"
     elif numa_policy == "interleave" and cpu_info["numa_nodes"] > 1:
         os.environ["NUMA_POLICY"] = "interleave"
+    else:
+        os.environ.pop("NUMA_POLICY", None)
 
     return env_vars
 
@@ -349,10 +357,12 @@ def _configure_jax_cpu(
         os.environ["JAX_PLATFORMS"] = "cpu"
         jax_config["platform"] = "cpu"
 
-        # Note: x64 precision automatically enabled by nlsq import (when imported before JAX)
-        # No manual jax.config.update("jax_enable_x64", True) needed
-        # Reference: https://nlsq.readthedocs.io/en/latest/guides/advanced_features.html
-        jax_config["x64_enabled"] = True  # Verified by nlsq import
+        # x64 precision is expected to be enabled by nlsq import (when imported
+        # before JAX) -- see xpcsjax/__init__.py and
+        # https://nlsq.readthedocs.io/en/latest/guides/advanced_features.html.
+        # Report the live JAX config rather than assuming the import order
+        # held, so a violated ordering surfaces here instead of being masked.
+        jax_config["x64_enabled"] = bool(jax.config.read("jax_enable_x64"))
 
         # Disable traceback filtering for better error debugging (NLSQ recommendation)
         jax.config.update("jax_traceback_filtering", "off")
@@ -555,9 +565,11 @@ def benchmark_cpu_performance(
             z = jnp.abs(y) ** 2
             return jnp.sum(z)
 
-        # Warm up JIT
-        test_array = jnp.array(np.random.randn(100, 100))
-        _ = jax_computation(test_array)
+        # Warm up JIT at the same (test_size, test_size) shape used below, so
+        # the trace+compile cost isn't folded into the first timed iteration
+        # (a different input shape retraces and recompiles under jit).
+        test_array = jnp.array(np.random.randn(test_size, test_size))
+        jax_computation(test_array).block_until_ready()
 
         for _i in range(num_iterations):
             start_time = time.perf_counter()

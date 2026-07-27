@@ -381,12 +381,22 @@ class PerAngleScalingPlan:
         dense[2 * n_phi :, 2 * n_phi :] = pcov[-n_phys:, -n_phys:]
         if self.mode == "averaged":
             # optimizer order: [c_avg, o_avg, *physics]; replicate scalar blocks.
-            for blk, src in ((slice(0, n_phi), 0), (slice(n_phi, 2 * n_phi), 1)):
+            contrast_blk = slice(0, n_phi)
+            offset_blk = slice(n_phi, 2 * n_phi)
+            for blk, src in ((contrast_blk, 0), (offset_blk, 1)):
                 var = pcov[src, src]
                 dense[blk, blk] = var  # full block = shared variance (replicated)
                 # scalar<->physics cross terms replicated across the n_phi rows/cols
                 cross = pcov[src, 2:]  # (n_phys,)
                 dense[blk, 2 * n_phi :] = cross  # broadcast over the block rows
                 dense[2 * n_phi :, blk] = cross[:, None]
+            # contrast<->offset cross-covariance block (never touched by the
+            # loop above, which only fills each scalar's diagonal/physics
+            # cross terms): replicate the shared Cov(c_avg, o_avg) scalar onto
+            # every (i, j) pair, mirroring how the diagonal blocks replicate
+            # their own variance.
+            co_cov = pcov[0, 1]
+            dense[contrast_blk, offset_blk] = co_cov
+            dense[offset_blk, contrast_blk] = co_cov
         # constant: scaling rows/cols stay zero (frozen) — nothing else to fill.
         return dense

@@ -170,14 +170,26 @@ class FitQueueController(QObject):
         while self._pending and len(self._handles) < self._max:
             job = self._pending.popleft()
             handle = self._handle_factory(job)
-            self._handles[job.run_id] = handle
             handle.event.connect(partial(self._on_event, job.run_id))
             # Cold-spawn UX (spec §4 F10): a fresh worker re-pays the JAX import +
             # XLA cold-compile before the first `Started` arrives. Surface a
             # distinct "starting" state so a multi-second cold spawn never reads as
             # a hung app; flip to "running" only once the worker emits `Started`.
             self.run_status_changed.emit(job.run_id, "starting")
-            handle.start()
+            # Register the slot only once start() has actually succeeded — if it
+            # raises (e.g. OSError from process exhaustion), the slot must not be
+            # left permanently occupied by a handle that never started.
+            try:
+                handle.start()
+            except OSError as exc:
+                # The job is already popped from _pending — don't leave it in
+                # limbo with no terminal signal. Surface it like any other
+                # start failure and keep draining the rest of the queue.
+                self._output_dirs.pop(job.run_id, None)
+                self.run_status_changed.emit(job.run_id, "failed")
+                self.run_failed.emit(job.run_id, f"Failed to start worker: {exc}")
+                continue
+            self._handles[job.run_id] = handle
 
     def _on_event(self, run_id: str, event: Any) -> None:
         # Drop stale telemetry for a run the GUI has already freed or cancelled:

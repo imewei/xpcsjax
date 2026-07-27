@@ -71,6 +71,13 @@ class _ReaderThread(QThread):
                     terminal_seen = self._drain_remaining()
                     break
                 continue
+            except (OSError, EOFError):
+                # The underlying pipe broke/closed (e.g. the worker crashed hard
+                # enough to corrupt the multiprocessing Queue). Treat like a
+                # process-exit: fall through to the Died-synthesis below instead
+                # of letting the exception kill this thread with no terminal
+                # event ever emitted.
+                break
             self.event.emit(ev)
             if isinstance(ev, TERMINAL_EVENTS):
                 terminal_seen = True

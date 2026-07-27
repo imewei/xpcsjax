@@ -106,12 +106,26 @@ def _compute_g1_diffusion_meshgrid(
     # Result: time_array = [0.0, 0.1, 0.2, ...] seconds (NOT frame indices!)
     # DO NOT multiply by dt - that would cause 10× time scale error!
 
-    # Calculate D(t) at each time point (time_array already in seconds)
-    D_t = _calculate_diffusion_coefficient_impl_jax(time_array, D0, alpha, D_offset)
+    if time_array.shape[0] == 1:
+        # Degenerate 1x1 grid from a single scattered (t1, t2) pair (the
+        # per-point stratified residual path calls this with single-element
+        # t1/t2 arrays). `time_array = t1[:, 0]` above silently drops t2
+        # whenever t1 != t2, collapsing the integral to zero regardless of
+        # the actual time lag (finding: physics_nlsq.py root cause). Compute
+        # the integral directly from both endpoints via a 2-point
+        # trapezoidal rule instead of the cumsum-over-t1-only reconstruction.
+        t2_col = t2[:, 0]
+        D1 = _calculate_diffusion_coefficient_impl_jax(time_array, D0, alpha, D_offset)
+        D2 = _calculate_diffusion_coefficient_impl_jax(t2_col, D0, alpha, D_offset)
+        integral = 0.5 * (D1 + D2) * (t2_col - time_array)
+        D_integral = jnp.sqrt(integral**2 + 1e-12).reshape(1, 1)
+    else:
+        # Calculate D(t) at each time point (time_array already in seconds)
+        D_t = _calculate_diffusion_coefficient_impl_jax(time_array, D0, alpha, D_offset)
 
-    # Create diffusion integral matrix using cumulative sums
-    # This gives matrix[i,j] = |cumsum[i] - cumsum[j]| ≈ |∫D(t)dt from i to j|
-    D_integral = _create_time_integral_matrix_impl_jax(D_t)
+        # Create diffusion integral matrix using cumulative sums
+        # This gives matrix[i,j] = |cumsum[i] - cumsum[j]| ≈ |∫D(t)dt from i to j|
+        D_integral = _create_time_integral_matrix_impl_jax(D_t)
 
     # Compute g1 correlation using log-space for numerical stability
     # This matches reference: g1 = exp(-wavevector_q_squared_half_dt * D_integral)
@@ -212,18 +226,31 @@ def _compute_g1_shear_meshgrid(
     # Result: time_array = [0.0, 0.1, 0.2, ...] seconds (NOT frame indices!)
     # DO NOT multiply by dt - that would cause 10× time scale error!
 
-    # Calculate γ̇(t) at each time point (time_array already in seconds)
-    gamma_t = _calculate_shear_rate_impl_jax(
-        time_array,
-        gamma_dot_0,
-        beta,
-        gamma_dot_offset,
-    )
+    if time_array.shape[0] == 1:
+        # Degenerate 1x1 grid from a single scattered (t1, t2) pair (the
+        # per-point stratified residual path calls this with single-element
+        # t1/t2 arrays). `time_array = t1[:, 0]` above silently drops t2
+        # whenever t1 != t2, collapsing the integral to zero regardless of
+        # the actual time lag. Compute the integral directly from both
+        # endpoints via a 2-point trapezoidal rule instead of the
+        # cumsum-over-t1-only reconstruction.
+        t2_col = t2[:, 0]
+        gamma1 = _calculate_shear_rate_impl_jax(time_array, gamma_dot_0, beta, gamma_dot_offset)
+        gamma2 = _calculate_shear_rate_impl_jax(t2_col, gamma_dot_0, beta, gamma_dot_offset)
+        integral = 0.5 * (gamma1 + gamma2) * (t2_col - time_array)
+        gamma_integral = jnp.sqrt(integral**2 + 1e-12).reshape(1, 1)
+    else:
+        # Calculate γ̇(t) at each time point (time_array already in seconds)
+        gamma_t = _calculate_shear_rate_impl_jax(
+            time_array,
+            gamma_dot_0,
+            beta,
+            gamma_dot_offset,
+        )
 
-    # Create shear integral matrix using cumulative sums
-    # This gives matrix[i,j] = |cumsum[i] - cumsum[j]| ≈ |∫γ̇(t)dt from i to j|
-    # Create shear integral matrix using cumulative sums
-    gamma_integral = _create_time_integral_matrix_impl_jax(gamma_t)
+        # Create shear integral matrix using cumulative sums
+        # This gives matrix[i,j] = |cumsum[i] - cumsum[j]| ≈ |∫γ̇(t)dt from i to j|
+        gamma_integral = _create_time_integral_matrix_impl_jax(gamma_t)
 
     # Ensure phi is a 1D array regardless of input shape.
     # Handles (1, 1, 1, 23), (23,), scalar, etc. uniformly.

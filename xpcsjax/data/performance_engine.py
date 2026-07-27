@@ -692,9 +692,12 @@ class MultiLevelCache:
         self._ssd_cache_path.mkdir(parents=True, exist_ok=True)
         self._hdd_cache_path.mkdir(parents=True, exist_ok=True)
 
-        # Cache usage tracking
-        self._ssd_usage_mb = 0.0
-        self._hdd_usage_mb = 0.0
+        # Cache usage tracking. Scan any pre-existing on-disk cache (a warm
+        # cache directory from a previous process) so eviction has a true
+        # starting point instead of drifting past the configured limit until
+        # this session's own writes alone exceed it.
+        self._ssd_usage_mb = self._scan_dir_usage_mb(self._ssd_cache_path)
+        self._hdd_usage_mb = self._scan_dir_usage_mb(self._hdd_cache_path)
 
         # Thread safety
         self._lock = threading.RLock()
@@ -850,6 +853,14 @@ class MultiLevelCache:
             self._memory_usage_mb += item_size_mb
             self._update_access_stats(key, current_time)
 
+    @staticmethod
+    def _scan_dir_usage_mb(path: Path) -> float:
+        """Sum the size in MB of every file directly under ``path``."""
+        try:
+            return sum(f.stat().st_size for f in path.iterdir() if f.is_file()) / (1024 * 1024)
+        except OSError:
+            return 0.0
+
     def _put_ssd(self, key: str, item: Any) -> None:
         """Write an item to the SSD tier, evicting to stay within the limit.
 
@@ -862,10 +873,14 @@ class MultiLevelCache:
         """
         try:
             ssd_path = self._ssd_cache_path / f"{key}.zstd"
+            # Overwriting an existing key must subtract the old file's size
+            # first, or repeated caches of the same key inflate usage far
+            # past what is actually on disk.
+            old_size_mb = ssd_path.stat().st_size / (1024 * 1024) if ssd_path.exists() else 0.0
             item_size_mb = self._save_to_disk(ssd_path, item)
 
             # Update usage tracking
-            self._ssd_usage_mb += item_size_mb
+            self._ssd_usage_mb += item_size_mb - old_size_mb
 
             # Clean up if over limit
             while self._ssd_usage_mb > self.ssd_cache_mb:
@@ -886,10 +901,12 @@ class MultiLevelCache:
         """
         try:
             hdd_path = self._hdd_cache_path / f"{key}.zstd"
+            # See _put_ssd: subtract the old file's size on overwrite.
+            old_size_mb = hdd_path.stat().st_size / (1024 * 1024) if hdd_path.exists() else 0.0
             item_size_mb = self._save_to_disk(hdd_path, item)
 
             # Update usage tracking
-            self._hdd_usage_mb += item_size_mb
+            self._hdd_usage_mb += item_size_mb - old_size_mb
 
             # Clean up if over limit
             while self._hdd_usage_mb > self.hdd_cache_mb:
@@ -1597,12 +1614,18 @@ class PerformanceEngine:
         # (chunk.size is the actual per-chunk size, not a uniform stride, so
         # ``index * size`` would duplicate middle keys and drop the tail).
         future_to_chunk = {}
+        chunk_start_times: dict[Any, float] = {}
 
         start_idx = 0
         for chunk in chunk_info:
             end_idx = min(start_idx + chunk.size, len(data_keys))
             chunk_keys = data_keys[start_idx:end_idx]
 
+            # Record submission time here, not after as_completed() reports
+            # the future done — by then the worker thread has already
+            # finished, so timing from inside the collection loop would
+            # measure only the near-zero result-retrieval time, not the real
+            # chunk processing time.
             future = self.executor.submit(
                 self._load_matrix_chunk,
                 hdf_file,
@@ -1610,6 +1633,7 @@ class PerformanceEngine:
                 chunk,
             )
             future_to_chunk[future] = chunk
+            chunk_start_times[future] = time.time()
             start_idx = end_idx
 
         # Collect results keyed by chunk index. Futures complete in arbitrary
@@ -1620,9 +1644,8 @@ class PerformanceEngine:
         for future in as_completed(future_to_chunk):
             chunk = future_to_chunk[future]
             try:
-                chunk_start_time = time.time()
                 chunk_matrices = future.result()
-                chunk_processing_time = time.time() - chunk_start_time
+                chunk_processing_time = time.time() - chunk_start_times[future]
 
                 chunk_results[chunk.index] = chunk_matrices
 
@@ -1681,12 +1704,21 @@ class PerformanceEngine:
                 "Cannot determine HDF5 correlation matrix location",
             )
 
+        missing_keys = [key for key in data_keys if key not in c2t_group]
+        if missing_keys:
+            # Silently skipping a missing key would return fewer rows than
+            # len(data_keys), misaligning every subsequent matrix against
+            # callers' own q/phi/angle arrays built from the original
+            # requested keys. Hard-fail instead of guessing.
+            raise PerformanceEngineError(
+                f"Requested correlation-matrix keys not found in HDF5 file: {missing_keys}"
+            )
+
         for key in data_keys:
-            if key in c2t_group:
-                c2_half = c2t_group[key][()]
-                # Reconstruct full matrix
-                c2_full = self._reconstruct_full_matrix(c2_half)
-                matrices.append(c2_full)
+            c2_half = c2t_group[key][()]
+            # Reconstruct full matrix
+            c2_full = self._reconstruct_full_matrix(c2_half)
+            matrices.append(c2_full)
 
         return np.array(matrices)
 
@@ -1729,11 +1761,18 @@ class PerformanceEngine:
                 "Cannot determine HDF5 correlation matrix location",
             )
 
+        missing_keys = [key for key in chunk_keys if key not in c2t_group]
+        if missing_keys:
+            # See _load_matrices_direct: silently dropping a key misaligns the
+            # returned rows against the caller's own key-ordered metadata.
+            raise PerformanceEngineError(
+                f"Requested correlation-matrix keys not found in HDF5 file: {missing_keys}"
+            )
+
         for key in chunk_keys:
-            if key in c2t_group:
-                c2_half = c2t_group[key][()]
-                c2_full = self._reconstruct_full_matrix(c2_half)
-                matrices.append(c2_full)
+            c2_half = c2t_group[key][()]
+            c2_full = self._reconstruct_full_matrix(c2_half)
+            matrices.append(c2_full)
 
         return matrices
 
@@ -1774,8 +1813,11 @@ class PerformanceEngine:
         file_stat = os.stat(hdf_path)
         file_info = f"{hdf_path}:{file_stat.st_mtime}:{file_stat.st_size}"
 
-        # Hash the data keys for shorter cache key
-        keys_hash = hashlib.sha256(",".join(sorted(data_keys)).encode()).hexdigest()[:8]
+        # Hash the data keys for shorter cache key. Order matters: the loaders
+        # return matrices in the exact order data_keys was given, so sorting
+        # here would let two callers requesting the same keys in different
+        # orders collide on one cache entry and receive each other's row order.
+        keys_hash = hashlib.sha256(",".join(data_keys).encode()).hexdigest()[:8]
 
         return f"corr_matrices_{keys_hash}_{file_info.replace('/', '_').replace(':', '_')}"
 
@@ -1864,7 +1906,11 @@ class PerformanceEngine:
                 f"Background prefetch completed for {len(data_keys)} data keys",
             )
 
-        except OSError as e:
+        except (OSError, PerformanceEngineError) as e:
+            # load_correlation_matrices_optimized wraps every underlying
+            # failure (including OSError) into PerformanceEngineError before
+            # it propagates, so catching only OSError never actually matches
+            # and every prefetch failure was silently dropped.
             logger.warning(f"Background prefetch failed: {e}")
 
     def get_performance_report(self) -> dict[str, Any]:

@@ -419,7 +419,14 @@ def test_close_project_tears_down_active_worker(qtbot):
 
     calls = {"cancel": 0, "shutdown": 0}
 
+    class _FakeEvent:
+        def disconnect(self):
+            pass
+
     class _FakeHandle:
+        def __init__(self):
+            self.event = _FakeEvent()
+
         def is_running(self):
             return True
 

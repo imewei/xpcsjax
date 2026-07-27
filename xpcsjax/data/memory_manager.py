@@ -29,6 +29,7 @@ import mmap
 import os
 import threading
 import time
+import uuid
 import weakref
 from collections import deque
 from collections.abc import Callable
@@ -182,6 +183,15 @@ class MemoryPressureError(MemoryManagerError):
 
 class AllocationError(MemoryManagerError):
     """Raised when memory allocation fails."""
+
+
+class _MmapBackedArray(np.ndarray):
+    """``ndarray`` subclass with a ``__dict__`` for mmap/fh references.
+
+    Holds the ``mmap``/file-handle references that keep a virtual-memory
+    buffer's backing file alive. A plain ``numpy.ndarray`` has no ``__dict__``
+    and raises ``AttributeError`` on any attribute assignment.
+    """
 
 
 @dataclass
@@ -827,6 +837,14 @@ class AdvancedMemoryManager:
         >>> with mgr.managed_allocation(1024) as buf:
         ...     buf[:] = 0.0
         """
+        if size < 0:
+            # Without this, a negative size silently produces a 0-length
+            # buffer instead of surfacing the caller's bad size computation
+            # (e.g. an off-by-one upstream): _get_from_pool's power-of-two
+            # loop never executes for size < 0 (pool_size stays 1), and
+            # buffer[:size] with a negative size trims from the end.
+            raise ValueError(f"managed_allocation size must be >= 0, got {size}")
+
         buffer = None
         pool_id = None
 
@@ -1075,7 +1093,15 @@ class AdvancedMemoryManager:
             os.makedirs(os.path.dirname(self._virtual_memory_path), exist_ok=True)
 
             # Create unique filename
-            vm_file = f"{self._virtual_memory_path}_{int(time.time())}_{os.getpid()}.dat"
+            # A second-granularity timestamp + pid alone collides when two
+            # threads of this process (the foreground allocator and the
+            # daemon MemoryPressureMonitor thread can both drive allocation
+            # concurrently) allocate within the same wall-clock second; add a
+            # uuid to guarantee uniqueness per allocation.
+            vm_file = (
+                f"{self._virtual_memory_path}_{int(time.time())}_{os.getpid()}"
+                f"_{uuid.uuid4().hex[:8]}.dat"
+            )
 
             # Create sparse file: seek to the last byte and write one zero.
             # This avoids allocating total_bytes in RAM just to populate zeros —
@@ -1101,14 +1127,23 @@ class AdvancedMemoryManager:
             try:
                 mm = mmap.mmap(fh.fileno(), 0)
 
-                # Create numpy array from memory map
+                # Create numpy array from memory map. A plain np.ndarray has
+                # no __dict__, so setting the _xpcsjax_* attributes below
+                # would always raise AttributeError — view it as the
+                # _MmapBackedArray subclass first (same buffer, no copy).
                 buffer = np.ndarray(
                     shape=(total_bytes // np.dtype(dtype).itemsize,), dtype=dtype, buffer=mm
-                )
+                ).view(_MmapBackedArray)
+
+                # Store references to keep mmap and file handle alive
+                buffer._xpcsjax_mmap = mm  # type: ignore[attr-defined]
+                buffer._xpcsjax_fh = fh  # type: ignore[attr-defined]
+                buffer._xpcsjax_vm_file = vm_file  # type: ignore[attr-defined]
             except BaseException:
-                # mmap()/ndarray construction failed: close the mapping and fd we just
-                # opened before unwinding. Otherwise — in the exact OOM conditions that
-                # drive this path — every failed allocation leaks one fd plus its mapping.
+                # mmap()/ndarray construction/attribute-storage failed: close
+                # the mapping and fd we just opened before unwinding.
+                # Otherwise — in the exact OOM conditions that drive this
+                # path — every failed allocation leaks one fd plus its mapping.
                 if mm is not None:
                     try:
                         mm.close()
@@ -1116,11 +1151,6 @@ class AdvancedMemoryManager:
                         pass
                 fh.close()
                 raise
-
-            # Store references to keep mmap and file handle alive
-            buffer._xpcsjax_mmap = mm  # type: ignore[attr-defined]
-            buffer._xpcsjax_fh = fh  # type: ignore[attr-defined]
-            buffer._xpcsjax_vm_file = vm_file  # type: ignore[attr-defined]
 
             logger.info(
                 f"Allocated {total_bytes / (1024 * 1024):.1f}MB virtual memory buffer",
@@ -1557,6 +1587,14 @@ class AdvancedMemoryManager:
         # Cleanup virtual memory files
         with logged_errors(logger, "shutdown_cleanup_vm", policy="suppress", level=logging.DEBUG):
             self.cleanup_virtual_memory()
+
+        # Restore process-wide GC thresholds if pressure handling altered them.
+        # Only _handle_memory_recovery did this before, so a shutdown that
+        # happens while thresholds are still degraded (no intervening
+        # recovery event) left gc.get_threshold() permanently changed for the
+        # rest of the process.
+        with logged_errors(logger, "shutdown_restore_gc", policy="suppress", level=logging.DEBUG):
+            gc.set_threshold(*self._default_gc_thresholds)
 
         # Final garbage collection
         with logged_errors(logger, "shutdown_gc", policy="suppress", level=logging.DEBUG):

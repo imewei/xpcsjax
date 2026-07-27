@@ -216,6 +216,13 @@ class ParameterManager:
                     )
                 self._default_bounds[param_name] = bound_typed
 
+            merged = self._default_bounds[param_name]
+            if merged["min"] > merged["max"]:
+                raise ValueError(
+                    f"parameter_space.bounds entry for {param_name!r} has an "
+                    f"inverted bound: min={merged['min']} > max={merged['max']}"
+                )
+
         logger.debug(f"Loaded bounds from config for {len(config_bounds)} parameters")
 
     def _extract_base_param_name(self, name: str) -> str | None:

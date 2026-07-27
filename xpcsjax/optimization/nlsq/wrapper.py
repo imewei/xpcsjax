@@ -1659,6 +1659,26 @@ class NLSQWrapper(NLSQAdapterBase):
         n_data = len(ydata)
         logger.info(f"Data prepared: {n_data} points")
 
+        # Sigma weighting: only pass a per-point sigma to the solver when it is
+        # genuinely heteroscedastic. Uniform sigma (e.g. the default-sigma
+        # sentinel) is a no-op under linear loss but NOT under the default
+        # soft_l1 loss (rescaling all residuals by a constant changes which
+        # residuals get robust-compressed), so gating here keeps every existing
+        # default (uniform-sigma) fit byte-identical while fixing the real
+        # defect: heteroscedastic sigma silently being dropped.
+        sigma_for_solver = self._prepare_sigma_data(stratified_data, n_data)
+        if sigma_for_solver is not None:
+            _sigma_min, _sigma_max = float(sigma_for_solver.min()), float(sigma_for_solver.max())
+            if np.isclose(_sigma_min, _sigma_max):
+                sigma_for_solver = None
+            else:
+                logger.info(
+                    "Heteroscedastic sigma detected (min=%.4g, max=%.4g); "
+                    "weighting standard/large/recovery curve_fit calls",
+                    _sigma_min,
+                    _sigma_max,
+                )
+
         # Note: Memory estimation is deferred to NLSQ's estimate_memory_requirements()
         # which provides accurate Jacobian sizing based on actual parameter count.
         if n_data > 10_000_000:
@@ -1986,6 +2006,16 @@ class NLSQWrapper(NLSQAdapterBase):
         if per_param_x_scale is not None:
             x_scale_value = per_param_x_scale
 
+        # trust_region_scale (config knob, previously computed and never used):
+        # apply as a multiplier on the resolved numeric x_scale, which is what
+        # sets the LM/TRF trust-region geometry. A no-op at the 1.0 default, so
+        # this does not disturb the rtol=1e-10 goldens. Left as a no-op for the
+        # "jac" auto-scale sentinel (a bare string has no numeric base to scale).
+        if trust_region_scale != 1.0 and not (
+            isinstance(x_scale_value, str) and x_scale_value == "jac"
+        ):
+            x_scale_value = np.asarray(x_scale_value, dtype=np.float64) * trust_region_scale
+
         if diagnostics_enabled:
             diagnostics_payload = diagnostics_payload or {"solver_settings": {"loss": loss_name}}
             solver_settings = diagnostics_payload.setdefault("solver_settings", {"loss": loss_name})
@@ -2122,6 +2152,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 start_time=start_time,
                 logger=logger,
                 callback=_l4_callback,
+                sigma=sigma_for_solver,
             )
         )
 
@@ -2195,6 +2226,7 @@ class NLSQWrapper(NLSQAdapterBase):
         start_time: float,
         logger: logging.Logger | logging.LoggerAdapter[logging.Logger],
         callback: Callable[..., Any] | None = None,
+        sigma: np.ndarray | None = None,
     ) -> tuple[np.ndarray, np.ndarray | None, dict[str, Any], list[str], str]:
         """Execute optimization with strategy fallback.
 
@@ -2220,6 +2252,7 @@ class NLSQWrapper(NLSQAdapterBase):
             curve_fit_large_fn=curve_fit_large,
             fast_mode=self.fast_mode,
             callback=callback,
+            sigma=sigma,
         )
 
     @staticmethod
@@ -2515,6 +2548,7 @@ class NLSQWrapper(NLSQAdapterBase):
         loss_name: str,
         x_scale_value: float | str,
         callback: Callable[..., Any] | None = None,
+        sigma: np.ndarray | None = None,
     ) -> tuple[np.ndarray, np.ndarray, dict, list[str], str]:
         """Execute optimization with automatic error recovery (T022-T024)."""
         return execute_with_recovery(
@@ -2532,6 +2566,7 @@ class NLSQWrapper(NLSQAdapterBase):
             curve_fit_large_fn=curve_fit_large,
             callback=callback,
             convergence=getattr(self, "_recovery_convergence", None),
+            sigma=sigma,
         )
 
     def _prepare_xy_data(self, data: Any) -> tuple[np.ndarray, np.ndarray]:
@@ -2592,12 +2627,10 @@ class NLSQWrapper(NLSQAdapterBase):
         if phi.size == 0 or t1.size == 0 or t2.size == 0:
             raise ValueError("Data arrays cannot be empty")
 
-        # Create meshgrid with indexing='ij' to preserve correct ordering
-        # This ensures phi varies slowest, t2 varies fastest
-        phi_grid, t1_grid, t2_grid = np.meshgrid(phi, t1, t2, indexing="ij")
-
-        # Flatten all arrays to 1D
-        # For NLSQ curve_fit interface, xdata is typically just indices
+        # NOTE: xdata/ydata only need g2's flat size and values (NLSQ receives
+        # index-based xdata; the model function re-derives phi/t1/t2 from
+        # `data` directly). A phi/t1/t2 meshgrid was built here previously but
+        # never used — removed to avoid tripling peak memory for nothing.
         # Use int64 to avoid int32 overflow for large datasets
         # (n_phi * n_t1 * n_t2 can exceed 2.147B for 100+ angles × 5000+ time points).
         xdata = np.arange(g2.size, dtype=np.int64)
@@ -2606,6 +2639,59 @@ class NLSQWrapper(NLSQAdapterBase):
         ydata = g2.flatten().astype(np.float64, copy=False)
 
         return xdata, ydata
+
+    def _prepare_sigma_data(self, data: Any, n_data: int) -> np.ndarray | None:
+        """Build a per-point sigma array matching ``_prepare_xy_data``'s order.
+
+        Root-cause fix for the standard/large/streaming curve_fit paths never
+        weighting by ``data.sigma`` (only the sequential fallback did). Returns
+        ``None`` when sigma is unavailable or its flattened shape does not
+        match ``n_data`` (defensive: falls back to unweighted rather than
+        mis-aligning weights to points).
+
+        Parameters
+        ----------
+        data : Any
+            Same object passed to ``_prepare_xy_data`` (stratified or plain).
+        n_data : int
+            Expected flattened point count (``len(ydata)``).
+
+        Returns
+        -------
+        np.ndarray or None
+            Per-point sigma, same order as ``ydata``, or ``None``.
+        """
+        sigma_raw = getattr(data, "sigma", None)
+        if sigma_raw is None:
+            return None
+
+        if hasattr(data, "phi_flat"):
+            # Stratified data: `sigma` is the full (n_phi, n_t1, n_t2) grid on
+            # the ORIGINAL unique phi/t1/t2 axes (copied verbatim from the
+            # source data — see StratifiedData.__init__), while phi_flat /
+            # t1_flat / t2_flat carry the reordered, interleaved per-point
+            # VALUES. Map each point back onto the sigma grid the same way
+            # the sequential fallback's residual_func does.
+            sigma_3d = np.asarray(sigma_raw, dtype=np.float64)
+            phi_unique = np.asarray(data.phi)
+            t1_unique = np.asarray(data.t1)
+            t2_unique = np.asarray(data.t2)
+            phi_idx = np.searchsorted(phi_unique, np.round(np.asarray(data.phi_flat), decimals=6))
+            t1_idx = np.searchsorted(t1_unique, np.asarray(data.t1_flat))
+            t2_idx = np.searchsorted(t2_unique, np.asarray(data.t2_flat))
+            try:
+                sigma_flat = sigma_3d[phi_idx, t1_idx, t2_idx]
+            except IndexError:
+                return None
+        else:
+            # Non-stratified: sigma has the same (n_phi, n_t1, n_t2) shape as
+            # g2 (see core.py's default-sigma construction), so flattening it
+            # directly matches ydata's flatten order.
+            sigma_flat = np.asarray(sigma_raw, dtype=np.float64).flatten()
+
+        if sigma_flat.size != n_data:
+            return None
+        return sigma_flat
 
     def _apply_stratification_if_needed(
         self,
@@ -2898,13 +2984,46 @@ class NLSQWrapper(NLSQAdapterBase):
         # for consistent NLSQ convergence across runs.
         shuffle_seed = 42
         rng = np.random.RandomState(shuffle_seed)  # noqa: NPY002 — keep for reproducibility
-        perm = rng.permutation(len(phi_stratified))
+        # Shuffle WITHIN each stratification chunk boundary, not globally.
+        # `chunk_sizes` (below, passed into StratifiedData unchanged) describes
+        # contiguous [start, end) ranges that create_angle_stratified_data
+        # guarantees contain every phi angle. A global permutation scrambles
+        # those ranges, so downstream re-slicing by the stale chunk_sizes
+        # (strategies/stratified_ls.py's create_stratified_chunks, which reuses
+        # these exact boundaries) would yield arbitrary chunks with no angle
+        # coverage guarantee — reintroducing the zero-gradient degeneracy this
+        # stratification mechanism exists to prevent. Per-chunk shuffling still
+        # removes the angle-sequential ordering the L-BFGS warmup was sensitive
+        # to, while preserving the per-chunk angle-coverage invariant.
+        _n_points = len(phi_stratified)
+        if sum(chunk_sizes) != _n_points:
+            # Defensive: a chunk_sizes/array-length mismatch would make the
+            # per-chunk permutation below either raise (truncated slice vs.
+            # full-length RHS) or silently misalign points. Skip the shuffle
+            # entirely rather than risk either — the data stays correctly
+            # ordered (just angle-sequential within chunks), which is safe,
+            # just not what the L-BFGS-warmup shuffle intends.
+            logger.warning(
+                "Stratification chunk_sizes sum (%d) != data length (%d); "
+                "skipping pre-shuffle (data order unchanged, still correct).",
+                sum(chunk_sizes),
+                _n_points,
+            )
+            perm = np.arange(_n_points)
+        else:
+            perm = np.arange(_n_points)
+            _offset = 0
+            for _chunk_size in chunk_sizes:
+                _end = _offset + _chunk_size
+                perm[_offset:_end] = _offset + rng.permutation(_chunk_size)
+                _offset = _end
         phi_stratified = phi_stratified[perm]
         t1_stratified = t1_stratified[perm]
         t2_stratified = t2_stratified[perm]
         g2_stratified = g2_stratified[perm]
         logger.info(
-            f"Pre-shuffled stratified data (seed={shuffle_seed}) to prevent local minimum traps"
+            f"Pre-shuffled stratified data within chunk boundaries (seed={shuffle_seed}) "
+            "to prevent local minimum traps"
         )
 
         stratified_data = StratifiedData(
@@ -2992,6 +3111,16 @@ class NLSQWrapper(NLSQAdapterBase):
         t1 = np.asarray(data.t1)
         t2 = np.asarray(data.t2)
         g2 = np.asarray(data.g2)
+
+        # CRITICAL FIX (Nov 14, 2025 pattern, applied here): extract 1D arrays
+        # from 2D meshgrids if needed. Same cache-loader issue guarded in
+        # _prepare_xy_data / _apply_stratification_if_needed — the cache loader
+        # can return 2D meshgrids (n_t1, n_t1) / (n_t2, n_t2) and calling
+        # np.meshgrid() on already-meshgridded data corrupts the grid shape.
+        if t1.ndim == 2:
+            t1 = t1[:, 0] if t1.size > 0 else np.array([])
+        if t2.ndim == 2:
+            t2 = t2[0, :] if t2.size > 0 else np.array([])
 
         # Create full meshgrid
         phi_grid, t1_grid, t2_grid = np.meshgrid(phi, t1, t2, indexing="ij")
@@ -3373,7 +3502,11 @@ class NLSQWrapper(NLSQAdapterBase):
                 transform_state,
             )
 
-        final_residuals = residual_func(combined_physical, phi_flat, t1_flat, t2_flat, g2_flat)
+        # residual_func expects SOLVER-space params (it applies its own inverse
+        # shear transform internally, matching optimize_per_angle_sequential's
+        # contract) — passing combined_physical (already inverse-transformed
+        # above) here would double-apply the transform (e.g. exp(exp(x))).
+        final_residuals = residual_func(combined_solver, phi_flat, t1_flat, t2_flat, g2_flat)
         chi_squared = float(np.sum(final_residuals**2))
         n_data = len(phi_flat)
         n_params = len(sequential_result.combined_parameters)
@@ -3468,11 +3601,24 @@ class NLSQWrapper(NLSQAdapterBase):
             convergence_status = "failed"
             quality_flag = "poor"
 
+        # Rescale covariance from solver (transform) space to physical space —
+        # mirrors the standard in-memory path's adjust_covariance_for_transforms
+        # call. Without this, a log-transformed shear parameter's reported
+        # uncertainty is on the wrong scale relative to its physical-space value.
+        combined_covariance = sequential_result.combined_covariance
+        if transform_state:
+            combined_covariance = adjust_covariance_for_transforms(
+                combined_covariance,
+                combined_solver,
+                combined_physical,
+                transform_state,
+            )
+
         # Compute uncertainties from covariance. Guard against negative diagonal
         # entries (possible from a near-singular Hessian or numerical noise):
         # an unguarded np.sqrt would silently emit NaN uncertainties indistinguishable
         # from a valid zero. Mirror the np.maximum(diag, 0) guard in recovery.py.
-        cov_diag = np.diag(sequential_result.combined_covariance)
+        cov_diag = np.diag(combined_covariance)
         n_negative = int(np.sum(cov_diag < 0.0))
         if n_negative > 0:
             logger.warning(
@@ -3499,7 +3645,7 @@ class NLSQWrapper(NLSQAdapterBase):
         return OptimizationResult(
             parameters=combined_physical,
             uncertainties=uncertainties,
-            covariance=sequential_result.combined_covariance,
+            covariance=combined_covariance,
             chi_squared=chi_squared,
             reduced_chi_squared=reduced_chi_squared,
             convergence_status=convergence_status,

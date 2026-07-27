@@ -441,12 +441,15 @@ class NLSQConfig:
             goal=config_dict.get("goal", "quality"),
             # Loss function
             loss=config_dict.get("loss", "soft_l1"),
-            trust_region_scale=float(config_dict.get("trust_region_scale", 1.0)),
+            trust_region_scale=safe_float(config_dict.get("trust_region_scale", 1.0), 1.0),
             # Convergence
             max_iterations=config_dict.get("max_iterations", 1000),
-            ftol=float(config_dict.get("ftol", config_dict.get("tolerance", 1e-8))),
-            xtol=float(config_dict.get("xtol", 1e-8)),
-            gtol=float(config_dict.get("gtol", 1e-8)),
+            ftol=safe_float(
+                config_dict.get("ftol", config_dict.get("tolerance", 1e-8)),
+                config_dict.get("tolerance", 1e-8),
+            ),
+            xtol=safe_float(config_dict.get("xtol", 1e-8), 1e-8),
+            gtol=safe_float(config_dict.get("gtol", 1e-8), 1e-8),
             # Scaling
             x_scale=config_dict.get("x_scale", "jac"),
             x_scale_map=config_dict.get("x_scale_map"),
@@ -471,15 +474,21 @@ class NLSQConfig:
             hybrid_normalization_strategy=hybrid_streaming.get("normalization_strategy", "auto"),
             hybrid_warmup_iterations=hybrid_streaming.get("warmup_iterations", 200),
             hybrid_max_warmup_iterations=hybrid_streaming.get("max_warmup_iterations", 500),
-            hybrid_warmup_learning_rate=float(hybrid_streaming.get("warmup_learning_rate", 0.001)),
+            hybrid_warmup_learning_rate=safe_float(
+                hybrid_streaming.get("warmup_learning_rate", 0.001), 0.001
+            ),
             hybrid_gauss_newton_max_iterations=hybrid_streaming.get(
                 "gauss_newton_max_iterations", 100
             ),
-            hybrid_gauss_newton_tol=float(hybrid_streaming.get("gauss_newton_tol", 1e-8)),
+            hybrid_gauss_newton_tol=safe_float(
+                hybrid_streaming.get("gauss_newton_tol", 1e-8), 1e-8
+            ),
             hybrid_chunk_size=hybrid_streaming.get("chunk_size", 10000),
-            hybrid_trust_region_initial=float(hybrid_streaming.get("trust_region_initial", 1.0)),
-            hybrid_regularization_factor=float(
-                hybrid_streaming.get("regularization_factor", 1e-10)
+            hybrid_trust_region_initial=safe_float(
+                hybrid_streaming.get("trust_region_initial", 1.0), 1.0
+            ),
+            hybrid_regularization_factor=safe_float(
+                hybrid_streaming.get("regularization_factor", 1e-10), 1e-10
             ),
             hybrid_enable_checkpoints=hybrid_streaming.get("enable_checkpoints", True),
             hybrid_checkpoint_frequency=hybrid_streaming.get("checkpoint_frequency", 100),
@@ -489,21 +498,29 @@ class NLSQConfig:
             hybrid_enable_warm_start_detection=hybrid_streaming.get(
                 "enable_warm_start_detection", True
             ),
-            hybrid_warm_start_threshold=float(hybrid_streaming.get("warm_start_threshold", 0.01)),
+            hybrid_warm_start_threshold=safe_float(
+                hybrid_streaming.get("warm_start_threshold", 0.01), 0.01
+            ),
             # Layer 2: Adaptive Learning Rate
             hybrid_enable_adaptive_warmup_lr=hybrid_streaming.get(
                 "enable_adaptive_warmup_lr", True
             ),
-            hybrid_warmup_lr_refinement=float(hybrid_streaming.get("warmup_lr_refinement", 1e-6)),
-            hybrid_warmup_lr_careful=float(hybrid_streaming.get("warmup_lr_careful", 1e-5)),
+            hybrid_warmup_lr_refinement=safe_float(
+                hybrid_streaming.get("warmup_lr_refinement", 1e-6), 1e-6
+            ),
+            hybrid_warmup_lr_careful=safe_float(
+                hybrid_streaming.get("warmup_lr_careful", 1e-5), 1e-5
+            ),
             # Layer 3: Cost-Increase Guard
             hybrid_enable_cost_guard=hybrid_streaming.get("enable_cost_guard", True),
-            hybrid_cost_increase_tolerance=float(
-                hybrid_streaming.get("cost_increase_tolerance", 0.05)
+            hybrid_cost_increase_tolerance=safe_float(
+                hybrid_streaming.get("cost_increase_tolerance", 0.05), 0.05
             ),
             # Layer 4: Step Clipping
             hybrid_enable_step_clipping=hybrid_streaming.get("enable_step_clipping", True),
-            hybrid_max_warmup_step_size=float(hybrid_streaming.get("max_warmup_step_size", 0.1)),
+            hybrid_max_warmup_step_size=safe_float(
+                hybrid_streaming.get("max_warmup_step_size", 0.1), 0.1
+            ),
             # Multi-start
             # NOTE: No subsampling - numerical precision takes priority
             enable_multi_start=multi_start.get("enable", False),
@@ -512,10 +529,16 @@ class NLSQConfig:
             multi_start_sampling_strategy=multi_start.get("sampling_strategy", "latin_hypercube"),
             multi_start_n_workers=multi_start.get("n_workers", 0),
             multi_start_use_screening=multi_start.get("use_screening", True),
-            multi_start_screen_keep_fraction=float(multi_start.get("screen_keep_fraction", 0.5)),
+            multi_start_screen_keep_fraction=safe_float(
+                multi_start.get("screen_keep_fraction", 0.5), 0.5
+            ),
             multi_start_refine_top_k=multi_start.get("refine_top_k", 3),
-            multi_start_refinement_ftol=float(multi_start.get("refinement_ftol", 1e-12)),
-            multi_start_degeneracy_threshold=float(multi_start.get("degeneracy_threshold", 0.1)),
+            multi_start_refinement_ftol=safe_float(
+                multi_start.get("refinement_ftol", 1e-12), 1e-12
+            ),
+            multi_start_degeneracy_threshold=safe_float(
+                multi_start.get("degeneracy_threshold", 0.1), 0.1
+            ),
             # Anti-Degeneracy Defense System
             # Layer 1: Per-Angle Reparameterization (scaling mode)
             per_angle_mode=anti_degeneracy.get("per_angle_mode", "auto"),
@@ -526,21 +549,25 @@ class NLSQConfig:
             # Layer 2: Hierarchical Optimization
             enable_hierarchical=hierarchical.get("enable", True),
             hierarchical_max_outer_iterations=hierarchical.get("max_outer_iterations", 5),
-            hierarchical_outer_tolerance=float(hierarchical.get("outer_tolerance", 1e-6)),
+            hierarchical_outer_tolerance=safe_float(
+                hierarchical.get("outer_tolerance", 1e-6), 1e-6
+            ),
             hierarchical_physical_max_iterations=hierarchical.get("physical_max_iterations", 100),
             hierarchical_per_angle_max_iterations=hierarchical.get("per_angle_max_iterations", 50),
             # Layer 3: Adaptive Relative Regularization
             regularization_mode=regularization.get("mode", "relative"),
-            group_variance_lambda=float(regularization.get("lambda", 1.0)),
-            regularization_target_cv=float(regularization.get("target_cv", 0.10)),
-            regularization_target_contribution=float(
-                regularization.get("target_contribution", 0.10)
+            group_variance_lambda=safe_float(regularization.get("lambda", 1.0), 1.0),
+            regularization_target_cv=safe_float(regularization.get("target_cv", 0.10), 0.10),
+            regularization_target_contribution=safe_float(
+                regularization.get("target_contribution", 0.10), 0.10
             ),
-            regularization_max_cv=float(regularization.get("max_cv", 0.20)),
+            regularization_max_cv=safe_float(regularization.get("max_cv", 0.20), 0.20),
             regularization_auto_tune_lambda=regularization.get("auto_tune_lambda", True),
             # Layer 4: Gradient Collapse Detection
             enable_gradient_monitoring=gradient_monitoring.get("enable", True),
-            gradient_ratio_threshold=float(gradient_monitoring.get("ratio_threshold", 0.01)),
+            gradient_ratio_threshold=safe_float(
+                gradient_monitoring.get("ratio_threshold", 0.01), 0.01
+            ),
             gradient_consecutive_triggers=gradient_monitoring.get("consecutive_triggers", 5),
             gradient_collapse_response=gradient_monitoring.get("response", "hierarchical"),
             # CMA-ES Global Optimization
@@ -549,12 +576,14 @@ class NLSQConfig:
             cmaes_max_generations=cmaes.get("max_generations"),  # None = adaptive
             cmaes_popsize=cmaes.get("popsize"),  # None = auto
             cmaes_seed=cmaes.get("seed"),  # None = nondeterministic (default)
-            cmaes_sigma=float(cmaes.get("sigma", 0.5)),
-            cmaes_sigma_warmstart=float(cmaes.get("sigma_warmstart", 0.05)),
+            cmaes_sigma=safe_float(cmaes.get("sigma", 0.5), 0.5),
+            cmaes_sigma_warmstart=safe_float(cmaes.get("sigma_warmstart", 0.05), 0.05),
             cmaes_warmstart_auto_skip=cmaes.get("warmstart_auto_skip", True),
-            cmaes_warmstart_skip_threshold=float(cmaes.get("warmstart_skip_threshold", 5.0)),
-            cmaes_tol_fun=float(cmaes.get("tol_fun", 1e-8)),
-            cmaes_tol_x=float(cmaes.get("tol_x", 1e-8)),
+            cmaes_warmstart_skip_threshold=safe_float(
+                cmaes.get("warmstart_skip_threshold", 5.0), 5.0
+            ),
+            cmaes_tol_fun=safe_float(cmaes.get("tol_fun", 1e-8), 1e-8),
+            cmaes_tol_x=safe_float(cmaes.get("tol_x", 1e-8), 1e-8),
             cmaes_restart_strategy=cmaes.get("restart_strategy", "bipop"),
             cmaes_max_restarts=cmaes.get("max_restarts", 9),
             cmaes_n_seeds=cmaes.get("n_seeds", 1),
@@ -562,29 +591,33 @@ class NLSQConfig:
             cmaes_data_chunk_size=cmaes.get("data_chunk_size"),
             cmaes_refine_with_nlsq=cmaes.get("refine_with_nlsq", True),
             cmaes_auto_select=cmaes.get("auto_select", True),
-            cmaes_scale_threshold=float(cmaes.get("scale_threshold", 1000.0)),
-            cmaes_memory_limit_gb=float(cmaes.get("memory_limit_gb", 8.0)),
+            cmaes_scale_threshold=safe_float(cmaes.get("scale_threshold", 1000.0), 1000.0),
+            cmaes_memory_limit_gb=safe_float(cmaes.get("memory_limit_gb", 8.0), 8.0),
             # Post-CMA-ES NLSQ TRF refinement settings
             cmaes_refinement_workflow=cmaes.get("refinement_workflow", "auto"),
-            cmaes_refinement_ftol=float(cmaes.get("refinement_ftol", 1e-10)),
-            cmaes_refinement_xtol=float(cmaes.get("refinement_xtol", 1e-10)),
-            cmaes_refinement_gtol=float(cmaes.get("refinement_gtol", 1e-10)),
+            cmaes_refinement_ftol=safe_float(cmaes.get("refinement_ftol", 1e-10), 1e-10),
+            cmaes_refinement_xtol=safe_float(cmaes.get("refinement_xtol", 1e-10), 1e-10),
+            cmaes_refinement_gtol=safe_float(cmaes.get("refinement_gtol", 1e-10), 1e-10),
             cmaes_refinement_max_nfev=cmaes.get("refinement_max_nfev", 500),
             cmaes_refinement_loss=cmaes.get("refinement_loss", "linear"),
             # CMA-ES Parameter Normalization
             cmaes_normalize=cmaes.get("normalize", True),
-            cmaes_normalization_epsilon=float(cmaes.get("normalization_epsilon", 1e-12)),
+            cmaes_normalization_epsilon=safe_float(
+                cmaes.get("normalization_epsilon", 1e-12), 1e-12
+            ),
             # Fit Quality Validation
             enable_quality_validation=quality_validation.get("enable", True),
-            quality_reduced_chi_squared_threshold=float(
-                quality_validation.get("reduced_chi_squared_threshold", 10.0)
+            quality_reduced_chi_squared_threshold=safe_float(
+                quality_validation.get("reduced_chi_squared_threshold", 10.0), 10.0
             ),
             quality_warn_on_max_restarts=quality_validation.get("warn_on_max_restarts", True),
             quality_warn_on_bounds_hit=quality_validation.get("warn_on_bounds_hit", True),
             quality_warn_on_convergence_failure=quality_validation.get(
                 "warn_on_convergence_failure", True
             ),
-            quality_bounds_tolerance=float(quality_validation.get("bounds_tolerance", 1e-9)),
+            quality_bounds_tolerance=safe_float(
+                quality_validation.get("bounds_tolerance", 1e-9), 1e-9
+            ),
         )
 
         # Validate and log any issues
@@ -640,9 +673,13 @@ class NLSQConfig:
         if full_config is None:
             full_config = {}
 
-        # Extract optimization.nlsq section
-        optimization = full_config.get("optimization", {})
-        nlsq_config = optimization.get("nlsq", {})
+        # Extract optimization.nlsq section. `.get(key, {})` only substitutes
+        # the default for a MISSING key -- a present-but-null section (e.g.
+        # `optimization: null` or `optimization:\n  nlsq: null`) still yields
+        # None, so `or {}` degrades that to defaults too instead of crashing
+        # on the `.get()` chain below (same pattern as from_dict above).
+        optimization = full_config.get("optimization") or {}
+        nlsq_config = optimization.get("nlsq") or {}
 
         if not nlsq_config:
             logger.warning(f"No optimization.nlsq section found in {yaml_path}, using defaults")
@@ -665,23 +702,23 @@ class NLSQConfig:
             errors.append(f"loss must be one of {valid_losses}, got: {self.loss}")
 
         # Validate trust_region_scale
-        if self.trust_region_scale <= 0:
+        if not (self.trust_region_scale > 0):
             errors.append(f"trust_region_scale must be positive, got: {self.trust_region_scale}")
 
         # Validate convergence tolerances
-        if self.ftol <= 0:
+        if not (self.ftol > 0):
             errors.append(f"ftol must be positive, got: {self.ftol}")
-        if self.xtol <= 0:
+        if not (self.xtol > 0):
             errors.append(f"xtol must be positive, got: {self.xtol}")
-        if self.gtol <= 0:
+        if not (self.gtol > 0):
             errors.append(f"gtol must be positive, got: {self.gtol}")
 
         # Validate max_iterations
-        if self.max_iterations <= 0:
+        if not (self.max_iterations > 0):
             errors.append(f"max_iterations must be positive, got: {self.max_iterations}")
 
         # Validate chunk sizes
-        if self.streaming_chunk_size <= 0:
+        if not (self.streaming_chunk_size > 0):
             errors.append(
                 f"streaming_chunk_size must be positive, got: {self.streaming_chunk_size}"
             )
@@ -690,7 +727,7 @@ class NLSQConfig:
                 f"streaming_chunk_size exceeds MAX_CHUNK_SIZE ({MAX_CHUNK_SIZE}), "
                 f"got: {self.streaming_chunk_size}"
             )
-        if self.target_chunk_size <= 0:
+        if not (self.target_chunk_size > 0):
             errors.append(f"target_chunk_size must be positive, got: {self.target_chunk_size}")
         if self.target_chunk_size > MAX_CHUNK_SIZE:
             errors.append(
@@ -711,30 +748,30 @@ class NLSQConfig:
                 f"hybrid_normalization_strategy must be one of {valid_norm_strategies}, "
                 f"got: {self.hybrid_normalization_strategy}"
             )
-        if self.hybrid_warmup_iterations <= 0:
+        if not (self.hybrid_warmup_iterations > 0):
             errors.append(
                 f"hybrid_warmup_iterations must be positive, got: {self.hybrid_warmup_iterations}"
             )
-        if self.hybrid_max_warmup_iterations <= 0:
+        if not (self.hybrid_max_warmup_iterations > 0):
             errors.append(
                 f"hybrid_max_warmup_iterations must be positive, "
                 f"got: {self.hybrid_max_warmup_iterations}"
             )
-        if self.hybrid_warmup_learning_rate <= 0:
+        if not (self.hybrid_warmup_learning_rate > 0):
             errors.append(
                 f"hybrid_warmup_learning_rate must be positive, "
                 f"got: {self.hybrid_warmup_learning_rate}"
             )
-        if self.hybrid_gauss_newton_max_iterations <= 0:
+        if not (self.hybrid_gauss_newton_max_iterations > 0):
             errors.append(
                 f"hybrid_gauss_newton_max_iterations must be positive, "
                 f"got: {self.hybrid_gauss_newton_max_iterations}"
             )
-        if self.hybrid_gauss_newton_tol <= 0:
+        if not (self.hybrid_gauss_newton_tol > 0):
             errors.append(
                 f"hybrid_gauss_newton_tol must be positive, got: {self.hybrid_gauss_newton_tol}"
             )
-        if self.hybrid_chunk_size <= 0:
+        if not (self.hybrid_chunk_size > 0):
             errors.append(f"hybrid_chunk_size must be positive, got: {self.hybrid_chunk_size}")
         if self.hybrid_chunk_size > MAX_CHUNK_SIZE:
             errors.append(
@@ -744,18 +781,18 @@ class NLSQConfig:
 
         # Validate 4-Layer Defense parameters
         # Layer 1: Warm Start Detection
-        if self.hybrid_warm_start_threshold <= 0:
+        if not (self.hybrid_warm_start_threshold > 0):
             errors.append(
                 f"hybrid_warm_start_threshold must be positive, "
                 f"got: {self.hybrid_warm_start_threshold}"
             )
         # Layer 2: Adaptive Learning Rate
-        if self.hybrid_warmup_lr_refinement <= 0:
+        if not (self.hybrid_warmup_lr_refinement > 0):
             errors.append(
                 f"hybrid_warmup_lr_refinement must be positive, "
                 f"got: {self.hybrid_warmup_lr_refinement}"
             )
-        if self.hybrid_warmup_lr_careful <= 0:
+        if not (self.hybrid_warmup_lr_careful > 0):
             errors.append(
                 f"hybrid_warmup_lr_careful must be positive, got: {self.hybrid_warmup_lr_careful}"
             )
@@ -766,7 +803,7 @@ class NLSQConfig:
                 f"got: {self.hybrid_cost_increase_tolerance}"
             )
         # Layer 4: Step Clipping
-        if self.hybrid_max_warmup_step_size <= 0:
+        if not (self.hybrid_max_warmup_step_size > 0):
             errors.append(
                 f"hybrid_max_warmup_step_size must be positive, "
                 f"got: {self.hybrid_max_warmup_step_size}"
@@ -779,7 +816,7 @@ class NLSQConfig:
                 f"multi_start_sampling_strategy must be one of {valid_sampling_strategies}, "
                 f"got: {self.multi_start_sampling_strategy}"
             )
-        if self.multi_start_n_starts <= 0:
+        if not (self.multi_start_n_starts > 0):
             errors.append(
                 f"multi_start_n_starts must be positive, got: {self.multi_start_n_starts}"
             )
@@ -797,7 +834,7 @@ class NLSQConfig:
                 f"multi_start_refine_top_k must be non-negative, "
                 f"got: {self.multi_start_refine_top_k}"
             )
-        if self.multi_start_refinement_ftol <= 0:
+        if not (self.multi_start_refinement_ftol > 0):
             errors.append(
                 f"multi_start_refinement_ftol must be positive, "
                 f"got: {self.multi_start_refinement_ftol}"
@@ -821,22 +858,22 @@ class NLSQConfig:
             )
 
         # Layer 2: Hierarchical Optimization
-        if self.hierarchical_max_outer_iterations <= 0:
+        if not (self.hierarchical_max_outer_iterations > 0):
             errors.append(
                 f"hierarchical_max_outer_iterations must be positive, "
                 f"got: {self.hierarchical_max_outer_iterations}"
             )
-        if self.hierarchical_outer_tolerance <= 0:
+        if not (self.hierarchical_outer_tolerance > 0):
             errors.append(
                 f"hierarchical_outer_tolerance must be positive, "
                 f"got: {self.hierarchical_outer_tolerance}"
             )
-        if self.hierarchical_physical_max_iterations <= 0:
+        if not (self.hierarchical_physical_max_iterations > 0):
             errors.append(
                 f"hierarchical_physical_max_iterations must be positive, "
                 f"got: {self.hierarchical_physical_max_iterations}"
             )
-        if self.hierarchical_per_angle_max_iterations <= 0:
+        if not (self.hierarchical_per_angle_max_iterations > 0):
             errors.append(
                 f"hierarchical_per_angle_max_iterations must be positive, "
                 f"got: {self.hierarchical_per_angle_max_iterations}"
@@ -849,7 +886,7 @@ class NLSQConfig:
                 f"regularization_mode must be one of {valid_regularization_modes}, "
                 f"got: {self.regularization_mode}"
             )
-        if self.group_variance_lambda <= 0:
+        if not (self.group_variance_lambda > 0):
             errors.append(
                 f"group_variance_lambda must be positive, got: {self.group_variance_lambda}"
             )
@@ -868,11 +905,11 @@ class NLSQConfig:
             )
 
         # Layer 4: Gradient Collapse Detection
-        if self.gradient_ratio_threshold <= 0:
+        if not (self.gradient_ratio_threshold > 0):
             errors.append(
                 f"gradient_ratio_threshold must be positive, got: {self.gradient_ratio_threshold}"
             )
-        if self.gradient_consecutive_triggers <= 0:
+        if not (self.gradient_consecutive_triggers > 0):
             errors.append(
                 f"gradient_consecutive_triggers must be positive, "
                 f"got: {self.gradient_consecutive_triggers}"
@@ -890,11 +927,11 @@ class NLSQConfig:
             errors.append(
                 f"cmaes_preset must be one of {valid_cmaes_presets}, got: {self.cmaes_preset}"
             )
-        if self.cmaes_max_generations is not None and self.cmaes_max_generations <= 0:
+        if self.cmaes_max_generations is not None and not (self.cmaes_max_generations > 0):
             errors.append(
                 f"cmaes_max_generations must be positive or null, got: {self.cmaes_max_generations}"
             )
-        if self.cmaes_popsize is not None and self.cmaes_popsize <= 0:
+        if self.cmaes_popsize is not None and not (self.cmaes_popsize > 0):
             errors.append(f"cmaes_popsize must be positive or None, got: {self.cmaes_popsize}")
         if not 0 < self.cmaes_sigma <= 1:
             errors.append(f"cmaes_sigma must be in (0, 1], got: {self.cmaes_sigma}")
@@ -902,14 +939,14 @@ class NLSQConfig:
             errors.append(
                 f"cmaes_sigma_warmstart must be in (0, 1], got: {self.cmaes_sigma_warmstart}"
             )
-        if self.cmaes_warmstart_skip_threshold <= 0:
+        if not (self.cmaes_warmstart_skip_threshold > 0):
             errors.append(
                 f"cmaes_warmstart_skip_threshold must be positive, "
                 f"got: {self.cmaes_warmstart_skip_threshold}"
             )
-        if self.cmaes_tol_fun <= 0:
+        if not (self.cmaes_tol_fun > 0):
             errors.append(f"cmaes_tol_fun must be positive, got: {self.cmaes_tol_fun}")
-        if self.cmaes_tol_x <= 0:
+        if not (self.cmaes_tol_x > 0):
             errors.append(f"cmaes_tol_x must be positive, got: {self.cmaes_tol_x}")
         valid_restart_strategies = ["none", "bipop"]
         if self.cmaes_restart_strategy not in valid_restart_strategies:
@@ -923,12 +960,14 @@ class NLSQConfig:
             errors.append(
                 f"cmaes_max_restarts must be non-negative, got: {self.cmaes_max_restarts}"
             )
-        if self.cmaes_population_batch_size is not None and self.cmaes_population_batch_size <= 0:
+        if self.cmaes_population_batch_size is not None and not (
+            self.cmaes_population_batch_size > 0
+        ):
             errors.append(
                 f"cmaes_population_batch_size must be positive or None, "
                 f"got: {self.cmaes_population_batch_size}"
             )
-        if self.cmaes_data_chunk_size is not None and self.cmaes_data_chunk_size <= 0:
+        if self.cmaes_data_chunk_size is not None and not (self.cmaes_data_chunk_size > 0):
             errors.append(
                 f"cmaes_data_chunk_size must be positive or None, got: {self.cmaes_data_chunk_size}"
             )
@@ -937,11 +976,11 @@ class NLSQConfig:
                 f"cmaes_data_chunk_size exceeds MAX_CHUNK_SIZE ({MAX_CHUNK_SIZE}), "
                 f"got: {self.cmaes_data_chunk_size}"
             )
-        if self.cmaes_scale_threshold <= 0:
+        if not (self.cmaes_scale_threshold > 0):
             errors.append(
                 f"cmaes_scale_threshold must be positive, got: {self.cmaes_scale_threshold}"
             )
-        if self.cmaes_memory_limit_gb <= 0:
+        if not (self.cmaes_memory_limit_gb > 0):
             errors.append(
                 f"cmaes_memory_limit_gb must be positive, got: {self.cmaes_memory_limit_gb}"
             )
@@ -952,19 +991,19 @@ class NLSQConfig:
                 f"cmaes_refinement_workflow must be one of {valid_refinement_workflows}, "
                 f"got: {self.cmaes_refinement_workflow}"
             )
-        if self.cmaes_refinement_ftol <= 0:
+        if not (self.cmaes_refinement_ftol > 0):
             errors.append(
                 f"cmaes_refinement_ftol must be positive, got: {self.cmaes_refinement_ftol}"
             )
-        if self.cmaes_refinement_xtol <= 0:
+        if not (self.cmaes_refinement_xtol > 0):
             errors.append(
                 f"cmaes_refinement_xtol must be positive, got: {self.cmaes_refinement_xtol}"
             )
-        if self.cmaes_refinement_gtol <= 0:
+        if not (self.cmaes_refinement_gtol > 0):
             errors.append(
                 f"cmaes_refinement_gtol must be positive, got: {self.cmaes_refinement_gtol}"
             )
-        if self.cmaes_refinement_max_nfev <= 0:
+        if not (self.cmaes_refinement_max_nfev > 0):
             errors.append(
                 f"cmaes_refinement_max_nfev must be positive, got: {self.cmaes_refinement_max_nfev}"
             )

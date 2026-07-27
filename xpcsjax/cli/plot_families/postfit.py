@@ -108,6 +108,7 @@ def _save_fit_comparison_only(
     t1_arr = np.asarray(t1, dtype=np.float64) if t1 is not None else None
     t2_arr = np.asarray(t2, dtype=np.float64) if t2 is not None else None
 
+    wrote_any = False
     for i, phi in enumerate(phi_list):
         if i >= c2_exp.shape[0]:
             break
@@ -142,6 +143,7 @@ def _save_fit_comparison_only(
                 reduced_chi_squared=result.reduced_chi_squared,
                 save_path=plots_dir / f"nlsq_fit{suffix}.png",
             )
+            wrote_any = True
         except Exception as exc:
             run_id = _current_run_id()
             log_once(
@@ -162,6 +164,7 @@ def _save_fit_comparison_only(
                 phi_deg=float(phi),
                 save_path=plots_dir / f"nlsq_residuals{suffix}.png",
             )
+            wrote_any = True
         except Exception as exc:
             run_id = _current_run_id()
             log_once(
@@ -173,4 +176,4 @@ def _save_fit_comparison_only(
                 exc,
             )
 
-    return plots_dir
+    return plots_dir if wrote_any else None

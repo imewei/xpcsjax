@@ -141,6 +141,8 @@ class PerAngleScaling:
             ``"auto"``, or ``"constant_averaged"``.
         """
         n = config.n_angles
+        if n < 1:
+            raise ValueError(f"config.n_angles must be >= 1, got {n!r}")
         contrast_info = SCALING_PARAMS["contrast"]
         offset_info = SCALING_PARAMS["offset"]
 

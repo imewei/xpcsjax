@@ -59,7 +59,15 @@ def _subset_data_by_phi(
         norm_ang = ((ang % 360) + 360) % 360
         if norm_ang > 180:
             norm_ang -= 360
-        diffs = np.abs(norm_data - norm_ang)
+        if norm_data.size == 0:
+            logger.warning(
+                "phi %.3f deg has no matching data angle (data has no phi angles); "
+                "not subsetting — fitting all angles.",
+                ang,
+            )
+            return
+        raw_diffs = np.abs(norm_data - norm_ang)
+        diffs = np.minimum(raw_diffs, 360.0 - raw_diffs)
         j = int(np.argmin(diffs))
         if diffs[j] > tol:
             logger.warning(

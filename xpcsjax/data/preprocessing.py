@@ -339,6 +339,14 @@ class PreprocessingPipeline:
 
     def _get_enabled_stages(self) -> list[PreprocessingStage]:
         """Get list of enabled preprocessing stages based on configuration."""
+        # The top-level preprocessing.enabled flag (documented and defaulted
+        # to True by create_default_preprocessing_config) was never read
+        # anywhere in this class — a caller setting it False expecting the
+        # whole pipeline to no-op instead got the default-enabled stages run
+        # exactly as if it had never been set.
+        if not self.preprocessing_config.get("enabled", True):
+            return []
+
         stages_config = self.preprocessing_config.get("stages", {})
         enabled_stages = []
 
@@ -844,11 +852,20 @@ class PreprocessingPipeline:
 
                     # Ensure physics constraints
                     t0_correlation = normalized_matrix[0, 0]
-                    if t0_correlation < 1.0:
+                    # Epsilon guard, matching the other normalization
+                    # methods above: t0_correlation == 0 (matrix[0, 0] == 0
+                    # while the matrix max is still > 0 elsewhere) divided
+                    # unguarded, producing silent NaN/Inf.
+                    if 0 < t0_correlation < 1.0 and t0_correlation > np.finfo(float).eps:
                         # Rescale to ensure t=0 correlation = 1
                         normalized_data["c2_exp"][i] = normalized_matrix / t0_correlation
-                    else:
+                    elif t0_correlation >= 1.0:
                         normalized_data["c2_exp"][i] = normalized_matrix
+                    else:
+                        logger.warning(
+                            f"Near-zero t=0 correlation ({t0_correlation:.3e}) at matrix "
+                            f"{i}, skipping physics-based rescale",
+                        )
                 else:
                     logger.warning(
                         f"Zero maximum value at matrix {i}, skipping normalization",
@@ -936,9 +953,12 @@ class PreprocessingPipeline:
                     # Apply along each row and column
                     filtered_matrix = c2_matrix.copy()
 
-                    # Filter rows
+                    # Filter rows. scipy.signal.savgol_filter accepts
+                    # window_length == len(x); a strict ">" excluded that
+                    # valid boundary and silently skipped smoothing for a
+                    # row/column exactly as long as the configured window.
                     for row in range(c2_matrix.shape[0]):
-                        if c2_matrix.shape[1] > window_length:
+                        if c2_matrix.shape[1] >= window_length:
                             filtered_matrix[row, :] = signal.savgol_filter(
                                 c2_matrix[row, :],
                                 window_length,
@@ -947,7 +967,7 @@ class PreprocessingPipeline:
 
                     # Filter columns
                     for col in range(c2_matrix.shape[1]):
-                        if c2_matrix.shape[0] > window_length:
+                        if c2_matrix.shape[0] >= window_length:
                             filtered_matrix[:, col] = signal.savgol_filter(
                                 filtered_matrix[:, col],
                                 window_length,

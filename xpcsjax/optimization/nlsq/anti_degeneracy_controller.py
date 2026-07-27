@@ -436,6 +436,11 @@ class AntiDegeneracyController:
             n_phi=self.n_phi,
             n_physical=self.n_physical,
             use_constant=use_constant,
+            # Explicit constant/fixed_scaling freezes scaling out of the
+            # optimizer vector entirely (0 scaling params); averaged still
+            # optimizes 2 scaling params and must NOT be treated as frozen —
+            # use_constant alone can't distinguish the two.
+            frozen_scaling=self.per_angle_mode_actual == "constant",
         )
         logger.debug(
             f"ANTI-DEGENERACY: ParameterIndexMapper created: {self.mapper.get_diagnostics()}"

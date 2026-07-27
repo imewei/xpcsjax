@@ -83,12 +83,15 @@ class NumericalValidator:
         grad_array = jnp.asarray(gradients)
 
         if not jnp.isfinite(grad_array).all():
-            # Find indices of invalid values
-            invalid_mask = ~jnp.isfinite(grad_array)
+            # Flatten first: gradients/Jacobians may be multi-dimensional, and
+            # jnp.where(mask)[0] only yields first-axis indices for an N-D mask,
+            # which would make grad_array[idx] a sub-array (not a scalar) below.
+            flat_grad = grad_array.ravel()
+            invalid_mask = ~jnp.isfinite(flat_grad)
             invalid_indices = jnp.where(invalid_mask)[0]
 
             invalid_values = [
-                f"grad[{int(idx)}]={float(grad_array[idx])}"
+                f"grad[{int(idx)}]={float(flat_grad[idx])}"
                 for idx in invalid_indices[:5]  # Report first 5
             ]
 
@@ -134,11 +137,14 @@ class NumericalValidator:
 
         # Check for NaN/Inf
         if not jnp.isfinite(param_array).all():
-            invalid_mask = ~jnp.isfinite(param_array)
+            # Flatten first: same multi-dimensional-indexing hazard as
+            # validate_gradients above (param_array need not be 1-D).
+            flat_param = param_array.ravel()
+            invalid_mask = ~jnp.isfinite(flat_param)
             invalid_indices = jnp.where(invalid_mask)[0]
 
             invalid_values = [
-                f"param[{int(idx)}]={float(param_array[idx])}" for idx in invalid_indices[:5]
+                f"param[{int(idx)}]={float(flat_param[idx])}" for idx in invalid_indices[:5]
             ]
 
             raise NLSQNumericalError(

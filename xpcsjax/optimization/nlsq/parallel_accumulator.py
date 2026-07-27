@@ -151,8 +151,11 @@ def accumulate_chunks_parallel(
             total_chi2 = 0.0
             total_count = 0
 
-            for future in as_completed(futures):
-                JtJ, Jtr, chi2, count = future.result(timeout=300)
+            # ponytail: timeout must be on as_completed() itself — a per-future
+            # future.result(timeout=...) only bounds an already-completed future;
+            # as_completed() with no timeout blocks forever waiting for a hung one.
+            for future in as_completed(futures, timeout=300):
+                JtJ, Jtr, chi2, count = future.result()
                 if total_JtJ is None:
                     total_JtJ = np.zeros_like(JtJ)
                     total_Jtr = np.zeros_like(Jtr)
@@ -604,16 +607,23 @@ class OOCSharedArrays:
         self._refs: dict[str, dict[str, Any]] = {}
         self._chunk_boundaries = chunk_boundaries
 
-        for name, arr in [
-            ("phi", phi_flat),
-            ("t1", t1_flat),
-            ("t2", t2_flat),
-            ("g2", g2_flat),
-        ]:
-            self._create_shm(name, arr)
+        try:
+            for name, arr in [
+                ("phi", phi_flat),
+                ("t1", t1_flat),
+                ("t2", t2_flat),
+                ("g2", g2_flat),
+            ]:
+                self._create_shm(name, arr)
 
-        if sigma_flat is not None:
-            self._create_shm("sigma", sigma_flat)
+            if sigma_flat is not None:
+                self._create_shm("sigma", sigma_flat)
+        except BaseException:
+            # A later _create_shm failing must not leak the shm blocks already
+            # created by earlier calls — the caller's `ooc_shared is not None`
+            # cleanup guard can't run because __init__ never returned.
+            self.cleanup()
+            raise
 
     def _create_shm(self, name: str, arr: np.ndarray) -> None:
         shm = multiprocessing.shared_memory.SharedMemory(create=True, size=arr.nbytes)
@@ -723,8 +733,10 @@ class OOCComputePool:
         ]
 
         results: list[tuple[np.ndarray, np.ndarray, float]] = []
-        for future in as_completed(futures):
-            results.append(future.result(timeout=300))
+        # ponytail: timeout belongs on as_completed(), not the per-future
+        # result() — see accumulate_chunks_parallel for why.
+        for future in as_completed(futures, timeout=300):
+            results.append(future.result())
         return results
 
     def compute_chi2(self, params: np.ndarray, stride: int = 1) -> float:
@@ -749,8 +761,8 @@ class OOCComputePool:
         ]
 
         total_chi2 = 0.0
-        for future in as_completed(futures):
-            total_chi2 += future.result(timeout=300)
+        for future in as_completed(futures, timeout=300):
+            total_chi2 += future.result()
 
         if stride > 1 and len(chunk_ids) > 0:
             total_chi2 *= self._n_chunks / len(chunk_ids)

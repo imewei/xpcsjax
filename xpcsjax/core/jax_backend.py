@@ -1013,11 +1013,12 @@ def compute_g1_diffusion(
 
     # Use dt from configuration (REQUIRED for correct physics)
     # If dt not provided, estimate from time array as fallback.
-    # P2-R7-02: After get_cached_meshgrid, t1 is always 2D, so the 1D branch
-    # was dead code. Only the 2D case is needed.
+    # get_cached_meshgrid only meshes 1D arrays up to 2000 points; larger 1D
+    # arrays (element-wise mode) are returned unmeshed, so t1 is not
+    # guaranteed to be 2D here.
     if dt is None:
-        # FALLBACK: Estimate from 2D meshgrid (first column = unique t1 values)
-        time_array = t1[:, 0]
+        # FALLBACK: Estimate from first two time samples.
+        time_array = t1[:, 0] if t1.ndim == 2 else t1
         dt_value = float(time_array[1] - time_array[0]) if time_array.shape[0] > 1 else 1.0
     else:
         dt_value = dt

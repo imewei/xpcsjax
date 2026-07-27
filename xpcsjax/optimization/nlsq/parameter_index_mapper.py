@@ -35,6 +35,17 @@ class ParameterIndexMapper:
     use_constant : bool
         Whether constant/averaged scaling mode is active (single contrast/offset
         shared across all angles).
+    frozen_scaling : bool
+        Whether scaling is FROZEN OUT of the optimizer vector entirely (explicit
+        ``constant``/``fixed_scaling`` mode: 0 scaling params, vector is
+        physics-only). Distinct from ``use_constant`` (a single shared
+        contrast/offset that IS optimized, i.e. ``averaged`` mode: 2 scaling
+        params). Collapsing both into ``use_constant=True`` made
+        ``get_group_indices()`` report ``[(0, 1), (1, 2)]`` even when there is
+        no scaling head at those indices — regularizing the first two PHYSICAL
+        parameters instead of the (frozen, non-existent) scaling group.
+        Default ``False`` preserves every existing caller's behavior
+        byte-for-byte.
 
     Attributes
     ----------
@@ -72,6 +83,7 @@ class ParameterIndexMapper:
     n_phi: int
     n_physical: int
     use_constant: bool = False
+    frozen_scaling: bool = False
 
     def __post_init__(self) -> None:
         """Validate inputs and cache computed values."""
@@ -89,6 +101,11 @@ class ParameterIndexMapper:
         int
             1 for constant/averaged mode, n_phi for individual.
         """
+        # frozen_scaling (explicit constant/fixed_scaling): 0 scaling params in
+        # the vector at all -- checked before use_constant since averaged and
+        # frozen constant both set use_constant=True.
+        if self.frozen_scaling:
+            return 0
         # T010: Return 1 for constant/averaged mode (single value per group)
         if self.use_constant:
             return 1
@@ -110,6 +127,8 @@ class ParameterIndexMapper:
     @property
     def n_per_angle_total(self) -> int:
         """Get total number of per-angle parameters (scaling params)."""
+        if self.frozen_scaling:
+            return 0  # Scaling frozen out of the vector entirely
         if self.use_constant:
             return 2  # One contrast + one offset
         return 2 * self.n_phi
@@ -131,7 +150,17 @@ class ParameterIndexMapper:
         -----
         - Contrast group: indices [0, n_per_group)
         - Offset group: indices [n_per_group, 2*n_per_group)
+        - When ``frozen_scaling`` is set, there is no scaling head to
+          regularize (scaling is frozen out of the optimizer vector
+          entirely), so this returns ``[]`` — the same "nothing to
+          regularize" convention :class:`AdaptiveRegularizer` already uses
+          for its own ``n_optimized == 0`` case. A zero-width ``(0, 0)``
+          tuple would instead have ``AdaptiveRegularizer`` iterate an empty
+          parameter slice (``params[0:0]``), risking a NaN from a
+          mean/variance over zero elements.
         """
+        if self.frozen_scaling:
+            return []
         n = self.n_per_group
         return [(0, n), (n, 2 * n)]
 
@@ -177,6 +206,12 @@ class ParameterIndexMapper:
         n_params = len(params)
 
         for i, (start, end) in enumerate(self.get_group_indices()):
+            if start == 0 and end == 0:
+                # Defensive: a zero-width (0, 0) entry (e.g. a caller-supplied
+                # group_indices override) is a "no group" sentinel, not an
+                # invalid range — get_group_indices() itself now returns []
+                # for frozen_scaling rather than (0, 0) tuples.
+                continue
             if start < 0:
                 raise ValueError(f"Group {i} start index {start} is negative")
             if end > n_params:

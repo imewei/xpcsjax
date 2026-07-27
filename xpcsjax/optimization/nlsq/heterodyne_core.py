@@ -2003,10 +2003,23 @@ def _fit_joint_cmaes_multi_phi(
             else x_warm
         )
 
+        _kept_result_success: bool | None = None
         if cres.success and cmaes_ssr <= ssr_warm * (1.0 + 1e-12):
             x_final, escape = x_cmaes, "cmaes"
         else:
             x_final, escape = x_warm, "cmaes_warmstart_kept"
+            # The kept vector (``x_warm``) is only a genuine SUCCESS when the
+            # warm-start probe that produced it actually converged. When it
+            # did NOT (degenerate Jacobian, reverted to x0) AND CMA-ES also
+            # failed to improve on it, the "cmaes_warmstart_kept" tag alone
+            # (a non-None global_escape) previously made
+            # ``_build_joint_result``'s ``solve_success = (global_escape is
+            # not None)`` report converged/good for a fit that never
+            # converged. Thread the real ``warm.success`` through so
+            # ``solve_success`` reflects it — the tag itself (and the
+            # NaN-covariance-on-escape contract pinned by
+            # test_global_escape_contract.py) is unchanged.
+            _kept_result_success = bool(warm.success)
 
         logger.info(
             "Joint CMA-ES escape: warm SSR=%.6e, cmaes SSR=%.6e → kept %s (%.1fs total)",
@@ -2025,6 +2038,7 @@ def _fit_joint_cmaes_multi_phi(
             config,
             weights,
             global_escape=escape,
+            kept_result_success=_kept_result_success,
         )
     # Phase-2: intentionally left — implements the keep-better/fallback contract; conversion would risk parity.
     except Exception as exc:  # noqa: BLE001 - best-effort escape, fall back to plain fit
@@ -2162,10 +2176,17 @@ def _fit_joint_multistart(
         x_default = np.asarray(default.parameters, dtype=np.float64)
         ssr_default = _data_ssr(x_default)
 
+        _kept_result_success: bool | None = None
         if ssr_ms <= ssr_default * (1.0 + 1e-12):
             x_final, escape = x_ms, "multistart"
         else:
             x_final, escape = x_default, "multistart_default_kept"
+            # Same reasoning as the CMA-ES escape's "kept" branch: the kept
+            # vector (``x_default``) came from a warm-start PROBE, which may
+            # not have converged. Thread its real success through so
+            # ``solve_success`` doesn't just key off the tag being non-None —
+            # tag and NaN-covariance contract are unchanged.
+            _kept_result_success = bool(default.success)
 
         logger.info(
             "Joint multistart escape: best-start SSR=%.6e, default SSR=%.6e → kept %s",
@@ -2183,6 +2204,7 @@ def _fit_joint_multistart(
             config,
             weights,
             global_escape=escape,
+            kept_result_success=_kept_result_success,
         )
     # Phase-2: intentionally left — implements the keep-better/fallback contract; conversion would risk parity.
     except Exception as exc:  # noqa: BLE001 - best-effort escape, fall back to plain fit
@@ -3425,6 +3447,7 @@ def _build_joint_result(
     monitor: Any = None,
     used_monitored_backend: bool = False,
     global_escape: str | None = None,
+    kept_result_success: bool | None = None,
 ) -> OptimizationResult:
     """Assemble the joint :class:`OptimizationResult` from a final parameter vector.
 
@@ -3437,9 +3460,13 @@ def _build_joint_result(
     When ``joint_result`` is ``None`` (a global escape that did not run NLSQ's
     adapter to produce one), uncertainties/covariance are NaN-filled and
     convergence is reported as ``"converged"`` (the escape only returns a vector
-    it has already accepted). ``global_escape``, when set (e.g. ``"cmaes"``),
-    is surfaced in ``nlsq_diagnostics`` so callers can tell a global-escape
-    result from a plain joint fit.
+    it has already accepted) UNLESS ``kept_result_success`` is explicitly
+    supplied — e.g. a "kept the warm-start" outcome where BOTH the warm-start
+    probe and the escape search failed to converge is not actually a success,
+    even though a non-None ``global_escape`` tag is still surfaced (so callers
+    can still tell a global-escape result from a plain joint fit).
+    ``global_escape``, when set (e.g. ``"cmaes"``), is surfaced in
+    ``nlsq_diagnostics`` regardless of ``kept_result_success``.
     """
     param_manager = model.param_manager
     scaling = model.scaling
@@ -3565,7 +3592,11 @@ def _build_joint_result(
     # escape on a degenerate fit (parity with laminar core.py:2320). Key on
     # ``global_escape`` to distinguish the two.
     solve_success = (
-        joint_result.success if joint_result is not None else (global_escape is not None)
+        joint_result.success
+        if joint_result is not None
+        else (
+            kept_result_success if kept_result_success is not None else (global_escape is not None)
+        )
     )
     convergence_status: ConvergenceStatus = "converged" if solve_success else "failed"
     quality_flag: QualityFlag = "good" if solve_success else "marginal"
@@ -4007,11 +4038,51 @@ def _fit_cmaes(
     # ------------------------------------------------------------------
     # Phase 3: Compare NLSQ vs CMA-ES, keep the better result
     # ------------------------------------------------------------------
-    nlsq_cost = (
-        float(nlsq_result.final_cost)
-        if (nlsq_result and nlsq_result.success and nlsq_result.final_cost is not None)
-        else float("inf")
-    )
+    # nlsq_result.final_cost is the SOLVER's internal objective, which under
+    # the config default loss="soft_l1" is the robust-loss-COMPRESSED cost,
+    # not 0.5*SSR (see the "2 * nlsq_result.final_cost ... is the robust-loss
+    # cost when config.loss != 'linear'" note elsewhere in this module). Using
+    # it directly here would compare a compressed cost against cmaes_cost's
+    # raw 0.5*off-diagonal-SSR below — not the same footing, and systematically
+    # biased toward keeping NLSQ (soft_l1 costs are compressed relative to raw
+    # SSR whenever there are outliers/large residuals). Recompute nlsq_cost the
+    # SAME way as cmaes_cost (raw 0.5*off-diagonal-SSR on NLSQ's own fitted
+    # parameters) so Phase 3 compares like with like.
+    if nlsq_result is not None and nlsq_result.success and nlsq_result.parameters is not None:
+        try:
+            _nlsq_full = param_manager.expand_varying_to_full(
+                np.asarray(nlsq_result.parameters, dtype=np.float64)
+            )
+            _nlsq_off_diag_res = compute_residuals(
+                jnp.asarray(_nlsq_full, dtype=jnp.float64),
+                t,
+                q,
+                dt,
+                phi_angle,
+                c2_jax,
+                weights_jax,
+                contrast_val,
+                offset_val,
+            )
+            nlsq_cost = 0.5 * float(jnp.sum(_nlsq_off_diag_res**2))
+        except Exception as exc:
+            log_exception(
+                logger,
+                exc,
+                context={
+                    "operation": "phase3_nlsq_cost_recompute",
+                    "note": (
+                        "treating as inf so CMA-ES wins by default when it "
+                        "succeeded; inspect the off-diagonal residual block "
+                        "if this recurs"
+                    ),
+                    "fallback_nlsq_cost": "inf",
+                },
+                level=logging.WARNING,
+            )
+            nlsq_cost = float("inf")
+    else:
+        nlsq_cost = float("inf")
     # Recompute CMA-ES cost using off-diagonal residuals so the comparison
     # is on the same footing as nlsq_cost (= 0.5 * off-diagonal SSR).
     # cmaes_result.chi_squared uses the full NxN matrix fed to fit_with_cmaes

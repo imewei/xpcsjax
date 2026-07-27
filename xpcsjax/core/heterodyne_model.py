@@ -321,6 +321,14 @@ class HeterodyneModel(PhysicsModelBase):
             c2_model = jax.vmap(_per_phi)(phi)
 
         c2_exp = jnp.asarray(data["c2_exp"])
+        if c2_model.shape != c2_exp.shape:
+            raise ValueError(
+                f"c2_exp shape {c2_exp.shape} does not match the shape "
+                f"{c2_model.shape} implied by phi (resolved from "
+                "phi_angles_list/phi_angle) — broadcasting would silently "
+                "reuse the same experimental data across angles instead of "
+                "failing fast."
+            )
         return (c2_model - c2_exp).reshape(-1)
 
 

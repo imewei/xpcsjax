@@ -87,6 +87,17 @@ def _resolve_level(level: str | int | None) -> int | None:
     return getattr(logging, str(level).upper(), logging.INFO)
 
 
+def _resolve_level_or(level: str | int | None, default: int) -> int:
+    """Resolve a log level, falling back to ``default`` only when unset.
+
+    Unlike ``_resolve_level(level) or default``, this treats an explicitly
+    resolved ``logging.NOTSET`` (0) as a valid level rather than falsy —
+    ``0 or default`` silently discards an explicit NOTSET request.
+    """
+    resolved = _resolve_level(level)
+    return default if resolved is None else resolved
+
+
 class _ColorFormatter(logging.Formatter):
     """Optional ANSI color formatter for console logging."""
 
@@ -720,7 +731,7 @@ class AnalysisSummaryLogger:
             "analysis_mode": self.analysis_mode,
             "convergence_status": self._convergence_status,
             "total_runtime_s": total_runtime,
-            "config_summary": self._config_summary,  # T054
+            "config_summary": _json_safe(self._config_summary),  # T054
             "phases": phases_dict,
             "metrics": _json_safe(self._metrics),
             "output_files": [str(p) for p in self._output_files],
@@ -863,7 +874,7 @@ class MinimalLogger:
                 console_handler = logging.StreamHandler()
                 console_handler._xpcsjax_managed = True  # type: ignore[attr-defined]
                 root_logger.addHandler(console_handler)
-            console_handler.setLevel(_resolve_level(console_level) or root_level)
+            console_handler.setLevel(_resolve_level_or(console_level, root_level))
             console_handler.setFormatter(
                 self._build_formatter(console_format, use_color=console_colors)
             )
@@ -885,22 +896,39 @@ class MinimalLogger:
             if file_path is not None:
                 created_file = file_path
 
-                max_bytes = int(max_size_mb * 1024 * 1024)
-                if max_bytes > 0:
-                    file_handler: logging.Handler = RotatingFileHandler(
-                        file_path,
-                        maxBytes=max_bytes,
-                        backupCount=backup_count,
-                    )
-                else:
-                    file_handler = logging.FileHandler(file_path)
-                file_handler._xpcsjax_managed = True  # type: ignore[attr-defined]
-                file_handler.setLevel(_resolve_level(file_level) or root_level)
+                # Reuse an existing managed file handler pointed at the SAME
+                # resolved path, mirroring the console-handler dedup above —
+                # otherwise calling configure(file_path=X, force=False) twice
+                # attaches a second RotatingFileHandler on the same file,
+                # duplicating every log line and leaking an open fd.
+                target_path = str(file_path.resolve())
+                file_handler: logging.Handler | None = None
+                for handler in root_logger.handlers:
+                    if (
+                        isinstance(handler, logging.FileHandler)
+                        and getattr(handler, "_xpcsjax_managed", False)
+                        and getattr(handler, "baseFilename", None) == target_path
+                    ):
+                        file_handler = handler
+                        break
+
+                if file_handler is None:
+                    max_bytes = int(max_size_mb * 1024 * 1024)
+                    if max_bytes > 0:
+                        file_handler = RotatingFileHandler(
+                            file_path,
+                            maxBytes=max_bytes,
+                            backupCount=backup_count,
+                        )
+                    else:
+                        file_handler = logging.FileHandler(file_path)
+                    file_handler._xpcsjax_managed = True  # type: ignore[attr-defined]
+                    root_logger.addHandler(file_handler)
+                file_handler.setLevel(_resolve_level_or(file_level, root_level))
                 file_fmt = (
                     DEFAULT_FORMAT_SIMPLE if file_format == "simple" else DEFAULT_FORMAT_DETAILED
                 )
                 file_handler.setFormatter(logging.Formatter(file_fmt, datefmt="%Y-%m-%d %H:%M:%S"))
-                root_logger.addHandler(file_handler)
 
         # Default suppression for external libraries (FR-005)
         # These are applied first, then user overrides can override them
@@ -914,12 +942,12 @@ class MinimalLogger:
             lib_logger = logging.getLogger(lib_name)
             # Only set if not already configured by user
             if lib_logger.level == logging.NOTSET:
-                lib_logger.setLevel(_resolve_level(lib_level) or logging.WARNING)
+                lib_logger.setLevel(_resolve_level_or(lib_level, logging.WARNING))
 
         # Module-specific overrides (user overrides win over defaults)
         if module_levels:
             for module_name, module_level in module_levels.items():
-                logging.getLogger(module_name).setLevel(_resolve_level(module_level) or root_level)
+                logging.getLogger(module_name).setLevel(_resolve_level_or(module_level, root_level))
 
         import os
 
@@ -1031,6 +1059,30 @@ class MinimalLogger:
                     .replace("{timestamp}", timestamp)
                 )
             file_path = base_dir / filename
+            # Guard the (placeholder-substituted) filename against escaping
+            # base_dir via ".." components or an absolute override, mirroring
+            # the containment check validate_save_path/get_safe_output_dir
+            # already enforce elsewhere. Lazy import: path_validation imports
+            # from this module at module load time, so import at call time
+            # (after this module has finished loading) to avoid a cycle.
+            try:
+                from xpcsjax.utils.path_validation import (
+                    PathValidationError as _PathValidationError,
+                )
+                from xpcsjax.utils.path_validation import validate_save_path as _validate_save_path
+
+                file_path = _validate_save_path(
+                    file_path, require_parent_exists=False, base_dir=base_dir
+                )
+            except ImportError:
+                pass
+            except _PathValidationError as e:
+                logging.getLogger(self._root_logger_name).warning(
+                    "Unsafe log file path %r rejected (%s); file logging disabled.",
+                    str(file_path),
+                    e,
+                )
+                file_path = None
 
         # Phase 1b: seed the context-local run_id (surfaced by ContextFilter)
         # and thread the YAML format hint + quiet flag down to _configure_impl
@@ -1260,9 +1312,14 @@ def log_phase(
         except Exception:
             memory_start = None
 
-    # Log phase start (only if no threshold or threshold is 0)
+    # Log phase start (only if no threshold or threshold is 0). Observational
+    # only, like the completion log below: a raising handler must not prevent
+    # the phase body from running.
     if threshold_s <= 0:
-        resolved_logger.log(level, "Phase '%s' started", name)
+        try:
+            resolved_logger.log(level, "Phase '%s' started", name)
+        except Exception:  # noqa: BLE001 - logging must not abort the phase
+            pass
 
     start_time = time.perf_counter()
 
@@ -1577,13 +1634,16 @@ def log_operation(
     """
     resolved_logger = get_logger() if logger is None else logger
 
-    resolved_logger.log(level, "Starting operation: %s", operation_name)
+    # Observational only, like the completion/failure logs below: a raising
+    # handler must not prevent the operation body from running.
+    try:
+        resolved_logger.log(level, "Starting operation: %s", operation_name)
+    except Exception:  # noqa: BLE001 - logging must not abort the operation
+        pass
     start_time = time.perf_counter()
 
     try:
         yield resolved_logger
-        duration = time.perf_counter() - start_time
-        resolved_logger.log(level, "Completed operation: %s in %.3fs", operation_name, duration)
     except Exception as e:
         duration = time.perf_counter() - start_time
         try:
@@ -1597,6 +1657,16 @@ def log_operation(
         except Exception:  # noqa: BLE001 - logging must not mask original
             pass
         raise
+    else:
+        # try/except/else (rather than logging inside the outer try) so a
+        # raising completion log is never miscaught by `except Exception` and
+        # re-reported as an operation *failure* — it would otherwise mask a
+        # successful operation as a failed one.
+        duration = time.perf_counter() - start_time
+        try:
+            resolved_logger.log(level, "Completed operation: %s in %.3fs", operation_name, duration)
+        except Exception:  # noqa: BLE001 - logging must not mask a successful operation
+            pass
 
 
 _LOG_CONTEXT: contextvars.ContextVar[_LogContext | None] = contextvars.ContextVar(

@@ -52,6 +52,7 @@ from typing import NamedTuple
 
 import jax.numpy as jnp
 import numpy as np
+from scipy.optimize import approx_fprime
 
 # jaxopt emits a DeprecationWarning at import time (it is no longer maintained).
 # Suppress it at the callsite so -W error::DeprecationWarning in CI doesn't
@@ -585,13 +586,20 @@ class HierarchicalOptimizer:
                 jit=False,  # Disable JIT for NumPy compatibility
             )
         else:
-            # Let jaxopt compute gradients via autodiff
-            def jax_loss_fn(x: jnp.ndarray) -> float:
-                """Return the physical-block loss for jaxopt autodiff."""
-                return physical_loss(np.asarray(x))
+            # grad_fn is None: fall back to finite differences (per fit()'s
+            # documented contract). jaxopt autodiff is NOT viable here — the
+            # loss closure round-trips through np.asarray(x), which raises
+            # TracerArrayConversionError the moment jaxopt traces it.
+            def value_and_grad_fn(x: jnp.ndarray) -> tuple[float, jnp.ndarray]:
+                """Return ``(loss, finite-diff grad)`` for the physical block."""
+                x_np = np.asarray(x)
+                val = physical_loss(x_np)
+                grad = approx_fprime(x_np, physical_loss, np.sqrt(np.finfo(np.float64).eps))
+                return val, jnp.asarray(grad)
 
             solver = LBFGSB(
-                fun=jax_loss_fn,
+                fun=value_and_grad_fn,
+                value_and_grad=True,
                 maxiter=self.config.physical_max_iterations,
                 tol=self.config.physical_ftol,
                 jit=False,
@@ -681,13 +689,19 @@ class HierarchicalOptimizer:
                 jit=False,  # Disable JIT for NumPy compatibility
             )
         else:
-            # Let jaxopt compute gradients via autodiff
-            def jax_loss_fn(x: jnp.ndarray) -> float:
-                """Return the per-angle-block loss for jaxopt autodiff."""
-                return per_angle_loss(np.asarray(x))
+            # grad_fn is None: fall back to finite differences (per fit()'s
+            # documented contract) — see _fit_physical_stage for why jaxopt
+            # autodiff isn't viable here.
+            def value_and_grad_fn(x: jnp.ndarray) -> tuple[float, jnp.ndarray]:
+                """Return ``(loss, finite-diff grad)`` for the per-angle block."""
+                x_np = np.asarray(x)
+                val = per_angle_loss(x_np)
+                grad = approx_fprime(x_np, per_angle_loss, np.sqrt(np.finfo(np.float64).eps))
+                return val, jnp.asarray(grad)
 
             solver = LBFGSB(
-                fun=jax_loss_fn,
+                fun=value_and_grad_fn,
+                value_and_grad=True,
                 maxiter=self.config.per_angle_max_iterations,
                 tol=self.config.per_angle_ftol,
                 jit=False,

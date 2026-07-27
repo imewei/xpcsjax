@@ -205,5 +205,7 @@ def validate_config(config: dict) -> ValidationReport:
                 lo, hi = registry.get_bounds(name)
                 if not (lo <= numeric <= hi):
                     errors.append(f"{name}={numeric} is outside bounds ({lo}, {hi})")
+    elif values is not None:
+        errors.append("initial_parameters.values must be a list (got a scalar)")
 
     return ValidationReport(ok=not errors, errors=errors, warnings=warnings)

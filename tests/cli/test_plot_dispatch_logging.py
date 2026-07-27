@@ -8,8 +8,10 @@ logging overhaul:
   every angle logs AT MOST ONCE, not once per angle — while still skipping to
   the next angle exactly as before (control flow unchanged).
 
-The tests are control-flow assertions: the function must still return its
-normal fallback (``plots_dir``) regardless of how many angles fail.
+The tests are control-flow assertions: the loop must still skip every
+failing angle rather than raising, and the function's return value must
+truthfully reflect whether anything was written (``plots_dir`` only when at
+least one render succeeded, ``None`` when every angle failed).
 """
 
 from __future__ import annotations
@@ -118,9 +120,10 @@ def test_per_phi_render_failure_logs_once_not_per_angle(
     with caplog.at_level(logging.WARNING, logger="xpcsjax"):
         out = postfit._save_fit_comparison_only(_FakeConfigManager(), data, _FakeResult(), tmp_path)
 
-    # Control flow unchanged: the loop skipped every failing angle and the
-    # function still returned its normal fallback (the plots dir).
-    assert out == tmp_path
+    # Control flow unchanged: the loop skipped every failing angle. Since
+    # every render failed, nothing was written — the function must report
+    # that honestly (None), not the pre-computed plots_dir.
+    assert out is None
 
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     fit_warnings = [r for r in warnings if "nlsq_fit boom" in r.getMessage()]
@@ -163,7 +166,7 @@ def test_second_dispatch_call_is_not_cross_call_suppressed(
 
     # First call — primes the process-global dedup cache.
     out1 = postfit._save_fit_comparison_only(_FakeConfigManager(), data, _FakeResult(), tmp_path)
-    assert out1 == tmp_path
+    assert out1 is None
 
     # Drop the first call's records so we count ONLY the second call's output.
     caplog.clear()
@@ -173,7 +176,7 @@ def test_second_dispatch_call_is_not_cross_call_suppressed(
         out2 = postfit._save_fit_comparison_only(
             _FakeConfigManager(), data, _FakeResult(), tmp_path
         )
-    assert out2 == tmp_path
+    assert out2 is None
 
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     fit_warnings = [r for r in warnings if "nlsq_fit boom" in r.getMessage()]

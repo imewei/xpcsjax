@@ -118,14 +118,21 @@ class PhysicsModelBase(ABC):
 
     def get_parameter_dict(self, params: jnp.ndarray) -> dict[str, float]:
         """Convert parameter array to named dictionary."""
-        # Ensure params is at least 1D to avoid 0D array indexing issues
-        if jax_available and hasattr(params, "ndim"):
-            # Convert JAX arrays to NumPy for safe indexing
-            params_np = np.atleast_1d(np.asarray(params))
-        else:
-            params_np = np.atleast_1d(params)
+        # Ensure params is at least 1D to avoid 0D array indexing issues.
+        # np.asarray() raises on a jax.jit tracer, so that conversion must be
+        # tried/caught here too, not just the later float() conversion below.
+        params_arr: np.ndarray | jnp.ndarray
+        try:
+            if jax_available and hasattr(params, "ndim"):
+                # Convert JAX arrays to NumPy for safe indexing
+                params_arr = np.atleast_1d(np.asarray(params))
+            else:
+                params_arr = np.atleast_1d(params)
+        except (TypeError, ValueError, AttributeError):
+            # In JIT context: params is a tracer, keep it as a JAX array
+            params_arr = jnp.atleast_1d(params)
 
-        params_len = safe_len(params_np)
+        params_len = safe_len(params_arr)
         if params_len != self.n_params:
             raise ValueError(f"Expected {self.n_params} parameters, got {params_len}")
 
@@ -133,11 +140,12 @@ class PhysicsModelBase(ABC):
         try:
             # Try converting to float - will fail if in JIT context
             return {
-                name: float(val) for name, val in zip(self.parameter_names, params_np, strict=False)
+                name: float(val)
+                for name, val in zip(self.parameter_names, params_arr, strict=False)
             }
         except (TypeError, ValueError, AttributeError):
             # In JIT context, keep as JAX arrays
-            return dict(zip(self.parameter_names, params_np, strict=False))
+            return dict(zip(self.parameter_names, params_arr, strict=False))
 
     def __repr__(self) -> str:
         """Return ``ClassName(name=..., n_params=...)``."""

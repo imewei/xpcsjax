@@ -356,7 +356,9 @@ class ParameterSpace:
 
             min_val, max_val = self.bounds[param_name]
 
-            if value < min_val - tolerance:
+            if np.isnan(value):
+                violations.append(f"{param_name} = {value} is NaN (not a valid value)")
+            elif value < min_val - tolerance:
                 violations.append(
                     f"{param_name} = {value:.3e} < min ({min_val:.3e}) by {min_val - value:.3e}"
                 )

@@ -178,14 +178,15 @@ def save_nlsq_npz_file(
                 f"{name}.shape {arr.shape} does not match expected "
                 f"(n_angles={n_angles}, n_t1={n_t1}, n_t2={n_t2})"
             )
-    if per_angle_scaling.shape[0] != n_angles:
+    if per_angle_scaling.shape != (n_angles, 2):
         raise ValueError(
-            f"per_angle_scaling.shape[0]={per_angle_scaling.shape[0]} != n_angles={n_angles}"
+            f"per_angle_scaling.shape={per_angle_scaling.shape} != "
+            f"(n_angles={n_angles}, 2) [contrast, offset]"
         )
-    if per_angle_scaling_solver.shape[0] != n_angles:
+    if per_angle_scaling_solver.shape != (n_angles, 2):
         raise ValueError(
-            f"per_angle_scaling_solver.shape[0]={per_angle_scaling_solver.shape[0]} "
-            f"!= n_angles={n_angles}"
+            f"per_angle_scaling_solver.shape={per_angle_scaling_solver.shape} != "
+            f"(n_angles={n_angles}, 2) [contrast, offset]"
         )
     if c2_solver is not None and c2_solver.shape != expected_c2_shape:
         raise ValueError(

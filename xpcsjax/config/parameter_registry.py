@@ -15,6 +15,7 @@ eliminating the prior 8x duplication of parameter definitions.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from enum import StrEnum
@@ -787,14 +788,14 @@ class ParameterRegistry:
                 if name not in names:
                     continue  # Skip unknown parameters
                 lb, ub = self.get_bounds(name)
-                if value < lb or value > ub:
+                if math.isnan(value) or value < lb or value > ub:
                     raise ValueError(f"Parameter {name}={value} out of bounds [{lb}, {ub}]")
         else:
             if len(values) != len(names):
                 raise ValueError(f"Expected {len(names)} values, got {len(values)}")
             for name, value in zip(names, values, strict=True):
                 lb, ub = self.get_bounds(name)
-                if value < lb or value > ub:
+                if math.isnan(value) or value < lb or value > ub:
                     raise ValueError(f"Parameter {name}={value} out of bounds [{lb}, {ub}]")
 
     def expand_initial_values(

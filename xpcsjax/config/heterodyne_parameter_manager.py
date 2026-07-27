@@ -220,7 +220,17 @@ class ParameterManager:
         -------
         numpy.ndarray
             Array of shape ``(14,)``.
+
+        Raises
+        ------
+        ValueError
+            If ``varying_params`` does not have exactly ``len(self.varying_indices)``
+            entries.
         """
+        if len(varying_params) != len(self.varying_indices):
+            raise ValueError(
+                f"Expected {len(self.varying_indices)} varying values, got {len(varying_params)}"
+            )
         full = self.get_full_values().copy()
         for i, idx in enumerate(self.varying_indices):
             full[idx] = float(varying_params[i])
@@ -238,7 +248,14 @@ class ParameterManager:
         -------
         numpy.ndarray
             Array of shape ``(n_varying,)``.
+
+        Raises
+        ------
+        ValueError
+            If ``full_params`` does not have exactly 14 entries.
         """
+        if len(full_params) != len(ALL_PARAM_NAMES):
+            raise ValueError(f"Expected {len(ALL_PARAM_NAMES)} values, got {len(full_params)}")
         return np.array([full_params[i] for i in self.varying_indices])
 
     def update_values(self, params: np.ndarray | dict[str, float]) -> None:
@@ -305,10 +322,12 @@ class ParameterManager:
         Raises
         ------
         ValueError
-            If ``name`` is not a known parameter.
+            If ``name`` is not a known parameter, or if ``lower > upper``.
         """
         if name not in ALL_PARAM_NAMES_WITH_SCALING:
             raise ValueError(f"Unknown parameter: {name}")
+        if lower > upper:
+            raise ValueError(f"Inverted bound for {name!r}: lower={lower} > upper={upper}")
         self.space.bounds[name] = (lower, upper)
         # Update the local default_bounds mirror and flush cache
         if name in self._default_bounds:
@@ -497,8 +516,10 @@ class ParameterManager:
         """Get physics parameter names that are marked as varying.
 
         Returns the 14-element physics parameters (excludes scaling) whose
-        ``vary`` flag is True in the current ParameterSpace. Falls back to all
-        14 physics parameters if the space has no explicit vary flags set.
+        ``vary`` flag is True in the current ParameterSpace. Every registry
+        ``vary_default`` is ``True``, so an empty result reflects an explicit
+        all-fixed configuration, not an unconfigured manager — it is returned
+        as-is rather than papered over with a full-parameter fallback.
 
         Results are cached; call :meth:`set_vary` to invalidate automatically.
 
@@ -512,10 +533,6 @@ class ParameterManager:
             return list(self._active_params_cache)
 
         active = self.space.varying_physics_names
-        # Fall back to all physics params when none are flagged as varying
-        # (e.g. a freshly constructed manager with all vary=False defaults)
-        if not active:
-            active = list(ALL_PARAM_NAMES)
 
         if self._cache_enabled:
             self._active_params_cache = list(active)

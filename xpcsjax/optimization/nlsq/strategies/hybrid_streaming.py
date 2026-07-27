@@ -1319,6 +1319,14 @@ def fit_with_stratified_hybrid_streaming(
     x_data = x_data[non_diagonal_mask]
     y_data = y_data[non_diagonal_mask]
     n_diagonal_removed = n_points_before - len(y_data)
+    if len(y_data) == 0:
+        raise ValueError(
+            "fit_with_stratified_hybrid_streaming: all data points lie on the "
+            f"diagonal (t1_idx == t2_idx); {n_points_before} point(s) were "
+            "removed by the diagonal filter, leaving nothing to fit. This "
+            "indicates a degenerate stratified dataset (e.g. a single unique "
+            "time value) rather than a valid fit request."
+        )
 
     # Sigma plumbing (Finding #4, 2026-07-23): stratified_data.sigma exists
     # (wrapper.py's StratifiedData copies it from original_data.sigma) but was

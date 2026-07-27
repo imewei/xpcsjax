@@ -266,7 +266,11 @@ class PhiAngleFilter:
             range_stats = {
                 "range": (min_angle, max_angle),
                 "count": int(count),
-                "percentage": float(count / len(phi_angles_array) * 100),
+                "percentage": (
+                    float(count / len(phi_angles_array) * 100)
+                    if phi_angles_array.size > 0
+                    else float("nan")
+                ),
                 "angles": (
                     angles_in_range.tolist()
                     if isinstance(angles_in_range, np.ndarray)

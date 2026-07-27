@@ -616,7 +616,13 @@ def fit_two_component_via_engine(
         uncertainties = np.sqrt(np.clip(np.diag(covariance), 0.0, None))
 
     convergence_status: ConvergenceStatus = "converged" if res.success else "failed"
-    quality_flag: QualityFlag = "good" if res.success else "marginal"
+    # Derive quality_flag from reduced_chi_squared (not just res.success):
+    # mirrors heterodyne_result_builder.py::build_hybrid_streaming_result. A
+    # numerically-converged solve that lands on a poor solution (high
+    # reduced chi2) must not be reported as "good".
+    from xpcsjax.optimization.nlsq.validation import classify_quality_flag
+
+    quality_flag: QualityFlag = classify_quality_flag(reduced_chi2=reduced_chi2)
 
     # ``n_physics``: mirror production EXACTLY. The constant path
     # (``_fit_joint_constant_multi_phi``) does NOT pass ``n_physics`` to

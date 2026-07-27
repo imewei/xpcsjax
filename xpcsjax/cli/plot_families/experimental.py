@@ -46,6 +46,7 @@ def _plot_experimental_data(data: dict[str, Any], plots_dir: Path) -> Path | Non
     if c2_exp.ndim == 2:
         c2_exp = c2_exp[np.newaxis, ...]
 
+    wrote_any = False
     for i in range(c2_exp.shape[0]):
         phi = float(phi_list[i]) if i < len(phi_list) else 0.0
         save_path = plots_dir / f"experimental_data_phi{int(round(phi))}.png"
@@ -58,6 +59,7 @@ def _plot_experimental_data(data: dict[str, Any], plots_dir: Path) -> Path | Non
                 save_path=save_path,
                 title="Experimental C₂(t₁, t₂)",
             )
+            wrote_any = True
         except Exception as exc:
             log_exception(
                 logger,
@@ -66,4 +68,4 @@ def _plot_experimental_data(data: dict[str, Any], plots_dir: Path) -> Path | Non
                 level=logging.WARNING,
             )
 
-    return plots_dir
+    return plots_dir if wrote_any else None

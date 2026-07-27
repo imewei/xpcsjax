@@ -304,11 +304,13 @@ def validate_fit_quality(
             )
         else:
             report.checks_performed["chi2_quality"] = False
-            logger.warning(
-                "[FitQuality] Chi-squared quality: poor (%.4g > %.4g)",
-                reduced_chi_squared,
-                config.chi2_acceptable_threshold,
+            poor_warning = (
+                f"Chi-squared quality: poor ({reduced_chi_squared:.4g} > "
+                f"{config.chi2_acceptable_threshold})."
             )
+            report.warnings.append(poor_warning)
+            report.passed = False
+            logger.warning(f"[FitQuality] {poor_warning}")
 
     # Check 1b: Parameter significance (parameter / uncertainty ratio)
     params = getattr(result, "parameters", None)
@@ -587,6 +589,12 @@ def _validate_initial_params_within_bounds(
         return True
 
     lower, upper = bounds
+
+    # A shape mismatch here means bounds are already malformed — that is
+    # validate_bounds_consistency's job to report. Don't let numpy's raw
+    # broadcast ValueError escape a soft-fail/strict-mode-controlled path.
+    if len(lower) != len(initial_params) or len(upper) != len(initial_params):
+        return False
 
     below_lower = initial_params < lower
     above_upper = initial_params > upper

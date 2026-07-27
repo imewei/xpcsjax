@@ -27,6 +27,7 @@ The quality control pipeline runs in four stages:
 4. Final Data: comprehensive quality assessment for analysis readiness.
 """
 
+import hashlib
 import json
 import os
 import time
@@ -452,8 +453,14 @@ class DataQualityController:
                     # Re-validate after repair
                     self._revalidate_after_repair(data, result)
 
-            # Compute overall quality score
-            result.metrics.overall_score = self._compute_overall_quality_score(result)
+            # Compute overall quality score. A stage validator (e.g.
+            # _validate_final_data's analysis-readiness check) may already have
+            # set overall_score to a value it wants merged in — max() with it
+            # instead of clobbering it, so that merge isn't dead code.
+            result.metrics.overall_score = max(
+                result.metrics.overall_score,
+                self._compute_overall_quality_score(result),
+            )
 
             # Determine pass/fail status
             result.passed = result.metrics.overall_score >= self.quality_config.pass_threshold
@@ -568,6 +575,20 @@ class DataQualityController:
             return ("unknown",)
         except (AttributeError, TypeError, IndexError):
             return ("unknown",)
+
+    def _get_data_fingerprint(self, data: dict[str, Any]) -> str:
+        """Return a content hash of ``c2_exp`` for incremental-cache keying.
+
+        Shape alone collides whenever a controller is reused across two
+        different datasets that happen to share a shape (e.g. sequential file
+        loads at the same resolution) — hash the actual bytes so distinct
+        datasets never share a cache entry.
+        """
+        try:
+            arr = np.asarray(data.get("c2_exp", []))
+            return hashlib.sha256(np.ascontiguousarray(arr).tobytes()).hexdigest()[:16]
+        except (AttributeError, TypeError, ValueError):
+            return "unknown"
 
     @log_performance(threshold=0.05)
     def _validate_raw_data(
@@ -745,7 +766,10 @@ class DataQualityController:
                         ),
                     )
 
-        # Advanced quality checks
+        # Basic + advanced quality checks. Without the basic pass here,
+        # correlation_validity/signal_to_noise stay at their 0.0 default and
+        # PREPROCESSED_DATA can never reach pass_threshold even for good data.
+        self._basic_data_quality_checks(data, result)
         self._advanced_data_quality_checks(data, result)
 
         logger.debug(
@@ -861,6 +885,11 @@ class DataQualityController:
                 except (AttributeError, TypeError, IndexError):
                     pass
 
+        # Without this, correlation_validity/signal_to_noise stay at their 0.0
+        # default and RAW_DATA can never reach pass_threshold even for
+        # perfectly finite data (mirrors _validate_filtered_data's call).
+        self._basic_data_quality_checks(data, result)
+
     def _basic_data_quality_checks(
         self,
         data: dict[str, Any],
@@ -886,6 +915,16 @@ class DataQualityController:
 
                 # Check correlation validity
                 if arr.size > 0:
+                    # Populate finite_fraction here too (not just in
+                    # _basic_raw_data_validation) so stages that only call this
+                    # helper (FILTERED_DATA, PREPROCESSED_DATA) leave a real
+                    # baseline for _compute_transformation_fidelity's ratio,
+                    # instead of the 0.0 default that floors its denominator.
+                    result.metrics.finite_fraction = max(
+                        result.metrics.finite_fraction,
+                        float(np.sum(np.isfinite(arr)) / arr.size),
+                    )
+
                     # Check for reasonable correlation values
                     mean_val = np.nanmean(arr)
                     if 0.5 <= mean_val <= 3.0:
@@ -932,7 +971,16 @@ class DataQualityController:
 
         try:
             if isinstance(c2_exp, (list, tuple, np.ndarray)) and len(c2_exp) > 0:
-                matrices = [np.asarray(matrix) for matrix in c2_exp]
+                c2_exp_arr = np.asarray(c2_exp)
+                # A bare 2-D c2_exp is a single (N, N) correlation matrix, not a
+                # stack — iterating it directly yields 1-D rows and silently
+                # skips every symmetry/decay check below. Wrap it as a
+                # one-matrix list instead of iterating.
+                matrices = (
+                    [c2_exp_arr]
+                    if c2_exp_arr.ndim == 2
+                    else [np.asarray(matrix) for matrix in c2_exp]
+                )
 
                 # Symmetry analysis for correlation matrices
                 symmetry_scores = []
@@ -1713,9 +1761,11 @@ class DataQualityController:
         QualityControlResult or None
             A still-valid cached result, or ``None`` on a miss.
         """
-        # Simple cache key based on data shape and stage
+        # Cache key based on stage, shape, and a content hash so two datasets
+        # sharing a shape (a controller reused across sequential file loads)
+        # never collide on the same cached result.
         data_shape = self._get_data_shape(data)
-        cache_key = f"{stage.value}_{hash(str(data_shape))}"
+        cache_key = f"{stage.value}_{hash(str(data_shape))}_{self._get_data_fingerprint(data)}"
 
         if cache_key in self._validation_cache:
             cached_result = self._validation_cache[cache_key]
@@ -1738,7 +1788,9 @@ class DataQualityController:
             Result to cache.
         """
         data_shape = self._get_data_shape(data)
-        cache_key = f"{result.stage.value}_{hash(str(data_shape))}"
+        cache_key = (
+            f"{result.stage.value}_{hash(str(data_shape))}_{self._get_data_fingerprint(data)}"
+        )
         self._validation_cache[cache_key] = result
 
         # Limit cache size
@@ -1851,7 +1903,12 @@ class DataQualityController:
         # Save report if path provided
         if output_path and self.quality_config.export_detailed_reports:
             try:
-                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                # A bare filename (no directory component) makes dirname ""
+                # and os.makedirs("") raises FileNotFoundError; only create
+                # the parent when there is one.
+                report_dir = os.path.dirname(output_path)
+                if report_dir:
+                    os.makedirs(report_dir, exist_ok=True)
                 with open(output_path, "w", encoding="utf-8") as f:
                     json.dump(report, f, indent=2, default=str)
                 logger.info(f"Quality report saved to: {output_path}")

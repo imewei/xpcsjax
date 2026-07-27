@@ -686,11 +686,21 @@ def create_angle_stratified_data(
         f"(imbalance ratio: {stats.imbalance_ratio:.2f}) using Interleaved Stratification"
     )
 
-    # Group data by angle
+    # Group data by angle. Keyed by POSITION in stats.unique_angles, not by
+    # the angle value itself: a NaN angle value hashes consistently but never
+    # equals itself (nan != nan), so a dict keyed by value raises KeyError the
+    # moment a later loop re-derives the same NaN from a fresh numpy scalar
+    # object. Position is stable across all loops below.
+    n_angle_groups = len(stats.unique_angles)
+    if np.any(np.isnan(stats.unique_angles)):
+        logger.warning(
+            "phi contains NaN angle(s); NaN-angle points are grouped and "
+            "stratified together (not dropped)"
+        )
     angle_groups = {}
-    for angle in stats.unique_angles:
-        mask = phi_np == angle
-        angle_groups[angle] = {
+    for idx, angle in enumerate(stats.unique_angles):
+        mask = np.isnan(phi_np) if np.isnan(angle) else phi_np == angle
+        angle_groups[idx] = {
             "phi": phi_np[mask],
             "t1": t1_np[mask],
             "t2": t2_np[mask],
@@ -706,13 +716,13 @@ def create_angle_stratified_data(
     # For each angle, calculate how many points go to each chunk
     # Using round-robin distribution to spread points evenly
     angle_chunk_allocations = {}
-    for angle in stats.unique_angles:
-        group_size = angle_groups[angle]["size"]
+    for idx in range(n_angle_groups):
+        group_size = angle_groups[idx]["size"]
         base_per_chunk = group_size // n_chunks
         remainder = group_size % n_chunks
         # Earlier chunks get one extra point if there's remainder
         allocations = [base_per_chunk + (1 if i < remainder else 0) for i in range(n_chunks)]
-        angle_chunk_allocations[angle] = allocations
+        angle_chunk_allocations[idx] = allocations
 
     logger.info(
         f"Interleaved Stratification Plan:\n"
@@ -722,7 +732,7 @@ def create_angle_stratified_data(
 
     # Build stratified chunks by interleaving angle groups
     stratified_chunks = []
-    angle_offsets = dict.fromkeys(stats.unique_angles, 0)  # Track position in each angle
+    angle_offsets = dict.fromkeys(range(n_angle_groups), 0)  # Track position in each angle
 
     for chunk_idx in range(n_chunks):
         # Each value is a list of ndarray slices that get concatenated below.
@@ -735,10 +745,10 @@ def create_angle_stratified_data(
             "g2_exp": [],
         }
 
-        for angle in stats.unique_angles:
-            group = angle_groups[angle]
-            start = angle_offsets[angle]
-            count = angle_chunk_allocations[angle][chunk_idx]
+        for idx in range(n_angle_groups):
+            group = angle_groups[idx]
+            start = angle_offsets[idx]
+            count = angle_chunk_allocations[idx][chunk_idx]
             end = start + count
 
             if count > 0:
@@ -746,7 +756,7 @@ def create_angle_stratified_data(
                 chunk_parts["t1"].append(group["t1"][start:end])
                 chunk_parts["t2"].append(group["t2"][start:end])
                 chunk_parts["g2_exp"].append(group["g2_exp"][start:end])
-                angle_offsets[angle] = end
+                angle_offsets[idx] = end
 
         # Concatenate all angles for this chunk
         if any(len(arr) > 0 for arr in chunk_parts["phi"]):
@@ -860,11 +870,19 @@ def create_angle_stratified_indices(
         f"(imbalance ratio: {stats.imbalance_ratio:.2f}) using Interleaved Stratification"
     )
 
-    # Group indices by angle
+    # Group indices by angle. Keyed by POSITION in stats.unique_angles, not
+    # the angle value itself -- see create_angle_stratified_data for why a
+    # NaN angle value breaks value-keyed dict lookups across loops.
+    n_angle_groups = len(stats.unique_angles)
+    if np.any(np.isnan(stats.unique_angles)):
+        logger.warning(
+            "phi contains NaN angle(s); NaN-angle points are grouped and "
+            "stratified together (not dropped)"
+        )
     angle_index_groups = {}
-    for angle in stats.unique_angles:
-        mask = phi_np == angle
-        angle_index_groups[angle] = np.where(mask)[0]
+    for idx, angle in enumerate(stats.unique_angles):
+        mask = np.isnan(phi_np) if np.isnan(angle) else phi_np == angle
+        angle_index_groups[idx] = np.where(mask)[0]
 
     # Calculate number of chunks based on total points (no expansion)
     n_chunks = max(1, int(np.ceil(n_points / target_chunk_size)))
@@ -874,30 +892,30 @@ def create_angle_stratified_indices(
     # For each angle, calculate how many points go to each chunk
     # Using round-robin distribution to spread points evenly
     angle_chunk_allocations = {}
-    for angle in stats.unique_angles:
-        group_size = len(angle_index_groups[angle])
+    for idx in range(n_angle_groups):
+        group_size = len(angle_index_groups[idx])
         base_per_chunk = group_size // n_chunks
         remainder = group_size % n_chunks
         # Earlier chunks get one extra point if there's remainder
         allocations = [base_per_chunk + (1 if i < remainder else 0) for i in range(n_chunks)]
-        angle_chunk_allocations[angle] = allocations
+        angle_chunk_allocations[idx] = allocations
 
     # Build stratified index array by interleaving angle groups
     stratified_indices = []
-    angle_offsets = dict.fromkeys(stats.unique_angles, 0)  # Track position in each angle
+    angle_offsets = dict.fromkeys(range(n_angle_groups), 0)  # Track position in each angle
 
     for chunk_idx in range(n_chunks):
         chunk_indices = []
 
-        for angle in stats.unique_angles:
-            indices_for_angle = angle_index_groups[angle]
-            start = angle_offsets[angle]
-            count = angle_chunk_allocations[angle][chunk_idx]
+        for idx in range(n_angle_groups):
+            indices_for_angle = angle_index_groups[idx]
+            start = angle_offsets[idx]
+            count = angle_chunk_allocations[idx][chunk_idx]
             end = start + count
 
             if count > 0:
                 chunk_indices.append(indices_for_angle[start:end])
-                angle_offsets[angle] = end
+                angle_offsets[idx] = end
 
         # Concatenate all angle indices for this chunk
         if chunk_indices:

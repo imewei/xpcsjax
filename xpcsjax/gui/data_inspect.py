@@ -61,7 +61,11 @@ def _reconstruct_c2(half: np.ndarray) -> np.ndarray:
     with equal-stride decimation — ``_reconstruct_c2(half[::s, ::s])`` equals
     ``_reconstruct_c2(half)[::s, ::s]`` — so a bounded strided read stays correct.
     """
-    full = half + half.T
+    # Promote to float BEFORE the in-place halving: an integer-dtype `half`
+    # (e.g. a raw HDF5 C2 half-matrix) would otherwise make `full` an integer
+    # array too, and `/=` raises UFuncOutputCastingError trying to write a
+    # true-division result back into an integer buffer.
+    full = (half + half.T).astype(np.float64, copy=False)
     full[np.diag_indices(full.shape[0])] /= 2
     return full
 
@@ -85,6 +89,8 @@ def read_c2_preview(
     heuristic reads ``dataset`` directly (raw 2-D matrix, or one slice of a 3-D array)
     without reconstruction. ``dataset`` is ignored for a known format.
     """
+    if max_dim <= 0:
+        raise ValueError(f"max_dim must be positive, got {max_dim}")
     with h5py.File(path, "r") as f:
         layout = _C2_PREVIEW_LAYOUTS.get(data_type) if data_type else None
         if layout is not None:

@@ -15,10 +15,12 @@ from xpcsjax.data.xpcs_loader import XPCSDataFormatError, XPCSDataLoader
 
 
 def _loader_with_q(q: float) -> XPCSDataLoader:
-    # _validate_cache_q_vector reads only self.analyzer_config — bypass the
-    # heavy constructor.
+    # _validate_cache_q_vector reads self.analyzer_config and (for the
+    # filter-config fingerprint check) self.config — bypass the heavy
+    # constructor but still stub both attributes.
     loader = XPCSDataLoader.__new__(XPCSDataLoader)
     loader.analyzer_config = {"scattering": {"wavevector_q": q}}
+    loader.config = {}
     return loader
 
 

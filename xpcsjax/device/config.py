@@ -223,6 +223,18 @@ def detect_hardware() -> HardwareConfig:
         cores_per_node = multiprocessing.cpu_count()
         total_memory_gb = memory_gb  # Use previously detected value
 
+    # On Slurm, SLURM_CPUS_ON_NODE reflects the job's actual per-node cgroup
+    # allocation, which can be far smaller than the host's full physical core
+    # count on a shared node. Prefer it over the psutil host-wide count.
+    if cluster_type == "slurm" and "SLURM_CPUS_ON_NODE" in os.environ:
+        try:
+            slurm_cpus_on_node = int(os.environ["SLURM_CPUS_ON_NODE"])
+            if slurm_cpus_on_node > 0:
+                cores_per_node = slurm_cpus_on_node
+                logger.info(f"Slurm allocation: {cores_per_node} CPUs on node")
+        except ValueError:
+            logger.warning("Failed to parse SLURM_CPUS_ON_NODE")
+
     # Step 5: Recommend backend and calculate max parallel shards (CPU-only)
     recommended_backend: str
     if cluster_type in ["pbs", "slurm"] and num_nodes > 1:

@@ -154,6 +154,30 @@ def _parse_version(version: str) -> tuple[int, ...]:
     return tuple(parts)
 
 
+def _is_final_release(version: str) -> bool:
+    """Return whether ``version`` is a final release (no pre-release/dev suffix).
+
+    Strips local/build metadata (``+...`` / ``-...``) the same way
+    :func:`_parse_version` does, then checks whether what remains is purely
+    dot-separated digits. A pre-release or dev suffix (``rc1``, ``a1``,
+    ``.dev20250101``, ...) makes this ``False`` — such builds must sort
+    *below* the equivalent numeric release so they never satisfy a
+    release-version minimum.
+
+    Parameters
+    ----------
+    version : str
+        Version string to classify.
+
+    Returns
+    -------
+    bool
+        ``True`` if ``version`` carries no pre-release/dev suffix.
+    """
+    cleaned = re.split(r"[+\-]", version)[0]
+    return bool(re.fullmatch(r"[\d.]+", cleaned))
+
+
 def _version_at_least(actual: str, minimum: str) -> bool:
     """Return whether ``actual`` is at least ``minimum``.
 
@@ -165,6 +189,12 @@ def _version_at_least(actual: str, minimum: str) -> bool:
     (``(2, 3) < (2, 3, 0)``), which would spuriously flag an up-to-date
     dependency as outdated whenever a minimum is declared with a trailing
     ``.0`` (or a distribution reports a coarser version than the requirement).
+
+    A :func:`_is_final_release` flag is compared as a secondary key so that
+    pre-release / dev builds (``1.2.3rc1``, ``0.8.2.dev20250101``, ...) never
+    silently satisfy a minimum for the same numeric release — the numeric
+    tuple alone can't distinguish them since :func:`_parse_version` drops the
+    non-numeric suffix entirely.
 
     Parameters
     ----------
@@ -183,7 +213,9 @@ def _version_at_least(actual: str, minimum: str) -> bool:
     width = max(len(a), len(m))
     a_padded = a + (0,) * (width - len(a))
     m_padded = m + (0,) * (width - len(m))
-    return a_padded >= m_padded
+    a_key = (a_padded, _is_final_release(actual))
+    m_key = (m_padded, _is_final_release(minimum))
+    return a_key >= m_key
 
 
 # ---------------------------------------------------------------------------

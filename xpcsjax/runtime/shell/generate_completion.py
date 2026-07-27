@@ -104,6 +104,21 @@ _PREAMBLE = r"""
 _XPCSJAX_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/xpcsjax"
 _XPCSJAX_CACHE_TTL=300  # 5 minutes
 
+if ! type mapfile &>/dev/null; then
+    # ponytail: bash < 4 (e.g. macOS's stock /bin/bash 3.2) has no `mapfile`
+    # builtin. Every completion arm below uses `mapfile -t NAME < <(cmd)`, so
+    # shim that exact form once here rather than rewriting every call site.
+    mapfile() {
+        local __mapfile_arr=$2
+        eval "$__mapfile_arr=()"
+        local __mapfile_line
+        while IFS= read -r __mapfile_line; do
+            eval "$__mapfile_arr+=(\"\$__mapfile_line\")"
+        done
+        unset __mapfile_line
+    }
+fi
+
 _xpcsjax_ensure_cache() {
     [[ -d "$_XPCSJAX_CACHE_DIR" ]] || mkdir -p "$_XPCSJAX_CACHE_DIR"
 }
@@ -130,7 +145,9 @@ fi
 
 _xpcsjax_get_config_files() {
     _xpcsjax_ensure_cache
-    local cache_file="$_XPCSJAX_CACHE_DIR/config_files"
+    # Key the cache file by cwd so a completion cached for one project's
+    # config files is never served for a different directory within the TTL.
+    local cache_file="$_XPCSJAX_CACHE_DIR/config_files_${PWD//\//_}"
     local now
     now=$(date +%s)
 

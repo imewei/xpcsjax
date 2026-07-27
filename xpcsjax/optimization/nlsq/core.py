@@ -477,6 +477,41 @@ def fit_nlsq_jax(
 
     # Create optimizer and run optimization
     if _use_adapter:
+        # NLSQAdapter.fit() has neither a ``sigma`` nor an ``on_iteration``
+        # parameter (verified: adapter.py has zero sigma/weight/uncertainty
+        # references), unlike the NLSQWrapper.fit() path used below when
+        # use_adapter=False. Silently dropping a caller's uncertainty
+        # weighting would return materially different fitted parameters with
+        # no indication why; warn loudly instead of building adapter-side
+        # support for this experimental opt-in path.
+        # NOTE: ``data`` was rebound to a normalized OBJECT (attributes, not a
+        # dict) by ``_normalize_data_to_object`` a few lines above, so this
+        # must use ``getattr`` -- ``data.get(...)`` would raise AttributeError.
+        # ``_normalize_data_to_object`` ALWAYS sets ``.sigma`` (defaulting to a
+        # uniform value when the caller didn't supply one), so a plain
+        # not-None check would fire on every call; only warn when sigma is
+        # genuinely heteroscedastic (the case that's actually dropped).
+        _sigma_arr = getattr(data, "sigma", None)
+        if _sigma_arr is not None:
+            _sigma_np = np.asarray(_sigma_arr)
+            _has_sigma = not np.allclose(_sigma_np, _sigma_np.flat[0])
+        else:
+            _has_sigma = False
+        if _has_sigma or on_iteration is not None:
+            _dropped = [
+                name
+                for name, present in (
+                    ("sigma weighting", _has_sigma),
+                    ("on_iteration callback", on_iteration is not None),
+                )
+                if present
+            ]
+            logger.warning(
+                "use_adapter=True (NLSQAdapter path) does not support %s; "
+                "it will be silently dropped. Use use_adapter=False "
+                "(NLSQWrapper, the default) if this is required.",
+                " or ".join(_dropped),
+            )
         # T021: Try NLSQAdapter first with CurveFit class
         try:
             adapter_config = AdapterConfig(
@@ -500,6 +535,17 @@ def fit_nlsq_jax(
                 shear_transforms=shear_transform_cfg,
                 per_angle_scaling_initial=per_angle_scaling_initial,
             )
+
+            # adapter.fit() catches internal solver/model failures itself and
+            # returns a failed OptimizationResult (device_info["error"] set)
+            # instead of raising -- re-raise here so the except block below
+            # (the intended NLSQAdapter -> NLSQWrapper fallback trigger)
+            # actually fires for those failures too, not just for exceptions
+            # that escape adapter.fit() uncaught.
+            if result.device_info.get("error"):
+                raise RuntimeError(
+                    f"NLSQAdapter internal solver failure: {result.device_info['error']}"
+                )
 
             # T023: Add fallback_occurred to device_info (adapter succeeded)
             result.device_info["fallback_occurred"] = False
@@ -838,8 +884,16 @@ def _validate_data(data: dict[str, Any]) -> None:
     # Accept either key: the missing-key check above allows "c2_exp" OR "g2",
     # so reading data["c2_exp"] directly would KeyError on g2-format callers.
     c2 = data.get("c2_exp", data.get("g2"))
-    if c2 is not None and np.asarray(c2).shape[0] == 0:
-        raise ValueError("Empty experimental data")
+    if c2 is not None:
+        c2_arr = np.asarray(c2)
+        # A scalar/0-d array has an empty ``.shape`` tuple, so ``.shape[0]``
+        # raises IndexError instead of the ValueError this function's
+        # contract promises for data-validation failures (empirically:
+        # ``np.asarray(5.0).shape[0]`` raises). ``ndim == 0`` catches that
+        # structurally-invalid case; ``size == 0`` catches any empty-array
+        # shape — both are genuine "not real experimental data" failures.
+        if c2_arr.ndim == 0 or c2_arr.size == 0:
+            raise ValueError("Empty experimental data")
 
 
 def _get_analysis_mode(config: ConfigManager) -> AnalysisMode:
@@ -1815,6 +1869,15 @@ def fit_nlsq_cmaes(
         else:
             q = float(data.get("q", 0.01))
 
+        # dt is required for laminar_flow's compute_g1_shear (no safe default
+        # frame rate); the static modes tolerate None via a spacing estimate.
+        dt = data.get("dt")
+        if dt is None:
+            config_dict = config.config if hasattr(config, "config") else config
+            if isinstance(config_dict, dict):
+                dt = config_dict.get("analyzer_parameters", {}).get("dt")
+        dt_val = float(dt) if dt is not None else None
+
         # Get model and function
         model, model_func, cache_hit = get_or_create_model(
             analysis_mode=analysis_mode,
@@ -1822,6 +1885,7 @@ def fit_nlsq_cmaes(
             q=q,
             per_angle_scaling=per_angle_scaling,
             enable_jit=True,
+            dt=dt_val,
         )
 
         logger.debug(f"Model cache {'hit' if cache_hit else 'miss'}")
@@ -2169,14 +2233,29 @@ def fit_nlsq_cmaes(
         # datasets with more unique lag times (see model_for_cmaes below).
         t1_time_grid = jnp.asarray(t1)
 
-        # Get dt and L from config if available
+        # dt: honor a caller-supplied data['dt'] override first (a documented
+        # per-call override, honored on the fit_nlsq_jax path via
+        # _normalize_data_to_object), falling back to config's
+        # analyzer_parameters.dt or the 0.1 default. Self-contained (does not
+        # depend on any dt resolution earlier in this function) so this block
+        # is correct regardless of what else in this function does or doesn't
+        # also resolve dt.
         config_dict = config.config if hasattr(config, "config") else config
-        dt_val = config_dict.get("analyzer_parameters", {}).get("dt", 0.1)
+        dt_val = data.get("dt")
+        if dt_val is None:
+            dt_val = config_dict.get("analyzer_parameters", {}).get("dt", 0.1)
+        dt_val = float(dt_val)
 
-        # Get L from config (stator_rotor_gap or default 200 µm)
+        # Get L: honor a caller-supplied data['L'] override first (same
+        # resolution order as dt / fit_nlsq_jax's data -> analyzer_parameters
+        # priority), falling back to config's stator_rotor_gap or the
+        # 200 µm default.
         analyzer_params = config_dict.get("analyzer_parameters", {})
         geometry = analyzer_params.get("geometry", {})
-        L_val = float(geometry.get("stator_rotor_gap", 2000000.0))
+        L_val = data.get("L")
+        if L_val is None:
+            L_val = geometry.get("stator_rotor_gap", 2000000.0)
+        L_val = float(L_val)
 
         # Pre-compute physics factors (outside the traced function for efficiency)
         wavevector_q_squared_half_dt = 0.5 * (q**2) * dt_val
