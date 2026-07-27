@@ -7,9 +7,11 @@ This page registers every xpcsjax submodule as a :mod: target so that
 internal cross-references resolve in the rendered documentation. It is
 intentionally light: each ``py:module`` entry is members-suppressed because
 the user-visible API surface is covered by the dedicated pages under
-:doc:`index`. Modules already documented with ``automodule`` on a dedicated
-page (the ``xpcsjax.cli`` submodules and ``xpcsjax.runtime``) are intentionally
-omitted here to avoid duplicate object descriptions.
+:doc:`index`. Modules already documented with ``automodule``/``autoclass``/
+``autofunction`` on a dedicated page (the ``xpcsjax.cli`` submodules,
+``xpcsjax.runtime``, ``xpcsjax.device``, ``xpcsjax.io``, and ``xpcsjax.utils``
+and their submodules) are intentionally omitted here to avoid duplicate
+object descriptions.
 
 .. py:module:: xpcsjax
 
@@ -112,18 +114,6 @@ omitted here to avoid duplicate object descriptions.
 .. py:module:: xpcsjax.data.validators
 
 .. py:module:: xpcsjax.data.xpcs_loader
-
-.. py:module:: xpcsjax.device
-
-.. py:module:: xpcsjax.device.config
-
-.. py:module:: xpcsjax.device.cpu
-
-.. py:module:: xpcsjax.io
-
-.. py:module:: xpcsjax.io.json_utils
-
-.. py:module:: xpcsjax.io.nlsq_writers
 
 .. py:module:: xpcsjax.optimization
 
@@ -252,14 +242,6 @@ omitted here to avoid duplicate object descriptions.
 .. py:module:: xpcsjax.runtime.utils.system_validator
 
 .. py:module:: xpcsjax.uninstall_scripts
-
-.. py:module:: xpcsjax.utils
-
-.. py:module:: xpcsjax.utils.async_io
-
-.. py:module:: xpcsjax.utils.logging
-
-.. py:module:: xpcsjax.utils.path_validation
 
 .. py:module:: xpcsjax.viz
 
