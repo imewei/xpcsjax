@@ -69,6 +69,15 @@ Each shard owns a specific class of guarantee:
     public lazy export (Phase 6 complete), not ``xfail``-marked; see
     :doc:`porting_notes`.
 
+``tests/test_docs_structure.py``
+    Structural check that every top-level ``xpcsjax`` submodule has a
+    matching :file:`docs/source/api/{name}.rst` page (page existence
+    only, not content — adding a new top-level package without a page
+    fails this test). See
+    ``docs/adr/0001-automated-structural-doc-coverage-check.md`` for why
+    symbol-level and content checks are deliberately *not* automated
+    here.
+
 Running the test shards
 -----------------------
 
