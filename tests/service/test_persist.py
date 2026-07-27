@@ -76,6 +76,48 @@ def test_json_safe_handles_zero_dim_ndarray():
     assert _json_safe(np.array([1.0, np.nan, 2.0])) == [1.0, None, 2.0]
 
 
+def test_save_results_npz_replaces_offshape_uncertainties_with_nan(tmp_path):
+    """Off-shape uncertainties/covariance must be written at the documented shapes.
+
+    Regression: only an exact ``None`` triggered the NaN placeholder, but
+    ``OptimizationResult.__post_init__`` also admits a 0-D scalar or an empty
+    array for any parameter count (it raises only for a non-empty 1-D length
+    mismatch). Those were stored verbatim next to a length-n ``parameters``
+    array, breaking readers that index them 1:1 -- the same gate
+    ``_extract_parameters`` already applies for the JSON writer.
+    """
+    import numpy as np
+
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+    from xpcsjax.service.persist import save_results_npz
+
+    result = OptimizationResult(
+        parameters=np.array([1.0, 2.0, 3.0]),
+        uncertainties=np.array(np.nan),  # 0-D placeholder: legal per __post_init__
+        covariance=np.array([]),  # empty placeholder: also legal
+        chi_squared=1.0,
+        reduced_chi_squared=1.0,
+        convergence_status="converged",
+        iterations=3,
+        execution_time=0.01,
+        device_info={"device": "cpu"},
+    )
+
+    path = save_results_npz(result, tmp_path, filename="offshape.npz")
+
+    with np.load(path, allow_pickle=False) as npz:
+        assert npz["uncertainties"].shape == (3,)
+        assert np.isnan(npz["uncertainties"]).all()
+        assert npz["covariance"].shape == (3, 3)
+        assert np.isnan(npz["covariance"]).all()
+
+    # A correctly-shaped covariance is still stored verbatim (no regression).
+    result.covariance = np.eye(3)
+    path = save_results_npz(result, tmp_path, filename="inshape.npz")
+    with np.load(path, allow_pickle=False) as npz:
+        assert np.array_equal(npz["covariance"], np.eye(3))
+
+
 def test_save_results_npz_readable_without_allow_pickle(tmp_path):
     """nlsq_result.npz must round-trip with allow_pickle=False (no SEC-1 regression).
 

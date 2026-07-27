@@ -879,10 +879,19 @@ def fit_nlsq_multi_phi(
     holds for the same inputs on a freshly constructed :class:`HeterodyneModel`,
     not across repeated fits that reuse (and mutate) one model instance.
 
-    The returned ``result.parameters`` is **physics-first** —
-    ``[physics | contrast | offset]`` — which is the opposite of homodyne's
-    scaling-first layout. The per-angle scaling tail is recovered with
-    :func:`xpcsjax.optimization.nlsq.heterodyne_views.reconstruct_per_angle_scaling`.
+    The layout of ``result.parameters`` is **mode-dependent** — do not assume a
+    single ordering:
+
+    - ``individual`` — scaling-first ``[c_0..c_{n_phi-1} | o_0..o_{n_phi-1} | physics]``.
+    - ``averaged`` — scaling-first ``[c_avg, o_avg | physics]``. A legacy
+      physics-first variant puts ``(c_avg, o_avg)`` in the tail instead;
+      ``nlsq_diagnostics["scaling_first"]`` disambiguates.
+    - ``constant`` — physics only; the frozen scaling lives in
+      ``nlsq_diagnostics["contrast_per_angle_fixed"]`` / ``["offset_per_angle_fixed"]``.
+
+    Rather than slicing directly, recover the scaling with
+    :func:`xpcsjax.optimization.nlsq.heterodyne_views.reconstruct_per_angle_scaling`,
+    which handles all three layouts.
 
     This package is NLSQ-only: there is no Bayesian / MCMC dispatch branch here.
 

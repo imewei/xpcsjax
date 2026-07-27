@@ -155,7 +155,7 @@ def _plot_simulated_from_config(
         )
         return None
 
-    for phi in phi_angles:
+    for i, phi in enumerate(phi_angles):
         try:
             c2_sim = _evaluate_model_c2(
                 model,
@@ -187,7 +187,8 @@ def _plot_simulated_from_config(
         # here — that produced a double-scaling artifact.
         c2_surface = np.asarray(c2_sim)
 
-        save_path = plots_dir / f"simulated_c2_phi{int(round(float(phi)))}.png"
+        # Mirrors viz/nlsq_plots.py naming: bare int(round(phi)) collides.
+        save_path = plots_dir / f"simulated_c2_phi_{i:03d}_{float(phi):.3f}deg.png"
         try:
             plot_simulated_data(
                 c2_surface,

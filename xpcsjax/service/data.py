@@ -51,8 +51,13 @@ def _subset_data_by_phi(
     Matches each requested angle (mod-360 normalized) to a data-angle index
     within ``tol`` degrees. If any requested angle has no match, no slicing is
     performed (a warning is logged) — better to fit all angles than to silently
-    fit the wrong subset.
+    fit the wrong subset. An empty ``data_phi`` is treated as "no match" rather
+    than letting ``np.argmin`` raise on an empty sequence.
     """
+    if np.asarray(data_phi).size == 0:
+        logger.warning("Data has no phi angles; not subsetting — fitting all angles.")
+        return
+
     norm_data = np.where((data_phi % 360) > 180, (data_phi % 360) - 360, data_phi % 360)
     indices: list[int] = []
     for ang in requested:

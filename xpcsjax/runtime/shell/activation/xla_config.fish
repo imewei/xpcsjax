@@ -100,13 +100,16 @@ function _xpcsjax_xla_setup
     set -l mode
 
     if test (count $argv) -gt 0
-        set mode $argv[1]
-        _xpcsjax_save_xla_mode $mode
-    else
-        set mode (_xpcsjax_load_xla_mode)
+        # Persist only after validation, or a typo poisons every later activation.
+        _xpcsjax_configure_xla $argv[1]; or return 1
+        _xpcsjax_save_xla_mode $argv[1]
+        return 0
     end
 
-    _xpcsjax_configure_xla $mode
+    set mode (_xpcsjax_load_xla_mode)
+    # A mode file poisoned by an older release must not brick every activation;
+    # fall back to auto like post_install.py's _validate_xla_mode does.
+    _xpcsjax_configure_xla $mode; or _xpcsjax_configure_xla auto
 end
 
 if test (count $argv) -gt 0

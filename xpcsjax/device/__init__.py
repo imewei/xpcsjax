@@ -245,7 +245,7 @@ def benchmark_device_performance(
                 "Install psutil for detailed CPU benchmarking",
             )
 
-    except (OSError, ValueError, RuntimeError, ImportError, TypeError) as e:
+    except (OSError, ValueError, RuntimeError, ImportError, TypeError, MemoryError) as e:
         logger.error(f"Device benchmarking failed: {e}")
         benchmark_results["error"] = str(e)
 

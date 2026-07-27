@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QListWidgetItem,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -114,14 +116,17 @@ class DataInspectDialog(QDialog):
             self._set_error(f"Could not read file:\n{exc}")
             return
         for info in infos:
-            self._dataset_list.addItem(f"{info.name}   shape={info.shape}  dtype={info.dtype}")
+            item = QListWidgetItem(f"{info.name}   shape={info.shape}  dtype={info.dtype}")
+            # The real name, not the rendered label: HDF5 names may contain spaces.
+            item.setData(Qt.ItemDataRole.UserRole, info.name)
+            self._dataset_list.addItem(item)
 
     # --- preview ------------------------------------------------------------
     def _on_preview(self) -> None:
         """Read and display the selected φ index's C₂ matrix."""
         _, data_type = _DATA_TYPES[self._data_type_combo.currentIndex()]
         current = self._dataset_list.currentItem()
-        dataset = current.text().split()[0] if current is not None else ""
+        dataset = current.data(Qt.ItemDataRole.UserRole) if current is not None else ""
         try:
             arr = read_c2_preview(
                 self._path,
@@ -129,13 +134,13 @@ class DataInspectDialog(QDialog):
                 data_type=data_type,
                 phi_index=self._phi_spin.value(),
             )
-        except (OSError, RuntimeError, KeyError, ValueError) as exc:
-            # h5py's failure surface for a corrupt-but-signature-valid file (a
-            # truncated mid-write copy off a flaky beamline network mount, a
-            # damaged B-tree/chunk index) isn't limited to OSError — it also
-            # raises RuntimeError/KeyError/ValueError depending on where the
-            # corruption is discovered. A narrower catch here left those escape
-            # uncaught through this dialog's whole call chain.
+        except Exception as exc:  # noqa: BLE001 — a button slot must never propagate
+            # Reading an arbitrary user-chosen dataset out of an arbitrary HDF5
+            # file fails in more ways than h5py's corrupt-file surface: a
+            # zero-length first axis raises IndexError, an int-dtype half-matrix
+            # raises numpy's _UFuncTypeError (a TypeError) from the in-place
+            # diagonal halving. Anything escaping here would leave Qt to abort
+            # the slot with no user-visible explanation.
             self._set_error(f"Could not read file:\n{exc}")
             return
         if arr is None:

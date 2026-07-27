@@ -54,6 +54,37 @@ def test_load_dataset_raises_when_no_correlation_matrix(monkeypatch):
         svc_data.load_dataset(_cm({"analysis_mode": "laminar_flow"}))
 
 
+def test_subset_data_by_phi_tolerates_empty_data_phi():
+    """An empty phi array must warn-and-skip, not raise from ``np.argmin``.
+
+    Regression: ``load_dataset``'s caller-side guard only checks
+    ``data_phi_arr is not None``, so a dataset carrying a present-but-empty phi
+    key reached ``np.argmin`` on an empty sequence and raised ValueError instead
+    of the documented "no match -> fit all angles" behavior.
+    """
+    data = {
+        "c2_exp": np.zeros((0, 4, 4)),
+        "phi_angles_list": np.array([]),
+    }
+    svc_data._subset_data_by_phi(data, np.array([]), [45.0])
+    # No slicing performed: the arrays are left exactly as they came in.
+    assert data["c2_exp"].shape == (0, 4, 4)
+    assert data["phi_angles_list"].size == 0
+
+
+def test_load_dataset_empty_phi_does_not_crash(monkeypatch):
+    """End-to-end path the caller-side ``is not None`` guard failed to cover."""
+    monkeypatch.setattr(
+        svc_data,
+        "load_xpcs_data",
+        lambda config_dict: {"c2_exp": np.zeros((0, 4, 4)), "phi_angles_list": np.array([])},
+    )
+    monkeypatch.setattr(svc_data, "apply_angle_filtering_for_optimization", lambda data, cm: data)
+
+    out = svc_data.load_dataset(_cm({"analysis_mode": "laminar_flow"}), phi_subset=[45.0])
+    assert out["phi_angles_list"].size == 0
+
+
 def test_resolve_phi_angles_cli_wins_and_normalizes():
     cm = _cm({"scattering": {"phi_angles": [10.0, 200.0]}})
     assert svc_data.resolve_phi_angles(cm, cli_phi=[5.0]) == [5.0]

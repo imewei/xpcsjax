@@ -1456,6 +1456,11 @@ class DataQualityController:
                     effective_mask = negative_mask
 
                 if np.any(effective_mask):
+                    # An integer-dtype c2_exp truncates the 1e-6 floor to exactly
+                    # 0 on assignment (mirrors the guard in preprocessing.py's
+                    # _correct_diagonal_enhanced / _normalize_data / _reduce_noise).
+                    if not np.issubdtype(arr.dtype, np.floating):
+                        arr = arr.astype(np.float64)
                     arr[effective_mask] = 1e-6
                     data["c2_exp"] = arr
                     data_modified = True

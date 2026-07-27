@@ -351,12 +351,15 @@ def _unpack_heterodyne_scaling(
     ``result.nlsq_diagnostics["per_angle_mode"]`` and the correct parameter
     layout is reconstructed for each:
 
-    - ``individual`` — ``[physical_0..M-1, c_0..N-1, o_0..N-1]`` (per-angle
-      contrast/offset fitted independently). Physics-first — matches the fit's
-      emitted layout (``heterodyne_core`` packs
-      ``[physics | contrast_per_angle | offset_per_angle]``).
-    - ``averaged`` — ``[physical..., contrast, offset]``; the single fitted
-      (contrast, offset) pair is replicated across all angles.
+    - ``individual`` — ``[c_0..N-1, o_0..N-1, physical_0..M-1]`` (per-angle
+      contrast/offset fitted independently). Canonical scaling-first: the
+      scaling HEAD precedes the physics TAIL.
+    - ``averaged`` — ``[contrast, offset, physical...]`` by default; the single
+      fitted (contrast, offset) pair is replicated across all angles. The
+      legacy ``_fit_joint_averaged_multi_phi`` producer instead emits
+      physics-first and marks it with ``scaling_first=False`` — see
+      :func:`_heterodyne_physics_is_head`, the single source of truth for
+      which end of the vector the physics block occupies.
     - ``constant`` — ``[physical...]``; per-angle scaling was frozen pre-fit
       and is read from the ``contrast_per_angle_fixed`` /
       ``offset_per_angle_fixed`` diagnostics.
@@ -1494,11 +1497,11 @@ def generate_nlsq_plots(
         :class:`~xpcsjax.HomodyneModel`, the bare ``CombinedModel`` returned by
         :func:`xpcsjax.core.models.make_model` for the homodyne modes, or
         :class:`~xpcsjax.HeterodyneModel`. The two families use different
-        ``result.parameters`` layouts: homodyne/``CombinedModel`` is
-        scaling-first (``[contrast.., offset.., physical..]``) while heterodyne
-        is physics-first (``[physical.. | contrast.. | offset..]``). The
-        per-model unpacking is dispatched internally, so callers do not need to
-        reconcile the two layouts.
+        ``result.parameters`` layouts, and heterodyne's varies by per-angle
+        mode. The per-model unpacking is dispatched internally, so callers do
+        not need to reconcile the layouts; code that must slice
+        ``result.parameters`` directly should consult
+        :func:`_heterodyne_physics_is_head` rather than assume an ordering.
     result
         :class:`~xpcsjax.OptimizationResult` from :func:`xpcsjax.fit_nlsq`.
     data
