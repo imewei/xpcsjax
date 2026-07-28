@@ -87,6 +87,15 @@ def _source_xla_config(tmp_path: Path, mode: str) -> tuple[int, str, bool]:
         },
     )
     out = dict(line.split("=", 1) for line in proc.stdout.splitlines() if "=" in line)
+    if "rc" not in out:
+        # DIAGNOSTIC (temporary): surface exactly what the subprocess produced
+        # instead of a bare KeyError, to root-cause the Windows CI failure.
+        raise AssertionError(
+            f"bash subprocess produced no 'rc=' line.\n"
+            f"returncode={proc.returncode!r}\n"
+            f"stdout={proc.stdout!r}\n"
+            f"stderr={proc.stderr!r}"
+        )
     persisted = (tmp_path / "xpcsjax" / "xla_mode").is_file()
     return int(out["rc"]), out["flags"], persisted
 
