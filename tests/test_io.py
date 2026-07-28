@@ -231,10 +231,32 @@ class TestSaveNlsqJsonFiles:
             assert (subdir / "parameters.json").exists()
 
     def test_stat_failure_does_not_report_write_failure(self, monkeypatch) -> None:
-        param, analysis, convergence = self._make_dicts()
+        """A ``Path.stat()`` failure on the post-write size check (the
+        best-effort ``total_size_kb`` log in ``save_nlsq_json_files``) must not
+        be reported as a write failure -- the files are already complete on
+        disk by that point.
 
-        def boom(self) -> None:
-            raise OSError("stale file handle")
+        The stub is scoped to the 3 output filenames ONLY (not a blanket
+        ``Path.stat`` patch): ``get_safe_output_dir`` also calls ``.stat()``
+        indirectly via ``Path.exists()`` on the output directory itself,
+        *before* any writing happens, and that earlier call is not what this
+        test targets. A global patch made that earlier call raise too --
+        `Path.exists()`'s OSError-suppression logic differs enough across
+        Python versions that this was silently masked on 3.14 but a genuine
+        uncaught crash on 3.12/3.13 (verified via CI failure logs).
+        """
+        param, analysis, convergence = self._make_dicts()
+        target_names = {
+            "parameters.json",
+            "analysis_results_nlsq.json",
+            "convergence_metrics.json",
+        }
+        real_stat = Path.stat
+
+        def boom(self, *args: object, **kwargs: object):
+            if self.name in target_names:
+                raise OSError("stale file handle")
+            return real_stat(self, *args, **kwargs)
 
         with tempfile.TemporaryDirectory() as tmp:
             monkeypatch.setattr(Path, "stat", boom)
