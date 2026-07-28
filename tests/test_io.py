@@ -233,7 +233,7 @@ class TestSaveNlsqJsonFiles:
     def test_stat_failure_does_not_report_write_failure(self, monkeypatch) -> None:
         param, analysis, convergence = self._make_dicts()
 
-        def boom(self) -> None:
+        def boom(self, *args: object, **kwargs: object) -> None:
             raise OSError("stale file handle")
 
         with tempfile.TemporaryDirectory() as tmp:
