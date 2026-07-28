@@ -3623,7 +3623,6 @@ class NLSQWrapper(NLSQAdapterBase):
         if transform_state:
             combined_covariance = adjust_covariance_for_transforms(
                 combined_covariance,
-                combined_solver,
                 combined_physical,
                 transform_state,
             )
