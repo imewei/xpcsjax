@@ -6,10 +6,11 @@
 only proves the field survives ``AntiDegeneracyConfig.from_dict`` and reaches
 the shared ``AntiDegeneracyController`` -- it never drives an actual streaming
 fit call. This test reuses the ``_CapturingOptimizer`` harness from
-``test_hybrid_streaming_constant_quantile_fallback.py`` (which already proves
-that harness reaches ``fit_with_stratified_hybrid_streaming``'s internals) to
-capture the real ``AdaptiveRegularizationConfig(...)`` call site inside the
-streaming function and pin the configured value.
+``_hybrid_streaming_fixtures.py`` (proven, via
+``test_hybrid_streaming_constant_quantile_fallback.py``, to reach
+``fit_with_stratified_hybrid_streaming``'s internals) to capture the real
+``AdaptiveRegularizationConfig(...)`` call site inside the streaming function
+and pin the configured value.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ import numpy as np
 
 from xpcsjax.optimization.nlsq.strategies import hybrid_streaming as hs
 
-from .test_hybrid_streaming_constant_quantile_fallback import (
+from ._hybrid_streaming_fixtures import (
     _PHYSICAL_NAMES,
     _CapturingOptimizer,
     _laminar_dataset,

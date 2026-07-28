@@ -40,6 +40,7 @@ from xpcsjax.optimization.nlsq.heterodyne_core import (
     _fit_cmaes,
     _fit_joint_cmaes_multi_phi,
 )
+from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
 
 from ._heterodyne_fixtures import make_synthetic_two_component
 
@@ -314,10 +315,15 @@ def test_fit_cmaes_dof_clamp_prevents_negative_reduced_chi_squared(monkeypatch) 
     it, ``reduced_chi_squared`` would flip sign (negative), which is
     unphysical and would silently corrupt downstream quality classification.
 
-    CMA-ES itself is stubbed to a non-raising, unsuccessful result (mirroring
-    ``test_joint_multi_phi_cmaes_sigma0_is_honored``'s technique) purely to
-    keep this test fast and evosax-independent; the DOF clamp under test
-    runs in the shared post-Phase-3 block regardless of which optimizer won.
+    Both the CMA-ES call AND the Phase-1 NLSQ warm-start solve are stubbed
+    with deterministic, non-raising fakes -- the warm-start is normally a
+    real 14-parameter fit on only 12 valid points (this test's whole point is
+    that it's underdetermined), and driving that solve for real showed
+    non-reproducible flakiness under parallel test execution. Stubbing both
+    isolates the assertion to the DOF-clamp arithmetic itself: given the
+    stub's fixed ``final_cost`` and the deterministic (seeded) input data's
+    ``sigma2_noise``, the corrected ``reduced_chi_squared`` is pinned to an
+    exact expected value, not just "some positive number."
     """
     from types import SimpleNamespace
 
@@ -330,10 +336,38 @@ def test_fit_cmaes_dof_clamp_prevents_negative_reduced_chi_squared(monkeypatch) 
         f"the clamp is exercised; got n_valid={n_valid}, n_params={n_params}. "
         "Adjust n_t if the model's varying-parameter count changes."
     )
+    n_dof_valid = max(n_valid - n_params, 1)
+
+    # Independently reproduce the production sigma2_noise computation
+    # (heterodyne_core.py's post-fit block) against the deterministic
+    # (seeded) input data, so the expected value below isn't circular.
+    c2_np = np.asarray(c2[0])
+    row_idx = np.arange(n_matrix)
+    lag_mat = np.abs(row_idx[:, None] - row_idx[None, :])
+    far_vals = c2_np[lag_mat >= n_matrix // 2]
+    sigma2_noise = float(np.var(far_vals)) if far_vals.size > 1 else 0.0
+    assert sigma2_noise > 1e-12, (
+        "fixture assumption broken: sigma2_noise must clear the production "
+        f"gate (>1e-12) for the correction block to run; got {sigma2_noise}."
+    )
+
+    stub_final_cost = 3.5
+    lower_bounds, upper_bounds = model.param_manager.get_bounds()
+    stub_params = np.clip(model.param_manager.get_initial_values(), lower_bounds, upper_bounds)
+
+    def _stub_fit_local(*args, **kwargs):
+        return NLSQResult(
+            parameters=stub_params,
+            parameter_names=list(model.param_manager.varying_names),
+            success=True,
+            message="stubbed warm-start",
+            final_cost=stub_final_cost,
+        )
 
     def spy(**kwargs):
         return SimpleNamespace(success=False, parameters=None, covariance=None, diagnostics={})
 
+    monkeypatch.setattr(heterodyne_core, "_fit_local", _stub_fit_local)
     monkeypatch.setattr(heterodyne_core, "fit_with_cmaes", spy)
 
     config = NLSQConfig(enable_cmaes=True, cmaes_warmstart_auto_skip=False)
@@ -341,10 +375,14 @@ def test_fit_cmaes_dof_clamp_prevents_negative_reduced_chi_squared(monkeypatch) 
 
     assert result.success, "warm-start NLSQ fit must succeed for this DOF check to be meaningful"
     assert result.reduced_chi_squared is not None
-    assert result.reduced_chi_squared > 0, (
-        "reduced_chi_squared must stay positive even when n_valid < n_params; "
-        f"got {result.reduced_chi_squared}. Regression: an unclamped "
+
+    expected_reduced_chi_squared = (2.0 * stub_final_cost) / (sigma2_noise * n_dof_valid)
+    assert result.reduced_chi_squared == pytest.approx(expected_reduced_chi_squared), (
+        "reduced_chi_squared must equal ssr / (sigma2_noise * max(n_valid - n_params, 1)) "
+        f"with the clamp applied; got {result.reduced_chi_squared}, expected "
+        f"{expected_reduced_chi_squared}. Regression: an unclamped "
         "n_dof_valid = n_valid - n_params (negative here) flips the sign of "
-        "ssr / (sigma2_noise * n_dof_valid)."
+        "ssr / (sigma2_noise * n_dof_valid) instead of matching this value."
     )
+    assert result.reduced_chi_squared > 0
     assert np.isfinite(result.reduced_chi_squared)

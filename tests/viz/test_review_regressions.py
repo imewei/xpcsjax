@@ -109,14 +109,32 @@ def test_generate_plots_missing_analyzer_parameters_raises_valueerror(tmp_path):
         )
 
 
-def test_generate_plots_missing_analysis_mode_falls_back_to_laminar_flow(tmp_path):
+def test_generate_plots_missing_analysis_mode_falls_back_to_laminar_flow(tmp_path, monkeypatch):
     """``generate_nlsq_plots``' ``analysis_mode`` guard (line ~1623) falls back
     to ``"laminar_flow"`` when the key is absent/None, rather than raising --
     the homodyne (CombinedModel) path must still complete successfully.
+
+    Asserting only "does not raise" would also pass if the fallback silently
+    resolved to a DIFFERENT valid mode string (e.g. ``"static_isotropic"``) --
+    ``AnalysisMode.parse`` would still succeed, no exception would propagate,
+    yet the wrong per-angle parameter layout would be used. So this test spies
+    on ``AnalysisMode.parse`` to pin the literal resolved value, not just the
+    absence of an exception.
     """
+    from xpcsjax.config.parameter_registry import AnalysisMode
     from xpcsjax.core.models import make_model
     from xpcsjax.optimization.nlsq.results import OptimizationResult
+    from xpcsjax.viz import nlsq_plots
     from xpcsjax.viz.nlsq_plots import generate_nlsq_plots
+
+    resolved_modes: list[str] = []
+    real_parse = AnalysisMode.parse
+
+    def _capturing_parse(raw, **kwargs):
+        resolved_modes.append(str(raw))
+        return real_parse(raw, **kwargs)
+
+    monkeypatch.setattr(nlsq_plots.AnalysisMode, "parse", _capturing_parse)
 
     model = make_model({"analysis_mode": "laminar_flow"})
     physical = np.asarray(model.get_default_parameters(), dtype=float)
@@ -146,6 +164,14 @@ def test_generate_plots_missing_analysis_mode_falls_back_to_laminar_flow(tmp_pat
     # Must not raise: proves the config_dict.get("analysis_mode") or
     # "laminar_flow" fallback is exercised end-to-end, not just parsed.
     generate_nlsq_plots(model=model, result=result, data=data, config=config, output_dir=tmp_path)
+
+    assert resolved_modes and resolved_modes[0] == "laminar_flow", (
+        "config_dict.get('analysis_mode') or 'laminar_flow' must resolve to the "
+        f"literal string 'laminar_flow' when the key is absent; got {resolved_modes}. "
+        "Regression: the fallback silently switching to a different valid mode "
+        "string would parse successfully (no exception) but drive the wrong "
+        "per-angle parameter layout."
+    )
 
 
 def test_heterodyne_constant_mode_raises_not_implemented(tmp_path):
