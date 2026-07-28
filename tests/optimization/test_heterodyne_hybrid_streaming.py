@@ -1237,6 +1237,86 @@ def test_streaming_l2_diagnostics_keys_present_for_individual():
     assert np.isfinite(info["ssr"])
 
 
+def test_streaming_auto_tune_lambda_reaches_adaptive_regularization_config():
+    """Regression for issue #20: heterodyne's OWN L3 ``AdaptiveRegularizationConfig``
+    call site (``heterodyne_hybrid_streaming.py:630-635``, inside
+    ``fit_with_stratified_hybrid_streaming_heterodyne``) must honor
+    ``anti_degeneracy_config["regularization"]["auto_tune_lambda"]``.
+
+    Mirrors ``tests/optimization/test_hybrid_streaming_auto_tune_lambda.py`` (the
+    laminar-side site) but drives a real call into the heterodyne streaming
+    function, whose ``AdaptiveRegularizationConfig`` import is function-local
+    (``from xpcsjax.optimization.nlsq.adaptive_regularization import
+    AdaptiveRegularizationConfig, ...`` at call time) -- so the spy must patch the
+    source module, not the ``heterodyne_hybrid_streaming`` module namespace.
+    """
+    import xpcsjax.optimization.nlsq.adaptive_regularization as adaptive_reg
+    import xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming as hs
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+
+    class _FakeOpt:
+        def __init__(self, config: object) -> None:
+            pass
+
+        def fit(
+            self, data_source: object, func: object, p0: np.ndarray, bounds=None, sigma=None, **kw
+        ):
+            n = len(p0)
+            return {
+                "x": np.asarray(p0, dtype=np.float64),
+                "pcov": np.eye(n),
+                "nit": 1,
+                "success": True,
+            }
+
+    captured: dict = {}
+    real_config = adaptive_reg.AdaptiveRegularizationConfig
+
+    def _spy_config(**kwargs):
+        captured["kwargs"] = kwargs
+        return real_config(**kwargs)
+
+    original_config = adaptive_reg.AdaptiveRegularizationConfig
+    adaptive_reg.AdaptiveRegularizationConfig = _spy_config
+    original_opt = hs.AdaptiveHybridStreamingOptimizer
+    hs.AdaptiveHybridStreamingOptimizer = _FakeOpt
+    try:
+        # n_phi=3 at the default constant_scaling_threshold=3 resolves
+        # auto -> averaged: n_scaling=2 and group_indices=[(0,1),(1,2)], so
+        # regularization_active is True and the L3 config site is reached.
+        model, c2, phi = _make_synthetic_heterodyne(n_phi=3, n_t=6)
+        strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+        lo, hi = model.param_manager.get_bounds()
+
+        hs.fit_with_stratified_hybrid_streaming_heterodyne(
+            stratified_data=strat,
+            model=model,
+            physical_param_names=list(model.param_manager.varying_names),
+            initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+            bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+            anti_degeneracy_config={
+                "per_angle_mode": "auto",
+                "regularization": {"auto_tune_lambda": False},
+            },
+        )
+    finally:
+        adaptive_reg.AdaptiveRegularizationConfig = original_config
+        hs.AdaptiveHybridStreamingOptimizer = original_opt
+
+    assert "kwargs" in captured, "AdaptiveRegularizationConfig must have been constructed"
+    assert captured["kwargs"]["auto_tune_lambda"] is False, (
+        "regularization.auto_tune_lambda=False must reach the heterodyne streaming "
+        "path's own AdaptiveRegularizationConfig (heterodyne_hybrid_streaming.py "
+        f"line ~630); got {captured['kwargs']['auto_tune_lambda']!r}. Regression: "
+        "this heterodyne-specific streaming call site could silently ignore the "
+        "configured value while the laminar site "
+        "(test_hybrid_streaming_auto_tune_lambda.py) and the config-parsing-layer "
+        "test (test_anti_degeneracy_layers.py) stay green."
+    )
+
+
 def test_streaming_l2_ssr_finite_for_individual():
     """Hierarchical path must produce finite SSR and correct popt length."""
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
