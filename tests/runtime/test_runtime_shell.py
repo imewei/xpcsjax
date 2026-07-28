@@ -69,10 +69,21 @@ def _source_xla_config(tmp_path: Path, mode: str) -> tuple[int, str, bool]:
         ["bash", "-c", script, "bash", str(XLA_CONFIG_BASH), mode],  # noqa: S607
         capture_output=True,
         text=True,
+        # Deliberately minimal env (isolates from any XLA_FLAGS/xpcsjax state in
+        # the parent process) PLUS the handful of Windows-only vars
+        # (SystemRoot/ComSpec/TEMP/TMP) that Windows' CreateProcess and bash's
+        # own DLL loading commonly need -- a bare PATH/HOME dict silently
+        # misbehaves there (empty/garbled subprocess output) even though POSIX
+        # doesn't need them.
         env={
             "PATH": os.environ["PATH"],
             "HOME": str(tmp_path),
             "XDG_CONFIG_HOME": str(tmp_path),
+            **{
+                k: os.environ[k]
+                for k in ("SystemRoot", "ComSpec", "TEMP", "TMP")
+                if k in os.environ
+            },
         },
     )
     out = dict(line.split("=", 1) for line in proc.stdout.splitlines() if "=" in line)
