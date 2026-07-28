@@ -39,6 +39,19 @@ from xpcsjax.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _coerce_bool_flag(value: object) -> bool:
+    """Coerce a config flag to bool, without ``bool()``'s truthy-string trap.
+
+    ``bool("false")`` is ``True`` (any non-empty string is truthy), so a
+    hand-edited or generated config with ``static_mode: "false"`` (a string)
+    would silently select the wrong analysis mode under a plain ``bool()``
+    cast. Recognize common false-ish string spellings explicitly.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() not in {"false", "0", "no", "off", "", "none"}
+    return bool(value)
+
+
 class HomodyneModel:
     """Hybrid stateful/functional wrapper for homodyne XPCS analysis.
 
@@ -322,8 +335,8 @@ class HomodyneModel:
         """Determine analysis mode from configuration."""
         analysis_settings = config.get("analysis_settings", {})
         if analysis_settings:
-            is_static = bool(analysis_settings.get("static_mode", False))
-            is_isotropic = bool(analysis_settings.get("isotropic_mode", False))
+            is_static = _coerce_bool_flag(analysis_settings.get("static_mode", False))
+            is_isotropic = _coerce_bool_flag(analysis_settings.get("isotropic_mode", False))
 
             if is_static:
                 return "static_isotropic" if is_isotropic else "static_anisotropic"

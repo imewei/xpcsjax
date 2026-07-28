@@ -58,7 +58,10 @@ def export_figures(
     dest.mkdir(parents=True, exist_ok=True)
 
     copied: list[Path] = []
-    used_names: set[str] = set()
+    # Seed with names already present in dest_dir (a prior export, or an
+    # unrelated file) so this call's collision-disambiguation never silently
+    # overwrites something that already exists there.
+    used_names: set[str] = {p.name for p in dest.iterdir() if p.is_file()}
     for src in sources:
         candidate = src.name
         if candidate in used_names:

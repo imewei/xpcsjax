@@ -110,12 +110,13 @@ def compute_uncertainties(covariance: np.ndarray) -> np.ndarray:
 
     diagonal = np.asarray(np.diag(covariance), dtype=float)
 
-    # Reject non-finite variances (NaN/inf from a singular or failed solve);
-    # np.maximum leaves NaN as NaN, so zero them out explicitly first.
-    diagonal = np.where(np.isfinite(diagonal), diagonal, 0.0)
-
-    # Handle negative diagonal elements (numerical issues)
-    diagonal = np.maximum(diagonal, 0.0)
+    # Non-finite variances (NaN/inf from a singular or failed covariance
+    # solve) must surface as NaN uncertainty ("unknown"/unconstrained), NOT
+    # be zeroed into a false "uncertainty == 0" (perfect confidence) report.
+    # Negative diagonal elements (floating-point noise near zero) are still
+    # clipped to 0 for the finite entries only.
+    finite_mask = np.isfinite(diagonal)
+    diagonal = np.where(finite_mask, np.maximum(diagonal, 0.0), np.nan)
 
     return np.asarray(np.sqrt(diagonal))
 

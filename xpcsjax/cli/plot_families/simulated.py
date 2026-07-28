@@ -155,6 +155,7 @@ def _plot_simulated_from_config(
         )
         return None
 
+    wrote_any = False
     for i, phi in enumerate(phi_angles):
         try:
             c2_sim = _evaluate_model_c2(
@@ -200,6 +201,7 @@ def _plot_simulated_from_config(
                 analysis_mode=analysis_mode,
                 save_path=save_path,
             )
+            wrote_any = True
         except Exception as exc:
             run_id = _current_run_id()
             log_once(
@@ -212,7 +214,7 @@ def _plot_simulated_from_config(
                 exc,
             )
 
-    return plots_dir
+    return plots_dir if wrote_any else None
 
 
 def _evaluate_model_c2(

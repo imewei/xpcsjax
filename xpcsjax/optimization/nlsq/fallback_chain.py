@@ -249,6 +249,7 @@ def execute_optimization_with_fallback(
     curve_fit_large_fn: Callable,
     fast_mode: bool = False,
     callback: Callable | None = None,
+    sigma: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray | None, dict[str, Any], list[str], str]:
     """Execute optimization with automatic strategy fallback.
 
@@ -293,6 +294,11 @@ def execute_optimization_with_fallback(
         Reserved fast-mode flag.
     callback : Callable | None, optional
         Per-iteration L4 monitor callback (strictly observational).
+    sigma : np.ndarray | None, optional
+        Per-point uncertainty forwarded to the standard/large curve_fit calls
+        and the recovery executor (root-cause fix: previously computed by the
+        caller and silently dropped here). Not forwarded to the STREAMING
+        (hybrid-streaming) branch, which has no sigma support yet.
 
     Returns
     -------
@@ -344,6 +350,7 @@ def execute_optimization_with_fallback(
                     loss_name=loss_name,
                     x_scale_value=x_scale_value,
                     callback=callback,
+                    sigma=sigma,
                 )
                 if _is_soft_failure(convergence_status):
                     raise RuntimeError(
@@ -360,6 +367,7 @@ def execute_optimization_with_fallback(
                         xdata,
                         ydata,
                         p0=validated_params.tolist(),
+                        sigma=sigma,
                         bounds=nlsq_bounds if nlsq_bounds is not None else (-np.inf, np.inf),
                         loss=loss_name,
                         x_scale=x_scale_value,
@@ -379,6 +387,7 @@ def execute_optimization_with_fallback(
                     )
 
                     _std_kwargs: dict = dict(
+                        sigma=sigma,
                         bounds=nlsq_bounds,
                         loss=loss_name,
                         x_scale=x_scale_value,

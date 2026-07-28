@@ -247,9 +247,10 @@ def validate_single_parameter(
     rules = PHYSICS_CONSTRAINTS.get(param, [])
 
     # Non-finite values (NaN / ±inf) are physically impossible. Flag uniformly
-    # as an ERROR for every constrained parameter (the relational rules below
-    # accept NaN silently, since NaN compares False to everything).
-    if rules and _is_non_finite(value):
+    # as an ERROR for every parameter, including the 5 with no PHYSICS_CONSTRAINTS
+    # rules (D_offset_ref, D_offset_sample, v_offset, f2, phi0) — the relational
+    # rules below accept NaN silently, since NaN compares False to everything.
+    if _is_non_finite(value):
         if severity_order[ConstraintSeverity.ERROR] >= min_level:
             violations.append(
                 PhysicsViolation(
@@ -438,10 +439,10 @@ def validate_parameters(params: np.ndarray | dict[str, float]) -> ValidationResu
         descriptive error.
     """
     if isinstance(params, np.ndarray):
-        if len(params) != 14:
+        if params.ndim != 1 or len(params) != 14:
             return ValidationResult(
                 is_valid=False,
-                errors=[f"Expected 14 parameters, got {len(params)}"],
+                errors=[f"Expected a 1-D array of 14 parameters, got shape {params.shape}"],
                 warnings=[],
             )
         param_dict = {name: float(params[i]) for i, name in enumerate(ALL_PARAM_NAMES)}
@@ -491,6 +492,13 @@ def validate_time_integral_safety(
     """
     errors: list[str] = []
     warnings: list[str] = []
+
+    if _is_non_finite(alpha) or _is_non_finite(t_min) or _is_non_finite(t_max):
+        errors.append(
+            f"Non-finite input to time-integral safety check: "
+            f"alpha={alpha}, t_min={t_min}, t_max={t_max}"
+        )
+        return ValidationResult(is_valid=False, errors=errors, warnings=warnings)
 
     if alpha < 0 and t_min <= 0:
         errors.append(f"alpha={alpha:.3f} < 0 requires t_min > 0, got t_min={t_min}")

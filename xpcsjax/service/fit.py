@@ -173,7 +173,7 @@ def run_fit(
     if on_event is not None:
 
         def on_iteration(n: int, ssr: float) -> None:
-            on_event(Iteration(run_id="", seq=0, n=int(n), ssr=float(ssr), chi2=float(ssr)))
+            on_event(Iteration(run_id=run_id, seq=0, n=int(n), ssr=float(ssr), chi2=float(ssr)))
 
     # Only pass on_iteration when we actually have one, preserving the legacy
     # 2-positional-arg call shape ``fit_nlsq(data, config_manager)`` on the

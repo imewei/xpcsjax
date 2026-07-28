@@ -359,7 +359,12 @@ class AdaptiveRegularizer:
 
             total_reg = total_reg + group_reg
 
-        return total_reg
+        # Mirror compute_regularization's NumPy-path guard: a diverged solver
+        # step can hand this JAX/autodiff path non-finite params, and
+        # jnp.mean/jnp.std on NaN silently produce NaN here instead of the
+        # documented "+inf forces trust-region step rejection" contract.
+        # jnp.where (not a Python `if`) keeps this JIT/grad-traceable.
+        return jnp.where(jnp.all(jnp.isfinite(params)), total_reg, jnp.inf)
 
     def compute_regularization_gradient(
         self, params: np.ndarray, mse: float, n_points: int

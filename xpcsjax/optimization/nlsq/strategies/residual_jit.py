@@ -171,6 +171,13 @@ class StratifiedResidualFunctionJIT:
             self.n_real_points,
         ) = self._create_padded_arrays()
 
+        # Alias matching the sibling non-JIT StratifiedResidualFunction's
+        # attribute name (strategies/residual.py). Downstream DOF/uncertainty
+        # code (strategies/stratified_ls.py) duck-types on n_total_points via
+        # hasattr(); without this alias it silently falls back to the padded
+        # (inflated) residual-vector length, understating every uncertainty.
+        self.n_total_points = self.n_real_points
+
         self.logger.info(
             f"Padded arrays created: shape ({self.n_chunks}, {self.max_chunk_size}), "
             f"real points: {self.n_real_points:,}, "

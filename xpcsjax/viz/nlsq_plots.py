@@ -53,7 +53,7 @@ import matplotlib.pyplot as plt  # noqa: E402  (must follow matplotlib.use)
 import numpy as np
 
 from xpcsjax.config.parameter_registry import AnalysisMode
-from xpcsjax.io.json_utils import json_serializer
+from xpcsjax.io.json_utils import json_safe, json_serializer
 from xpcsjax.utils.logging import get_logger
 from xpcsjax.utils.path_validation import validate_plot_save_path
 
@@ -1247,10 +1247,18 @@ def _save_fit_artifacts(
         },
     }
 
-    tmp_json = json_path.with_suffix(json_path.suffix + ".tmp")
+    # Unique temp file in the same directory (mirrors _write_npz_compressed
+    # above) — concurrent writers targeting the same output_dir don't collide.
+    fd, tmp_str = tempfile.mkstemp(
+        prefix=json_path.name + ".", suffix=".tmp", dir=str(json_path.parent)
+    )
+    os.close(fd)
+    tmp_json = Path(tmp_str)
     try:
         with open(tmp_json, "w", encoding="utf-8") as f:
-            json.dump(meta, f, indent=2, default=json_serializer)
+            # json_safe() converts NaN/Infinity to RFC-8259-legal null/strings
+            # so non-converged or all-NaN fits still yield strictly parseable JSON.
+            json.dump(json_safe(meta), f, indent=2, default=json_serializer)
         tmp_json.replace(json_path)
     except BaseException:
         if tmp_json.exists():
@@ -1709,6 +1717,12 @@ def generate_nlsq_plots(
                 i,
                 phi_deg_f,
             )
+
+    if np.all(np.isnan(c2_fitted)):
+        raise RuntimeError(
+            f"Model evaluation failed for all {n_phi} angle(s); see prior "
+            "ERROR log entries for per-angle tracebacks. No artifacts written."
+        )
 
     # Residuals are needed by both backends and by the NPZ writer below.
     residuals = c2_exp - c2_fitted

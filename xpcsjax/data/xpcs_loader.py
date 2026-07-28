@@ -41,12 +41,15 @@ xpcsjax.fit_nlsq : Fit the loaded correlation data.
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import json
 import logging
 import os
 import re
 import string
 import time
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -82,6 +85,13 @@ try:
 except ImportError:
     HAS_YAML = False
     yaml = None  # type: ignore[assignment]
+
+# A real exception class even when PyYAML is absent, so `except (_YAML_ERROR, ...)`
+# below never evaluates `yaml.YAMLError` on a None `yaml` module (which would raise
+# AttributeError and mask the intended XPCSDependencyError).
+_YAML_ERROR: type[Exception] = (
+    yaml.YAMLError if HAS_YAML else type("_NoYAMLError", (Exception,), {})
+)
 
 # JAX integration
 try:
@@ -252,6 +262,23 @@ def _migrate_cache_template(template: str) -> str:
     return template
 
 
+def _is_jax_array(arr: Any) -> bool:
+    """Return True only for actual JAX arrays.
+
+    NumPy >=2.0 ndarrays also expose a ``.device`` attribute, so a bare
+    ``hasattr(arr, "device")`` misidentifies a genuine NumPy array as JAX
+    whenever JAX is importable. Use ``isinstance`` against ``jnp.ndarray``
+    (an alias for ``jax.Array``) instead.
+    """
+    return HAS_JAX and isinstance(arr, jnp.ndarray)
+
+
+def _hash_filter_config(filter_config: dict[str, Any]) -> str:
+    """Stable short fingerprint of a filter-settings dict for cache validation."""
+    canonical = json.dumps(filter_config, sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
 def _maybe_apply_mandatory_diagonal_correction(
     data: dict[str, Any],
     fallback_correct_diagonal_batch: Callable[[Any], Any] | None = None,
@@ -397,6 +424,14 @@ def _validate_loaded_arrays(data: dict[str, Any], *, source: str) -> None:
         _check_frame_count(int(c2.shape[-1]), source=source)
         _check_allocation_budget(
             int(c2.shape[0]), int(c2.shape[-1]), c2.dtype.itemsize, source=source
+        )
+    else:
+        # A non-3-D shape (2-D, 1-D, 4-D, ...) is a malformed I/O-boundary input
+        # and must hard-fail here rather than silently skip the square/frame/
+        # allocation guards and surface a confusing downstream shape error later.
+        raise XPCSDataFormatError(
+            f"c2_exp from {source!r} has shape {c2.shape}; expected a 3-D "
+            "(n_phi, n_t, n_t) correlation-matrix stack."
         )
 
     for key in ("t1", "t2"):
@@ -549,7 +584,7 @@ def load_xpcs_config(config_path: str | Path) -> dict[str, Any]:
                 f"Supported formats: .yaml, .yml, .json",
             )
 
-    except (yaml.YAMLError, json.JSONDecodeError) as e:
+    except (_YAML_ERROR, json.JSONDecodeError) as e:
         raise XPCSConfigurationError(
             f"Failed to parse configuration file {config_path}: {e}",
         ) from e
@@ -1774,7 +1809,7 @@ class XPCSDataLoader:
         side_band = c2_mat[(np.arange(size - 1), np.arange(1, size))]
 
         # Create diagonal values using the same array type as input
-        if HAS_JAX and hasattr(c2_mat, "device"):  # JAX array
+        if _is_jax_array(c2_mat):  # JAX array
             diag_val = jnp.zeros(size, dtype=c2_mat.dtype)
             diag_val = diag_val.at[:-1].add(side_band)
             diag_val = diag_val.at[1:].add(side_band)
@@ -1826,7 +1861,7 @@ class XPCSDataLoader:
         size = c2_matrices.shape[1]
 
         # FR-006: Pre-allocate output array (avoid list append)
-        if HAS_JAX and hasattr(c2_matrices, "device"):
+        if _is_jax_array(c2_matrices):
             # JAX path: use vmap for vectorized correction (FR-006a)
             return self._correct_diagonal_batch_jax(c2_matrices)  # type: ignore
         else:
@@ -2118,8 +2153,12 @@ class XPCSDataLoader:
 
         logger.debug(f"Target q-vector: {config_q:.6f} A^-1")
 
-        # Find closest q-vector to target
-        closest_idx = int(np.argmin(np.abs(dqlist - config_q)))
+        # Find closest q-vector to target, skipping any NaN-masked entries
+        # (wavevector_q_list may legitimately contain NaN for bad-pixel masking).
+        try:
+            closest_idx = int(np.nanargmin(np.abs(dqlist - config_q)))
+        except ValueError as e:
+            raise ValueError("wavevector_q_list contains no finite q-values") from e
         selected_q = dqlist[closest_idx]
         deviation = abs(selected_q - config_q)
 
@@ -2272,17 +2311,35 @@ class XPCSDataLoader:
             "phi_count": len(cache_data["phi_angles_list"]),
             "cache_version": "2.0",
             "selective_q_caching": True,
+            # Fingerprint of the filter settings (phi range, quality/data
+            # filtering) that shaped the cached (q, phi) selection, so a config
+            # change with the same start/end frame + q is detected instead of
+            # silently reusing a stale cache.
+            "filter_config_hash": _hash_filter_config(self.config.get("data_filtering", {})),
         }
 
         # Metadata is stored as a JSON-encoded scalar (not a Python dict via
         # object pickling) so the loader can read it with allow_pickle=False.
         cache_data["cache_metadata_json"] = np.asarray(json.dumps(cache_metadata))
 
-        # Save with compression if specified
-        if self.exp_config.get("cache_compression", True):
-            np.savez_compressed(cache_path, **cache_data)
-        else:
-            np.savez(cache_path, **cache_data)
+        # Save with compression if specified. Write to a uniquely-named temp
+        # file in the same directory, then atomically rename into place, so
+        # concurrent loaders (e.g. parallel pytest-xdist workers, concurrent
+        # fit processes sharing a cache dir) never observe a partially-written
+        # NPZ at cache_path.
+        # Suffix must stay ".npz" — np.savez appends it to any filename that
+        # doesn't already end in ".npz", which would break the later rename.
+        tmp_path = f"{cache_path}.tmp{os.getpid()}_{uuid.uuid4().hex[:8]}.npz"
+        try:
+            if self.exp_config.get("cache_compression", True):
+                np.savez_compressed(tmp_path, **cache_data)
+            else:
+                np.savez(tmp_path, **cache_data)
+            os.replace(tmp_path, cache_path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.remove(tmp_path)
+            raise
 
         # Log cache statistics
         file_size_mb = os.path.getsize(cache_path) / (1024 * 1024)
@@ -2329,6 +2386,25 @@ class XPCSDataLoader:
                 f"{cached_config_q:.6f} AA^-1. The cache is q-specific; delete it "
                 f"and regenerate, or use a q-keyed cache_filename_template "
                 f"(e.g. include ${{wavevector_q}}).",
+            )
+
+        # Check if the phi/quality/data-filtering settings that shaped the
+        # cached (q, phi) selection still match. start/end frame + q alone
+        # aren't enough to key the cache: a phi_range or quality_filtering
+        # change with the same frames/q would otherwise silently reuse a
+        # cache built under the old filter settings.
+        current_filter_hash = _hash_filter_config(self.config.get("data_filtering", {}))
+        cached_filter_hash = cache_metadata.get("filter_config_hash")
+        if cached_filter_hash is not None and cached_filter_hash != current_filter_hash:
+            raise XPCSDataFormatError(
+                "Cache filter-config mismatch: the phi_range/data_filtering/"
+                "quality_filtering settings have changed since this cache was "
+                "built. The cache is filter-specific; delete it and regenerate."
+            )
+        if cached_filter_hash is None:
+            logger.warning(
+                "Cache metadata predates filter-config fingerprinting; cannot "
+                "verify phi/quality-filtering settings match the current config.",
             )
 
         # Check if cache uses selective q-caching
@@ -2653,10 +2729,20 @@ class XPCSDataLoader:
                     )
 
         except ImportError as e:
-            logger.warning(
-                f"Preprocessing pipeline not available: {e}. Using original data.",
-            )
-            return data
+            logger.warning(f"Preprocessing pipeline not available: {e}.")
+            # Check fallback setting (same gate as the other two error paths above).
+            preprocessing_config = self.config.get("preprocessing", {})
+            if preprocessing_config.get("fallback_on_failure", True):
+                self._record_degradation(
+                    f"preprocessing pipeline unavailable ({e}); fell back to original data"
+                )
+                if isinstance(data, dict):
+                    data["_preprocessing_degraded"] = True
+                return data
+            else:
+                raise XPCSDataFormatError(
+                    f"Preprocessing pipeline unavailable and fallback disabled: {e}"
+                ) from e
         except (ValueError, KeyError, IndexError, RuntimeError) as e:
             # Narrowed from broad Exception: only catch expected processing errors.
             # Programming bugs (AttributeError, TypeError) and system errors

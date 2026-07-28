@@ -176,7 +176,14 @@ class ParameterSpace:
         -------
         dict
             Mapping from parameter name to (float) value.
+
+        Raises
+        ------
+        ValueError
+            If ``arr`` does not have exactly ``len(ALL_PARAM_NAMES)`` entries.
         """
+        if len(arr) != len(ALL_PARAM_NAMES):
+            raise ValueError(f"Expected {len(ALL_PARAM_NAMES)} values, got {len(arr)}")
         return {name: float(arr[i]) for i, name in enumerate(ALL_PARAM_NAMES)}
 
     def update_from_dict(self, params: dict[str, float]) -> None:
@@ -210,7 +217,7 @@ class ParameterSpace:
         """
         errors = []
 
-        for name in ALL_PARAM_NAMES:
+        for name in ALL_PARAM_NAMES_WITH_SCALING:
             value = self.values.get(name)
             bounds = self.bounds.get(name)
 
@@ -349,6 +356,13 @@ class ParameterSpace:
             "angle": ["phi0"],
             "scaling": ["contrast", "offset"],
         }
+
+        unknown_groups = set(params_config) - set(group_map)
+        if unknown_groups:
+            raise ValueError(
+                f"Unknown parameter group(s) {sorted(unknown_groups)} under "
+                f"'parameters'. Valid groups: {list(group_map)}"
+            )
 
         for group_name, param_names in group_map.items():
             group_config = params_config.get(group_name, {})
@@ -493,9 +507,10 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
         else:
             logger.warning("initial_parameters: unknown parameter '%s', skipping", name)
 
-    # active_parameters: if provided, only these parameters vary
+    # active_parameters: if provided, only these parameters vary. An explicit
+    # empty list means "fix everything" and must NOT be treated as absent.
     active_raw = initial.get("active_parameters")
-    if active_raw and isinstance(active_raw, list):
+    if active_raw is not None and isinstance(active_raw, list):
         active_names = {
             _INBOUND_NAME_ALIAS.get(m, m)
             for m in (PARAMETER_NAME_MAPPING.get(str(n), str(n)) for n in active_raw)

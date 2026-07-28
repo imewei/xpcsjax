@@ -956,42 +956,77 @@ def _perform_incremental_validation(
     """Perform optimized incremental validation using previous results."""
     logger.debug("Performing incremental validation")
 
-    # Start with previous report as base
+    # Identify what has changed since last validation
+    changed_components = _identify_changed_components(data, previous_report)
+
+    if not changed_components:
+        logger.debug("No data changes detected - using cached results")
+        report = DataQualityReport(
+            is_valid=previous_report.is_valid,
+            validation_level="incremental",
+            total_issues=previous_report.total_issues,
+            data_statistics=previous_report.data_statistics.copy(),
+            physics_checks=previous_report.physics_checks.copy(),
+        )
+        # Copy issues from previous report
+        report.errors = previous_report.errors.copy()
+        report.warnings = previous_report.warnings.copy()
+        report.info = previous_report.info.copy()
+        report.quality_score = previous_report.quality_score
+        return report
+
+    logger.debug(f"Re-validating changed components: {changed_components}")
+
     report = DataQualityReport(
-        is_valid=previous_report.is_valid,
+        is_valid=True,
         validation_level="incremental",
         total_issues=0,
         data_statistics=previous_report.data_statistics.copy(),
         physics_checks=previous_report.physics_checks.copy(),
     )
 
-    # Identify what has changed since last validation
-    changed_components = _identify_changed_components(data, previous_report)
-
-    if not changed_components:
-        logger.debug("No data changes detected - using cached results")
-        # Copy issues from previous report
-        report.errors = previous_report.errors.copy()
-        report.warnings = previous_report.warnings.copy()
-        report.info = previous_report.info.copy()
-        report.total_issues = previous_report.total_issues
-        report.quality_score = previous_report.quality_score
-        return report
-
-    logger.debug(f"Re-validating changed components: {changed_components}")
+    # Carry forward issues belonging to components that did NOT change,
+    # instead of dropping them: dropping them either silently erases a
+    # still-broken unchanged component's errors, or (once is_valid below is
+    # recomputed from the merged set rather than ratcheted) would let
+    # is_valid flip back to True while that component is still broken.
+    #
+    # A cross-component (parameter=None) issue -- e.g. from
+    # _validate_array_shapes below -- is never "in changed_components" by
+    # construction, so a naive `issue.parameter not in changed_components`
+    # check always carries it forward unconditionally. Whenever t1/t2/c2_exp
+    # changed, _validate_array_shapes reruns below and would either duplicate
+    # a still-broken shape issue or leave a stale one behind after it's been
+    # fixed (report.errors would then never drop it, blocking is_valid from
+    # ever flipping back to True). Skip carrying those forward when a rerun
+    # is about to supersede them; let the fresh rerun be the sole source.
+    shape_will_rerun = any(c in changed_components for c in ("t1", "t2", "c2_exp"))
+    for issue in previous_report.errors + previous_report.warnings + previous_report.info:
+        if issue.parameter is None and shape_will_rerun:
+            continue
+        if issue.parameter not in changed_components:
+            report.add_issue(issue)
 
     # Re-validate only changed components
     for component in changed_components:
         component_report = validate_data_component(data, component, "basic", config)
+        for issue in component_report.errors + component_report.warnings + component_report.info:
+            report.add_issue(issue)
 
-        # Merge component validation results
-        report.errors.extend(component_report.errors)
-        report.warnings.extend(component_report.warnings)
-        report.info.extend(component_report.info)
-        report.total_issues += component_report.total_issues
+    # Cross-component shape consistency (t1 vs t2, matrix size vs time axis)
+    # is only checked by the full-validation path's _validate_array_shapes;
+    # a component-scoped re-validation of t1/t2/c2_exp never re-runs it, so a
+    # mismatch introduced between two incremental calls was never caught.
+    # Re-run it whenever a component it depends on changed.
+    if any(component in changed_components for component in ("t1", "t2", "c2_exp")):
+        _validate_array_shapes(data, report)
 
-        if not component_report.is_valid:
-            report.is_valid = False
+    # Recompute is_valid from the final merged issue set rather than
+    # ratcheting the previous report's is_valid one-way to False: a
+    # previously-invalid report whose offending component has since been
+    # fixed (and no other errors remain) must be able to report
+    # is_valid=True again.
+    report.is_valid = len(report.errors) == 0
 
     # Re-compute overall quality score
     report.quality_score = _compute_quality_score(report)
@@ -1215,7 +1250,11 @@ def _identify_changed_components(
 
     for key, value in data.items():
         if key in ["wavevector_q_list", "phi_angles_list", "t1", "t2", "c2_exp"]:
-            if hasattr(value, "shape"):
+            # Plain Python-list-backed components have no .shape attribute;
+            # a bare hasattr(value, "shape") gate made mutating a list-typed
+            # q/phi/time component invisible to change detection, so
+            # incremental validation kept returning the stale cached report.
+            if hasattr(value, "shape") or isinstance(value, (list, tuple)):
                 arr = np.asarray(value)
                 # Richer change detection: shape + sum + std + first + last
                 # Matches the fingerprint stored by _compute_data_statistics.

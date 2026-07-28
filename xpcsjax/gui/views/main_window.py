@@ -373,6 +373,11 @@ class MainWindow(QMainWindow):
         self._sidebar.update_run(self._project, run_id)
         if status in ("starting", "running"):
             self._set_status_state("running")
+        elif status == "cancelled":
+            # No dedicated QSS state for "cancelled" — revert the pill to the
+            # neutral/idle look so it doesn't stay stuck on "running" styling
+            # after the status text itself has moved on.
+            self._set_status_state("idle")
         if status == "starting":
             # Cold-spawn pause is expected, not a hang (spec §4 F10).
             self.set_status(f"{run_id[:8]}: starting (JAX import / XLA compile may take a moment)…")
@@ -621,6 +626,13 @@ class MainWindow(QMainWindow):
         # _reset_run_view_state).
         self._reset_run_view_state()
         self._project = project
+        # Point future per-run output dirs at the newly-opened project's own
+        # directory (mirrors create_project) — otherwise _per_run_output_dir()
+        # would keep resolving under whatever project was previously open (or
+        # None on a fresh launch), mixing this project's run artifacts into it.
+        project_dir = Path(path).resolve().parent
+        self._project_dir = project_dir
+        self._output_dir = project_dir
         # A freshly-opened project has no active dataset, so a subsequent "Run"
         # would say "pick a config first". Default to the first dataset (matches
         # add_dataset's auto-select), so Run works straight after Open Project.
@@ -641,10 +653,12 @@ class MainWindow(QMainWindow):
         window afterward. Skipping this on the open-project path let a run or
         result from the just-discarded project leak into the newly loaded one.
         """
-        # shutdown() cancels every active worker, joins its reader, and clears
-        # the pending queue while leaving the controller reusable for the next
-        # fit (the same teardown closeEvent uses).
-        self._queue.shutdown()
+        # cancel_all() (not shutdown()) — this path replaces the owning project
+        # while the app stays alive, so each in-flight/queued run must go
+        # through the per-run cancel cleanup (removes its partial output dir)
+        # rather than the app-close teardown, which cancels workers but never
+        # touches disk.
+        self._queue.cancel_all()
         self._active_run_id = None
         self._viewing_run_id = None
         self._comparison.show_runs([])

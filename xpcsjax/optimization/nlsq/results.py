@@ -20,7 +20,17 @@ if TYPE_CHECKING:
 # Closed sets for optimization status fields. Kept as Literals so existing string
 # comparisons (e.g. ``convergence_status == "converged"``) keep working at runtime
 # while static checkers gain exhaustiveness over the allowed values.
-ConvergenceStatus = Literal["converged", "max_iter", "failed", "partial"]
+ConvergenceStatus = Literal[
+    "converged",
+    "max_iter",
+    "failed",
+    "partial",
+    # Out-of-core L-M loop abort reasons (strategies/out_of_core.py), distinct
+    # from ordinary "max_iter" exhaustion.
+    "non_finite_gradient",
+    "line_search_stalled",
+    "unknown",
+]
 QualityFlag = Literal["good", "marginal", "poor", "unknown"]
 
 

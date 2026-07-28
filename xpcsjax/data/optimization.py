@@ -130,11 +130,14 @@ class DatasetOptimizer:
             batch_size = min(100, size // 1000)
             progressive_loading = True
 
-        # Adjust for memory constraints
+        # Adjust for memory constraints. Floor at 1: an aggressive scale_factor
+        # (e.g. a very small/zero memory_limit_mb) would otherwise round down
+        # to a 0 chunk_size/batch_size, which downstream chunked-iterator code
+        # divides by, raising ZeroDivisionError instead of a clear guard here.
         if memory_usage > self.memory_limit_mb:
             scale_factor = self.memory_limit_mb / memory_usage
-            chunk_size = int(chunk_size * scale_factor * 0.8)  # 20% safety margin
-            batch_size = int(batch_size * scale_factor * 0.8)
+            chunk_size = max(1, int(chunk_size * scale_factor * 0.8))  # 20% safety margin
+            batch_size = max(1, int(batch_size * scale_factor * 0.8))
 
         dataset_info = DatasetInfo(
             size=size,

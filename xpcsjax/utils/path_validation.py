@@ -274,6 +274,11 @@ def get_safe_output_dir(
     if output_dir is None:
         output_dir = Path.cwd() / default_subdir
     else:
+        # Reject null bytes before Path conversion, matching validate_save_path
+        # (Path.resolve() raises a raw ValueError on an embedded null, not the
+        # documented PathValidationError).
+        if isinstance(output_dir, str) and "\x00" in output_dir:
+            raise PathValidationError(f"Null bytes not allowed in path: {output_dir!r}")
         output_dir = Path(output_dir)
 
     # Validate path doesn't contain traversal (component-level check,

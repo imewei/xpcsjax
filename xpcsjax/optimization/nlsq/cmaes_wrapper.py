@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -158,21 +158,35 @@ def _denormalize_params(
 
 def _normalize_bounds(
     bounds: tuple[np.ndarray, np.ndarray],
+    epsilon: float = 1e-12,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Normalize bounds to [0, 1] space.
+
+    A degenerate (fixed/frozen) parameter has ``lower == upper`` in physical
+    space; ``_compute_normalization_factors`` maps it to normalized 0 via the
+    epsilon guard. Its normalized bounds must stay pinned at ``(0, 0)`` — not
+    the default ``(0, 1)`` — or CMA-ES is free to search a physical range the
+    caller explicitly froze.
 
     Parameters
     ----------
     bounds : tuple[np.ndarray, np.ndarray]
         Physical bounds as (lower, upper) arrays.
+    epsilon : float
+        Threshold below which a bound pair is treated as degenerate; must
+        match the epsilon passed to ``_compute_normalization_factors``.
 
     Returns
     -------
     tuple[np.ndarray, np.ndarray]
-        Normalized bounds (zeros, ones).
+        Normalized bounds: (zeros, ones) for free parameters, (0, 0) for
+        degenerate ones.
     """
-    n_params = len(bounds[0])
-    return (np.zeros(n_params), np.ones(n_params))
+    lower, upper = bounds
+    is_degenerate = (upper - lower) <= epsilon
+    norm_lower = np.zeros(len(lower))
+    norm_upper = np.where(is_degenerate, 0.0, 1.0)
+    return (norm_lower, norm_upper)
 
 
 def _adjust_covariance_for_normalization(
@@ -650,7 +664,25 @@ class CMAESWrapper:
                     "loss": self.config.refinement_loss,
                 }
 
-                # Run NLSQ curve_fit with workflow="auto" for memory-aware selection
+                # NLSQ's curve_fit has no "workflow"/"tr_solver" kwargs — the real
+                # name is "method" (verified via inspect.signature). Passing the
+                # wrong name silently no-ops through **kwargs, so map our
+                # "auto"/"standard"/"streaming" vocabulary onto NLSQ's own.
+                # `solver` (a *different* NLSQ parameter — the linear-solver
+                # strategy in core/minpack.py, not the trust-region tr_solver
+                # internal-only choice) is deliberately left at its "auto"
+                # default rather than hardcoded to "svd": NLSQ's own docstring
+                # says solver="svd" is only "good for small to medium
+                # datasets", and this refinement call has no dataset-size
+                # bound, so hardcoding it would force SVD even on a very
+                # large Jacobian where "auto" would correctly pick an
+                # iterative solver (cg/lsqr/minibatch) instead.
+
+                _method_map: dict[str, Literal["trf", "hybrid_streaming"] | None] = {
+                    "auto": None,
+                    "standard": "trf",
+                    "streaming": "hybrid_streaming",
+                }
                 # NLSQ returns (popt, pcov), not scipy's 5-tuple with full_output
                 popt, pcov = curve_fit(
                     f=model_func,
@@ -659,8 +691,7 @@ class CMAESWrapper:
                     p0=p0,
                     sigma=sigma,
                     bounds=bounds,
-                    workflow=self.config.refinement_workflow,
-                    tr_solver="exact",  # Model uses closure data, not xdata
+                    method=_method_map.get(self.config.refinement_workflow),
                     **refinement_kwargs,
                 )
 
@@ -994,7 +1025,7 @@ class CMAESWrapper:
 
             # Normalize initial parameters and bounds
             fit_p0 = _normalize_params(p0, norm_scale, norm_offset)
-            fit_bounds = _normalize_bounds(bounds)
+            fit_bounds = _normalize_bounds(bounds, self.config.normalization_epsilon)
 
             # Wrap model function to denormalize params before evaluation
             # IMPORTANT: Use JAX operations to preserve tracers during JIT compilation

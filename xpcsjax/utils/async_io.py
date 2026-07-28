@@ -12,7 +12,7 @@ import logging
 from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from pathlib import Path
-from threading import Lock, Thread
+from threading import Event, Lock, Thread
 from typing import Any, TypeVar
 
 import numpy as np
@@ -66,11 +66,18 @@ class PrefetchLoader(Iterator[R]):
         self._exhausted = False
         self._thread: Thread | None = None
         self._error: Exception | None = None
+        # Bumped whenever a prefetch thread is abandoned (join timeout) so a
+        # stale write from that orphaned thread can be told apart from the
+        # current generation and ignored instead of corrupting state that a
+        # later, legitimate prefetch already owns.
+        self._generation = 0
         self._start_prefetch()
 
     def _start_prefetch(self) -> None:
         if self._exhausted:
             return
+
+        generation = self._generation
 
         def _load() -> None:
             try:
@@ -80,10 +87,10 @@ class PrefetchLoader(Iterator[R]):
                 try:
                     item = next(self._source)
                 except StopIteration:
-                    self._exhausted = True
+                    if generation == self._generation:
+                        self._exhausted = True
                     return
-                self._prefetched = self._load_fn(item)
-                self._has_prefetched = True
+                result = self._load_fn(item)
             except Exception as e:
                 # __next__ re-raises _error, and a bare StopIteration there would
                 # still silently end the caller's for-loop — re-tag it.
@@ -98,8 +105,15 @@ class PrefetchLoader(Iterator[R]):
                     context={"operation": "prefetch_load"},
                     level=logging.WARNING,
                 )
-                self._error = err
-                self._exhausted = True
+                if generation == self._generation:
+                    self._error = err
+                    self._exhausted = True
+                return
+            # Only publish into current state if this thread is still the
+            # active generation (i.e. it wasn't abandoned on a join timeout).
+            if generation == self._generation:
+                self._prefetched = result
+                self._has_prefetched = True
 
         # daemon=True: prefetch is read-only; safe to abandon on exit
         self._thread = Thread(target=_load, daemon=True)
@@ -125,6 +139,10 @@ class PrefetchLoader(Iterator[R]):
         if self._thread is not None:
             self._thread.join(timeout=120.0)
             if self._thread.is_alive():
+                # Abandon this thread: bump the generation first so any write
+                # it makes after this point (self._prefetched/_has_prefetched)
+                # is recognized as stale and dropped by _load() above.
+                self._generation += 1
                 self._exhausted = True
                 self._thread = None
                 timeout_err = RuntimeError("Prefetch thread did not complete within 120s timeout")
@@ -163,6 +181,10 @@ class AsyncWriter:
         self._futures: list[Future[None]] = []
         self._lock = Lock()
         self._shutdown = False
+        # Signaled once the FIRST shutdown() call's drain has actually
+        # finished, so a concurrent second caller blocks on the real drain
+        # instead of returning immediately just because _shutdown flipped True.
+        self._shutdown_done = Event()
 
     def submit_npz(self, path: Path, data: dict[str, np.ndarray]) -> None:
         """Write NPZ file in background."""
@@ -270,46 +292,60 @@ class AsyncWriter:
         during that final drain is surfaced here rather than silently dropped,
         honouring the error-observation contract (``wait_all`` never re-observes
         a future it left behind on timeout).
+
+        A second, concurrent call blocks until the first caller's drain has
+        actually completed (via ``_shutdown_done``) rather than returning as
+        soon as ``_shutdown`` flips True — otherwise a caller that treats
+        return as "all writes are durable" could proceed while the real drain
+        is still in progress.
         """
         # Flip the flag under _lock so it serializes against the submit_*
         # check-and-submit. Release before wait_all()/executor.shutdown(), which
         # re-acquire _lock — holding it across them would deadlock.
         with self._lock:
             if self._shutdown:
-                return
-            self._shutdown = True
-        errors = self.wait_all(timeout=drain_timeout)
-        if errors:
-            logger.error("AsyncWriter.shutdown: %d background write(s) failed", len(errors))
-        self._executor.shutdown(wait=True)
+                already_draining = True
+            else:
+                self._shutdown = True
+                already_draining = False
+        if already_draining:
+            self._shutdown_done.wait()
+            return
+        try:
+            errors = self.wait_all(timeout=drain_timeout)
+            if errors:
+                logger.error("AsyncWriter.shutdown: %d background write(s) failed", len(errors))
+            self._executor.shutdown(wait=True)
 
-        # wait_all() keeps any future still mid-write at its timeout; the
-        # executor.shutdown(wait=True) above has now finished those. Surface any
-        # that FAILED during that final drain — wait_all() never calls result()
-        # on them again, so without this their exception is silently lost.
-        with self._lock:
-            remaining = list(self._futures)
-            self._futures.clear()
-        late_failures = 0
-        for future in remaining:
-            try:
-                # Non-blocking: every submitted future is done after
-                # executor.shutdown(wait=True).
-                exc = future.exception()
-            except Exception:  # noqa: BLE001 - cancelled/never-ran; nothing to surface
-                continue
-            if exc is not None:
-                late_failures += 1
-                logger.warning(
-                    "Background write failed during shutdown drain (%s): %s",
-                    type(exc).__name__,
-                    exc,
+            # wait_all() keeps any future still mid-write at its timeout; the
+            # executor.shutdown(wait=True) above has now finished those. Surface any
+            # that FAILED during that final drain — wait_all() never calls result()
+            # on them again, so without this their exception is silently lost.
+            with self._lock:
+                remaining = list(self._futures)
+                self._futures.clear()
+            late_failures = 0
+            for future in remaining:
+                try:
+                    # Non-blocking: every submitted future is done after
+                    # executor.shutdown(wait=True).
+                    exc = future.exception()
+                except Exception:  # noqa: BLE001 - cancelled/never-ran; nothing to surface
+                    continue
+                if exc is not None:
+                    late_failures += 1
+                    logger.warning(
+                        "Background write failed during shutdown drain (%s): %s",
+                        type(exc).__name__,
+                        exc,
+                    )
+            if late_failures:
+                logger.error(
+                    "AsyncWriter.shutdown: %d background write(s) failed during final drain",
+                    late_failures,
                 )
-        if late_failures:
-            logger.error(
-                "AsyncWriter.shutdown: %d background write(s) failed during final drain",
-                late_failures,
-            )
+        finally:
+            self._shutdown_done.set()
 
     def __del__(self) -> None:
         """Warn if garbage-collected without an explicit :meth:`shutdown`.

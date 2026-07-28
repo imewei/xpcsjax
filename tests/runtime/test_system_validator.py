@@ -63,7 +63,13 @@ def test_parse_version(text: str, expected: tuple[int, ...]) -> None:
         ("1.9", "2.0", False),
         ("0.8.2", "0.8.2", True),
         ("0.8.1", "0.8.2", False),
-        ("1.2.3rc1", "1.2.3", True),
+        # A pre-release / dev build of the required minimum must NOT satisfy
+        # it: _parse_version drops the non-numeric suffix, so the numeric
+        # tuples alone are equal (1, 2, 3) == (1, 2, 3) -- _version_at_least
+        # must break that tie using _is_final_release, not silently pass.
+        ("1.2.3rc1", "1.2.3", False),
+        ("0.8.2.dev20250101", "0.8.2", False),
+        ("1.2.3", "1.2.3rc1", True),
     ],
 )
 def test_version_at_least(actual: str, minimum: str, ok: bool) -> None:

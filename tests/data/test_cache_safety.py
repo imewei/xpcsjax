@@ -23,6 +23,7 @@ def _bare_loader() -> XPCSDataLoader:
     loader = XPCSDataLoader.__new__(XPCSDataLoader)
     loader.analyzer_config = {"scattering": {"wavevector_q": 0.0054}}
     loader.exp_config = {"cache_compression": False}
+    loader.config = {}
     return loader
 
 

@@ -28,12 +28,20 @@ def safe_uncertainties_from_pcov(pcov: np.ndarray, n_params: int) -> np.ndarray:
     if pcov.shape[0] != n_params:
         return np.zeros(n_params)
     diag = np.diag(pcov)
-    if np.any(diag < 1e-15):
+    # `diag < 1e-15` is False for both NaN (any comparison) and +Inf, so a
+    # non-finite diagonal entry would skip regularization and flow straight
+    # through sqrt(maximum(diag, 0)) as NaN/Inf -- defeating the one thing
+    # this function exists to guard against. Treat non-finite as singular too.
+    needs_regularization = ~np.isfinite(diag) | (diag < 1e-15)
+    if np.any(needs_regularization):
         logger.warning(
-            f"Singular covariance: {np.sum(diag < 1e-15)}/{n_params} near-zero entries. "
-            "Applying regularization."
+            f"Singular covariance: {np.sum(needs_regularization)}/{n_params} "
+            "near-zero or non-finite entries. Applying regularization."
         )
         diag = np.diag(pcov + np.eye(n_params) * 1e-10)
+        # Regularization alone doesn't fix a NaN/Inf that came from off-diagonal
+        # contamination in pcov; floor anything still non-finite.
+        diag = np.where(np.isfinite(diag), diag, 1e-10)
     return np.asarray(np.sqrt(np.maximum(diag, 0.0)))
 
 
@@ -52,6 +60,7 @@ def execute_with_recovery(
     curve_fit_large_fn: Callable,
     callback: Callable | None = None,
     convergence: dict[str, float] | None = None,
+    sigma: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict, list[str], str]:
     """Execute optimization with automatic error recovery (T022-T024).
 
@@ -88,6 +97,8 @@ def execute_with_recovery(
         Large-dataset ``curve_fit`` function.
     callback : Callable | None, optional
         Per-iteration L4 monitor callback (strictly observational).
+    sigma : np.ndarray | None, optional
+        Per-point uncertainty forwarded to ``curve_fit_fn``/``curve_fit_large_fn``.
 
     Returns
     -------
@@ -119,12 +130,12 @@ def execute_with_recovery(
         # explicitly sets it, so the default recovery solve stays unchanged.
         _tol_kwargs["xtol"] = float(_conv["xtol"])
 
-    # Compute initial cost for optimization success tracking
-    if hasattr(residual_fn, "n_total_points") or isinstance(residual_fn, FunctionEvaluationCounter):
-        initial_residuals = residual_fn(initial_params)
-    else:
-        initial_residuals = residual_fn(xdata, *initial_params)
-    initial_cost = np.sum(initial_residuals**2)
+    # Initial cost for optimization success tracking is computed lazily inside
+    # the retry loop below (not here) so a residual_fn(initial_params) failure
+    # -- e.g. a domain error at a pathological caller-supplied starting point
+    # -- goes through the same diagnose_error()/retry machinery as every other
+    # failure in this function, instead of crashing before the loop even starts.
+    initial_cost: float | None = None
 
     # Determine if we should use large dataset functions
     use_large = strategy != OptimizationStrategy.STANDARD
@@ -139,6 +150,15 @@ def execute_with_recovery(
             log.info(
                 f"Optimization attempt {attempt + 1}/{max_retries} ({strategy.value} strategy)"
             )
+
+            if initial_cost is None:
+                if hasattr(residual_fn, "n_total_points") or isinstance(
+                    residual_fn, FunctionEvaluationCounter
+                ):
+                    initial_residuals = residual_fn(current_params)
+                else:
+                    initial_residuals = residual_fn(xdata, *current_params)
+                initial_cost = float(np.sum(initial_residuals**2))
 
             if use_large:
                 log.debug("Using curve_fit_large with NLSQ automatic memory management")
@@ -158,6 +178,7 @@ def execute_with_recovery(
                     xdata,
                     ydata,
                     p0=current_params.tolist(),
+                    sigma=sigma,
                     bounds=bounds,
                     loss=loss_name,
                     x_scale=x_scale_large,
@@ -195,6 +216,7 @@ def execute_with_recovery(
                 )
 
                 _std_kwargs: dict = dict(
+                    sigma=sigma,
                     bounds=bounds,
                     loss=loss_name,
                     x_scale=x_scale_array,
@@ -242,12 +264,18 @@ def execute_with_recovery(
             # Validate result
             params_unchanged = np.allclose(popt, current_params, rtol=1e-10)
             identity_covariance = np.allclose(pcov, np.eye(len(popt)), rtol=1e-10)
+            # A solve that moved the parameters but returned a NaN/Inf covariance
+            # (e.g. a near-singular JtJ that didn't trip NLSQ's own identity-
+            # covariance fallback) is not a success either -- without this check
+            # it falls straight through to "Success!" with garbage uncertainties.
+            pcov_non_finite = not np.all(np.isfinite(pcov))
 
-            if params_unchanged or identity_covariance:
+            if params_unchanged or identity_covariance or pcov_non_finite:
                 log.warning(
                     f"Potential optimization failure detected:\n"
                     f"  Parameters unchanged: {params_unchanged}\n"
                     f"  Identity covariance: {identity_covariance}\n"
+                    f"  Non-finite covariance: {pcov_non_finite}\n"
                     f"  This may indicate NLSQ streaming bug or failed optimization"
                 )
 

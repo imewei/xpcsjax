@@ -212,6 +212,12 @@ class PhiResultsGrid(QWidget):
             Fit data bundle. ``None`` clears the grid.
         """
         self._clear()
+        if bundle is not None and np.asarray(bundle.exp_c2).ndim != 3:
+            # Malformed artifact: exp_c2 isn't the expected (n_phi, t, t) — a
+            # 0-D array would crash on shape[0] below, and a 2-D array would
+            # silently misread the leading time axis as n_phi. Degrade to the
+            # empty-grid state exactly like ``bundle=None`` rather than either.
+            bundle = None
         self._bundle = bundle
         if bundle is None:
             return

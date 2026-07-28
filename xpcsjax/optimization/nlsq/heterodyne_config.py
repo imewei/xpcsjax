@@ -48,12 +48,15 @@ def safe_float(value: Any, default: float) -> float:
     -------
     float
         ``float(value)`` on success, *default* otherwise (a failed conversion
-        is logged as a warning).
+        is logged as a warning). NaN/Inf are treated as a failed conversion —
+        the config's ``x <= 0``/``x < 1`` style guards are IEEE-754 relational
+        comparisons that silently let NaN through (``NaN <= 0`` is ``False``),
+        so a non-finite value must never reach a validated numeric field.
     """
     if value is None:
         return default
     try:
-        return float(value)
+        result = float(value)
     except (TypeError, ValueError):
         logger.warning(
             "safe_float: could not convert %r to float, using default %s",
@@ -61,6 +64,58 @@ def safe_float(value: Any, default: float) -> float:
             default,
         )
         return default
+    if not np.isfinite(result):
+        logger.warning(
+            "safe_float: %r converts to non-finite %s, using default %s",
+            value,
+            result,
+            default,
+        )
+        return default
+    return result
+
+
+def safe_bool(value: Any, default: bool) -> bool:
+    """Convert *value* to bool, handling common string representations.
+
+    Unlike a bare ``bool(value)``, a non-empty string such as ``"false"`` or
+    ``"no"`` (e.g. from a YAML override) is parsed as ``False`` instead of
+    being truthy-coerced to ``True``.
+
+    Parameters
+    ----------
+    value
+        Arbitrary input that should be boolean-like.
+    default
+        Fallback value used when a string value is not recognized.
+
+    Returns
+    -------
+    bool
+        The parsed boolean. ``None`` (a present-but-null YAML value, or a
+        missing key handled by the caller) returns *default* rather than
+        ``bool(None)`` (``False``) — a present-but-null YAML value means
+        "unset", not "explicitly disabled". Real ``bool``/other non-string
+        values fall back to plain ``bool(value)``; unrecognized strings
+        return *default* (a failed conversion is logged as a warning).
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ("true", "yes", "1", "on"):
+            return True
+        if normalized in ("false", "no", "0", "off"):
+            return False
+        logger.warning(
+            "safe_bool: could not parse %r as boolean, using default %s",
+            value,
+            default,
+        )
+        return default
+    return bool(value)
 
 
 def safe_int(value: Any, default: int) -> int:
@@ -292,20 +347,19 @@ class StratificationConfig:
             if isinstance(candidate, dict):
                 strat = candidate
 
-        # A present-but-null YAML value means "unset", so fall back to the
-        # dataclass default rather than crashing (numerics) or silently
-        # collapsing to False (bools).
-        def _flag(key: str, default: bool) -> bool:
-            raw = strat.get(key)
-            return default if raw is None else bool(raw)
-
         return cls(
             enabled=strat.get("enabled", "auto"),
+            # A present-but-null YAML value means "unset": safe_int/safe_float
+            # fall back to the dataclass default on None, and safe_bool
+            # additionally parses common falsy strings ("false"/"no"/"off")
+            # correctly instead of Python's truthy-coercing bare bool().
             target_chunk_size=safe_int(strat.get("target_chunk_size"), 100_000),
             max_imbalance_ratio=safe_float(strat.get("max_imbalance_ratio"), 5.0),
-            force_sequential_fallback=_flag("force_sequential_fallback", False),
-            check_memory_safety=_flag("check_memory_safety", True),
-            use_index_based=_flag("use_index_based", False),
+            force_sequential_fallback=safe_bool(
+                strat.get("force_sequential_fallback", False), False
+            ),
+            check_memory_safety=safe_bool(strat.get("check_memory_safety", True), True),
+            use_index_based=safe_bool(strat.get("use_index_based", False), False),
         )
 
     def is_disabled(self) -> bool:
@@ -1120,7 +1174,7 @@ class NLSQConfig:
             elif kind == "int":
                 kwargs[field_name] = safe_int(raw, 0)
             elif kind == "bool":
-                kwargs[field_name] = bool(raw)
+                kwargs[field_name] = safe_bool(raw, False)
             elif kind == "str":
                 kwargs[field_name] = str(raw)
             elif kind == "float_or_none":

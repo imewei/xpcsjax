@@ -517,14 +517,34 @@ def generate_lhs_starts(
         Starting points as (n_starts, n_params) array.
     """
     n_params = bounds.shape[0]
+    lower = bounds[:, 0]
+    upper = bounds[:, 1]
+
+    # qmc.scale requires l_bounds < u_bounds in EVERY dimension. When some
+    # (but not all) parameters are fixed (lower == upper) -- e.g. a config
+    # that freezes one physics parameter while others vary -- sample only the
+    # free dimensions via LHS and broadcast each fixed dimension's constant
+    # value across all starts. check_zero_volume_bounds() already handles the
+    # all-fixed case upstream by short-circuiting before this function runs.
+    fixed_mask = np.abs(upper - lower) < 1e-15
+    if np.any(fixed_mask):
+        free_idx = np.where(~fixed_mask)[0]
+        sampler = qmc.LatinHypercube(d=len(free_idx), seed=seed, optimization="random-cd")
+        unit_samples = sampler.random(n=n_starts)
+        scaled_free = qmc.scale(unit_samples, lower[free_idx], upper[free_idx])
+        scaled_samples = np.tile(lower, (n_starts, 1))
+        scaled_samples[:, free_idx] = scaled_free
+        logger.debug(
+            f"Generated {n_starts} LHS starting points for {len(free_idx)} free "
+            f"parameters ({n_params - len(free_idx)} fixed)"
+        )
+        return scaled_samples
 
     # Use scipy's Latin Hypercube Sampling
     sampler = qmc.LatinHypercube(d=n_params, seed=seed, optimization="random-cd")
     unit_samples = sampler.random(n=n_starts)  # Samples in [0, 1]^d
 
     # Scale to parameter bounds
-    lower = bounds[:, 0]
-    upper = bounds[:, 1]
     scaled_samples = qmc.scale(unit_samples, lower, upper)
 
     logger.debug(f"Generated {n_starts} LHS starting points for {n_params} parameters")
@@ -979,7 +999,9 @@ def run_multistart_nlsq(
         logger.info("PHASE 2: Screening starting points")
         logger.info("-" * 40)
         n_before_screen = len(starts)
-        starts, screening_costs = screen_starts(cost_func, starts, config.screen_keep_fraction)
+        starts, screening_costs = screen_starts(
+            cost_func, starts, config.screen_keep_fraction, n_workers=config.n_workers
+        )
         n_filtered = n_before_screen - len(starts)
         logger.info(f"Screening filtered {n_filtered} starts, keeping {len(starts)}")
     else:
@@ -1042,7 +1064,7 @@ def run_multistart_nlsq(
             )
 
         best = (
-            results[0]
+            min(results, key=lambda r: r.chi_squared)
             if results
             else SingleStartResult(
                 start_idx=0,
@@ -1329,88 +1351,99 @@ def _run_parallel_with_progress(
 
         parallel_start_time = time.perf_counter()
 
-        with ProcessPoolExecutor(
+        # NOTE: deliberately NOT a `with ProcessPoolExecutor(...) as executor:`
+        # block. ProcessPoolExecutor.__exit__() unconditionally calls
+        # shutdown(wait=True), which blocks until every worker process (even
+        # ones already-running when we time out and can't be force-killed)
+        # actually exits -- defeating the whole point of _WORKER_TIMEOUT if a
+        # worker hangs/deadlocks. Instead we shut down explicitly on every
+        # path: wait=True only on the clean-completion path below, and
+        # wait=False (non-blocking, cancels only not-yet-started futures) on
+        # every timeout/error path so the sequential fallback below can start
+        # without waiting for the stuck worker.
+        executor = ProcessPoolExecutor(
             max_workers=n_workers,
             mp_context=mp_context,
             initializer=_pool_worker_init_concurrency,
             initargs=(n_workers,),
-        ) as executor:
-            futures = {
-                executor.submit(optimize_func, idx, start): idx for idx, start in enumerate(starts)
-            }
-            logger.debug(f"Submitted {len(futures)} tasks to executor")
+        )
+        futures = {
+            executor.submit(optimize_func, idx, start): idx for idx, start in enumerate(starts)
+        }
+        logger.debug(f"Submitted {len(futures)} tasks to executor")
 
-            # Track completion with timeout
-            completed_count = 0
-            total_count = len(futures)
+        # Track completion with timeout
+        completed_count = 0
+        total_count = len(futures)
 
-            for future in as_completed(futures, timeout=_WORKER_TIMEOUT):
-                idx = futures[future]
-                try:
-                    # Timeout for individual result retrieval
-                    result = future.result(timeout=60)
-                    results.append(result)
+        for future in as_completed(futures, timeout=_WORKER_TIMEOUT):
+            idx = futures[future]
+            try:
+                # Timeout for individual result retrieval
+                result = future.result(timeout=60)
+                results.append(result)
+                completed_count += 1
+                progress.update(
+                    start_idx=idx,
+                    success=result.success,
+                    chi_squared=result.chi_squared,
+                    message=result.message,
+                    wall_time=result.wall_time,
+                )
+                logger.debug(
+                    f"Worker {idx} completed: chi2={result.chi_squared:.4e}, "
+                    f"time={result.wall_time:.1f}s ({completed_count}/{total_count})"
+                )
+            except TimeoutError:
+                logger.warning(f"Worker {idx} timed out after 60s waiting for result")
+                logger.info("Falling back to sequential execution")
+                fallback_to_sequential = True
+                fallback_reason = f"Worker {idx} timeout"
+                # Drop pending work and stop dispatching. cancel_futures=True
+                # (Py3.9+) cancels not-yet-started futures; already-running
+                # workers still finish (processes can't be force-killed here),
+                # but no new starts are launched.
+                executor.shutdown(wait=False, cancel_futures=True)
+                break
+            except (
+                ValueError,
+                RuntimeError,
+                TypeError,
+                OSError,
+                AttributeError,
+            ) as e:
+                error_msg = str(e)
+                if _is_pickle_error(error_msg):
+                    fallback_to_sequential = True
+                    fallback_reason = f"Pickle error: {error_msg[:100]}"
+                    logger.warning(f"Pickle/serialization error detected: {e}")
+                    logger.info("Falling back to sequential execution")
+                    # Drop pending work; running workers finish but no new
+                    # starts launch (see timeout branch above).
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    break
+                else:
+                    # Non-fatal error for this worker
+                    logger.warning(f"Worker {idx} failed: {e}")
+                    failed_result = SingleStartResult(
+                        start_idx=idx,
+                        initial_params=starts[idx],
+                        final_params=starts[idx],
+                        chi_squared=np.inf,
+                        success=False,
+                        message=str(e),
+                    )
+                    results.append(failed_result)
                     completed_count += 1
                     progress.update(
                         start_idx=idx,
-                        success=result.success,
-                        chi_squared=result.chi_squared,
-                        message=result.message,
-                        wall_time=result.wall_time,
+                        success=False,
+                        chi_squared=np.inf,
+                        message=str(e),
                     )
-                    logger.debug(
-                        f"Worker {idx} completed: chi2={result.chi_squared:.4e}, "
-                        f"time={result.wall_time:.1f}s ({completed_count}/{total_count})"
-                    )
-                except TimeoutError:
-                    logger.warning(f"Worker {idx} timed out after 60s waiting for result")
-                    logger.info("Falling back to sequential execution")
-                    fallback_to_sequential = True
-                    fallback_reason = f"Worker {idx} timeout"
-                    # Drop pending work and stop dispatching. cancel_futures=True
-                    # (Py3.9+) cancels not-yet-started futures; already-running
-                    # workers still finish (processes can't be force-killed here),
-                    # but no new starts are launched.
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    break
-                except (
-                    ValueError,
-                    RuntimeError,
-                    TypeError,
-                    OSError,
-                    AttributeError,
-                ) as e:
-                    error_msg = str(e)
-                    if _is_pickle_error(error_msg):
-                        fallback_to_sequential = True
-                        fallback_reason = f"Pickle error: {error_msg[:100]}"
-                        logger.warning(f"Pickle/serialization error detected: {e}")
-                        logger.info("Falling back to sequential execution")
-                        # Drop pending work; running workers finish but no new
-                        # starts launch (see timeout branch above).
-                        executor.shutdown(wait=False, cancel_futures=True)
-                        break
-                    else:
-                        # Non-fatal error for this worker
-                        logger.warning(f"Worker {idx} failed: {e}")
-                        failed_result = SingleStartResult(
-                            start_idx=idx,
-                            initial_params=starts[idx],
-                            final_params=starts[idx],
-                            chi_squared=np.inf,
-                            success=False,
-                            message=str(e),
-                        )
-                        results.append(failed_result)
-                        completed_count += 1
-                        progress.update(
-                            start_idx=idx,
-                            success=False,
-                            chi_squared=np.inf,
-                            message=str(e),
-                        )
 
         if not fallback_to_sequential:
+            executor.shutdown(wait=True)
             parallel_time = time.perf_counter() - parallel_start_time
             logger.info(
                 f"Parallel execution complete: {completed_count}/{total_count} tasks "
@@ -1422,6 +1455,11 @@ def _run_parallel_with_progress(
         logger.info("Falling back to sequential execution")
         fallback_to_sequential = True
         fallback_reason = f"Overall timeout ({_WORKER_TIMEOUT}s)"
+        # as_completed() itself timed out waiting for the next future -- shut
+        # down without blocking (see NOTE above); `executor` may be undefined
+        # if construction/submission itself is what raised.
+        if "executor" in locals():
+            executor.shutdown(wait=False, cancel_futures=True)
 
     except (ValueError, RuntimeError, TypeError, OSError, AttributeError) as e:
         error_msg = str(e)
@@ -1434,6 +1472,18 @@ def _run_parallel_with_progress(
             fallback_reason = f"Executor error: {error_msg[:100]}"
             logger.warning(f"ProcessPoolExecutor failed: {e}")
         logger.info("Falling back to sequential execution")
+        if "executor" in locals():
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    finally:
+        # Safety net for any exception type NOT in the two except tuples above
+        # (e.g. pickle.PicklingError, MemoryError, a bug inside optimize_func
+        # raising some other type) -- without this, such an exception
+        # propagates with `executor` never shut down, leaking worker
+        # processes. Executor.shutdown() is documented idempotent, so this
+        # is a harmless no-op on every path that already shut it down above.
+        if "executor" in locals():
+            executor.shutdown(wait=False, cancel_futures=True)
 
     # If parallel failed, fall back to sequential
     if fallback_to_sequential:

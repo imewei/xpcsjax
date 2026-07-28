@@ -494,11 +494,17 @@ def _validate_parameter_values_fallback(config: dict[str, Any]) -> list[str]:
     # Frame range validation
     start_frame = analyzer.get("start_frame")
     end_frame = analyzer.get("end_frame")
-    if start_frame is not None and end_frame is not None:
-        if end_frame != -1 and start_frame >= end_frame:
-            errors.append(f"start_frame ({start_frame}) must be less than end_frame ({end_frame})")
-        if start_frame < 1:
-            errors.append(f"start_frame ({start_frame}) must be >= 1")
+    if (
+        start_frame is not None
+        and end_frame is not None
+        and end_frame != -1
+        and start_frame >= end_frame
+    ):
+        errors.append(f"start_frame ({start_frame}) must be less than end_frame ({end_frame})")
+    # Independent of end_frame, mirroring validators.validate_frame_range: a
+    # config with start_frame set but no end_frame must still be rejected.
+    if start_frame is not None and start_frame < 1:
+        errors.append(f"start_frame ({start_frame}) must be >= 1")
 
     # dt validation
     dt = analyzer.get("dt")

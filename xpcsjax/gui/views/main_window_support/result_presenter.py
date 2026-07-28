@@ -81,8 +81,14 @@ class ResultPresenter(QObject):
 
         if bundle is not None:
             self._mw._result_grid.set_bundle(bundle)
-            self._mw._central_stack.setCurrentIndex(1)  # show per-phi grid
-        else:
+            if self._mw._result_grid.section_count() > 0:
+                self._mw._central_stack.setCurrentIndex(1)  # show per-phi grid
+            else:
+                # set_bundle degraded a malformed exp_c2 (bad shape) to an
+                # empty grid — fall through to the text summary below rather
+                # than showing a blank per-phi page.
+                bundle = None
+        if bundle is None:
             # Fall back to (or keep) the text summary.
             # NOTE: calls self._mw.show_result (the MainWindow shim) deliberately —
             # NOT self.show_result() directly — so future overrides on MainWindow are

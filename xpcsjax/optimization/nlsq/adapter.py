@@ -120,12 +120,17 @@ class ModelCacheKey:
         Scattering wavevector magnitude.
     per_angle_scaling : bool
         Whether per-angle contrast/offset is used.
+    dt : float or None
+        Time step baked into the closure's ``compute_g1_batch`` call. Must be
+        part of the key: two calls with the same mode/phi/q but different
+        ``dt`` must NOT hit each other's cached (dt-specific) closure.
     """
 
     analysis_mode: AnalysisMode
     phi_angles: tuple[float, ...]
     q: float
     per_angle_scaling: bool
+    dt: float | None = None
 
 
 # =============================================================================
@@ -179,6 +184,7 @@ def _make_cache_key(
     phi_angles: np.ndarray,
     q: float,
     per_angle_scaling: bool,
+    dt: float | None = None,
 ) -> ModelCacheKey:
     """Create a hashable cache key from the experimental setup.
 
@@ -192,18 +198,22 @@ def _make_cache_key(
         Scattering wavevector magnitude.
     per_angle_scaling : bool
         Whether per-angle contrast/offset is used.
+    dt : float or None, optional
+        Time step baked into the cached closure; must be part of the key
+        (see :class:`ModelCacheKey`).
 
     Returns
     -------
     ModelCacheKey
-        Hashable, immutable key for cache lookup. ``q`` is rounded to 10
-        decimal places to avoid floating-point precision mismatches.
+        Hashable, immutable key for cache lookup. ``q``/``dt`` are rounded to
+        10 decimal places to avoid floating-point precision mismatches.
     """
     return ModelCacheKey(
         analysis_mode=analysis_mode,
         phi_angles=tuple(np.sort(np.unique(phi_angles))),
         q=round(q, 10),  # Avoid floating-point precision issues
         per_angle_scaling=per_angle_scaling,
+        dt=round(dt, 10) if dt is not None else None,
     )
 
 
@@ -426,8 +436,15 @@ def get_or_create_model(
 
     normalized_mode = analysis_mode
 
+    # dt must be part of the cache key: compute_g1_shear (laminar_flow) raises
+    # TypeError on dt=None (no safe default frame rate), unlike the static
+    # modes' compute_g1_diffusion which tolerates None via a spacing estimate.
+    # It is baked into the returned closure below, so two calls with the same
+    # mode/phi/q but different dt must not hit each other's cached closure.
+    dt_val = float(dt) if dt is not None else None
+
     # Create cache key
-    cache_key = _make_cache_key(normalized_mode, phi_angles, q, per_angle_scaling)
+    cache_key = _make_cache_key(normalized_mode, phi_angles, q, per_angle_scaling, dt_val)
 
     # Check cache
     cached = _model_cache.get(cache_key)
@@ -578,6 +595,7 @@ def get_or_create_model(
             phi_batch,
             q_val,
             1.0,  # Default L (stator-rotor gap), will be scaled by params
+            dt_val,
         )
 
         # Compute g2 = offset + contrast * g1^2 (all JAX operations)
@@ -587,8 +605,10 @@ def get_or_create_model(
 
         g2_pred = offset_per_point + contrast_per_point * g1_batch**2
 
-        # Convert to numpy for compatibility with NLSQ
-        return np.asarray(g2_pred)
+        # Return as JAX array so NLSQ can trace through curve_fit's/CMA-ES's
+        # JIT (np.asarray() on a Tracer raises during tracing — mirrors the
+        # heterodyne model_func above). NLSQ converts to numpy after tracing.
+        return g2_pred
 
     # JIT compilation: The model_func now uses JAX vmap for vectorized computation
     # (FR-006, T042). The underlying CombinedModel.compute_g1_batch() uses JAX vmap.
@@ -889,6 +909,17 @@ class NLSQAdapter(NLSQAdapterBase):
             raise ValueError("Data must contain 'phi' or 'phi_angles_list'")
         phi_unique = np.unique(phi)
 
+        # dt is required for laminar_flow's compute_g1_shear (no safe default
+        # frame rate); the static modes tolerate None via a spacing estimate.
+        # Prefer an explicit value on `data`, else fall back to config
+        # (mirrors the `analyzer_parameters.dt` convention used elsewhere).
+        dt = self._get_attr(data, "dt")
+        if dt is None:
+            config_dict = getattr(config, "config", config)
+            if isinstance(config_dict, dict):
+                dt = config_dict.get("analyzer_parameters", {}).get("dt")
+        dt_val = float(dt) if dt is not None else None
+
         # T011: Use get_or_create_model for caching and JIT
         if self.config.enable_cache:
             model, model_func, cache_hit = get_or_create_model(
@@ -898,6 +929,7 @@ class NLSQAdapter(NLSQAdapterBase):
                 per_angle_scaling=per_angle_scaling,
                 config=None,
                 enable_jit=self.config.enable_jit,
+                dt=dt_val,
             )
             # T013: Cache statistics logging (DEBUG level)
             stats = get_cache_stats()
@@ -980,6 +1012,7 @@ class NLSQAdapter(NLSQAdapterBase):
                         phi_per_point,
                         q_val,
                         1.0,
+                        dt_val,
                     )
                 )
 

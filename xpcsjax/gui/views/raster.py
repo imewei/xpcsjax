@@ -20,6 +20,8 @@ def rasterize(array: np.ndarray, max_dim: int = 1024) -> np.ndarray:
     unsuitable for the interactive numeric ImageItem, so it is intentionally not
     used here.) Small arrays pass through untouched.
     """
+    if max_dim <= 0:
+        raise ValueError(f"max_dim must be positive, got {max_dim}")
     array = np.asarray(array, dtype=float)
     # Sanitize ±inf BEFORE any reduction: an infinity poisons the block mean and
     # breaks ImageItem's colormap autoscaling. Clip each infinity to the finite

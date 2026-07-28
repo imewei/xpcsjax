@@ -677,6 +677,10 @@ class NLSQWrapper(NLSQAdapterBase):
         tiers = self._build_tier_list(decision.strategy)
 
         last_exc: Exception | None = None
+        # Best (most recent) real-but-poor fit across every tier, so the final
+        # fallback below can return actual fitted parameters instead of
+        # discarding them in favor of the raw, un-fitted initial_params.
+        last_poor_result: NLSQResult | None = None
         for tier in tiers:
             result = self._try_tier(
                 tier=tier,
@@ -693,11 +697,16 @@ class NLSQWrapper(NLSQAdapterBase):
                 start_time=start_time,
             )
             if result is not None:
-                return result
-            # Result is None → this tier exhausted all retries; try next
+                if result.success:
+                    return result
+                last_poor_result = result
+            # This tier exhausted all retries; try next
             last_exc = RuntimeError(f"Tier {tier.value} failed after {self._max_retries} retries")
             if not self._enable_recovery:
                 break
+
+        if last_poor_result is not None:
+            return last_poor_result
 
         # All tiers failed
         wall_time = time.perf_counter() - start_time
@@ -748,8 +757,12 @@ class NLSQWrapper(NLSQAdapterBase):
         Returns
         -------
         NLSQResult or None
-            The result on success, or ``None`` if all retries failed.
+            The result on success (``.success is True``), the last poor-but-
+            real fitted result (``.success is False``) if every attempt ran
+            but none passed the convergence heuristic, or ``None`` if every
+            attempt raised an exception (nothing was ever fitted).
         """
+        last_poor_result: NLSQResult | None = None
         lower_bounds, upper_bounds = bounds
         for attempt in range(self._max_retries):
             try:
@@ -783,12 +796,22 @@ class NLSQWrapper(NLSQAdapterBase):
                     reduced_chi2=result.reduced_chi_squared,
                 )
                 if not success:
+                    # Ran without raising, but the fit itself is poor (non-finite
+                    # params / chi2 too high / no progress) -- treat this the
+                    # same as an exception: retry, and if this was the last
+                    # attempt, fall through to `return last_poor_result` below
+                    # so the caller's tier cascade (STREAMING -> LARGE ->
+                    # STANDARD) actually escalates instead of accepting a bad
+                    # fit, without discarding this attempt's real fitted
+                    # parameters if every tier ends up this way.
                     logger.warning(
-                        "NLSQWrapper: tier %s convergence check failed: %s",
+                        "NLSQWrapper: tier %s attempt %d/%d converged to a poor fit, retrying: %s",
                         tier.value,
+                        attempt + 1,
+                        self._max_retries,
                         message,
                     )
-                    result = NLSQResult(
+                    last_poor_result = NLSQResult(
                         parameters=result.parameters,
                         parameter_names=self._parameter_names,
                         success=False,
@@ -805,6 +828,7 @@ class NLSQWrapper(NLSQAdapterBase):
                         wall_time_seconds=wall_time,
                         metadata=result.metadata,
                     )
+                    continue
 
                 logger.info(
                     "NLSQWrapper: tier %s succeeded on attempt %d/%d",
@@ -823,7 +847,7 @@ class NLSQWrapper(NLSQAdapterBase):
                     exc,
                 )
 
-        return None
+        return last_poor_result
 
     def _call_tier(
         self,

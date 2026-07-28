@@ -782,8 +782,12 @@ def fit_with_stratified_least_squares(
     else:
         n_params_effective = n_params
 
-    # Use actual data point count, not padded length from StratifiedResidualFunction
-    n_data_real = residual_fn.n_total_points if hasattr(residual_fn, "n_total_points") else n_data
+    # Use actual data point count, not padded length from StratifiedResidualFunction.
+    # StratifiedResidualFunctionJIT exposes ``n_real_points`` (not
+    # ``n_total_points`` — that name doesn't exist on it, so this hasattr
+    # guard always fell through to the zero-padded ``n_data``, inflating the
+    # DOF denominator and underestimating reported uncertainties).
+    n_data_real = residual_fn.n_real_points if hasattr(residual_fn, "n_real_points") else n_data
 
     # Compute covariance matrix from Jacobian
     if _lam_cov_placeholder:

@@ -50,7 +50,13 @@ def json_safe(value: Any) -> Any:
     {'arr': [1.0, 2.0], 'val': 3.14}
     """
     if isinstance(value, dict):
-        return {k: json_safe(v) for k, v in value.items()}
+        # Coerce numpy scalar keys (e.g. np.int64) to native Python types —
+        # json.dump accepts int/float/bool/None/str keys but raises TypeError
+        # on numpy scalar keys, which are not any of those types.
+        return {
+            (k.item() if isinstance(k, (np.integer, np.floating, np.bool_)) else k): json_safe(v)
+            for k, v in value.items()
+        }
     elif isinstance(value, (list, tuple)):
         return [json_safe(v) for v in value]
     elif isinstance(value, np.ndarray):
@@ -127,10 +133,11 @@ def json_serializer(obj: Any) -> Any:
     '{"arr": [1, 2, 3]}'
     """
     if isinstance(obj, np.ndarray):
-        # Recurse through json_safe so NaN/Inf floats inside the array are
-        # sanitized (tolist() converts np.nan → Python float nan, which the
-        # stock json encoder would either reject or emit as the invalid token NaN).
-        return json_safe(obj.tolist())
+        # Pass the ndarray itself (not obj.tolist()) so json_safe's own
+        # _JSON_ARRAY_SIZE_LIMIT guard runs — calling tolist() first would
+        # convert to a plain list before json_safe ever sees it as an array,
+        # silently bypassing the OOM guard this module exists to enforce.
+        return json_safe(obj)
     elif isinstance(obj, np.integer):
         return int(obj)
     elif isinstance(obj, np.floating):
@@ -149,7 +156,8 @@ def json_serializer(obj: Any) -> Any:
     elif isinstance(obj, complex):
         return {"real": _sanitize_float(obj.real), "imag": _sanitize_float(obj.imag)}
     elif hasattr(obj, "tolist"):
-        # Same sanitization for other array-like objects.
-        return json_safe(obj.tolist())
+        # Same sanitization for other array-like objects (e.g. jax.Array) —
+        # pass obj itself so json_safe's array-like size guard applies.
+        return json_safe(obj)
     else:
         return str(obj)

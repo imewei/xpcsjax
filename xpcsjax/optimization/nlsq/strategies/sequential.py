@@ -440,8 +440,13 @@ def split_data_by_angle(
 
     subsets = []
     for angle in unique_angles:
-        # Find indices for this angle
-        indices = np.where(np.isclose(phi_np, angle, atol=1e-6))[0]
+        # Find indices for this angle. Exact equality is correct (not
+        # np.isclose): `angle` is drawn directly from np.unique(phi_np), so
+        # every point's phi value is bit-identical to exactly one unique
+        # entry. An approximate match here double-counts points when two
+        # distinct-but-close unique values exist (e.g. float drift across
+        # chunks) -- each would also claim the other's points.
+        indices = np.where(phi_np == angle)[0]
         n_points = len(indices)
 
         if n_points < min_points_per_angle:
@@ -541,6 +546,31 @@ def optimize_single_angle(
                 "Sequential optimizer requires strict lower < upper bounds for all parameters. "
                 "Fixed parameters (lower == upper) should be removed before sequential optimization."
             )
+
+        # Every parameter fixed (0-length free vector, from the caller's
+        # strip_fixed_parameters): the `np.all(...)` guards above are
+        # vacuously True for empty arrays and let this through, but
+        # `engine.least_squares(x0=<shape (0,)>, ...)` is very likely
+        # rejected by the TRF solver -- the trivial (fixed) answer is
+        # already known and needs no solve.
+        if initial_params.shape[0] == 0:
+            residuals_at_fixed = np.asarray(
+                residual_func(initial_params, subset.phi, subset.t1, subset.t2, subset.g2_exp)
+            )
+            success = bool(np.all(np.isfinite(residuals_at_fixed)))
+            cost = float(0.5 * np.sum(residuals_at_fixed**2)) if success else np.inf
+            return {
+                "parameters": initial_params,
+                "covariance": np.zeros((0, 0)),
+                "cost": cost,
+                "success": success,
+                "n_iterations": 0,
+                "message": "" if success else "Non-finite residuals at fixed parameters",
+                "n_points": subset.n_points,
+                "phi_angle": subset.phi_angle,
+                "jac_initial_norms": None,
+                "jac_final_norms": None,
+            }
 
         logger.debug(
             "Angle %.2f deg dtype check: init=%s%s lower=%s%s upper=%s%s",
@@ -957,6 +987,16 @@ def optimize_per_angle_sequential(
             result["parameters"] = restore_fixed_parameters(
                 result["parameters"], initial_params, free_mask
             )
+            # The paired covariance from optimize_single_angle is sized to the
+            # FREE-parameter count only; expand it back to the full parameter
+            # count so combine_angle_results' stacked params/covariance shapes
+            # stay aligned (fixed parameters carry zero variance -- they were
+            # never estimated, not because they are perfectly known).
+            n_full = len(free_mask)
+            full_covariance = np.zeros((n_full, n_full))
+            free_idx = np.where(free_mask)[0]
+            full_covariance[np.ix_(free_idx, free_idx)] = result["covariance"]
+            result["covariance"] = full_covariance
         per_angle_results.append(result)
 
         status = "OK" if result["success"] else "FAIL"

@@ -90,15 +90,21 @@ def _dispatch_standalone_plot(
     args: argparse.Namespace,
     cfg_manager: ConfigManager,
 ) -> int:
-    """Plot experimental data or simulated C2 heatmaps without optimizing."""
+    """Plot experimental data and/or simulated C2 heatmaps without optimizing.
+
+    Both flags are unrelated to each other (non-exclusive) — mirrors
+    plot_dispatch.dispatch_plots, which runs `if plot_exp:` and `if plot_sim:`
+    as separate blocks.
+    """
+    data = None
+    if getattr(args, "plot_experimental_data", False):
+        logger.info("Standalone mode: plot experimental data for QC")
+        data = load_and_validate_data(args, cfg_manager)
+
     if getattr(args, "plot_simulated_data", False):
         logger.info("Standalone mode: plot simulated C2 heatmaps from config parameters")
         # Simulated mode doesn't need experimental data on disk
-        return dispatch_plots(args, cfg_manager, data=None, result=None)
 
-    # plot_experimental_data — needs data
-    logger.info("Standalone mode: plot experimental data for QC")
-    data = load_and_validate_data(args, cfg_manager)
     return dispatch_plots(args, cfg_manager, data=data, result=None)
 
 

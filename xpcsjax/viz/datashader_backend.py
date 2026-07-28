@@ -126,9 +126,15 @@ class DatashaderRenderer:
         if vmin is None or vmax is None:
             data_finite = data[np.isfinite(data)]
             if data_finite.size == 0:
-                span = (0.0, 1.0)
+                auto_span = (0.0, 1.0)
             else:
-                span = (float(data_finite.min()), float(data_finite.max()))
+                auto_span = (float(data_finite.min()), float(data_finite.max()))
+            # Only recompute the bound(s) the caller actually left as None —
+            # a caller-supplied vmin or vmax must not be silently discarded.
+            span = (
+                auto_span[0] if vmin is None else float(vmin),
+                auto_span[1] if vmax is None else float(vmax),
+            )
         else:
             span = (float(vmin), float(vmax))
         if span[0] >= span[1]:
@@ -226,8 +232,15 @@ def plot_c2_heatmap_fast(
             title = f"{title} at φ={phi_angle:.1f}°" if title else f"φ={phi_angle:.1f}°"
         ax.set_title(title, fontsize=13, fontweight="bold")
 
+        # Same invalid-cmap fallback as DatashaderRenderer._get_colormap (which
+        # already rasterized the image with 'jet') so the colorbar can't crash
+        # on a name the raster already silently substituted.
+        try:
+            cbar_cmap = matplotlib.colormaps.get_cmap(cmap)
+        except (ValueError, KeyError):
+            cbar_cmap = matplotlib.colormaps.get_cmap("jet")
         norm = Normalize(vmin=vmin_use, vmax=vmax_use)
-        sm = ScalarMappable(cmap=matplotlib.colormaps.get_cmap(cmap), norm=norm)
+        sm = ScalarMappable(cmap=cbar_cmap, norm=norm)
         sm.set_array([])
         cbar = fig.colorbar(sm, ax=ax, label="g₂(t₁,t₂)", shrink=0.9)
         cbar.ax.tick_params(labelsize=9)

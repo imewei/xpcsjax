@@ -30,7 +30,10 @@ def _leading_dim_matches(arr: np.ndarray | None, n: int) -> bool:
     ``exp_c2``'s phi count so a mismatched (corrupt/partial) artifact degrades to
     placeholders instead of raising mid-loop.
     """
-    return arr is not None and np.asarray(arr).shape[0] == n
+    if arr is None:
+        return False
+    a = np.asarray(arr)
+    return a.ndim > 0 and a.shape[0] == n
 
 
 def _resolve_colormap(name: str) -> pg.ColorMap | None:

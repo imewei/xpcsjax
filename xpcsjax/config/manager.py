@@ -774,12 +774,20 @@ class ConfigManager:
         # Get initial_parameters section
         initial_params = self.config.get("initial_parameters", {})
         if not initial_params:
+            if not use_midpoint_defaults:
+                raise ValueError(
+                    "No initial_parameters section in config and use_midpoint_defaults is False"
+                )
             logger.info("No initial_parameters section in config, using mid-point defaults")
             return self._calculate_midpoint_defaults()
 
         # Get parameter names from config
         param_names_config = initial_params.get("parameter_names")
         if not param_names_config or not isinstance(param_names_config, list):
+            if not use_midpoint_defaults:
+                raise ValueError(
+                    "No parameter_names in initial_parameters and use_midpoint_defaults is False"
+                )
             logger.info(
                 "No parameter_names in initial_parameters, using active parameters from mode"
             )

@@ -127,7 +127,10 @@ def compute_diagonal_overlay_stats(
     # not inf, so an inf entry would otherwise poison the mean.
     pair_mask = np.isfinite(raw_diag) & np.isfinite(fitted_diag)
     if pair_mask.any():
-        diff = fitted_diag[pair_mask] - raw_diag[pair_mask]
+        # float64 promotion: integer-typed c2 inputs would otherwise square
+        # in their own (possibly overflowing) integer dtype before np.mean
+        # gets a chance to upcast.
+        diff = fitted_diag[pair_mask].astype(np.float64) - raw_diag[pair_mask].astype(np.float64)
         fitted_rmse = float(np.sqrt(np.mean(diff**2)))
     else:
         fitted_rmse = float("nan")

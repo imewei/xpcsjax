@@ -85,8 +85,23 @@ class ProjectSidebar(QWidget):
         return ids
 
     def current_run_id(self) -> str | None:
-        """Return the focused run id, or None."""
+        """Return the focused run id, or None.
+
+        Uses Qt's ``currentIndex()`` (the actually-focused/anchor row) rather
+        than the first entry of ``selectedIndexes()`` — with ExtendedSelection
+        multi-select those can differ (e.g. select run A, then Ctrl-click run B:
+        both stay selected but B is current), and actions like Cancel/Export
+        must act on the row the user last clicked, not model order.
+        """
         ids = self.selected_run_ids()
+        current = self._tree.selectionModel().currentIndex()
+        if current.isValid() and current.parent().isValid():
+            rid = current.data(Qt.ItemDataRole.UserRole)
+            if rid is not None and str(rid) in ids:
+                return str(rid)
+        # No focused (and selected) run row (e.g. current is a dataset row, or
+        # Qt left current on a row that's no longer selected) — fall back to
+        # the first selected run, if any.
         return ids[0] if ids else None
 
     def selected_dataset_ids(self) -> list[str]:

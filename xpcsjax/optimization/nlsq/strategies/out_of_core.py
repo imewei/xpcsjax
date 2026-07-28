@@ -382,11 +382,54 @@ def fit_with_out_of_core_accumulation(
     if sigma_flat is None:
         log.info("No per-point sigma available - using unit weighting for OOC")
 
+    def _accumulate_at(params: Any) -> tuple[Any, Any, float, int]:
+        """Accumulate (J^T J, J^T r, chi2, count) at ``params``.
+
+        Single source of truth for the per-chunk accumulate+reduce step, used
+        both inside the L-M loop and to refresh the accumulators at whatever
+        point is actually being returned (post-step params), so the reported
+        covariance never mixes a pre-step Hessian with a post-step point.
+        """
+        if ooc_pool is not None:
+            chunk_results = ooc_pool.compute_accumulators(np.asarray(params))
+            acc_count = sum(end - start for start, end in chunk_boundaries)  # noqa: F821
+        else:
+            chunk_results_local: list[tuple[np.ndarray, np.ndarray, float]] = []
+            acc_count = 0
+            for indices_chunk in iterator:
+                phi_c = phi_flat[indices_chunk]
+                t1_c = t1_flat[indices_chunk]
+                t2_c = t2_flat[indices_chunk]
+                g2_c = g2_flat[indices_chunk]
+                sigma_c = sigma_flat[indices_chunk] if sigma_flat is not None else 1.0
+                JtJ_c, Jtr_c, chi2_c = compute_chunk_accumulators(
+                    params, phi_c, t1_c, t2_c, g2_c, sigma_c
+                )
+                chunk_results_local.append((np.asarray(JtJ_c), np.asarray(Jtr_c), float(chi2_c)))
+                acc_count += len(indices_chunk)
+            chunk_results = chunk_results_local
+
+        acc_n_chunks = len(chunk_results)
+        if acc_n_chunks == 0:
+            return jnp.zeros((n_params, n_params)), jnp.zeros(n_params), 0.0, acc_count
+        if should_use_parallel_accumulation(acc_n_chunks):
+            jtj_np, jtr_np, chi2_total, _ = accumulate_chunks_parallel(
+                chunk_results, n_workers=max(1, min(4, acc_n_chunks // 4))
+            )
+        else:
+            jtj_np, jtr_np, chi2_total, _ = accumulate_chunks_sequential(chunk_results)
+        return jnp.asarray(jtj_np), jnp.asarray(jtr_np), chi2_total, acc_count
+
     # Optimization Loop
     log.info(f"Starting Out-of-Core Loop (Max iter: {max_iter})...")
 
     # Track early convergence result for return after cleanup
     _early_result: tuple[np.ndarray, np.ndarray, dict] | None = None
+    # Refreshed (J^T J, J^T r, chi2, count) at the final params_curr, computed
+    # inside the try (before the finally's ooc_pool.shutdown()) so the
+    # post-loop covariance build never calls back into an already-shut-down
+    # pool.
+    _final_accum: tuple[Any, Any, float, int] | None = None
 
     # Seed loop-carried accumulators so the post-loop summary stays well-defined
     # even when max_iter <= 0 (loop body never runs).
@@ -398,64 +441,16 @@ def fit_with_out_of_core_accumulation(
     # JAX seed keeps the loop-carried type consistent. Behaviorally identical to
     # np.eye for the max_iter <= 0 fall-through (downstream wraps in np.array).
     total_JtJ = jnp.eye(n_params)
+    # Tracks WHY the loop exited early (as opposed to normal max_iter
+    # exhaustion), so the post-loop status report doesn't mislabel a
+    # numerical-instability abort or a stalled line search as "max_iter".
+    break_reason: str | None = None
 
     try:
         for i in range(max_iter):
             _iter_start = time.perf_counter()  # noqa: F841
 
-            if ooc_pool is not None:
-                # Parallel compute: dispatch all chunks to pool
-                chunk_results = ooc_pool.compute_accumulators(np.asarray(params_curr))
-                count = sum(
-                    end - start
-                    for start, end in chunk_boundaries  # noqa: F821
-                )
-            else:
-                # Sequential compute: iterate chunks locally
-                chunk_results_local: list[tuple[np.ndarray, np.ndarray, float]] = []
-                count = 0
-                for indices_chunk in iterator:
-                    phi_c = phi_flat[indices_chunk]
-                    t1_c = t1_flat[indices_chunk]
-                    t2_c = t2_flat[indices_chunk]
-                    g2_c = g2_flat[indices_chunk]
-                    sigma_c = sigma_flat[indices_chunk] if sigma_flat is not None else 1.0
-                    JtJ, Jtr, chi2 = compute_chunk_accumulators(
-                        params_curr, phi_c, t1_c, t2_c, g2_c, sigma_c
-                    )
-                    chunk_results_local.append((np.asarray(JtJ), np.asarray(Jtr), float(chi2)))
-                    count += len(indices_chunk)
-                chunk_results = chunk_results_local
-
-            # Reduce chunk results (parallel reduction when beneficial)
-            n_chunks = len(chunk_results)
-            if n_chunks == 0:
-                total_JtJ = jnp.zeros((n_params, n_params))
-                total_Jtr = jnp.zeros(n_params)
-                total_chi2 = 0.0
-            elif should_use_parallel_accumulation(n_chunks):
-                if i == 0:
-                    log.info(
-                        "Parallel chunk reduction: %d chunks",
-                        n_chunks,
-                    )
-                total_JtJ_np, total_Jtr_np, total_chi2, _ = accumulate_chunks_parallel(
-                    chunk_results,
-                    n_workers=max(1, min(4, n_chunks // 4)),
-                )
-                total_JtJ = jnp.asarray(total_JtJ_np)
-                total_Jtr = jnp.asarray(total_Jtr_np)
-            else:
-                if i == 0:
-                    log.debug(
-                        "Sequential chunk reduction: %d chunks",
-                        n_chunks,
-                    )
-                total_JtJ_np, total_Jtr_np, total_chi2, _ = accumulate_chunks_sequential(
-                    chunk_results
-                )
-                total_JtJ = jnp.asarray(total_JtJ_np)
-                total_Jtr = jnp.asarray(total_Jtr_np)
+            total_JtJ, total_Jtr, total_chi2, count = _accumulate_at(params_curr)
 
             # Robust Levenberg-Marquardt Step Loop
             step_accepted = False
@@ -469,6 +464,7 @@ def fit_with_out_of_core_accumulation(
                 log.warning("Gradient/Hessian contains NaNs/Infs. Checking params.")
                 if i == 0:
                     raise RuntimeError("Initial parameters produced invalid gradients.")
+                break_reason = "non_finite_gradient"
                 break
 
             diag_idx = jnp.diag_indices_from(total_JtJ)
@@ -545,19 +541,26 @@ def fit_with_out_of_core_accumulation(
                             f"Out-of-Core converged: xtol={rel_change:.2e}<{xtol:.0e}, "
                             f"ftol={cost_change:.2e}<{ftol:.0e}"
                         )
-                        s2 = float(chi2_new) / max(count - n_params_effective, 1)
+                        # Refresh the accumulators at the ACCEPTED (post-step)
+                        # params_curr before building pcov: total_JtJ above is
+                        # still the pre-step Hessian from this iteration's
+                        # top-of-loop accumulation, so pairing it with the
+                        # post-step chi2_new/params_curr would report a
+                        # covariance for a point it wasn't computed at.
+                        conv_JtJ, _conv_Jtr, conv_chi2, conv_count = _accumulate_at(params_curr)
+                        s2 = float(conv_chi2) / max(conv_count - n_params_effective, 1)
                         try:
-                            pcov = s2 * np.linalg.inv(np.array(total_JtJ))
+                            pcov = s2 * np.linalg.inv(np.array(conv_JtJ))
                         except np.linalg.LinAlgError:
                             log.warning(
                                 "Singular J^T J in OOC - using pseudo-inverse for covariance"
                             )
-                            pcov = s2 * np.linalg.pinv(np.array(total_JtJ))
+                            pcov = s2 * np.linalg.pinv(np.array(conv_JtJ))
                         _early_result = (
                             np.array(params_curr),
                             pcov,
                             {
-                                "chi_squared": float(chi2_new),
+                                "chi_squared": float(conv_chi2),
                                 "iterations": i + 1,
                                 "convergence_status": "converged",
                                 "message": "Out-of-Core converged (xtol+ftol)",
@@ -576,7 +579,21 @@ def fit_with_out_of_core_accumulation(
                 break
             if not step_accepted:
                 log.warning("Could not find better step. Stopping.")
+                break_reason = "line_search_stalled"
                 break
+
+        if _early_result is None:
+            # Refresh the accumulators at whatever point params_curr actually
+            # holds before building the final pcov: total_JtJ/total_chi2 above
+            # are from the top of the LAST loop iteration, evaluated at the
+            # pre-step params of that iteration -- not necessarily the
+            # params_curr being returned below (e.g. a step was accepted this
+            # iteration, or the loop exited via a mid-iteration break).
+            # Recomputing here keeps pcov's Hessian/DOF paired with the actual
+            # returned point instead of a stale pre-step one. MUST run before
+            # the `finally` below shuts down ooc_pool -- _accumulate_at uses
+            # it when set, so calling this after shutdown raises.
+            _final_accum = _accumulate_at(params_curr)
     finally:
         # Clean up parallel compute pool and shared memory
         if ooc_pool is not None:
@@ -587,12 +604,25 @@ def fit_with_out_of_core_accumulation(
     if _early_result is not None:
         return _early_result
 
-    # Determine final status (rel_change initialized to inf before loop)
+    assert _final_accum is not None
+    total_JtJ, _total_Jtr, total_chi2, count = _final_accum
+
+    # Determine final status (rel_change initialized to inf before loop).
+    # A break_reason set above means the loop exited via a numerical-
+    # instability or stalled-line-search abort, NOT ordinary max_iter
+    # exhaustion -- report that distinctly so a caller branching on
+    # convergence_status doesn't mistake one for the other.
     converged = rel_change < xtol and cost_change < ftol
+    if break_reason is not None:
+        convergence_status = break_reason
+    elif converged:
+        convergence_status = "converged"
+    else:
+        convergence_status = "max_iter"
     info = {
         "chi_squared": float(total_chi2),
         "iterations": i + 1,
-        "convergence_status": "converged" if converged else "max_iter",
+        "convergence_status": convergence_status,
         "message": "Out-of-Core accumulation completed",
     }
     # pcov = s^2 * (J^T J)^{-1}  where s^2 = RSS / (n - p_effective)
