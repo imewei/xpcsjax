@@ -337,6 +337,48 @@ def test_evaluate_null_scattering_section_raises_valueerror(
         )
 
 
+def test_evaluate_homodyne_null_scattering_section_raises_valueerror() -> None:
+    """The homodyne branch's null-config-section guard (mirrors the heterodyne
+    guard pinned by ``test_evaluate_null_scattering_section_raises_valueerror``
+    above, but was previously only exercised on the heterodyne side).
+
+    Reaching this guard requires a model WITHOUT ``compute_c2_single_angle``
+    (the bare ``CombinedModel`` that ``make_model`` returns for
+    static_*/laminar_flow) -- ``HomodyneModel`` has that method and takes the
+    early-return branch instead, never touching the guard under test.
+    """
+    from xpcsjax.core.models import make_model
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+
+    model = make_model({"analysis_mode": "laminar_flow"})
+    assert type(model).__name__ == "CombinedModel"
+    assert not hasattr(model, "compute_c2_single_angle")
+
+    physical = np.asarray(model.get_default_parameters(), dtype=float)
+    params = np.concatenate([[0.2, 1.0], physical])
+    result = OptimizationResult(
+        parameters=params,
+        uncertainties=np.full(params.size, 0.01),
+        covariance=np.eye(params.size) * 0.01,
+        chi_squared=2.5,
+        reduced_chi_squared=0.9,
+        convergence_status="converged",
+        iterations=10,
+        execution_time=0.1,
+        device_info={"platform": "cpu"},
+    )
+    n = 8
+    t = np.arange(n, dtype=float) * 0.1
+    data = {"t1": t, "t2": t}
+    config = {
+        "analyzer_parameters": {"scattering": None, "dt": 0.1},
+        "analysis_mode": "laminar_flow",
+    }
+
+    with pytest.raises(ValueError, match="wavevector_q"):
+        _evaluate_c2_per_angle(model, result, data, config, phi_deg=45.0)
+
+
 def test_plot_nlsq_fit_three_image_axes(synthetic_single_angle_data) -> None:
     d = synthetic_single_angle_data
     fig = plot_nlsq_fit(

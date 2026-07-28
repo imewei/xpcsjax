@@ -84,6 +84,96 @@ def _make_heterodyne_result(n_params: int):
     )
 
 
+def test_generate_plots_missing_analyzer_parameters_raises_valueerror(tmp_path):
+    """``generate_nlsq_plots``' top-level null-config-section guard (line
+    ~1611): a config dict with NO ``analyzer_parameters`` key at all must
+    raise the clear ``ValueError``, not an opaque ``AttributeError`` deep
+    inside the per-angle render loop.
+    """
+    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.viz.nlsq_plots import generate_nlsq_plots
+
+    model = HeterodyneModel()
+    n_phi = 3
+    result = _make_heterodyne_result(2 * n_phi + len(model.parameter_names))
+    data = _make_heterodyne_data(n_phi=n_phi)
+    config = {"analysis_mode": "two_component"}  # no analyzer_parameters at all
+
+    with pytest.raises(ValueError, match="analyzer_parameters"):
+        generate_nlsq_plots(
+            model=model,
+            result=result,
+            data=data,
+            config=config,
+            output_dir=tmp_path,
+        )
+
+
+def test_generate_plots_missing_analysis_mode_falls_back_to_laminar_flow(tmp_path, monkeypatch):
+    """``generate_nlsq_plots``' ``analysis_mode`` guard (line ~1623) falls back
+    to ``"laminar_flow"`` when the key is absent/None, rather than raising --
+    the homodyne (CombinedModel) path must still complete successfully.
+
+    Asserting only "does not raise" would also pass if the fallback silently
+    resolved to a DIFFERENT valid mode string (e.g. ``"static_isotropic"``) --
+    ``AnalysisMode.parse`` would still succeed, no exception would propagate,
+    yet the wrong per-angle parameter layout would be used. So this test spies
+    on ``AnalysisMode.parse`` to pin the literal resolved value, not just the
+    absence of an exception.
+    """
+    from xpcsjax.config.parameter_registry import AnalysisMode
+    from xpcsjax.core.models import make_model
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+    from xpcsjax.viz import nlsq_plots
+    from xpcsjax.viz.nlsq_plots import generate_nlsq_plots
+
+    resolved_modes: list[str] = []
+    real_parse = AnalysisMode.parse
+
+    def _capturing_parse(raw, **kwargs):
+        resolved_modes.append(str(raw))
+        return real_parse(raw, **kwargs)
+
+    monkeypatch.setattr(nlsq_plots.AnalysisMode, "parse", _capturing_parse)
+
+    model = make_model({"analysis_mode": "laminar_flow"})
+    physical = np.asarray(model.get_default_parameters(), dtype=float)
+    params = np.concatenate([[0.2, 1.0], physical])
+    n = params.size
+    result = OptimizationResult(
+        parameters=params,
+        uncertainties=np.full(n, 0.01),
+        covariance=np.eye(n) * 0.01,
+        chi_squared=2.5,
+        reduced_chi_squared=0.9,
+        convergence_status="converged",
+        iterations=10,
+        execution_time=0.1,
+        device_info={"platform": "cpu"},
+    )
+    data = _make_heterodyne_data(n_phi=3)
+    config = {
+        "analyzer_parameters": {
+            "scattering": {"wavevector_q": 0.005},
+            "geometry": {"stator_rotor_gap": 2_000_000.0},
+            "dt": 0.1,
+        }
+        # no "analysis_mode" key -- must fall back to "laminar_flow", not raise.
+    }
+
+    # Must not raise: proves the config_dict.get("analysis_mode") or
+    # "laminar_flow" fallback is exercised end-to-end, not just parsed.
+    generate_nlsq_plots(model=model, result=result, data=data, config=config, output_dir=tmp_path)
+
+    assert resolved_modes and resolved_modes[0] == "laminar_flow", (
+        "config_dict.get('analysis_mode') or 'laminar_flow' must resolve to the "
+        f"literal string 'laminar_flow' when the key is absent; got {resolved_modes}. "
+        "Regression: the fallback silently switching to a different valid mode "
+        "string would parse successfully (no exception) but drive the wrong "
+        "per-angle parameter layout."
+    )
+
+
 def test_heterodyne_constant_mode_raises_not_implemented(tmp_path):
     """n_total == n_physical (constant mode) → NotImplementedError upfront."""
     from xpcsjax.core.heterodyne_model import HeterodyneModel

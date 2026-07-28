@@ -191,3 +191,44 @@ def test_second_dispatch_call_is_not_cross_call_suppressed(
         "second call's plot_residual_map warning was cross-call suppressed "
         f"(got {len(resid_warnings)})"
     )
+
+
+def test_phi_index_threaded_matches_loop_position(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """``_save_fit_comparison_only``'s per-angle loop must pass ``phi_index=i``
+    -- the loop position -- not a stale/constant value, into
+    ``_evaluate_c2_per_angle``.
+
+    The module's autouse ``_stub_c2_eval`` fixture (above) stubs this call
+    with a ``phi_index=None``-tolerant lambda that ignores the argument
+    entirely, so it cannot catch a regression that drops or miscounts
+    ``phi_index``. This test installs its OWN capturing stub (overriding the
+    autouse one for the duration of this test) to pin the actual per-call
+    value.
+    """
+    n_phi = 4
+    captured_phi_indices: list[int | None] = []
+
+    def _capturing_c2_eval(model, result, data, config, phi_deg, phi_index=None):
+        captured_phi_indices.append(phi_index)
+        return np.ones((4, 4), dtype=np.float64)
+
+    monkeypatch.setattr(
+        "xpcsjax.viz.nlsq_plots._evaluate_c2_per_angle",
+        _capturing_c2_eval,
+        raising=False,
+    )
+
+    data = _make_data(n_phi)
+    out = postfit._save_fit_comparison_only(_FakeConfigManager(), data, _FakeResult(), tmp_path)
+
+    assert out == tmp_path
+    assert captured_phi_indices == list(range(n_phi)), (
+        "phi_index passed to _evaluate_c2_per_angle must equal the loop "
+        f"position for every angle; got {captured_phi_indices} for n_phi={n_phi}. "
+        "Regression: a dropped/miscounted phi_index silently resolves the "
+        "wrong per-angle contrast/offset (see the heterodyne-viz-param-layout "
+        "and nlsq_plots uncertainty-slice corruption history in this module)."
+    )
