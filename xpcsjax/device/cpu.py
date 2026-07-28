@@ -369,10 +369,16 @@ def _configure_jax_cpu(
         # does take effect at any time is the jax_default_device update below.
         backend_live = _jax_backend_initialized()
         if backend_live:
-            logger.warning(
-                "JAX backend already initialized; JAX_PLATFORMS cannot take "
-                "effect (read once, at init). Skipping env mutation.",
-            )
+            # The write would be a no-op either way, but only WARN when the
+            # live backend actually diverges from cpu -- xpcsjax's own
+            # __init__.py already sets JAX_PLATFORMS=cpu before any JAX
+            # import, so the common case here is a harmless redundant call,
+            # not a misconfiguration.
+            if jax.default_backend() != "cpu":
+                logger.warning(
+                    "JAX backend already initialized; JAX_PLATFORMS cannot take "
+                    "effect (read once, at init). Skipping env mutation.",
+                )
             jax_config["jax_platforms_applied"] = False
         else:
             os.environ["JAX_PLATFORMS"] = "cpu"
@@ -435,9 +441,14 @@ def _configure_jax_cpu(
         # --xla_force_host_platform_device_count and
         # --xla_disable_hlo_passes which must be preserved.
         # H-1: XLA parses XLA_FLAGS once at backend init. If the backend is
-        # already live (the common case — xpcsjax/__init__.py imports JAX at
-        # import time, before this runs), writing the env var here is silently
-        # ignored. Warn and skip rather than write stale flags and imply success.
+        # already live (any earlier `import jax` in the process, or a JAX
+        # call such as jax.devices() -- xpcsjax/__init__.py itself does NOT
+        # import jax, it only pre-sets env vars for whenever JAX does get
+        # imported), writing the env var here is silently ignored. Warn and
+        # skip rather than write stale flags and imply success. Unlike the
+        # JAX_PLATFORMS check above, these CPU-specific flags (oneDNN,
+        # AVX-512 fast-math) are NOT pre-set by __init__.py, so this warning
+        # reflects a real loss of optimization, not just redundant work.
         if backend_live:
             logger.warning(
                 "JAX backend already initialized; CPU XLA flags %s cannot take "
