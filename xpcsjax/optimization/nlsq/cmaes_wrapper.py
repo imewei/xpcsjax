@@ -46,7 +46,14 @@ logger = get_logger(__name__)
 # "a local polish rescued a non-converged search" should compare
 # ``result.diagnostics.get("convergence_reason")`` against this set rather
 # than trusting ``success`` alone.
-CMAES_CONVERGED_REASONS = frozenset({"tol_fun", "tol_x", "tol_fun_hist", "ftarget"})
+#
+# Verified against the pinned ``nlsq>=0.6.10,<1.0`` backend (nlsq/global_
+# optimization/cmaes_optimizer.py): ``CMAESOptimizer`` only ever assigns
+# ``"xtol"`` (step-size tolerance met — genuine convergence), ``"max_
+# generations"``, or ``"max_restarts"`` (both budget exhaustion, NOT
+# convergence); the dataclass default is ``"not_converged"``. There is no
+# ``cma``/pycma backend in this dependency tree to emit any other reason.
+CMAES_CONVERGED_REASONS = frozenset({"xtol"})
 
 
 def _format_bounds_summary(bounds: tuple[np.ndarray, np.ndarray]) -> str:

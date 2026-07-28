@@ -219,9 +219,11 @@ def test_individual_auto_skip_preserves_covariance():
 # exhausted its restart budget without meeting a real convergence criterion
 # (cmaes_wrapper.py CR-5, ``success = cmaes_converged or nlsq_refined``). A
 # kept vector with SSR <= warm SSR under those conditions must NOT report
-# converged/good — see [[project_joint-cmaes-autoskip-success-gate]] for the
-# two prior rounds of this exact bug class (auto-skip gate, floor-revert
-# gate); this is the third: the "kept cmaes" branch itself.
+# converged/good — see 4f0a35c ("implement CMA-ES warm-start auto-skip with
+# success gate for joint fits") and ad90201 ("report failure on keep-better
+# floor-reverted warm-start to prevent spurious success") for the two prior
+# rounds of this exact bug class (auto-skip gate, floor-revert gate); this
+# is the third: the "kept cmaes" branch itself.
 # ---------------------------------------------------------------------------
 @pytest.mark.skipif(not hc.HAS_CMAES, reason="cmaes backend not importable")
 def test_kept_cmaes_refinement_only_success_reports_marginal(monkeypatch):
@@ -264,8 +266,17 @@ def test_kept_cmaes_refinement_only_success_reports_marginal(monkeypatch):
 
 
 @pytest.mark.skipif(not hc.HAS_CMAES, reason="cmaes backend not importable")
-def test_kept_cmaes_real_convergence_still_reports_good(monkeypatch):
-    """Control: ``escape='cmaes'`` kept via a REAL convergence reason ⇒ still good/converged."""
+@pytest.mark.parametrize("nlsq_refined", [False, True])
+def test_kept_cmaes_real_convergence_still_reports_good(monkeypatch, nlsq_refined):
+    """Control: ``escape='cmaes'`` kept via a REAL convergence reason ⇒ still good/converged.
+
+    ``"xtol"`` is the only reason NLSQ's ``CMAESOptimizer`` reports for actual
+    convergence (verified against the pinned nlsq backend — see the
+    ``CMAES_CONVERGED_REASONS`` docstring in cmaes_wrapper.py). Parametrized
+    over ``nlsq_refined`` so a genuinely-converged search that ALSO got a
+    refinement polish (the common real-world case) is pinned too, not just
+    the unrefined case.
+    """
     from xpcsjax.optimization.nlsq.cmaes_wrapper import CMAESResult
 
     def _fake_fit_with_cmaes(model_func, xdata, ydata, p0, bounds, sigma=None, config=None):
@@ -274,9 +285,9 @@ def test_kept_cmaes_real_convergence_still_reports_good(monkeypatch):
             covariance=None,
             chi_squared=0.0,
             success=True,
-            diagnostics={"convergence_reason": "tol_fun"},
+            diagnostics={"convergence_reason": "xtol"},
             method_used="cmaes",
-            nlsq_refined=False,
+            nlsq_refined=nlsq_refined,
         )
 
     monkeypatch.setattr(hc, "fit_with_cmaes", _fake_fit_with_cmaes)
