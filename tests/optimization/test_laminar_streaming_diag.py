@@ -14,6 +14,7 @@ and never touches popt/pcov/chi2.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from xpcsjax.optimization.nlsq.wrapper import _laminar_anti_degeneracy_block
 
@@ -129,6 +130,72 @@ def test_sequential_laminar_emits_symmetric_activation_keys(monkeypatch):
     assert any("Sequential" in a for a in result.recovery_actions)
     # Fit values are real numbers (sanity; diagnostics-only change).
     assert np.isfinite(result.chi_squared)
+
+
+def test_sequential_laminar_rescales_covariance_for_active_shear_transform(monkeypatch):
+    """Regression: the Site 4 (sequential per-angle) covariance-rescale call
+    (``wrapper.py`` ~line 3624, ``adjust_covariance_for_transforms``) must run
+    without raising, and must rescale ONLY the log-transformed gamma_dot_t0
+    entry, whenever ``shear_transforms.enable_gamma_dot_log`` is configured.
+
+    This is the branch ``test_sequential_laminar_emits_symmetric_activation_keys``
+    does NOT exercise: with no shear transform configured,
+    ``apply_forward_shear_transforms_to_vector`` returns an EMPTY ``{}`` state
+    (see ``transforms.py``), which is falsy, so the ``if transform_state:`` guard
+    at the covariance-rescale call site never fires there. Pre-fix, this call
+    passed an extra, erroneous positional argument
+    (``adjust_covariance_for_transforms(cov, combined_solver, combined_physical,
+    state)`` instead of the 3-arg ``(cov, physical_params, state)``) and would
+    have raised ``TypeError: too many positional arguments`` the first time a
+    real fit reached this branch -- which no test did.
+    """
+    import xpcsjax.optimization.nlsq.wrapper as wrapper_mod
+    from xpcsjax.optimization.nlsq.strategies.sequential import SequentialResult
+
+    fit_nlsq, data, cfg = _build_sequential_laminar_fit()
+    cfg.config["optimization"]["nlsq"]["shear_transforms"] = {"enable_gamma_dot_log": True}
+
+    # Layout: [c0, c1, o0, o1, D0, alpha, D_offset, gamma_dot_t0, beta,
+    # gamma_dot_t_offset, phi0] -- gamma_dot_t0 is physical index 3, and the
+    # dense per-angle scaling head is 2*n_phi=4, so its combined-vector index
+    # is 4 + 3 = 7 (mirrors build_physical_index_map's dense default).
+    gamma_idx = 7
+    true_gamma_dot_t0 = 0.01
+    true_physical = [1000.0, 0.5, 10.0, true_gamma_dot_t0, 0.0, 0.0, 0.0]
+    # combined_parameters is SOLVER-space: gamma_dot_t0 is log-transformed.
+    combined_solver_space = np.array([0.3, 0.3, 1.0, 1.0, *true_physical], dtype=np.float64)
+    combined_solver_space[gamma_idx] = np.log(true_gamma_dot_t0)
+    n_p = combined_solver_space.shape[0]
+    base_variance = 1e-6
+
+    def _fake_sequential(*args, **kwargs):
+        return SequentialResult(
+            combined_parameters=combined_solver_space.copy(),
+            combined_covariance=np.eye(n_p, dtype=np.float64) * base_variance,
+            per_angle_results=[
+                {"phi_angle": 0.0, "n_iterations": 3, "success": True},
+                {"phi_angle": 90.0, "n_iterations": 3, "success": True},
+            ],
+            n_angles_optimized=2,
+            n_angles_failed=0,
+            total_cost=1.0,
+            success_rate=1.0,
+        )
+
+    monkeypatch.setattr(wrapper_mod, "optimize_per_angle_sequential", _fake_sequential)
+
+    # Pre-fix, this raised TypeError inside adjust_covariance_for_transforms.
+    result = fit_nlsq(data, cfg)
+
+    # Parameters are inverse-transformed back to physical space.
+    assert result.parameters[gamma_idx] == pytest.approx(true_gamma_dot_t0, rel=1e-9)
+
+    # Only the gamma_dot_t0 diagonal entry is rescaled, by scale**2 where
+    # scale == the physical-space value (see adjust_covariance_for_transforms).
+    expected_gamma_uncertainty = np.sqrt(base_variance) * true_gamma_dot_t0
+    assert result.uncertainties[gamma_idx] == pytest.approx(expected_gamma_uncertainty, rel=1e-9)
+    # An untouched (non-gamma) diagonal entry stays at the base variance.
+    assert result.uncertainties[0] == pytest.approx(np.sqrt(base_variance), rel=1e-9)
 
 
 # --- Phase 6 Task 5: laminar streaming has no reparam machinery ---
