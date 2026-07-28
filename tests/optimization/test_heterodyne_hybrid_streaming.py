@@ -882,13 +882,30 @@ def test_streaming_averaged_optimizes_scaling_and_sets_group_variance(monkeypatc
     HybridStreamingConfig group-variance fields). The SSR-improvement claim is
     verified separately by test_streaming_auto_averaged_real_run_ssr_not_worse,
     because with a no-op optimizer popt == p0 and SSR parity is vacuous.
+
+    Also covers issue #20 (heterodyne streaming's OWN L3
+    ``AdaptiveRegularizationConfig`` call site -- heterodyne_hybrid_streaming.py
+    line ~630, inside this same function -- was untested; the sibling laminar
+    site is covered by test_hybrid_streaming_auto_tune_lambda.py). The spy
+    patches the source module (xpcsjax.optimization.nlsq.adaptive_regularization)
+    rather than the ``hs`` module namespace because the call site imports
+    ``AdaptiveRegularizationConfig`` function-locally, at call time.
     """
+    import xpcsjax.optimization.nlsq.adaptive_regularization as adaptive_reg
     import xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming as hs
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
         build_heterodyne_stratified_data,
     )
 
     captured = {}
+    reg_captured = {}
+    real_reg_config = adaptive_reg.AdaptiveRegularizationConfig
+
+    def _spy_reg_config(**kwargs):
+        reg_captured["kwargs"] = kwargs
+        return real_reg_config(**kwargs)
+
+    monkeypatch.setattr(adaptive_reg, "AdaptiveRegularizationConfig", _spy_reg_config)
 
     class _FakeOpt:
         def __init__(self, config):
@@ -915,13 +932,14 @@ def test_streaming_averaged_optimizes_scaling_and_sets_group_variance(monkeypatc
     n_phys = model.param_manager.n_varying
     lower_phys, upper_phys = model.param_manager.get_bounds()
     p0_phys = np.asarray(model.param_manager.get_initial_values(), dtype=np.float64)
+    bounds = (np.asarray(lower_phys, dtype=np.float64), np.asarray(upper_phys, dtype=np.float64))
 
     popt, pcov, info = hs.fit_with_stratified_hybrid_streaming_heterodyne(
         stratified_data=strat,
         model=model,
         physical_param_names=list(model.param_manager.varying_names),
         initial_params=p0_phys,
-        bounds=(np.asarray(lower_phys, dtype=np.float64), np.asarray(upper_phys, dtype=np.float64)),
+        bounds=bounds,
         anti_degeneracy_config={"per_angle_mode": "auto"},
     )
 
@@ -939,6 +957,31 @@ def test_streaming_averaged_optimizes_scaling_and_sets_group_variance(monkeypatc
     # Scaling-first: the scaling head is at full-vector indices [0, n_scaling),
     # so the group indices are head-local.
     assert cfg.group_variance_indices == [(0, 1), (1, 2)]
+    # Issue #20: no `regularization` key configured -> auto_tune_lambda must
+    # default to True at this streaming call site (not just at the
+    # AntiDegeneracyConfig.from_dict parsing layer).
+    assert "kwargs" in reg_captured, "AdaptiveRegularizationConfig must have been constructed"
+    assert reg_captured["kwargs"]["auto_tune_lambda"] is True
+
+    # Issue #20: an explicit auto_tune_lambda=False must reach the same call site.
+    reg_captured.clear()
+    hs.fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=p0_phys,
+        bounds=bounds,
+        anti_degeneracy_config={
+            "per_angle_mode": "auto",
+            "regularization": {"auto_tune_lambda": False},
+        },
+    )
+    assert "kwargs" in reg_captured, "AdaptiveRegularizationConfig must have been constructed"
+    assert reg_captured["kwargs"]["auto_tune_lambda"] is False, (
+        "regularization.auto_tune_lambda=False must reach the heterodyne streaming "
+        "path's own AdaptiveRegularizationConfig (heterodyne_hybrid_streaming.py "
+        f"line ~630); got {reg_captured['kwargs']['auto_tune_lambda']!r}."
+    )
 
 
 def test_streaming_auto_threshold_routing():
@@ -1235,86 +1278,6 @@ def test_streaming_l2_diagnostics_keys_present_for_individual():
     assert ad["per_angle_mode"] == "individual"
     assert ad["shear_weighting"] == "laminar_flow_inactive"
     assert np.isfinite(info["ssr"])
-
-
-def test_streaming_auto_tune_lambda_reaches_adaptive_regularization_config():
-    """Regression for issue #20: heterodyne's OWN L3 ``AdaptiveRegularizationConfig``
-    call site (``heterodyne_hybrid_streaming.py:630-635``, inside
-    ``fit_with_stratified_hybrid_streaming_heterodyne``) must honor
-    ``anti_degeneracy_config["regularization"]["auto_tune_lambda"]``.
-
-    Mirrors ``tests/optimization/test_hybrid_streaming_auto_tune_lambda.py`` (the
-    laminar-side site) but drives a real call into the heterodyne streaming
-    function, whose ``AdaptiveRegularizationConfig`` import is function-local
-    (``from xpcsjax.optimization.nlsq.adaptive_regularization import
-    AdaptiveRegularizationConfig, ...`` at call time) -- so the spy must patch the
-    source module, not the ``heterodyne_hybrid_streaming`` module namespace.
-    """
-    import xpcsjax.optimization.nlsq.adaptive_regularization as adaptive_reg
-    import xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming as hs
-    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
-        build_heterodyne_stratified_data,
-    )
-
-    class _FakeOpt:
-        def __init__(self, config: object) -> None:
-            pass
-
-        def fit(
-            self, data_source: object, func: object, p0: np.ndarray, bounds=None, sigma=None, **kw
-        ):
-            n = len(p0)
-            return {
-                "x": np.asarray(p0, dtype=np.float64),
-                "pcov": np.eye(n),
-                "nit": 1,
-                "success": True,
-            }
-
-    captured: dict = {}
-    real_config = adaptive_reg.AdaptiveRegularizationConfig
-
-    def _spy_config(**kwargs):
-        captured["kwargs"] = kwargs
-        return real_config(**kwargs)
-
-    original_config = adaptive_reg.AdaptiveRegularizationConfig
-    adaptive_reg.AdaptiveRegularizationConfig = _spy_config
-    original_opt = hs.AdaptiveHybridStreamingOptimizer
-    hs.AdaptiveHybridStreamingOptimizer = _FakeOpt
-    try:
-        # n_phi=3 at the default constant_scaling_threshold=3 resolves
-        # auto -> averaged: n_scaling=2 and group_indices=[(0,1),(1,2)], so
-        # regularization_active is True and the L3 config site is reached.
-        model, c2, phi = _make_synthetic_heterodyne(n_phi=3, n_t=6)
-        strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
-        lo, hi = model.param_manager.get_bounds()
-
-        hs.fit_with_stratified_hybrid_streaming_heterodyne(
-            stratified_data=strat,
-            model=model,
-            physical_param_names=list(model.param_manager.varying_names),
-            initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
-            bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
-            anti_degeneracy_config={
-                "per_angle_mode": "auto",
-                "regularization": {"auto_tune_lambda": False},
-            },
-        )
-    finally:
-        adaptive_reg.AdaptiveRegularizationConfig = original_config
-        hs.AdaptiveHybridStreamingOptimizer = original_opt
-
-    assert "kwargs" in captured, "AdaptiveRegularizationConfig must have been constructed"
-    assert captured["kwargs"]["auto_tune_lambda"] is False, (
-        "regularization.auto_tune_lambda=False must reach the heterodyne streaming "
-        "path's own AdaptiveRegularizationConfig (heterodyne_hybrid_streaming.py "
-        f"line ~630); got {captured['kwargs']['auto_tune_lambda']!r}. Regression: "
-        "this heterodyne-specific streaming call site could silently ignore the "
-        "configured value while the laminar site "
-        "(test_hybrid_streaming_auto_tune_lambda.py) and the config-parsing-layer "
-        "test (test_anti_degeneracy_layers.py) stay green."
-    )
 
 
 def test_streaming_l2_ssr_finite_for_individual():
