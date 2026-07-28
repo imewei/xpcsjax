@@ -59,10 +59,11 @@ class ParameterManager:
     # B007: cached full-values array (invalidated by update_values)
     _full_values_cache: np.ndarray | None = field(default=None, init=False, repr=False)
 
-    # Frozen snapshot of config-specified initial values — set once at construction,
-    # never mutated by update_values/set_params. get_initial_values() reads from here
-    # so that each phi-angle optimization starts from config values regardless of
-    # what a previous fit stored in space.values.
+    # Frozen snapshot of config-specified initial values — set at construction and
+    # never mutated by update_values/set_params (re-seedable only via the explicit
+    # reseed_initial_values()). get_initial_values() reads from here so that each
+    # phi-angle optimization starts from config values regardless of what a
+    # previous fit stored in space.values.
     _initial_values_snapshot: dict[str, float] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -156,9 +157,10 @@ class ParameterManager:
         """Get initial parameter values for optimization.
 
         Returns the config-specified starting point, not the current fitted state.
-        Reads from the frozen snapshot set at construction time so that repeated
-        calls (e.g. across multi-angle loops) always return the same config values
-        even after model.set_params() has mutated space.values.
+        Reads from the frozen snapshot (set at construction, re-seedable only via
+        ``reseed_initial_values()``) so that repeated calls (e.g. across
+        multi-angle loops) always return the same config values even after
+        model.set_params() has mutated space.values.
 
         Returns
         -------
@@ -261,6 +263,11 @@ class ParameterManager:
     def update_values(self, params: np.ndarray | dict[str, float]) -> None:
         """Update the stored parameter values.
 
+        Does NOT move the frozen snapshot ``get_initial_values()`` reads from —
+        use this to record fitted/in-progress state. See also
+        :meth:`reseed_initial_values` to also move that snapshot when seeding a
+        genuinely new starting point (e.g. one multistart candidate).
+
         Parameters
         ----------
         params : numpy.ndarray or dict
@@ -279,9 +286,10 @@ class ParameterManager:
         """Re-seed the starting point that ``get_initial_values()`` returns.
 
         ``update_values`` deliberately does NOT move the frozen snapshot
-        ``get_initial_values()`` reads from (see that method's docstring) —
-        it exists to record fitted/in-progress state without perturbing the
-        config-specified starting point read repeatedly during a single fit.
+        ``get_initial_values()`` reads from (see :meth:`get_initial_values`'s
+        docstring) — it exists to record fitted/in-progress state without
+        perturbing the config-specified starting point read repeatedly during
+        a single fit.
         Use this method instead when the intent is a genuinely NEW starting
         point for a fresh solve (e.g. one multistart candidate); it updates
         both the live values and the frozen snapshot together.

@@ -293,3 +293,75 @@ def test_reseed_initial_values_moves_get_initial_values():
     pm.reseed_initial_values({"D0_sample": new_value})
     after_reseed = dict(zip(pm.varying_names, pm.get_initial_values(), strict=True))
     assert after_reseed["D0_sample"] == new_value
+
+
+def test_reseed_initial_values_accepts_ndarray_form():
+    """``reseed_initial_values`` must handle the ndarray input form too, not just dict."""
+    from xpcsjax.config.heterodyne_parameter_manager import ParameterManager
+
+    pm = ParameterManager()
+    full = pm.get_full_values().copy()
+    idx = pm.varying_indices[0]
+    full[idx] += 12345.0
+
+    pm.reseed_initial_values(full)
+
+    assert pm.get_initial_values()[0] == full[idx]
+
+
+def test_multistart_candidates_receive_distinct_initial_values(monkeypatch):
+    """End-to-end regression test for the multistart no-op bug.
+
+    Each LHS-sampled candidate must actually reach ``fit_nlsq_multi_phi`` with
+    ITS OWN starting point (via ``param_manager.get_initial_values()``), not
+    the same frozen config value repeated for every candidate. This is the
+    exact behavior the original bug broke — ``test_reseed_initial_values_
+    moves_get_initial_values`` only proves the ``ParameterManager`` contract
+    in isolation, not that ``fit_nlsq_multistart_heterodyne`` actually wires
+    distinct candidates through to the solve.
+    """
+    model = _StubModel()
+    c2 = np.ones((2, 4, 4))
+    phi = np.array([0.0, 90.0])
+    candidate_starts = [[2000.0, 0.5], [3000.0, -0.5], [4000.0, 1.5]]
+    seen_initial_values = []
+
+    def _fake_fit_nlsq_multi_phi(m, c2_in, phi_in, cfg, w):
+        seen_initial_values.append(m.param_manager.get_initial_values().tolist())
+        return _StubResult([2000.0, 0.5, 0.18, 1.19], chi2=1.5)
+
+    def _fake_run_multistart(
+        data, bounds, config, single_fit_func, cost_func=None, custom_starts=None
+    ):
+        for start in candidate_starts:
+            single_fit_func(data, np.array(start))
+        best = SingleStartResult(
+            start_idx=1,
+            initial_params=np.array(candidate_starts[1]),
+            final_params=np.array([*candidate_starts[1], 0.18, 1.19]),
+            chi_squared=1.0,
+            reduced_chi_squared=1.0,
+            success=True,
+            message="best",
+        )
+        return MultiStartResult(
+            best=best,
+            all_results=[best],
+            config=config,
+            strategy_used="full",
+            n_unique_basins=1,
+            degeneracy_detected=False,
+        )
+
+    monkeypatch.setattr(hm, "run_multistart_nlsq", _fake_run_multistart)
+    monkeypatch.setattr(hm, "fit_nlsq_multi_phi", _fake_fit_nlsq_multi_phi)
+
+    ms_cfg = hm.build_multistart_config({"enable": True, "n_starts": 3})
+    hm.fit_nlsq_multistart_heterodyne(
+        model, c2, phi, nlsq_cfg=object(), weights=None, ms_cfg=ms_cfg
+    )
+
+    # 3 per-candidate solves + 1 final authoritative re-fit from the winning start.
+    assert seen_initial_values[:3] == candidate_starts
+    assert seen_initial_values[3] == candidate_starts[1]
+    assert len({tuple(v) for v in seen_initial_values[:3]}) == 3
