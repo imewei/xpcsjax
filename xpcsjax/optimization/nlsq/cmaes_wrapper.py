@@ -39,6 +39,15 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Reasons NLSQ's CMA-ES global search reports as an actual convergence (not
+# a restart/generation-budget exhaustion). ``CMAESResult.success`` can also be
+# True purely from the post-search NLSQ refinement polish (see CR-5 below) —
+# callers that need to distinguish "the global search itself converged" from
+# "a local polish rescued a non-converged search" should compare
+# ``result.diagnostics.get("convergence_reason")`` against this set rather
+# than trusting ``success`` alone.
+CMAES_CONVERGED_REASONS = frozenset({"tol_fun", "tol_x", "tol_fun_hist", "ftarget"})
+
 
 def _format_bounds_summary(bounds: tuple[np.ndarray, np.ndarray]) -> str:
     """Format bounds summary for logging.
@@ -1220,8 +1229,7 @@ class CMAESWrapper:
             f"chi2={best_chi_squared:.4e}, total_time={total_time:.1f}s"
         )
 
-        converged_reasons = {"tol_fun", "tol_x", "tol_fun_hist", "ftarget"}
-        cmaes_converged = convergence_reason in converged_reasons
+        cmaes_converged = convergence_reason in CMAES_CONVERGED_REASONS
         # CR-5: NLSQ refinement can polish a point but cannot make an unconverged
         # global search "successful". Keep the two notions distinct and warn when
         # the success flag rests on refinement alone, so the caller in
