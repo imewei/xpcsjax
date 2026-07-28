@@ -410,6 +410,11 @@ class ParameterSpace:
                                 context=f"parameters.{group_name}.{param_name}.max",
                             ),
                         )
+                        if new_bounds[0] > new_bounds[1]:
+                            raise ValueError(
+                                f"parameters.{group_name}.{param_name}: "
+                                f"min {new_bounds[0]} exceeds max {new_bounds[1]}."
+                            )
                         if (
                             new_bounds[0] != reg_info.min_bound
                             or new_bounds[1] != reg_info.max_bound
@@ -576,6 +581,10 @@ def _apply_parameter_space_bounds(space: ParameterSpace, config: dict[str, Any])
             hi = coerce_finite_float(
                 entry["max"], context=f"parameter_space.bounds[{raw_name!r}].max"
             )
+            if lo > hi:
+                raise ValueError(
+                    f"parameter_space.bounds entry for {raw_name!r}: min {lo} exceeds max {hi}."
+                )
             reg = registry_info(name)
             if lo != reg.min_bound or hi != reg.max_bound:
                 logger.debug(

@@ -118,6 +118,20 @@ def _extract_parameters(
     return out
 
 
+def _shaped_or_nan(value: Any, shape: tuple[int, ...]) -> np.ndarray:
+    """Coerce *value* to a float64 array of *shape*, or an all-NaN array.
+
+    ``__post_init__`` admits ``None`` and 0-D/empty placeholders for any
+    parameter count; stored verbatim they break readers that index the NPZ 1:1
+    against ``parameters``.
+    """
+    if value is not None:
+        arr = np.asarray(value, dtype=np.float64)
+        if arr.size == int(np.prod(shape, dtype=int)):
+            return arr.reshape(shape)
+    return np.full(shape, np.nan, dtype=np.float64)
+
+
 def _extract_metadata(result: OptimizationResult) -> dict[str, Any]:
     """Flatten NLSQ fit-quality metrics into a JSON-friendly dict."""
     meta: dict[str, Any] = {
@@ -293,20 +307,8 @@ def save_results_npz(
 
     params = np.asarray(result.parameters, dtype=np.float64)
     n_params = params.size
-    # uncertainties/covariance are legitimately None (e.g. global-escape
-    # results, or when no covariance solve ran). Fill with NaN at the
-    # documented shapes (n,) and (n, n) instead of letting np.asarray(None)
-    # produce a 0-d scalar that breaks downstream indexing.
-    uncertainties = (
-        np.asarray(result.uncertainties, dtype=np.float64)
-        if result.uncertainties is not None
-        else np.full(n_params, np.nan, dtype=np.float64)
-    )
-    covariance = (
-        np.asarray(result.covariance, dtype=np.float64)
-        if result.covariance is not None
-        else np.full((n_params, n_params), np.nan, dtype=np.float64)
-    )
+    uncertainties = _shaped_or_nan(result.uncertainties, (n_params,))
+    covariance = _shaped_or_nan(result.covariance, (n_params, n_params))
 
     arrays: dict[str, np.ndarray] = {
         "parameters": params,

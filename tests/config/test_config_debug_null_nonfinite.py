@@ -97,3 +97,25 @@ def test_null_bound_falls_back_to_default() -> None:
     assert isinstance(bound["min"], float)
     # The explicitly-set max is still applied.
     assert bound["max"] == pytest.approx(1.0e5)
+
+
+# --------------------------------------------------------------------------- #
+# _load_config_bounds must reject an inverted (min > max) interval
+# --------------------------------------------------------------------------- #
+def test_inverted_bounds_rejected() -> None:
+    config = {
+        "analysis_mode": "static_anisotropic",
+        "parameter_space": {"bounds": [{"name": "D0", "min": 1.0e5, "max": 100.0}]},
+    }
+    with pytest.raises(ValueError, match="exceeds max"):
+        ParameterManager(config, AnalysisMode.STATIC_ANISOTROPIC)
+
+
+def test_one_sided_override_inverting_against_default_rejected() -> None:
+    """Only 'min' supplied, inverting against the registry default max."""
+    config = {
+        "analysis_mode": "static_anisotropic",
+        "parameter_space": {"bounds": [{"name": "D0", "min": 1.0e9}]},
+    }
+    with pytest.raises(ValueError, match="exceeds max"):
+        ParameterManager(config, AnalysisMode.STATIC_ANISOTROPIC)

@@ -380,7 +380,6 @@ def apply_inverse_shear_transforms_to_vector_jax(
 
 def adjust_covariance_for_transforms(
     covariance: np.ndarray,
-    transformed_params: np.ndarray,
     physical_params: np.ndarray,
     state: dict[str, Any] | None,
 ) -> np.ndarray:
@@ -390,8 +389,6 @@ def adjust_covariance_for_transforms(
     ----------
     covariance : np.ndarray
         Covariance matrix in solver space.
-    transformed_params : np.ndarray
-        Parameters in solver space.
     physical_params : np.ndarray
         Parameters in physical space.
     state : dict[str, Any] | None

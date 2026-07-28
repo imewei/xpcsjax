@@ -92,10 +92,15 @@ def safe_bool(value: Any, default: bool) -> bool:
     Returns
     -------
     bool
-        The parsed boolean. Real ``bool``/other non-string values fall back
-        to plain ``bool(value)``; unrecognized strings return *default* (a
-        failed conversion is logged as a warning).
+        The parsed boolean. ``None`` (a present-but-null YAML value, or a
+        missing key handled by the caller) returns *default* rather than
+        ``bool(None)`` (``False``) — a present-but-null YAML value means
+        "unset", not "explicitly disabled". Real ``bool``/other non-string
+        values fall back to plain ``bool(value)``; unrecognized strings
+        return *default* (a failed conversion is logged as a warning).
     """
+    if value is None:
+        return default
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
@@ -341,10 +346,15 @@ class StratificationConfig:
             candidate = opt_block.get("stratification")
             if isinstance(candidate, dict):
                 strat = candidate
+
         return cls(
             enabled=strat.get("enabled", "auto"),
-            target_chunk_size=int(strat.get("target_chunk_size", 100_000)),
-            max_imbalance_ratio=float(strat.get("max_imbalance_ratio", 5.0)),
+            # A present-but-null YAML value means "unset": safe_int/safe_float
+            # fall back to the dataclass default on None, and safe_bool
+            # additionally parses common falsy strings ("false"/"no"/"off")
+            # correctly instead of Python's truthy-coercing bare bool().
+            target_chunk_size=safe_int(strat.get("target_chunk_size"), 100_000),
+            max_imbalance_ratio=safe_float(strat.get("max_imbalance_ratio"), 5.0),
             force_sequential_fallback=safe_bool(
                 strat.get("force_sequential_fallback", False), False
             ),

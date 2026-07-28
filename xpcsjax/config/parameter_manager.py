@@ -216,11 +216,15 @@ class ParameterManager:
                     )
                 self._default_bounds[param_name] = bound_typed
 
+            # Validate after the merge, not on the raw entry: a one-sided
+            # override (only 'min' given) can invert against the registry
+            # default 'max'. Mirrors ParameterInfo.__post_init__ — equal
+            # bounds are allowed (a fixed parameter), min > max is not.
             merged = self._default_bounds[param_name]
             if merged["min"] > merged["max"]:
                 raise ValueError(
-                    f"parameter_space.bounds entry for {param_name!r} has an "
-                    f"inverted bound: min={merged['min']} > max={merged['max']}"
+                    f"parameter_space.bounds entry for {raw_name!r}: "
+                    f"min {merged['min']} exceeds max {merged['max']}."
                 )
 
         logger.debug(f"Loaded bounds from config for {len(config_bounds)} parameters")

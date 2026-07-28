@@ -79,16 +79,21 @@ def save_nlsq_json_files(
         with open(convergence_file, "w", encoding="utf-8") as f:
             json.dump(safe_convergence, f, indent=2, default=json_serializer)
         logger.debug(f"Saved convergence metrics to {convergence_file}")
+    except OSError as e:
+        raise OSError(f"Failed to write NLSQ JSON files to {output_dir}: {e}") from e
 
-        # T058a: Log file sizes after all writes succeed (inside try to catch stat errors)
+    # T058a: best-effort size log — a stat() failure here must not be reported as a
+    # write failure, since all three files are already complete on disk.
+    try:
         total_size_kb = (
             param_file.stat().st_size
             + analysis_file.stat().st_size
             + convergence_file.stat().st_size
         ) / 1024
-        logger.info(f"Saved 3 JSON files to {output_dir} (total: {total_size_kb:.1f} KB)")
-    except OSError as e:
-        raise OSError(f"Failed to write NLSQ JSON files to {output_dir}: {e}") from e
+        size_str = f"total: {total_size_kb:.1f} KB"
+    except OSError:
+        size_str = "total size unknown"
+    logger.info(f"Saved 3 JSON files to {output_dir} ({size_str})")
 
 
 def save_nlsq_npz_file(

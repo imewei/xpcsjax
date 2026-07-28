@@ -56,6 +56,8 @@ REQUIRED_DEPENDENCIES: tuple[tuple[str, str, str], ...] = (
     ("cloudpickle", "3.1", "cloudpickle"),
     ("tqdm", "4.67.1", "tqdm"),
     ("scikit-learn", "1.6", "sklearn"),
+    ("matplotlib", "3.10", "matplotlib"),
+    ("pillow", "12.3.0", "PIL"),
 )
 
 # Optional viz-fast extras — informational only.
@@ -81,6 +83,7 @@ PUBLIC_API_SYMBOLS: tuple[str, ...] = (
     "HomodyneModel",
     "HeterodyneModel",
     "OptimizationResult",
+    "generate_nlsq_plots",
 )
 
 

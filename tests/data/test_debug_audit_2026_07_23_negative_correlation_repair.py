@@ -9,6 +9,7 @@ Finding #6 of docs/superpowers/specs/2026-07-23-fix-remaining-debug-audit-bugs-d
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from xpcsjax.data.preprocessing import PreprocessingPipeline
 from xpcsjax.data.quality_controller import DataQualityController
@@ -148,3 +149,26 @@ def test_repair_negative_correlations_respects_real_pipeline_mask():
     assert normalized["c2_exp"][1, 0, 0] == 1e-6, (
         "matrix 1 (never normalized) must still be clamped"
     )
+
+
+def test_repair_negative_correlations_upcasts_integer_c2():
+    """Integer-dtype c2_exp must not truncate the 1e-6 floor to exactly 0.
+
+    ``arr[mask] = 1e-6`` on an int array silently stores 0, defeating the
+    floor's purpose (protecting downstream log/ratio math from exact zeros)
+    while still reporting "Repaired negative correlation values".
+    """
+    controller = DataQualityController.__new__(DataQualityController)
+    matrix = np.array([[-5, 2], [3, -1]], dtype=np.int64)
+    data = {"c2_exp": np.stack([matrix])}
+
+    repairs_applied: list[str] = []
+    modified = controller._repair_negative_correlations(data, repairs_applied)
+
+    assert modified is True
+    c2 = np.asarray(data["c2_exp"])
+    assert np.issubdtype(c2.dtype, np.floating), f"c2_exp not upcast: dtype={c2.dtype}"
+    assert c2[0, 0, 0] == pytest.approx(1e-6), "negative floor truncated to 0"
+    assert c2[0, 1, 1] == pytest.approx(1e-6), "negative floor truncated to 0"
+    assert c2[0, 0, 1] == pytest.approx(2.0), "untouched entries must survive"
+    assert c2[0, 1, 0] == pytest.approx(3.0), "untouched entries must survive"

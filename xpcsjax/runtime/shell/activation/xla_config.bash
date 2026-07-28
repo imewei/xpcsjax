@@ -50,12 +50,14 @@ _xpcsjax_configure_xla() {
             # default but cap at physical cores when smaller.
             device_count=$((cpu_count < 4 ? cpu_count : 4))
             ;;
-        [0-9]*)
-            device_count="$mode"
-            ;;
         *)
-            echo "Unknown XLA mode: $mode" >&2
-            return 1
+            # Anchored match — a bare [0-9]*) case glob would accept "8x".
+            if [[ "$mode" =~ ^[0-9]+$ ]]; then
+                device_count="$mode"
+            else
+                echo "Unknown XLA mode: $mode" >&2
+                return 1
+            fi
             ;;
     esac
 
@@ -107,13 +109,16 @@ _xpcsjax_xla_setup() {
     local mode
 
     if [[ -n "${1:-}" ]]; then
-        mode="$1"
-        _xpcsjax_save_xla_mode "$mode"
-    else
-        mode=$(_xpcsjax_load_xla_mode)
+        # Persist only after validation, or a typo poisons every later activation.
+        _xpcsjax_configure_xla "$1" || return 1
+        _xpcsjax_save_xla_mode "$1"
+        return 0
     fi
 
-    _xpcsjax_configure_xla "$mode"
+    mode=$(_xpcsjax_load_xla_mode)
+    # A mode file poisoned by an older release must not brick every activation;
+    # fall back to auto like post_install.py's _validate_xla_mode does.
+    _xpcsjax_configure_xla "$mode" || _xpcsjax_configure_xla auto
 }
 
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then

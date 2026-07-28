@@ -371,8 +371,13 @@ class MemoryPressureMonitor:
         self._last_gc_freed: int = -1  # Objects freed in last GC (-1 = never run)
         self._consecutive_zero_gc: int = 0  # Count of consecutive GC calls that freed 0
 
-        # Pressure history for trend analysis
+        # Pressure history for trend analysis. Guarded by `_pressure_history_lock`
+        # because the monitoring daemon appends while callers read via
+        # `get_pressure_trend`. Keep the critical section leaf-only (append /
+        # snapshot): `get_memory_stats` already holds `_pools_lock` when it calls
+        # in, so acquiring anything else under this lock would invert that order.
         self._pressure_history: deque = deque(maxlen=300)  # 5 minutes at 1s intervals
+        self._pressure_history_lock = threading.Lock()
 
         # Register this monitor
         _active_monitors.add(self)
@@ -471,7 +476,8 @@ class MemoryPressureMonitor:
                 "available_gb": self.stats.available_memory_gb,
                 "swap_usage_gb": self.stats.swap_usage_gb,
             }
-            self._pressure_history.append(pressure_snapshot)
+            with self._pressure_history_lock:
+                self._pressure_history.append(pressure_snapshot)
 
     def _check_pressure_levels(self) -> None:
         """Check memory pressure levels and trigger responses.
@@ -665,13 +671,14 @@ class MemoryPressureMonitor:
             One of ``"increasing"``, ``"decreasing"``, ``"stable"``, or
             ``"insufficient_data"`` when too few samples are available.
         """
-        if len(self._pressure_history) < 10:
+        with self._pressure_history_lock:
+            history = list(self._pressure_history)
+
+        if len(history) < 10:
             return "insufficient_data"
 
         cutoff_time = time.time() - (window_minutes * 60)
-        recent_pressures = [
-            h["pressure"] for h in self._pressure_history if h["timestamp"] > cutoff_time
-        ]
+        recent_pressures = [h["pressure"] for h in history if h["timestamp"] > cutoff_time]
 
         if len(recent_pressures) < 5:
             return "insufficient_data"

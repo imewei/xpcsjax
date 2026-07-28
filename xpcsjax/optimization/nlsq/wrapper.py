@@ -212,6 +212,7 @@ from xpcsjax.optimization.nlsq.parameter_utils import (  # noqa: E402
 from xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics import (  # noqa: E402
     assemble_anti_degeneracy_diagnostics,
 )
+from xpcsjax.optimization.nlsq.config import safe_float, safe_int  # noqa: E402
 
 # Module-level logger
 _memory_logger = get_logger(__name__)
@@ -777,7 +778,10 @@ class NLSQWrapper(NLSQAdapterBase):
         if not config_dict:
             return {}
 
-        nlsq_settings = config_dict.get("optimization", {}).get("nlsq", {})
+        # `or {}` (not `.get(k, {})`) so a present-but-null YAML section
+        # (`optimization:` / `nlsq:` with no body) degrades to defaults
+        # instead of raising AttributeError on the next `.get()`.
+        nlsq_settings = (config_dict.get("optimization") or {}).get("nlsq") or {}
         return cast(dict[str, Any], nlsq_settings)
 
     @staticmethod
@@ -884,28 +888,30 @@ class NLSQWrapper(NLSQAdapterBase):
         # execute_with_recovery, so an absent config leaves the recovery solve
         # byte-identical to before.
         _recovery_convergence: dict[str, float] = {}
-        if "gtol" in nlsq_settings:
-            _recovery_convergence["gtol"] = float(nlsq_settings["gtol"])
+        _gtol = nlsq_settings.get("gtol")
+        if _gtol is not None:
+            _recovery_convergence["gtol"] = float(_gtol)
         _ftol = nlsq_settings.get("ftol", nlsq_settings.get("tolerance"))
         if _ftol is not None:
             _recovery_convergence["ftol"] = float(_ftol)
-        if "xtol" in nlsq_settings:
-            _recovery_convergence["xtol"] = float(nlsq_settings["xtol"])
+        _xtol = nlsq_settings.get("xtol")
+        if _xtol is not None:
+            _recovery_convergence["xtol"] = float(_xtol)
         _max_nfev = nlsq_settings.get("max_iterations", nlsq_settings.get("max_nfev"))
         if _max_nfev is not None:
             _recovery_convergence["max_nfev"] = int(_max_nfev)
         self._recovery_convergence = _recovery_convergence
-        trust_region_scale = float(nlsq_settings.get("trust_region_scale", 1.0))
+        trust_region_scale = safe_float(nlsq_settings.get("trust_region_scale"), 1.0)
         if trust_region_scale <= 0:
             trust_region_scale = 1.0
         x_scale_override = nlsq_settings.get("x_scale")
         x_scale_value = x_scale_override if x_scale_override is not None else "jac"
         x_scale_map_config = normalize_x_scale_map(nlsq_settings.get("x_scale_map"))
-        diagnostics_cfg = nlsq_settings.get("diagnostics", {})
+        diagnostics_cfg = nlsq_settings.get("diagnostics") or {}
         diagnostics_enabled = diagnostics_enabled or bool(
             diagnostics_cfg.get("enable", False),
         )
-        diagnostics_sample_size = int(diagnostics_cfg.get("sample_size", 2048))
+        diagnostics_sample_size = safe_int(diagnostics_cfg.get("sample_size"), 2048)
         diagnostics_payload = (
             {"solver_settings": {"loss": loss_name}} if diagnostics_enabled else None
         )
@@ -2333,7 +2339,6 @@ class NLSQWrapper(NLSQAdapterBase):
             if pcov is not None:
                 pcov = adjust_covariance_for_transforms(
                     np.asarray(pcov, dtype=float),
-                    solver_params,
                     physical_params,
                     transform_state,
                 )

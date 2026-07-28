@@ -850,12 +850,19 @@ class MinimalLogger:
         if force:
             self._clear_managed_handlers(root_logger)
 
-        root_level_candidates = [_resolve_level(level)]
-        if console_level is not None:
-            root_level_candidates.append(_resolve_level(console_level))
-        if file_level is not None:
-            root_level_candidates.append(_resolve_level(file_level))
-        root_level = min(lvl for lvl in root_level_candidates if lvl is not None)
+        root_level_candidates = [
+            lvl
+            for lvl in (
+                _resolve_level(level),
+                _resolve_level(console_level),
+                _resolve_level(file_level),
+            )
+            if lvl is not None
+        ]
+        # An explicit YAML ``level: null`` resolves to None (dict.get's default only
+        # fires on a missing key), so fall back to the signature default INFO rather
+        # than calling min() on an empty sequence.
+        root_level = min(root_level_candidates) if root_level_candidates else logging.INFO
         root_logger.setLevel(root_level)
 
         # Console handler — only reuse an existing managed handler to avoid duplicating
