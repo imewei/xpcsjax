@@ -230,8 +230,24 @@ def detect_hardware() -> HardwareConfig:
         try:
             slurm_cpus_on_node = int(os.environ["SLURM_CPUS_ON_NODE"])
             if slurm_cpus_on_node > 0:
-                cores_per_node = slurm_cpus_on_node
-                logger.info(f"Slurm allocation: {cores_per_node} CPUs on node")
+                # SLURM_CPUS_ON_NODE counts LOGICAL CPUs (hyperthreads), but
+                # cores_per_node above was deliberately set to psutil's
+                # physical-core count (logical=False) to exclude SMT. Taking
+                # the Slurm value verbatim on an SMT node silently doubles
+                # cores_per_node (and downstream max_parallel_shards) versus
+                # the non-Slurm path. Convert back to a physical-core-
+                # equivalent count using the observed host SMT ratio.
+                smt_ratio = 1.0
+                if HAS_PSUTIL:
+                    logical_total = psutil.cpu_count(logical=True) or 0
+                    physical_total = psutil.cpu_count(logical=False) or 0
+                    if logical_total > 0 and physical_total > 0:
+                        smt_ratio = logical_total / physical_total
+                cores_per_node = max(1, round(slurm_cpus_on_node / smt_ratio))
+                logger.info(
+                    f"Slurm allocation: {slurm_cpus_on_node} logical CPUs on node "
+                    f"(smt_ratio={smt_ratio:.2f}) -> {cores_per_node} physical-equivalent cores"
+                )
         except ValueError:
             logger.warning("Failed to parse SLURM_CPUS_ON_NODE")
 

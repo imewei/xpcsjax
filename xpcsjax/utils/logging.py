@@ -12,6 +12,7 @@ import functools
 import inspect
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -897,11 +898,15 @@ class MinimalLogger:
                 created_file = file_path
 
                 # Reuse an existing managed file handler pointed at the SAME
-                # resolved path, mirroring the console-handler dedup above —
-                # otherwise calling configure(file_path=X, force=False) twice
-                # attaches a second RotatingFileHandler on the same file,
-                # duplicating every log line and leaking an open fd.
-                target_path = str(file_path.resolve())
+                # path, mirroring the console-handler dedup above — otherwise
+                # calling configure(file_path=X, force=False) twice attaches a
+                # second RotatingFileHandler on the same file, duplicating
+                # every log line and leaking an open fd. logging.FileHandler
+                # sets baseFilename via os.path.abspath() (NOT symlink-
+                # resolved) — matching with Path.resolve() here would never
+                # compare equal under a symlinked log directory, so use the
+                # same os.path.abspath() convention the handler itself uses.
+                target_path = os.path.abspath(str(file_path))
                 file_handler: logging.Handler | None = None
                 for handler in root_logger.handlers:
                     if (
@@ -948,8 +953,6 @@ class MinimalLogger:
         if module_levels:
             for module_name, module_level in module_levels.items():
                 logging.getLogger(module_name).setLevel(_resolve_level_or(module_level, root_level))
-
-        import os
 
         current_test = os.environ.get("PYTEST_CURRENT_TEST", "")
 

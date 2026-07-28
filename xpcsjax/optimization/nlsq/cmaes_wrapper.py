@@ -665,13 +665,18 @@ class CMAESWrapper:
                 }
 
                 # NLSQ's curve_fit has no "workflow"/"tr_solver" kwargs — the real
-                # names are "method" and "solver" (verified via inspect.signature).
-                # Passing the wrong names silently no-ops through **kwargs, so map
-                # our "auto"/"standard"/"streaming" vocabulary onto NLSQ's own.
-                # solver="svd" is NLSQ's own name for what it internally calls the
-                # "exact" (SVD-based) trust-region solver (see
-                # CurveFit._select_tr_solver: "svd" -> "exact") -- "exact" itself
-                # is NOT a valid `solver` value and raises ValueError.
+                # name is "method" (verified via inspect.signature). Passing the
+                # wrong name silently no-ops through **kwargs, so map our
+                # "auto"/"standard"/"streaming" vocabulary onto NLSQ's own.
+                # `solver` (a *different* NLSQ parameter — the linear-solver
+                # strategy in core/minpack.py, not the trust-region tr_solver
+                # internal-only choice) is deliberately left at its "auto"
+                # default rather than hardcoded to "svd": NLSQ's own docstring
+                # says solver="svd" is only "good for small to medium
+                # datasets", and this refinement call has no dataset-size
+                # bound, so hardcoding it would force SVD even on a very
+                # large Jacobian where "auto" would correctly pick an
+                # iterative solver (cg/lsqr/minibatch) instead.
 
                 _method_map: dict[str, Literal["trf", "hybrid_streaming"] | None] = {
                     "auto": None,
@@ -687,7 +692,6 @@ class CMAESWrapper:
                     sigma=sigma,
                     bounds=bounds,
                     method=_method_map.get(self.config.refinement_workflow),
-                    solver="svd",  # Model uses closure data, not xdata
                     **refinement_kwargs,
                 )
 

@@ -182,6 +182,14 @@ class FitQueueController(QObject):
             try:
                 handle.start()
             except OSError as exc:
+                # handle.start() spawns the OS process BEFORE starting its
+                # reader thread; an OSError here (e.g. thread/resource
+                # exhaustion) can fire after the child is already alive.
+                # cancel() is a no-op if nothing was actually spawned, so
+                # always call it before dropping the handle — otherwise a
+                # partially-started worker process is orphaned (never
+                # tracked in self._handles, so nothing ever reaps it).
+                handle.cancel()
                 # The job is already popped from _pending — don't leave it in
                 # limbo with no terminal signal. Surface it like any other
                 # start failure and keep draining the rest of the queue.

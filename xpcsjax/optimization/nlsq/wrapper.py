@@ -2676,7 +2676,16 @@ class NLSQWrapper(NLSQAdapterBase):
             phi_unique = np.asarray(data.phi)
             t1_unique = np.asarray(data.t1)
             t2_unique = np.asarray(data.t2)
-            phi_idx = np.searchsorted(phi_unique, np.round(np.asarray(data.phi_flat), decimals=6))
+            # Round BOTH sides to the same precision before searchsorted —
+            # rounding only the query while phi_unique keeps its raw
+            # floating-point value shifts every index by +1 whenever the
+            # rounded query lands fractionally above the table's exact
+            # stored value (reproduced: phi=[10,45,80] deg -> query-only
+            # rounding gave indices [1,1,2] instead of the correct [0,1,2]).
+            phi_idx = np.searchsorted(
+                np.round(phi_unique, decimals=6),
+                np.round(np.asarray(data.phi_flat), decimals=6),
+            )
             t1_idx = np.searchsorted(t1_unique, np.asarray(data.t1_flat))
             t2_idx = np.searchsorted(t2_unique, np.asarray(data.t2_flat))
             try:

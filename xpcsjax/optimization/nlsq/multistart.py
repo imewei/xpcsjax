@@ -1475,6 +1475,16 @@ def _run_parallel_with_progress(
         if "executor" in locals():
             executor.shutdown(wait=False, cancel_futures=True)
 
+    finally:
+        # Safety net for any exception type NOT in the two except tuples above
+        # (e.g. pickle.PicklingError, MemoryError, a bug inside optimize_func
+        # raising some other type) -- without this, such an exception
+        # propagates with `executor` never shut down, leaking worker
+        # processes. Executor.shutdown() is documented idempotent, so this
+        # is a harmless no-op on every path that already shut it down above.
+        if "executor" in locals():
+            executor.shutdown(wait=False, cancel_futures=True)
+
     # If parallel failed, fall back to sequential
     if fallback_to_sequential:
         logger.info(f"Sequential fallback reason: {fallback_reason}")

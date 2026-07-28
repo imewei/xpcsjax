@@ -425,6 +425,11 @@ def fit_with_out_of_core_accumulation(
 
     # Track early convergence result for return after cleanup
     _early_result: tuple[np.ndarray, np.ndarray, dict] | None = None
+    # Refreshed (J^T J, J^T r, chi2, count) at the final params_curr, computed
+    # inside the try (before the finally's ooc_pool.shutdown()) so the
+    # post-loop covariance build never calls back into an already-shut-down
+    # pool.
+    _final_accum: tuple[Any, Any, float, int] | None = None
 
     # Seed loop-carried accumulators so the post-loop summary stays well-defined
     # even when max_iter <= 0 (loop body never runs).
@@ -576,6 +581,19 @@ def fit_with_out_of_core_accumulation(
                 log.warning("Could not find better step. Stopping.")
                 break_reason = "line_search_stalled"
                 break
+
+        if _early_result is None:
+            # Refresh the accumulators at whatever point params_curr actually
+            # holds before building the final pcov: total_JtJ/total_chi2 above
+            # are from the top of the LAST loop iteration, evaluated at the
+            # pre-step params of that iteration -- not necessarily the
+            # params_curr being returned below (e.g. a step was accepted this
+            # iteration, or the loop exited via a mid-iteration break).
+            # Recomputing here keeps pcov's Hessian/DOF paired with the actual
+            # returned point instead of a stale pre-step one. MUST run before
+            # the `finally` below shuts down ooc_pool -- _accumulate_at uses
+            # it when set, so calling this after shutdown raises.
+            _final_accum = _accumulate_at(params_curr)
     finally:
         # Clean up parallel compute pool and shared memory
         if ooc_pool is not None:
@@ -586,14 +604,8 @@ def fit_with_out_of_core_accumulation(
     if _early_result is not None:
         return _early_result
 
-    # Refresh the accumulators at whatever point params_curr actually holds
-    # before building the final pcov: total_JtJ/total_chi2 above are from the
-    # top of the LAST loop iteration, evaluated at the pre-step params of
-    # that iteration -- not necessarily the params_curr being returned below
-    # (e.g. a step was accepted this iteration, or the loop exited via a mid-
-    # iteration break). Recomputing here keeps pcov's Hessian/DOF paired with
-    # the actual returned point instead of a stale pre-step one.
-    total_JtJ, _total_Jtr, total_chi2, count = _accumulate_at(params_curr)
+    assert _final_accum is not None
+    total_JtJ, _total_Jtr, total_chi2, count = _final_accum
 
     # Determine final status (rel_change initialized to inf before loop).
     # A break_reason set above means the loop exited via a numerical-

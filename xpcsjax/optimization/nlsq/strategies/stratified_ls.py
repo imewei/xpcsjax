@@ -146,39 +146,6 @@ def create_stratified_chunks(
     return StratifiedChunkedData(chunks, sigma)
 
 
-class _ShearWeightedResidualFn:
-    """Scales a :class:`StratifiedResidualFunctionJIT`'s residuals by L5 weights.
-
-    Root-cause fix: L5 (``ad_controller.get_shear_weights()``) was computed
-    and logged as enabled but never applied to the objective the stratified-LS
-    solve actually minimizes, since ``StratifiedResidualFunctionJIT`` has no
-    weight argument. Rather than modify that rtol=1e-10-pinned kernel, this
-    thin wrapper multiplies its output by ``sqrt(weight)`` per point (NLSQ
-    minimizes ``sum(residual**2)``, so scaling residuals by ``sqrt(w)`` makes
-    the effective objective ``sum(w * residual**2)``) and delegates every
-    other attribute access to the wrapped instance (``__getattr__``) so
-    downstream code (``n_real_points``, ``n_params``, ``validate_chunk_structure``,
-    ``log_diagnostics``, ...) is unaffected. Weights are aligned to each
-    point's phi angle by RANK within ``residual_fn.phi_unique`` (sorted
-    ascending, like ``shear_weights``' own phi ordering — degrees vs radians
-    doesn't change the sort order, so index-by-rank is not sensitive to units).
-    """
-
-    def __init__(self, residual_fn: Any, shear_weights: np.ndarray) -> None:
-        self._residual_fn = residual_fn
-        phi_unique = np.asarray(residual_fn.phi_unique)
-        phi_padded = np.asarray(residual_fn.phi_padded)
-        weight_by_angle = np.sqrt(np.asarray(shear_weights, dtype=np.float64))
-        angle_idx = np.clip(np.searchsorted(phi_unique, phi_padded), 0, len(weight_by_angle) - 1)
-        self._weight_flat = weight_by_angle[angle_idx].flatten()
-
-    def __call__(self, params: Any) -> Any:
-        return self._residual_fn(params) * self._weight_flat
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._residual_fn, name)
-
-
 def fit_with_stratified_least_squares(
     stratified_data: Any,
     per_angle_scaling: bool,
@@ -457,15 +424,13 @@ def fit_with_stratified_least_squares(
             effective_per_angle_scaling = False
 
     log.info("Creating JIT-compatible stratified residual function...")
-    residual_fn: StratifiedResidualFunctionJIT | _ShearWeightedResidualFn = (
-        StratifiedResidualFunctionJIT(
-            stratified_data=chunked_data,  # Use chunked_data with .chunks attribute
-            per_angle_scaling=effective_per_angle_scaling,
-            physical_param_names=physical_param_names,
-            logger=log,  # type: ignore[arg-type]
-            fixed_contrast_per_angle=fixed_contrast,
-            fixed_offset_per_angle=fixed_offset,
-        )
+    residual_fn = StratifiedResidualFunctionJIT(
+        stratified_data=chunked_data,  # Use chunked_data with .chunks attribute
+        per_angle_scaling=effective_per_angle_scaling,
+        physical_param_names=physical_param_names,
+        logger=log,  # type: ignore[arg-type]
+        fixed_contrast_per_angle=fixed_contrast,
+        fixed_offset_per_angle=fixed_offset,
     )
 
     # Validate chunk structure
@@ -474,23 +439,6 @@ def fit_with_stratified_least_squares(
 
     # Log diagnostics
     residual_fn.log_diagnostics()
-
-    # L5 shear-sensitivity weighting: apply AFTER validation/diagnostics run
-    # against the raw (unwrapped) residual function, so the wrapped, weighted
-    # version is what the gradient check and the actual solve below both see —
-    # consistent with what NLSQ actually minimizes. No-op (unwrapped) unless
-    # the controller is enabled, laminar_flow, and get_shear_weights() returns
-    # real weights, so every other mode/config stays byte-identical.
-    if ad_controller is not None and ad_controller.use_shear_weighting:
-        _shear_weights = ad_controller.get_shear_weights()
-        if _shear_weights is not None:
-            log.info(
-                "L5: applying shear-sensitivity weights to the stratified-LS "
-                "residual (weight range [%.4f, %.4f])",
-                float(np.min(_shear_weights)),
-                float(np.max(_shear_weights)),
-            )
-            residual_fn = _ShearWeightedResidualFn(residual_fn, _shear_weights)
 
     # Gradient sanity check (CRITICAL)
     # Verify that gradients are non-zero before starting optimization

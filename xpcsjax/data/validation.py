@@ -990,7 +990,20 @@ def _perform_incremental_validation(
     # still-broken unchanged component's errors, or (once is_valid below is
     # recomputed from the merged set rather than ratcheted) would let
     # is_valid flip back to True while that component is still broken.
+    #
+    # A cross-component (parameter=None) issue -- e.g. from
+    # _validate_array_shapes below -- is never "in changed_components" by
+    # construction, so a naive `issue.parameter not in changed_components`
+    # check always carries it forward unconditionally. Whenever t1/t2/c2_exp
+    # changed, _validate_array_shapes reruns below and would either duplicate
+    # a still-broken shape issue or leave a stale one behind after it's been
+    # fixed (report.errors would then never drop it, blocking is_valid from
+    # ever flipping back to True). Skip carrying those forward when a rerun
+    # is about to supersede them; let the fresh rerun be the sole source.
+    shape_will_rerun = any(c in changed_components for c in ("t1", "t2", "c2_exp"))
     for issue in previous_report.errors + previous_report.warnings + previous_report.info:
+        if issue.parameter is None and shape_will_rerun:
+            continue
         if issue.parameter not in changed_components:
             report.add_issue(issue)
 

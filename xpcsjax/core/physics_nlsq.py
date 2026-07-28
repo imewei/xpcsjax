@@ -42,6 +42,11 @@ logger = get_logger(__name__)
 # JAX availability flag (for backward compatibility)
 jax_available = True
 
+# Fixed sub-sample count for the degenerate (single scattered t1/t2 point)
+# integral estimate in _compute_g1_diffusion_meshgrid / _compute_g1_shear_meshgrid.
+# Fixed (not lag-dependent) so the computation stays JIT-static-shape safe.
+_DEGENERATE_SUBSTEPS = 65
+
 
 # =============================================================================
 # MESHGRID CORE PHYSICS (NLSQ ONLY)
@@ -114,10 +119,27 @@ def _compute_g1_diffusion_meshgrid(
         # the actual time lag (finding: physics_nlsq.py root cause). Compute
         # the integral directly from both endpoints via a 2-point
         # trapezoidal rule instead of the cumsum-over-t1-only reconstruction.
-        t2_col = t2[:, 0]
-        D1 = _calculate_diffusion_coefficient_impl_jax(time_array, D0, alpha, D_offset)
-        D2 = _calculate_diffusion_coefficient_impl_jax(t2_col, D0, alpha, D_offset)
-        integral = 0.5 * (D1 + D2) * (t2_col - time_array)
+        # t2 mirrors t1's own shape handling above (2D meshgrid -> first
+        # column, otherwise atleast_1d) since the real call site passes t2
+        # as a 1D single-element array, not a 2D meshgrid.
+        t2_col = t2[:, 0] if t2.ndim == 2 else jnp.atleast_1d(t2)
+        # A single 2-point (trapezoidal) estimate is only accurate for a
+        # short lag; D(t) is a power law in t (via `alpha`, bounded to
+        # [-2, 2] in the parameter registry) and can vary sharply over a
+        # long (t1, t2) span, so endpoints-only integration is systematically
+        # wrong for large lags. Sub-sample the span at a fixed number of
+        # interior points and trapezoidal-integrate instead — this matches
+        # the `else` branch's fine dt-spaced discretization far more closely
+        # than the 2-point estimate while staying JIT-static-shape safe.
+        t_sub = jnp.linspace(time_array[0], t2_col[0], _DEGENERATE_SUBSTEPS)
+        D_sub = _calculate_diffusion_coefficient_impl_jax(t_sub, D0, alpha, D_offset)
+        integral_seconds = jnp.sum(0.5 * (D_sub[:-1] + D_sub[1:]) * jnp.diff(t_sub))
+        # _create_time_integral_matrix_impl_jax (the `else` branch below)
+        # returns its matrix in integration-step units, with the single `dt`
+        # factor applied once downstream via wavevector_q_squared_half_dt.
+        # Divide by dt here so this branch matches those units instead of
+        # applying dt twice.
+        integral = integral_seconds / dt
         D_integral = jnp.sqrt(integral**2 + 1e-12).reshape(1, 1)
     else:
         # Calculate D(t) at each time point (time_array already in seconds)
@@ -234,10 +256,20 @@ def _compute_g1_shear_meshgrid(
         # the actual time lag. Compute the integral directly from both
         # endpoints via a 2-point trapezoidal rule instead of the
         # cumsum-over-t1-only reconstruction.
-        t2_col = t2[:, 0]
-        gamma1 = _calculate_shear_rate_impl_jax(time_array, gamma_dot_0, beta, gamma_dot_offset)
-        gamma2 = _calculate_shear_rate_impl_jax(t2_col, gamma_dot_0, beta, gamma_dot_offset)
-        integral = 0.5 * (gamma1 + gamma2) * (t2_col - time_array)
+        # t2 mirrors t1's own shape handling above (2D meshgrid -> first
+        # column, otherwise atleast_1d) since the real call site passes t2
+        # as a 1D single-element array, not a 2D meshgrid.
+        t2_col = t2[:, 0] if t2.ndim == 2 else jnp.atleast_1d(t2)
+        # See the matching comment in _compute_g1_diffusion_meshgrid: a
+        # 2-point trapezoid is only accurate for a short lag, so sub-sample
+        # the span at a fixed number of interior points instead.
+        t_sub = jnp.linspace(time_array[0], t2_col[0], _DEGENERATE_SUBSTEPS)
+        gamma_sub = _calculate_shear_rate_impl_jax(t_sub, gamma_dot_0, beta, gamma_dot_offset)
+        integral_seconds = jnp.sum(0.5 * (gamma_sub[:-1] + gamma_sub[1:]) * jnp.diff(t_sub))
+        # Divide by dt so this branch's units match
+        # _create_time_integral_matrix_impl_jax's integration-step units
+        # instead of double-applying dt.
+        integral = integral_seconds / dt
         gamma_integral = jnp.sqrt(integral**2 + 1e-12).reshape(1, 1)
     else:
         # Calculate γ̇(t) at each time point (time_array already in seconds)

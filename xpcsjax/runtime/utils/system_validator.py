@@ -157,12 +157,17 @@ def _parse_version(version: str) -> tuple[int, ...]:
 def _is_final_release(version: str) -> bool:
     """Return whether ``version`` is a final release (no pre-release/dev suffix).
 
-    Strips local/build metadata (``+...`` / ``-...``) the same way
-    :func:`_parse_version` does, then checks whether what remains is purely
-    dot-separated digits. A pre-release or dev suffix (``rc1``, ``a1``,
-    ``.dev20250101``, ...) makes this ``False`` — such builds must sort
-    *below* the equivalent numeric release so they never satisfy a
-    release-version minimum.
+    Strips local version metadata (``+...``, PEP 440 §local-version) — that
+    part is genuinely opaque build info, safe to discard. What remains is
+    checked for a PEP 440 pre-release/dev marker (``a``/``b``/``c``/``rc``/
+    ``dev``, optionally digit-suffixed, optionally ``.``- or ``-``-prefixed)
+    ANYWHERE in the string, not just as a suffix split on ``-``/``+`` — a
+    plain hyphen-prefixed splitter (the prior implementation) strips
+    ``-rc1`` off entirely as if it were build metadata, silently
+    misclassifying a release candidate as final. A ``.postN`` post-release
+    suffix does NOT match any of these markers, so it's correctly classified
+    as final (PEP 440 post-releases sort *after*, not before, the base
+    release).
 
     Parameters
     ----------
@@ -174,8 +179,8 @@ def _is_final_release(version: str) -> bool:
     bool
         ``True`` if ``version`` carries no pre-release/dev suffix.
     """
-    cleaned = re.split(r"[+\-]", version)[0]
-    return bool(re.fullmatch(r"[\d.]+", cleaned))
+    cleaned = version.split("+", 1)[0]
+    return not re.search(r"[.\-]?(a|b|c|rc|dev)\d*\b", cleaned, re.IGNORECASE)
 
 
 def _version_at_least(actual: str, minimum: str) -> bool:
