@@ -28,8 +28,9 @@ class _StubParamManager:
     def get_initial_values(self):
         return self._initial.copy()
 
-    def update_values(self, params):
+    def reseed_initial_values(self, params):
         self.updated_with = dict(params)
+        self._initial = np.array([params[name] for name in self.varying_names])
 
 
 class _StubModel:
@@ -266,3 +267,29 @@ def test_dispatch_cmaes_takes_precedence_over_multistart(monkeypatch):
 
     nlsq_pkg.fit_nlsq(data, cfg)
     assert joint_called.get("yes") is True
+
+
+def test_reseed_initial_values_moves_get_initial_values():
+    """Regression test for the multistart no-op bug.
+
+    ``fit_nlsq_multi_phi`` seeds its physics starting point from
+    ``param_manager.get_initial_values()``, which reads a frozen
+    construction-time snapshot (see ``heterodyne_parameter_manager.py``).
+    Plain ``update_values()`` deliberately does not move that snapshot, so
+    before this fix every multistart candidate silently re-solved the same
+    starting point. ``reseed_initial_values()`` must move it.
+    """
+    from xpcsjax.config.heterodyne_parameter_manager import ParameterManager
+
+    pm = ParameterManager()
+    before = dict(zip(pm.varying_names, pm.get_initial_values(), strict=True))
+
+    new_value = before["D0_sample"] + 12345.0
+    pm.update_values({"D0_sample": new_value})
+    # Documented contract: update_values alone must NOT move get_initial_values().
+    after_update = dict(zip(pm.varying_names, pm.get_initial_values(), strict=True))
+    assert after_update["D0_sample"] == before["D0_sample"]
+
+    pm.reseed_initial_values({"D0_sample": new_value})
+    after_reseed = dict(zip(pm.varying_names, pm.get_initial_values(), strict=True))
+    assert after_reseed["D0_sample"] == new_value

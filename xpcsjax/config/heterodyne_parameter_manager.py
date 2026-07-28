@@ -275,6 +275,26 @@ class ParameterManager:
         # Invalidate full-values cache — values have changed
         self._full_values_cache = None
 
+    def reseed_initial_values(self, params: np.ndarray | dict[str, float]) -> None:
+        """Re-seed the starting point that ``get_initial_values()`` returns.
+
+        ``update_values`` deliberately does NOT move the frozen snapshot
+        ``get_initial_values()`` reads from (see that method's docstring) —
+        it exists to record fitted/in-progress state without perturbing the
+        config-specified starting point read repeatedly during a single fit.
+        Use this method instead when the intent is a genuinely NEW starting
+        point for a fresh solve (e.g. one multistart candidate); it updates
+        both the live values and the frozen snapshot together.
+
+        Parameters
+        ----------
+        params : numpy.ndarray or dict
+            Either an array of shape ``(14,)`` or a dict keyed by parameter
+            name.
+        """
+        self.update_values(params)
+        self._initial_values_snapshot = copy.deepcopy(self.space.values)
+
     def get_parameter_dict(self) -> dict[str, float]:
         """Get current parameter values as dictionary."""
         return dict(self.space.values)
