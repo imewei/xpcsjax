@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -56,6 +57,29 @@ def test_get_xla_config_script_rejects_unknown_shell() -> None:
         get_xla_config_script("powershell")
 
 
+def _bash_executable() -> str:
+    """Resolve the real Git-Bash executable, not the WSL launcher stub.
+
+    Windows runners can have BOTH Git's bash.exe and a WSL launcher stub
+    (``C:\\Windows\\System32\\bash.exe``) on ``PATH``. A bare ``"bash"`` PATH
+    lookup is ambiguous, and depending on PATH order can resolve to the WSL
+    stub even when no WSL distribution is installed -- confirmed via a CI
+    failure log: the subprocess's entire stdout was
+    "Windows Subsystem for Linux has no installed distributions.", exit code
+    1, with no script output at all (the WSL stub rejected before ever
+    invoking ``-c``). Prefer Git's bash explicitly on Windows; fall back to a
+    plain PATH lookup everywhere else.
+    """
+    if sys.platform == "win32":
+        for candidate in (
+            r"C:\Program Files\Git\bin\bash.exe",
+            r"C:\Program Files\Git\usr\bin\bash.exe",
+        ):
+            if Path(candidate).is_file():
+                return candidate
+    return "bash"
+
+
 def _source_xla_config(tmp_path: Path, mode: str) -> tuple[int, str, bool]:
     """Source xla_config.bash with ``mode`` in an isolated HOME.
 
@@ -65,16 +89,16 @@ def _source_xla_config(tmp_path: Path, mode: str) -> tuple[int, str, bool]:
     Returns (exit status, resulting XLA_FLAGS, whether a mode file was persisted).
     """
     script = 'source "$1" "$2"; echo "rc=$?"; echo "flags=${XLA_FLAGS:-}"'
+    bash = _bash_executable()
     proc = subprocess.run(  # noqa: S603
-        ["bash", "-c", script, "bash", str(XLA_CONFIG_BASH), mode],  # noqa: S607
+        [bash, "-c", script, "bash", str(XLA_CONFIG_BASH), mode],
         capture_output=True,
         text=True,
         # Deliberately minimal env (isolates from any XLA_FLAGS/xpcsjax state in
         # the parent process) PLUS the handful of Windows-only vars
         # (SystemRoot/ComSpec/TEMP/TMP) that Windows' CreateProcess and bash's
-        # own DLL loading commonly need -- a bare PATH/HOME dict silently
-        # misbehaves there (empty/garbled subprocess output) even though POSIX
-        # doesn't need them.
+        # own DLL loading commonly need -- a bare PATH/HOME dict can misbehave
+        # there even though POSIX doesn't need them.
         env={
             "PATH": os.environ["PATH"],
             "HOME": str(tmp_path),
@@ -88,10 +112,8 @@ def _source_xla_config(tmp_path: Path, mode: str) -> tuple[int, str, bool]:
     )
     out = dict(line.split("=", 1) for line in proc.stdout.splitlines() if "=" in line)
     if "rc" not in out:
-        # DIAGNOSTIC (temporary): surface exactly what the subprocess produced
-        # instead of a bare KeyError, to root-cause the Windows CI failure.
         raise AssertionError(
-            f"bash subprocess produced no 'rc=' line.\n"
+            f"{bash} produced no 'rc=' line.\n"
             f"returncode={proc.returncode!r}\n"
             f"stdout={proc.stdout!r}\n"
             f"stderr={proc.stderr!r}"
