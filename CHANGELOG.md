@@ -11,6 +11,90 @@ the rendered documentation.
 
 ## [Unreleased]
 
+### Fixed
+
+- **CMA-ES escape no longer reports `converged`/`good` on a refinement-only
+  success** (#25). The `two_component` joint CMA-ES escape's "cmaes"
+  kept-branch left its success flag at the default, so `solve_success` fell
+  back to `global_escape is not None` — always `True` once the CMA-ES vector
+  beat the warm start, even when the global search itself exhausted its
+  restart budget (`reason=max_restarts`) and only a post-search NLSQ polish
+  produced the improvement. This let a degenerate, physically-collapsed
+  result print `status=converged`/`quality=good` with all-NaN
+  uncertainties — observed on a real C045 `two_component` fit. The real
+  `nlsq` backend's convergence-reason vocabulary (`"xtol"` only — the
+  previous `CMAES_CONVERGED_REASONS` constant was pycma-era dead code that
+  never matched anything) now gates the success flag.
+- **Heterodyne multistart candidates were silently re-solving the same
+  starting point** (#24). `heterodyne_multistart`'s worker only called
+  `update_values()`, which never moves the frozen initial-values snapshot
+  `fit_nlsq_multi_phi` actually reads from — so every LHS-sampled candidate,
+  and the final best-start re-fit, started from the same config values,
+  defeating multistart entirely. Added
+  `ParameterManager.reseed_initial_values()` to move both the live values
+  and the frozen snapshot together.
+- **`adjust_covariance_for_transforms` call-site arg mismatch** (#22). The
+  sequential per-angle result-assembly path in `wrapper.py` passed 4
+  positional args to a 3-param function (an unused solver-space params
+  array leaked in), which would raise `TypeError` on any `laminar_flow`
+  sequential-per-angle fit with an active shear-parameter transform.
+  Caught by mypy; no prior test exercised the branch, now covered.
+- **Redundant `JAX_PLATFORMS` warning silenced** (#23). `device.cpu` warned
+  unconditionally whenever the JAX backend was already live, even though
+  xpcsjax's own `__init__.py` pre-sets `JAX_PLATFORMS=cpu` before any JAX
+  import — the common case. Now only warns when the live backend actually
+  diverges from `cpu`.
+- **Heterodyne per-angle `contrast`/`offset` bounds override was silently
+  ignored.** The `individual`/`averaged`/`constant` scaling-first bounds
+  builders in `heterodyne_core.py`, `heterodyne_engine_route.py`, and
+  `heterodyne_constant_mode.py` pulled `contrast`/`offset` bounds from the
+  static `ParameterRegistry` defaults (`[0,1]`/`[0.5,1.5]`) instead of the
+  config-resolved `ParameterManager`, so a tightened
+  `parameter_space.bounds` override for `contrast`/`offset` had no effect on
+  the NLSQ solve even though physics params respected it correctly.
+- **Whole-codebase debug audits: 168 confirmed bugs across all 12 modules**,
+  fixed module-by-module via a discover → adversarially-verify workflow,
+  each round closed with a 4-agent adversarial re-review of the fix diff
+  itself (145 bugs, reconciled with the concurrent docs PR #18; then a
+  further 23 confirmed across `cli`/`config`/`data`/`device`/`gui`/`io`/
+  `optimization`/`runtime`/`service`/`utils`/`viz`). Representative fixes:
+  per-angle plot filename collisions when two phi angles round to the same
+  integer; inverted (empty) `parameter_space.bounds` YAML silently accepted
+  instead of rejected; unlocked deque iteration racing a background memory
+  monitor thread; integer-dtype `c2_exp` silently truncating the
+  negative-correlation repair floor; OS-core-reservation math zeroing out at
+  exact 16/32-core boundaries; malformed numeric YAML config values accepted
+  without clear errors; `REQUIRED_DEPENDENCIES`/`PUBLIC_API_SYMBOLS` drift
+  from `pyproject.toml`/`__all__`; `logging.configure()` crash when all
+  level args are `None`. All prior audits' verified non-defects
+  (heterodyne `final_cost` path-dependence, shear double-radians port,
+  Gap A/L5 design choices, C044 degeneracy, pointwise-evaluator
+  non-wiring, etc.) were re-confirmed correct and left untouched.
+
+### Documentation
+
+- Added missing API pages for the `device`/`io`/`utils` modules — the
+  `api/index.rst` toctree only covered 9 of the 12 top-level packages (#18).
+  Added `tests/test_docs_structure.py`, a structural doc-coverage check
+  requiring every top-level `xpcsjax` submodule to have a
+  `docs/source/api/{name}.rst` page (page-existence only, not per-symbol
+  coverage — see `docs/adr/0001-automated-structural-doc-coverage-check.md`).
+
+### Testing / Internal
+
+- Closed test-coverage gaps flagged by the debug-audit reviews: `cmaes_sigma0`
+  value-level checks at both joint-escape sites, the `_fit_cmaes` DOF clamp
+  preventing negative `reduced_chi_squared` on tiny matrices, per-angle
+  `phi_index` threading in `postfit.py`, `nlsq_plots.py` null-config-section
+  guards, and the heterodyne streaming path's own `auto_tune_lambda` call
+  site (#17, #21).
+- CI: fixed Windows-only failures unrelated to the above code changes — bare
+  `bash` on `windows-latest` now resolves to the WSL launcher stub instead of
+  Git-for-Windows' `bash.exe` (added explicit resolution), and a `Path.stat`
+  test monkeypatch was broadened/scoped to tolerate `follow_symlinks=` and
+  avoid masking `get_safe_output_dir`'s unrelated `exists()` call.
+- `.gitignore` cleanup.
+
 ## [0.1.2] - 2026-07-25
 
 ### Fixed

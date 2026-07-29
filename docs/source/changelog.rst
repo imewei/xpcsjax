@@ -8,6 +8,30 @@ current release line.
 Unreleased
 ----------
 
+* **CMA-ES escape success-gate fixed** (#25): a ``two_component`` joint
+  CMA-ES escape kept via post-search NLSQ polish alone (global search
+  exhausted its restart budget without converging) could report
+  ``status=converged``/``quality=good`` with all-NaN uncertainties on a
+  physically degenerate result. Now gated on the real backend
+  convergence-reason vocabulary.
+* **Heterodyne multistart candidates were silently re-solving the same
+  starting point** (#24), defeating multistart entirely — fixed via a new
+  ``ParameterManager.reseed_initial_values()``.
+* **Heterodyne per-angle contrast/offset bounds override was silently
+  ignored** — the scaling-first bounds builders read the static
+  ``ParameterRegistry`` defaults instead of the config-resolved
+  ``ParameterManager``.
+* Fixed a mypy-caught ``adjust_covariance_for_transforms`` call-site arg
+  mismatch that would ``TypeError`` on a ``laminar_flow`` sequential
+  per-angle fit with an active shear-parameter transform (#22), and
+  silenced a redundant ``JAX_PLATFORMS`` warning (#23).
+* Whole-codebase debug audits: 168 confirmed bugs fixed across all 12
+  top-level modules, each round closed with an independent 4-agent
+  adversarial re-review of the fix diff itself.
+* Added missing API pages for the ``device``/``io``/``utils`` modules plus
+  a structural doc-coverage test requiring every top-level submodule to
+  have a docs page (#18).
+
 v0.1.2 — GUI polish and packaging fix
 --------------------------------------
 
