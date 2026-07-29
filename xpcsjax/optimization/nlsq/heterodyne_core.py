@@ -1928,7 +1928,10 @@ def _fit_joint_cmaes_multi_phi(
 
         rdim = int(np.asarray(joint_residual_fn(x_warm)).size)
 
-        from xpcsjax.optimization.nlsq.cmaes_wrapper import CMAESWrapperConfig
+        from xpcsjax.optimization.nlsq.cmaes_wrapper import (
+            CMAES_CONVERGED_REASONS,
+            CMAESWrapperConfig,
+        )
 
         assert fit_with_cmaes is not None, "HAS_CMAES guards entry to the escape"
 
@@ -2015,6 +2018,20 @@ def _fit_joint_cmaes_multi_phi(
         _kept_result_success: bool | None = None
         if cres.success and cmaes_ssr <= ssr_warm * (1.0 + 1e-12):
             x_final, escape = x_cmaes, "cmaes"
+            # ``cres.success`` is True when EITHER the CMA-ES global search
+            # itself converged OR a post-search NLSQ refinement polish
+            # succeeded (cmaes_wrapper.py CR-5) — the latter fires even when
+            # the global search exhausted its restart budget without finding
+            # a good basin, in which case cmaes_wrapper logs "the global
+            # search may not have found the correct basin." Report a kept
+            # vector as a genuine success only when the search itself met a
+            # real convergence criterion; otherwise thread through False so
+            # ``_build_joint_result``'s ``solve_success`` doesn't report
+            # converged/good off a keep-better SSR win with no confidence
+            # behind it (same reasoning as the "cmaes_warmstart_kept" branch
+            # below).
+            if cres.diagnostics.get("convergence_reason") not in CMAES_CONVERGED_REASONS:
+                _kept_result_success = False
         else:
             x_final, escape = x_warm, "cmaes_warmstart_kept"
             # The kept vector (``x_warm``) is only a genuine SUCCESS when the

@@ -213,6 +213,102 @@ def test_individual_auto_skip_preserves_covariance():
     assert np.isfinite(np.asarray(res.uncertainties)).all()
 
 
+# ---------------------------------------------------------------------------
+# Kept-CMAES branch: ``CMAESResult.success`` can be True purely from a
+# post-search NLSQ refinement polish even when the global search itself
+# exhausted its restart budget without meeting a real convergence criterion
+# (cmaes_wrapper.py CR-5, ``success = cmaes_converged or nlsq_refined``). A
+# kept vector with SSR <= warm SSR under those conditions must NOT report
+# converged/good — see 4f0a35c ("implement CMA-ES warm-start auto-skip with
+# success gate for joint fits") and ad90201 ("report failure on keep-better
+# floor-reverted warm-start to prevent spurious success") for the two prior
+# rounds of this exact bug class (auto-skip gate, floor-revert gate); this
+# is the third: the "kept cmaes" branch itself.
+# ---------------------------------------------------------------------------
+@pytest.mark.skipif(not hc.HAS_CMAES, reason="cmaes backend not importable")
+def test_kept_cmaes_refinement_only_success_reports_marginal(monkeypatch):
+    """``escape='cmaes'`` kept purely via ``nlsq_refined`` ⇒ marginal/failed, not good/converged."""
+    from xpcsjax.optimization.nlsq.cmaes_wrapper import CMAESResult
+
+    def _fake_fit_with_cmaes(model_func, xdata, ydata, p0, bounds, sigma=None, config=None):
+        # Return the warm-start vector unchanged (SSR tie ⇒ satisfies the
+        # keep-better comparison) tagged exactly like a real max_restarts
+        # global search rescued only by the refinement polish.
+        return CMAESResult(
+            parameters=np.asarray(p0, dtype=np.float64),
+            covariance=None,
+            chi_squared=0.0,
+            success=True,
+            diagnostics={"convergence_reason": "max_restarts"},
+            method_used="cmaes",
+            nlsq_refined=True,
+        )
+
+    monkeypatch.setattr(hc, "fit_with_cmaes", _fake_fit_with_cmaes)
+    # Force Phase 2 to run regardless of warm-start SSR/dof (mirrors the other
+    # call-site tests above) so this test isolates the kept-branch logic.
+    monkeypatch.setattr(hc, "_warmstart_auto_skip_decision", lambda *a, **k: (False, 0.0))
+
+    model, c2, phi = make_synthetic_two_component(n_phi=2, n_t=12)
+    cfg = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "individual",
+            "enable_cmaes": True,
+            "cmaes_max_iterations": 5,
+            "max_nfev": 30,
+        }
+    )
+    res = hc._fit_joint_cmaes_multi_phi(model, c2, phi, cfg, None)
+    assert res.nlsq_diagnostics.get("global_escape") == "cmaes"
+    assert res.quality_flag == "marginal"
+    assert res.convergence_status == "failed"
+
+
+@pytest.mark.skipif(not hc.HAS_CMAES, reason="cmaes backend not importable")
+@pytest.mark.parametrize("nlsq_refined", [False, True])
+def test_kept_cmaes_real_convergence_still_reports_good(monkeypatch, nlsq_refined):
+    """Control: ``escape='cmaes'`` kept via a REAL convergence reason ⇒ still good/converged.
+
+    ``"xtol"`` is the only reason NLSQ's ``CMAESOptimizer`` reports for actual
+    convergence (verified against the pinned nlsq backend — see the
+    ``CMAES_CONVERGED_REASONS`` docstring in cmaes_wrapper.py). Parametrized
+    over ``nlsq_refined`` so a genuinely-converged search that ALSO got a
+    refinement polish (the common real-world case) is pinned too, not just
+    the unrefined case.
+    """
+    from xpcsjax.optimization.nlsq.cmaes_wrapper import CMAESResult
+
+    def _fake_fit_with_cmaes(model_func, xdata, ydata, p0, bounds, sigma=None, config=None):
+        return CMAESResult(
+            parameters=np.asarray(p0, dtype=np.float64),
+            covariance=None,
+            chi_squared=0.0,
+            success=True,
+            diagnostics={"convergence_reason": "xtol"},
+            method_used="cmaes",
+            nlsq_refined=nlsq_refined,
+        )
+
+    monkeypatch.setattr(hc, "fit_with_cmaes", _fake_fit_with_cmaes)
+    monkeypatch.setattr(hc, "_warmstart_auto_skip_decision", lambda *a, **k: (False, 0.0))
+
+    model, c2, phi = make_synthetic_two_component(n_phi=2, n_t=12)
+    cfg = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "individual",
+            "enable_cmaes": True,
+            "cmaes_max_iterations": 5,
+            "max_nfev": 30,
+        }
+    )
+    res = hc._fit_joint_cmaes_multi_phi(model, c2, phi, cfg, None)
+    assert res.nlsq_diagnostics.get("global_escape") == "cmaes"
+    assert res.quality_flag == "good"
+    assert res.convergence_status == "converged"
+
+
 def test_constant_callsite_threads_warm_success(monkeypatch):
     """``_fit_joint_constant_multi_phi`` passes ``nlsq_result.success``."""
     captured: dict = {}
