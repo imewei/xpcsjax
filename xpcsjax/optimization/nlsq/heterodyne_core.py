@@ -1730,6 +1730,11 @@ def _fit_joint_averaged_multi_phi(
     covariance_full = covariance_full[np.ix_(perm, perm)]
     uncertainties_full = uncertainties_full[perm]
 
+    # Update diagnostics marker to reflect the actual scaling-first layout
+    # of the returned parameters (the perm reorder above converted from
+    # physics-first to scaling-first).
+    diagnostics["scaling_first"] = True
+
     return OptimizationResult(
         parameters=parameters_full,
         uncertainties=uncertainties_full,
