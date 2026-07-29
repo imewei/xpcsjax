@@ -336,6 +336,7 @@ def build_joint_pointwise_residual(
 
     fixed_full_jax = jnp.asarray(model.param_manager.get_full_values(), dtype=jnp.float64)
     varying_indices_jax = jnp.array(list(model.param_manager.varying_indices), dtype=jnp.int32)
+    tied_idx_pairs = model.param_manager.tied_idx_pairs
     # Use the SAME time grid the pointwise kernel was indexed against (the
     # t1_idx/t2_idx in x_data address THIS array, not necessarily model.t).
     t_jax = jnp.asarray(meta["t_unique"], dtype=jnp.float64)
@@ -360,6 +361,8 @@ def build_joint_pointwise_residual(
         physics = p[n_scaling:]
         contrast, offset = expander(scaling)
         full = fixed_full_jax.at[varying_indices_jax].set(physics)
+        for child_idx, parent_idx in tied_idx_pairs:
+            full = full.at[child_idx].set(full[parent_idx])
         phi_idx = x_jax[:, 0]
         t1_idx = x_jax[:, 1]
         t2_idx = x_jax[:, 2]
