@@ -440,6 +440,14 @@ def fit_two_component_via_engine(
             "Use the existing fit_nlsq_multi_phi path for unsupported modes."
         )
 
+    # -- Bail out for tied configs -----------------------------------------------
+    if model.param_manager.tied_idx_pairs:
+        raise NotImplementedError(
+            "fit_two_component_via_engine does not support tied_parameters "
+            "(no tied-index expansion on this route) -- falls back to "
+            "fit_nlsq_multi_phi, which is tying-aware."
+        )
+
     # -- max_nfev: "auto" (None) is passed through, NOT a bail ----------------
     # The engine route builds the combined solver budget ``config.max_nfev *
     # n_phi`` (mirroring the production joint paths). ``NLSQConfig.max_nfev``

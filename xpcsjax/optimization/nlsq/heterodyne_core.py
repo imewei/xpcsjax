@@ -1699,6 +1699,9 @@ def _fit_joint_averaged_multi_phi(
     if global_escape_tag is not None:
         diagnostics["global_escape"] = global_escape_tag
 
+    if param_manager.tied_idx_pairs:
+        diagnostics["tied_parameters"] = dict(param_manager.space.tied)
+
     logger.info(
         "Joint auto averaged fit complete: success=%s, cost=%.6f, "
         "n_evals=%d, wall_time=%.2fs, %d angles%s",
@@ -1710,10 +1713,27 @@ def _fit_joint_averaged_multi_phi(
         f" [escape={global_escape_tag}]" if is_escape else "",
     )
 
+    n_scaling = 2
+    parameters_full, covariance_full, uncertainties_full = param_manager.expand_reduced_result(
+        fitted_all, covariance, uncertainties, n_scaling=n_scaling, scaling_first=False
+    )
+    # expand_reduced_result must parse `fitted_all` with scaling_first=False
+    # -- it really is physics-first ([physics | contrast, offset], per the
+    # scaling_first=False marker already set in this function's diagnostics
+    # block a few lines above) -- so its OUTPUT is also physics-first
+    # ([physics(14) | scaling(2)]). n_physics=14 below relies on
+    # OptimizationResult.physics_parameters reading the TRAILING 14 entries
+    # (the scaling-first convention used everywhere else), so reorder the
+    # physics-first output to scaling-first here before returning:
+    perm = list(range(14, 14 + n_scaling)) + list(range(14))
+    parameters_full = parameters_full[perm]
+    covariance_full = covariance_full[np.ix_(perm, perm)]
+    uncertainties_full = uncertainties_full[perm]
+
     return OptimizationResult(
-        parameters=np.asarray(fitted_all, dtype=np.float64),
-        uncertainties=uncertainties,
-        covariance=covariance,
+        parameters=parameters_full,
+        uncertainties=uncertainties_full,
+        covariance=covariance_full,
         chi_squared=ssr,
         reduced_chi_squared=reduced_chi2,
         convergence_status=convergence_status,
@@ -1725,7 +1745,7 @@ def _fit_joint_averaged_multi_phi(
         streaming_diagnostics=None,
         stratification_diagnostics=None,
         nlsq_diagnostics=diagnostics,
-        n_physics=int(n_physics_varying),
+        n_physics=14,
     )
 
 
