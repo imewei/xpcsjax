@@ -184,3 +184,23 @@ def test_stratified_ls_residual_pattern_enforces_tie():
     d0_ref_idx = list(ALL_PARAM_NAMES).index("D0_ref")
     d0_sample_idx = list(ALL_PARAM_NAMES).index("D0_sample")
     assert float(full[d0_ref_idx]) == float(full[d0_sample_idx])
+
+
+def test_hybrid_streaming_model_fn_pattern_enforces_tie():
+    """strategies/heterodyne_hybrid_streaming.py: model_fn (scaling-first:
+    physics is the TAIL, per class docstring)."""
+    import jax.numpy as jnp
+
+    pm = _tied_param_manager()
+    fixed_full_jax = jnp.asarray(pm.get_full_values(), dtype=jnp.float64)
+    varying_indices_jax = jnp.array(list(pm.varying_indices), dtype=jnp.int32)
+    tied_idx_pairs = pm.tied_idx_pairs
+
+    physics = jnp.asarray(pm.get_initial_values(), dtype=jnp.float64)
+    full = fixed_full_jax.at[varying_indices_jax].set(physics)
+    for child_idx, parent_idx in tied_idx_pairs:
+        full = full.at[child_idx].set(full[parent_idx])
+
+    d0_ref_idx = list(ALL_PARAM_NAMES).index("D0_ref")
+    d0_sample_idx = list(ALL_PARAM_NAMES).index("D0_sample")
+    assert float(full[d0_ref_idx]) == float(full[d0_sample_idx])

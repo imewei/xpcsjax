@@ -270,6 +270,7 @@ def build_heterodyne_pointwise_model(
     # ------------------------------------------------------------------
     fixed_full_jax = jnp.asarray(model.param_manager.get_full_values(), dtype=jnp.float64)
     varying_indices_jax = jnp.array(list(model.param_manager.varying_indices), dtype=jnp.int32)
+    tied_idx_pairs = model.param_manager.tied_idx_pairs
     t_jax = jnp.asarray(t_unique, dtype=jnp.float64)
     q_val = float(model.q)
     dt_val = float(model.dt)
@@ -298,6 +299,8 @@ def build_heterodyne_pointwise_model(
         # Layout is scaling-first: physics is the TAIL, scaling the HEAD.
         physics = params_all[_physics_block]
         full = fixed_full_jax.at[varying_indices_jax].set(physics)
+        for child_idx, parent_idx in tied_idx_pairs:
+            full = full.at[child_idx].set(full[parent_idx])
 
         # Resolve per-angle scaling — branch is static (compile-time constant).
         if _per_angle_mode == "averaged":
