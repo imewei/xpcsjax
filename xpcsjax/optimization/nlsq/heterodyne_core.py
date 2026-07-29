@@ -3992,10 +3992,13 @@ def _fit_cmaes(
     # closure JIT-traces cleanly.
     full_template_jax = jnp.asarray(param_manager.get_full_values(), dtype=jnp.float64)
     varying_indices_jax = jnp.asarray(list(param_manager.varying_indices), dtype=jnp.int32)
+    tied_idx_pairs = param_manager.tied_idx_pairs
 
     def model_func(_: np.ndarray, *varying_params: Any) -> Any:
         varying_jax = jnp.stack(varying_params).astype(jnp.float64)
         full_jax = full_template_jax.at[varying_indices_jax].set(varying_jax)
+        for child_idx, parent_idx in tied_idx_pairs:
+            full_jax = full_jax.at[child_idx].set(full_jax[parent_idx])
         c2_pred = compute_c2_heterodyne(full_jax, t, q, dt, phi_angle, contrast_val, offset_val)
         return c2_pred.flatten()
 
@@ -4337,6 +4340,7 @@ def _fit_local(
     # Capture constants
     fixed_values = jnp.asarray(param_manager.get_full_values(), dtype=jnp.float64)
     varying_indices = jnp.array(param_manager.varying_indices)
+    tied_idx_pairs = param_manager.tied_idx_pairs
     t, q, dt = model.t, model.q, model.dt
 
     # Per-angle scaling — fixed during local optimization (constant mode parity)
@@ -4347,6 +4351,8 @@ def _fit_local(
         """Pure JAX residual function for nlsq tracing."""
         varying_array = jnp.array(varying_params, dtype=jnp.float64)
         full_params = fixed_values.at[varying_indices].set(varying_array)
+        for child_idx, parent_idx in tied_idx_pairs:
+            full_params = full_params.at[child_idx].set(full_params[parent_idx])
         return compute_residuals(
             full_params,
             t,
@@ -4552,10 +4558,13 @@ def _make_numpy_residual_fn(
     # param_manager between construction and optimizer completion.
     fixed_values = jnp.asarray(param_manager.get_full_values(), dtype=jnp.float64)
     varying_indices = jnp.array(param_manager.varying_indices, dtype=jnp.int32)
+    tied_idx_pairs = param_manager.tied_idx_pairs
 
     def residual_fn(varying_params: np.ndarray) -> np.ndarray:
         varying_jax = jnp.asarray(varying_params, dtype=jnp.float64)
         full_params = fixed_values.at[varying_indices].set(varying_jax)
+        for child_idx, parent_idx in tied_idx_pairs:
+            full_params = full_params.at[child_idx].set(full_params[parent_idx])
         # Return JAX array directly — np.asarray() on the result here would
         # trigger TracerArrayConversionError when NLSQWrapper's @jit traces
         # this function with traced parameter scalars.

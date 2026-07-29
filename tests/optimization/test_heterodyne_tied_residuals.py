@@ -107,3 +107,60 @@ def test_constant_mode_residual_pattern_enforces_tie():
     d0_ref_idx = list(ALL_PARAM_NAMES).index("D0_ref")
     d0_sample_idx = list(ALL_PARAM_NAMES).index("D0_sample")
     assert float(full_jax[d0_ref_idx]) == float(full_jax[d0_sample_idx])
+
+
+def test_per_angle_cmaes_residual_pattern_enforces_tie():
+    """heterodyne_core.py: _fit_cmaes's model_func (per-angle CMA-ES escape)."""
+    import jax.numpy as jnp
+
+    pm = _tied_param_manager()
+    full_template_jax = jnp.asarray(pm.get_full_values(), dtype=jnp.float64)
+    varying_indices_jax = jnp.asarray(list(pm.varying_indices), dtype=jnp.int32)
+    tied_idx_pairs = pm.tied_idx_pairs
+
+    varying_jax = jnp.asarray(pm.get_initial_values(), dtype=jnp.float64)
+    full_jax = full_template_jax.at[varying_indices_jax].set(varying_jax)
+    for child_idx, parent_idx in tied_idx_pairs:
+        full_jax = full_jax.at[child_idx].set(full_jax[parent_idx])
+
+    d0_ref_idx = list(ALL_PARAM_NAMES).index("D0_ref")
+    d0_sample_idx = list(ALL_PARAM_NAMES).index("D0_sample")
+    assert float(full_jax[d0_ref_idx]) == float(full_jax[d0_sample_idx])
+
+
+def test_per_angle_local_residual_pattern_enforces_tie():
+    """heterodyne_core.py: _fit_local's jax_residual_fn."""
+    import jax.numpy as jnp
+
+    pm = _tied_param_manager()
+    fixed_values = jnp.asarray(pm.get_full_values(), dtype=jnp.float64)
+    varying_indices = jnp.array(pm.varying_indices)
+    tied_idx_pairs = pm.tied_idx_pairs
+
+    varying_array = jnp.asarray(pm.get_initial_values(), dtype=jnp.float64)
+    full_params = fixed_values.at[varying_indices].set(varying_array)
+    for child_idx, parent_idx in tied_idx_pairs:
+        full_params = full_params.at[child_idx].set(full_params[parent_idx])
+
+    d0_ref_idx = list(ALL_PARAM_NAMES).index("D0_ref")
+    d0_sample_idx = list(ALL_PARAM_NAMES).index("D0_sample")
+    assert float(full_params[d0_ref_idx]) == float(full_params[d0_sample_idx])
+
+
+def test_make_numpy_residual_fn_pattern_enforces_tie():
+    """heterodyne_core.py: _make_numpy_residual_fn's residual_fn."""
+    import jax.numpy as jnp
+
+    pm = _tied_param_manager()
+    fixed_values = jnp.asarray(pm.get_full_values(), dtype=jnp.float64)
+    varying_indices = jnp.array(pm.varying_indices, dtype=jnp.int32)
+    tied_idx_pairs = pm.tied_idx_pairs
+
+    varying_jax = jnp.asarray(pm.get_initial_values(), dtype=jnp.float64)
+    full_params = fixed_values.at[varying_indices].set(varying_jax)
+    for child_idx, parent_idx in tied_idx_pairs:
+        full_params = full_params.at[child_idx].set(full_params[parent_idx])
+
+    d0_ref_idx = list(ALL_PARAM_NAMES).index("D0_ref")
+    d0_sample_idx = list(ALL_PARAM_NAMES).index("D0_sample")
+    assert float(full_params[d0_ref_idx]) == float(full_params[d0_sample_idx])
