@@ -1186,7 +1186,6 @@ def _fit_joint_averaged_multi_phi(
         :func:`xpcsjax.optimization.nlsq.heterodyne_constant_mode._fit_joint_constant_multi_phi`
         (Sub-PR B2).
     """
-    from xpcsjax.config.parameter_registry import SCALING_PARAMS
     from xpcsjax.core.heterodyne_scaling_utils import compute_averaged_scaling
 
     t_start = time.perf_counter()
@@ -1264,14 +1263,7 @@ def _fit_joint_averaged_multi_phi(
         t2_flat.append(t2_mesh.reshape(-1))
         phi_indices.append(np.full(n_time_points, i, dtype=np.int32))
 
-    contrast_bounds = (
-        SCALING_PARAMS["contrast"].min_bound,
-        SCALING_PARAMS["contrast"].max_bound,
-    )
-    offset_bounds = (
-        SCALING_PARAMS["offset"].min_bound,
-        SCALING_PARAMS["offset"].max_bound,
-    )
+    contrast_bounds, offset_bounds = param_manager.get_bounds_as_tuples(["contrast", "offset"])
 
     logger.info("=" * 60)
     logger.info("Computing per-angle scaling from quantiles")
@@ -3013,21 +3005,12 @@ def _build_joint_problem(
     )
 
     # Scaling-first x0/bounds: ``[scaling_head | physics]``. Source contrast/
-    # offset bounds from the parameter registry (single source of truth,
-    # matches every sibling per-angle-mode solver — averaged, constant, and
-    # the engine route's ``_scaling_first_bounds``) instead of hardcoded
-    # literals, so the feasible box is the physically valid one, not a
-    # stale copy-pasted range.
-    from xpcsjax.config.parameter_registry import SCALING_PARAMS
-
-    contrast_bounds = (
-        SCALING_PARAMS["contrast"].min_bound,
-        SCALING_PARAMS["contrast"].max_bound,
-    )
-    offset_bounds = (
-        SCALING_PARAMS["offset"].min_bound,
-        SCALING_PARAMS["offset"].max_bound,
-    )
+    # offset bounds from the config-resolved ParameterManager (matches every
+    # sibling per-angle-mode solver — averaged, constant, and the engine
+    # route's ``_scaling_first_bounds``) so a config override under
+    # ``parameter_space.bounds`` / ``parameters.scaling`` is honoured instead
+    # of silently falling back to the registry's compile-time defaults.
+    contrast_bounds, offset_bounds = param_manager.get_bounds_as_tuples(["contrast", "offset"])
     scaling_head_x0 = plan.seed_tail()
     scaling_head_lb, scaling_head_ub = plan.seed_bounds(
         contrast_bounds=contrast_bounds, offset_bounds=offset_bounds

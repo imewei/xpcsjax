@@ -28,7 +28,6 @@ from typing import TYPE_CHECKING, Any
 import jax.numpy as jnp
 import numpy as np
 
-from xpcsjax.config.parameter_registry import SCALING_PARAMS
 from xpcsjax.core.heterodyne_jax_backend import compute_multi_angle_residuals
 from xpcsjax.core.heterodyne_scaling_utils import (
     estimate_per_angle_scaling_from_quantile,
@@ -179,14 +178,11 @@ def _fit_joint_constant_multi_phi(
         n_phi=n_phi,
         quantile=0.95,
     )
-    contrast_info = SCALING_PARAMS["contrast"]
-    offset_info = SCALING_PARAMS["offset"]
-    contrast_fixed = np.clip(
-        contrast_fixed, contrast_info.min_bound, contrast_info.max_bound
-    ).astype(np.float64)
-    offset_fixed = np.clip(offset_fixed, offset_info.min_bound, offset_info.max_bound).astype(
-        np.float64
+    (contrast_min, contrast_max), (offset_min, offset_max) = param_manager.get_bounds_as_tuples(
+        ["contrast", "offset"]
     )
+    contrast_fixed = np.clip(contrast_fixed, contrast_min, contrast_max).astype(np.float64)
+    offset_fixed = np.clip(offset_fixed, offset_min, offset_max).astype(np.float64)
     _banner(
         "Frozen per-angle scaling: contrast=%s, offset=%s",
         np.array2string(contrast_fixed, precision=4),

@@ -55,8 +55,6 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from xpcsjax.config.parameter_registry import SCALING_PARAMS
-
 if TYPE_CHECKING:
     from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
     from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
@@ -182,7 +180,12 @@ def _build_engine(
 
 
 def _scaling_first_bounds(
-    *, mode: str, n_phi: int, physics_lower: np.ndarray, physics_upper: np.ndarray
+    *,
+    mode: str,
+    n_phi: int,
+    physics_lower: np.ndarray,
+    physics_upper: np.ndarray,
+    param_manager: Any,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Canonical scaling-first ``(lb, ub)`` for the optimizer DOF.
 
@@ -190,9 +193,13 @@ def _scaling_first_bounds(
     ``constant``   → physics-only.
     ``averaged``   → ``[c_avg_bounds, o_avg_bounds, physics_bounds]``.
     ``individual`` → ``[contrast(n_phi), offset(n_phi), physics]``.
+
+    Contrast/offset bounds are sourced from ``param_manager`` (config-resolved
+    via ``ParameterSpace.from_config``, honouring ``parameter_space.bounds`` /
+    ``parameters.scaling`` overrides) rather than the registry's compile-time
+    defaults, so a user-tightened config bound is actually enforced.
     """
-    cb = (SCALING_PARAMS["contrast"].min_bound, SCALING_PARAMS["contrast"].max_bound)
-    ob = (SCALING_PARAMS["offset"].min_bound, SCALING_PARAMS["offset"].max_bound)
+    cb, ob = param_manager.get_bounds_as_tuples(["contrast", "offset"])
     physics_lower = np.asarray(physics_lower, dtype=np.float64)
     physics_upper = np.asarray(physics_upper, dtype=np.float64)
 
@@ -233,14 +240,11 @@ def _quantile_frozen_scaling(
         n_phi=n_phi,
         quantile=0.95,
     )
-    contrast_info = SCALING_PARAMS["contrast"]
-    offset_info = SCALING_PARAMS["offset"]
-    contrast_fixed = np.clip(
-        contrast_fixed, contrast_info.min_bound, contrast_info.max_bound
-    ).astype(np.float64)
-    offset_fixed = np.clip(offset_fixed, offset_info.min_bound, offset_info.max_bound).astype(
-        np.float64
+    (contrast_min, contrast_max), (offset_min, offset_max) = (
+        model.param_manager.get_bounds_as_tuples(["contrast", "offset"])
     )
+    contrast_fixed = np.clip(contrast_fixed, contrast_min, contrast_max).astype(np.float64)
+    offset_fixed = np.clip(offset_fixed, offset_min, offset_max).astype(np.float64)
     return contrast_fixed, offset_fixed
 
 
@@ -499,7 +503,11 @@ def fit_two_component_via_engine(
     #                 2*n_phi scaling-first layout inside the JIT closure.
     physics_lower, physics_upper = model.param_manager.get_bounds()
     lb_sf, ub_sf = _scaling_first_bounds(
-        mode=mode, n_phi=n_phi, physics_lower=physics_lower, physics_upper=physics_upper
+        mode=mode,
+        n_phi=n_phi,
+        physics_lower=physics_lower,
+        physics_upper=physics_upper,
+        param_manager=model.param_manager,
     )
 
     x0_opt = p0_arr.copy()
