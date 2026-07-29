@@ -259,6 +259,135 @@ class ParameterManager:
             full[child_idx] = full[parent_idx]
         return full
 
+    def expand_reduced_result(
+        self,
+        parameters_reduced: np.ndarray,
+        covariance_reduced: np.ndarray | None,
+        uncertainties_reduced: np.ndarray | None,
+        *,
+        n_scaling: int,
+        scaling_first: bool,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Expand a reduced joint optimizer result to the full-14-physics layout.
+
+        The reduced vector is ``[physics_varying | scaling]`` (physics-first,
+        e.g. the in-memory joint-fit paths) or ``[scaling | physics_varying]``
+        (scaling-first, e.g. the streaming/stratified-LS paths), length
+        ``n_varying + n_scaling``; ``covariance_reduced`` is square of that
+        size. The scaling block (and all its cross-covariance with physics)
+        passes through unchanged; the physics block expands from
+        ``n_varying`` to 14, filling any ordinary fixed (non-tied) physics
+        row/column with NaN (no covariance was computed for a constant) and
+        mirroring each tied child's row/column onto its parent's (same free
+        variable, not independently estimated).
+
+        Parameters
+        ----------
+        parameters_reduced : numpy.ndarray
+            Shape ``(n_varying + n_scaling,)``.
+        covariance_reduced : numpy.ndarray or None
+            Shape ``(n_varying + n_scaling, n_varying + n_scaling)``, or
+            ``None`` (e.g. a global-escape result with no covariance solve)
+            -> the physics/scaling covariance block of the output is all-NaN.
+        uncertainties_reduced : numpy.ndarray or None
+            Shape ``(n_varying + n_scaling,)``, or ``None`` -> all-NaN output.
+        n_scaling : int
+            Number of scaling DOF in the reduced vector (0 for ``constant``,
+            2 for ``averaged``, ``2 * n_phi`` for ``individual``).
+        scaling_first : bool
+            ``True`` for ``[scaling | physics]`` layout, ``False`` for
+            ``[physics | scaling]``.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            ``(parameters_full, covariance_full, uncertainties_full)`` with
+            the physics block expanded to 14 and the scaling block
+            unchanged, in the same overall ordering as the input.
+        """
+        n_varying = len(self.varying_indices)
+        reduced = np.asarray(parameters_reduced, dtype=np.float64)
+        expected_len = n_varying + n_scaling
+        if reduced.shape[0] != expected_len:
+            raise ValueError(
+                f"expand_reduced_result: parameters_reduced has length "
+                f"{reduced.shape[0]}, expected n_varying + n_scaling = "
+                f"{n_varying} + {n_scaling} = {expected_len}"
+            )
+        if covariance_reduced is not None:
+            cov_check = np.asarray(covariance_reduced, dtype=np.float64)
+            if cov_check.shape != (expected_len, expected_len):
+                raise ValueError(
+                    f"expand_reduced_result: covariance_reduced has shape "
+                    f"{cov_check.shape}, expected ({expected_len}, {expected_len})"
+                )
+        if uncertainties_reduced is not None:
+            unc_check = np.asarray(uncertainties_reduced, dtype=np.float64)
+            if unc_check.shape[0] != expected_len:
+                raise ValueError(
+                    f"expand_reduced_result: uncertainties_reduced has length "
+                    f"{unc_check.shape[0]}, expected {expected_len}"
+                )
+
+        if scaling_first:
+            scaling_vals = reduced[:n_scaling]
+            physics_varying = reduced[n_scaling:]
+            scaling_pos = list(range(n_scaling))
+            physics_pos = list(range(n_scaling, n_scaling + n_varying))
+        else:
+            physics_varying = reduced[:n_varying]
+            scaling_vals = reduced[n_varying:]
+            physics_pos = list(range(n_varying))
+            scaling_pos = list(range(n_varying, n_varying + n_scaling))
+
+        physics_full = self.expand_varying_to_full(physics_varying)
+
+        if scaling_first:
+            parameters_full = np.concatenate([scaling_vals, physics_full])
+            full_scaling_pos = list(range(n_scaling))
+            full_physics_pos = list(range(n_scaling, n_scaling + 14))
+        else:
+            parameters_full = np.concatenate([physics_full, scaling_vals])
+            full_physics_pos = list(range(14))
+            full_scaling_pos = list(range(14, 14 + n_scaling))
+
+        n_full = 14 + n_scaling
+        cov_full = np.full((n_full, n_full), np.nan, dtype=np.float64)
+        unc_full = np.full(n_full, np.nan, dtype=np.float64)
+
+        if uncertainties_reduced is not None:
+            unc_r = np.asarray(uncertainties_reduced, dtype=np.float64)
+            for i, _ in enumerate(scaling_pos):
+                unc_full[full_scaling_pos[i]] = unc_r[scaling_pos[i]]
+            for a, idx in enumerate(self.varying_indices):
+                unc_full[full_physics_pos[idx]] = unc_r[physics_pos[a]]
+
+        if covariance_reduced is not None:
+            cov_r = np.asarray(covariance_reduced, dtype=np.float64)
+            for i in range(n_scaling):
+                for j in range(n_scaling):
+                    cov_full[full_scaling_pos[i], full_scaling_pos[j]] = cov_r[
+                        scaling_pos[i], scaling_pos[j]
+                    ]
+            for a, ia in enumerate(self.varying_indices):
+                fa = full_physics_pos[ia]
+                for b, ib in enumerate(self.varying_indices):
+                    fb = full_physics_pos[ib]
+                    cov_full[fa, fb] = cov_r[physics_pos[a], physics_pos[b]]
+                for i in range(n_scaling):
+                    fi = full_scaling_pos[i]
+                    cov_full[fa, fi] = cov_r[physics_pos[a], scaling_pos[i]]
+                    cov_full[fi, fa] = cov_r[scaling_pos[i], physics_pos[a]]
+
+        for child_idx, parent_idx in self.tied_idx_pairs:
+            fc = full_physics_pos[child_idx]
+            fp = full_physics_pos[parent_idx]
+            unc_full[fc] = unc_full[fp]
+            cov_full[fc, :] = cov_full[fp, :]
+            cov_full[:, fc] = cov_full[:, fp]
+
+        return parameters_full, cov_full, unc_full
+
     def extract_varying(self, full_params: np.ndarray | jnp.ndarray) -> np.ndarray:
         """Extract the varying parameters from a full array.
 
