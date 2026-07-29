@@ -67,3 +67,23 @@ def test_averaged_mode_residual_enforces_tie():
     d0_sample_idx = list(ALL_PARAM_NAMES).index("D0_sample")
     assert float(full_jax[d0_ref_idx]) == float(full_jax[d0_sample_idx])
     del compute_multi_angle_residuals, n_physics_varying  # imports exercised for coverage only
+
+
+def test_individual_mode_residual_pattern_enforces_tie():
+    """heterodyne_core.py: _build_joint_problem's base_residual_fn (scaling-
+    first layout: scaling head, physics tail)."""
+    import jax.numpy as jnp
+
+    pm = _tied_param_manager()
+    fixed_values_jax = jnp.asarray(pm.get_full_values(), dtype=jnp.float64)
+    varying_indices_jax = jnp.array(pm.varying_indices, dtype=jnp.int32)
+    tied_idx_pairs = pm.tied_idx_pairs
+
+    physics_varying = jnp.asarray(pm.get_initial_values(), dtype=jnp.float64)
+    full_jax = fixed_values_jax.at[varying_indices_jax].set(physics_varying)
+    for child_idx, parent_idx in tied_idx_pairs:
+        full_jax = full_jax.at[child_idx].set(full_jax[parent_idx])
+
+    d0_ref_idx = list(ALL_PARAM_NAMES).index("D0_ref")
+    d0_sample_idx = list(ALL_PARAM_NAMES).index("D0_sample")
+    assert float(full_jax[d0_ref_idx]) == float(full_jax[d0_sample_idx])

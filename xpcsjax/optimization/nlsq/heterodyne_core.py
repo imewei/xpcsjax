@@ -3078,6 +3078,7 @@ def _build_joint_problem(
 
     fixed_values_jax = jnp.asarray(param_manager.get_full_values(), dtype=jnp.float64)
     varying_indices_jax = jnp.array(param_manager.varying_indices, dtype=jnp.int32)
+    tied_idx_pairs = param_manager.tied_idx_pairs
 
     # NOTE: must return a JAX array. NLSQ's masked_residual_func JIT-traces
     # this closure; calling ``np.asarray`` on a traced result raises
@@ -3103,6 +3104,8 @@ def _build_joint_problem(
         # Reconstruct full physics parameter array (immutable JAX scatter)
         varying_jax = jnp.asarray(physics_varying, dtype=jnp.float64)
         full_jax = fixed_values_jax.at[varying_indices_jax].set(varying_jax)
+        for child_idx, parent_idx in tied_idx_pairs:
+            full_jax = full_jax.at[child_idx].set(full_jax[parent_idx])
 
         # Expand the scaling head → per-angle contrast/offset. MUST use the
         # JIT-safe ``expand_tail_jax``: the numpy ``expand_tail`` calls
