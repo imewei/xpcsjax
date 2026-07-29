@@ -77,7 +77,12 @@ def fit_nlsq_multistart_heterodyne(model, c2, phi, nlsq_cfg, weights, ms_cfg):
         t0 = time.perf_counter()
         start_params = np.asarray(start_params, dtype=np.float64)
         try:
-            pm.update_values(
+            # reseed_initial_values (not update_values) — fit_nlsq_multi_phi reads
+            # param_manager.get_initial_values(), which is pinned to the frozen
+            # construction-time snapshot and ignores plain update_values(). Without
+            # this every multistart candidate silently re-solved the SAME starting
+            # point (the config's initial_parameters), defeating multistart.
+            pm.reseed_initial_values(
                 {name: float(v) for name, v in zip(varying_names, start_params, strict=True)}
             )
             res = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
@@ -123,7 +128,9 @@ def fit_nlsq_multistart_heterodyne(model, c2, phi, nlsq_cfg, weights, ms_cfg):
     )
 
     best_start = np.asarray(ms_result.best.initial_params, dtype=np.float64)
-    pm.update_values({name: float(v) for name, v in zip(varying_names, best_start, strict=True)})
+    pm.reseed_initial_values(
+        {name: float(v) for name, v in zip(varying_names, best_start, strict=True)}
+    )
     final = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
 
     # Attach multistart provenance. nlsq_diagnostics defaults to None on
