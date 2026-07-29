@@ -45,8 +45,7 @@ For a minimal core install (NLSQ fitting only, no GUI/fast-viz), drop the extra:
 
 Python 3.12+ required, CPU-only in v0.1 (GPU support is v0.2+). Runtime dependencies are
 managed via `pyproject.toml` and mirror what the source `homodyne` package pins (versions
-of `jax`, `nlsq`, `evosax`, `h5py`, `interpax`, `jaxopt`, `psutil`, `scikit-learn`,
-`tqdm`, etc.).
+of `jax`, `nlsq`, `evosax`, `h5py`, `jaxopt`, `psutil`, `tqdm`, etc.).
 
 **From source (development):** clone the repo and use an editable install —
 `uv sync && uv pip install -e ".[dev]"`. See

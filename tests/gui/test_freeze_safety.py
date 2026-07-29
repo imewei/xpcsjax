@@ -51,10 +51,10 @@ def test_pyinstaller_spec_covers_runtime_deps():
     spec_src = (root / "packaging" / "xpcsjax-gui.spec").read_text(encoding="utf-8")
 
     # dist-name -> import-name for the few that differ
-    ALIAS = {"scikit-learn": "sklearn", "pyyaml": "yaml", "pillow": "pil"}
+    ALIAS = {"pyyaml": "yaml", "pillow": "pil"}
     # covered without an explicit collect_all entry (pure-python, or pulled in
     # transitively by an already-listed compiled package like scipy/jax)
-    COVERED = {"numpy", "yaml", "psutil", "cloudpickle", "tqdm"}
+    COVERED = {"numpy", "yaml", "psutil", "tqdm"}
     # test/build-only deps that live in a runtime extra but must NEVER be frozen
     # into the binary: `pytest-qt` is in the `gui` extra (Plan C co-locates it with
     # PySide6 so a headless `.[dev]` install doesn't crash pytest collection). It is

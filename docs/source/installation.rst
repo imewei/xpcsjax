@@ -33,8 +33,8 @@ Inside an activated ``mamba`` or ``conda`` environment — or any other virtuale
    pip install "xpcsjax[all]"
 
 Either installer pulls the core runtime dependencies declared in
-``pyproject.toml`` (``jax``, ``nlsq``, ``evosax``, ``h5py``, ``interpax``,
-``jaxopt``, ``psutil``, ``scikit-learn``, ``tqdm``, …); the ``all`` extra adds
+``pyproject.toml`` (``jax``, ``nlsq``, ``evosax``, ``h5py``,
+``jaxopt``, ``psutil``, ``tqdm``, …); the ``all`` extra adds
 the GUI (PySide6 + PyQtGraph), fast-viz (datashader), and the full dev/docs/
 packaging toolchains (pytest, ruff, mypy, Sphinx, PyInstaller, …) on top.
 

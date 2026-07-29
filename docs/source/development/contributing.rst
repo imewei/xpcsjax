@@ -230,8 +230,10 @@ removed upstream APIs.
 .. warning::
 
    **Do not use ``jax.numpy.interp`` inside JIT-compiled paths.**
-   Use ``interpax`` instead. This is enforced by convention, not by
-   the linter, so reviewers will catch it manually.
+   ``interpax`` is not currently a dependency (nothing in the codebase
+   interpolates); if a JIT'd path ever needs interpolation, add
+   ``interpax`` for it. This is enforced by convention, not by the
+   linter, so reviewers will catch it manually.
 
 .. note::
 
