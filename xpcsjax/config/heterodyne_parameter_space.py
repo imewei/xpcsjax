@@ -667,6 +667,7 @@ def _apply_tied_parameters(space: ParameterSpace, config: dict[str, Any]) -> Non
                 parent_bounds,
                 child,
             )
+        assert parent_value is not None
         space.values[child] = parent_value
         space.vary[child] = False
         space.tied[child] = parent
