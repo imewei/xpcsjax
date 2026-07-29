@@ -3775,6 +3775,14 @@ def _build_joint_result(
     if global_escape is not None:
         diagnostics["global_escape"] = global_escape
 
+    if param_manager.tied_idx_pairs:
+        diagnostics["tied_parameters"] = dict(param_manager.space.tied)
+
+    # Mark the scaling-first layout of the returned parameters.
+    # The joint problem is always scaling-first; expand_reduced_result preserves
+    # this layout (no reordering needed as in the averaged path).
+    diagnostics["scaling_first"] = True
+
     logger.info(
         "Joint multi-angle fit complete: success=%s, cost=%.6f, "
         "n_evals=%d, wall_time=%.2fs, %d angles%s",
@@ -3786,10 +3794,19 @@ def _build_joint_result(
         f" [escape={global_escape}]" if global_escape is not None else "",
     )
 
+    n_scaling_for_mode = 0 if resolved_mode == "constant" else 2 * n_phi
+    parameters_full, covariance_full, uncertainties_full = param_manager.expand_reduced_result(
+        fitted_params_full,
+        covariance,
+        uncertainties,
+        n_scaling=n_scaling_for_mode,
+        scaling_first=True,
+    )
+
     return OptimizationResult(
-        parameters=np.asarray(fitted_params_full, dtype=np.float64),
-        uncertainties=uncertainties,
-        covariance=covariance,
+        parameters=parameters_full,
+        uncertainties=uncertainties_full,
+        covariance=covariance_full,
         chi_squared=ssr,
         reduced_chi_squared=reduced_chi2,
         convergence_status=convergence_status,
@@ -3804,8 +3821,9 @@ def _build_joint_result(
         # Mirror the engine route's ``n_physics_field`` rule: the constant
         # (frozen-scaling) layout reports ``None`` (physics-only vector, no
         # scaling tail to disambiguate); averaged/individual report the physics
-        # count so the scaling-first ``[scaling_head | physics]`` tail is read.
-        n_physics=None if resolved_mode == "constant" else int(n_physics_varying),
+        # count (now always the full 14) so the scaling-first
+        # ``[scaling_head | physics]`` tail is read.
+        n_physics=None if resolved_mode == "constant" else 14,
     )
 
 

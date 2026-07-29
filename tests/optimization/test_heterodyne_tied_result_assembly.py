@@ -106,3 +106,9 @@ def test_averaged_mode_tied_fit_reports_full_physics(tmp_path):
     phi_angles = np.array([0.0, 45.0, 90.0], dtype=np.float64)  # n_phi=3 -> averaged
     result = _run_tied_fit(tmp_path, phi_angles, "auto")
     _assert_tied_result_shape(result)
+
+
+def test_individual_mode_tied_fit_reports_full_physics(tmp_path):
+    phi_angles = np.array([0.0, 90.0], dtype=np.float64)  # n_phi=2 -> individual
+    result = _run_tied_fit(tmp_path, phi_angles, "auto")
+    _assert_tied_result_shape(result)
