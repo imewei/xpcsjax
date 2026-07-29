@@ -229,15 +229,14 @@ endif
 	@echo "  NLSQ:      $(shell $(PYTHON) -c 'import nlsq; print(nlsq.__version__)' 2>/dev/null || echo 'not installed')"
 	@echo "  evosax:    $(shell $(PYTHON) -c 'import evosax; print(evosax.__version__)' 2>/dev/null || echo 'not installed')"
 	@echo "  jaxopt:    $(shell $(PYTHON) -c 'import jaxopt; print(jaxopt.__version__)' 2>/dev/null || echo 'not installed')"
-	@echo "  interpax:  $(shell $(PYTHON) -c 'import interpax; print(interpax.__version__)' 2>/dev/null || echo 'not installed')"
 	@echo "  NumPy:     $(shell $(PYTHON) -c 'import numpy; print(numpy.__version__)' 2>/dev/null || echo 'not installed')"
 	@echo ""
 
 deps-check:
 	@echo "$(BOLD)$(BLUE)Checking xpcsjax core dependencies...$(RESET)"
 	@$(PYTHON) -c "import importlib.util as u; \
-		mods = ['jax', 'jaxlib', 'jaxopt', 'interpax', 'nlsq', 'evosax', \
-		        'numpy', 'scipy', 'h5py', 'yaml', 'psutil', 'tqdm', 'sklearn']; \
+		mods = ['jax', 'jaxlib', 'jaxopt', 'nlsq', 'evosax', \
+		        'numpy', 'scipy', 'h5py', 'yaml', 'psutil', 'tqdm']; \
 		print('Core deps:'); \
 		[print(f'  {m:10s} = ' + ('OK' if u.find_spec(m) else 'MISSING')) for m in mods]"
 

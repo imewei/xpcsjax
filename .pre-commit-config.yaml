@@ -5,7 +5,7 @@
 # Derived from homodyne/.pre-commit-config.yaml. Divergences:
 #   - Python pinned to 3.12 (xpcsjax requires-python = ">=3.12")
 #   - mypy additional_dependencies tuned for xpcsjax: arviz dropped
-#     (Bayesian/CMC is permanently out of scope), evosax/interpax/jaxopt
+#     (Bayesian/CMC is permanently out of scope), evosax/jaxopt
 #     added (xpcsjax-specific deps), and homodyne's web/CLI stubs
 #     (types-requests/Pygments/colorama/decorator/setuptools) dropped —
 #     xpcsjax imports none of those modules.
@@ -83,10 +83,8 @@ repos:
           - scipy>=1.17
           - jax>=0.8.2
           - jaxopt>=0.8.3
-          - interpax>=0.3.12
           - nlsq>=0.6.10
           - evosax>=0.2.0
-          - scikit-learn>=1.6
           - matplotlib>=3.10
 
   # Markdown formatting

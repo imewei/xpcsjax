@@ -123,7 +123,7 @@ def test_required_dependencies_mirror_pyproject() -> None:
     declared = {}
     for dep in tomllib.loads(pyproject.read_text())["project"]["dependencies"]:
         req = Requirement(dep)
-        # Only the >= floor is mirrored; upper caps (nlsq<1.0, h5py<4.0) are not probed.
+        # Only the >= floor is mirrored; pyproject.toml declares no upper-bound caps.
         floors = [s.version for s in req.specifier if s.operator == ">="]
         declared[canonicalize_name(req.name)] = floors[0]
 
