@@ -1302,6 +1302,7 @@ def _fit_joint_averaged_multi_phi(
     phi_angles_jax = jnp.asarray(phi_angles, dtype=jnp.float64)
     fixed_values_jax = jnp.asarray(param_manager.get_full_values(), dtype=jnp.float64)
     varying_indices_jax = jnp.array(param_manager.varying_indices, dtype=jnp.int32)
+    tied_idx_pairs = param_manager.tied_idx_pairs
 
     # NOTE: must return a JAX array. NLSQ's masked_residual_func JIT-traces this
     # closure; np.asarray() on a traced result raises TracerArrayConversionError.
@@ -1313,6 +1314,8 @@ def _fit_joint_averaged_multi_phi(
         full_jax = fixed_values_jax.at[varying_indices_jax].set(
             jnp.asarray(physics_varying, dtype=jnp.float64)
         )
+        for child_idx, parent_idx in tied_idx_pairs:
+            full_jax = full_jax.at[child_idx].set(full_jax[parent_idx])
         contrasts_jax = jnp.full((n_phi,), contrast, dtype=jnp.float64)
         offsets_jax = jnp.full((n_phi,), offset, dtype=jnp.float64)
         return compute_multi_angle_residuals(
