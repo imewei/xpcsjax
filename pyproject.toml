@@ -14,10 +14,10 @@ dependencies = [
     "jax>=0.8.2",
     "jaxlib>=0.8.2",
     "jaxopt>=0.8.3",            # L-BFGS warmup for HYBRID_STREAMING strategy
-    "nlsq>=0.6.10,<1.0",        # JAX-native trf + CMA-ES + memory routing (cap next major; mirrors h5py)
+    "nlsq>=0.6.10",             # JAX-native trf + CMA-ES + memory routing
     "evosax>=0.2.0",            # CMA-ES JAX backend (BIPOP restart)
     # Data handling
-    "h5py>=3.15,<4.0",
+    "h5py>=3.15",
     "pyyaml>=6.0.3",
     # System utilities
     "psutil>=7.2",              # adaptive RAM detection in select_nlsq_strategy
