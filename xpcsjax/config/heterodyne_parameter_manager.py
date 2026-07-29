@@ -55,6 +55,9 @@ class ParameterManager:
     _varying_indices_cache: list[int] | None = field(default=None, init=False, repr=False)
     _fixed_indices_cache: list[int] | None = field(default=None, init=False, repr=False)
     _varying_names_cache: list[str] | None = field(default=None, init=False, repr=False)
+    _tied_idx_pairs_cache: list[tuple[int, int]] | None = field(
+        default=None, init=False, repr=False
+    )
 
     # B007: cached full-values array (invalidated by update_values)
     _full_values_cache: np.ndarray | None = field(default=None, init=False, repr=False)
@@ -153,6 +156,22 @@ class ParameterManager:
             ]
         return list(self._fixed_indices_cache)
 
+    @property
+    def tied_idx_pairs(self) -> list[tuple[int, int]]:
+        """``(child_index, parent_index)`` pairs in the 14-element physics array.
+
+        Empty when no ``tied_parameters`` are configured. Both indices are
+        static Python ints (not JAX tracers) -- safe to close over inside a
+        JIT-traced residual closure, exactly like ``varying_indices``.
+        """
+        if self._tied_idx_pairs_cache is None:
+            name_to_idx = {name: i for i, name in enumerate(ALL_PARAM_NAMES)}
+            self._tied_idx_pairs_cache = [
+                (name_to_idx[child], name_to_idx[parent])
+                for child, parent in self.space.tied.items()
+            ]
+        return list(self._tied_idx_pairs_cache)
+
     def get_initial_values(self) -> np.ndarray:
         """Get initial parameter values for optimization.
 
@@ -236,6 +255,8 @@ class ParameterManager:
         full = self.get_full_values().copy()
         for i, idx in enumerate(self.varying_indices):
             full[idx] = float(varying_params[i])
+        for child_idx, parent_idx in self.tied_idx_pairs:
+            full[child_idx] = full[parent_idx]
         return full
 
     def extract_varying(self, full_params: np.ndarray | jnp.ndarray) -> np.ndarray:
