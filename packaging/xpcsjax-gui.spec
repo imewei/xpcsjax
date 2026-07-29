@@ -13,7 +13,7 @@ datas, binaries, hiddenimports = [], [], []
 for pkg in (
     "jax", "jaxlib", "xpcsjax", "PySide6", "pyqtgraph",
     "datashader", "xarray", "colorcet", "numba", "llvmlite", "nlsq", "evosax",
-    "jaxopt", "interpax", "h5py", "sklearn", "scipy",
+    "jaxopt", "h5py", "scipy",
     "matplotlib",  # worker-rendered publication figures ship mpl-data
     "numpy",        # direct runtime dep; pulled transitively by jax/scipy but
                     # listed explicitly so the drift guard requires no special-case

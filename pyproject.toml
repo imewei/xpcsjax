@@ -14,18 +14,14 @@ dependencies = [
     "jax>=0.8.2",
     "jaxlib>=0.8.2",
     "jaxopt>=0.8.3",            # L-BFGS warmup for HYBRID_STREAMING strategy
-    "interpax>=0.3.12",         # JIT-safe interpolation (per CLAUDE.md prohibition)
     "nlsq>=0.6.10,<1.0",        # JAX-native trf + CMA-ES + memory routing (cap next major; mirrors h5py)
     "evosax>=0.2.0",            # CMA-ES JAX backend (BIPOP restart)
     # Data handling
     "h5py>=3.15,<4.0",
     "pyyaml>=6.0.3",
-    # System utilities (homodyne's NLSQ engine depends on all three)
+    # System utilities
     "psutil>=7.2",              # adaptive RAM detection in select_nlsq_strategy
-    "cloudpickle>=3.1",         # HYBRID_STREAMING worker-pool function transport (homodyne dep)
     "tqdm>=4.67.1",             # progress bars used throughout homodyne
-    # ML utility (homodyne anti-degeneracy layer uses sklearn.mixture.GaussianMixture)
-    "scikit-learn>=1.6",
     # Visualization — publication plots. Imported at module top-level in
     # xpcsjax/viz/nlsq_plots.py (and the CLI plot dispatch + datashader backend).
     # nlsq already hard-requires matplotlib>=3.10.0 so it is always present
