@@ -209,6 +209,7 @@ def _fit_joint_constant_multi_phi(
     offset_jax = jnp.asarray(offset_fixed, dtype=jnp.float64)
     fixed_values_jax = jnp.asarray(param_manager.get_full_values(), dtype=jnp.float64)
     varying_indices_jax = jnp.array(list(param_manager.varying_indices), dtype=jnp.int32)
+    tied_idx_pairs = param_manager.tied_idx_pairs
 
     # Physics-only residual; scaling enters by closure (frozen).
     #
@@ -220,6 +221,8 @@ def _fit_joint_constant_multi_phi(
     def joint_residual_fn(x: np.ndarray) -> Any:  # type: ignore[return-value]
         physics_varying = jnp.asarray(x, dtype=jnp.float64)
         full_jax = fixed_values_jax.at[varying_indices_jax].set(physics_varying)
+        for child_idx, parent_idx in tied_idx_pairs:
+            full_jax = full_jax.at[child_idx].set(full_jax[parent_idx])
         return compute_multi_angle_residuals(
             full_jax,
             t,
