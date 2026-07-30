@@ -236,6 +236,71 @@ block (in ``ParameterSpace.from_config``) reaches parity with the long-standing
 homodyne behaviour exposed through
 :meth:`xpcsjax.config.ConfigManager.get_parameter_bounds`.
 
+.. _tied_parameters:
+
+Tying two physics parameters together (``tied_parameters``)
+-------------------------------------------------------------
+
+**Scope: ``two_component`` (heterodyne) only.** Static (``static_anisotropic``
+/ ``static_isotropic``) and ``laminar_flow`` (homodyne) modes do not accept
+this key.
+
+``initial_parameters.tied_parameters`` forces two of the 14 heterodyne
+physics parameters to be numerically equal throughout optimization, e.g. to
+force the reference and sample diffusion terms to match:
+
+.. code-block:: yaml
+
+   initial_parameters:
+     tied_parameters:
+       D0_ref: D0_sample
+       alpha_ref: alpha_sample
+       D_offset_ref: D_offset_sample
+
+Each entry is ``{child: parent}``. The **child** is forced non-varying
+(``vary: false``, the same lever as an ordinary fixed parameter — bounds,
+``p0``, and CMA-ES normalization all shrink automatically). Unlike an
+ordinary fixed parameter, the child is not pinned to a stored constant: every
+residual evaluation overwrites the child's slot with the **parent's live**
+value from that same evaluation, so the tied pair behaves as one free
+variable with real joint-optimizer coupling — not two independently-fitted
+values mirrored after the fact.
+
+Validation, at config-load time:
+
+* Both ``child`` and ``parent`` must name one of the 14 physics parameters
+  (public template names, e.g. ``v_beta`` / ``phi0_het`` — the same aliases
+  ``parameter_space.bounds`` accepts). The two scaling parameters
+  (``contrast`` / ``offset``) cannot be tied.
+* ``child`` cannot equal ``parent`` (self-tie).
+* ``parent`` cannot itself be a tied child in the same map — chains are not
+  supported. Tie ``child`` directly to the ultimate parent instead.
+* ``parent`` must be varying. Tying a child to an already-fixed parameter is
+  rejected — fix ``child`` directly via ``active_parameters`` instead.
+* If ``child`` is also listed in an explicit ``active_parameters`` whitelist,
+  the tie wins (a warning is logged, ``vary[child]`` is forced ``False``).
+* If ``child``'s configured initial value or bounds differ from ``parent``'s,
+  a warning is logged and ``child``'s value is synced to ``parent``'s — only
+  the parent's bounds are enforced during optimization.
+
+Result reporting mirrors the tie: ``result.parameters`` reports the child at
+the same value as the parent, and its uncertainty/covariance row are copied
+from the parent's (not independently computed, since they are the same free
+variable). ``result.nlsq_diagnostics["tied_parameters"]`` records the
+``{child: parent}`` map so downstream consumers know which entries are
+derived rather than independently estimated.
+
+``tied_parameters`` is honored on every production heterodyne joint-fit path
+— in-memory (``constant`` / ``averaged`` / ``individual`` per-angle scaling
+modes), hybrid-streaming, and stratified-LS (≥ 1M points). The one exception
+is the in-memory engine route (``fit_two_component_via_engine``, the default
+router for small in-scope-mode fits), which has no expansion mechanism for a
+non-full-length physics vector: it detects any tied (or otherwise fixed)
+physics parameter and raises internally, and its caller catches that to fall
+back automatically to the tying-aware ``fit_nlsq_multi_phi`` path. This
+fallback is transparent — no extra configuration is needed to combine
+``tied_parameters`` with the default router.
+
 How :func:`xpcsjax.optimization.nlsq.fit_nlsq` consumes the configuration
 -------------------------------------------------------
 

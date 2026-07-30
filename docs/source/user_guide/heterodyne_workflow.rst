@@ -263,6 +263,36 @@ verbatim to the underlying NLSQ solver. The strategy router (see
 basis, so a single fit can mix in-memory and stratified-LS strategies
 across phi-angle groups.
 
+Tying reference and sample parameters together
+-----------------------------------------------
+
+The two-component model fits a reference transport term
+(``D0_ref``/``alpha_ref``/``D_offset_ref``) and a sample transport term
+(``D0_sample``/``alpha_sample``/``D_offset_sample``) independently by
+default. Some experiments call for forcing one or more of these pairs to be
+numerically equal — e.g. a reference beam known to share the sample's bulk
+diffusion coefficient:
+
+.. code-block:: yaml
+
+   analysis_mode: two_component
+
+   initial_parameters:
+     values: [...]  # D0_ref's own entry is still required but is
+                     # overwritten by the tie at load time
+     tied_parameters:
+       D0_ref: D0_sample
+
+This is real joint-optimizer coupling, not a manual "fit, copy the value,
+refit" workaround: ``D0_ref`` tracks ``D0_sample``'s live value on every
+residual evaluation, so the gradient the solver sees already reflects the
+constraint. The fitted result reports ``D0_ref`` at the same value and
+uncertainty as ``D0_sample``, and ``result.nlsq_diagnostics["tied_parameters"]``
+records ``{"D0_ref": "D0_sample"}`` so downstream code can tell the two
+apart. See :ref:`tied_parameters` for the full validation rules (which
+parameter pairs are eligible, how conflicts with ``active_parameters`` are
+resolved) and the one router this feature does not touch.
+
 Where to look next
 ------------------
 
