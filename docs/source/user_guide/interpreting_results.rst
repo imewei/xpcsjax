@@ -252,6 +252,13 @@ The headline parameters and uncertainties on ``result`` already describe
 the joint fit; ``per_angle_chi2`` is the diagnostic for spotting which
 strata fit worst.
 
+If the config used :ref:`tied_parameters` to force two physics parameters
+equal (``two_component`` only), ``result.nlsq_diagnostics["tied_parameters"]``
+records the ``{child: parent}`` map. The child's entry in ``result.parameters``
+and its uncertainty are copies of the parent's, not independent estimates —
+check this key before treating a tied child's uncertainty as informative on
+its own.
+
 Serialisation
 -------------
 

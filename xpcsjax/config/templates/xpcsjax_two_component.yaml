@@ -272,6 +272,25 @@ initial_parameters:
   # fixed_parameters: {"v_beta": 0.0, "v_offset": 0.0, "f1": 0.0, "f2": 0.0, "f3": 0.0}
   fixed_parameters: null
 
+  # ---------------------------------------------------------------------
+  # TIED PARAMETERS — force two physics parameters numerically equal
+  # (two_component ONLY; not accepted by static_*/laminar_flow templates).
+  # {child: parent} — child is forced non-varying and its every residual
+  # evaluation tracks the parent's LIVE value (real joint-optimizer
+  # coupling, not a post-hoc mirror). Only the 14 physics names are
+  # tie-able (use the public names above, e.g. v_beta / phi0_het) —
+  # contrast/offset cannot be tied. No chains: parent must not itself be
+  # a tied child. parent must be varying. See
+  # docs/source/user_guide/configuration.rst#tied-parameters for the
+  # full validation rules and result.nlsq_diagnostics["tied_parameters"].
+  # ---------------------------------------------------------------------
+  tied_parameters: null
+  # Example — force the reference transport to match the sample transport:
+  # tied_parameters:
+  #   D0_ref: D0_sample
+  #   alpha_ref: alpha_sample
+  #   D_offset_ref: D_offset_sample
+
 # -----------------------------------------------------------------------------
 # PARAMETER SPACE — bounds match the xpcsjax registry (NOT upstream heterodyne)
 # -----------------------------------------------------------------------------
