@@ -416,7 +416,7 @@ def apply_theme(app: object, palette: Palette | None = None) -> Palette:
         pg.setConfigOption("background", p.surface)
         pg.setConfigOption("foreground", p.text_muted)
     except Exception:
-        pass
+        pass  # pyqtgraph theming is best-effort; a missing/broken install must not block app startup
 
     global _active_palette
     _active_palette = p

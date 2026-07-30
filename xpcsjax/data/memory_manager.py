@@ -1155,7 +1155,7 @@ class AdvancedMemoryManager:
                     try:
                         mm.close()
                     except (OSError, ValueError):
-                        pass
+                        pass  # mm already unusable from the original failure; the fd close below still runs
                 fh.close()
                 raise
 

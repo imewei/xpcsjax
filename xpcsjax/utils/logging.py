@@ -1085,7 +1085,7 @@ class MinimalLogger:
                     file_path, require_parent_exists=False, base_dir=base_dir
                 )
             except ImportError:
-                pass
+                pass  # path_validation unavailable; proceed with the unvalidated path rather than block logging
             except _PathValidationError as e:
                 logging.getLogger(self._root_logger_name).warning(
                     "Unsafe log file path %r rejected (%s); file logging disabled.",

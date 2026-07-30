@@ -883,7 +883,7 @@ class DataQualityController:
                             ),
                         )
                 except (AttributeError, TypeError, IndexError):
-                    pass
+                    pass  # value isn't array-like enough for np.asarray/np.isfinite; skip it and keep checking the rest
 
         # Without this, correlation_validity/signal_to_noise stay at their 0.0
         # default and RAW_DATA can never reach pass_threshold even for
