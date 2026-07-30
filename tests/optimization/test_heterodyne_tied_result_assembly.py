@@ -191,3 +191,119 @@ def test_build_hybrid_streaming_result_mirrors_tied_child():
     )
     physics = result.parameters[-14:]
     assert physics[_D0_REF_IDX] == physics[_D0_SAMPLE_IDX]
+
+
+def test_stratified_ls_tied_fit_reports_full_physics(tmp_path):
+    """Call fit_heterodyne_stratified_least_squares directly with a tied
+    ParameterManager and a small synthetic dataset, bypassing the
+    dispatcher's >=1M-point size gate entirely.
+
+    The brief's suggested call (``fit_heterodyne_stratified_least_squares(
+    model=model, c2_data=c2, phi_angles=phi_angles)``) was NOT re-verified
+    during planning. Grepping the real signature
+    (heterodyne_stratified_ls.py:550) shows it is keyword-only
+    ``model, c2, phi, config, weights, target_chunk_size=..., shuffle=...,
+    use_index_based=..., check_memory_safety=..., anti_degeneracy_dict=...``
+    -- the parameter names are ``c2``/``phi``, not ``c2_data``/``phi_angles``,
+    and ``config`` must be an ``NLSQConfig`` instance (built the same way the
+    dispatcher in ``xpcsjax/optimization/nlsq/__init__.py`` builds it: unwrap
+    ``optimization.nlsq`` then ``NLSQConfig.from_dict``), not a raw dict.
+    """
+    import yaml
+
+    from xpcsjax.config import ConfigManager
+    from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        fit_heterodyne_stratified_least_squares,
+    )
+
+    phi_angles = np.array([0.0, 45.0, 90.0], dtype=np.float64)
+    config = _tied_config_dict(phi_angles, "auto")
+    cfg_path = tmp_path / "tied_stratified.yaml"
+    cfg_path.write_text(yaml.safe_dump(config))
+    cfg = ConfigManager(str(cfg_path))
+    model = HeterodyneModel.from_config(cfg.config)
+    c2 = _build_synthetic_c2(model, phi_angles)
+
+    nlsq_dict = dict(config["optimization"]["nlsq"])
+    nlsq_dict.setdefault("analysis_mode", config["analysis_mode"])
+    nlsq_cfg = NLSQConfig.from_dict(nlsq_dict)
+
+    result = fit_heterodyne_stratified_least_squares(
+        model=model,
+        c2=c2,
+        phi=phi_angles,
+        config=nlsq_cfg,
+        weights=None,
+        target_chunk_size=10,
+        check_memory_safety=False,
+    )
+    _assert_tied_result_shape(result)
+
+
+def test_hybrid_streaming_tied_fit_reports_full_physics(tmp_path, monkeypatch):
+    """Force the hybrid-streaming dispatch on a small synthetic dataset so
+    Task 9's wired residual + Task 13's build_hybrid_streaming_result fix
+    are exercised together end-to-end.
+
+    ``hybrid_streaming.enable: true`` alone is NOT sufficient: the dispatcher
+    (``_fit_nlsq_heterodyne`` in ``xpcsjax/optimization/nlsq/__init__.py``)
+    additionally gates on ``select_nlsq_strategy(...)`` returning
+    ``NLSQStrategy.LARGE``/``STREAMING`` (``heterodyne_memory.py``), which for
+    this tiny synthetic fixture (n_phi=3, N=40) would naturally resolve to
+    ``STANDARD`` and silently fall through to the plain joint fit. Both
+    ``select_nlsq_strategy`` and
+    ``fit_with_stratified_hybrid_streaming_heterodyne`` are imported with a
+    LOCAL ``from ... import ...`` inside the dispatch branch (not at module
+    load time), so monkeypatching the module-level attributes here is picked
+    up by that late-bound import. A call-through spy on
+    ``fit_with_stratified_hybrid_streaming_heterodyne`` proves the streaming
+    path actually ran rather than trusting a green result blindly.
+    """
+    import yaml
+
+    import xpcsjax.optimization.nlsq.heterodyne_memory as heterodyne_memory
+    import xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming as hs_mod
+    from xpcsjax.config import ConfigManager
+    from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
+    from xpcsjax.optimization.nlsq import fit_nlsq
+    from xpcsjax.optimization.nlsq.heterodyne_memory import NLSQStrategy, StrategyDecision
+
+    phi_angles = np.array([0.0, 45.0, 90.0], dtype=np.float64)
+    config = _tied_config_dict(phi_angles, "auto")
+    config["optimization"]["nlsq"]["hybrid_streaming"] = {"enable": True}
+
+    forced_decision = StrategyDecision(
+        strategy=NLSQStrategy.LARGE,
+        threshold_gb=0.0,
+        peak_memory_gb=999.0,
+        reason="forced-for-test",
+    )
+    monkeypatch.setattr(
+        heterodyne_memory, "select_nlsq_strategy", lambda *args, **kwargs: forced_decision
+    )
+
+    real_fit = hs_mod.fit_with_stratified_hybrid_streaming_heterodyne
+    called = {"hit": False}
+
+    def _spy(*args, **kwargs):
+        called["hit"] = True
+        return real_fit(*args, **kwargs)
+
+    monkeypatch.setattr(hs_mod, "fit_with_stratified_hybrid_streaming_heterodyne", _spy)
+
+    cfg_path = tmp_path / "tied_streaming.yaml"
+    cfg_path.write_text(yaml.safe_dump(config))
+    cfg = ConfigManager(str(cfg_path))
+    model = HeterodyneModel.from_config(cfg.config)
+    c2 = _build_synthetic_c2(model, phi_angles)
+    result = fit_nlsq({"c2": c2, "phi": phi_angles}, cfg)
+
+    assert called["hit"], (
+        "fit_with_stratified_hybrid_streaming_heterodyne was never invoked -- "
+        "the memory-tier override failed to force the STREAMING/LARGE "
+        "dispatch, so this test would otherwise have silently passed against "
+        "the standard joint-fit path instead of the hybrid-streaming path"
+    )
+    _assert_tied_result_shape(result)
