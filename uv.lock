@@ -4436,6 +4436,8 @@ name = "xpcsjax"
 version = "0.1.2"
 source = { editable = "." }
 dependencies = [
+    { name = "colorcet" },
+    { name = "datashader" },
     { name = "evosax" },
     { name = "h5py" },
     { name = "jax" },
@@ -4449,13 +4451,12 @@ dependencies = [
     { name = "pyyaml" },
     { name = "scipy" },
     { name = "tqdm" },
+    { name = "xarray" },
 ]
 
 [package.optional-dependencies]
 all = [
     { name = "build" },
-    { name = "colorcet" },
-    { name = "datashader" },
     { name = "furo" },
     { name = "hypothesis" },
     { name = "mistune" },
@@ -4483,7 +4484,6 @@ all = [
     { name = "sphinx-design" },
     { name = "twine" },
     { name = "types-pyyaml" },
-    { name = "xarray" },
 ]
 dev = [
     { name = "build" },
@@ -4521,17 +4521,12 @@ gui = [
 packaging = [
     { name = "pyinstaller" },
 ]
-viz-fast = [
-    { name = "colorcet" },
-    { name = "datashader" },
-    { name = "xarray" },
-]
 
 [package.metadata]
 requires-dist = [
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2" },
-    { name = "colorcet", marker = "extra == 'viz-fast'", specifier = ">=3.1" },
-    { name = "datashader", marker = "extra == 'viz-fast'", specifier = ">=0.16" },
+    { name = "colorcet", specifier = ">=3.1" },
+    { name = "datashader", specifier = ">=0.16" },
     { name = "evosax", specifier = ">=0.2.0" },
     { name = "furo", marker = "extra == 'docs'", specifier = ">=2024.8.6" },
     { name = "h5py", specifier = ">=3.15" },
@@ -4572,10 +4567,10 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.67.1" },
     { name = "twine", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.12.20250915" },
-    { name = "xarray", marker = "extra == 'viz-fast'", specifier = ">=2024.0" },
-    { name = "xpcsjax", extras = ["dev", "docs", "viz-fast", "gui", "packaging"], marker = "extra == 'all'" },
+    { name = "xarray", specifier = ">=2024.0" },
+    { name = "xpcsjax", extras = ["dev", "docs", "gui", "packaging"], marker = "extra == 'all'" },
 ]
-provides-extras = ["dev", "docs", "viz-fast", "gui", "packaging", "all"]
+provides-extras = ["dev", "docs", "gui", "packaging", "all"]
 
 [[package]]
 name = "xxhash"
