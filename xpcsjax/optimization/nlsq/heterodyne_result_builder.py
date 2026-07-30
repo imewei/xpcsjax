@@ -767,7 +767,18 @@ def build_hybrid_streaming_result(
         # No (or a mismatched) scaling prefix was supplied (the direct
         # hybrid-streaming path only threads physics-only ``varying_names``)
         # -- fall back to generic positional scaling labels sized to the
-        # actual scaling-head length.
+        # actual scaling-head length. This is a legitimate by-design branch
+        # today (not an error), but log it so a future genuinely-wrong-length
+        # ``diag_param_names`` doesn't silently degrade with zero trace.
+        logger.debug(
+            "build_hybrid_streaming_result: diag_param_names length (%d) does "
+            "not match n_scaling + n_varying_names (%d + %d = %d); using "
+            "placeholder scaling_i labels instead of the caller-supplied names.",
+            len(diag_param_names),
+            n_scaling,
+            n_varying_names,
+            n_scaling + n_varying_names,
+        )
         diag_scaling_names = [f"scaling_{i}" for i in range(n_scaling)]
     diagnostics["parameter_names"] = [*diag_scaling_names, *ALL_PARAM_NAMES]
 

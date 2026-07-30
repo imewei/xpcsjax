@@ -671,22 +671,19 @@ def _safe_log_heterodyne_completion(result: Any, model: Any, n_phi: int) -> None
         if param_manager is None:
             return
 
-        # `result.parameters` is full-14-physics for EVERY per-angle mode,
-        # including `constant` -- `constant` mode leaves `result.n_physics`
-        # unset (`None`) BY DESIGN (it has no scaling tail to disambiguate,
-        # see `heterodyne_constant_mode.py` / `_build_joint_result`'s
-        # `resolved_mode == "constant"` branch), but its `result.parameters`
-        # is still expanded to the full 14-physics layout via
-        # `expand_reduced_result` before being returned. So `n_physics is
-        # None` does NOT mean "reduced parameters" -- pairing the (reduced)
-        # `varying_names` label list against a full-14 value vector
-        # misattributes names whenever a fixed/tied physics parameter isn't
-        # at index 0 (bugfix: codex/agy audit finding #3, 2026-07-29).
-        # Always use the full 14-name list/count.
-        from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
-
-        param_names = list(ALL_PARAM_NAMES)
-        n_physics = len(ALL_PARAM_NAMES)
+        # Read the parameter-name/physics-count contract from the RESULT ITSELF
+        # instead of hardcoding ALL_PARAM_NAMES/14. This function is the shared
+        # chokepoint for every heterodyne dispatch site -- including producers
+        # (e.g. the engine route, the sequential per-angle aggregate) that are
+        # not guaranteed to always emit the full-14-physics expanded layout.
+        # `diagnostics["parameter_names"]` (when present) is already sized and
+        # ordered to match `result.parameters` exactly -- physics + scaling, in
+        # whatever layout that producer used -- so this self-adapts instead of
+        # silently misattributing names against a future non-expanded producer
+        # (bugfix: codex/agy audit finding #3, 2026-07-29, generalized).
+        diag = result.nlsq_diagnostics or {}
+        param_names = diag.get("parameter_names") or list(param_manager.varying_names)
+        n_physics = result.n_physics if result.n_physics is not None else len(param_names)
 
         log_heterodyne_completion(
             result,

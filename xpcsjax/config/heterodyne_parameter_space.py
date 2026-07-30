@@ -255,6 +255,7 @@ class ParameterSpace:
             values=deepcopy(self.values),
             vary=deepcopy(self.vary),
             bounds=deepcopy(self.bounds),
+            tied=deepcopy(self.tied),
         )
 
         # Tighten contrast bounds
@@ -696,7 +697,14 @@ def _apply_tied_parameters(space: ParameterSpace, config: dict[str, Any]) -> Non
                 parent_bounds,
                 child,
             )
-        assert parent_value is not None
+        if parent_value is None:
+            raise ValueError(
+                f"tied_parameters: parent '{parent}' has no configured value in "
+                "space.values -- cannot sync tied child "
+                f"'{child}' to it (this should be unreachable: ParameterSpace."
+                "__post_init__ populates a registry default for every physics "
+                "parameter name)."
+            )
         space.values[child] = parent_value
         space.vary[child] = False
         space.tied[child] = parent

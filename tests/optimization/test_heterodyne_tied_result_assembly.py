@@ -138,6 +138,26 @@ def test_constant_mode_tied_fit_reports_full_physics(tmp_path):
     _assert_tied_result_shape(result)
 
 
+def test_single_angle_tied_fit_reports_full_physics(tmp_path):
+    """Single-angle (``len(phi_angles) <= 1``) top-level tied fits fall
+    through ``fit_nlsq_multi_phi``'s joint-dispatch guard (``config is not
+    None and len(phi_angles) > 1``) straight to the sequential per-angle
+    warm-start chain, aggregated by ``_aggregate_individual_results`` --
+    a real, non-hypothetical production path (PR #27 review item 2), and
+    NOT the same call path as
+    ``test_fit_nlsq_jax_single_angle_tied_fit_enforces_tie_in_residual``
+    above (that test calls ``fit_nlsq_jax`` directly, bypassing the
+    aggregate entirely). Before this fix,
+    ``_aggregate_individual_results`` reported the REDUCED
+    ``[physics_varying | contrast | offset]`` vector (13 physics here, one
+    tied child completely absent) instead of the full-14-physics,
+    scaling-first contract every other producer emits."""
+    phi_angles = np.array([0.0], dtype=np.float64)
+    result = _run_tied_fit(tmp_path, phi_angles, "auto")
+    assert result.n_physics == 14
+    _assert_tied_result_shape(result)
+
+
 def test_fit_nlsq_jax_single_angle_tied_fit_enforces_tie_in_residual():
     """``fit_nlsq_jax`` -> ``_fit_local`` (single-angle, per-angle local
     optimization) is a DISTINCT production entry point from the joint-fit

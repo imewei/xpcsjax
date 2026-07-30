@@ -13,9 +13,12 @@ sweeps. Datashader rasterizes the raw array to a fixed-resolution image
 image — keeping the matplotlib path tiny while preserving annotation
 quality (colorbars, axes, titles).
 
-Optional dependency — only import this module if Datashader is installed:
-
-    pip install 'xpcsjax[viz-fast]'
+Datashader, xarray, and Pillow are now CORE dependencies (declared directly in
+``pyproject.toml``'s ``[project.dependencies]``, not an optional extra --
+the former ``[viz-fast]`` extra was retired when they moved to core). A normal
+``pip install xpcsjax`` always has them; the below ``ImportError`` guard is
+therefore only reachable via a broken/incomplete install environment, not via
+an optional-dependency opt-in.
 
 The orchestrator in :mod:`xpcsjax.viz.nlsq_plots` checks
 ``DATASHADER_AVAILABLE`` and degrades to the matplotlib path on missing
@@ -35,8 +38,10 @@ try:
     from PIL import Image
 except ImportError as e:
     raise ImportError(
-        "Datashader backend requires datashader, xarray, and Pillow. "
-        "Install with: pip install 'xpcsjax[viz-fast]'"
+        "Datashader backend requires datashader, xarray, and Pillow -- these "
+        "are core xpcsjax dependencies (declared in pyproject.toml, not an "
+        "optional extra), so this indicates a broken/incomplete install. "
+        "Reinstall with: pip install xpcsjax (or `uv sync` in this repo)."
     ) from e
 
 from xpcsjax.utils.logging import get_logger

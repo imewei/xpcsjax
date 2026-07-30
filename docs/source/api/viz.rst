@@ -66,11 +66,12 @@ reconstruct the scaling from.
 Datashader backend
 ------------------
 
-Install the optional fast backend with::
+Datashader, xarray, and Pillow are CORE xpcsjax dependencies (not an optional
+extra), so a plain ``pip install xpcsjax`` already includes the fast backend::
 
-   pip install 'xpcsjax[viz-fast]'
+   pip install xpcsjax
 
-When installed and ``use_datashader=True`` (the default), the 3-panel
+When ``use_datashader=True`` (the default), the 3-panel
 comparison plot is rendered via a hybrid pipeline: Datashader rasterizes the
 raw c₂ arrays to a 1200 px image, then matplotlib adds axes, colorbars, and
 titles. This is 5–10× faster per call and avoids matplotlib memory pressure on
@@ -80,9 +81,9 @@ The ``"residuals"`` and ``"simulated"`` plot families always render through
 matplotlib regardless of backend, because those layouts (histogram, scatter,
 single-panel heatmap) do not benefit from Datashader rasterization.
 
-When the extra is missing, :func:`~xpcsjax.viz.nlsq_plots.generate_nlsq_plots`
-logs a warning and silently falls back to matplotlib — no manual intervention
-required.
+If the backend is unavailable in a broken/incomplete environment,
+:func:`~xpcsjax.viz.nlsq_plots.generate_nlsq_plots` logs a warning and
+silently falls back to matplotlib — no manual intervention required.
 
 .. autoclass:: xpcsjax.viz.datashader_backend.DatashaderRenderer
    :members: rasterize_heatmap

@@ -601,8 +601,9 @@ def _aggregate_individual_results(
     if n_phi == 0:
         raise ValueError("_aggregate_individual_results: at least one per-angle result required")
 
-    n_physics = int(model.param_manager.n_varying)
-    varying_names = list(model.param_manager.varying_names)
+    param_manager = model.param_manager
+    n_physics = int(param_manager.n_varying)
+    varying_names = list(param_manager.varying_names)
     total_dim = n_physics + 2 * n_phi
 
     # ------------------------------------------------------------------
@@ -743,10 +744,38 @@ def _aggregate_individual_results(
         **hierarchical_extras,
     )
 
+    if param_manager.tied_idx_pairs:
+        diagnostics["tied_parameters"] = dict(param_manager.space.tied)
+
+    # Expand the reduced [physics_varying | contrast | offset] aggregate to the
+    # full-14-physics, scaling-first layout every other result-assembly site
+    # uses (Component 5/Fix 2: this path's residuals are already tying-aware,
+    # but result assembly still packed a reduced-length vector). Input layout
+    # is physics-first ([physics_mean(n_physics) | contrast(n_phi) |
+    # offset(n_phi)]), so expand_reduced_result's output is also physics-first
+    # ([physics(14) | scaling(2*n_phi)]); permute to scaling-first
+    # ([scaling(2*n_phi) | physics(14)]) to match individual mode's convention
+    # (mirrors the averaged-mode permutation above at heterodyne_core.py:1728).
+    n_scaling = 2 * n_phi
+    parameters_full, covariance_full, uncertainties_full = param_manager.expand_reduced_result(
+        aggregated_params, covariance, uncertainties, n_scaling=n_scaling, scaling_first=False
+    )
+    perm = list(range(14, 14 + n_scaling)) + list(range(14))
+    parameters_full = parameters_full[perm]
+    covariance_full = covariance_full[np.ix_(perm, perm)]
+    uncertainties_full = uncertainties_full[perm]
+
+    from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
+
+    diagnostics["scaling_first"] = True
+    diagnostics["parameter_names"] = _joint_param_names_scaling_first(
+        mode="individual", physics_names=list(ALL_PARAM_NAMES), n_phi=n_phi
+    )
+
     return OptimizationResult(
-        parameters=aggregated_params,
-        uncertainties=uncertainties,
-        covariance=covariance,
+        parameters=parameters_full,
+        uncertainties=uncertainties_full,
+        covariance=covariance_full,
         chi_squared=ssr,
         reduced_chi_squared=reduced_chi2,
         convergence_status=convergence_status,
@@ -758,7 +787,7 @@ def _aggregate_individual_results(
         streaming_diagnostics=None,
         stratification_diagnostics=None,
         nlsq_diagnostics=diagnostics,
-        n_physics=n_physics,
+        n_physics=14,
     )
 
 
@@ -4789,11 +4818,13 @@ def log_heterodyne_completion(
     if n_physics > 0 and params.size >= n_physics:
         # Layout is authoritative when the producer emits an explicit
         # ``scaling_first`` marker (audit 2026-06-17 #1): the averaged token is
-        # NOT a reliable layout signal because two producers emit it with
-        # OPPOSITE orderings — the legacy `_fit_joint_averaged_multi_phi` is
-        # PHYSICS-FIRST while the engine route is SCALING-FIRST. Honour the
-        # marker when present; otherwise fall back to the mode/covariance
-        # heuristic (averaged + sequential-individual aggregate are physics-first).
+        # NOT a reliable layout signal on its own. As of the tied-parameters
+        # PR, every producer (`_fit_joint_averaged_multi_phi`, the sequential
+        # individual-mode aggregate, and the engine route) permutes its result
+        # to canonical SCALING-FIRST and sets ``scaling_first=True`` before
+        # returning, so the marker is always present in practice today. The
+        # mode/covariance heuristic below only matters as a fallback for a
+        # future producer that does not yet set the marker.
         scaling_first_marker = diag.get("scaling_first")
         if scaling_first_marker is not None:
             physics_first = not bool(scaling_first_marker)
@@ -4804,13 +4835,20 @@ def log_heterodyne_completion(
         if physics_first:
             phys_vals = params[:n_physics]
             phys_unc = unc[:n_physics] if unc is not None and unc.size >= n_physics else None
+            # `varying_names` may be the FULL parameter_names list (physics +
+            # scaling, self-adapted from the result's own diagnostics per
+            # fix-3) rather than a physics-only list -- slice from the SAME
+            # end as `params` so names and values stay paired regardless of
+            # which producer/layout supplied them.
+            phys_names = varying_names[:n_physics]
         else:
             phys_vals = params[-n_physics:]
             phys_unc = unc[-n_physics:] if unc is not None and unc.size >= n_physics else None
+            phys_names = varying_names[-n_physics:]
 
         logger.info("Fitted parameters (%d physical, %d angles):", n_physics, n_phi)
         logger.info("  Physical parameters:")
-        for i, name in enumerate(varying_names[:n_physics]):
+        for i, name in enumerate(phys_names):
             unc_val = float(phys_unc[i]) if phys_unc is not None else 0.0
             logger.info("    %s: %.6g +/- %.6g", name, float(phys_vals[i]), unc_val)
 

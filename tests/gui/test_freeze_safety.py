@@ -68,8 +68,12 @@ def test_pyinstaller_spec_covers_runtime_deps():
     listed = _extract_collect_all_names(spec_src)
 
     proj = pyproject["project"]
+    # datashader (formerly the separate [viz-fast] extra) is now a core
+    # dependency, already covered by proj["dependencies"] above -- the extra
+    # no longer exists in [project.optional-dependencies] (PR #27 review fix
+    # wave, item 7).
     deps = list(proj.get("dependencies", []))
-    for grp in ("gui", "viz-fast"):
+    for grp in ("gui",):
         deps += proj.get("optional-dependencies", {}).get(grp, [])
 
     missing = sorted(

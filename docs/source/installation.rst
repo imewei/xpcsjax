@@ -15,8 +15,9 @@ Quick install (uv)
 
 The recommended installer is `uv <https://docs.astral.sh/uv/>`_. To get every
 feature and avoid missing-dependency issues, install with the ``all`` extra,
-which pulls **every** optional dependency — the ``gui``, ``viz-fast``, ``dev``,
-``docs``, and ``packaging`` extras combined:
+which pulls **every** optional dependency — the ``gui``, ``dev``,
+``docs``, and ``packaging`` extras combined (fast viz via datashader is a
+CORE dependency, not a separate extra — see below):
 
 .. code-block:: shell
 
@@ -34,14 +35,14 @@ Inside an activated ``mamba`` or ``conda`` environment — or any other virtuale
 
 Either installer pulls the core runtime dependencies declared in
 ``pyproject.toml`` (``jax``, ``nlsq``, ``evosax``, ``h5py``,
-``jaxopt``, ``psutil``, ``tqdm``, …); the ``all`` extra adds
-the GUI (PySide6 + PyQtGraph), fast-viz (datashader), and the full dev/docs/
+``jaxopt``, ``psutil``, ``tqdm``, ``datashader``, ``xarray``, ``pillow``, …
+— fast viz via datashader is a CORE dependency, not an optional extra); the
+``all`` extra adds the GUI (PySide6 + PyQtGraph) and the full dev/docs/
 packaging toolchains (pytest, ruff, mypy, Sphinx, PyInstaller, …) on top.
 
-For a **minimal core install** (NLSQ fitting only, no GUI or fast viz), drop the
-extra — ``uv pip install xpcsjax`` / ``pip install xpcsjax``. Individual extras
-can also be requested by name, e.g. ``uv pip install "xpcsjax[gui]"`` or
-``pip install "xpcsjax[viz-fast]"``.
+For a **minimal install** (no GUI), drop the extra — ``uv pip install xpcsjax``
+/ ``pip install xpcsjax``. Individual extras can also be requested by name,
+e.g. ``uv pip install "xpcsjax[gui]"``.
 
 From source (development)
 -------------------------

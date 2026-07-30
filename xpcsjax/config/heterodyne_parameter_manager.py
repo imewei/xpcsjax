@@ -230,7 +230,12 @@ class ParameterManager:
     ) -> np.ndarray:
         """Expand varying parameters to full 14-parameter array.
 
-        Fixed parameters are filled from stored values.
+        Ordinary fixed parameters (not tied) are filled from stored values
+        (``get_full_values()``). Tied children are then overwritten with
+        their parent's LIVE value from this same expansion (``full[parent_idx]``)
+        rather than a stored constant -- the child tracks whatever the parent's
+        free variable resolved to on this call, since they are the same
+        optimized quantity, not independently fixed.
 
         Parameters
         ----------
@@ -472,10 +477,34 @@ class ParameterManager:
         Raises
         ------
         ValueError
-            If ``name`` is not a known parameter.
+            If ``name`` is not a known parameter, or if the change would
+            violate a ``tied_parameters`` invariant (see below).
         """
         if name not in ALL_PARAM_NAMES_WITH_SCALING:
             raise ValueError(f"Unknown parameter: {name}")
+        # Tied-invariant guard: a tied child must stay non-varying (it tracks
+        # its parent's value, not a free variable of its own -- flipping it
+        # to vary=True would waste an optimizer DOF with a zero-effect
+        # gradient, since expand_reduced_result/expand_varying_to_full always
+        # overwrite it from the parent afterward). A tied parent must keep
+        # varying (flipping it to vary=False leaves the child's tie target
+        # undefined -- expand_reduced_result's parent-is-varying assumption
+        # would silently mirror a stale constant). Use ParameterSpace.tied /
+        # config to manage ties instead of set_vary for these two cases.
+        if vary and name in self.space.tied:
+            raise ValueError(
+                f"set_vary: '{name}' is a tied child (tied to "
+                f"'{self.space.tied[name]}') -- tied children must stay "
+                "vary=False. Manage ties via tied_parameters config, not set_vary."
+            )
+        if not vary and name in self.space.tied.values():
+            children = [c for c, p in self.space.tied.items() if p == name]
+            raise ValueError(
+                f"set_vary: '{name}' is a tied parent (children: {children}) "
+                "-- tied parents must stay varying, or their children's tie "
+                "target becomes undefined. Manage ties via tied_parameters "
+                "config, not set_vary."
+            )
         self.space.vary[name] = vary
         # Varying status change affects active/fixed and index caches
         self._active_params_cache = None
