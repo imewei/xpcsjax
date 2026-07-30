@@ -1154,7 +1154,10 @@ class AdvancedMemoryManager:
                 if mm is not None:
                     try:
                         mm.close()
-                    except (OSError, ValueError):
+                    except (OSError, ValueError, BufferError):
+                        # BufferError covers "cannot close exported pointers exist" if the
+                        # ndarray view above is still live; catching it here (not just
+                        # OSError/ValueError) guarantees fh.close() below always runs.
                         pass
                 fh.close()
                 raise

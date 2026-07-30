@@ -435,12 +435,9 @@ def fit_with_out_of_core_accumulation(
     # even when max_iter <= 0 (loop body never runs).
     i = -1
     count = 0
-    total_chi2 = float("inf")
-    # Seed as a JAX array (not np.eye): the accumulator is reassigned to JAX
-    # arrays inside the loop and uses the `.at[...]` functional-update API, so a
-    # JAX seed keeps the loop-carried type consistent. Behaviorally identical to
-    # np.eye for the max_iter <= 0 fall-through (downstream wraps in np.array).
-    total_JtJ = jnp.eye(n_params)
+    # total_chi2/total_JtJ need no pre-loop seed: the post-loop `_final_accum`
+    # recompute (below) always runs before either name is read, whether or
+    # not the loop body executes for max_iter <= 0.
     # Tracks WHY the loop exited early (as opposed to normal max_iter
     # exhaustion), so the post-loop status report doesn't mislabel a
     # numerical-instability abort or a stalled line search as "max_iter".

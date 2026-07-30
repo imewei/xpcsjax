@@ -1085,6 +1085,9 @@ class MinimalLogger:
                     file_path, require_parent_exists=False, base_dir=base_dir
                 )
             except ImportError:
+                # path_validation unavailable (or itself broken): the traversal-containment
+                # check above is skipped and file_path is used unvalidated, rather than
+                # blocking logging entirely.
                 pass
             except _PathValidationError as e:
                 logging.getLogger(self._root_logger_name).warning(
