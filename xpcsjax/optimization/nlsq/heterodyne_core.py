@@ -1150,14 +1150,32 @@ def _decompose_joint_chi2_per_angle(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Evaluate the data-only residual and its per-angle chi^2 decomposition.
 
-    Shared by every heterodyne joint-fit result path (``averaged`` and the
-    scaling-first ``constant``/``individual`` family via
-    ``_build_joint_result``) so the SSR-conservation invariant
-    (``chi2_per_angle.sum() == chi_squared``) is computed identically
-    everywhere instead of being duplicated per path. ``compute_multi_angle_residuals``
-    returns an angle-major flat layout ``(n_phi, n_per_angle)`` —
-    ``n_per_angle = (n_time - 1) * (n_time - 2)`` because the kernel excludes
-    both the t=0 boundary row/col and the diagonal.
+    Shared by the two joint-fit paths in this module — ``averaged`` (via
+    :func:`_fit_joint_averaged_multi_phi`) and ``individual`` (via
+    :func:`_build_joint_result`, canonical scaling-first layout) — so the
+    SSR-conservation invariant (``chi2_per_angle.sum() == chi_squared``) is
+    computed identically for both instead of being duplicated per path.
+    ``constant`` mode builds its own :class:`OptimizationResult` inline in
+    ``heterodyne_constant_mode.py`` and does not call this helper.
+    ``compute_multi_angle_residuals`` returns an angle-major flat layout
+    ``(n_phi, n_per_angle)`` — ``n_per_angle = (n_time - 1) * (n_time - 2)``
+    because the kernel excludes both the t=0 boundary row/col and the
+    diagonal.
+
+    Parameters
+    ----------
+    base_residual_fn : Callable[[np.ndarray], Any]
+        The data-only residual closure for this joint fit (excludes any L3
+        penalty rows).
+    fitted_params : np.ndarray
+        Final parameter vector, in whatever layout ``base_residual_fn``
+        expects (physics-first for ``averaged``, scaling-first for
+        ``individual``) — this helper is layout-agnostic, it only forwards
+        the call.
+    c2_data : np.ndarray
+        Raw C2 data array; only ``c2_data.shape[1]`` (``n_time``) is used.
+    n_phi : int
+        Number of angles.
 
     Returns
     -------
@@ -3540,13 +3558,10 @@ def _build_joint_result(
     # any L3 penalty rows). The base residual is what
     # ``compute_multi_angle_residuals`` returns; the L3-augmented residual may
     # carry extra rows that must NOT contribute to per-angle chi^2.
-    # TODO(C3): the ``_decompose_chi2_per_angle`` import is now consolidated
-    # to one module-level import shared via ``_decompose_joint_chi2_per_angle``
-    # (used here and by ``_fit_joint_averaged_multi_phi``). Full three-path
-    # convergence onto one OptimizationResult builder — constant mode's own
-    # inline construction in heterodyne_constant_mode.py and the averaged
-    # path's physics-first vector layout still diverge from this scaling-first
-    # path — remains open with no named owner or decision record.
+    # TODO(C3): import consolidated (module-level, shared via
+    # ``_decompose_joint_chi2_per_angle``) — see root CLAUDE.md's
+    # "In-progress consolidation" paragraph for the still-open three-path
+    # OptimizationResult-builder unification.
     data_only_residual, chi2_per_angle = _decompose_joint_chi2_per_angle(
         base_residual_fn, fitted_params_full, c2_data, n_phi
     )
