@@ -451,10 +451,17 @@ def _fit_joint_constant_multi_phi(
         )
     )
 
+    if param_manager.tied_idx_pairs:
+        diagnostics["tied_parameters"] = dict(param_manager.space.tied)
+
+    parameters_full, covariance_full, uncertainties_full = param_manager.expand_reduced_result(
+        fitted_physics, covariance, uncertainties, n_scaling=0, scaling_first=False
+    )
+
     return OptimizationResult(
-        parameters=fitted_physics,
-        uncertainties=uncertainties,
-        covariance=covariance,
+        parameters=parameters_full,
+        uncertainties=uncertainties_full,
+        covariance=covariance_full,
         chi_squared=ssr,
         reduced_chi_squared=reduced_chi2,
         convergence_status=convergence_status,
@@ -466,6 +473,7 @@ def _fit_joint_constant_multi_phi(
         streaming_diagnostics=None,
         stratification_diagnostics=None,
         nlsq_diagnostics=diagnostics,
+        n_physics=None,
     )
 
 
