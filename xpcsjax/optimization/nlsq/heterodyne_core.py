@@ -28,6 +28,7 @@ from xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics import (
     assemble_anti_degeneracy_diagnostics,
 )
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig, ResolvedPerAngleMode
+from xpcsjax.optimization.nlsq.heterodyne_constant_mode import _decompose_chi2_per_angle
 from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
 from xpcsjax.optimization.nlsq.results import OptimizationResult
 from xpcsjax.optimization.nlsq.validation import classify_quality_flag
@@ -1170,6 +1171,57 @@ def _compute_per_angle_chi2(
     return per_angle_cost, reduced_chi2
 
 
+def _decompose_joint_chi2_per_angle(
+    base_residual_fn: Callable[[np.ndarray], Any],
+    fitted_params: np.ndarray,
+    c2_data: np.ndarray,
+    n_phi: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Evaluate the data-only residual and its per-angle chi^2 decomposition.
+
+    Shared by the two joint-fit paths in this module — ``averaged`` (via
+    :func:`_fit_joint_averaged_multi_phi`) and ``individual`` (via
+    :func:`_build_joint_result`, canonical scaling-first layout) — so the
+    SSR-conservation invariant (``chi2_per_angle.sum() == chi_squared``) is
+    computed identically for both instead of being duplicated per path.
+    ``constant`` mode builds its own :class:`OptimizationResult` inline in
+    ``heterodyne_constant_mode.py`` and does not call this helper.
+    ``compute_multi_angle_residuals`` returns an angle-major flat layout
+    ``(n_phi, n_per_angle)`` — ``n_per_angle = (n_time - 1) * (n_time - 2)``
+    because the kernel excludes both the t=0 boundary row/col and the
+    diagonal.
+
+    Parameters
+    ----------
+    base_residual_fn : Callable[[np.ndarray], Any]
+        The data-only residual closure for this joint fit (excludes any L3
+        penalty rows).
+    fitted_params : np.ndarray
+        Final parameter vector, in whatever layout ``base_residual_fn``
+        expects (physics-first for ``averaged``, scaling-first for
+        ``individual``) — this helper is layout-agnostic, it only forwards
+        the call.
+    c2_data : np.ndarray
+        Raw C2 data array; only ``c2_data.shape[1]`` (``n_time``) is used.
+    n_phi : int
+        Number of angles.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray]
+        ``(data_only_residual, chi2_per_angle)``.
+    """
+    data_only_residual = np.asarray(base_residual_fn(fitted_params))
+    n_time = c2_data.shape[1]
+    n_per_angle = (n_time - 1) * (n_time - 2)  # off-diag, t=0 boundary excluded — matches kernel
+    chi2_per_angle = _decompose_chi2_per_angle(
+        final_residual=data_only_residual,
+        n_phi=n_phi,
+        n_per_angle=n_per_angle,
+    )
+    return data_only_residual, chi2_per_angle
+
+
 def _fit_joint_averaged_multi_phi(
     model: HeterodyneModel,
     c2_data: np.ndarray,
@@ -1524,27 +1576,12 @@ def _fit_joint_averaged_multi_phi(
 
     wall_time = time.perf_counter() - t_start
 
-    # ------------------------------------------------------------------
-    # Decompose per-angle chi^2 from the final residual.
-    # ``compute_multi_angle_residuals`` returns an angle-major flat layout
-    # (n_phi, n_per_angle) — n_per_angle = (n_time - 1) * (n_time - 2) because
-    # the kernel excludes the diagonal AND the t=0 boundary row/col. Re-use the canonical helper from
-    # heterodyne_constant_mode (the canonical chi2-decomposition helper).
-    # ------------------------------------------------------------------
-    from xpcsjax.optimization.nlsq.heterodyne_constant_mode import (
-        _decompose_chi2_per_angle,
-    )
-
     # SSR conservation: decompose chi^2 on the *data-only* residual
     # (excluding any L3 penalty rows). See _fit_joint_multi_phi for the
-    # same pattern.
-    data_only_residual = np.asarray(base_residual_fn(fitted_all))
-    n_time = c2_data.shape[1]
-    n_per_angle = (n_time - 1) * (n_time - 2)  # off-diag, t=0 boundary excluded — matches kernel
-    chi2_per_angle = _decompose_chi2_per_angle(
-        final_residual=data_only_residual,
-        n_phi=n_phi,
-        n_per_angle=n_per_angle,
+    # same pattern. Shared with ``_build_joint_result`` via
+    # ``_decompose_joint_chi2_per_angle`` (TODO(C3) import consolidation).
+    data_only_residual, chi2_per_angle = _decompose_joint_chi2_per_angle(
+        base_residual_fn, fitted_all, c2_data, n_phi
     )
 
     # ------------------------------------------------------------------
@@ -3589,32 +3626,16 @@ def _build_joint_result(
         scaling.contrast[:] = fitted_contrast
         scaling.offset[:] = fitted_offset
 
-    # ------------------------------------------------------------------
-    # Decompose per-angle chi^2 from the final residual.
-    # ``compute_multi_angle_residuals`` returns an angle-major flat layout
-    # (n_phi, n_per_angle) — n_per_angle = (n_time - 1) * (n_time - 2) because
-    # the kernel excludes BOTH the t=0 boundary row/col and the diagonal. Re-
-    # import the helper from the constant-mode module to keep one canonical
-    # implementation.
-    # TODO(C3): consolidate _decompose_chi2_per_angle when the averaged path
-    # also returns OptimizationResult, so all three joint paths share the
-    # same helper without crossing module boundaries.
-    # ------------------------------------------------------------------
-    from xpcsjax.optimization.nlsq.heterodyne_constant_mode import (
-        _decompose_chi2_per_angle,
-    )
-
     # SSR conservation: decompose chi^2 on the *data-only* residual (excluding
     # any L3 penalty rows). The base residual is what
     # ``compute_multi_angle_residuals`` returns; the L3-augmented residual may
     # carry extra rows that must NOT contribute to per-angle chi^2.
-    data_only_residual = np.asarray(base_residual_fn(fitted_params_full))
-    n_time = c2_data.shape[1]
-    n_per_angle = (n_time - 1) * (n_time - 2)  # off-diag, t=0 boundary excluded — matches kernel
-    chi2_per_angle = _decompose_chi2_per_angle(
-        final_residual=data_only_residual,
-        n_phi=n_phi,
-        n_per_angle=n_per_angle,
+    # TODO(C3): import consolidated (module-level, shared via
+    # ``_decompose_joint_chi2_per_angle``) — see root CLAUDE.md's
+    # "In-progress consolidation" paragraph for the still-open three-path
+    # OptimizationResult-builder unification.
+    data_only_residual, chi2_per_angle = _decompose_joint_chi2_per_angle(
+        base_residual_fn, fitted_params_full, c2_data, n_phi
     )
 
     # ------------------------------------------------------------------

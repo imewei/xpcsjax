@@ -229,13 +229,19 @@ explicit-only — see the `per_angle_mode` templates). Routing by mode:
   just because a global escape was enabled.
 
 **In-progress consolidation: the `constant`/`individual`/`averaged` joint-fit
-result-assembly split is not yet unified.** `heterodyne_core.py` still imports
-`_decompose_chi2_per_angle` function-locally (not at module level) specifically
-because the three joint-fit code paths haven't converged onto one shared
-result-assembly helper — see the `TODO(C3)` comment at the import site. This is
-tracked as the concrete next unit of the "procedural parity" convergence work
-described above (the engine-route seam); once the `averaged` path also returns
-`OptimizationResult`, the import can move to module level.
+result-assembly split is not yet unified.** `_decompose_chi2_per_angle`'s
+import is now a single module-level import in `heterodyne_core.py` (from
+`heterodyne_constant_mode.py`, which does not import `heterodyne_core` at its
+own module level, so no cycle), shared via the `_decompose_joint_chi2_per_angle`
+helper used by both `_fit_joint_averaged_multi_phi` and `_build_joint_result`
+(TODO(C3)) — the narrow duplication the earlier TODO(C3) comment tracked is
+resolved. The larger convergence is still open: `constant` mode builds its own
+`OptimizationResult` inline in `heterodyne_constant_mode.py`, and `averaged`
+uses a physics-first `[physics | contrast, offset]` vector layout instead of
+the scaling-first `[scaling_head | physics]` layout `_build_joint_result`
+assumes — unifying those onto one builder is tracked as the concrete next unit
+of the "procedural parity" convergence work described above (the engine-route
+seam), but has no named owner or decision record yet.
 
 ### Heterodyne hybrid-streaming anti-degeneracy (parity gap D closed)
 
