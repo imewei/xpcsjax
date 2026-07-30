@@ -882,7 +882,9 @@ class DataQualityController:
                                 recommendation="Check data preprocessing and source quality",
                             ),
                         )
-                except (AttributeError, TypeError, IndexError):
+                except (AttributeError, TypeError, IndexError, ValueError):
+                    # ValueError also covers np.asarray on a ragged/inhomogeneous
+                    # sequence (e.g. mismatched per-angle lengths).
                     pass  # value isn't array-like enough for np.asarray/np.isfinite; skip it and keep checking the rest
 
         # Without this, correlation_validity/signal_to_noise stay at their 0.0
