@@ -738,7 +738,7 @@ def build_hybrid_streaming_result(
     if convergence_status not in ("converged", "max_iter", "failed", "partial"):
         convergence_status = "failed"
 
-    n_scaling = n - model.param_manager.n_varying
+    n_scaling = n - len(model.param_manager.varying_indices)
     parameters_full, covariance_full, uncertainties_full = (
         model.param_manager.expand_reduced_result(
             popt, pcov, uncertainties, n_scaling=n_scaling, scaling_first=True

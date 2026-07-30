@@ -232,13 +232,13 @@ def test_stratified_ls_matches_joint_fit_shuffle_off():
         init_scaling=np.array([0.3, 1.0]),
     )
     # The shared residual is canonical SCALING-FIRST ([scaling | physics], Phase 3),
-    # which is exactly the stratified-LS ``strat.parameters`` layout. The in-memory
-    # ``fit_nlsq_multi_phi`` result is still PHYSICS-FIRST ([physics | scaling]), so
-    # permute it to scaling-first before scoring against the same residual (a pure
-    # layout permutation — same numeric vector).
-    n_physics = int(model.param_manager.n_varying)
-    joint_p = np.asarray(joint.parameters)
-    joint_p_scaling_first = np.concatenate([joint_p[n_physics:], joint_p[:n_physics]])
+    # which is exactly the stratified-LS ``strat.parameters`` layout. Since an
+    # earlier task in this plan fixed a ``physics_parameters`` slicing bug,
+    # ``_fit_joint_averaged_multi_phi``'s output (what ``fit_nlsq_multi_phi``
+    # dispatches to for ``per_angle_mode="averaged"``) is now ALSO scaling-first,
+    # so ``joint.parameters`` can be scored directly against the same residual
+    # with no permutation needed.
+    joint_p_scaling_first = np.asarray(joint.parameters)
     ssr_joint = float(np.sum(np.asarray(shared_resid(joint_p_scaling_first)) ** 2))
     ssr_strat = float(np.sum(np.asarray(shared_resid(np.asarray(strat.parameters))) ** 2))
     assert np.isclose(ssr_joint, joint.chi_squared, rtol=1e-9)

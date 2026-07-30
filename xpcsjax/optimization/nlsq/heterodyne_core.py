@@ -3778,11 +3778,6 @@ def _build_joint_result(
     if param_manager.tied_idx_pairs:
         diagnostics["tied_parameters"] = dict(param_manager.space.tied)
 
-    # Mark the scaling-first layout of the returned parameters.
-    # The joint problem is always scaling-first; expand_reduced_result preserves
-    # this layout (no reordering needed as in the averaged path).
-    diagnostics["scaling_first"] = True
-
     logger.info(
         "Joint multi-angle fit complete: success=%s, cost=%.6f, "
         "n_evals=%d, wall_time=%.2fs, %d angles%s",
@@ -3794,7 +3789,7 @@ def _build_joint_result(
         f" [escape={global_escape}]" if global_escape is not None else "",
     )
 
-    n_scaling_for_mode = 0 if resolved_mode == "constant" else 2 * n_phi
+    n_scaling_for_mode = len(fitted_params_full) - n_physics_varying
     parameters_full, covariance_full, uncertainties_full = param_manager.expand_reduced_result(
         fitted_params_full,
         covariance,
