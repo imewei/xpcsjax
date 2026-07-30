@@ -132,12 +132,10 @@ def test_build_hybrid_streaming_result_expands_fixed_physics_param():
     space = ParameterSpace.from_config(
         {
             "analysis_mode": "two_component",
-            "initial_parameters": {
-                "active_parameters": [n for n in ALL_PARAM_NAMES if n != "D0_ref"],
-            },
         }
     )
     pm = ParameterManager(space)
+    pm.set_vary("D0_ref", False)
     n_varying = len(pm.varying_indices)
     n_phi = 2
     n_scaling = 2 * n_phi  # individual layout
