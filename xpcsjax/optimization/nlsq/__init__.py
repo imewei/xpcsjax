@@ -670,10 +670,28 @@ def _safe_log_heterodyne_completion(result: Any, model: Any, n_phi: int) -> None
         param_manager = getattr(model, "param_manager", None)
         if param_manager is None:
             return
+
+        # `result.parameters` is full-14-physics for every non-`constant`
+        # per-angle mode (this plan's change); `constant` mode stays
+        # physics-only/reduced and leaves `result.n_physics` unset. Pairing
+        # the (possibly reduced) `varying_names` label list against a
+        # full-14 value vector misattributes names whenever a fixed/tied
+        # physics parameter isn't at index 0 — use the full 14-name list
+        # and count whenever the result actually carries the full block.
+        result_n_physics = getattr(result, "n_physics", None)
+        if result_n_physics is not None:
+            from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
+
+            param_names = list(ALL_PARAM_NAMES)
+            n_physics = len(ALL_PARAM_NAMES)
+        else:
+            param_names = list(param_manager.varying_names)
+            n_physics = int(param_manager.n_varying)
+
         log_heterodyne_completion(
             result,
-            list(param_manager.varying_names),
-            int(param_manager.n_varying),
+            param_names,
+            n_physics,
             n_phi,
         )
     except Exception:  # nosec B110 # pragma: no cover - logging is non-critical, never fatal

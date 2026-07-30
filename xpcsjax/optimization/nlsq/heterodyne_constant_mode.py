@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 import jax.numpy as jnp
 import numpy as np
 
+from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
 from xpcsjax.core.heterodyne_jax_backend import compute_multi_angle_residuals
 from xpcsjax.core.heterodyne_scaling_utils import (
     estimate_per_angle_scaling_from_quantile,
@@ -428,7 +429,15 @@ def _fit_joint_constant_multi_phi(
         # n_optimized("constant", n_phi)). Symmetric with laminar/streaming/
         # joint heterodyne paths.
         "n_optimized": 0,
-        "parameter_names": varying_names,
+        # `parameters_full` below is expanded to the full 14-physics layout
+        # via `expand_reduced_result` (fixed/tied slots mirrored/filled back
+        # in), so the label list paired with it must be the full 14 names,
+        # not the reduced `varying_names` — otherwise names misalign with
+        # values whenever a fixed/tied parameter isn't at index 0. See
+        # `_joint_param_names_scaling_first(mode="constant", ...)` in
+        # heterodyne_core.py for the same convention (constant -> physics
+        # names as-is, no scaling head).
+        "parameter_names": list(ALL_PARAM_NAMES),
         "convergence_reason": ("global_escape" if is_escape else nlsq_result.convergence_reason),
         "n_function_evals": (0 if is_escape else int(nlsq_result.n_function_evals or 0)),
         "n_iterations": (0 if is_escape else int(nlsq_result.n_iterations or 0)),
