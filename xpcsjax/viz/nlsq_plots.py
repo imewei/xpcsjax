@@ -225,9 +225,13 @@ def _heterodyne_physics_is_head(diagnostics: dict[str, Any]) -> bool:
     (:func:`_unpack_result_params` / :func:`_unpack_heterodyne_scaling`) and the
     physical *uncertainty* slice (:func:`generate_nlsq_plots`) can never diverge:
 
-    - ``averaged`` — physics-first iff ``scaling_first`` is ``False`` (the legacy
-      ``_fit_joint_averaged_multi_phi`` producer); scaling-first (physics trailing)
-      otherwise, including the marker-less default.
+    - ``averaged`` — physics-first iff ``scaling_first`` is ``False``. As of the
+      tied-parameters PR, ``_fit_joint_averaged_multi_phi`` always permutes its
+      result to canonical scaling-first and sets ``scaling_first=True`` before
+      returning, so this branch is not currently produced by any in-tree
+      caller; it stays honoured defensively for a marker-provided ``False``.
+      Scaling-first (physics trailing) otherwise, including the marker-less
+      default.
     - ``constant`` — physics-only vector; head and tail coincide (report head).
     - ``individual`` / marker-less — canonical scaling-first → physics is the TAIL.
     """
@@ -354,12 +358,14 @@ def _unpack_heterodyne_scaling(
     - ``individual`` — ``[c_0..N-1, o_0..N-1, physical_0..M-1]`` (per-angle
       contrast/offset fitted independently). Canonical scaling-first: the
       scaling HEAD precedes the physics TAIL.
-    - ``averaged`` — ``[contrast, offset, physical...]`` by default; the single
-      fitted (contrast, offset) pair is replicated across all angles. The
-      legacy ``_fit_joint_averaged_multi_phi`` producer instead emits
-      physics-first and marks it with ``scaling_first=False`` — see
+    - ``averaged`` — ``[contrast, offset, physical...]``; the single fitted
+      (contrast, offset) pair is replicated across all angles.
+      ``_fit_joint_averaged_multi_phi`` always permutes its result to this
+      canonical scaling-first layout and sets ``scaling_first=True`` before
+      returning (as of the tied-parameters PR) — see
       :func:`_heterodyne_physics_is_head`, the single source of truth for
-      which end of the vector the physics block occupies.
+      which end of the vector the physics block occupies, for the
+      (currently unused in-tree) physics-first fallback it still honours.
     - ``constant`` — ``[physical...]``; per-angle scaling was frozen pre-fit
       and is read from the ``contrast_per_angle_fixed`` /
       ``offset_per_angle_fixed`` diagnostics.
@@ -401,9 +407,12 @@ def _unpack_heterodyne_scaling(
     # tail occupies params[-n_physical:]). Replicate across n_phi so the
     # per-angle evaluation path stays uniform with individual mode.
     if mode == "averaged":
-        # Marker-aware layout (audit #1): engine route is SCALING-FIRST,
-        # legacy _fit_joint_averaged_multi_phi is PHYSICS-FIRST. Default True
-        # (canonical scaling-first) when the marker is absent.
+        # Marker-aware layout (audit #1): every current producer (engine
+        # route and _fit_joint_averaged_multi_phi alike) emits SCALING-FIRST
+        # and sets scaling_first=True. Default True (canonical scaling-first)
+        # when the marker is absent; the physics-first branch below stays
+        # honoured defensively should a future/marker-provided producer emit
+        # scaling_first=False.
         if _heterodyne_physics_is_head(diagnostics):
             physical_params = params[:n_physical].copy()
             fallback_c, fallback_o = params[-2], params[-1]
@@ -1524,11 +1533,12 @@ def generate_nlsq_plots(
         Directory to write into. Created if missing. ``simulated_data/``
         subdirectory is also created.
     use_datashader
-        If True (default) and the ``[viz-fast]`` extra is installed, render
-        the 3-panel comparison plot via the Datashader hybrid pipeline (5-10x
-        per-call speedup; in combination with ``parallel=True`` the cumulative
-        speedup across many angles is ~50-200x). The matplotlib path is used
-        as a transparent fallback when Datashader is missing. Mirrors
+        If True (default), render the 3-panel comparison plot via the
+        Datashader hybrid pipeline (5-10x per-call speedup; in combination
+        with ``parallel=True`` the cumulative speedup across many angles is
+        ~50-200x). Datashader is a core dependency, always installed; the
+        matplotlib path is used as a transparent fallback only in a
+        broken/incomplete environment where it is missing. Mirrors
         homodyne's ``preview_mode`` semantics.
     parallel
         If True (default), render angles in a ``multiprocessing.Pool(spawn)``.
@@ -1689,13 +1699,15 @@ def generate_nlsq_plots(
     )
 
     # Resolve backend choice. Datashader is the default fast path (matches
-    # homodyne preview_mode). Missing-dep degrades silently to matplotlib so
-    # callers without the [viz-fast] extra still get plots.
+    # homodyne preview_mode) and a CORE dependency (not an optional extra);
+    # missing-dep degrades silently to matplotlib so callers in a
+    # broken/incomplete environment still get plots.
     use_ds = use_datashader and DATASHADER_AVAILABLE
     if use_datashader and not DATASHADER_AVAILABLE:
         logger.warning(
-            "use_datashader=True but datashader is not installed. "
-            "Install with: pip install 'xpcsjax[viz-fast]'. "
+            "use_datashader=True but datashader is not installed (it is a "
+            "core xpcsjax dependency -- this indicates a broken/incomplete "
+            "install). Reinstall with: pip install xpcsjax. "
             "Falling back to matplotlib backend (publication quality)."
         )
     elif use_ds:

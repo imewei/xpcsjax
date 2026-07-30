@@ -738,10 +738,54 @@ def build_hybrid_streaming_result(
     if convergence_status not in ("converged", "max_iter", "failed", "partial"):
         convergence_status = "failed"
 
+    n_scaling = n - len(model.param_manager.varying_indices)
+    parameters_full, covariance_full, uncertainties_full = (
+        model.param_manager.expand_reduced_result(
+            popt, pcov, uncertainties, n_scaling=n_scaling, scaling_first=True
+        )
+    )
+    if model.param_manager.tied_idx_pairs:
+        diagnostics["tied_parameters"] = dict(model.param_manager.space.tied)
+
+    # ``diag_param_names`` above was built from the REDUCED physics block
+    # (either caller-supplied ``[scaling | varying_names]`` from the
+    # stratified-LS driver, or the bare ``varying_names`` default on the
+    # direct hybrid path) -- it does not track the full-14-physics
+    # ``parameters_full`` (``[scaling | physics(14)]``) just assembled above.
+    # Rebuild the label list at the full-14 physics length so
+    # ``diagnostics["parameter_names"]`` zips correctly against
+    # ``result.parameters`` (bugfix: codex/agy audit finding #2, 2026-07-29).
+    from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
+
+    n_varying_names = len(model.param_manager.varying_indices)
+    if len(diag_param_names) == n_scaling + n_varying_names:
+        # Caller supplied a real ``[scaling | varying_physics]`` list
+        # (stratified-LS convention) -- keep its scaling prefix, which
+        # already matches ``n_scaling`` exactly.
+        diag_scaling_names = list(diag_param_names[:n_scaling])
+    else:
+        # No (or a mismatched) scaling prefix was supplied (the direct
+        # hybrid-streaming path only threads physics-only ``varying_names``)
+        # -- fall back to generic positional scaling labels sized to the
+        # actual scaling-head length. This is a legitimate by-design branch
+        # today (not an error), but log it so a future genuinely-wrong-length
+        # ``diag_param_names`` doesn't silently degrade with zero trace.
+        logger.debug(
+            "build_hybrid_streaming_result: diag_param_names length (%d) does "
+            "not match n_scaling + n_varying_names (%d + %d = %d); using "
+            "placeholder scaling_i labels instead of the caller-supplied names.",
+            len(diag_param_names),
+            n_scaling,
+            n_varying_names,
+            n_scaling + n_varying_names,
+        )
+        diag_scaling_names = [f"scaling_{i}" for i in range(n_scaling)]
+    diagnostics["parameter_names"] = [*diag_scaling_names, *ALL_PARAM_NAMES]
+
     return OptimizationResult(
-        parameters=popt,
-        uncertainties=uncertainties,
-        covariance=pcov,
+        parameters=parameters_full,
+        uncertainties=uncertainties_full,
+        covariance=covariance_full,
         chi_squared=ssr,
         reduced_chi_squared=reduced_chi2,
         convergence_status=convergence_status,  # type: ignore[arg-type]
@@ -753,4 +797,5 @@ def build_hybrid_streaming_result(
         streaming_diagnostics=None,
         stratification_diagnostics=stratification_diagnostics,
         nlsq_diagnostics=diagnostics,
+        n_physics=14,
     )

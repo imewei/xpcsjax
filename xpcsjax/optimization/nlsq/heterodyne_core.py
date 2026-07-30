@@ -601,8 +601,9 @@ def _aggregate_individual_results(
     if n_phi == 0:
         raise ValueError("_aggregate_individual_results: at least one per-angle result required")
 
-    n_physics = int(model.param_manager.n_varying)
-    varying_names = list(model.param_manager.varying_names)
+    param_manager = model.param_manager
+    n_physics = int(param_manager.n_varying)
+    varying_names = list(param_manager.varying_names)
     total_dim = n_physics + 2 * n_phi
 
     # ------------------------------------------------------------------
@@ -743,10 +744,38 @@ def _aggregate_individual_results(
         **hierarchical_extras,
     )
 
+    if param_manager.tied_idx_pairs:
+        diagnostics["tied_parameters"] = dict(param_manager.space.tied)
+
+    # Expand the reduced [physics_varying | contrast | offset] aggregate to the
+    # full-14-physics, scaling-first layout every other result-assembly site
+    # uses (Component 5/Fix 2: this path's residuals are already tying-aware,
+    # but result assembly still packed a reduced-length vector). Input layout
+    # is physics-first ([physics_mean(n_physics) | contrast(n_phi) |
+    # offset(n_phi)]), so expand_reduced_result's output is also physics-first
+    # ([physics(14) | scaling(2*n_phi)]); permute to scaling-first
+    # ([scaling(2*n_phi) | physics(14)]) to match individual mode's convention
+    # (mirrors the averaged-mode permutation above at heterodyne_core.py:1728).
+    n_scaling = 2 * n_phi
+    parameters_full, covariance_full, uncertainties_full = param_manager.expand_reduced_result(
+        aggregated_params, covariance, uncertainties, n_scaling=n_scaling, scaling_first=False
+    )
+    perm = list(range(14, 14 + n_scaling)) + list(range(14))
+    parameters_full = parameters_full[perm]
+    covariance_full = covariance_full[np.ix_(perm, perm)]
+    uncertainties_full = uncertainties_full[perm]
+
+    from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
+
+    diagnostics["scaling_first"] = True
+    diagnostics["parameter_names"] = _joint_param_names_scaling_first(
+        mode="individual", physics_names=list(ALL_PARAM_NAMES), n_phi=n_phi
+    )
+
     return OptimizationResult(
-        parameters=aggregated_params,
-        uncertainties=uncertainties,
-        covariance=covariance,
+        parameters=parameters_full,
+        uncertainties=uncertainties_full,
+        covariance=covariance_full,
         chi_squared=ssr,
         reduced_chi_squared=reduced_chi2,
         convergence_status=convergence_status,
@@ -758,7 +787,7 @@ def _aggregate_individual_results(
         streaming_diagnostics=None,
         stratification_diagnostics=None,
         nlsq_diagnostics=diagnostics,
-        n_physics=n_physics,
+        n_physics=14,
     )
 
 
@@ -1302,6 +1331,7 @@ def _fit_joint_averaged_multi_phi(
     phi_angles_jax = jnp.asarray(phi_angles, dtype=jnp.float64)
     fixed_values_jax = jnp.asarray(param_manager.get_full_values(), dtype=jnp.float64)
     varying_indices_jax = jnp.array(param_manager.varying_indices, dtype=jnp.int32)
+    tied_idx_pairs = param_manager.tied_idx_pairs
 
     # NOTE: must return a JAX array. NLSQ's masked_residual_func JIT-traces this
     # closure; np.asarray() on a traced result raises TracerArrayConversionError.
@@ -1313,6 +1343,8 @@ def _fit_joint_averaged_multi_phi(
         full_jax = fixed_values_jax.at[varying_indices_jax].set(
             jnp.asarray(physics_varying, dtype=jnp.float64)
         )
+        for child_idx, parent_idx in tied_idx_pairs:
+            full_jax = full_jax.at[child_idx].set(full_jax[parent_idx])
         contrasts_jax = jnp.full((n_phi,), contrast, dtype=jnp.float64)
         offsets_jax = jnp.full((n_phi,), offset, dtype=jnp.float64)
         return compute_multi_angle_residuals(
@@ -1696,6 +1728,9 @@ def _fit_joint_averaged_multi_phi(
     if global_escape_tag is not None:
         diagnostics["global_escape"] = global_escape_tag
 
+    if param_manager.tied_idx_pairs:
+        diagnostics["tied_parameters"] = dict(param_manager.space.tied)
+
     logger.info(
         "Joint auto averaged fit complete: success=%s, cost=%.6f, "
         "n_evals=%d, wall_time=%.2fs, %d angles%s",
@@ -1707,10 +1742,44 @@ def _fit_joint_averaged_multi_phi(
         f" [escape={global_escape_tag}]" if is_escape else "",
     )
 
+    n_scaling = 2
+    parameters_full, covariance_full, uncertainties_full = param_manager.expand_reduced_result(
+        fitted_all, covariance, uncertainties, n_scaling=n_scaling, scaling_first=False
+    )
+    # expand_reduced_result must parse `fitted_all` with scaling_first=False
+    # -- it really is physics-first ([physics | contrast, offset], per the
+    # scaling_first=False marker already set in this function's diagnostics
+    # block a few lines above) -- so its OUTPUT is also physics-first
+    # ([physics(14) | scaling(2)]). n_physics=14 below relies on
+    # OptimizationResult.physics_parameters reading the TRAILING 14 entries
+    # (the scaling-first convention used everywhere else), so reorder the
+    # physics-first output to scaling-first here before returning:
+    perm = list(range(14, 14 + n_scaling)) + list(range(14))
+    parameters_full = parameters_full[perm]
+    covariance_full = covariance_full[np.ix_(perm, perm)]
+    uncertainties_full = uncertainties_full[perm]
+
+    # Update diagnostics marker to reflect the actual scaling-first layout
+    # of the returned parameters (the perm reorder above converted from
+    # physics-first to scaling-first).
+    diagnostics["scaling_first"] = True
+    # `joint_param_names` above is the REDUCED, physics-first name list
+    # (`[*varying_names, "contrast", "offset"]`) matching the optimizer's
+    # x0 vector -- it does not track the full-14-physics, scaling-first
+    # `parameters_full` just assembled. Rebuild the label list in the same
+    # scaling-first/full-14 order so `diagnostics["parameter_names"]` zips
+    # correctly against `result.parameters` (bugfix: codex/agy audit finding
+    # #1/#8, 2026-07-29).
+    from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
+
+    diagnostics["parameter_names"] = _joint_param_names_scaling_first(
+        mode="averaged", physics_names=list(ALL_PARAM_NAMES), n_phi=n_phi
+    )
+
     return OptimizationResult(
-        parameters=np.asarray(fitted_all, dtype=np.float64),
-        uncertainties=uncertainties,
-        covariance=covariance,
+        parameters=parameters_full,
+        uncertainties=uncertainties_full,
+        covariance=covariance_full,
         chi_squared=ssr,
         reduced_chi_squared=reduced_chi2,
         convergence_status=convergence_status,
@@ -1722,7 +1791,7 @@ def _fit_joint_averaged_multi_phi(
         streaming_diagnostics=None,
         stratification_diagnostics=None,
         nlsq_diagnostics=diagnostics,
-        n_physics=int(n_physics_varying),
+        n_physics=14,
     )
 
 
@@ -3075,6 +3144,7 @@ def _build_joint_problem(
 
     fixed_values_jax = jnp.asarray(param_manager.get_full_values(), dtype=jnp.float64)
     varying_indices_jax = jnp.array(param_manager.varying_indices, dtype=jnp.int32)
+    tied_idx_pairs = param_manager.tied_idx_pairs
 
     # NOTE: must return a JAX array. NLSQ's masked_residual_func JIT-traces
     # this closure; calling ``np.asarray`` on a traced result raises
@@ -3100,6 +3170,8 @@ def _build_joint_problem(
         # Reconstruct full physics parameter array (immutable JAX scatter)
         varying_jax = jnp.asarray(physics_varying, dtype=jnp.float64)
         full_jax = fixed_values_jax.at[varying_indices_jax].set(varying_jax)
+        for child_idx, parent_idx in tied_idx_pairs:
+            full_jax = full_jax.at[child_idx].set(full_jax[parent_idx])
 
         # Expand the scaling head → per-angle contrast/offset. MUST use the
         # JIT-safe ``expand_tail_jax``: the numpy ``expand_tail`` calls
@@ -3744,6 +3816,9 @@ def _build_joint_result(
     if global_escape is not None:
         diagnostics["global_escape"] = global_escape
 
+    if param_manager.tied_idx_pairs:
+        diagnostics["tied_parameters"] = dict(param_manager.space.tied)
+
     logger.info(
         "Joint multi-angle fit complete: success=%s, cost=%.6f, "
         "n_evals=%d, wall_time=%.2fs, %d angles%s",
@@ -3755,10 +3830,30 @@ def _build_joint_result(
         f" [escape={global_escape}]" if global_escape is not None else "",
     )
 
+    n_scaling_for_mode = len(fitted_params_full) - n_physics_varying
+    parameters_full, covariance_full, uncertainties_full = param_manager.expand_reduced_result(
+        fitted_params_full,
+        covariance,
+        uncertainties,
+        n_scaling=n_scaling_for_mode,
+        scaling_first=True,
+    )
+    # `joint_param_names` (used above to build `diagnostics`) is the REDUCED
+    # name list matching the optimizer's x0 vector (varying physics only) --
+    # it does not track the full-14-physics `parameters_full` just assembled.
+    # Rebuild the label list at the full-14 physics length so
+    # `diagnostics["parameter_names"]` zips correctly against
+    # `result.parameters` (bugfix: codex/agy audit finding #1/#8, 2026-07-29).
+    from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
+
+    diagnostics["parameter_names"] = _joint_param_names_scaling_first(
+        mode=resolved_mode, physics_names=list(ALL_PARAM_NAMES), n_phi=n_phi
+    )
+
     return OptimizationResult(
-        parameters=np.asarray(fitted_params_full, dtype=np.float64),
-        uncertainties=uncertainties,
-        covariance=covariance,
+        parameters=parameters_full,
+        uncertainties=uncertainties_full,
+        covariance=covariance_full,
         chi_squared=ssr,
         reduced_chi_squared=reduced_chi2,
         convergence_status=convergence_status,
@@ -3773,8 +3868,9 @@ def _build_joint_result(
         # Mirror the engine route's ``n_physics_field`` rule: the constant
         # (frozen-scaling) layout reports ``None`` (physics-only vector, no
         # scaling tail to disambiguate); averaged/individual report the physics
-        # count so the scaling-first ``[scaling_head | physics]`` tail is read.
-        n_physics=None if resolved_mode == "constant" else int(n_physics_varying),
+        # count (now always the full 14) so the scaling-first
+        # ``[scaling_head | physics]`` tail is read.
+        n_physics=None if resolved_mode == "constant" else 14,
     )
 
 
@@ -3986,10 +4082,13 @@ def _fit_cmaes(
     # closure JIT-traces cleanly.
     full_template_jax = jnp.asarray(param_manager.get_full_values(), dtype=jnp.float64)
     varying_indices_jax = jnp.asarray(list(param_manager.varying_indices), dtype=jnp.int32)
+    tied_idx_pairs = param_manager.tied_idx_pairs
 
     def model_func(_: np.ndarray, *varying_params: Any) -> Any:
         varying_jax = jnp.stack(varying_params).astype(jnp.float64)
         full_jax = full_template_jax.at[varying_indices_jax].set(varying_jax)
+        for child_idx, parent_idx in tied_idx_pairs:
+            full_jax = full_jax.at[child_idx].set(full_jax[parent_idx])
         c2_pred = compute_c2_heterodyne(full_jax, t, q, dt, phi_angle, contrast_val, offset_val)
         return c2_pred.flatten()
 
@@ -4331,6 +4430,7 @@ def _fit_local(
     # Capture constants
     fixed_values = jnp.asarray(param_manager.get_full_values(), dtype=jnp.float64)
     varying_indices = jnp.array(param_manager.varying_indices)
+    tied_idx_pairs = param_manager.tied_idx_pairs
     t, q, dt = model.t, model.q, model.dt
 
     # Per-angle scaling — fixed during local optimization (constant mode parity)
@@ -4341,6 +4441,8 @@ def _fit_local(
         """Pure JAX residual function for nlsq tracing."""
         varying_array = jnp.array(varying_params, dtype=jnp.float64)
         full_params = fixed_values.at[varying_indices].set(varying_array)
+        for child_idx, parent_idx in tied_idx_pairs:
+            full_params = full_params.at[child_idx].set(full_params[parent_idx])
         return compute_residuals(
             full_params,
             t,
@@ -4546,10 +4648,13 @@ def _make_numpy_residual_fn(
     # param_manager between construction and optimizer completion.
     fixed_values = jnp.asarray(param_manager.get_full_values(), dtype=jnp.float64)
     varying_indices = jnp.array(param_manager.varying_indices, dtype=jnp.int32)
+    tied_idx_pairs = param_manager.tied_idx_pairs
 
     def residual_fn(varying_params: np.ndarray) -> np.ndarray:
         varying_jax = jnp.asarray(varying_params, dtype=jnp.float64)
         full_params = fixed_values.at[varying_indices].set(varying_jax)
+        for child_idx, parent_idx in tied_idx_pairs:
+            full_params = full_params.at[child_idx].set(full_params[parent_idx])
         # Return JAX array directly — np.asarray() on the result here would
         # trigger TracerArrayConversionError when NLSQWrapper's @jit traces
         # this function with traced parameter scalars.
@@ -4713,11 +4818,13 @@ def log_heterodyne_completion(
     if n_physics > 0 and params.size >= n_physics:
         # Layout is authoritative when the producer emits an explicit
         # ``scaling_first`` marker (audit 2026-06-17 #1): the averaged token is
-        # NOT a reliable layout signal because two producers emit it with
-        # OPPOSITE orderings — the legacy `_fit_joint_averaged_multi_phi` is
-        # PHYSICS-FIRST while the engine route is SCALING-FIRST. Honour the
-        # marker when present; otherwise fall back to the mode/covariance
-        # heuristic (averaged + sequential-individual aggregate are physics-first).
+        # NOT a reliable layout signal on its own. As of the tied-parameters
+        # PR, every producer (`_fit_joint_averaged_multi_phi`, the sequential
+        # individual-mode aggregate, and the engine route) permutes its result
+        # to canonical SCALING-FIRST and sets ``scaling_first=True`` before
+        # returning, so the marker is always present in practice today. The
+        # mode/covariance heuristic below only matters as a fallback for a
+        # future producer that does not yet set the marker.
         scaling_first_marker = diag.get("scaling_first")
         if scaling_first_marker is not None:
             physics_first = not bool(scaling_first_marker)
@@ -4728,13 +4835,20 @@ def log_heterodyne_completion(
         if physics_first:
             phys_vals = params[:n_physics]
             phys_unc = unc[:n_physics] if unc is not None and unc.size >= n_physics else None
+            # `varying_names` may be the FULL parameter_names list (physics +
+            # scaling, self-adapted from the result's own diagnostics per
+            # fix-3) rather than a physics-only list -- slice from the SAME
+            # end as `params` so names and values stay paired regardless of
+            # which producer/layout supplied them.
+            phys_names = varying_names[:n_physics]
         else:
             phys_vals = params[-n_physics:]
             phys_unc = unc[-n_physics:] if unc is not None and unc.size >= n_physics else None
+            phys_names = varying_names[-n_physics:]
 
         logger.info("Fitted parameters (%d physical, %d angles):", n_physics, n_phi)
         logger.info("  Physical parameters:")
-        for i, name in enumerate(varying_names[:n_physics]):
+        for i, name in enumerate(phys_names):
             unc_val = float(phys_unc[i]) if phys_unc is not None else 0.0
             logger.info("    %s: %.6g +/- %.6g", name, float(phys_vals[i]), unc_val)
 

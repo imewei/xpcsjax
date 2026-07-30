@@ -361,19 +361,24 @@ def test_constant_mode_recovers_synthetic_truth() -> None:
 
 def test_individual_aggregate_converts_final_cost_to_ssr() -> None:
     """Sequential aggregate reports result-level chi_squared as SSR, not 0.5*SSR."""
+    from xpcsjax.config.heterodyne_parameter_manager import ParameterManager
+    from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
     from xpcsjax.optimization.nlsq.heterodyne_core import _aggregate_individual_results
     from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
 
-    class _ParamManager:
-        n_varying = 1
-        varying_names = ["D0_ref"]
+    # A real ParameterManager (not a bare-attribute stub) so the fix-2 expansion
+    # path (tied_idx_pairs / expand_reduced_result) works exactly as production
+    # does -- only D0_ref varies, matching the old stub's n_varying=1 contract.
+    _param_manager = ParameterManager()
+    for name in ALL_PARAM_NAMES:
+        _param_manager.set_vary(name, name == "D0_ref")
 
     class _Scaling:
         contrast = np.array([0.3, 0.4], dtype=np.float64)
         offset = np.array([1.0, 1.0], dtype=np.float64)
 
     class _Model:
-        param_manager = _ParamManager()
+        param_manager = _param_manager
         scaling = _Scaling()
 
     per_angle = [

@@ -28,6 +28,13 @@ dependencies = [
     # transitively; declared explicitly here to match the direct top-level use.
     "matplotlib>=3.10",
     "pillow>=12.3.0",            # matplotlib's transitive image backend; floor closes PYSEC-2026-2253..2257/3451-3453
+    # Datashader-accelerated heatmap rendering — required (moved from the former
+    # [viz-fast] optional extra). xpcsjax/viz/nlsq_plots.py still lazily probes
+    # for it and falls back to matplotlib if the import ever fails at runtime,
+    # but a standard `pip install xpcsjax` now always provides it.
+    "datashader>=0.16",
+    "xarray>=2024.0",
+    "colorcet>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -41,8 +48,8 @@ dev = [
     "pytest-timeout>=2.4",      # --timeout guard in the perf-regression targets (make perf-*)
     "hypothesis>=6",            # property tests (Task 33) — xpcsjax-specific addition
     "numba>=0.60",              # pytest filterwarnings resolves numba.core.errors.NumbaSystemWarning
-                                # at config load (numba arrives transitively via the [viz-fast]
-                                # datashader stack; declared here so a bare [dev] install can collect)
+                                # at config load (numba arrives transitively via the core
+                                # datashader dependency; declared here so a bare [dev] install can collect)
     "ruff>=0.15.2",
     "mypy>=1.19.1",
     "types-pyyaml>=6.0.12.20250915",
@@ -62,11 +69,6 @@ docs = [
     "myst-parser>=4.0",
     "mistune>=3.3.0",             # myst-parser's transitive Markdown parser; floor closes PYSEC-2026-2210..2218/2652
 ]
-viz-fast = [
-    "datashader>=0.16",
-    "xarray>=2024.0",
-    "colorcet>=3.1",
-]
 gui = [
     "PySide6>=6.7",
     "pyqtgraph>=0.13",
@@ -77,8 +79,10 @@ packaging = [
 ]
 # Everything bundle: all optional extras (runtime features + dev/docs/packaging
 # tooling) in one install, so `xpcsjax[all]` pulls the complete dependency set.
+# (datashader/xarray/colorcet moved to core `dependencies` above — no longer a
+# separate [viz-fast] extra.)
 all = [
-    "xpcsjax[dev,docs,viz-fast,gui,packaging]",
+    "xpcsjax[dev,docs,gui,packaging]",
 ]
 
 [project.scripts]

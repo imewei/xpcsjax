@@ -330,3 +330,38 @@ def test_single_angle_2d_c2_no_worse_than_production():
     assert eng.chi_squared <= ref.chi_squared * (1.0 + 1e-3) + 1e-9, (
         f"engine 2D chi2 {eng.chi_squared!r} strictly worse than production {ref.chi_squared!r}"
     )
+
+
+# ===========================================================================
+# Bug (PR #27 review) — a fixed-but-NOT-tied physics parameter (fixed via
+# active_parameters / set_vary) must also bail out of the engine route, not
+# just a tied one. HeterodynePointEvaluator.eval_points passes the raw
+# length-n_varying slice straight into compute_c2_heterodyne, which unpacks
+# 14 positional params with no length check -- a short vector is silently
+# clipped by the kernel (JAX statically clips an out-of-bounds index rather
+# than raising). Tying already forces vary=False on the child, so the guard
+# on ``len(varying_indices) != len(ALL_PARAM_NAMES)`` subsumes both cases.
+# ===========================================================================
+def test_engine_route_bails_on_fixed_untied_physics_param():
+    """A plain fixed (non-tied) physics parameter must raise NotImplementedError
+    from the engine route -- not silently run with a short/clipped vector --
+    and the production fallback (``fit_nlsq_multi_phi``) must still handle it
+    correctly (full 14-length physics, no shape mismatch)."""
+    model, c2, phi = _make_well_posed_case()
+    # Fix a physics parameter WITHOUT tying it to anything.
+    model.param_manager.set_vary("D0_ref", False)
+    assert not model.param_manager.tied_idx_pairs, "sanity: this config has no ties"
+    assert len(model.param_manager.varying_indices) == 13
+
+    cfg = _make_config("individual")
+
+    import pytest
+
+    with pytest.raises(NotImplementedError, match="requires all 14 physics parameters"):
+        fit_two_component_via_engine(model, c2, phi, cfg, None)
+
+    # The documented fallback target must still produce a well-formed result
+    # for the identical fixed-untied config (full 14-physics parameter block).
+    fallback = fit_nlsq_multi_phi(model, c2, list(phi), cfg, None)
+    assert fallback.n_physics == 14
+    assert np.isfinite(fallback.chi_squared)

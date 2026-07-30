@@ -55,6 +55,9 @@ class ParameterManager:
     _varying_indices_cache: list[int] | None = field(default=None, init=False, repr=False)
     _fixed_indices_cache: list[int] | None = field(default=None, init=False, repr=False)
     _varying_names_cache: list[str] | None = field(default=None, init=False, repr=False)
+    _tied_idx_pairs_cache: list[tuple[int, int]] | None = field(
+        default=None, init=False, repr=False
+    )
 
     # B007: cached full-values array (invalidated by update_values)
     _full_values_cache: np.ndarray | None = field(default=None, init=False, repr=False)
@@ -153,6 +156,22 @@ class ParameterManager:
             ]
         return list(self._fixed_indices_cache)
 
+    @property
+    def tied_idx_pairs(self) -> list[tuple[int, int]]:
+        """``(child_index, parent_index)`` pairs in the 14-element physics array.
+
+        Empty when no ``tied_parameters`` are configured. Both indices are
+        static Python ints (not JAX tracers) -- safe to close over inside a
+        JIT-traced residual closure, exactly like ``varying_indices``.
+        """
+        if self._tied_idx_pairs_cache is None:
+            name_to_idx = {name: i for i, name in enumerate(ALL_PARAM_NAMES)}
+            self._tied_idx_pairs_cache = [
+                (name_to_idx[child], name_to_idx[parent])
+                for child, parent in self.space.tied.items()
+            ]
+        return list(self._tied_idx_pairs_cache)
+
     def get_initial_values(self) -> np.ndarray:
         """Get initial parameter values for optimization.
 
@@ -211,7 +230,12 @@ class ParameterManager:
     ) -> np.ndarray:
         """Expand varying parameters to full 14-parameter array.
 
-        Fixed parameters are filled from stored values.
+        Ordinary fixed parameters (not tied) are filled from stored values
+        (``get_full_values()``). Tied children are then overwritten with
+        their parent's LIVE value from this same expansion (``full[parent_idx]``)
+        rather than a stored constant -- the child tracks whatever the parent's
+        free variable resolved to on this call, since they are the same
+        optimized quantity, not independently fixed.
 
         Parameters
         ----------
@@ -236,7 +260,138 @@ class ParameterManager:
         full = self.get_full_values().copy()
         for i, idx in enumerate(self.varying_indices):
             full[idx] = float(varying_params[i])
+        for child_idx, parent_idx in self.tied_idx_pairs:
+            full[child_idx] = full[parent_idx]
         return full
+
+    def expand_reduced_result(
+        self,
+        parameters_reduced: np.ndarray,
+        covariance_reduced: np.ndarray | None,
+        uncertainties_reduced: np.ndarray | None,
+        *,
+        n_scaling: int,
+        scaling_first: bool,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Expand a reduced joint optimizer result to the full-14-physics layout.
+
+        The reduced vector is ``[physics_varying | scaling]`` (physics-first,
+        e.g. the in-memory joint-fit paths) or ``[scaling | physics_varying]``
+        (scaling-first, e.g. the streaming/stratified-LS paths), length
+        ``n_varying + n_scaling``; ``covariance_reduced`` is square of that
+        size. The scaling block (and all its cross-covariance with physics)
+        passes through unchanged; the physics block expands from
+        ``n_varying`` to 14, filling any ordinary fixed (non-tied) physics
+        row/column with NaN (no covariance was computed for a constant) and
+        mirroring each tied child's row/column onto its parent's (same free
+        variable, not independently estimated).
+
+        Parameters
+        ----------
+        parameters_reduced : numpy.ndarray
+            Shape ``(n_varying + n_scaling,)``.
+        covariance_reduced : numpy.ndarray or None
+            Shape ``(n_varying + n_scaling, n_varying + n_scaling)``, or
+            ``None`` (e.g. a global-escape result with no covariance solve)
+            -> the physics/scaling covariance block of the output is all-NaN.
+        uncertainties_reduced : numpy.ndarray or None
+            Shape ``(n_varying + n_scaling,)``, or ``None`` -> all-NaN output.
+        n_scaling : int
+            Number of scaling DOF in the reduced vector (0 for ``constant``,
+            2 for ``averaged``, ``2 * n_phi`` for ``individual``).
+        scaling_first : bool
+            ``True`` for ``[scaling | physics]`` layout, ``False`` for
+            ``[physics | scaling]``.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            ``(parameters_full, covariance_full, uncertainties_full)`` with
+            the physics block expanded to 14 and the scaling block
+            unchanged, in the same overall ordering as the input.
+        """
+        n_varying = len(self.varying_indices)
+        reduced = np.asarray(parameters_reduced, dtype=np.float64)
+        expected_len = n_varying + n_scaling
+        if reduced.shape[0] != expected_len:
+            raise ValueError(
+                f"expand_reduced_result: parameters_reduced has length "
+                f"{reduced.shape[0]}, expected n_varying + n_scaling = "
+                f"{n_varying} + {n_scaling} = {expected_len}"
+            )
+        if covariance_reduced is not None:
+            cov_check = np.asarray(covariance_reduced, dtype=np.float64)
+            if cov_check.shape != (expected_len, expected_len):
+                raise ValueError(
+                    f"expand_reduced_result: covariance_reduced has shape "
+                    f"{cov_check.shape}, expected ({expected_len}, {expected_len})"
+                )
+        if uncertainties_reduced is not None:
+            unc_check = np.asarray(uncertainties_reduced, dtype=np.float64)
+            if unc_check.shape[0] != expected_len:
+                raise ValueError(
+                    f"expand_reduced_result: uncertainties_reduced has length "
+                    f"{unc_check.shape[0]}, expected {expected_len}"
+                )
+
+        if scaling_first:
+            scaling_vals = reduced[:n_scaling]
+            physics_varying = reduced[n_scaling:]
+            scaling_pos = list(range(n_scaling))
+            physics_pos = list(range(n_scaling, n_scaling + n_varying))
+        else:
+            physics_varying = reduced[:n_varying]
+            scaling_vals = reduced[n_varying:]
+            physics_pos = list(range(n_varying))
+            scaling_pos = list(range(n_varying, n_varying + n_scaling))
+
+        physics_full = self.expand_varying_to_full(physics_varying)
+
+        if scaling_first:
+            parameters_full = np.concatenate([scaling_vals, physics_full])
+            full_scaling_pos = list(range(n_scaling))
+            full_physics_pos = list(range(n_scaling, n_scaling + 14))
+        else:
+            parameters_full = np.concatenate([physics_full, scaling_vals])
+            full_physics_pos = list(range(14))
+            full_scaling_pos = list(range(14, 14 + n_scaling))
+
+        n_full = 14 + n_scaling
+        cov_full = np.full((n_full, n_full), np.nan, dtype=np.float64)
+        unc_full = np.full(n_full, np.nan, dtype=np.float64)
+
+        if uncertainties_reduced is not None:
+            unc_r = np.asarray(uncertainties_reduced, dtype=np.float64)
+            for i, _ in enumerate(scaling_pos):
+                unc_full[full_scaling_pos[i]] = unc_r[scaling_pos[i]]
+            for a, idx in enumerate(self.varying_indices):
+                unc_full[full_physics_pos[idx]] = unc_r[physics_pos[a]]
+
+        if covariance_reduced is not None:
+            cov_r = np.asarray(covariance_reduced, dtype=np.float64)
+            for i in range(n_scaling):
+                for j in range(n_scaling):
+                    cov_full[full_scaling_pos[i], full_scaling_pos[j]] = cov_r[
+                        scaling_pos[i], scaling_pos[j]
+                    ]
+            for a, ia in enumerate(self.varying_indices):
+                fa = full_physics_pos[ia]
+                for b, ib in enumerate(self.varying_indices):
+                    fb = full_physics_pos[ib]
+                    cov_full[fa, fb] = cov_r[physics_pos[a], physics_pos[b]]
+                for i in range(n_scaling):
+                    fi = full_scaling_pos[i]
+                    cov_full[fa, fi] = cov_r[physics_pos[a], scaling_pos[i]]
+                    cov_full[fi, fa] = cov_r[scaling_pos[i], physics_pos[a]]
+
+        for child_idx, parent_idx in self.tied_idx_pairs:
+            fc = full_physics_pos[child_idx]
+            fp = full_physics_pos[parent_idx]
+            unc_full[fc] = unc_full[fp]
+            cov_full[fc, :] = cov_full[fp, :]
+            cov_full[:, fc] = cov_full[:, fp]
+
+        return parameters_full, cov_full, unc_full
 
     def extract_varying(self, full_params: np.ndarray | jnp.ndarray) -> np.ndarray:
         """Extract the varying parameters from a full array.
@@ -322,10 +477,34 @@ class ParameterManager:
         Raises
         ------
         ValueError
-            If ``name`` is not a known parameter.
+            If ``name`` is not a known parameter, or if the change would
+            violate a ``tied_parameters`` invariant (see below).
         """
         if name not in ALL_PARAM_NAMES_WITH_SCALING:
             raise ValueError(f"Unknown parameter: {name}")
+        # Tied-invariant guard: a tied child must stay non-varying (it tracks
+        # its parent's value, not a free variable of its own -- flipping it
+        # to vary=True would waste an optimizer DOF with a zero-effect
+        # gradient, since expand_reduced_result/expand_varying_to_full always
+        # overwrite it from the parent afterward). A tied parent must keep
+        # varying (flipping it to vary=False leaves the child's tie target
+        # undefined -- expand_reduced_result's parent-is-varying assumption
+        # would silently mirror a stale constant). Use ParameterSpace.tied /
+        # config to manage ties instead of set_vary for these two cases.
+        if vary and name in self.space.tied:
+            raise ValueError(
+                f"set_vary: '{name}' is a tied child (tied to "
+                f"'{self.space.tied[name]}') -- tied children must stay "
+                "vary=False. Manage ties via tied_parameters config, not set_vary."
+            )
+        if not vary and name in self.space.tied.values():
+            children = [c for c, p in self.space.tied.items() if p == name]
+            raise ValueError(
+                f"set_vary: '{name}' is a tied parent (children: {children}) "
+                "-- tied parents must stay varying, or their children's tie "
+                "target becomes undefined. Manage ties via tied_parameters "
+                "config, not set_vary."
+            )
         self.space.vary[name] = vary
         # Varying status change affects active/fixed and index caches
         self._active_params_cache = None

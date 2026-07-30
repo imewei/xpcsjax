@@ -366,7 +366,10 @@ def test_use_datashader_without_install_falls_back(
             use_datashader=True,
             parallel=False,  # sequential matplotlib fallback
         )
-    assert any("viz-fast" in r.message for r in caplog.records)
+    # datashader moved from the optional [viz-fast] extra to a core
+    # dependency (FIX 7, PR #27 review pass); the fallback warning now points
+    # at reinstalling the core package instead of the retired extra name.
+    assert any("core xpcsjax dependency" in r.message for r in caplog.records)
     for i, phi in enumerate(synthetic_multi_angle_data["phi_angles_list"]):
         assert (tmp_path / _phi_filename(i, phi, "c2_heatmaps")).exists()
 

@@ -55,13 +55,9 @@ REQUIRED_DEPENDENCIES: tuple[tuple[str, str, str], ...] = (
     ("tqdm", "4.67.1", "tqdm"),
     ("matplotlib", "3.10", "matplotlib"),
     ("pillow", "12.3.0", "PIL"),
-)
-
-# Optional viz-fast extras — informational only.
-OPTIONAL_DEPENDENCIES: tuple[tuple[str, str], ...] = (
-    ("datashader", "datashader"),
-    ("xarray", "xarray"),
-    ("colorcet", "colorcet"),
+    ("datashader", "0.16", "datashader"),
+    ("xarray", "2024.0", "xarray"),
+    ("colorcet", "3.1", "colorcet"),
 )
 
 # Required config templates under xpcsjax/config/templates/
@@ -329,9 +325,6 @@ class SystemValidator:
     def test_dependency_versions(self) -> ValidationResult:
         """Verify every required runtime dependency meets its minimum version.
 
-        Optional viz-fast extras are reported informationally and never cause a
-        failure.
-
         Returns
         -------
         ValidationResult
@@ -353,27 +346,13 @@ class SystemValidator:
             else:
                 outdated.append(f"{dist_name}=={actual} (need >= {min_version})")
 
-        # Optional viz-fast extras — informational
-        optional_present: list[str] = []
-        for dist_name, _import_name in OPTIONAL_DEPENDENCIES:
-            try:
-                actual = importlib_metadata.version(dist_name)
-            except importlib_metadata.PackageNotFoundError:
-                continue
-            optional_present.append(f"{dist_name}=={actual}")
-
         if not missing and not outdated:
-            extra = (
-                f"\n  Optional viz-fast extras present: {', '.join(optional_present)}"
-                if optional_present
-                else "\n  No optional viz-fast extras detected (install xpcsjax[viz-fast] to enable)."
-            )
             return ValidationResult(
                 success=True,
                 severity=Severity.INFO,
                 message=f"All {len(present)} required dependencies satisfied",
                 name="Dependency Versions",
-                details="Installed: " + ", ".join(present) + extra,
+                details="Installed: " + ", ".join(present),
             )
 
         problems: list[str] = []

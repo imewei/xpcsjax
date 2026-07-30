@@ -670,10 +670,25 @@ def _safe_log_heterodyne_completion(result: Any, model: Any, n_phi: int) -> None
         param_manager = getattr(model, "param_manager", None)
         if param_manager is None:
             return
+
+        # Read the parameter-name/physics-count contract from the RESULT ITSELF
+        # instead of hardcoding ALL_PARAM_NAMES/14. This function is the shared
+        # chokepoint for every heterodyne dispatch site -- including producers
+        # (e.g. the engine route, the sequential per-angle aggregate) that are
+        # not guaranteed to always emit the full-14-physics expanded layout.
+        # `diagnostics["parameter_names"]` (when present) is already sized and
+        # ordered to match `result.parameters` exactly -- physics + scaling, in
+        # whatever layout that producer used -- so this self-adapts instead of
+        # silently misattributing names against a future non-expanded producer
+        # (bugfix: codex/agy audit finding #3, 2026-07-29, generalized).
+        diag = result.nlsq_diagnostics or {}
+        param_names = diag.get("parameter_names") or list(param_manager.varying_names)
+        n_physics = result.n_physics if result.n_physics is not None else len(param_names)
+
         log_heterodyne_completion(
             result,
-            list(param_manager.varying_names),
-            int(param_manager.n_varying),
+            param_names,
+            n_physics,
             n_phi,
         )
     except Exception:  # nosec B110 # pragma: no cover - logging is non-critical, never fatal

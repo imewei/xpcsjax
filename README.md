@@ -39,9 +39,9 @@ use pip:
 pip install "xpcsjax[all]"
 ```
 
-For a minimal core install (NLSQ fitting only, no GUI/fast-viz), drop the extra:
-`uv pip install xpcsjax` or `pip install xpcsjax`. Individual extras are also available:
-`xpcsjax[gui]` (desktop workbench) and `xpcsjax[viz-fast]` (datashader-accelerated plots).
+For a minimal core install (NLSQ fitting only, no GUI), drop the extra:
+`uv pip install xpcsjax` or `pip install xpcsjax` — this already includes datashader-accelerated
+plotting. The `xpcsjax[gui]` extra adds the desktop workbench.
 
 Python 3.12+ required, CPU-only in v0.1 (GPU support is v0.2+). Runtime dependencies are
 managed via `pyproject.toml` and mirror what the source `homodyne` package pins (versions

@@ -55,6 +55,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
+
 if TYPE_CHECKING:
     from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
     from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
@@ -438,6 +440,22 @@ def fit_two_component_via_engine(
             f"fit_two_component_via_engine does not support per_angle_mode "
             f"{mode!r} (the engine-route scope is constant / averaged / individual). "
             "Use the existing fit_nlsq_multi_phi path for unsupported modes."
+        )
+
+    # -- Bail out for any non-full-vector physics config (tied OR plain-fixed) --
+    # HeterodynePointEvaluator.eval_points passes the raw length-n_varying slice
+    # straight into compute_c2_heterodyne, which unpacks 14 positional params
+    # with no length check -- a short vector is silently clipped by the kernel
+    # (JAX statically clips an out-of-bounds index rather than raising), so this
+    # is a real, reproduced, silently-wrong-physics bug for ANY config that fixes
+    # a physics parameter via active_parameters, not only tied ones (tying
+    # already forces vary=False on the child, so this one condition subsumes
+    # the old tied-only check).
+    if len(model.param_manager.varying_indices) != len(ALL_PARAM_NAMES):
+        raise NotImplementedError(
+            "fit_two_component_via_engine requires all 14 physics parameters to vary "
+            "(no expansion on this route -- a short vector is silently clipped by the "
+            "kernel) -- falls back to fit_nlsq_multi_phi, which is expansion-aware."
         )
 
     # -- max_nfev: "auto" (None) is passed through, NOT a bail ----------------
