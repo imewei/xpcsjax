@@ -587,6 +587,20 @@ def _apply_tied_parameters(space: ParameterSpace, config: dict[str, Any]) -> Non
             f"{{child: parent}}, got {type(tied_raw).__name__}"
         )
 
+    # Validate entry TYPES before translating names: a malformed config value
+    # (e.g. ``tied_parameters: {D0_ref: []}``) reaches ``_INBOUND_NAME_ALIAS
+    # .get(parent, parent)`` below with an unhashable ``parent``/``child``,
+    # which raises a raw ``TypeError`` instead of the documented, config-load
+    # ``ValueError`` -- fail fast with a clear message instead (bugfix:
+    # codex/agy audit finding #5, 2026-07-29).
+    for child_raw, parent_raw in tied_raw.items():
+        if not isinstance(child_raw, str) or not isinstance(parent_raw, str):
+            raise ValueError(
+                "initial_parameters.tied_parameters: each entry must map a "
+                "physics-parameter-name string to another physics-parameter-"
+                f"name string (child: parent); got {child_raw!r}: {parent_raw!r}"
+            )
+
     # Translate public template aliases (e.g. "v_beta" -> "beta", "phi0_het"
     # -> "phi0") the same way _apply_initial_parameters and
     # _apply_parameter_space_bounds already do -- ALL_PARAM_NAMES uses the
@@ -596,6 +610,21 @@ def _apply_tied_parameters(space: ParameterSpace, config: dict[str, Any]) -> Non
         _INBOUND_NAME_ALIAS.get(child, child): _INBOUND_NAME_ALIAS.get(parent, parent)
         for child, parent in tied_raw.items()
     }
+
+    # Explicit ``active_parameters`` whitelist, translated the same way
+    # ``_apply_active_parameters`` (above) resolves it -- used below to scope
+    # the "also listed as varying" warning to an ACTUAL user-supplied
+    # conflict, not every parameter's registry-default ``vary=True`` (bugfix:
+    # codex/agy audit finding #7, 2026-07-29).
+    active_raw = initial.get("active_parameters")
+    explicit_active_names: set[str] = set()
+    if isinstance(active_raw, list):
+        from xpcsjax.config.types import PARAMETER_NAME_MAPPING
+
+        explicit_active_names = {
+            _INBOUND_NAME_ALIAS.get(m, m)
+            for m in (PARAMETER_NAME_MAPPING.get(str(n), str(n)) for n in active_raw)
+        }
 
     children = set(tied_translated.keys())
     for child, parent in tied_translated.items():
@@ -624,7 +653,7 @@ def _apply_tied_parameters(space: ParameterSpace, config: dict[str, Any]) -> Non
                 f"fixed parent is not supported; fix '{child}' directly "
                 "instead via active_parameters."
             )
-        if space.vary.get(child, False):
+        if child in explicit_active_names:
             logger.warning(
                 "tied_parameters: '%s' is also listed as varying (e.g. in "
                 "active_parameters) -- the tie takes precedence, forcing "

@@ -747,6 +747,30 @@ def build_hybrid_streaming_result(
     if model.param_manager.tied_idx_pairs:
         diagnostics["tied_parameters"] = dict(model.param_manager.space.tied)
 
+    # ``diag_param_names`` above was built from the REDUCED physics block
+    # (either caller-supplied ``[scaling | varying_names]`` from the
+    # stratified-LS driver, or the bare ``varying_names`` default on the
+    # direct hybrid path) -- it does not track the full-14-physics
+    # ``parameters_full`` (``[scaling | physics(14)]``) just assembled above.
+    # Rebuild the label list at the full-14 physics length so
+    # ``diagnostics["parameter_names"]`` zips correctly against
+    # ``result.parameters`` (bugfix: codex/agy audit finding #2, 2026-07-29).
+    from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
+
+    n_varying_names = len(model.param_manager.varying_indices)
+    if len(diag_param_names) == n_scaling + n_varying_names:
+        # Caller supplied a real ``[scaling | varying_physics]`` list
+        # (stratified-LS convention) -- keep its scaling prefix, which
+        # already matches ``n_scaling`` exactly.
+        diag_scaling_names = list(diag_param_names[:n_scaling])
+    else:
+        # No (or a mismatched) scaling prefix was supplied (the direct
+        # hybrid-streaming path only threads physics-only ``varying_names``)
+        # -- fall back to generic positional scaling labels sized to the
+        # actual scaling-head length.
+        diag_scaling_names = [f"scaling_{i}" for i in range(n_scaling)]
+    diagnostics["parameter_names"] = [*diag_scaling_names, *ALL_PARAM_NAMES]
+
     return OptimizationResult(
         parameters=parameters_full,
         uncertainties=uncertainties_full,

@@ -101,6 +101,24 @@ def _assert_tied_result_shape(result):
         assert unc[ref_pos] == unc[sample_pos]
         assert cov[ref_pos, ref_pos] == cov[sample_pos, sample_pos]
 
+    # ``nlsq_diagnostics["parameter_names"]`` must zip 1:1 (same LENGTH and
+    # same ORDER, not just length) against `result.parameters` -- this is the
+    # exact invariant codex/agy audit findings #1/#2/#8 (2026-07-29) found
+    # broken: the label list stayed at the REDUCED, pre-expansion length/
+    # order after `result.parameters` was expanded to the full-14-physics
+    # layout. A regression here would have left every OTHER assertion in
+    # this helper green (they only check parameter VALUES), so this is the
+    # one that would have caught the shipped bug.
+    names = diag.get("parameter_names")
+    assert names is not None, "nlsq_diagnostics must record parameter_names"
+    assert len(names) == params.size, (
+        f"parameter_names length ({len(names)}) must match result.parameters length ({params.size})"
+    )
+    assert list(names[offset : offset + 14]) == list(ALL_PARAM_NAMES), (
+        "parameter_names' physics block must be the full ALL_PARAM_NAMES, "
+        "in order, at the same position as result.parameters' physics block"
+    )
+
 
 def test_averaged_mode_tied_fit_reports_full_physics(tmp_path):
     phi_angles = np.array([0.0, 45.0, 90.0], dtype=np.float64)  # n_phi=3 -> averaged
@@ -118,6 +136,72 @@ def test_constant_mode_tied_fit_reports_full_physics(tmp_path):
     phi_angles = np.array([0.0, 45.0, 90.0], dtype=np.float64)
     result = _run_tied_fit(tmp_path, phi_angles, "constant")
     _assert_tied_result_shape(result)
+
+
+def test_fit_nlsq_jax_single_angle_tied_fit_enforces_tie_in_residual():
+    """``fit_nlsq_jax`` -> ``_fit_local`` (single-angle, per-angle local
+    optimization) is a DISTINCT production entry point from the joint-fit
+    dispatch every other test in this module exercises, and is not exercised
+    by ``test_heterodyne_tied_residuals.py`` (which only hand-reconstructs
+    the tie loop, never calling the real closures). Regression coverage for
+    codex/agy audit finding #4, 2026-07-29.
+
+    This proves the RESIDUAL closure (not just post-hoc
+    ``expand_varying_to_full``) enforced child==parent throughout the solve:
+    if ``_fit_local``'s ``jax_residual_fn`` tie loop were dropped, the
+    optimizer would have searched with ``D0_ref`` FROZEN at its stale initial
+    value while ``D0_sample`` moved -- so re-evaluating the SAME production
+    residual kernel at the post-hoc-tied converged point would then diverge
+    from the optimizer's own reported objective (``final_cost``), since that
+    optimizer never actually evaluated the model at the tied point.
+    """
+    import jax.numpy as jnp
+
+    from xpcsjax.core.heterodyne_jax_backend import compute_residuals
+    from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
+    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_jax
+
+    phi_angles = np.array([0.0], dtype=np.float64)
+    config_dict = _tied_config_dict(phi_angles, "constant")
+    model = HeterodyneModel.from_config(config_dict)
+    c2 = _build_synthetic_c2(model, phi_angles)[0]
+
+    result = fit_nlsq_jax(
+        model,
+        c2,
+        phi_angle=float(phi_angles[0]),
+        config=None,
+        weights=None,
+        use_nlsq_library=True,
+        _skip_global_selection=True,  # force the _fit_local path
+        angle_idx=0,
+    )
+    assert result.success
+
+    full_tied = model.param_manager.expand_varying_to_full(np.asarray(result.parameters))
+    assert full_tied[_D0_REF_IDX] == full_tied[_D0_SAMPLE_IDX]
+
+    contrast_val, offset_val = model.scaling.get_for_angle(0)
+    recomputed = compute_residuals(
+        jnp.asarray(full_tied, dtype=jnp.float64),
+        model.t,
+        model.q,
+        model.dt,
+        float(phi_angles[0]),
+        jnp.asarray(c2, dtype=jnp.float64),
+        None,
+        contrast_val,
+        offset_val,
+    )
+    recomputed_ssr = float(np.sum(np.asarray(recomputed) ** 2))
+    reported_ssr = 2.0 * float(result.final_cost)
+    assert np.isclose(recomputed_ssr, reported_ssr, rtol=1e-4, atol=1e-8), (
+        f"recomputed SSR at the tied point ({recomputed_ssr}) diverges from "
+        f"the optimizer's reported objective ({reported_ssr}) -- the "
+        "signature of a dropped tie-enforcement loop in _fit_local's "
+        "residual closure (the solve would have tracked a stale, un-tied "
+        "D0_ref instead of the converged D0_sample)."
+    )
 
 
 def test_build_hybrid_streaming_result_expands_fixed_physics_param():
@@ -156,6 +240,11 @@ def test_build_hybrid_streaming_result_expands_fixed_physics_param():
     assert result.parameters.size == 14 + n_scaling, (
         f"expected 14 + {n_scaling} = {14 + n_scaling}, got {result.parameters.size}"
     )
+    # codex/agy audit finding #2: parameter_names must match this expanded
+    # length/order, not the reduced pre-expansion list.
+    names = result.nlsq_diagnostics["parameter_names"]
+    assert len(names) == result.parameters.size
+    assert list(names[-14:]) == list(ALL_PARAM_NAMES)
 
 
 def test_build_hybrid_streaming_result_mirrors_tied_child():
@@ -191,6 +280,11 @@ def test_build_hybrid_streaming_result_mirrors_tied_child():
     )
     physics = result.parameters[-14:]
     assert physics[_D0_REF_IDX] == physics[_D0_SAMPLE_IDX]
+    # codex/agy audit finding #2: parameter_names must match this expanded
+    # length/order, not the reduced pre-expansion list.
+    names = result.nlsq_diagnostics["parameter_names"]
+    assert len(names) == result.parameters.size
+    assert list(names[-14:]) == list(ALL_PARAM_NAMES)
 
 
 def test_stratified_ls_tied_fit_reports_full_physics(tmp_path):

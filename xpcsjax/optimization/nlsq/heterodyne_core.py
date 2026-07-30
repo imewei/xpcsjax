@@ -1734,6 +1734,18 @@ def _fit_joint_averaged_multi_phi(
     # of the returned parameters (the perm reorder above converted from
     # physics-first to scaling-first).
     diagnostics["scaling_first"] = True
+    # `joint_param_names` above is the REDUCED, physics-first name list
+    # (`[*varying_names, "contrast", "offset"]`) matching the optimizer's
+    # x0 vector -- it does not track the full-14-physics, scaling-first
+    # `parameters_full` just assembled. Rebuild the label list in the same
+    # scaling-first/full-14 order so `diagnostics["parameter_names"]` zips
+    # correctly against `result.parameters` (bugfix: codex/agy audit finding
+    # #1/#8, 2026-07-29).
+    from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
+
+    diagnostics["parameter_names"] = _joint_param_names_scaling_first(
+        mode="averaged", physics_names=list(ALL_PARAM_NAMES), n_phi=n_phi
+    )
 
     return OptimizationResult(
         parameters=parameters_full,
@@ -3796,6 +3808,17 @@ def _build_joint_result(
         uncertainties,
         n_scaling=n_scaling_for_mode,
         scaling_first=True,
+    )
+    # `joint_param_names` (used above to build `diagnostics`) is the REDUCED
+    # name list matching the optimizer's x0 vector (varying physics only) --
+    # it does not track the full-14-physics `parameters_full` just assembled.
+    # Rebuild the label list at the full-14 physics length so
+    # `diagnostics["parameter_names"]` zips correctly against
+    # `result.parameters` (bugfix: codex/agy audit finding #1/#8, 2026-07-29).
+    from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
+
+    diagnostics["parameter_names"] = _joint_param_names_scaling_first(
+        mode=resolved_mode, physics_names=list(ALL_PARAM_NAMES), n_phi=n_phi
     )
 
     return OptimizationResult(

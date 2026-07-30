@@ -77,6 +77,33 @@ def test_tied_parameters_not_a_mapping_rejected():
         ParameterSpace.from_config(config)
 
 
+def test_tied_parameters_non_string_value_rejected():
+    """A malformed mapping VALUE (unhashable, e.g. an empty list) must raise
+    the documented config-load ValueError, not a raw TypeError from the
+    internal name-translation dict comprehension (codex/agy audit finding
+    #5, 2026-07-29)."""
+    config = _base_config(initial_parameters={"tied_parameters": {"D0_ref": []}})
+    with pytest.raises(ValueError, match="tied_parameters"):
+        ParameterSpace.from_config(config)
+
+
+def test_tied_parameters_non_string_key_rejected():
+    config = _base_config(initial_parameters={"tied_parameters": {("D0_ref",): "D0_sample"}})
+    with pytest.raises(ValueError, match="tied_parameters"):
+        ParameterSpace.from_config(config)
+
+
+def test_tied_parameters_no_warning_without_active_parameters(caplog):
+    """The 'also listed as varying' warning must be scoped to an EXPLICIT
+    active_parameters conflict, not fire on the ordinary (no
+    active_parameters) usage pattern where every untouched parameter
+    defaults to vary=True (codex/agy audit finding #7, 2026-07-29)."""
+    config = _base_config(initial_parameters={"tied_parameters": {"D0_ref": "D0_sample"}})
+    with caplog.at_level("WARNING"):
+        ParameterSpace.from_config(config)
+    assert not any("also listed as varying" in rec.message for rec in caplog.records)
+
+
 def test_tied_parameters_syncs_child_value_to_parent():
     config = _base_config(
         initial_parameters={

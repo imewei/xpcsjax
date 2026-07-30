@@ -671,22 +671,22 @@ def _safe_log_heterodyne_completion(result: Any, model: Any, n_phi: int) -> None
         if param_manager is None:
             return
 
-        # `result.parameters` is full-14-physics for every non-`constant`
-        # per-angle mode (this plan's change); `constant` mode stays
-        # physics-only/reduced and leaves `result.n_physics` unset. Pairing
-        # the (possibly reduced) `varying_names` label list against a
-        # full-14 value vector misattributes names whenever a fixed/tied
-        # physics parameter isn't at index 0 — use the full 14-name list
-        # and count whenever the result actually carries the full block.
-        result_n_physics = getattr(result, "n_physics", None)
-        if result_n_physics is not None:
-            from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
+        # `result.parameters` is full-14-physics for EVERY per-angle mode,
+        # including `constant` -- `constant` mode leaves `result.n_physics`
+        # unset (`None`) BY DESIGN (it has no scaling tail to disambiguate,
+        # see `heterodyne_constant_mode.py` / `_build_joint_result`'s
+        # `resolved_mode == "constant"` branch), but its `result.parameters`
+        # is still expanded to the full 14-physics layout via
+        # `expand_reduced_result` before being returned. So `n_physics is
+        # None` does NOT mean "reduced parameters" -- pairing the (reduced)
+        # `varying_names` label list against a full-14 value vector
+        # misattributes names whenever a fixed/tied physics parameter isn't
+        # at index 0 (bugfix: codex/agy audit finding #3, 2026-07-29).
+        # Always use the full 14-name list/count.
+        from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
 
-            param_names = list(ALL_PARAM_NAMES)
-            n_physics = len(ALL_PARAM_NAMES)
-        else:
-            param_names = list(param_manager.varying_names)
-            n_physics = int(param_manager.n_varying)
+        param_names = list(ALL_PARAM_NAMES)
+        n_physics = len(ALL_PARAM_NAMES)
 
         log_heterodyne_completion(
             result,
