@@ -118,3 +118,78 @@ def test_constant_mode_tied_fit_reports_full_physics(tmp_path):
     phi_angles = np.array([0.0, 45.0, 90.0], dtype=np.float64)
     result = _run_tied_fit(tmp_path, phi_angles, "constant")
     _assert_tied_result_shape(result)
+
+
+def test_build_hybrid_streaming_result_expands_fixed_physics_param():
+    """Regression test for the pre-existing bug: a fixed (non-tied) physics
+    param must not shrink the reported parameters below 14 physics + scaling."""
+    from xpcsjax.config.heterodyne_parameter_manager import ParameterManager
+    from xpcsjax.config.heterodyne_parameter_space import ParameterSpace
+    from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
+        build_hybrid_streaming_result,
+    )
+
+    space = ParameterSpace.from_config(
+        {
+            "analysis_mode": "two_component",
+            "initial_parameters": {
+                "active_parameters": [n for n in ALL_PARAM_NAMES if n != "D0_ref"],
+            },
+        }
+    )
+    pm = ParameterManager(space)
+    n_varying = len(pm.varying_indices)
+    n_phi = 2
+    n_scaling = 2 * n_phi  # individual layout
+    popt = np.concatenate([np.full(n_scaling, 0.5), pm.get_initial_values()])
+    pcov = np.eye(n_varying + n_scaling, dtype=np.float64)
+
+    class _FakeModel:
+        param_manager = pm
+
+    result = build_hybrid_streaming_result(
+        model=_FakeModel(),
+        popt=popt,
+        pcov=pcov,
+        info={"nit": 1, "success": True},
+        phi_angles=np.array([0.0, 90.0]),
+        per_angle_mode="individual",
+    )
+    assert result.parameters.size == 14 + n_scaling, (
+        f"expected 14 + {n_scaling} = {14 + n_scaling}, got {result.parameters.size}"
+    )
+
+
+def test_build_hybrid_streaming_result_mirrors_tied_child():
+    from xpcsjax.config.heterodyne_parameter_manager import ParameterManager
+    from xpcsjax.config.heterodyne_parameter_space import ParameterSpace
+    from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
+        build_hybrid_streaming_result,
+    )
+
+    space = ParameterSpace.from_config(
+        {
+            "analysis_mode": "two_component",
+            "initial_parameters": {"tied_parameters": {"D0_ref": "D0_sample"}},
+        }
+    )
+    pm = ParameterManager(space)
+    n_varying = len(pm.varying_indices)
+    n_phi = 2
+    n_scaling = 2 * n_phi
+    popt = np.concatenate([np.full(n_scaling, 0.5), pm.get_initial_values()])
+    pcov = np.eye(n_varying + n_scaling, dtype=np.float64)
+
+    class _FakeModel:
+        param_manager = pm
+
+    result = build_hybrid_streaming_result(
+        model=_FakeModel(),
+        popt=popt,
+        pcov=pcov,
+        info={"nit": 1, "success": True},
+        phi_angles=np.array([0.0, 90.0]),
+        per_angle_mode="individual",
+    )
+    physics = result.parameters[-14:]
+    assert physics[_D0_REF_IDX] == physics[_D0_SAMPLE_IDX]
