@@ -687,8 +687,21 @@ def _aggregate_individual_results(
         n_data_total = n_phi_c2 * max(n_time_c2 - 1, 0) * max(n_time_c2 - 2, 0)
     else:
         n_data_total = int(c2_arr.size)
-    dof = max(n_data_total - total_dim, 1)
-    reduced_chi2 = ssr / dof
+
+    # Noise-normalised reduced chi^2 (targets ~1.0), matching every sibling
+    # path (``_fit_local``, the joint averaged/constant builders, and the
+    # engine route). Raw ``SSR / dof`` collapses to MSE << 1 on normalised
+    # C2 data and is not an interpretable goodness-of-fit on its own.
+    from xpcsjax.optimization.nlsq.heterodyne_data_prep import (
+        noise_normalized_reduced_chi2,
+    )
+
+    reduced_chi2 = noise_normalized_reduced_chi2(
+        ssr=ssr,
+        c2_data=c2_arr,
+        n_data_valid=n_data_total,
+        n_params=total_dim,
+    )
 
     # ------------------------------------------------------------------
     # Convergence + quality

@@ -370,7 +370,14 @@ class ParameterSpace:
             )
 
         for group_name, param_names in group_map.items():
-            group_config = params_config.get(group_name, {})
+            # Translate public template names (v_beta, phi0_het) to internal
+            # kernel names, mirroring the flat ``initial_parameters``,
+            # list-format ``parameter_space.bounds``, and ``tied_parameters``
+            # ingestion paths elsewhere in this module.
+            group_config = {
+                _INBOUND_NAME_ALIAS.get(k, k): v
+                for k, v in params_config.get(group_name, {}).items()
+            }
 
             # Check for unknown keys in this group
             known_params = set(param_names)

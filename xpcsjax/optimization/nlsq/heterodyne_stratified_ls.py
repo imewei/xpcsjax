@@ -742,6 +742,13 @@ def fit_heterodyne_stratified_least_squares(
         )
 
     n_scaling = int(meta["n_scaling"])
+    # Deduplicated angle count (``meta["n_phi"]`` from the stratified-data
+    # builder), NOT the raw ``n_phi = len(phi)`` above. The joint
+    # ``[scaling | physics]`` vector is sized off the dedup count
+    # (``n_scaling == 2 * n_phi_dedup`` for individual mode) — feeding the raw
+    # count into the L2/L3 escape below indexes past the true vector length
+    # whenever duplicate phi values collapse into fewer unique angles.
+    n_phi_dedup = int(meta["n_phi"])
     lower_phys, upper_phys = model.param_manager.get_bounds()
     # constant -> n_scaling=0 (empty scaling block); averaged/individual ->
     # contrast and offset are non-negative.
@@ -942,7 +949,7 @@ def fit_heterodyne_stratified_least_squares(
                     upper=upper,
                     n_physics=n_physics,
                     n_scaling=n_scaling,
-                    n_phi=n_phi,
+                    n_phi=n_phi_dedup,
                     mode=mode,
                     l3_lambda=_l3_lambda,
                     frozen=frozen,
@@ -1017,7 +1024,7 @@ def fit_heterodyne_stratified_least_squares(
                     contrasts, offsets = _reconstruct_per_angle_scaling(
                         jnp.asarray(x),
                         mode=mode,
-                        n_phi=n_phi,
+                        n_phi=n_phi_dedup,
                         frozen=frozen,
                     )
                     c_cv, o_cv = _per_angle_cv(contrasts, offsets)
