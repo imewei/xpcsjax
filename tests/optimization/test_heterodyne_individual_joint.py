@@ -121,3 +121,29 @@ def test_individual_no_config_falls_back_to_sequential():
     diag = res.nlsq_diagnostics
     assert diag is not None
     assert diag.get("covariance_structure") == "block_diagonal_sequential"
+
+    # Debug-audit fix: _aggregate_individual_results must report the
+    # noise-normalized reduced chi2 (matching every sibling path), not raw
+    # SSR/dof (which collapses to a statistically meaningless MSE << 1 on
+    # normalized C2 data). Recompute independently via the same shared
+    # helper the fix wires in, using the code's own n_data_total formula
+    # ((N-1)*(N-2) per angle) and total_dim = len(res.parameters).
+    from xpcsjax.optimization.nlsq.heterodyne_data_prep import (
+        noise_normalized_reduced_chi2,
+    )
+
+    n_t = c2.shape[1]
+    n_data_total = int(len(phi)) * max(n_t - 1, 0) * max(n_t - 2, 0)
+    total_dim = len(res.parameters)
+    expected = noise_normalized_reduced_chi2(
+        ssr=float(res.chi_squared),
+        c2_data=np.asarray(c2),
+        n_data_valid=n_data_total,
+        n_params=total_dim,
+    )
+    assert np.isclose(res.reduced_chi_squared, expected, rtol=1e-9)
+    # And it must actually differ from the pre-fix raw-MSE value (unless the
+    # far-lag noise variance happens to be ~1.0, which this fixture's noise
+    # level does not produce).
+    raw_mse = float(res.chi_squared) / max(n_data_total - total_dim, 1)
+    assert not np.isclose(res.reduced_chi_squared, raw_mse, rtol=1e-3)

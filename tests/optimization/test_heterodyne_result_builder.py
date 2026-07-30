@@ -147,7 +147,8 @@ def test_build_from_arrays_with_and_without_jacobian() -> None:
     residuals = np.array([0.5, 0.5, 0.5])
     res = rb.build_result_from_arrays(params, ["a", "b"], residuals, n_data=50)
     assert res.covariance is None
-    assert res.final_cost == pytest.approx(0.75)
+    # final_cost = 0.5 * SSR (SSR = 0.5**2 * 3 = 0.75)
+    assert res.final_cost == pytest.approx(0.375)
     assert res.reduced_chi_squared == pytest.approx(0.75 / 48)
 
     res2 = rb.build_result_from_arrays(

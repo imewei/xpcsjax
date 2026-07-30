@@ -375,13 +375,10 @@ def test_numpy_wrapper_fallback_tied_fit_ssr_matches_recompute():
         offset_val,
     )
     recomputed_ssr = float(np.sum(np.asarray(recomputed) ** 2))
-    # NOTE (final_cost is path-dependent -- do not "fix" this to 2*final_cost):
-    # unlike the NLSQAdapter/JAX path (scipy-style final_cost = 0.5*SSR), the
-    # NLSQWrapper fallback's build_result_from_nlsq
-    # (heterodyne_result_builder.py) sets ``final_cost = float(np.sum(residuals
-    # ** 2))`` -- i.e. the RAW SSR already, not halved. Verified empirically:
-    # doubling here made this assertion fail by exactly 2x.
-    reported_ssr = float(result.final_cost)
+    # build_result_from_nlsq (heterodyne_result_builder.py) sets
+    # ``final_cost = 0.5 * SSR``, the same scipy-style convention as the
+    # NLSQAdapter/JAX path -- matches ``reported_ssr`` at line 494 below.
+    reported_ssr = 2.0 * float(result.final_cost)
     assert np.isclose(recomputed_ssr, reported_ssr, rtol=1e-4, atol=1e-8), (
         f"recomputed SSR at the tied point ({recomputed_ssr}) diverges from "
         f"the optimizer's reported objective ({reported_ssr}) -- the signature "

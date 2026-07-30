@@ -414,6 +414,17 @@ def _reconstruct_per_angle_scaling(
     """
     head = params_native
     if mode == "individual":
+        # NOTE: ``head`` is the FULL ``[scaling | physics]`` joint vector --
+        # scaling is just its HEAD, so ``head.shape[0]`` legitimately exceeds
+        # ``2*n_phi`` whenever physics params are appended (the normal case).
+        # A shape guard here would need the true scaling-block length
+        # (``n_scaling``), which this function doesn't receive; callers are
+        # responsible for passing the correct ``n_phi``.
+        if head.shape[0] < 2 * n_phi:
+            raise ValueError(
+                f"_reconstruct_per_angle_scaling: individual-mode head has length "
+                f"{head.shape[0]}, too short for 2*n_phi={2 * n_phi} (n_phi={n_phi})"
+            )
         return head[:n_phi], head[n_phi : 2 * n_phi]
     if mode == "averaged":
         return jnp.full((n_phi,), head[0]), jnp.full((n_phi,), head[1])
@@ -615,7 +626,15 @@ def fit_heterodyne_stratified_least_squares(
 
     strat = build_heterodyne_stratified_data(model, c2, phi, weights)
     n_phi = len(phi)
-    mode = _resolve_effective_mode(config, n_phi)
+    # Deduplicated angle count -- same set-dedup semantics
+    # ``build_heterodyne_pointwise_model`` uses to build ``meta["phi_unique"]``
+    # later. Mode resolution must key off the number of DISTINCT angles: with
+    # duplicate phi values, the raw ``n_phi`` can cross the
+    # ``constant_scaling_threshold`` when the true unique count does not,
+    # silently selecting ``averaged`` instead of ``individual`` (or vice
+    # versa) for the whole fit.
+    n_phi_dedup_early = len(np.unique(phi))
+    mode = _resolve_effective_mode(config, n_phi_dedup_early)
 
     # Defensive scope gate (belt-and-suspenders for the dispatch gate in
     # __init__.py): ``constant``, ``averaged``, and ``individual`` all run on the
@@ -749,6 +768,13 @@ def fit_heterodyne_stratified_least_squares(
     # count into the L2/L3 escape below indexes past the true vector length
     # whenever duplicate phi values collapse into fewer unique angles.
     n_phi_dedup = int(meta["n_phi"])
+    if n_phi_dedup != n_phi_dedup_early:
+        raise RuntimeError(
+            f"deduplicated angle count drifted between the early estimate "
+            f"({n_phi_dedup_early}, from np.unique(phi)) and the stratified-data "
+            f"builder's meta['n_phi'] ({n_phi_dedup}); mode resolution above used "
+            "the early value -- investigate before trusting this fit"
+        )
     lower_phys, upper_phys = model.param_manager.get_bounds()
     # constant -> n_scaling=0 (empty scaling block); averaged/individual ->
     # contrast and offset are non-negative.
