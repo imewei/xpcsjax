@@ -5,8 +5,6 @@ Extracted from wrapper.py to reduce file size and improve maintainability.
 This module provides:
 - Hybrid streaming optimizer (L-BFGS warmup + Gauss-Newton refinement)
 - Stratified hybrid streaming with anti-degeneracy defense
-- Memory estimation and streaming decision logic
-- Deprecated streaming optimizer stubs
 """
 
 from __future__ import annotations
@@ -32,7 +30,6 @@ from xpcsjax.optimization.nlsq.hierarchical import (
     HierarchicalConfig,
     HierarchicalOptimizer,
 )
-from xpcsjax.optimization.nlsq.memory import get_adaptive_memory_threshold
 from xpcsjax.optimization.nlsq.parameter_utils import (
     classify_parameter_status as _classify_parameter_status,
 )
@@ -47,9 +44,6 @@ from xpcsjax.optimization.nlsq.shear_weighting import (
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
-
-# Lazy imports to avoid circular dependencies
-_memory_logger = get_logger("xpcsjax.optimization.nlsq.memory")
 
 # Try importing AdaptiveHybridStreamingOptimizer
 try:
@@ -2099,155 +2093,3 @@ def fit_with_stratified_hybrid_streaming(
             }
 
     return popt, pcov, info
-
-
-def estimate_memory_for_stratified_ls(
-    n_points: int,
-    n_params: int,
-    n_chunks: int,
-) -> float:
-    """Estimate peak memory usage for stratified least-squares optimization.
-
-    The main memory consumers are:
-    1. Padded arrays: n_chunks × max_chunk_size × 5 arrays × 8 bytes
-    2. Dense Jacobian: n_points × n_params × 8 bytes
-    3. JAX autodiff intermediates: ~3× Jacobian size for backprop
-    4. JAX compilation cache: ~5-10 GB
-
-    Parameters
-    ----------
-    n_points : int
-        Total number of data points.
-    n_params : int
-        Number of parameters.
-    n_chunks : int
-        Number of stratified chunks.
-
-    Returns
-    -------
-    float
-        Estimated peak memory in bytes.
-    """
-    bytes_per_float = 8
-
-    # Padded arrays (5 arrays: phi, t1, t2, g2, mask)
-    max_chunk_size = (n_points + n_chunks - 1) // n_chunks
-    padded_arrays = n_chunks * max_chunk_size * 5 * bytes_per_float
-
-    # Dense Jacobian
-    jacobian = n_points * n_params * bytes_per_float
-
-    # JAX autodiff intermediates (keep all grids for backprop)
-    # This is the main memory killer - originally estimated at 3× Jacobian
-    # but empirical testing shows 5× is more accurate for large datasets
-    # (C020 dataset: estimated 44.9 GB at 3×, actual ~60 GB at 96% pressure)
-    autodiff_intermediates = jacobian * 5
-
-    # JAX compilation cache
-    jax_cache = 5 * 1e9  # ~5 GB
-
-    total = padded_arrays + jacobian + autodiff_intermediates + jax_cache
-
-    return total
-
-
-def should_use_streaming(
-    n_points: int,
-    n_params: int,
-    n_chunks: int,
-    memory_threshold_gb: float | None = None,
-    memory_fraction: float | None = None,
-) -> tuple[bool, float, str]:
-    """Determine if streaming optimizer should be used based on memory estimate.
-
-    Uses adaptive memory thresholding to automatically compute
-    an appropriate threshold based on total system memory.
-
-    Parameters
-    ----------
-    n_points : int
-        Total number of data points.
-    n_params : int
-        Number of parameters.
-    n_chunks : int
-        Number of stratified chunks.
-    memory_threshold_gb : float, optional
-        Memory threshold in GB above which to use streaming. If ``None``
-        (default), an adaptive threshold (75% of total memory) is computed.
-    memory_fraction : float, optional
-        Fraction of total memory for the adaptive threshold (0.1-0.9). Only
-        used when ``memory_threshold_gb`` is ``None``.
-
-    Returns
-    -------
-    use_streaming : bool
-        Whether streaming should be used.
-    estimated_gb : float
-        Estimated peak memory in GB.
-    reason : str
-        Human-readable explanation of the decision.
-    """
-    try:
-        import psutil
-    except ImportError:
-        from xpcsjax.optimization.nlsq.memory import detect_total_system_memory
-
-        total_bytes = detect_total_system_memory()
-        if total_bytes is not None:
-            total_gb = total_bytes / (1024**3)
-            return (
-                False,
-                0.0,
-                f"psutil not available; system has {total_gb:.1f} GB",
-            )
-        return (False, 0.0, "psutil not available; system memory unknown")
-
-    # Compute adaptive threshold if not explicitly provided
-    if memory_threshold_gb is None:
-        memory_threshold_gb, threshold_info = get_adaptive_memory_threshold(
-            memory_fraction=memory_fraction
-        )
-        _memory_logger.debug(
-            f"_should_use_streaming using adaptive threshold: "
-            f"{memory_threshold_gb:.1f} GB ({threshold_info})"
-        )
-
-    # Get available system memory
-    mem = psutil.virtual_memory()
-    available_gb = mem.available / (1024**3)
-
-    # Estimate memory for stratified LS
-    estimated_bytes = estimate_memory_for_stratified_ls(n_points, n_params, n_chunks)
-    estimated_gb = estimated_bytes / (1024**3)
-
-    # Decision logic
-    # Use streaming if:
-    # 1. Estimated memory exceeds threshold, OR
-    # 2. Estimated memory exceeds 85% of available memory
-    #
-    # Note: Increased from 70% to 85% because non-streaming Levenberg-Marquardt
-    # is more accurate than streaming optimization. The 85% threshold allows
-    # more datasets to use the preferred non-streaming path.
-    use_streaming = False
-    reason = ""
-
-    if estimated_gb > memory_threshold_gb:
-        use_streaming = True
-        reason = (
-            f"Estimated memory ({estimated_gb:.1f} GB) exceeds "
-            f"threshold ({memory_threshold_gb:.1f} GB)"
-        )
-    elif estimated_gb > available_gb * 0.85:
-        use_streaming = True
-        reason = (
-            f"Estimated memory ({estimated_gb:.1f} GB) exceeds "
-            f"85% of available memory ({available_gb:.1f} GB available)"
-        )
-    else:
-        reason = (
-            f"Estimated memory ({estimated_gb:.1f} GB) within limits "
-            f"(threshold={memory_threshold_gb:.1f} GB, "
-            f"available={available_gb:.1f} GB)"
-        )
-
-    return use_streaming, estimated_gb, reason

@@ -18,7 +18,6 @@ Note: xpcsjax ships JAX-native NLSQ only.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 # Import submodules as attributes for hasattr() checks
 # These imports expose the submodule packages even if their contents fail to import
@@ -100,30 +99,3 @@ __all__ = [
     # Submodules
     "nlsq",
 ]
-
-
-def get_optimization_info() -> dict[str, Any]:
-    """Get information about available optimization methods.
-
-    Returns
-    -------
-    dict
-        Dictionary with availability status and recommendations
-    """
-    info: dict[str, Any] = {
-        "status": OPTIMIZATION_STATUS.copy(),
-        "primary_method": "nlsq" if NLSQ_AVAILABLE else None,
-        "recommendations": [],
-    }
-
-    if NLSQ_AVAILABLE:
-        info["recommendations"].append(
-            "Use fit_nlsq() for fast, reliable parameter estimation",
-        )
-
-    if not NLSQ_AVAILABLE:
-        info["recommendations"].append(
-            "Install NLSQ for optimization capabilities",
-        )
-
-    return info

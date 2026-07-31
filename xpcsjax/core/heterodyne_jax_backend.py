@@ -29,57 +29,17 @@ import numpy as np
 # homodyne ``physics_utils``): the two define same-named helpers with different
 # contracts (e.g. ``create_signed_integral_matrix`` here returns a *signed*
 # difference, while ``physics_utils.create_time_integral_matrix`` returns a
-# smooth-abs'd matrix). ``safe_exp`` is the shared canonical one re-exported
-# from ``math_primitives``.
+# smooth-abs'd matrix).
 from xpcsjax.core.heterodyne_physics_utils import (
     compute_transport_rate,
     compute_velocity_rate,
     create_signed_integral_matrix,
-    safe_exp,
     smooth_abs,
-    smooth_clip,
     trapezoid_cumsum,
 )
 
 if TYPE_CHECKING:
     pass
-
-
-@jax.jit
-def compute_fraction_jit(
-    t: jnp.ndarray,
-    f0: float,
-    f1: float,
-    f2: float,
-    f3: float,
-) -> jnp.ndarray:
-    """Compute the sample fraction (JIT-compiled).
-
-    Evaluates ``f_s(t) = f0 * exp(f1 * (t - f2)) + f3``, clipped to ``[0, 1]``.
-
-    Parameters
-    ----------
-    t : jnp.ndarray
-        Time array.
-    f0 : float
-        Amplitude.
-    f1 : float
-        Exponential rate.
-    f2 : float
-        Time shift.
-    f3 : float
-        Baseline.
-
-    Returns
-    -------
-    jnp.ndarray
-        Fraction array clipped to ``[0, 1]``.
-    """
-    # ``safe_exp`` + ``smooth_clip`` preserve gradient at the [0, 1] boundary
-    # so NLSQ Jacobian descent does not stall when f(t) saturates (CLAUDE.md
-    # rule #7 — gradient-safe floors).
-    fraction = f0 * safe_exp(f1 * (t - f2)) + f3
-    return smooth_clip(fraction, 0.0, 1.0)
 
 
 @jax.jit

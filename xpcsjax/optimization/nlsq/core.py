@@ -1276,34 +1276,6 @@ def _params_to_array(params: dict[str, float], analysis_mode: AnalysisMode) -> j
         )
 
 
-def _array_to_params(array: jnp.ndarray, analysis_mode: AnalysisMode) -> dict[str, Any]:
-    """Convert parameter array to dictionary.
-
-    Returns JAX arrays as-is to avoid tracing issues.
-    Conversion to Python floats should only happen at the final step.
-    """
-    if "static" in analysis_mode.lower():
-        return {
-            "contrast": array[0],
-            "offset": array[1],
-            "D0": array[2],
-            "alpha": array[3],
-            "D_offset": array[4],
-        }
-    else:
-        return {
-            "contrast": array[0],
-            "offset": array[1],
-            "D0": array[2],
-            "alpha": array[3],
-            "D_offset": array[4],
-            "gamma_dot_t0": array[5],
-            "beta": array[6],
-            "gamma_dot_t_offset": array[7],
-            "phi0": array[8],
-        }
-
-
 def _bounds_to_arrays(
     bounds: dict[str, tuple[float, float]],
     analysis_mode: AnalysisMode,
@@ -1328,44 +1300,6 @@ def _bounds_to_arrays(
     upper = jnp.array([bounds[key][1] for key in param_order])
 
     return lower, upper
-
-
-def _get_optimizer_config(config: ConfigManager) -> dict[str, Any]:
-    """Get NLSQ optimizer configuration from config."""
-    default_config = {
-        "method": "levenberg_marquardt",
-        "max_iterations": 10000,
-        "tolerance": 1e-8,
-        "verbose": False,
-    }
-
-    if hasattr(config, "config") and config.config:
-        lsq_config = config.config.get("optimization", {}).get("lsq", {})
-        default_config.update(lsq_config)
-
-    return default_config
-
-
-def _check_convergence(result: Any) -> bool:
-    """Check if NLSQ optimization converged."""
-    return getattr(result, "success", False)
-
-
-def _get_optimization_message(result: Any) -> str:
-    """Get optimization status message from NLSQ result."""
-    if hasattr(result, "result_flag") and result.result_flag is not None:
-        return str(result.result_flag)
-    elif result.success:
-        return "Optimization converged successfully"
-    else:
-        return "Optimization failed to converge"
-
-
-def _get_iteration_count(result: Any) -> int:
-    """Get iteration count from NLSQ result."""
-    if hasattr(result, "stats") and "num_steps" in result.stats:
-        return int(result.stats["num_steps"])
-    return 0
 
 
 # =============================================================================

@@ -84,12 +84,6 @@ except ImportError:
     jax_available = False
     jnp: types.ModuleType = np  # type: ignore[no-redef]
 
-    def device_put(x: Any) -> Any:  # type: ignore[misc]
-        return x
-
-    def device_get(x: Any) -> Any:
-        return x
-
 
 # V2 system integration - import types from types.py to avoid circular imports
 try:

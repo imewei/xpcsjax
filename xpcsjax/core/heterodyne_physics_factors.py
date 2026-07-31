@@ -7,12 +7,8 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-from xpcsjax.utils.logging import get_logger
-
 if TYPE_CHECKING:
     pass
-
-logger = get_logger(__name__)
 
 
 @dataclass
@@ -121,110 +117,4 @@ def create_physics_factors(
         dt=float(dt),
         n_times=n_times,
         phi_angle=float(phi_angle),
-    )
-
-
-def create_physics_factors_from_config(config: dict) -> PhysicsFactors:
-    """Create physics factors from configuration dictionary.
-
-    Reads from ``analyzer_parameters`` (canonical) with fallback to legacy
-    ``temporal`` / ``scattering`` top-level sections for backwards
-    compatibility.
-
-    Parameters
-    ----------
-    config : dict
-        Configuration with ``analyzer_parameters`` or legacy ``temporal`` /
-        ``scattering`` sections.
-
-    Returns
-    -------
-    PhysicsFactors
-        A populated physics-factors instance (``phi_angle`` is set per fit).
-    """
-    ap = config.get("analyzer_parameters", {})
-    temporal = config.get("temporal", {})
-    scattering = config.get("scattering", {})
-
-    # Prefer analyzer_parameters; fall back to legacy sections
-    dt = float(ap.get("dt", temporal.get("dt", 1.0)))
-
-    if "start_frame" in ap:
-        start_frame = int(ap["start_frame"])
-        end_frame = int(ap["end_frame"])
-        n_times = end_frame - start_frame + 1
-        t_start = dt  # relative time within window: first usable frame at 1×dt
-    else:
-        n_times = int(temporal.get("time_length", 1000))
-        t_start = float(temporal.get("t_start", dt))
-
-    ap_scat = ap.get("scattering", {})
-    q = float(ap_scat.get("wavevector_q", scattering.get("wavevector_q", 0.01)))
-
-    logger.debug(
-        "Physics factors: n_times=%d, dt=%.4e, q=%.4f, t_start=%.4e",
-        n_times,
-        dt,
-        q,
-        float(t_start),
-    )
-    return create_physics_factors(
-        n_times=n_times,
-        dt=dt,
-        q=q,
-        phi_angle=0.0,  # Set per-fit
-        t_start=float(t_start),
-    )
-
-
-@dataclass
-class CachedMatrices:
-    """Cached matrices that depend only on the time grid.
-
-    These are expensive to recompute and do not change during fitting.
-
-    Attributes
-    ----------
-    time_diff : jnp.ndarray
-        Absolute time-difference matrix ``|t1 - t2|``.
-    mean_time : jnp.ndarray
-        Mean-time (age) matrix ``(t1 + t2) / 2``.
-    triu_indices : tuple of jnp.ndarray
-        Upper-triangular index arrays.
-    tril_indices : tuple of jnp.ndarray
-        Lower-triangular index arrays.
-    """
-
-    # Time difference matrix: |t1 - t2|
-    time_diff: jnp.ndarray
-
-    # Age matrix: (t1 + t2) / 2
-    mean_time: jnp.ndarray
-
-    # Indices for upper/lower triangular
-    triu_indices: tuple[jnp.ndarray, jnp.ndarray]
-    tril_indices: tuple[jnp.ndarray, jnp.ndarray]
-
-
-def create_cached_matrices(factors: PhysicsFactors) -> CachedMatrices:
-    """Create cached matrices from physics factors.
-
-    Parameters
-    ----------
-    factors : PhysicsFactors
-        Source physics-factors instance providing the time grid.
-
-    Returns
-    -------
-    CachedMatrices
-        Cached time-difference, mean-time, and triangular-index arrays.
-    """
-    t1, t2 = jnp.meshgrid(factors.t, factors.t, indexing="ij")
-    n = factors.n_times
-
-    return CachedMatrices(
-        time_diff=jnp.abs(t1 - t2),
-        mean_time=(t1 + t2) / 2,
-        triu_indices=jnp.triu_indices(n),
-        tril_indices=jnp.tril_indices(n),
     )
