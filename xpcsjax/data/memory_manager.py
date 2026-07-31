@@ -59,12 +59,6 @@ except ImportError:
     HAS_JAX = False
     jnp = np  # type: ignore[misc]
 
-    def device_put(x):  # type: ignore[no-untyped-def, misc]
-        return x
-
-    def device_get(x):  # type: ignore[no-untyped-def]
-        return x
-
 
 # V2 system integration
 try:

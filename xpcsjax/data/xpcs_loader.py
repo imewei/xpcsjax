@@ -1793,47 +1793,6 @@ class XPCSDataLoader:
 
         return c2_full  # type: ignore[no-any-return]
 
-    def _correct_diagonal(self, c2_mat: NDArray) -> NDArray:
-        """Apply diagonal correction to correlation matrix.
-
-        .. deprecated::
-            Use :func:`xpcsjax.core.diagonal_correction.apply_diagonal_correction`
-            instead. This method is kept for backward compatibility only.
-
-        Based on pyXPCSViewer's correct_diagonal_c2 function.
-        Handles both JAX and NumPy arrays.
-        """
-        if not HAS_NUMPY:
-            raise RuntimeError("NumPy is required for diagonal correction")
-        size = c2_mat.shape[0]
-        side_band = c2_mat[(np.arange(size - 1), np.arange(1, size))]
-
-        # Create diagonal values using the same array type as input
-        if _is_jax_array(c2_mat):  # JAX array
-            diag_val = jnp.zeros(size, dtype=c2_mat.dtype)
-            diag_val = diag_val.at[:-1].add(side_band)
-            diag_val = diag_val.at[1:].add(side_band)
-            norm = jnp.ones(size, dtype=c2_mat.dtype)
-            norm = norm.at[1:-1].set(2)
-            # Update diagonal using JAX immutable operations
-            diag_indices = np.diag_indices(size)
-            c2_corrected = c2_mat.at[diag_indices].set(diag_val / norm)  # type: ignore
-            return c2_corrected  # type: ignore
-        else:  # NumPy array
-            diag_val = np.zeros(size)
-            diag_val[:-1] += side_band
-            diag_val[1:] += side_band
-            norm = np.ones(size)
-            norm[1:-1] = 2
-            # Only copy if array is read-only (e.g., from mmap)
-            if not c2_mat.flags.writeable:
-                c2_corrected = c2_mat.copy()
-            else:
-                c2_corrected = c2_mat
-            # Use fill_diagonal for efficient in-place update
-            np.fill_diagonal(c2_corrected, diag_val / norm)
-            return c2_corrected
-
     # Performance Optimization (Spec 006 - FR-006, FR-006a): Batch diagonal correction
     def _correct_diagonal_batch(self, c2_matrices: NDArray) -> NDArray:
         """Apply diagonal correction to all matrices in a batch.
