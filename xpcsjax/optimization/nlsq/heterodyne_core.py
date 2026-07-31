@@ -672,6 +672,18 @@ def _aggregate_individual_results(
             # and recompute from raw residuals; do not conflate the two.)
             chi2_values.append(2.0 * float(r.final_cost))
         else:
+            # Neither ``fitted_correlation`` nor ``final_cost`` is set -- this
+            # angle contributes 0.0 to the SSR numerator while its data points
+            # still count in the ``n_data_total`` denominator below, silently
+            # deflating the aggregate ``reduced_chi2``. Surface it: a result
+            # this incomplete should not pass unnoticed, especially since
+            # ``reduced_chi2`` now feeds ``classify_quality_flag`` directly.
+            logger.warning(
+                "_aggregate_individual_results: angle %d has neither "
+                "fitted_correlation nor final_cost; contributing 0.0 SSR "
+                "(reduced_chi2 for this aggregate will be understated)",
+                i,
+            )
             chi2_values.append(0.0)
     chi2_per_angle = np.asarray(chi2_values, dtype=np.float64)
     ssr = float(chi2_per_angle.sum())
@@ -687,8 +699,21 @@ def _aggregate_individual_results(
         n_data_total = n_phi_c2 * max(n_time_c2 - 1, 0) * max(n_time_c2 - 2, 0)
     else:
         n_data_total = int(c2_arr.size)
-    dof = max(n_data_total - total_dim, 1)
-    reduced_chi2 = ssr / dof
+
+    # Noise-normalised reduced chi^2 (targets ~1.0), matching every sibling
+    # path (``_fit_local``, the joint averaged/constant builders, and the
+    # engine route). Raw ``SSR / dof`` collapses to MSE << 1 on normalised
+    # C2 data and is not an interpretable goodness-of-fit on its own.
+    from xpcsjax.optimization.nlsq.heterodyne_data_prep import (
+        noise_normalized_reduced_chi2,
+    )
+
+    reduced_chi2 = noise_normalized_reduced_chi2(
+        ssr=ssr,
+        c2_data=c2_arr,
+        n_data_valid=n_data_total,
+        n_params=total_dim,
+    )
 
     # ------------------------------------------------------------------
     # Convergence + quality

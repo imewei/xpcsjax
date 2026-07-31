@@ -1386,7 +1386,12 @@ def _generate_plots_datashader(
                 n_workers,
             )
             return
-        except Exception as e:
+        except (OSError, RuntimeError, multiprocessing.TimeoutError) as e:
+            # NOTE: this module only ``import multiprocessing`` (no
+            # ``from multiprocessing import TimeoutError``), so the bare
+            # ``TimeoutError`` this docstring names is
+            # ``multiprocessing.TimeoutError`` (what ``ar.get(timeout=...)``
+            # actually raises) -- NOT the unrelated builtin ``TimeoutError``.
             logger.warning(
                 "Parallel Datashader rendering failed (%s: %s); sequential fallback.",
                 type(e).__name__,
@@ -1803,7 +1808,11 @@ def generate_nlsq_plots(
                     len(args_list),
                     n_workers,
                 )
-            except Exception as e:
+            except (OSError, RuntimeError, multiprocessing.TimeoutError) as e:
+                # See _generate_plots_datashader's mirror block: the
+                # ``multiprocessing.TimeoutError`` ``ar.get(timeout=...)``
+                # raises is a distinct class from the unrelated builtin
+                # ``TimeoutError`` -- this module never shadows the name.
                 logger.warning(
                     "Parallel rendering failed (%s: %s); sequential fallback.",
                     type(e).__name__,

@@ -79,6 +79,28 @@ def test_execute_layers_on_individual_runs_hierarchical():
     assert len(res.parameters) == n_physics + 2 * len(phi)
 
 
+def test_execute_layers_l2_with_duplicate_phi_uses_deduplicated_count():
+    """Debug-audit fix: the L2/L3 escape must index the joint
+    ``[scaling | physics]`` vector using the DEDUPLICATED angle count, not
+    the raw (duplicate-inclusive) ``len(phi)``. A duplicate phi value used
+    to risk over-slicing past the scaling-block length."""
+    model, c2, phi = make_synthetic_two_component(n_phi=4, n_t=20)
+    phi = phi.copy()
+    phi[-1] = phi[0]  # raw n_phi=4, deduplicated n_phi=3
+    cfg = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "individual",
+            "execute_layers": True,
+            "enable_hierarchical": True,
+            "hierarchical_max_outer_iterations": 2,
+        }
+    )
+    res = _fit(model, c2, phi, cfg)
+    assert res.nlsq_diagnostics["hierarchical_active"] is True
+    assert np.isfinite(res.chi_squared)
+
+
 def test_execute_layers_honors_hierarchical_budget():
     """The L2 branch honors the config outer-iteration budget (review Fix 2/3)."""
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)

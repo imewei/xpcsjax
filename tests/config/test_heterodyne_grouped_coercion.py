@@ -89,3 +89,38 @@ def test_initial_parameters_flat_format_rejects_nan():
     }
     with pytest.raises(ValueError, match="non-finite"):
         ParameterSpace.from_config(config)
+
+
+# --- Debug-audit fix: grouped-format ingestion now applies
+# _INBOUND_NAME_ALIAS (v_beta -> beta, phi0_het -> phi0), matching the flat
+# initial_parameters / list-format bounds / tied_parameters paths that
+# already did. Before the fix, using the public template names in grouped
+# format raised "Unknown parameter key" -- a hard rejection of a documented,
+# user-facing config shape. ------------------------------------------------
+
+
+def test_grouped_format_accepts_public_velocity_alias():
+    config = {"parameters": {"velocity": {"v_beta": {"value": "1.5", "vary": True}}}}
+    space = ParameterSpace.from_config(config)
+    assert space.values["beta"] == 1.5
+
+
+def test_grouped_format_accepts_public_angle_alias():
+    config = {"parameters": {"angle": {"phi0_het": {"value": "12.0", "vary": True}}}}
+    space = ParameterSpace.from_config(config)
+    assert space.values["phi0"] == 12.0
+
+
+def test_grouped_format_rejects_alias_and_canonical_collision():
+    """A config specifying both spellings of the same parameter must raise,
+    not silently drop one (last-key-wins would hide a real config bug)."""
+    config = {
+        "parameters": {
+            "velocity": {
+                "beta": {"value": "1.0"},
+                "v_beta": {"value": "2.0"},
+            }
+        }
+    }
+    with pytest.raises(ValueError, match="both an alias and its canonical name"):
+        ParameterSpace.from_config(config)

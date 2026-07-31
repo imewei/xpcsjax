@@ -147,7 +147,8 @@ def test_build_from_arrays_with_and_without_jacobian() -> None:
     residuals = np.array([0.5, 0.5, 0.5])
     res = rb.build_result_from_arrays(params, ["a", "b"], residuals, n_data=50)
     assert res.covariance is None
-    assert res.final_cost == pytest.approx(0.75)
+    # final_cost = 0.5 * SSR (SSR = 0.5**2 * 3 = 0.75)
+    assert res.final_cost == pytest.approx(0.375)
     assert res.reduced_chi_squared == pytest.approx(0.75 / 48)
 
     res2 = rb.build_result_from_arrays(
@@ -177,7 +178,8 @@ def test_build_from_nlsq_dict() -> None:
     )
     assert res.uncertainties is not None
     assert res.n_iterations == 4
-    assert res.final_cost == pytest.approx(0.02)
+    # final_cost = 0.5 * SSR (SSR = 0.1**2 + 0.1**2 = 0.02)
+    assert res.final_cost == pytest.approx(0.01)
 
 
 def test_build_from_nlsq_dict_missing_keys_raises() -> None:
@@ -219,7 +221,8 @@ def test_build_from_nlsq_object() -> None:
     res = rb.build_result_from_nlsq(obj, ["a", "b"], n_data=30)
     assert res.uncertainties is not None
     assert res.n_function_evals == 5
-    assert res.final_cost == pytest.approx(0.08)
+    # final_cost = 0.5 * SSR (SSR = 0.2**2 + 0.2**2 = 0.08)
+    assert res.final_cost == pytest.approx(0.04)
 
 
 def test_build_from_nlsq_plain_object_attributes() -> None:
@@ -242,7 +245,8 @@ def test_build_from_nlsq_plain_object_attributes() -> None:
     assert res.uncertainties is not None
     assert res.n_function_evals == 8
     assert res.metadata["extra"] == 1
-    assert res.final_cost == pytest.approx(0.25)
+    # final_cost = 0.5 * SSR (SSR = 0.3**2 + 0.4**2 = 0.25)
+    assert res.final_cost == pytest.approx(0.125)
 
 
 def test_build_from_nlsq_object_missing_popt_raises() -> None:

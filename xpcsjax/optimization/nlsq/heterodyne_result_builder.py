@@ -67,9 +67,12 @@ def build_result_from_scipy(
 
     # Reduced chi-squared
     residuals = np.asarray(opt_result.fun, dtype=np.float64)
-    cost = float(np.sum(residuals**2))
+    ssr = float(np.sum(residuals**2))
+    # final_cost = 0.5 * SSR matches build_result_from_nlsq's documented
+    # convention (see that function for the full rationale).
+    cost = 0.5 * ssr
     dof = compute_degrees_of_freedom(n_data, n_params)
-    reduced_chi2 = cost / dof
+    reduced_chi2 = ssr / dof
 
     # Map scipy status to success
     success = opt_result.status > 0 if hasattr(opt_result, "status") else opt_result.success
@@ -159,9 +162,12 @@ def build_result_from_arrays(
         if covariance is not None:
             uncertainties = np.sqrt(np.diag(np.abs(covariance)))
 
-    cost = float(np.sum(residuals**2))
+    ssr = float(np.sum(residuals**2))
+    # final_cost = 0.5 * SSR matches build_result_from_nlsq's documented
+    # convention (see that function for the full rationale).
+    cost = 0.5 * ssr
     dof = compute_degrees_of_freedom(n_data, n_params)
-    reduced_chi2 = cost / dof
+    reduced_chi2 = ssr / dof
 
     return NLSQResult(
         parameters=params,
@@ -337,9 +343,13 @@ def build_result_from_nlsq(
     final_cost: float | None = None
     reduced_chi2: float | None = None
     if residuals is not None:
-        final_cost = float(np.sum(residuals**2))
+        ssr = float(np.sum(residuals**2))
+        # final_cost = 0.5 * SSR matches the codebase's documented NLSQ
+        # least-squares convention (see heterodyne_core.py's _fit_local /
+        # _fit_cmaes, which recover SSR via ``2.0 * result.final_cost``).
+        final_cost = 0.5 * ssr
         dof = compute_degrees_of_freedom(n_data, n_params)
-        reduced_chi2 = final_cost / dof
+        reduced_chi2 = ssr / dof
 
     return NLSQResult(
         parameters=popt,

@@ -370,7 +370,27 @@ class ParameterSpace:
             )
 
         for group_name, param_names in group_map.items():
-            group_config = params_config.get(group_name, {})
+            # Translate public template names (v_beta, phi0_het) to internal
+            # kernel names, mirroring the flat ``initial_parameters``,
+            # list-format ``parameter_space.bounds``, and ``tied_parameters``
+            # ingestion paths elsewhere in this module. Unlike those paths
+            # (which silently last-wins on a collision), fail loudly here:
+            # before this alias translation existed, specifying an alias
+            # (e.g. v_beta) in grouped format was a hard ValueError, so a
+            # config supplying both spellings of the same parameter was
+            # structurally impossible -- don't let this fix silently start
+            # dropping one of them.
+            raw_group_config = params_config.get(group_name, {})
+            group_config: dict[str, Any] = {}
+            for k, v in raw_group_config.items():
+                canon = _INBOUND_NAME_ALIAS.get(k, k)
+                if canon in group_config:
+                    raise ValueError(
+                        f"parameters.{group_name} specifies both an alias and its "
+                        f"canonical name for '{canon}' (keys: {sorted(raw_group_config)}); "
+                        "remove the duplicate."
+                    )
+                group_config[canon] = v
 
             # Check for unknown keys in this group
             known_params = set(param_names)
