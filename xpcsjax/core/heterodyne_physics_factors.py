@@ -7,12 +7,8 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-from xpcsjax.utils.logging import get_logger
-
 if TYPE_CHECKING:
     pass
-
-logger = get_logger(__name__)
 
 
 @dataclass

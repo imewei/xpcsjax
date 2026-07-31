@@ -29,8 +29,7 @@ import numpy as np
 # homodyne ``physics_utils``): the two define same-named helpers with different
 # contracts (e.g. ``create_signed_integral_matrix`` here returns a *signed*
 # difference, while ``physics_utils.create_time_integral_matrix`` returns a
-# smooth-abs'd matrix). ``safe_exp`` is the shared canonical one re-exported
-# from ``math_primitives``.
+# smooth-abs'd matrix).
 from xpcsjax.core.heterodyne_physics_utils import (
     compute_transport_rate,
     compute_velocity_rate,

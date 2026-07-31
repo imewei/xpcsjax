@@ -27,8 +27,7 @@ PER_ANGLE_SCALING_REMOVED_MSG = (
 class NLSQAdapterBase(ABC):
     """Abstract base class for NLSQ optimization adapters.
 
-    Provides shared methods for data preparation, validation, result building,
-    error handling, bounds setup, and covariance computation.
+    Provides shared methods for data preparation and covariance computation.
 
     Subclasses must implement the `fit()` method.
     """

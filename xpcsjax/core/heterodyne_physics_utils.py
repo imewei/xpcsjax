@@ -1,8 +1,6 @@
-"""Numerically safe mathematical primitives for heterodyne physics.
+"""Heterodyne physics helper functions for NLSQ integral/rate/matrix computations.
 
-All functions are designed to be compatible with both NumPy and JAX
-arrays, avoiding NaN/Inf from edge cases (division by zero,
-overflow in exp, negative bases in power).
+All functions are designed to be compatible with both NumPy and JAX arrays.
 
 Shared utilities used by the NLSQ meshgrid path:
 - ``trapezoid_cumsum``: O(dt²) cumulative integral (dt folded IN — differs from

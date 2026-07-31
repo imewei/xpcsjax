@@ -1,13 +1,7 @@
 """Progress bar and logging callbacks for NLSQ optimization.
 
-This module provides progress tracking for NLSQ fitting operations,
-integrating with the NLSQ package's callback system.
-
 Features:
-- tqdm progress bar for fitting operations
-- Iteration logging with configurable interval
 - Multi-start progress tracking
-- Streaming optimization progress
 
 Part of the homodyne architecture.
 """
@@ -15,71 +9,11 @@ Part of the homodyne architecture.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from xpcsjax.utils.logging import get_logger
 
-if TYPE_CHECKING:
-    from xpcsjax.optimization.nlsq.config import NLSQConfig
-
 logger = get_logger(__name__)
-
-
-@dataclass
-class ProgressConfig:
-    """Configuration for progress tracking.
-
-    Attributes
-    ----------
-    enable_progress_bar : bool
-        Whether to show tqdm progress bar.
-    verbose : int
-        Verbosity level: 0=quiet, 1=normal, 2=detailed.
-    log_interval : int
-        Log every N iterations when verbose >= 2.
-    max_nfev : int
-        Maximum function evaluations (for progress bar total).
-    description : str
-        Description for progress bar.
-    """
-
-    enable_progress_bar: bool = True
-    verbose: int = 1
-    log_interval: int = 10
-    max_nfev: int = 1000
-    description: str = "NLSQ Fitting"
-
-    @classmethod
-    def from_nlsq_config(
-        cls,
-        nlsq_config: NLSQConfig,
-        max_nfev: int | None = None,
-        description: str = "NLSQ Fitting",
-    ) -> ProgressConfig:
-        """Create ProgressConfig from NLSQConfig.
-
-        Parameters
-        ----------
-        nlsq_config : NLSQConfig
-            NLSQ configuration object.
-        max_nfev : int, optional
-            Max function evaluations. Uses nlsq_config.max_iterations if None.
-        description : str
-            Description for progress bar.
-
-        Returns
-        -------
-        ProgressConfig
-            Progress configuration.
-        """
-        return cls(
-            enable_progress_bar=nlsq_config.enable_progress_bar,
-            verbose=nlsq_config.verbose,
-            log_interval=nlsq_config.log_iteration_interval,
-            max_nfev=max_nfev or nlsq_config.max_iterations,
-            description=description,
-        )
 
 
 class MultiStartProgressTracker:

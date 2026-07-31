@@ -5,8 +5,6 @@ Extracted from wrapper.py to reduce file size and improve maintainability.
 This module provides:
 - Hybrid streaming optimizer (L-BFGS warmup + Gauss-Newton refinement)
 - Stratified hybrid streaming with anti-degeneracy defense
-- Memory estimation and streaming decision logic
-- Deprecated streaming optimizer stubs
 """
 
 from __future__ import annotations
@@ -2095,53 +2093,3 @@ def fit_with_stratified_hybrid_streaming(
             }
 
     return popt, pcov, info
-
-
-def estimate_memory_for_stratified_ls(
-    n_points: int,
-    n_params: int,
-    n_chunks: int,
-) -> float:
-    """Estimate peak memory usage for stratified least-squares optimization.
-
-    The main memory consumers are:
-    1. Padded arrays: n_chunks × max_chunk_size × 5 arrays × 8 bytes
-    2. Dense Jacobian: n_points × n_params × 8 bytes
-    3. JAX autodiff intermediates: ~3× Jacobian size for backprop
-    4. JAX compilation cache: ~5-10 GB
-
-    Parameters
-    ----------
-    n_points : int
-        Total number of data points.
-    n_params : int
-        Number of parameters.
-    n_chunks : int
-        Number of stratified chunks.
-
-    Returns
-    -------
-    float
-        Estimated peak memory in bytes.
-    """
-    bytes_per_float = 8
-
-    # Padded arrays (5 arrays: phi, t1, t2, g2, mask)
-    max_chunk_size = (n_points + n_chunks - 1) // n_chunks
-    padded_arrays = n_chunks * max_chunk_size * 5 * bytes_per_float
-
-    # Dense Jacobian
-    jacobian = n_points * n_params * bytes_per_float
-
-    # JAX autodiff intermediates (keep all grids for backprop)
-    # This is the main memory killer - originally estimated at 3× Jacobian
-    # but empirical testing shows 5× is more accurate for large datasets
-    # (C020 dataset: estimated 44.9 GB at 3×, actual ~60 GB at 96% pressure)
-    autodiff_intermediates = jacobian * 5
-
-    # JAX compilation cache
-    jax_cache = 5 * 1e9  # ~5 GB
-
-    total = padded_arrays + jacobian + autodiff_intermediates + jax_cache
-
-    return total
