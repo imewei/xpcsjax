@@ -125,7 +125,16 @@ def _dispatch_fit(
         log_exception(logger, exc, context={"command": "load_data"})
         raise
 
-    phi_angles = resolve_phi_angles(args, cfg_manager)
+    try:
+        phi_angles = resolve_phi_angles(args, cfg_manager)
+    except ValueError as exc:
+        # This is purely an informational log below (the actual fit does not
+        # consume phi_angles from this call) — a malformed --phi-angles value
+        # already produces a non-fatal validate_args() warning, so mirror that
+        # non-fatal handling here instead of aborting the whole run just to
+        # skip printing one log line.
+        logger.warning("Could not resolve phi angles for logging: %s", exc)
+        phi_angles = None
     if phi_angles is not None:
         logger.info("Analyzing %d phi angle(s): %s", len(phi_angles), phi_angles)
 

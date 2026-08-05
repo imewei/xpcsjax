@@ -15,9 +15,12 @@ from xpcsjax.core.heterodyne_jax_backend import compute_c2_heterodyne, compute_r
 from xpcsjax.core.heterodyne_models import TwoComponentModel
 from xpcsjax.core.heterodyne_physics_factors import PhysicsFactors, create_physics_factors
 from xpcsjax.core.heterodyne_scaling_utils import PerAngleScaling, ScalingConfig
+from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
     pass
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -81,6 +84,14 @@ class HeterodyneModel:
         temporal = config.get("temporal", {})
         scattering = config.get("scattering", {})
 
+        if "dt" not in ap and "dt" not in temporal:
+            logger.warning(
+                "HeterodyneModel.from_config: 'dt' missing from both "
+                "analyzer_parameters and temporal config; defaulting to 1.0s. "
+                "This is almost certainly wrong for real XPCS data (typical "
+                "dt is 1e-3 to 1e-6 s) and will silently produce a fit with "
+                "the wrong time axis."
+            )
         dt = float(ap.get("dt", temporal.get("dt", 1.0)))
 
         if "start_frame" in ap:
@@ -89,10 +100,23 @@ class HeterodyneModel:
             n_times = end_frame - start_frame + 1
             t_start = dt  # relative time within window: first usable frame at 1×dt
         else:
+            if "time_length" not in temporal:
+                logger.warning(
+                    "HeterodyneModel.from_config: 'time_length' missing from "
+                    "temporal config; defaulting to 1000. Verify this matches "
+                    "the actual number of time points in the loaded data."
+                )
             n_times = int(temporal.get("time_length", 1000))
             t_start = float(temporal.get("t_start", dt))
 
         ap_scat = ap.get("scattering", {})
+        if "wavevector_q" not in ap_scat and "wavevector_q" not in scattering:
+            logger.warning(
+                "HeterodyneModel.from_config: 'wavevector_q' missing from "
+                "analyzer_parameters.scattering and scattering config; "
+                "defaulting to 0.01 A^-1. This is a physics parameter — "
+                "verify it matches the actual q-value for this data."
+            )
         q = float(ap_scat.get("wavevector_q", scattering.get("wavevector_q", 0.01)))
 
         factors = create_physics_factors(

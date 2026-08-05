@@ -94,6 +94,10 @@ def apply_overrides(config_manager: ConfigManager, overrides: FitOverrides) -> N
     """
     cfg = config_manager.config
     if not isinstance(cfg, dict):
+        logger.warning(
+            "config_manager.config is not a dict (%s); CLI overrides skipped.",
+            type(cfg).__name__,
+        )
         return
 
     if overrides.multistart is not None:
