@@ -240,17 +240,20 @@ _HDF5_RDCC_NBYTES: int = _HDF5_RDCC_N_MATRICES * _HDF5_RDCC_MATRIX_BYTES  # 96 M
 _HDF5_RDCC_NSLOTS: int = 6257  # prime; ≥ 100 × _HDF5_RDCC_N_MATRICES
 _HDF5_RDCC_W0: float = 0.75  # prefer evicting chunks not likely to be re-read
 
-# Regex to detect old str.format()-style placeholders: {var} or {var:.4f}
-_OLD_FORMAT_RE = re.compile(r"\{(\w+)(?::[^}]*)?\}")
+# Regex to detect old str.format()-style placeholders: {var} or {var:.4f}.
+# Negative lookbehind excludes ${var}, which is already valid Template syntax.
+_OLD_FORMAT_RE = re.compile(r"(?<!\$)\{(\w+)(?::[^}]*)?\}")
 
 
 def _migrate_cache_template(template: str) -> str:
     """Auto-convert old {var} format templates to ${var} syntax.
 
-    Returns the template unchanged if it already uses $ syntax.
-    Logs a warning on first migration.
+    Returns the template unchanged if it has no bare {var} placeholders
+    (including templates that already use $ syntax throughout).
+    Logs a warning on first migration. Handles templates that mix ${var}
+    and {var} syntax by migrating only the bare {var} placeholders.
     """
-    if "$" not in template and _OLD_FORMAT_RE.search(template):
+    if _OLD_FORMAT_RE.search(template):
         migrated = _OLD_FORMAT_RE.sub(r"${\1}", template)
         logger.warning(
             "Cache template uses deprecated {var} format; auto-migrated to ${var}. "

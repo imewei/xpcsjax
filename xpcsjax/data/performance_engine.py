@@ -36,7 +36,7 @@ import time
 import types
 from collections import OrderedDict, deque
 from collections.abc import Callable, Iterator
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed, wait
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -349,18 +349,25 @@ class MemoryMapManager:
                 logger.warning(f"Error closing memory mapping {file_path}: {e}")
 
     def close_all(self) -> None:
-        """Close all memory mappings."""
+        """Close all memory mappings not currently checked out by a reader."""
         with self._lock:
             for file_path, hdf_file in list(self._open_maps.items()):
+                if self._in_use.get(file_path):
+                    logger.warning(f"Skipping close of in-use memory mapping: {file_path}")
+                    continue
                 try:
                     hdf_file.close()
                 except OSError as e:
                     logger.warning(f"Error closing {file_path}: {e}")
 
-            self._open_maps.clear()
-            self._access_counts.clear()
-            self._last_access.clear()
-            logger.info("All memory mappings closed")
+                del self._open_maps[file_path]
+                self._access_counts.pop(file_path, None)
+                self._last_access.pop(file_path, None)
+
+            if self._open_maps:
+                logger.info(f"Closed memory mappings; {len(self._open_maps)} still in use")
+            else:
+                logger.info("All memory mappings closed")
 
 
 class AdaptiveChunker:
@@ -873,12 +880,14 @@ class MultiLevelCache:
             old_size_mb = ssd_path.stat().st_size / (1024 * 1024) if ssd_path.exists() else 0.0
             item_size_mb = self._save_to_disk(ssd_path, item)
 
-            # Update usage tracking
-            self._ssd_usage_mb += item_size_mb - old_size_mb
-
-            # Clean up if over limit
-            while self._ssd_usage_mb > self.ssd_cache_mb:
-                self._evict_from_ssd()
+            # Usage counter update + eviction decision must be atomic, or
+            # concurrent put() calls race on the += / -= read-modify-write and
+            # the tracked usage drifts below the real on-disk total, silently
+            # disabling eviction.
+            with self._lock:
+                self._ssd_usage_mb += item_size_mb - old_size_mb
+                while self._ssd_usage_mb > self.ssd_cache_mb:
+                    self._evict_from_ssd()
 
         except (OSError, ValueError) as e:
             logger.warning(f"Failed to cache to SSD {key}: {e}")
@@ -899,12 +908,11 @@ class MultiLevelCache:
             old_size_mb = hdd_path.stat().st_size / (1024 * 1024) if hdd_path.exists() else 0.0
             item_size_mb = self._save_to_disk(hdd_path, item)
 
-            # Update usage tracking
-            self._hdd_usage_mb += item_size_mb - old_size_mb
-
-            # Clean up if over limit
-            while self._hdd_usage_mb > self.hdd_cache_mb:
-                self._evict_from_hdd()
+            # See _put_ssd: keep the counter update + eviction atomic.
+            with self._lock:
+                self._hdd_usage_mb += item_size_mb - old_size_mb
+                while self._hdd_usage_mb > self.hdd_cache_mb:
+                    self._evict_from_hdd()
 
         except (OSError, ValueError) as e:
             logger.warning(f"Failed to cache to HDD {key}: {e}")
@@ -1654,6 +1662,14 @@ class PerformanceEngine:
                 logger.error(f"Chunk {chunk.index} failed: {e}")
                 # Update chunker with failure
                 self.chunker.update_performance_feedback(chunk, 0.0, success=False)
+                # Drain sibling futures before propagating: raising here unwinds
+                # the caller's open_memory_mapped_hdf5 `with` block, which would
+                # otherwise release the checkout (and allow the handle to be
+                # closed/evicted) while other executor threads are still reading
+                # from the same shared hdf_file.
+                for sibling in future_to_chunk:
+                    sibling.cancel()
+                wait(future_to_chunk)
                 raise
 
         all_matrices: list[Any] = []

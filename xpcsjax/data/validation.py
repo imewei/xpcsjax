@@ -276,16 +276,23 @@ def _validate_data_integrity(data: dict[str, Any], report: DataQualityReport) ->
             # Convert to numpy for validation
             arr = np.asarray(value)
 
-            # Check for non-finite values
-            if not np.all(np.isfinite(arr)):
-                non_finite_count = np.sum(~np.isfinite(arr))
+            # Check for non-finite values. wavevector_q_list tolerates NaN
+            # (legitimate bad-pixel masking, one entry per (q, phi) pair, per
+            # xpcs_loader.py::_validate_loaded_arrays) but still rejects inf.
+            if key == "wavevector_q_list":
+                has_bad = np.isinf(arr).any()
+                bad_count = np.sum(np.isinf(arr))
+            else:
+                has_bad = not np.all(np.isfinite(arr))
+                bad_count = np.sum(~np.isfinite(arr))
+            if has_bad:
                 report.add_issue(
                     ValidationIssue(
                         severity="error",
                         category="data_quality",
-                        message=f"Non-finite values found in {key}: {non_finite_count} values",
+                        message=f"Non-finite values found in {key}: {bad_count} values",
                         parameter=key,
-                        value=non_finite_count,
+                        value=bad_count,
                         recommendation="Check data preprocessing and file integrity",
                     ),
                 )
@@ -1012,6 +1019,23 @@ def _perform_incremental_validation(
         component_report = validate_data_component(data, component, "basic", config)
         for issue in component_report.errors + component_report.warnings + component_report.info:
             report.add_issue(issue)
+
+    # Refresh statistics for changed components. _compute_data_statistics
+    # overwrites report.data_statistics wholesale, so run it against a
+    # component-scoped subset and merge into the stats carried forward above
+    # rather than clobbering the unchanged components' entries.
+    changed_data = {k: data[k] for k in changed_components if k in data}
+    if changed_data:
+        stats_report = DataQualityReport(
+            is_valid=True, validation_level="incremental", total_issues=0
+        )
+        _compute_data_statistics(changed_data, stats_report)
+        report.data_statistics.update(stats_report.data_statistics)
+
+    # Re-run physics checks when wavevector_q_list changed: q_min/q_max/
+    # q_range_valid in physics_checks are derived from it.
+    if "wavevector_q_list" in changed_components:
+        _validate_physics_parameters(data, config, report)
 
     # Cross-component shape consistency (t1 vs t2, matrix size vs time axis)
     # is only checked by the full-validation path's _validate_array_shapes;

@@ -167,6 +167,23 @@ def _cleanup_active_monitors() -> None:
 atexit.register(_cleanup_active_monitors)
 
 
+def _weak_bound_callback(method: Callable[..., Any]) -> Callable[..., Any]:
+    """Wrap a bound method in a weakref.
+
+    Registering it as a callback on an object it is stored on (directly or
+    transitively) does not create a reference cycle.
+    """
+    ref = weakref.WeakMethod(method)
+
+    def _call(*args: Any, **kwargs: Any) -> Any:
+        bound = ref()
+        if bound is not None:
+            return bound(*args, **kwargs)
+        return None
+
+    return _call
+
+
 class MemoryManagerError(Exception):
     """Base exception for memory manager errors."""
 
@@ -736,15 +753,25 @@ class AdvancedMemoryManager:
             critical_threshold,
             monitoring_interval,
             # Teach the monitor when pressure is unactionable (live arrays) so it
-            # logs calmly instead of crying WARNING/CRITICAL every cycle. Bound
-            # method reads the GC signal defensively (it is set just below).
-            live_array_regime_check=self._in_live_array_regime,
+            # logs calmly instead of crying WARNING/CRITICAL every cycle. Weak
+            # wrapper avoids a manager<->monitor reference cycle (see
+            # _weak_bound_callback below).
+            live_array_regime_check=_weak_bound_callback(self._in_live_array_regime),
         )
 
-        # Register pressure response callbacks
-        self.pressure_monitor.register_warning_callback(self._handle_memory_warning)
-        self.pressure_monitor.register_critical_callback(self._handle_memory_critical)
-        self.pressure_monitor.register_recovery_callback(self._handle_memory_recovery)
+        # Register pressure response callbacks via weak references: a bound
+        # method here would hold a strong ref back to self through
+        # self.pressure_monitor, creating manager<->monitor reference cycle
+        # that defers cleanup to a full GC pass instead of prompt refcounting.
+        self.pressure_monitor.register_warning_callback(
+            _weak_bound_callback(self._handle_memory_warning)
+        )
+        self.pressure_monitor.register_critical_callback(
+            _weak_bound_callback(self._handle_memory_critical)
+        )
+        self.pressure_monitor.register_recovery_callback(
+            _weak_bound_callback(self._handle_memory_recovery)
+        )
 
         # Memory allocation tracking
         self._allocation_history: deque = deque(maxlen=1000)
@@ -896,7 +923,7 @@ class AdvancedMemoryManager:
             # Get or create pool
             if pool_id_int not in self._pools:
                 max_buffers = max(
-                    4,
+                    1,
                     min(32, int(1024 * 1024 * 1024 / (pool_size * 8))),
                 )  # ~1GB max per pool
                 self._pools[pool_id_int] = MemoryPool(

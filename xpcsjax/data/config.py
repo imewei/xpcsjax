@@ -288,6 +288,12 @@ def validate_config_schema(
     if schema is None:
         schema = XPCS_CONFIG_SCHEMA
 
+    # A YAML section written with no nested value (e.g. `experimental_data:`)
+    # parses to None; coerce to {} up front so every section-dict access
+    # below -- including inside _validate_parameter_values(config) -- sees a
+    # dict instead of crashing on `x not in None` / `None.get(...)`.
+    config = {key: (value if isinstance(value, dict) else {}) for key, value in config.items()}
+
     errors = []
     warnings = []
     missing_optional = []
@@ -631,6 +637,11 @@ def apply_config_defaults(
             config_with_defaults[section_name] = {}
 
         section_config = config_with_defaults[section_name]
+        if not isinstance(section_config, dict):
+            # Same null-section case as validate_config_schema: coerce to {}
+            # so defaults apply instead of raising on `param_name not in None`.
+            section_config = {}
+            config_with_defaults[section_name] = section_config
         defaults = section_schema.get("defaults", {})
         if not isinstance(defaults, dict):
             continue
