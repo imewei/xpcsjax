@@ -96,6 +96,14 @@ def _extract_parameters(
     n = params.shape[0]
 
     if parameter_names is None or len(parameter_names) != n:
+        if parameter_names is not None:
+            logger.warning(
+                "parameter_names length (%d) does not match parameter vector "
+                "length (%d); falling back to generic param_0, param_1, ... "
+                "labels in the saved result.",
+                len(parameter_names),
+                n,
+            )
         names = [f"param_{i}" for i in range(n)]
     else:
         names = list(parameter_names)
@@ -129,6 +137,13 @@ def _shaped_or_nan(value: Any, shape: tuple[int, ...]) -> np.ndarray:
         arr = np.asarray(value, dtype=np.float64)
         if arr.size == int(np.prod(shape, dtype=int)):
             return arr.reshape(shape)
+        logger.warning(
+            "Value with size %d does not match expected shape %s (size %d); "
+            "saving an all-NaN placeholder instead.",
+            arr.size,
+            shape,
+            int(np.prod(shape, dtype=int)),
+        )
     return np.full(shape, np.nan, dtype=np.float64)
 
 

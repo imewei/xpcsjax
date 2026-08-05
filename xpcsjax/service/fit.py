@@ -40,6 +40,14 @@ def _set_nested(cfg: dict[str, Any], path: tuple[str, ...], value: Any) -> None:
     for key in path[:-1]:
         existing = node.get(key)
         if not isinstance(existing, dict):
+            if existing is not None:
+                logger.warning(
+                    "Config key %r was %r (not a dict); overwriting with a "
+                    "nested dict to apply the '%s' override.",
+                    key,
+                    existing,
+                    ".".join(path),
+                )
             existing = {}
             node[key] = existing
         node = existing
@@ -94,6 +102,10 @@ def apply_overrides(config_manager: ConfigManager, overrides: FitOverrides) -> N
     """
     cfg = config_manager.config
     if not isinstance(cfg, dict):
+        logger.warning(
+            "config_manager.config is not a dict (%s); CLI overrides skipped.",
+            type(cfg).__name__,
+        )
         return
 
     if overrides.multistart is not None:

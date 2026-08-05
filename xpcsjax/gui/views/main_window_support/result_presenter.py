@@ -8,6 +8,9 @@ from PySide6.QtCore import QObject
 
 from xpcsjax.gui.theme import current_palette
 from xpcsjax.gui.viz_bundle import load_viz_bundle
+from xpcsjax.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from xpcsjax.gui.result_loader import ResultSummary
@@ -77,6 +80,11 @@ class ResultPresenter(QObject):
             try:
                 bundle = load_viz_bundle(result_dir)
             except Exception:  # pragma: no cover — defensive only
+                logger.warning(
+                    "Failed to load viz bundle for %s; falling back to text summary.",
+                    result_dir,
+                    exc_info=True,
+                )
                 bundle = None
 
         if bundle is not None:

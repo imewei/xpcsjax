@@ -60,6 +60,10 @@ def load_config(
 
     config = config_manager.config
     if not isinstance(config, dict):
+        logger.warning(
+            "config_manager.config is not a dict (%s); mode/output_dir overrides skipped.",
+            type(config).__name__,
+        )
         return config_manager
 
     if mode is not None:

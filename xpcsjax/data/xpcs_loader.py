@@ -1125,6 +1125,27 @@ class XPCSDataLoader:
             )
             quality_results.append(final_validation_result)
 
+            # DATA-1: validate_data_stage's `.passed` for the FINAL_DATA stage is not
+            # checked anywhere else in this method — quality control is otherwise
+            # advisory-only, so a dataset that fails every quality gate would return
+            # successfully with no trace beyond scattered per-issue log lines a caller
+            # could easily miss. Surface it loudly and fold it into the `_degraded`
+            # signal below so it is visible both in logs and to any programmatic
+            # caller, without changing the (still non-raising) contract.
+            if not final_validation_result.passed:
+                error_issues = [
+                    issue.message
+                    for issue in final_validation_result.issues
+                    if issue.severity == "error"
+                ]
+                logger.error(
+                    "Final data quality check FAILED (score=%.1f, %d error issue(s)): %s "
+                    "-- data is being returned anyway; inspect before trusting fit results.",
+                    final_validation_result.metrics.overall_score,
+                    len(error_issues),
+                    "; ".join(error_issues) or "see quality report for details",
+                )
+
             # Generate quality report only when explicitly requested (--plot-experimental-data)
             # Do NOT generate reports during normal optimization runs
             if self.generate_quality_reports and self.v2_config.get(
@@ -1155,8 +1176,10 @@ class XPCSDataLoader:
         # preprocessing crashes); `_degraded` is the single boolean to branch on.
         if self.load_degradations:
             data["load_degradations"] = list(self.load_degradations)
-        data["_degraded"] = bool(self.load_degradations) or bool(
-            data.get("_preprocessing_degraded", False)
+        data["_degraded"] = (
+            bool(self.load_degradations)
+            or bool(data.get("_preprocessing_degraded", False))
+            or (bool(quality_controller) and not final_validation_result.passed)
         )
 
         return data

@@ -176,7 +176,11 @@ def apply_angle_filtering(
     # Get target ranges
     target_ranges = phi_filtering_config.get("target_ranges", [])
     if not target_ranges:
-        # No ranges specified - return all angles with warning
+        logger.warning(
+            "phi_filtering enabled but no target_ranges specified; "
+            "returning all %d angle(s) unfiltered.",
+            len(phi_angles),
+        )
         return list(range(len(phi_angles))), phi_angles, c2_exp
 
     # Filter angles based on target ranges (OR logic)
@@ -191,7 +195,11 @@ def apply_angle_filtering(
                 break  # Angle matches this range, no need to check other ranges
 
     if not filtered_indices:
-        # No matches - return all angles with warning
+        logger.warning(
+            "phi_filtering target_ranges matched no angles out of %d; "
+            "returning all angles unfiltered.",
+            len(phi_angles),
+        )
         return list(range(len(phi_angles))), phi_angles, c2_exp
 
     # Apply filtering

@@ -2636,6 +2636,22 @@ def fit_nlsq_cmaes(
         else:
             quality_flag = "poor"
 
+    except ValueError as e:
+        if "per_angle_mode" in str(e):
+            raise  # config rejection (Phase 6 resolver), not a solver failure
+        execution_time = time.time() - start_time
+        logger.error(f"CMA-ES optimization failed: {e}")
+        return _cmaes_failed_result(x0, execution_time, e)
+    except (RuntimeError, TypeError, OSError, MemoryError) as e:
+        execution_time = time.time() - start_time
+        logger.error(f"CMA-ES optimization failed: {e}")
+        return _cmaes_failed_result(x0, execution_time, e)
+    else:
+        # Result construction below is intentionally OUTSIDE the except clauses
+        # above: a ValueError raised here (e.g. OptimizationResult.__post_init__
+        # rejecting a shape/invariant mismatch) is a real bug in this function,
+        # not a solver failure, and must propagate rather than being silently
+        # downgraded into a generic "CMA-ES optimization failed" result.
         from xpcsjax.optimization.nlsq.result_builder import compute_uncertainties
 
         # `n_params` above is the EFFECTIVE constrained DOF (used only for
@@ -2699,14 +2715,3 @@ def fit_nlsq_cmaes(
             )
 
         return result
-
-    except ValueError as e:
-        if "per_angle_mode" in str(e):
-            raise  # config rejection (Phase 6 resolver), not a solver failure
-        execution_time = time.time() - start_time
-        logger.error(f"CMA-ES optimization failed: {e}")
-        return _cmaes_failed_result(x0, execution_time, e)
-    except (RuntimeError, TypeError, OSError, MemoryError) as e:
-        execution_time = time.time() - start_time
-        logger.error(f"CMA-ES optimization failed: {e}")
-        return _cmaes_failed_result(x0, execution_time, e)

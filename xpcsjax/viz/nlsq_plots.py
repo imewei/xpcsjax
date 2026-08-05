@@ -1741,6 +1741,15 @@ def generate_nlsq_plots(
             "ERROR log entries for per-angle tracebacks. No artifacts written."
         )
 
+    n_failed_angles = int(np.any(np.isnan(c2_fitted), axis=(1, 2)).sum())
+    if 0 < n_failed_angles < n_phi:
+        logger.warning(
+            "%d of %d angle(s) failed to evaluate; artifacts contain NaN "
+            "gaps for those angles (see prior ERROR log entries above).",
+            n_failed_angles,
+            n_phi,
+        )
+
     # Residuals are needed by both backends and by the NPZ writer below.
     residuals = c2_exp - c2_fitted
 

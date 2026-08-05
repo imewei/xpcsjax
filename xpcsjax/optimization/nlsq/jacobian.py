@@ -15,6 +15,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from xpcsjax.utils.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 def compute_jacobian_stats(
     residual_fn: Callable[..., Any],
@@ -81,7 +85,8 @@ def compute_jacobian_stats(
 
         col_norms = np.linalg.norm(jac_np, axis=0) * np.sqrt(scaling_factor)
         return jtj, col_norms
-    except (ValueError, RuntimeError, np.linalg.LinAlgError):
+    except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
+        logger.debug("compute_jacobian_stats failed, returning (None, None): %s", e)
         return None, None
 
 
@@ -127,7 +132,8 @@ def compute_jacobian_condition_number(
         jac = jax.jacfwd(residual_vector)(params_jnp)
         jac_np = np.asarray(jac)
         return float(np.linalg.cond(jac_np))
-    except (ValueError, RuntimeError, np.linalg.LinAlgError):
+    except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
+        logger.debug("compute_jacobian_condition_number failed, returning None: %s", e)
         return None
 
 
@@ -240,5 +246,6 @@ def estimate_gradient_noise(
             cv = np.where(np.abs(jac_mean) > 1e-10, jac_std / np.abs(jac_mean), 0.0)
 
         return float(np.median(cv))
-    except (ValueError, RuntimeError, np.linalg.LinAlgError):
+    except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
+        logger.debug("estimate_gradient_noise failed, returning None: %s", e)
         return None
