@@ -164,6 +164,17 @@ def validate_numeric_range(
     min_val = range_dict.get("min")
     max_val = range_dict.get("max")
 
+    # A non-finite bound must always be rejected, regardless of allow_wrapped
+    # or value_bounds -- the ordering check below is skipped entirely when
+    # allow_wrapped=True, and value_bounds only catches NaN incidentally when
+    # a caller happens to supply it. require_positive already reports
+    # non-finite values below, so this is guarded to avoid a duplicate message.
+    if not require_positive:
+        if min_val is not None and not math.isfinite(min_val):
+            errors.append(f"{field_name}.min ({min_val}) must be a finite number")
+        if max_val is not None and not math.isfinite(max_val):
+            errors.append(f"{field_name}.max ({max_val}) must be a finite number")
+
     if require_positive:
         if min_val is not None and (not math.isfinite(min_val) or min_val <= 0):
             errors.append(f"{field_name}.min ({min_val}) must be positive")

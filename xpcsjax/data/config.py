@@ -291,10 +291,21 @@ def validate_config_schema(
     # A YAML section written with no nested value (e.g. `experimental_data:`)
     # parses to None; coerce to {} up front so every section-dict access
     # below -- including inside _validate_parameter_values(config) -- sees a
-    # dict instead of crashing on `x not in None` / `None.get(...)`.
+    # dict instead of crashing on `x not in None` / `None.get(...)`. A
+    # non-None, non-dict section (e.g. a mis-indented YAML list) is a real
+    # structural error rather than an absent section, so it is flagged
+    # explicitly below instead of being silently absorbed into {}.
+    malformed_sections = {
+        key: type(value).__name__
+        for key, value in config.items()
+        if value is not None and not isinstance(value, dict)
+    }
     config = {key: (value if isinstance(value, dict) else {}) for key, value in config.items()}
 
-    errors = []
+    errors = [
+        f"Configuration section '{key}' must be a mapping, got {type_name}"
+        for key, type_name in malformed_sections.items()
+    ]
     warnings = []
     missing_optional = []
 

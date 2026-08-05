@@ -90,11 +90,13 @@ except ImportError:
 
     @dataclass
     class ValidationIssue:  # type: ignore[no-redef]
-        """Fallback mirroring xpcsjax.data.validation.ValidationIssue's shape."""
+        """Fallback exposing the same fields as xpcsjax.data.validation.ValidationIssue."""
 
         severity: str
         category: str
         message: str
+        parameter: str | None = None
+        value: Any | None = None
         recommendation: str | None = None
 
 
@@ -1416,8 +1418,8 @@ class DataQualityController:
                         if key_modified:
                             data_modified = True
                             repairs_applied.append(f"Repaired NaN values in {key}")
-                except (AttributeError, TypeError, IndexError, ValueError):
-                    pass
+                except (AttributeError, TypeError, IndexError, ValueError) as e:
+                    logger.debug(f"Could not repair NaN values in {key}: {e}")
 
         return data_modified
 
@@ -1463,8 +1465,8 @@ class DataQualityController:
                             data[key] = arr
                             data_modified = True
                             repairs_applied.append(f"Repaired infinite values in {key}")
-                except (AttributeError, TypeError, IndexError, ValueError):
-                    pass
+                except (AttributeError, TypeError, IndexError, ValueError) as e:
+                    logger.debug(f"Could not repair infinite values in {key}: {e}")
 
         return data_modified
 
