@@ -47,7 +47,7 @@ def _coord_sensitive_model_func():
         per_angle_scaling=True,
         enable_jit=False,
     )
-    model.compute_g1_batch = lambda phys, t1, t2, phi, q, L, dt=None: (
+    model.compute_g1_batch = lambda phys, t1, t2, phi, q, L, dt=None, time_grid=None: (
         np.asarray(t1) + np.asarray(t2)
     )
     return model_func
