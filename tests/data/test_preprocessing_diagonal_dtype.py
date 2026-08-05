@@ -48,3 +48,29 @@ def test_diagonal_correction_upcasts_integer_c2_no_truncation():
     diag = np.diag(np.asarray(c2)[0])
     frac = np.abs(diag - np.round(diag))
     assert np.max(frac) > 1e-9, f"corrected diagonal was truncated to integers: diag={diag}"
+
+
+def test_statistical_diagonal_correction_warns_and_clamps_on_nonpositive_window_size(caplog):
+    """``window_size <= 0`` must not silently leave the diagonal uncorrected.
+
+    This deprecated method (superseded by
+    ``xpcsjax.core.diagonal_correction.apply_diagonal_correction``) duplicates
+    its non-deprecated counterpart's loop: ``range(1, min(window_size + 1, size))``
+    is empty for any ``window_size <= 0``, so the diagonal would otherwise pass
+    through unmodified with no warning.
+    """
+    pipeline = PreprocessingPipeline({})
+    n = 16
+    rng = np.random.default_rng(seed=11)
+    c2 = rng.uniform(0.5, 1.5, size=(n, n))
+    c2 = (c2 + c2.T) / 2
+    c2[np.arange(n), np.arange(n)] = 5.0
+
+    with caplog.at_level("WARNING"):
+        corrected = pipeline._statistical_diagonal_correction(c2.copy(), {"window_size": 0})
+
+    assert any("window_size" in rec.message for rec in caplog.records)
+    diag_max = np.max(np.abs(np.diag(corrected)))
+    assert diag_max < 2.5, (
+        f"diagonal still uncorrected with window_size=0 (max abs diag = {diag_max})"
+    )

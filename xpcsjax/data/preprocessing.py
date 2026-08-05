@@ -660,6 +660,9 @@ class PreprocessingPipeline:
 
         # Parameters
         window_size = config.get("window_size", 3)
+        if window_size < 1:
+            logger.warning(f"Invalid window_size={window_size} (must be >= 1), using 1")
+            window_size = 1
         estimator = config.get(
             "estimator",
             "median",

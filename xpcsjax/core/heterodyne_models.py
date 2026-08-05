@@ -113,21 +113,9 @@ class TwoComponentModel(HeterodyneModelBase):
     def __post_init__(self) -> None:
         """Set default parameter values."""
         if not self._defaults:
+            registry = get_registry()
             self._defaults = {
-                "D0_ref": 1e4,
-                "alpha_ref": 0.0,
-                "D_offset_ref": 0.0,
-                "D0_sample": 1e4,
-                "alpha_sample": 0.0,
-                "D_offset_sample": 0.0,
-                "v0": 1e3,
-                "v_beta": 0.0,
-                "v_offset": 0.0,
-                "f0": 0.5,
-                "f1": 0.0,
-                "f2": 0.0,
-                "f3": 0.0,
-                "phi0_het": 0.0,
+                name: registry.get_param_info(name).default for name in ALL_PARAM_NAMES
             }
 
     @property
@@ -327,23 +315,11 @@ class ReducedModel(HeterodyneModelBase):
 
     _active_params: tuple[str, ...]
 
-    # Full default values for all 14 parameters (canonical defaults)
+    # Full default values for all 14 parameters, sourced from the shared
+    # parameter registry (single source of truth — see TwoComponentModel).
     _FULL_DEFAULTS: dict[str, float] = field(
         default_factory=lambda: {
-            "D0_ref": 1e4,
-            "alpha_ref": 0.0,
-            "D_offset_ref": 0.0,
-            "D0_sample": 1e4,
-            "alpha_sample": 0.0,
-            "D_offset_sample": 0.0,
-            "v0": 1e3,
-            "v_beta": 0.0,
-            "v_offset": 0.0,
-            "f0": 0.5,
-            "f1": 0.0,
-            "f2": 0.0,
-            "f3": 0.0,
-            "phi0_het": 0.0,
+            name: get_registry().get_param_info(name).default for name in ALL_PARAM_NAMES
         }
     )
 

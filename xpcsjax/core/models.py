@@ -48,6 +48,8 @@ import numpy as np
 
 from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.core.jax_backend import (
+    _compute_g1_diffusion_core,
+    _compute_g1_total_core,
     compute_chi_squared,
     compute_g1_diffusion,
     compute_g1_shear,
@@ -62,7 +64,7 @@ from xpcsjax.core.model_mixins import (
     OptimizationRecommendationMixin,
 )
 from xpcsjax.core.physics import validate_parameters
-from xpcsjax.core.physics_utils import safe_len
+from xpcsjax.core.physics_utils import PI, safe_len
 from xpcsjax.utils.logging import get_logger, log_calls
 
 logger = get_logger(__name__)
@@ -414,11 +416,21 @@ class CombinedModel(
         q: float,
         L: float,
         dt: float | None = None,
+        time_grid: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
-        """Compute g1 for a batch of points using vmap.
+        """Compute g1 for a batch of (t1, t2, phi) points, element-wise.
 
-        Performance Optimization (Spec 001 - FR-006, T041): Vectorized computation
-        using jax.vmap for batched point-wise g1 calculation, replacing Python loops.
+        Calls the element-wise JAX core directly (mirrors the CMA-ES
+        ``model_for_cmaes`` builder in ``optimization/nlsq/core.py``)
+        instead of routing through ``compute_g1``/``compute_g1_total``.
+        Those public wrappers call ``get_cached_meshgrid``, which
+        meshgrids any 1D input of length <= 2000 into a 2D grid — fine
+        for the matrix-mode public API, but wrong here: this method's
+        contract is one distinct (t1, t2, phi) triple per batch element,
+        and meshgridding collapses that pairing (previously done
+        point-by-point via length-1 arrays, which always meshgridded to a
+        degenerate 1x1 matrix and discarded t2, pinning g1 to its
+        zero-lag value regardless of the true lag).
 
         Parameters
         ----------
@@ -435,46 +447,62 @@ class CombinedModel(
         L : float
             Sample-detector distance (stator_rotor_gap) [Å]
         dt : float, optional
-            Time step from configuration [s]
+            Time step from configuration [s] (required; None raises).
+        time_grid : jnp.ndarray, optional
+            The full, uniformly dt-spaced experiment time axis (every
+            adjacent gap must equal exactly ``dt`` — the cumulative-trapezoid
+            integral this feeds weights each interval as ``dt`` regardless),
+            forwarded to the element-wise cores. When omitted, the cores
+            fall back to a fixed ``arange(10001)*dt`` grid, which silently
+            truncates (clamps via ``searchsorted``) datasets with more than
+            10001 unique time points.
+
+            **Not currently wired at any call site** (deferred — see PR #34):
+            deriving this from a batch/chunk inside a ``curve_fit`` closure
+            is unsafe. ``jnp.unique(t1_batch)`` is chunk-dependent (collapses
+            to the wrong grid under any caller that slices ``t1_batch``,
+            e.g. streaming) and not JIT-traceable (data-dependent output
+            shape). A correct fix must compute this once, outside any traced
+            closure, from the full unfiltered/untiled experiment time axis
+            (mirrors ``fit_nlsq_cmaes``'s ``t1_time_grid = jnp.asarray(t1)``
+            in ``optimization/nlsq/core.py``) and thread it in as a closed-over
+            constant — not derived per-call from whatever ``t1_batch`` the
+            closure happens to receive.
 
         Returns
         -------
         jnp.ndarray
             Batch of g1 values, shape (n_points,)
+
+        Raises
+        ------
+        ValueError
+            If ``dt`` is None — the physics factors are dt-dependent and
+            there is no safe default frame rate.
         """
-        import jax
-
-        # Cache the vmap'd function on first call to avoid JIT retrace overhead.
-        # The closure captures `self` — same instance across calls preserves
-        # function identity for JAX's trace cache.
-        if not hasattr(self, "_cached_g1_vmap"):
-
-            def _compute_g1_single(
-                params_inner: Any,
-                t1_val: Any,
-                t2_val: Any,
-                phi_val: Any,
-                q_inner: Any,
-                L_inner: Any,
-                dt_inner: Any,
-            ) -> Any:
-                g1 = self.compute_g1(
-                    params_inner,
-                    jnp.array([t1_val]),
-                    jnp.array([t2_val]),
-                    jnp.array([phi_val]),
-                    q_inner,
-                    L_inner,
-                    dt_inner,
-                )
-                return g1.flatten()[0]
-
-            self._cached_g1_vmap = jax.vmap(
-                _compute_g1_single,
-                in_axes=(None, 0, 0, 0, None, None, None),
+        if dt is None:
+            raise ValueError(
+                "compute_g1_batch: dt must be provided explicitly (seconds). "
+                "Physics factors are dt-dependent; there is no safe default frame rate."
             )
+        wavevector_q_squared_half_dt = 0.5 * (q**2) * dt
 
-        result: jnp.ndarray = self._cached_g1_vmap(params, t1_batch, t2_batch, phi_batch, q, L, dt)
+        if self.analysis_mode.startswith("static"):
+            result: jnp.ndarray = _compute_g1_diffusion_core(
+                params, t1_batch, t2_batch, wavevector_q_squared_half_dt, dt, time_grid=time_grid
+            )
+        else:
+            sinc_prefactor = 0.5 / PI * q * L * dt
+            result = _compute_g1_total_core(
+                params,
+                t1_batch,
+                t2_batch,
+                phi_batch,
+                wavevector_q_squared_half_dt,
+                sinc_prefactor,
+                dt,
+                time_grid=time_grid,
+            )
         return result
 
     @log_calls(include_args=False)
@@ -689,17 +717,24 @@ def make_model(config_or_manager: Any) -> PhysicsModelBase:
         raise ValueError(f"analysis_mode must be a string, got {type(raw_mode).__name__}")
     mode_lower = raw_mode.lower()
 
+    # "static_ref" and "static_both" are reduced-parameter heterodyne modes
+    # (validated in NLSQConfig.validate() against the module-level
+    # _VALID_ANALYSIS_MODES frozenset in heterodyne_config.py). The reduced parameter
+    # sets are only implemented by xpcsjax.core.heterodyne_models.ReducedModel,
+    # which does not implement the PhysicsModelBase contract this factory
+    # returns — HeterodyneModel always resolves the full 14-parameter
+    # two_component set, so it cannot represent them. Raise rather than
+    # silently substituting the wrong (full) model.
+    if mode_lower in ("static_ref", "static_both"):
+        raise NotImplementedError(
+            f"analysis_mode={raw_mode!r} is not supported by make_model(): "
+            "HeterodyneModel only implements the full two_component parameter "
+            "set. Use xpcsjax.core.heterodyne_models.create_model() for the "
+            "reduced static_ref/static_both models."
+        )
+
     # Heterodyne / two-component dispatch.
-    # "static_ref" and "static_both" are valid heterodyne analysis modes
-    # (declared in NLSQConfig._VALID_ANALYSIS_MODES) that use HeterodyneModel
-    # with a reduced parameter set — do not fall through to create_model which
-    # only knows about homodyne modes and would raise ValueError.
-    if (
-        "two_component" in mode_lower
-        or "two-component" in mode_lower
-        or "heterodyne" in mode_lower
-        or mode_lower in ("static_ref", "static_both")
-    ):
+    if "two_component" in mode_lower or "two-component" in mode_lower or "heterodyne" in mode_lower:
         # Local import to avoid circular dependency (heterodyne_model imports
         # PhysicsModelBase from this module).
         from xpcsjax.core.heterodyne_model import HeterodyneModel
