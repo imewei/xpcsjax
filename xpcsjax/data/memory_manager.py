@@ -167,6 +167,34 @@ def _cleanup_active_monitors() -> None:
 atexit.register(_cleanup_active_monitors)
 
 
+def _as_weak_callable(fn: Callable[..., Any] | None) -> Callable[..., Any] | None:
+    """Wrap a bound method so holding it doesn't keep its owner alive.
+
+    Callers commonly register bound methods of the object that owns a
+    :class:`MemoryPressureMonitor` (e.g. ``AdvancedMemoryManager`` registering
+    its own ``_handle_memory_warning``). A strong reference back creates an
+    owner<->monitor cycle that refcounting can't break, so the owner's
+    ``__del__`` (which stops the monitor's daemon thread) only runs once the
+    cyclic GC happens to sweep it -- arbitrarily late. In test suites this
+    lets the thread outlive the log handlers of the test that created it,
+    logging into an already-closed stream. Weakly wrapping bound methods lets
+    plain refcounting collect the owner as soon as the caller drops its
+    reference, so cleanup (and thread shutdown) happens promptly. Non-method
+    callables are returned unchanged since they don't create this cycle.
+    """
+    if fn is None or getattr(fn, "__self__", None) is None:
+        return fn
+    weak_method = weakref.WeakMethod(fn)
+
+    def _resolved(*args: Any, **kwargs: Any) -> Any:
+        bound = weak_method()
+        if bound is None:
+            raise ReferenceError("callback target was garbage collected")
+        return bound(*args, **kwargs)
+
+    return _resolved
+
+
 class MemoryManagerError(Exception):
     """Base exception for memory manager errors."""
 
@@ -343,7 +371,7 @@ class MemoryPressureMonitor:
         self.warning_threshold = warning_threshold
         self.critical_threshold = critical_threshold
         self.monitoring_interval = monitoring_interval
-        self._live_array_regime_check = live_array_regime_check
+        self._live_array_regime_check = _as_weak_callable(live_array_regime_check)
 
         self.stats = MemoryStats()
         self._monitoring_active = False
@@ -620,7 +648,7 @@ class MemoryPressureMonitor:
         callback : callable
             Function receiving the current :class:`MemoryStats`.
         """
-        self._warning_callbacks.append(callback)
+        self._warning_callbacks.append(_as_weak_callable(callback))
 
     def register_critical_callback(
         self,
@@ -633,7 +661,7 @@ class MemoryPressureMonitor:
         callback : callable
             Function receiving the current :class:`MemoryStats`.
         """
-        self._critical_callbacks.append(callback)
+        self._critical_callbacks.append(_as_weak_callable(callback))
 
     def register_recovery_callback(
         self,
@@ -646,7 +674,7 @@ class MemoryPressureMonitor:
         callback : callable
             Function receiving the current :class:`MemoryStats`.
         """
-        self._recovery_callbacks.append(callback)
+        self._recovery_callbacks.append(_as_weak_callable(callback))
 
     def get_pressure_trend(self, window_minutes: int = 5) -> str:
         """Classify the memory pressure trend over a recent window.
