@@ -185,10 +185,23 @@ def _as_weak_callable(fn: Callable[..., Any] | None) -> Callable[..., Any] | Non
     plain refcounting collect the owner as soon as the caller drops its
     reference, so cleanup (and thread shutdown) happens promptly. Non-method
     callables are returned unchanged since they don't create this cycle.
+
+    Callers must keep their own strong reference to a registered bound
+    method's owner -- once it is collected, the wrapper below raises
+    ``ReferenceError`` on every subsequent call, which every caller in this
+    module treats as non-fatal (logged, not propagated).
     """
     if fn is None or getattr(fn, "__self__", None) is None:
         return fn
-    weak_method = weakref.WeakMethod(fn)
+    try:
+        weak_method = weakref.WeakMethod(fn)
+    except TypeError:
+        # Not every "has __self__" callable is weakly referenceable (e.g.
+        # builtin bound methods like list.append, or bound methods of a
+        # __slots__ class without __weakref__). Such callables can't form the
+        # owner<->monitor cycle this helper exists to break anyway (their
+        # __self__ isn't AdvancedMemoryManager), so fall back to a strong ref.
+        return fn
 
     def _resolved(*args: Any, **kwargs: Any) -> Any:
         bound = weak_method()
@@ -557,7 +570,19 @@ class MemoryPressureMonitor:
             return False
         try:
             return bool(self._live_array_regime_check())
-        except Exception:
+        except Exception as exc:
+            # Mirrors the DEBUG log_once used by the callback trigger paths
+            # below -- without it, a garbage-collected weakly-wrapped check
+            # target (see _as_weak_callable) fails completely silently here,
+            # unlike every other consumer of a weak-wrapped callable in this
+            # class.
+            log_once(
+                logger,
+                logging.DEBUG,
+                f"{id(self)}:memmgr:live_array_regime_check",
+                "live_array_regime_check failed, defaulting to False: %s",
+                exc,
+            )
             return False
 
     def _trigger_warning_response(self) -> None:
@@ -650,7 +675,11 @@ class MemoryPressureMonitor:
         Parameters
         ----------
         callback : callable
-            Function receiving the current :class:`MemoryStats`.
+            Function receiving the current :class:`MemoryStats`. If this is a
+            bound method, only a weak reference to its owner is kept (see
+            :func:`_as_weak_callable`); once the owner is garbage collected
+            the callback silently stops firing (logged once at DEBUG)
+            instead of keeping the owner alive.
         """
         self._warning_callbacks.append(_as_weak_callable(callback))
 
@@ -663,7 +692,11 @@ class MemoryPressureMonitor:
         Parameters
         ----------
         callback : callable
-            Function receiving the current :class:`MemoryStats`.
+            Function receiving the current :class:`MemoryStats`. If this is a
+            bound method, only a weak reference to its owner is kept (see
+            :func:`_as_weak_callable`); once the owner is garbage collected
+            the callback silently stops firing (logged once at DEBUG)
+            instead of keeping the owner alive.
         """
         self._critical_callbacks.append(_as_weak_callable(callback))
 
@@ -676,7 +709,11 @@ class MemoryPressureMonitor:
         Parameters
         ----------
         callback : callable
-            Function receiving the current :class:`MemoryStats`.
+            Function receiving the current :class:`MemoryStats`. If this is a
+            bound method, only a weak reference to its owner is kept (see
+            :func:`_as_weak_callable`); once the owner is garbage collected
+            the callback silently stops firing (logged once at DEBUG)
+            instead of keeping the owner alive.
         """
         self._recovery_callbacks.append(_as_weak_callable(callback))
 
