@@ -252,11 +252,13 @@ def get_cached_meshgrid(t1: "jnp.ndarray", t2: "jnp.ndarray") -> tuple:
                 _cache_stats["skipped_large"] += 1  # T041: Track skipped large arrays
             return t1, t2
     except TypeError:
-        # Inside JIT tracing - skip caching, but still track the skip
-        if t1.shape[0] > 2000:
-            with _cache_lock:
-                _cache_stats["skipped_traced"] += 1
-            return t1, t2
+        # len() itself only fails for array-likes without a static shape
+        # (traced arrays under jit still report shape[0], so len() succeeds
+        # for them too — a >2000 traced array is counted above as
+        # skipped_large, not here). Fall through to the hash-key attempt
+        # below, which is what actually detects and counts JIT tracing via
+        # t1_key/t2_key coming back None.
+        pass
 
     # Try to create cache key - may fail inside JIT context
     t1_key = _get_array_hash_key(t1)
@@ -862,7 +864,9 @@ def _compute_g1_total_core(
     # CRITICAL FIX (Nov 2025): Handle element-wise vs matrix mode
     # Element-wise mode: both g1_diff and g1_shear are 1D (shape (n,))
     # Matrix mode: g1_diff is 2D (n_times, n_times), g1_shear is 3D (n_phi, n_times, n_times)
-    # Note: element-wise branch only valid for single-angle (P=1).
+    # Note: the element-wise branch supports multi-angle batches too — each
+    # element carries its own phi[i] (see _compute_g1_shear_core's
+    # per-element angle_diff), it is not restricted to a single angle.
     is_elementwise = g1_diff.ndim == 1 and g1_shear.ndim == 1
 
     if is_elementwise:
@@ -884,8 +888,8 @@ def _compute_g1_total_core(
     # Upper clip removed — g1_diff is already bounded ≤ 1.0 from log-space clip,
     # and g1_shear (sinc²) is naturally bounded ≤ 1.0. Hard upper clips kill
     # gradients at the boundary, harming NUTS exploration.
-    # Use jnp.where instead of jnp.maximum for gradient safety at the floor.
-    # NaN-safe: a NaN g1_total must propagate, not get silently floored to
+    # jnp.maximum applies the gradient-safe floor; the outer jnp.where keeps
+    # NaN un-floored so it propagates instead of being silently replaced by
     # epsilon (NaN > epsilon is False under IEEE-754, which would otherwise
     # mask a divergent trial as a plausible finite value).
     epsilon = 1e-10

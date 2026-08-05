@@ -416,20 +416,21 @@ class CombinedModel(
         q: float,
         L: float,
         dt: float | None = None,
+        time_grid: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
         """Compute g1 for a batch of (t1, t2, phi) points, element-wise.
 
         Calls the element-wise JAX core directly (mirrors the CMA-ES
-        ``model_for_cmaes`` builder in ``optimization/nlsq/core.py`` and
-        ``gradient_diagnostics.py``) instead of routing through
-        ``compute_g1``/``compute_g1_total``. Those public wrappers call
-        ``get_cached_meshgrid``, which meshgrids any 1D input of length
-        <= 2000 into a 2D grid — fine for the matrix-mode public API, but
-        wrong here: this method's contract is one distinct (t1, t2, phi)
-        triple per batch element, and meshgridding collapses that pairing
-        (previously done point-by-point via length-1 arrays, which always
-        meshgridded to a degenerate 1x1 matrix and discarded t2, pinning
-        g1 to its zero-lag value regardless of the true lag).
+        ``model_for_cmaes`` builder in ``optimization/nlsq/core.py``)
+        instead of routing through ``compute_g1``/``compute_g1_total``.
+        Those public wrappers call ``get_cached_meshgrid``, which
+        meshgrids any 1D input of length <= 2000 into a 2D grid — fine
+        for the matrix-mode public API, but wrong here: this method's
+        contract is one distinct (t1, t2, phi) triple per batch element,
+        and meshgridding collapses that pairing (previously done
+        point-by-point via length-1 arrays, which always meshgridded to a
+        degenerate 1x1 matrix and discarded t2, pinning g1 to its
+        zero-lag value regardless of the true lag).
 
         Parameters
         ----------
@@ -446,12 +447,25 @@ class CombinedModel(
         L : float
             Sample-detector distance (stator_rotor_gap) [Å]
         dt : float, optional
-            Time step from configuration [s]
+            Time step from configuration [s] (required; None raises).
+        time_grid : jnp.ndarray, optional
+            Full 1D unique-time grid covering the real data range, forwarded
+            to the element-wise cores' cumulative-trapezoid integral. When
+            omitted, the cores fall back to a fixed ``arange(10001)*dt``
+            grid, which silently truncates (clamps via ``searchsorted``)
+            datasets with more than 10001 unique time points — pass e.g.
+            ``jnp.unique(t1_batch)`` for large datasets to avoid this.
 
         Returns
         -------
         jnp.ndarray
             Batch of g1 values, shape (n_points,)
+
+        Raises
+        ------
+        ValueError
+            If ``dt`` is None — the physics factors are dt-dependent and
+            there is no safe default frame rate.
         """
         if dt is None:
             raise ValueError(
@@ -462,7 +476,7 @@ class CombinedModel(
 
         if self.analysis_mode.startswith("static"):
             result: jnp.ndarray = _compute_g1_diffusion_core(
-                params, t1_batch, t2_batch, wavevector_q_squared_half_dt, dt
+                params, t1_batch, t2_batch, wavevector_q_squared_half_dt, dt, time_grid=time_grid
             )
         else:
             sinc_prefactor = 0.5 / PI * q * L * dt
@@ -474,6 +488,7 @@ class CombinedModel(
                 wavevector_q_squared_half_dt,
                 sinc_prefactor,
                 dt,
+                time_grid=time_grid,
             )
         return result
 
@@ -690,7 +705,8 @@ def make_model(config_or_manager: Any) -> PhysicsModelBase:
     mode_lower = raw_mode.lower()
 
     # "static_ref" and "static_both" are reduced-parameter heterodyne modes
-    # (declared in NLSQConfig._VALID_ANALYSIS_MODES). The reduced parameter
+    # (validated in NLSQConfig.validate() against the module-level
+    # _VALID_ANALYSIS_MODES frozenset in heterodyne_config.py). The reduced parameter
     # sets are only implemented by xpcsjax.core.heterodyne_models.ReducedModel,
     # which does not implement the PhysicsModelBase contract this factory
     # returns — HeterodyneModel always resolves the full 14-parameter

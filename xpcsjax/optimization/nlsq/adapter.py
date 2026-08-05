@@ -596,6 +596,7 @@ def get_or_create_model(
             q_val,
             1.0,  # Default L (stator-rotor gap), will be scaled by params
             dt_val,
+            time_grid=jnp.unique(t1_batch),
         )
 
         # Compute g2 = offset + contrast * g1^2 (all JAX operations)
@@ -1004,15 +1005,17 @@ class NLSQAdapter(NLSQAdapterBase):
                 # g1 this path needs. compute_g1_batch evaluates each point with
                 # its OWN phi angle (phi_unique[phi_idx_all]).
                 phi_per_point = jnp.asarray(phi_unique, dtype=jnp.float64)[phi_idx_all]
+                t1_all_jax = jnp.asarray(t1_all, dtype=jnp.float64)
                 g1_per_point = np.asarray(
                     model.compute_g1_batch(
                         params_jax,
-                        jnp.asarray(t1_all, dtype=jnp.float64),
+                        t1_all_jax,
                         jnp.asarray(t2_all, dtype=jnp.float64),
                         phi_per_point,
                         q_val,
                         1.0,
                         dt_val,
+                        time_grid=jnp.unique(t1_all_jax),
                     )
                 )
 
