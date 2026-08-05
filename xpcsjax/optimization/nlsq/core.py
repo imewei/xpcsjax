@@ -2170,22 +2170,14 @@ def fit_nlsq_cmaes(
         # dt: honor a caller-supplied data['dt'] override first (a documented
         # per-call override, honored on the fit_nlsq_jax path via
         # _normalize_data_to_object), falling back to config's
-        # analyzer_parameters.dt. Self-contained (does not depend on any dt
-        # resolution earlier in this function) so this block is correct
-        # regardless of what else in this function does or doesn't also
-        # resolve dt. No numeric default: dt is physics-critical (the
-        # 0.5*q^2*dt / sinc-prefactor factors are dt-dependent) and there is
-        # no safe default frame rate — mirrors compute_g1_diffusion's raise.
+        # analyzer_parameters.dt or the 0.1 default. Self-contained (does not
+        # depend on any dt resolution earlier in this function) so this block
+        # is correct regardless of what else in this function does or doesn't
+        # also resolve dt.
         config_dict = config.config if hasattr(config, "config") else config
         dt_val = data.get("dt")
         if dt_val is None:
-            dt_val = config_dict.get("analyzer_parameters", {}).get("dt")
-        if dt_val is None:
-            raise ValueError(
-                "fit_nlsq_cmaes: dt must be provided explicitly (seconds), via "
-                "data['dt'] or config analyzer_parameters.dt. There is no safe "
-                "default frame rate."
-            )
+            dt_val = config_dict.get("analyzer_parameters", {}).get("dt", 0.1)
         dt_val = float(dt_val)
 
         # Get L: honor a caller-supplied data['L'] override first (same

@@ -449,12 +449,25 @@ class CombinedModel(
         dt : float, optional
             Time step from configuration [s] (required; None raises).
         time_grid : jnp.ndarray, optional
-            Full 1D unique-time grid covering the real data range, forwarded
-            to the element-wise cores' cumulative-trapezoid integral. When
-            omitted, the cores fall back to a fixed ``arange(10001)*dt``
-            grid, which silently truncates (clamps via ``searchsorted``)
-            datasets with more than 10001 unique time points — pass e.g.
-            ``jnp.unique(t1_batch)`` for large datasets to avoid this.
+            The full, uniformly dt-spaced experiment time axis (every
+            adjacent gap must equal exactly ``dt`` — the cumulative-trapezoid
+            integral this feeds weights each interval as ``dt`` regardless),
+            forwarded to the element-wise cores. When omitted, the cores
+            fall back to a fixed ``arange(10001)*dt`` grid, which silently
+            truncates (clamps via ``searchsorted``) datasets with more than
+            10001 unique time points.
+
+            **Not currently wired at any call site** (deferred — see PR #34):
+            deriving this from a batch/chunk inside a ``curve_fit`` closure
+            is unsafe. ``jnp.unique(t1_batch)`` is chunk-dependent (collapses
+            to the wrong grid under any caller that slices ``t1_batch``,
+            e.g. streaming) and not JIT-traceable (data-dependent output
+            shape). A correct fix must compute this once, outside any traced
+            closure, from the full unfiltered/untiled experiment time axis
+            (mirrors ``fit_nlsq_cmaes``'s ``t1_time_grid = jnp.asarray(t1)``
+            in ``optimization/nlsq/core.py``) and thread it in as a closed-over
+            constant — not derived per-call from whatever ``t1_batch`` the
+            closure happens to receive.
 
         Returns
         -------

@@ -42,6 +42,29 @@ def test_off_diagonal_preserved():
     np.testing.assert_allclose(corrected[off_diag_mask], c2[off_diag_mask])
 
 
+def test_statistical_correction_warns_and_clamps_on_nonpositive_window_size(caplog):
+    """``window_size <= 0`` must not silently leave the diagonal uncorrected.
+
+    Regression: ``range(1, min(window_size + 1, size))`` is empty for any
+    ``window_size <= 0``, so the neighbor-collection loop never ran and the
+    autocorrelation-peak diagonal passed through untouched with no warning.
+    """
+    rng = np.random.default_rng(seed=3)
+    N = 16
+    c2 = rng.uniform(0.5, 1.5, size=(N, N))
+    c2 = (c2 + c2.T) / 2
+    c2[np.arange(N), np.arange(N)] = 5.0
+
+    with caplog.at_level("WARNING"):
+        corrected = apply_diagonal_correction(c2.copy(), method="statistical", window_size=0)
+
+    assert any("window_size" in rec.message for rec in caplog.records)
+    diag_max = np.max(np.abs(np.diag(corrected)))
+    assert diag_max < 2.5, (
+        f"diagonal still uncorrected with window_size=0 (max abs diag = {diag_max})"
+    )
+
+
 @pytest.mark.parametrize("method", ["basic", "statistical", "interpolation"])
 def test_degenerate_1x1_does_not_crash(method):
     """A 1x1 matrix has no off-diagonal neighbors; every method must return it
