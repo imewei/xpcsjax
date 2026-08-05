@@ -742,7 +742,10 @@ def estimate_per_angle_scaling_from_quantile(
         # Guard against the underlying helper's ``len(c2) < 100`` fallback:
         # with our wide ±inf bounds it would otherwise return NaN
         # (midpoint of unbounded interval) rather than failing loudly.
-        n_finite = int(np.isfinite(c2_angle).sum())
+        # Must match the joint (c2, delta_t) finite mask the wrapped helper
+        # filters on internally — checking c2_angle alone can pass here
+        # while the helper's own count still falls under its threshold.
+        n_finite = int((np.isfinite(c2_angle) & np.isfinite(delta_t_angle)).sum())
         if n_finite < 100:
             raise ValueError(
                 f"phi index {k}: only {n_finite} finite samples (need "

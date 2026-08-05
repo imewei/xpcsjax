@@ -448,6 +448,9 @@ def _statistical_correction_numpy(
 
     # Configuration
     window_size = config.get("window_size", 3)
+    if window_size < 1:
+        logger.warning(f"Invalid window_size={window_size} (must be >= 1), using 1")
+        window_size = 1
     estimator: Estimator = config.get("estimator", "median")
     trim_fraction = config.get("trim_fraction", 0.2)
 

@@ -252,8 +252,10 @@ def get_cached_meshgrid(t1: "jnp.ndarray", t2: "jnp.ndarray") -> tuple:
                 _cache_stats["skipped_large"] += 1  # T041: Track skipped large arrays
             return t1, t2
     except TypeError:
-        # Inside JIT tracing - skip stats AND caching
+        # Inside JIT tracing - skip caching, but still track the skip
         if t1.shape[0] > 2000:
+            with _cache_lock:
+                _cache_stats["skipped_traced"] += 1
             return t1, t2
 
     # Try to create cache key - may fail inside JIT context
@@ -262,6 +264,8 @@ def get_cached_meshgrid(t1: "jnp.ndarray", t2: "jnp.ndarray") -> tuple:
 
     # If inside JIT context, skip caching and create meshgrid directly
     if t1_key is None or t2_key is None:
+        with _cache_lock:
+            _cache_stats["skipped_traced"] += 1
         t1_grid, t2_grid = jnp.meshgrid(t1, t2, indexing="ij")
         return t1_grid, t2_grid
 
@@ -881,8 +885,13 @@ def _compute_g1_total_core(
     # and g1_shear (sinc²) is naturally bounded ≤ 1.0. Hard upper clips kill
     # gradients at the boundary, harming NUTS exploration.
     # Use jnp.where instead of jnp.maximum for gradient safety at the floor.
+    # NaN-safe: a NaN g1_total must propagate, not get silently floored to
+    # epsilon (NaN > epsilon is False under IEEE-754, which would otherwise
+    # mask a divergent trial as a plausible finite value).
     epsilon = 1e-10
-    g1_bounded: jnp.ndarray = jnp.where(g1_total > epsilon, g1_total, epsilon)
+    g1_bounded: jnp.ndarray = jnp.where(
+        jnp.isnan(g1_total), g1_total, jnp.maximum(g1_total, epsilon)
+    )
 
     return g1_bounded
 
@@ -981,8 +990,9 @@ def compute_g1_diffusion(
     Wraps :func:`_compute_g1_diffusion_core`, building (and caching) the time
     meshgrid and the ``0.5 * q² * dt`` factor before delegating.
 
-    IMPORTANT: The ``dt`` parameter should come from configuration, not be
-    computed. When ``dt`` is None it is estimated from the time array spacing.
+    IMPORTANT: The ``dt`` parameter MUST come from configuration. There is no
+    fallback estimation — explicit ``dt`` is required for correct physics
+    (mirrors ``compute_g1_shear``/``compute_g1_total``/``compute_g2_scaled``).
 
     Parameters
     ----------
@@ -993,8 +1003,7 @@ def compute_g1_diffusion(
     q : float
         Scattering wave vector magnitude [Å⁻¹].
     dt : float, optional
-        Time step from configuration. Required for correct physics; estimated
-        from the time array when omitted.
+        Time step from configuration [s] (required; None raises).
     time_grid : jnp.ndarray, optional
         Full 1D time grid covering the real data range, forwarded to
         :func:`_compute_g1_diffusion_core` for element-wise (large ``t1``)
@@ -1006,22 +1015,27 @@ def compute_g1_diffusion(
     -------
     jnp.ndarray
         Diffusion contribution to the g1 correlation function.
+
+    Raises
+    ------
+    ValueError
+        If ``dt`` is None — the ``0.5 * q² * dt`` factor is dt-dependent and
+        there is no safe default frame rate.
     """
     # Handle 1D time arrays by creating meshgrids (cached for performance)
     # The cache avoids recreating the same meshgrid ~23 times per iteration (once per phi)
     t1, t2 = get_cached_meshgrid(t1, t2)
 
-    # Use dt from configuration (REQUIRED for correct physics)
-    # If dt not provided, estimate from time array as fallback.
-    # get_cached_meshgrid only meshes 1D arrays up to 2000 points; larger 1D
-    # arrays (element-wise mode) are returned unmeshed, so t1 is not
-    # guaranteed to be 2D here.
+    # dt is REQUIRED — mirrors compute_g1_shear/compute_g1_total/compute_g2_scaled's
+    # policy. Raise explicitly on a Python-level None (before tracing) rather than
+    # silently estimating from time-array spacing, which would produce physically
+    # wrong fits without warning.
     if dt is None:
-        # FALLBACK: Estimate from first two time samples.
-        time_array = t1[:, 0] if t1.ndim == 2 else t1
-        dt_value = float(time_array[1] - time_array[0]) if time_array.shape[0] > 1 else 1.0
-    else:
-        dt_value = dt
+        raise ValueError(
+            "compute_g1_diffusion: dt must be provided explicitly (seconds). "
+            "The 0.5*q^2*dt factor is dt-dependent; there is no safe default frame rate."
+        )
+    dt_value = dt
 
     # Compute the pre-computed factor using configuration dt
     wavevector_q_squared_half_dt = 0.5 * (q**2) * dt_value
@@ -1669,15 +1683,16 @@ def validate_backend() -> dict[str, Any]:
         test_t1 = jnp.array([0.0, 0.001, 0.002])
         test_t2 = jnp.array([0.0, 0.001, 0.002])
         test_q = 0.01
+        test_dt = 0.001
 
         # Test forward computation
-        compute_g1_diffusion(test_params, test_t1, test_t2, test_q)
+        compute_g1_diffusion(test_params, test_t1, test_t2, test_q, test_dt)
         cast(dict[str, str], results["test_results"])["forward_computation"] = "success"
 
         # Test gradient computation
         try:
             grad_func = grad(compute_g1_diffusion, argnums=0)
-            grad_func(test_params, test_t1, test_t2, test_q)
+            grad_func(test_params, test_t1, test_t2, test_q, test_dt)
             results["gradient_support"] = True
             cast(dict[str, str], results["test_results"])["gradient_computation"] = "success"
 
@@ -1698,7 +1713,7 @@ def validate_backend() -> dict[str, Any]:
         # Test hessian computation
         try:
             hess_func = hessian(compute_g1_diffusion, argnums=0)
-            hess_func(test_params, test_t1, test_t2, test_q)
+            hess_func(test_params, test_t1, test_t2, test_q, test_dt)
             results["hessian_support"] = True
             cast(dict[str, str], results["test_results"])["hessian_computation"] = "success"
 

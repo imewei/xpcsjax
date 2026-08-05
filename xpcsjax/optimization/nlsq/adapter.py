@@ -436,11 +436,11 @@ def get_or_create_model(
 
     normalized_mode = analysis_mode
 
-    # dt must be part of the cache key: compute_g1_shear (laminar_flow) raises
-    # TypeError on dt=None (no safe default frame rate), unlike the static
-    # modes' compute_g1_diffusion which tolerates None via a spacing estimate.
-    # It is baked into the returned closure below, so two calls with the same
-    # mode/phi/q but different dt must not hit each other's cached closure.
+    # dt must be part of the cache key: compute_g1_shear (laminar_flow) and
+    # compute_g1_diffusion (static modes) both raise on dt=None (no safe
+    # default frame rate). It is baked into the returned closure below, so
+    # two calls with the same mode/phi/q but different dt must not hit
+    # each other's cached closure.
     dt_val = float(dt) if dt is not None else None
 
     # Create cache key
