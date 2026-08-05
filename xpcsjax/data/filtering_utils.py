@@ -498,6 +498,12 @@ class XPCSDataFilter:
                 + range_quality * 0.1
             )
 
+            # A degenerate matrix (e.g. 0x0, all-NaN) can drive the above to
+            # NaN; NaN silently bypasses `quality_score < quality_threshold`
+            # in _apply_quality_filtering, so treat non-finite as fail (0.0).
+            if not np.isfinite(overall_quality):
+                return 0.0
+
             return float(overall_quality)
 
         except (ValueError, RuntimeError, IndexError, TypeError) as e:

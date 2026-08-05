@@ -965,7 +965,7 @@ class AdvancedMemoryManager:
             # Get or create pool
             if pool_id_int not in self._pools:
                 max_buffers = max(
-                    4,
+                    1,
                     min(32, int(1024 * 1024 * 1024 / (pool_size * 8))),
                 )  # ~1GB max per pool
                 self._pools[pool_id_int] = MemoryPool(

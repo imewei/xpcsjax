@@ -1060,11 +1060,17 @@ class PreprocessingPipeline:
 
         # Check for non-finite values (convert to ndarray first: np.isfinite on a
         # list-of-2D-arrays raises ValueError or produces an object array).
+        # wavevector_q_list tolerates NaN (legitimate bad-pixel masking, one
+        # entry per (q, phi) pair, per xpcs_loader.py::_validate_loaded_arrays)
+        # but still rejects inf.
         for key in required_keys:
             values = data[key]
             if isinstance(values, (np.ndarray, list)) or hasattr(values, "shape"):
                 arr = np.asarray(values)
-                if np.any(~np.isfinite(arr)):
+                if key == "wavevector_q_list":
+                    if np.any(np.isinf(arr)):
+                        raise PreprocessingError(f"Non-finite values found in {key}")
+                elif np.any(~np.isfinite(arr)):
                     raise PreprocessingError(f"Non-finite values found in {key}")
 
         # Physics-based validation

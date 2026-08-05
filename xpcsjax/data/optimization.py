@@ -290,7 +290,15 @@ class DatasetOptimizer:
             # They should remain constant for all chunks as they represent the time grid
             t1_chunk = t1  # Keep full 2D meshgrid
             t2_chunk = t2  # Keep full 2D meshgrid
-            phi_chunk = phi[start_idx:end_idx] if len(phi) > 1 else phi
+            if len(phi) > 1:
+                if len(phi) != n_data:
+                    raise ValueError(
+                        f"phi length ({len(phi)}) must match data length ({n_data}) "
+                        "when phi is a per-data-point array"
+                    )
+                phi_chunk = phi[start_idx:end_idx]
+            else:
+                phi_chunk = phi
 
             # Convert to JAX arrays if available
             if JAX_AVAILABLE:

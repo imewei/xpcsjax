@@ -19,6 +19,7 @@ from typing import Any
 
 import numpy as np
 
+from xpcsjax.data.angle_filtering import normalize_angle_to_symmetric_range
 from xpcsjax.utils.logging import get_logger
 
 # JAX integration with fallback
@@ -31,6 +32,19 @@ except ImportError:
     jnp = np  # type: ignore
 
 logger = get_logger(__name__)
+
+
+def _normalize_target_ranges(
+    target_ranges: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """Normalize range bounds to [-180, 180] to match normalized phi angles."""
+    return [
+        (
+            float(normalize_angle_to_symmetric_range(min_angle)),
+            float(normalize_angle_to_symmetric_range(max_angle)),
+        )
+        for min_angle, max_angle in target_ranges
+    ]
 
 
 class PhiAngleFilter:
@@ -125,11 +139,15 @@ class PhiAngleFilter:
             return indices, np.asarray(phi_angles)
 
         # Use provided parameters or fall back to configured/default values
-        ranges = target_ranges if target_ranges is not None else self.target_ranges
+        ranges = _normalize_target_ranges(
+            target_ranges if target_ranges is not None else self.target_ranges
+        )
         fallback = fallback_enabled if fallback_enabled is not None else self.fallback_enabled
 
-        # Convert to numpy array for vectorized operations
-        phi_angles_array = np.asarray(phi_angles)
+        # Convert to numpy array for vectorized operations, normalized to
+        # [-180, 180] so raw [0, 360)-convention angles match target ranges
+        # the same way already-normalized angles do (mirrors angle_filtering.py).
+        phi_angles_array = np.asarray(normalize_angle_to_symmetric_range(np.asarray(phi_angles)))
 
         logger.debug(
             f"Filtering {len(phi_angles_array)} angles with target ranges: {ranges}",
@@ -232,7 +250,7 @@ class PhiAngleFilter:
         dict
             Dictionary containing the angle-distribution statistics.
         """
-        phi_angles_array = np.asarray(phi_angles)
+        phi_angles_array = np.asarray(normalize_angle_to_symmetric_range(np.asarray(phi_angles)))
         stats = {
             "total_angles": len(phi_angles_array),
             "angle_range": {
@@ -253,7 +271,7 @@ class PhiAngleFilter:
             "angles_per_range": [],
         }
 
-        for min_angle, max_angle in self.target_ranges:
+        for min_angle, max_angle in _normalize_target_ranges(self.target_ranges):
             # Mirror the wrapped-range logic from filter_angles_for_optimization:
             # when min > max the range spans the ±180° boundary and must use |.
             if min_angle > max_angle:
@@ -272,11 +290,13 @@ class PhiAngleFilter:
                     else float("nan")
                 ),
                 "angles": (
-                    angles_in_range.tolist()
-                    if isinstance(angles_in_range, np.ndarray)
-                    else angles_in_range
-                    if len(angles_in_range) < 20
-                    else "too_many_to_list"
+                    "too_many_to_list"
+                    if len(angles_in_range) >= 20
+                    else (
+                        angles_in_range.tolist()
+                        if isinstance(angles_in_range, np.ndarray)
+                        else angles_in_range
+                    )
                 ),
             }
             if isinstance(stats["angles_per_range"], list):
@@ -393,12 +413,12 @@ if HAS_JAX:
         tuple of (numpy.ndarray, numpy.ndarray)
             ``(optimization_indices, filtered_angles)`` as JAX arrays.
         """
-        phi_angles_jax = jnp.asarray(phi_angles)
+        phi_angles_jax = jnp.asarray(normalize_angle_to_symmetric_range(np.asarray(phi_angles)))
 
         # Create mask for all target ranges
         optimization_mask = jnp.zeros(len(phi_angles_jax), dtype=bool)
 
-        for min_angle, max_angle in target_ranges:
+        for min_angle, max_angle in _normalize_target_ranges(target_ranges):
             # Handle wrapped ranges (e.g., [170, -170]) spanning ±180° boundary,
             # mirroring the logic in filter_angles_for_optimization.
             if min_angle > max_angle:
@@ -425,9 +445,9 @@ else:
         target_ranges: list[tuple[float, float]],
     ) -> tuple[np.ndarray, np.ndarray]:
         """NumPy fallback for filter_phi_angles_jax (JAX not available)."""
-        phi_arr = np.asarray(phi_angles)
+        phi_arr = np.asarray(normalize_angle_to_symmetric_range(np.asarray(phi_angles)))
         mask = np.zeros(len(phi_arr), dtype=bool)
-        for min_angle, max_angle in target_ranges:
+        for min_angle, max_angle in _normalize_target_ranges(target_ranges):
             if min_angle > max_angle:
                 range_mask = (phi_arr >= min_angle) | (phi_arr <= max_angle)
             else:

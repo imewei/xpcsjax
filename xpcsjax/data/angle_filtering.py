@@ -246,9 +246,13 @@ def apply_angle_filtering_for_optimization(
 
     start_time = time.perf_counter()
 
-    # Extract required arrays
-    phi_angles = np.asarray(data.get("phi_angles_list", []))
-    c2_exp = np.asarray(data.get("c2_exp", []))
+    # Extract required arrays. `.get(..., [])` only covers an absent key --
+    # an explicit None value (e.g. a degraded loader result) passes through
+    # unchanged, so fall back explicitly to catch that case too.
+    phi_angles = np.asarray(
+        data.get("phi_angles_list") if data.get("phi_angles_list") is not None else []
+    )
+    c2_exp = np.asarray(data.get("c2_exp") if data.get("c2_exp") is not None else [])
 
     if len(phi_angles) == 0 or len(c2_exp) == 0:
         logger.warning("No phi angles or C2 data available, cannot apply filtering")

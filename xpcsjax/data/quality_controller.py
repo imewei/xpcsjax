@@ -86,8 +86,19 @@ try:
 except ImportError:
     HAS_VALIDATION = False
     DataQualityReport = None  # type: ignore[assignment,misc]
-    ValidationIssue = None  # type: ignore[assignment,misc]
     ValidationLevel = None  # type: ignore[assignment,misc]
+
+    @dataclass
+    class ValidationIssue:  # type: ignore[no-redef]
+        """Fallback exposing the same fields as xpcsjax.data.validation.ValidationIssue."""
+
+        severity: str
+        category: str
+        message: str
+        parameter: str | None = None
+        value: Any | None = None
+        recommendation: str | None = None
+
 
 logger = get_logger(__name__)
 
@@ -1145,7 +1156,7 @@ class DataQualityController:
                     return False
 
             return True
-        except (AttributeError, TypeError, IndexError):
+        except (AttributeError, TypeError, IndexError, ValueError):
             return False
 
     def _compute_transformation_fidelity(
@@ -1407,8 +1418,8 @@ class DataQualityController:
                         if key_modified:
                             data_modified = True
                             repairs_applied.append(f"Repaired NaN values in {key}")
-                except (AttributeError, TypeError, IndexError):
-                    pass
+                except (AttributeError, TypeError, IndexError, ValueError) as e:
+                    logger.debug(f"Could not repair NaN values in {key}: {e}")
 
         return data_modified
 
@@ -1454,8 +1465,8 @@ class DataQualityController:
                             data[key] = arr
                             data_modified = True
                             repairs_applied.append(f"Repaired infinite values in {key}")
-                except (AttributeError, TypeError, IndexError):
-                    pass
+                except (AttributeError, TypeError, IndexError, ValueError) as e:
+                    logger.debug(f"Could not repair infinite values in {key}: {e}")
 
         return data_modified
 

@@ -11,6 +11,7 @@ Each validator function:
 - Has a single responsibility.
 """
 
+import math
 import os
 from typing import Any
 
@@ -115,7 +116,9 @@ def validate_positive_value(
     errors: list[str] = []
 
     if value is not None:
-        if allow_zero:
+        if not math.isfinite(value):
+            errors.append(f"{field_name} ({value}) must be a finite number")
+        elif allow_zero:
             if value < 0:
                 errors.append(f"{field_name} ({value}) must be non-negative")
         else:
@@ -161,13 +164,29 @@ def validate_numeric_range(
     min_val = range_dict.get("min")
     max_val = range_dict.get("max")
 
+    # A non-finite bound must always be rejected, regardless of allow_wrapped
+    # or value_bounds -- the ordering check below is skipped entirely when
+    # allow_wrapped=True, and value_bounds only catches NaN incidentally when
+    # a caller happens to supply it. require_positive already reports
+    # non-finite values below, so this is guarded to avoid a duplicate message.
+    if not require_positive:
+        if min_val is not None and not math.isfinite(min_val):
+            errors.append(f"{field_name}.min ({min_val}) must be a finite number")
+        if max_val is not None and not math.isfinite(max_val):
+            errors.append(f"{field_name}.max ({max_val}) must be a finite number")
+
     if require_positive:
-        if min_val is not None and min_val <= 0:
+        if min_val is not None and (not math.isfinite(min_val) or min_val <= 0):
             errors.append(f"{field_name}.min ({min_val}) must be positive")
-        if max_val is not None and max_val <= 0:
+        if max_val is not None and (not math.isfinite(max_val) or max_val <= 0):
             errors.append(f"{field_name}.max ({max_val}) must be positive")
 
-    if min_val is not None and max_val is not None and min_val >= max_val and not allow_wrapped:
+    if (
+        min_val is not None
+        and max_val is not None
+        and not allow_wrapped
+        and (not math.isfinite(min_val) or not math.isfinite(max_val) or min_val >= max_val)
+    ):
         errors.append(
             f"{field_name}.min ({min_val}) must be less than {field_name}.max ({max_val})"
         )

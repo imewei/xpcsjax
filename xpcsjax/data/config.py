@@ -288,7 +288,24 @@ def validate_config_schema(
     if schema is None:
         schema = XPCS_CONFIG_SCHEMA
 
-    errors = []
+    # A YAML section written with no nested value (e.g. `experimental_data:`)
+    # parses to None; coerce to {} up front so every section-dict access
+    # below -- including inside _validate_parameter_values(config) -- sees a
+    # dict instead of crashing on `x not in None` / `None.get(...)`. A
+    # non-None, non-dict section (e.g. a mis-indented YAML list) is a real
+    # structural error rather than an absent section, so it is flagged
+    # explicitly below instead of being silently absorbed into {}.
+    malformed_sections = {
+        key: type(value).__name__
+        for key, value in config.items()
+        if value is not None and not isinstance(value, dict)
+    }
+    config = {key: (value if isinstance(value, dict) else {}) for key, value in config.items()}
+
+    errors = [
+        f"Configuration section '{key}' must be a mapping, got {type_name}"
+        for key, type_name in malformed_sections.items()
+    ]
     warnings = []
     missing_optional = []
 
@@ -631,6 +648,11 @@ def apply_config_defaults(
             config_with_defaults[section_name] = {}
 
         section_config = config_with_defaults[section_name]
+        if not isinstance(section_config, dict):
+            # Same null-section case as validate_config_schema: coerce to {}
+            # so defaults apply instead of raising on `param_name not in None`.
+            section_config = {}
+            config_with_defaults[section_name] = section_config
         defaults = section_schema.get("defaults", {})
         if not isinstance(defaults, dict):
             continue
