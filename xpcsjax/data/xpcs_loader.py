@@ -1122,12 +1122,13 @@ class XPCSDataLoader:
             )
             quality_results.append(final_validation_result)
 
-            # DATA-1: quality control is otherwise advisory-only (validate_data_stage's
-            # `.passed` was previously never checked here) — a dataset that fails every
-            # quality gate would return successfully with no trace beyond scattered
-            # per-issue log lines a caller could easily miss. Surface it loudly and fold
-            # it into the `_degraded` signal below so it is visible both in logs and to
-            # any programmatic caller, without changing the (still non-raising) contract.
+            # DATA-1: validate_data_stage's `.passed` for the FINAL_DATA stage is not
+            # checked anywhere else in this method — quality control is otherwise
+            # advisory-only, so a dataset that fails every quality gate would return
+            # successfully with no trace beyond scattered per-issue log lines a caller
+            # could easily miss. Surface it loudly and fold it into the `_degraded`
+            # signal below so it is visible both in logs and to any programmatic
+            # caller, without changing the (still non-raising) contract.
             if not final_validation_result.passed:
                 error_issues = [
                     issue.message
@@ -1175,7 +1176,7 @@ class XPCSDataLoader:
         data["_degraded"] = (
             bool(self.load_degradations)
             or bool(data.get("_preprocessing_degraded", False))
-            or (quality_controller is not None and not final_validation_result.passed)
+            or (bool(quality_controller) and not final_validation_result.passed)
         )
 
         return data

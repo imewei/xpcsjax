@@ -219,6 +219,30 @@ def test_cmaes_fixed_constant_survives_none_covariance(monkeypatch):
     assert np.asarray(res.covariance).shape == (len(res.parameters), len(res.parameters))
 
 
+def test_cmaes_result_construction_error_propagates(monkeypatch):
+    """A bug in OptimizationResult construction must crash, not be silently
+    downgraded into a generic failed result (2026-08-05 pr-review-toolkit
+    silent-failure-hunter finding, PR #36).
+
+    ``fit_nlsq_cmaes``'s try/except/else split moved result construction out
+    of the try block specifically so a real bug there (e.g. a future
+    ``__post_init__`` regression) propagates instead of being caught by the
+    same ``except ValueError`` that handles genuine solver failures. This
+    pins that contract directly, without relying on any specific
+    shape-mismatch scenario.
+    """
+    import xpcsjax.optimization.nlsq.core as core_module
+    from xpcsjax.optimization.nlsq.core import fit_nlsq_cmaes
+
+    def _broken_result(*_args, **_kwargs):
+        raise ValueError("boom: simulated OptimizationResult construction bug")
+
+    monkeypatch.setattr(core_module, "OptimizationResult", _broken_result)
+
+    with pytest.raises(ValueError, match="boom"):
+        fit_nlsq_cmaes(_tiny_laminar_data(), _laminar_cmaes_config("individual"))
+
+
 def test_cmaes_nan_q_is_rejected_not_silently_fit(monkeypatch):
     """Audit [2026-07-23] (PR #15 review, pr15-test-review): a NaN
     ``wavevector_q_list[0]`` (bad detector pixel) must not silently reach

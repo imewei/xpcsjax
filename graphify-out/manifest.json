@@ -265,9 +265,9 @@
     "semantic_hash": "6e0487edf8ddc0ff7c0fd6e4c4aa2f50"
   },
   "tests/optimization/test_cmaes_trigger.py": {
-    "mtime": 1785964859.0908358,
-    "ast_hash": "c0accb4990f7f09b0e23e7f6ce2ad541",
-    "semantic_hash": "c0accb4990f7f09b0e23e7f6ce2ad541"
+    "mtime": 1785969614.3105538,
+    "ast_hash": "34777693c6b53809674c698e3803c5c1",
+    "semantic_hash": ""
   },
   "tests/optimization/test_escape_mode_routing.py": {
     "mtime": 1785964859.0918357,
@@ -475,9 +475,9 @@
     "semantic_hash": "1c7b5483c214a9dc747ebb19ddc8bb24"
   },
   "tests/data/test_load_degradation_signal.py": {
-    "mtime": 1785964859.0828357,
-    "ast_hash": "10b7034893e0e556cfceee98cadf4e04",
-    "semantic_hash": "10b7034893e0e556cfceee98cadf4e04"
+    "mtime": 1785969339.3377247,
+    "ast_hash": "912358536a6bf24fc207c4715ef92b6c",
+    "semantic_hash": ""
   },
   "tests/parity/test_mode_taxonomy.py": {
     "mtime": 1785964859.1038358,
@@ -1205,8 +1205,8 @@
     "semantic_hash": "3e70e29aa9ff620d0fb21b1e528e3160"
   },
   "xpcsjax/data/xpcs_loader.py": {
-    "mtime": 1785966046.0823426,
-    "ast_hash": "18c16f856fc4cc7c6ad83bd9d64ec162",
+    "mtime": 1785969019.3957899,
+    "ast_hash": "7d011a9cd44e29f4d5cedd00622c468b",
     "semantic_hash": ""
   },
   "xpcsjax/data/filtering_utils.py": {
@@ -2080,9 +2080,9 @@
     "semantic_hash": "3e071b8e1ffe275aeddf4f43be2cae78"
   },
   "tests/cli/test_data_pipeline_adapter.py": {
-    "mtime": 1785964859.0768359,
-    "ast_hash": "028013457701b950bc507e2ce7255553",
-    "semantic_hash": "028013457701b950bc507e2ce7255553"
+    "mtime": 1785969443.1487978,
+    "ast_hash": "90701f6705d6a7eee3a58abd1713bfdb",
+    "semantic_hash": ""
   },
   "tests/config/test_config_jax_free.py": {
     "mtime": 1785964859.0788357,
@@ -2445,8 +2445,8 @@
     "semantic_hash": "d445f5f42303431d1a95b2954cfdfe2d"
   },
   "xpcsjax/service/fit.py": {
-    "mtime": 1785966115.1821957,
-    "ast_hash": "3f037f7caa83887836a1833b9a480bdf",
+    "mtime": 1785969001.1767926,
+    "ast_hash": "f311f7e545ff98a7f4572f4eb9acde16",
     "semantic_hash": ""
   },
   "xpcsjax/service/persist.py": {
