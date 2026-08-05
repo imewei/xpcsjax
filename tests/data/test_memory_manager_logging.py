@@ -19,13 +19,20 @@ Quality-gate findings added (2026-06-03):
 - TEST-1 GAP-6: two different VM files each emit their own cleanup DEBUG record
 """
 
+import gc
 import logging
 import os
 import unittest.mock
+import weakref
 
 import pytest
 
-from xpcsjax.data.memory_manager import AdvancedMemoryManager, AllocationError, MemoryStats
+from xpcsjax.data.memory_manager import (
+    AdvancedMemoryManager,
+    AllocationError,
+    MemoryPressureMonitor,
+    MemoryStats,
+)
 from xpcsjax.utils import logging as xlog
 
 
@@ -416,3 +423,78 @@ def test_atexit_cleanup_silences_closed_stream_logging_errors(capsys):
         root.removeHandler(bad_handler)
         logging.raiseExceptions = original_raise
         manager.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# _as_weak_callable: AdvancedMemoryManager<->MemoryPressureMonitor reference
+# cycle regression coverage.
+# ---------------------------------------------------------------------------
+
+
+def test_manager_collected_by_refcounting_without_cyclic_gc():
+    """The manager<->monitor reference cycle must stay broken.
+
+    Before the fix, ``AdvancedMemoryManager`` registered its own bound
+    methods as ``MemoryPressureMonitor`` callbacks, forming a strong
+    reference cycle. Cycles containing ``__del__`` are only reclaimed when
+    the cyclic garbage collector happens to sweep them -- not
+    deterministically at scope exit -- so the monitor's daemon thread could
+    outlive its owner and keep logging into an already-closed stream. This
+    test disables the cyclic collector so only plain refcounting can do the
+    work: it must still promptly collect the manager and stop its thread.
+    """
+    gc.disable()
+    try:
+        manager = AdvancedMemoryManager(config={"memory": {"enable_monitoring": True}})
+        manager_ref = weakref.ref(manager)
+        thread = manager.pressure_monitor._monitoring_thread
+        assert thread is not None and thread.is_alive()
+
+        del manager
+
+        assert manager_ref() is None, (
+            "manager was not collected by refcounting alone -- the "
+            "owner<->monitor reference cycle regressed"
+        )
+        thread.join(timeout=2.0)
+        assert not thread.is_alive(), (
+            "monitor thread did not stop promptly after its owner was collected"
+        )
+    finally:
+        gc.enable()
+        gc.collect()
+
+
+def test_dead_weak_callback_does_not_crash_pressure_trigger(caplog):
+    """A weak-wrapped callback whose target was collected must stay non-fatal.
+
+    ``register_warning_callback`` wraps bound-method callbacks weakly (see
+    ``_as_weak_callable``). Once the callback's owner is garbage collected,
+    invoking the wrapper raises ``ReferenceError`` -- this must be swallowed
+    and logged once at DEBUG by ``_trigger_warning_response``, exactly like
+    any other callback failure, not propagate out of the pressure-check loop.
+    """
+    monitor = MemoryPressureMonitor()
+    try:
+
+        class _Handler:
+            def on_warning(self, _stats: MemoryStats) -> None:
+                pass
+
+        handler = _Handler()
+        monitor.register_warning_callback(handler.on_warning)
+        del handler
+        gc.collect()  # ensure the WeakMethod target is actually gone
+
+        with caplog.at_level(logging.DEBUG, logger="xpcsjax"):
+            monitor._trigger_warning_response()  # must not raise
+
+        assert any(
+            r.levelno == logging.DEBUG and "Warning callback failed" in r.getMessage()
+            for r in caplog.records
+        ), (
+            f"expected the dead-callback ReferenceError to be logged at DEBUG. "
+            f"Records: {[r.getMessage() for r in caplog.records]}"
+        )
+    finally:
+        monitor.stop_monitoring()
