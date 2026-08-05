@@ -36,7 +36,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, TypeVar, overload
 
 import psutil
 
@@ -167,6 +167,10 @@ def _cleanup_active_monitors() -> None:
 atexit.register(_cleanup_active_monitors)
 
 
+@overload
+def _as_weak_callable(fn: Callable[..., Any]) -> Callable[..., Any]: ...
+@overload
+def _as_weak_callable(fn: None) -> None: ...
 def _as_weak_callable(fn: Callable[..., Any] | None) -> Callable[..., Any] | None:
     """Wrap a bound method so holding it doesn't keep its owner alive.
 
