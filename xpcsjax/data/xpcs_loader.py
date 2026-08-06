@@ -869,6 +869,41 @@ class XPCSDataLoader:
             self.memory_manager = None
             self.advanced_optimizer = None
 
+    def close(self) -> None:
+        """Shut down the performance engine and memory manager, if constructed.
+
+        Both already implement a full ``shutdown()`` (monitoring thread join,
+        executor shutdown, cache/mmap cleanup) but nothing ever called it: a
+        loader built with the (default-on) performance engine enabled leaked
+        its monitoring thread — and everything it transitively keeps alive —
+        for the life of the process on every call. Safe to call multiple
+        times; best-effort per component so one failure doesn't block the
+        other's cleanup.
+        """
+        if self.performance_engine is not None:
+            try:
+                self.performance_engine.shutdown()
+            except Exception as e:  # pragma: no cover - defensive only
+                logger.warning(f"Error shutting down performance engine: {e}")
+            finally:
+                self.performance_engine = None
+
+        if self.memory_manager is not None:
+            try:
+                self.memory_manager.shutdown()
+            except Exception as e:  # pragma: no cover - defensive only
+                logger.warning(f"Error shutting down memory manager: {e}")
+            finally:
+                self.memory_manager = None
+
+    def __enter__(self) -> XPCSDataLoader:
+        """Enter the context manager, returning ``self``."""
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Exit the context manager, calling :meth:`close`."""
+        self.close()
+
     def _validate_configuration(self) -> None:
         """Validate configuration parameters."""
         required_exp_data = ["data_folder_path", "data_file_name"]
@@ -2865,11 +2900,19 @@ def load_xpcs_data(
         config_path = None
 
     loader = XPCSDataLoader(config_path=config_path, config_dict=config_dict)
-    # Wrap in the typed XpcsDataset (a dict subclass): key-indexed access is
-    # unchanged, but callers gain the typed .c2/.phi accessors and schema.
-    from xpcsjax.data.dataset import XpcsDataset
+    try:
+        # Wrap in the typed XpcsDataset (a dict subclass): key-indexed access
+        # is unchanged, but callers gain the typed .c2/.phi accessors and
+        # schema.
+        from xpcsjax.data.dataset import XpcsDataset
 
-    return XpcsDataset(loader.load_experimental_data())
+        return XpcsDataset(loader.load_experimental_data())
+    finally:
+        # The performance engine / memory manager are load-scoped: nothing
+        # downstream needs them alive after this call returns. Without this,
+        # each call leaked a monitoring thread (and everything it
+        # transitively keeps alive) for the life of the process.
+        loader.close()
 
 
 # Export main classes and functions
