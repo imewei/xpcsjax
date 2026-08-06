@@ -2931,20 +2931,17 @@ def load_xpcs_data(
         config_dict = config_path
         config_path = None
 
-    loader = XPCSDataLoader(config_path=config_path, config_dict=config_dict)
-    try:
+    # The performance engine / memory manager are load-scoped: nothing
+    # downstream needs them alive after this call returns. Without the
+    # context manager, each call leaked a monitoring thread (and everything
+    # it transitively keeps alive) for the life of the process.
+    with XPCSDataLoader(config_path=config_path, config_dict=config_dict) as loader:
         # Wrap in the typed XpcsDataset (a dict subclass): key-indexed access
         # is unchanged, but callers gain the typed .c2/.phi accessors and
         # schema.
         from xpcsjax.data.dataset import XpcsDataset
 
         return XpcsDataset(loader.load_experimental_data())
-    finally:
-        # The performance engine / memory manager are load-scoped: nothing
-        # downstream needs them alive after this call returns. Without this,
-        # each call leaked a monitoring thread (and everything it
-        # transitively keeps alive) for the life of the process.
-        loader.close()
 
 
 # Export main classes and functions
