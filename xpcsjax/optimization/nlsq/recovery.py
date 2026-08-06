@@ -168,10 +168,11 @@ def execute_with_recovery(
                     log.info(
                         f"Replacing scalar x_scale={x_scale_value} with magnitude-based scaling"
                     )
-                elif isinstance(x_scale_value, np.ndarray):
-                    x_scale_large = x_scale_value
                 else:
-                    x_scale_large = np.abs(current_params) + 1e-3
+                    # ndarray (per-parameter scaling) or a solver keyword like "jac"
+                    # (the default) — both are valid x_scale values on their own;
+                    # only a bare numeric scalar needs conversion.
+                    x_scale_large = x_scale_value
 
                 result = curve_fit_large_fn(
                     residual_fn,
@@ -534,7 +535,13 @@ def diagnose_error(
         if bounds is not None:
             lower, upper = bounds
             range_width = upper - lower
-            new_params = lower + 0.5 * range_width
+            midpoint = lower + 0.5 * range_width
+            # An infinite bound (unbounded parameter) makes the midpoint
+            # NaN/inf — fall back to the same safe default as the no-bounds
+            # case for those components instead of feeding a non-finite
+            # value back into the numerical-instability recovery it exists
+            # to escape.
+            new_params = np.where(np.isfinite(midpoint), midpoint, 0.5)
         else:
             new_params = np.ones_like(params) * 0.5
         diagnostic["recovery_strategy"] = {

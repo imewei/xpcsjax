@@ -367,10 +367,11 @@ def execute_optimization_with_fallback(
                         log.info(
                             f"Replacing scalar x_scale={x_scale_value} with magnitude-based scaling"
                         )
-                    elif isinstance(x_scale_value, np.ndarray):
-                        x_scale_large = x_scale_value
                     else:
-                        x_scale_large = np.abs(validated_params) + 1e-3
+                        # ndarray (per-parameter scaling) or a solver keyword like
+                        # "jac" (the default) — both are valid x_scale values on
+                        # their own; only a bare numeric scalar needs conversion.
+                        x_scale_large = x_scale_value
 
                     result_tuple = curve_fit_large_fn(
                         wrapped_residual_fn,

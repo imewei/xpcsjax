@@ -102,8 +102,10 @@ def compute_uncertainties(covariance: np.ndarray) -> np.ndarray:
     Returns
     -------
     np.ndarray
-        Standard deviations (square root of the diagonal). Non-finite or
-        negative variances are zeroed out before the square root.
+        Standard deviations (square root of the diagonal). Non-finite
+        variances surface as NaN ("unknown"); negative-but-finite variances
+        (floating-point noise near zero) are clipped to 0 before the square
+        root.
     """
     if covariance is None or covariance.size == 0:
         return np.array([])

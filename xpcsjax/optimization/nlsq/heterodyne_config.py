@@ -1160,12 +1160,21 @@ class NLSQConfig:
             if raw is _SENTINEL:
                 continue  # use dataclass default
 
-            # An explicit ``null`` on a non-nullable numeric field means "use the
-            # dataclass default", NOT 0. Without this, ``safe_int(None, 0)`` /
-            # ``safe_float(None, 0.0)`` silently collapse a null sentinel to 0 —
-            # the ``cmaes_max_iterations`` footgun, where ``max_generations:
-            # null`` reached nlsq as ``max_generations=0``. Nullable kinds
-            # (``*_or_none`` / ``passthrough``) handle ``None`` themselves below.
+            # An explicit ``null`` on a non-nullable scalar field means "use the
+            # dataclass default", uniformly across every scalar kind. For
+            # int/float this prevents ``safe_int(None, 0)`` / ``safe_float(None,
+            # 0.0)`` from silently collapsing a null sentinel to 0 — the
+            # ``cmaes_max_iterations`` footgun, where ``max_generations: null``
+            # reached nlsq as ``max_generations=0``. For bool this means an
+            # explicit ``field: null`` now falls back to that field's real
+            # dataclass default (which may be ``True``, e.g. ``enable_recovery``,
+            # ``enable_anti_degeneracy``) rather than always resolving to
+            # ``False`` — a deliberate change: ``null`` in YAML means "unset,"
+            # not "off," and the old behavior silently forced every such field
+            # off regardless of its intended default. For str it prevents
+            # ``str(None) == "None"`` corrupting fields like ``analysis_mode``.
+            # Nullable kinds (``*_or_none`` / ``passthrough``) handle ``None``
+            # themselves below.
             if raw is None and kind in ("int", "float", "bool", "str"):
                 continue  # use dataclass default
 

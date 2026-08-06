@@ -2440,9 +2440,14 @@ class NLSQWrapper(NLSQAdapterBase):
                     float(np.linalg.cond(final_jtj)) if final_jtj.size > 0 else None
                 )
 
-        # Determine optimization success
+        # Determine optimization success. `initial_cost` is NLSQ's own
+        # reported solver "cost" — the scipy/NLSQ convention of
+        # 0.5*sum(residuals**2), not the full SSR — so `final_cost` must
+        # use the same 0.5x convention or cost_reduction compares mismatched
+        # scales (this is a separate local quantity from chi_squared, which
+        # intentionally stays the full sum(residuals**2) elsewhere).
         initial_cost = info.get("initial_cost", 0) if isinstance(info, dict) else 0
-        final_cost = np.sum(final_residuals**2)
+        final_cost = 0.5 * np.sum(final_residuals**2)
 
         function_evals = iterations
         cost_reduction = (initial_cost - final_cost) / initial_cost if initial_cost > 0 else 0
@@ -4299,9 +4304,9 @@ class NLSQWrapper(NLSQAdapterBase):
         else:
             quality_flag = "poor"
 
-        # Task 5.4: Build enhanced streaming diagnostics (batch-statistics
-        # enrichment removed -- NLSQWrapper no longer tracks a BatchStatistics
-        # instance; see Bug #2 in the results_params_cluster RCA).
+        # Build enhanced streaming diagnostics. Batch-statistics enrichment
+        # was removed here: NLSQWrapper no longer constructs a
+        # BatchStatistics instance (it was tracked but never populated).
         enhanced_streaming_diagnostics = None
         if streaming_diagnostics is not None:
             enhanced_streaming_diagnostics = streaming_diagnostics.copy()
