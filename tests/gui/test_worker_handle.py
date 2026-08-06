@@ -1,5 +1,7 @@
 """pytest-qt tests for WorkerHandle: event forwarding, Died synthesis, cancel."""
 
+import os
+
 import pytest
 
 pytest.importorskip("PySide6")
@@ -71,6 +73,10 @@ def test_cancel_and_shutdown_join_reader_thread(qtbot, monkeypatch):
     assert reader.isFinished()
 
 
+@pytest.mark.skipif(
+    not hasattr(os, "killpg"),
+    reason="os.killpg is POSIX-only; WorkerHandle._pgid stays None on this platform",
+)
 def test_cancel_terminates_even_when_killpg_races_startup(monkeypatch):
     """cancel() must still call proc.terminate() when killpg races a child
     that hasn't called os.setpgrp() yet (cancel-during-startup).
@@ -79,7 +85,6 @@ def test_cancel_terminates_even_when_killpg_races_startup(monkeypatch):
     swallowed ProcessLookupError from killpg left the worker completely
     unsignaled until the full join-timeout + SIGKILL escalation.
     """
-    import os
     from unittest.mock import MagicMock
 
     from xpcsjax.gui.ipc.handle import WorkerHandle
