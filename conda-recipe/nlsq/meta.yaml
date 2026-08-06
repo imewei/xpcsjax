@@ -1,0 +1,71 @@
+{% set name = "nlsq" %}
+{% set version = "0.7.0" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/nlsq-{{ version }}.tar.gz
+  sha256: 29fd610e8dba66b8c2c89056a8fc00dc3bede3e8e2eff8131b09534d4a61921d
+
+build:
+  number: 0
+  noarch: python
+  script: {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
+  entry_points:
+    - nlsq = nlsq.__main__:main
+
+requirements:
+  host:
+    - python >=3.12
+    - pip
+    - setuptools >=80
+    - setuptools-scm >=9.2
+    - wheel
+  run:
+    - python >=3.12
+    - numpy >=2.2
+    - scipy >=1.16.0
+    - jax >=0.8.0
+    - jaxlib >=0.8.0
+    - optax >=0.2.6
+    - matplotlib-base >=3.10.0
+    - psutil >=7.2.0
+    - tqdm >=4.67.0
+    - h5py >=3.15.0
+    - python-xxhash >=3.6.0
+    - pyyaml >=6.0.3
+    - evosax >=0.2.0,<0.3.0
+
+test:
+  imports:
+    - nlsq
+  # `pip check` is intentionally omitted here: nlsq 0.7.0's own dist-info
+  # METADATA lists its dev/docs/GUI extras (pytest, sphinx, PySide6, ...) as
+  # unconditional Requires-Dist with no extra marker (verified against the
+  # installed METADATA, not just the PyPI JSON API -- an upstream
+  # pyproject.toml bug, worth reporting to imewei/NLSQ). `pip check` faults on
+  # exactly those absent deps regardless of what this recipe's run: section
+  # declares, so it would always fail here and adds no real signal.
+
+about:
+  home: https://github.com/imewei/NLSQ
+  summary: GPU/TPU accelerated nonlinear least-squares curve fitting using JAX
+  license: MIT
+  license_family: MIT
+  license_file: LICENSE
+  doc_url: https://nlsq.readthedocs.io
+  dev_url: https://github.com/imewei/NLSQ
+
+extra:
+  recipe-maintainers:
+    - imewei
+  # NOTE: nlsq 0.7.0's published wheel METADATA lists its dev/docs/test/GUI
+  # extras (pytest, sphinx, PySide6, jupyterlab, ...) as unconditional
+  # Requires-Dist entries with no "extra ==" marker -- verified against the
+  # wheel's METADATA file, not just the PyPI JSON API. That looks like an
+  # upstream pyproject.toml bug (dependency-group leakage into
+  # install-requires), not an intentional hard runtime dependency. The `run:`
+  # list above keeps only the genuine runtime deps (mirrors xpcsjax's own
+  # nlsq pin) and does not propagate the bug into this recipe.
