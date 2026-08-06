@@ -178,8 +178,17 @@ def _extract_metadata(result: OptimizationResult) -> dict[str, Any]:
     return meta
 
 
-def _config_summary(config_manager: ConfigManager | None) -> dict[str, Any]:
-    """Extract a small, JSON-safe header describing the run configuration."""
+def _config_summary(
+    config_manager: ConfigManager | None,
+    parameter_names: list[str] | None = None,
+) -> dict[str, Any]:
+    """Extract a small, JSON-safe header describing the run configuration.
+
+    ``parameter_names``, when given, should be the SAME list already resolved
+    by :func:`_resolve_parameter_names` for this result -- otherwise this
+    header would carry a shorter, physics-only list) that silently disagrees
+    with the (scaling + physics) keys in the ``parameters`` block next to it.
+    """
     if config_manager is None:
         return {}
 
@@ -198,19 +207,35 @@ def _config_summary(config_manager: ConfigManager | None) -> dict[str, Any]:
                 data_type = exp.get("data_type")
         summary["data_type"] = _json_safe(data_type)
     summary["config_path"] = _json_safe(getattr(config_manager, "config_file", None))
-    # Parameter names are needed downstream for labeled output. xpcsjax's
-    # ConfigManager exposes get_active_parameters() (not the heterodyne-style
-    # get_parameter_names()).
-    if hasattr(config_manager, "get_active_parameters"):
-        try:
-            summary["parameter_names"] = list(config_manager.get_active_parameters())
-        except Exception:  # pragma: no cover - defensive: never fail save on config introspection
-            logger.warning(
-                "ConfigManager.get_active_parameters() failed; saved result will "
-                "omit parameter_names (downstream parsers may need them).",
-                exc_info=True,
-            )
+    if parameter_names is not None:
+        summary["parameter_names"] = list(parameter_names)
     return summary
+
+
+def _synthesize_scaling_names(physics_names: list[str], n_total: int) -> list[str] | None:
+    """Reconstruct (scaling + physics) names from the vector length alone.
+
+    Homodyne fits prepend a per-angle scaling head ahead of the physics tail,
+    laid out as ``[contrast_0..N, offset_0..N, <physics>]`` -- a block, not
+    interleaved, layout (see ``optimization/nlsq/core.py``, which slices
+    ``result.parameters[:n_angles]`` / ``[n_angles:2*n_angles]`` for exactly
+    this reason). Config alone doesn't carry which per-angle mode a given fit
+    used (constant / averaged / individual), but the length delta against the
+    physics-only count pins down the scaling-head size unambiguously:
+    ``n_total == n_physics + 2*n_angles``.
+
+    Returns ``None`` when the delta isn't a valid non-negative even
+    scaling-head size, so the caller falls back to generic ``param_i`` labels
+    instead of guessing.
+    """
+    extra = n_total - len(physics_names)
+    if extra == 0:
+        return list(physics_names)
+    if extra < 0 or extra % 2 != 0:
+        return None
+    n_angles = extra // 2
+    scaling = [f"contrast_{i}" for i in range(n_angles)] + [f"offset_{i}" for i in range(n_angles)]
+    return [*scaling, *physics_names]
 
 
 def _resolve_parameter_names(
@@ -219,13 +244,18 @@ def _resolve_parameter_names(
 ) -> list[str] | None:
     """Pull parameter names for labeling the fitted parameter vector.
 
-    Prefers ``result.nlsq_diagnostics["parameter_names"]`` -- the optimizer's
-    own label list, which includes per-angle scaling (contrast/offset) in the
-    exact order of ``result.parameters``. Falls back to
-    ``ConfigManager.get_active_parameters()``, which returns *physics-only*
-    names by design (it explicitly excludes scaling parameters) and therefore
-    undercounts -- and triggers the length-mismatch warning -- on every fit
-    that carries per-angle scaling.
+    Three tiers, most-authoritative first:
+
+    1. ``result.nlsq_diagnostics["parameter_names"]`` -- the optimizer's own
+       label list, in the exact order of ``result.parameters``. Only the
+       heterodyne (``two_component``) code paths populate this key today.
+    2. ``ConfigManager.get_active_parameters()`` (physics-only by design),
+       extended with synthesized ``contrast_i``/``offset_i`` names sized to
+       match ``result.parameters`` via :func:`_synthesize_scaling_names` --
+       this is what actually covers homodyne fits (static_isotropic,
+       static_anisotropic, laminar_flow), since none of them populate tier 1.
+    3. Bare physics-only names, if a vector was never provided to size the
+       scaling head against.
     """
     if result is not None:
         diagnostics = result.nlsq_diagnostics or {}
@@ -233,16 +263,28 @@ def _resolve_parameter_names(
             cand = diagnostics.get("parameter_names")
             if isinstance(cand, (list, tuple)) and cand:
                 return [str(n) for n in cand]
+            if diagnostics:
+                logger.debug(
+                    "result.nlsq_diagnostics present but has no usable "
+                    "'parameter_names' list; falling back to ConfigManager-derived names.",
+                )
     if config_manager is None:
         return None
     if hasattr(config_manager, "get_active_parameters"):
         try:
-            return list(config_manager.get_active_parameters())
+            physics_names = list(config_manager.get_active_parameters())
         except Exception:
             logger.warning(
                 "Could not resolve parameter names from ConfigManager; output will be unlabeled.",
                 exc_info=True,
             )
+            return None
+        if result is not None:
+            n_total = np.asarray(result.parameters).size
+            synthesized = _synthesize_scaling_names(physics_names, n_total)
+            if synthesized is not None:
+                return synthesized
+        return physics_names
     return None
 
 
@@ -289,7 +331,7 @@ def save_results_json(
     payload: dict[str, Any] = {
         "schema": "xpcsjax.nlsq.result/v1",
         "timestamp": datetime.datetime.now(tz=datetime.UTC).isoformat(),
-        "config": _config_summary(config_manager),
+        "config": _config_summary(config_manager, parameter_names),
         "parameters": _extract_parameters(result, parameter_names),
         "metadata": _extract_metadata(result),
     }
@@ -365,7 +407,9 @@ def save_results_npz(
 
     metadata_blob = json.dumps(_json_safe(_extract_metadata(result)))
     arrays["metadata_json"] = np.array(metadata_blob)
-    arrays["config_json"] = np.array(json.dumps(_json_safe(_config_summary(config_manager))))
+    arrays["config_json"] = np.array(
+        json.dumps(_json_safe(_config_summary(config_manager, parameter_names)))
+    )
 
     path = output_dir / filename
     # Atomic write: np.savez writes to a temp file first, then os.replace moves it

@@ -179,3 +179,116 @@ def test_save_results_npz_readable_without_allow_pickle(tmp_path):
         assert npz["config_json"].dtype.kind == "U"
         assert json.loads(str(npz["config_json"]))  # round-trips as real JSON, not a pickle blob
         assert npz["parameters"].dtype == np.float64
+
+
+def test_resolve_parameter_names_prefers_nlsq_diagnostics():
+    """Heterodyne fits label from result.nlsq_diagnostics, not the config manager.
+
+    Regression: the length-mismatch warning fired on every scaled fit because
+    ConfigManager.get_active_parameters() is physics-only by design. Heterodyne
+    dispatch attaches its own (scaling + physics) label list to
+    result.nlsq_diagnostics["parameter_names"] -- that must win over the
+    shorter, physics-only config-manager list.
+    """
+    from unittest.mock import MagicMock
+
+    from xpcsjax.service.persist import _resolve_parameter_names
+
+    result = MagicMock()
+    result.nlsq_diagnostics = {"parameter_names": ["contrast_0", "offset_0", "D0_ref", "alpha_ref"]}
+
+    class _FakeConfigManager:
+        def get_active_parameters(self):
+            return ["D0_ref", "alpha_ref"]  # physics-only -- shorter, must lose
+
+    names = _resolve_parameter_names(_FakeConfigManager(), result)
+
+    assert names == ["contrast_0", "offset_0", "D0_ref", "alpha_ref"]
+
+
+def test_resolve_parameter_names_synthesizes_scaling_head_for_homodyne():
+    """Homodyne fits (no nlsq_diagnostics parameter_names) get names reconstructed
+    from the vector-length delta against the physics-only config list, instead
+    of hitting the length-mismatch warning and falling back to param_0, param_1.
+
+    This is the static_isotropic shape from the original bug report: 3 physics
+    params + a single-angle (contrast, offset) scaling head = 5 total.
+    """
+    from unittest.mock import MagicMock
+
+    import numpy as np
+
+    from xpcsjax.service.persist import _resolve_parameter_names
+
+    result = MagicMock()
+    result.nlsq_diagnostics = None  # homodyne: never populated
+    result.parameters = np.zeros(5)  # 3 physics + 1-angle (contrast, offset)
+
+    class _FakeConfigManager:
+        def get_active_parameters(self):
+            return ["D0", "alpha", "D_offset"]
+
+    names = _resolve_parameter_names(_FakeConfigManager(), result)
+
+    assert names == ["contrast_0", "offset_0", "D0", "alpha", "D_offset"]
+
+
+def test_resolve_parameter_names_synthesizes_multi_angle_scaling_head():
+    """Multi-angle 'individual' per-angle mode: N (contrast, offset) pairs."""
+    from unittest.mock import MagicMock
+
+    import numpy as np
+
+    from xpcsjax.service.persist import _resolve_parameter_names
+
+    result = MagicMock()
+    result.nlsq_diagnostics = {}
+    result.parameters = np.zeros(7)  # 3 physics + 2-angle scaling head (4)
+
+    class _FakeConfigManager:
+        def get_active_parameters(self):
+            return ["D0", "alpha", "D_offset"]
+
+    names = _resolve_parameter_names(_FakeConfigManager(), result)
+
+    assert names == ["contrast_0", "contrast_1", "offset_0", "offset_1", "D0", "alpha", "D_offset"]
+
+
+def test_save_results_json_labels_homodyne_scaling_params(tmp_path):
+    """End-to-end: a homodyne-shaped result no longer degrades to param_0..N,
+    and the JSON header's parameter_names agrees with the parameters block
+    (both come from the same resolved list).
+    """
+    import json
+
+    import numpy as np
+
+    from xpcsjax.optimization.nlsq.results import OptimizationResult
+    from xpcsjax.service.persist import save_results_json
+
+    result = OptimizationResult(
+        parameters=np.array([0.05, 1.0, 16834.9, -1.57, 3.03]),
+        uncertainties=None,
+        covariance=None,
+        chi_squared=1.0,
+        reduced_chi_squared=1.0,
+        convergence_status="converged",
+        iterations=3,
+        execution_time=0.01,
+        device_info={"device": "cpu"},
+    )
+
+    class _FakeConfigManager:
+        config = {"analysis_mode": "static_isotropic"}
+        config_file = "config.yaml"
+
+        def get_active_parameters(self):
+            return ["D0", "alpha", "D_offset"]
+
+    path = save_results_json(result, tmp_path, config_manager=_FakeConfigManager())
+    payload = json.loads(path.read_text())
+
+    expected = ["contrast_0", "offset_0", "D0", "alpha", "D_offset"]
+    assert list(payload["parameters"].keys()) == expected
+    assert payload["config"]["parameter_names"] == expected  # header agrees with body
+    assert "param_0" not in payload["parameters"]

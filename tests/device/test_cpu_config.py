@@ -211,3 +211,67 @@ def test_benchmark_device_performance_reports_oversized_test_size() -> None:
 
     assert "error" in results
     assert "test_size" in results["error"]
+
+
+def _cpu_info_no_extras() -> dict[str, Any]:
+    """A CPU description with no AVX-512/Intel extras, so _configure_jax_cpu's
+    xla_flags reduces to exactly the one deterministic flag under test.
+    """
+    return {"supports_avx512": False, "cpu_brand": "Generic"}
+
+
+def test_configure_jax_cpu_skips_warning_when_flag_already_applied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A live backend with the exact flag already in XLA_FLAGS is a harmless
+    no-op: no warning, and xla_flags_applied reports True.
+
+    This is the case xpcsjax/__init__.py's pre-import _DEFAULT_XLA_FLAGS entry
+    creates on every real run -- device.cpu's own copy of the same flag
+    should recognize it's redundant instead of always warning.
+    """
+    monkeypatch.setattr(device_cpu, "_jax_backend_initialized", lambda: True)
+    monkeypatch.setenv("XLA_FLAGS", "--xla_cpu_multi_thread_eigen=true")
+
+    caplog_records: list[str] = []
+    monkeypatch.setattr(
+        device_cpu.logger,
+        "warning",
+        lambda *a, **k: caplog_records.append(str(a)),
+    )
+
+    result = device_cpu._configure_jax_cpu(4, _cpu_info_no_extras())
+
+    assert result["xla_flags_applied"] is True
+    assert caplog_records == []
+
+
+def test_configure_jax_cpu_warns_when_flag_value_differs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A flag NAME present with a DIFFERENT value must still warn.
+
+    Regression: a substring check on the flag name alone (`"...eigen" not in
+    existing_flags`) would treat "--xla_cpu_multi_thread_eigen=false" as
+    "already applied" even though the requested value ("=true") never took
+    effect -- silently misreporting a real misconfiguration as success.
+    """
+    monkeypatch.setattr(device_cpu, "_jax_backend_initialized", lambda: True)
+    monkeypatch.setenv("XLA_FLAGS", "--xla_cpu_multi_thread_eigen=false")
+
+    result = device_cpu._configure_jax_cpu(4, _cpu_info_no_extras())
+
+    assert result["xla_flags_applied"] is False
+
+
+def test_configure_jax_cpu_warns_when_flag_entirely_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A live backend with no matching flag at all must still warn (the
+    pre-PR behavior, preserved for the genuinely-missing case)."""
+    monkeypatch.setattr(device_cpu, "_jax_backend_initialized", lambda: True)
+    monkeypatch.setenv("XLA_FLAGS", "--xla_force_host_platform_device_count=4")
+
+    result = device_cpu._configure_jax_cpu(4, _cpu_info_no_extras())
+
+    assert result["xla_flags_applied"] is False
