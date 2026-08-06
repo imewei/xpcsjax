@@ -50,7 +50,7 @@ The 12 module `CLAUDE.md` files above (and `.claude/index.json`) are generated l
 | utils | `xpcsjax/utils/` | Logging primitives, async I/O helpers, path validation |
 | viz | `xpcsjax/viz/` | Lazy-loaded NLSQ result plotting (matplotlib/datashader) + diagnostic overlays |
 
-Each module's `CLAUDE.md` covers: responsibility / entry points & startup / public interface / key dependencies & config / data model / tests & quality / FAQ / related files. Deep architectural narrative for `optimization`/`core`/`config` lives in this root file (below) — the module docs for those three are intentionally short and point back here rather than duplicating it. `.claude/index.json` (also local-only, see above) holds the machine-readable module index, scan coverage, and gap list (generated 2026-07-20).
+Each module's `CLAUDE.md` covers: responsibility / entry points & startup / public interface / key dependencies & config / data model / tests & quality / FAQ / related files. Deep architectural narrative for `optimization`/`core`/`config` lives in this root file (below) — the module docs for those three are intentionally short and point back here rather than duplicating it. `.claude/index.json` (also local-only, see above) holds the machine-readable module index, scan coverage, and gap list (generated 2026-08-06).
 
 ## Project scope and what it is *not*
 
