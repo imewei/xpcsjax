@@ -338,7 +338,7 @@ Use the project Makefile rather than reinventing pytest/ruff invocations — the
 | Run all tests | `make test` |
 | Run a single test file | `uv run pytest tests/optimization/test_nlsq_core.py -v` |
 | Run a single test | `uv run pytest tests/optimization/test_nlsq_core.py::test_name -v` |
-| Domain-scoped tests | `make test-core` · `make test-optimization` · `make test-heterodyne` · `make test-characterization` · `make test-property` |
+| Domain-scoped tests | `make test-core` · `make test-optimization` · `make test-heterodyne` · `make test-characterization` · `make test-property` · `make test-viz` (pytest-mpl snapshot comparison) |
 | Fast smoke | `make test-smoke` |
 | Pre-push gate | `make verify` (lint + advisory mypy + smoke under `-x -n auto`) |
 | Lint | `make lint` (ruff, line-length 100, `E,F,W,I,B,UP,N`) |

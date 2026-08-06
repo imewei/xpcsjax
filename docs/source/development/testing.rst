@@ -91,12 +91,19 @@ aggregate targets:
    make test-heterodyne        # tests/heterodyne
    make test-characterization  # tests/characterization
    make test-property          # tests/property
+   make test-viz               # tests/viz (pytest-mpl snapshot comparison)
 
 Each shard target is a thin wrapper around:
 
 .. code-block:: shell
 
    uv run pytest tests/<shard> -v --tb=short
+
+``make test-viz`` is the one exception: it runs
+``uv run pytest tests/viz -v --mpl`` instead, since the shard compares
+rendered plots against committed baseline images via
+`pytest-mpl <https://github.com/matplotlib/pytest-mpl>`_ rather than
+asserting on return values.
 
 You can pass extra pytest options on the command line instead. To run
 a single file:
