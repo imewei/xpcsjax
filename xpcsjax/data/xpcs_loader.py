@@ -378,6 +378,30 @@ def _check_square_matrix(shape: tuple[int, ...], *, source: str) -> None:
         )
 
 
+def _peek_npz_array_header(npz: Any, key: str) -> tuple[tuple[int, ...], np.dtype]:
+    """Read an ``.npz`` member's shape/dtype from its ``.npy`` header.
+
+    Does not materialize the array.
+
+    ``np.load(..., mmap_mode="r")`` is silently a no-op for zip-backed ``.npz``
+    files: ``NpzFile.__getitem__`` always fully decompresses into RAM
+    regardless of ``mmap_mode`` (verified on numpy 2.4.6 — the returned object
+    is a plain ``ndarray``, never a ``memmap``). An allocation-budget guard
+    that reads ``npz[key]`` before checking its shape has therefore already
+    caused the OOM it exists to prevent. Reading only the member's header
+    bytes here lets the caller guard BEFORE any full-array read.
+    """
+    from numpy.lib import format as npy_format
+
+    with npz.zip.open(f"{key}.npy") as f:
+        version = npy_format.read_magic(f)
+        if version == (1, 0):
+            shape, _fortran_order, dtype = npy_format.read_array_header_1_0(f)
+        else:
+            shape, _fortran_order, dtype = npy_format.read_array_header_2_0(f)
+    return shape, dtype
+
+
 def _validate_loaded_arrays(data: dict[str, Any], *, source: str) -> None:
     """Hard-fail (DATA-2) on corrupt loaded correlation arrays at the I/O boundary.
 
@@ -1273,22 +1297,25 @@ class XPCSDataLoader:
             # internal message leak.
             try:
                 # threat-03: validate the cached correlation shape BEFORE copying
-                # it into RAM. With mmap_mode="r" the member's shape/dtype are
-                # known cheaply; the .npz path otherwise bypasses the HDF
-                # allocation guard, so a crafted cache could OOM the process on
-                # the np.array() copy. (Inside the try so an object-dtype member
-                # still surfaces the friendly allow_pickle message below.)
-                _cached_c2 = data["c2_exp"]
-                if getattr(_cached_c2, "ndim", 0) == 3:
+                # it into RAM. mmap_mode="r" is a no-op for zip-backed .npz
+                # (see _peek_npz_array_header) — reading data["c2_exp"] first to
+                # inspect its shape would materialize the full array before the
+                # guard runs, which is exactly the OOM this exists to prevent.
+                # Peek the .npy header instead (no allocation), and read the
+                # array itself exactly once below. (Inside the try so an
+                # object-dtype member still surfaces the friendly allow_pickle
+                # message below.)
+                c2_shape, c2_dtype = _peek_npz_array_header(data, "c2_exp")
+                if len(c2_shape) == 3:
                     _check_square_matrix(
-                        (int(_cached_c2.shape[-2]), int(_cached_c2.shape[-1])),
+                        (int(c2_shape[-2]), int(c2_shape[-1])),
                         source=cache_path,
                     )
-                    _check_frame_count(int(_cached_c2.shape[-1]), source=cache_path)
+                    _check_frame_count(int(c2_shape[-1]), source=cache_path)
                     _check_allocation_budget(
-                        int(_cached_c2.shape[0]),
-                        int(_cached_c2.shape[-1]),
-                        _cached_c2.dtype.itemsize,
+                        int(c2_shape[0]),
+                        int(c2_shape[-1]),
+                        c2_dtype.itemsize,
                         source=cache_path,
                     )
 
