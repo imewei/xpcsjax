@@ -42,10 +42,12 @@ package is not installed.
      ``__version__ = "2.23.1"``) — tracks the ported upstream ``xpcs_loader``
      and is surfaced by :func:`xpcsjax.data.get_data_module_info`. It is
      intentionally decoupled from the package version.
-   * The **config-schema version** (``config_version: "0.1.0"`` in the config
-     templates) — versions the YAML config format. It diverged from the package
-     version at v0.1.1: the config format did not change, so it stays ``0.1.0``
-     while the package moved past ``0.1.1``.
+   * The **config-schema version** (``config_version: "0.1.2"`` in the config
+     templates) — versions the YAML config format. ``ConfigManager`` only warns
+     on a **major.minor** mismatch against the package version
+     (:meth:`ConfigManager._validate_config_version`), so it does not have to
+     track the package's patch version exactly — but it is kept in sync as a
+     matter of release hygiene.
 
 Release steps
 -------------
