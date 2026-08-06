@@ -11,6 +11,8 @@ JAX-native NLSQ fitting for X-ray Photon Correlation Spectroscopy (XPCS).
 [![Python](https://img.shields.io/badge/Python-3.12%2B-blue)](https://www.python.org/)
 [![Documentation](https://img.shields.io/badge/docs-latest-brightgreen.svg)](https://xpcsjax.readthedocs.io)
 
+> **Disclaimer:** XPCSJAX is pre-release software under active development and testing. APIs, model implementations, and numerical results may change without notice. Outputs have not been independently validated for all use cases. Use at your own risk and verify critical results against established reference data before relying on them in research or industrial applications.
+
 xpcsjax consolidates the [`homodyne`](https://github.com/imewei/homodyne) and
 [`heterodyne`](https://github.com/imewei/heterodyne) analysis pipelines — both now
 deprecated in its favor — into one package with a shared engine and config-driven
