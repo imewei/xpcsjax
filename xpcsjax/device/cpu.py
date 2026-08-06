@@ -212,11 +212,20 @@ def configure_cpu_hpc(
         # device count already apply. Reserve-then-divide: OS headroom is taken
         # once from the host total, then the rest is split N ways.
         #
-        # Imported lazily: xpcsjax.optimization.nlsq.memory drags in the whole
-        # NLSQ package, and device.cpu is imported *by* that package (core.py).
-        from xpcsjax.optimization.nlsq.memory import _detect_fit_concurrency
+        # Read the env vars directly instead of importing
+        # xpcsjax.optimization.nlsq.memory: that import drags in JAX/NumPy
+        # (and device.cpu is imported *by* that package, via core.py), which
+        # would initialize BLAS threading before the env vars below are set —
+        # defeating this function's whole purpose on a cold process.
+        for _env_var in ("XPCSJAX_FIT_CONCURRENCY", "PYTEST_XDIST_WORKER_COUNT"):
+            _raw = os.environ.get(_env_var)
+            if _raw:
+                try:
+                    concurrency = max(1, int(_raw))
+                    break
+                except ValueError:
+                    logger.debug("Ignoring non-integer %s=%r", _env_var, _raw)
 
-        concurrency = _detect_fit_concurrency()
         if concurrency > 1:
             num_threads = max(1, num_threads // concurrency)
 

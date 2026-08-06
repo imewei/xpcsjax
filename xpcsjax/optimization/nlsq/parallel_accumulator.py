@@ -646,6 +646,17 @@ class OOCSharedArrays:
         self._refs: dict[str, dict[str, Any]] = {}
         self._chunk_boundaries = chunk_boundaries
 
+        # Validate here (non-JIT) rather than in the JIT kernels below: those
+        # kernels can only *substitute* a degenerate sigma (jnp.where(sigma>0,
+        # 1/sigma, 1.0)) since raising inside a trace isn't possible, which would
+        # silently launder corrupted uncertainty data into unit weights. Match
+        # core.py's fit_nlsq_cmaes contract: fail loudly before the fit starts.
+        if sigma_flat is not None:
+            if not np.all(np.isfinite(sigma_flat)):
+                raise ValueError("sigma values must be finite")
+            if np.any(sigma_flat <= 0):
+                raise ValueError("sigma values must be strictly positive")
+
         try:
             for name, arr in [
                 ("phi", phi_flat),

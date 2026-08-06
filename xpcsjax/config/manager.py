@@ -178,6 +178,13 @@ class ConfigManager:
         # Cache for ParameterManager to avoid repeated instantiation
         self._cached_param_manager: Any | None = None
 
+        # Set by load_config() when the parsed config fails post-load physics
+        # validation. The parsed config is still kept as self.config (see
+        # load_config's docstring), so callers that care whether validation
+        # actually passed before launching a fit must check this flag —
+        # otherwise the only signal is a logger.error line.
+        self.config_validation_error: Exception | None = None
+
         if config_override is not None:
             self.config = config_override.copy()
             logger.info("Configuration loaded from override data")
@@ -338,6 +345,7 @@ class ConfigManager:
         # not fall into the same handler that discards a successfully-parsed
         # user config in favor of stub defaults — only a genuine parse/IO
         # failure should do that.
+        self.config_validation_error = None
         if os.environ.get("XPCSJAX_VALIDATE_CONFIG", "true").lower() == "true":
             try:
                 self._validate_config()
@@ -346,6 +354,7 @@ class ConfigManager:
                     f"Configuration validation error: {e}; keeping the parsed "
                     "configuration as-is (validation failure, not a parse failure)"
                 )
+                self.config_validation_error = e
 
     # Path keys under ``experimental_data`` that name a file or directory. These
     # are the keys the loader resolves against ``data_folder_path`` / reads

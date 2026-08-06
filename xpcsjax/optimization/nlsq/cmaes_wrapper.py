@@ -1185,7 +1185,7 @@ class CMAESWrapper:
             if (
                 refinement_result["success"]
                 and np.isfinite(_ref_chi2)
-                and _ref_chi2 <= cmaes_chi_squared
+                and (not np.isfinite(cmaes_chi_squared) or _ref_chi2 <= cmaes_chi_squared)
             ):
                 # Use refined parameters
                 best_params = refinement_result["popt"]
