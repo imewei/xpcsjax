@@ -210,8 +210,10 @@ initial_parameters:
 # -----------------------------------------------------------------------------
 # PARAMETER SPACE — bounds match the xpcsjax registry
 # -----------------------------------------------------------------------------
-# NLSQ uses min/max as BOX CONSTRAINTS. `type:` is "TruncatedNormal"
-# (informational for the NLSQ path). `unit:` is informational only.
+# NLSQ uses min/max as BOX CONSTRAINTS. `unit:` is informational only.
+# (A `type:` prior-distribution field, meaningful only for Bayesian sampling
+# which is out of scope for this package, was removed — nothing in xpcsjax
+# ever read it.)
 #
 # LAMINAR_FLOW BOUNDS DRIVE TWO OUTCOMES:
 #   1. Convergence stability — tight bounds keep the optimizer in the
@@ -225,21 +227,18 @@ parameter_space:
     - name: contrast
       min: 0.0                # physical lower bound
       max: 1.0                # physical upper bound (fully coherent)
-      type: TruncatedNormal
       unit: "dimensionless"
       # Tighten to [0.01, 0.3] if you have a coherent-fraction estimate.
 
     - name: offset
       min: 0.5                # baseline of normalized c2 (ideally 1.0)
       max: 1.5
-      type: TruncatedNormal
       unit: "dimensionless"
       # Tighten to [0.95, 1.05] if normalization is validated.
 
     - name: D0
       min: 100.0              # ~µm particles in viscous fluid
       max: 100000.0           # ~10 nm particles
-      type: TruncatedNormal
       unit: "Å²/s"
       # Tighten if particle size known to within 2×. WIDE bounds + flow
       # interact badly without x_scale_map.
@@ -247,14 +246,12 @@ parameter_space:
     - name: alpha
       min: -2.0               # subdiffusion (jammed under shear)
       max:  2.0               # superdiffusion (convection-enhanced, common under shear)
-      type: TruncatedNormal
       unit: "dimensionless"
       # Under shear, α ≈ 0.5 is typical (mild superdiffusion).
 
     - name: D_offset
       min: -100000.0
       max:  100000.0
-      type: TruncatedNormal
       unit: "Å²/s"
       # Tighten to [-1000, 1000] if you have no reason to model offset.
       # Common simplification: fixed_parameters: {"D_offset": 0.0}.
@@ -262,7 +259,6 @@ parameter_space:
     - name: gamma_dot_t0
       min: 1.0e-6             # near-zero shear (slow Couette)
       max: 0.5                # fast shear (s⁻¹). 0.5 s⁻¹ is fast for XPCS.
-      type: TruncatedNormal
       unit: "s⁻¹"
       # Tighten to within an order of magnitude of expected Couette shear.
       # For a 200 µm gap at 1 mm/s rotor speed: γ̇ ≈ 5 s⁻¹ (exceeds default!).
@@ -271,7 +267,6 @@ parameter_space:
     - name: beta
       min: -2.0               # decelerating shear
       max:  2.0               # accelerating shear
-      type: TruncatedNormal
       unit: "dimensionless"
       # β =  0   steady shear (RECOMMENDED starting point + common simplification)
       # β >  0   accelerating (startup flow, thickening)
@@ -281,7 +276,6 @@ parameter_space:
     - name: gamma_dot_t_offset
       min: -0.1               # tight bounds: gamma_dot_t_offset is usually 0
       max:  0.1
-      type: TruncatedNormal
       unit: "s⁻¹"
       # Most experiments converge to ≈ 0. Common simplification:
       # fixed_parameters: {"gamma_dot_t_offset": 0.0}
@@ -289,7 +283,6 @@ parameter_space:
     - name: phi0
       min: -10.0              # ⚠ TIGHT bounds for stable convergence
       max:  10.0              # phi0 is sensitive — wide bounds slow the fit
-      type: TruncatedNormal
       unit: "degrees"
       # Default [-10, 10] assumes near-aligned flow direction.
       # WIDEN to [-90, 90] only if you suspect large misalignment AND

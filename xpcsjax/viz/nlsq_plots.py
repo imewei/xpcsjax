@@ -1722,6 +1722,7 @@ def generate_nlsq_plots(
 
     # Phase A: compute fitted surfaces in main process (models may not be picklable)
     chi2_red = float(result.reduced_chi_squared)
+    failed_angle_indices: list[int] = []
     for i, phi_deg in enumerate(phi_angles):
         phi_deg_f = float(phi_deg)
         try:
@@ -1734,6 +1735,7 @@ def generate_nlsq_plots(
                 i,
                 phi_deg_f,
             )
+            failed_angle_indices.append(i)
 
     if np.all(np.isnan(c2_fitted)):
         raise RuntimeError(
@@ -1741,7 +1743,11 @@ def generate_nlsq_plots(
             "ERROR log entries for per-angle tracebacks. No artifacts written."
         )
 
-    n_failed_angles = int(np.any(np.isnan(c2_fitted), axis=(1, 2)).sum())
+    # Count only angles whose evaluation actually raised, not any angle that
+    # merely contains a NaN value -- a successful evaluation can legitimately
+    # produce some NaN entries (e.g. degenerate physics at extreme parameter
+    # values) without having failed.
+    n_failed_angles = len(failed_angle_indices)
     if 0 < n_failed_angles < n_phi:
         logger.warning(
             "%d of %d angle(s) failed to evaluate; artifacts contain NaN "

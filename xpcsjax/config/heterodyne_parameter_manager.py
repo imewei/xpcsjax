@@ -80,7 +80,6 @@ class ParameterManager:
                 name=name,
                 min=info.min_bound,
                 max=info.max_bound,
-                type="TruncatedNormal",
             )
 
         # Sync _default_bounds with config-overridden bounds from ParameterSpace
@@ -657,7 +656,7 @@ class ParameterManager:
                         self._default_bounds[name]["max"],
                     ),
                 )
-                bounds_list.append(BoundDict(name=name, min=lo, max=hi, type="TruncatedNormal"))
+                bounds_list.append(BoundDict(name=name, min=lo, max=hi))
             else:
                 raise KeyError(
                     f"Unknown parameter '{name}': not in ParameterRegistry "

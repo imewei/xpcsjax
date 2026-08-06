@@ -353,7 +353,11 @@ def create_ooc_kernels(
             flat_indices = phi_indices * (n_t1 * n_t2) + t1_indices * n_t2 + t2_indices
             g2_theory_chunk = g2_theory_flat[flat_indices]
 
-            w = 1.0 / sigma
+            # Guard sigma<=0 (mirrors heterodyne_stratified_data.py): an unguarded
+            # 1/sigma turns one degenerate chunk into inf/nan that poisons J.T @ J
+            # for the WHOLE out-of-core accumulation, surfacing as a misattributed
+            # "bad initial parameters" error far from the actual cause.
+            w = jnp.where(sigma > 0, 1.0 / sigma, 1.0)
             res = (g2_c - g2_theory_chunk) * w
             return jnp.where(jnp.abs(t1_c - t2_c) > 1e-15, res, 0.0)
 
@@ -433,7 +437,8 @@ def create_ooc_kernels(
         flat_indices = phi_indices * (n_t1 * n_t2) + t1_indices * n_t2 + t2_indices
         g2_theory_chunk = g2_theory_flat[flat_indices]
 
-        w = 1.0 / sigma
+        # Guard sigma<=0 (see compute_chunk_accumulators above for rationale).
+        w = jnp.where(sigma > 0, 1.0 / sigma, 1.0)
         res = (g2_c - g2_theory_chunk) * w
         res = jnp.where(jnp.abs(t1_c - t2_c) > 1e-15, res, 0.0)
         return jnp.sum(res**2)
@@ -640,6 +645,17 @@ class OOCSharedArrays:
         self._shm_blocks: list[multiprocessing.shared_memory.SharedMemory] = []
         self._refs: dict[str, dict[str, Any]] = {}
         self._chunk_boundaries = chunk_boundaries
+
+        # Validate here (non-JIT) rather than in the JIT kernels below: those
+        # kernels can only *substitute* a degenerate sigma (jnp.where(sigma>0,
+        # 1/sigma, 1.0)) since raising inside a trace isn't possible, which would
+        # silently launder corrupted uncertainty data into unit weights. Match
+        # core.py's fit_nlsq_cmaes contract: fail loudly before the fit starts.
+        if sigma_flat is not None:
+            if not np.all(np.isfinite(sigma_flat)):
+                raise ValueError("sigma values must be finite")
+            if np.any(sigma_flat <= 0):
+                raise ValueError("sigma values must be strictly positive")
 
         try:
             for name, arr in [

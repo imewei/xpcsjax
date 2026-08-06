@@ -473,8 +473,13 @@ class DataQualityController:
                 self._compute_overall_quality_score(result),
             )
 
-            # Determine pass/fail status
+            # Determine pass/fail status. An "error"-severity issue (e.g.
+            # preprocessing corruption) always fails the stage outright —
+            # the weighted score's flat per-issue penalty is too small to
+            # reliably drag a single severe issue below pass_threshold.
             result.passed = result.metrics.overall_score >= self.quality_config.pass_threshold
+            if any(issue.severity == "error" for issue in result.issues):
+                result.passed = False
 
             # Generate recommendations
             result.recommendations = self._generate_recommendations(result)
@@ -1025,7 +1030,11 @@ class DataQualityController:
                 decay_rates = []
                 for matrix in matrices:
                     if matrix.ndim == 2:
-                        diag = np.diag(matrix)
+                        # offset=1 (lag-1), not the main diagonal (offset=0): the
+                        # main diagonal is the tau=0 self-correlation/shot-noise
+                        # spike, not a physically meaningful g2 baseline. Mirrors
+                        # filtering_utils.py's near_zero_lag_correlation fix.
+                        diag = np.diagonal(matrix, offset=1)
                         if len(diag) > 10 and diag[0] > 0:
                             decay_rate = (diag[0] - diag[min(10, len(diag) - 1)]) / diag[0]
                             if 0 <= decay_rate <= 1:
@@ -1122,10 +1131,16 @@ class DataQualityController:
                             ),
                         )
 
-                result.metrics.time_consistency = t1_shape == t2_shape and (
-                    len(c2_shape) == 0 or t1_shape[-1] == c2_shape[-1]
+                result.metrics.time_consistency = (
+                    len(t1_shape) > 0
+                    and t1_shape == t2_shape
+                    and (len(c2_shape) == 0 or t1_shape[-1] == c2_shape[-1])
                 )
         except (AttributeError, TypeError, IndexError):
+            # The dataclass default (time_consistency=True) must NOT stand in
+            # for a check that couldn't run -- that would score a genuinely
+            # broken/mismatched time axis as fully consistent.
+            result.metrics.time_consistency = False
             logger.warning("Could not perform data consistency checks")
 
     def _check_preprocessing_artifacts(self, c2_exp: Any) -> bool:
@@ -1533,8 +1548,8 @@ class DataQualityController:
                         )
                     else:
                         repairs_applied.append("Repaired negative correlation values")
-            except (AttributeError, TypeError, IndexError):
-                pass
+            except (AttributeError, TypeError, IndexError) as e:
+                logger.debug(f"Could not repair negative correlation values: {e}")
 
         return data_modified
 
@@ -1585,8 +1600,8 @@ class DataQualityController:
                         data["c2_exp"] = arr
                         data_modified = True
                         repairs_applied.append("Applied correlation rescaling (×10)")
-            except (AttributeError, TypeError, IndexError):
-                pass
+            except (AttributeError, TypeError, IndexError) as e:
+                logger.debug(f"Could not repair scaling issues: {e}")
 
         return data_modified
 

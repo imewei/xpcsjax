@@ -328,6 +328,12 @@ class AdaptiveRegularizer:
 
         for _group_idx, (start, end) in enumerate(self.group_indices):
             if start >= len(params) or end > len(params):
+                # start/end come from self.group_indices (static Python list) and
+                # len(params) is a static shape under JIT, so this branch resolves
+                # at trace time -- logging here is safe (mirrors compute_regularization).
+                logger.warning(
+                    f"Group indices ({start}, {end}) out of bounds for params length {len(params)}"
+                )
                 continue
 
             group_params = params[start:end]
@@ -335,6 +341,9 @@ class AdaptiveRegularizer:
             # Security: Validate n_group to prevent division by zero
             n_group = end - start
             if n_group < 2:
+                logger.warning(
+                    f"Group ({start}, {end}) has fewer than 2 elements, skipping regularization"
+                )
                 continue
 
             if self.config.mode == "relative" or (self.config.mode == "auto" and self.n_phi > 5):

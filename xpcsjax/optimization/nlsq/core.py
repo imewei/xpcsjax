@@ -1064,7 +1064,11 @@ def _load_initial_params_from_config(
             offset_array = (
                 [float(x) for x in offset_vals] if isinstance(offset_vals, (list, tuple)) else None
             )
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as e:
+            logger.warning(
+                f"per_angle_scaling in initial_parameters has non-numeric contrast/offset "
+                f"entries; ignoring overrides: {e}",
+            )
             contrast_array = offset_array = None
 
         if contrast_array and offset_array and len(contrast_array) == len(offset_array):
@@ -1556,16 +1560,26 @@ def fit_nlsq_multistart(
         full residual evaluation for efficiency during screening phase.
         """
         try:
+            # FROZEN dimensions (lower == upper) are pinned to `lower` by
+            # `generate_lhs_starts`, so testing them against the bounds made EVERY
+            # start cost 1e20 and reduced screening to "keep the first n_keep in
+            # generation order"; their zero `scale` also divides by zero below.
+            # Score on the free dimensions only.
+            free = np.asarray(upper_bounds) > np.asarray(lower_bounds)
+            if not np.any(free):
+                return 0.0
+            p = np.asarray(params)[free]
+            low = np.asarray(lower_bounds)[free]
+            high = np.asarray(upper_bounds)[free]
+
             # Check if params are at bounds (return large cost)
-            for i, (low, high) in enumerate(zip(lower_bounds, upper_bounds, strict=True)):
-                if params[i] <= low or params[i] >= high:
-                    return 1e20
+            if np.any((p <= low) | (p >= high)):
+                return 1e20
 
             # Approximate cost from parameter distance to center
-            center = (lower_bounds + upper_bounds) / 2
-            scale = upper_bounds - lower_bounds
-            normalized_dist = np.sum(((params - center) / scale) ** 2)
-            return normalized_dist
+            center = (low + high) / 2
+            scale = high - low
+            return float(np.sum(((p - center) / scale) ** 2))
         except (ValueError, IndexError, TypeError, FloatingPointError):
             return 1e20
 
@@ -1866,7 +1880,14 @@ def fit_nlsq_cmaes(
         # Get sigma (uncertainty)
         _sigma_is_default = "sigma" not in data
         if not _sigma_is_default:
-            sigma = np.asarray(data["sigma"])
+            # This path never goes through `_normalize_data_to_object`, so apply
+            # the same boundary guard here: sigma is a divisor of every residual,
+            # and a zero/NaN entry silently yields an inf/NaN chi2.
+            sigma = np.asarray(data["sigma"], dtype=np.float64)
+            if not np.all(np.isfinite(sigma)):
+                raise ValueError("sigma values must be finite")
+            if np.any(sigma <= 0):
+                raise ValueError("sigma values must be strictly positive")
         else:
             sigma = _DEFAULT_SIGMA * np.ones_like(g2)
 
@@ -2474,7 +2495,12 @@ def fit_nlsq_cmaes(
         # use the NLSQ result instead. This ensures CMA-ES never degrades
         # the solution quality compared to direct NLSQ.
         # ======================================================================
-        if nlsq_warmstart_params is not None and nlsq_warmstart_chi2 < cmaes_result.chi_squared:
+        # NaN-safe: a non-finite CMA-ES chi2 must never win, because
+        # `finite < nan` is False under IEEE-754 and would silently ship the NaN
+        # result tagged as converged. Mirrors heterodyne's `_escape_keeps_candidate`.
+        _cmaes_chi2 = float(cmaes_result.chi_squared)
+        _cmaes_wins = np.isfinite(_cmaes_chi2) and not (nlsq_warmstart_chi2 < _cmaes_chi2)
+        if nlsq_warmstart_params is not None and not _cmaes_wins:
             logger.info(
                 f"[CMA-ES] NLSQ warm-start result is better: "
                 f"NLSQ chi2={nlsq_warmstart_chi2:.4e} < "

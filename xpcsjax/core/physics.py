@@ -259,8 +259,16 @@ def validate_parameters_detailed(
                     f"[{min_val:.6e}, {max_val:.6e}] by {violation_amount:.6e}",
                 )
             validated_count += 1
-        except (TypeError, ValueError):
-            # Likely a JAX tracer, skip
+        except (TypeError, ValueError) as e:
+            if "Tracer" in str(type(param)) or "LinearizeTracer" in str(type(param)):
+                # Genuinely a JAX tracer that slipped past the check above.
+                continue
+            logger.debug(
+                "Could not validate parameter %s (value=%r): %s",
+                param_names[i] if i < len(param_names) else f"param_{i}",
+                param,
+                e,
+            )
             continue
 
     # Create result

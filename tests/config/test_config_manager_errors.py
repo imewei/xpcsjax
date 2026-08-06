@@ -68,3 +68,35 @@ def test_laminar_flow_warning_fires_on_uppercase_mode(caplog: pytest.LogCaptureF
             }
         )
     assert any("gradient cancellation" in rec.message for rec in caplog.records)
+
+
+# --- config_validation_error flag: load_config() keeps the parsed config on a
+# validation failure but must still surface a caller-visible signal (previously
+# only a logger.error line) -------------------------------------------------
+
+
+def test_validation_error_is_exposed_and_config_kept(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("analysis_mode: static_isotropic\nfoo: bar\n")
+
+    def _boom(self) -> None:
+        raise ValueError("simulated validation failure")
+
+    monkeypatch.setattr(ConfigManager, "_validate_config", _boom)
+    with caplog.at_level(logging.ERROR):
+        mgr = ConfigManager(config_file=str(config_file))
+
+    assert isinstance(mgr.config_validation_error, ValueError)
+    assert "simulated validation failure" in str(mgr.config_validation_error)
+    # The parsed config must survive — not silently replaced by defaults.
+    assert mgr.config.get("foo") == "bar"
+    assert any("Configuration validation error" in rec.message for rec in caplog.records)
+
+
+def test_validation_error_flag_is_none_on_success(tmp_path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("analysis_mode: static_isotropic\n")
+    mgr = ConfigManager(config_file=str(config_file))
+    assert mgr.config_validation_error is None

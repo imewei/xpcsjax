@@ -444,7 +444,13 @@ class HierarchicalOptimizer:
             stage1_result = self._fit_physical_stage(
                 loss_fn, grad_fn, current_params, bounds, outer_iter
             )
-            current_params = stage1_result.x.copy()
+            if np.all(np.isfinite(stage1_result.x)):
+                current_params = stage1_result.x.copy()
+            else:
+                logger.warning(
+                    f"Outer iteration {outer_iter + 1}: Stage 1 (physical) produced "
+                    "non-finite parameters; keeping previous parameters for this stage"
+                )
 
             if self.config.log_stage_transitions:
                 logger.info(
@@ -455,7 +461,13 @@ class HierarchicalOptimizer:
             stage2_result = self._fit_per_angle_stage(
                 loss_fn, grad_fn, current_params, bounds, outer_iter
             )
-            current_params = stage2_result.x.copy()
+            if np.all(np.isfinite(stage2_result.x)):
+                current_params = stage2_result.x.copy()
+            else:
+                logger.warning(
+                    f"Outer iteration {outer_iter + 1}: Stage 2 (per-angle) produced "
+                    "non-finite parameters; keeping previous parameters for this stage"
+                )
 
             if self.config.log_stage_transitions:
                 logger.info(

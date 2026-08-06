@@ -1172,7 +1172,21 @@ class CMAESWrapper:
                 sigma=sigma,
             )
 
-            if refinement_result["success"]:
+            # Keep-better guard: `_run_nlsq_refinement` reports success merely
+            # because curve_fit did not raise, never because chi2 improved. With a
+            # robust `refinement_loss` (soft_l1/huber) TRF minimizes a different
+            # objective than the plain SSR reported here, so the refined chi2 can
+            # legitimately regress past the CMA-ES point — never adopt that.
+            _ref_chi2 = (
+                float(refinement_result["chi_squared"])
+                if refinement_result["chi_squared"] is not None
+                else float("nan")
+            )
+            if (
+                refinement_result["success"]
+                and np.isfinite(_ref_chi2)
+                and (not np.isfinite(cmaes_chi_squared) or _ref_chi2 <= cmaes_chi_squared)
+            ):
                 # Use refined parameters
                 best_params = refinement_result["popt"]
                 best_covariance = refinement_result["pcov"]
@@ -1204,16 +1218,25 @@ class CMAESWrapper:
                     f"({improvement:.2%} improvement)"
                 )
             else:
-                # Refinement failed, use CMA-ES result
-                logger.warning(
-                    f"[CMA-ES] Refinement failed, using CMA-ES result. "
-                    f"Reason: {refinement_result['mesg']}"
-                )
+                # Refinement failed or regressed; keep the CMA-ES result.
+                if refinement_result["success"]:
+                    logger.warning(
+                        f"[CMA-ES] Refinement did not improve chi2 "
+                        f"({cmaes_chi_squared:.4e} -> {_ref_chi2:.4e}); "
+                        f"keeping CMA-ES result."
+                    )
+                    diagnostics["refinement_rejected"] = True
+                    diagnostics["refined_chi_squared"] = _ref_chi2
+                else:
+                    logger.warning(
+                        f"[CMA-ES] Refinement failed, using CMA-ES result. "
+                        f"Reason: {refinement_result['mesg']}"
+                    )
+                    diagnostics["refinement_failed"] = True
                 best_params = cmaes_params
                 best_covariance = cmaes_covariance
                 best_chi_squared = cmaes_chi_squared
                 nlsq_refined = False
-                diagnostics["refinement_failed"] = True
                 diagnostics["refinement_message"] = refinement_result["mesg"]
         else:
             # No refinement requested

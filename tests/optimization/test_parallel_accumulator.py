@@ -268,6 +268,26 @@ def test_shared_arrays_without_sigma() -> None:
         assert "sigma" not in shared.get_refs()
 
 
+def test_shared_arrays_rejects_non_finite_sigma() -> None:
+    phi = np.array([0.0, 0.0])
+    t1 = np.array([1.0, 2.0])
+    t2 = np.array([2.0, 1.0])
+    g2 = np.array([1.1, 1.2])
+    sigma = np.array([1.0, np.nan])
+    with pytest.raises(ValueError, match="finite"):
+        pa.OOCSharedArrays(phi, t1, t2, g2, sigma, [(0, 2)])
+
+
+def test_shared_arrays_rejects_non_positive_sigma() -> None:
+    phi = np.array([0.0, 0.0])
+    t1 = np.array([1.0, 2.0])
+    t2 = np.array([2.0, 1.0])
+    g2 = np.array([1.1, 1.2])
+    sigma = np.array([1.0, 0.0])
+    with pytest.raises(ValueError, match="strictly positive"):
+        pa.OOCSharedArrays(phi, t1, t2, g2, sigma, [(0, 2)])
+
+
 # ---------------------------------------------------------------------------
 # Worker functions (in-process: call the initializer directly, no spawn)
 # ---------------------------------------------------------------------------

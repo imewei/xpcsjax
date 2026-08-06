@@ -33,7 +33,12 @@ class EventEmitter:
         """Stamp ``event`` and enqueue it (see class docstring for the policy)."""
         # Throttle high-rate telemetry BEFORE stamping (so seq has no gaps for
         # actually-emitted events). LayerStatus/Banner/Started are not throttled.
-        if isinstance(event, (Iteration, LogLine)):
+        # WARNING/ERROR/CRITICAL LogLines are exempt too -- they're low-rate and
+        # dropping one to the 20 Hz coalesce would silently hide the exact
+        # severity status_manager's coloring exists to surface.
+        if isinstance(event, Iteration) or (
+            isinstance(event, LogLine) and event.level not in ("WARNING", "ERROR", "CRITICAL")
+        ):
             now = time.monotonic()
             if now - self._last_telemetry < _TELEMETRY_MIN_INTERVAL:
                 return

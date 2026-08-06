@@ -178,6 +178,13 @@ class ConfigManager:
         # Cache for ParameterManager to avoid repeated instantiation
         self._cached_param_manager: Any | None = None
 
+        # Set by load_config() when the parsed config fails post-load physics
+        # validation. The parsed config is still kept as self.config (see
+        # load_config's docstring), so callers that care whether validation
+        # actually passed before launching a fit must check this flag —
+        # otherwise the only signal is a logger.error line.
+        self.config_validation_error: Exception | None = None
+
         if config_override is not None:
             self.config = config_override.copy()
             logger.info("Configuration loaded from override data")
@@ -311,14 +318,11 @@ class ConfigManager:
             # folder) and the GUI worker subprocess (run elsewhere).
             self._resolve_data_paths()
 
-            # Optional validation (can be disabled via environment variable)
-            if os.environ.get("XPCSJAX_VALIDATE_CONFIG", "true").lower() == "true":
-                self._validate_config()
-
         except json.JSONDecodeError as e:
             logger.error(f"JSON parsing error: {e}")
             logger.info("Using default configuration...")
             self.config = self._get_default_config()
+            return
         except FileNotFoundError:
             # Re-raise immediately: wrong config path must be reported, not silenced.
             # Proceeding with stub defaults would produce confusing downstream errors.
@@ -334,6 +338,23 @@ class ConfigManager:
             logger.error(f"Configuration parsing error: {e}")
             logger.info("Using default configuration...")
             self.config = self._get_default_config()
+            return
+
+        # Optional validation (can be disabled via environment variable). Kept
+        # OUTSIDE the parse/IO try-block above: a validation-stage error must
+        # not fall into the same handler that discards a successfully-parsed
+        # user config in favor of stub defaults — only a genuine parse/IO
+        # failure should do that.
+        self.config_validation_error = None
+        if os.environ.get("XPCSJAX_VALIDATE_CONFIG", "true").lower() == "true":
+            try:
+                self._validate_config()
+            except (ValueError, TypeError, KeyError) as e:
+                logger.error(
+                    f"Configuration validation error: {e}; keeping the parsed "
+                    "configuration as-is (validation failure, not a parse failure)"
+                )
+                self.config_validation_error = e
 
     # Path keys under ``experimental_data`` that name a file or directory. These
     # are the keys the loader resolves against ``data_folder_path`` / reads
@@ -1225,10 +1246,10 @@ class ConfigManager:
             nlsq_config = {}
         # Guard the ordered comparisons: a non-numeric value (e.g. a quoted
         # YAML scalar parsed as str) would raise TypeError on `max_iter > ...`,
-        # mirroring the memory_fraction guard above (audit P1: an unguarded
-        # TypeError here propagates out of _validate_config and, on the
-        # config_file= path, is swallowed by load_config()'s broad except,
-        # silently discarding the whole parsed config).
+        # mirroring the memory_fraction guard above (a TypeError here
+        # propagates out of _validate_config; on the config_file= path
+        # load_config() now catches it separately from parse/IO failures and
+        # keeps the parsed config instead of discarding it for stub defaults).
         max_iter = nlsq_config.get("max_iterations", 10000)
         if isinstance(max_iter, (int, float)) and not isinstance(max_iter, bool):
             if max_iter > 50000:

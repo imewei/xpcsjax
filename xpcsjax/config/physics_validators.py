@@ -35,6 +35,10 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+from xpcsjax.utils.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 def _is_non_finite(value: float) -> bool:
     """Return ``True`` for ``NaN`` / ``±inf``; ``False`` for finite or non-numeric.
@@ -278,9 +282,13 @@ def validate_single_parameter(
                             severity=rule.severity,
                         )
                     )
-            except (TypeError, ValueError):
-                # Skip if condition can't be evaluated
-                pass
+            except (TypeError, ValueError) as e:
+                logger.debug(
+                    "Physics constraint rule for %s could not be evaluated on value %r: %s",
+                    param,
+                    value,
+                    e,
+                )
 
     return violations
 

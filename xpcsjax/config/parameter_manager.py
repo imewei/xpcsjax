@@ -129,7 +129,7 @@ class ParameterManager:
         Returns
         -------
         dict[str, BoundDict]
-            Mapping from parameter name to ``{min, max, name, type}``.
+            Mapping from parameter name to ``{min, max, name}``.
         """
         registry = get_registry()
         result: dict[str, BoundDict] = {}
@@ -138,7 +138,6 @@ class ParameterManager:
                 "min": float(info.lower_bound),
                 "max": float(info.upper_bound),
                 "name": name,
-                "type": "TruncatedNormal",
             }
         return result
 
@@ -528,6 +527,26 @@ class ParameterManager:
                     active_params = [
                         str(self._param_name_mapping.get(name, name)) for name in param_names
                     ]
+                    # Guard against a config whose analysis_mode was changed
+                    # (e.g. --mode two_component on the CLI) without updating
+                    # initial_parameters.parameter_names to match: silently
+                    # handing the stale, wrong-mode names downstream produces
+                    # a wrong-length parameter vector. Fall back to mode
+                    # defaults on any name outside the current mode's set.
+                    try:
+                        valid_names = set(
+                            get_registry().get_param_names(AnalysisMode(self.analysis_mode))
+                        )
+                    except ValueError:
+                        valid_names = None
+                    if valid_names is not None and not set(active_params) <= valid_names:
+                        logger.warning(
+                            "initial_parameters.parameter_names %s does not match "
+                            "analysis_mode %r's parameter set; falling back to mode defaults",
+                            active_params,
+                            self.analysis_mode,
+                        )
+                        active_params = self._get_default_active_parameters()
                 else:
                     # Ultimate fallback to mode defaults
                     active_params = self._get_default_active_parameters()

@@ -121,7 +121,10 @@ class ProjectDialogHandler(QObject):
 
         Defaults the start directory to the active project directory, like
         on_edit_config/on_load_config — a hardcoded blank start dir forced
-        re-navigation to the project folder on every save.
+        re-navigation to the project folder on every save. ``save_project_to``
+        can raise ``OSError`` (permission denied, disk full, read-only FS),
+        guarded here like ``on_open_project`` so the failure surfaces as a
+        warning instead of escaping the slot silently.
         """
         start_dir = str(self._mw._project_dir) if self._mw._project_dir else ""
         path, _ = QFileDialog.getSaveFileName(
@@ -131,7 +134,10 @@ class ProjectDialogHandler(QObject):
             "xpcsjax project (*.xpcsproj);;All files (*)",
         )
         if path:
-            self._mw.save_project_to(path)
+            try:
+                self._mw.save_project_to(path)
+            except OSError as exc:
+                QMessageBox.warning(self._mw, "Save Project", f"Could not save project:\n{exc}")
 
     def on_open_project(self) -> None:
         """Open a file-chooser and load a previously saved project file.

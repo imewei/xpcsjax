@@ -190,6 +190,7 @@ def configure_cpu_hpc(
     cpu_info = detect_cpu_info()
 
     # Determine optimal thread count
+    concurrency = 1
     if num_threads is None:
         if enable_hyperthreading:
             num_threads = cpu_info["logical_cores"]
@@ -202,9 +203,41 @@ def configure_cpu_hpc(
         elif num_threads >= 16:
             num_threads -= 2  # Reserve 2 cores for system
 
-    logger.info(
-        f"Using {num_threads} threads on {cpu_info['physical_cores']} physical cores",
-    )
+        # Split the remaining cores across concurrent fits. This function runs
+        # once per fit *process*, and the production multistart pool
+        # (memory.set_fit_concurrency_env) / pytest-xdist advertise their worker
+        # count via env-vars — so without this, N workers each pin
+        # OMP/MKL/OpenBLAS to the whole node (8 x 124 threads on a 128-core box).
+        # Mirrors the concurrency division the memory budget and the XLA host
+        # device count already apply. Reserve-then-divide: OS headroom is taken
+        # once from the host total, then the rest is split N ways.
+        #
+        # Read the env vars directly instead of importing
+        # xpcsjax.optimization.nlsq.memory: that import drags in JAX/NumPy
+        # (and device.cpu is imported *by* that package, via core.py), which
+        # would initialize BLAS threading before the env vars below are set —
+        # defeating this function's whole purpose on a cold process.
+        for _env_var in ("XPCSJAX_FIT_CONCURRENCY", "PYTEST_XDIST_WORKER_COUNT"):
+            _raw = os.environ.get(_env_var)
+            if _raw:
+                try:
+                    concurrency = max(1, int(_raw))
+                    break
+                except ValueError:
+                    logger.debug("Ignoring non-integer %s=%r", _env_var, _raw)
+
+        if concurrency > 1:
+            num_threads = max(1, num_threads // concurrency)
+
+    if concurrency > 1:
+        logger.info(
+            f"Using {num_threads} threads on {cpu_info['physical_cores']} physical cores "
+            f"(divided across {concurrency} concurrent fits)",
+        )
+    else:
+        logger.info(
+            f"Using {num_threads} threads on {cpu_info['physical_cores']} physical cores",
+        )
 
     # Configure environment variables for optimal performance
     env_vars = _set_cpu_environment_variables(

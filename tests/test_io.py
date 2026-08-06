@@ -269,6 +269,27 @@ class TestSaveNlsqJsonFiles:
             ):
                 json.loads((Path(tmp) / fname).read_text())
 
+    def test_failed_write_leaves_no_partial_artifact(self, monkeypatch) -> None:
+        """A write that dies mid-file must not leave a truncated artifact.
+
+        The writes go through a sibling ``.tmp`` + ``os.replace``, so a failure
+        before the rename leaves the real filename absent rather than present
+        and half-parsed, and drops the temp file too.
+        """
+        param, analysis, convergence = self._make_dicts()
+        real_dump = json.dump
+
+        def boom(obj, fp, **kwargs: object):
+            real_dump(obj, fp, **kwargs)  # partially fill the temp file first
+            raise OSError("no space left on device")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            monkeypatch.setattr(json, "dump", boom)
+            with pytest.raises(OSError):
+                save_nlsq_json_files(param, analysis, convergence, Path(tmp))
+            monkeypatch.undo()
+            assert list(Path(tmp).iterdir()) == []
+
 
 # ---------------------------------------------------------------------------
 # save_nlsq_npz_file

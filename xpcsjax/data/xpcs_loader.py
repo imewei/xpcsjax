@@ -2080,7 +2080,17 @@ class XPCSDataLoader:
                 )
 
                 if filtering_result.fallback_used:
-                    logger.warning("Filtering used fallback - all data points included")
+                    # DATA-1 parity with the `except` branch below: a fallback
+                    # substitutes ALL data points for the subset the config asked
+                    # for (empty filter result, or a caught filtering error inside
+                    # apply_filtering). That is the same silent substitution of the
+                    # optimizer's input, so it must leave the same programmatic
+                    # signal -- a bare WARNING is not distinguishable downstream.
+                    self._record_degradation(
+                        "data filtering fell back to all data points "
+                        f"({selected_count}/{total_count}); "
+                        f"reasons: {filtering_result.warnings or filtering_result.errors}"
+                    )
 
                 # Additional integration with phi filtering for compatibility
                 selected_indices = self._integrate_with_phi_filtering(
@@ -2367,11 +2377,27 @@ class XPCSDataLoader:
             "phi_count": len(cache_data["phi_angles_list"]),
             "cache_version": "2.0",
             "selective_q_caching": True,
+            # q_tolerance_fraction drives the q-band width used to select which
+            # (q, phi) rows get cached (_load_aps_old_format); like dt, it isn't
+            # covered by filter_config_hash, so a tolerance-only config edit with
+            # an otherwise-matching q/frame window must not silently reuse a
+            # cache built under the old (wider/narrower) band.
+            "q_tolerance_fraction": float(self.config.get("q_tolerance_fraction", 0.1)),
             # Fingerprint of the filter settings (phi range, quality/data
             # filtering) that shaped the cached (q, phi) selection, so a config
             # change with the same start/end frame + q is detected instead of
             # silently reusing a stale cache.
             "filter_config_hash": _hash_filter_config(self.config.get("data_filtering", {})),
+            # The LEGACY phi filter (_integrate_with_phi_filtering -> PhiAngleFilter)
+            # narrows the cached (q, phi) selection further, but reads a DIFFERENT
+            # config subtree than XPCSDataFilter, so filter_config_hash above does
+            # not cover it. It runs whenever data_filtering is enabled without a
+            # `phi_range` block (that key is what short-circuits the legacy branch),
+            # so a target_ranges edit with an otherwise-matching q/frame window must
+            # not silently reuse a cache built for the old angle set.
+            "angle_filtering_hash": _hash_filter_config(
+                self.config.get("optimization_config", {}).get("angle_filtering", {})
+            ),
         }
 
         # Metadata is stored as a JSON-encoded scalar (not a Python dict via
@@ -2463,6 +2489,30 @@ class XPCSDataLoader:
                 "verify phi/quality-filtering settings match the current config.",
             )
 
+        # Check the LEGACY phi-filter settings (optimization_config.angle_filtering).
+        # These live outside the data_filtering subtree fingerprinted above but
+        # still shape the cached (q, phi) selection via _integrate_with_phi_filtering,
+        # so they need their own key -- same shape as the dt / q_tolerance_fraction
+        # checks below.
+        current_angle_hash = _hash_filter_config(
+            self.config.get("optimization_config", {}).get("angle_filtering", {})
+        )
+        cached_angle_hash = cache_metadata.get("angle_filtering_hash")
+        if cached_angle_hash is None:
+            logger.warning(
+                "Cache metadata predates angle-filtering fingerprinting; cannot "
+                "verify the legacy optimization_config.angle_filtering settings "
+                "match the current config.",
+            )
+        elif cached_angle_hash != current_angle_hash:
+            raise XPCSDataFormatError(
+                "Cache angle-filtering mismatch: the "
+                "optimization_config.angle_filtering settings (enabled / "
+                "target_ranges / fallback_to_all_angles) have changed since this "
+                "cache was built. The cache's (q, phi) selection is "
+                "angle-filter-specific; delete it and regenerate."
+            )
+
         # Check if the time step (t1/t2 axis generator) matches. dt is not
         # folded into filter_config_hash, so a dt-only edit with an otherwise
         # matching q/frame window would silently reuse the old time axis.
@@ -2478,6 +2528,26 @@ class XPCSDataLoader:
                 f"Cache dt mismatch: configured dt={current_dt:.6g}s but cache "
                 f"was built for dt={float(cached_dt):.6g}s. The cache's t1/t2 "
                 f"time axes are dt-specific; delete it and regenerate.",
+            )
+
+        # Check if the q-band tolerance used to select cached (q, phi) rows
+        # matches. Like dt, this is not folded into filter_config_hash, so a
+        # tolerance-only edit with an otherwise matching q/frame window would
+        # otherwise silently reuse a cache built for a different (q, phi) band.
+        current_q_tolerance = float(self.config.get("q_tolerance_fraction", 0.1))
+        cached_q_tolerance = cache_metadata.get("q_tolerance_fraction")
+        if cached_q_tolerance is None:
+            logger.warning(
+                "Cache metadata predates q_tolerance_fraction fingerprinting; "
+                "cannot verify the cached (q, phi) selection matches the "
+                "current tolerance.",
+            )
+        elif abs(current_q_tolerance - float(cached_q_tolerance)) > 1e-12:
+            raise XPCSDataFormatError(
+                f"Cache q_tolerance_fraction mismatch: configured "
+                f"q_tolerance_fraction={current_q_tolerance:.6g} but cache was "
+                f"built for {float(cached_q_tolerance):.6g}. The cache's (q, phi) "
+                f"selection is tolerance-specific; delete it and regenerate.",
             )
 
         # Check if cache uses selective q-caching
@@ -2625,7 +2695,9 @@ class XPCSDataLoader:
 
         # Basic checks
         if np.any(~np.isfinite(c2_exp)):
-            logger.error("Correlation data contains non-finite values (NaN or Inf)")
+            raise XPCSDataFormatError(
+                "Correlation data contains non-finite values (NaN or Inf)",
+            )
 
         if np.any(c2_exp < 0):
             logger.warning("Correlation data contains negative values")

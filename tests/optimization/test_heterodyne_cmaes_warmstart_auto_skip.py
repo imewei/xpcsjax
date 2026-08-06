@@ -111,7 +111,7 @@ def test_apply_global_escape_never_auto_skips_multistart(monkeypatch):
 
     def _spy(_base, x_warm, *_a, **_k):
         called["ms"] = True
-        return np.asarray(x_warm, dtype=np.float64)
+        return np.asarray(x_warm, dtype=np.float64), True
 
     monkeypatch.setattr(hc, "_multistart_joint_candidate", _spy)
     _x_final, tag, _kept_success = hc._apply_global_escape(

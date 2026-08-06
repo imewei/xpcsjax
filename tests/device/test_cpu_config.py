@@ -19,9 +19,18 @@ from xpcsjax.device import cpu as device_cpu
 
 @pytest.fixture
 def isolated_configure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Neuter the env-mutating / JAX-touching stages of ``configure_cpu_hpc``."""
+    """Neuter the env-mutating / JAX-touching stages of ``configure_cpu_hpc``.
+
+    Also pins the fit-concurrency divisor to 1. ``configure_cpu_hpc`` splits the
+    auto-detected thread count across concurrent fits, and these targets run
+    under ``-n auto`` (pytest-xdist sets ``PYTEST_XDIST_WORKER_COUNT``), which
+    would otherwise make the expected counts a function of the runner's core
+    count.
+    """
     monkeypatch.setattr(device_cpu, "_set_cpu_environment_variables", lambda *a, **k: {})
     monkeypatch.setattr(device_cpu, "_configure_jax_cpu", lambda *a, **k: {})
+    monkeypatch.delenv("XPCSJAX_FIT_CONCURRENCY", raising=False)
+    monkeypatch.delenv("PYTEST_XDIST_WORKER_COUNT", raising=False)
 
 
 @pytest.mark.parametrize(
@@ -57,6 +66,50 @@ def test_thread_reservation_at_tier_boundaries(
     config = device_cpu.configure_cpu_hpc()
 
     assert config["threads_configured"] == expected_threads
+
+
+@pytest.mark.parametrize(
+    ("concurrency", "expected_threads"),
+    [
+        ("1", 124),  # lone fit keeps the full post-reservation count
+        ("8", 15),  # 128 -> 124 after OS reservation -> //8
+        ("512", 1),  # never drops below one thread
+    ],
+)
+def test_thread_count_is_divided_across_concurrent_fits(
+    concurrency: str,
+    expected_threads: int,
+    isolated_configure: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """N concurrent fit processes must not each pin the whole node's cores."""
+    monkeypatch.setattr(
+        device_cpu,
+        "detect_cpu_info",
+        lambda: {
+            "physical_cores": 128,
+            "logical_cores": 256,
+            "numa_nodes": 1,
+            "optimization_flags": [],
+        },
+    )
+    monkeypatch.setenv("XPCSJAX_FIT_CONCURRENCY", concurrency)
+
+    assert device_cpu.configure_cpu_hpc()["threads_configured"] == expected_threads
+
+
+def test_explicit_thread_count_is_not_divided(
+    isolated_configure: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An explicit ``num_threads=`` is caller intent and must survive verbatim."""
+    monkeypatch.setattr(
+        device_cpu,
+        "detect_cpu_info",
+        lambda: {"physical_cores": 128, "logical_cores": 256, "numa_nodes": 1},
+    )
+    monkeypatch.setenv("XPCSJAX_FIT_CONCURRENCY", "8")
+
+    assert device_cpu.configure_cpu_hpc(num_threads=64)["threads_configured"] == 64
 
 
 def _fake_lscpu(monkeypatch: pytest.MonkeyPatch, numa_value: str) -> None:

@@ -169,9 +169,10 @@ initial_parameters:
 # -----------------------------------------------------------------------------
 # PARAMETER SPACE — bounds match the xpcsjax registry
 # -----------------------------------------------------------------------------
-# NLSQ uses min/max as BOX CONSTRAINTS. `type:` is "TruncatedNormal"
-# (informational for the NLSQ path; meaningful in Bayesian which is out of
-# scope). `unit:` is informational only, emitted in result reports.
+# NLSQ uses min/max as BOX CONSTRAINTS. `unit:` is informational only,
+# emitted in result reports. (A `type:` prior-distribution field, meaningful
+# only for Bayesian sampling which is out of scope for this package, was
+# removed — nothing in xpcsjax ever read it.)
 parameter_space:
   model: "static_isotropic"
 
@@ -179,35 +180,30 @@ parameter_space:
     - name: contrast
       min: 0.0                # physical lower bound (no contrast → no signal)
       max: 1.0                # physical upper bound (fully coherent)
-      type: TruncatedNormal
       unit: "dimensionless"
       # Tighten to [0.01, 0.3] if you have a coherence-fraction estimate.
 
     - name: offset
       min: 0.5                # baseline should be ~1.0; <0.5 is rare
       max: 1.5                # >1.5 suggests normalization issue
-      type: TruncatedNormal
       unit: "dimensionless"
       # Tighten to [0.95, 1.05] if normalization is validated.
 
     - name: D0
       min: 100.0              # ~µm particles, slow Brownian
       max: 100000.0           # ~10 nm particles, fast Brownian
-      type: TruncatedNormal
       unit: "Å²/s"
       # Tighten to [500, 5000] if particle size known to within 2×.
 
     - name: alpha
       min: -2.0               # strong subdiffusion (jammed, glassy)
       max:  2.0               # strong superdiffusion (active, ballistic)
-      type: TruncatedNormal
       unit: "dimensionless"
       # α=1 normal | α<1 sub | α>1 super | α=0 constant J(t)=D0
 
     - name: D_offset
       min: -100000.0          # negative rare; usually indicates arrested dynamics
       max:  100000.0          # symmetric for safety
-      type: TruncatedNormal
       unit: "Å²/s"
       # Most fits give D_offset ≈ 0; tighten to [-1000, 1000] for well-behaved
       # samples or freeze via fixed_parameters: {"D_offset": 0.0}.
