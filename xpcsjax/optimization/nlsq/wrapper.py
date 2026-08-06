@@ -117,7 +117,6 @@ import logging
 from xpcsjax.utils.logging import get_logger
 
 from xpcsjax.config.parameter_registry import AnalysisMode
-from xpcsjax.optimization.batch_statistics import BatchStatistics
 from xpcsjax.optimization.nlsq.adapter_base import (
     PER_ANGLE_SCALING_REMOVED_MSG,
     NLSQAdapterBase,
@@ -186,10 +185,6 @@ from xpcsjax.optimization.nlsq.transforms import (  # noqa: E402
     parse_shear_transform_config,
     wrap_model_function_with_transforms,
     wrap_stratified_function_with_transforms,
-)
-from xpcsjax.optimization.numerical_validation import NumericalValidator  # noqa: E402
-from xpcsjax.optimization.recovery_strategies import (  # noqa: E402
-    RecoveryStrategyApplicator,
 )
 
 # Anti-Degeneracy Defense System
@@ -689,7 +684,6 @@ class NLSQWrapper(NLSQAdapterBase):
         self,
         enable_large_dataset: bool = True,
         enable_recovery: bool = True,
-        enable_numerical_validation: bool = True,
         max_retries: int = 2,
         fast_mode: bool = False,
     ) -> None:
@@ -701,8 +695,6 @@ class NLSQWrapper(NLSQAdapterBase):
             Use ``curve_fit_large`` for datasets >1M points.
         enable_recovery : bool, default True
             Enable automatic error-recovery strategies.
-        enable_numerical_validation : bool, default True
-            Enable NaN/Inf validation at 3 critical points.
         max_retries : int, default 2
             Maximum retry attempts per batch.
         fast_mode : bool, default False
@@ -710,16 +702,8 @@ class NLSQWrapper(NLSQAdapterBase):
         """
         self.enable_large_dataset = enable_large_dataset
         self.enable_recovery = enable_recovery
-        self.enable_numerical_validation = enable_numerical_validation and not fast_mode
         self.max_retries = max_retries
         self.fast_mode = fast_mode
-
-        # Initialize streaming optimization components
-        self.batch_statistics = BatchStatistics(max_size=100)
-        self.recovery_applicator = RecoveryStrategyApplicator(max_retries=max_retries)
-        self.numerical_validator = NumericalValidator(
-            enable_validation=enable_numerical_validation and not fast_mode
-        )
 
         # Best parameter tracking
         self.best_params = None
@@ -2195,6 +2179,7 @@ class NLSQWrapper(NLSQAdapterBase):
             residual_counter=residual_counter,
             base_residual_fn=base_residual_fn,
             xdata=xdata,
+            ydata=ydata,
             n_data=n_data,
             start_time=start_time,
             nlsq_bounds=nlsq_bounds,
@@ -2216,6 +2201,7 @@ class NLSQWrapper(NLSQAdapterBase):
             scaling_plan=scaling_plan,
             scaling_mapper=scaling_mapper,
             dof_basis=dof_basis,
+            sigma_for_solver=sigma_for_solver,
         )
 
     def _execute_optimization_with_fallback(
@@ -2299,6 +2285,7 @@ class NLSQWrapper(NLSQAdapterBase):
         residual_counter: Any,
         base_residual_fn: Callable[..., np.ndarray],
         xdata: np.ndarray,
+        ydata: np.ndarray,
         n_data: int,
         start_time: float,
         nlsq_bounds: tuple[np.ndarray, np.ndarray] | None,
@@ -2312,6 +2299,7 @@ class NLSQWrapper(NLSQAdapterBase):
         scaling_plan: Any = None,
         scaling_mapper: Any = None,
         dof_basis: str | None = None,
+        sigma_for_solver: np.ndarray | None = None,
     ) -> OptimizationResult:
         """Post-process optimization outputs into final result.
 
@@ -2359,14 +2347,25 @@ class NLSQWrapper(NLSQAdapterBase):
             )
 
         # Compute final residuals using the base function (avoid counter side-effects).
-        # StratifiedResidualFunction/JIT takes (params), not (xdata, *params).
+        # StratifiedResidualFunction/JIT takes (params) and already returns TRUE
+        # (weighted) residuals: (data - model) / sigma. The plain path's
+        # base_residual_fn is a MODEL function f(xdata, *params) -> y_theory (see
+        # _create_residual_function's docstring), so it must be turned into a true
+        # residual here — NLSQ's own solve optimizes (ydata - model)/sigma, and
+        # chi_squared/reduced_chi_squared/quality_flag downstream assume
+        # sum(final_residuals**2) is that same quantity, not raw model output.
         if isinstance(
             base_residual_fn,
             (StratifiedResidualFunction, StratifiedResidualFunctionJIT),
         ):
             final_residuals = base_residual_fn(popt)
         else:
-            final_residuals = base_residual_fn(xdata, *popt)
+            model_prediction = base_residual_fn(xdata, *popt)
+            final_residuals = np.asarray(ydata, dtype=float) - np.asarray(
+                model_prediction, dtype=float
+            )
+            if sigma_for_solver is not None:
+                final_residuals = final_residuals / np.asarray(sigma_for_solver, dtype=float)
 
         reported_iterations = -1
         if isinstance(info, dict):
@@ -2428,7 +2427,15 @@ class NLSQWrapper(NLSQAdapterBase):
                 # diagnostic covariances.
                 n_diag_params = n_dof_effective if n_dof_effective is not None else len(popt)
                 s2_diag = float(np.sum(final_residuals**2)) / max(n_diag_data - n_diag_params, 1)
-                pcov = s2_diag * np.linalg.pinv(final_jtj, rcond=1e-10)
+                # Diagnostics-only: store under a distinct key rather than
+                # reassigning `pcov` — this is a Jacobian sampled at only
+                # `diagnostics_sample_size` points, not the real solver covariance,
+                # and must never overwrite OptimizationResult.covariance/.uncertainties
+                # (see the "Diagnostics-only: never reads or writes popt/pcov/chi2"
+                # contract stated elsewhere in this file).
+                diagnostics_payload["diagnostic_covariance"] = s2_diag * np.linalg.pinv(
+                    final_jtj, rcond=1e-10
+                )
                 diagnostics_payload["jtj_condition"] = (
                     float(np.linalg.cond(final_jtj)) if final_jtj.size > 0 else None
                 )
@@ -2439,7 +2446,16 @@ class NLSQWrapper(NLSQAdapterBase):
 
         function_evals = iterations
         cost_reduction = (initial_cost - final_cost) / initial_cost if initial_cost > 0 else 0
-        params_changed = not np.allclose(popt, validated_params, rtol=1e-8)
+        # popt is already inverse-transformed to physical space above (when
+        # transform_state is truthy); validated_params is still the pre-solve x0
+        # in TRANSFORM/solver space (forward-transformed by the caller before the
+        # solve). Compare both in physical space, or params_changed can spuriously
+        # read True/False just from the parameterization mismatch, not real motion.
+        initial_params_physical = apply_inverse_shear_transforms_to_vector(
+            validated_params,
+            transform_state,
+        )
+        params_changed = not np.allclose(popt, initial_params_physical, rtol=1e-8)
 
         optimization_ran = function_evals > 10 or params_changed
         optimization_improved = cost_reduction > 0.05
@@ -4283,30 +4299,12 @@ class NLSQWrapper(NLSQAdapterBase):
         else:
             quality_flag = "poor"
 
-        # Task 5.4: Build enhanced streaming diagnostics if batch statistics available
+        # Task 5.4: Build enhanced streaming diagnostics (batch-statistics
+        # enrichment removed -- NLSQWrapper no longer tracks a BatchStatistics
+        # instance; see Bug #2 in the results_params_cluster RCA).
         enhanced_streaming_diagnostics = None
         if streaming_diagnostics is not None:
-            # Start with provided diagnostics
             enhanced_streaming_diagnostics = streaming_diagnostics.copy()
-
-            # Add batch statistics if available
-            if hasattr(self, "batch_statistics") and self.batch_statistics.total_batches > 0:
-                batch_stats = self.batch_statistics.get_statistics()
-
-                # Extract key metrics for enhanced diagnostics
-                enhanced_streaming_diagnostics.update(
-                    {
-                        "batch_success_rate": batch_stats["success_rate"],
-                        "failed_batch_indices": [
-                            b["batch_idx"]
-                            for b in batch_stats["recent_batches"]
-                            if not b["success"]
-                        ],
-                        "error_type_distribution": batch_stats["error_distribution"],
-                        "average_iterations_per_batch": batch_stats["average_iterations"],
-                        "total_batches_processed": batch_stats["total_batches"],
-                    }
-                )
 
         # Create result
         result = OptimizationResult(

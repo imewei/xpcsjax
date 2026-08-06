@@ -497,8 +497,8 @@ def _status_to_reason(status: int) -> str:
         -1: "Improper input parameters",
         0: "Maximum function evaluations reached",
         1: "gtol convergence (gradient sufficiently small)",
-        2: "xtol convergence (parameter change sufficiently small)",
-        3: "ftol convergence (cost change sufficiently small)",
+        2: "ftol convergence (cost change sufficiently small)",
+        3: "xtol convergence (parameter change sufficiently small)",
         4: "Both xtol and ftol convergence",
     }
     return reasons.get(status, f"Unknown status: {status}")
@@ -599,6 +599,17 @@ def build_hybrid_streaming_result(
         if ad_block.get("n_optimized") is not None
         else {}
     )
+    # Forward the frozen per-angle constant-mode scaling arrays when the
+    # caller threaded them into the anti-degeneracy block (stratified-LS and
+    # hybrid-streaming constant-mode paths). Without this, downstream helpers
+    # like heterodyne_views.reconstruct_per_angle_scaling(mode="constant")
+    # raise KeyError on results from these paths — heterodyne_constant_mode.py
+    # and heterodyne_engine_route.py already attach these keys directly.
+    _extra_constant_scaling = {
+        k: ad_block[k]
+        for k in ("contrast_per_angle_fixed", "offset_per_angle_fixed")
+        if k in ad_block
+    }
     diagnostics = _build_heterodyne_diagnostics(
         per_angle_mode=ad_block.get("per_angle_mode", per_angle_mode),
         chi2_per_angle=chi2_per_angle,
@@ -612,6 +623,7 @@ def build_hybrid_streaming_result(
         regularization_active=bool(ad_block.get("regularization_active", False)),
         gradient_monitor=ad_block.get("gradient_monitor"),
         **_extra_n_opt,
+        **_extra_constant_scaling,
     )
 
     # Surface controller_diagnostics when the stratified-LS path captured the

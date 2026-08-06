@@ -444,7 +444,7 @@ class NLSQConfig:
             trust_region_scale=safe_float(config_dict.get("trust_region_scale"), 1.0),
             # Convergence
             max_iterations=config_dict.get("max_iterations", 1000),
-            ftol=safe_float(config_dict.get("ftol"), config_dict.get("tolerance", 1e-8)),
+            ftol=safe_float(config_dict.get("ftol", config_dict.get("tolerance")), 1e-8),
             xtol=safe_float(config_dict.get("xtol"), 1e-8),
             gtol=safe_float(config_dict.get("gtol"), 1e-8),
             # Scaling

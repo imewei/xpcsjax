@@ -312,7 +312,7 @@ def _fit_joint_constant_multi_phi(
     if global_escape_kind is not None:
         from xpcsjax.optimization.nlsq.heterodyne_core import _apply_global_escape
 
-        fitted_physics, global_escape_tag = _apply_global_escape(
+        fitted_physics, global_escape_tag, escape_kept_success = _apply_global_escape(
             global_escape_kind,
             joint_residual_fn,
             fitted_physics,
@@ -326,6 +326,7 @@ def _fit_joint_constant_multi_phi(
         )
     else:
         global_escape_tag = None
+        escape_kept_success = None
     # A pure floor-revert (no escape) also loses the covariance/iteration
     # stats tied to the discarded solve — treat it as escape-shaped for the
     # NaN-fill + zeroed-stats bookkeeping below.
@@ -403,6 +404,13 @@ def _fit_joint_constant_multi_phi(
 
     wall_time = time.perf_counter() - t_start
     solve_success = bool(nlsq_result.success) and not floor_reverted
+    # A kept global escape (or a warm-start kept over a failed search) has its
+    # OWN convergence verdict, separate from the pre-escape solve — mirrors
+    # the identical fix in ``heterodyne_core._fit_joint_averaged_multi_phi``.
+    # ``escape_kept_success`` is ``None`` when no escape ran (or it was an
+    # auto-skip), leaving the pre-escape verdict untouched.
+    if escape_kept_success is not None:
+        solve_success = bool(escape_kept_success)
     convergence_status: ConvergenceStatus = "converged" if solve_success else "failed"
     quality_flag: QualityFlag = "good" if solve_success else "marginal"
 

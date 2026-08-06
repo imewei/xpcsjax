@@ -72,8 +72,11 @@ def test_degrees_of_freedom_underdetermined_floors_at_one() -> None:
     assert compute_degrees_of_freedom(n_data=7, n_params=7) == 1
 
 
-def test_far_lag_noise_variance_batched_matches_pooled() -> None:
-    # 3-D (n_phi, n_time, n_time): far-lag entries pooled across angles.
+def test_far_lag_noise_variance_batched_averages_per_angle() -> None:
+    # 3-D (n_phi, n_time, n_time): variance is computed PER ANGLE then
+    # averaged, not pooled across angles — contrast/offset are fit per-angle,
+    # so pooling before np.var() would conflate between-angle baseline
+    # (offset) spread with photon noise.
     rng = np.random.default_rng(0)
     c2 = rng.normal(1.0, 0.05, size=(3, 8, 8))
     var = far_lag_noise_variance(c2)
@@ -81,8 +84,13 @@ def test_far_lag_noise_variance_batched_matches_pooled() -> None:
     n = 8
     idx = np.arange(n)
     mask = np.abs(idx[:, None] - idx[None, :]) >= n // 2
-    expected = float(np.var(c2[:, mask].ravel()))
+    expected = float(np.mean([np.var(c2[k][mask]) for k in range(c2.shape[0])]))
     assert var == pytest.approx(expected)
+
+    # A pooled-across-angles estimate is a different (and, when angles carry
+    # distinct offsets, larger) number — guards against regressing to pooling.
+    pooled = float(np.var(c2[:, mask].ravel()))
+    assert var != pytest.approx(pooled)
 
 
 def test_far_lag_noise_variance_degenerate_is_zero() -> None:

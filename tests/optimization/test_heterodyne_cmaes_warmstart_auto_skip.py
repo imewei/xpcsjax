@@ -54,12 +54,12 @@ def test_apply_global_escape_auto_skips_cmaes_on_good_warmstart(monkeypatch):
 
     def _spy(*_a, **_k):
         called["cmaes"] = True
-        return None
+        return None, False
 
     monkeypatch.setattr(hc, "_cmaes_joint_candidate", _spy)
     x_warm = np.array([1.0, 2.0])
     # 100 residual rows all zero ⇒ SSR=0, dof = 100 - 2 = 98 ⇒ reduced χ² = 0 < 5.
-    x_final, tag = hc._apply_global_escape(
+    x_final, tag, _kept_success = hc._apply_global_escape(
         "cmaes", lambda _x: np.zeros(100), x_warm, _LB, _UB, _cfg(), ["a", "b"], _cfg(), {}
     )
 
@@ -74,12 +74,12 @@ def test_apply_global_escape_runs_cmaes_on_poor_warmstart(monkeypatch):
 
     def _spy(_base, x_warm, *_a, **_k):
         called["cmaes"] = True
-        return np.asarray(x_warm, dtype=np.float64)
+        return np.asarray(x_warm, dtype=np.float64), True
 
     monkeypatch.setattr(hc, "_cmaes_joint_candidate", _spy)
     x_warm = np.array([1.0, 2.0])
     # residual 10 everywhere ⇒ SSR = 100*100 = 1e4, dof = 98 ⇒ reduced ≈ 102 ≥ 5.
-    _x_final, tag = hc._apply_global_escape(
+    _x_final, tag, _kept_success = hc._apply_global_escape(
         "cmaes", lambda _x: np.full(100, 10.0), x_warm, _LB, _UB, _cfg(), ["a", "b"], _cfg(), {}
     )
 
@@ -93,11 +93,11 @@ def test_apply_global_escape_respects_disabled_autoskip(monkeypatch):
 
     def _spy(_base, x_warm, *_a, **_k):
         called["cmaes"] = True
-        return np.asarray(x_warm, dtype=np.float64)
+        return np.asarray(x_warm, dtype=np.float64), True
 
     monkeypatch.setattr(hc, "_cmaes_joint_candidate", _spy)
     cfg = _cfg(cmaes_warmstart_auto_skip=False)
-    _x_final, tag = hc._apply_global_escape(
+    _x_final, tag, _kept_success = hc._apply_global_escape(
         "cmaes", lambda _x: np.zeros(100), np.array([1.0, 2.0]), _LB, _UB, cfg, ["a", "b"], cfg, {}
     )
 
@@ -114,7 +114,7 @@ def test_apply_global_escape_never_auto_skips_multistart(monkeypatch):
         return np.asarray(x_warm, dtype=np.float64)
 
     monkeypatch.setattr(hc, "_multistart_joint_candidate", _spy)
-    _x_final, tag = hc._apply_global_escape(
+    _x_final, tag, _kept_success = hc._apply_global_escape(
         "multistart",
         lambda _x: np.zeros(100),
         np.array([1.0, 2.0]),
@@ -136,14 +136,14 @@ def test_apply_global_escape_no_skip_when_dof_nonpositive(monkeypatch):
 
     def _spy(_base, x_warm, *_a, **_k):
         called["cmaes"] = True
-        return np.asarray(x_warm, dtype=np.float64)
+        return np.asarray(x_warm, dtype=np.float64), True
 
     monkeypatch.setattr(hc, "_cmaes_joint_candidate", _spy)
     x_warm = np.zeros(100)  # 100 params
     lb = np.full(100, -10.0)
     ub = np.full(100, 10.0)
     # n_data = 50 < n_params = 100 ⇒ dof = -50 ≤ 0, even though SSR = 0.
-    _x_final, tag = hc._apply_global_escape(
+    _x_final, tag, _kept_success = hc._apply_global_escape(
         "cmaes", lambda _x: np.zeros(50), x_warm, lb, ub, _cfg(), ["p"] * 100, _cfg(), {}
     )
 

@@ -531,7 +531,7 @@ class AntiDegeneracyController:
         # is None` guards in get_shear_weights / update_shear_phi0 take over).
         if (
             config.shear_weighting_enable
-            and self.n_phi >= 3
+            and self.n_phi > 3
             and self.is_layer_active("ShearSensitivityWeighting")
         ):
             sw_config = ShearWeightingConfig(

@@ -1305,6 +1305,13 @@ def fit_heterodyne_stratified_least_squares(
         "regularization_active": regularization_active,
         "per_angle_mode": mode,
     }
+    if mode == "constant" and frozen is not None:
+        # Thread the frozen per-angle quantile scaling through so
+        # heterodyne_views.reconstruct_per_angle_scaling(mode="constant") can
+        # read it from this path's nlsq_diagnostics, matching
+        # heterodyne_constant_mode.py's key names.
+        _ad_block["contrast_per_angle_fixed"] = frozen[0]
+        _ad_block["offset_per_angle_fixed"] = frozen[1]
     if execute_layers_on:
         _ad_block["execute_layers"] = True
         _ad_block["execute_layers_status"] = execute_layers_status

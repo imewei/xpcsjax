@@ -362,6 +362,16 @@ def execute_optimization_with_fallback(
                 use_large = current_strategy != OptimizationStrategy.STANDARD
 
                 if use_large:
+                    if isinstance(x_scale_value, (int, float)):
+                        x_scale_large = np.abs(validated_params) + 1e-3
+                        log.info(
+                            f"Replacing scalar x_scale={x_scale_value} with magnitude-based scaling"
+                        )
+                    elif isinstance(x_scale_value, np.ndarray):
+                        x_scale_large = x_scale_value
+                    else:
+                        x_scale_large = np.abs(validated_params) + 1e-3
+
                     result_tuple = curve_fit_large_fn(
                         wrapped_residual_fn,
                         xdata,
@@ -370,7 +380,7 @@ def execute_optimization_with_fallback(
                         sigma=sigma,
                         bounds=nlsq_bounds if nlsq_bounds is not None else (-np.inf, np.inf),
                         loss=loss_name,
-                        x_scale=x_scale_value,
+                        x_scale=x_scale_large,
                         gtol=1e-6,
                         ftol=1e-6,
                         max_nfev=5000,

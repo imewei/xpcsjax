@@ -770,6 +770,18 @@ def _normalize_data_to_object(data: Any, config: Any, logger: Any) -> Any:
                 data_obj.q = extracted_q
                 logger.debug(f"Extracted q = {data_obj.q:.6f} from wavevector_q_list")
 
+        # Validate q for finiteness regardless of source key: the block above
+        # only covers CLI-format (wavevector_q_list); Direct-format callers
+        # (data["q"]) reach data_obj.q via the generic key-copy loop above
+        # and would otherwise bypass this guard entirely.
+        if hasattr(data_obj, "q"):
+            q_val = float(data_obj.q)
+            if not np.isfinite(q_val):
+                raise ValueError(
+                    "q is not finite (NaN/inf); a bad-pixel q-value must not silently reach the fit"
+                )
+            data_obj.q = q_val
+
         # Generate default sigma (uncertainty) if missing
         if not hasattr(data_obj, "sigma") and hasattr(data_obj, "g2"):
             g2_array = np.asarray(data_obj.g2)  # type: ignore[attr-defined]
@@ -1115,8 +1127,13 @@ def _estimate_contrast_offset_from_data(
     max_g2 = float(np.nanmax(g2_array))
     contrast_est = max_g2 - offset_est
 
-    # Sanity checks
-    if contrast_est <= 0 or offset_est <= 0:
+    # Sanity checks (NaN/Inf must be caught explicitly: IEEE-754 relational
+    # comparisons against NaN are always False, so `nan <= 0` never triggers)
+    if (
+        not (np.isfinite(contrast_est) and np.isfinite(offset_est))
+        or contrast_est <= 0
+        or offset_est <= 0
+    ):
         logger.warning(
             f"Invalid estimated contrast={contrast_est:.3f} or offset={offset_est:.3f}. "
             f"Using generic defaults (0.5, 1.0)"
@@ -1399,7 +1416,7 @@ class _SingleFitWorker:
                 wall_time=time.perf_counter() - start_time,
                 covariance=result.covariance if hasattr(result, "covariance") else None,
             )
-        except (ValueError, RuntimeError, TypeError, OSError) as e:
+        except (ValueError, RuntimeError, TypeError, OSError, MemoryError) as e:
             return SingleStartResult(
                 start_idx=0,
                 initial_params=start_params,
@@ -1802,6 +1819,10 @@ def fit_nlsq_cmaes(
                 )
         else:
             q = float(data.get("q", 0.01))
+            if not np.isfinite(q):
+                raise ValueError(
+                    "q is not finite (NaN/inf); a bad-pixel q-value must not silently reach the fit"
+                )
 
         # dt is required for laminar_flow's compute_g1_shear (no safe default
         # frame rate); the static modes tolerate None via a spacing estimate.

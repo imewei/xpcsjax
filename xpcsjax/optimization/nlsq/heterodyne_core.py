@@ -995,10 +995,22 @@ def fit_nlsq_multi_phi(
         # per-angle ``_try_global_optimization`` ordering). ``escape_kind`` is
         # None when no global method is configured/available → plain dispatch.
         escape_kind: str | None = None
-        if getattr(config, "enable_cmaes", False) and HAS_CMAES:
-            escape_kind = "cmaes"
-        elif getattr(config, "multistart", False) and HAS_JOINT_MULTISTART:
-            escape_kind = "multistart"
+        if getattr(config, "enable_cmaes", False):
+            if HAS_CMAES:
+                escape_kind = "cmaes"
+            else:
+                logger.warning(
+                    "CMA-ES enabled in config but not available (cma not installed). "
+                    "Install with: uv add cma. Falling back."
+                )
+        if escape_kind is None and getattr(config, "multistart", False):
+            if HAS_JOINT_MULTISTART:
+                escape_kind = "multistart"
+            else:
+                logger.warning(
+                    "Multi-start enabled in config but multistart module not available. "
+                    "Falling back to local optimization."
+                )
 
         logger.info(
             "Per-angle dispatch: requested=%s, n_phi=%d, constant_threshold=%d, "
@@ -1564,7 +1576,10 @@ def _fit_joint_averaged_multi_phi(
     # Global escape (CMA-ES / multistart): warm-started at the plain solve,
     # keep-better over the SAME averaged data residual. ``global_escape_tag`` is
     # None on the plain path (no behaviour change) or when the search failed.
-    fitted_all, global_escape_tag = _apply_global_escape(
+    # ``escape_kept_success`` mirrors individual mode's convergence bookkeeping
+    # (PR #25) — threaded into ``solve_success`` below so a kept escape/warm-start
+    # is only reported converged/good when it genuinely was.
+    fitted_all, global_escape_tag, escape_kept_success = _apply_global_escape(
         global_escape_kind,
         base_residual_fn,
         fitted_all,
@@ -1677,6 +1692,15 @@ def _fit_joint_averaged_multi_phi(
         )
 
     solve_success = bool(joint_result.success) and not floor_reverted
+    # A kept global escape (or a warm-start kept over a failed search) has its
+    # OWN convergence verdict, separate from the pre-escape solve — thread it
+    # through so ``solve_success`` doesn't just report the pre-escape verdict
+    # off a genuinely different kept vector (mirrors individual mode's
+    # ``kept_result_success`` plumbing, PR #25). ``escape_kept_success`` is
+    # ``None`` when no escape ran (or it was an auto-skip), leaving the
+    # pre-escape verdict untouched.
+    if escape_kept_success is not None:
+        solve_success = bool(escape_kept_success)
     convergence_status: ConvergenceStatus = "converged" if solve_success else "failed"
     quality_flag: QualityFlag = "good" if solve_success else "marginal"
 
@@ -2396,13 +2420,16 @@ def _solve_residual_nlsq(
     ub: np.ndarray,
     solver_config: NLSQConfig,
     param_names: list[str],
-) -> np.ndarray:
+) -> tuple[np.ndarray, bool, str]:
     """Local trust-region solve of ``residual_fn`` from ``x0`` (adapter→wrapper).
 
     Mirrors the adapter-primary / wrapper-fallback dispatch the averaged and
     constant solvers use for their warm-start solve, but without the L4 monitor
     callback (the per-start refines inside a multistart escape are not
-    monitored). Returns the fitted parameter vector.
+    monitored). Returns ``(fitted_params, success, message)`` — the REAL
+    NLSQResult verdict, not a blanket success, so callers (e.g. the multistart
+    escape's ``single_fit_func``) can thread the actual convergence outcome
+    through instead of hardcoding ``success=True`` for every start.
     """
     res = None
     if NLSQAdapter is not None:
@@ -2426,7 +2453,11 @@ def _solve_residual_nlsq(
         )
     if res is None:  # pragma: no cover — guarded by callers
         raise ImportError("No NLSQ backend available for residual solve.")
-    return np.asarray(res.parameters, dtype=np.float64)
+    return (
+        np.asarray(res.parameters, dtype=np.float64),
+        bool(res.success),
+        str(res.message or ""),
+    )
 
 
 def _cmaes_joint_candidate(
@@ -2435,15 +2466,24 @@ def _cmaes_joint_candidate(
     lb: np.ndarray,
     ub: np.ndarray,
     config: NLSQConfig,
-) -> np.ndarray | None:
+) -> tuple[np.ndarray | None, bool]:
     """Seed-pinned CMA-ES global search over ``base_residual_fn`` from ``x_warm``.
 
-    Returns the CMA-ES optimum (``None`` when the search did not succeed so the
-    caller keeps the warm-start). Mirrors ``_fit_joint_cmaes_multi_phi`` Phase 2
-    but over the averaged/constant data residual; ``ydata=zeros`` ⇒ CMA-ES
-    minimises ``||residual||²`` directly.
+    Returns ``(candidate, converged)``. ``candidate`` is the CMA-ES optimum, or
+    ``None`` when the search did not succeed at all (caller keeps the
+    warm-start). ``converged`` mirrors ``_fit_joint_cmaes_multi_phi``'s Phase 2
+    convergence check: True only when the CMA-ES search itself met a genuine
+    convergence criterion (``cres.diagnostics['convergence_reason'] in
+    CMAES_CONVERGED_REASONS``), not merely when a post-search NLSQ polish
+    happened to succeed — so a kept candidate isn't reported as a confident
+    success with no real convergence behind it. Mirrors
+    ``_fit_joint_cmaes_multi_phi`` Phase 2 but over the averaged/constant data
+    residual; ``ydata=zeros`` ⇒ CMA-ES minimises ``||residual||²`` directly.
     """
-    from xpcsjax.optimization.nlsq.cmaes_wrapper import CMAESWrapperConfig
+    from xpcsjax.optimization.nlsq.cmaes_wrapper import (
+        CMAES_CONVERGED_REASONS,
+        CMAESWrapperConfig,
+    )
 
     x_warm = np.asarray(x_warm, dtype=np.float64)
 
@@ -2479,8 +2519,9 @@ def _cmaes_joint_candidate(
         config=cfg_cmaes,
     )
     if cres.success and cres.parameters is not None:
-        return np.asarray(cres.parameters, dtype=np.float64)
-    return None
+        converged = cres.diagnostics.get("convergence_reason") in CMAES_CONVERGED_REASONS
+        return np.asarray(cres.parameters, dtype=np.float64), converged
+    return None, False
 
 
 def _multistart_joint_candidate(
@@ -2518,7 +2559,7 @@ def _multistart_joint_candidate(
     )
 
     def single_fit_func(_data: dict[str, Any], x_start: np.ndarray) -> Any:
-        x_fit = _solve_residual_nlsq(
+        x_fit, fit_success, fit_message = _solve_residual_nlsq(
             base_residual_fn,
             np.asarray(x_start, dtype=np.float64),
             lb,
@@ -2531,8 +2572,8 @@ def _multistart_joint_candidate(
             initial_params=np.asarray(x_start, dtype=np.float64),
             final_params=x_fit,
             chi_squared=_ssr(x_fit),
-            success=True,
-            message="",
+            success=fit_success,
+            message=fit_message,
         )
 
     def cost_func(x: np.ndarray) -> float:
@@ -2698,18 +2739,28 @@ def _apply_global_escape(
     multistart_data: dict[str, Any],
     *,
     warm_success: bool = True,
-) -> tuple[np.ndarray, str | None]:
+) -> tuple[np.ndarray, str | None, bool | None]:
     """Run a global escape over the data residual and keep-better vs ``x_warm``.
 
-    Returns ``(x_final, global_escape_tag)``. The tag is ``None`` when no escape
-    was requested or the search failed (best-effort → keep warm-start, no tag);
-    ``"<kind>"`` when the escape improved the data-only SSR; or
-    ``"<kind>_warmstart_kept"`` when the search ran but did not beat the warm
-    start. Shared by the averaged and constant solvers so keep-better semantics
+    Returns ``(x_final, global_escape_tag, kept_result_success)``. The tag is
+    ``None`` when no escape was requested or the search failed (best-effort →
+    keep warm-start, no tag); ``"<kind>"`` when the escape improved the
+    data-only SSR; or ``"<kind>_warmstart_kept"`` when the search ran but did
+    not beat the warm start.
+
+    ``kept_result_success`` mirrors the individual-mode escapes'
+    (``_fit_joint_cmaes_multi_phi`` / ``_fit_joint_multistart``) convergence
+    bookkeeping so callers can build an honest ``solve_success`` instead of
+    keying off a bare non-None tag: it is ``None`` when no genuine escape ran
+    (no tag, or the auto-skip tag — the caller's pre-escape success verdict is
+    still the right one then), and otherwise reports whether the KEPT vector
+    itself actually converged — the CMA-ES search's own convergence-reason
+    check for an improved candidate, or ``warm_success`` for a kept warm-start.
+    Shared by the averaged and constant solvers so keep-better semantics
     live in ONE place. Never raises — search failures fall back to ``x_warm``.
     """
     if escape_kind is None:
-        return np.asarray(x_warm, dtype=np.float64), None
+        return np.asarray(x_warm, dtype=np.float64), None, None
     x_warm = np.asarray(x_warm, dtype=np.float64)
 
     def _ssr(x: np.ndarray) -> float:
@@ -2733,10 +2784,10 @@ def _apply_global_escape(
             _reduced,
             float(getattr(config, "cmaes_warmstart_skip_threshold", 5.0)),
         )
-        return x_warm, "cmaes_warmstart_auto_skip"
+        return x_warm, "cmaes_warmstart_auto_skip", None
     try:
         if escape_kind == "cmaes":
-            cand = _cmaes_joint_candidate(base_residual_fn, x_warm, lb, ub, config)
+            cand, cand_converged = _cmaes_joint_candidate(base_residual_fn, x_warm, lb, ub, config)
         elif escape_kind == "multistart":
             cand = _multistart_joint_candidate(
                 base_residual_fn,
@@ -2748,8 +2799,14 @@ def _apply_global_escape(
                 config,
                 multistart_data,
             )
+            # The multistart candidate has no extra "did it really converge"
+            # gate beyond the keep-better SSR comparison below — mirrors
+            # individual-mode ``_fit_joint_multistart``, which likewise leaves
+            # ``kept_result_success`` at its default (True) for a kept
+            # multistart winner.
+            cand_converged = True
         else:  # pragma: no cover — unknown kind treated as no escape
-            return x_warm, None
+            return x_warm, None, None
     # Phase-2: intentionally left — implements the keep-better/fallback contract; conversion would risk parity.
     except Exception as exc:  # noqa: BLE001 - best-effort escape; keep warm-start
         logger.warning(
@@ -2758,10 +2815,10 @@ def _apply_global_escape(
             type(exc).__name__,
             exc,
         )
-        return x_warm, None
+        return x_warm, None, None
 
     if cand is None:
-        return x_warm, f"{escape_kind}_warmstart_kept"
+        return x_warm, f"{escape_kind}_warmstart_kept", warm_success
     cand = np.asarray(cand, dtype=np.float64)
     cand_ssr = _ssr(cand)
     logger.info(
@@ -2772,8 +2829,8 @@ def _apply_global_escape(
         cand_ssr,
     )
     if _escape_keeps_candidate(ssr_warm, cand_ssr):
-        return cand, escape_kind
-    return x_warm, f"{escape_kind}_warmstart_kept"
+        return cand, escape_kind, cand_converged
+    return x_warm, f"{escape_kind}_warmstart_kept", warm_success
 
 
 def _resolve_effective_mode(config: NLSQConfig, n_phi: int) -> ResolvedPerAngleMode:

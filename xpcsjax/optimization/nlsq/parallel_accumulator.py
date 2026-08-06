@@ -150,40 +150,61 @@ def accumulate_chunks_parallel(
     for i, chunk in enumerate(chunks):
         partitions[i % n_workers].append(chunk)
 
+    ctx = multiprocessing.get_context("spawn")
+    executor: ProcessPoolExecutor | None = None
     try:
-        ctx = multiprocessing.get_context("spawn")
-        with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as executor:
-            futures = [
-                executor.submit(accumulate_chunks_sequential, partition)
-                for partition in partitions
-                if partition
-            ]
+        # Deliberately not a `with` block: ProcessPoolExecutor.__exit__ calls
+        # shutdown(wait=True), which would join every worker -- including a
+        # hung one -- before the `except FuturesTimeoutError` fallback below
+        # is ever reached, silently defeating the as_completed() timeout.
+        executor = ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx)
+        futures = [
+            executor.submit(accumulate_chunks_sequential, partition)
+            for partition in partitions
+            if partition
+        ]
 
-            total_JtJ: np.ndarray | None = None
-            total_Jtr: np.ndarray | None = None
-            total_chi2 = 0.0
-            total_count = 0
+        total_JtJ: np.ndarray | None = None
+        total_Jtr: np.ndarray | None = None
+        total_chi2 = 0.0
+        total_count = 0
 
-            # ponytail: timeout must be on as_completed() itself — a per-future
-            # future.result(timeout=...) only bounds an already-completed future;
-            # as_completed() with no timeout blocks forever waiting for a hung one.
-            for future in as_completed(futures, timeout=_batch_timeout(len(futures))):
-                JtJ, Jtr, chi2, count = future.result()
-                if total_JtJ is None:
-                    total_JtJ = np.zeros_like(JtJ)
-                    total_Jtr = np.zeros_like(Jtr)
-                total_JtJ += JtJ
-                total_Jtr += Jtr
-                total_chi2 += chi2
-                total_count += count
+        # ponytail: timeout must be on as_completed() itself — a per-future
+        # future.result(timeout=...) only bounds an already-completed future;
+        # as_completed() with no timeout blocks forever waiting for a hung one.
+        for future in as_completed(futures, timeout=_batch_timeout(len(futures))):
+            JtJ, Jtr, chi2, count = future.result()
+            if total_JtJ is None:
+                total_JtJ = np.zeros_like(JtJ)
+                total_Jtr = np.zeros_like(Jtr)
+            total_JtJ += JtJ
+            total_Jtr += Jtr
+            total_chi2 += chi2
+            total_count += count
+
+        # All futures completed within budget: safe to join workers now.
+        executor.shutdown(wait=True)
 
         if total_JtJ is None or total_Jtr is None:
             raise ValueError("No partitions produced results")
         return total_JtJ, total_Jtr, total_chi2, total_count
 
     except (OSError, RuntimeError, pickle.PicklingError, FuturesTimeoutError) as e:
+        # Non-blocking, non-joining shutdown: a hung worker must never be
+        # waited on here, or this fallback path reintroduces the exact hang
+        # it exists to escape. Abandon the pool and degrade to sequential.
         logger.warning("Parallel chunk accumulation failed (%s), falling back to sequential", e)
         return accumulate_chunks_sequential(chunks)
+    finally:
+        # Without the `with` block, any exception NOT in the tuple above
+        # (e.g. a shape-mismatch ValueError from the JtJ/Jtr accumulation,
+        # or a worker-side error re-raised by future.result()) would
+        # otherwise propagate past this function with the pool never shut
+        # down. shutdown(wait=False) on an already-shutdown executor is a
+        # documented no-op, so this is safe to run unconditionally on every
+        # exit path (including the already-shutdown success path above).
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
 
 
 # ============================================================================

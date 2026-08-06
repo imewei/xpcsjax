@@ -1200,7 +1200,7 @@ class NLSQAdapter(NLSQAdapterBase):
         # Convergence status
         success = info.get("success", False)
         convergence_status = "converged" if success else "failed"
-        if info.get("status", 0) == 1:  # max iterations
+        if info.get("status", 0) == 0:  # max function evaluations reached
             convergence_status = "max_iter"
 
         # Iterations
@@ -1343,11 +1343,18 @@ class NLSQAdapter(NLSQAdapterBase):
         workflow_config = self._select_workflow(n_data, n_params)
         logger.debug("Selected workflow: %s", workflow_config)
 
-        # Extract optimizer settings
-        loss = nlsq_settings.get("loss", "soft_l1")
-        ftol = nlsq_settings.get("ftol", 1e-8)
-        gtol = nlsq_settings.get("gtol", 1e-8)
-        xtol = nlsq_settings.get("xtol", 1e-8)
+        # Extract optimizer settings. `.get(key, default)` only substitutes
+        # the default for a MISSING key -- an explicit YAML `null` still
+        # yields None here, so guard each before it reaches curve_fit()
+        # (mirrors the max_nfev guard below).
+        loss = nlsq_settings.get("loss")
+        loss = "soft_l1" if loss is None else loss
+        ftol = nlsq_settings.get("ftol")
+        ftol = 1e-8 if ftol is None else ftol
+        gtol = nlsq_settings.get("gtol")
+        gtol = 1e-8 if gtol is None else gtol
+        xtol = nlsq_settings.get("xtol")
+        xtol = 1e-8 if xtol is None else xtol
         max_nfev = nlsq_settings.get("max_iterations", nlsq_settings.get("max_nfev"))
 
         # Prepare kwargs for curve_fit

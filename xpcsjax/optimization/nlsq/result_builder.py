@@ -392,11 +392,14 @@ class ResultBuilder:
         n_params = len(self.parameters)
         execution_time = time.time() - self.start_time
 
-        # Compute uncertainties
+        # Compute uncertainties. An absent covariance means "unknown", not
+        # "perfectly known" -- NaN, not zero. Matches compute_uncertainties()'s
+        # own non-finite-variance convention and OptimizationResult's documented
+        # unknown-covariance (e.g. global-escape) contract.
         if self.covariance is not None:
             uncertainties = compute_uncertainties(self.covariance)
         else:
-            uncertainties = np.zeros(n_params)
+            uncertainties = np.full(n_params, np.nan)
 
         # Compute quality metrics
         if residual_fn is not None and xdata is not None:
@@ -435,7 +438,11 @@ class ResultBuilder:
         return {
             "parameters": self.parameters,
             "uncertainties": uncertainties,
-            "covariance": self.covariance if self.covariance is not None else np.eye(n_params),
+            "covariance": (
+                self.covariance
+                if self.covariance is not None
+                else np.full((n_params, n_params), np.nan)
+            ),
             "chi_squared": quality.chi_squared,
             "reduced_chi_squared": quality.reduced_chi_squared,
             "convergence_status": convergence_status,

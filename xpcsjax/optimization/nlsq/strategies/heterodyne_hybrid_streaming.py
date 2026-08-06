@@ -1011,6 +1011,19 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
             gm_block["collapse_detected"],
         )
 
+    # Thread the frozen per-angle quantile scaling through for constant mode so
+    # heterodyne_views.reconstruct_per_angle_scaling(mode="constant") can read
+    # it from this path's nlsq_diagnostics, matching heterodyne_constant_mode.py's
+    # key names (meta["contrast_arr"]/["offset_arr"] ARE the frozen values baked
+    # into the model for constant mode; see build_heterodyne_pointwise_model).
+    _extra_constant_scaling: dict[str, Any] = (
+        {
+            "contrast_per_angle_fixed": np.asarray(meta["contrast_arr"]),
+            "offset_per_angle_fixed": np.asarray(meta["offset_arr"]),
+        }
+        if meta["per_angle_mode"] == "constant"
+        else {}
+    )
     info["anti_degeneracy"] = assemble_anti_degeneracy_diagnostics(
         hierarchical_active=hierarchical_active,
         regularization_active=bool(regularization_active),
@@ -1018,6 +1031,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         gradient_monitor=gm_block,
         per_angle_mode=meta["per_angle_mode"],
         n_optimized=int(meta["n_scaling"]),
+        **_extra_constant_scaling,
     )
 
     return popt, pcov, info

@@ -70,10 +70,10 @@ def test_apply_global_escape_no_skip_when_warmstart_failed(monkeypatch):
 
     def _spy(_base, x_warm, *_a, **_k):
         called["cmaes"] = True
-        return np.asarray(x_warm, dtype=np.float64)
+        return np.asarray(x_warm, dtype=np.float64), True
 
     monkeypatch.setattr(hc, "_cmaes_joint_candidate", _spy)
-    _x, tag = hc._apply_global_escape(
+    _x, tag, _kept_success = hc._apply_global_escape(
         "cmaes",
         lambda _x: np.zeros(100),
         np.array([1.0, 2.0]),
@@ -95,10 +95,10 @@ def test_apply_global_escape_still_skips_on_converged_warmstart(monkeypatch):
 
     def _spy(*_a, **_k):
         called["cmaes"] = True
-        return None
+        return None, False
 
     monkeypatch.setattr(hc, "_cmaes_joint_candidate", _spy)
-    _x, tag = hc._apply_global_escape(
+    _x, tag, _kept_success = hc._apply_global_escape(
         "cmaes",
         lambda _x: np.zeros(100),
         np.array([1.0, 2.0]),
@@ -155,7 +155,7 @@ def test_averaged_callsite_threads_warm_success(monkeypatch):
 
     def _capture(kind, base, x, lb, ub, jc, names, cfg, data, warm_success=_SENTINEL):
         captured["warm_success"] = warm_success
-        return np.asarray(x, dtype=np.float64), None
+        return np.asarray(x, dtype=np.float64), None, None
 
     monkeypatch.setattr(hc, "_apply_global_escape", _capture)
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=16)
@@ -315,7 +315,7 @@ def test_constant_callsite_threads_warm_success(monkeypatch):
 
     def _capture(kind, base, x, lb, ub, jc, names, cfg, data, warm_success=_SENTINEL):
         captured["warm_success"] = warm_success
-        return np.asarray(x, dtype=np.float64), None
+        return np.asarray(x, dtype=np.float64), None, None
 
     monkeypatch.setattr(hc, "_apply_global_escape", _capture)
     model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=16)
