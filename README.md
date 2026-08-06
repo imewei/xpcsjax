@@ -1,4 +1,4 @@
-# XPCSJAX - JAX-native NLSQ fitting for X-ray Photon Correlation Spectroscopy (XPCS).
+# XPCSJAX - JAX-native NLSQ fitting for XPCS.
 
 <p align="center">
   <img src="docs/source/_static/xpcsjax_logo.jpg" alt="xpcsjax logo" width="200"/>
