@@ -534,13 +534,15 @@ def diagnose_error(
         ]
         if bounds is not None:
             lower, upper = bounds
-            range_width = upper - lower
-            midpoint = lower + 0.5 * range_width
             # An infinite bound (unbounded parameter) makes the midpoint
             # NaN/inf — fall back to the same safe default as the no-bounds
             # case for those components instead of feeding a non-finite
             # value back into the numerical-instability recovery it exists
-            # to escape.
+            # to escape. inf-inf is anticipated here, so silence the
+            # transient invalid-value warning.
+            with np.errstate(invalid="ignore"):
+                range_width = upper - lower
+                midpoint = lower + 0.5 * range_width
             new_params = np.where(np.isfinite(midpoint), midpoint, 0.5)
         else:
             new_params = np.ones_like(params) * 0.5

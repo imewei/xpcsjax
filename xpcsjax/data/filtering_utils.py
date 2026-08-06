@@ -24,6 +24,7 @@ Performance optimizations applied throughout this module:
 - Memory-efficient mask operations.
 """
 
+import warnings
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -450,61 +451,67 @@ class XPCSDataFilter:
         - Reasonable value ranges
         """
         try:
-            # Check for finite values
-            finite_fraction = np.sum(np.isfinite(matrix)) / matrix.size
-            if finite_fraction < 0.9:
-                return 0.0  # Poor quality if too many non-finite values
+            # A degenerate matrix (0x0, all-NaN) drives the numpy ops below
+            # through their empty/non-finite edge cases; each is already
+            # guarded (finite_fraction, isfinite(overall_quality)), so
+            # silence the expected transient RuntimeWarning.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                # Check for finite values
+                finite_fraction = np.sum(np.isfinite(matrix)) / matrix.size
+                if finite_fraction < 0.9:
+                    return 0.0  # Poor quality if too many non-finite values
 
-            # Check the smallest *non-zero* lag (first off-diagonal), where the
-            # Siegert relation g2(tau) in [1.0, 2.0] actually holds. The EXACT
-            # tau=0 main diagonal (matrix[k, k]) is the self-correlation /
-            # shot-noise spike — for raw two-time XPCS it routinely sits at ~2.4
-            # (single pixels far higher) and is excluded from analysis. Reading
-            # diagonal[0] here penalized every clean angle of valid data and,
-            # because this score gates _apply_quality_filtering, silently dropped
-            # it from the fit. Use the finite MEDIAN over the whole first
-            # superdiagonal — a single boundary artifact (e.g. matrix[0, 1] == 0)
-            # is not representative of the lag-1 population and must not by itself
-            # drag the score below a strict drop threshold. Mirrors data/validation.py.
-            if matrix.ndim == 2 and matrix.shape[1] > 1:
-                superdiag = np.diagonal(matrix, offset=1)
-                finite_superdiag = superdiag[np.isfinite(superdiag)]
-                near_zero_lag_correlation = (
-                    float(np.median(finite_superdiag)) if finite_superdiag.size > 0 else 0.0
+                # Check the smallest *non-zero* lag (first off-diagonal), where the
+                # Siegert relation g2(tau) in [1.0, 2.0] actually holds. The EXACT
+                # tau=0 main diagonal (matrix[k, k]) is the self-correlation /
+                # shot-noise spike — for raw two-time XPCS it routinely sits at ~2.4
+                # (single pixels far higher) and is excluded from analysis. Reading
+                # diagonal[0] here penalized every clean angle of valid data and,
+                # because this score gates _apply_quality_filtering, silently dropped
+                # it from the fit. Use the finite MEDIAN over the whole first
+                # superdiagonal — a single boundary artifact (e.g. matrix[0, 1] == 0)
+                # is not representative of the lag-1 population and must not by itself
+                # drag the score below a strict drop threshold. Mirrors data/validation.py.
+                if matrix.ndim == 2 and matrix.shape[1] > 1:
+                    superdiag = np.diagonal(matrix, offset=1)
+                    finite_superdiag = superdiag[np.isfinite(superdiag)]
+                    near_zero_lag_correlation = (
+                        float(np.median(finite_superdiag)) if finite_superdiag.size > 0 else 0.0
+                    )
+                else:
+                    diagonal = np.diag(matrix)
+                    near_zero_lag_correlation = float(diagonal[0]) if len(diagonal) > 0 else 0.0
+
+                diagonal_quality = 1.0 if 0.5 <= near_zero_lag_correlation <= 2.0 else 0.5
+
+                # Check matrix symmetry.
+                # Use nanmean: up to 10% non-finite values pass the finite_fraction guard.
+                if matrix.shape[0] == matrix.shape[1]:
+                    symmetry_error = np.nanmean(np.abs(matrix - matrix.T))
+                    symmetry_quality = max(0.0, 1.0 - symmetry_error * 100)
+                else:
+                    symmetry_quality = 0.5
+
+                # Check for reasonable value ranges
+                matrix_mean = np.nanmean(matrix)
+                range_quality = 1.0 if 0.1 <= matrix_mean <= 5.0 else 0.5
+
+                # Combine quality metrics
+                overall_quality = (
+                    finite_fraction * 0.4
+                    + diagonal_quality * 0.3
+                    + symmetry_quality * 0.2
+                    + range_quality * 0.1
                 )
-            else:
-                diagonal = np.diag(matrix)
-                near_zero_lag_correlation = float(diagonal[0]) if len(diagonal) > 0 else 0.0
 
-            diagonal_quality = 1.0 if 0.5 <= near_zero_lag_correlation <= 2.0 else 0.5
+                # A degenerate matrix (e.g. 0x0, all-NaN) can drive the above to
+                # NaN; NaN silently bypasses `quality_score < quality_threshold`
+                # in _apply_quality_filtering, so treat non-finite as fail (0.0).
+                if not np.isfinite(overall_quality):
+                    return 0.0
 
-            # Check matrix symmetry.
-            # Use nanmean: up to 10% non-finite values pass the finite_fraction guard.
-            if matrix.shape[0] == matrix.shape[1]:
-                symmetry_error = np.nanmean(np.abs(matrix - matrix.T))
-                symmetry_quality = max(0.0, 1.0 - symmetry_error * 100)
-            else:
-                symmetry_quality = 0.5
-
-            # Check for reasonable value ranges
-            matrix_mean = np.nanmean(matrix)
-            range_quality = 1.0 if 0.1 <= matrix_mean <= 5.0 else 0.5
-
-            # Combine quality metrics
-            overall_quality = (
-                finite_fraction * 0.4
-                + diagonal_quality * 0.3
-                + symmetry_quality * 0.2
-                + range_quality * 0.1
-            )
-
-            # A degenerate matrix (e.g. 0x0, all-NaN) can drive the above to
-            # NaN; NaN silently bypasses `quality_score < quality_threshold`
-            # in _apply_quality_filtering, so treat non-finite as fail (0.0).
-            if not np.isfinite(overall_quality):
-                return 0.0
-
-            return float(overall_quality)
+                return float(overall_quality)
 
         except (ValueError, RuntimeError, IndexError, TypeError) as e:
             logger.warning(f"Quality score calculation failed: {e}")
