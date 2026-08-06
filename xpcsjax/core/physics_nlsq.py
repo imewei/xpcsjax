@@ -220,7 +220,9 @@ def _compute_g1_shear_meshgrid(
         # Return ones for all phi angles and time combinations (g1_shear = 1)
         phi_array = jnp.atleast_1d(phi)
         n_phi = phi_array.shape[0]
-        n_times = t1.shape[0]
+        # atleast_1d handles a 0-d scalar t1 the same way the shape dispatch
+        # below already does; bare t1.shape[0] raises IndexError on 0-d input.
+        n_times = jnp.atleast_1d(t1).shape[0]
         return jnp.ones((n_phi, n_times, n_times))
 
     gamma_dot_0, beta, gamma_dot_offset, phi0 = (
@@ -378,8 +380,14 @@ def _compute_g1_total_meshgrid(
     # P1-2: Keep only gradient-safe lower floor. Upper clip removed — g1_diff is
     # already bounded ≤ 1.0 from log-space clip, and g1_shear (sinc²) is naturally
     # bounded ≤ 1.0. Hard clips kill gradients at boundaries, harming NLSQ Jacobians.
+    # jnp.maximum applies the floor; the outer jnp.where keeps NaN un-floored so it
+    # propagates instead of being silently replaced by epsilon (NaN > epsilon is
+    # False under IEEE-754, which would otherwise mask a divergent trial as a
+    # plausible finite g2 ≈ offset). Mirrors jax_backend._compute_g1_total_core.
     epsilon = 1e-10
-    g1_bounded: jnp.ndarray = jnp.where(g1_total > epsilon, g1_total, epsilon)
+    g1_bounded: jnp.ndarray = jnp.where(
+        jnp.isnan(g1_total), g1_total, jnp.maximum(g1_total, epsilon)
+    )
 
     return g1_bounded
 
