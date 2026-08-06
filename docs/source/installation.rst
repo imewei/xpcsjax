@@ -26,8 +26,16 @@ CORE dependency, not a separate extra — see below):
 mamba / conda / other virtual environments
 ------------------------------------------
 
-Inside an activated ``mamba`` or ``conda`` environment — or any other virtualenv
-(``venv``, ``virtualenv``, ``pyenv``) — install with ``pip``:
+Inside an activated ``mamba`` or ``conda`` environment, install directly from
+the `imewei Anaconda.org channel <https://anaconda.org/channels/imewei>`_:
+
+.. code-block:: shell
+
+   mamba install imewei::xpcsjax
+   # or: conda install imewei::xpcsjax
+
+Or, in the same environment — or any other virtualenv (``venv``,
+``virtualenv``, ``pyenv``) — install with ``pip``:
 
 .. code-block:: shell
 
