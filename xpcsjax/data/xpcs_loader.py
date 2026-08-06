@@ -2080,7 +2080,17 @@ class XPCSDataLoader:
                 )
 
                 if filtering_result.fallback_used:
-                    logger.warning("Filtering used fallback - all data points included")
+                    # DATA-1 parity with the `except` branch below: a fallback
+                    # substitutes ALL data points for the subset the config asked
+                    # for (empty filter result, or a caught filtering error inside
+                    # apply_filtering). That is the same silent substitution of the
+                    # optimizer's input, so it must leave the same programmatic
+                    # signal -- a bare WARNING is not distinguishable downstream.
+                    self._record_degradation(
+                        "data filtering fell back to all data points "
+                        f"({selected_count}/{total_count}); "
+                        f"reasons: {filtering_result.warnings or filtering_result.errors}"
+                    )
 
                 # Additional integration with phi filtering for compatibility
                 selected_indices = self._integrate_with_phi_filtering(
@@ -2378,6 +2388,16 @@ class XPCSDataLoader:
             # change with the same start/end frame + q is detected instead of
             # silently reusing a stale cache.
             "filter_config_hash": _hash_filter_config(self.config.get("data_filtering", {})),
+            # The LEGACY phi filter (_integrate_with_phi_filtering -> PhiAngleFilter)
+            # narrows the cached (q, phi) selection further, but reads a DIFFERENT
+            # config subtree than XPCSDataFilter, so filter_config_hash above does
+            # not cover it. It runs whenever data_filtering is enabled without a
+            # `phi_range` block (that key is what short-circuits the legacy branch),
+            # so a target_ranges edit with an otherwise-matching q/frame window must
+            # not silently reuse a cache built for the old angle set.
+            "angle_filtering_hash": _hash_filter_config(
+                self.config.get("optimization_config", {}).get("angle_filtering", {})
+            ),
         }
 
         # Metadata is stored as a JSON-encoded scalar (not a Python dict via
@@ -2467,6 +2487,30 @@ class XPCSDataLoader:
             logger.warning(
                 "Cache metadata predates filter-config fingerprinting; cannot "
                 "verify phi/quality-filtering settings match the current config.",
+            )
+
+        # Check the LEGACY phi-filter settings (optimization_config.angle_filtering).
+        # These live outside the data_filtering subtree fingerprinted above but
+        # still shape the cached (q, phi) selection via _integrate_with_phi_filtering,
+        # so they need their own key -- same shape as the dt / q_tolerance_fraction
+        # checks below.
+        current_angle_hash = _hash_filter_config(
+            self.config.get("optimization_config", {}).get("angle_filtering", {})
+        )
+        cached_angle_hash = cache_metadata.get("angle_filtering_hash")
+        if cached_angle_hash is None:
+            logger.warning(
+                "Cache metadata predates angle-filtering fingerprinting; cannot "
+                "verify the legacy optimization_config.angle_filtering settings "
+                "match the current config.",
+            )
+        elif cached_angle_hash != current_angle_hash:
+            raise XPCSDataFormatError(
+                "Cache angle-filtering mismatch: the "
+                "optimization_config.angle_filtering settings (enabled / "
+                "target_ranges / fallback_to_all_angles) have changed since this "
+                "cache was built. The cache's (q, phi) selection is "
+                "angle-filter-specific; delete it and regenerate."
             )
 
         # Check if the time step (t1/t2 axis generator) matches. dt is not
