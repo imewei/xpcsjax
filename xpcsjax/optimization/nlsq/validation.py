@@ -336,8 +336,8 @@ def validate_fit_quality(
                         logger.warning(f"[FitQuality] {warning}")
                     else:
                         report.checks_performed["parameter_significance"] = True
-        except (TypeError, ValueError):
-            pass
+        except (TypeError, ValueError) as exc:
+            logger.warning(f"[FitQuality] parameter_significance check skipped: {exc}")
 
     # Check 1c: Covariance matrix condition number
     pcov = getattr(result, "covariance", None)
@@ -361,8 +361,8 @@ def validate_fit_quality(
                         report.passed = False
                     else:
                         report.checks_performed["condition_number"] = True
-        except (TypeError, ValueError, np.linalg.LinAlgError):
-            pass
+        except (TypeError, ValueError, np.linalg.LinAlgError) as exc:
+            logger.warning(f"[FitQuality] condition_number check skipped: {exc}")
 
     # Check 2: CMA-ES max_restarts convergence
     if config.warn_on_max_restarts:

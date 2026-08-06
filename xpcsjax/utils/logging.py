@@ -1044,7 +1044,7 @@ class MinimalLogger:
         file_path: Path | None = None
         if file_cfg.get("enabled", False):
             if "path" in file_cfg:
-                base_dir = Path(file_cfg.get("path", "./logs/"))
+                base_dir = Path(file_cfg.get("path") or "./logs/")
                 if not base_dir.is_absolute():
                     base_dir = base_dir.resolve()
             else:
@@ -1112,8 +1112,12 @@ class MinimalLogger:
             file_path=file_path,
             file_level=file_cfg.get("level", "DEBUG"),
             file_format=file_cfg.get("format", "detailed"),
-            max_size_mb=int(file_cfg.get("max_size_mb", 10)),
-            backup_count=int(file_cfg.get("backup_count", 5)),
+            max_size_mb=int(
+                file_cfg["max_size_mb"] if file_cfg.get("max_size_mb") is not None else 10
+            ),
+            backup_count=int(
+                file_cfg["backup_count"] if file_cfg.get("backup_count") is not None else 5
+            ),
             module_levels=logging_config.get("modules"),
             force=True,
             json_format=logging_config.get("format"),

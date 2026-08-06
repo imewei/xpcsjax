@@ -56,7 +56,7 @@ _xpcsjax_get_config_files() {
 
     if [[ -f "$cache_file" ]]; then
         local cache_time
-        cache_time=$(stat -f %m "$cache_file" 2>/dev/null || stat -c %Y "$cache_file" 2>/dev/null)
+        cache_time=$(stat -c %Y "$cache_file" 2>/dev/null || stat -f %m "$cache_file" 2>/dev/null)
         if [[ $((now - cache_time)) -lt $_XPCSJAX_CACHE_TTL ]]; then
             cat "$cache_file"
             return
@@ -67,7 +67,7 @@ _xpcsjax_get_config_files() {
         find . -maxdepth 2 \( -name "*.yaml" -o -name "*.yml" \) -type f 2>/dev/null
         [[ -d "config" ]] && find config \( -name "*.yaml" -o -name "*.yml" \) -type f 2>/dev/null
         [[ -d "configs" ]] && find configs \( -name "*.yaml" -o -name "*.yml" \) -type f 2>/dev/null
-    } | sort -u | tee "$cache_file"
+    } | sed 's|^\./||' | sort -u | tee "$cache_file"
 }
 
 

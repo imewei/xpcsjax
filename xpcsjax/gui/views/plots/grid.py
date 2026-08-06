@@ -230,7 +230,7 @@ class PhiResultsGrid(QWidget):
         model_c2 = bundle.model_c2 if _leading_dim_matches(bundle.model_c2, n_phi) else None
         residuals = bundle.residuals if _leading_dim_matches(bundle.residuals, n_phi) else None
         phi_angles = bundle.phi_angles
-        if phi_angles is None or np.asarray(phi_angles).shape[0] != n_phi:
+        if not _leading_dim_matches(phi_angles, n_phi) or np.asarray(phi_angles).ndim != 1:
             phi_angles = np.arange(n_phi, dtype=float)
         phi_angles = np.asarray(phi_angles, dtype=float)
 

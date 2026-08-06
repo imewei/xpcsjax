@@ -9,6 +9,10 @@ NLSQConfig.from_dict (nlsq/config.py) and AntiDegeneracyConfig.from_dict
 
 from __future__ import annotations
 
+import importlib
+
+import pytest
+
 from xpcsjax.optimization.nlsq.anti_degeneracy_controller import AntiDegeneracyConfig
 from xpcsjax.optimization.nlsq.config import NLSQConfig
 
@@ -80,9 +84,23 @@ def test_nlsq_config_cmaes_none_sentinels_stay_none():
     assert (cfg.cmaes_max_generations, cfg.cmaes_popsize, cfg.cmaes_seed) == (None, None, None)
 
 
-def test_extract_nlsq_settings_survives_null_sections():
-    """`optimization:` / `nlsq:` with no body parse to None, not {}."""
-    from xpcsjax.optimization.nlsq.wrapper import NLSQWrapper
+@pytest.mark.parametrize(
+    "extractor_cls_path",
+    [
+        "xpcsjax.optimization.nlsq.wrapper.NLSQWrapper",
+        "xpcsjax.optimization.nlsq.adapter.NLSQAdapter",
+    ],
+)
+def test_extract_nlsq_settings_survives_null_sections(extractor_cls_path):
+    """`optimization:` / `nlsq:` with no body parse to None, not {}.
 
-    assert NLSQWrapper._extract_nlsq_settings({"optimization": None}) == {}
-    assert NLSQWrapper._extract_nlsq_settings({"optimization": {"nlsq": None}}) == {}
+    Both NLSQWrapper and NLSQAdapter carry their own copy of this
+    extractor — parametrized so a fix to one can't silently drift from
+    the other (see adapter.py:811 unfixed-twin finding).
+    """
+    module_path, cls_name = extractor_cls_path.rsplit(".", 1)
+    module = importlib.import_module(module_path)
+    extractor_cls = getattr(module, cls_name)
+
+    assert extractor_cls._extract_nlsq_settings({"optimization": None}) == {}
+    assert extractor_cls._extract_nlsq_settings({"optimization": {"nlsq": None}}) == {}

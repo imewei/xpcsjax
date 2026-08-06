@@ -2282,6 +2282,10 @@ class XPCSDataLoader:
             "actual_wavevector_q": actual_q,
             "q_variance": q_variance,
             "q_count": len(q_values),
+            # dt drives the cached t1/t2 time axes (_calculate_time_arrays); a
+            # config edit to dt with an otherwise-matching q/frame window must
+            # not silently reuse a cache built for the old time axis.
+            "dt": float(self.analyzer_config.get("dt", 1.0)),
             # Report the actually-applied (clamped) frame window recorded by
             # _apply_frame_slicing_to_selected_q. Fall back to the raw config /
             # sliced width only if slicing was never run on this instance.
@@ -2390,6 +2394,23 @@ class XPCSDataLoader:
             logger.warning(
                 "Cache metadata predates filter-config fingerprinting; cannot "
                 "verify phi/quality-filtering settings match the current config.",
+            )
+
+        # Check if the time step (t1/t2 axis generator) matches. dt is not
+        # folded into filter_config_hash, so a dt-only edit with an otherwise
+        # matching q/frame window would silently reuse the old time axis.
+        current_dt = float(self.analyzer_config.get("dt", 1.0))
+        cached_dt = cache_metadata.get("dt")
+        if cached_dt is None:
+            logger.warning(
+                "Cache metadata predates dt fingerprinting; cannot verify the "
+                "cached time axis matches the current dt.",
+            )
+        elif abs(current_dt - float(cached_dt)) > 1e-12:
+            raise XPCSDataFormatError(
+                f"Cache dt mismatch: configured dt={current_dt:.6g}s but cache "
+                f"was built for dt={float(cached_dt):.6g}s. The cache's t1/t2 "
+                f"time axes are dt-specific; delete it and regenerate.",
             )
 
         # Check if cache uses selective q-caching

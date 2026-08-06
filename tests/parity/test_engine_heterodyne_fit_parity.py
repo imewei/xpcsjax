@@ -121,16 +121,15 @@ from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
 from xpcsjax.optimization.nlsq.heterodyne_adapter import NLSQAdapter
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
+from xpcsjax.optimization.nlsq.heterodyne_engine_route import (
+    _build_engine,
+    _drop_frame0_stratified_data,
+)
 from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
-    HeterodyneStratifiedData,
     build_heterodyne_stratified_data,
 )
-from xpcsjax.optimization.nlsq.model_adapter import HeterodynePointEvaluator
 from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
     build_heterodyne_pointwise_model,
-)
-from xpcsjax.optimization.nlsq.strategies.residual_jit import (
-    StratifiedResidualFunctionJIT,
 )
 from xpcsjax.optimization.nlsq.strategies.stratified_ls import (
     create_stratified_chunks,
@@ -303,71 +302,6 @@ def _make_well_posed_case():
             )
         )
     return model, c2, phi
-
-
-def _drop_frame0_stratified_data(
-    strat: HeterodyneStratifiedData, *, t: np.ndarray, n_phi: int
-) -> HeterodyneStratifiedData:
-    """Drop every (t1, t2) pair touching frame-0, keeping the on-grid diagonal
-    (the engine masks it) — yields the production support ``(n_t-1)*(n_t-2)`` per
-    angle after the engine's own diagonal masking (identical to Phase 2.3a)."""
-    t = np.asarray(t, dtype=np.float64)
-    t0 = float(t[0])
-    eps = float(strat.dt) * 1e-6
-    keep = (strat.t1_flat > t0 + eps) & (strat.t2_flat > t0 + eps)
-
-    new_sizes: list[int] = []
-    cursor = 0
-    for size in strat.chunk_sizes:
-        new_sizes.append(int(np.sum(keep[cursor : cursor + size])))
-        cursor += size
-
-    n_t_reduced = len(t) - 1
-    return HeterodyneStratifiedData(
-        phi_flat=strat.phi_flat[keep].copy(),
-        t1_flat=strat.t1_flat[keep].copy(),
-        t2_flat=strat.t2_flat[keep].copy(),
-        g2_flat=strat.g2_flat[keep].copy(),
-        sigma=np.ones((n_phi, n_t_reduced, n_t_reduced), dtype=np.float64),
-        q=strat.q,
-        L=strat.L,
-        dt=strat.dt,
-        chunk_sizes=new_sizes,
-        n_phi=strat.n_phi,
-        n_t=n_t_reduced,
-        angle_indices=list(strat.angle_indices),
-    )
-
-
-def _build_engine(
-    *,
-    mode: str,
-    chunked,
-    phys_names: list[str],
-    contrast_arr: np.ndarray,
-    offset_arr: np.ndarray,
-    q: float,
-    dt: float,
-) -> StratifiedResidualFunctionJIT:
-    """Construct the frame-0-excluded engine for ``mode`` (mirrors Phase 2.3a)."""
-    evaluator = HeterodynePointEvaluator(analysis_mode="two_component", q=float(q), dt=float(dt))
-    if mode == "constant":
-        return StratifiedResidualFunctionJIT(
-            stratified_data=chunked,
-            per_angle_scaling=False,
-            physical_param_names=phys_names,
-            fixed_contrast_per_angle=np.asarray(contrast_arr, dtype=np.float64),
-            fixed_offset_per_angle=np.asarray(offset_arr, dtype=np.float64),
-            evaluator=evaluator,
-        )
-    return StratifiedResidualFunctionJIT(
-        stratified_data=chunked,
-        per_angle_scaling=True,
-        physical_param_names=phys_names,
-        fixed_contrast_per_angle=None,
-        fixed_offset_per_angle=None,
-        evaluator=evaluator,
-    )
 
 
 def _engine_scaling_first_bounds(

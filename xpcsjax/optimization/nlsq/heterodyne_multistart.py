@@ -13,17 +13,22 @@ JAX ``HeterodyneModel`` that is not process-picklable, so parallel workers
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
 from xpcsjax.optimization.nlsq.multistart import (
     MultiStartConfig,
     SingleStartResult,
     run_multistart_nlsq,
 )
+from xpcsjax.optimization.nlsq.results import OptimizationResult
 from xpcsjax.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
 
 logger = get_logger(__name__)
 
@@ -55,7 +60,14 @@ def build_multistart_config(ms_dict: dict[str, Any]) -> MultiStartConfig:
     )
 
 
-def fit_nlsq_multistart_heterodyne(model, c2, phi, nlsq_cfg, weights, ms_cfg):
+def fit_nlsq_multistart_heterodyne(
+    model: HeterodyneModel,
+    c2: np.ndarray,
+    phi: list[float] | np.ndarray,
+    nlsq_cfg: NLSQConfig,
+    weights: np.ndarray | None,
+    ms_cfg: MultiStartConfig,
+) -> OptimizationResult:
     """Run joint multi-phi multistart, then re-fit once from the best start.
 
     Each Latin-Hypercube start sets the model's varying physics initial values

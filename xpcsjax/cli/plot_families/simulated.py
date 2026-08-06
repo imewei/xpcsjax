@@ -38,7 +38,7 @@ def resolve_phi_angles_for_sim(
     if phi_angles_str:
         try:
             return np.array(
-                [float(x.strip()) for x in phi_angles_str.split(",")],
+                [float(x.strip()) for x in phi_angles_str.split(",") if x.strip()],
                 dtype=np.float64,
             )
         except ValueError:
@@ -239,12 +239,12 @@ def _evaluate_model_c2(
       ``compute_g2(params, t1, t2, phi, q, L, contrast, offset, dt)`` which
       applies ``c2 = offset + contrast*g1^2`` internally.
     * ``HeterodyneModel`` (mode two_component) has NO ``compute_g2``; its
-      ``compute_g1(params, t1, t2, phi, q, L, dt)`` already returns the full
-      ``c2`` surface (contrast/offset are baked into the 14-element param
-      vector), per that method's own docstring.
+      ``compute_g1(params, t1, t2, phi, q, L, dt)`` returns a NORMALIZED
+      surface (the kernel is called with ``contrast=1.0, offset=0.0`` —
+      see heterodyne_model.py:151), so this function applies
+      ``offset + contrast*g1^2`` itself for that branch.
 
-    Either way the return is a fully-scaled c2 surface — the caller must
-    NOT re-apply contrast/offset.
+    Either way the return is a fully-scaled c2 surface.
 
     Parity note: this mirrors ``xpcsjax.viz.nlsq_plots`` model dispatch.
     ``CombinedModel.compute_g2`` applies ``offset + contrast*g1^2``
