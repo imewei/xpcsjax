@@ -8,35 +8,29 @@ current release line.
 Unreleased
 ----------
 
-* **CMA-ES escape success-gate fixed** (#25): a ``two_component`` joint
-  CMA-ES escape kept via post-search NLSQ polish alone (global search
-  exhausted its restart budget without converging) could report
-  ``status=converged``/``quality=good`` with all-NaN uncertainties on a
-  physically degenerate result. Now gated on the real backend
-  convergence-reason vocabulary.
-* **Heterodyne multistart candidates were silently re-solving the same
-  starting point** (#24), defeating multistart entirely — fixed via a new
-  ``ParameterManager.reseed_initial_values()``.
-* **Heterodyne per-angle contrast/offset bounds override was silently
-  ignored** — the scaling-first bounds builders read the static
-  ``ParameterRegistry`` defaults instead of the config-resolved
-  ``ParameterManager``.
-* Fixed a mypy-caught ``adjust_covariance_for_transforms`` call-site arg
-  mismatch that would ``TypeError`` on a ``laminar_flow`` sequential
-  per-angle fit with an active shear-parameter transform (#22), and
-  silenced a redundant ``JAX_PLATFORMS`` warning (#23).
-* Whole-codebase debug audits: 168 confirmed bugs fixed across all 12
-  top-level modules, each round closed with an independent 4-agent
-  adversarial re-review of the fix diff itself.
-* Added missing API pages for the ``device``/``io``/``utils`` modules plus
-  a structural doc-coverage test requiring every top-level submodule to
-  have a docs page (#18).
+v0.1.2 — tied parameters, deep-RCA audits, and GUI/packaging fixes
+--------------------------------------------------------------------
 
-v0.1.2 — GUI polish and packaging fix
---------------------------------------
+*Released 2026-08-06.*
 
-*Released 2026-07-25.*
-
+* **Heterodyne ``tied_parameters`` equality constraints** (#27, #30):
+  user-configured parameter tying across components and angles in
+  ``two_component`` fits, constraint-reduced during optimization and
+  expanded back to full 14-parameter blocks across every execution path.
+* **``XPCSDataLoader`` context-manager support** (#40): ``load_xpcs_data``
+  now uses a ``with`` statement, ensuring HDF5 handles and background
+  threads are cleaned up on completion or failure.
+* **Deep-RCA multi-agent audits: 197 confirmed bugs fixed** across all 12
+  top-level modules (``optimization`` 29, ``data`` 12, ``core`` 6, plus a
+  168-bug whole-codebase sweep), each round closed with an independent
+  4-agent adversarial re-review of the fix diff itself. Representative
+  fixes: a CMA-ES escape reporting ``converged``/``good`` on a
+  refinement-only success with all-NaN uncertainties (#25); heterodyne
+  multistart silently re-solving the same starting point instead of
+  moving the frozen initial-values snapshot (#24); heterodyne per-angle
+  ``contrast``/``offset`` bounds overrides being silently ignored; a
+  mypy-caught ``adjust_covariance_for_transforms`` arg mismatch (#22); a
+  redundant ``JAX_PLATFORMS`` warning (#23).
 * **GUI design-critique findings addressed** (#11): a Cancel confirmation
   dialog, keyboard shortcuts/tooltips on every toolbar/File-menu action,
   YAML-validating Edit Config, a real side-by-side Comparison table, a
@@ -48,6 +42,14 @@ v0.1.2 — GUI polish and packaging fix
 * Packaging: the PyInstaller spec was missing a real ``collect_all("PIL")``
   entry for Pillow (matplotlib's transitive image-backend dependency),
   failing the freeze-safety test on every push.
+* Security: bumped ``cryptography`` to ``50.0.0`` to resolve CVE-2026-69247.
+* Dependencies: ``datashader`` is now required (no more ``[viz-fast]``
+  extra needed for the fast visualization path); removed unused
+  ``scikit-learn``, ``cloudpickle``, ``interpax``.
+* Documentation: added missing API pages for the ``device``/``io``/``utils``
+  modules plus a structural doc-coverage test requiring every top-level
+  submodule to have a docs page (#18); documented ``tied_parameters`` and
+  the ``XPCSDataLoader`` context manager.
 * Internal / CI: hardened the PyInstaller spec's drift-guard extraction
   against comment text, added a repo-level write-time Python quality gate,
   bumped GitHub Actions to their Node 24 majors, and rebuilt the knowledge
