@@ -775,7 +775,10 @@ def _normalize_data_to_object(data: Any, config: Any, logger: Any) -> Any:
         # (data["q"]) reach data_obj.q via the generic key-copy loop above
         # and would otherwise bypass this guard entirely.
         if hasattr(data_obj, "q"):
-            q_val = float(data_obj.q)
+            # atleast_1d + take-first mirrors the wavevector_q_list branch
+            # above: a bare float() would raise an opaque TypeError (not the
+            # intended ValueError) if a caller passes q as a list/array.
+            q_val = float(np.atleast_1d(np.asarray(data_obj.q, dtype=float))[0])
             if not np.isfinite(q_val):
                 raise ValueError(
                     "q is not finite (NaN/inf); a bad-pixel q-value must not silently reach the fit"

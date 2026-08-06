@@ -1200,7 +1200,11 @@ class NLSQAdapter(NLSQAdapterBase):
         # Convergence status
         success = info.get("success", False)
         convergence_status = "converged" if success else "failed"
-        if info.get("status", 0) == 0:  # max function evaluations reached
+        # `.get("status", 0)` would treat a MISSING status key (the 2-tuple
+        # curve_fit return path, where `info` is `{}`) the same as a real
+        # status=0 — mislabeling every such solve as "max_iter". Compare
+        # against the raw (possibly-None) value instead.
+        if info.get("status") == 0:  # max function evaluations reached
             convergence_status = "max_iter"
 
         # Iterations

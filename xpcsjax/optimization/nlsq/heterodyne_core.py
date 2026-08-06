@@ -2755,9 +2755,12 @@ def _apply_global_escape(
     (no tag, or the auto-skip tag — the caller's pre-escape success verdict is
     still the right one then), and otherwise reports whether the KEPT vector
     itself actually converged — the CMA-ES search's own convergence-reason
-    check for an improved candidate, or ``warm_success`` for a kept warm-start.
-    Shared by the averaged and constant solvers so keep-better semantics
-    live in ONE place. Never raises — search failures fall back to ``x_warm``.
+    check for an improved candidate, ``True`` for a kept multistart winner
+    (multistart has no extra convergence gate beyond the keep-better SSR
+    comparison, mirroring individual-mode ``_fit_joint_multistart``), or
+    ``warm_success`` for a kept warm-start. Shared by the averaged and
+    constant solvers so keep-better semantics live in ONE place. Never
+    raises — search failures fall back to ``x_warm``.
     """
     if escape_kind is None:
         return np.asarray(x_warm, dtype=np.float64), None, None

@@ -273,3 +273,60 @@ def test_diagnose_error_unknown_error_perturbs_zero_param():
     )
     new_params = diag["recovery_strategy"]["new_params"]
     assert new_params[0] != 0.0
+
+
+# ---------------------------------------------------------------------------
+# PR #37 review: diagnose_error's numerical_instability branch (NaN/Inf match
+# + bounds-center recovery) had zero test coverage — the exact NLSQ error
+# message it needs to catch never matched, and the recovery formula produced
+# NaN whenever a bound was infinite.
+# ---------------------------------------------------------------------------
+
+
+def test_diagnose_error_matches_nlsq_not_finite_message():
+    from xpcsjax.optimization.nlsq.recovery import diagnose_error
+
+    params = np.array([1.0, 2.0, 3.0])
+    diag = diagnose_error(
+        error=ValueError("Residuals are not finite"),
+        params=params,
+        bounds=None,
+        attempt=0,
+    )
+    assert diag["error_type"] == "numerical_instability", (
+        "NLSQ's actual 'Residuals are not finite' wording must route to the "
+        "numerical_instability recovery, not fall through to unknown_error"
+    )
+
+
+def test_diagnose_error_numerical_instability_resets_to_bounds_center():
+    from xpcsjax.optimization.nlsq.recovery import diagnose_error
+
+    params = np.array([np.nan, np.nan])
+    bounds = (np.array([-10.0, 0.0]), np.array([10.0, 4.0]))
+    diag = diagnose_error(
+        error=ValueError("nan detected in residuals"),
+        params=params,
+        bounds=bounds,
+        attempt=0,
+    )
+    new_params = diag["recovery_strategy"]["new_params"]
+    np.testing.assert_allclose(new_params, [0.0, 2.0])  # bounds midpoint, not geometric mean
+
+
+def test_diagnose_error_numerical_instability_infinite_bounds_stays_finite():
+    from xpcsjax.optimization.nlsq.recovery import diagnose_error
+
+    params = np.array([np.nan, np.inf])
+    bounds = (np.array([-np.inf, -np.inf]), np.array([np.inf, np.inf]))
+    diag = diagnose_error(
+        error=ValueError("inf detected in residuals"),
+        params=params,
+        bounds=bounds,
+        attempt=0,
+    )
+    new_params = diag["recovery_strategy"]["new_params"]
+    assert np.all(np.isfinite(new_params)), (
+        "an infinite bound must not make the recovered parameter NaN — that "
+        "reintroduces the exact non-finite value this branch exists to escape"
+    )

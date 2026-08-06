@@ -190,9 +190,9 @@ def accumulate_chunks_parallel(
         return total_JtJ, total_Jtr, total_chi2, total_count
 
     except (OSError, RuntimeError, pickle.PicklingError, FuturesTimeoutError) as e:
-        # Non-blocking, non-joining shutdown: a hung worker must never be
-        # waited on here, or this fallback path reintroduces the exact hang
-        # it exists to escape. Abandon the pool and degrade to sequential.
+        # Includes as_completed()'s FuturesTimeoutError on a hung worker.
+        # The pool itself is abandoned (non-blocking) by the `finally`
+        # below, not here — degrade to sequential and let it run.
         logger.warning("Parallel chunk accumulation failed (%s), falling back to sequential", e)
         return accumulate_chunks_sequential(chunks)
     finally:

@@ -251,10 +251,14 @@ def fit_with_out_of_core_accumulation(
     # uses, so a user-configured xtol/ftol isn't silently discarded whenever
     # a fit routes to OUT_OF_CORE instead of STANDARD/CHUNKED.
     nlsq_cfg = cfg_dict.get("optimization", {}).get("nlsq", {})
-    # Relative parameter change (per-component max, not norm)
-    xtol = float(nlsq_cfg.get("xtol", 1e-8))
+    # Relative parameter change (per-component max, not norm). `.get(key,
+    # default)` only substitutes when the key is absent — an explicit
+    # `null` in the YAML must be guarded separately or `float(None)` raises.
+    xtol_raw = nlsq_cfg.get("xtol")
+    xtol = 1e-8 if xtol_raw is None else float(xtol_raw)
     # Relative cost function change
-    ftol = float(nlsq_cfg.get("ftol", nlsq_cfg.get("tolerance", 1e-8)))
+    ftol_raw = nlsq_cfg.get("ftol", nlsq_cfg.get("tolerance"))
+    ftol = 1e-8 if ftol_raw is None else float(ftol_raw)
     lm_lambda = 0.01  # Initial damping
     rel_change = float("inf")  # Initialize to prevent NameError at loop exit
     cost_change = float("inf")  # Initialize for multi-criteria convergence
