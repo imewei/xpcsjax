@@ -31,8 +31,16 @@ With [uv](https://docs.astral.sh/uv/) (recommended):
 uv pip install "xpcsjax[all]"
 ```
 
-In a mamba/conda environment — or any other virtualenv (`venv`, `virtualenv`, `pyenv`) —
-use pip:
+In a mamba/conda environment, install directly from the
+[`imewei` Anaconda.org channel](https://anaconda.org/channels/imewei):
+
+```bash
+mamba install imewei::xpcsjax
+# or: conda install imewei::xpcsjax
+```
+
+Or use pip inside the same environment — or any other virtualenv (`venv`,
+`virtualenv`, `pyenv`):
 
 ```bash
 pip install "xpcsjax[all]"
