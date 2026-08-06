@@ -17,7 +17,6 @@ from typing import Any
 import numpy as np
 
 from xpcsjax.optimization.nlsq.fallback_chain import OptimizationStrategy
-from xpcsjax.optimization.nlsq.results import FunctionEvaluationCounter
 from xpcsjax.utils.logging import get_logger, log_exception
 
 logger = get_logger(__name__)
@@ -152,9 +151,12 @@ def execute_with_recovery(
             )
 
             if initial_cost is None:
-                if hasattr(residual_fn, "n_total_points") or isinstance(
-                    residual_fn, FunctionEvaluationCounter
-                ):
+                # Sniff THROUGH a FunctionEvaluationCounter: the counter is a
+                # transparent call-count wrapper and says nothing about the
+                # wrapped callable's signature, so treating it as params-only
+                # called a model fn f(xdata, *params) as f(params).
+                _probe = getattr(residual_fn, "fn", residual_fn)
+                if hasattr(_probe, "n_total_points"):
                     initial_residuals = residual_fn(current_params)
                 else:
                     initial_residuals = residual_fn(xdata, *current_params)

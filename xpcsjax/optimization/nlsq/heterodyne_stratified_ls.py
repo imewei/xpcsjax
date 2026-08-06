@@ -776,13 +776,29 @@ def fit_heterodyne_stratified_least_squares(
             "the early value -- investigate before trusting this fit"
         )
     lower_phys, upper_phys = model.param_manager.get_bounds()
-    # constant -> n_scaling=0 (empty scaling block); averaged/individual ->
-    # contrast and offset are non-negative.
-    scaling_lower = np.zeros(n_scaling, dtype=np.float64)
-    scaling_upper = np.full(n_scaling, np.inf, dtype=np.float64)
+    # Scaling-head bounds come from the config-resolved ParameterManager, like
+    # every sibling solver (`_build_joint_problem`, the engine route's
+    # `_scaling_first_bounds`). A literal [0, +inf) here ignored
+    # `parameter_space.bounds` / the registry contrast (0,1) & offset (0.5,1.5),
+    # letting this path alone fit an unphysical contrast > 1.
+    # constant -> n_scaling=0 (empty blocks); layout is [contrast | offset].
+    _cb, _ob = model.param_manager.get_bounds_as_tuples(["contrast", "offset"])
+    _n_c = n_scaling // 2
+    _n_o = n_scaling - _n_c
+    scaling_lower = np.concatenate(
+        [np.full(_n_c, _cb[0], dtype=np.float64), np.full(_n_o, _ob[0], dtype=np.float64)]
+    )
+    scaling_upper = np.concatenate(
+        [np.full(_n_c, _cb[1], dtype=np.float64), np.full(_n_o, _ob[1], dtype=np.float64)]
+    )
     # Canonical scaling-first: [scaling | physics].
     lower = np.concatenate([scaling_lower, np.asarray(lower_phys, np.float64)])
     upper = np.concatenate([scaling_upper, np.asarray(upper_phys, np.float64)])
+    # The quantile seed is clipped to the REGISTRY contrast/offset bounds; a
+    # config that narrows them further would otherwise make x0 infeasible and
+    # abort the solve.
+    if n_scaling:
+        p0_full[:n_scaling] = np.clip(p0_full[:n_scaling], scaling_lower, scaling_upper)
 
     # Full joint parameter-name list ([scaling | physics]) — used both for the
     # adapter and (Fix 4) threaded to the result builder so the diagnostics

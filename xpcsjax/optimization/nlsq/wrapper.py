@@ -320,6 +320,17 @@ def _build_homodyne_l4_callback(
         swallowed so it cannot abort the fit.
     """
     enabled, ratio_threshold, consecutive_triggers = _homodyne_l4_monitoring_enabled(config)
+    if enabled and per_angle_scaling and len(validated_params) == n_physical:
+        # `constant` per-angle mode freezes the scaling out of the optimizer
+        # vector entirely (head length 0), so the physics/per-angle gradient
+        # ratio L4 watches is undefined. Without this the fallback split below
+        # would monitor the first two PHYSICS params as the "per-angle" block
+        # and report an arbitrary ratio / spurious collapse.
+        _memory_logger.debug(
+            "L4 gradient monitor disabled: per-angle scaling is frozen (constant mode), "
+            "so the physical/per-angle gradient ratio is undefined."
+        )
+        enabled = False
     if not enabled:
         # L4 disabled: return (None, None) when no observer, or an observer-only
         # callback when on_iteration is set (so the observer fires even without L4).
@@ -1980,11 +1991,21 @@ class NLSQWrapper(NLSQAdapterBase):
                     transform_state,
                 )
 
-        param_labels = _build_parameter_labels(
-            per_angle_scaling,
-            n_phi_unique if per_angle_scaling else 0,
-            physical_param_names,
-        )
+        # Labels must match the OPTIMIZER vector, which is compressed for the
+        # averaged / constant resolved modes. `_build_parameter_labels` always
+        # emits the DENSE 2*n_phi head, and every consumer zips it with
+        # `strict=False`, so a dense label list silently paired `offset_avg` with
+        # "contrast[1]", D0 with "contrast[2]", ... in the diagnostics.
+        if per_angle_scaling and resolved_per_angle_mode == "averaged":
+            param_labels = ["contrast", "offset", *physical_param_names]
+        elif per_angle_scaling and resolved_per_angle_mode == "constant":
+            param_labels = list(physical_param_names)
+        else:
+            param_labels = _build_parameter_labels(
+                per_angle_scaling,
+                n_phi_unique if per_angle_scaling else 0,
+                physical_param_names,
+            )
 
         per_param_x_scale = build_per_parameter_x_scale(
             per_angle_scaling,
@@ -2401,7 +2422,12 @@ class NLSQWrapper(NLSQAdapterBase):
                 )
             if nlsq_bounds is not None:
                 statuses = _classify_parameter_status(
-                    popt,
+                    # `nlsq_bounds` lives in SOLVER space (shear-transformed);
+                    # `popt` was already inverse-transformed back to physical
+                    # space, so comparing the two mis-classified genuinely pinned
+                    # parameters. Use the solver-space vector, like the Jacobian
+                    # stats immediately above.
+                    solver_params,
                     nlsq_bounds[0],
                     nlsq_bounds[1],
                 )

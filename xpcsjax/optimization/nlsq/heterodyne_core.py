@@ -2163,7 +2163,7 @@ def _fit_joint_cmaes_multi_phi(
         )
 
         _kept_result_success: bool | None = None
-        if cres.success and cmaes_ssr <= ssr_warm * (1.0 + 1e-12):
+        if cres.success and _escape_keeps_candidate(ssr_warm=ssr_warm, ssr_cand=cmaes_ssr):
             x_final, escape = x_cmaes, "cmaes"
             # ``cres.success`` is True when EITHER the CMA-ES global search
             # itself converged OR a post-search NLSQ refinement polish
@@ -2350,8 +2350,13 @@ def _fit_joint_multistart(
         ssr_default = _data_ssr(x_default)
 
         _kept_result_success: bool | None = None
-        if ssr_ms <= ssr_default * (1.0 + 1e-12):
+        if _escape_keeps_candidate(ssr_warm=ssr_default, ssr_cand=ssr_ms):
             x_final, escape = x_ms, "multistart"
+            # ``MultiStartConfig`` leaves ``raise_on_total_failure`` at its False
+            # default, so ``ms.best`` is the least-bad of a possibly all-failed
+            # set. Thread its real success through instead of letting
+            # ``solve_success`` key off the escape tag alone.
+            _kept_result_success = bool(ms.best.success)
         else:
             x_final, escape = x_default, "multistart_default_kept"
             # Same reasoning as the CMA-ES escape's "kept" branch: the kept
@@ -2533,16 +2538,21 @@ def _multistart_joint_candidate(
     param_names: list[str],
     config: NLSQConfig,
     data: dict[str, Any],
-) -> np.ndarray | None:
+) -> tuple[np.ndarray | None, bool]:
     """Seed-pinned LHS multistart over ``base_residual_fn``; returns the best start.
 
     Mirrors ``_fit_joint_multistart`` but each start is a local trust-region
     refine of the averaged/constant data residual (``_solve_residual_nlsq``).
     The keep-better vs the warm-start is applied by the caller
     (``_apply_global_escape``).
+
+    Returns ``(best_params, converged)``. ``MultiStartConfig`` leaves
+    ``raise_on_total_failure`` at its ``False`` default, so ``ms.best`` is the
+    least-bad of a possibly all-failed set — the caller must not treat a kept
+    winner as converged without this flag.
     """
     if not HAS_JOINT_MULTISTART:
-        return None
+        return None, False
     bounds2 = np.stack([np.asarray(lb, dtype=np.float64), np.asarray(ub, dtype=np.float64)], axis=1)
 
     def _ssr(x: np.ndarray) -> float:
@@ -2587,7 +2597,7 @@ def _multistart_joint_candidate(
         single_fit_func=single_fit_func,
         cost_func=cost_func,
     )
-    return np.asarray(ms.best.final_params, dtype=np.float64)
+    return np.asarray(ms.best.final_params, dtype=np.float64), bool(ms.best.success)
 
 
 def _escape_keeps_candidate(ssr_warm: float, ssr_cand: float) -> bool:
@@ -2792,7 +2802,11 @@ def _apply_global_escape(
         if escape_kind == "cmaes":
             cand, cand_converged = _cmaes_joint_candidate(base_residual_fn, x_warm, lb, ub, config)
         elif escape_kind == "multistart":
-            cand = _multistart_joint_candidate(
+            # ``cand_converged`` is the multistart winner's REAL success flag —
+            # a kept winner must not be reported converged just because it won
+            # the keep-better SSR comparison (mirrors individual-mode
+            # ``_fit_joint_multistart``, which threads ``ms.best.success``).
+            cand, cand_converged = _multistart_joint_candidate(
                 base_residual_fn,
                 x_warm,
                 lb,
@@ -2802,12 +2816,6 @@ def _apply_global_escape(
                 config,
                 multistart_data,
             )
-            # The multistart candidate has no extra "did it really converge"
-            # gate beyond the keep-better SSR comparison below — mirrors
-            # individual-mode ``_fit_joint_multistart``, which likewise leaves
-            # ``kept_result_success`` at its default (True) for a kept
-            # multistart winner.
-            cand_converged = True
         else:  # pragma: no cover — unknown kind treated as no escape
             return x_warm, None, None
     # Phase-2: intentionally left — implements the keep-better/fallback contract; conversion would risk parity.
