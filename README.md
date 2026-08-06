@@ -11,7 +11,7 @@
 
 > **Disclaimer:** XPCSJAX is pre-release software under active development and testing. APIs, model implementations, and numerical results may change without notice. Outputs have not been independently validated for all use cases. Use at your own risk and verify critical results against established reference data before relying on them in research or industrial applications.
 
-xpcsjax consolidates the homodyne and heterodyne analysis pipelines — both now
+XPCSJAX consolidates the homodyne and heterodyne analysis pipelines — both now
 deprecated in its favor — into one package with a shared engine and config-driven
 physics-model dispatch. It implements the transport-coefficient framework of
 [He et al. PNAS 2024](https://doi.org/10.1073/pnas.2401162121) and
@@ -88,7 +88,7 @@ residual arrays) to the configured output directory.
 
 ---
 
-## Running xpcsjax
+## Running XPCSJAX
 
 Three front-ends drive the same YAML config and NLSQ engine — pick whichever fits
 your workflow.
@@ -130,7 +130,7 @@ xpcsjax-cleanup        # remove what post-install added
 
 ## Physics models
 
-xpcsjax fits two-time intensity correlation functions $c_2(\vec{q}, t_1, t_2)$. All time
+XPCSJAX fits two-time intensity correlation functions $c_2(\vec{q}, t_1, t_2)$. All time
 integrals are evaluated **numerically** via cumulative trapezoid on the discrete time grid
 — no analytical antiderivatives — so the general power-law forms stay correct.
 
@@ -210,7 +210,7 @@ source heterodyne package's `fit_nlsq_multi_phi`.
 
 ## Citation
 
-xpcsjax implements the transport-coefficient framework introduced in:
+XPCSJAX implements the transport-coefficient framework introduced in:
 
 ```bibtex
 @article{He2024,
@@ -243,9 +243,9 @@ xpcsjax implements the transport-coefficient framework introduced in:
 To cite the software itself:
 
 ```bibtex
-@software{xpcsjax,
+@software{XPCSJAX,
   author      = {Chen, Wei},
-  title       = {xpcsjax: JAX-native NLSQ fitting for X-ray Photon Correlation Spectroscopy},
+  title       = {XPCSJAX: JAX-native NLSQ fitting for X-ray Photon Correlation Spectroscopy},
   year        = {2026},
   version     = {0.1.2},
   institution = {Argonne National Laboratory},
