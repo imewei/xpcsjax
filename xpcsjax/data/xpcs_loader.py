@@ -378,6 +378,30 @@ def _check_square_matrix(shape: tuple[int, ...], *, source: str) -> None:
         )
 
 
+def _peek_npz_array_header(npz: Any, key: str) -> tuple[tuple[int, ...], np.dtype]:
+    """Read an ``.npz`` member's shape/dtype from its ``.npy`` header.
+
+    Does not materialize the array.
+
+    ``np.load(..., mmap_mode="r")`` is silently a no-op for zip-backed ``.npz``
+    files: ``NpzFile.__getitem__`` always fully decompresses into RAM
+    regardless of ``mmap_mode`` (verified on numpy 2.4.6 — the returned object
+    is a plain ``ndarray``, never a ``memmap``). An allocation-budget guard
+    that reads ``npz[key]`` before checking its shape has therefore already
+    caused the OOM it exists to prevent. Reading only the member's header
+    bytes here lets the caller guard BEFORE any full-array read.
+    """
+    from numpy.lib import format as npy_format
+
+    with npz.zip.open(f"{key}.npy") as f:
+        version = npy_format.read_magic(f)
+        if version == (1, 0):
+            shape, _fortran_order, dtype = npy_format.read_array_header_1_0(f)
+        else:
+            shape, _fortran_order, dtype = npy_format.read_array_header_2_0(f)
+    return shape, dtype
+
+
 def _validate_loaded_arrays(data: dict[str, Any], *, source: str) -> None:
     """Hard-fail (DATA-2) on corrupt loaded correlation arrays at the I/O boundary.
 
@@ -869,6 +893,41 @@ class XPCSDataLoader:
             self.memory_manager = None
             self.advanced_optimizer = None
 
+    def close(self) -> None:
+        """Shut down the performance engine and memory manager, if constructed.
+
+        Both already implement a full ``shutdown()`` (monitoring thread join,
+        executor shutdown, cache/mmap cleanup) but nothing ever called it: a
+        loader built with the (default-on) performance engine enabled leaked
+        its monitoring thread — and everything it transitively keeps alive —
+        for the life of the process on every call. Safe to call multiple
+        times; best-effort per component so one failure doesn't block the
+        other's cleanup.
+        """
+        if self.performance_engine is not None:
+            try:
+                self.performance_engine.shutdown()
+            except Exception as e:  # pragma: no cover - defensive only
+                logger.warning(f"Error shutting down performance engine: {e}")
+            finally:
+                self.performance_engine = None
+
+        if self.memory_manager is not None:
+            try:
+                self.memory_manager.shutdown()
+            except Exception as e:  # pragma: no cover - defensive only
+                logger.warning(f"Error shutting down memory manager: {e}")
+            finally:
+                self.memory_manager = None
+
+    def __enter__(self) -> XPCSDataLoader:
+        """Enter the context manager, returning ``self``."""
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Exit the context manager, calling :meth:`close`."""
+        self.close()
+
     def _validate_configuration(self) -> None:
         """Validate configuration parameters."""
         required_exp_data = ["data_folder_path", "data_file_name"]
@@ -1116,7 +1175,12 @@ class XPCSDataLoader:
         # unless preprocessing's CORRECT_DIAGONAL stage already corrected it.
         data = _maybe_apply_mandatory_diagonal_correction(data, self._correct_diagonal_batch)
 
-        # Final quality control validation
+        # Final quality control validation. Initialized to None (not implicitly
+        # assumed-set) so the `_degraded` check below never risks an
+        # UnboundLocalError if this variable's use ever drifts out of sync
+        # with the `if quality_controller:` guard that populates it
+        # (CodeQL py/uninitialized-local-variable).
+        final_validation_result: Any | None = None
         if quality_controller:
             final_validation_result = quality_controller.validate_data_stage(
                 data,
@@ -1179,7 +1243,7 @@ class XPCSDataLoader:
         data["_degraded"] = (
             bool(self.load_degradations)
             or bool(data.get("_preprocessing_degraded", False))
-            or (bool(quality_controller) and not final_validation_result.passed)
+            or (final_validation_result is not None and not final_validation_result.passed)
         )
 
         return data
@@ -1238,22 +1302,25 @@ class XPCSDataLoader:
             # internal message leak.
             try:
                 # threat-03: validate the cached correlation shape BEFORE copying
-                # it into RAM. With mmap_mode="r" the member's shape/dtype are
-                # known cheaply; the .npz path otherwise bypasses the HDF
-                # allocation guard, so a crafted cache could OOM the process on
-                # the np.array() copy. (Inside the try so an object-dtype member
-                # still surfaces the friendly allow_pickle message below.)
-                _cached_c2 = data["c2_exp"]
-                if getattr(_cached_c2, "ndim", 0) == 3:
+                # it into RAM. mmap_mode="r" is a no-op for zip-backed .npz
+                # (see _peek_npz_array_header) — reading data["c2_exp"] first to
+                # inspect its shape would materialize the full array before the
+                # guard runs, which is exactly the OOM this exists to prevent.
+                # Peek the .npy header instead (no allocation), and read the
+                # array itself exactly once below. (Inside the try so an
+                # object-dtype member still surfaces the friendly allow_pickle
+                # message below.)
+                c2_shape, c2_dtype = _peek_npz_array_header(data, "c2_exp")
+                if len(c2_shape) == 3:
                     _check_square_matrix(
-                        (int(_cached_c2.shape[-2]), int(_cached_c2.shape[-1])),
+                        (int(c2_shape[-2]), int(c2_shape[-1])),
                         source=cache_path,
                     )
-                    _check_frame_count(int(_cached_c2.shape[-1]), source=cache_path)
+                    _check_frame_count(int(c2_shape[-1]), source=cache_path)
                     _check_allocation_budget(
-                        int(_cached_c2.shape[0]),
-                        int(_cached_c2.shape[-1]),
-                        _cached_c2.dtype.itemsize,
+                        int(c2_shape[0]),
+                        int(c2_shape[-1]),
+                        c2_dtype.itemsize,
                         source=cache_path,
                     )
 
@@ -2282,6 +2349,10 @@ class XPCSDataLoader:
             "actual_wavevector_q": actual_q,
             "q_variance": q_variance,
             "q_count": len(q_values),
+            # dt drives the cached t1/t2 time axes (_calculate_time_arrays); a
+            # config edit to dt with an otherwise-matching q/frame window must
+            # not silently reuse a cache built for the old time axis.
+            "dt": float(self.analyzer_config.get("dt", 1.0)),
             # Report the actually-applied (clamped) frame window recorded by
             # _apply_frame_slicing_to_selected_q. Fall back to the raw config /
             # sliced width only if slicing was never run on this instance.
@@ -2390,6 +2461,23 @@ class XPCSDataLoader:
             logger.warning(
                 "Cache metadata predates filter-config fingerprinting; cannot "
                 "verify phi/quality-filtering settings match the current config.",
+            )
+
+        # Check if the time step (t1/t2 axis generator) matches. dt is not
+        # folded into filter_config_hash, so a dt-only edit with an otherwise
+        # matching q/frame window would silently reuse the old time axis.
+        current_dt = float(self.analyzer_config.get("dt", 1.0))
+        cached_dt = cache_metadata.get("dt")
+        if cached_dt is None:
+            logger.warning(
+                "Cache metadata predates dt fingerprinting; cannot verify the "
+                "cached time axis matches the current dt.",
+            )
+        elif abs(current_dt - float(cached_dt)) > 1e-12:
+            raise XPCSDataFormatError(
+                f"Cache dt mismatch: configured dt={current_dt:.6g}s but cache "
+                f"was built for dt={float(cached_dt):.6g}s. The cache's t1/t2 "
+                f"time axes are dt-specific; delete it and regenerate.",
             )
 
         # Check if cache uses selective q-caching
@@ -2844,11 +2932,19 @@ def load_xpcs_data(
         config_path = None
 
     loader = XPCSDataLoader(config_path=config_path, config_dict=config_dict)
-    # Wrap in the typed XpcsDataset (a dict subclass): key-indexed access is
-    # unchanged, but callers gain the typed .c2/.phi accessors and schema.
-    from xpcsjax.data.dataset import XpcsDataset
+    try:
+        # Wrap in the typed XpcsDataset (a dict subclass): key-indexed access
+        # is unchanged, but callers gain the typed .c2/.phi accessors and
+        # schema.
+        from xpcsjax.data.dataset import XpcsDataset
 
-    return XpcsDataset(loader.load_experimental_data())
+        return XpcsDataset(loader.load_experimental_data())
+    finally:
+        # The performance engine / memory manager are load-scoped: nothing
+        # downstream needs them alive after this call returns. Without this,
+        # each call leaked a monitoring thread (and everything it
+        # transitively keeps alive) for the life of the process.
+        loader.close()
 
 
 # Export main classes and functions

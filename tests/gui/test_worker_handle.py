@@ -71,6 +71,34 @@ def test_cancel_and_shutdown_join_reader_thread(qtbot, monkeypatch):
     assert reader.isFinished()
 
 
+def test_cancel_terminates_even_when_killpg_races_startup(monkeypatch):
+    """cancel() must still call proc.terminate() when killpg races a child
+    that hasn't called os.setpgrp() yet (cancel-during-startup).
+
+    Previously terminate() was only called in the killpg `else` branch, so a
+    swallowed ProcessLookupError from killpg left the worker completely
+    unsignaled until the full join-timeout + SIGKILL escalation.
+    """
+    import os
+    from unittest.mock import MagicMock
+
+    from xpcsjax.gui.ipc.handle import WorkerHandle
+
+    def _raise_process_lookup(*_a, **_k):
+        raise ProcessLookupError("no such process")
+
+    monkeypatch.setattr(os, "killpg", _raise_process_lookup)
+
+    h = WorkerHandle(FitJob(run_id="r1", config_path="c.yaml"))
+    h._proc = MagicMock()
+    h._proc.is_alive.return_value = True
+    h._pgid = 12345
+
+    h.cancel()
+
+    h._proc.terminate.assert_called_once()
+
+
 def test_reader_final_drain_recovers_terminal_after_grace(qtbot, monkeypatch):
     """A terminal event still queued when the grace deadline expires must be
     recovered by a final non-blocking drain — NOT discarded and replaced by a

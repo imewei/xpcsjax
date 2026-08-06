@@ -655,8 +655,8 @@ class NLSQConfig:
             full_config = {}
 
         # Extract optimization.nlsq section
-        optimization = full_config.get("optimization", {})
-        nlsq_config = optimization.get("nlsq", {})
+        optimization = full_config.get("optimization") or {}
+        nlsq_config = optimization.get("nlsq") or {}
 
         if not nlsq_config:
             logger.warning(f"No optimization.nlsq section found in {yaml_path}, using defaults")

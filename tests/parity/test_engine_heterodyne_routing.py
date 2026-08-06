@@ -79,8 +79,10 @@ from tests.parity._heterodyne_layout_oracle import (
     IN_SCOPE_MODES,
     expand_to_engine_scaling_first,
 )
+from xpcsjax.optimization.nlsq.heterodyne_engine_route import (
+    _drop_frame0_stratified_data,
+)
 from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
-    HeterodyneStratifiedData,
     build_heterodyne_stratified_data,
 )
 from xpcsjax.optimization.nlsq.model_adapter import HeterodynePointEvaluator
@@ -376,50 +378,6 @@ def test_engine_routes_heterodyne_residual_matches_objective(mode):
 #
 # If a mode does NOT reconcile against PRODUCTION, that is a real finding — the
 # assertion must NOT be loosened and production code must NOT be touched.
-
-
-def _drop_frame0_stratified_data(
-    strat: HeterodyneStratifiedData,
-    *,
-    t: np.ndarray,
-    n_phi: int,
-) -> HeterodyneStratifiedData:
-    """Return a copy of ``strat`` with every (t1, t2) pair touching frame-0
-    (``t1 == t[0]`` OR ``t2 == t[0]``) removed from the flat arrays.
-
-    The on-grid diagonal is KEPT (the engine masks it). The reduced time grid is
-    ``t[1:]`` (length ``n_t-1``), so ``sigma`` is rebuilt as ones of shape
-    ``(n_phi, n_t-1, n_t-1)`` to stay index-aligned with the engine's
-    ``searchsorted`` gather over the shrunken ``t1_unique``/``t2_unique``.
-    """
-    t = np.asarray(t, dtype=np.float64)
-    t0 = float(t[0])
-    eps = float(strat.dt) * 1e-6
-    keep = (strat.t1_flat > t0 + eps) & (strat.t2_flat > t0 + eps)
-
-    # Rebuild per-angle chunk_sizes from the filtered mask (angle slabs are
-    # contiguous in the flat layout, in chunk_sizes order).
-    new_sizes: list[int] = []
-    cursor = 0
-    for size in strat.chunk_sizes:
-        new_sizes.append(int(np.sum(keep[cursor : cursor + size])))
-        cursor += size
-
-    n_t_reduced = len(t) - 1
-    return HeterodyneStratifiedData(
-        phi_flat=strat.phi_flat[keep].copy(),
-        t1_flat=strat.t1_flat[keep].copy(),
-        t2_flat=strat.t2_flat[keep].copy(),
-        g2_flat=strat.g2_flat[keep].copy(),
-        sigma=np.ones((n_phi, n_t_reduced, n_t_reduced), dtype=np.float64),
-        q=strat.q,
-        L=strat.L,
-        dt=strat.dt,
-        chunk_sizes=new_sizes,
-        n_phi=strat.n_phi,
-        n_t=n_t_reduced,
-        angle_indices=list(strat.angle_indices),
-    )
 
 
 def _production_reference_ssr(

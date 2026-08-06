@@ -98,11 +98,12 @@ def _configure_cpu_optimal(
                 memory_optimization="standard",
             )
 
+            jax_config_error = cpu_config.get("error")
             config_result.update(
                 {
                     "device_type": "cpu",
                     "configuration_successful": True,
-                    "performance_ready": True,
+                    "performance_ready": jax_config_error is None,
                     "device_info": cpu_config,
                     "recommendations": [
                         f"CPU optimization configured for {cpu_config['threads_configured']} threads",
@@ -110,10 +111,18 @@ def _configure_cpu_optimal(
                     ],
                 },
             )
+            if jax_config_error is not None:
+                config_result["warnings"] = [f"JAX CPU configuration failed: {jax_config_error}"]
 
-            logger.info(
-                f"[OK] CPU configuration successful with {cpu_config['threads_configured']} threads",
-            )
+            if jax_config_error is None:
+                logger.info(
+                    f"[OK] CPU configuration successful with "
+                    f"{cpu_config['threads_configured']} threads",
+                )
+            else:
+                logger.warning(
+                    f"CPU threading configured but JAX CPU config failed: {jax_config_error}",
+                )
 
         else:
             # Minimal CPU configuration if module not available

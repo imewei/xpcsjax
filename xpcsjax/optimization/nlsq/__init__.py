@@ -1138,14 +1138,14 @@ def _fit_nlsq_heterodyne(
     # through to fit_nlsq_multi_phi, which owns both escape branches. Pinned by
     # ``test_cmaes_precedence_over_hybrid`` and
     # ``test_flat_multistart_skips_engine_route_on_auto_budget``.
-    result = None
+    het_result: OptimizationResult | None = None
     try:
         if not cmaes_on and not multistart_on:
             from xpcsjax.optimization.nlsq.heterodyne_engine_route import (
                 fit_two_component_via_engine,
             )
 
-            result = fit_two_component_via_engine(model, c2, phi, nlsq_cfg, weights)
+            het_result = fit_two_component_via_engine(model, c2, phi, nlsq_cfg, weights)
     except NotImplementedError as _engine_skip:
         # By-design bail: the engine route raises NotImplementedError for the
         # cases it intentionally does not handle (non-uniform weights or an
@@ -1161,7 +1161,7 @@ def _fit_nlsq_heterodyne(
             "using fit_nlsq_multi_phi as designed (not an error).",
             _engine_skip,
         )
-        result = None
+        het_result = None
     except Exception as _engine_exc:  # noqa: BLE001 - best-effort engine route
         from xpcsjax.utils.logging import get_logger as _get_logger
 
@@ -1171,17 +1171,17 @@ def _fit_nlsq_heterodyne(
             type(_engine_exc).__name__,
             _engine_exc,
         )
-        result = None
+        het_result = None
 
-    if result is None:
-        result = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
-    if _stratified_ls_fallback and result.nlsq_diagnostics is not None:
-        result.nlsq_diagnostics["stratified_ls_fallback"] = True
+    if het_result is None:
+        het_result = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
+    if _stratified_ls_fallback and het_result.nlsq_diagnostics is not None:
+        het_result.nlsq_diagnostics["stratified_ls_fallback"] = True
     # Actionable hint: a failed joint fit with no global escape enabled is the
     # case the CMA-ES escape exists to rescue (C044). Best-effort, diagnostic-only.
-    log_enable_escape_hint(result, nlsq_cfg)
-    _safe_log_heterodyne_completion(result, model, len(phi))
-    return result
+    log_enable_escape_hint(het_result, nlsq_cfg)
+    _safe_log_heterodyne_completion(het_result, model, len(phi))
+    return het_result
 
 
 # Ensure fit_nlsq joins whatever __all__ the verbatim port already defined

@@ -6,8 +6,11 @@ Data loading
 
 All xpcsjax analyses begin by calling :func:`xpcsjax.data.xpcs_loader.load_xpcs_data`.
 This is a thin convenience wrapper over the :class:`xpcsjax.data.xpcs_loader.XPCSDataLoader`
-class in :mod:`xpcsjax.data.xpcs_loader`; for v0.1 you should not need
-to instantiate the loader yourself.
+class in :mod:`xpcsjax.data.xpcs_loader`. For v0.1 the convenience wrapper is the
+recommended entry point; direct instantiation is rarely needed.
+
+:class:`~xpcsjax.data.xpcs_loader.XPCSDataLoader` implements context-manager support
+to automatically clean up performance monitoring threads and memory caches on exit.
 
 The function signature
 ----------------------
@@ -60,6 +63,32 @@ pipeline:
 .. code-block:: python
 
    data = xpcsjax.load_xpcs_data(config_dict=config)
+
+Direct loader instantiation (advanced)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For advanced workflows that require direct control over the loader lifecycle,
+:class:`~xpcsjax.data.xpcs_loader.XPCSDataLoader` can be instantiated directly.
+The loader implements context-manager support (``with`` statement) to automatically
+shut down the performance engine and memory manager:
+
+.. code-block:: python
+
+   from xpcsjax.data import XPCSDataLoader
+
+   # Context manager ensures clean shutdown of monitoring threads and caches
+   with XPCSDataLoader(config_path="xpcs_config.yaml") as loader:
+       data = loader.load_experimental_data()
+       # ... use data ...
+   # Cleanup happens automatically on exit
+
+Alternatively, call :meth:`~xpcsjax.data.xpcs_loader.XPCSDataLoader.close` explicitly:
+
+.. code-block:: python
+
+   loader = XPCSDataLoader(config_path="xpcs_config.yaml")
+   data = loader.load_experimental_data()
+   loader.close()  # Shutdown performance engine and memory manager
 
 The returned dictionary
 -----------------------

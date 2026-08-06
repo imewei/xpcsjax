@@ -808,7 +808,10 @@ class NLSQAdapter(NLSQAdapterBase):
         if not config_dict:
             return {}
 
-        result: dict[str, Any] = config_dict.get("optimization", {}).get("nlsq", {})
+        # `or {}` (not `.get(k, {})`) so a present-but-null YAML section
+        # (`optimization:` / `nlsq:` with no body) degrades to defaults
+        # instead of raising AttributeError / returning None.
+        result: dict[str, Any] = (config_dict.get("optimization") or {}).get("nlsq") or {}
         return result
 
     def _select_workflow(

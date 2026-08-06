@@ -69,3 +69,20 @@ def test_simulated_grid_uses_elapsed_time(tmp_path, monkeypatch):
     assert captured["dt"] == 0.5
     # Guard against the regression: a bare arange would start at 0.0.
     assert captured["t1"][0] > 0.0
+
+
+def test_resolve_phi_angles_for_sim_trailing_comma():
+    """A trailing comma must drop the empty token, not crash float('')."""
+    result = simulated.resolve_phi_angles_for_sim("0,45,", data=None)
+    np.testing.assert_allclose(result, [0.0, 45.0])
+
+
+def test_resolve_phi_angles_for_sim_all_empty_falls_back_to_data(caplog):
+    """All-empty input (e.g. a bare comma) must warn and fall back to the
+    data's own phi_angles_list, not silently return an empty array.
+    """
+    data = {"phi_angles_list": [10.0, 20.0, 30.0]}
+    with caplog.at_level("WARNING"):
+        result = simulated.resolve_phi_angles_for_sim(",", data=data)
+    np.testing.assert_allclose(result, [10.0, 20.0, 30.0])
+    assert "Could not parse --phi-angles" in caplog.text

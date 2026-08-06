@@ -151,6 +151,26 @@ def test_phi_grid_pins_scrollbars_to_keep_square_tiles(qtbot):
     assert grid._scroll.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
 
 
+def test_phi_grid_degrades_on_non_1d_phi_angles(qtbot):
+    """A shape-mismatched (2-D) phi_angles must degrade to placeholders,
+    not crash at float(phi_angles[i]).
+
+    _leading_dim_matches alone let a (n_phi, 1) array through (leading dim
+    matches n_phi), which then failed float() on a length-1 sub-array.
+    """
+    from xpcsjax.gui.viz_bundle import VizBundle
+
+    n_phi = 2
+    bundle = VizBundle(
+        exp_c2=np.zeros((n_phi, 4, 4)),
+        phi_angles=np.zeros((n_phi, 1)),  # matches leading dim, but ndim=2
+    )
+    grid = PhiResultsGrid()
+    qtbot.addWidget(grid)
+
+    grid.set_bundle(bundle)  # must not raise
+
+
 def test_c2_levels_clamp_to_unit_band():
     # The bright τ=0 diagonal spike (~2.4) must not blow out the [1.0, 1.5] window.
     arr = np.full((8, 8), 1.0)

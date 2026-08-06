@@ -98,6 +98,54 @@ def test_object_dtype_under_data_key_is_refused(tmp_path: Path):
         loader._load_from_cache(cache_path)
 
 
+def test_peek_npz_array_header_matches_full_read(tmp_path: Path):
+    """_peek_npz_array_header must report the same shape/dtype as a full read.
+
+    np.load(..., mmap_mode="r") is silently a no-op for zip-backed .npz (the
+    returned member is a plain ndarray, never a memmap) — the allocation
+    guard reads the header directly instead. Pin that it agrees with reality.
+    """
+    from xpcsjax.data.xpcs_loader import _peek_npz_array_header
+
+    cache_path = str(tmp_path / "header_peek.npz")
+    np.savez(cache_path, c2_exp=np.zeros((3, 8, 8), dtype=np.float64))
+
+    with np.load(cache_path, allow_pickle=False) as data:
+        shape, dtype = _peek_npz_array_header(data, "c2_exp")
+        assert shape == (3, 8, 8)
+        assert dtype == np.dtype(np.float64)
+        # Sanity-check the peek agrees with a real read. Non-materialization
+        # itself is exercised by test_oversized_cached_shape_rejected_before_
+        # materialization below (a shape that would OOM on a full read is
+        # rejected via the header alone).
+        assert data["c2_exp"].shape == shape
+
+
+def test_oversized_cached_shape_rejected_before_materialization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A cached c2_exp shape that exceeds the allocation budget must be
+    rejected via the .npy header, not after np.array() has already copied it.
+    """
+    from xpcsjax.data import xpcs_loader as xl
+
+    cache_path = str(tmp_path / "oversized.npz")
+    np.savez(
+        cache_path,
+        c2_exp=np.zeros((4, 16, 16), dtype=np.float64),
+        t1=np.arange(16, dtype=np.float64),
+        t2=np.arange(16, dtype=np.float64),
+        wavevector_q_list=np.array([0.0054], dtype=np.float64),
+        phi_angles_list=np.array([0.0], dtype=np.float64),
+        cache_metadata_json=np.asarray(json.dumps({"config_wavevector_q": 0.0054, "q_count": 1})),
+    )
+
+    monkeypatch.setattr(xl, "MAX_CORRELATION_ALLOC_BYTES", 1024)
+    loader = _bare_loader()
+    with pytest.raises(xl.XPCSDataFormatError, match="Refusing to allocate"):
+        loader._load_from_cache(cache_path)
+
+
 def test_corrupt_metadata_json_is_rejected_clearly(tmp_path: Path):
     """A cache with non-JSON ``cache_metadata_json`` must error before validation."""
     cache_path = str(tmp_path / "corrupt_json.npz")

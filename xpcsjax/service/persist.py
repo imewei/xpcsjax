@@ -92,8 +92,8 @@ def _extract_parameters(
     parameter vector, falls back to ``param_0, param_1, ...`` indexing so
     we never raise during result persistence.
     """
-    params = np.asarray(result.parameters)
-    n = params.shape[0]
+    params = np.asarray(result.parameters).ravel()
+    n = params.size
 
     if parameter_names is None or len(parameter_names) != n:
         if parameter_names is not None:

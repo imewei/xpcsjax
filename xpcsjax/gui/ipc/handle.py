@@ -169,9 +169,14 @@ class WorkerHandle(QObject):
             try:
                 os.killpg(self._pgid, signal.SIGTERM)
             except (ProcessLookupError, PermissionError, OSError):  # pragma: no cover
+                # killpg can race a child that hasn't called os.setpgrp() yet
+                # (cancel-during-startup): fall through to terminate() below
+                # instead of leaving the process unsignaled.
                 pass
-        else:
-            proc.terminate()
+        # Always also signal the process directly — a swallowed killpg
+        # failure above must not leave the worker unsignaled until the
+        # join-timeout + SIGKILL escalation.
+        proc.terminate()
         proc.join(timeout=_TERMINATE_JOIN_S)
         if proc.is_alive():
             # Escalate BEFORE reaping: sweep the worker's process group (any
