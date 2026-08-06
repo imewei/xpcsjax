@@ -211,8 +211,7 @@ GROK.md
 HERMES.md
 OPENROUTER.md
 codex.md
-
-# Multi-model review outputs
+CONTEXT.md
 three-brain-out/
 
 # Git
@@ -283,6 +282,7 @@ xpcsjax_results/
 xpcsjax_analysis_results/
 xpcsjax_analysis_results.json
 .xpcsjax_cache/
+analysis/
 # Root-level app-state cache (e.g. cache/projects.json). Anchored with a
 # leading slash so any tracked cache/ deeper in the tree stays unaffected.
 /cache/
