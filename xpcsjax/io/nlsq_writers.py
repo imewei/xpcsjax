@@ -6,6 +6,7 @@ Extracted from cli/commands.py for better modularity.
 """
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,24 @@ from xpcsjax.utils.logging import get_logger
 from xpcsjax.utils.path_validation import get_safe_output_dir
 
 logger = get_logger(__name__)
+
+
+def _atomic_json_dump(obj: Any, path: Path) -> None:
+    """Write ``obj`` as JSON to ``path`` via a sibling temp file + ``os.replace``.
+
+    Matches the artifact-write convention already used by ``service/persist.py``,
+    ``viz/nlsq_plots.py`` and ``gui/project/persist.py``: a concurrent reader never
+    observes a half-written file, and a failed write (disk full, permission loss)
+    leaves no truncated artifact behind under the real filename.
+    """
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(obj, f, indent=2, default=json_serializer)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def save_nlsq_json_files(
@@ -65,19 +84,16 @@ def save_nlsq_json_files(
 
     try:
         # Save parameters.json
-        with open(param_file, "w", encoding="utf-8") as f:
-            json.dump(safe_param, f, indent=2, default=json_serializer)
+        _atomic_json_dump(safe_param, param_file)
         # T056: Log file path and write completion
         logger.debug(f"Saved parameters to {param_file}")
 
         # Save analysis_results_nlsq.json
-        with open(analysis_file, "w", encoding="utf-8") as f:
-            json.dump(safe_analysis, f, indent=2, default=json_serializer)
+        _atomic_json_dump(safe_analysis, analysis_file)
         logger.debug(f"Saved analysis results to {analysis_file}")
 
         # Save convergence_metrics.json
-        with open(convergence_file, "w", encoding="utf-8") as f:
-            json.dump(safe_convergence, f, indent=2, default=json_serializer)
+        _atomic_json_dump(safe_convergence, convergence_file)
         logger.debug(f"Saved convergence metrics to {convergence_file}")
     except OSError as e:
         raise OSError(f"Failed to write NLSQ JSON files to {output_dir}: {e}") from e
@@ -222,10 +238,21 @@ def save_nlsq_npz_file(
     if c2_solver is not None:
         save_dict["c2_solver_scaled"] = c2_solver
 
+    # Atomic write, same rationale as _atomic_json_dump. The temp file is opened
+    # in binary mode and the handle passed to np.savez_compressed, because numpy
+    # appends ".npz" to a *path* argument that lacks the extension — which would
+    # write to the wrong name and defeat the temp-then-rename.
+    npz_tmp = npz_file.with_name(npz_file.name + ".tmp")
     try:
-        np.savez_compressed(npz_file, **save_dict)
+        with open(npz_tmp, "wb") as fh:
+            np.savez_compressed(fh, **save_dict)
+        os.replace(npz_tmp, npz_file)
     except OSError as e:
+        npz_tmp.unlink(missing_ok=True)
         raise OSError(f"Failed to write NPZ file to {npz_file}: {e}") from e
+    except BaseException:
+        npz_tmp.unlink(missing_ok=True)
+        raise
 
     # T058a: Log file path and file size after write completion
     # save_dict always has 11 base arrays; c2_solver_scaled is optional (+1).
