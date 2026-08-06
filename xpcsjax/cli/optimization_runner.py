@@ -139,8 +139,8 @@ def _warn_nlsq_bound_saturation(result: OptimizationResult) -> None:
                     hint = " [AT UPPER BOUND]"
                 else:
                     hint = " [DEGENERATE JACOBIAN]"
-            except (KeyError, AttributeError):
-                pass
+            except (KeyError, AttributeError) as e:
+                logger.debug("Could not resolve bound-saturation hint for %s: %s", name, e)
         logger.warning("NLSQ bound saturation: %s = %.4g +/- 0%s", name, val, hint)
         saturated.append(name)
 

@@ -706,7 +706,19 @@ class NLSQWrapper(NLSQAdapterBase):
             if result is not None:
                 if result.success:
                     return result
-                last_poor_result = result
+                if last_poor_result is None:
+                    last_poor_result = result
+                else:
+                    # Keep whichever poor result has the lower reduced chi^2,
+                    # not merely the most recent tier's — None/non-finite
+                    # ranks worst so a real (if bad) fit is never displaced
+                    # by an unscored one.
+                    def _rank(r: NLSQResult) -> float:
+                        chi2 = r.reduced_chi_squared
+                        return chi2 if chi2 is not None and np.isfinite(chi2) else np.inf
+
+                    if _rank(result) < _rank(last_poor_result):
+                        last_poor_result = result
             # This tier exhausted all retries; try next
             last_exc = RuntimeError(f"Tier {tier.value} failed after {self._max_retries} retries")
             if not self._enable_recovery:

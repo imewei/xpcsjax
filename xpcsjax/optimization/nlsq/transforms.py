@@ -14,6 +14,9 @@ import jax.numpy as jnp
 import numpy as np
 
 from xpcsjax.config.parameter_registry import AnalysisMode
+from xpcsjax.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Parameter name aliases for backwards compatibility
 PARAMETER_NAME_ALIASES = {
@@ -74,6 +77,7 @@ def normalize_x_scale_map(raw_map: Any) -> dict[str, float]:
         try:
             normalized[key] = float(raw_value)
         except (TypeError, ValueError):
+            logger.debug(f"Ignoring malformed x_scale override for {raw_key!r}: {raw_value!r}")
             continue
     return normalized
 
@@ -262,7 +266,7 @@ def apply_forward_shear_transforms_to_vector(
             idx = index_map.get("gamma_dot_0")
         if idx is not None:
             value = vector[idx]
-            if value <= 0:
+            if not np.isfinite(value) or value <= 0:
                 raise ValueError("gamma_dot_t0 must be > 0 when enable_gamma_dot_log is true")
             vector[idx] = np.log(value)
             state["gamma_log_idx"] = idx
@@ -305,7 +309,12 @@ def apply_forward_shear_transforms_to_bounds(
     )
     gamma_idx = state.get("gamma_log_idx")
     if gamma_idx is not None:
-        if lower[gamma_idx] <= 0 or upper[gamma_idx] <= 0:
+        if (
+            not np.isfinite(lower[gamma_idx])
+            or not np.isfinite(upper[gamma_idx])
+            or lower[gamma_idx] <= 0
+            or upper[gamma_idx] <= 0
+        ):
             raise ValueError("gamma_dot_t0 bounds must be > 0 when enable_gamma_dot_log is true")
         lower[gamma_idx] = np.log(lower[gamma_idx])
         upper[gamma_idx] = np.log(upper[gamma_idx])

@@ -2625,7 +2625,9 @@ class XPCSDataLoader:
 
         # Basic checks
         if np.any(~np.isfinite(c2_exp)):
-            logger.error("Correlation data contains non-finite values (NaN or Inf)")
+            raise XPCSDataFormatError(
+                "Correlation data contains non-finite values (NaN or Inf)",
+            )
 
         if np.any(c2_exp < 0):
             logger.warning("Correlation data contains negative values")

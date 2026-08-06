@@ -473,8 +473,13 @@ class DataQualityController:
                 self._compute_overall_quality_score(result),
             )
 
-            # Determine pass/fail status
+            # Determine pass/fail status. An "error"-severity issue (e.g.
+            # preprocessing corruption) always fails the stage outright —
+            # the weighted score's flat per-issue penalty is too small to
+            # reliably drag a single severe issue below pass_threshold.
             result.passed = result.metrics.overall_score >= self.quality_config.pass_threshold
+            if any(issue.severity == "error" for issue in result.issues):
+                result.passed = False
 
             # Generate recommendations
             result.recommendations = self._generate_recommendations(result)
@@ -1533,8 +1538,8 @@ class DataQualityController:
                         )
                     else:
                         repairs_applied.append("Repaired negative correlation values")
-            except (AttributeError, TypeError, IndexError):
-                pass
+            except (AttributeError, TypeError, IndexError) as e:
+                logger.debug(f"Could not repair negative correlation values: {e}")
 
         return data_modified
 
@@ -1585,8 +1590,8 @@ class DataQualityController:
                         data["c2_exp"] = arr
                         data_modified = True
                         repairs_applied.append("Applied correlation rescaling (×10)")
-            except (AttributeError, TypeError, IndexError):
-                pass
+            except (AttributeError, TypeError, IndexError) as e:
+                logger.debug(f"Could not repair scaling issues: {e}")
 
         return data_modified
 

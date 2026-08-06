@@ -1064,7 +1064,11 @@ def _load_initial_params_from_config(
             offset_array = (
                 [float(x) for x in offset_vals] if isinstance(offset_vals, (list, tuple)) else None
             )
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as e:
+            logger.warning(
+                f"per_angle_scaling in initial_parameters has non-numeric contrast/offset "
+                f"entries; ignoring overrides: {e}",
+            )
             contrast_array = offset_array = None
 
         if contrast_array and offset_array and len(contrast_array) == len(offset_array):

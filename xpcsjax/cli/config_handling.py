@@ -284,8 +284,10 @@ def _apply_parameter_overrides(
     try:
         active_names = list(config_manager.get_active_parameters())
         current: dict[str, float] = dict(config_manager.get_initial_parameters())
-    except Exception:
-        logger.warning("Could not resolve active parameters; CLI --initial-* overrides skipped")
+    except Exception as e:
+        logger.warning(
+            "Could not resolve active parameters; CLI --initial-* overrides skipped: %s", e
+        )
         return
 
     applied: dict[str, float] = {}

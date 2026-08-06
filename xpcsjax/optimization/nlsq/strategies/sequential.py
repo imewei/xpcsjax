@@ -630,6 +630,10 @@ def optimize_single_angle(
                         cov = np.linalg.pinv(jac.T @ jac) * s2
                         logger.warning("Singular J^T J - used pinv fallback for covariance")
                     except np.linalg.LinAlgError:
+                        logger.warning(
+                            "J^T J singular under both inv and pinv - used identity "
+                            "fallback for covariance"
+                        )
                         cov = np.eye(len(initial_params))
             else:
                 raise ValueError("No Jacobian available")

@@ -175,7 +175,10 @@ def compute_jacobian_stats(
 
         col_norms = np.linalg.norm(jac_np, axis=0) * np.sqrt(scaling_factor)
         return jtj, col_norms
-    except (ValueError, RuntimeError, np.linalg.LinAlgError):
+    except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
+        from xpcsjax.utils.logging import get_logger as _get_logger
+
+        _get_logger(__name__).debug(f"Could not compute Jacobian stats: {e}")
         return None, None
 
 

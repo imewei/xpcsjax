@@ -54,14 +54,15 @@ def _bootstrap_xla_env(argv: list[str] | None) -> None:
             try:
                 threads = int(raw[i + 1])
             except ValueError:
-                pass
+                print(f"Ignoring unparseable --threads value: {raw[i + 1]!r}", file=sys.stderr)
             i += 2
             continue
         if token.startswith("--threads="):
+            raw_value = token.split("=", 1)[1]
             try:
-                threads = int(token.split("=", 1)[1])
+                threads = int(raw_value)
             except ValueError:
-                pass
+                print(f"Ignoring unparseable --threads value: {raw_value!r}", file=sys.stderr)
             i += 1
             continue
         if token == "--no-jit":
