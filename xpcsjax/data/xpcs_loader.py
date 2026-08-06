@@ -2367,6 +2367,12 @@ class XPCSDataLoader:
             "phi_count": len(cache_data["phi_angles_list"]),
             "cache_version": "2.0",
             "selective_q_caching": True,
+            # q_tolerance_fraction drives the q-band width used to select which
+            # (q, phi) rows get cached (_load_aps_old_format); like dt, it isn't
+            # covered by filter_config_hash, so a tolerance-only config edit with
+            # an otherwise-matching q/frame window must not silently reuse a
+            # cache built under the old (wider/narrower) band.
+            "q_tolerance_fraction": float(self.config.get("q_tolerance_fraction", 0.1)),
             # Fingerprint of the filter settings (phi range, quality/data
             # filtering) that shaped the cached (q, phi) selection, so a config
             # change with the same start/end frame + q is detected instead of
@@ -2478,6 +2484,26 @@ class XPCSDataLoader:
                 f"Cache dt mismatch: configured dt={current_dt:.6g}s but cache "
                 f"was built for dt={float(cached_dt):.6g}s. The cache's t1/t2 "
                 f"time axes are dt-specific; delete it and regenerate.",
+            )
+
+        # Check if the q-band tolerance used to select cached (q, phi) rows
+        # matches. Like dt, this is not folded into filter_config_hash, so a
+        # tolerance-only edit with an otherwise matching q/frame window would
+        # otherwise silently reuse a cache built for a different (q, phi) band.
+        current_q_tolerance = float(self.config.get("q_tolerance_fraction", 0.1))
+        cached_q_tolerance = cache_metadata.get("q_tolerance_fraction")
+        if cached_q_tolerance is None:
+            logger.warning(
+                "Cache metadata predates q_tolerance_fraction fingerprinting; "
+                "cannot verify the cached (q, phi) selection matches the "
+                "current tolerance.",
+            )
+        elif abs(current_q_tolerance - float(cached_q_tolerance)) > 1e-12:
+            raise XPCSDataFormatError(
+                f"Cache q_tolerance_fraction mismatch: configured "
+                f"q_tolerance_fraction={current_q_tolerance:.6g} but cache was "
+                f"built for {float(cached_q_tolerance):.6g}. The cache's (q, phi) "
+                f"selection is tolerance-specific; delete it and regenerate.",
             )
 
         # Check if cache uses selective q-caching
