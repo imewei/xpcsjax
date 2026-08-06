@@ -3174,10 +3174,19 @@ class NLSQWrapper(NLSQAdapterBase):
         config_lower_bounds = np.asarray(config_lower_bounds, dtype=float)
         config_upper_bounds = np.asarray(config_upper_bounds, dtype=float)
 
-        # Load initial parameters if not provided
+        # Load initial parameters if not provided. `param_manager` here is the
+        # homodyne xpcsjax.config.parameter_manager.ParameterManager, which has
+        # no get_initial_values() (that method exists only on the unrelated
+        # heterodyne ParameterManager of the same name) -- fall back to the
+        # bounds midpoint, already ordered by base_param_names like
+        # config_lower_bounds/config_upper_bounds above, mirroring
+        # ConfigManager.get_initial_parameters's own missing-value strategy.
         if initial_params is None:
-            initial_params = param_manager.get_initial_values()
-            logger.info(f"Loaded initial parameters from config: {len(initial_params)} parameters")
+            initial_params = (config_lower_bounds + config_upper_bounds) / 2.0
+            logger.info(
+                f"No initial parameters provided; using bounds midpoint for "
+                f"{len(initial_params)} parameters"
+            )
 
         # Load bounds if not provided
         if bounds is None:

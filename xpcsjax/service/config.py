@@ -71,10 +71,11 @@ def load_config(
         config["analysis_mode"] = mode
         if old_mode != mode:
             logger.info("Override: analysis_mode = %s (was %s)", mode, old_mode)
-        try:
-            config_manager._normalize_analysis_mode()
-        except AttributeError:  # pragma: no cover
-            pass
+        # _normalize_analysis_mode is unconditionally defined on ConfigManager
+        # (the only real caller always constructs a genuine instance) -- no
+        # AttributeError guard needed, and one here would risk swallowing a
+        # genuine bug raised from inside the method's own call chain.
+        config_manager._normalize_analysis_mode()
 
     if output_dir is not None:
         out = config.setdefault("output", {})

@@ -339,7 +339,9 @@ def _diagonal_correction_numpy(
 ) -> np.ndarray:
     """NumPy implementation of diagonal correction with multiple methods."""
     config = config or {}
-    c2_np = np.asarray(c2_mat)
+    # dtype=float64: an integer-dtype input (raw HDF5 C2 can be int-typed)
+    # would otherwise truncate the corrected diagonal on write-back below.
+    c2_np = np.asarray(c2_mat, dtype=np.float64)
 
     if method == "basic":
         return _basic_correction_numpy(c2_np)
@@ -359,7 +361,8 @@ def _diagonal_correction_batch_numpy(
 ) -> np.ndarray:
     """Batch NumPy implementation with pre-allocated arrays."""
     config = config or {}
-    c2_np = np.asarray(c2_matrices)
+    # dtype=float64: see _diagonal_correction_numpy's identical guard.
+    c2_np = np.asarray(c2_matrices, dtype=np.float64)
     n_phi = c2_np.shape[0]
     size = c2_np.shape[1]
 

@@ -308,14 +308,12 @@ parameter_space:
     - name: contrast
       min: 0.0                # physical lower bound (no contrast → no signal)
       max: 1.0                # physical upper bound (fully coherent)
-      type: TruncatedNormal
       unit: "dimensionless"
       # Tighten to [0.01, 0.3] if you have a coherent-fraction estimate.
 
     - name: offset
       min: 0.5                # baseline ~1.0 for ideal normalization
       max: 1.5                # >1.5 suggests normalization issue
-      type: TruncatedNormal
       unit: "dimensionless"
       # Tighten to [0.95, 1.05] if normalization is well-validated.
 
@@ -323,7 +321,6 @@ parameter_space:
     - name: D0_ref
       min: 0.0                # physical floor (static reference: D0_ref = 0)
       max: 1000000.0          # wide upper for unknown reference dynamics
-      type: TruncatedNormal
       unit: "Å²/s"
       # For a TRULY STATIC reference: fix to 0 via fixed_parameters.
       # For a known colloidal-standard reference: tighten to ±2× the
@@ -332,7 +329,6 @@ parameter_space:
     - name: alpha_ref
       min: -2.0               # strong subdiffusion
       max:  2.0               # strong superdiffusion
-      type: TruncatedNormal
       unit: "dimensionless"
       # α = 1   normal Brownian diffusion
       # α < 1   subdiffusion (crowded, glassy)
@@ -342,7 +338,6 @@ parameter_space:
     - name: D_offset_ref
       min: -10000.0           # negative rare; usually indicates arrested dynamics
       max:  10000.0           # symmetric for safety
-      type: TruncatedNormal
       unit: "Å²/s"
       # Most heterodyne fits give D_offset_ref ≈ 0. Common simplification:
       # fixed_parameters: {"D_offset_ref": 0.0}
@@ -351,7 +346,6 @@ parameter_space:
     - name: D0_sample
       min: 0.0                # physical floor
       max: 1000000.0          # wide upper for unknown sample dynamics
-      type: TruncatedNormal
       unit: "Å²/s"
       # PRIMARY scientific parameter. Tighten to ±2× expected from
       # particle size if known.
@@ -359,14 +353,12 @@ parameter_space:
     - name: alpha_sample
       min: -2.0
       max:  2.0
-      type: TruncatedNormal
       unit: "dimensionless"
       # Same interpretation as alpha_ref. PRIMARY scientific parameter.
 
     - name: D_offset_sample
       min: -10000.0
       max:  10000.0
-      type: TruncatedNormal
       unit: "Å²/s"
       # Most fits give D_offset_sample ≈ 0. Tighten or freeze if you have
       # no reason to model it.
@@ -375,7 +367,6 @@ parameter_space:
     - name: v0                # ⚠ NAMING: v0 is the velocity amplitude.
       min: 0.0                # physical floor
       max: 1000000.0          # wide upper covers typical XPCS flow rates
-      type: TruncatedNormal
       unit: "Å/s"
       # Convert from other units: µm/s × 1e4 = Å/s; nm/s × 10 = Å/s.
       # Typical XPCS velocities: 10–10000 Å/s. Tighten if you know flow rate.
@@ -384,7 +375,6 @@ parameter_space:
                               # `beta` is the homodyne SHEAR exponent.
       min: 0.0                # decelerating to zero velocity
       max: 2.0                # accelerating up to 2nd-order time dependence
-      type: TruncatedNormal
       unit: "dimensionless"
       # v_beta = 0   CONSTANT velocity v(t) = v0 + v_offset (MOST COMMON)
       # v_beta = 1   linear-in-t velocity (startup flow)
@@ -395,7 +385,6 @@ parameter_space:
     - name: v_offset
       min: -100.0             # allow flow reversal
       max:  100.0
-      type: TruncatedNormal
       unit: "Å/s"
       # Most fits give v_offset ≈ 0. Use to model flow direction reversal
       # (e.g., oscillatory rheology).
@@ -404,7 +393,6 @@ parameter_space:
     - name: f0                # AMPLITUDE of the sample fraction
       min: 0.0                # 0 = pure reference beam
       max: 1.0                # 1 = pure sample beam
-      type: TruncatedNormal
       unit: "dimensionless"
       # f0 = 0.5  equal reference/sample (typical starting point)
       # f0 → 0    reference-dominated (weak sample scattering)
@@ -413,7 +401,6 @@ parameter_space:
     - name: f1                # EXPONENTIAL RATE of fraction evolution
       min: -1.0               # decreasing fraction (sample fading)
       max:  1.0               # increasing fraction (sample growing)
-      type: TruncatedNormal
       unit: "dimensionless"
       # f1 = 0    CONSTANT fraction (most common simplification)
       # f1 > 0    sample fraction grows exponentially
@@ -423,7 +410,6 @@ parameter_space:
     - name: f2                # TIME SHIFT for the exponential onset
       min: -1.0
       max:  1.0
-      type: TruncatedNormal
       unit: "dimensionless"
       # Often set to mid-experiment time if you model time-varying fraction.
       # Common simplification: fixed_parameters: {"f2": 0.0}
@@ -431,7 +417,6 @@ parameter_space:
     - name: f3                # BASELINE offset of the fraction
       min: -1.0
       max:  1.0
-      type: TruncatedNormal
       unit: "dimensionless"
       # Most fits give f3 ≈ 0. Common simplification:
       # fixed_parameters: {"f3": 0.0}
@@ -443,7 +428,6 @@ parameter_space:
                               # kernel computes deg2rad(phi_angle + phi0_het).
       min: -10.0   # degrees (matches upstream phi0 bounds)
       max:  10.0   # degrees
-      type: TruncatedNormal
       unit: "degrees"
       # phi0_het = 0  flow aligned with detector primary axis (RECOMMENDED start)
       # Tighten to [-2, 2] if alignment is well-known.

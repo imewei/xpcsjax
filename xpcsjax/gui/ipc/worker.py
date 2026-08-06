@@ -17,7 +17,7 @@ from xpcsjax.gui.ipc.diagnostics import layer_status_from_diagnostics
 from xpcsjax.gui.ipc.emitter import EventEmitter
 from xpcsjax.gui.ipc.job import FitJob
 from xpcsjax.gui.ipc.log_capture import BannerLogHandler, QueueLogHandler
-from xpcsjax.service.events import Failed, Finished, LayerStatus
+from xpcsjax.service.events import Failed, Finished, LayerStatus, LogLine
 
 
 def run_worker(job: FitJob, event_queue: Any) -> None:
@@ -67,7 +67,24 @@ def run_worker(job: FitJob, event_queue: Any) -> None:
             if job.make_plots:
                 from xpcsjax.service.plots import generate_plots
 
-                generate_plots(result, data, config_manager, out_dir / "plots")
+                plots_result = generate_plots(result, data, config_manager, out_dir / "plots")
+                if plots_result is None:
+                    # generate_plots swallows its own errors and returns None on
+                    # failure (documented contract) -- without this check the run
+                    # still reports a plain Finished with no visible sign that
+                    # plotting failed, aside from a WARNING buried in the log
+                    # stream. Surface it explicitly.
+                    emitter.emit(
+                        LogLine(
+                            run_id="",
+                            seq=0,
+                            level="ERROR",
+                            msg=(
+                                "Plot generation failed; fit result was saved but no "
+                                "plots were produced (see log above for details)."
+                            ),
+                        )
+                    )
 
         diagnostics = getattr(result, "nlsq_diagnostics", None)
         cfg = getattr(config_manager, "config", None) or {}  # config may be None

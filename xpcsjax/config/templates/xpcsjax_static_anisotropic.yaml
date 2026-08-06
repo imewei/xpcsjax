@@ -269,10 +269,11 @@ initial_parameters:
 #   name  : parameter identifier (must match registry / parameter_names)
 #   min   : lower box bound (must be <= max)
 #   max   : upper box bound (must be > min)
-#   type  : "TruncatedNormal" is the only value xpcsjax uses currently;
-#           informational only in the NLSQ path (meaningful for Bayesian
-#           which is out of scope here).
 #   unit  : informational only; emitted in result reports for context.
+#
+# (A `type:` prior-distribution field, meaningful only for Bayesian sampling
+# which is out of scope for this package, was removed — nothing in xpcsjax
+# ever read it.)
 #
 # Tightening bounds → faster convergence, fewer local minima, lower risk
 #                     of unphysical fits. Tighten when you have physical
@@ -287,7 +288,6 @@ parameter_space:
     - name: contrast
       min: 0.0                # physical lower bound (no contrast = no signal)
       max: 1.0                # physical upper bound (fully coherent illumination)
-      type: TruncatedNormal
       unit: "dimensionless"
       # Tighten to [0.01, 0.3] if you have a coherent-fraction estimate.
       # Typical XPCS β values: 0.01-0.2; > 0.3 is unusual.
@@ -295,7 +295,6 @@ parameter_space:
     - name: offset
       min: 0.5                # baseline of normalized c2; should be ~1.0 ideally
       max: 1.5                # > 1.5 suggests normalization issue
-      type: TruncatedNormal
       unit: "dimensionless"
       # Tighten to [0.95, 1.05] if your normalization is well-validated.
       # Wide bounds catch normalization drift but slow the fit.
@@ -304,7 +303,6 @@ parameter_space:
       min: 100.0              # ~100 nm particles in water at 25°C → D ~ 4 Å²/s
                               # 100 Å²/s is the conservative lower bound
       max: 100000.0           # ~10 nm particles → D ~ 4×10⁴ Å²/s
-      type: TruncatedNormal
       unit: "Å²/s"
       # Tighten to [500, 5000] if you know particle size to within 2×.
       # WIDEN with care — D0 spans orders of magnitude and wide bounds
@@ -313,7 +311,6 @@ parameter_space:
     - name: alpha
       min: -2.0               # strong subdiffusion (jammed, gels, glasses)
       max:  2.0               # strong superdiffusion (active, ballistic)
-      type: TruncatedNormal
       unit: "dimensionless"
       # α =  1   normal Brownian diffusion (Stokes-Einstein)
       # α <  1   subdiffusion (crowded environments)
@@ -325,7 +322,6 @@ parameter_space:
       min: -100000.0          # negative values rare; usually indicates
                               # arrested dynamics or model issue
       max:  100000.0          # symmetric for safety
-      type: TruncatedNormal
       unit: "Å²/s"
       # Most fits converge to D_offset ≈ 0. Tighten to [-1000, 1000] if
       # your samples are well-behaved. Setting fixed_parameters: {"D_offset": 0.0}

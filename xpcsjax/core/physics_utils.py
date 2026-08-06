@@ -161,9 +161,11 @@ def calculate_diffusion_coefficient(
     # Compute diffusion coefficient
     D_t = D0 * (time_safe**alpha) + D_offset
 
-    # Ensure positive values — use jnp.where (not jnp.maximum) to preserve
-    # gradients below the floor for NLSQ Jacobian computation and NUTS leapfrog.
-    return jnp.where(D_t > 1e-10, D_t, 1e-10)
+    # Ensure positive values. NaN-preserving floor (mirrors jax_backend.py's
+    # g1_total guard): `D_t > 1e-10` is False for NaN, which would otherwise
+    # silently launder a divergent parameter into a plausible finite 1e-10
+    # instead of letting NaN propagate to where it can be caught.
+    return jnp.where(jnp.isnan(D_t), D_t, jnp.maximum(D_t, 1e-10))
 
 
 @jit
@@ -217,8 +219,8 @@ def calculate_shear_rate(
     time_safe = jnp.where(time_array > epsilon, time_array, epsilon)
 
     gamma_t = gamma_dot_0 * (time_safe**beta) + gamma_dot_offset
-    # Ensure positive values — use jnp.where (not jnp.maximum) to preserve gradients.
-    return jnp.where(gamma_t > 1e-10, gamma_t, 1e-10)
+    # Ensure positive values. NaN-preserving floor -- see calculate_diffusion_coefficient.
+    return jnp.where(jnp.isnan(gamma_t), gamma_t, jnp.maximum(gamma_t, 1e-10))
 
 
 @jit
