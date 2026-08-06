@@ -1,10 +1,8 @@
-# xpcsjax
+# XPCSJAX - JAX-native NLSQ fitting for X-ray Photon Correlation Spectroscopy (XPCS).
 
 <p align="center">
   <img src="docs/source/_static/xpcsjax_logo.jpg" alt="xpcsjax logo" width="200"/>
 </p>
-
-JAX-native NLSQ fitting for X-ray Photon Correlation Spectroscopy (XPCS).
 
 [![PyPI version](https://badge.fury.io/py/xpcsjax.svg)](https://badge.fury.io/py/xpcsjax)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -13,8 +11,7 @@ JAX-native NLSQ fitting for X-ray Photon Correlation Spectroscopy (XPCS).
 
 > **Disclaimer:** XPCSJAX is pre-release software under active development and testing. APIs, model implementations, and numerical results may change without notice. Outputs have not been independently validated for all use cases. Use at your own risk and verify critical results against established reference data before relying on them in research or industrial applications.
 
-xpcsjax consolidates the [`homodyne`](https://github.com/imewei/homodyne) and
-[`heterodyne`](https://github.com/imewei/heterodyne) analysis pipelines — both now
+xpcsjax consolidates the homodyne and heterodyne analysis pipelines — both now
 deprecated in its favor — into one package with a shared engine and config-driven
 physics-model dispatch. It implements the transport-coefficient framework of
 [He et al. PNAS 2024](https://doi.org/10.1073/pnas.2401162121) and

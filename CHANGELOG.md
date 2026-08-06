@@ -11,8 +11,32 @@ the rendered documentation.
 
 ## [Unreleased]
 
+### Added
+
+- **Heterodyne `tied_parameters` equality constraints** (#27, #30). Support for
+  user-configured parameter tying across components and angles in `two_component`
+  fits. Tied parameters are constraint-reduced during NLSQ optimization and
+  automatically expanded back to full 14-parameter blocks (`expand_reduced_result`)
+  across all execution paths (`individual`, `averaged`, `constant`, `stratified-LS`,
+  `hybrid-streaming`).
+- **`XPCSDataLoader` context manager support** (#40). `load_xpcs_data` now uses
+  a `with` statement for `XPCSDataLoader`, ensuring proper cleanup of underlying
+  HDF5 handles, `PerformanceEngine`, and `AdvancedMemoryManager` background threads on completion or failure.
+
+### Changed
+
+- **`datashader` is now a required dependency**, enabling fast visualization paths by default without requiring the optional `[viz-fast]` extra.
+- **Removed unused dependencies** (`scikit-learn`, `cloudpickle`, `interpax`) from `pyproject.toml` (#26).
+
 ### Fixed
 
+- **Deep-RCA multi-agent correctness & stability audit across core modules**:
+  - **`xpcsjax/optimization/` (29 confirmed bugs, #37, #38)**: Fixed residual calculations, per-angle $\chi^2$ decomposition, parameter scaling, and state synchronization across NLSQ strategies.
+  - **`xpcsjax/data/` (12 confirmed bugs, #33, #35)**: Fixed an inert allocation guard on `.npz` cache reads (where `mmap_mode` rendered size checks ineffective), resolved a memory leak caused by a circular reference between `AdvancedMemoryManager` and `MemoryPressureMonitor`, and ensured background thread shutdown on exit.
+  - **`xpcsjax/core/` (6 confirmed bugs, #34)**: Fixed edge-case numerical issues and parameter bound checks in model evaluators.
+  - **Silent failure & code review sweep (13 confirmed bugs, #36, #39)**: Resolved silent exception swallowing, fallback bugs, and missing edge-case handling.
+- **Silenced expected `RuntimeWarning`s in degenerate-input guard paths** when handling edge cases in statistical diagnostics and fitting guards.
+- **CI / Mypy / CodeQL**: Fixed pre-existing mypy hard-gate failures and CodeQL security alerts (#352-#357, #359).
 - **CMA-ES escape no longer reports `converged`/`good` on a refinement-only
   success** (#25). The `two_component` joint CMA-ES escape's "cmaes"
   kept-branch left its success flag at the default, so `solve_success` fell
@@ -48,7 +72,7 @@ the rendered documentation.
   ignored.** The `individual`/`averaged`/`constant` scaling-first bounds
   builders in `heterodyne_core.py`, `heterodyne_engine_route.py`, and
   `heterodyne_constant_mode.py` pulled `contrast`/`offset` bounds from the
-  static `ParameterRegistry` defaults (`[0,1]`/`[0.5,1.5]`) instead of the
+  static `ParameterRegistry` defaults (`[0,1]`/[0.5,1.5]`) instead of the
   config-resolved `ParameterManager`, so a tightened
   `parameter_space.bounds` override for `contrast`/`offset` had no effect on
   the NLSQ solve even though physics params respected it correctly.
@@ -71,8 +95,16 @@ the rendered documentation.
   Gap A/L5 design choices, C044 degeneracy, pointwise-evaluator
   non-wiring, etc.) were re-confirmed correct and left untouched.
 
+### Security
+
+- **Bumped `cryptography` dependency to `50.0.0`** to resolve CVE-2026-69247.
+
 ### Documentation
 
+- Added pre-release software disclaimer banner to `README.md`.
+- Documented heterodyne `tied_parameters` configuration in user guide and theory docs (#30).
+- Documented `XPCSDataLoader` context-manager usage (#40).
+- Added `make test-viz` target to developer commands reference (#41).
 - Added missing API pages for the `device`/`io`/`utils` modules — the
   `api/index.rst` toctree only covered 9 of the 12 top-level packages (#18).
   Added `tests/test_docs_structure.py`, a structural doc-coverage check
@@ -82,6 +114,8 @@ the rendered documentation.
 
 ### Testing / Internal
 
+- **Graphify dead-code cleanup**: Removed 17 unused/dead-code symbols identified via graphify knowledge graph audit (#32).
+- Consolidated `_decompose_chi2_per_angle` import path (#28).
 - Closed test-coverage gaps flagged by the debug-audit reviews: `cmaes_sigma0`
   value-level checks at both joint-escape sites, the `_fit_cmaes` DOF clamp
   preventing negative `reduced_chi_squared` on tiny matrices, per-angle
@@ -93,7 +127,7 @@ the rendered documentation.
   Git-for-Windows' `bash.exe` (added explicit resolution), and a `Path.stat`
   test monkeypatch was broadened/scoped to tolerate `follow_symlinks=` and
   avoid masking `get_safe_output_dir`'s unrelated `exists()` call.
-- `.gitignore` cleanup.
+- `.gitignore` cleanup and lockfile update (`uv.lock`).
 
 ## [0.1.2] - 2026-07-25
 
