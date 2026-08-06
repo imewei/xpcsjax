@@ -20,9 +20,9 @@
     "semantic_hash": "6fab20b41bf9a8f6358678dc7d2d37a3"
   },
   "tests/test_io.py": {
-    "mtime": 1785244095.6505578,
-    "ast_hash": "ac2ef023e2aa3ea9e7be948e1e8a4d10",
-    "semantic_hash": "ac2ef023e2aa3ea9e7be948e1e8a4d10"
+    "mtime": 1786012060.0465848,
+    "ast_hash": "bb261e5dbe765cc0289b94fa8095865d",
+    "semantic_hash": ""
   },
   "tests/__init__.py": {
     "mtime": 1779129698.438998,
@@ -275,9 +275,9 @@
     "semantic_hash": "969fb91a5ee1c26d2207cfe9a511b721"
   },
   "tests/optimization/test_parallel_accumulator.py": {
-    "mtime": 1779693100.573614,
-    "ast_hash": "3bbf957ee7f5f99063691dad850e510b",
-    "semantic_hash": "3bbf957ee7f5f99063691dad850e510b"
+    "mtime": 1786012060.0465848,
+    "ast_hash": "6c669dc0dc3c0ea613f768d00427aa96",
+    "semantic_hash": ""
   },
   "tests/optimization/test_adapter_cost_default.py": {
     "mtime": 1780449521.7514744,
@@ -565,9 +565,9 @@
     "semantic_hash": "34666c78bdaeca7935373e878e00f203"
   },
   "tests/config/test_config_manager_errors.py": {
-    "mtime": 1784780835.3740168,
-    "ast_hash": "7080f73a1ef89871b7bc4d43e631a531",
-    "semantic_hash": "7080f73a1ef89871b7bc4d43e631a531"
+    "mtime": 1786012060.045585,
+    "ast_hash": "a7dd679bb2a9aee27b1d0668773a6028",
+    "semantic_hash": ""
   },
   "tests/config/test_config_analysis_mode.py": {
     "mtime": 1780449521.7514744,
@@ -820,9 +820,9 @@
     "semantic_hash": "dde29e6697b27b7146b6a4e78081b031"
   },
   "xpcsjax/device/cpu.py": {
-    "mtime": 1785255071.2851136,
-    "ast_hash": "36b393bb736736c7c31ddf2d1b7b3f6e",
-    "semantic_hash": "36b393bb736736c7c31ddf2d1b7b3f6e"
+    "mtime": 1786012060.0505846,
+    "ast_hash": "7504b7faea61fd8f6290d26fab7d1be4",
+    "semantic_hash": ""
   },
   "xpcsjax/utils/logging.py": {
     "mtime": 1785988553.4018745,
@@ -895,14 +895,14 @@
     "semantic_hash": "319a34c9f512f366559588b470100c11"
   },
   "xpcsjax/optimization/nlsq/heterodyne_stratified_ls.py": {
-    "mtime": 1785984647.981301,
-    "ast_hash": "daebda010ade645cebe95124fb7b8663",
-    "semantic_hash": "daebda010ade645cebe95124fb7b8663"
+    "mtime": 1786012060.0525846,
+    "ast_hash": "3c27a8a421a792645aee0e832e792b63",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/transforms.py": {
-    "mtime": 1785195914.7388082,
-    "ast_hash": "9a00b369ac34627bda062154909442c4",
-    "semantic_hash": "9a00b369ac34627bda062154909442c4"
+    "mtime": 1786012060.0535846,
+    "ast_hash": "c77b99ad78975686c7ff43ac3883382f",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/heterodyne_data_prep.py": {
     "mtime": 1785984647.981301,
@@ -930,9 +930,9 @@
     "semantic_hash": "559b074434416ffe1e2e34a0dd87a4eb"
   },
   "xpcsjax/optimization/nlsq/cmaes_wrapper.py": {
-    "mtime": 1785297691.3542044,
-    "ast_hash": "d342f138e9064b0f2fd97f3487036306",
-    "semantic_hash": "d342f138e9064b0f2fd97f3487036306"
+    "mtime": 1786012060.0505846,
+    "ast_hash": "814c60e99771572e553ff29abb813f09",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/heterodyne_results.py": {
     "mtime": 1780671715.0531998,
@@ -955,8 +955,8 @@
     "semantic_hash": "4dd714049948ecf4ddcce268493c0075"
   },
   "xpcsjax/optimization/nlsq/recovery.py": {
-    "mtime": 1785993408.7542384,
-    "ast_hash": "1be25efb5972c3f33eeab6d94b2c7b44",
+    "mtime": 1786012060.0535846,
+    "ast_hash": "e177eb374f44a7ce8b60e65373e48807",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/heterodyne_multistart.py": {
@@ -980,19 +980,19 @@
     "semantic_hash": "e7b961c027388b33f8aac864499fd0f7"
   },
   "xpcsjax/optimization/nlsq/parallel_accumulator.py": {
-    "mtime": 1785985818.8357573,
-    "ast_hash": "3779e4d311a30653292548b9bd098621",
-    "semantic_hash": "3779e4d311a30653292548b9bd098621"
+    "mtime": 1786012060.0535846,
+    "ast_hash": "7350fbb3e73f02426d627595eae59d3c",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/core.py": {
-    "mtime": 1785988553.3988745,
-    "ast_hash": "0aae35169211a6fae218bc9ab1b2d51a",
-    "semantic_hash": "0aae35169211a6fae218bc9ab1b2d51a"
+    "mtime": 1786012060.0515847,
+    "ast_hash": "c2a82307508aa32fedae91ad77655a23",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/adaptive_regularization.py": {
-    "mtime": 1785209581.472835,
-    "ast_hash": "c6f54ea59f5ab4c8cd0d4e06326b2ddf",
-    "semantic_hash": "c6f54ea59f5ab4c8cd0d4e06326b2ddf"
+    "mtime": 1786012060.0505846,
+    "ast_hash": "43cce5811f298cd6ee2815751cf202e7",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/gradient_diagnostics.py": {
     "mtime": 1784780835.3850176,
@@ -1035,9 +1035,9 @@
     "semantic_hash": "1d02c976f036ebc88f447e593a1add6f"
   },
   "xpcsjax/optimization/nlsq/heterodyne_core.py": {
-    "mtime": 1785985818.8357573,
-    "ast_hash": "b8023c312abfda046fccb41fc2622401",
-    "semantic_hash": "b8023c312abfda046fccb41fc2622401"
+    "mtime": 1786012060.0525846,
+    "ast_hash": "8ee16a75206d9d4a3eb915272218e65c",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/result_builder.py": {
     "mtime": 1785985818.837757,
@@ -1050,9 +1050,9 @@
     "semantic_hash": "db4a5ce5d3043a6c0a2b5fba85d62960"
   },
   "xpcsjax/optimization/nlsq/wrapper.py": {
-    "mtime": 1785988553.4008746,
-    "ast_hash": "4c47ec4b83e3a8b4b60da6ed8a5ea9c7",
-    "semantic_hash": "4c47ec4b83e3a8b4b60da6ed8a5ea9c7"
+    "mtime": 1786012060.0545845,
+    "ast_hash": "4876f5db233f69b4cf5a56c6781a5fdf",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/validation.py": {
     "mtime": 1785988553.3988745,
@@ -1060,9 +1060,9 @@
     "semantic_hash": "b8e422636c565ae0cf40850ae50bca56"
   },
   "xpcsjax/optimization/nlsq/heterodyne_adapter.py": {
-    "mtime": 1785984647.979301,
-    "ast_hash": "055c4dc3a7c07250e7ae3e49aebb0c79",
-    "semantic_hash": "055c4dc3a7c07250e7ae3e49aebb0c79"
+    "mtime": 1786012060.0515847,
+    "ast_hash": "9d04388bca68fcf6b5378f4cdcd13eea",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/heterodyne_views.py": {
     "mtime": 1781913729.5545776,
@@ -1075,9 +1075,9 @@
     "semantic_hash": "7afcea9c07331cf993ccc0ccc6c0bc3d"
   },
   "xpcsjax/optimization/nlsq/parameter_utils.py": {
-    "mtime": 1785984647.982301,
-    "ast_hash": "facc9dfe6f29e08dcbc107706bc8f8bd",
-    "semantic_hash": "facc9dfe6f29e08dcbc107706bc8f8bd"
+    "mtime": 1786012060.0535846,
+    "ast_hash": "7b81e4017772f05a679c15c3e3d31dd9",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/data_prep.py": {
     "mtime": 1781469355.4627035,
@@ -1090,9 +1090,9 @@
     "semantic_hash": "ffa88b13f905038751d8eaadb70e395c"
   },
   "xpcsjax/optimization/nlsq/hierarchical.py": {
-    "mtime": 1785209581.4758348,
-    "ast_hash": "c20075f611b830f4d9339a8f1709bacb",
-    "semantic_hash": "c20075f611b830f4d9339a8f1709bacb"
+    "mtime": 1786012060.0535846,
+    "ast_hash": "9e9cc4e6fe7afd439a9252f252b85078",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/heterodyne_config.py": {
     "mtime": 1785985818.8297572,
@@ -1135,9 +1135,9 @@
     "semantic_hash": "3a11c63f4a6a563bb5f994c644beb37f"
   },
   "xpcsjax/optimization/nlsq/strategies/sequential.py": {
-    "mtime": 1785209581.477835,
-    "ast_hash": "0b69e882d4519299fa4783bd3fe9005d",
-    "semantic_hash": "0b69e882d4519299fa4783bd3fe9005d"
+    "mtime": 1786012060.0535846,
+    "ast_hash": "71c9d055da4093a7021d4ff210e77806",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/strategies/hybrid_streaming.py": {
     "mtime": 1785471555.640966,
@@ -1165,9 +1165,9 @@
     "semantic_hash": "fb806e4bac1de7788a1e24c221c66821"
   },
   "xpcsjax/data/quality_controller.py": {
-    "mtime": 1785968531.1907768,
-    "ast_hash": "8f3675e42debb251c745e83d2efe0b29",
-    "semantic_hash": "8f3675e42debb251c745e83d2efe0b29"
+    "mtime": 1786012060.0495846,
+    "ast_hash": "d1561193dde2e467e37b22e3ef89cc46",
+    "semantic_hash": ""
   },
   "xpcsjax/data/preprocessing.py": {
     "mtime": 1785968531.1907768,
@@ -1205,9 +1205,9 @@
     "semantic_hash": "09bef5c0e9c05b242cb5c9d38f5b62e4"
   },
   "xpcsjax/data/xpcs_loader.py": {
-    "mtime": 1785989558.9147522,
-    "ast_hash": "22e5688c1c61b8bd95c37fb4cdb15a6d",
-    "semantic_hash": "22e5688c1c61b8bd95c37fb4cdb15a6d"
+    "mtime": 1786012060.0495846,
+    "ast_hash": "20edc9ae3080114eb694aa15ff329309",
+    "semantic_hash": ""
   },
   "xpcsjax/data/filtering_utils.py": {
     "mtime": 1785993408.7542384,
@@ -1225,14 +1225,14 @@
     "semantic_hash": "339152f41353fb64eb641c193e0b0a35"
   },
   "xpcsjax/config/physics_validators.py": {
-    "mtime": 1782013260.5098782,
-    "ast_hash": "3e705b14d19967a1f192554f597cdabd",
-    "semantic_hash": "3e705b14d19967a1f192554f597cdabd"
+    "mtime": 1786012060.0475848,
+    "ast_hash": "f00aeee79616451cc84bc1acaa738720",
+    "semantic_hash": ""
   },
   "xpcsjax/config/parameter_manager.py": {
-    "mtime": 1785195914.7338083,
-    "ast_hash": "18a6910439ce61d6bd4c54099647ed29",
-    "semantic_hash": "18a6910439ce61d6bd4c54099647ed29"
+    "mtime": 1786012060.0475848,
+    "ast_hash": "d2d0cd654943dd5f39abaf182d2454fe",
+    "semantic_hash": ""
   },
   "xpcsjax/config/heterodyne_parameter_space.py": {
     "mtime": 1785459290.8916345,
@@ -1250,9 +1250,9 @@
     "semantic_hash": "7a40af447b361ae971a068b7ea57581c"
   },
   "xpcsjax/config/heterodyne_parameter_manager.py": {
-    "mtime": 1785418937.4599624,
-    "ast_hash": "536a592cd6ecbc8d66de2ab5c97ba79b",
-    "semantic_hash": "536a592cd6ecbc8d66de2ab5c97ba79b"
+    "mtime": 1786012060.0465848,
+    "ast_hash": "d00b4dc8fca75578e99cad3925ac6018",
+    "semantic_hash": ""
   },
   "xpcsjax/config/types.py": {
     "mtime": 1782026751.9767563,
@@ -1260,9 +1260,9 @@
     "semantic_hash": "d37469d8137caa4c0b38b6c06ceeb2dd"
   },
   "xpcsjax/config/manager.py": {
-    "mtime": 1785209581.464835,
-    "ast_hash": "0ee8f0ec9890edd9e98bd1586aa856e3",
-    "semantic_hash": "0ee8f0ec9890edd9e98bd1586aa856e3"
+    "mtime": 1786018321.3020246,
+    "ast_hash": "c108c8e16279a6eda96ac85036d7e824",
+    "semantic_hash": ""
   },
   "xpcsjax/config/parameter_space.py": {
     "mtime": 1785209581.465835,
@@ -1295,14 +1295,14 @@
     "semantic_hash": "6ce9405cf8984a4af3a3934768b36375"
   },
   "xpcsjax/io/nlsq_writers.py": {
-    "mtime": 1785209581.471835,
-    "ast_hash": "24b6ff3a3a5e3f3af06eff131ea85c26",
-    "semantic_hash": "24b6ff3a3a5e3f3af06eff131ea85c26"
+    "mtime": 1786012060.0505846,
+    "ast_hash": "7bc4c8b7d755a92d4feae46b465a1588",
+    "semantic_hash": ""
   },
   "xpcsjax/cli/main.py": {
-    "mtime": 1782105431.7686045,
-    "ast_hash": "20d5d3b1d9f8e123c3b09ba21a4be2d4",
-    "semantic_hash": "20d5d3b1d9f8e123c3b09ba21a4be2d4"
+    "mtime": 1786012060.0465848,
+    "ast_hash": "82d05bcc093acdbb5faadcbf131a4d78",
+    "semantic_hash": ""
   },
   "xpcsjax/cli/data_pipeline.py": {
     "mtime": 1781887737.5174873,
@@ -1320,9 +1320,9 @@
     "semantic_hash": "213dcb89155a3cfcfe0be8077851bc96"
   },
   "xpcsjax/cli/optimization_runner.py": {
-    "mtime": 1784780835.3780172,
-    "ast_hash": "86f15531152837a558b0594d164df703",
-    "semantic_hash": "86f15531152837a558b0594d164df703"
+    "mtime": 1786012060.0465848,
+    "ast_hash": "bb1dd032952b1fd0b4015502d5aca1f0",
+    "semantic_hash": ""
   },
   "xpcsjax/cli/args_parser.py": {
     "mtime": 1782075837.1864038,
@@ -1330,9 +1330,9 @@
     "semantic_hash": "ea21f82cb590fc40483c95df389c2e69"
   },
   "xpcsjax/cli/config_handling.py": {
-    "mtime": 1782090027.680083,
-    "ast_hash": "351fbef3a9c343b44cade2c1d9905c03",
-    "semantic_hash": "351fbef3a9c343b44cade2c1d9905c03"
+    "mtime": 1786012060.0465848,
+    "ast_hash": "d95deef7f9783d2366488e9eec3d7323",
+    "semantic_hash": ""
   },
   "xpcsjax/cli/commands.py": {
     "mtime": 1785971878.6126378,
@@ -1410,14 +1410,14 @@
     "semantic_hash": "7dc842cbdb5cd481f45bba81012af04e"
   },
   "xpcsjax/core/physics_utils.py": {
-    "mtime": 1780671715.0431995,
-    "ast_hash": "9bac470b559e806334179ddf17703619",
-    "semantic_hash": "9bac470b559e806334179ddf17703619"
+    "mtime": 1786012060.0495846,
+    "ast_hash": "e44583b2b544063c52b1bcc078693c57",
+    "semantic_hash": ""
   },
   "xpcsjax/core/physics.py": {
-    "mtime": 1780671715.0421996,
-    "ast_hash": "fcc6188ca9a10df78c0c9ddb54ded629",
-    "semantic_hash": "fcc6188ca9a10df78c0c9ddb54ded629"
+    "mtime": 1786012060.0485847,
+    "ast_hash": "2fbcf5a2257dd7c5ce3de1cefea9e7e1",
+    "semantic_hash": ""
   },
   "xpcsjax/core/__init__.py": {
     "mtime": 1780525312.8223493,
@@ -1465,14 +1465,14 @@
     "semantic_hash": "a04bc13470d59a02872ca28c4fad466f"
   },
   "xpcsjax/core/diagonal_correction.py": {
-    "mtime": 1785968106.3474991,
-    "ast_hash": "f4bd00f02094e6bfe89ed839f635c7a4",
-    "semantic_hash": "f4bd00f02094e6bfe89ed839f635c7a4"
+    "mtime": 1786012060.0485847,
+    "ast_hash": "048d13f7b3ea3a434ebb8a444365823b",
+    "semantic_hash": ""
   },
   "xpcsjax/core/physics_nlsq.py": {
-    "mtime": 1785209581.466835,
-    "ast_hash": "60903b2bfbfb050f4f69d9ffe9e7edfd",
-    "semantic_hash": "60903b2bfbfb050f4f69d9ffe9e7edfd"
+    "mtime": 1786012060.0485847,
+    "ast_hash": "d15d7cff7e9d5c2e0429f792e24c3675",
+    "semantic_hash": ""
   },
   "xpcsjax/core/heterodyne_model.py": {
     "mtime": 1785209581.465835,
@@ -1485,9 +1485,9 @@
     "semantic_hash": "6f2fa5bdef07d4e5e024f79af6552599"
   },
   "xpcsjax/viz/nlsq_plots.py": {
-    "mtime": 1785971878.6146376,
-    "ast_hash": "dc950a3600b73010dbea2e9c58fc6ca1",
-    "semantic_hash": "dc950a3600b73010dbea2e9c58fc6ca1"
+    "mtime": 1786012060.0555844,
+    "ast_hash": "ee94794e0afd50d011840ce7250e3781",
+    "semantic_hash": ""
   },
   "xpcsjax/viz/diagnostics.py": {
     "mtime": 1785209581.480835,
@@ -1505,9 +1505,9 @@
     "semantic_hash": "e0546541df66f3338971329815ac9309"
   },
   "docs/source/installation.rst": {
-    "mtime": 1785418937.4519622,
-    "ast_hash": "e490f3593b04bb113a6630f89504f47e",
-    "semantic_hash": "e490f3593b04bb113a6630f89504f47e"
+    "mtime": 1786017291.6737015,
+    "ast_hash": "67304d0f814d7c28a6d6fd8c97c19c41",
+    "semantic_hash": ""
   },
   "docs/source/changelog.rst": {
     "mtime": 1785312267.977209,
@@ -1770,24 +1770,24 @@
     "semantic_hash": "bceb022c79a295defdd4bb3920563b43"
   },
   "xpcsjax/config/templates/xpcsjax_static_isotropic.yaml": {
-    "mtime": 1781539688.5448804,
-    "ast_hash": "d0041d2723e88e05022b19e0c637dd7f",
-    "semantic_hash": "d0041d2723e88e05022b19e0c637dd7f"
+    "mtime": 1786018321.3030245,
+    "ast_hash": "3240d8c3e98e92adfaac2636c624378e",
+    "semantic_hash": ""
   },
   "xpcsjax/config/templates/xpcsjax_laminar_flow.yaml": {
-    "mtime": 1781740750.167208,
-    "ast_hash": "df7d4021ed3985f40649cbe714e91507",
-    "semantic_hash": "df7d4021ed3985f40649cbe714e91507"
+    "mtime": 1786018321.3020246,
+    "ast_hash": "ef817bde2385ae8f6cf81f9b47eacb8a",
+    "semantic_hash": ""
   },
   "xpcsjax/config/templates/xpcsjax_two_component.yaml": {
-    "mtime": 1785456411.4161017,
-    "ast_hash": "718050d68011874692d46defb019b11a",
-    "semantic_hash": "718050d68011874692d46defb019b11a"
+    "mtime": 1786018321.3040247,
+    "ast_hash": "e65aec7736eae196a9c3fb9b53bb1676",
+    "semantic_hash": ""
   },
   "xpcsjax/config/templates/xpcsjax_static_anisotropic.yaml": {
-    "mtime": 1781505693.3729432,
-    "ast_hash": "b1ba67da6c9cb5bc8f297384e22f95ba",
-    "semantic_hash": "b1ba67da6c9cb5bc8f297384e22f95ba"
+    "mtime": 1786018321.3030245,
+    "ast_hash": "bb03e3079bfd3ce45608185c9e06f39e",
+    "semantic_hash": ""
   },
   "docs/source/theory/citations.rst": {
     "mtime": 1782200998.188738,
@@ -1995,9 +1995,9 @@
     "semantic_hash": "521ddd916c3f298adab614abe0f5543f"
   },
   "tests/optimization/test_heterodyne_cmaes_warmstart_auto_skip.py": {
-    "mtime": 1785984647.976301,
-    "ast_hash": "54fbc07e9cebaa893a1518f285605882",
-    "semantic_hash": "54fbc07e9cebaa893a1518f285605882"
+    "mtime": 1786012060.045585,
+    "ast_hash": "fcd9ce0d3ae4ab8f492e8063c8c1ba99",
+    "semantic_hash": ""
   },
   "tests/optimization/test_heterodyne_cmaes_warmstart_success_gate.py": {
     "mtime": 1785984647.976301,
@@ -2040,9 +2040,9 @@
     "semantic_hash": "224032f756eb022e65970245655157ff"
   },
   "tests/data/test_cache_q_validation.py": {
-    "mtime": 1785988553.3928745,
-    "ast_hash": "89ad4d495c5f1dd82d66202899815ad9",
-    "semantic_hash": "89ad4d495c5f1dd82d66202899815ad9"
+    "mtime": 1786012060.045585,
+    "ast_hash": "6bd5ecd4907998b4fb2b9ea95a16ef72",
+    "semantic_hash": ""
   },
   "tests/optimization/test_escape_disabled_hint.py": {
     "mtime": 1781913729.6465757,
@@ -2225,9 +2225,9 @@
     "semantic_hash": "8dbff6c19e521eec0ae6d0eb529406a2"
   },
   "tests/gui/test_worker_handle.py": {
-    "mtime": 1785988553.3938744,
-    "ast_hash": "ff0393fc869c85d97ff67dec2986e8f2",
-    "semantic_hash": "ff0393fc869c85d97ff67dec2986e8f2"
+    "mtime": 1786010112.2272608,
+    "ast_hash": "12803fc938c94369bcbecc37fd40c93e",
+    "semantic_hash": ""
   },
   "tests/optimization/test_iteration_callback_seam.py": {
     "mtime": 1781913729.6485755,
@@ -2335,9 +2335,9 @@
     "semantic_hash": "bcc643093da0eb8180c0df673c5f8d1a"
   },
   "xpcsjax/gui/ipc/emitter.py": {
-    "mtime": 1781887742.5114005,
-    "ast_hash": "5e6c0cd8b8e87c0ced004f7da21e17d1",
-    "semantic_hash": "5e6c0cd8b8e87c0ced004f7da21e17d1"
+    "mtime": 1786012060.0505846,
+    "ast_hash": "577f3ce59c49b16689870a134fbdf516",
+    "semantic_hash": ""
   },
   "xpcsjax/gui/ipc/handle.py": {
     "mtime": 1785988553.3958745,
@@ -2355,9 +2355,9 @@
     "semantic_hash": "552d1142f11c086c892c7e5fd2d409d1"
   },
   "xpcsjax/gui/ipc/worker.py": {
-    "mtime": 1781887750.3662646,
-    "ast_hash": "3ca8ca62996530d1f1bccc06ae34e81d",
-    "semantic_hash": "3ca8ca62996530d1f1bccc06ae34e81d"
+    "mtime": 1786012060.0505846,
+    "ast_hash": "4af16fa816650b9640c481260ca5437e",
+    "semantic_hash": ""
   },
   "xpcsjax/gui/project/__init__.py": {
     "mtime": 1781887750.3662646,
@@ -2430,9 +2430,9 @@
     "semantic_hash": "0aab1f1145e57095d2d00d232ff398c1"
   },
   "xpcsjax/service/config.py": {
-    "mtime": 1785971878.6146376,
-    "ast_hash": "c34f253da888daf3441ec185b2c199ae",
-    "semantic_hash": "c34f253da888daf3441ec185b2c199ae"
+    "mtime": 1786012060.0545845,
+    "ast_hash": "38597524c447d1e1e8f76da8389d8d0a",
+    "semantic_hash": ""
   },
   "xpcsjax/service/data.py": {
     "mtime": 1785209581.479835,
@@ -2585,9 +2585,9 @@
     "semantic_hash": "c7f9f98ec75059490c34f1244e4e25e7"
   },
   "xpcsjax/cli/config_template.py": {
-    "mtime": 1782090027.681083,
-    "ast_hash": "ccc2d2dcfebd1082fab98bd4cb12d2f4",
-    "semantic_hash": "ccc2d2dcfebd1082fab98bd4cb12d2f4"
+    "mtime": 1786018321.3010247,
+    "ast_hash": "aea9c2e465a17cc6d5e62321cbb9adf5",
+    "semantic_hash": ""
   },
   "xpcsjax/cli/plot_backend.py": {
     "mtime": 1782090027.681083,
@@ -2620,9 +2620,9 @@
     "semantic_hash": "c5042ae91cd1f6ab31b917e7c4012a99"
   },
   "xpcsjax/gui/views/main_window_support/project_dialog_handler.py": {
-    "mtime": 1784699586.2309618,
-    "ast_hash": "d3450d9551fcf29bf76d26f7caf17927",
-    "semantic_hash": "d3450d9551fcf29bf76d26f7caf17927"
+    "mtime": 1786012060.0505846,
+    "ast_hash": "236ec265354ddc382448ddcdbfd0e056",
+    "semantic_hash": ""
   },
   "xpcsjax/gui/views/main_window_support/result_presenter.py": {
     "mtime": 1785971878.6136377,
@@ -2685,9 +2685,9 @@
     "semantic_hash": "5f9c3800a3a1b1ecc92232e4268d2db4"
   },
   "docs/source/development/releasing.rst": {
-    "mtime": 1785083336.311959,
-    "ast_hash": "0cdddcac5b806f412f68458219a29458",
-    "semantic_hash": "0cdddcac5b806f412f68458219a29458"
+    "mtime": 1786018321.2960246,
+    "ast_hash": "5fbd3ac661cf78974cd25108f3acd23d",
+    "semantic_hash": ""
   },
   "docs/diagrams/architecture.md": {
     "mtime": 1782198165.8685927,
@@ -2775,9 +2775,9 @@
     "semantic_hash": "93cc3572f7cc23e4110b3ac98483fecc"
   },
   "tests/core/test_physics_nlsq_degenerate_grid.py": {
-    "mtime": 1785209581.455835,
-    "ast_hash": "1f15a70815c68d2314b03a7438c5a727",
-    "semantic_hash": "1f15a70815c68d2314b03a7438c5a727"
+    "mtime": 1786012060.045585,
+    "ast_hash": "5bafe1a4b935c7ffd599a4d18f95fdcc",
+    "semantic_hash": ""
   },
   "tests/data/test_allocate_virtual_memory_happy_path.py": {
     "mtime": 1785209581.455835,
@@ -2830,9 +2830,9 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "tests/device/test_cpu_config.py": {
-    "mtime": 1785988553.3938744,
-    "ast_hash": "33d8af925625734a74ce50991f6b0774",
-    "semantic_hash": "33d8af925625734a74ce50991f6b0774"
+    "mtime": 1786012060.045585,
+    "ast_hash": "84737b1e4bda21b386b9345b6821b2b0",
+    "semantic_hash": ""
   },
   "tests/gui/test_click_path_fixes.py": {
     "mtime": 1784699586.2309618,
@@ -2977,6 +2977,66 @@
   "docs/.claude-progress.md": {
     "mtime": 1781924184.9035556,
     "ast_hash": "e3d271c076a0eca56bb6fcfcfe70a8a3",
+    "semantic_hash": ""
+  },
+  "xpcsjax/cli/CLAUDE.md": {
+    "mtime": 1786013897.03366,
+    "ast_hash": "bde85cba7afcb07d8d2b9d0bb1e96410",
+    "semantic_hash": ""
+  },
+  "xpcsjax/config/CLAUDE.md": {
+    "mtime": 1786013897.03666,
+    "ast_hash": "4f9125eac1853f668f1d916e9f6f7c3e",
+    "semantic_hash": ""
+  },
+  "xpcsjax/core/CLAUDE.md": {
+    "mtime": 1786013897.04066,
+    "ast_hash": "858c9443c3ece2f276c9c36db1d342d6",
+    "semantic_hash": ""
+  },
+  "xpcsjax/data/CLAUDE.md": {
+    "mtime": 1786013897.04366,
+    "ast_hash": "2cfe36ebddb48b7bf362b054080d731f",
+    "semantic_hash": ""
+  },
+  "xpcsjax/device/CLAUDE.md": {
+    "mtime": 1786013897.04666,
+    "ast_hash": "dc2ce56ee277670781de410515dea112",
+    "semantic_hash": ""
+  },
+  "xpcsjax/gui/CLAUDE.md": {
+    "mtime": 1786013897.0526597,
+    "ast_hash": "a8505e0d59c743cc4ad4ea58c195a9fe",
+    "semantic_hash": ""
+  },
+  "xpcsjax/io/CLAUDE.md": {
+    "mtime": 1786013897.0586598,
+    "ast_hash": "82d92f1e6a4c0ee9206195c419955593",
+    "semantic_hash": ""
+  },
+  "xpcsjax/optimization/CLAUDE.md": {
+    "mtime": 1786013897.0676599,
+    "ast_hash": "e0cedebe19d2fc13649c13325b6cda62",
+    "semantic_hash": ""
+  },
+  "xpcsjax/runtime/CLAUDE.md": {
+    "mtime": 1786013897.0766597,
+    "ast_hash": "31d069ef1fe6dcfec656072dc2878b06",
+    "semantic_hash": ""
+  },
+  "xpcsjax/service/CLAUDE.md": {
+    "mtime": 1786013897.0846598,
+    "ast_hash": "f8daf2eb3616547cced69adfd57d4081",
+    "semantic_hash": ""
+  },
+  "xpcsjax/utils/CLAUDE.md": {
+    "mtime": 1786013897.0926597,
+    "ast_hash": "25b3fcf338922c177c11080d14333086",
+    "semantic_hash": ""
+  },
+  "xpcsjax/viz/CLAUDE.md": {
+    "mtime": 1786013897.0986598,
+    "ast_hash": "59283310ed37a275d31a97af2a263b16",
     "semantic_hash": ""
   }
 }
