@@ -434,7 +434,7 @@ class ConfigManager:
         logger.debug("Applying default configuration values (fallback)")
         return {
             "metadata": {
-                "config_version": "0.1.0",
+                "config_version": "0.1.2",
                 "description": "Default minimal configuration",
             },
             "analysis_mode": "static_anisotropic",
