@@ -157,7 +157,22 @@ def compute_jacobian_stats(
 
         jac = jax.jacfwd(residual_vector)(params_jnp)
         jac_np = np.asarray(jac)
-        jtj = jac_np.T @ jac_np * scaling_factor
+
+        # For ill-conditioned Jacobians (cond > 1e6), compute J^T J via QR
+        # (J^T J = R^T R) instead of the direct product, which squares the
+        # condition number and destabilizes the downstream pinv-based
+        # covariance solve. Mirrors jacobian.py's compute_jacobian_stats.
+        try:
+            cond_number = np.linalg.cond(jac_np)
+        except np.linalg.LinAlgError:
+            cond_number = np.inf
+
+        if cond_number > 1e6:
+            _q, r = np.linalg.qr(jac_np)
+            jtj = r.T @ r * scaling_factor
+        else:
+            jtj = jac_np.T @ jac_np * scaling_factor
+
         col_norms = np.linalg.norm(jac_np, axis=0) * np.sqrt(scaling_factor)
         return jtj, col_norms
     except (ValueError, RuntimeError, np.linalg.LinAlgError):

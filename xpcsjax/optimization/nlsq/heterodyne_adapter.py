@@ -207,6 +207,13 @@ def _assess_convergence(
     if not np.all(np.isfinite(fitted_params)):
         return False, "Non-finite parameters in result", "failed"
 
+    if reduced_chi2 is not None and not np.isfinite(reduced_chi2):
+        return (
+            False,
+            f"Non-finite reduced chi-squared ({reduced_chi2})",
+            "failed",
+        )
+
     if reduced_chi2 is not None and reduced_chi2 > 1e6:
         return (
             False,

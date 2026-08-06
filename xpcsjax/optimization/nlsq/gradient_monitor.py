@@ -328,27 +328,25 @@ class GradientCollapseMonitor:
             self.collapse_detected = False
 
         # Trigger collapse detection (re-arms after recovery)
-        if self.consecutive_count >= self.config.consecutive_triggers:
-            if not self.collapse_detected:
-                self.collapse_detected = True
-                event = CollapseEvent(
-                    iteration=iteration,
-                    ratio=float(ratio),
-                    physical_grad_norm=float(physical_grad_norm),
-                    per_angle_grad_norm=float(per_angle_grad_norm),
-                    response_mode=self.config.response_mode,
-                )
-                self.collapse_events.append(event)
+        ratio_collapse_triggered = self.consecutive_count >= self.config.consecutive_triggers
+        if ratio_collapse_triggered and not self.collapse_detected:
+            self.collapse_detected = True
+            event = CollapseEvent(
+                iteration=iteration,
+                ratio=float(ratio),
+                physical_grad_norm=float(physical_grad_norm),
+                per_angle_grad_norm=float(per_angle_grad_norm),
+                response_mode=self.config.response_mode,
+            )
+            self.collapse_events.append(event)
 
-                logger.warning(
-                    f"GRADIENT COLLAPSE DETECTED at iteration {iteration}! "
-                    f"ratio={ratio:.6f} (threshold={self.config.ratio_threshold})"
-                )
-                logger.warning(f"  Physical gradient norm: {physical_grad_norm:.6e}")
-                logger.warning(f"  Per-angle gradient norm: {per_angle_grad_norm:.6e}")
-                logger.warning(f"  Response mode: {self.config.response_mode}")
-
-            return "COLLAPSE_DETECTED"
+            logger.warning(
+                f"GRADIENT COLLAPSE DETECTED at iteration {iteration}! "
+                f"ratio={ratio:.6f} (threshold={self.config.ratio_threshold})"
+            )
+            logger.warning(f"  Physical gradient norm: {physical_grad_norm:.6e}")
+            logger.warning(f"  Per-angle gradient norm: {per_angle_grad_norm:.6e}")
+            logger.warning(f"  Response mode: {self.config.response_mode}")
 
         # NEW (Dec 2025): Check watched parameters for gradient collapse
         # This specifically monitors parameters like gamma_dot_t0 that can
@@ -392,6 +390,9 @@ class GradientCollapseMonitor:
                                 f"Watched parameter gradient low at iteration {iteration}: "
                                 f"param[{param_idx}] gradient={grad_mag:.2e}"
                             )
+
+        if ratio_collapse_triggered:
+            return "COLLAPSE_DETECTED"
 
         if self.consecutive_count > 0:
             return "WARNING"

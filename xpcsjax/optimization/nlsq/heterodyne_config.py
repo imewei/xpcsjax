@@ -1166,7 +1166,7 @@ class NLSQConfig:
             # the ``cmaes_max_iterations`` footgun, where ``max_generations:
             # null`` reached nlsq as ``max_generations=0``. Nullable kinds
             # (``*_or_none`` / ``passthrough``) handle ``None`` themselves below.
-            if raw is None and kind in ("int", "float"):
+            if raw is None and kind in ("int", "float", "bool", "str"):
                 continue  # use dataclass default
 
             if kind == "float":

@@ -267,8 +267,12 @@ def far_lag_noise_variance(c2_data: np.ndarray) -> float:
     For large lag ``|t1 - t2|`` the correlation has fully decayed to its
     baseline, so the residual scatter there is dominated by measurement noise
     rather than dynamics. The variance of those far-lag values is therefore a
-    data-driven estimate of ``σ²_noise``. Pools the far-lag entries across all
-    angles when ``c2_data`` is 3-D ``(n_phi, n_time, n_time)``.
+    data-driven estimate of ``σ²_noise``. When ``c2_data`` is 3-D
+    ``(n_phi, n_time, n_time)`` the variance is computed per angle and then
+    averaged, rather than pooling far-lag values across angles — contrast and
+    offset are fit per-angle, so different angles legitimately sit at
+    different baseline levels, and pooling before ``np.var()`` would measure
+    noise plus between-angle-offset spread instead of noise alone.
 
     Mirrors the per-angle estimate in
     :func:`heterodyne_core._compute_per_angle_chi2` so the single-angle and
@@ -278,8 +282,8 @@ def far_lag_noise_variance(c2_data: np.ndarray) -> float:
     ----------
     c2_data
         Per-angle C2 matrix ``(n_time, n_time)`` or batched
-        ``(n_phi, n_time, n_time)``. Far-lag entries are pooled across angles
-        in the batched case.
+        ``(n_phi, n_time, n_time)``. In the batched case, the variance is
+        computed per angle and averaged.
 
     Returns
     -------
@@ -295,7 +299,21 @@ def far_lag_noise_variance(c2_data: np.ndarray) -> float:
     row_idx = np.arange(n_time)
     lag_mat = np.abs(row_idx[:, None] - row_idx[None, :])
     far_mask = lag_mat >= n_time // 2
-    far_vals = c2_np[..., far_mask].ravel()
+
+    if c2_np.ndim == 3:
+        # Per-angle variance, then average — pooling far-lag values across
+        # angles before np.var() would conflate between-angle baseline
+        # (offset) differences with photon noise, since contrast/offset are
+        # fit per-angle. Matches heterodyne_core._compute_per_angle_chi2's
+        # single-angle convention applied angle-by-angle.
+        per_angle_vars = [
+            float(np.var(c2_np[k][far_mask]))
+            for k in range(c2_np.shape[0])
+            if c2_np[k][far_mask].size > 1
+        ]
+        return float(np.mean(per_angle_vars)) if per_angle_vars else 0.0
+
+    far_vals = c2_np[far_mask].ravel()
     return float(np.var(far_vals)) if far_vals.size > 1 else 0.0
 
 

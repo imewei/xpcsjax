@@ -41,7 +41,13 @@ def _effective_param_count_for_ooc(
     per_angle_mode = ad_config.get("per_angle_mode", "auto")
     threshold = int(ad_config.get("constant_scaling_threshold", 3))
 
-    if per_angle_mode == "constant":
+    # Only treat "constant" as frozen-scaling when the caller actually passed
+    # a reduced (physics-only) parameter vector. The OOC L-M loop has no
+    # per-angle-mode reduction mechanism of its own (unlike stratified_ls.py's
+    # fixed-scaling path or hybrid_streaming's "constant" mode) -- it always
+    # optimizes the full vector it was given -- so collapsing to n_physical
+    # here when n_params is still the full length would understate DOF.
+    if per_angle_mode == "constant" and n_params == n_physical:
         return n_physical
     # Explicit "averaged" is a first-class token equivalent to resolved-auto-
     # averaged (mirrors anti_degeneracy_controller / hybrid_streaming).
@@ -240,9 +246,15 @@ def fit_with_out_of_core_accumulation(
     )
     max_iter = cfg_dict.get("optimization", {}).get("max_iterations", 50)
 
-    # Convergence tolerances (multi-criteria, matching standard NLSQ)
-    xtol = 1e-6  # Relative parameter change (per-component max, not norm)
-    ftol = 1e-6  # Relative cost function change
+    # Convergence tolerances (multi-criteria, matching standard NLSQ). Read
+    # from the same optimization.nlsq block the sibling stratified_ls.py path
+    # uses, so a user-configured xtol/ftol isn't silently discarded whenever
+    # a fit routes to OUT_OF_CORE instead of STANDARD/CHUNKED.
+    nlsq_cfg = cfg_dict.get("optimization", {}).get("nlsq", {})
+    # Relative parameter change (per-component max, not norm)
+    xtol = float(nlsq_cfg.get("xtol", 1e-8))
+    # Relative cost function change
+    ftol = float(nlsq_cfg.get("ftol", nlsq_cfg.get("tolerance", 1e-8)))
     lm_lambda = 0.01  # Initial damping
     rel_change = float("inf")  # Initialize to prevent NameError at loop exit
     cost_change = float("inf")  # Initialize for multi-criteria convergence

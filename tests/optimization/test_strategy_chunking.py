@@ -129,6 +129,18 @@ def test_adaptive_chunk_size_zero_angles() -> None:
     assert 10_000 <= size <= 500_000
 
 
+def test_adaptive_chunk_size_docstring_scenario_pinned() -> None:
+    # Pins the function's own worked-example scenario (23M points, 53 params,
+    # 23 angles, 62.8 GB available) to its actual output: with the default
+    # safety_factor=5.0, the memory-derived bound (~22.3M points) is far above
+    # max_chunk_size, so the result clamps to the 500,000 ceiling. See the
+    # docstring's Examples section for the same value.
+    size = ck.calculate_adaptive_chunk_size(
+        total_points=23_046_023, n_params=53, n_angles=23, available_memory_gb=62.8
+    )
+    assert size == 500_000
+
+
 # ---------------------------------------------------------------------------
 # create_angle_stratified_data / _indices — conservation invariants
 # ---------------------------------------------------------------------------

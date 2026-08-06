@@ -497,7 +497,9 @@ def calculate_adaptive_chunk_size(
 
     Examples
     --------
-    >>> # 23M points, 53 parameters, 23 angles, 62GB system
+    >>> # 23M points, 53 parameters, 23 angles, 62GB system.
+    >>> # The memory-derived bound (~22.3M points) is far above max_chunk_size
+    >>> # here, so the result clamps to the ceiling, same as the second example.
     >>> chunk_size = calculate_adaptive_chunk_size(
     ...     total_points=23_046_023,
     ...     n_params=53,
@@ -505,7 +507,7 @@ def calculate_adaptive_chunk_size(
     ...     available_memory_gb=62.8
     ... )
     >>> print(f"Optimal chunk size: {chunk_size:,}")
-    Optimal chunk size: 23,000
+    Optimal chunk size: 500,000  # Clamped to max
     >>>
     >>> # Small dataset, few parameters
     >>> chunk_size = calculate_adaptive_chunk_size(

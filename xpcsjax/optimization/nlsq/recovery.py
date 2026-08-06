@@ -523,7 +523,7 @@ def diagnose_error(
             "new_params": new_params,
         }
 
-    elif "nan" in error_str or "inf" in error_str:
+    elif "nan" in error_str or "inf" in error_str or "not finite" in error_str:
         diagnostic["error_type"] = "numerical_instability"
         diagnostic["suggestions"] = [
             "Check for extreme parameter values",
@@ -533,12 +533,12 @@ def diagnose_error(
         ]
         if bounds is not None:
             lower, upper = bounds
-            new_params = np.sqrt(np.abs(lower * upper))
-            new_params = np.clip(new_params, lower, upper)
+            range_width = upper - lower
+            new_params = lower + 0.5 * range_width
         else:
             new_params = np.ones_like(params) * 0.5
         diagnostic["recovery_strategy"] = {
-            "action": "reset_to_geometric_mean_of_bounds",
+            "action": "reset_to_bounds_center",
             "new_params": new_params,
         }
 
