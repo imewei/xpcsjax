@@ -213,8 +213,26 @@ def _config_summary(config_manager: ConfigManager | None) -> dict[str, Any]:
     return summary
 
 
-def _resolve_parameter_names(config_manager: ConfigManager | None) -> list[str] | None:
-    """Pull parameter names from the ConfigManager when available."""
+def _resolve_parameter_names(
+    config_manager: ConfigManager | None,
+    result: OptimizationResult | None = None,
+) -> list[str] | None:
+    """Pull parameter names for labeling the fitted parameter vector.
+
+    Prefers ``result.nlsq_diagnostics["parameter_names"]`` -- the optimizer's
+    own label list, which includes per-angle scaling (contrast/offset) in the
+    exact order of ``result.parameters``. Falls back to
+    ``ConfigManager.get_active_parameters()``, which returns *physics-only*
+    names by design (it explicitly excludes scaling parameters) and therefore
+    undercounts -- and triggers the length-mismatch warning -- on every fit
+    that carries per-angle scaling.
+    """
+    if result is not None:
+        diagnostics = result.nlsq_diagnostics or {}
+        if isinstance(diagnostics, dict):
+            cand = diagnostics.get("parameter_names")
+            if isinstance(cand, (list, tuple)) and cand:
+                return [str(n) for n in cand]
     if config_manager is None:
         return None
     if hasattr(config_manager, "get_active_parameters"):
@@ -266,7 +284,7 @@ def save_results_json(
         Path to the written JSON file.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-    parameter_names = _resolve_parameter_names(config_manager)
+    parameter_names = _resolve_parameter_names(config_manager, result)
 
     payload: dict[str, Any] = {
         "schema": "xpcsjax.nlsq.result/v1",
@@ -318,7 +336,7 @@ def save_results_npz(
         Path to the written NPZ file.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-    parameter_names = _resolve_parameter_names(config_manager)
+    parameter_names = _resolve_parameter_names(config_manager, result)
 
     params = np.asarray(result.parameters, dtype=np.float64)
     n_params = params.size

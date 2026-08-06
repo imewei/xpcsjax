@@ -490,20 +490,30 @@ def _configure_jax_cpu(
         # JAX_PLATFORMS check above, these CPU-specific flags (oneDNN,
         # AVX-512 fast-math) are NOT pre-set by __init__.py, so this warning
         # reflects a real loss of optimization, not just redundant work.
+        existing_flags = os.environ.get("XLA_FLAGS", "")
+        missing_flags = [f for f in xla_flags if f.split("=")[0] not in existing_flags]
         if backend_live:
-            logger.warning(
-                "JAX backend already initialized; CPU XLA flags %s cannot take "
-                "effect (XLA_FLAGS is read once, at init). Set them before "
-                "importing xpcsjax/JAX. Skipping env mutation.",
-                xla_flags,
-            )
-            jax_config["xla_flags_applied"] = False
+            # Only warn about flags that genuinely aren't already in effect.
+            # xpcsjax/__init__.py pre-sets the always-applicable CPU flags
+            # (e.g. xla_cpu_multi_thread_eigen) before the first JAX import,
+            # so a redundant call here -- backend already live, but the
+            # requested flags already match -- is harmless, not a lost
+            # optimization. Only the CPU-model-dependent extras (AVX-512
+            # fast-math, oneDNN), which can't be known until this runtime
+            # probe runs, can actually still be missing at this point.
+            if missing_flags:
+                logger.warning(
+                    "JAX backend already initialized; CPU XLA flags %s cannot take "
+                    "effect (XLA_FLAGS is read once, at init). Set them before "
+                    "importing xpcsjax/JAX. Skipping env mutation.",
+                    missing_flags,
+                )
+                jax_config["xla_flags_applied"] = False
+            else:
+                jax_config["xla_flags_applied"] = True
         else:
-            existing_flags = os.environ.get("XLA_FLAGS", "")
-            for flag in xla_flags:
-                flag_name = flag.split("=")[0]
-                if flag_name not in existing_flags:
-                    existing_flags = existing_flags + " " + flag
+            for flag in missing_flags:
+                existing_flags = existing_flags + " " + flag
             os.environ["XLA_FLAGS"] = existing_flags.strip()
             jax_config["xla_flags_applied"] = True
 

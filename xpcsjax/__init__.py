@@ -66,6 +66,13 @@ _WORKER_COUNT = _detect_worker_count()
 _DEFAULT_XLA_FLAGS = [
     f"--xla_force_host_platform_device_count={_xla_host_device_count(_WORKER_COUNT)}",
     "--xla_disable_hlo_passes=constant_folding",
+    # Always-applicable (no CPU-model detection needed); the CPU-specific
+    # extras (AVX-512 fast-math, oneDNN) still come from
+    # device.cpu.configure_cpu_hpc() at fit time, best-effort only, since
+    # they need a runtime CPU probe. This one is set here -- not there --
+    # because device.cpu's call site runs after xpcsjax/JAX is already
+    # imported, which is always too late for XLA_FLAGS to take effect.
+    "--xla_cpu_multi_thread_eigen=true",
 ]
 
 # JAX must be in float64 for parameters spanning 6+ orders of magnitude.
