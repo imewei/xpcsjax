@@ -1175,7 +1175,12 @@ class XPCSDataLoader:
         # unless preprocessing's CORRECT_DIAGONAL stage already corrected it.
         data = _maybe_apply_mandatory_diagonal_correction(data, self._correct_diagonal_batch)
 
-        # Final quality control validation
+        # Final quality control validation. Initialized to None (not implicitly
+        # assumed-set) so the `_degraded` check below never risks an
+        # UnboundLocalError if this variable's use ever drifts out of sync
+        # with the `if quality_controller:` guard that populates it
+        # (CodeQL py/uninitialized-local-variable).
+        final_validation_result: Any | None = None
         if quality_controller:
             final_validation_result = quality_controller.validate_data_stage(
                 data,
@@ -1238,7 +1243,7 @@ class XPCSDataLoader:
         data["_degraded"] = (
             bool(self.load_degradations)
             or bool(data.get("_preprocessing_degraded", False))
-            or (bool(quality_controller) and not final_validation_result.passed)
+            or (final_validation_result is not None and not final_validation_result.passed)
         )
 
         return data
