@@ -55,3 +55,20 @@ def test_context_manager_closes_on_exit():
         assert monitoring_thread.is_alive()
 
     assert not monitoring_thread.is_alive()
+
+
+def test_close_calls_memory_manager_shutdown():
+    """The memory_manager.shutdown() branch — untested when every other
+    test in this file sets memory_manager=None.
+    """
+    from unittest.mock import MagicMock
+
+    loader = _bare_loader()
+    loader.performance_engine = None
+    mm = MagicMock()
+    loader.memory_manager = mm
+
+    loader.close()
+
+    mm.shutdown.assert_called_once()
+    assert loader.memory_manager is None

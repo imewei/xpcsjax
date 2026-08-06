@@ -252,6 +252,36 @@ def test_configure_creates_rotating_file_handler(tmp_path: Path) -> None:
     assert logging.getLogger("somemod").level == logging.ERROR
 
 
+def test_configure_from_dict_null_file_values_use_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Present-but-null path/max_size_mb/backup_count must fall back to
+    defaults, not crash.
+
+    `.get(k, default)` only substitutes on a MISSING key; a YAML `file:`
+    block with explicit `null` values for these three previously crashed
+    (Path(None) TypeError, int(None) TypeError).
+    """
+    mgr = lm.MinimalLogger()
+    captured: dict = {}
+    monkeypatch.setattr(mgr, "configure", lambda **kw: captured.update(kw) or None)
+
+    mgr.configure_from_dict(
+        {
+            "file": {
+                "enabled": True,
+                "path": None,
+                "max_size_mb": None,
+                "backup_count": None,
+            }
+        }
+    )
+
+    assert captured["max_size_mb"] == 10
+    assert captured["backup_count"] == 5
+    assert captured["file_path"] is not None
+
+
 def test_configure_disables_propagation_when_handler_installed(tmp_path: Path) -> None:
     # When xpcsjax owns a handler, propagation to the root logger must be off,
     # so third-party root handlers (e.g. nlsq's import-time basicConfig) don't

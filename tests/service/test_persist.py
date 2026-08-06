@@ -45,6 +45,26 @@ def test_save_results_rejects_bad_format(tmp_path):
         save_results(MagicMock(spec=OptimizationResult), tmp_path, "xml", None, None)
 
 
+def test_extract_parameters_handles_zero_dim_result():
+    """A 0-D result.parameters (__post_init__ permits it) must not IndexError.
+
+    _extract_parameters used params.shape[0], which raises IndexError on a
+    0-D array; .ravel().size (matching the uncertainties handling) fixes it.
+    """
+    from unittest.mock import MagicMock
+
+    import numpy as np
+
+    from xpcsjax.service.persist import _extract_parameters
+
+    result = MagicMock()
+    result.parameters = np.array(3.0)  # 0-D
+    result.uncertainties = None
+
+    out = _extract_parameters(result, parameter_names=None)
+    assert out == {"param_0": {"value": 3.0, "uncertainty": None}}
+
+
 def test_json_safe_handles_zero_dim_ndarray():
     """0-D numpy arrays (scalar arrays) must coerce, not crash.
 

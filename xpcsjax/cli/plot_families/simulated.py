@@ -37,10 +37,10 @@ def resolve_phi_angles_for_sim(
     """Parse the ``--phi-angles`` CLI option, falling back to data angles."""
     if phi_angles_str:
         try:
-            return np.array(
-                [float(x.strip()) for x in phi_angles_str.split(",") if x.strip()],
-                dtype=np.float64,
-            )
+            vals = [float(x.strip()) for x in phi_angles_str.split(",") if x.strip()]
+            if not vals:
+                raise ValueError("no numeric values found")
+            return np.array(vals, dtype=np.float64)
         except ValueError:
             logger.warning("Could not parse --phi-angles %r; using data angles", phi_angles_str)
     if data is not None and "phi_angles_list" in data:
@@ -241,7 +241,7 @@ def _evaluate_model_c2(
     * ``HeterodyneModel`` (mode two_component) has NO ``compute_g2``; its
       ``compute_g1(params, t1, t2, phi, q, L, dt)`` returns a NORMALIZED
       surface (the kernel is called with ``contrast=1.0, offset=0.0`` —
-      see heterodyne_model.py:151), so this function applies
+      see heterodyne_model.py:195-217), so this function applies
       ``offset + contrast*g1^2`` itself for that branch.
 
     Either way the return is a fully-scaled c2 surface.
@@ -249,7 +249,7 @@ def _evaluate_model_c2(
     Parity note: this mirrors ``xpcsjax.viz.nlsq_plots`` model dispatch.
     ``CombinedModel.compute_g2`` applies ``offset + contrast*g1^2``
     internally, but ``HeterodyneModel.compute_g1`` calls the kernel with
-    ``contrast=1.0, offset=0.0`` (heterodyne_model.py:151), returning a
+    ``contrast=1.0, offset=0.0`` (heterodyne_model.py:195-217), returning a
     NORMALIZED surface — so this branch must apply the scaling itself, the
     same way ``viz.nlsq_plots`` does at its HeterodyneModel branch.
     """

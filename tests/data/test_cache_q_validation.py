@@ -9,6 +9,8 @@ refusal.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from xpcsjax.data.xpcs_loader import XPCSDataFormatError, XPCSDataLoader
@@ -55,8 +57,10 @@ def test_matching_dt_is_accepted():
     )
 
 
-def test_missing_dt_metadata_warns_not_raises():
+def test_missing_dt_metadata_warns_not_raises(caplog: pytest.LogCaptureFixture):
     """Pre-existing caches without dt fingerprinting must still load (warn-only)."""
     loader = _loader_with_q(0.05)
     loader.analyzer_config["dt"] = 0.1
-    loader._validate_cache_q_vector({"config_wavevector_q": 0.05, "selective_q_caching": True})
+    with caplog.at_level(logging.WARNING):
+        loader._validate_cache_q_vector({"config_wavevector_q": 0.05, "selective_q_caching": True})
+    assert "predates dt fingerprinting" in caplog.text

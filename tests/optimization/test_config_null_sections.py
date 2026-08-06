@@ -104,3 +104,17 @@ def test_extract_nlsq_settings_survives_null_sections(extractor_cls_path):
 
     assert extractor_cls._extract_nlsq_settings({"optimization": None}) == {}
     assert extractor_cls._extract_nlsq_settings({"optimization": {"nlsq": None}}) == {}
+
+
+def test_nlsq_config_from_yaml_survives_null_optimization_section(tmp_path):
+    """A bare `optimization:` header (null body) must not crash from_yaml.
+
+    optimization.get("nlsq", {}) crashes when `optimization:` itself is
+    null; config.py:658 previously had no `or {}` guard at all.
+    """
+    yaml_path = tmp_path / "null_optimization.yaml"
+    yaml_path.write_text("optimization:\n")
+
+    cfg = NLSQConfig.from_yaml(str(yaml_path))
+
+    assert isinstance(cfg, NLSQConfig)

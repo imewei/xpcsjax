@@ -347,7 +347,7 @@ def fit_nlsq_jax(
     if not _skip_global_selection:
         # Handle both ConfigManager objects and plain dicts
         config_dict: dict[str, Any] = config.config if hasattr(config, "config") else config  # type: ignore[assignment]
-        nlsq_dict = (config_dict.get("optimization") or {}).get("nlsq", {})
+        nlsq_dict = (config_dict.get("optimization") or {}).get("nlsq") or {}
 
         # CMA-ES has highest priority (for multi-scale problems)
         cmaes_dict = nlsq_dict.get("cmaes", {})
@@ -939,7 +939,7 @@ def _extract_shear_transform_config(
     if not config_dict:
         return {}
 
-    return (config_dict.get("optimization") or {}).get("nlsq", {}).get("shear_transforms", {})
+    return ((config_dict.get("optimization") or {}).get("nlsq") or {}).get("shear_transforms", {})
 
 
 def _load_initial_params_from_config(
@@ -1479,7 +1479,7 @@ def fit_nlsq_multistart(
         raise ImportError("NLSQWrapper is required for multi-start optimization")
 
     # Extract multi-start config
-    nlsq_dict = (config.config.get("optimization") or {}).get("nlsq", {})
+    nlsq_dict = (config.config.get("optimization") or {}).get("nlsq") or {}
     multi_start_dict = nlsq_dict.get("multi_start", {})
 
     if not multi_start_dict.get("enable", False):
@@ -1693,7 +1693,7 @@ def fit_nlsq_cmaes(
         )
 
     # Extract CMA-ES config
-    nlsq_dict = (config.config.get("optimization") or {}).get("nlsq", {})
+    nlsq_dict = (config.config.get("optimization") or {}).get("nlsq") or {}
     cmaes_dict = nlsq_dict.get("cmaes", {})
 
     if not cmaes_dict.get("enable", False):

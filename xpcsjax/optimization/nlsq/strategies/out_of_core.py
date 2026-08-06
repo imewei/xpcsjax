@@ -238,7 +238,7 @@ def fit_with_out_of_core_accumulation(
         f"Full Physics Setup: n_phi={n_phi}, n_t1={n_t1}, n_t2={n_t2}, "
         f"q={q_val:.4e}, L={L_val:.4e}, dt={dt_val:.4e}"
     )
-    max_iter = cfg_dict.get("optimization", {}).get("max_iterations", 50)
+    max_iter = (cfg_dict.get("optimization") or {}).get("max_iterations", 50)
 
     # Convergence tolerances (multi-criteria, matching standard NLSQ)
     xtol = 1e-6  # Relative parameter change (per-component max, not norm)

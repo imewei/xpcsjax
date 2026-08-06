@@ -114,7 +114,10 @@ def test_peek_npz_array_header_matches_full_read(tmp_path: Path):
         shape, dtype = _peek_npz_array_header(data, "c2_exp")
         assert shape == (3, 8, 8)
         assert dtype == np.dtype(np.float64)
-        # The peek must not have materialized the array under the hood.
+        # Sanity-check the peek agrees with a real read. Non-materialization
+        # itself is exercised by test_oversized_cached_shape_rejected_before_
+        # materialization below (a shape that would OOM on a full read is
+        # rejected via the header alone).
         assert data["c2_exp"].shape == shape
 
 

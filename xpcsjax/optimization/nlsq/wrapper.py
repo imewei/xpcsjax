@@ -960,7 +960,7 @@ class NLSQWrapper(NLSQAdapterBase):
             # Extract anti-degeneracy config (will warn that it's not supported for out-of-core)
             ooc_anti_degeneracy_config = None
             if config is not None and hasattr(config, "config"):
-                ooc_nlsq_config = (config.config.get("optimization") or {}).get("nlsq", {})
+                ooc_nlsq_config = (config.config.get("optimization") or {}).get("nlsq") or {}
                 ooc_anti_degeneracy_config = ooc_nlsq_config.get("anti_degeneracy", {})
 
             popt, pcov, info = self._fit_with_out_of_core_accumulation(
@@ -987,10 +987,8 @@ class NLSQWrapper(NLSQAdapterBase):
                     resolve_per_angle_mode as _resolve_pam,
                 )
 
-                _ooc_init_ad = (
-                    (config.config.get("optimization") or {})
-                    .get("nlsq", {})
-                    .get("anti_degeneracy", {})
+                _ooc_init_ad = ((config.config.get("optimization") or {}).get("nlsq") or {}).get(
+                    "anti_degeneracy", {}
                 )
                 _ooc_init_mode = _ooc_init_ad.get("per_angle_mode", "auto")
                 _ooc_init_thresh = _ooc_init_ad.get("constant_scaling_threshold", 3)
@@ -1207,7 +1205,7 @@ class NLSQWrapper(NLSQAdapterBase):
             effective_n_params = actual_n_params  # Default: no reduction
 
             if per_angle_scaling and config is not None and hasattr(config, "config"):
-                nlsq_cfg = (config.config.get("optimization") or {}).get("nlsq", {})
+                nlsq_cfg = (config.config.get("optimization") or {}).get("nlsq") or {}
                 ad_cfg = nlsq_cfg.get("anti_degeneracy", {})
                 n_angles_check = len(np.unique(stratified_data.phi_flat))
                 # Static-pinned resolver owner (spec Seam 1): same numeric outcome
@@ -1265,7 +1263,9 @@ class NLSQWrapper(NLSQAdapterBase):
                 # Extract anti-degeneracy config (will warn that it's not supported for out-of-core)
                 recheck_anti_degeneracy_config = None
                 if config is not None and hasattr(config, "config"):
-                    recheck_nlsq_config = (config.config.get("optimization") or {}).get("nlsq", {})
+                    recheck_nlsq_config = (config.config.get("optimization") or {}).get(
+                        "nlsq"
+                    ) or {}
                     recheck_anti_degeneracy_config = recheck_nlsq_config.get("anti_degeneracy", {})
 
                 popt, pcov, info = self._fit_with_out_of_core_accumulation(
@@ -1288,10 +1288,8 @@ class NLSQWrapper(NLSQAdapterBase):
                 # DOF is 2*n_phi + n_physical (one contrast+offset per angle).
                 _ooc_n_params_effective: int | None = None
                 if per_angle_scaling and config is not None and hasattr(config, "config"):
-                    _ooc_ad = (
-                        (config.config.get("optimization") or {})
-                        .get("nlsq", {})
-                        .get("anti_degeneracy", {})
+                    _ooc_ad = ((config.config.get("optimization") or {}).get("nlsq") or {}).get(
+                        "anti_degeneracy", {}
                     )
                     from xpcsjax.optimization.nlsq.per_angle_mode import (
                         effective_constrained_dof as _eff_dof,
@@ -1379,7 +1377,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 target_chunk_size = strat_config.get("target_chunk_size", 100_000)
 
                 # Extract streaming configuration
-                nlsq_config = (config.config.get("optimization") or {}).get("nlsq", {})
+                nlsq_config = (config.config.get("optimization") or {}).get("nlsq") or {}
                 hybrid_streaming_config = nlsq_config.get("hybrid_streaming", {})
 
                 # Support for explicit memory_threshold_gb (backwards compatible)
@@ -1412,7 +1410,7 @@ class NLSQWrapper(NLSQAdapterBase):
             # Check for forced streaming mode from config
             # Also set from strategy_recheck if it returned HYBRID_STREAMING
             if config is not None and hasattr(config, "config"):
-                nlsq_config = (config.config.get("optimization") or {}).get("nlsq", {})
+                nlsq_config = (config.config.get("optimization") or {}).get("nlsq") or {}
                 use_streaming_mode = nlsq_config.get("use_streaming", False)
 
             # Set streaming mode if strategy_recheck returned HYBRID_STREAMING (extreme scale)
@@ -1560,7 +1558,7 @@ class NLSQWrapper(NLSQAdapterBase):
             nlsq_config_dict = None
             anti_degeneracy_config = None
             if config is not None and hasattr(config, "config"):
-                nlsq_config_dict = (config.config.get("optimization") or {}).get("nlsq", {})
+                nlsq_config_dict = (config.config.get("optimization") or {}).get("nlsq") or {}
                 anti_degeneracy_config = nlsq_config_dict.get("anti_degeneracy", {})
                 if anti_degeneracy_config:
                     logger.info(
@@ -1773,10 +1771,8 @@ class NLSQWrapper(NLSQAdapterBase):
         if per_angle_scaling and analysis_mode == AnalysisMode.LAMINAR_FLOW and n_phi_unique >= 1:
             _ad_cfg6: dict[str, Any] = {}
             if config is not None and hasattr(config, "config"):
-                _ad_cfg6 = (
-                    (config.config.get("optimization") or {})
-                    .get("nlsq", {})
-                    .get("anti_degeneracy", {})
+                _ad_cfg6 = ((config.config.get("optimization") or {}).get("nlsq") or {}).get(
+                    "anti_degeneracy", {}
                 )
             _mode_token = _ad_cfg6.get("per_angle_mode", "auto")
             _thresh = _ad_cfg6.get("constant_scaling_threshold", DEFAULT_CONSTANT_SCALING_THRESHOLD)
@@ -2755,7 +2751,7 @@ class NLSQWrapper(NLSQAdapterBase):
         # Extract stratification configuration with defaults
         strat_config = {}
         if config is not None and hasattr(config, "config"):
-            opt_config = config.config.get("optimization", {})
+            opt_config = config.config.get("optimization") or {}
             strat_config = opt_config.get("stratification", {})
 
         # Configuration defaults (matching YAML template)
@@ -3463,8 +3459,8 @@ class NLSQWrapper(NLSQAdapterBase):
             return residuals
 
         # Get optimizer configuration
-        opt_config = config.config.get("optimization", {})
-        nlsq_config = opt_config.get("nlsq", {})
+        opt_config = config.config.get("optimization") or {}
+        nlsq_config = opt_config.get("nlsq") or {}
 
         # Sequential-specific config. Default raised 0.5 -> 0.8 (CR-6): at 0.5,
         # up to half the angles could be unconverged while the overall result was
