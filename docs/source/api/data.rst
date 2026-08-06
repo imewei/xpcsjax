@@ -18,6 +18,11 @@ Loader class
 ------------
 
 .. autoclass:: xpcsjax.data.xpcs_loader.XPCSDataLoader
+   :members: close, __enter__, __exit__
+
+The loader implements context-manager support for automatic cleanup of the
+performance engine and memory manager. See the *Direct loader instantiation*
+section in :doc:`/user_guide/data_loading` for usage examples.
 
 
 
