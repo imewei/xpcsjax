@@ -4,10 +4,13 @@ on:
     branches: [main]
   pull_request:
 
-# Cancel superseded runs on the same ref to save runner minutes.
+# Cancel superseded runs ONLY on pull_request pushes (where a force-push
+# always invalidates the prior run). On main-push, keep all runs to completion
+# so a transient runner-cancellation cannot silently mark the run as failed
+# for code that already passed in a previous job.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -43,6 +46,13 @@ jobs:
     name: Test (${{ matrix.os }}, py${{ matrix.python-version }})
     needs: lint
     runs-on: ${{ matrix.os }}
+    # Per-job hard cap. GitHub-hosted runners default to 360 min; observed
+    # matrix-job durations range 23-41 min on a healthy run, so 120 leaves
+    # headroom for the runner-cancel retry below (~2x worst-case healthy run).
+    # An explicit cap turns any GitHub-side cancellation into a deterministic
+    # timeout instead of an opaque "The operation was canceled." with no test
+    # outcome.
+    timeout-minutes: 120
     # py3.14 is informational: jax/PySide6 wheels may not yet exist for a
     # freshly-released interpreter, so a 3.14 failure must not fail the run.
     # Drop this and the 3.14 matrix entry once 3.14 is a supported target.
@@ -75,6 +85,7 @@ jobs:
       - name: Sync deps
         run: uv sync --extra dev --python ${{ matrix.python-version }}
       - name: Test
+        id: test
         env:
           JAX_ENABLE_X64: "1"
           QT_QPA_PLATFORM: offscreen
@@ -83,4 +94,16 @@ jobs:
           # maintainer-local absolute paths (/home/.../Projects/data/...), so it
           # only runs on a maintainer machine and self-skips in CI by design.
           # The portable heterodyne parity + cross-mode suites run unconditionally.
+        run: uv run pytest -v
+      # Retry the entire Test step once if the runner-side cancellation was
+      # the cause. CI infra occasionally cancels jobs in-flight with no test
+      # failure (e.g. host rebalance, runner-pool churn) — observed on
+      # commit c8aba82 where 4 of 9 matrix jobs were externally cancelled
+      # mid-test with all assertions passing. Re-running on `cancelled` only
+      # is conservative: real test failures still fail-fast.
+      - name: Retry Test on runner-cancel flake
+        if: steps.test.conclusion == 'cancelled'
+        env:
+          JAX_ENABLE_X64: "1"
+          QT_QPA_PLATFORM: offscreen
         run: uv run pytest -v
