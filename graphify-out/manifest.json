@@ -800,9 +800,9 @@
     "semantic_hash": "c474f51c3e99fad67e5283ec922dba18"
   },
   "xpcsjax/__init__.py": {
-    "mtime": 1785083336.319959,
-    "ast_hash": "068727013fcef022f804b15e48a4e07c",
-    "semantic_hash": "068727013fcef022f804b15e48a4e07c"
+    "mtime": 1786022653.5496445,
+    "ast_hash": "c3fbd6c7ad51901fe5c8263cfb2b0818",
+    "semantic_hash": ""
   },
   "xpcsjax/uninstall_scripts.py": {
     "mtime": 1782075837.1894038,
@@ -820,8 +820,8 @@
     "semantic_hash": "dde29e6697b27b7146b6a4e78081b031"
   },
   "xpcsjax/device/cpu.py": {
-    "mtime": 1786012060.0505846,
-    "ast_hash": "7504b7faea61fd8f6290d26fab7d1be4",
+    "mtime": 1786022653.5506444,
+    "ast_hash": "1c862b37f0d7c00472a1c96d30724983",
     "semantic_hash": ""
   },
   "xpcsjax/utils/logging.py": {
@@ -1510,9 +1510,9 @@
     "semantic_hash": ""
   },
   "docs/source/changelog.rst": {
-    "mtime": 1785312267.977209,
-    "ast_hash": "8bc76f9ce05339149661cf94f33d2561",
-    "semantic_hash": "8bc76f9ce05339149661cf94f33d2561"
+    "mtime": 1786030429.9994218,
+    "ast_hash": "31e0b05f8531b647509bf9548af7b188",
+    "semantic_hash": ""
   },
   "docs/source/index.rst": {
     "mtime": 1782173647.4144678,
@@ -1780,7 +1780,7 @@
     "semantic_hash": ""
   },
   "xpcsjax/config/templates/xpcsjax_two_component.yaml": {
-    "mtime": 1786018321.3040247,
+    "mtime": 1786031408.4878583,
     "ast_hash": "e65aec7736eae196a9c3fb9b53bb1676",
     "semantic_hash": ""
   },
@@ -2275,9 +2275,9 @@
     "semantic_hash": "d34634f8950154b260978e75436a2e12"
   },
   "tests/service/test_persist.py": {
-    "mtime": 1785988553.3948746,
-    "ast_hash": "f7b8b462221dcdce2f705c01d17c8ba2",
-    "semantic_hash": "f7b8b462221dcdce2f705c01d17c8ba2"
+    "mtime": 1786022653.5486443,
+    "ast_hash": "51e1dd097d355fa955a52d447e6e12f3",
+    "semantic_hash": ""
   },
   "tests/service/test_plots_service.py": {
     "mtime": 1781913729.6525755,
@@ -2450,9 +2450,9 @@
     "semantic_hash": "f311f7e545ff98a7f4572f4eb9acde16"
   },
   "xpcsjax/service/persist.py": {
-    "mtime": 1785988553.4008746,
-    "ast_hash": "f4ad8c145158783d1f62c3cc7b7cfafb",
-    "semantic_hash": "f4ad8c145158783d1f62c3cc7b7cfafb"
+    "mtime": 1786022653.5506444,
+    "ast_hash": "fece8ea2059cdeab26b6f02d1275d988",
+    "semantic_hash": ""
   },
   "xpcsjax/service/plots.py": {
     "mtime": 1782090027.6820831,
@@ -2830,8 +2830,8 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "tests/device/test_cpu_config.py": {
-    "mtime": 1786012060.045585,
-    "ast_hash": "84737b1e4bda21b386b9345b6821b2b0",
+    "mtime": 1786022653.5406442,
+    "ast_hash": "dc54a460b69f91685fe2437cfc96c783",
     "semantic_hash": ""
   },
   "tests/gui/test_click_path_fixes.py": {
