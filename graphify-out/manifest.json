@@ -895,8 +895,8 @@
     "semantic_hash": "319a34c9f512f366559588b470100c11"
   },
   "xpcsjax/optimization/nlsq/heterodyne_stratified_ls.py": {
-    "mtime": 1786012060.0525846,
-    "ast_hash": "3c27a8a421a792645aee0e832e792b63",
+    "mtime": 1786242820.4366834,
+    "ast_hash": "2d04576b39369160dbf1ffc7ec0bea21",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/transforms.py": {
@@ -995,9 +995,9 @@
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/gradient_diagnostics.py": {
-    "mtime": 1784780835.3850176,
-    "ast_hash": "613a820f7ba704206edec82ba76bac32",
-    "semantic_hash": "613a820f7ba704206edec82ba76bac32"
+    "mtime": 1786242730.9935439,
+    "ast_hash": "34ecbf7b10516d87d975c1c7d7978e90",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/results.py": {
     "mtime": 1785209581.476835,
@@ -1035,8 +1035,8 @@
     "semantic_hash": "1d02c976f036ebc88f447e593a1add6f"
   },
   "xpcsjax/optimization/nlsq/heterodyne_core.py": {
-    "mtime": 1786012060.0525846,
-    "ast_hash": "8ee16a75206d9d4a3eb915272218e65c",
+    "mtime": 1786242848.7874453,
+    "ast_hash": "c2759023a985cb612fd3729905d7af6a",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/result_builder.py": {
@@ -1050,8 +1050,8 @@
     "semantic_hash": "db4a5ce5d3043a6c0a2b5fba85d62960"
   },
   "xpcsjax/optimization/nlsq/wrapper.py": {
-    "mtime": 1786012060.0545845,
-    "ast_hash": "4876f5db233f69b4cf5a56c6781a5fdf",
+    "mtime": 1786242710.8957622,
+    "ast_hash": "123ea76ca8989490e161807457272c2b",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/validation.py": {
@@ -1100,9 +1100,9 @@
     "semantic_hash": "f9c12be26493a5eae204b1524d35ea8c"
   },
   "xpcsjax/optimization/nlsq/strategies/residual_jit.py": {
-    "mtime": 1785209581.477835,
-    "ast_hash": "fde4747c3e9c3b228260ffe4d8fdf655",
-    "semantic_hash": "fde4747c3e9c3b228260ffe4d8fdf655"
+    "mtime": 1786242722.5176349,
+    "ast_hash": "f86d485eac0751ccf8ff793d0d3a877c",
+    "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/strategies/executors.py": {
     "mtime": 1781721623.0828385,
@@ -1450,9 +1450,9 @@
     "semantic_hash": "b6377a990801ae0d786a044c1cd86b54"
   },
   "xpcsjax/core/math_primitives.py": {
-    "mtime": 1780671715.0411997,
-    "ast_hash": "c73c8badb788a0b18b1e8ebe8c74a1cf",
-    "semantic_hash": "c73c8badb788a0b18b1e8ebe8c74a1cf"
+    "mtime": 1786242761.252233,
+    "ast_hash": "1e28d153204948292a575335de5964e1",
+    "semantic_hash": ""
   },
   "xpcsjax/core/heterodyne_physics_utils.py": {
     "mtime": 1785471555.6389658,
