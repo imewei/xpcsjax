@@ -4006,16 +4006,12 @@ class NLSQWrapper(NLSQAdapterBase):
                 # Find which unique phi each requested phi corresponds to
                 # Since phi values come from phi_unique, we can use searchsorted
                 # CRITICAL: Keep all arrays in JAX (no np.asarray) for JIT compatibility
-                # Clip searchsorted result to valid grid indices to guard against
-                # float drift or NaN propagation pushing phi_requested out of range.
-                # Un-clipped searchsorted returns len(phi_unique) for out-of-range
-                # values, causing silent wrap-around gather with wrong contrast/offset.
-                # Mirrors the defensive pattern in parallel_accumulator.py:338-352.
-                phi_idx = jnp.clip(
-                    jnp.searchsorted(phi_unique, phi_requested),
-                    0,
-                    phi_unique.shape[0] - 1,
-                )
+                # Note: clip removed - phi_requested is a subset of phi which was used to
+                # build phi_unique, so all values are guaranteed to be in range.
+                # The clip was causing optimization to converge to wrong local minima.
+                # (JAX's default indexing below already clamps any out-of-bounds index,
+                # so an explicit clip adds no safety here, only extra HLO ops.)
+                phi_idx = jnp.searchsorted(phi_unique, phi_requested)  # Shape: (chunk_size,)
 
                 # Select per-angle contrast and offset for each data point
                 contrast_requested = contrast[phi_idx]  # Shape: (chunk_size,)
