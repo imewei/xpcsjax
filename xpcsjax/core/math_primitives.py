@@ -41,17 +41,27 @@ def safe_exp(x: jnp.ndarray | np.ndarray, limit: float = 700.0) -> jnp.ndarray:
     old heterodyne value of 500) silently truncates valid exponents in
     ``(500, 709.78)``.
 
+    NaN contract: NaN inputs propagate unchanged (never clipped or laundered).
+    Inf inputs are clipped to ±limit and produce exp(±limit) (finite).
+
     Parameters
     ----------
     x : jnp.ndarray or np.ndarray
         Input array (NumPy or JAX).
     limit : float, default=700.0
         Symmetric clipping threshold; keep at 700 for float64.
+        Values > 700 are rejected (assertion) to prevent silent physics truncation.
 
     Returns
     -------
     jnp.ndarray
-        ``exp(clip(x, -limit, limit))``, same shape as ``x``.
+        ``exp(clip(x, -limit, limit))`` for finite ``x``; NaN for NaN ``x``;
+        ``exp(limit)`` for Inf ``x``.
     """
+    assert limit <= 700.0, (
+        f"safe_exp limit={limit} exceeds float64 overflow bound (700). "
+        "Use limit=700 for float64; smaller limits silently truncate valid physics."
+    )
     x = jnp.asarray(x)
-    return jnp.exp(jnp.clip(x, -limit, limit))
+    x_clipped = jnp.clip(x, -limit, limit)
+    return jnp.where(jnp.isnan(x), x, jnp.exp(x_clipped))

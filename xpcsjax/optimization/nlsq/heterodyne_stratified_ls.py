@@ -436,13 +436,21 @@ def _reconstruct_per_angle_scaling(
 
 
 def _per_angle_cv(contrasts: jnp.ndarray, offsets: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Return ``(contrast_CV, offset_CV)`` with a safe-divide on near-zero means."""
+    """Return ``(contrast_CV, offset_CV)`` with a safe-divide on near-zero means.
+
+    The division ``std / |mean|`` is evaluated in both branches of a ``jnp.where``
+    under JIT, so ``mean=0`` produces ``Inf`` in the false branch. To prevent
+    Inf-contaminated gradients, we sanitize the numerator: when the mean is
+    near-zero, we set the CV to 0 (not std) and the denominator to 1.
+    """
     c_mean = jnp.mean(contrasts)
-    c_cv = jnp.where(
-        jnp.abs(c_mean) > 1e-10, jnp.std(contrasts) / jnp.abs(c_mean), jnp.std(contrasts)
-    )
+    c_denom = jnp.where(jnp.abs(c_mean) > 1e-10, jnp.abs(c_mean), 1.0)
+    c_safe_std = jnp.where(jnp.abs(c_mean) > 1e-10, jnp.std(contrasts), 0.0)
+    c_cv = c_safe_std / c_denom
     o_mean = jnp.mean(offsets)
-    o_cv = jnp.where(jnp.abs(o_mean) > 1e-10, jnp.std(offsets) / jnp.abs(o_mean), jnp.std(offsets))
+    o_denom = jnp.where(jnp.abs(o_mean) > 1e-10, jnp.abs(o_mean), 1.0)
+    o_safe_std = jnp.where(jnp.abs(o_mean) > 1e-10, jnp.std(offsets), 0.0)
+    o_cv = o_safe_std / o_denom
     return c_cv, o_cv
 
 

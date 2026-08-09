@@ -3375,19 +3375,18 @@ def _build_joint_problem(
             # scaling head (the numpy ``expand_tail`` calls np.asarray on the
             # traced slice and crashes inside the JIT-compiled residual).
             contrasts, offsets = plan.expand_tail_jax(x[:n_scaling])
-            # CV = std / |mean| (safe divide)
+            # CV = std / |mean| (safe divide). The division is evaluated in both
+            # branches of a jnp.where under JIT, so mean=0 produces Inf in the
+            # false branch. Sanitize numerator to prevent Inf-contaminated
+            # gradients: when mean is near-zero, set CV=0 and denom=1.
             c_mean = jnp.mean(contrasts)
-            c_cv = jnp.where(
-                jnp.abs(c_mean) > 1e-10,
-                jnp.std(contrasts) / jnp.abs(c_mean),
-                jnp.std(contrasts),
-            )
+            c_denom = jnp.where(jnp.abs(c_mean) > 1e-10, jnp.abs(c_mean), 1.0)
+            c_safe_std = jnp.where(jnp.abs(c_mean) > 1e-10, jnp.std(contrasts), 0.0)
+            c_cv = c_safe_std / c_denom
             o_mean = jnp.mean(offsets)
-            o_cv = jnp.where(
-                jnp.abs(o_mean) > 1e-10,
-                jnp.std(offsets) / jnp.abs(o_mean),
-                jnp.std(offsets),
-            )
+            o_denom = jnp.where(jnp.abs(o_mean) > 1e-10, jnp.abs(o_mean), 1.0)
+            o_safe_std = jnp.where(jnp.abs(o_mean) > 1e-10, jnp.std(offsets), 0.0)
+            o_cv = o_safe_std / o_denom
             penalty_rows = jnp.array([sqrt_lambda * c_cv, sqrt_lambda * o_cv], dtype=jnp.float64)
             return jnp.concatenate([r, penalty_rows])
     else:

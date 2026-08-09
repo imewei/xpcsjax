@@ -118,7 +118,11 @@ def _create_residual_function(
     @jax.jit
     def residual_fn(params: jnp.ndarray) -> jnp.ndarray:
         g1 = compute_g1_total(params, t1, t2, phi, q, L, dt, time_grid=time_grid)
-        phi_idx = jnp.searchsorted(phi_unique_sorted, phi)
+        phi_idx = jnp.clip(
+            jnp.searchsorted(phi_unique_sorted, phi),
+            0,
+            phi_unique_sorted.shape[0] - 1,
+        )
         contrast_per_point = contrasts[phi_idx]
         offset_per_point = offsets[phi_idx]
         g2_theory = offset_per_point + contrast_per_point * jnp.square(g1)
