@@ -4006,16 +4006,18 @@ class NLSQWrapper(NLSQAdapterBase):
                 # Find which unique phi each requested phi corresponds to
                 # Since phi values come from phi_unique, we can use searchsorted
                 # CRITICAL: Keep all arrays in JAX (no np.asarray) for JIT compatibility
-                # Clip searchsorted result to valid grid indices to guard against
-                # float drift or NaN propagation pushing phi_requested out of range.
-                # Un-clipped searchsorted returns len(phi_unique) for out-of-range
-                # values, causing silent wrap-around gather with wrong contrast/offset.
-                # Mirrors the defensive pattern in parallel_accumulator.py:338-352.
-                phi_idx = jnp.clip(
-                    jnp.searchsorted(phi_unique, phi_requested),
-                    0,
-                    phi_unique.shape[0] - 1,
-                )
+                # Note: clip removed - phi_requested is a subset of phi which was used to
+                # build phi_unique, so all values are guaranteed to be in range (unlike
+                # residual_jit.py/gradient_diagnostics.py, which take externally-supplied
+                # phi/t1/t2 that can drift off their grids and legitimately need a clip).
+                # The clip was causing optimization to converge to wrong local minima:
+                # an out-of-range index is a case that provably cannot occur here, but if
+                # it ever did, jnp.clip's gather-VJP CLAMPS the gradient contribution onto
+                # the boundary element instead of DROPPING it (JAX's default out-of-bounds
+                # gather clamps the forward value the same way either way, but the two
+                # differ under grad) -- so the clip is not a pure no-op, it is a behavior
+                # change for an index range this call site should never see.
+                phi_idx = jnp.searchsorted(phi_unique, phi_requested)  # Shape: (chunk_size,)
 
                 # Select per-angle contrast and offset for each data point
                 contrast_requested = contrast[phi_idx]  # Shape: (chunk_size,)

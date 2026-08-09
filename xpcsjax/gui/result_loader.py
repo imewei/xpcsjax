@@ -23,7 +23,12 @@ class ResultSummary:
     chi_squared: float | None
     reduced_chi_squared: float | None
     quality_flag: str
-    parameters: dict[str, float]
+    # None where the persisted value was non-finite (NaN/Inf, which
+    # save_results_json coerces to JSON null for a diverged/degenerate fit) OR
+    # missing/malformed in the JSON. Either way the key is kept present (not
+    # dropped) so a caller can flag the failure instead of a parameter
+    # silently vanishing from the table.
+    parameters: dict[str, float | None]
     # Per-parameter uncertainty (None where the fit reported none). Defaulted so
     # existing direct ResultSummary(...) constructions (F/G tests) stay valid.
     uncertainties: dict[str, float | None] = field(default_factory=dict)
@@ -62,15 +67,18 @@ def load_result_summary(result_dir: str | Path) -> ResultSummary | None:
     meta = meta_raw if isinstance(meta_raw, dict) else {}
     params_raw = payload.get("parameters")
     params_blob = params_raw if isinstance(params_raw, dict) else {}
+    # A None value here means the persisted "value" was non-finite (NaN/Inf ->
+    # JSON null) OR missing/non-numeric -- either way keep the key so the
+    # failure is visible instead of the row disappearing from the table.
     parameters = {
         str(name): _as_float(info.get("value"))
         for name, info in params_blob.items()
-        if isinstance(info, dict) and _as_float(info.get("value")) is not None
+        if isinstance(info, dict)
     }
     uncertainties = {
         str(name): _as_float(info.get("uncertainty"))
         for name, info in params_blob.items()
-        if isinstance(info, dict) and _as_float(info.get("value")) is not None
+        if isinstance(info, dict)
     }
 
     # Coerce a non-dict (e.g. null) nlsq_diagnostics to {} — symmetric with the
@@ -85,7 +93,7 @@ def load_result_summary(result_dir: str | Path) -> ResultSummary | None:
         chi_squared=_as_float(meta.get("chi_squared")),
         reduced_chi_squared=_as_float(meta.get("reduced_chi_squared")),
         quality_flag=str(meta.get("quality_flag", "")),
-        parameters={k: v for k, v in parameters.items() if v is not None},
+        parameters=parameters,
         uncertainties=uncertainties,
         diagnostics=diagnostics,
     )

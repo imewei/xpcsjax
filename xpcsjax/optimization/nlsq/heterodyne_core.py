@@ -3377,16 +3377,19 @@ def _build_joint_problem(
             contrasts, offsets = plan.expand_tail_jax(x[:n_scaling])
             # CV = std / |mean| (safe divide). The division is evaluated in both
             # branches of a jnp.where under JIT, so mean=0 produces Inf in the
-            # false branch. Sanitize numerator to prevent Inf-contaminated
-            # gradients: when mean is near-zero, set CV=0 and denom=1.
+            # false branch. Sanitize only the denominator (std itself is never
+            # unsafe) and keep the mean~0 fallback as std -- NOT 0 -- matching
+            # this penalty's pre-existing contract: zeroing the fallback instead
+            # collapses the CV penalty to 0 exactly at the near-zero-mean,
+            # high-relative-spread case it exists to catch.
             c_mean = jnp.mean(contrasts)
+            c_std = jnp.std(contrasts)
             c_denom = jnp.where(jnp.abs(c_mean) > 1e-10, jnp.abs(c_mean), 1.0)
-            c_safe_std = jnp.where(jnp.abs(c_mean) > 1e-10, jnp.std(contrasts), 0.0)
-            c_cv = c_safe_std / c_denom
+            c_cv = jnp.where(jnp.abs(c_mean) > 1e-10, c_std / c_denom, c_std)
             o_mean = jnp.mean(offsets)
+            o_std = jnp.std(offsets)
             o_denom = jnp.where(jnp.abs(o_mean) > 1e-10, jnp.abs(o_mean), 1.0)
-            o_safe_std = jnp.where(jnp.abs(o_mean) > 1e-10, jnp.std(offsets), 0.0)
-            o_cv = o_safe_std / o_denom
+            o_cv = jnp.where(jnp.abs(o_mean) > 1e-10, o_std / o_denom, o_std)
             penalty_rows = jnp.array([sqrt_lambda * c_cv, sqrt_lambda * o_cv], dtype=jnp.float64)
             return jnp.concatenate([r, penalty_rows])
     else:

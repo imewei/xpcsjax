@@ -26,12 +26,14 @@ naively merge):
 
 from __future__ import annotations
 
+from functools import partial
+
 import jax.numpy as jnp
 import numpy as np
 from jax import jit
 
 
-@jit
+@partial(jit, static_argnames=("limit",))
 def safe_exp(x: jnp.ndarray | np.ndarray, limit: float = 700.0) -> jnp.ndarray:
     """Overflow-protected exponential, canonical for all physics paths.
 
