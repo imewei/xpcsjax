@@ -395,6 +395,7 @@ class BenchmarkingMixin:
             RuntimeError,
             ArithmeticError,
             AttributeError,
+            ImportError,
         ) as e:
             validation_results["accuracy_assessment"] = {
                 "gradient_computed": False,

@@ -1596,14 +1596,18 @@ class NLSQWrapper(NLSQAdapterBase):
                 # In averaged mode, popt has compressed length (e.g. 9),
                 # but the true model DOF is 2*n_phi + n_physical (e.g. 53).
                 _sls_n_params_effective: int | None = None
-                if per_angle_scaling and anti_degeneracy_config:
+                if per_angle_scaling:
                     from xpcsjax.optimization.nlsq.per_angle_mode import (
                         effective_constrained_dof as _eff_dof,
                         resolve_per_angle_mode_static_pinned as _resolve_pam_pinned,
                     )
 
-                    _sls_ad_mode = anti_degeneracy_config.get("per_angle_mode", "auto")
-                    _sls_thresh = anti_degeneracy_config.get("constant_scaling_threshold", 3)
+                    # An empty/absent anti_degeneracy block still activates averaged
+                    # scaling downstream (stratified_ls gates on `is not None`), so the
+                    # DOF must come from the resolved default mode, not len(popt).
+                    _sls_ad_cfg = anti_degeneracy_config or {}
+                    _sls_ad_mode = _sls_ad_cfg.get("per_angle_mode", "auto")
+                    _sls_thresh = _sls_ad_cfg.get("constant_scaling_threshold", 3)
                     # Resolve through the static pin so a static fit's DOF reflects the
                     # dense individual vector (2*n_phi + n_physical), not the inert config
                     # token. EXPLICIT averaged still gets the expanded constrained DOF on

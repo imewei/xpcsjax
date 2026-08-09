@@ -2038,7 +2038,13 @@ def _fit_joint_cmaes_multi_phi(
         # expensive global search and keep the warm-start.
         _n_data_warm = int(np.asarray(base_residual_fn(x_warm)).size)
         _skip, _reduced = _warmstart_auto_skip_decision(
-            config, "cmaes", ssr_warm, _n_data_warm, int(x_warm.size), bool(warm.success)
+            config,
+            "cmaes",
+            ssr_warm,
+            _n_data_warm,
+            int(x_warm.size),
+            bool(warm.success),
+            c2_data=c2_data,
         )
         if _skip:
             logger.info(
@@ -2692,28 +2698,40 @@ def _warmstart_auto_skip_decision(
     n_data: int,
     n_params: int,
     warm_success: bool = True,
+    *,
+    c2_data: np.ndarray | jnp.ndarray | None = None,
 ) -> tuple[bool, float]:
     """CMA-ES warm-start auto-skip decision — parity with laminar core.py:2308-2382.
 
     When the NLSQ warm-start CONVERGED and already lands a good fit (the
-    sigma-normalized reduced χ² ``SSR/dof`` is below
-    ``cmaes_warmstart_skip_threshold``), a warm-started global search is a local
-    refinement that rarely improves on it, so the expensive CMA-ES phase is
-    skipped. This mirrors laminar_flow's ``fit_nlsq_cmaes`` and the heterodyne
-    per-angle escape (:func:`_fit_cmaes`), which both honor the same knob; the
-    JOINT escapes previously dropped it.
+    NOISE-NORMALIZED reduced χ² is below ``cmaes_warmstart_skip_threshold``), a
+    warm-started global search is a local refinement that rarely improves on it,
+    so the expensive CMA-ES phase is skipped. This mirrors laminar_flow's
+    ``fit_nlsq_cmaes`` and the heterodyne per-angle escape (:func:`_fit_cmaes`),
+    which both honor the same knob; the JOINT escapes previously dropped it.
 
-    ``warm_success`` is the deciding gate alongside the SSR threshold. Laminar
+    The threshold (default 5.0) is calibrated for the conventional ``χ²_red ≈ 1``
+    scale, so ``ssr_warm`` MUST be divided by the far-lag photon-noise variance
+    as well as ``dof`` — the raw ``SSR/dof`` is a tiny MSE on normalized XPCS
+    ``C2`` data (``C2 ≈ 1``, residuals ~5%) that sits below 5.0 no matter how bad
+    the fit is, which would auto-skip a genuinely poor basin and silently defeat
+    the escape. ``c2_data`` supplies the noise estimate via the shared
+    :func:`~xpcsjax.optimization.nlsq.heterodyne_data_prep.noise_normalized_reduced_chi2`,
+    the same helper every other reduced-χ² report in this module uses.
+
+    ``c2_data=None`` is the NO-DATA path (unit tests exercising the decision
+    logic on a bare residual closure) and falls back to raw ``SSR/dof``. A
+    production caller must always thread the C2 matrix — the fallback compares
+    against a threshold the raw MSE cannot meaningfully cross.
+
+    ``warm_success`` is a separate gate alongside the χ² threshold: laminar
     sets its warm-start params/chi2 to finite values ONLY on
     ``warmstart_result["success"]`` (core.py:2316), so its auto-skip gate
     (``params is not None and chi2 < inf``) fires ONLY for a CONVERGED
-    warm-start; the per-angle :func:`_fit_cmaes` likewise checks
-    ``nlsq_result.success``. This matters because XPCS ``C2`` data is normalized
-    (≈1), so ``SSR/dof`` is a tiny MSE that is essentially always below the
-    threshold — a DEGENERATE warm-start that does not converge but reverts to a
-    low-SSR ``x0`` (e.g. C044 ``two_component``) would otherwise be auto-skipped,
-    defeating the very CMA-ES escape that exists to rescue it. Gating on
-    ``warm_success`` keeps the global search running in exactly that case.
+    warm-start, and the per-angle :func:`_fit_cmaes` likewise checks
+    ``nlsq_result.success``. A degenerate warm-start that does not converge but
+    reverts to a low-SSR ``x0`` (e.g. C044 ``two_component``) must keep the
+    global search that exists to rescue it.
 
     The decision is CMA-ES-specific (matches the knob name and laminar — a
     ``multistart`` escape is never auto-skipped) and ``dof <= 0`` (more params
@@ -2732,7 +2750,19 @@ def _warmstart_auto_skip_decision(
     n_dof = n_data - n_params
     if n_dof <= 0:
         return False, float("inf")
-    reduced = ssr_warm / n_dof
+    if c2_data is not None:
+        from xpcsjax.optimization.nlsq.heterodyne_data_prep import (
+            noise_normalized_reduced_chi2,
+        )
+
+        reduced = noise_normalized_reduced_chi2(
+            ssr=ssr_warm,
+            c2_data=np.asarray(c2_data),
+            n_data_valid=n_data,
+            n_params=n_params,
+        )
+    else:
+        reduced = ssr_warm / n_dof
     threshold = float(getattr(config, "cmaes_warmstart_skip_threshold", 5.0))
     return bool(np.isfinite(reduced) and reduced < threshold), reduced
 
@@ -2787,7 +2817,13 @@ def _apply_global_escape(
     # Parity with laminar's CMA-ES auto-skip (core.py:2354-2382): when the NLSQ
     # warm-start already lands a good fit, skip the expensive global search.
     _skip, _reduced = _warmstart_auto_skip_decision(
-        config, escape_kind, ssr_warm, int(_r_warm.size), int(x_warm.size), warm_success
+        config,
+        escape_kind,
+        ssr_warm,
+        int(_r_warm.size),
+        int(x_warm.size),
+        warm_success,
+        c2_data=multistart_data.get("c2"),
     )
     if _skip:
         logger.info(
@@ -4096,6 +4132,16 @@ def _fit_cmaes(
 
     c2_jax = jnp.asarray(c2_data, dtype=jnp.float64)
     weights_jax = jnp.asarray(weights, dtype=jnp.float64) if weights is not None else None
+
+    # Mirrors ``_fit_local``. Must stay OUTSIDE the Phase-1 try below: that
+    # block catches ValueError, so relying on the nested ``_fit_local`` call to
+    # raise would only downgrade this to a warning and then feed the misshaped
+    # weights into ``sigma`` for the CMA-ES search.
+    if weights_jax is not None and weights_jax.shape != c2_jax.shape:
+        raise ValueError(
+            f"Weights shape {weights_jax.shape} does not match data shape {c2_jax.shape}"
+        )
+
     t, q, dt = model.t, model.q, model.dt
     contrast_val, offset_val = model.scaling.get_for_angle(angle_idx)
 

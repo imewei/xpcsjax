@@ -38,9 +38,18 @@ try:
     yaml_module: ModuleType | None = yaml
     _YAMLError: type[BaseException] = yaml.YAMLError
 except ImportError:
+
+    class _NoYAMLError(Exception):
+        """Sentinel for the except tuple when PyYAML is missing.
+
+        Must never be a superclass of ImportError: aliasing to bare ``Exception``
+        made the parse/IO handler swallow the deliberate "PyYAML is required"
+        raise in :meth:`ConfigManager.load_config`.
+        """
+
     HAS_YAML = False
     yaml_module = None
-    _YAMLError = Exception
+    _YAMLError = _NoYAMLError
 
 # Import minimal logging
 try:

@@ -260,7 +260,9 @@ class AdaptiveRegularizer:
             # Security: Validate n_group to prevent division by zero
             n_group = end - start
             if n_group < 2:
-                logger.warning(
+                # Always true by construction in averaged mode (group_indices
+                # [(0,1),(1,2)]), and this runs per solver iteration -- debug, not warning.
+                logger.debug(
                     f"Group ({start}, {end}) has fewer than 2 elements, skipping regularization"
                 )
                 continue

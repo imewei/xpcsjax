@@ -671,11 +671,8 @@ def fit_with_stratified_least_squares(
         _reg_mode = str(getattr(ad_controller.config, "regularization_mode", "none"))
         _l3_active = (_reg_mode != "none") and (ad_controller.regularizer is not None)
         _l2_applicable = (
-            ad_controller.hierarchical is not None
+            ad_controller.l2_applicable
             and bounds is not None  # HierarchicalOptimizer.fit requires finite bounds
-            and not ad_controller.use_fixed_scaling
-            and not ad_controller.use_averaged_scaling
-            and not ad_controller.use_constant
         )
         if _l2_applicable:
             try:

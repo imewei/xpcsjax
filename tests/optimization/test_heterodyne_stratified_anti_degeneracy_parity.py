@@ -36,8 +36,12 @@ def test_from_config_initializes_for_two_component():
         analysis_mode="two_component",
     )
     assert ctrl.is_enabled is True
-    assert ctrl.use_hierarchical is True  # L2 component built
-    assert ctrl.hierarchical is not None
+    # n_phi=3 + constant_scaling_threshold=3 resolves 'auto' -> 'averaged'.
+    # HierarchicalOptimizer hard-codes mode="individual" internally, so L2
+    # construction is mode-gated and correctly stays inactive here.
+    assert ctrl.use_hierarchical is False
+    assert ctrl.hierarchical is None
+    assert ctrl.l2_applicable is False
     assert ctrl.regularizer is not None  # L3 component built
     assert ctrl.monitor is not None  # L4 component built
     assert ctrl.use_shear_weighting is False  # L5 gated off for two_component
@@ -73,7 +77,10 @@ def test_from_config_initializes_for_heterodyne_synonym():
         is_laminar_flow=False,
         analysis_mode="heterodyne",
     )
-    assert ctrl.hierarchical is not None
+    # n_phi=3 + constant_scaling_threshold=3 resolves 'auto' -> 'averaged';
+    # HierarchicalOptimizer hard-codes mode="individual", so L2 correctly
+    # stays uninitialized here (see test_from_config_initializes_for_two_component).
+    assert ctrl.hierarchical is None
     assert ctrl.use_shear_weighting is False
 
 
@@ -90,7 +97,9 @@ def test_from_config_laminar_still_initializes():
         analysis_mode="laminar_flow",
     )
     assert ctrl.is_enabled is True
-    assert ctrl.hierarchical is not None
+    # n_phi=3 + constant_scaling_threshold=3 resolves 'auto' -> 'averaged'
+    # here too (resolution is mode-agnostic); L2 correctly stays uninitialized.
+    assert ctrl.hierarchical is None
 
 
 def test_driver_accepts_anti_degeneracy_dict_param():

@@ -725,16 +725,33 @@ def combine_angle_results(
     cov_list = np.array([r["covariance"] for r in successful])
 
     # Compute weights
+    param_weights: np.ndarray | None = None  # only set (and only read) below when
+    # weighting == "inverse_variance"; declared here so it's never unbound.
     if weighting == "inverse_variance":
         # Weight by 1/σ² (diagonal of inverse covariance). Clip the per-angle
         # mean variance to a floor so a singular (near-zero) covariance can't
         # blow the weight up to ~1e10, and reject non-finite variances (NaN/inf
         # from a failed solve) by giving those angles zero weight.
         min_var = 1e-10
-        mean_vars = np.array([np.diag(cov).mean() for cov in cov_list])
+        var_matrix = np.array([np.diag(cov) for cov in cov_list])
+        mean_vars = var_matrix.mean(axis=1)
         finite = np.isfinite(mean_vars)
         weights = np.zeros_like(mean_vars)
         weights[finite] = 1.0 / np.maximum(mean_vars[finite], min_var)
+        # Per-parameter weights for combined_params. A scalar per-angle weight
+        # (from the mean variance) is not the minimum-variance combination the
+        # per-parameter combined_cov below reports, whenever an angle's precision
+        # differs across parameters.
+        # A non-positive variance is no information, not infinite information:
+        # flooring it to min_var would hand that entry a ~1e10 weight and let it
+        # dictate the parameter on its own.
+        param_weights = np.zeros_like(var_matrix)
+        usable = finite[:, np.newaxis] & (var_matrix > 0)
+        param_weights[usable] = 1.0 / np.maximum(var_matrix[usable], min_var)
+        # A parameter with no usable variance at any angle falls back to the
+        # per-angle scalar weight rather than combining to a silent zero.
+        dead = param_weights.sum(axis=0) == 0
+        param_weights[:, dead] = weights[:, np.newaxis]
         if not np.any(weights > 0):
             raise ValueError("All angle covariances are non-finite; cannot inverse-variance weight")
     elif weighting == "n_points":
@@ -751,18 +768,24 @@ def combine_angle_results(
     weights = weights / (weights.sum() + 1e-10)
 
     # Weighted average of parameters
-    combined_params = np.sum(params_list * weights[:, np.newaxis], axis=0)
+    if weighting == "inverse_variance":
+        assert param_weights is not None  # set above whenever this branch runs
+        combined_params = (params_list * param_weights).sum(axis=0) / np.maximum(
+            param_weights.sum(axis=0), 1e-300
+        )
+    else:
+        combined_params = np.sum(params_list * weights[:, np.newaxis], axis=0)
 
     # Combined covariance (inverse variance weighting formula)
     if weighting == "inverse_variance":
-        # σ² = 1 / Σ(1/σ²_i)
-        # Add small epsilon to prevent division by zero
-        inv_vars = np.array([1.0 / (np.diag(cov) + 1e-10) for cov in cov_list])
-        # Exclude angles whose per-angle variance was non-finite — those angles
-        # were already given zero weight above, so a NaN/inf covariance must not
-        # poison the combined inverse-variance covariance either.
-        inv_vars = inv_vars[finite]
-        combined_var = 1.0 / inv_vars.sum(axis=0)
+        assert param_weights is not None  # set above whenever this branch runs
+        # σ² = 1 / Σ(1/σ²_i). Reuse param_weights (already floored at min_var
+        # and masked to finite, positive-variance angles) instead of a second,
+        # differently-regularized 1/(var+1e-10) pass — a near-zero-but-negative
+        # variance would otherwise get excluded from combined_params but still
+        # blow up to ~1e10 weight here, making the reported uncertainty
+        # inconsistent with (tighter than) the mean it's supposed to describe.
+        combined_var = 1.0 / np.maximum(param_weights.sum(axis=0), 1e-300)
         combined_cov = np.diag(combined_var)
     else:
         # Weighted average of covariances

@@ -91,7 +91,8 @@ class HierarchicalConfig:
     max_outer_iterations : int
         Maximum outer iterations. Default 5.
     outer_tolerance : float
-        Convergence tolerance for physical parameters. Default 1e-6.
+        Relative convergence tolerance for physical parameters
+        (``‖Δp‖ / ‖p_prev‖``). Default 1e-6.
     physical_max_iterations : int
         Max iterations for Stage 1 (physical params). Default 100.
     physical_ftol : float
@@ -502,11 +503,16 @@ class HierarchicalOptimizer:
                     f"(relative: {relative_change:.6e})"
                 )
 
-            if physical_change < self.config.outer_tolerance:
+            # Gate on the RELATIVE change: physical parameters span 6+ orders of
+            # magnitude, so an absolute 1e-6 threshold is unreachable whenever the
+            # vector carries an O(1e3) parameter, leaving success permanently False.
+            # ponytail: whole-vector norm, so the largest parameter dominates and a
+            # small one can still be moving; go component-wise if that ever bites.
+            if relative_change < self.config.outer_tolerance:
                 converged = True
                 logger.info(
                     f"Converged at outer iteration {outer_iter + 1} "
-                    f"(change {physical_change:.6e} "
+                    f"(relative change {relative_change:.6e} "
                     f"< tol {self.config.outer_tolerance})"
                 )
                 break

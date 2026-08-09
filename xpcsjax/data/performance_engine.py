@@ -968,10 +968,21 @@ class MultiLevelCache:
             else:
                 compressed = serialized  # Fallback to uncompressed
 
-            # Write to disk
-            with open(file_path, "wb") as f:
-                f.write(compressed)
-            os.chmod(file_path, 0o600)
+            # Write to a private temp file, then atomically rename into place.
+            # Concurrent put() calls for the same key run outside any per-key
+            # lock, so a plain open(path, "wb") would let one writer's O_TRUNC
+            # land between another's buffered writes and leave a partial file.
+            tmp_path = file_path.with_name(
+                f"{file_path.name}.tmp.{os.getpid()}.{threading.get_ident()}"
+            )
+            try:
+                with open(tmp_path, "wb") as f:
+                    f.write(compressed)
+                os.chmod(tmp_path, 0o600)
+                os.replace(tmp_path, file_path)
+            except BaseException:
+                tmp_path.unlink(missing_ok=True)
+                raise
 
             size_mb = len(compressed) / (1024 * 1024)
             return size_mb

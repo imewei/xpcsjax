@@ -96,7 +96,16 @@ class HeterodyneModel:
 
         if "start_frame" in ap:
             start_frame = int(ap["start_frame"])
-            end_frame = int(ap["end_frame"])
+            if "end_frame" not in ap:
+                logger.warning(
+                    "HeterodyneModel.from_config: 'start_frame' present but "
+                    "'end_frame' missing from analyzer_parameters; deriving it "
+                    "from temporal.time_length (default 1000). Verify this "
+                    "matches the actual number of time points in the loaded data."
+                )
+            end_frame = int(
+                ap.get("end_frame", start_frame + int(temporal.get("time_length", 1000)) - 1)
+            )
             n_times = end_frame - start_frame + 1
             t_start = dt  # relative time within window: first usable frame at 1×dt
         else:

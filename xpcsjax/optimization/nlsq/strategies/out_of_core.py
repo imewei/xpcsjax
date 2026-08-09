@@ -114,7 +114,7 @@ def fit_with_out_of_core_accumulation(
         pseudo-inverse when ``J^T J`` is singular.
     info : dict
         Optimization information (``chi_squared``, ``iterations``,
-        ``convergence_status``, ``message``).
+        ``convergence_status``, ``message``, ``fast_chi2_mode``).
 
     Notes
     -----
@@ -126,6 +126,14 @@ def fit_with_out_of_core_accumulation(
 
     _start_time = time.perf_counter()  # noqa: F841
     log.info("Initializing Out-of-Core Global Stratified Optimization (Full Physics)...")
+
+    chi2_stride = 10 if fast_chi2_mode else 1
+    if fast_chi2_mode:
+        log.warning(
+            "fast_chi2_mode enabled: line-search chi2 computed from every %dth chunk "
+            "(subsampled, rescaled); final chi2/pcov are NOT subsampled",
+            chi2_stride,
+        )
 
     # 1. Setup Chunking
     # Use StratifiedIndices if available (Zero-Copy)
@@ -366,7 +374,7 @@ def fit_with_out_of_core_accumulation(
             ooc_pool = None
 
     def evaluate_total_chi2(params_eval: Any) -> float:
-        stride = 10 if fast_chi2_mode else 1
+        stride = chi2_stride
 
         # Use parallel pool for chi2 evaluation when available
         if ooc_pool is not None:
@@ -577,6 +585,7 @@ def fit_with_out_of_core_accumulation(
                                 "iterations": i + 1,
                                 "convergence_status": "converged",
                                 "message": "Out-of-Core converged (xtol+ftol)",
+                                "fast_chi2_mode": fast_chi2_mode,
                             },
                         )
                         break
@@ -637,6 +646,7 @@ def fit_with_out_of_core_accumulation(
         "iterations": i + 1,
         "convergence_status": convergence_status,
         "message": "Out-of-Core accumulation completed",
+        "fast_chi2_mode": fast_chi2_mode,
     }
     # pcov = s^2 * (J^T J)^{-1}  where s^2 = RSS / (n - p_effective)
     # Uses n_params_effective for correct DOF in averaged mode.

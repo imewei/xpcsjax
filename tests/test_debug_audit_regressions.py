@@ -53,6 +53,52 @@ def test_combine_angle_results_excludes_nonfinite_covariance() -> None:
     assert np.all(np.isfinite(cov)), "combined covariance poisoned by non-finite angle"
 
 
+def test_combine_angle_results_per_parameter_precision_dominates() -> None:
+    """PR #50 review: combined_params used a single per-angle SCALAR weight
+    (mean variance across all parameters), not the per-parameter inverse
+    variance combined_cov already reports -- so when one angle is precise on
+    param 0 but imprecise on param 1 (and vice versa for a second angle), the
+    old scalar weighting could not let each parameter be dominated by its own
+    most-precise angle. combined_cov's own regularization (a bare 1/(var+eps)
+    with no positivity mask) was also inconsistent with combined_params'
+    masked/floored weights -- now both reuse the same per-parameter weights."""
+    from xpcsjax.optimization.nlsq.strategies.sequential import combine_angle_results
+
+    angle1_params = np.array([10.0, 100.0])
+    angle2_params = np.array([20.0, 200.0])
+    per_angle = [
+        {
+            "success": True,
+            "parameters": angle1_params,
+            "covariance": np.diag([0.01, 100.0]),  # precise on param 0
+            "n_points": 100,
+            "cost": 1.0,
+        },
+        {
+            "success": True,
+            "parameters": angle2_params,
+            "covariance": np.diag([100.0, 0.01]),  # precise on param 1
+            "n_points": 100,
+            "cost": 1.0,
+        },
+    ]
+
+    params, cov, _cost = combine_angle_results(per_angle, weighting="inverse_variance")
+
+    # param 0 must be dominated by angle 1 (its precise angle), not a 50/50 blend
+    assert abs(params[0] - angle1_params[0]) < abs(params[0] - angle2_params[0])
+    # param 1 must be dominated by angle 2 (its precise angle)
+    assert abs(params[1] - angle2_params[1]) < abs(params[1] - angle1_params[1])
+    # Each parameter's combined variance must track its OWN best (0.01) source,
+    # not the mean-variance scalar an angle would otherwise contribute -- by
+    # this fixture's symmetry both parameters have an equally precise source,
+    # so both combined variances must land well below the imprecise (100.0)
+    # source's contribution alone.
+    assert np.all(np.isfinite(cov))
+    assert cov[0, 0] < 1.0
+    assert cov[1, 1] < 1.0
+
+
 def test_parameter_manager_two_component_default_params() -> None:
     """Audit [8]: the active-parameter fallback for two_component must return the
     heterodyne parameter set, not the laminar_flow set."""

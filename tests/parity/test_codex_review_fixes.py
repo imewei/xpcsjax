@@ -27,6 +27,7 @@ import pytest
 from xpcsjax.optimization.nlsq.per_angle_mode import (
     effective_constrained_dof,
     resolve_per_angle_mode,
+    resolve_per_angle_mode_static_pinned,
 )
 from xpcsjax.optimization.nlsq.transforms import (
     apply_forward_shear_transforms_to_vector,
@@ -204,6 +205,32 @@ def test_explicit_averaged_resolves_like_auto_for_dof():
         resolve_per_angle_mode("averaged", n_phi, thr), n_phi=n_phi, n_physical=n_phys
     )
     assert dof_auto == dof_explicit == 2 * n_phi + n_phys
+
+
+def test_absent_anti_degeneracy_config_still_yields_expanded_dof_for_stratified_ls():
+    """wrapper.py's stratified-LS DOF-correction guard used to be a TRUTHINESS
+    check (``if per_angle_scaling and anti_degeneracy_config:``), so a
+    present-but-EMPTY ``{}`` config (the ``anti_degeneracy_config or {}``
+    default when the YAML omits the section) skipped this computation
+    entirely and fell back to ``len(popt)`` (compressed). But
+    ``fit_with_stratified_least_squares`` gates its own controller on
+    ``anti_degeneracy_config is not None`` (not truthiness), so an empty dict
+    still activates default 'auto' per-angle scaling -- 'averaged' at
+    n_phi >= threshold -- producing a compressed popt that needs the EXPANDED
+    DOF, not len(popt). Pin the exact resolve chain wrapper.py's guard now
+    unconditionally runs for an empty/absent config."""
+    n_phi, n_phys = 5, 7
+    ad_cfg = {}  # present-but-empty: `anti_degeneracy_config or {}` in the guard
+    resolved_mode = resolve_per_angle_mode_static_pinned(
+        ad_cfg.get("per_angle_mode", "auto"),
+        n_phi,
+        ad_cfg.get("constant_scaling_threshold", 3),
+        is_laminar_flow=True,
+    )
+    dof = effective_constrained_dof(resolved_mode, n_phi=n_phi, n_physical=n_phys)
+
+    assert resolved_mode == "averaged"
+    assert dof == 2 * n_phi + n_phys  # NOT len(popt) == 2 + n_phys
 
 
 # ---------------------------------------------------------------------------

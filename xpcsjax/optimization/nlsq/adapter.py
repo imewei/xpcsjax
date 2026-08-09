@@ -76,6 +76,7 @@ from xpcsjax.optimization.nlsq.adapter_base import (
     PER_ANGLE_SCALING_REMOVED_MSG,
     NLSQAdapterBase,
 )
+from xpcsjax.optimization.nlsq.result_builder import compute_uncertainties
 from xpcsjax.optimization.nlsq.results import OptimizationResult
 from xpcsjax.utils.logging import get_logger
 
@@ -1174,7 +1175,7 @@ class NLSQAdapter(NLSQAdapterBase):
         n_params = len(popt)
 
         # Compute uncertainties from covariance diagonal
-        uncertainties = np.sqrt(np.diag(pcov)) if pcov is not None else np.zeros(n_params)
+        uncertainties = compute_uncertainties(pcov) if pcov is not None else np.zeros(n_params)
 
         # Compute chi-squared from info.
         # NLSQ/scipy cost = 0.5 * sum(rho(r²)), so chi² = 2 * cost for linear loss.

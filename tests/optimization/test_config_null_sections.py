@@ -77,6 +77,29 @@ def test_nlsq_config_ftol_still_falls_back_to_tolerance_alias():
     assert NLSQConfig.from_dict({}).ftol == 1e-8
 
 
+def test_nlsq_config_null_int_fields_fall_back_to_defaults():
+    """The safe_int sweep must cover non-Optional int fields too, not just
+    the float fields above -- `int(None)` TypeErrors just as `float(None)`
+    does, and a bare YAML `max_iterations:` header parses to this same None."""
+    cfg = NLSQConfig.from_dict(
+        {
+            "max_iterations": None,
+            "streaming": {"chunk_size": None},
+            "stratified": {"target_chunk_size": None},
+            "hybrid_streaming": {"warmup_iterations": None, "checkpoint_frequency": None},
+            "anti_degeneracy": {"hierarchical": {"max_outer_iterations": None}},
+            "cmaes": {"max_restarts": None},
+        }
+    )
+    assert cfg.max_iterations == 1000
+    assert cfg.streaming_chunk_size == 50000
+    assert cfg.target_chunk_size == 100000
+    assert cfg.hybrid_warmup_iterations == 200
+    assert cfg.hybrid_checkpoint_frequency == 100
+    assert cfg.hierarchical_max_outer_iterations == 5
+    assert cfg.cmaes_max_restarts == 9
+
+
 def test_nlsq_config_cmaes_none_sentinels_stay_none():
     """`max_generations`/`popsize`/`seed` use None as an ADAPTIVE sentinel --
     they must not be coerced to 0 by a blanket safe_int sweep."""

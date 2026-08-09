@@ -447,25 +447,34 @@ class AntiDegeneracyController:
         )
 
         # Layer 2: Hierarchical Optimization
+        # The setup banner fires whenever L2 is CONFIGURED (hierarchical_enable),
+        # matching laminar_flow's "configured-not-executed" log parity contract
+        # even on paths where L2 does not actually run. HierarchicalOptimizer
+        # itself hard-codes mode="individual" internally (its own docstring:
+        # "Every mode that runs HierarchicalOptimizer is individual — averaged/
+        # constant skip L2 per architecture"), so constructing it outside that
+        # mode makes physical_indices wrong for the resolved vector layout —
+        # CONSTRUCTION is therefore separately gated on the resolved mode.
         if config.hierarchical_enable:
-            hier_config = HierarchicalConfig(
-                enable=True,
-                max_outer_iterations=config.hierarchical_max_outer_iterations,
-                outer_tolerance=config.hierarchical_outer_tolerance,
-                physical_max_iterations=config.hierarchical_physical_max_iterations,
-                per_angle_max_iterations=config.hierarchical_per_angle_max_iterations,
-            )
-            self.hierarchical = HierarchicalOptimizer(
-                config=hier_config,
-                n_phi=self.n_phi,
-                n_physical=self.n_physical,
-            )
             logger.info("=" * 60)
             logger.info("ANTI-DEGENERACY: Layer 2 - Hierarchical Optimization")
             logger.info("  Enabled: True")
             logger.info(f"  Max outer iterations: {config.hierarchical_max_outer_iterations}")
             logger.info(f"  Outer tolerance: {config.hierarchical_outer_tolerance}")
             logger.info("=" * 60)
+            if self.per_angle_mode_actual == "individual":
+                hier_config = HierarchicalConfig(
+                    enable=True,
+                    max_outer_iterations=config.hierarchical_max_outer_iterations,
+                    outer_tolerance=config.hierarchical_outer_tolerance,
+                    physical_max_iterations=config.hierarchical_physical_max_iterations,
+                    per_angle_max_iterations=config.hierarchical_per_angle_max_iterations,
+                )
+                self.hierarchical = HierarchicalOptimizer(
+                    config=hier_config,
+                    n_phi=self.n_phi,
+                    n_physical=self.n_physical,
+                )
 
         # Layer 3: Adaptive Regularization
         # T020: Use mapper.get_group_indices() instead of n_phi-based calculation
@@ -609,8 +618,31 @@ class AntiDegeneracyController:
 
     @property
     def use_hierarchical(self) -> bool:
-        """Check if hierarchical optimization is active."""
+        """Check whether the L2 component was CONSTRUCTED.
+
+        Construction itself is gated on ``per_angle_mode_actual == "individual"``
+        (see ``_initialize_components``) — only the ``ANTI-DEGENERACY: Layer 2``
+        setup banner is mode-blind, firing whenever L2 is CONFIGURED
+        (``hierarchical_enable``) to keep laminar_flow's "configured-not-executed"
+        log parity even when construction itself is skipped. This property is
+        therefore currently equivalent to :attr:`l2_applicable` at every call
+        site (both require ``self.hierarchical is not None``, and that alone
+        already implies ``individual`` mode). It is kept separate as
+        defense-in-depth against a future change re-widening construction back
+        to config-only — callers that mean "is .fit() safe" should still use
+        :attr:`l2_applicable` so they keep working if that ever happens.
+        """
         return self.hierarchical is not None
+
+    @property
+    def l2_applicable(self) -> bool:
+        """Whether ``self.hierarchical.fit()`` is safe to call.
+
+        ``HierarchicalOptimizer`` derives its index layout with ``mode="individual"``
+        (``physical_indices`` starts at ``2*n_phi``), so calling ``.fit()`` in
+        ``averaged``/``constant`` mode would index past the shorter parameter vector.
+        """
+        return self.hierarchical is not None and self.per_angle_mode_actual == "individual"
 
     @property
     def use_shear_weighting(self) -> bool:
