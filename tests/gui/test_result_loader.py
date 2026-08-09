@@ -58,3 +58,28 @@ def test_load_result_summary_diagnostics_defaults_empty(tmp_path):
     s = load_result_summary(tmp_path)
     assert s is not None
     assert s.diagnostics == {}
+
+
+def test_load_result_summary_keeps_nan_valued_parameter(tmp_path):
+    """A diverged fit's NaN parameter is persisted as JSON null; the loader must
+    keep the key (as None) rather than silently dropping the row (regression:
+    a partially-diverged fit used to look like a clean, complete result)."""
+    payload = {
+        "schema": "xpcsjax.nlsq.result/v1",
+        "parameters": {
+            "D0": {"value": 1234.5, "uncertainty": 1.0},
+            "alpha": {"value": None, "uncertainty": None},
+        },
+        "metadata": {
+            "success": False,
+            "convergence_status": "diverged",
+            "chi_squared": None,
+            "reduced_chi_squared": None,
+            "quality_flag": "poor",
+        },
+    }
+    (tmp_path / "nlsq_result.json").write_text(json.dumps(payload), encoding="utf-8")
+    s = load_result_summary(tmp_path)
+    assert s is not None
+    assert s.parameters == {"D0": 1234.5, "alpha": None}
+    assert "alpha" in s.uncertainties

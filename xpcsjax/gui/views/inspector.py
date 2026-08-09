@@ -95,7 +95,8 @@ class InspectorDock(QWidget):
         for row, (name, value) in enumerate(rows):
             unc = summary.uncertainties.get(name)
             self._param_table.setItem(row, 0, QTableWidgetItem(str(name)))
-            self._param_table.setItem(row, 1, QTableWidgetItem(f"{value:.6g}"))
+            value_text = f"{value:.6g}" if value is not None else "NaN"
+            self._param_table.setItem(row, 1, QTableWidgetItem(value_text))
             unc_text = f"{unc:.4g}" if unc is not None else "—"
             self._param_table.setItem(row, 2, QTableWidgetItem(unc_text))
 

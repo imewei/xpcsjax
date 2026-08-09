@@ -193,7 +193,7 @@ class ComparisonView(QWidget):
             lines.append("parameters:")
             for name in param_names:
                 values = [
-                    f"{s.parameters[name]:.6g}" if s is not None and name in s.parameters else None
+                    fmt(s.parameters[name]) if s is not None and name in s.parameters else None
                     for _, s in summaries
                 ]
                 lines.append(row(name, values))

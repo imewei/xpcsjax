@@ -266,9 +266,24 @@ class StratifiedResidualFunction:
         # platform: for large datasets (n_phi=100, n_t1=5000, n_t2=5000) the
         # product 99*25_000_000=2.475B exceeds int32 max (2.147B), silently
         # wrapping to a negative index.
-        phi_indices_np = np.searchsorted(phi_unique, phi).astype(np.int64)
-        t1_indices_np = np.searchsorted(t1_unique, t1).astype(np.int64)
-        t2_indices_np = np.searchsorted(t2_unique, t2).astype(np.int64)
+        # Clamp each axis independently to its valid grid range before combining
+        # into a flat index. Un-clamped searchsorted returns len(unique) for an
+        # out-of-range query (float drift between a chunk's t1/t2 and the
+        # t1_unique/t2_unique grid); if that per-axis overflow survived into the
+        # flat-index arithmetic below, the sum could still land IN-BOUNDS but at
+        # a different, wrong (phi,t1,t2) cell -- silent theory-value corruption,
+        # not a crash. Clamping first (mirrors strategies/residual_jit.py and
+        # parallel_accumulator.py) makes the flat index a no-op for in-range
+        # queries and a same-axis clamp (not a cross-axis wrap) for drift.
+        phi_indices_np = np.clip(
+            np.searchsorted(phi_unique, phi).astype(np.int64), 0, len(phi_unique) - 1
+        )
+        t1_indices_np = np.clip(
+            np.searchsorted(t1_unique, t1).astype(np.int64), 0, len(t1_unique) - 1
+        )
+        t2_indices_np = np.clip(
+            np.searchsorted(t2_unique, t2).astype(np.int64), 0, len(t2_unique) - 1
+        )
 
         # Convert to flat grid indices: phi * (n_t1 * n_t2) + t1 * n_t2 + t2
         n_t1 = len(t1_unique)
