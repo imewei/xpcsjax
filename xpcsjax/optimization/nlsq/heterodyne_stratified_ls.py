@@ -684,6 +684,20 @@ def fit_heterodyne_stratified_least_squares(
     # below) because ``constant`` mode freezes these quantile estimates as the
     # model's fixed scaling — n_scaling == 0, so the optimizer never sees them
     # and the p0 clip cannot bound them.
+    #
+    # This call is unconditional (all three modes), not constant-only — that's
+    # intentional, not an accidental widening. For an angle with enough data,
+    # compute_quantile_per_angle_scaling's internal clip to (contrast_bounds,
+    # offset_bounds) followed by averaged/individual's later p0 clip to the
+    # SAME config bounds is a no-op double-clip (clip(clip(x, wide), narrow) ==
+    # clip(x, narrow) whenever narrow ⊆ wide) — so the final p0 for a
+    # well-populated angle is unchanged by this line for those two modes.
+    # The only place it changes anything for averaged/individual is the
+    # <100-point/non-finite fallback, which now centers on the config bounds'
+    # midpoint instead of the generic (0,1)/(0.5,1.5) default's midpoint —
+    # previously that generic-default midpoint could itself land outside a
+    # narrow custom ``parameter_space.bounds`` and get shoved to an edge by
+    # the later clip, a worse starting point than the bounds' center.
     _cb, _ob = model.param_manager.get_bounds_as_tuples(["contrast", "offset"])
     contrast_pa, offset_pa = compute_quantile_per_angle_scaling(
         strat, contrast_bounds=_cb, offset_bounds=_ob

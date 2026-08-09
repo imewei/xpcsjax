@@ -325,3 +325,57 @@ def test_constant_callsite_threads_warm_success(monkeypatch):
     hc.fit_nlsq_multi_phi(model, c2, phi, cfg, None)
     assert captured.get("warm_success", _SENTINEL) is not _SENTINEL
     assert isinstance(captured["warm_success"], bool)
+
+
+# ---------------------------------------------------------------------------
+# Decision function: raw SSR/dof vs noise-normalized reduced chi2 (RCA fix).
+# ---------------------------------------------------------------------------
+def test_decision_raw_and_noise_normalized_reduced_differ():
+    """Same ssr_warm/n_dof: the c2_data=None (raw MSE) path and the real
+    c2_data (noise-normalized) path must NOT collapse to the same value --
+    that collapse (raw MSE always ~1e-3 scale on normalized C2 data) was
+    exactly why the CMA-ES auto-skip gate almost always fired regardless of
+    true fit quality."""
+    rng = np.random.default_rng(0)
+    n_t = 40
+    # Low-noise synthetic C2: smooth decay + tiny noise so far-lag variance
+    # is small -> a fixed ssr_warm normalizes to a much larger reduced chi2
+    # than the raw MSE would suggest.
+    t = np.arange(n_t, dtype=np.float64)
+    decay = 1.0 + 0.3 * np.exp(-np.abs(t[:, None] - t[None, :]) / 5.0)
+    c2_data = decay + rng.normal(scale=1e-4, size=(n_t, n_t))
+
+    ssr_warm = 0.05
+    n_data = n_t * n_t
+    n_params = 16
+
+    _skip_raw, reduced_raw = hc._warmstart_auto_skip_decision(
+        _cfg(), "cmaes", ssr_warm, n_data, n_params, warm_success=True, c2_data=None
+    )
+    _skip_norm, reduced_norm = hc._warmstart_auto_skip_decision(
+        _cfg(), "cmaes", ssr_warm, n_data, n_params, warm_success=True, c2_data=c2_data
+    )
+
+    assert reduced_raw == pytest.approx(ssr_warm / (n_data - n_params))
+    assert reduced_norm != pytest.approx(reduced_raw, rel=1e-3)
+
+
+def test_decision_does_not_skip_bad_basin_with_real_c2_data():
+    """A converged-but-poor-basin warm-start (tiny raw SSR against low-noise
+    data -> large noise-normalized reduced chi2) must NOT auto-skip CMA-ES --
+    the raw-MSE path would always skip here since raw SSR/dof stays far below
+    the threshold no matter how bad the fit is relative to the data's own
+    precision."""
+    rng = np.random.default_rng(1)
+    n_t = 40
+    t = np.arange(n_t, dtype=np.float64)
+    decay = 1.0 + 0.3 * np.exp(-np.abs(t[:, None] - t[None, :]) / 5.0)
+    c2_data = decay + rng.normal(scale=1e-5, size=(n_t, n_t))  # very low noise
+
+    ssr_warm = 0.05  # tiny in absolute terms, huge relative to 1e-5-scale noise
+    skip, reduced = hc._warmstart_auto_skip_decision(
+        _cfg(), "cmaes", ssr_warm, n_t * n_t, 16, warm_success=True, c2_data=c2_data
+    )
+
+    assert reduced > 5.0
+    assert skip is False

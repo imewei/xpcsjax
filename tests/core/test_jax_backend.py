@@ -370,3 +370,16 @@ class TestShearDtNoneContract:
         shear_params = jnp.array([0.01, 0.0, 0.0, 0.0], dtype=jnp.float64)
         with pytest.raises(TypeError, match="dt must be provided"):
             ShearModel().compute_g1(shear_params, t, t, phi, q=0.01, L=1e7)
+
+
+def test_validate_backend_gradient_support_true_on_working_jax() -> None:
+    """validate_backend()'s self-test probed compute_g1_diffusion (matrix-valued
+    on the (3,3) meshgrid it builds) with jax.grad (scalar-output-only), so
+    gradient_support was always False even on a fully working JAX install --
+    jacobian (already used by the production gradient_g2) is required instead."""
+    from xpcsjax.core.jax_backend import validate_backend
+
+    result = validate_backend()
+
+    assert result["gradient_support"] is True
+    assert result["hessian_support"] is True

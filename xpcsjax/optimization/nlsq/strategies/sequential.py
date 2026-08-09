@@ -775,14 +775,13 @@ def combine_angle_results(
 
     # Combined covariance (inverse variance weighting formula)
     if weighting == "inverse_variance":
-        # σ² = 1 / Σ(1/σ²_i)
-        # Add small epsilon to prevent division by zero
-        inv_vars = np.array([1.0 / (np.diag(cov) + 1e-10) for cov in cov_list])
-        # Exclude angles whose per-angle variance was non-finite — those angles
-        # were already given zero weight above, so a NaN/inf covariance must not
-        # poison the combined inverse-variance covariance either.
-        inv_vars = inv_vars[finite]
-        combined_var = 1.0 / inv_vars.sum(axis=0)
+        # σ² = 1 / Σ(1/σ²_i). Reuse param_weights (already floored at min_var
+        # and masked to finite, positive-variance angles) instead of a second,
+        # differently-regularized 1/(var+1e-10) pass — a near-zero-but-negative
+        # variance would otherwise get excluded from combined_params but still
+        # blow up to ~1e10 weight here, making the reported uncertainty
+        # inconsistent with (tighter than) the mean it's supposed to describe.
+        combined_var = 1.0 / np.maximum(param_weights.sum(axis=0), 1e-300)
         combined_cov = np.diag(combined_var)
     else:
         # Weighted average of covariances

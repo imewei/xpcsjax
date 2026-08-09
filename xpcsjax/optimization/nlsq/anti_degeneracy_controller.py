@@ -618,13 +618,19 @@ class AntiDegeneracyController:
 
     @property
     def use_hierarchical(self) -> bool:
-        """Check whether the L2 component was CONSTRUCTED (config gate only).
+        """Check whether the L2 component was CONSTRUCTED.
 
-        This is not "L2 will run" — construction is deliberately mode-blind so
-        the ``ANTI-DEGENERACY: Layer 2`` banner and the ``get_diagnostics()``
-        ``hierarchical`` key stay symmetric with ``laminar_flow``. Callers that
-        are about to invoke ``self.hierarchical.fit()`` must gate on
-        :attr:`l2_applicable` instead.
+        Construction itself is gated on ``per_angle_mode_actual == "individual"``
+        (see ``_initialize_components``) — only the ``ANTI-DEGENERACY: Layer 2``
+        setup banner is mode-blind, firing whenever L2 is CONFIGURED
+        (``hierarchical_enable``) to keep laminar_flow's "configured-not-executed"
+        log parity even when construction itself is skipped. This property is
+        therefore currently equivalent to :attr:`l2_applicable` at every call
+        site (both require ``self.hierarchical is not None``, and that alone
+        already implies ``individual`` mode). It is kept separate as
+        defense-in-depth against a future change re-widening construction back
+        to config-only — callers that mean "is .fit() safe" should still use
+        :attr:`l2_applicable` so they keep working if that ever happens.
         """
         return self.hierarchical is not None
 
