@@ -332,21 +332,18 @@ def test_cleanup_vm_file_log_once_key_is_per_file(caplog, monkeypatch):
     manager = _make_manager()
     try:
         vm_dir_path = "/fake/vm/dir"
-        # Simulate two VM files that exist
-        fake_files = ["xpcsjax_vm_11111_100.dat", "xpcsjax_vm_22222_200.dat"]
-
-        # Make os.path.exists return True for the vm_dir
-        # and os.listdir return our two fake files
-        # os.remove raises OSError for both to trigger the log_once path
+        # Simulate two VM files this instance created
+        fake_files = [
+            f"{vm_dir_path}/xpcsjax_vm_11111_100.dat",
+            f"{vm_dir_path}/xpcsjax_vm_22222_200.dat",
+        ]
         monkeypatch.setattr(manager, "_virtual_memory_path", f"{vm_dir_path}/xpcsjax_vm")
+        manager._own_vm_files.update(fake_files)
 
-        with (
-            unittest.mock.patch("os.path.exists", return_value=True),
-            unittest.mock.patch("os.listdir", return_value=fake_files),
-            unittest.mock.patch(
-                "os.remove",
-                side_effect=OSError("simulated remove failure"),
-            ),
+        # os.remove raises OSError for both to trigger the log_once path
+        with unittest.mock.patch(
+            "os.remove",
+            side_effect=OSError("simulated remove failure"),
         ):
             with caplog.at_level(logging.DEBUG, logger="xpcsjax"):
                 manager.cleanup_virtual_memory()

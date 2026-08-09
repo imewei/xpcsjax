@@ -146,8 +146,10 @@ def generate_config(
         # yaml.dump appends a "\n...\n" document-end marker to a bare scalar;
         # taking the first non-empty line yields just the serialized scalar
         # (quoted/escaped as needed) without splicing the "..." marker into the
-        # template mid-line (audit C2).
-        return yaml.dump(value, default_flow_style=True).splitlines()[0].strip()
+        # template mid-line (audit C2). `width` must be effectively unbounded or
+        # the emitter folds long space-containing scalars (e.g. a path with
+        # spaces) onto continuation lines that the [0] slice would silently drop.
+        return yaml.dump(value, default_flow_style=True, width=1 << 31).splitlines()[0].strip()
 
     if data_path is not None:
         substitutions.append(("file_path: null", f"file_path: {_scalar(data_path)}"))

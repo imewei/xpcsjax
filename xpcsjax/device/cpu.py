@@ -97,10 +97,13 @@ def detect_cpu_info() -> dict[str, Any]:
             with open("/proc/cpuinfo", encoding="utf-8") as f:
                 cpuinfo = f.read()
                 for line in cpuinfo.split("\n"):
+                    parts = line.split(":", 1)
+                    if len(parts) != 2:
+                        continue
                     if "model name" in line and info["cpu_brand"] == "Unknown":
-                        info["cpu_brand"] = line.split(":")[1].strip()
+                        info["cpu_brand"] = parts[1].strip()
                     elif "flags" in line or "Features" in line:
-                        flags = line.split(":")[1].strip().split()
+                        flags = parts[1].strip().split()
                         if not info["supports_avx"]:
                             info["supports_avx"] = "avx" in flags
                         if not info["supports_avx512"]:
@@ -115,6 +118,7 @@ def detect_cpu_info() -> dict[str, Any]:
                     capture_output=True,
                     text=True,
                     check=False,
+                    timeout=5.0,
                 )
                 if result.returncode == 0:
                     for line in result.stdout.split("\n"):

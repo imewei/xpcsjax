@@ -7,7 +7,7 @@ Provides type safety and IDE autocomplete for configuration dictionaries.
 import math
 from typing import Any, Literal, TypedDict
 
-from xpcsjax.config.parameter_registry import AnalysisMode
+from xpcsjax.config.parameter_registry import AnalysisMode, get_param_names
 
 # Closed vocabulary for the (auto-detected, largely vestigial) data_type field.
 DataType = Literal["aps_old", "aps_u"]
@@ -404,17 +404,10 @@ class HomodyneConfig(TypedDict, total=False):
 XpcsConfig = HomodyneConfig
 
 
-# Parameter names for different modes
-STATIC_PARAM_NAMES: list[str] = ["D0", "alpha", "D_offset"]
-LAMINAR_FLOW_PARAM_NAMES: list[str] = [
-    "D0",
-    "alpha",
-    "D_offset",
-    "gamma_dot_t0",
-    "beta",
-    "gamma_dot_t_offset",
-    "phi0",
-]
+# Parameter names for different modes. Sourced from ParameterRegistry (the
+# single source of truth) rather than re-listed here, so the two can't drift.
+STATIC_PARAM_NAMES: list[str] = get_param_names(AnalysisMode.STATIC_ANISOTROPIC)
+LAMINAR_FLOW_PARAM_NAMES: list[str] = get_param_names(AnalysisMode.LAMINAR_FLOW)
 SCALING_PARAM_NAMES: list[str] = ["contrast", "offset"]
 
 

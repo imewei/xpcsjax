@@ -865,6 +865,10 @@ class AdvancedMemoryManager:
             "virtual_memory_path",
             default_vm_path,
         )
+        # Backing files created by THIS instance. The default vm path is shared
+        # by every manager that doesn't override it in config, so cleanup must
+        # not touch files another live instance/process created.
+        self._own_vm_files: set[str] = set()
 
         # Start monitoring
         if self.memory_config.get("enable_monitoring", True):
@@ -1180,6 +1184,7 @@ class AdvancedMemoryManager:
                 f.seek(total_bytes - 1)
                 f.write(b"\x00")
             os.chmod(vm_file, 0o600)
+            self._own_vm_files.add(vm_file)
 
             # Register cleanup on process exit (best-effort)
             def _cleanup_vm(path: str = vm_file) -> None:
@@ -1614,24 +1619,24 @@ class AdvancedMemoryManager:
         logger.info(f"Memory optimization applied for {workload_type} workload")
 
     def cleanup_virtual_memory(self) -> None:
-        """Clean up any virtual memory files."""
+        """Clean up the virtual memory files created by this instance."""
         try:
-            vm_dir = os.path.dirname(self._virtual_memory_path)
-            if os.path.exists(vm_dir):
-                for file in os.listdir(vm_dir):
-                    if file.startswith(os.path.basename(self._virtual_memory_path)):
-                        try:
-                            os.remove(os.path.join(vm_dir, file))
-                            logger.debug(f"Cleaned up virtual memory file: {file}")
-                        except Exception as exc:
-                            log_once(
-                                logger,
-                                logging.DEBUG,
-                                f"{id(self)}:memmgr:cleanup_vm_file:{file}",
-                                "Failed to cleanup virtual memory file %s: %s",
-                                file,
-                                exc,
-                            )
+            for file in list(self._own_vm_files):
+                self._own_vm_files.discard(file)
+                try:
+                    os.remove(file)
+                    logger.debug(f"Cleaned up virtual memory file: {file}")
+                except FileNotFoundError:
+                    pass
+                except Exception as exc:
+                    log_once(
+                        logger,
+                        logging.DEBUG,
+                        f"{id(self)}:memmgr:cleanup_vm_file:{file}",
+                        "Failed to cleanup virtual memory file %s: %s",
+                        file,
+                        exc,
+                    )
         except Exception as exc:
             log_exception(
                 logger,

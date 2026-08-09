@@ -128,7 +128,7 @@ def test_individual_escape_threads_warm_success(monkeypatch):
     """``_fit_joint_cmaes_multi_phi`` passes ``warm.success`` into the decision."""
     captured: dict = {}
 
-    def _capture(config, kind, ssr, n_data, n_params, warm_success=_SENTINEL):
+    def _capture(config, kind, ssr, n_data, n_params, warm_success=_SENTINEL, **_kw):
         captured["warm_success"] = warm_success
         # Force skip so the test returns immediately without a real CMA-ES run.
         return True, 0.0

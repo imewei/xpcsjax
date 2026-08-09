@@ -13,10 +13,8 @@ import numpy as np
 
 from xpcsjax.config.parameter_registry import AnalysisMode, get_registry
 from xpcsjax.config.types import (
-    LAMINAR_FLOW_PARAM_NAMES,
     PARAMETER_NAME_MAPPING,
     SCALING_PARAM_NAMES,
-    STATIC_PARAM_NAMES,
     BoundDict,
     HomodyneConfig,
     coerce_finite_float,
@@ -559,15 +557,16 @@ class ParameterManager:
 
     def _get_default_active_parameters(self) -> list[str]:
         """Get default active parameters based on analysis mode."""
+        # The registry is the single source of truth for every mode's parameter
+        # set. Substring dispatch (not a direct registry lookup on
+        # ``self.analysis_mode``) because ConfigManager defers mode validation:
+        # this fallback must survive a mode string the registry would reject.
         mode = self.analysis_mode.lower()
         if "static" in mode:
-            return STATIC_PARAM_NAMES.copy()
+            return get_registry().get_param_names(AnalysisMode.STATIC_ANISOTROPIC)
         if "two_component" in mode or "two-component" in mode or "heterodyne" in mode:
-            # Heterodyne (two-component) has its own 14-parameter set; falling
-            # through to the laminar branch returned the wrong model's
-            # parameters. Source the canonical list from the registry.
             return get_registry().get_param_names(AnalysisMode.TWO_COMPONENT)
-        return LAMINAR_FLOW_PARAM_NAMES.copy()
+        return get_registry().get_param_names(AnalysisMode.LAMINAR_FLOW)
 
     def get_all_parameter_names(self) -> list[str]:
         """Get all parameter names including scaling parameters.

@@ -731,10 +731,25 @@ def combine_angle_results(
         # blow the weight up to ~1e10, and reject non-finite variances (NaN/inf
         # from a failed solve) by giving those angles zero weight.
         min_var = 1e-10
-        mean_vars = np.array([np.diag(cov).mean() for cov in cov_list])
+        var_matrix = np.array([np.diag(cov) for cov in cov_list])
+        mean_vars = var_matrix.mean(axis=1)
         finite = np.isfinite(mean_vars)
         weights = np.zeros_like(mean_vars)
         weights[finite] = 1.0 / np.maximum(mean_vars[finite], min_var)
+        # Per-parameter weights for combined_params. A scalar per-angle weight
+        # (from the mean variance) is not the minimum-variance combination the
+        # per-parameter combined_cov below reports, whenever an angle's precision
+        # differs across parameters.
+        # A non-positive variance is no information, not infinite information:
+        # flooring it to min_var would hand that entry a ~1e10 weight and let it
+        # dictate the parameter on its own.
+        param_weights = np.zeros_like(var_matrix)
+        usable = finite[:, np.newaxis] & (var_matrix > 0)
+        param_weights[usable] = 1.0 / np.maximum(var_matrix[usable], min_var)
+        # A parameter with no usable variance at any angle falls back to the
+        # per-angle scalar weight rather than combining to a silent zero.
+        dead = param_weights.sum(axis=0) == 0
+        param_weights[:, dead] = weights[:, np.newaxis]
         if not np.any(weights > 0):
             raise ValueError("All angle covariances are non-finite; cannot inverse-variance weight")
     elif weighting == "n_points":
@@ -751,7 +766,12 @@ def combine_angle_results(
     weights = weights / (weights.sum() + 1e-10)
 
     # Weighted average of parameters
-    combined_params = np.sum(params_list * weights[:, np.newaxis], axis=0)
+    if weighting == "inverse_variance":
+        combined_params = (params_list * param_weights).sum(axis=0) / np.maximum(
+            param_weights.sum(axis=0), 1e-300
+        )
+    else:
+        combined_params = np.sum(params_list * weights[:, np.newaxis], axis=0)
 
     # Combined covariance (inverse variance weighting formula)
     if weighting == "inverse_variance":

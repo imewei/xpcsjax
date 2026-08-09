@@ -1695,7 +1695,9 @@ def validate_backend() -> dict[str, Any]:
 
         # Test gradient computation
         try:
-            grad_func = grad(compute_g1_diffusion, argnums=0)
+            # jacobian, not grad: compute_g1_diffusion returns a matrix, and
+            # jax.grad is scalar-output only (mirrors the gradient_g2 production path).
+            grad_func = jacobian(compute_g1_diffusion, argnums=0)
             grad_func(test_params, test_t1, test_t2, test_q, test_dt)
             results["gradient_support"] = True
             cast(dict[str, str], results["test_results"])["gradient_computation"] = "success"

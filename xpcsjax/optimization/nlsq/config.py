@@ -443,7 +443,7 @@ class NLSQConfig:
             loss=config_dict.get("loss", "soft_l1"),
             trust_region_scale=safe_float(config_dict.get("trust_region_scale"), 1.0),
             # Convergence
-            max_iterations=config_dict.get("max_iterations", 1000),
+            max_iterations=safe_int(config_dict.get("max_iterations"), 1000),
             ftol=safe_float(config_dict.get("ftol", config_dict.get("tolerance")), 1e-8),
             xtol=safe_float(config_dict.get("xtol"), 1e-8),
             gtol=safe_float(config_dict.get("gtol"), 1e-8),
@@ -454,31 +454,33 @@ class NLSQConfig:
             enable_diagnostics=diagnostics.get("enable", True),
             # Streaming
             enable_streaming=streaming.get("enable", True),
-            streaming_chunk_size=streaming.get("chunk_size", 50000),
+            streaming_chunk_size=safe_int(streaming.get("chunk_size"), 50000),
             # Stratified
             enable_stratified=stratified.get("enable", True),
-            target_chunk_size=stratified.get("target_chunk_size", 100000),
+            target_chunk_size=safe_int(stratified.get("target_chunk_size"), 100000),
             # Recovery
             enable_recovery=recovery.get("enable", True),
-            max_recovery_attempts=recovery.get("max_attempts", 3),
+            max_recovery_attempts=safe_int(recovery.get("max_attempts"), 3),
             # Progress and logging
             enable_progress_bar=progress.get("enable", True),
-            verbose=progress.get("verbose", 1),
-            log_iteration_interval=progress.get("log_interval", 10),
+            verbose=safe_int(progress.get("verbose"), 1),
+            log_iteration_interval=safe_int(progress.get("log_interval"), 10),
             # Hybrid streaming
             enable_hybrid_streaming=hybrid_streaming.get("enable", True),
             hybrid_normalize=hybrid_streaming.get("normalize", True),
             hybrid_normalization_strategy=hybrid_streaming.get("normalization_strategy", "auto"),
-            hybrid_warmup_iterations=hybrid_streaming.get("warmup_iterations", 200),
-            hybrid_max_warmup_iterations=hybrid_streaming.get("max_warmup_iterations", 500),
+            hybrid_warmup_iterations=safe_int(hybrid_streaming.get("warmup_iterations"), 200),
+            hybrid_max_warmup_iterations=safe_int(
+                hybrid_streaming.get("max_warmup_iterations"), 500
+            ),
             hybrid_warmup_learning_rate=safe_float(
                 hybrid_streaming.get("warmup_learning_rate"), 0.001
             ),
-            hybrid_gauss_newton_max_iterations=hybrid_streaming.get(
-                "gauss_newton_max_iterations", 100
+            hybrid_gauss_newton_max_iterations=safe_int(
+                hybrid_streaming.get("gauss_newton_max_iterations"), 100
             ),
             hybrid_gauss_newton_tol=safe_float(hybrid_streaming.get("gauss_newton_tol"), 1e-8),
-            hybrid_chunk_size=hybrid_streaming.get("chunk_size", 10000),
+            hybrid_chunk_size=safe_int(hybrid_streaming.get("chunk_size"), 10000),
             hybrid_trust_region_initial=safe_float(
                 hybrid_streaming.get("trust_region_initial"), 1.0
             ),
@@ -486,7 +488,7 @@ class NLSQConfig:
                 hybrid_streaming.get("regularization_factor"), 1e-10
             ),
             hybrid_enable_checkpoints=hybrid_streaming.get("enable_checkpoints", True),
-            hybrid_checkpoint_frequency=hybrid_streaming.get("checkpoint_frequency", 100),
+            hybrid_checkpoint_frequency=safe_int(hybrid_streaming.get("checkpoint_frequency"), 100),
             hybrid_validate_numerics=hybrid_streaming.get("validate_numerics", True),
             # 4-Layer Defense Strategy
             # Layer 1: Warm Start Detection
@@ -517,15 +519,15 @@ class NLSQConfig:
             # Multi-start
             # NOTE: No subsampling - numerical precision takes priority
             enable_multi_start=multi_start.get("enable", False),
-            multi_start_n_starts=multi_start.get("n_starts", 10),
-            multi_start_seed=multi_start.get("seed", 42),
+            multi_start_n_starts=safe_int(multi_start.get("n_starts"), 10),
+            multi_start_seed=safe_int(multi_start.get("seed"), 42),
             multi_start_sampling_strategy=multi_start.get("sampling_strategy", "latin_hypercube"),
-            multi_start_n_workers=multi_start.get("n_workers", 0),
+            multi_start_n_workers=safe_int(multi_start.get("n_workers"), 0),
             multi_start_use_screening=multi_start.get("use_screening", True),
             multi_start_screen_keep_fraction=safe_float(
                 multi_start.get("screen_keep_fraction"), 0.5
             ),
-            multi_start_refine_top_k=multi_start.get("refine_top_k", 3),
+            multi_start_refine_top_k=safe_int(multi_start.get("refine_top_k"), 3),
             multi_start_refinement_ftol=safe_float(multi_start.get("refinement_ftol"), 1e-12),
             multi_start_degeneracy_threshold=safe_float(
                 multi_start.get("degeneracy_threshold"), 0.1
@@ -533,16 +535,21 @@ class NLSQConfig:
             # Anti-Degeneracy Defense System
             # Layer 1: Per-Angle Reparameterization (scaling mode)
             per_angle_mode=anti_degeneracy.get("per_angle_mode", "auto"),
-            constant_scaling_threshold=anti_degeneracy.get(
-                "constant_scaling_threshold", DEFAULT_CONSTANT_SCALING_THRESHOLD
+            constant_scaling_threshold=safe_int(
+                anti_degeneracy.get("constant_scaling_threshold"),
+                DEFAULT_CONSTANT_SCALING_THRESHOLD,
             ),
             execute_layers=anti_degeneracy.get("execute_layers", False),
             # Layer 2: Hierarchical Optimization
             enable_hierarchical=hierarchical.get("enable", True),
-            hierarchical_max_outer_iterations=hierarchical.get("max_outer_iterations", 5),
+            hierarchical_max_outer_iterations=safe_int(hierarchical.get("max_outer_iterations"), 5),
             hierarchical_outer_tolerance=safe_float(hierarchical.get("outer_tolerance"), 1e-6),
-            hierarchical_physical_max_iterations=hierarchical.get("physical_max_iterations", 100),
-            hierarchical_per_angle_max_iterations=hierarchical.get("per_angle_max_iterations", 50),
+            hierarchical_physical_max_iterations=safe_int(
+                hierarchical.get("physical_max_iterations"), 100
+            ),
+            hierarchical_per_angle_max_iterations=safe_int(
+                hierarchical.get("per_angle_max_iterations"), 50
+            ),
             # Layer 3: Adaptive Relative Regularization
             regularization_mode=regularization.get("mode", "relative"),
             group_variance_lambda=safe_float(regularization.get("lambda"), 1.0),
@@ -555,7 +562,9 @@ class NLSQConfig:
             # Layer 4: Gradient Collapse Detection
             enable_gradient_monitoring=gradient_monitoring.get("enable", True),
             gradient_ratio_threshold=safe_float(gradient_monitoring.get("ratio_threshold"), 0.01),
-            gradient_consecutive_triggers=gradient_monitoring.get("consecutive_triggers", 5),
+            gradient_consecutive_triggers=safe_int(
+                gradient_monitoring.get("consecutive_triggers"), 5
+            ),
             gradient_collapse_response=gradient_monitoring.get("response", "hierarchical"),
             # CMA-ES Global Optimization
             enable_cmaes=cmaes.get("enable", False),
@@ -570,8 +579,8 @@ class NLSQConfig:
             cmaes_tol_fun=safe_float(cmaes.get("tol_fun"), 1e-8),
             cmaes_tol_x=safe_float(cmaes.get("tol_x"), 1e-8),
             cmaes_restart_strategy=cmaes.get("restart_strategy", "bipop"),
-            cmaes_max_restarts=cmaes.get("max_restarts", 9),
-            cmaes_n_seeds=cmaes.get("n_seeds", 1),
+            cmaes_max_restarts=safe_int(cmaes.get("max_restarts"), 9),
+            cmaes_n_seeds=safe_int(cmaes.get("n_seeds"), 1),
             cmaes_population_batch_size=cmaes.get("population_batch_size"),
             cmaes_data_chunk_size=cmaes.get("data_chunk_size"),
             cmaes_refine_with_nlsq=cmaes.get("refine_with_nlsq", True),
@@ -583,7 +592,7 @@ class NLSQConfig:
             cmaes_refinement_ftol=safe_float(cmaes.get("refinement_ftol"), 1e-10),
             cmaes_refinement_xtol=safe_float(cmaes.get("refinement_xtol"), 1e-10),
             cmaes_refinement_gtol=safe_float(cmaes.get("refinement_gtol"), 1e-10),
-            cmaes_refinement_max_nfev=cmaes.get("refinement_max_nfev", 500),
+            cmaes_refinement_max_nfev=safe_int(cmaes.get("refinement_max_nfev"), 500),
             cmaes_refinement_loss=cmaes.get("refinement_loss", "linear"),
             # CMA-ES Parameter Normalization
             cmaes_normalize=cmaes.get("normalize", True),
