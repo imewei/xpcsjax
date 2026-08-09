@@ -725,6 +725,8 @@ def combine_angle_results(
     cov_list = np.array([r["covariance"] for r in successful])
 
     # Compute weights
+    param_weights: np.ndarray | None = None  # only set (and only read) below when
+    # weighting == "inverse_variance"; declared here so it's never unbound.
     if weighting == "inverse_variance":
         # Weight by 1/σ² (diagonal of inverse covariance). Clip the per-angle
         # mean variance to a floor so a singular (near-zero) covariance can't
@@ -767,6 +769,7 @@ def combine_angle_results(
 
     # Weighted average of parameters
     if weighting == "inverse_variance":
+        assert param_weights is not None  # set above whenever this branch runs
         combined_params = (params_list * param_weights).sum(axis=0) / np.maximum(
             param_weights.sum(axis=0), 1e-300
         )
@@ -775,6 +778,7 @@ def combine_angle_results(
 
     # Combined covariance (inverse variance weighting formula)
     if weighting == "inverse_variance":
+        assert param_weights is not None  # set above whenever this branch runs
         # σ² = 1 / Σ(1/σ²_i). Reuse param_weights (already floored at min_var
         # and masked to finite, positive-variance angles) instead of a second,
         # differently-regularized 1/(var+1e-10) pass — a near-zero-but-negative

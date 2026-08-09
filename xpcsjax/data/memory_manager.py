@@ -1627,6 +1627,9 @@ class AdvancedMemoryManager:
                     os.remove(file)
                     logger.debug(f"Cleaned up virtual memory file: {file}")
                 except FileNotFoundError:
+                    # Already removed by the atexit-registered per-file _cleanup_vm
+                    # closure (registered at allocation time) -- idempotent cleanup,
+                    # not an error.
                     pass
                 except Exception as exc:
                     log_once(
