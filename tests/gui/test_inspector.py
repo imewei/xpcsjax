@@ -38,3 +38,31 @@ def test_inspector_clears_on_none(qtbot):
     w.show_summary(_summary())
     w.show_summary(None)
     assert w.param_row_count() == 0
+
+
+def test_inspector_renders_nan_parameter_without_crash(qtbot):
+    """A diverged fit's non-finite parameter (persisted as None) must render as
+    a visible "NaN" row, not crash on the f"{value:.6g}" format spec and not
+    silently disappear from the table (regression for the loader's
+    dict[str, float | None] widening)."""
+    summary = ResultSummary(
+        result_dir=Path("."),
+        success=False,
+        convergence_status="diverged",
+        chi_squared=None,
+        reduced_chi_squared=None,
+        quality_flag="poor",
+        parameters={"D0": 1234.5, "alpha": None},
+        uncertainties={"D0": 12.0, "alpha": None},
+        diagnostics={},
+    )
+    w = InspectorDock()
+    qtbot.addWidget(w)
+    w.show_summary(summary)
+    assert w.param_row_count() == 2
+    value_cells = {
+        w._param_table.item(row, 0).text(): w._param_table.item(row, 1).text()
+        for row in range(w.param_row_count())
+    }
+    assert value_cells["alpha"] == "NaN"
+    assert value_cells["D0"] == "1234.5"

@@ -216,3 +216,49 @@ def test_factory_without_validation() -> None:
         _stratified(), per_angle_scaling=False, physical_param_names=_PHYSICAL, validate=False
     )
     assert isinstance(rf, StratifiedResidualFunction)
+
+
+# ---------------------------------------------------------------------------
+# _compute_flat_indices clamping (regression: out-of-range component index
+# used to combine into an in-bounds but WRONG flat index, not raise)
+# ---------------------------------------------------------------------------
+
+
+def test_compute_flat_indices_clamps_out_of_range_axis_independently() -> None:
+    """An out-of-range t1 query (float drift past t1_unique's max) must clamp
+    to the boundary CELL, not silently combine into a different, wrong flat
+    index elsewhere in the grid.
+
+    Grid: phi_unique=[0,90], t1_unique=t2_unique=[1.0,2.0] -> n_t1=n_t2=2.
+    A drifted t1 (2.0 + eps, out of range) must clamp its own axis index to 1
+    (same as querying t1=2.0 exactly), landing on flat index
+    phi_idx*4 + 1*2 + t2_idx -- NOT the un-clamped searchsorted result of 2,
+    which would silently combine into flat index phi_idx*4 + 2*2 + t2_idx,
+    i.e. the wrong (phi, t1, t2) cell despite being in-bounds for an 8-point
+    grid.
+    """
+    rf = StratifiedResidualFunction(
+        _stratified(), per_angle_scaling=True, physical_param_names=_PHYSICAL
+    )
+    phi_unique = np.array(_PHI)
+    t1_unique = np.array(_T)
+    t2_unique = np.array(_T)
+
+    phi = np.array([0.0])
+    t1 = np.array([t1_unique.max() + 1e-6])  # drifted just past the grid
+    t2 = np.array([1.0])  # in range
+
+    flat_indices, t1_indices, t2_indices = rf._compute_flat_indices(
+        phi, t1, t2, phi_unique, t1_unique, t2_unique
+    )
+
+    expected_phi_idx = 0
+    expected_t1_idx = len(t1_unique) - 1  # clamped, not len(t1_unique)
+    expected_t2_idx = 0
+    expected_flat = expected_phi_idx * (len(t1_unique) * len(t2_unique)) + (
+        expected_t1_idx * len(t2_unique) + expected_t2_idx
+    )
+
+    assert int(t1_indices[0]) == expected_t1_idx
+    assert int(t2_indices[0]) == expected_t2_idx
+    assert int(flat_indices[0]) == expected_flat

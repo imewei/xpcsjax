@@ -23,10 +23,11 @@ class ResultSummary:
     chi_squared: float | None
     reduced_chi_squared: float | None
     quality_flag: str
-    # None where the persisted value was non-finite (NaN/Inf), which
-    # save_results_json coerces to JSON null for a diverged/degenerate fit —
-    # kept present (not dropped) so a caller can flag the failure instead of
-    # a parameter silently vanishing from the table.
+    # None where the persisted value was non-finite (NaN/Inf, which
+    # save_results_json coerces to JSON null for a diverged/degenerate fit) OR
+    # missing/malformed in the JSON. Either way the key is kept present (not
+    # dropped) so a caller can flag the failure instead of a parameter
+    # silently vanishing from the table.
     parameters: dict[str, float | None]
     # Per-parameter uncertainty (None where the fit reported none). Defaulted so
     # existing direct ResultSummary(...) constructions (F/G tests) stay valid.
@@ -66,9 +67,9 @@ def load_result_summary(result_dir: str | Path) -> ResultSummary | None:
     meta = meta_raw if isinstance(meta_raw, dict) else {}
     params_raw = payload.get("parameters")
     params_blob = params_raw if isinstance(params_raw, dict) else {}
-    # A None value here means the persisted fit reported a non-finite (NaN/Inf)
-    # parameter, not a missing one -- keep the key so the failure is visible
-    # instead of the row disappearing from the table.
+    # A None value here means the persisted "value" was non-finite (NaN/Inf ->
+    # JSON null) OR missing/non-numeric -- either way keep the key so the
+    # failure is visible instead of the row disappearing from the table.
     parameters = {
         str(name): _as_float(info.get("value"))
         for name, info in params_blob.items()

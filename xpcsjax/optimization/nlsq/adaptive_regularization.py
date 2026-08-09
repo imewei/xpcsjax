@@ -351,15 +351,21 @@ class AdaptiveRegularizer:
                 mean_val = jnp.mean(group_params)
                 std_val = jnp.std(group_params)
 
-                # Safe division: sanitize the numerator/denominator themselves, not
-                # just the selected output. jnp.where(cond, std/mean, ...) evaluates
-                # BOTH branches under JIT/grad, so mean=0 produces Inf in the
-                # untaken branch and contaminates the gradient (0*inf=nan) even
-                # though the forward value is masked out correctly.
+                # Safe division: sanitize only the denominator, not the numerator.
+                # jnp.where(cond, std/mean, std) evaluates BOTH branches under
+                # JIT/grad, so mean=0 produces Inf in the untaken branch and
+                # contaminates the gradient (0*inf=nan) even though the forward
+                # value is masked out correctly. std_val itself is never unsafe
+                # (only the division is), so only the denominator needs a safe
+                # substitute -- the fallback value stays std_val, matching the
+                # NumPy sibling compute_regularization() above (line 276).
+                # Zeroing the numerator instead (an earlier version of this fix)
+                # silently collapsed the fallback to cv=0, killing the L3 penalty
+                # exactly at the near-zero-mean, high-relative-spread case it
+                # exists to catch.
                 mean_is_nonzero = jnp.abs(mean_val) > 1e-10
-                safe_std = jnp.where(mean_is_nonzero, std_val, 0.0)
                 safe_denom = jnp.where(mean_is_nonzero, jnp.abs(mean_val), 1.0)
-                cv = safe_std / safe_denom
+                cv = jnp.where(mean_is_nonzero, std_val / safe_denom, std_val)
 
                 # L_reg = λ × CV² × MSE × n_points
                 group_reg = self.lambda_value * (cv**2) * mse * n_points

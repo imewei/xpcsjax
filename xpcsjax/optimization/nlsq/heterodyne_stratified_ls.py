@@ -439,18 +439,20 @@ def _per_angle_cv(contrasts: jnp.ndarray, offsets: jnp.ndarray) -> tuple[jnp.nda
     """Return ``(contrast_CV, offset_CV)`` with a safe-divide on near-zero means.
 
     The division ``std / |mean|`` is evaluated in both branches of a ``jnp.where``
-    under JIT, so ``mean=0`` produces ``Inf`` in the false branch. To prevent
-    Inf-contaminated gradients, we sanitize the numerator: when the mean is
-    near-zero, we set the CV to 0 (not std) and the denominator to 1.
+    under JIT, so ``mean=0`` produces ``Inf`` in the false branch. We sanitize
+    only the denominator (std itself is never unsafe) and keep the mean~0
+    fallback as ``std`` -- NOT 0 -- since zeroing the fallback collapses the CV
+    to 0 exactly at the near-zero-mean, high-relative-spread case it exists to
+    flag.
     """
     c_mean = jnp.mean(contrasts)
+    c_std = jnp.std(contrasts)
     c_denom = jnp.where(jnp.abs(c_mean) > 1e-10, jnp.abs(c_mean), 1.0)
-    c_safe_std = jnp.where(jnp.abs(c_mean) > 1e-10, jnp.std(contrasts), 0.0)
-    c_cv = c_safe_std / c_denom
+    c_cv = jnp.where(jnp.abs(c_mean) > 1e-10, c_std / c_denom, c_std)
     o_mean = jnp.mean(offsets)
+    o_std = jnp.std(offsets)
     o_denom = jnp.where(jnp.abs(o_mean) > 1e-10, jnp.abs(o_mean), 1.0)
-    o_safe_std = jnp.where(jnp.abs(o_mean) > 1e-10, jnp.std(offsets), 0.0)
-    o_cv = o_safe_std / o_denom
+    o_cv = jnp.where(jnp.abs(o_mean) > 1e-10, o_std / o_denom, o_std)
     return c_cv, o_cv
 
 

@@ -166,6 +166,19 @@ class ComparisonView(QWidget):
             """
             return f"{x:.6g}" if x is not None else None
 
+        def _param_cell(value: float | None) -> str:
+            """Format a present parameter's value, distinguishing NaN from absent.
+
+            A ``None`` here means the parameter WAS reported (present in the run's
+            ``parameters`` dict) but is non-finite -- render "NaN" so it reads
+            differently from the "—" sentinel `row()` uses for a run that never
+            reported this parameter at all. Routing this through the plain
+            ``fmt()`` above (which also returns ``None`` for ``None``) would
+            collapse both cases to the same "—" cell, silently hiding a diverged
+            run's NaN parameter and defeating the ``≠`` diff marker.
+            """
+            return f"{value:.6g}" if value is not None else "NaN"
+
         lines = [" " * label_w + "".join(label.ljust(col_w) for label in labels)]
         lines.append("-" * len(lines[0]))
         lines.append(row("status", [s.convergence_status if s else None for _, s in summaries]))
@@ -193,7 +206,9 @@ class ComparisonView(QWidget):
             lines.append("parameters:")
             for name in param_names:
                 values = [
-                    fmt(s.parameters[name]) if s is not None and name in s.parameters else None
+                    _param_cell(s.parameters[name])
+                    if s is not None and name in s.parameters
+                    else None
                     for _, s in summaries
                 ]
                 lines.append(row(name, values))

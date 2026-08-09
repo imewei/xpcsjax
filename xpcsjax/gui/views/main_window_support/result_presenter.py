@@ -58,7 +58,12 @@ class ResultPresenter(QObject):
             f"results dir:     {summary.result_dir}",
             "",
             "parameters:",
-            *[f"  {name} = {value}" for name, value in summary.parameters.items()],
+            # "NaN" (not the literal "None") for consistency with inspector.py's
+            # and project_panel.py's rendering of a non-finite parameter.
+            *[
+                f"  {name} = {'NaN' if value is None else value}"
+                for name, value in summary.parameters.items()
+            ],
             "",
             f"Publication figures (Matplotlib) were written under {summary.result_dir}/plots.",
         ]
