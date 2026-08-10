@@ -8,6 +8,28 @@ current release line.
 Unreleased
 ----------
 
+v0.1.3 — deep-RCA whole-codebase debug audit
+---------------------------------------------
+
+*Released 2026-08-09.*
+
+* **21 confirmed bugs fixed across 24 files** (#49, #50), adversarially
+  verified via a 12-shard find-then-verify audit. Highlights: a DOF-correction
+  truthiness bug that understated reduced-:math:`\chi^2`/``quality_flag`` when
+  the ``anti_degeneracy`` config section is absent; a CMA-ES warm-start
+  auto-skip that compared raw (non noise-normalized) SSR/dof against a
+  noise-normalized threshold, silently defeating the global escape on poor
+  basins; ``validate_backend()``'s self-test using ``jax.grad`` on a
+  matrix-output function so ``gradient_support`` was always ``False``; Layer 2
+  (``HierarchicalOptimizer``) constructed mode-blind in ``averaged``/
+  ``constant`` per-angle modes; a CV-safe-divide fix that over-sanitized the
+  numerator and silently killed the L3 regularization penalty at the
+  near-zero-mean case it exists to catch (three call sites); and an
+  inconsistent weighting pairing between ``combined_params`` and
+  ``combined_cov`` in ``combine_angle_results``.
+* Verification: ruff clean, mypy clean (0 issues, 198 files), full suite
+  green (2628 passed, +6 new regression tests, 0 failures).
+
 v0.1.2 — tied parameters, deep-RCA audits, and GUI/packaging fixes
 --------------------------------------------------------------------
 

@@ -255,7 +255,7 @@ To cite the software itself:
   author      = {Chen, Wei},
   title       = {XPCSJAX: JAX-native NLSQ fitting for X-ray Photon Correlation Spectroscopy},
   year        = {2026},
-  version     = {0.1.2},
+  version     = {0.1.3},
   institution = {Argonne National Laboratory},
   url         = {https://github.com/imewei/xpcsjax}
 }
