@@ -1,20 +1,21 @@
 {% set name = "nlsq" %}
-{% set version = "0.7.0" %}
+{% set version = "0.7.1" %}
 
 package:
   name: {{ name|lower }}
   version: {{ version }}
 
 source:
-  url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/nlsq-{{ version }}.tar.gz
-  sha256: 29fd610e8dba66b8c2c89056a8fc00dc3bede3e8e2eff8131b09534d4a61921d
+  url: https://files.pythonhosted.org/packages/c6/2a/f7ce6c46ea8d42140f613ff585947c81447fd17fce9f8e4a20471f057afb/nlsq-{{ version }}.tar.gz
+  sha256: 2450145a29cdd1f33de6fa250f759fb0d6d4e79f90fc830f367695a59e36d136
 
 build:
   number: 0
   noarch: python
   script: {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
   entry_points:
-    - nlsq = nlsq.__main__:main
+    - nlsq = nlsq.cli.main:main
+    - nlsq-gui = nlsq.gui_qt:run_desktop
 
 requirements:
   host:
@@ -24,30 +25,40 @@ requirements:
     - setuptools-scm >=9.2
     - wheel
   run:
+    # Core scientific computing
     - python >=3.12
     - numpy >=2.2
     - scipy >=1.16.0
+    # JAX ecosystem (conda-forge)
     - jax >=0.8.0
     - jaxlib >=0.8.0
     - optax >=0.2.6
+    # Visualization and monitoring
     - matplotlib-base >=3.10.0
     - psutil >=7.2.0
     - tqdm >=4.67.0
+    # Large dataset support
     - h5py >=3.15.0
+    # Performance
     - python-xxhash >=3.6.0
+    # Configuration
     - pyyaml >=6.0.3
-    - evosax >=0.2.0,<0.3.0
+    # Global optimization -- built and hosted on imewei channel
+    - evosax >=0.2.0
+    # Qt GUI -- both available on conda-forge. nlsq 0.7.1 promoted these from
+    # optional to core dependencies (nlsq-gui entry point ships unconditionally).
+    # pyside6: latest on conda-forge is 6.9.3 (relaxed from >=6.10.0 for conda)
+    - pyside6 >=6.4.0
+    - pyqtgraph >=0.14.0
 
 test:
   imports:
     - nlsq
-  # `pip check` is intentionally omitted here: nlsq 0.7.0's own dist-info
-  # METADATA lists its dev/docs/GUI extras (pytest, sphinx, PySide6, ...) as
-  # unconditional Requires-Dist with no extra marker (verified against the
-  # installed METADATA, not just the PyPI JSON API -- an upstream
-  # pyproject.toml bug, worth reporting to imewei/NLSQ). `pip check` faults on
-  # exactly those absent deps regardless of what this recipe's run: section
-  # declares, so it would always fail here and adds no real signal.
+  # pip check is intentionally omitted: the installed METADATA lists dev/docs
+  # extras as unconditional Requires-Dist (pyproject.toml currently includes dev
+  # deps in core dependencies). pip check would always fail on conda-only envs.
+  commands:
+    - nlsq --help
 
 about:
   home: https://github.com/imewei/NLSQ
@@ -61,11 +72,3 @@ about:
 extra:
   recipe-maintainers:
     - imewei
-  # NOTE: nlsq 0.7.0's published wheel METADATA lists its dev/docs/test/GUI
-  # extras (pytest, sphinx, PySide6, jupyterlab, ...) as unconditional
-  # Requires-Dist entries with no "extra ==" marker -- verified against the
-  # wheel's METADATA file, not just the PyPI JSON API. That looks like an
-  # upstream pyproject.toml bug (dependency-group leakage into
-  # install-requires), not an intentional hard runtime dependency. The `run:`
-  # list above keeps only the genuine runtime deps (mirrors xpcsjax's own
-  # nlsq pin) and does not propagate the bug into this recipe.

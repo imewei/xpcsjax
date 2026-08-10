@@ -21,6 +21,7 @@ requirements:
     - pip
     - hatchling
   run:
+    # Core (pyproject.toml [project] dependencies)
     - python >=3.12
     - numpy >=2.3
     - scipy >=1.17
@@ -38,17 +39,53 @@ requirements:
     - datashader >=0.16
     - xarray >=2024.0
     - colorcet >=3.1
+    # [dev] extra -- test/lint/release tooling
+    - pytest >=9.0.2
+    - pytest-cov >=7.0
+    - pytest-env >=1.1
+    # pytest-mpl: latest on conda-forge is 0.9 (relaxed from >=0.17 for conda)
+    - pytest-mpl >=0.9
+    - pytest-xdist >=3.8
+    - pytest-benchmark >=5.2
+    - pytest-timeout >=2.4
+    - hypothesis >=6
+    - numba >=0.60
+    # ruff: latest on conda-forge is 0.9.9 (relaxed from >=0.15.2 for conda)
+    - ruff >=0.9.9
+    - mypy >=1.19.1
+    # types-pyyaml: conda-forge uses PEP 440-plain versions (6.0.9); PyPI's
+    # date-suffixed scheme (6.0.12.20250915) has no conda-forge equivalent yet
+    - types-pyyaml >=6.0.9
+    - pip-audit >=2.7
+    - pre-commit >=4.0
+    - python-build >=1.2
+    - twine >=5.0
+    - setuptools >=83.0.0
+    # [docs] extra
+    - sphinx >=8.0
+    - furo >=2024.8.6
+    - sphinx-copybutton >=0.5.2
+    - sphinx-autodoc-typehints >=2.5
+    - sphinx-design >=0.6
+    - myst-parser >=4.0
+    - mistune >=3.3.0
+    # [gui] extra
+    - pyside6 >=6.7
+    - pyqtgraph >=0.13
+    - pytest-qt >=4.4
+    # [packaging] extra
+    - pyinstaller >=6.0
 
 test:
   imports:
     - xpcsjax
   commands:
-    # `pip check` is omitted: xpcsjax depends on nlsq, and nlsq 0.7.0's own
+    # `pip check` is omitted: xpcsjax depends on nlsq, and nlsq's own
     # dist-info METADATA has an upstream bug (dev/docs/GUI extras listed as
-    # unconditional Requires-Dist -- fixed at
-    # https://github.com/imewei/NLSQ/commit/cbf9dd4, not yet released to
-    # PyPI). `pip check` fails transitively on nlsq's absent dev tools
-    # regardless of anything in this recipe; see conda-recipe/nlsq/meta.yaml.
+    # unconditional Requires-Dist with no extra marker -- still present as of
+    # nlsq 0.7.1, see conda-recipe/nlsq/meta.yaml). `pip check` fails
+    # transitively on nlsq's absent dev tools regardless of anything in this
+    # recipe.
     - xpcsjax --help
   requires:
     - pip
@@ -63,3 +100,9 @@ about:
 extra:
   recipe-maintainers:
     - imewei
+  # `run:` bundles pyproject.toml's core dependencies plus every optional
+  # extra (dev, docs, gui, packaging -- i.e. the `xpcsjax[all]` pip target),
+  # not just the core-required set, so `mamba install xpcsjax` matches
+  # `pip install xpcsjax[all]`. Three floors were relaxed below their PyPI
+  # pyproject.toml value because conda-forge's mirror lags upstream (see
+  # inline comments on pytest-mpl, ruff, types-pyyaml above).
