@@ -11,6 +11,25 @@ the rendered documentation.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-08-09
+
+### Fixed
+
+- **Deep-RCA whole-codebase debug audit: 21 confirmed bugs across 24 files** (#49, #50). Highlights:
+  - `wrapper.py` / `strategies/stratified_ls.py`: a DOF-correction truthiness bug understated reduced-$\chi^2$/`quality_flag` when the `anti_degeneracy` config section is absent but averaged/individual scaling is still active.
+  - `heterodyne_core.py`: the CMA-ES warm-start auto-skip compared raw (non noise-normalized) SSR/dof against a threshold meant for noise-normalized reduced $\chi^2$, silently defeating the global escape on genuinely poor basins; added a missing weights/data shape guard in `_fit_cmaes`.
+  - `jax_backend.py`: `validate_backend()`'s self-test used `jax.grad` on a matrix-output function, so `gradient_support` was always `False` even on a working JAX install; fixed to use `jacobian`, resolving the downstream always-`ImportError` fallout in `model_mixins.py`.
+  - `anti_degeneracy_controller.py`: Layer 2 (`HierarchicalOptimizer`) was constructed mode-blind, reporting active even in `averaged`/`constant` mode where its hard-coded individual-mode layout is unusable; construction is now gated on the resolved per-angle mode.
+  - `hierarchical.py`: outer-loop convergence was gated on absolute parameter change instead of the already-computed relative change, making convergence unreachable for parameters spanning 6+ orders of magnitude.
+  - `adaptive_regularization.py`: the CV-safe-divide fix sanitized the numerator as well as the denominator, silently changing the near-zero-mean fallback value and killing the L3 regularization penalty exactly where it is needed; corrected to sanitize only the denominator (applied to all three CV sites: `adaptive_regularization.py`, `heterodyne_core.py`, `heterodyne_stratified_ls.py`).
+  - `strategies/sequential.py`: `combine_angle_results` used a scalar per-angle weight for `combined_params` while `combined_cov` used an unmasked per-parameter inverse-variance weight, an internally inconsistent pairing; both now share the same masked/floored weight matrix.
+  - `data/performance_engine.py`: `MultiLevelCache` disk writes were not serialized per key (unsynchronized `"wb"` opens race); fixed via atomic temp-file + `os.replace`.
+  - `data/memory_manager.py`: `cleanup_virtual_memory()` deleted files by a shared filename-prefix scan instead of tracking self-created files, risking deletion of another live instance's mmap-backed file.
+  - `config.py`: `NLSQConfig.from_dict()` crashed (instead of degrading to default) on an explicit YAML `null` for non-`Optional` numeric fields.
+  - GUI: `project_panel.py` / `result_presenter.py` rendered a NaN parameter with the same "—" sentinel as "run has no such parameter," silently defeating the comparison-view diff marker; both now render `"NaN"` distinctly.
+  - Smaller fixes: an unguarded `end_frame` `KeyError` in `HeterodyneModel.from_config`, an unbounded `lscpu` subprocess call (hang risk) in `device/cpu.py`, an uncommented empty `except FileNotFoundError` flagged by CodeQL, and unlogged `fast_chi2_mode` subsampling in `out_of_core.py`.
+  - Verification: ruff clean, mypy clean (0 issues, 198 files), full suite green (2628 passed, +6 new regression tests, 0 failures).
+
 ## [0.1.2] - 2026-08-06
 
 ### Added
@@ -427,7 +446,8 @@ results, public API, and config formats are identical to 0.1.0.
 - GPU support. v0.1 sets `NLSQ_SKIP_GPU_CHECK=1` and runs CPU-only;
   GPU paths are planned for v0.2+.
 
-[Unreleased]: https://github.com/imewei/xpcsjax/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/imewei/xpcsjax/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/imewei/xpcsjax/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/imewei/xpcsjax/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/imewei/xpcsjax/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/imewei/xpcsjax/releases/tag/v0.1.0

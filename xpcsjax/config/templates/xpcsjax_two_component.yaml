@@ -44,7 +44,7 @@
 # METADATA
 # -----------------------------------------------------------------------------
 metadata:
-  config_version: "0.1.2"
+  config_version: "0.1.3"
   description: "xpcsjax two-component (heterodyne) — 14-param reference+sample+velocity+fraction"
   parameter_count: 14
   physics_model: "heterodyne: g1_ref + g1_sample + cross-term with v(t), f_s(t), phi0_het"
