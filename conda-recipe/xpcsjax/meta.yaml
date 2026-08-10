@@ -31,6 +31,13 @@ requirements:
     - nlsq >=0.6.10
     - evosax >=0.2.0
     - h5py >=3.15
+    # Verified 2026-08-10: conda-forge's h5py free-threaded (python3.14t)
+    # build still links hdf5 2.1.0, but an unconstrained solve happily pairs
+    # it with the newly-released hdf5 2.2.0 package -> h5py's own
+    # "running against HDF5 2.2.0 when it was built against 2.1.0" warning.
+    # Cap the ceiling until conda-forge finishes the hdf5 2.2.0 migration for
+    # every h5py build variant; drop this pin once that lands upstream.
+    - hdf5 >=2.1,<2.2
     - pyyaml >=6.0.3
     - psutil >=7.2
     - tqdm >=4.67.1

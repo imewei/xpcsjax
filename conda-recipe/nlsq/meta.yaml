@@ -39,6 +39,11 @@ requirements:
     - tqdm >=4.67.0
     # Large dataset support
     - h5py >=3.15.0
+    # Verified 2026-08-10: unconstrained solve pairs h5py 3.16.0's
+    # free-threaded build (still linked against hdf5 2.1.0) with the newly
+    # released hdf5 2.2.0 package -> h5py ABI mismatch warning at import.
+    # Cap the ceiling until conda-forge finishes the hdf5 2.2.0 migration.
+    - hdf5 >=2.1,<2.2
     # Performance
     - python-xxhash >=3.6.0
     # Configuration
