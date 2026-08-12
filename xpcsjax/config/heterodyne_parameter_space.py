@@ -454,7 +454,7 @@ class ParameterSpace:
                             )
                         space.bounds[param_name] = new_bounds
                     if "vary" in pconfig:
-                        new_vary = pconfig["vary"]
+                        new_vary = bool(pconfig["vary"])
                         if new_vary != reg_info.vary_default:
                             logger.debug(
                                 "Config overrides %s vary: %s -> %s",

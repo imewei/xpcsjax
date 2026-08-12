@@ -2563,38 +2563,6 @@ class XPCSDataLoader:
                 f"Validated selective cache: q={actual_q:.6f} +/- {q_variance:.6f} AA^-1",
             )
 
-    def _generate_cache_path(self) -> Path:
-        """Generate cache file path based on current configuration."""
-        # Get data folder and cache configuration
-        data_folder = self.exp_config.get("data_folder_path", "./data/")
-        cache_folder = self.exp_config.get("cache_file_path", data_folder)
-
-        # Get frame parameters
-        start_frame = self.analyzer_config.get("start_frame", 1)
-        end_frame = self.analyzer_config.get("end_frame", 8000)
-
-        # Get wavevector_q for cache filename
-        scattering_config = self.analyzer_config.get("scattering", {})
-        wavevector_q = scattering_config.get("wavevector_q", 0.0054)
-
-        # Construct cache filename (using string.Template for safety)
-        cache_template = _migrate_cache_template(
-            self.exp_config.get(
-                "cache_filename_template",
-                "cached_c2_frames_${start_frame}_${end_frame}.npz",
-            )
-        )
-
-        tmpl = string.Template(cache_template)
-        cache_filename = tmpl.safe_substitute(
-            start_frame=start_frame,
-            end_frame=end_frame,
-            wavevector_q=f"{wavevector_q:.4f}",
-        )
-        _assert_safe_cache_filename(cache_filename)
-
-        return Path(str(cache_folder)) / cache_filename  # type: ignore[no-any-return]
-
     @log_performance(threshold=0.1)
     def _save_text_files(self, data: dict[str, Any]) -> None:
         """Save phi_angles and wavevector_q lists to text files."""

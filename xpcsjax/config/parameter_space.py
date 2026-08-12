@@ -102,8 +102,11 @@ class ParameterSpace:
         - Falls back to package defaults if config is incomplete
         - Logs warnings for missing or invalid config values
         """
-        # Extract parameter_space section
-        param_space_config = config_dict.get("parameter_space", {})
+        # Extract parameter_space section. ``or {}`` (not the .get default) is
+        # required: PyYAML parses a blank ``parameter_space:`` block to None,
+        # and dict.get(key, default) only substitutes default when key is
+        # absent, not when present with value None.
+        param_space_config = config_dict.get("parameter_space") or {}
 
         # Determine model type
         if analysis_mode is None:
@@ -171,28 +174,14 @@ class ParameterSpace:
                     config_entry["max"], context=f"parameter_space.bounds[{param_name!r}].max"
                 )
             else:
-                # Fallback to ParameterManager defaults
+                # Fallback to ParameterManager defaults. get_parameter_bounds
+                # with a single-name list either returns a 1-element list or
+                # raises KeyError — it never returns an empty/falsy list — so
+                # there is no third fallback tier to reach here.
                 default_bounds = param_manager.get_parameter_bounds([param_name])
-                if default_bounds:
-                    min_val = default_bounds[0]["min"]
-                    max_val = default_bounds[0]["max"]
-                    logger.debug(f"Using default bounds for '{param_name}': [{min_val}, {max_val}]")
-                else:
-                    # Ultimate fallback: use registry bounds if known
-                    from xpcsjax.config.parameter_registry import ParameterRegistry
-
-                    try:
-                        info = ParameterRegistry().get_param_info(param_name)
-                        min_val, max_val = info.lower_bound, info.upper_bound
-                        logger.debug(
-                            f"Using registry bounds for '{param_name}': [{min_val}, {max_val}]"
-                        )
-                    except KeyError:
-                        raise KeyError(
-                            f"Parameter '{param_name}' is not registered in "
-                            f"ParameterRegistry. Register it in "
-                            f"xpcsjax/config/parameter_registry.py before use."
-                        ) from None
+                min_val = default_bounds[0]["min"]
+                max_val = default_bounds[0]["max"]
+                logger.debug(f"Using default bounds for '{param_name}': [{min_val}, {max_val}]")
 
             bounds_dict[param_name] = (min_val, max_val)
 

@@ -159,6 +159,11 @@ def _dispatch_fit(
         except Exception as exc:
             log_exception(logger, exc, context={"command": "save_results"})
             raise
+    else:
+        logger.warning(
+            "No output directory resolved (pass --output or set "
+            "output.directory in the config) - fit results were NOT saved to disk."
+        )
 
     # Plotting
     plot_enabled = bool(getattr(args, "plot", True))

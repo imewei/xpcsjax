@@ -949,7 +949,22 @@ class MultiLevelCache:
         apply. A non-array (object-dtype) payload raises ``ValueError`` rather
         than silently falling back to a code-execution-capable serializer; the
         caller skips disk caching and the memory tier still holds the item.
+
+        Path containment mirrors the read-side guard in ``_load_from_disk``:
+        the resolved destination must live under ``self._cache_base_path``,
+        so a future caller feeding a less-sanitized ``key`` into ``put()``
+        cannot write outside the cache root via a symlink or ``..`` escape.
         """
+        resolved = file_path.resolve()
+        cache_root = self._cache_base_path.resolve()
+        try:
+            resolved.relative_to(cache_root)
+        except ValueError as exc:
+            raise OSError(
+                f"refusing to save {file_path}: resolves to {resolved}, "
+                f"outside cache root {cache_root}. Possible symlink escape."
+            ) from exc
+
         try:
             arr = np.asarray(item)
             if arr.dtype == object:

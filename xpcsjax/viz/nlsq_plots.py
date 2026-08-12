@@ -136,6 +136,42 @@ def _save_fig(fig: Figure, save_path: Path | str | None, dpi: int = 150) -> None
     logger.debug("Figure full path: %s", p)
 
 
+def _empty_data_fallback(fig: Figure, save_path: Path | str | None) -> Figure | None:
+    """Render a "No data available" placeholder and apply the save/return contract.
+
+    Shared by plot_nlsq_fit / plot_residual_map / plot_simulated_data's
+    empty-input early return: set a suptitle, then either save-and-return-None
+    (``save_path`` given) or return the live Figure (``save_path`` is None).
+    """
+    fig.suptitle("No data available")
+    if save_path is not None:
+        _save_fig(fig, save_path)
+        return None
+    return fig
+
+
+def _resolve_extent(
+    shape: tuple[int, int],
+    t: np.ndarray | None,
+    t2: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray, tuple[float, float, float, float]]:
+    """Derive ``(t1_vec, t2_vec, extent)`` for an imshow-transposed (n_t1, n_t2) surface.
+
+    Shared by plot_nlsq_fit / plot_residual_map / plot_simulated_data: x = t1
+    (horizontal), y = t2 (vertical), so rows -> t2 -> y and cols -> t1 -> x,
+    with ``extent`` following the same (t1_min, t1_max, t2_min, t2_max) order.
+    """
+    n_t1, n_t2 = shape
+    t1_vec = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
+    t2_vec = (
+        np.asarray(t2)
+        if t2 is not None
+        else (t1_vec if t is not None else np.arange(n_t2, dtype=float))
+    )
+    extent = (float(t1_vec[0]), float(t1_vec[-1]), float(t2_vec[0]), float(t2_vec[-1]))
+    return t1_vec, t2_vec, extent
+
+
 def _is_homodyne_family(model: Any) -> bool:
     """Return ``True`` for models using the homodyne result layout.
 
@@ -680,22 +716,11 @@ def plot_nlsq_fit(
     fig, axes = plt.subplots(1, 3, figsize=figsize)
 
     if c2_exp.size == 0 or c2_fit.size == 0:
-        fig.suptitle("No data available")
-        if save_path is not None:
-            _save_fig(fig, save_path)
-            return None
-        return fig
+        return _empty_data_fallback(fig, save_path)
 
-    n_t1, n_t2 = c2_exp.shape
-    t1_vec = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
-    t2_vec = (
-        np.asarray(t2)
-        if t2 is not None
-        else (t1_vec if t is not None else np.arange(n_t2, dtype=float))
-    )
     # x = t₁ (horizontal), y = t₂ (vertical): the (n_t1, n_t2) surfaces are
     # transposed at imshow so rows→t₂→y and cols→t₁→x, with extent following.
-    extent = (float(t1_vec[0]), float(t1_vec[-1]), float(t2_vec[0]), float(t2_vec[-1]))
+    _, _, extent = _resolve_extent(c2_exp.shape, t, t2)
 
     combined = np.concatenate([c2_exp.ravel(), c2_fit.ravel()])
     finite = combined[np.isfinite(combined)]
@@ -835,22 +860,11 @@ def plot_residual_map(
     fig, axes = plt.subplots(2, 2, figsize=figsize)
 
     if c2_exp.size == 0 or c2_fit.size == 0:
-        fig.suptitle("No data available")
-        if save_path is not None:
-            _save_fig(fig, save_path)
-            return None
-        return fig
+        return _empty_data_fallback(fig, save_path)
 
     residuals = c2_exp - c2_fit
-    n_t1, n_t2 = residuals.shape
-    t1_vec = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
-    t2_vec = (
-        np.asarray(t2)
-        if t2 is not None
-        else (t1_vec if t is not None else np.arange(n_t2, dtype=float))
-    )
     # x = t₁ (horizontal), y = t₂ (vertical): transpose the (n_t1, n_t2) map.
-    extent = (float(t1_vec[0]), float(t1_vec[-1]), float(t2_vec[0]), float(t2_vec[-1]))
+    t1_vec, _, extent = _resolve_extent(residuals.shape, t, t2)
 
     # [0,0] Residual Map
     finite_r = residuals[np.isfinite(residuals)]
@@ -914,8 +928,20 @@ def plot_residual_map(
     axes[1, 0].set_ylabel("Residual")
     axes[1, 0].set_title("Diagonal Residuals")
 
-    # [1,1] Residuals vs Fitted
-    axes[1, 1].scatter(c2_fit.ravel(), residuals.ravel(), alpha=0.1, s=1)
+    # [1,1] Residuals vs Fitted. A single angle can carry 10^7-10^8 points
+    # (datashader_backend.py's module docstring); an unstrided PathCollection
+    # over that many points allocates ~GB-scale offsets/color arrays per
+    # worker before rendering even starts. Subsample with a fixed seed
+    # (reproducibility) so the scatter stays representative, not the full set.
+    fitted_flat = c2_fit.ravel()
+    residuals_flat = residuals.ravel()
+    _MAX_RESIDUAL_SCATTER_POINTS = 50_000
+    if fitted_flat.size > _MAX_RESIDUAL_SCATTER_POINTS:
+        rng = np.random.default_rng(42)
+        idx = rng.choice(fitted_flat.size, size=_MAX_RESIDUAL_SCATTER_POINTS, replace=False)
+        fitted_flat = fitted_flat[idx]
+        residuals_flat = residuals_flat[idx]
+    axes[1, 1].scatter(fitted_flat, residuals_flat, alpha=0.1, s=1)
     axes[1, 1].axhline(0, color="r", linestyle="--")
     axes[1, 1].set_box_aspect(1)
     axes[1, 1].set_xlabel("Fitted Value")
@@ -1006,23 +1032,12 @@ def plot_simulated_data(
 
     # Empty-input fallback — mirrors plot_nlsq_fit / plot_residual_map.
     if c2_sim.size == 0:
-        fig.suptitle("No data available")
-        if save_path is not None:
-            _save_fig(fig, save_path)
-            return None
-        return fig
+        return _empty_data_fallback(fig, save_path)
 
-    n_t1, n_t2 = c2_sim.shape
-    t1_vec = np.asarray(t) if t is not None else np.arange(n_t1, dtype=float)
-    t2_vec = (
-        np.asarray(t2)
-        if t2 is not None
-        else (t1_vec if t is not None else np.arange(n_t2, dtype=float))
-    )
     # x = t₁ (horizontal), y = t₂ (vertical): transpose the (n_t1, n_t2) surface
     # so rows→t₂→y and cols→t₁→x, consistent with plot_nlsq_fit and
     # plot_residual_map (which also transpose + use a (t₁, t₂) extent).
-    extent = (float(t1_vec[0]), float(t1_vec[-1]), float(t2_vec[0]), float(t2_vec[-1]))
+    _, _, extent = _resolve_extent(c2_sim.shape, t, t2)
 
     vmin, vmax = _resolve_color_limits(c2_sim, percentile_min=1.0, percentile_max=99.0)
     vmin = max(1.0, vmin)

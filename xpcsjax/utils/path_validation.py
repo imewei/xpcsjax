@@ -22,6 +22,25 @@ class PathValidationError(ValueError):
     pass
 
 
+def _has_traversal_component(path: Path) -> bool:
+    r"""Check whether any path component is a literal '..' traversal segment.
+
+    Shared by :func:`validate_save_path` and :func:`get_safe_output_dir` --
+    this is the project's stated unified security gate (see module CLAUDE.md:
+    do not self-concatenate paths, go through one of those two functions), so
+    the containment logic lives in exactly one place instead of two
+    independently-maintained copies.
+
+    Checks both POSIX ``.parts`` and backslash-delimited segments, so
+    Windows-style traversal (``..\\..\\etc\\passwd``, a single POSIX
+    component on Linux) is caught on any platform.
+    """
+    path_str = str(path)
+    raw_components = set(path.parts)
+    raw_components.update(path_str.replace("\\", "/").split("/"))
+    return ".." in raw_components
+
+
 def validate_save_path(
     path: str | Path | None,
     *,
@@ -84,17 +103,11 @@ def validate_save_path(
     # Convert to Path object
     path = Path(path)
 
-    # Check for path traversal by inspecting each path component.
-    # Using parts instead of a raw string search avoids false positives for
-    # filenames like "version..2.png" which legitimately contain "..".
-    # Also split on backslashes to catch Windows-style traversal on POSIX systems
-    # (e.g., "..\\..\\etc\\passwd" which Path treats as a single component on Linux).
     path_str = str(path)
-    # Gather components from both the POSIX parts and any backslash-delimited segments
-    raw_components = set(path.parts)
-    for segment in path_str.replace("\\", "/").split("/"):
-        raw_components.add(segment)
-    if ".." in raw_components:
+
+    # Check for path traversal by inspecting each path component (see
+    # _has_traversal_component's docstring for why parts+backslash-split).
+    if _has_traversal_component(path):
         raise PathValidationError(
             f"Path traversal detected: path contains '..': {_sanitize_log_path(path_str)}"
         )
@@ -284,10 +297,7 @@ def get_safe_output_dir(
     # Validate path doesn't contain traversal (component-level check,
     # matching validate_save_path to avoid false positives like "version..2")
     path_str = str(output_dir)
-    raw_components = set(output_dir.parts)
-    for segment in path_str.replace("\\", "/").split("/"):
-        raw_components.add(segment)
-    if ".." in raw_components:
+    if _has_traversal_component(output_dir):
         raise PathValidationError(
             f"Path traversal detected in output directory: {_sanitize_log_path(path_str)}"
         )

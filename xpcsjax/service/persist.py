@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from xpcsjax.utils.logging import get_logger
+from xpcsjax.utils.path_validation import get_safe_output_dir
 
 if TYPE_CHECKING:
     from argparse import Namespace
@@ -262,30 +263,49 @@ def _resolve_parameter_names(
         if isinstance(diagnostics, dict):
             cand = diagnostics.get("parameter_names")
             if isinstance(cand, (list, tuple)) and cand:
+                # Tier 1 is the optimizer's own label list, authoritative and
+                # already guaranteed to match result.parameters by
+                # construction -- returned as-is, no length re-check against
+                # result.parameters (some callers pass a lightweight/mocked
+                # result whose .parameters was never meant to be touched here).
                 return [str(n) for n in cand]
             if diagnostics:
                 logger.debug(
                     "result.nlsq_diagnostics present but has no usable "
                     "'parameter_names' list; falling back to ConfigManager-derived names.",
                 )
-    if config_manager is None:
+    if config_manager is None or not hasattr(config_manager, "get_active_parameters"):
         return None
-    if hasattr(config_manager, "get_active_parameters"):
-        try:
-            physics_names = list(config_manager.get_active_parameters())
-        except Exception:
-            logger.warning(
-                "Could not resolve parameter names from ConfigManager; output will be unlabeled.",
-                exc_info=True,
-            )
-            return None
-        if result is not None:
-            n_total = np.asarray(result.parameters).size
-            synthesized = _synthesize_scaling_names(physics_names, n_total)
-            if synthesized is not None:
-                return synthesized
+    try:
+        physics_names = list(config_manager.get_active_parameters())
+    except Exception:
+        logger.warning(
+            "Could not resolve parameter names from ConfigManager; output will be unlabeled.",
+            exc_info=True,
+        )
+        return None
+
+    if result is None:
         return physics_names
-    return None
+
+    n_total = np.asarray(result.parameters).size
+    synthesized = _synthesize_scaling_names(physics_names, n_total)
+    names = synthesized if synthesized is not None else physics_names
+
+    # Single length-vs-vector validation point for tier 2 (was previously
+    # duplicated: _extract_parameters checked it independently while
+    # _config_summary did not check it at all, letting a mismatched list
+    # reach the JSON header while the parameters block silently fell back
+    # to generic names).
+    if len(names) != n_total:
+        logger.warning(
+            "Resolved parameter_names length (%d) does not match parameter "
+            "vector length (%d); output will be unlabeled.",
+            len(names),
+            n_total,
+        )
+        return None
+    return names
 
 
 # ---------------------------------------------------------------------------
@@ -325,7 +345,7 @@ def save_results_json(
     pathlib.Path
         Path to the written JSON file.
     """
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = get_safe_output_dir(output_dir)
     parameter_names = _resolve_parameter_names(config_manager, result)
 
     payload: dict[str, Any] = {
@@ -336,7 +356,12 @@ def save_results_json(
         "metadata": _extract_metadata(result),
     }
     if args is not None:
-        payload["cli_args"] = _json_safe(vars(args))
+        # Exclude ``residuals`` (and any other array-shaped attribute a
+        # future caller might set on the namespace): this file intentionally
+        # omits residual/covariance arrays -- they live in the NPZ companion
+        # -- so a blind vars(args) dump must not reintroduce them via cli_args.
+        cli_args = {k: v for k, v in vars(args).items() if k != "residuals"}
+        payload["cli_args"] = _json_safe(cli_args)
 
     path = output_dir / filename
     tmp_path = output_dir / (filename + ".tmp")
@@ -377,7 +402,7 @@ def save_results_npz(
     pathlib.Path
         Path to the written NPZ file.
     """
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = get_safe_output_dir(output_dir)
     parameter_names = _resolve_parameter_names(config_manager, result)
 
     params = np.asarray(result.parameters, dtype=np.float64)
@@ -473,8 +498,7 @@ def save_results(
             f"Unknown output_format {output_format!r}; expected 'json', 'npz', or 'both'."
         )
 
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = get_safe_output_dir(output_dir)
 
     residuals = getattr(args, "residuals", None) if args is not None else None
 

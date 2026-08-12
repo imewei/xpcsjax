@@ -58,6 +58,15 @@ def json_safe(value: Any) -> Any:
             for k, v in value.items()
         }
     elif isinstance(value, (list, tuple)):
+        # Same OOM guard as the ndarray branch below: a plain list/tuple can
+        # arrive already-`.tolist()`'d (e.g. from an upstream caller), which
+        # would otherwise bypass the size limit entirely.
+        if len(value) > _JSON_ARRAY_SIZE_LIMIT:
+            raise ValueError(
+                f"List/tuple with {len(value)} elements is too large to embed "
+                f"in JSON (limit {_JSON_ARRAY_SIZE_LIMIT}). Save large arrays as "
+                f"NPZ instead."
+            )
         return [json_safe(v) for v in value]
     elif isinstance(value, np.ndarray):
         if value.size > _JSON_ARRAY_SIZE_LIMIT:

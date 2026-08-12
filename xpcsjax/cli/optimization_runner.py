@@ -323,6 +323,12 @@ def run_nlsq(
     output_dir = resolve_output_dir(args, config_manager)
     if output_dir is not None:
         _save_results(result, config_manager, data, output_dir)
+    else:
+        logger.warning(
+            "No output directory resolved (pass --output or set "
+            "output.directory in the config) - homodyne-compatible results "
+            "were NOT saved to disk."
+        )
 
     logger.info("NLSQ analysis complete")
     return result

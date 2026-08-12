@@ -524,11 +524,18 @@ def _configure_jax_cpu(
             else:
                 jax_config["xla_flags_applied"] = True
         else:
+            # Token-based merge (not a substring check on the whole string):
+            # a substring match can both false-positive on an unrelated
+            # longer flag name and fail to notice a same-named flag already
+            # present with a conflicting value. Drop any existing token that
+            # shares this flag's name, then re-append the wanted one, so a
+            # stale conflicting value is overwritten rather than left stale.
+            existing_tokens = existing_flags.split()
             for flag in xla_flags:
                 flag_name = flag.split("=")[0]
-                if flag_name not in existing_flags:
-                    existing_flags = existing_flags + " " + flag
-            os.environ["XLA_FLAGS"] = existing_flags.strip()
+                existing_tokens = [t for t in existing_tokens if t.split("=")[0] != flag_name]
+                existing_tokens.append(flag)
+            os.environ["XLA_FLAGS"] = " ".join(existing_tokens).strip()
             jax_config["xla_flags_applied"] = True
 
         # Memory optimization

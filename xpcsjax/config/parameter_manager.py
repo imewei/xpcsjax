@@ -96,8 +96,9 @@ class ParameterManager:
         self.analysis_mode = analysis_mode
 
         # Performance caching for repeated queries.
-        # ``cache_key = tuple(sorted(parameter_names))`` — tuple-keyed so a
-        # given parameter set hashes uniformly regardless of input order.
+        # ``cache_key = tuple(parameter_names)`` — order-preserving (NOT
+        # sorted): the bounds list is order-sensitive, so ["D0","alpha"] and
+        # ["alpha","D0"] must cache separately.
         self._bounds_cache: dict[tuple[str, ...], list[BoundDict]] = {}
         self._active_params_cache: list[str] | None = None
         self._cache_enabled: bool = True
@@ -229,20 +230,24 @@ class ParameterManager:
     def _extract_base_param_name(self, name: str) -> str | None:
         """Extract base parameter name from indexed parameter names.
 
-        Handles per-angle parameter names like 'contrast[0]', 'offset[15]'.
+        Handles per-angle parameter names in both the bracket form
+        ('contrast[0]', 'offset[15]', used by ``parameter_space.py``) and the
+        underscore form ('contrast_0', 'offset_15', produced by
+        ``ConfigManager.get_initial_parameters()`` and used throughout the
+        rest of the codebase).
 
         Parameters
         ----------
         name : str
-            Parameter name, possibly indexed like 'contrast[0]'.
+            Parameter name, possibly indexed like 'contrast[0]' or 'contrast_0'.
 
         Returns
         -------
         str or None
             Base parameter name ('contrast', 'offset') or None if not a pattern match.
         """
-        # Match patterns like contrast[N], offset[N] where N is a non-negative integer
-        match = re.match(r"^(contrast|offset)\[\d+\]$", name)
+        # Match contrast[N]/offset[N] or contrast_N/offset_N, N a non-negative integer.
+        match = re.match(r"^(contrast|offset)(?:\[\d+\]|_\d+)$", name)
         if match:
             return match.group(1)
         return None

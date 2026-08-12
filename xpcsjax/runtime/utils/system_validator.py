@@ -636,9 +636,16 @@ def _print_report(results: list[ValidationResult]) -> None:
     passed = sum(1 for r in results if r.success)
     errors = sum(1 for r in results if not r.success and r.severity is Severity.ERROR)
     warnings = sum(1 for r in results if not r.success and r.severity is Severity.WARNING)
+    # Not-success + INFO (e.g. test_xla_config's benign "no marker" case) is
+    # neither an error nor a warning, but was previously excluded from every
+    # bucket, so passed+errors+warnings could silently undercount total. Give
+    # it its own bucket so the printed counts always reconcile.
+    info = sum(1 for r in results if not r.success and r.severity is Severity.INFO)
 
     print(bar)
-    print(f"  Summary: {passed}/{total} passed, {errors} error(s), {warnings} warning(s)")
+    print(
+        f"  Summary: {passed}/{total} passed, {errors} error(s), {warnings} warning(s), {info} info"
+    )
     print(bar)
 
 
