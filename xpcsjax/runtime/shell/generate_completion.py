@@ -108,6 +108,9 @@ if ! type mapfile &>/dev/null; then
     # ponytail: bash < 4 (e.g. macOS's stock /bin/bash 3.2) has no `mapfile`
     # builtin. Every completion arm below uses `mapfile -t NAME < <(cmd)`, so
     # shim that exact form once here rather than rewriting every call site.
+    # upgrade: if a new arm needs a different mapfile form (`-d`, multiple
+    # vars, non-process-substitution source), extend this shim to match, or
+    # drop the bash<4 shim entirely once macOS ships bash>=4 by default.
     mapfile() {
         local __mapfile_arr=$2
         eval "$__mapfile_arr=()"
