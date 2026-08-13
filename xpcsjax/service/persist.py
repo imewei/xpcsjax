@@ -519,13 +519,22 @@ def save_results(
     )
 
 
-# Keys pulled from the viz-written c2_fitted_data.npz into the primary result
-# NPZ by merge_fitted_c2. Deliberately excludes that file's own "params" /
-# "contrast" / "offset" / "q" / "reduced_chi_squared" -- those either
-# duplicate what save_results_npz already writes under different (and
-# authoritative) names, or use a different shape/convention there, so
-# merging them would create confusing near-duplicate keys.
-_FITTED_C2_MERGE_KEYS = ("c2_exp", "c2_fitted", "residuals", "t1", "t2", "phi_angles")
+# (source key in c2_fitted_data.npz, destination key in nlsq_result.npz)
+# pairs pulled by merge_fitted_c2. Deliberately excludes that file's own
+# "params" / "contrast" / "offset" / "reduced_chi_squared" -- those duplicate
+# what save_results_npz already writes under different (and authoritative)
+# names, so merging them would create confusing near-duplicate keys. "q" is
+# renamed to "wavevector_q" on merge since save_results_npz never writes a
+# wavevector value under any name, so there is no collision to avoid.
+_FITTED_C2_MERGE_KEYS = (
+    ("c2_exp", "c2_exp"),
+    ("c2_fitted", "c2_fitted"),
+    ("residuals", "residuals"),
+    ("t1", "t1"),
+    ("t2", "t2"),
+    ("phi_angles", "phi_angles"),
+    ("q", "wavevector_q"),
+)
 
 
 def merge_fitted_c2(npz_path: Path, fitted_c2_npz: Path) -> bool:
@@ -567,7 +576,7 @@ def merge_fitted_c2(npz_path: Path, fitted_c2_npz: Path) -> bool:
     if not fitted_c2_npz.exists():
         logger.debug(
             "No fitted-c2 NPZ at %s (plotting likely skipped or failed); "
-            "primary result NPZ will not carry c2_exp/c2_fitted/residuals.",
+            "primary result NPZ will not carry c2_exp/c2_fitted/residuals/wavevector_q.",
             fitted_c2_npz,
         )
         return False
@@ -603,15 +612,15 @@ def merge_fitted_c2(npz_path: Path, fitted_c2_npz: Path) -> bool:
         with np.load(npz_path, allow_pickle=False) as existing:
             arrays: dict[str, np.ndarray] = dict(existing.items())
         with np.load(fitted_c2_npz, allow_pickle=False) as fitted:
-            for key in _FITTED_C2_MERGE_KEYS:
-                if key not in fitted.files:
+            for src_key, dest_key in _FITTED_C2_MERGE_KEYS:
+                if src_key not in fitted.files:
                     continue
-                if key in arrays:
+                if dest_key in arrays:
                     logger.debug(
-                        "Skipping merge of %r into %s: key already present.", key, npz_path
+                        "Skipping merge of %r into %s: key already present.", dest_key, npz_path
                     )
                     continue
-                arrays[key] = fitted[key]
+                arrays[dest_key] = fitted[src_key]
     except Exception as exc:
         # Broad catch is deliberate: this function's contract is "never
         # raises" (best-effort enrichment of an already-saved result), so a

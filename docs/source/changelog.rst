@@ -8,6 +8,18 @@ current release line.
 Unreleased
 ----------
 
+* **``nlsq_result.npz`` now carries ``c2_exp``/``c2_fitted``/``residuals``**
+  (plus ``t1``/``t2``/``phi_angles``/``wavevector_q``): the primary result
+  file previously held only scalars, parameters, and covariance, so the raw
+  correlation surfaces (and the scattering wavevector needed to interpret
+  them) were only reachable via the plots directory, and only when plotting
+  ran. ``service.persist.merge_fitted_c2()`` folds them in (best-effort,
+  mtime-guarded) after plotting, for both the CLI and the GUI worker.
+* **Whole-codebase module-review sweep: 18 findings fixed across 12 modules**
+  (2 confirmed HIGH blockers + 16 advisory), including a crash on a blank
+  ``parameter_space:`` YAML section and public ``xpcsjax.HeterodyneModel``
+  resolving to the wrong adapter class.
+
 v0.1.3 — deep-RCA whole-codebase debug audit
 ---------------------------------------------
 

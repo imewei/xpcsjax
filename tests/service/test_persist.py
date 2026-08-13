@@ -355,16 +355,20 @@ def test_merge_fitted_c2_happy_path(tmp_path):
         "t1",
         "t2",
         "phi_angles",
+        "wavevector_q",
     }
     assert np.array_equal(merged["c2_exp"], c2_exp)
     # Original primary-npz value must win on key collision (reduced_chi_squared
     # exists in both source files with different values: 2.0 here vs 1.0 in
     # the fitted-c2 sidecar).
     assert merged["reduced_chi_squared"] == 2.0
-    # The fitted-c2 sidecar's own params/contrast/offset/q are deliberately
+    # Sidecar's "q" is merged in under the renamed "wavevector_q" key.
+    assert merged["wavevector_q"] == np.float64(0.01)
+    # The fitted-c2 sidecar's own params/contrast/offset are deliberately
     # NOT pulled in -- they duplicate/shadow different-shaped primary-npz data.
     assert "params" not in merged.files
     assert "contrast" not in merged.files
+    assert "q" not in merged.files
 
 
 def test_merge_fitted_c2_missing_fitted_npz_is_noop(tmp_path):

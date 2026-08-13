@@ -11,6 +11,27 @@ the rendered documentation.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`nlsq_result.npz` now carries `c2_exp`/`c2_fitted`/`residuals`/`t1`/`t2`/`phi_angles`/`wavevector_q`**.
+  `save_results_npz` previously wrote only scalars, parameters, and
+  covariance — the raw `(n_phi, n_t1, n_t2)` correlation surfaces (and the
+  scattering wavevector needed to interpret them) a user needs for
+  downstream re-analysis were only ever written to
+  `plots/simulated_data/c2_fitted_data.npz`, and only when plotting was
+  enabled. `service/persist.py::merge_fitted_c2()` now folds those
+  already-computed arrays into the primary NPZ (best-effort, mtime-guarded
+  against stale leftovers from a previous run in the same output directory)
+  after plotting runs, for both the CLI and the GUI worker.
+- **Whole-codebase module-review sweep: 18 findings fixed across 12 modules**
+  (2 confirmed HIGH blockers + 16 advisory). Highlights: `ParameterSpace.from_config`
+  crashed on a blank `parameter_space:` YAML section; public `xpcsjax.HeterodyneModel`
+  resolved to the no-arg `PhysicsModelBase` adapter instead of the documented
+  stateful model used by every production heterodyne path and the test suite.
+  Advisory fixes span CLI persistence logging, config parameter-name aliasing,
+  path-traversal-check de-duplication, an OOM-risk unbounded residuals scatter
+  plot, and more.
+
 ## [0.1.3] - 2026-08-09
 
 ### Fixed
