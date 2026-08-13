@@ -21,8 +21,9 @@ from typing import TYPE_CHECKING
 from xpcsjax.cli.config_handling import load_and_merge_config, resolve_output_dir
 from xpcsjax.cli.data_pipeline import load_and_validate_data, resolve_phi_angles
 from xpcsjax.cli.optimization_runner import run_nlsq
+from xpcsjax.cli.plot_backend import resolve_plots_dir
 from xpcsjax.cli.plot_dispatch import dispatch_plots
-from xpcsjax.cli.result_saving import save_results
+from xpcsjax.cli.result_saving import merge_fitted_c2, save_results
 from xpcsjax.utils.logging import configure_logging, get_logger, log_exception
 
 if TYPE_CHECKING:
@@ -173,6 +174,19 @@ def _dispatch_fit(
         except Exception as exc:
             # Don't fail the whole run on plotting errors — log and continue
             log_exception(logger, exc, context={"command": "dispatch_plots"})
+
+        # The default post-fit plot set includes the "simulated" family, which
+        # computes and writes c2_exp/c2_fitted/residuals to
+        # <plots_dir>/simulated_data/c2_fitted_data.npz -- but nlsq_result.npz
+        # itself never gets them. Merge them in too, best-effort, so the
+        # primary result artifact carries the data users actually need for
+        # downstream re-analysis without digging into the plots directory.
+        if output_dir is not None:
+            plots_dir = resolve_plots_dir(args, cfg_manager)
+            merge_fitted_c2(
+                output_dir / "nlsq_result.npz",
+                plots_dir / "simulated_data" / "c2_fitted_data.npz",
+            )
 
     # Exit code: 0 on convergence, 2 otherwise
     success = bool(getattr(result, "success", False))

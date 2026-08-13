@@ -292,3 +292,150 @@ def test_save_results_json_labels_homodyne_scaling_params(tmp_path):
     assert list(payload["parameters"].keys()) == expected
     assert payload["config"]["parameter_names"] == expected  # header agrees with body
     assert "param_0" not in payload["parameters"]
+
+
+def _write_fitted_c2_npz(path, *, c2_exp=None, mtime=None):
+    import os
+
+    import numpy as np
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if c2_exp is None:
+        c2_exp = np.full((2, 3, 3), 1.0)
+    np.savez(
+        path,
+        c2_exp=c2_exp,
+        c2_fitted=c2_exp * 0.9,
+        residuals=c2_exp * 0.1,
+        t1=np.arange(3, dtype=float),
+        t2=np.arange(3, dtype=float),
+        phi_angles=np.array([0.0, 45.0]),
+        # Deliberately-excluded keys, present in the real writer's output too.
+        params=np.array([1.0, 2.0]),
+        contrast=np.float64(1.0),
+        offset=np.float64(0.0),
+        q=np.float64(0.01),
+        reduced_chi_squared=np.float64(1.0),
+    )
+    if mtime is not None:
+        os.utime(path, (mtime, mtime))
+
+
+def _write_primary_npz(path, *, mtime=None):
+    import os
+
+    import numpy as np
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(path, parameters=np.array([1.0, 2.0]), reduced_chi_squared=np.float64(2.0))
+    if mtime is not None:
+        os.utime(path, (mtime, mtime))
+
+
+def test_merge_fitted_c2_happy_path(tmp_path):
+    import numpy as np
+
+    from xpcsjax.service.persist import merge_fitted_c2
+
+    npz_path = tmp_path / "nlsq_result.npz"
+    fitted_npz = tmp_path / "plots" / "simulated_data" / "c2_fitted_data.npz"
+    c2_exp = np.full((2, 3, 3), 1.0)
+    _write_primary_npz(npz_path)
+    _write_fitted_c2_npz(fitted_npz, c2_exp=c2_exp)
+
+    assert merge_fitted_c2(npz_path, fitted_npz) is True
+
+    merged = np.load(npz_path, allow_pickle=False)
+    assert set(merged.files) >= {
+        "parameters",
+        "reduced_chi_squared",
+        "c2_exp",
+        "c2_fitted",
+        "residuals",
+        "t1",
+        "t2",
+        "phi_angles",
+    }
+    assert np.array_equal(merged["c2_exp"], c2_exp)
+    # Original primary-npz value must win on key collision (reduced_chi_squared
+    # exists in both source files with different values: 2.0 here vs 1.0 in
+    # the fitted-c2 sidecar).
+    assert merged["reduced_chi_squared"] == 2.0
+    # The fitted-c2 sidecar's own params/contrast/offset/q are deliberately
+    # NOT pulled in -- they duplicate/shadow different-shaped primary-npz data.
+    assert "params" not in merged.files
+    assert "contrast" not in merged.files
+
+
+def test_merge_fitted_c2_missing_fitted_npz_is_noop(tmp_path):
+    from xpcsjax.service.persist import merge_fitted_c2
+
+    npz_path = tmp_path / "nlsq_result.npz"
+    _write_primary_npz(npz_path)
+    fitted_npz = tmp_path / "plots" / "simulated_data" / "c2_fitted_data.npz"
+
+    assert merge_fitted_c2(npz_path, fitted_npz) is False
+    # Primary NPZ is untouched.
+    import numpy as np
+
+    assert set(np.load(npz_path, allow_pickle=False).files) == {
+        "parameters",
+        "reduced_chi_squared",
+    }
+
+
+def test_merge_fitted_c2_missing_primary_npz_is_noop(tmp_path):
+    from xpcsjax.service.persist import merge_fitted_c2
+
+    npz_path = tmp_path / "nlsq_result.npz"
+    fitted_npz = tmp_path / "plots" / "simulated_data" / "c2_fitted_data.npz"
+    _write_fitted_c2_npz(fitted_npz)
+
+    assert merge_fitted_c2(npz_path, fitted_npz) is False
+    assert not npz_path.exists()
+
+
+def test_merge_fitted_c2_rejects_stale_fitted_npz(tmp_path):
+    """A fitted-c2 NPZ older than the primary NPZ is a leftover from a
+    PREVIOUS run in the same output directory -- merging it would silently
+    pair this run's parameters with another run's c2 arrays.
+    """
+    import time
+
+    import numpy as np
+
+    from xpcsjax.service.persist import merge_fitted_c2
+
+    npz_path = tmp_path / "nlsq_result.npz"
+    fitted_npz = tmp_path / "plots" / "simulated_data" / "c2_fitted_data.npz"
+    now = time.time()
+    # Fitted-c2 written well BEFORE the primary npz -- e.g. this run's
+    # plotting failed silently, leaving a prior run's sidecar in place while
+    # save_results_npz still overwrote the primary npz fresh.
+    _write_fitted_c2_npz(fitted_npz, mtime=now - 3600)
+    _write_primary_npz(npz_path, mtime=now)
+
+    assert merge_fitted_c2(npz_path, fitted_npz) is False
+    merged = np.load(npz_path, allow_pickle=False)
+    assert "c2_exp" not in merged.files
+
+
+def test_merge_fitted_c2_accepts_same_or_newer_fitted_npz(tmp_path):
+    """Not stale: fitted-c2 written at/after the primary npz (the real-world
+    ordering, since save_results_npz always writes before plotting runs).
+    """
+    import time
+
+    import numpy as np
+
+    from xpcsjax.service.persist import merge_fitted_c2
+
+    npz_path = tmp_path / "nlsq_result.npz"
+    fitted_npz = tmp_path / "plots" / "simulated_data" / "c2_fitted_data.npz"
+    now = time.time()
+    _write_primary_npz(npz_path, mtime=now)
+    _write_fitted_c2_npz(fitted_npz, mtime=now + 5)
+
+    assert merge_fitted_c2(npz_path, fitted_npz) is True
+    merged = np.load(npz_path, allow_pickle=False)
+    assert "c2_exp" in merged.files

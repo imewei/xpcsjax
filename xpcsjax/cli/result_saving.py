@@ -9,6 +9,7 @@ from __future__ import annotations
 from xpcsjax.service.persist import (
     _config_summary,  # noqa: F401 -- re-exported for tests/cli/test_debug_audit_2026_06_17.py
     _extract_parameters,  # noqa: F401 -- re-exported for tests/test_debug_audit_2026_06_18.py
+    merge_fitted_c2,
     save_results,
     save_results_json,
     save_results_npz,
@@ -16,4 +17,4 @@ from xpcsjax.service.persist import (
 
 # Note: _config_summary and _extract_parameters are intentionally re-exported (tests
 # import them) but are NOT part of the public surface, so they stay out of __all__.
-__all__ = ["save_results", "save_results_json", "save_results_npz"]
+__all__ = ["merge_fitted_c2", "save_results", "save_results_json", "save_results_npz"]

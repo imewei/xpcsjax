@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from xpcsjax import ConfigManager, OptimizationResult
 
 __all__ = [
+    "merge_fitted_c2",
     "save_results",
     "save_results_json",
     "save_results_npz",
@@ -516,3 +517,126 @@ def save_results(
         output_dir,
         result.convergence_status,
     )
+
+
+# Keys pulled from the viz-written c2_fitted_data.npz into the primary result
+# NPZ by merge_fitted_c2. Deliberately excludes that file's own "params" /
+# "contrast" / "offset" / "q" / "reduced_chi_squared" -- those either
+# duplicate what save_results_npz already writes under different (and
+# authoritative) names, or use a different shape/convention there, so
+# merging them would create confusing near-duplicate keys.
+_FITTED_C2_MERGE_KEYS = ("c2_exp", "c2_fitted", "residuals", "t1", "t2", "phi_angles")
+
+
+def merge_fitted_c2(npz_path: Path, fitted_c2_npz: Path) -> bool:
+    """Merge experimental/fitted/residual c2 arrays into the primary result NPZ.
+
+    ``save_results_npz`` writes only scalars, parameters, and covariance --
+    the raw ``(n_phi, n_t1, n_t2)`` correlation surfaces are never included,
+    so a saved result has no way to reconstruct what was actually fit without
+    re-running the pipeline. When post-fit plotting runs, the "simulated"
+    plot family (part of :func:`xpcsjax.viz.generate_nlsq_plots`'s default
+    set) already computes and writes exactly this data to
+    ``<plots_dir>/simulated_data/c2_fitted_data.npz``. This merges those
+    arrays into the primary NPZ too, so downstream re-analysis doesn't need
+    to dig into the plots directory for them.
+
+    Best-effort: this only enriches an already-saved result with convenience
+    arrays that were computed elsewhere, so it never raises. Returns
+    ``False`` (with a WARNING logged) if either file is missing or the merge
+    fails for any reason -- the primary result on disk is left untouched in
+    that case.
+
+    Parameters
+    ----------
+    npz_path : pathlib.Path
+        The primary result NPZ written by :func:`save_results_npz` (or
+        :func:`save_results` with ``output_format`` including ``"npz"``).
+    fitted_c2_npz : pathlib.Path
+        The ``c2_fitted_data.npz`` written by the "simulated" plot family.
+        Callers resolve this as
+        ``<plots_dir>/simulated_data/c2_fitted_data.npz``, matching the
+        layout ``xpcsjax.viz.nlsq_plots`` writes.
+
+    Returns
+    -------
+    bool
+        ``True`` if the merge happened, ``False`` otherwise (missing input,
+        or the merge/write failed).
+    """
+    if not fitted_c2_npz.exists():
+        logger.debug(
+            "No fitted-c2 NPZ at %s (plotting likely skipped or failed); "
+            "primary result NPZ will not carry c2_exp/c2_fitted/residuals.",
+            fitted_c2_npz,
+        )
+        return False
+    if not npz_path.exists():
+        logger.debug("No primary result NPZ at %s to merge fitted c2 into.", npz_path)
+        return False
+
+    # Freshness guard: save_results_npz always writes npz_path BEFORE
+    # plotting runs, so a fitted_c2_npz genuinely produced by THIS run is
+    # never older than npz_path. If plotting silently failed this run (the
+    # CLI dispatcher swallows per-family plot errors and proceeds regardless),
+    # a stale fitted_c2_npz left over from a PREVIOUS run in the same output
+    # directory would otherwise get merged in here -- pairing this run's
+    # parameters/chi_squared with a previous run's c2 arrays with no error
+    # raised anywhere. Reject anything strictly older than npz_path instead.
+    try:
+        fitted_mtime = fitted_c2_npz.stat().st_mtime
+        npz_mtime = npz_path.stat().st_mtime
+    except OSError as exc:
+        logger.warning("Could not stat NPZ files while merging fitted c2 arrays: %s", exc)
+        return False
+    if fitted_mtime < npz_mtime:
+        logger.warning(
+            "Fitted-c2 NPZ %s is older than %s (stale leftover from a previous "
+            "run in this output directory?); skipping merge to avoid pairing "
+            "this run's parameters with another run's c2 arrays.",
+            fitted_c2_npz,
+            npz_path,
+        )
+        return False
+
+    try:
+        with np.load(npz_path, allow_pickle=False) as existing:
+            arrays: dict[str, np.ndarray] = dict(existing.items())
+        with np.load(fitted_c2_npz, allow_pickle=False) as fitted:
+            for key in _FITTED_C2_MERGE_KEYS:
+                if key not in fitted.files:
+                    continue
+                if key in arrays:
+                    logger.debug(
+                        "Skipping merge of %r into %s: key already present.", key, npz_path
+                    )
+                    continue
+                arrays[key] = fitted[key]
+    except Exception as exc:
+        # Broad catch is deliberate: this function's contract is "never
+        # raises" (best-effort enrichment of an already-saved result), so a
+        # corrupted/truncated NPZ (zipfile.BadZipFile, etc.) must be handled
+        # the same as any other read failure, not just OSError/ValueError.
+        logger.warning("Could not read NPZ files while merging fitted c2 arrays: %s", exc)
+        return False
+
+    # np.savez appends ".npz" when the given name doesn't already end with
+    # it (mirrors save_results_npz's own comment on this exact footgun) --
+    # NamedTemporaryFile with suffix=".npz" keeps the temp name and the
+    # actually-written name identical, so os.replace below targets the
+    # right file instead of silently no-op'ing on a missing source.
+    with tempfile.NamedTemporaryFile(dir=npz_path.parent, suffix=".npz", delete=False) as tmp_fh:
+        tmp_path = Path(tmp_fh.name)
+    try:
+        np.savez(tmp_path, **arrays)  # type: ignore[arg-type]  # numpy stub: **kwargs ArrayLike
+        os.replace(tmp_path, npz_path)
+    except Exception as exc:
+        logger.warning("Could not write merged NPZ %s: %s", npz_path, exc)
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        return False
+
+    logger.info("Merged experimental/fitted/residual c2 arrays into %s", npz_path)
+    return True

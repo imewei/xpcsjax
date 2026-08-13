@@ -46,7 +46,7 @@ def run_worker(job: FitJob, event_queue: Any) -> None:
         from xpcsjax.service.config import load_config
         from xpcsjax.service.data import load_dataset
         from xpcsjax.service.fit import FitOverrides, run_fit
-        from xpcsjax.service.persist import save_results
+        from xpcsjax.service.persist import merge_fitted_c2, save_results
 
         config_manager = load_config(job.config_path, output_dir=job.output_dir)
         phi_subset = list(job.phi_subset) if job.phi_subset else None
@@ -68,6 +68,15 @@ def run_worker(job: FitJob, event_queue: Any) -> None:
                 from xpcsjax.service.plots import generate_plots
 
                 plots_result = generate_plots(result, data, config_manager, out_dir / "plots")
+                if plots_result is not None:
+                    # Mirrors cli/commands.py's post-plot merge: the "simulated"
+                    # plot family writes c2_exp/c2_fitted/residuals to
+                    # plots/simulated_data/c2_fitted_data.npz; fold those into
+                    # the primary nlsq_result.npz too, best-effort.
+                    merge_fitted_c2(
+                        out_dir / "nlsq_result.npz",
+                        plots_result / "simulated_data" / "c2_fitted_data.npz",
+                    )
                 if plots_result is None:
                     # generate_plots swallows its own errors and returns None on
                     # failure (documented contract) -- without this check the run

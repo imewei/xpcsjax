@@ -34,6 +34,7 @@ def _install_fake_services(monkeypatch):
     fit.run_fit = _run_fit
     persist = types.ModuleType("xpcsjax.service.persist")
     persist.save_results = lambda *a, **k: None
+    persist.merge_fitted_c2 = lambda *a, **k: False
     plots = types.ModuleType("xpcsjax.service.plots")
     plots.generate_plots = lambda *a, **k: None
     for name, mod in [
