@@ -644,6 +644,9 @@ def merge_fitted_c2(npz_path: Path, fitted_c2_npz: Path) -> bool:
         try:
             os.unlink(tmp_path)
         except OSError:
+            # Best-effort cleanup of the temp file; already reporting the
+            # write failure above, so a missing/unremovable tmp file here
+            # is not itself an error worth surfacing.
             pass
         return False
 
