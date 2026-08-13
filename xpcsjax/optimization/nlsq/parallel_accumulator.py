@@ -172,6 +172,10 @@ def accumulate_chunks_parallel(
         # ponytail: timeout must be on as_completed() itself — a per-future
         # future.result(timeout=...) only bounds an already-completed future;
         # as_completed() with no timeout blocks forever waiting for a hung one.
+        # ceiling: one hung worker delays the whole batch until the shared
+        # batch-level timeout, even if every other future finished quickly.
+        # upgrade: if that granularity ever matters, track a per-future
+        # deadline off the remaining batch budget instead of one flat timeout.
         for future in as_completed(futures, timeout=_batch_timeout(len(futures))):
             JtJ, Jtr, chi2, count = future.result()
             if total_JtJ is None:
@@ -784,7 +788,8 @@ class OOCComputePool:
 
         results: list[tuple[np.ndarray, np.ndarray, float]] = []
         # ponytail: timeout belongs on as_completed(), not the per-future
-        # result() — see accumulate_chunks_parallel for why.
+        # result() — see accumulate_chunks_parallel for why. ceiling/upgrade:
+        # same as accumulate_chunks_parallel's as_completed() note above.
         for future in as_completed(futures, timeout=_batch_timeout(len(futures))):
             results.append(future.result())
         return results
