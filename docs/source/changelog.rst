@@ -8,6 +8,11 @@ current release line.
 Unreleased
 ----------
 
+v0.1.4 — NPZ result-file completeness and module-review sweep
+---------------------------------------------------------------
+
+*Released 2026-08-13.*
+
 * **``nlsq_result.npz`` now carries ``c2_exp``/``c2_fitted``/``residuals``**
   (plus ``t1``/``t2``/``phi_angles``/``wavevector_q``): the primary result
   file previously held only scalars, parameters, and covariance, so the raw

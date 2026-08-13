@@ -11,6 +11,8 @@ the rendered documentation.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-08-13
+
 ### Fixed
 
 - **`nlsq_result.npz` now carries `c2_exp`/`c2_fitted`/`residuals`/`t1`/`t2`/`phi_angles`/`wavevector_q`**.
@@ -467,7 +469,8 @@ results, public API, and config formats are identical to 0.1.0.
 - GPU support. v0.1 sets `NLSQ_SKIP_GPU_CHECK=1` and runs CPU-only;
   GPU paths are planned for v0.2+.
 
-[Unreleased]: https://github.com/imewei/xpcsjax/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/imewei/xpcsjax/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/imewei/xpcsjax/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/imewei/xpcsjax/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/imewei/xpcsjax/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/imewei/xpcsjax/compare/v0.1.0...v0.1.1

@@ -28,7 +28,7 @@
 # METADATA
 # -----------------------------------------------------------------------------
 metadata:
-  config_version: "0.1.3"
+  config_version: "0.1.4"
   description: "xpcsjax laminar flow — 7-param diffusion + shear with per-angle scaling"
   parameter_count: 7
   physics_model: "D(t)=D0·t^alpha+D_offset; γ̇(t)=γ̇₀·t^beta+γ̇_offset; shear coupling via cos(φ−φ0)"
