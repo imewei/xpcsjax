@@ -65,6 +65,101 @@ def test_stratified_ls_gradient_sanity_perturbs_first_physics_param(caplog):
     assert "perturbation of param[2]" in caplog.text
 
 
+def test_stratified_ls_clips_out_of_bounds_physics_init(caplog):
+    """C045 RCA (2026-08-17): a config-supplied ``initial_parameters`` value
+    outside the current ``parameter_space`` bounds (e.g. a warm-start copied
+    from a prior fit round under looser bounds) must not reach the residual
+    function unclipped. ``fit_heterodyne_stratified_least_squares`` clipped the
+    scaling head to bounds but NOT the physics tail, so an out-of-bounds
+    ``alpha_sample`` made ``t**alpha_sample`` underflow to ~0 for every frame
+    past t=1 -- zeroing ``D0_sample``'s gradient and tripping the pre-solve
+    gradient sanity check every time. Physics must now be clipped the same way
+    the scaling head already is.
+    """
+    import tempfile
+    from pathlib import Path
+
+    import yaml
+
+    from xpcsjax.config import ConfigManager
+    from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        fit_heterodyne_stratified_least_squares,
+    )
+
+    n_phi, n_t = 3, 20
+    config_dict = {
+        "analysis_mode": "two_component",
+        "analyzer_parameters": {
+            # dt=0.1 (matching the real C045 config) makes the smallest lag
+            # 0.1s -- with alpha_sample=-50 unclipped, 0.1**-50 = 1e50, which
+            # overflows q^2*D0*t**alpha past exp()'s underflow threshold
+            # (~745) and floors g1_sample to exactly 0.0 for both the
+            # perturbed and unperturbed D0_sample, reproducing the exact
+            # "Gradient estimate: 0.000000e+00" from the C045 log.
+            "dt": 0.1,
+            "start_frame": 1,
+            "end_frame": n_t,
+            "scattering": {"wavevector_q": 0.0054},
+        },
+        "scaling": {
+            "n_angles": n_phi,
+            "mode": "constant",
+            "initial_contrast": 0.3,
+            "initial_offset": 1.0,
+        },
+        "initial_parameters": {
+            # alpha_sample=-50.0 is far outside the registry bounds [-2, 2] --
+            # mirrors a stale tie-loop warm-start value.
+            "parameter_names": ["alpha_sample"],
+            "values": [-50.0],
+            # Fix D0_ref/alpha_ref/D_offset_ref (mirrors the real C045 config's
+            # tie-loop) so D0_sample -- the parameter masked by the degenerate
+            # alpha_sample -- is the FIRST varying physics param, i.e. the one
+            # the gradient sanity check actually perturbs (index n_scaling).
+            # Without this, D0_ref (unaffected by alpha_sample) would be
+            # perturbed instead and the check would pass regardless of the bug.
+            "active_parameters": [
+                "D0_sample",
+                "alpha_sample",
+                "D_offset_sample",
+                "v0",
+                "beta",
+                "v_offset",
+                "f0",
+                "f1",
+                "f2",
+                "f3",
+                "phi0",
+                "contrast",
+                "offset",
+            ],
+        },
+    }
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        cfg_path = Path(tmp_dir) / "fixture.yaml"
+        cfg_path.write_text(yaml.safe_dump(config_dict))
+        cfg_manager = ConfigManager(str(cfg_path))
+    model = HeterodyneModel.from_config(cfg_manager.config)
+    assert float(model.param_manager.space.values["alpha_sample"]) == -50.0
+
+    phi = np.linspace(0.0, 150.0, n_phi, dtype=np.float64)
+    rng = np.random.default_rng(seed=20260524)
+    c2 = np.empty((n_phi, n_t, n_t), dtype=np.float64)
+    for i, phi_angle in enumerate(phi):
+        corr = np.asarray(model.compute_correlation(phi_angle=float(phi_angle), angle_idx=i))
+        c2[i] = corr + rng.normal(0.0, 5e-4, size=corr.shape)
+
+    cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "averaged"})
+    with caplog.at_level(logging.INFO, logger="xpcsjax.optimization.nlsq.heterodyne_logging"):
+        fit_heterodyne_stratified_least_squares(
+            model=model, c2=c2, phi=phi, config=cfg, weights=None, shuffle=False
+        )
+    assert "GRADIENT SANITY CHECK FAILED" not in caplog.text
+    assert "Gradient sanity check passed" in caplog.text
+
+
 def test_completion_emits_honest_anti_degeneracy_defense(caplog):
     """The shared completion chokepoint must emit an anti-degeneracy DEFENSE
     summary reading REAL per-path diagnostics. The stratified-LS path runs a

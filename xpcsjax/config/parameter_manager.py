@@ -519,8 +519,19 @@ class ParameterManager:
                 # name when present, the original ``name`` otherwise — never
                 # None. mypy can't see the fallback guarantee through
                 # ``dict.get``'s typing, so coerce to str explicitly.
+                # Strip scaling names (contrast/offset, incl. per-angle
+                # contrast_N/offset_N): this method's contract is
+                # physics-only (see docstring, and service/persist.py's
+                # "physics-only by design" note) — a caller listing
+                # contrast/offset here to mean "vary in the fit" must not
+                # leak them past this filter, or callers building a params
+                # array from these names against a physics-only initial
+                # value dict (e.g. simulated-plot rendering) KeyError.
                 active_params = [
-                    str(self._param_name_mapping.get(name, name)) for name in active_params_config
+                    str(self._param_name_mapping.get(name, name))
+                    for name in active_params_config
+                    if name not in SCALING_PARAM_NAMES
+                    and self._extract_base_param_name(name) is None
                 ]
             else:
                 # Fall back to parameter_names from initial_parameters

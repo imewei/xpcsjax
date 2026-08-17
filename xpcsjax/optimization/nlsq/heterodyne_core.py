@@ -1353,7 +1353,11 @@ def _fit_joint_averaged_multi_phi(
             weights=weights,
             warm_start_context="L2 Stage-1 -> final mode averaged",
         )
-        stage1_physics = np.asarray(stage1_result.parameters, dtype=np.float64)
+        # `stage1_result.parameters` is the FULL 14-physics vector (expanded by
+        # `expand_reduced_result`); reduce back to the varying subset before
+        # clipping — see identical fix/comment in `_build_joint_problem`.
+        stage1_physics_full = np.asarray(stage1_result.parameters, dtype=np.float64)
+        stage1_physics = param_manager.extract_varying(stage1_physics_full)
         hierarchical_stage1_chi2 = float(stage1_result.chi_squared)
         # Override the initial physics vector for stage 2 (joint refine).
         # Clip to bounds defensively — stage 1 should already respect them,
@@ -3212,7 +3216,13 @@ def _build_joint_problem(
             weights=weights,
             warm_start_context=f"L2 Stage-1 -> final mode {resolved_mode}",
         )
-        stage1_physics = np.asarray(stage1_result.parameters, dtype=np.float64)
+        # `stage1_result.parameters` is the FULL 14-physics vector (expanded by
+        # `expand_reduced_result`); reduce back to the varying subset before
+        # clipping against `physics_lower`/`physics_upper` (which are
+        # varying-only) — otherwise np.clip broadcasts (14,) against (n_varying,)
+        # and raises whenever any physics parameter is fixed.
+        stage1_physics_full = np.asarray(stage1_result.parameters, dtype=np.float64)
+        stage1_physics = param_manager.extract_varying(stage1_physics_full)
         hierarchical_stage1_chi2 = float(stage1_result.chi_squared)
         physics_initial = np.clip(stage1_physics, physics_lower, physics_upper)
         logger.info(

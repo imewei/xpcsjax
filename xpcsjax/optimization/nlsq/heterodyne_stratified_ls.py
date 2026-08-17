@@ -829,6 +829,13 @@ def fit_heterodyne_stratified_least_squares(
     # abort the solve.
     if n_scaling:
         p0_full[:n_scaling] = np.clip(p0_full[:n_scaling], scaling_lower, scaling_upper)
+    # Physics tail: clip config-supplied initial values to bounds too, mirroring
+    # ``_build_joint_problem``/``_fit_joint_averaged_multi_phi``. Without this a
+    # stale/out-of-bounds ``initial_parameters`` value (e.g. a warm-start copied
+    # from a prior fit round under looser bounds) starts the solve infeasible and
+    # can silently zero a parameter's gradient (e.g. alpha far outside its bounds
+    # makes t**alpha underflow), tripping the pre-solve gradient sanity check.
+    p0_full[n_scaling:] = np.clip(p0_full[n_scaling:], lower_phys, upper_phys)
 
     # Full joint parameter-name list ([scaling | physics]) — used both for the
     # adapter and (Fix 4) threaded to the result builder so the diagnostics
