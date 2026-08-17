@@ -878,9 +878,16 @@ class ConfigManager:
         per_angle_scaling_keys: set[str] = set()
         per_angle_scaling = initial_params.get("per_angle_scaling")
         if per_angle_scaling and isinstance(per_angle_scaling, dict):
-            # Extract contrast and offset arrays
+            # Extract contrast and offset arrays. A bare scalar means the same
+            # thing as a length-1 list (single value applied to all angles) —
+            # normalize so it isn't silently dropped by the isinstance(list)
+            # checks below.
             contrast_values = per_angle_scaling.get("contrast")
+            if isinstance(contrast_values, (int, float)):
+                contrast_values = [contrast_values]
             offset_values = per_angle_scaling.get("offset")
+            if isinstance(offset_values, (int, float)):
+                offset_values = [offset_values]
 
             if contrast_values is not None and isinstance(contrast_values, list):
                 if len(contrast_values) == 1:
@@ -1046,7 +1053,11 @@ class ConfigManager:
             return warnings
 
         contrast_values = per_angle_scaling.get("contrast")
+        if isinstance(contrast_values, (int, float)):
+            contrast_values = [contrast_values]
         offset_values = per_angle_scaling.get("offset")
+        if isinstance(offset_values, (int, float)):
+            offset_values = [offset_values]
 
         # Validate contrast array length
         if contrast_values is not None and isinstance(contrast_values, list):
