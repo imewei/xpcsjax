@@ -11,9 +11,7 @@
 
 > **Disclaimer:** XPCSJAX is pre-release software under active development and testing. APIs, model implementations, and numerical results may change without notice. Outputs have not been independently validated for all use cases. Use at your own risk and verify critical results against established reference data before relying on them in research or industrial applications.
 
-XPCSJAX consolidates the homodyne and heterodyne analysis pipelines — both now
-deprecated in its favor — into one package with a shared engine and config-driven
-physics-model dispatch. It implements the transport-coefficient framework of
+XPCSJAX implements the transport-coefficient framework of
 [He et al. PNAS 2024](https://doi.org/10.1073/pnas.2401162121) and
 [He et al. PNAS 2025](https://doi.org/10.1073/pnas.2514216122) for characterizing
 nonequilibrium dynamics in flowing soft-matter systems.
