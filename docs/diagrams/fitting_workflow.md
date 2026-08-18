@@ -31,7 +31,7 @@ graph TB
 
     subgraph AD["Anti-Degeneracy Defense (per iteration)"]
         L1["L1 Per-Angle Reparameterization (all modes)"]
-        L2["L2 Hierarchical Optimization (all modes)"]
+        L2["L2 Hierarchical Optimization (individual per-angle mode only)"]
         L3["L3 Adaptive CV Regularization (all modes)"]
         L4["L4 Gradient-Collapse Monitor (diagnostic)"]
         L5["L5 Shear-Sensitivity Weighting (laminar_flow only)"]
@@ -61,10 +61,12 @@ graph TB
 - **Dispatch order** inside the strategy router is: CMA-ES escape -> multistart ->
   hybrid-streaming -> stratified-LS (activates at >= 1M points) -> in-memory
   engine route. The first applicable path wins.
-- **Anti-degeneracy layers L1-L4** are active for all analysis modes. **L5
-  (shear-sensitivity weighting)** is `laminar_flow`-only by design — the static
-  modes have no flow direction and `two_component` (heterodyne) has no shear rate,
-  so L5 short-circuits there.
+- **Anti-degeneracy layers L1, L3, L4** are active for all analysis modes. **L2
+  (Hierarchical Optimization)** only constructs for `per_angle_mode_actual ==
+  "individual"` (`averaged`/`constant` skip the `.fit()` call even when a setup
+  banner fires). **L5 (shear-sensitivity weighting)** is `laminar_flow`-only by
+  design — the static modes have no flow direction and `two_component`
+  (heterodyne) has no shear rate, so L5 short-circuits there.
 - **L4 is strictly diagnostic**: monitor-on vs monitor-off is bit-identical
   (the homodyne rtol=1e-10 parity baselines included).
 - **Global escapes** (CMA-ES / multistart) keep-better vs the plain NLSQ joint fit

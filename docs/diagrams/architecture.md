@@ -54,6 +54,20 @@ graph TB
         ADC --> SRJ
     end
 
+    subgraph svc["service (headless orchestration seam)"]
+        SFIT["service.fit"]
+        SDATA["service.data"]
+        SCFG["service.config"]
+        SPLOTS["service.plots"]
+        SPERSIST["service.persist"]
+        SEVT["service.events"]
+    end
+
+    subgraph front["Front Ends"]
+        CLI["cli (argparse)"]
+        WORKER["gui.ipc.worker (subprocess, JAX-free MainWindow)"]
+    end
+
     subgraph out["Results, Visualization, GUI"]
         OR["OptimizationResult"]
         VIZ["generate_nlsq_plots"]
@@ -68,16 +82,27 @@ graph TB
     core --> engine
     engine --> OR
 
+    CLI --> svc
+    WORKER --> svc
+    svc --> SFIT
+    SFIT --> FIT
+    SDATA --> LOAD
+    SCFG --> CM
+    SPLOTS --> VIZ
+    GUI -.->|IPC| WORKER
+
     classDef cfg fill:#e7f5ff,stroke:#1971c2,color:#0b3d66;
     classDef dat fill:#fff4e6,stroke:#e67700,color:#663d00;
     classDef phys fill:#e5dbff,stroke:#5f3dc4,color:#2d1a66;
     classDef eng fill:#c5f6fa,stroke:#0c8599,color:#063d45;
     classDef res fill:#d3f9d8,stroke:#2f9e44,color:#13501f;
+    classDef svcCls fill:#fff9db,stroke:#f08c00,color:#663d00;
     class CM,AM,PREG,PM,NCFG cfg;
     class LOAD,DQC,MEM dat;
     class HOM,HET,KG2,KC2 phys;
     class FIT,FMP,SEL,ADC,ADAPT,SRJ eng;
     class OR,VIZ,GUI res;
+    class SFIT,SDATA,SCFG,SPLOTS,SPERSIST,SEVT,CLI,WORKER svcCls;
 ```
 
 ## Notes
@@ -93,3 +118,9 @@ graph TB
   controller; NLSQ's `CurveFit` performs the trust-region least-squares solve.
 - **`OptimizationResult`** is the cross-cutting bridge node (182 edges) consumed
   by visualization and the GUI workbench.
+- **`service`** is the headless, argparse/Qt-free orchestration seam shared by
+  the CLI and the GUI worker subprocess — both front ends call into
+  `service.fit` / `service.data` / `service.config` / `service.plots` rather
+  than the optimization/data/config/viz layers directly. `MainWindow` never
+  touches JAX; it talks to `gui.ipc.worker` (a separate subprocess) over IPC,
+  and the worker is the one that calls into `service`.
