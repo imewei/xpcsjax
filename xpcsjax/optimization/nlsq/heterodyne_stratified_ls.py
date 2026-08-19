@@ -22,6 +22,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from xpcsjax.optimization.nlsq.heterodyne_memory import (
+    NLSQStrategy,
+    select_nlsq_strategy,
+)
+from xpcsjax.optimization.nlsq.heterodyne_result_builder import build_failed_result
 from xpcsjax.optimization.nlsq.strategies.chunking import (
     compute_stratification_diagnostics,
     create_angle_stratified_indices,
@@ -895,15 +900,57 @@ def fit_heterodyne_stratified_least_squares(
         _glog.warning("Proceeding with optimization, but this may fail")
 
     _hlog.log_fit_start(int(p0_full.size), int(meta["n_data_points"]), n_chunks=len(chunk_sizes))
-    fit = adapter.fit(
-        # residual_fn returns a jnp Array; NLSQAdapter types its residual as
-        # numpy-returning. JAX arrays are numpy-compatible at runtime, so this is
-        # a typing-only impedance at the JAX/numpy boundary.
-        residual_fn=residual_fn,  # type: ignore[arg-type]
-        initial_params=p0_full,
-        bounds=(lower, upper),
-        config=config,
-    )
+
+    # Memory pre-check: the baseline solve below needs a dense
+    # (n_data_points x n_joint_params) Jacobian. n_joint_params includes the
+    # per-angle scaling tail (n_scaling) on top of the physical parameters --
+    # e.g. 60 params x 23M points needs ~67 GB, which reliably exceeds a
+    # 41 GB budget and is guaranteed to OOM inside nlsq's trf solve (observed:
+    # a single dispatch attempted a 114 GB allocation). Earlier dispatch gates
+    # (e.g. the hybrid-streaming check in __init__.py) size this off physical
+    # params only and miss the scaling tail, so this is the first point where
+    # the true joint parameter count is known. When the Layer-2 hierarchical
+    # escape below can pick up from p0_full, skip the doomed attempt (and its
+    # scary XLA OOM log) instead of burning the allocation first -- this is
+    # the SAME outcome the OOM path already falls through to today
+    # (build_failed_result sets .parameters = initial_params).
+    _execute_layers_on = bool(getattr(config, "execute_layers", False))
+    _enable_hier = bool(getattr(config, "enable_hierarchical", False))
+    _use_constant = mode == "averaged"
+    _hier_can_rescue = _execute_layers_on and _enable_hier and n_scaling > 0 and not _use_constant
+    _mem_decision = select_nlsq_strategy(int(meta["n_data_points"]), int(p0_full.size))
+    if _hier_can_rescue and _mem_decision.strategy is not NLSQStrategy.STANDARD:
+        from xpcsjax.utils.logging import get_logger as _get_mem_logger
+
+        _get_mem_logger(__name__).info(
+            "Skipping the dense joint baseline solve (est. %.1f GB > %.1f GB budget for "
+            "%d points x %d params); starting Layer-2 hierarchical optimization from the "
+            "quantile-seeded initial parameters instead.",
+            _mem_decision.peak_memory_gb,
+            _mem_decision.threshold_gb,
+            int(meta["n_data_points"]),
+            int(p0_full.size),
+        )
+        fit = build_failed_result(
+            parameter_names=joint_param_names,
+            message=(
+                f"Baseline dense joint solve skipped: estimated peak "
+                f"{_mem_decision.peak_memory_gb:.1f} GB exceeds the "
+                f"{_mem_decision.threshold_gb:.1f} GB budget; deferring to the "
+                "Layer-2 hierarchical escape."
+            ),
+            initial_params=p0_full,
+        )
+    else:
+        fit = adapter.fit(
+            # residual_fn returns a jnp Array; NLSQAdapter types its residual as
+            # numpy-returning. JAX arrays are numpy-compatible at runtime, so this is
+            # a typing-only impedance at the JAX/numpy boundary.
+            residual_fn=residual_fn,  # type: ignore[arg-type]
+            initial_params=p0_full,
+            bounds=(lower, upper),
+            config=config,
+        )
 
     popt = np.asarray(fit.parameters, dtype=np.float64)
 
