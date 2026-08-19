@@ -194,6 +194,10 @@ tempCodeRunnerFile.py
 .clinerules/
 agent-os/
 
+# .context/ decision-tracking scratch (local-only, same policy as CLAUDE.md
+# above) — the tool that populates it degrades gracefully when absent.
+.context/
+
 # AI assistant project memos
 # ----------------------------------------------------------------------------
 # Treated as local-only AI scratch — same policy as homodyne / heterodyne.
