@@ -198,9 +198,13 @@ from xpcsjax.optimization.nlsq.memory import (  # noqa: E402
 
 # Parameter utilities (extracted to parameter_utils.py for reduced complexity)
 from xpcsjax.optimization.nlsq.parameter_utils import (  # noqa: E402
+    ResolvedPhysicalParameters,
     build_parameter_labels as _build_parameter_labels,
     classify_parameter_status as _classify_parameter_status,
+    restore_by_mask_jax,
+    restore_by_mask_numpy,
     sample_xdata as _sample_xdata,
+    strip_by_mask,
     compute_jacobian_stats as _compute_jacobian_stats,
     compute_consistent_per_angle_init as _compute_consistent_per_angle_init,
 )
@@ -803,6 +807,7 @@ class NLSQWrapper(NLSQAdapterBase):
         per_angle_scaling_initial: dict[str, list[float]] | None = None,
         *,
         on_iteration: "Callable[[int, float], None] | None" = None,
+        resolved_physical: ResolvedPhysicalParameters | None = None,
     ) -> OptimizationResult:
         """Execute NLSQ optimization with automatic strategy selection.
 
@@ -2079,6 +2084,69 @@ class NLSQWrapper(NLSQAdapterBase):
         else:
             wrapped_residual_fn = solver_residual_fn
 
+        # Fixed/active physical parameters (Task 3): strip the fixed physical
+        # slots out of the optimizer-facing vector/bounds/labels/x_scale, and
+        # re-wrap the residual so the solver-facing closure keeps operating on
+        # a full-length physical vector underneath. `resolved_physical=None`
+        # (every caller not yet updated by this plan) is a complete no-op.
+        _phys_free_mask: np.ndarray | None = None
+        if resolved_physical is not None and not resolved_physical.free_mask.all():
+            n_physical = len(resolved_physical.physical_names)
+            _phys_free_mask = resolved_physical.free_mask
+            phys_slice = validated_params[-n_physical:]
+            validated_params = np.concatenate(
+                [validated_params[:-n_physical], strip_by_mask(phys_slice, _phys_free_mask)]
+            )
+            nlsq_bounds = (
+                np.concatenate(
+                    [
+                        nlsq_bounds[0][:-n_physical],
+                        strip_by_mask(nlsq_bounds[0][-n_physical:], _phys_free_mask),
+                    ]
+                ),
+                np.concatenate(
+                    [
+                        nlsq_bounds[1][:-n_physical],
+                        strip_by_mask(nlsq_bounds[1][-n_physical:], _phys_free_mask),
+                    ]
+                ),
+            )
+            param_labels = param_labels[:-n_physical] + [
+                name
+                for name, free in zip(
+                    resolved_physical.physical_names, _phys_free_mask, strict=True
+                )
+                if free
+            ]
+            # x_scale_value defaults to the STRING "jac" -- only a numeric
+            # sequence (array or a manual list/tuple from config x_scale) needs
+            # reducing.
+            if isinstance(x_scale_value, (np.ndarray, list, tuple)):
+                x_scale_value = np.asarray(x_scale_value, dtype=np.float64)
+                x_scale_value = np.concatenate(
+                    [
+                        x_scale_value[:-n_physical],
+                        strip_by_mask(x_scale_value[-n_physical:], _phys_free_mask),
+                    ]
+                )
+            _fixed_physical_full = resolved_physical.values_full
+            _base_wrapped_residual_fn = wrapped_residual_fn
+
+            # The solver-facing closure signature is f(xdata, *params) -- xdata
+            # FIRST, physical params UNPACKED as individual scalar args (see
+            # `_create_residual_function`'s docstring and the call site at
+            # `base_residual_fn(xdata, *popt)` in `_post_process_results`).
+            def wrapped_residual_fn(xdata, *params):  # noqa: ANN001, ANN002, ANN202
+                n_prefix = len(params) - int(_phys_free_mask.sum())
+                params_array = jnp.stack(params[n_prefix:])
+                full_physical = restore_by_mask_jax(
+                    params_array,
+                    _fixed_physical_full,
+                    _phys_free_mask,
+                )
+                full_params = (*params[:n_prefix], *[full_physical[i] for i in range(n_physical)])
+                return _base_wrapped_residual_fn(xdata, *full_params)
+
         # Step 7: Select optimization strategy using memory-based selection
         # Uses unified select_nlsq_strategy() instead of deprecated DatasetSizeStrategy
         n_parameters = len(validated_params)
@@ -2140,15 +2208,18 @@ class NLSQWrapper(NLSQAdapterBase):
         # observational). Returns (None, None) when the gradient_monitoring gate
         # is disabled, leaving the solve unchanged. The monitor watches the
         # homodyne per-angle-FIRST layout and feeds NLSQ's curve_fit callback.
+        _n_physical_free = (
+            int(_phys_free_mask.sum()) if _phys_free_mask is not None else len(physical_param_names)
+        )
         _l4_monitor, _l4_callback = _build_homodyne_l4_callback(
             config=config,
-            solver_residual_fn=solver_residual_fn,
+            solver_residual_fn=wrapped_residual_fn,
             xdata=xdata,
             ydata=ydata,
             validated_params=validated_params,
             per_angle_scaling=per_angle_scaling,
             n_phi=n_phi_unique,
-            n_physical=len(physical_param_names),
+            n_physical=_n_physical_free,
             on_iteration=on_iteration,
         )
 
@@ -2170,6 +2241,29 @@ class NLSQWrapper(NLSQAdapterBase):
                 sigma=sigma_for_solver,
             )
         )
+
+        # Restore fixed physical parameters into the full-length popt/pcov
+        # BEFORE any inverse-transform / residual code (which expects the
+        # full-length vector) runs.
+        if (
+            resolved_physical is not None
+            and _phys_free_mask is not None
+            and not _phys_free_mask.all()
+        ):
+            _n_physical_full = len(resolved_physical.physical_names)
+            n_prefix = len(popt) - int(_phys_free_mask.sum())
+            full_physical = restore_by_mask_numpy(
+                popt[n_prefix:], resolved_physical.values_full, _phys_free_mask
+            )
+            popt = np.concatenate([popt[:n_prefix], full_physical])
+            if pcov is not None:
+                n_full = n_prefix + _n_physical_full
+                full_cov = np.zeros((n_full, n_full))
+                free_idx = list(range(n_prefix)) + [
+                    n_prefix + i for i, free in enumerate(_phys_free_mask) if free
+                ]
+                full_cov[np.ix_(free_idx, free_idx)] = pcov
+                pcov = full_cov
 
         # L4: assemble the gradient_monitor diagnostics block from the monitor.
         # Strictly diagnostic — attached under the same ``gradient_monitor`` key
