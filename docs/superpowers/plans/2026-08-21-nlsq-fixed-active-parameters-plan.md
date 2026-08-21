@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12+, JAX (`JAX_ENABLE_X64=1`), upstream `nlsq>=0.6.10` (`CurveFit`/`curve_fit`), pytest.
 
-**Spec:** `docs/superpowers/specs/2026-08-21-nlsq-fixed-active-parameters-design.md` (two revision rounds — Codex review, then a `/grilling` session with 9 decisions Q1-Q9). **This plan has been through two Codex review rounds and two `/grilling` sessions** — see "What changed" sections below; do not resurrect any of these bugs.
+**Spec:** `docs/superpowers/specs/2026-08-21-nlsq-fixed-active-parameters-design.md` (two revision rounds — Codex review, then a `/grilling` session with 9 decisions Q1-Q9). **This plan has been through three Codex review rounds, two `/grilling` sessions, and one CCG dual-model (codex + antigravity) review round** — see "What changed" sections below; do not resurrect any of these bugs.
 
 ## What changed from v1 → v2 (Codex review)
 
@@ -43,6 +43,16 @@
 6. **Task 7b's worker-sampling-scope fix was contingent on a test failing first, but the spec's Component 2 states it as required behavior**, not just a correctness safety net (it also avoids wasting multistart's sampling budget on locked dimensions). Merged into Task 7 as a mandatory step; the recursion-based correctness argument still stands independently and remains documented, but the narrowing is no longer conditional on it being tested first.
 7. **Added best-effort coverage for the spec's per-tier fixed-parameter requirement** (hybrid-streaming, stratified-LS, sequential, out-of-core) — v3 only ran regression suites for these, which prove no *regression* but never asserted the new mechanism actually reaches them. Task 11 now includes an explicit step to force each reachable tier with a small dataset/threshold override, with instructions to document rather than silently skip any tier that can't be forced.
 
+## What changed from v4 → v5 (round 4: CCG dual-model review — codex + antigravity, plus two follow-up research passes)
+
+1. **Task 3's insertion point was a real `NameError`/`UnboundLocalError`.** v4 inserted the strip before `wrapped_residual_fn` was ever assigned, and separately broke `_build_homodyne_l4_callback` (fed the unwrapped fn + stripped `validated_params`, corrupting its internal index math). Moved the insertion point to right after `wrapped_residual_fn` is legitimately assigned (~line 2080), before the L4 callback call site (~line 2143), and threaded the wrapped fn + free-physical count into that callback too.
+2. **Task 6's restore point was still too early.** v4 moved it past the CMA-ES skip/no-skip convergence (line ~2489), but missed that a **Phase 3** result-selection step (line ~2503-2525) can still replace `cmaes_result` wholesale with the raw, reduced-length Phase-1 warm-start output. Moved the restore to after Phase 3 fully resolves (~line 2525), before `final_params` construction (~line 2552).
+3. **Task 7's multistart fix was a no-op.** v4 narrowed only the worker's *interpretation* of `start_params`, but `fit_nlsq_multistart` never produces a free-length vector upstream — `bounds_array`/custom starts stay full-length. Fixed to narrow at the source (`fit_nlsq_multistart`) and the worker together — both ends must change, not just one.
+4. **Task 9's tied-parameter conflict check only covered one direction.** The existing `space.vary.get(parent, False)` guard can't catch a parent that's *only* fixed via `fixed_parameters` (not yet applied when `_apply_tied_parameters` runs, since Task 9 moves the fixed-parameters step to run last). Added the missing `parent in fixed_names` check alongside the already-planned `child in fixed_names` check, both reading the raw config dict directly.
+5. **The single most severe finding: the strip/restore mechanism never reached 4 of the 6 required strategy tiers.** The plan's own "Global Constraints" claimed hybrid-streaming/stratified-LS/out-of-core/sequential "inherit correctness by construction" — confirmed FALSE by a dedicated research pass. `NLSQWrapper.fit()` has 4 early-return branches (out-of-core, sequential delegation, stratified-LS, hybrid-streaming) that build/dispatch their own vectors independently and never reach the plain tail's strip point. This directly contradicted the spec's explicit "all strategy tiers must honor fixed_parameters" requirement (design.md:207-209). Added four new tasks (7c-7f) — one per tier — each with its own dedicated strip/restore wiring and proof test. Out-of-core and sequential are straightforward (sequential in particular needs near-zero new code, reusing its own existing tested bounds-equality mechanism); stratified-LS and hybrid-streaming are materially harder, since both run their own internal anti-degeneracy scaling-mode reparameterization before building a *single-array* (not `f(xdata,*params)`) residual closure — their tasks carry a mandatory, not-yet-fully-traced Step 0 rather than a ready-to-type diff, honestly reflecting the limits of the round-4 research pass's time budget.
+6. **Task 11's heterodyne geometry concern (round 3 → round 4 codex finding #8) turned out to be a false alarm on closer trace.** Round 4 flagged that the test helper's and the dispatcher's synthetic axes looked different by construction. A follow-up trace of `HeterodyneModel.sync_time_axis` found it is length-only (reads `len(t)`, never the array's values) — since both sides load the same template and resync to the same length, the resulting axes are byte-identical regardless of what values were passed in. The v4 "load same template" fix was already correct; only a clarifying comment was added, no structural change.
+7. **Task 11's "best-effort" per-tier coverage language was inconsistent with the spec's mandatory per-tier testing requirement (codex finding #11).** Now that Tasks 7c-7f give every tier a real mechanism and its own dedicated proof test, Task 11's Step 2b was reduced from "try to force coverage, document if you can't" to a confirmation pass that all per-tier tests pass together.
+
 ## Global Constraints
 
 - `JAX_ENABLE_X64=1` is set by `xpcsjax/__init__.py` before any JAX import — never set it elsewhere.
@@ -53,7 +63,7 @@
 - Homodyne `fixed_parameters`/`active_parameters` are scoped to **physical parameters only** (never `contrast`/`offset`) — permanent (spec, grilling round 1 Q1). A scaling parameter named in homodyne's `fixed_parameters` is a hard `ValueError` at fit time (spec, grilling round 1 Q5, Q8).
 - Heterodyne `fixed_parameters` is **not** scoped that way — it mirrors `active_parameters`'s existing scope, which already includes `contrast`/`offset` (spec, grilling round 1 Q7). Test both scaling names.
 - `strategies/sequential.py` keeps its existing, tested zero-length-covariance convention when every physical parameter is fixed — every *other* new call site raises `ValueError` instead (spec, grilling round 1 Q3). Multistart's own pre-existing `check_zero_volume_bounds` → single-start-fallback convention (`multistart.py:944-964`) is unrelated and untouched — it only ever triggers on a literal degenerate `parameter_space.bounds`, which this plan never produces.
-- All strategy tiers must honor `fixed_parameters`/`active_parameters`: CMA-ES and multistart get dedicated tasks (6, 7); hybrid-streaming/stratified-LS/out-of-core/chunking inherit correctness by construction (internal size-based dispatch branches inside `NLSQWrapper.fit()`'s call graph, confirmed to receive the already-stripped `validated_params`/`nlsq_bounds` unchanged) — verified by a regression run, not a new mechanism.
+- All strategy tiers must honor `fixed_parameters`/`active_parameters`: CMA-ES and multistart get dedicated tasks (6, 7). **Round-4 CCG dual-model review correction (codex finding #3, confirmed live by a dedicated research pass — this bullet's prior claim was FALSE):** hybrid-streaming/stratified-LS/out-of-core/sequential do **NOT** inherit correctness by construction. `NLSQWrapper.fit()` has 4 early-return/dispatch branches (out-of-core `wrapper.py:942-1039,1232-1340`; sequential delegation `wrapper.py:1057-1072`; stratified-LS `wrapper.py:1564-1577`; hybrid-streaming `wrapper.py:1439-1550`) that build/dispatch their own `validated_params`/`nlsq_bounds`/internal vectors independently and never pass through the plain tail's strip point at all. Each gets its own dedicated task (7c-7f) — see below. Out-of-core is a straightforward strip/restore, same shape as the plain tail. Sequential needs near-zero new code: `strategies/sequential.py` already has its own tested `strip_fixed_parameters`/`restore_fixed_parameters` (bounds-equality based) — narrowing the bounds passed into `_run_sequential_optimization(...)` to `lower[i]=upper[i]=resolved_physical.values_full[i]` at fixed physical positions makes that existing mechanism pick the fix up automatically, no changes inside `sequential.py` itself. Stratified-LS and hybrid-streaming are materially harder: both run their own internal anti-degeneracy-driven scaling-mode reparameterization (constant/averaged/individual) BEFORE building their residual closure, and both use a single-array `residual(params)` calling convention (`StratifiedResidualFunctionJIT.__call__`, `strategies/residual_jit.py:567`), not the plain tail's `f(xdata, *params)` — the physical-fixed-parameter strip must compose AFTER their internal scaling transform resolves, with its own single-array closure wrapper shape.
 - `x_scale_value` is the string `"jac"` by default; `optimization.nlsq.x_scale_map` produces a per-parameter array, but a raw `optimization.nlsq.x_scale` config can also be a manual `list[float]` (`config.py:219`) that reaches this point as a plain list, not yet an array. Any code that reduces `x_scale_value` by slicing must guard on it being a numeric sequence (`isinstance(x_scale_value, (np.ndarray, list, tuple))`, normalizing to `np.asarray(...)` first) and otherwise leave the value untouched — never assume `np.ndarray` is the only non-string case (round 3 Codex finding #1).
 - Heterodyne's fixed-child-of-a-tie validation reads the raw `initial_parameters.fixed_parameters` config dict directly, independent of when `_apply_fixed_parameters` actually mutates `space`.
 - Run `make lint` and `uv run mypy xpcsjax` (advisory) before each commit; `make test-optimization`/`make test-heterodyne` must pass before moving to the next task.
@@ -67,7 +77,10 @@
 | `xpcsjax/optimization/nlsq/parameter_utils.py` | **Modify.** Gains `ResolvedPhysicalParameters` (with real value substitution), `resolve_optimized_physical_parameters()`, mask-based `strip_by_mask`/`restore_by_mask_numpy`/`restore_by_mask_jax`. Also gains the relocated `strip_fixed_parameters`/`restore_fixed_parameters` (moved from `strategies/sequential.py`, **unchanged** semantics). |
 | `xpcsjax/optimization/nlsq/strategies/sequential.py` | **Modify.** `strip_fixed_parameters`/`restore_fixed_parameters` definitions removed, replaced with a re-export import. No behavior change. |
 | `xpcsjax/config/parameter_manager.py` | **Modify.** Fix `active_parameters: []` truthiness bug; fix a misleading docstring example. |
-| `xpcsjax/optimization/nlsq/wrapper.py` | **Modify.** `NLSQWrapper.fit()` accepts a new optional `resolved_physical` parameter; strips once right before solver dispatch (with an `isinstance` guard on `x_scale_value`), restores once right after. |
+| `xpcsjax/optimization/nlsq/wrapper.py` | **Modify.** `NLSQWrapper.fit()` accepts a new optional `resolved_physical` parameter; strips once right before solver dispatch on the plain tail (with an `isinstance` guard on `x_scale_value`), restores once right after; also threads `resolved_physical` into each of the 4 early-return branch call sites (out-of-core, sequential, stratified-LS, hybrid-streaming — Tasks 7c-7f). |
+| `xpcsjax/optimization/nlsq/strategies/out_of_core.py` | **Modify.** `fit_with_out_of_core_accumulation` accepts `resolved_physical`; strips before its internal solve, restores after (Task 7c). |
+| `xpcsjax/optimization/nlsq/strategies/stratified_ls.py` | **Modify.** `fit_with_stratified_least_squares` accepts `resolved_physical`; strips after its own scaling-mode transform resolves, wraps the single-array residual closure, restores after (Task 7e). |
+| `xpcsjax/optimization/nlsq/strategies/hybrid_streaming.py` | **Modify.** `fit_with_stratified_hybrid_streaming` accepts `resolved_physical`; same pattern as stratified-LS, plus covering the L2 `hierarchical_optimizer.fit(...)` branch if reachable (Task 7f). |
 | `xpcsjax/optimization/nlsq/adapter.py` | **Modify.** `NLSQAdapter.fit()` accepts the same new parameter; strips the compact vector before `curve_fit()`, restores the normalized `popt`/`pcov` locals after. |
 | `xpcsjax/optimization/nlsq/core.py` | **Modify.** `fit_nlsq_jax` computes the resolved-parameters descriptor and threads it into `adapter.fit()`/`wrapper.fit()`. `fit_nlsq_cmaes` strips/restores directly around its own `model_for_cmaes` closure and two solver-phase calls (dict access for warm-start, attribute access for the `CMAESResult`). |
 | `xpcsjax/config/heterodyne_parameter_space.py` | **Modify.** New standalone `_apply_fixed_parameters` step invoked last in `ParameterSpace.from_config()`; `_apply_tied_parameters` gains a fixed-child conflict check; `_apply_initial_parameters`'s early-return precondition loosened. |
@@ -532,7 +545,9 @@ from xpcsjax.optimization.nlsq.parameter_utils import (
 
 - [ ] **Step 3: Strip once, immediately before dispatch — with the `x_scale_value` string guard**
 
-Insert immediately after the `x_scale_value`/`param_labels` construction block (~line 2022) and before the dispatch call (~line 2155):
+**Round-4 CCG dual-model review correction (codex finding #2/#7, antigravity CONCERN #3, both independently confirmed live):** v4's insertion point (~line 2022, right after `x_scale_value`/`param_labels` construction) is **before** `wrapped_residual_fn` is ever assigned — it is only created at `wrapper.py:2078-2080` (`wrapped_residual_fn = residual_counter` or `= solver_residual_fn`). Referencing it at ~2022 is a real `NameError`/`UnboundLocalError`, not a style nit. Separately, `_build_homodyne_l4_callback(...)` is called at `wrapper.py:2143` with the **unwrapped** `solver_residual_fn` (set at ~1985-1993) and the **full-length** `validated_params`; its body (`wrapper.py:356`, `total = len(validated_params)`) branches on `total >= 2*n_phi + n_physical` to split per-angle vs. physical slots. If the strip ran before line 2143, `validated_params` would already be shortened while `solver_residual_fn` stays full-arity — the L4 monitor's internal loss reconstruction (`_loss(p)` → `solver_residual_fn(xdata, *p)`) would then be called with a stripped `p`, silently corrupting the L4 gradient-collapse diagnostic.
+
+**Fix: insert strip/restore right after `wrapped_residual_fn` is legitimately assigned (~line 2080), before the `_build_homodyne_l4_callback` call site (~line 2143) — and pass the wrapped function plus the free-physical count into `_build_homodyne_l4_callback` too, not just into the final dispatch call:**
 
 ```python
         _phys_free_mask = None
@@ -584,6 +599,8 @@ Insert immediately after the `x_scale_value`/`param_labels` construction block (
                 full_params = (*params[:n_prefix], *[full_physical[i] for i in range(n_physical)])
                 return _base_wrapped_residual_fn(xdata, *full_params)
 ```
+
+Then, at the `_build_homodyne_l4_callback(...)` call site (~line 2143), pass the (possibly re-wrapped) `wrapped_residual_fn` in place of `solver_residual_fn`, and pass `n_physical_free = int(_phys_free_mask.sum()) if _phys_free_mask is not None else n_physical` so the callback's internal `total >= 2*n_phi + n_physical` split uses the reduced count consistently with the now-shortened `validated_params` it also receives. Re-read `_build_homodyne_l4_callback`'s exact parameter list at Step 0 before wiring this through — do not assume its signature without a live check.
 
 - [ ] **Step 4: Restore once, immediately after dispatch returns**
 
@@ -1050,9 +1067,13 @@ Immediately after `model_for_cmaes` is defined (~line 2364):
             return _base_model_for_cmaes(xdata_unused, *full_params)
 ```
 
-- [ ] **Step 5: Restore only the final result, after phase 2 — `CMAESResult` uses attribute access, and after the COMPLETE skip/no-skip branch**
+- [ ] **Step 5: Restore only the final result, after Phase 3 selection fully resolves — `CMAESResult` uses attribute access, and after EVERY branch that can (re)construct `cmaes_result`**
 
-**Confirmed (round 3 Codex finding #5): CMA-ES can be auto-skipped** — when skipped, `core.py` (~line 2440-2470) constructs a `CMAESResult` **directly**, without ever calling `wrapper.fit(...)`. Placing the restore only immediately after `wrapper.fit(...)` misses this branch entirely, leaving a reduced-length result whenever CMA-ES auto-skips. Re-read `core.py:2430-2490` at Step 0 to find the exact point after **both** branches (`if <skip condition>: cmaes_result = CMAESResult(...)` / `else: cmaes_result = wrapper.fit(...)`) have converged back to a single `cmaes_result` variable, and insert the restore there — not immediately after the `wrapper.fit(...)` call site alone:
+**Confirmed (round 3 Codex finding #5): CMA-ES can be auto-skipped** — when skipped, `core.py` (~line 2440-2470) constructs a `CMAESResult` **directly**, without ever calling `wrapper.fit(...)`. Placing the restore only immediately after `wrapper.fit(...)` misses this branch entirely.
+
+**Round-4 CCG dual-model review correction (codex finding #6, antigravity NEEDS-FIX #1, independently confirmed by both models AND by live source re-check):** converging the skip/no-skip branches (~line 2489) is **not** the end of the story — there is a **Phase 3** result-selection step (`core.py:2503-2525`) that runs *after* that convergence point and can **replace** `cmaes_result` wholesale with `CMAESResult(parameters=nlsq_warmstart_params, covariance=nlsq_warmstart_cov, ...)` when the Phase-1 NLSQ warm-start's χ² beats Phase 2's CMA-ES result. `nlsq_warmstart_params` is the raw, still-*reduced*-length Phase-1 output. A restore placed right after line 2489 (v4's placement) runs *before* this replacement — so whenever the warm-start wins, the final `cmaes_result.parameters` ships reduced-length all the way to `final_params = np.asarray(cmaes_result.parameters)` (~line 2552), corrupting downstream constant-mode expansion.
+
+**Fix: move the restore to after line 2525 (after Phase 3's selection fully resolves to one final `cmaes_result`), before line 2552's `final_params` construction — not right after the skip/no-skip convergence at line 2489.** Re-confirm the exact line range live at Step 0 before writing the diff; this is the second time this insertion point has needed correcting, so re-verify rather than trusting this note alone.
 
 ```python
         if _cmaes_phys_free_mask is not None:
@@ -1104,11 +1125,11 @@ git commit -m "feat(optimization): honor fixed physical parameters in fit_nlsq_c
 
 - [ ] **Step 0: Re-verify before editing**
 
-Read `xpcsjax/optimization/nlsq/core.py:1330-1436` (`_SingleFitWorker`) live to confirm the current `__init__`/`__call__` shape and the recursive `fit_nlsq_jax(..., _skip_global_selection=True)` call site, before writing the diff.
+Read `xpcsjax/optimization/nlsq/core.py:1330-1436` (`_SingleFitWorker`) AND `core.py:1536-1610` (`fit_nlsq_multistart`'s `bounds_array`/custom-starts assembly and its `run_multistart_nlsq(...)` call) live to confirm the current shapes before writing the diff.
 
-- [ ] **Step 1: Narrow the worker's sampling to the free physical subset**
+**Round-4 CCG dual-model review correction (codex finding #7, confirmed live):** v4's Step 1 (worker-only narrowing) does **not** actually narrow LHS sampling. `_SingleFitWorker.__call__` (`core.py:1401`) does `params_dict = {name: float(start_params[i]) for i, name in enumerate(param_names)}` against the **full** `_get_param_names(analysis_mode)` list, and `fit_nlsq_multistart` (`core.py:1544-1545,1590-1608`) builds `bounds_array`/`custom_starts` from the **full** `lower_bounds`/`upper_bounds`/`param_names` — nothing upstream of the worker ever produces a free-length vector. Narrowing only the worker's *interpretation* of `start_params` is a no-op at best (the worker still receives a full-length vector and zips it against the full name list, so there's nothing free-length to interpret) or a length-mismatch crash at worst if the worker is changed to expect a shorter vector that never arrives.
 
-Modify `_SingleFitWorker.__call__` so the sampled `start_params` array (currently zipped against the full `_get_param_names(self.analysis_mode)` list) is instead interpreted against the *free* subset: reconstruct a `ParameterManager` from `self.config_dict`/`self.analysis_mode` (mirroring the reconstruction the worker already does for `ConfigManager`), call `resolve_optimized_physical_parameters` to get `free_mask`/`values_full`, accept only the free-position entries from `start_params`, and fill fixed positions from `values_full` before constructing `params_dict` — mirroring Task 5, Step 1's pattern locally within the worker. This is defense-in-depth on top of the recursive call's own correctness, not a replacement for it.
+**Fix: narrow at the source.** In `fit_nlsq_multistart`, immediately after `resolve_optimized_physical_parameters` gives a `free_mask` (reuse Task 5's resolved-descriptor construction, or compute it locally the same way), reduce `bounds_array` and any user-supplied custom start vectors to the free physical subset **before** LHS generation/screening and before they're passed to `run_multistart_nlsq(...)`. Then narrow `_SingleFitWorker.__call__` to receive and interpret that already-free-length `start_params` — reconstruct a `ParameterManager`/`resolve_optimized_physical_parameters` inside the worker (mirroring the reconstruction it already does for `ConfigManager`) to get `values_full`, accept only the free-position entries from `start_params`, and fill fixed positions from `values_full` before constructing `params_dict`. Both ends (the narrowing at `fit_nlsq_multistart` and the worker's free-length interpretation) must change together — narrowing only one side either does nothing or crashes.
 
 - [ ] **Step 2: Write the proof test**
 
@@ -1136,6 +1157,256 @@ Expected: PASS.
 uv run ruff check xpcsjax/optimization/nlsq/core.py
 git add xpcsjax/optimization/nlsq/core.py tests/optimization/test_fixed_parameters_integration.py
 git commit -m "feat(optimization): narrow _SingleFitWorker sampling to free physical subset for fixed_parameters"
+```
+
+---
+
+### Task 7c: Wire strip/restore into the out-of-core tier
+
+**Added in round 4 (CCG dual-model review) — closes the tier-coverage gap; see Global Constraints correction above.**
+
+**Files:**
+- Modify: `xpcsjax/optimization/nlsq/wrapper.py` — two call sites (`~961`, `~1266`) into `self._fit_with_out_of_core_accumulation` (a thin pass-through, `wrapper.py:4194-4219`, into `strategies/out_of_core.py::fit_with_out_of_core_accumulation`, def at line 60).
+
+**Interfaces:**
+- Consumes: `ResolvedPhysicalParameters`, `strip_by_mask`, `restore_by_mask_jax`, `restore_by_mask_numpy` (Task 1).
+
+**Confirmed via round-4 research fork:** out-of-core is the simplest of the 4 missing tiers — its own docstring states it uses the full homodyne physics via `compute_g2_scaled()`, identical to stratified least-squares, and has no internal scaling-mode reparameterization to compose with. `initial_params`/`bounds` pass straight through to the chunk-accumulated J^T·J solve with no vector transformation. Two call sites exist because out-of-core is reachable from two branch points in `wrapper.py` (`~961` and `~1266`) — both need the same treatment.
+
+- [ ] **Step 0: Re-verify before editing**
+
+Read `xpcsjax/optimization/nlsq/wrapper.py` lines 942-1039 and 1232-1340 (both out-of-core branch points) and `xpcsjax/optimization/nlsq/strategies/out_of_core.py` lines 60-200+ (the research fork stopped before locating the exact internal residual/Jacobian closure — find it now) live before editing. Confirm the exact closure `fit_with_out_of_core_accumulation` builds internally and its calling convention (expected `f(xdata, *params)` by analogy with the plain tail, but re-verify — do not assume).
+
+- [ ] **Step 1: Thread `resolved_physical` through both call sites**
+
+Add `resolved_physical: "ResolvedPhysicalParameters | None" = None` to `fit_with_out_of_core_accumulation`'s signature and to `self._fit_with_out_of_core_accumulation`'s pass-through (`wrapper.py:4194-4219`).
+
+- [ ] **Step 2: Strip before dispatch, restore after — same pattern as Task 3**
+
+At each of the two call sites (`~961`, `~1266`), strip the trailing physical slice from `initial_params`/`bounds` immediately before the call (identical arithmetic to Task 3 Step 3, minus the `x_scale_value`/`param_labels` handling, which doesn't apply here), wrap the internal residual/Jacobian closure found in Step 0 with `restore_by_mask_jax` (matching whatever calling convention Step 0 confirmed), and restore `popt`/`pcov` immediately after each call returns, before the `OptimizationResult(...)` construction at `~1019`/`~1323`.
+
+- [ ] **Step 3: Write the proof test**
+
+Append to `tests/optimization/test_fixed_parameters_integration.py`:
+
+```python
+def test_fixed_parameter_survives_out_of_core_fit():
+    data = _synthetic_data("laminar_flow")
+    config = _config(
+        "laminar_flow", fixed_parameters={"D_offset": 37.5},
+        extra_top={"optimization": {"nlsq": {"memory": {"force_strategy": "out_of_core"}}}},
+    )
+    # Adjust the extra_top key at Step 0 to whatever config actually forces the
+    # out-of-core branch (grep select_nlsq_strategy / memory.py for the exact
+    # config-driven override -- do not guess the key name here).
+    cm = ConfigManager(config_override=config)
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+    names = ["contrast", "offset", *TRUE_PHYSICAL_LAMINAR.keys()]
+    params = np.asarray(result.parameters).ravel()
+    assert abs(params[names.index("D_offset")] - 37.5) < 1e-9
+```
+
+- [ ] **Step 4: Run the test and the out-of-core regression suite**
+
+Run: `uv run pytest tests/optimization/test_fixed_parameters_integration.py::test_fixed_parameter_survives_out_of_core_fit tests/optimization/test_out_of_core_dof.py -v`
+
+- [ ] **Step 5: Lint and commit**
+
+```bash
+uv run ruff check xpcsjax/optimization/nlsq/wrapper.py xpcsjax/optimization/nlsq/strategies/out_of_core.py
+git add xpcsjax/optimization/nlsq/wrapper.py xpcsjax/optimization/nlsq/strategies/out_of_core.py tests/optimization/test_fixed_parameters_integration.py
+git commit -m "feat(optimization): honor fixed physical parameters in out-of-core NLSQ tier"
+```
+
+---
+
+### Task 7d: Wire fixed-parameter bounds narrowing into the sequential-delegation tier
+
+**Added in round 4 (CCG dual-model review) — closes the tier-coverage gap; near-zero new code, reuses an existing tested mechanism.**
+
+**Files:**
+- Modify: `xpcsjax/optimization/nlsq/wrapper.py` — one call site (`~1059`) into `_run_sequential_optimization` (`wrapper.py:3108`) → `strategies/sequential.py::optimize_per_angle_sequential` (line 882).
+
+**No changes inside `sequential.py` itself.** `sequential.py:976` already calls its own `strip_fixed_parameters(p, lo, hi)` (bounds-equality-derived mask, relocated unchanged into `parameter_utils.py` by Task 1) before its internal `curve_fit`, and `sequential.py:999/1014` already calls `restore_fixed_parameters(...)` afterward. This is existing, tested behavior for sequential's own per-angle bounds (Global Constraints, spec grilling round 1 Q3) — this task does **not** touch it. It only needs to make degenerate bounds arrive at that existing mechanism when `resolved_physical` says a physical position is fixed.
+
+**Why this doesn't hit the equal-bounds problem the rest of this plan avoids:** the plain/adapter dispatch paths avoid equal bounds because upstream `nlsq.curve_fit()` hard-rejects degenerate bounds directly (the falsified spike at this plan's origin). Sequential is different — it strips degenerate bounds out with its own `strip_fixed_parameters` **before** ever calling its own internal `curve_fit`, so `nlsq.curve_fit()` never sees the degenerate pair. No conflict.
+
+- [ ] **Step 0: Re-verify before editing**
+
+Read `xpcsjax/optimization/nlsq/wrapper.py` lines 1057-1072 (the delegation call site) and `strategies/sequential.py` lines 960-1020 (the existing strip/restore call sites) live before editing, to confirm `_run_sequential_optimization`'s exact `bounds` parameter shape and that it is passed straight through to `optimize_per_angle_sequential` unmodified.
+
+- [ ] **Step 1: Narrow bounds to equal at fixed physical positions before the delegation call**
+
+Immediately before `wrapper.py:1059`'s `return self._run_sequential_optimization(...)` (or before whichever local variable it passes as `bounds`):
+
+```python
+        if resolved_physical is not None and not resolved_physical.free_mask.all():
+            n_physical = len(resolved_physical.physical_names)
+            seq_lower = np.array(nlsq_bounds[0], dtype=np.float64)
+            seq_upper = np.array(nlsq_bounds[1], dtype=np.float64)
+            for i, free in enumerate(resolved_physical.free_mask):
+                if not free:
+                    fixed_val = resolved_physical.values_full[i]
+                    seq_lower[-n_physical + i] = fixed_val
+                    seq_upper[-n_physical + i] = fixed_val
+            nlsq_bounds = (seq_lower, seq_upper)
+```
+
+Leave `initial_params`/`validated_params` untouched — sequential's `strip_fixed_parameters` only reads `lower < upper`, never the initial-value array (re-verify this claim live at Step 0 against the actual current `strip_fixed_parameters` body before relying on it).
+
+- [ ] **Step 2: Write the proof test**
+
+Append to `tests/optimization/test_fixed_parameters_integration.py`:
+
+```python
+def test_fixed_parameter_survives_sequential_fit():
+    data = _synthetic_data("laminar_flow")
+    config = _config(
+        "laminar_flow", fixed_parameters={"D_offset": 37.5},
+        extra_top={"optimization": {"nlsq": {"per_angle_mode": "individual", "sequential": {"enable": True}}}},
+    )
+    # Adjust extra_top at Step 0 to whatever config actually routes into
+    # _run_sequential_optimization -- do not guess the key name here.
+    cm = ConfigManager(config_override=config)
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+    names = ["contrast", "offset", *TRUE_PHYSICAL_LAMINAR.keys()]
+    params = np.asarray(result.parameters).ravel()
+    assert abs(params[names.index("D_offset")] - 37.5) < 1e-9
+```
+
+- [ ] **Step 3: Run the test and the sequential regression suite**
+
+Run: `uv run pytest tests/optimization/test_fixed_parameters_integration.py::test_fixed_parameter_survives_sequential_fit tests/optimization/test_sequential_jacobian.py -v`
+
+- [ ] **Step 4: Lint and commit**
+
+```bash
+uv run ruff check xpcsjax/optimization/nlsq/wrapper.py
+git add xpcsjax/optimization/nlsq/wrapper.py tests/optimization/test_fixed_parameters_integration.py
+git commit -m "feat(optimization): honor fixed physical parameters in sequential NLSQ tier via bounds narrowing"
+```
+
+---
+
+### Task 7e: Wire strip/restore into the stratified-LS tier
+
+**Added in round 4 (CCG dual-model review) — closes the tier-coverage gap. Materially harder than Tasks 7c/7d — budget extra Step 0 time.**
+
+**Files:**
+- Modify: `xpcsjax/optimization/nlsq/wrapper.py` — call site `~1564-1577` into `strategies/stratified_ls.py::fit_with_stratified_least_squares` (def at line 149).
+
+**Interfaces:**
+- Consumes: `ResolvedPhysicalParameters`, `strip_by_mask`, `restore_by_mask_jax`/`restore_by_mask_numpy` (Task 1). Needs a **single-array** closure wrapper variant, not Task 3's `f(xdata, *params)` shape.
+
+**Confirmed via round-4 research fork:** `fit_with_stratified_least_squares` runs its own internal anti-degeneracy-driven scaling-mode reparameterization (lines 224-265: `AntiDegeneracyController` selects `use_fixed_scaling`/`use_averaged_scaling` when `per_angle_scaling` + `laminar_flow`) **before** `StratifiedResidualFunctionJIT(...)` is constructed (line 427) and `ls.least_squares(...)` is called (line 572). `StratifiedResidualFunctionJIT.__call__(self, params) -> jnp.ndarray` (`strategies/residual_jit.py:567`) takes **one array**, not `f(xdata, *params)`. The physical-fixed-parameter strip must compose with whatever vector layout the scaling transform already produced — it cannot be Task 3's closure verbatim.
+
+**This task's exact insertion points were not fully traced by the round-4 research pass** (it stopped at the solver-call line for time). Step 0 below is not optional boilerplate here — it is where the real design work for this task happens.
+
+- [ ] **Step 0: Finish tracing before editing (required, not a formality for this task)**
+
+Read `xpcsjax/optimization/nlsq/strategies/stratified_ls.py` lines 149-580 in full: (a) find the exact line where the scaling-mode transform's output vector reaches its final pre-residual shape/layout (somewhere after ~line 300 — confirm exactly), (b) confirm `resolved_physical` is threaded into `fit_with_stratified_least_squares`'s signature (line 149-159) and into `wrapper.py`'s pass-through call (`~4167-4192`), (c) find the exact restore point after `result = ls.least_squares(**_ls_kwargs)` (line 572) and confirm what expansion/covariance code (if any) follows it that a restore must run before.
+
+- [ ] **Step 1: Thread `resolved_physical`, strip after the scaling-mode transform resolves, before `StratifiedResidualFunctionJIT(...)` is constructed**
+
+Using Step 0's exact line numbers: strip the trailing physical slice from whatever vector `StratifiedResidualFunctionJIT(...)` will be built against, at the point identified in Step 0(a). Do this **after** the scaling-mode transform, not before — stripping before would strip the wrong (pre-transform) layout.
+
+- [ ] **Step 2: Wrap the residual with a single-array restore**
+
+```python
+        if _phys_free_mask is not None:
+            _base_stratified_residual = <whatever the pre-strip callable/params were>
+
+            def _reduced_residual(free_params):
+                params_array = restore_by_mask_jax(free_params[-int(_phys_free_mask.sum()):], _fixed_physical_full, _phys_free_mask)
+                # Reconstruct the full-length vector in whatever layout Step 0
+                # confirmed, then feed it to the ORIGINAL (pre-strip) residual
+                # construction -- do not assume this is a simple concat; the
+                # scaling-mode transform may have already changed the layout.
+                ...
+```
+
+(This snippet is deliberately incomplete — Step 0's findings determine the exact reconstruction shape. Do not fill this in without Step 0's live re-read.)
+
+- [ ] **Step 3: Restore after `ls.least_squares(...)` returns, before Step 0(c)'s identified expansion code**
+
+- [ ] **Step 4: Write the proof test**
+
+Append to `tests/optimization/test_fixed_parameters_integration.py`:
+
+```python
+def test_fixed_parameter_survives_stratified_ls_fit():
+    data = _synthetic_data("laminar_flow", n_t=200, n_phi=8)  # sized to force the stratified-LS >=1M-point branch; adjust at Step 0
+    config = _config("laminar_flow", fixed_parameters={"D_offset": 37.5})
+    cm = ConfigManager(config_override=config)
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+    names = ["contrast", "offset", *TRUE_PHYSICAL_LAMINAR.keys()]
+    params = np.asarray(result.parameters).ravel()
+    assert abs(params[names.index("D_offset")] - 37.5) < 1e-9
+```
+
+- [ ] **Step 5: Run the test and the stratified-LS regression suite**
+
+Run: `uv run pytest tests/optimization/test_fixed_parameters_integration.py::test_fixed_parameter_survives_stratified_ls_fit tests/optimization/test_stratified_ls_averaged_covariance_transform.py -v`
+
+- [ ] **Step 6: Lint and commit**
+
+```bash
+uv run ruff check xpcsjax/optimization/nlsq/wrapper.py xpcsjax/optimization/nlsq/strategies/stratified_ls.py
+git add xpcsjax/optimization/nlsq/wrapper.py xpcsjax/optimization/nlsq/strategies/stratified_ls.py tests/optimization/test_fixed_parameters_integration.py
+git commit -m "feat(optimization): honor fixed physical parameters in stratified-LS NLSQ tier"
+```
+
+---
+
+### Task 7f: Wire strip/restore into the hybrid-streaming tier
+
+**Added in round 4 (CCG dual-model review) — closes the tier-coverage gap. Same complexity class as Task 7e — budget extra Step 0 time.**
+
+**Files:**
+- Modify: `xpcsjax/optimization/nlsq/wrapper.py` — call site `~1439-1550` into `strategies/hybrid_streaming.py::fit_with_stratified_hybrid_streaming` (def at line 387).
+
+**Interfaces:**
+- Consumes: same as Task 7e.
+
+**Confirmed via round-4 research fork:** same shape of problem as Task 7e — `fit_with_stratified_hybrid_streaming` runs its own scaling-mode resolution (`use_averaged_scaling`/`use_fixed_scaling`, computed ~lines 603/659-734, consumed ~815-970/1139-1365) before dispatching to `AdaptiveHybridStreamingOptimizer.fit(...)` (line 1656 — **not** the different `optimizer.fit(...)` at line 264, which belongs to a separate function in this file; do not conflate the two). There is also a `hierarchical_optimizer.fit(...)` call at line 1582 (an L2 branch) that needs the same wrapping if L2 is active on this tier — do not skip it because it looks like a secondary path.
+
+**Not fully traced by the round-4 research pass** — same caveat as Task 7e.
+
+- [ ] **Step 0: Finish tracing before editing (required, not a formality for this task)**
+
+Read `xpcsjax/optimization/nlsq/strategies/hybrid_streaming.py` lines 387-1656 in full (yes, the whole span — this function is large): (a) confirm the scaling-mode resolution's exact output layout at the point strip must apply after, (b) confirm `resolved_physical` threading into this function's signature and `wrapper.py:4221-4241`'s pass-through, (c) confirm whether the L2 branch (`hierarchical_optimizer.fit(...)`, line 1582) is reachable under the configs this plan's tests will exercise, and if so what its own closure calling convention is (likely also single-array, but re-verify — do not assume it matches the non-L2 branch), (d) find the restore point(s) after both the L2 and non-L2 branches converge, before any downstream expansion code.
+
+- [ ] **Step 1-3: Strip/wrap/restore, mirroring Task 7e's structure**
+
+Apply the same strip-after-scaling-transform / single-array-closure-wrap / restore-after-solve pattern as Task 7e Steps 1-3, using this task's own Step 0 findings for the exact insertion lines. If the L2 branch is reachable, it needs its own wrap around `hierarchical_optimizer.fit(...)`'s closure — do not assume restoring only the non-L2 branch's result is sufficient (mirrors this plan's Task 6 Step 5 correction: every branch that can produce the final result needs its own restore coverage, not just the "main" one).
+
+- [ ] **Step 4: Write the proof test**
+
+Append to `tests/optimization/test_fixed_parameters_integration.py`:
+
+```python
+def test_fixed_parameter_survives_hybrid_streaming_fit():
+    data = _synthetic_data("laminar_flow", n_t=200, n_phi=8)  # sized to force hybrid-streaming; adjust at Step 0
+    config = _config("laminar_flow", fixed_parameters={"D_offset": 37.5})
+    cm = ConfigManager(config_override=config)
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+    names = ["contrast", "offset", *TRUE_PHYSICAL_LAMINAR.keys()]
+    params = np.asarray(result.parameters).ravel()
+    assert abs(params[names.index("D_offset")] - 37.5) < 1e-9
+```
+
+If Step 0(c) finds the L2 branch is reachable under this config, add a second parametrization/test forcing it explicitly (e.g. `per_angle_mode: individual`) rather than leaving it untested.
+
+- [ ] **Step 5: Run the test and the hybrid-streaming regression suite**
+
+Run: `uv run pytest tests/optimization/test_fixed_parameters_integration.py::test_fixed_parameter_survives_hybrid_streaming_fit tests/optimization/test_hybrid_streaming_auto_tune_lambda.py tests/optimization/test_hybrid_streaming_constant_quantile_fallback.py tests/optimization/test_hybrid_streaming_retry.py -v`
+
+- [ ] **Step 6: Lint and commit**
+
+```bash
+uv run ruff check xpcsjax/optimization/nlsq/wrapper.py xpcsjax/optimization/nlsq/strategies/hybrid_streaming.py
+git add xpcsjax/optimization/nlsq/wrapper.py xpcsjax/optimization/nlsq/strategies/hybrid_streaming.py tests/optimization/test_fixed_parameters_integration.py
+git commit -m "feat(optimization): honor fixed physical parameters in hybrid-streaming NLSQ tier"
 ```
 
 ---
@@ -1348,7 +1619,9 @@ Read `xpcsjax/config/heterodyne_parameter_space.py:341-470` (call sequence) and 
 
 Run: `uv run pytest tests/config/test_heterodyne_fixed_parameters.py::test_fixed_wins_over_LATER_parameter_space_bounds_overlay -v`
 
-- [ ] **Step 3: Write the tied-child-fixed conflict test**
+- [ ] **Step 3: Write the tied-child-fixed AND tied-parent-fixed conflict tests**
+
+**Round-4 CCG dual-model review correction (antigravity NEEDS-FIX #2, independently confirmed live):** Task 9 Step 1 moves `_apply_fixed_parameters` to run **after** `_apply_tied_parameters` in `from_config`'s call sequence. At the moment `_apply_tied_parameters` runs, a parameter named in `fixed_parameters` is **not yet fixed** — `space.vary[parent]` is still whatever the earlier overlays left it (typically `True`). The *existing* guard at `heterodyne_parameter_space.py:670` (`if not space.vary.get(parent, False): raise ValueError(...)`) reads `space.vary`, not the raw config — so it silently passes when `parent` is only fixed via `fixed_parameters` (not yet applied). `_apply_fixed_parameters` then runs afterward and freezes `parent` out from under the already-validated tie, leaving `child` tied to a non-varying dimension — residual evaluation desyncs. The **child**-in-`fixed_parameters` check (originally Step 5 below) does not cover this — it only catches `child` itself being fixed, not `parent`. Both directions need a check against the **raw config dict**, not `space.vary`, since `space.vary` is not yet a reliable signal in the new call order.
 
 Append to `tests/config/test_heterodyne_fixed_parameters.py`:
 
@@ -1360,13 +1633,26 @@ def test_tied_child_also_fixed_raises():
     }
     with pytest.raises(ValueError, match="tied_parameters.*D0_ref.*fixed_parameters"):
         ParameterManager.from_config(config)
+
+
+def test_tied_parent_also_fixed_raises():
+    """The parent-side mirror of the child check -- antigravity round-4 finding.
+    space.vary is not a reliable signal here because _apply_fixed_parameters
+    hasn't run yet when _apply_tied_parameters validates; must read the raw
+    fixed_parameters config dict directly."""
+    config = {
+        "analysis_mode": "two_component",
+        "initial_parameters": {"tied_parameters": {"D0_sample": "D0_ref"}, "fixed_parameters": {"D0_ref": 5.0}},
+    }
+    with pytest.raises(ValueError, match="tied_parameters.*D0_ref.*fixed_parameters"):
+        ParameterManager.from_config(config)
 ```
 
-- [ ] **Step 4: Run test to verify it fails**
+- [ ] **Step 4: Run tests to verify they fail**
 
-Run: `uv run pytest tests/config/test_heterodyne_fixed_parameters.py::test_tied_child_also_fixed_raises -v`
+Run: `uv run pytest tests/config/test_heterodyne_fixed_parameters.py::test_tied_child_also_fixed_raises tests/config/test_heterodyne_fixed_parameters.py::test_tied_parent_also_fixed_raises -v`
 
-- [ ] **Step 5: Add the conflict check to `_apply_tied_parameters`**
+- [ ] **Step 5: Add both conflict checks to `_apply_tied_parameters`**
 
 Confirmed exact validation order and message style:
 
@@ -1378,7 +1664,7 @@ if parent in children: raise ValueError(f"tied_parameters: '{parent}' is itself 
 if not space.vary.get(parent, False): raise ValueError(f"tied_parameters: parent '{parent}' is not varying (fixed via active_parameters or vary: false) -- tying '{child}' to a fixed parent is not supported; fix '{child}' directly instead via active_parameters.")
 ```
 
-Add, immediately after the `parent in children` check, inside the same per-pair validation loop — reads the **raw config dict** directly:
+Add, immediately after the `parent in children` check, inside the same per-pair validation loop — reads the **raw config dict** directly (both directions; `space.vary` is not yet trustworthy for `fixed_parameters` in this call order):
 
 ```python
         fixed_raw = initial.get("fixed_parameters")
@@ -1395,6 +1681,15 @@ Add, immediately after the `parent in children` check, inside the same per-pair 
                 f"residual evaluation; fixing it independently is a "
                 f"contradiction. Fix '{parent}' instead if you want both pinned."
             )
+        if parent in fixed_names:
+            raise ValueError(
+                f"tied_parameters: '{child}' is tied to '{parent}', which is "
+                "also listed in fixed_parameters -- fixed_parameters is "
+                "applied AFTER tied_parameters validation, so this would "
+                f"silently freeze '{parent}' out from under an "
+                f"already-validated tie. Tie '{child}' to a non-fixed "
+                f"parameter, or fix '{child}' directly instead."
+            )
 ```
 
 (Compute `fixed_raw`/`fixed_names` once before the per-pair loop begins.)
@@ -1402,7 +1697,7 @@ Add, immediately after the `parent in children` check, inside the same per-pair 
 - [ ] **Step 6: Run tests to verify they pass**
 
 Run: `uv run pytest tests/config/test_heterodyne_fixed_parameters.py -v`
-Expected: PASS, all 7.
+Expected: PASS, all 8 (7 from Task 8 + this task's two new tests, minus the one Task 8 already covered — recount live against the actual file).
 
 - [ ] **Step 7: Run the existing tied-parameters regression suite**
 
@@ -1474,7 +1769,7 @@ Run: `uv run pytest tests/config/test_heterodyne_fixed_parameters.py::test_zero_
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/config/test_heterodyne_fixed_parameters.py -v`
-Expected: PASS, all 9.
+Expected: PASS, all of them (recount live: 6 from Task 8 + 2 from Task 9 + 2 from this task).
 
 - [ ] **Step 5: Run the full heterodyne config regression suite**
 
@@ -1502,7 +1797,9 @@ git commit -m "feat(config): guard against zero varying parameters in heterodyne
 
 **Two round-3 corrections to the naive approach:**
 
-1. **The public `fit_nlsq()` dispatcher ignores `t1`/`t2`/`q`/`dt`/`sigma` in the data dict entirely.** Confirmed via source read: `xpcsjax/optimization/nlsq/__init__.py::_fit_nlsq_heterodyne` builds a **fresh** `HeterodyneModel.from_config(config.config)` from the config alone, and reads only `c2`/`c2_exp`, `phi`/`phi_angles[_list]`, and optional `weights` from the data dict (`__init__.py:727-776`). A hand-built minimal `initial_parameters` config would give this fresh model *different* geometry (`t`, `q`, `dt`) than the one `_make_synthetic_heterodyne()` used to generate `c2` — a physics mismatch, not a config typo. **Fix: build the test's config by loading the same `xpcsjax_two_component.yaml` template `_make_synthetic_heterodyne()` uses (find its exact loading mechanism at Step 0), and override only `initial_parameters.fixed_parameters` plus `parameter_names`/`values` on top of it — leave every geometry/`t`/`q`/`dt` section from the template untouched, so the fitted model and the model that generated `c2` are provably the same.**
+1. **The public `fit_nlsq()` dispatcher ignores `t1`/`t2`/`q`/`dt`/`sigma` in the data dict entirely.** Confirmed via source read: `xpcsjax/optimization/nlsq/__init__.py::_fit_nlsq_heterodyne` builds a **fresh** `HeterodyneModel.from_config(config.config)` from the config alone, and reads only `c2`/`c2_exp`, `phi`/`phi_angles[_list]`, and optional `weights` from the data dict (`__init__.py:698-836`). A hand-built minimal `initial_parameters` config would give this fresh model *different* geometry (`t`, `q`, `dt`) than the one `_make_synthetic_heterodyne()` used to generate `c2` — a physics mismatch, not a config typo. **Fix: build the test's config by loading the same `xpcsjax_two_component.yaml` template `_make_synthetic_heterodyne()` uses (find its exact loading mechanism at Step 0), and override only `initial_parameters.fixed_parameters` plus `parameter_names`/`values` on top of it — leave every geometry/`t`/`q`/`dt` section from the template untouched, so the fitted model and the model that generated `c2` are provably the same.**
+
+   **Round-4 CCG dual-model review follow-up (codex finding #8 raised a concern here; a dedicated research pass then REFUTED it — recorded for anyone who re-reads that finding in isolation):** codex round 4 flagged that `_make_synthetic_heterodyne()` builds `t = np.arange(1, n_t+1) * model.dt` while the dispatcher resyncs via `np.arange(n_data)` (no `dt` multiplier), and worried this meant the two axes differ even with the same template. A follow-up trace of `HeterodyneModel.sync_time_axis` (`xpcsjax/core/heterodyne_model_stateful.py:219-237`) found it is **length-only** — it reads `len(t)` (`line 228`) and trims/extends the model's *own existing* `_t` by count; the **values** of the array passed to it are never read. Since both the test helper and the dispatcher build their base `HeterodyneModel` from the *same* template (same `analyzer_parameters.dt/start_frame/end_frame` → identical default pre-sync axis) and then resync to the same length (`n_t == c2.shape[-1]`), the resulting `model.t` is byte-identical on both sides regardless of what values were passed to `sync_time_axis` — the concern does not materialize as long as both sides load the same template. **The "load same template" fix already in this task is therefore correct as written; no further change needed.** Add one short comment in the test noting the invariant this relies on: *the synthetic-data generator and the fit call must use the exact same `analyzer_parameters.dt/start_frame/end_frame` (or `temporal.dt/time_length/t_start`) — if a future edit changes those between generation and fit, the length-only trim will silently diverge again.*
 2. **`result.parameters` is not a full 14-name `ALL_PARAM_NAMES`-ordered vector.** The heterodyne solver returns a *reduced* varying-parameter vector whose layout depends on the per-angle mode; production code explicitly expands it via `expand_varying_to_full` before it means anything positionally (`heterodyne_core.py:4719`). **Fix: read `result.nlsq_diagnostics.get("parameter_names")` (the same mechanism `cli/optimization_runner.py::_warn_nlsq_bound_saturation` already uses to interpret `result.parameters` positionally) to build the name→index map, instead of assuming `ALL_PARAM_NAMES` order — confirm this key/shape is still correct at Step 0.**
 
 - [ ] **Step 0: Re-verify before editing**
@@ -1577,9 +1874,15 @@ def test_heterodyne_fixed_scaling_parameter_survives_real_fit():
 
 `_TWO_COMPONENT_TEMPLATE_PATH` and `_heterodyne_config`'s exact loading body must be filled in from Step 0's live read of how `_make_synthetic_heterodyne()` itself loads the template — do not guess a path or a `ConfigManager` call shape here; copy the helper's own mechanism exactly so the two configs are provably identical apart from the `fixed_parameters` override.
 
-- [ ] **Step 2b: Best-effort fixed-parameter coverage for the inherited strategy tiers**
+- [ ] **Step 2b: Confirm per-tier coverage now has a real mechanism, not best-effort documentation**
 
-The spec calls for an explicit fixed-parameter-survives assertion per strategy tier (hybrid-streaming, stratified-LS, sequential, out-of-core), not just the regression-suite runs Tasks 3/9 already do. Forcing these size-based branches requires either a large enough synthetic dataset or a config-level threshold override (e.g. `optimization.stratification.target_chunk_size` set very low) — read `xpcsjax/optimization/nlsq/memory.py`/`select_nlsq_strategy` live to find the smallest reliable way to force each branch with a tiny dataset, and add one `fixed_parameters`-set test per reachable tier following the same `_fixed_value_survives`-style assertion pattern above. If a tier's branch genuinely cannot be forced without a multi-GB dataset, document that explicitly in this task rather than silently skipping it — do not claim coverage the tests don't have.
+**Round-4 CCG dual-model review correction (codex finding #11):** v4's "best-effort... document rather than silently skip" language for hybrid-streaming/stratified-LS/sequential/out-of-core no longer describes this plan — Tasks 7c (out-of-core), 7d (sequential), 7e (stratified-LS), 7f (hybrid-streaming) now each carry their own real strip/restore mechanism AND their own dedicated `test_fixed_parameter_survives_<tier>_fit` proof test. This step is a **confirmation pass**, not new coverage work: run the full set of per-tier tests together and confirm none regress each other (they share the same `_synthetic_data`/`_config` helpers with different `extra_top`/size overrides):
+
+```bash
+uv run pytest tests/optimization/test_fixed_parameters_integration.py -k "survives" -v
+```
+
+If any per-tier test from Tasks 7c-7f is still failing or was left as a documented gap by its own task (e.g. a branch that genuinely cannot be forced without a multi-GB dataset), that must be visible here, not silently absent — list it explicitly in this step's own commit message rather than letting it disappear.
 
 - [ ] **Step 3: Run the tests**
 
