@@ -1,8 +1,68 @@
 # NLSQ `fixed_parameters` / `active_parameters` correctness fix
 
-Status: approved (design), pending implementation plan
-Date: 2026-08-21
+Status: revised after Codex review, pending implementation plan
+Date: 2026-08-21 (design approved); revised 2026-08-21 (Codex review)
 Scope: `static_anisotropic`, `static_isotropic`, `laminar_flow` (homodyne), `two_component` (heterodyne)
+
+## Revision note (Codex review)
+
+The first version of this spec was reviewed via `codex exec` against the
+actual current source (not just re-read by the author). 15 claims were
+checked; 9 came back `CONFIRMED`, 1 `REFUTED` (a call-site detail), and 5
+`NEEDS-FIX` — three of them structural, not cosmetic. The **Design** section
+below is rewritten to incorporate every confirmed finding. Two changes are
+significant enough to flag explicitly:
+
+1. **The reduction boundary moves.** The original design planned to mask
+   x0/bounds once in `core.py` and hand a shorter vector to
+   `NLSQAdapter`/`NLSQWrapper`. Codex found both `adapter.py` and
+   `wrapper.py` build their solver-facing model function around a
+   **per-angle-expanded** vector (`[contrast_0..N, offset_0..N,
+   *physical]`), constructed *after* the model function itself and
+   *between* it and the actual `curve_fit()` call — a compact 5/9-length
+   masked vector from `core.py` would never reach the solver as-is. The
+   strip/restore step has to live inside `adapter.py`/`wrapper.py`,
+   applied to the trailing physical-parameter slice of whichever vector
+   (compact or expanded) each file actually sends to its own solver call.
+   `core.py`'s job shrinks to: resolve *which* physical parameters are free
+   vs. fixed and their values, and pass that descriptor down — not to mask
+   arrays itself.
+2. **Scope narrows to physical parameters only.** `ParameterManager.get_optimizable_parameters()`
+   is physics-only by contract (excludes contrast/offset); `core.py`'s
+   compact vectors always start with `[contrast, offset, ...]`. A naive
+   name-membership mask over the full vector would silently freeze both
+   scaling parameters on every single fit. Rather than teach the resolver a
+   separate scaling-parameter policy (which then has to reason about
+   per-angle-expanded contrast/offset — ambiguous, and no template example
+   ever fixes a scaling parameter this way), `fixed_parameters` /
+   `active_parameters` are scoped to **physical parameters only** for this
+   plan. This is a controlled scope cut, not a compromise: every real
+   `fixed_parameters` example across all four templates targets a physical
+   parameter (`D_offset`, `beta`, `gamma_dot_t_offset`, `v_beta`,
+   `v_offset`, `f1`/`f2`/`f3`); contrast/offset already has its own
+   dedicated control surface (`per_angle_scaling` initial values + the
+   `constant`/individual per-angle-mode machinery).
+
+The rest of this section records what Codex confirmed, refuted, or flagged;
+skip to **Design** for the corrected plan.
+
+| # | Claim | Verdict | Disposition |
+|---|---|---|---|
+| 1 | All 3 `core.py` entry points call `_get_param_names` for bounds | REFUTED | Corrected below — `fit_nlsq_multistart`/`fit_nlsq_cmaes` call `get_parameter_bounds()` with no name filter (`core.py:1539`, `:1771`); only `fit_nlsq_jax` calls `_get_param_names` directly (`core.py:453`). Net effect (full vector, fixed-unaware) is unchanged; call-site description corrected. |
+| 2 | `_load_initial_params_from_config` bypasses `ConfigManager.get_initial_parameters()` | CONFIRMED | No change. |
+| 3 | Mask can come straight from `get_optimizable_parameters()` | NEEDS-FIX | Physics-only API vs. scaling-prefixed vectors — see scope narrowing above. |
+| 4 | — (new finding) `active_parameters: []` isn't treated as "fix everything" in homodyne (`parameter_manager.py:515`, truthiness check, not `is not None`) | NEEDS-FIX | In scope now — fixed alongside `active_parameters`, see Components §5. |
+| 5 | `strip_fixed_parameters`/`restore_fixed_parameters` exist with described signatures | CONFIRMED | No change. |
+| 6 | "Sequential already does this correctly" (end-to-end) | NEEDS-FIX | Overclaim — sequential only strips *already-degenerate* bounds; it doesn't consume `fixed_parameters` itself. Also: sequential's all-fixed case returns zero-length covariance rather than raising (`sequential.py:550-564`) — this plan adopts that convention instead of a new `ValueError`, see Error handling. |
+| 7 | `adapter.py`/`wrapper.py` each have a model-building seam | CONFIRMED | `adapter.py::_build_model_function` (`:861`); `wrapper.py::_create_residual_function` (`:3834`). |
+| 8 | Model closure can be wrapped once in `core.py` | NEEDS-FIX | See "reduction boundary moves" above. Verified directly: `wrapper.py` builds `residual_fn` at Step 6 (`:1809`) *before* expanding compact→per-angle at Step 6.6 (`:1821`); `adapter.py`'s `model_func` (`:968`) checks `n_params >= n_physical + 2*n_phi`, so `adapter.fit()` (`:1256`) must expand `x0` between `_build_model_function` (`:1342`) and `curve_fit()` (`:1393`) too. |
+| 9 | Masking `fit_nlsq_multistart`'s vectors is a drop-in change | NEEDS-FIX | `_SingleFitWorker` (`core.py:1399-1409`) zips sampled starts against the *full* `_get_param_names` list and recurses into `fit_nlsq_jax` itself. Since that recursive call re-applies fixed_parameters internally once `fit_nlsq_jax` is fixed, correctness isn't blocked — but the worker's own LHS-sampling scope and zip need updating to the free physical subset, see Components §2. |
+| 10 | Heterodyne `active_parameters` "correctly wired" | CONFIRMED, caveat | `_apply_initial_parameters` only runs its active/fixed logic when *both* flat `parameter_names` and `values` are present (`heterodyne_parameter_space.py:504-513`) — true of every template (they're always sibling keys), but worth loosening; see Components §4. |
+| 11 | Heterodyne fix only needs `space.vary[name] = False` | NEEDS-FIX | `expand_varying_to_full` fills fixed positions from `space.values` (`heterodyne_parameter_manager.py:259`), not from a separate override — the fix must also write `space.values[canonical] = value`. |
+| 12 | Tied-child-fixed conflict rule "already mirrors" the tied-vs-active rule | NEEDS-FIX | Overclaim — `_apply_tied_parameters` only checks *active*-vs-tied conflicts (`heterodyne_parameter_space.py:635-648`) and only rejects a tied child when its *parent* is non-varying (`:670-675`). A fixed-child check is genuinely new code, same file, same validation pass, same style. |
+| 13 | Zero callers of `get_optimizable_parameters()`/`get_fixed_parameters()`/`is_parameter_active()` under `xpcsjax/optimization/` | CONFIRMED | No change. |
+| 14 | `parameter_utils.py` exists, no naming collision | CONFIRMED | No change. |
+| 15 | Covariance zero-padding convention matches spec | CONFIRMED | No change. |
 
 ## Problem
 
@@ -117,20 +177,25 @@ degenerate bounds.** This is what the rest of this spec designs.
 
 Two independent fixes:
 
-**Homodyne**: extract the proven `strip_fixed_parameters`/`restore_fixed_parameters`
-pattern from `strategies/sequential.py` into a shared location, add a
-resolver that computes the *optimized* (free) parameter subset from
-`ParameterManager.get_optimizable_parameters()` intersected with
-`active_parameters` when explicitly set, and route all three `core.py` entry
-points through it. Because every downstream strategy tier is a pure
-consumer of the x0/bounds those three entry points construct, fixing the
-three sites fixes every tier at once (sequential.py already does this and
-becomes a thin caller of the relocated shared functions — dedup only, no
-behavior change).
+**Homodyne**: `core.py` resolves, once per fit, which *physical* parameters
+are free vs. fixed and their values (a small descriptor, not a
+length-reduced array), and passes that descriptor down to
+`NLSQAdapter.fit()` / `NLSQWrapper.fit()` / CMA-ES / multistart. Each of
+those applies strip-before-solve / restore-after-solve to the **trailing
+physical-parameter slice** of whichever vector it actually hands to its own
+`curve_fit()` call — the compact `[contrast, offset, *physical]` vector for
+paths that don't expand per-angle, or the per-angle-expanded
+`[contrast_0..N, offset_0..N, *physical]` vector for the standard
+`per_angle_scaling=True` path — reusing the `strip_fixed_parameters`/
+`restore_fixed_parameters` primitives already proven in
+`strategies/sequential.py`. Physical parameters occupy the same trailing
+`n_physical`-length slice in both vector shapes (per-angle expansion only
+grows the leading scaling prefix), so one shared helper handles both.
 
-**Heterodyne**: `fixed_parameters` only needs to set `space.vary[name] =
-False`, exactly mirroring the existing `active_parameters` code path in
-`heterodyne_parameter_space.py::_apply_initial_parameters`. Every tier
+**Heterodyne**: `fixed_parameters` sets `space.vary[name] = False` **and**
+`space.values[canonical] = value`, mirroring the existing `active_parameters`
+code path in `heterodyne_parameter_space.py::_apply_initial_parameters` plus
+the value-write `expand_varying_to_full` actually depends on. Every tier
 already reads `varying_names`/`expand_varying_to_full` off the same
 `ParameterManager` instance, so this one function-level change propagates
 everywhere automatically.
@@ -140,91 +205,126 @@ everywhere automatically.
 1. **`xpcsjax/optimization/nlsq/parameter_utils.py`** (existing file,
    extend): relocate `strip_fixed_parameters`/`restore_fixed_parameters`
    here from `strategies/sequential.py` (re-exported from there for
-   back-compat). Add:
+   back-compat, signatures unchanged). Add:
 
    ```python
    @dataclass
-   class ResolvedParameterSet:
-       param_names: list[str]        # full mode list, unchanged order
-       x0_full: np.ndarray
+   class ResolvedPhysicalParameters:
+       physical_names: list[str]      # _get_physical_param_names(analysis_mode) order
+       values_full: np.ndarray        # length n_physical, from initial_params
        lower_full: np.ndarray
        upper_full: np.ndarray
-       free_mask: np.ndarray         # True where optimized
-       x0_free: np.ndarray
-       lower_free: np.ndarray
-       upper_free: np.ndarray
+       free_mask: np.ndarray          # length n_physical; True where optimized
 
-   def resolve_optimized_parameter_set(
+   def resolve_optimized_physical_parameters(
        param_manager: ParameterManager,
        analysis_mode: AnalysisMode,
-       x0_full: np.ndarray,
+       values_full: np.ndarray,
        lower_full: np.ndarray,
        upper_full: np.ndarray,
-   ) -> ResolvedParameterSet: ...
+   ) -> ResolvedPhysicalParameters: ...
    ```
 
-   `free_mask` is derived from
-   `param_manager.get_optimizable_parameters()` (already correctly computes
-   active-minus-fixed) mapped onto `param_names` position order. When
+   `free_mask` comes from `param_manager.get_optimizable_parameters()`
+   (already correctly computes active-minus-fixed, and is physics-only by
+   contract — no scaling-parameter special-casing needed given the scope cut
+   above) mapped onto `physical_names` position order. When
    `active_parameters`/`fixed_parameters` are both unset (template default),
-   `free_mask` is all-`True` and every `_free` array equals its `_full`
-   counterpart — byte-identical to the current arrays, so this is a provable
-   no-op for every currently-passing config.
+   `free_mask` is all-`True` — byte-identical arrays to today, a provable
+   no-op for every currently-passing config. Raise `ValueError` if
+   `free_mask` is all-`False` (every physical parameter fixed) *unless* the
+   caller is `strategies/sequential.py`, which keeps its existing, tested
+   zero-length-covariance convention for that case (`sequential.py:550-564`)
+   — this plan does not change that behavior, only reuses its stripping
+   primitive elsewhere.
 
 2. **`core.py`**: all three entry points (`fit_nlsq_jax`, `fit_nlsq_cmaes`,
-   `fit_nlsq_multistart`) call `resolve_optimized_parameter_set` instead of
-   using `_get_param_names(analysis_mode)` bounds directly. They pass the
-   `_free` x0/bounds to `NLSQAdapter`/`NLSQWrapper`/CMA-ES/multistart. The
-   model/residual callable each already builds
-   (`adapter.py::_build_model_function`'s `model_func`; `wrapper.py`'s
-   internal equivalent) is wrapped in a `restore_fixed_parameters` closure —
-   identical in shape to `sequential.py`'s existing
-   `def residual_func(params, *args, **kwargs): full = restore_fixed_parameters(...)`
-   — so the physics kernel (`compute_g2_scaled` etc.) always receives the
-   full-length positional vector it expects. The returned `OptimizationResult`
-   has fixed values restored into `.parameters` and the covariance/uncertainty
-   rows for fixed positions zero-padded (matches `sequential.py`'s existing,
-   documented convention: fixed parameters report `uncertainty == 0.0` — "never
-   estimated, not because perfectly known" — not `NaN`).
+   `fit_nlsq_multistart`) call `resolve_optimized_physical_parameters` on the
+   physical slice of their initial-values/bounds, and thread the resulting
+   descriptor (not a masked array) into `NLSQAdapter.fit()` /
+   `NLSQWrapper.fit()` (new optional parameter on both, defaulting to "all
+   free" so every other caller of these methods is unaffected) and into
+   CMA-ES/multistart's own vector construction. `_get_param_names` /
+   `get_parameter_bounds()` calls stay as they are today — they still
+   describe the *full* problem; only the *free* subset handed to the solver
+   changes.
+   - `active_parameters: []` (explicit empty list, "fix everything") is
+     currently swallowed by a truthiness check in
+     `ParameterManager.get_active_parameters()` (`parameter_manager.py:515`,
+     `if active_params_config and isinstance(...)`) — fixed to
+     `is not None`, matching the pattern heterodyne's
+     `_apply_initial_parameters` already uses correctly.
+   - `_SingleFitWorker` (`core.py:1399-1409`, multistart's per-start worker)
+     samples and zips against the *free* physical subset instead of the full
+     `_get_param_names` list, then expands each sampled start back to a full
+     `initial_params` dict (fixed slots filled from the resolved descriptor,
+     not from noise) before its existing recursive call into `fit_nlsq_jax`
+     — which re-applies `fixed_parameters` internally regardless, so this
+     change is about correct sampling scope and avoiding a length mismatch,
+     not a second, independent correctness mechanism.
 
-3. **`heterodyne_parameter_space.py::_apply_initial_parameters`**: add a
+3. **`adapter.py`**: inside `fit()`, between `_build_model_function()`
+   (`:1342`) and `self._fitter.curve_fit()` (`:1393`) — the same place the
+   existing compact→per-angle expansion already happens — apply
+   `strip_fixed_parameters` to the trailing physical slice of the
+   (possibly-expanded) `p0`/`bounds` actually being sent to `curve_fit`, and
+   wrap `model_func` (`:968`) so it restores the fixed physical values before
+   evaluating the physics kernel. Restore fixed values into
+   `OptimizationResult.parameters` and zero-pad the covariance/uncertainty at
+   those positions after `curve_fit` returns.
+
+4. **`wrapper.py`**: same shape, positioned after Step 6.6's per-angle
+   expansion (`:1821`) and before whatever call actually invokes the
+   solver — wrap the model function built at Step 6 (`:1809`,
+   `_create_residual_function`) so it restores fixed physical values, strip
+   the physical slice from the expanded vector handed to the solver, restore
+   + zero-pad on the way out.
+
+5. **`heterodyne_parameter_space.py::_apply_initial_parameters`**: add a
    `fixed_parameters` block, same shape as the adjacent `active_parameters`
-   block:
+   block, writing **both** the vary flag and the value:
    ```python
    fixed_raw = initial.get("fixed_parameters")
    if fixed_raw is not None and isinstance(fixed_raw, dict):
-       for name in fixed_raw:
+       for name, value in fixed_raw.items():
            canonical = ...  # same name-mapping chain as active_parameters
            space.vary[canonical] = False
+           space.values[canonical] = coerce_finite_float(value, context=...)
    ```
-   Conflict rules, mirroring the existing tied-vs-active precedence already
-   in `_apply_tied_parameters`:
-   - A name in both `active_parameters` and `fixed_parameters` → fixed wins
-     (a stronger constraint), warning logged. Apply `_apply_initial_parameters`'s
-     `fixed_parameters` block **after** its `active_parameters` block so this
-     falls out naturally from ordering.
-   - A tied child listed in `fixed_parameters` → `ValueError` at config-load
-     time in `_apply_tied_parameters` (children are already forced
-     non-varying via the tie; being separately "fixed" is a contradiction in
-     terms the existing tie-validation should reject the same way it already
-     rejects a tied child appearing in `active_parameters`).
+   applied **after** the existing `active_parameters` block (fixed wins on
+   conflict, warning logged — falls out of ordering). Loosen the function's
+   early return (`:504-513`) so `active_parameters`/`fixed_parameters` are
+   still processed when a config supplies them without flat
+   `parameter_names`/`values` (currently silently skipped in that case;
+   every template happens to supply both together, but nothing should rely
+   on that).
 
-4. **`strategies/sequential.py`**: `strip_fixed_parameters`/
+6. **`heterodyne_parameter_space.py::_apply_tied_parameters`**: new
+   validation — mirroring the existing active-vs-tied conflict check in
+   *style*, not reusing existing code (it doesn't exist yet) — reject a tied
+   child that also appears in `fixed_parameters` with a `ValueError` in the
+   same message style as the existing tied-parameters checks (`:635-675`).
+
+7. **`strategies/sequential.py`**: `strip_fixed_parameters`/
    `restore_fixed_parameters` become thin re-exports from
    `parameter_utils.py`. No behavior change — deduplication only.
 
-### Data flow (homodyne, `fixed_parameters` set)
+### Data flow (homodyne, `fixed_parameters` set, standard per-angle-scaling path)
 
 ```
 config.initial_parameters.fixed_parameters
-  -> ParameterManager.get_optimizable_parameters()          (already correct)
-  -> resolve_optimized_parameter_set(...) builds free_mask
-  -> core.py entry point masks x0/bounds to the free subset
-  -> solver (NLSQAdapter / NLSQWrapper / CMA-ES / multistart)
-       sees only strictly lower < upper free dimensions      (satisfies the
-                                                                spike's hard
-                                                                constraint)
-  -> model closure re-expands to the full vector on every residual eval
+  -> ParameterManager.get_optimizable_parameters()             (already correct,
+                                                                  physics-only)
+  -> resolve_optimized_physical_parameters(...) builds free_mask
+     over the physical slice only
+  -> core.py entry point passes the descriptor (not a masked array) into
+     NLSQAdapter.fit() / NLSQWrapper.fit() / CMA-ES / multistart
+  -> adapter.py / wrapper.py expand compact -> per-angle as they do today,
+     THEN strip the physical slice's fixed dims immediately before curve_fit
+  -> solver sees only strictly lower < upper free dimensions        (satisfies
+                                                                       the spike's
+                                                                       hard constraint)
+  -> model closure restores fixed physical values before every residual eval
   -> OptimizationResult: fixed values restored, uncertainty=0.0 at those
      positions
 ```
@@ -232,11 +332,15 @@ config.initial_parameters.fixed_parameters
 ### Error handling
 
 - `fixed_parameters` naming an unknown or scaling parameter: existing
-  `ParameterManager` warnings already cover this (unchanged).
-- `fixed_parameters` reducing the free set to zero (every physics parameter
-  fixed): raise `ValueError` before calling the solver — there is nothing
-  left to optimize. A "compute residual once, no fit" degenerate path is out
-  of scope for this plan.
+  `ParameterManager` warnings already cover this (unchanged). Scaling
+  parameters named in `fixed_parameters` are accepted by `ParameterManager`
+  (unchanged) but have no effect on the optimizer given the scope cut above
+  — log a warning at the `core.py`/heterodyne resolution point that
+  `fixed_parameters` only constrains physical parameters in this release.
+- `fixed_parameters` reducing the free physical set to zero: raise
+  `ValueError` before calling the solver, **except** in
+  `strategies/sequential.py`, which keeps its existing tested
+  zero-length-covariance convention for that case unchanged.
 - Heterodyne fixed-child-of-a-tie conflict: `ValueError` at config-load
   time, in the same validation pass and message style as the existing
   tied-parameters checks.
@@ -245,15 +349,22 @@ config.initial_parameters.fixed_parameters
 
 - New integration test per mode (the exact coverage gap the RCA found): a
   real `fit_nlsq_jax` (static, laminar_flow) / heterodyne `fit_nlsq_multi_phi`
-  call on synthetic data with `fixed_parameters` set. Assert the fixed
-  parameter's fitted value equals the configured value exactly and its
-  reported uncertainty is `0.0`.
+  call on synthetic data with `fixed_parameters` set on a physical parameter.
+  Assert the fixed parameter's fitted value equals the configured value
+  exactly and its reported uncertainty is `0.0`.
 - One test per strategy tier confirming a fixed parameter survives: CMA-ES,
-  multistart, hybrid-streaming, stratified-LS, sequential (regression — must
-  still pass unchanged), out-of-core.
+  multistart (including that `_SingleFitWorker`'s sampling scope is correct),
+  hybrid-streaming, stratified-LS, sequential (regression — must still pass
+  unchanged), out-of-core.
 - `active_parameters` regression test, static/laminar_flow: a config with a
-  restricted `active_parameters` list; assert excluded physics parameters
-  never move from their initial value.
+  restricted `active_parameters` list, including the `active_parameters: []`
+  ("fix everything") edge case; assert excluded physical parameters never
+  move from their initial value.
+- Heterodyne: fixed-value-is-honored test (not just vary=False — assert the
+  fitted value equals the configured `fixed_parameters` value, not whatever
+  the flat `parameter_names`/`values` list happened to set); tied-child+fixed
+  conflict raises `ValueError`; `active_parameters`+`fixed_parameters` set
+  without a flat `parameter_names`/`values` pair still applies both.
 - Full `tests/parity/_golden/` (`rtol=1e-10`) and
   `test_phase5_default_no_worse.py` re-run — must be untouched, since
   `fixed_parameters: null` / `active_parameters: null` (the template
@@ -265,6 +376,12 @@ config.initial_parameters.fixed_parameters
 
 ### Out of scope
 
+- Fixing/honoring `fixed_parameters`/`active_parameters` for scaling
+  parameters (`contrast`/`offset`, including per-angle `contrast_N`/
+  `offset_N`) — scope cut identified during Codex review (see Revision
+  note). No template example fixes a scaling parameter this way; the
+  existing `per_angle_scaling` initial-value block and `constant`/
+  individual per-angle-mode machinery already cover that need.
 - Fixing the separate CLI-override bug found during the RCA
   (`cli/config_handling.py`'s `--initial-*` override re-introducing a fixed
   parameter into `parameter_names`/`values` because it checks `active_names`
