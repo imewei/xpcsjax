@@ -2136,7 +2136,7 @@ class NLSQWrapper(NLSQAdapterBase):
             # FIRST, physical params UNPACKED as individual scalar args (see
             # `_create_residual_function`'s docstring and the call site at
             # `base_residual_fn(xdata, *popt)` in `_post_process_results`).
-            def wrapped_residual_fn(xdata, *params):  # noqa: ANN001, ANN002, ANN202
+            def _stripped_wrapped_residual_fn(xdata, *params):  # noqa: ANN001, ANN002, ANN202
                 n_prefix = len(params) - int(_phys_free_mask.sum())
                 params_array = jnp.stack(params[n_prefix:])
                 full_physical = restore_by_mask_jax(
@@ -2146,6 +2146,8 @@ class NLSQWrapper(NLSQAdapterBase):
                 )
                 full_params = (*params[:n_prefix], *[full_physical[i] for i in range(n_physical)])
                 return _base_wrapped_residual_fn(xdata, *full_params)
+
+            wrapped_residual_fn = _stripped_wrapped_residual_fn
 
         # Step 7: Select optimization strategy using memory-based selection
         # Uses unified select_nlsq_strategy() instead of deprecated DatasetSizeStrategy
