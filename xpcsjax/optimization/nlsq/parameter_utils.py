@@ -12,16 +12,206 @@ Key Functions:
 """
 
 from collections.abc import Callable
-from typing import Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
+from xpcsjax.config.types import SCALING_PARAM_NAMES
+
+if TYPE_CHECKING:
+    from xpcsjax.config.parameter_manager import ParameterManager
+
 # Physical floor for an accepted per-angle contrast (beta). Real XPCS contrast
 # is >= ~1e-3; a fitted value below this is a degenerate/noise-floor result and
 # must fall back to the supplied default (see compute_consistent_per_angle_init).
 _MIN_PHYSICAL_CONTRAST = 1e-6
+
+
+@dataclass
+class ResolvedPhysicalParameters:
+    """Which physical parameters are free vs. fixed for one NLSQ solve.
+
+    ``free_mask`` comes from ``ParameterManager.get_optimizable_parameters()``
+    (active-minus-fixed, physics-only by contract). ``values_full`` has the
+    CONFIGURED fixed value substituted in at every fixed position -- it is
+    NOT simply the caller's original values array.
+
+    When neither ``active_parameters`` nor ``fixed_parameters`` is set (the
+    template default), ``free_mask`` is all-``True`` and ``values_full``
+    equals the input unchanged -- a provable no-op.
+    """
+
+    physical_names: list[str]
+    values_full: np.ndarray
+    lower_full: np.ndarray
+    upper_full: np.ndarray
+    free_mask: np.ndarray
+
+
+def resolve_optimized_physical_parameters(
+    param_manager: "ParameterManager",
+    physical_names: list[str],
+    values_full: np.ndarray,
+    lower_full: np.ndarray,
+    upper_full: np.ndarray,
+    *,
+    allow_all_fixed: bool = False,
+) -> ResolvedPhysicalParameters:
+    """Resolve the free/fixed split AND substitute fixed values for homodyne.
+
+    Physical-parameter-only by design (grilling round 1 Q1) -- a scaling name
+    in ``fixed_parameters`` is a hard fit-time error (grilling round 1 Q5, Q8).
+
+    Raises
+    ------
+    ValueError
+        If ``fixed_parameters`` names a scaling parameter, or if the
+        resulting free set is empty and ``allow_all_fixed`` is False.
+    """
+    fixed_params = param_manager.get_fixed_parameters()
+    scaling_fixed = [name for name in fixed_params if name in SCALING_PARAM_NAMES]
+    if scaling_fixed:
+        raise ValueError(
+            f"fixed_parameters names scaling parameter(s) {scaling_fixed!r}, "
+            "which is not supported for this analysis mode -- fixed_parameters "
+            "only constrains physical parameters here. Use 'per_angle_scaling' "
+            "initial values to control contrast/offset instead."
+        )
+
+    optimizable = set(param_manager.get_optimizable_parameters())
+    free_mask = np.array([name in optimizable for name in physical_names], dtype=bool)
+
+    values_full = np.array(values_full, dtype=np.float64)  # copy -- never mutate caller's array
+    for i, name in enumerate(physical_names):
+        if name in fixed_params:
+            values_full[i] = fixed_params[name]
+
+    if not allow_all_fixed and not free_mask.any():
+        raise ValueError(
+            "fixed_parameters/active_parameters leave nothing left to "
+            f"optimize: every physical parameter in {physical_names!r} is "
+            "fixed or excluded. Free at least one parameter."
+        )
+
+    return ResolvedPhysicalParameters(
+        physical_names=list(physical_names),
+        values_full=values_full,
+        lower_full=np.asarray(lower_full, dtype=np.float64),
+        upper_full=np.asarray(upper_full, dtype=np.float64),
+        free_mask=free_mask,
+    )
+
+
+def strip_by_mask(values: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Return only the entries of ``values`` where ``mask`` is True."""
+    return np.asarray(values)[mask]
+
+
+def restore_by_mask_numpy(
+    free_values: np.ndarray, full_values: np.ndarray, mask: np.ndarray
+) -> np.ndarray:
+    """Re-insert solved free values into a full-length array (post-solve only).
+
+    NumPy indexed assignment -- safe only on already-concrete arrays. Do NOT
+    call this inside a JAX-traced closure; use :func:`restore_by_mask_jax`.
+    """
+    result = np.array(full_values, dtype=np.float64)
+    result[mask] = np.asarray(free_values)
+    return result
+
+
+def restore_by_mask_jax(free_values, full_values: np.ndarray, mask: np.ndarray):
+    """JAX-traceable equivalent of :func:`restore_by_mask_numpy`.
+
+    Uses immutable ``.at[].set()`` -- safe inside a function JAX traces for
+    JIT/autodiff (model/residual closures passed to ``curve_fit``/CMA-ES).
+    """
+    import jax.numpy as jnp
+
+    full_jnp = jnp.asarray(full_values)
+    free_idx = jnp.asarray(np.where(mask)[0])
+    return full_jnp.at[free_idx].set(jnp.asarray(free_values))
+
+
+def strip_fixed_parameters(
+    initial_params: np.ndarray,
+    lower_bounds: np.ndarray,
+    upper_bounds: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Remove fixed parameters (lower == upper) from the optimizer inputs.
+
+    The TRF solver used by sequential optimization requires strict
+    lower < upper for every parameter.  Fixed parameters (equality
+    constraints encoded as lower == upper) must be stripped before the
+    call and their known values re-inserted into the result.
+
+    Parameters
+    ----------
+    initial_params : np.ndarray
+        Full parameter vector including fixed parameters.
+    lower_bounds : np.ndarray
+        Lower bounds array (same length as initial_params).
+    upper_bounds : np.ndarray
+        Upper bounds array (same length as initial_params).
+
+    Returns
+    -------
+    free_params : np.ndarray
+        Subset of initial_params where lower < upper.
+    free_lower : np.ndarray
+        Lower bounds for free parameters.
+    free_upper : np.ndarray
+        Upper bounds for free parameters.
+    free_mask : np.ndarray
+        Boolean mask (length == len(initial_params)), True where free.
+
+    Examples
+    --------
+    >>> p = np.array([1.0, 2.0, 3.0])
+    >>> lo = np.array([0.0, 2.0, 0.0])
+    >>> hi = np.array([5.0, 2.0, 5.0])
+    >>> free, fl, fu, mask = strip_fixed_parameters(p, lo, hi)
+    >>> free       # array([1.0, 3.0])
+    >>> mask       # array([True, False, True])
+    """
+    free_mask = lower_bounds < upper_bounds
+    return (
+        initial_params[free_mask],
+        lower_bounds[free_mask],
+        upper_bounds[free_mask],
+        free_mask,
+    )
+
+
+def restore_fixed_parameters(
+    free_result: np.ndarray,
+    fixed_values: np.ndarray,
+    free_mask: np.ndarray,
+) -> np.ndarray:
+    """Re-insert fixed parameter values into the optimized result.
+
+    Inverse of :func:`strip_fixed_parameters`.
+
+    Parameters
+    ----------
+    free_result : np.ndarray
+        Optimized values for the free parameters.
+    fixed_values : np.ndarray
+        Full reference parameter vector (fixed positions taken from here).
+    free_mask : np.ndarray
+        Boolean mask returned by :func:`strip_fixed_parameters`.
+
+    Returns
+    -------
+    np.ndarray
+        Full parameter vector with fixed values restored.
+    """
+    result = np.array(fixed_values, dtype=np.float64)
+    result[free_mask] = free_result
+    return result
 
 
 def build_parameter_labels(
@@ -596,6 +786,13 @@ def compute_quantile_per_angle_scaling(
 
 
 __all__ = [
+    "ResolvedPhysicalParameters",
+    "resolve_optimized_physical_parameters",
+    "strip_by_mask",
+    "restore_by_mask_numpy",
+    "restore_by_mask_jax",
+    "strip_fixed_parameters",
+    "restore_fixed_parameters",
     "build_parameter_labels",
     "classify_parameter_status",
     "sample_xdata",
