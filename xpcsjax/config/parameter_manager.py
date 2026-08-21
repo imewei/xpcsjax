@@ -514,7 +514,7 @@ class ParameterManager:
 
             # Check for explicit active_parameters list
             active_params_config = initial_params.get("active_parameters")
-            if active_params_config and isinstance(active_params_config, list):
+            if active_params_config is not None and isinstance(active_params_config, list):
                 # Apply name mapping. ``.get(name, name)`` returns the mapped
                 # name when present, the original ``name`` otherwise — never
                 # None. mypy can't see the fallback guarantee through
@@ -768,12 +768,12 @@ class ParameterManager:
         --------
         >>> config = {
         ...     "initial_parameters": {
-        ...         "fixed_parameters": {"contrast": 0.5, "offset": 1.0}
+        ...         "fixed_parameters": {"D_offset": 10.0}
         ...     }
         ... }
         >>> pm = ParameterManager(config)
         >>> pm.get_fixed_parameters()
-        {'contrast': 0.5, 'offset': 1.0}
+        {'D_offset': 10.0}
         """
         if not self.config_dict:
             return {}
