@@ -1,7 +1,7 @@
 # NLSQ `fixed_parameters` / `active_parameters` correctness fix
 
-Status: revised after Codex review, pending implementation plan
-Date: 2026-08-21 (design approved); revised 2026-08-21 (Codex review)
+Status: revised after Codex review + grilling session, pending implementation plan
+Date: 2026-08-21 (design approved); revised 2026-08-21 (Codex review); revised 2026-08-21 (grilling session)
 Scope: `static_anisotropic`, `static_isotropic`, `laminar_flow` (homodyne), `two_component` (heterodyne)
 
 ## Revision note (Codex review)
@@ -27,7 +27,7 @@ significant enough to flag explicitly:
    `core.py`'s job shrinks to: resolve *which* physical parameters are free
    vs. fixed and their values, and pass that descriptor down — not to mask
    arrays itself.
-2. **Scope narrows to physical parameters only.** `ParameterManager.get_optimizable_parameters()`
+2. **Scope narrows to physical parameters only — for homodyne.** `ParameterManager.get_optimizable_parameters()`
    is physics-only by contract (excludes contrast/offset); `core.py`'s
    compact vectors always start with `[contrast, offset, ...]`. A naive
    name-membership mask over the full vector would silently freeze both
@@ -35,16 +35,20 @@ significant enough to flag explicitly:
    separate scaling-parameter policy (which then has to reason about
    per-angle-expanded contrast/offset — ambiguous, and no template example
    ever fixes a scaling parameter this way), `fixed_parameters` /
-   `active_parameters` are scoped to **physical parameters only** for this
-   plan. This is a controlled scope cut, not a compromise: every real
-   `fixed_parameters` example across all four templates targets a physical
-   parameter (`D_offset`, `beta`, `gamma_dot_t_offset`, `v_beta`,
-   `v_offset`, `f1`/`f2`/`f3`); contrast/offset already has its own
-   dedicated control surface (`per_angle_scaling` initial values + the
-   `constant`/individual per-angle-mode machinery).
+   `active_parameters` are scoped to **physical parameters only** for
+   homodyne (static/laminar_flow). This is a controlled scope cut, not a
+   compromise: every real `fixed_parameters` example across the three
+   homodyne templates targets a physical parameter (`D_offset`, `beta`,
+   `gamma_dot_t_offset`); contrast/offset already has its own dedicated
+   control surface there (`per_angle_scaling` initial values + the
+   `constant`/individual per-angle-mode machinery). **The grilling session
+   below (§Q7) found this does *not* transfer to heterodyne**, whose own
+   `active_parameters` already legitimately targets its top-level
+   `contrast`/`offset` — see the Grilling revision note.
 
 The rest of this section records what Codex confirmed, refuted, or flagged;
-skip to **Design** for the corrected plan.
+skip to **Grilling revision note** for the follow-up interrogation, or to
+**Design** for the fully corrected plan.
 
 | # | Claim | Verdict | Disposition |
 |---|---|---|---|
@@ -63,6 +67,42 @@ skip to **Design** for the corrected plan.
 | 13 | Zero callers of `get_optimizable_parameters()`/`get_fixed_parameters()`/`is_parameter_active()` under `xpcsjax/optimization/` | CONFIRMED | No change. |
 | 14 | `parameter_utils.py` exists, no naming collision | CONFIRMED | No change. |
 | 15 | Covariance zero-padding convention matches spec | CONFIRMED | No change. |
+
+## Grilling revision note
+
+A `/grilling` session (3 rounds, 9 questions) interrogated the Codex-revised
+design for judgment calls left implicit — decisions no amount of source
+reading resolves, because they're about what the system *should* do, not
+what it *does*. One fact-check ran alongside: a background sub-agent
+confirmed **no existing test relies on the current no-op** — of the 3 tests
+that set `active_parameters` and drive a real fit, all are `two_component`
+(already correctly scoped, unaffected), and none assert that a
+fixed/excluded parameter's value moved. Golden parity fixtures
+(`stratified_residual_jit.npz`, `laminar_flow_end_to_end.npz`) confirmed to
+have both keys unset. The fix is safe to land without a migration step.
+
+| # | Decision | Resolution |
+|---|---|---|
+| Q1 | Is homodyne's physical-only scope cut (Codex item 2) permanent, or a v1 cut to backfill later? | **Permanent.** `per_angle_scaling` already owns scaling control; a second path to the same value is redundant, not a gap. |
+| Q2 | Bundle the `active_parameters: []` truthiness bug (homodyne) into this plan, or file separately? | **Bundle.** One-line fix in code this plan already opens, same function, same config-key family. |
+| Q3 | Should every tier converge on one "all parameters fixed" behavior, or preserve `sequential.py`'s existing tolerant exception? | **Preserve the split.** Sequential's zero-covariance tolerance is existing, tested behavior for its own per-angle use case; new tiers get the safer `ValueError` default with no precedent to preserve. |
+| Q4 | Does `adapter.fit()`/`wrapper.fit()` derive free/fixed from `config` themselves, or does `core.py` pass an explicit descriptor? | **Explicit descriptor from `core.py`.** Deriving from `config` inside both files would duplicate the resolution logic this RCA started by eliminating. Confirmed safe: `NLSQAdapter`/`NLSQWrapper` are called extensively outside `core.py` (heavily by `heterodyne_core.py` and friends, plus many tests) — a new optional parameter defaulting to "all free" doesn't touch any of them. |
+| Q5 | Scaling parameter in homodyne's `fixed_parameters`: warn-and-ignore, or hard error? | **Hard `ValueError`.** A warning is exactly the failure mode this RCA exists to eliminate. |
+| Q6 | Heterodyne: loosen `_apply_initial_parameters`'s early-return (Codex item 10), or enforce the flat-`parameter_names`/`values` precondition instead? | **Loosen.** The coupling is accidental, not structural — a config setting only `fixed_parameters` and defaulting everything else is reasonable. |
+| Q7 | Heterodyne: does `fixed_parameters` mirror `active_parameters`'s *existing* scope (which already includes top-level `contrast`/`offset` via `ALL_PARAM_NAMES_WITH_SCALING`), or does homodyne's physical-only rule (Q1) transfer? | **Mirrors `active_parameters`'s existing scope — includes `contrast`/`offset`.** Verified: `ALL_PARAM_NAMES_WITH_SCALING = ALL_PARAM_NAMES + SCALING_PARAMS` where `SCALING_PARAMS = ("contrast", "offset")` (`heterodyne_parameter_names.py:47,83`), and heterodyne's `active_parameters` already iterates over it. Homodyne's rule exists because homodyne's *own* `active_parameters` already excludes scaling by contract; no such contract exists on heterodyne's side, and having `fixed_parameters` reject a name `active_parameters` accepts, in the same config block, would be the more confusing inconsistency. |
+| Q8 | Validation timing for Q5's hard error: config-load time (new validation point, symmetric with heterodyne) or fit-time only? | **Fit-time only**, inside `core.py`. Matches the project's existing deferred-validation convention (root `CLAUDE.md`: `ConfigManager` already validates `analysis_mode` late, not at construction) — not worth a second validation entry point in an already-large plan. |
+| Q9 | Heterodyne has no guard against zero varying parameters today (`active_parameters: []` can already reach it; Q7 widens the surface via `fixed_parameters` too). Add a matching guard, or leave as a pre-existing, out-of-scope gap? | **Add it.** Verified no guard exists (`grep` across `heterodyne_parameter_manager.py`/`heterodyne_parameter_space.py`/`heterodyne_core.py` for zero-varying checks: no hits). This plan widens the ways the gap is reached, so it should close the gap it widens. |
+
+Two silent corollaries, applied without a separate question (single sane
+answer, not a judgment call):
+- `parameter_manager.py::get_fixed_parameters()`'s docstring example
+  (`{"contrast": 0.5, "offset": 1.0}`) becomes actively wrong under Q1/Q5 for
+  homodyne — corrected to a physical-only example as part of Component 1.
+- Q7's fixed-value write (Codex finding #11) applies uniformly whether the
+  heterodyne name is physical or scaling — no special-casing needed in
+  Component 5.
+
+Design section below reflects all nine resolutions.
 
 ## Problem
 
@@ -195,10 +235,15 @@ grows the leading scaling prefix), so one shared helper handles both.
 **Heterodyne**: `fixed_parameters` sets `space.vary[name] = False` **and**
 `space.values[canonical] = value`, mirroring the existing `active_parameters`
 code path in `heterodyne_parameter_space.py::_apply_initial_parameters` plus
-the value-write `expand_varying_to_full` actually depends on. Every tier
-already reads `varying_names`/`expand_varying_to_full` off the same
-`ParameterManager` instance, so this one function-level change propagates
-everywhere automatically.
+the value-write `expand_varying_to_full` actually depends on. Unlike
+homodyne, this is **not** scoped to physical parameters only — it mirrors
+`active_parameters`'s existing scope, which already legitimately includes
+the top-level `contrast`/`offset` names via `ALL_PARAM_NAMES_WITH_SCALING`
+(grilling session, Q7). Every tier already reads
+`varying_names`/`expand_varying_to_full` off the same `ParameterManager`
+instance, so this one function-level change propagates everywhere
+automatically. A new guard (Q9) raises if `fixed_parameters`/
+`active_parameters` combine to leave zero varying parameters.
 
 ### Components
 
@@ -236,7 +281,13 @@ everywhere automatically.
    caller is `strategies/sequential.py`, which keeps its existing, tested
    zero-length-covariance convention for that case (`sequential.py:550-564`)
    — this plan does not change that behavior, only reuses its stripping
-   primitive elsewhere.
+   primitive elsewhere. Raise `ValueError` (fit-time, not config-load —
+   grilling Q8) if `fixed_parameters` names a scaling parameter for
+   homodyne — a hard error, not a warning (grilling Q5). Correct the
+   `{"contrast": 0.5, "offset": 1.0}` example in
+   `parameter_manager.py::get_fixed_parameters()`'s docstring to a
+   physical-only example (`{"D_offset": 10.0}`), since it would now raise if
+   followed literally.
 
 2. **`core.py`**: all three entry points (`fit_nlsq_jax`, `fit_nlsq_cmaes`,
    `fit_nlsq_multistart`) call `resolve_optimized_physical_parameters` on the
@@ -309,6 +360,17 @@ everywhere automatically.
    `restore_fixed_parameters` become thin re-exports from
    `parameter_utils.py`. No behavior change — deduplication only.
 
+8. **`heterodyne_parameter_manager.py`** (new, grilling Q9): raise
+   `ValueError` when `len(self.varying_indices) == 0` — no guard exists
+   today (verified: no zero-varying check anywhere in
+   `heterodyne_parameter_manager.py`/`heterodyne_parameter_space.py`/
+   `heterodyne_core.py`), and `active_parameters: []` could already reach
+   it before this plan; Q7 widens the surface further via
+   `fixed_parameters`. Natural placement: alongside `varying_names`
+   (`:134-138`) or wherever `varying_indices` is first computed after
+   `_apply_initial_parameters`/`_apply_tied_parameters`/`_apply_fixed...`
+   run, so it fires once per config resolution, not once per solver call.
+
 ### Data flow (homodyne, `fixed_parameters` set, standard per-angle-scaling path)
 
 ```
@@ -331,17 +393,23 @@ config.initial_parameters.fixed_parameters
 
 ### Error handling
 
-- `fixed_parameters` naming an unknown or scaling parameter: existing
-  `ParameterManager` warnings already cover this (unchanged). Scaling
-  parameters named in `fixed_parameters` are accepted by `ParameterManager`
-  (unchanged) but have no effect on the optimizer given the scope cut above
-  — log a warning at the `core.py`/heterodyne resolution point that
-  `fixed_parameters` only constrains physical parameters in this release.
-- `fixed_parameters` reducing the free physical set to zero: raise
-  `ValueError` before calling the solver, **except** in
+- **Homodyne**: `fixed_parameters` naming a scaling parameter (`contrast`/
+  `offset`, including per-angle `contrast_N`/`offset_N`) raises `ValueError`
+  at fit time, inside `core.py`'s resolution step (grilling Q5, Q8) — not a
+  warning, not config-load time.
+- **Homodyne**: `fixed_parameters` naming an unknown parameter: existing
+  `ParameterManager` warnings already cover this (unchanged).
+- **Homodyne**: `fixed_parameters` reducing the free physical set to zero:
+  raise `ValueError` before calling the solver, **except** in
   `strategies/sequential.py`, which keeps its existing tested
-  zero-length-covariance convention for that case unchanged.
-- Heterodyne fixed-child-of-a-tie conflict: `ValueError` at config-load
+  zero-length-covariance convention for that case unchanged (grilling Q3).
+- **Heterodyne**: no scaling-parameter restriction — `fixed_parameters`
+  targeting `contrast`/`offset` is accepted, mirroring `active_parameters`'s
+  existing scope (grilling Q7).
+- **Heterodyne**: `fixed_parameters`/`active_parameters` combining to leave
+  zero varying parameters: raise `ValueError` (grilling Q9, new guard in
+  `heterodyne_parameter_manager.py`).
+- **Heterodyne**: fixed-child-of-a-tie conflict: `ValueError` at config-load
   time, in the same validation pass and message style as the existing
   tied-parameters checks.
 
@@ -365,6 +433,17 @@ config.initial_parameters.fixed_parameters
   the flat `parameter_names`/`values` list happened to set); tied-child+fixed
   conflict raises `ValueError`; `active_parameters`+`fixed_parameters` set
   without a flat `parameter_names`/`values` pair still applies both.
+- Heterodyne, grilling Q7: `fixed_parameters: {contrast: 0.5}` (and
+  `offset`) is honored — fitted value equals configured value, unlike
+  homodyne where the same config raises.
+- Heterodyne, grilling Q9: a config where `active_parameters`/
+  `fixed_parameters` combine to leave zero varying parameters raises
+  `ValueError` before reaching the solver.
+- Homodyne, grilling Q5: `fixed_parameters: {contrast: 0.5}` raises
+  `ValueError` at fit time (not a warning, not silently ignored).
+- No regression-suite migration needed: a background fact-check (this
+  session) confirmed no existing test currently passes by relying on the
+  no-op behavior being fixed — see Grilling revision note.
 - Full `tests/parity/_golden/` (`rtol=1e-10`) and
   `test_phase5_default_no_worse.py` re-run — must be untouched, since
   `fixed_parameters: null` / `active_parameters: null` (the template
@@ -376,12 +455,14 @@ config.initial_parameters.fixed_parameters
 
 ### Out of scope
 
-- Fixing/honoring `fixed_parameters`/`active_parameters` for scaling
-  parameters (`contrast`/`offset`, including per-angle `contrast_N`/
-  `offset_N`) — scope cut identified during Codex review (see Revision
-  note). No template example fixes a scaling parameter this way; the
-  existing `per_angle_scaling` initial-value block and `constant`/
-  individual per-angle-mode machinery already cover that need.
+- **Homodyne only**: fixing/honoring `fixed_parameters`/`active_parameters`
+  for scaling parameters (`contrast`/`offset`, including per-angle
+  `contrast_N`/`offset_N`) — permanent scope cut, grilling Q1. No homodyne
+  template example fixes a scaling parameter this way; the existing
+  `per_angle_scaling` initial-value block and `constant`/individual
+  per-angle-mode machinery already cover that need. **Heterodyne is
+  explicitly the opposite** — see grilling Q7; do not generalize this
+  bullet across both modes.
 - Fixing the separate CLI-override bug found during the RCA
   (`cli/config_handling.py`'s `--initial-*` override re-introducing a fixed
   parameter into `parameter_names`/`values` because it checks `active_names`
