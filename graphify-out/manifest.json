@@ -127,7 +127,7 @@
   "tests/optimization/test_heterodyne_stratified_ls.py": {
     "mtime": 1786983615.9869788,
     "ast_hash": "91b3c981ce746e55944681a06cd5f2ca",
-    "semantic_hash": ""
+    "semantic_hash": "91b3c981ce746e55944681a06cd5f2ca"
   },
   "tests/optimization/test_heterodyne_cmaes_diagnostics.py": {
     "mtime": 1780525312.8013494,
@@ -895,9 +895,9 @@
     "semantic_hash": "319a34c9f512f366559588b470100c11"
   },
   "xpcsjax/optimization/nlsq/heterodyne_stratified_ls.py": {
-    "mtime": 1786983623.1519938,
-    "ast_hash": "c3f23e26880ea6a4919a87061ac4d7da",
-    "semantic_hash": ""
+    "mtime": 1787172773.1896544,
+    "ast_hash": "466c82b5508bf59fb194b1ea8cb57b9d",
+    "semantic_hash": "466c82b5508bf59fb194b1ea8cb57b9d"
   },
   "xpcsjax/optimization/nlsq/transforms.py": {
     "mtime": 1786012060.0535846,
@@ -1037,7 +1037,7 @@
   "xpcsjax/optimization/nlsq/heterodyne_core.py": {
     "mtime": 1786982512.997465,
     "ast_hash": "9b211fb1fcdbdb39fc751cbaa283e565",
-    "semantic_hash": ""
+    "semantic_hash": "9b211fb1fcdbdb39fc751cbaa283e565"
   },
   "xpcsjax/optimization/nlsq/result_builder.py": {
     "mtime": 1785985818.837757,
@@ -1205,9 +1205,9 @@
     "semantic_hash": "09bef5c0e9c05b242cb5c9d38f5b62e4"
   },
   "xpcsjax/data/xpcs_loader.py": {
-    "mtime": 1786575365.6092412,
-    "ast_hash": "f38f5a55c2a7b5abd788191e152ec624",
-    "semantic_hash": "f38f5a55c2a7b5abd788191e152ec624"
+    "mtime": 1787244714.9812865,
+    "ast_hash": "a991b946c327deda7006cd584b46becd",
+    "semantic_hash": "a991b946c327deda7006cd584b46becd"
   },
   "xpcsjax/data/filtering_utils.py": {
     "mtime": 1785993408.7542384,
@@ -1232,7 +1232,7 @@
   "xpcsjax/config/parameter_manager.py": {
     "mtime": 1786981881.2718594,
     "ast_hash": "8990a95ae3e944de4ad9c6d4478ccb63",
-    "semantic_hash": ""
+    "semantic_hash": "8990a95ae3e944de4ad9c6d4478ccb63"
   },
   "xpcsjax/config/heterodyne_parameter_space.py": {
     "mtime": 1786575304.9892628,
@@ -1811,8 +1811,8 @@
   },
   "tests/characterization/fixtures/baselines/heterodyne_residuals.json": {
     "mtime": 1779881213.4547443,
-    "ast_hash": "",
-    "semantic_hash": ""
+    "ast_hash": "c820fbf7942d62a00209c1c486fb5d6c",
+    "semantic_hash": "c820fbf7942d62a00209c1c486fb5d6c"
   },
   "tests/optimization/test_stratified_max_iter_grading.py": {
     "mtime": 1781469355.4497037,
@@ -2692,12 +2692,12 @@
   "docs/diagrams/architecture.md": {
     "mtime": 1787062044.765349,
     "ast_hash": "d7528cc7ccc490f1d7bd1cd2d30f8759",
-    "semantic_hash": ""
+    "semantic_hash": "d7528cc7ccc490f1d7bd1cd2d30f8759"
   },
   "docs/diagrams/fitting_workflow.md": {
     "mtime": 1787062056.7633524,
     "ast_hash": "97487960d3332ee676007bb24eed3979",
-    "semantic_hash": ""
+    "semantic_hash": "97487960d3332ee676007bb24eed3979"
   },
   "tests/gui/test_data_inspect_dialog.py": {
     "mtime": 1785195914.729808,
@@ -2977,7 +2977,7 @@
   "docs/.claude-progress.md": {
     "mtime": 1781924184.9035556,
     "ast_hash": "e3d271c076a0eca56bb6fcfcfe70a8a3",
-    "semantic_hash": ""
+    "semantic_hash": "e3d271c076a0eca56bb6fcfcfe70a8a3"
   },
   "xpcsjax/cli/CLAUDE.md": {
     "mtime": 1786013897.03366,
@@ -3042,11 +3042,21 @@
   "tests/config/test_parameter_manager_active_scaling.py": {
     "mtime": 1786981906.9208033,
     "ast_hash": "4ad17b955d55193c7b99fd436ce76a98",
-    "semantic_hash": ""
+    "semantic_hash": "4ad17b955d55193c7b99fd436ce76a98"
   },
   "tests/optimization/test_l2_warmstart_fixed_physics_shape.py": {
     "mtime": 1786982484.4886043,
     "ast_hash": "b346c8421176b90b9d3a9f7571fdf02b",
-    "semantic_hash": ""
+    "semantic_hash": "b346c8421176b90b9d3a9f7571fdf02b"
+  },
+  "docs/diagrams/fitting_workflow.pdf": {
+    "mtime": 1787071760.3001893,
+    "ast_hash": "0503d4f75a1e7338929d88d95d425ac4",
+    "semantic_hash": "0503d4f75a1e7338929d88d95d425ac4"
+  },
+  "docs/diagrams/fitting_workflow.png": {
+    "mtime": 1787071760.2971892,
+    "ast_hash": "c68bf2a60bd871cbec52b00a90447583",
+    "semantic_hash": "c68bf2a60bd871cbec52b00a90447583"
   }
 }
