@@ -1325,8 +1325,8 @@ class XPCSDataLoader:
                     )
 
                 c2_exp = np.array(data["c2_exp"])
-                t1 = np.array(data["t1"])
-                t2 = np.array(data["t2"])
+                cached_t1 = np.array(data["t1"])
+                cached_t2 = np.array(data["t2"])
                 wavevector_q_list = np.array(data["wavevector_q_list"])
                 phi_angles_list = np.array(data["phi_angles_list"])
             except ValueError as exc:
@@ -1337,18 +1337,42 @@ class XPCSDataLoader:
                 ) from exc
 
             # Reject old 2D meshgrid cache format
-            if t1.ndim == 2 or t2.ndim == 2:
+            if cached_t1.ndim == 2 or cached_t2.ndim == 2:
                 raise ValueError(
                     f"Old 2D meshgrid cache format detected in {cache_path}. "
                     "Please delete the cache file and regenerate with current code. "
                     "New cache format uses 1D time arrays."
                 )
 
+            # t1/t2 are fully derived from dt + frame count ([0, dt, 2*dt, ...],
+            # see _calculate_time_arrays) — never independently meaningful data.
+            # Recompute from the CURRENT config's dt instead of trusting whatever
+            # is stored in the cache: a cache built by an older xpcsjax version,
+            # or by an external conversion script (e.g. a one-off HDF5->NPZ
+            # converter), can encode a different time-origin convention (e.g.
+            # 1-indexed frames, t[0] = dt instead of 0). ``_validate_cache_q_vector``'s
+            # dt fingerprint only fires when the cache carries a ``dt`` metadata
+            # key, so a foreign/legacy cache without one would otherwise pass
+            # silently and desync frame-0 alignment (t1==0/t2==0 boundary) between
+            # this run's plots/fit and every other cache-free or in-repo run. This
+            # guarantees ALL analysis modes and both cached and freshly-loaded data
+            # share one time-axis convention.
+            t1 = self._calculate_time_arrays(c2_exp.shape[-1])
+            t2 = t1
+            if cached_t1.shape == t1.shape and not np.allclose(cached_t1, t1, atol=1e-9):
+                logger.warning(
+                    f"Cache {cache_path}: stored t1/t2 time axis does not match "
+                    f"the current dt={self.analyzer_config.get('dt')}s convention "
+                    "(expected [0, dt, 2*dt, ...]). Ignoring the cached axis and "
+                    "recomputing it — delete and regenerate this cache to silence "
+                    "this warning.",
+                )
+
             result = {
                 "wavevector_q_list": wavevector_q_list,
                 "phi_angles_list": phi_angles_list,
-                "t1": t1,  # 1D array: [0, dt, 2*dt, ...]
-                "t2": t2,  # 1D array: [0, dt, 2*dt, ...]
+                "t1": t1,  # 1D array: [0, dt, 2*dt, ...] — always recomputed, never cached
+                "t2": t2,  # 1D array: [0, dt, 2*dt, ...] — always recomputed, never cached
                 "c2_exp": c2_exp,
             }
             _validate_loaded_arrays(result, source=cache_path)
