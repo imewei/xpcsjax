@@ -5,6 +5,7 @@ scaling names."""
 import pytest
 
 from xpcsjax.config.heterodyne_parameter_manager import ParameterManager
+from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES_WITH_SCALING
 
 
 def _config(fixed_parameters, **extra_initial):
@@ -48,13 +49,14 @@ def test_fixed_wins_over_active_on_conflict():
     config = {
         "analysis_mode": "two_component",
         "initial_parameters": {
-            "active_parameters": ["D0_ref"],
+            "active_parameters": ["D0_ref", "contrast"],
             "fixed_parameters": {"D0_ref": 3.0},
         },
     }
     pm = ParameterManager.from_config(config)
     assert pm.space.vary["D0_ref"] is False
     assert pm.space.values["D0_ref"] == 3.0
+    assert pm.space.vary["contrast"] is True
 
 
 def test_fixed_wins_over_later_parameter_space_bounds_overlay():
@@ -95,4 +97,17 @@ def test_tied_parent_also_fixed_raises():
         },
     }
     with pytest.raises(ValueError, match="tied_parameters.*D0_ref.*fixed_parameters"):
+        ParameterManager.from_config(config)
+
+
+def test_zero_varying_parameters_raises():
+    fixed = {name: 0.0 for name in ALL_PARAM_NAMES_WITH_SCALING}
+    config = {"analysis_mode": "two_component", "initial_parameters": {"fixed_parameters": fixed}}
+    with pytest.raises(ValueError, match="[Nn]othing left to optimize|no varying"):
+        ParameterManager.from_config(config)
+
+
+def test_active_parameters_empty_list_also_raises():
+    config = {"analysis_mode": "two_component", "initial_parameters": {"active_parameters": []}}
+    with pytest.raises(ValueError, match="[Nn]othing left to optimize|no varying"):
         ParameterManager.from_config(config)
