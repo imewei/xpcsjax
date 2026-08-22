@@ -25,6 +25,10 @@ import jax.numpy as jnp
 import numpy as np
 from nlsq import LeastSquares
 
+from xpcsjax.optimization.nlsq.parameter_utils import (
+    restore_fixed_parameters,
+    strip_fixed_parameters,
+)
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -799,84 +803,6 @@ def combine_angle_results(
     logger.debug(f"  Total cost: {total_cost:.4f}")
 
     return combined_params, combined_cov, total_cost
-
-
-def strip_fixed_parameters(
-    initial_params: np.ndarray,
-    lower_bounds: np.ndarray,
-    upper_bounds: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Remove fixed parameters (lower == upper) from the optimizer inputs.
-
-    The TRF solver used by sequential optimization requires strict
-    lower < upper for every parameter.  Fixed parameters (equality
-    constraints encoded as lower == upper) must be stripped before the
-    call and their known values re-inserted into the result.
-
-    Parameters
-    ----------
-    initial_params : np.ndarray
-        Full parameter vector including fixed parameters.
-    lower_bounds : np.ndarray
-        Lower bounds array (same length as initial_params).
-    upper_bounds : np.ndarray
-        Upper bounds array (same length as initial_params).
-
-    Returns
-    -------
-    free_params : np.ndarray
-        Subset of initial_params where lower < upper.
-    free_lower : np.ndarray
-        Lower bounds for free parameters.
-    free_upper : np.ndarray
-        Upper bounds for free parameters.
-    free_mask : np.ndarray
-        Boolean mask (length == len(initial_params)), True where free.
-
-    Examples
-    --------
-    >>> p = np.array([1.0, 2.0, 3.0])
-    >>> lo = np.array([0.0, 2.0, 0.0])
-    >>> hi = np.array([5.0, 2.0, 5.0])
-    >>> free, fl, fu, mask = strip_fixed_parameters(p, lo, hi)
-    >>> free       # array([1.0, 3.0])
-    >>> mask       # array([True, False, True])
-    """
-    free_mask = lower_bounds < upper_bounds
-    return (
-        initial_params[free_mask],
-        lower_bounds[free_mask],
-        upper_bounds[free_mask],
-        free_mask,
-    )
-
-
-def restore_fixed_parameters(
-    free_result: np.ndarray,
-    fixed_values: np.ndarray,
-    free_mask: np.ndarray,
-) -> np.ndarray:
-    """Re-insert fixed parameter values into the optimized result.
-
-    Inverse of :func:`strip_fixed_parameters`.
-
-    Parameters
-    ----------
-    free_result : np.ndarray
-        Optimized values for the free parameters.
-    fixed_values : np.ndarray
-        Full reference parameter vector (fixed positions taken from here).
-    free_mask : np.ndarray
-        Boolean mask returned by :func:`strip_fixed_parameters`.
-
-    Returns
-    -------
-    np.ndarray
-        Full parameter vector with fixed values restored.
-    """
-    result = np.array(fixed_values, dtype=np.float64)
-    result[free_mask] = free_result
-    return result
 
 
 def optimize_per_angle_sequential(

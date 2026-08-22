@@ -198,9 +198,13 @@ from xpcsjax.optimization.nlsq.memory import (  # noqa: E402
 
 # Parameter utilities (extracted to parameter_utils.py for reduced complexity)
 from xpcsjax.optimization.nlsq.parameter_utils import (  # noqa: E402
+    ResolvedPhysicalParameters,
     build_parameter_labels as _build_parameter_labels,
     classify_parameter_status as _classify_parameter_status,
+    restore_by_mask_jax,
+    restore_by_mask_numpy,
     sample_xdata as _sample_xdata,
+    strip_by_mask,
     compute_jacobian_stats as _compute_jacobian_stats,
     compute_consistent_per_angle_init as _compute_consistent_per_angle_init,
 )
@@ -803,6 +807,7 @@ class NLSQWrapper(NLSQAdapterBase):
         per_angle_scaling_initial: dict[str, list[float]] | None = None,
         *,
         on_iteration: "Callable[[int, float], None] | None" = None,
+        resolved_physical: ResolvedPhysicalParameters | None = None,
     ) -> OptimizationResult:
         """Execute NLSQ optimization with automatic strategy selection.
 
@@ -969,10 +974,24 @@ class NLSQWrapper(NLSQAdapterBase):
                 config=config,
                 fast_chi2_mode=use_fast_mode,
                 anti_degeneracy_config=ooc_anti_degeneracy_config,
+                resolved_physical=resolved_physical,
             )
 
             execution_time = time.time() - start_time
             uncertainties = _safe_uncertainties_from_pcov(pcov, len(popt))
+            # A fixed physical parameter's true covariance diagonal is exactly
+            # 0 (out_of_core.py's masked pcov build never writes a nonzero
+            # value there), but `_safe_uncertainties_from_pcov` floors ANY
+            # near-zero diagonal entry as a generic numerical-safety net --
+            # force the reported uncertainty back to exactly 0.0 at every
+            # FIXED physical position (mirrors `_post_process_results`'s
+            # equivalent re-zero for the plain NLSQ tail).
+            if resolved_physical is not None and not resolved_physical.free_mask.all():
+                _ooc_init_n_physical = len(resolved_physical.physical_names)
+                uncertainties = np.array(uncertainties, dtype=float)
+                for _i, _free in enumerate(resolved_physical.free_mask):
+                    if not _free:
+                        uncertainties[-_ooc_init_n_physical + _i] = 0.0
             # Effective DOF for reduced chi-squared: in averaged mode the
             # optimizer works on a compressed param vector but the true model
             # DOF is 2*n_phi + n_physical (one contrast+offset per angle).
@@ -1056,11 +1075,50 @@ class NLSQWrapper(NLSQAdapterBase):
 
         if isinstance(stratified_data, UseSequentialOptimization):
             logger.info(f"Using sequential per-angle optimization: {stratified_data.reason}")
-            return self._run_sequential_optimization(
+            seq_initial_params = initial_params
+            seq_bounds = bounds
+            if resolved_physical is not None and not resolved_physical.free_mask.all():
+                # Sequential's own strip_fixed_parameters/restore_fixed_parameters
+                # (strategies/sequential.py) derives its free/fixed mask from
+                # bounds equality (lower == upper), so narrowing bounds is enough
+                # to strip the fixed physical slots out of its solve. But its
+                # restore step re-inserts values FROM `initial_params` at the
+                # fixed positions, not from the bounds -- and this method's raw
+                # `initial_params` was never patched with the configured fixed
+                # value (only `resolved_physical.values_full` was, in
+                # `resolve_optimized_physical_parameters`). Patch both so the
+                # restored fixed value is the configured one, not whatever
+                # placeholder initial guess the fixed slot happened to carry.
+                n_physical = len(resolved_physical.physical_names)
+                if seq_initial_params is not None:
+                    seq_initial_params = np.array(seq_initial_params, dtype=np.float64)
+                # Single `is not None` narrowing for seq_lower/seq_upper's
+                # whole lifetime (assign, mutate in the loop, reassemble) --
+                # the original two-separate-checks-on-the-same-variable
+                # pattern is runtime-safe (seq_bounds is never reassigned
+                # in between) but CodeQL's static analyzer can't correlate
+                # them, flagging both as "may be used before initialized"
+                # (py/uninitialized-local-variable, CI CodeQL gate on PR #57).
+                if seq_bounds is not None:
+                    seq_lower = np.array(seq_bounds[0], dtype=np.float64)
+                    seq_upper = np.array(seq_bounds[1], dtype=np.float64)
+                    for i, free in enumerate(resolved_physical.free_mask):
+                        if not free:
+                            fixed_val = resolved_physical.values_full[i]
+                            if seq_initial_params is not None:
+                                seq_initial_params[-n_physical + i] = fixed_val
+                            seq_lower[-n_physical + i] = fixed_val
+                            seq_upper[-n_physical + i] = fixed_val
+                    seq_bounds = (seq_lower, seq_upper)
+                else:
+                    for i, free in enumerate(resolved_physical.free_mask):
+                        if not free and seq_initial_params is not None:
+                            seq_initial_params[-n_physical + i] = resolved_physical.values_full[i]
+            seq_result = self._run_sequential_optimization(
                 stratified_data.data,
                 config,
-                initial_params,
-                bounds,
+                seq_initial_params,
+                seq_bounds,
                 analysis_mode,
                 per_angle_scaling,
                 logger,
@@ -1070,6 +1128,22 @@ class NLSQWrapper(NLSQAdapterBase):
                 physical_param_names=physical_param_names,
                 per_angle_scaling_initial=per_angle_scaling_initial,
             )
+            if resolved_physical is not None and not resolved_physical.free_mask.all():
+                # combine_angle_results (sequential.py) inverse-variance-weights
+                # per-angle covariances; a fixed slot's per-angle variance is
+                # exactly 0 everywhere, which makes it a "dead" column (no
+                # usable positive variance) that falls back to a per-angle
+                # SCALAR weight instead of reporting exactly-zero combined
+                # variance. Force the reported uncertainty back to exactly 0.0
+                # at every FIXED physical position, mirroring the equivalent
+                # re-zero for the plain and out-of-core tiers above.
+                n_physical = len(resolved_physical.physical_names)
+                unc = np.array(seq_result.uncertainties, dtype=float)
+                for i, free in enumerate(resolved_physical.free_mask):
+                    if not free:
+                        unc[-n_physical + i] = 0.0
+                seq_result.uncertainties = unc
+            return seq_result
 
         # NEW: Check if stratified least_squares should be used (double-chunking fix)
         # Conditions:
@@ -1274,10 +1348,25 @@ class NLSQWrapper(NLSQAdapterBase):
                     config=config,
                     fast_chi2_mode=use_fast_mode,
                     anti_degeneracy_config=recheck_anti_degeneracy_config,
+                    resolved_physical=resolved_physical,
                 )
 
                 execution_time = time.time() - start_time
                 uncertainties = _safe_uncertainties_from_pcov(pcov, len(popt))
+                # A fixed physical parameter's true covariance diagonal is
+                # exactly 0 (out_of_core.py's masked pcov build never writes a
+                # nonzero value there), but `_safe_uncertainties_from_pcov`
+                # floors ANY near-zero diagonal entry as a generic
+                # numerical-safety net -- force the reported uncertainty back
+                # to exactly 0.0 at every FIXED physical position (mirrors
+                # `_post_process_results`'s equivalent re-zero for the plain
+                # NLSQ tail).
+                if resolved_physical is not None and not resolved_physical.free_mask.all():
+                    _ooc_recheck_n_physical = len(resolved_physical.physical_names)
+                    uncertainties = np.array(uncertainties, dtype=float)
+                    for _i, _free in enumerate(resolved_physical.free_mask):
+                        if not _free:
+                            uncertainties[-_ooc_recheck_n_physical + _i] = 0.0
                 # Effective DOF for reduced chi-squared: in averaged mode the
                 # optimizer works on a compressed param vector but the true model
                 # DOF is 2*n_phi + n_physical (one contrast+offset per angle).
@@ -1456,6 +1545,7 @@ class NLSQWrapper(NLSQAdapterBase):
                             logger=logger,
                             hybrid_config=hybrid_streaming_config,
                             anti_degeneracy_config=anti_degeneracy_config,
+                            resolved_physical=resolved_physical,
                         )
 
                         # Compute final residuals for result creation
@@ -1478,6 +1568,17 @@ class NLSQWrapper(NLSQAdapterBase):
                         # Compute effective DOF for reduced_chi_squared.
                         # In averaged mode, popt has compressed length (e.g. 9),
                         # but the true model DOF is 2*n_phi + n_physical (e.g. 53).
+                        # A fixed physical parameter must not consume a DOF either --
+                        # subtract the fixed count from n_physical before computing
+                        # the constrained-mode formula, and override the
+                        # individual-mode None fallback (which would otherwise
+                        # default to len(popt), overcounting by the fixed count
+                        # since popt is restored to full length by this point).
+                        _hs_n_fixed_physical = (
+                            0
+                            if resolved_physical is None
+                            else n_physical - int(resolved_physical.free_mask.sum())
+                        )
                         _hs_n_params_effective: int | None = None
                         if per_angle_scaling and anti_degeneracy_config:
                             from xpcsjax.optimization.nlsq.per_angle_mode import (
@@ -1499,8 +1600,10 @@ class NLSQWrapper(NLSQAdapterBase):
                                     is_laminar_flow=(analysis_mode == AnalysisMode.LAMINAR_FLOW),
                                 ),
                                 n_phi=n_angles_check,
-                                n_physical=n_physical,
+                                n_physical=n_physical - _hs_n_fixed_physical,
                             )
+                        if _hs_n_params_effective is None and _hs_n_fixed_physical > 0:
+                            _hs_n_params_effective = len(popt) - _hs_n_fixed_physical
 
                         # Create result
                         result = self._create_fit_result(
@@ -1522,6 +1625,23 @@ class NLSQWrapper(NLSQAdapterBase):
                             n_params_effective=_hs_n_params_effective,
                             anti_degeneracy_info=info.get("anti_degeneracy"),
                         )
+
+                        # A fixed physical parameter's true covariance diagonal is
+                        # exactly 0 -- `fit_with_stratified_hybrid_streaming`
+                        # already restores it that way. But `_create_fit_result`'s
+                        # `_safe_uncertainties_from_pcov` floors ANY near-zero
+                        # diagonal entry as a numerical-safety net for genuinely
+                        # singular/ill-conditioned solves; it cannot distinguish
+                        # "singular" from "deliberately fixed". Force the reported
+                        # uncertainty back to exactly 0.0 at every FIXED physical
+                        # position, mirroring `_post_process_results`'s equivalent
+                        # re-zero for the plain/out-of-core/stratified-LS tiers.
+                        if resolved_physical is not None and not resolved_physical.free_mask.all():
+                            _hs_unc = np.array(result.uncertainties, dtype=float)
+                            for _hs_i, _hs_free in enumerate(resolved_physical.free_mask):
+                                if not _hs_free:
+                                    _hs_unc[-n_physical + _hs_i] = 0.0
+                            result.uncertainties = _hs_unc
 
                         logger.info("=" * 80)
                         logger.info("HYBRID STREAMING OPTIMIZATION COMPLETE")
@@ -1574,6 +1694,7 @@ class NLSQWrapper(NLSQAdapterBase):
                     anti_degeneracy_config=anti_degeneracy_config,
                     nlsq_config_dict=nlsq_config_dict,
                     analysis_mode=analysis_mode,
+                    resolved_physical=resolved_physical,
                 )
 
                 # Compute final residuals for result creation
@@ -1641,6 +1762,24 @@ class NLSQWrapper(NLSQAdapterBase):
                     n_params_effective=_sls_n_params_effective,
                     anti_degeneracy_info=info.get("anti_degeneracy"),
                 )
+
+                # A fixed physical parameter's true covariance diagonal is
+                # exactly 0 -- `fit_with_stratified_least_squares` already
+                # restores it that way. But `_create_fit_result`'s
+                # `_safe_uncertainties_from_pcov` floors ANY near-zero
+                # diagonal entry as a numerical-safety net for genuinely
+                # singular/ill-conditioned solves; it cannot distinguish
+                # "singular" from "deliberately fixed". Force the reported
+                # uncertainty back to exactly 0.0 at every FIXED physical
+                # position, mirroring `_post_process_results`'s equivalent
+                # re-zero for the plain/out-of-core tiers.
+                if resolved_physical is not None and not resolved_physical.free_mask.all():
+                    _sls_n_physical = len(resolved_physical.physical_names)
+                    _sls_unc = np.array(result.uncertainties, dtype=float)
+                    for _sls_i, _sls_free in enumerate(resolved_physical.free_mask):
+                        if not _sls_free:
+                            _sls_unc[-_sls_n_physical + _sls_i] = 0.0
+                    result.uncertainties = _sls_unc
 
                 logger.info("=" * 80)
                 logger.info("STRATIFIED LEAST-SQUARES COMPLETE")
@@ -2079,6 +2218,82 @@ class NLSQWrapper(NLSQAdapterBase):
         else:
             wrapped_residual_fn = solver_residual_fn
 
+        # Fixed/active physical parameters (Task 3): strip the fixed physical
+        # slots out of the optimizer-facing vector/bounds/labels/x_scale, and
+        # re-wrap the residual so the solver-facing closure keeps operating on
+        # a full-length physical vector underneath. `resolved_physical=None`
+        # (every caller not yet updated by this plan) is a complete no-op.
+        _phys_free_mask: np.ndarray | None = None
+        # Full-length pre-solve physical vector (fixed slots already carrying
+        # their override value via `resolved_physical.values_full`), saved
+        # BEFORE `validated_params` is stripped down to the free-only
+        # optimizer vector below. `_post_process_results` needs this -- not
+        # the stripped `validated_params` -- to compare against the
+        # already-restored (full-length) `popt` for `params_changed`; comparing
+        # the stripped and restored vectors directly is a shape mismatch.
+        presolve_params_physical = validated_params
+        if resolved_physical is not None and not resolved_physical.free_mask.all():
+            n_physical = len(resolved_physical.physical_names)
+            _phys_free_mask = resolved_physical.free_mask
+            phys_slice = validated_params[-n_physical:]
+            presolve_params_physical = np.concatenate(
+                [validated_params[:-n_physical], resolved_physical.values_full]
+            )
+            validated_params = np.concatenate(
+                [validated_params[:-n_physical], strip_by_mask(phys_slice, _phys_free_mask)]
+            )
+            nlsq_bounds = (
+                np.concatenate(
+                    [
+                        nlsq_bounds[0][:-n_physical],
+                        strip_by_mask(nlsq_bounds[0][-n_physical:], _phys_free_mask),
+                    ]
+                ),
+                np.concatenate(
+                    [
+                        nlsq_bounds[1][:-n_physical],
+                        strip_by_mask(nlsq_bounds[1][-n_physical:], _phys_free_mask),
+                    ]
+                ),
+            )
+            param_labels = param_labels[:-n_physical] + [
+                name
+                for name, free in zip(
+                    resolved_physical.physical_names, _phys_free_mask, strict=True
+                )
+                if free
+            ]
+            # x_scale_value defaults to the STRING "jac" -- only a numeric
+            # sequence (array or a manual list/tuple from config x_scale) needs
+            # reducing.
+            if isinstance(x_scale_value, (np.ndarray, list, tuple)):
+                x_scale_value = np.asarray(x_scale_value, dtype=np.float64)
+                x_scale_value = np.concatenate(
+                    [
+                        x_scale_value[:-n_physical],
+                        strip_by_mask(x_scale_value[-n_physical:], _phys_free_mask),
+                    ]
+                )
+            _fixed_physical_full = resolved_physical.values_full
+            _base_wrapped_residual_fn = wrapped_residual_fn
+
+            # The solver-facing closure signature is f(xdata, *params) -- xdata
+            # FIRST, physical params UNPACKED as individual scalar args (see
+            # `_create_residual_function`'s docstring and the call site at
+            # `base_residual_fn(xdata, *popt)` in `_post_process_results`).
+            def _stripped_wrapped_residual_fn(xdata, *params):  # noqa: ANN001, ANN002, ANN202
+                n_prefix = len(params) - int(_phys_free_mask.sum())
+                params_array = jnp.stack(params[n_prefix:])
+                full_physical = restore_by_mask_jax(
+                    params_array,
+                    _fixed_physical_full,
+                    _phys_free_mask,
+                )
+                full_params = (*params[:n_prefix], *[full_physical[i] for i in range(n_physical)])
+                return _base_wrapped_residual_fn(xdata, *full_params)
+
+            wrapped_residual_fn = _stripped_wrapped_residual_fn
+
         # Step 7: Select optimization strategy using memory-based selection
         # Uses unified select_nlsq_strategy() instead of deprecated DatasetSizeStrategy
         n_parameters = len(validated_params)
@@ -2140,15 +2355,18 @@ class NLSQWrapper(NLSQAdapterBase):
         # observational). Returns (None, None) when the gradient_monitoring gate
         # is disabled, leaving the solve unchanged. The monitor watches the
         # homodyne per-angle-FIRST layout and feeds NLSQ's curve_fit callback.
+        _n_physical_free = (
+            int(_phys_free_mask.sum()) if _phys_free_mask is not None else len(physical_param_names)
+        )
         _l4_monitor, _l4_callback = _build_homodyne_l4_callback(
             config=config,
-            solver_residual_fn=solver_residual_fn,
+            solver_residual_fn=wrapped_residual_fn,
             xdata=xdata,
             ydata=ydata,
             validated_params=validated_params,
             per_angle_scaling=per_angle_scaling,
             n_phi=n_phi_unique,
-            n_physical=len(physical_param_names),
+            n_physical=_n_physical_free,
             on_iteration=on_iteration,
         )
 
@@ -2170,6 +2388,29 @@ class NLSQWrapper(NLSQAdapterBase):
                 sigma=sigma_for_solver,
             )
         )
+
+        # Restore fixed physical parameters into the full-length popt/pcov
+        # BEFORE any inverse-transform / residual code (which expects the
+        # full-length vector) runs.
+        if (
+            resolved_physical is not None
+            and _phys_free_mask is not None
+            and not _phys_free_mask.all()
+        ):
+            _n_physical_full = len(resolved_physical.physical_names)
+            n_prefix = len(popt) - int(_phys_free_mask.sum())
+            full_physical = restore_by_mask_numpy(
+                popt[n_prefix:], resolved_physical.values_full, _phys_free_mask
+            )
+            popt = np.concatenate([popt[:n_prefix], full_physical])
+            if pcov is not None:
+                n_full = n_prefix + _n_physical_full
+                full_cov = np.zeros((n_full, n_full))
+                free_idx = list(range(n_prefix)) + [
+                    n_prefix + i for i, free in enumerate(_phys_free_mask) if free
+                ]
+                full_cov[np.ix_(free_idx, free_idx)] = pcov
+                pcov = full_cov
 
         # L4: assemble the gradient_monitor diagnostics block from the monitor.
         # Strictly diagnostic — attached under the same ``gradient_monitor`` key
@@ -2201,6 +2442,8 @@ class NLSQWrapper(NLSQAdapterBase):
             info=info,
             transform_state=transform_state,
             validated_params=validated_params,
+            presolve_params_physical=presolve_params_physical,
+            resolved_physical=resolved_physical,
             residual_counter=residual_counter,
             base_residual_fn=base_residual_fn,
             xdata=xdata,
@@ -2307,6 +2550,8 @@ class NLSQWrapper(NLSQAdapterBase):
         info: dict[str, Any],
         transform_state: Any,
         validated_params: np.ndarray,
+        presolve_params_physical: np.ndarray,
+        resolved_physical: ResolvedPhysicalParameters | None,
         residual_counter: Any,
         base_residual_fn: Callable[..., np.ndarray],
         xdata: np.ndarray,
@@ -2482,12 +2727,16 @@ class NLSQWrapper(NLSQAdapterBase):
         function_evals = iterations
         cost_reduction = (initial_cost - final_cost) / initial_cost if initial_cost > 0 else 0
         # popt is already inverse-transformed to physical space above (when
-        # transform_state is truthy); validated_params is still the pre-solve x0
-        # in TRANSFORM/solver space (forward-transformed by the caller before the
-        # solve). Compare both in physical space, or params_changed can spuriously
-        # read True/False just from the parameterization mismatch, not real motion.
+        # transform_state is truthy) AND already restored to full physical
+        # length (when a resolver stripped fixed physical slots for the
+        # solve). `presolve_params_physical` is the matching full-length,
+        # pre-solve counterpart -- unlike `validated_params`, which stays in
+        # its STRIPPED, solver-facing shape when a resolver was used, and
+        # would shape-mismatch against the now-restored `popt` here. Compare
+        # both in physical space, or params_changed can spuriously read
+        # True/False just from the parameterization mismatch, not real motion.
         initial_params_physical = apply_inverse_shear_transforms_to_vector(
-            validated_params,
+            presolve_params_physical,
             transform_state,
         )
         params_changed = not np.allclose(popt, initial_params_physical, rtol=1e-8)
@@ -2550,6 +2799,24 @@ class NLSQWrapper(NLSQAdapterBase):
             diagnostics_payload=diagnostics_payload if diagnostics_enabled else None,
             n_params_effective=n_dof_effective,
         )
+
+        # A fixed physical parameter's true covariance diagonal is exactly 0 --
+        # `result.covariance` already reflects that (the restore block above never
+        # writes a nonzero value into a fixed slot's diagonal). But
+        # `_safe_uncertainties_from_pcov` (recovery.py) floors ANY near-zero
+        # diagonal entry to sqrt(1e-10) as a numerical-safety net for genuinely
+        # singular/ill-conditioned solves -- it can't distinguish "singular" from
+        # "deliberately fixed" because it isn't given that information. Force the
+        # reported uncertainty back to exactly 0.0 at every FIXED physical
+        # position (physics is always the tail, per the layout contract above);
+        # every other position keeps whatever the floor produced.
+        if resolved_physical is not None and not resolved_physical.free_mask.all():
+            n_physical = len(resolved_physical.physical_names)
+            unc = np.array(result.uncertainties, dtype=float)
+            for i, free in enumerate(resolved_physical.free_mask):
+                if not free:
+                    unc[-n_physical + i] = 0.0
+            result.uncertainties = unc
 
         # Anti-degeneracy: emit the SYMMETRIC top-level activation key set so the
         # laminar in-memory result mirrors heterodyne's contract
@@ -4176,6 +4443,7 @@ class NLSQWrapper(NLSQAdapterBase):
         anti_degeneracy_config: dict | None = None,
         nlsq_config_dict: dict | None = None,
         analysis_mode: AnalysisMode | None = None,
+        resolved_physical: ResolvedPhysicalParameters | None = None,
     ) -> tuple[np.ndarray, np.ndarray, dict]:
         """Fit using NLSQ's least_squares() with stratified residual function."""
         return fit_with_stratified_least_squares(
@@ -4189,6 +4457,7 @@ class NLSQWrapper(NLSQAdapterBase):
             anti_degeneracy_config=anti_degeneracy_config,
             nlsq_config_dict=nlsq_config_dict,
             analysis_mode=analysis_mode,
+            resolved_physical=resolved_physical,
         )
 
     def _fit_with_out_of_core_accumulation(
@@ -4203,6 +4472,7 @@ class NLSQWrapper(NLSQAdapterBase):
         config: Any,
         fast_chi2_mode: bool = False,
         anti_degeneracy_config: dict | None = None,
+        resolved_physical: ResolvedPhysicalParameters | None = None,
     ) -> tuple[np.ndarray, np.ndarray, dict]:
         """Fit using Out-of-Core Global Accumulation for massive datasets."""
         return fit_with_out_of_core_accumulation(
@@ -4216,6 +4486,7 @@ class NLSQWrapper(NLSQAdapterBase):
             config=config,
             fast_chi2_mode=fast_chi2_mode,
             anti_degeneracy_config=anti_degeneracy_config,
+            resolved_physical=resolved_physical,
         )
 
     def _fit_with_stratified_hybrid_streaming(
@@ -4228,6 +4499,7 @@ class NLSQWrapper(NLSQAdapterBase):
         logger: Any,
         hybrid_config: dict | None = None,
         anti_degeneracy_config: dict | None = None,
+        resolved_physical: ResolvedPhysicalParameters | None = None,
     ) -> tuple[np.ndarray, np.ndarray, dict]:
         """Fit using NLSQ AdaptiveHybridStreamingOptimizer for large datasets."""
         return fit_with_stratified_hybrid_streaming(
@@ -4239,6 +4511,7 @@ class NLSQWrapper(NLSQAdapterBase):
             logger=logger,
             hybrid_config=hybrid_config,
             anti_degeneracy_config=anti_degeneracy_config,
+            resolved_physical=resolved_physical,
         )
 
     def _create_fit_result(

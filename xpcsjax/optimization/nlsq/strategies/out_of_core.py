@@ -17,6 +17,7 @@ from typing import Any
 
 import numpy as np
 
+from xpcsjax.optimization.nlsq.parameter_utils import ResolvedPhysicalParameters
 from xpcsjax.optimization.nlsq.strategies.chunking import (
     calculate_adaptive_chunk_size,
     get_stratified_chunk_iterator,
@@ -68,6 +69,7 @@ def fit_with_out_of_core_accumulation(
     config: Any,
     fast_chi2_mode: bool = False,
     anti_degeneracy_config: dict | None = None,
+    resolved_physical: ResolvedPhysicalParameters | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     """Fit using Out-of-Core Global Accumulation for massive datasets.
 
@@ -104,6 +106,11 @@ def fit_with_out_of_core_accumulation(
         ``constant_scaling_threshold`` keys are consulted, to pick the effective
         parameter count used for covariance DOF; the anti-degeneracy *layers*
         are not run on this path.
+    resolved_physical : ResolvedPhysicalParameters, optional
+        Free/fixed split for the trailing physical-parameter slice. A fixed
+        physical slot is pinned to its configured value and masked out of
+        every Levenberg-Marquardt step and the covariance solve (Task 7c);
+        ``None`` (or an all-free mask) is a complete no-op.
 
     Returns
     -------
@@ -185,6 +192,33 @@ def fit_with_out_of_core_accumulation(
     n_points = len(phi_flat)
     n_params = len(initial_params)
     n_angles = len(np.unique(phi_flat))
+
+    # Fixed physical parameters (Task 7c). `compute_chunk_accumulators`
+    # computes its Jacobian via `jax.jacfwd(r_fn)(p)` INSIDE its own
+    # `@jax.jit` boundary, w.r.t. its own bound argument `p` -- wrapping the
+    # *call* with a restore closure (the pattern the plain NLSQ tail uses)
+    # cannot change what that Jacobian is differentiated against, since no
+    # external autodiff call chains through it. Instead: keep `params_curr`
+    # full-length everywhere (so the physics kernels always see a correctly
+    # laid-out vector), and mask the returned (J^T J, J^T r) down to the free
+    # submatrix before every LM step / covariance solve. This is exact --
+    # `jax.jacfwd` builds each Jacobian column independently, so
+    # `(J^T J)[free, free] == J[:, free]^T @ J[:, free]` and dropping a
+    # column is identical to never differentiating along it.
+    free_idx: np.ndarray | None = None
+    if resolved_physical is not None and not resolved_physical.free_mask.all():
+        n_physical_names = len(resolved_physical.physical_names)
+        # Pin every fixed physical slot to its configured value before the
+        # optimizer (or the physics kernels) ever see it.
+        initial_params = np.concatenate(
+            [
+                np.asarray(initial_params[:-n_physical_names], dtype=np.float64),
+                resolved_physical.values_full,
+            ]
+        )
+        full_free_mask = np.ones(n_params, dtype=bool)
+        full_free_mask[-n_physical_names:] = resolved_physical.free_mask
+        free_idx = np.where(full_free_mask)[0]
 
     chunk_size = calculate_adaptive_chunk_size(
         total_points=n_points,
@@ -444,6 +478,44 @@ def fit_with_out_of_core_accumulation(
             jtj_np, jtr_np, chi2_total, _ = accumulate_chunks_sequential(chunk_results)
         return jnp.asarray(jtj_np), jnp.asarray(jtr_np), chi2_total, acc_count
 
+    def _active_jtj_jtr(full_JtJ: Any, full_Jtr: Any) -> tuple[Any, Any]:
+        """Slice (J^T J, J^T r) down to the free-parameter submatrix.
+
+        A no-op (returns the inputs unchanged) when no physical parameter is
+        fixed. Exact per the Task 7c note above `free_idx`.
+        """
+        if free_idx is None:
+            return full_JtJ, full_Jtr
+        free_idx_jnp = jnp.asarray(free_idx)
+        return full_JtJ[free_idx_jnp][:, free_idx_jnp], full_Jtr[free_idx_jnp]
+
+    def _embed_step(active_step: Any) -> Any:
+        """Embed a free-only LM step into a full-length step.
+
+        Zeros elsewhere so a fixed physical slot never moves.
+        """
+        if free_idx is None:
+            return active_step
+        return jnp.zeros(n_params).at[jnp.asarray(free_idx)].set(active_step)
+
+    def _pcov_from_active_jtj(active_JtJ: Any, chi2: float, count: int) -> np.ndarray:
+        """Invert the free-submatrix Hessian into a full-length covariance.
+
+        Zeros on every fixed row/column -- exactly 0 uncertainty, matching
+        the plain NLSQ tail's contract.
+        """
+        s2 = float(chi2) / max(count - n_params_effective, 1)
+        try:
+            active_pcov = s2 * np.linalg.inv(np.array(active_JtJ))
+        except np.linalg.LinAlgError:
+            log.warning("Singular J^T J in OOC - using pseudo-inverse for covariance")
+            active_pcov = s2 * np.linalg.pinv(np.array(active_JtJ))
+        if free_idx is None:
+            return active_pcov
+        full_pcov = np.zeros((n_params, n_params))
+        full_pcov[np.ix_(free_idx, free_idx)] = active_pcov
+        return full_pcov
+
     # Optimization Loop
     log.info(f"Starting Out-of-Core Loop (Max iter: {max_iter})...")
 
@@ -476,19 +548,26 @@ def fit_with_out_of_core_accumulation(
             # Robust Levenberg-Marquardt Step Loop
             step_accepted = False
 
+            # Reduce to the free-parameter submatrix (Task 7c; a no-op when
+            # no physical parameter is fixed) BEFORE the finite check, so a
+            # fixed slot's (irrelevant, never-stepped) Jacobian column can't
+            # spuriously abort a fit that's actually fine on the free
+            # directions.
+            active_JtJ, active_Jtr = _active_jtj_jtr(total_JtJ, total_Jtr)
+
             # Check for invalid Jacobian/Residuals: reject any non-finite value
             # (NaN OR Inf) in EITHER the gradient vector or the Hessian. The
             # prior asymmetric check (NaN-only on Jtr, Inf-only on JtJ) let a
             # NaN Hessian / Inf gradient slip past the i==0 hard-stop and
             # silently poison the covariance solve below.
-            if not (jnp.all(jnp.isfinite(total_Jtr)) and jnp.all(jnp.isfinite(total_JtJ))):
+            if not (jnp.all(jnp.isfinite(active_Jtr)) and jnp.all(jnp.isfinite(active_JtJ))):
                 log.warning("Gradient/Hessian contains NaNs/Infs. Checking params.")
                 if i == 0:
                     raise RuntimeError("Initial parameters produced invalid gradients.")
                 break_reason = "non_finite_gradient"
                 break
 
-            diag_idx = jnp.diag_indices_from(total_JtJ)
+            diag_idx = jnp.diag_indices_from(active_JtJ)
 
             # Line-search baseline measured with the SAME estimator as the trial
             # cost. In fast_chi2_mode evaluate_total_chi2 returns a strided+scaled
@@ -499,13 +578,14 @@ def fit_with_out_of_core_accumulation(
             chi2_ref = evaluate_total_chi2(params_curr) if fast_chi2_mode else total_chi2
 
             for _lm_iter in range(10):  # Max dampings per iter
-                solver_matrix = total_JtJ.at[diag_idx].add(lm_lambda * jnp.diag(total_JtJ))
+                solver_matrix = active_JtJ.at[diag_idx].add(lm_lambda * jnp.diag(active_JtJ))
 
                 try:
                     # use lstsq for robustness against singular matrices
-                    step, _, _, _ = jnp.linalg.lstsq(solver_matrix, -total_Jtr, rcond=1e-5)
+                    active_step, _, _, _ = jnp.linalg.lstsq(solver_matrix, -active_Jtr, rcond=1e-5)
+                    step = _embed_step(active_step)
                 except (ValueError, RuntimeError, FloatingPointError):
-                    step = jnp.full_like(total_Jtr, jnp.nan)  # Signal fail
+                    step = jnp.full(n_params, jnp.nan)  # Signal fail
 
                 # Check step validity
                 if jnp.any(jnp.isnan(step)):
@@ -569,14 +649,8 @@ def fit_with_out_of_core_accumulation(
                         # post-step chi2_new/params_curr would report a
                         # covariance for a point it wasn't computed at.
                         conv_JtJ, _conv_Jtr, conv_chi2, conv_count = _accumulate_at(params_curr)
-                        s2 = float(conv_chi2) / max(conv_count - n_params_effective, 1)
-                        try:
-                            pcov = s2 * np.linalg.inv(np.array(conv_JtJ))
-                        except np.linalg.LinAlgError:
-                            log.warning(
-                                "Singular J^T J in OOC - using pseudo-inverse for covariance"
-                            )
-                            pcov = s2 * np.linalg.pinv(np.array(conv_JtJ))
+                        conv_active_JtJ, _ = _active_jtj_jtr(conv_JtJ, _conv_Jtr)
+                        pcov = _pcov_from_active_jtj(conv_active_JtJ, conv_chi2, conv_count)
                         _early_result = (
                             np.array(params_curr),
                             pcov,
@@ -650,10 +724,6 @@ def fit_with_out_of_core_accumulation(
     }
     # pcov = s^2 * (J^T J)^{-1}  where s^2 = RSS / (n - p_effective)
     # Uses n_params_effective for correct DOF in averaged mode.
-    s2 = float(total_chi2) / max(count - n_params_effective, 1)
-    try:
-        pcov = s2 * np.linalg.inv(np.array(total_JtJ))
-    except np.linalg.LinAlgError:
-        log.warning("Singular J^T J in OOC - using pseudo-inverse for covariance")
-        pcov = s2 * np.linalg.pinv(np.array(total_JtJ))
+    final_active_JtJ, _ = _active_jtj_jtr(total_JtJ, _total_Jtr)
+    pcov = _pcov_from_active_jtj(final_active_JtJ, total_chi2, count)
     return np.array(params_curr), pcov, info

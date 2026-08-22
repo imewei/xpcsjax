@@ -12,16 +12,24 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 from nlsq import LeastSquares
 
 from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
     AntiDegeneracyController,
+)
+from xpcsjax.optimization.nlsq.parameter_utils import (
+    ResolvedPhysicalParameters,
+    restore_by_mask_jax,
+    restore_by_mask_numpy,
+    strip_by_mask,
 )
 from xpcsjax.optimization.nlsq.strategies.residual_jit import (
     StratifiedResidualFunctionJIT,
@@ -157,6 +165,7 @@ def fit_with_stratified_least_squares(
     anti_degeneracy_config: dict | None = None,
     nlsq_config_dict: dict | None = None,
     analysis_mode: AnalysisMode | None = None,
+    resolved_physical: ResolvedPhysicalParameters | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     """Fit using NLSQ's least_squares() with stratified residual function.
 
@@ -423,6 +432,46 @@ def fit_with_stratified_least_squares(
                 )
             effective_per_angle_scaling = False
 
+    # =====================================================================
+    # Fixed/active physical parameters: strip the fixed physical slots out
+    # of the optimizer-facing vector/bounds. Physical params are ALWAYS the
+    # trailing ``n_physical`` slice of ``initial_params`` regardless of
+    # scaling mode (individual: [contrast, offset, physical]; averaged:
+    # [contrast_avg, offset_avg, physical]; constant: [physical] alone) --
+    # confirmed by tracing all three branches above, so a single tail-strip
+    # applied AFTER the scaling-mode transform resolves is correct for
+    # every mode. ``resolved_physical=None`` (or an all-free mask) is a
+    # complete no-op.
+    _phys_free_mask: np.ndarray | None = None
+    _fixed_physical_full: np.ndarray | None = None
+    # Full-length pre-strip initial vector, saved for post-solve diagnostics
+    # (`initial_cost`/`params_changed`) that must compare against a
+    # same-shape vector -- comparing the stripped and later-restored popt
+    # directly would be a shape mismatch.
+    _initial_params_full = initial_params
+    if resolved_physical is not None and not resolved_physical.free_mask.all():
+        _phys_free_mask = resolved_physical.free_mask
+        _fixed_physical_full = resolved_physical.values_full
+        phys_slice = initial_params[-n_physical:]
+        initial_params = np.concatenate(
+            [initial_params[:-n_physical], strip_by_mask(phys_slice, _phys_free_mask)]
+        )
+        if bounds is not None:
+            lower, upper = bounds
+            bounds = (
+                np.concatenate(
+                    [lower[:-n_physical], strip_by_mask(lower[-n_physical:], _phys_free_mask)]
+                ),
+                np.concatenate(
+                    [upper[:-n_physical], strip_by_mask(upper[-n_physical:], _phys_free_mask)]
+                ),
+            )
+        log.info(
+            f"Fixed physical parameters active: {n_physical - int(_phys_free_mask.sum())} "
+            f"of {n_physical} physical params fixed; optimizer vector reduced to "
+            f"{len(initial_params)} params"
+        )
+
     log.info("Creating JIT-compatible stratified residual function...")
     residual_fn = StratifiedResidualFunctionJIT(
         stratified_data=chunked_data,  # Use chunked_data with .chunks attribute
@@ -440,6 +489,30 @@ def fit_with_stratified_least_squares(
     # Log diagnostics
     residual_fn.log_diagnostics()
 
+    # Solver-facing residual: when fixed physical parameters are active, the
+    # optimizer only sees the reduced (free-only) vector. This wrapper
+    # restores the full physical tail via `restore_by_mask_jax` (JAX
+    # ``.at[].set()`` -- safe under NLSQ's internal jacfwd trace of `fun`)
+    # before delegating to the original `residual_fn` instance. When no
+    # physical parameters are fixed this is exactly `residual_fn` itself, so
+    # every call site below is byte-identical to the pre-fix behavior.
+    _solver_residual_fn: Callable[[Any], Any]
+    if _phys_free_mask is not None:
+        assert _fixed_physical_full is not None
+        _n_phys_free = int(_phys_free_mask.sum())
+        _base_residual_fn = residual_fn
+        _fixed_physical_tail = _fixed_physical_full
+
+        def _solver_residual_fn(free_params: Any) -> Any:
+            n_prefix = free_params.shape[0] - _n_phys_free
+            full_physical = restore_by_mask_jax(
+                free_params[n_prefix:], _fixed_physical_tail, _phys_free_mask
+            )
+            full_params = jnp.concatenate([free_params[:n_prefix], full_physical])
+            return _base_residual_fn(full_params)
+    else:
+        _solver_residual_fn = residual_fn
+
     # Gradient sanity check (CRITICAL)
     # Verify that gradients are non-zero before starting optimization
     # This catches parameter initialization issues early
@@ -449,7 +522,7 @@ def fit_with_stratified_least_squares(
 
     try:
         # Compute residuals at initial parameters
-        residuals_0 = residual_fn(initial_params)
+        residuals_0 = _solver_residual_fn(initial_params)
         log.info(
             f"Initial residuals: shape={residuals_0.shape}, "
             f"min={float(np.min(residuals_0)):.6e}, "
@@ -473,9 +546,13 @@ def fit_with_stratified_least_squares(
             phys_idx = 2  # averaged: [contrast_avg, offset_avg, D0, ...]
         else:
             phys_idx = 0  # constant: [D0, alpha, ...]
+        # Clamp: a fixed physical parameter can shrink the vector below the
+        # nominal phys_idx computed above (e.g. all-physical-fixed constant
+        # mode leaves an empty optimizer vector on that branch).
+        phys_idx = min(phys_idx, len(initial_params) - 1)
         params_test = np.array(initial_params, copy=True)
         params_test[phys_idx] *= 1.01  # 1% perturbation
-        residuals_1 = residual_fn(params_test)
+        residuals_1 = _solver_residual_fn(params_test)
 
         # Estimate gradient magnitude
         gradient_estimate = float(np.abs(np.sum(residuals_1 - residuals_0)))
@@ -554,7 +631,7 @@ def fit_with_stratified_least_squares(
     from xpcsjax.optimization.nlsq.gradient_monitor import _get_debug_curvefit_callback
 
     _ls_kwargs: dict = dict(
-        fun=residual_fn,
+        fun=_solver_residual_fn,
         x0=initial_params,
         jac=None,  # Use JAX autodiff for Jacobian
         bounds=bounds,  # type: ignore[arg-type]
@@ -606,6 +683,18 @@ def fit_with_stratified_least_squares(
 
                 # BUG-6: Use effective_per_angle_scaling (post anti-degeneracy)
                 # not per_angle_scaling (original config), to match actual param layout.
+                # When fixed physical params are active, `popt`/`bounds` here are
+                # still in the reduced (free-only) physical space -- use the
+                # free-only name list so the log label matches the actual index.
+                _bounds_log_physical_names = (
+                    [
+                        name
+                        for name, free in zip(physical_param_names, _phys_free_mask, strict=True)
+                        if free
+                    ]
+                    if _phys_free_mask is not None
+                    else physical_param_names
+                )
                 if effective_per_angle_scaling:
                     n_angles = residual_fn.n_phi
                     n_scaling = 2 * n_angles
@@ -616,13 +705,15 @@ def fit_with_stratified_least_squares(
                     else:
                         param_idx = i - n_scaling
                         param_name = (
-                            physical_param_names[param_idx]
-                            if param_idx < len(physical_param_names)
+                            _bounds_log_physical_names[param_idx]
+                            if param_idx < len(_bounds_log_physical_names)
                             else f"param_{i}"
                         )
                 else:
                     param_name = (
-                        physical_param_names[i] if i < len(physical_param_names) else f"param_{i}"
+                        _bounds_log_physical_names[i]
+                        if i < len(_bounds_log_physical_names)
+                        else f"param_{i}"
                     )
 
                 log.warning(
@@ -664,10 +755,8 @@ def fit_with_stratified_least_squares(
     _lam_exec_status = "off"
     _lam_layer_outcome: dict[str, Any] | None = None
     if ad_controller is not None and ad_controller.is_enabled and ad_controller.execute_layers:
-        import jax.numpy as jnp
-
         _keep_tol = 1e-3
-        ssr_baseline = float(np.sum(np.asarray(residual_fn(popt), dtype=np.float64) ** 2))
+        ssr_baseline = float(np.sum(np.asarray(_solver_residual_fn(popt), dtype=np.float64) ** 2))
         _reg_mode = str(getattr(ad_controller.config, "regularization_mode", "none"))
         _l3_active = (_reg_mode != "none") and (ad_controller.regularizer is not None)
         _l2_applicable = (
@@ -679,7 +768,7 @@ def fit_with_stratified_least_squares(
                 _reg = ad_controller.regularizer if _l3_active else None
 
                 def _lam_loss_jax(p: jnp.ndarray) -> jnp.ndarray:
-                    r = jnp.asarray(residual_fn(p))
+                    r = jnp.asarray(_solver_residual_fn(p))
                     ssr = jnp.sum(r**2)
                     if _reg is not None:
                         nd = r.shape[0]
@@ -717,7 +806,9 @@ def fit_with_stratified_least_squares(
                 _cand = np.asarray(_hres.x, dtype=np.float64)
                 if bounds is not None:
                     _cand = np.clip(_cand, bounds[0], bounds[1])
-                _cand_ssr = float(np.sum(np.asarray(residual_fn(_cand), dtype=np.float64) ** 2))
+                _cand_ssr = float(
+                    np.sum(np.asarray(_solver_residual_fn(_cand), dtype=np.float64) ** 2)
+                )
                 if _cand_ssr <= ssr_baseline * (1.0 + _keep_tol):
                     popt = _cand
                     _lam_hier_active = True
@@ -764,7 +855,7 @@ def fit_with_stratified_least_squares(
             _lam_exec_status = "no_layers_configured"
 
     # Compute final residuals first (needed for both cost and covariance scaling)
-    final_residuals = residual_fn(popt)
+    final_residuals = _solver_residual_fn(popt)
     final_cost = float(np.sum(final_residuals**2))
     n_data = len(final_residuals)
     n_params = len(popt)
@@ -775,7 +866,11 @@ def fit_with_stratified_least_squares(
         and ad_controller.is_enabled
         and ad_controller.use_averaged_scaling
     ):
-        n_params_effective = 2 * n_phi + n_physical
+        # A fixed physical parameter does not consume a degree of freedom --
+        # use the free physical count when masking is active (matches the
+        # `else` branch below, which already reflects this via `len(popt)`).
+        _n_physical_dof = int(_phys_free_mask.sum()) if _phys_free_mask is not None else n_physical
+        n_params_effective = 2 * n_phi + _n_physical_dof
     else:
         n_params_effective = n_params
 
@@ -811,7 +906,7 @@ def fit_with_stratified_least_squares(
             )
             pcov = np.eye(len(popt)) * s2
         else:
-            jac_fn = jax.jacfwd(residual_fn)
+            jac_fn = jax.jacfwd(_solver_residual_fn)
             J = jac_fn(popt)
             J = np.asarray(J)
 
@@ -826,6 +921,27 @@ def fit_with_stratified_least_squares(
             f"Covariance scaling: s^2={s2:.6e} (n_data={n_data_real}, "
             f"n_params_effective={n_params_effective})"
         )
+
+    # Restore fixed physical parameters into the full-length popt/pcov BEFORE
+    # any of the downstream scaling-mode expansion/diagnostic code (which
+    # assumes ``len(popt)`` spans the full ``n_physical`` physical block).
+    # Fixed slots get a zero row/column in pcov (exact-zero uncertainty
+    # invariant), not an approximated small variance.
+    if _phys_free_mask is not None:
+        assert _fixed_physical_full is not None
+        n_prefix = len(popt) - int(_phys_free_mask.sum())
+        full_physical = restore_by_mask_numpy(
+            popt[n_prefix:], _fixed_physical_full, _phys_free_mask
+        )
+        popt = np.concatenate([popt[:n_prefix], full_physical])
+        if pcov is not None:
+            n_full = n_prefix + n_physical
+            full_cov = np.zeros((n_full, n_full))
+            free_idx = list(range(n_prefix)) + [
+                n_prefix + i for i, free in enumerate(_phys_free_mask) if free
+            ]
+            full_cov[np.ix_(free_idx, free_idx)] = pcov
+            pcov = full_cov
 
     # Extract convergence information
     success = result.get("success", False)
@@ -846,11 +962,15 @@ def fit_with_stratified_least_squares(
             f"(converged={_lam_layer_outcome['success']})"
         )
 
-    # Determine if optimization actually improved
-    initial_residuals = residual_fn(initial_params)
+    # Determine if optimization actually improved. Compare against the
+    # full-length `_initial_params_full` (saved before the physical strip),
+    # not the reduced `initial_params` -- `popt` was restored to full
+    # length above, so comparing it to the still-reduced `initial_params`
+    # would be a shape mismatch.
+    initial_residuals = residual_fn(_initial_params_full)
     initial_cost = float(np.sum(initial_residuals**2))
     cost_reduction = (initial_cost - final_cost) / initial_cost if initial_cost > 0 else 0
-    params_changed = not np.allclose(popt, initial_params, rtol=1e-8)
+    params_changed = not np.allclose(popt, _initial_params_full, rtol=1e-8)
 
     # Log results
     log.info("=" * 80)

@@ -576,6 +576,12 @@ class ParameterManager:
             Configured manager wrapping a ParameterSpace built from ``config``.
         """
         space = ParameterSpace.from_config(config)
+        if space.n_varying == 0:
+            raise ValueError(
+                "Nothing left to optimize: active_parameters/fixed_parameters "
+                "combine to leave zero varying parameters (physics and "
+                "scaling combined). Free at least one parameter."
+            )
         return cls(space=space)
 
     def get_group_values(self, group: str) -> dict[str, float]:

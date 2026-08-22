@@ -76,6 +76,12 @@ from xpcsjax.optimization.nlsq.adapter_base import (
     PER_ANGLE_SCALING_REMOVED_MSG,
     NLSQAdapterBase,
 )
+from xpcsjax.optimization.nlsq.parameter_utils import (
+    ResolvedPhysicalParameters,
+    restore_by_mask_jax,
+    restore_by_mask_numpy,
+    strip_by_mask,
+)
 from xpcsjax.optimization.nlsq.result_builder import compute_uncertainties
 from xpcsjax.optimization.nlsq.results import OptimizationResult
 from xpcsjax.utils.logging import get_logger
@@ -1265,6 +1271,7 @@ class NLSQAdapter(NLSQAdapterBase):
         shear_transforms: dict[str, Any] | None = None,
         per_angle_scaling_initial: dict[str, list[float]] | None = None,
         anti_degeneracy_controller: Any | None = None,
+        resolved_physical: ResolvedPhysicalParameters | None = None,
     ) -> OptimizationResult:
         """Execute NLSQ optimization using the ``CurveFit`` class.
 
@@ -1347,6 +1354,50 @@ class NLSQAdapter(NLSQAdapterBase):
             n_phi=n_phi,
         )
 
+        # Fixed/active physical parameters: strip the fixed physical slots out
+        # of the optimizer-facing vector/bounds, and re-wrap the model
+        # function so the solver-facing closure keeps operating on a
+        # full-length physical vector underneath. `resolved_physical=None`
+        # (every caller not yet updated by this plan) is a complete no-op.
+        _phys_free_mask: np.ndarray | None = None
+        if resolved_physical is not None and not resolved_physical.free_mask.all():
+            import jax.numpy as jnp
+
+            n_physical = len(resolved_physical.physical_names)
+            _phys_free_mask = resolved_physical.free_mask
+            initial_params = np.concatenate(
+                [
+                    np.asarray(initial_params)[:-n_physical],
+                    strip_by_mask(np.asarray(initial_params)[-n_physical:], _phys_free_mask),
+                ]
+            )
+            bounds = (
+                np.concatenate(
+                    [
+                        np.asarray(bounds[0])[:-n_physical],
+                        strip_by_mask(np.asarray(bounds[0])[-n_physical:], _phys_free_mask),
+                    ]
+                ),
+                np.concatenate(
+                    [
+                        np.asarray(bounds[1])[:-n_physical],
+                        strip_by_mask(np.asarray(bounds[1])[-n_physical:], _phys_free_mask),
+                    ]
+                ),
+            )
+            _fixed_physical_full = resolved_physical.values_full
+            _base_model_func = model_func
+
+            def _stripped_model_func(x, *params):  # noqa: ANN001, ANN002, ANN202
+                n_prefix = len(params) - int(_phys_free_mask.sum())
+                full_physical = restore_by_mask_jax(
+                    jnp.asarray(params[n_prefix:]), _fixed_physical_full, _phys_free_mask
+                )
+                full_params = (*params[:n_prefix], *[full_physical[i] for i in range(n_physical)])
+                return _base_model_func(x, *full_params)
+
+            model_func = _stripped_model_func
+
         # Select workflow
         workflow_config = self._select_workflow(n_data, n_params)
         logger.debug("Selected workflow: %s", workflow_config)
@@ -1417,6 +1468,34 @@ class NLSQAdapter(NLSQAdapterBase):
                 info = dict(result) if isinstance(result, dict) else {}
             else:
                 raise TypeError(f"Unexpected result type: {type(result)}")
+
+            # Restore fixed physical parameters into the full-length popt/pcov
+            # before any downstream code (which expects the full-length
+            # vector) runs. Operates on the local popt/pcov only -- `result`
+            # itself is never mutated.
+            if (
+                resolved_physical is not None
+                and _phys_free_mask is not None
+                and not _phys_free_mask.all()
+            ):
+                n_physical = len(resolved_physical.physical_names)
+                n_prefix = len(popt) - int(_phys_free_mask.sum())
+                popt = np.concatenate(
+                    [
+                        popt[:n_prefix],
+                        restore_by_mask_numpy(
+                            popt[n_prefix:], resolved_physical.values_full, _phys_free_mask
+                        ),
+                    ]
+                )
+                if pcov is not None:
+                    n_full = n_prefix + n_physical
+                    full_cov = np.zeros((n_full, n_full))
+                    free_idx = list(range(n_prefix)) + [
+                        n_prefix + i for i, free in enumerate(_phys_free_mask) if free
+                    ]
+                    full_cov[np.ix_(free_idx, free_idx)] = pcov
+                    pcov = full_cov
 
         except (ValueError, RuntimeError, TypeError, OSError, MemoryError) as e:
             logger.error("NLSQ optimization failed: %s", e)

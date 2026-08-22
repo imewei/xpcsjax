@@ -464,10 +464,15 @@ class ParameterSpace:
                             )
                         space.vary[param_name] = new_vary
 
-        # --- Tied parameters (must run LAST): forces vary[child]=False after
-        # every other overlay (flat/bounds/grouped) has resolved space.vary,
-        # so a later grouped-format vary:true cannot silently undo a tie. ---
+        # --- Tied parameters: forces vary[child]=False after every other
+        # overlay (flat/bounds/grouped) has resolved space.vary, so a later
+        # grouped-format vary:true cannot silently undo a tie. Must run before
+        # _apply_fixed_parameters. ---
         _apply_tied_parameters(space, config)
+
+        # --- Fixed parameters (must run LAST): ensures fixed_parameters wins
+        # against every other overlay (initial/bounds/grouped/tied). ---
+        _apply_fixed_parameters(space, config)
 
         # Stash the original config dict on the instance so callers can
         # round-trip back to YAML. mypy doesn't allow a type annotation on a
@@ -504,38 +509,43 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
     param_names_raw = initial.get("parameter_names")
     param_values = initial.get("values")
 
-    if (
-        not param_names_raw
-        or not isinstance(param_names_raw, list)
-        or param_values is None
-        or not isinstance(param_values, list)
-    ):
-        return
+    has_flat_values = (
+        param_names_raw
+        and isinstance(param_names_raw, list)
+        and param_values is not None
+        and isinstance(param_values, list)
+    )
 
-    # Apply name mapping for legacy/alias names, then heterodyne public→canonical
-    # rename (v_beta→beta, phi0_het→phi0) so template names resolve.
-    param_names = [
-        _INBOUND_NAME_ALIAS.get(m, m)
-        for m in (PARAMETER_NAME_MAPPING.get(str(n), str(n)) for n in param_names_raw)
-    ]
+    if has_flat_values:
+        # has_flat_values already confirmed both are non-None list instances;
+        # mypy can't narrow through the intermediate boolean, so assert here.
+        assert param_names_raw is not None
+        assert param_values is not None
+        # Apply name mapping for legacy/alias names, then heterodyne public→canonical
+        # rename (v_beta→beta, phi0_het→phi0) so template names resolve.
+        param_names = [
+            _INBOUND_NAME_ALIAS.get(m, m)
+            for m in (PARAMETER_NAME_MAPPING.get(str(n), str(n)) for n in param_names_raw)
+        ]
 
-    if len(param_names) != len(param_values):
-        logger.warning(
-            "initial_parameters: parameter_names (%d) and values (%d) length mismatch; "
-            "skipping flat-format override",
-            len(param_names),
-            len(param_values),
-        )
-        return
-
-    for name, value in zip(param_names, param_values, strict=True):
-        if name in space.values:
-            space.values[name] = coerce_finite_float(
-                value, context=f"initial_parameters.values[{name!r}]"
+        if len(param_names) != len(param_values):
+            logger.warning(
+                "initial_parameters: parameter_names (%d) and values (%d) length mismatch; "
+                "skipping flat-format override",
+                len(param_names),
+                len(param_values),
             )
-            logger.debug("initial_parameters: set %s = %.6g (flat-format override)", name, value)
         else:
-            logger.warning("initial_parameters: unknown parameter '%s', skipping", name)
+            for name, value in zip(param_names, param_values, strict=True):
+                if name in space.values:
+                    space.values[name] = coerce_finite_float(
+                        value, context=f"initial_parameters.values[{name!r}]"
+                    )
+                    logger.debug(
+                        "initial_parameters: set %s = %.6g (flat-format override)", name, value
+                    )
+                else:
+                    logger.warning("initial_parameters: unknown parameter '%s', skipping", name)
 
     # active_parameters: if provided, only these parameters vary. An explicit
     # empty list means "fix everything" and must NOT be treated as absent.
@@ -554,6 +564,43 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
             "initial_parameters: active_parameters set %d params to vary",
             len(active_names),
         )
+
+
+def _apply_fixed_parameters(space: ParameterSpace, config: dict[str, Any]) -> None:
+    """Apply ``initial_parameters.fixed_parameters`` to *space*.
+
+    Sets BOTH the vary flag and the value -- expand_varying_to_full() fills
+    non-varying positions from space.values, so the value write is required.
+
+    MUST run LAST in ParameterSpace.from_config()'s call sequence -- after
+    _apply_initial_parameters, _apply_parameter_space_bounds, the grouped
+    parameters.* overlay, and _apply_tied_parameters -- so a fixed parameter
+    always wins regardless of what any other overlay sets. Not scoped to
+    physical-only (grilling round 1 Q7 -- heterodyne's fixed_parameters
+    mirrors active_parameters' existing scope, which already includes
+    contrast/offset via ALL_PARAM_NAMES_WITH_SCALING).
+    """
+    from xpcsjax.config.types import PARAMETER_NAME_MAPPING
+
+    initial = config.get("initial_parameters", {})
+    if not initial or not isinstance(initial, dict):
+        return
+
+    fixed_raw = initial.get("fixed_parameters")
+    if fixed_raw is None or not isinstance(fixed_raw, dict):
+        return
+
+    for name, value in fixed_raw.items():
+        mapped = PARAMETER_NAME_MAPPING.get(str(name), str(name))
+        canonical = _INBOUND_NAME_ALIAS.get(mapped, mapped)
+        if canonical not in space.values:
+            logger.warning("fixed_parameters: unknown parameter '%s', skipping", name)
+            continue
+        space.values[canonical] = coerce_finite_float(
+            value, context=f"initial_parameters.fixed_parameters[{canonical!r}]"
+        )
+        space.vary[canonical] = False
+        logger.debug("fixed_parameters: fixed %s = %.6g", canonical, value)
 
 
 def _apply_tied_parameters(space: ParameterSpace, config: dict[str, Any]) -> None:
@@ -648,6 +695,24 @@ def _apply_tied_parameters(space: ParameterSpace, config: dict[str, Any]) -> Non
         }
 
     children = set(tied_translated.keys())
+
+    # Extract fixed_parameters from raw config to validate against tied ties.
+    # Must read the raw config dict directly, not space.vary, because
+    # _apply_fixed_parameters hasn't run yet in the new call order
+    # (_apply_fixed_parameters is called AFTER _apply_tied_parameters).
+    from xpcsjax.config.types import PARAMETER_NAME_MAPPING
+
+    fixed_raw = initial.get("fixed_parameters")
+    fixed_names: set[str] = set()
+    if fixed_raw is not None and isinstance(fixed_raw, dict):
+        fixed_names = {
+            _INBOUND_NAME_ALIAS.get(
+                PARAMETER_NAME_MAPPING.get(str(n), str(n)),
+                PARAMETER_NAME_MAPPING.get(str(n), str(n)),
+            )
+            for n in fixed_raw
+        }
+
     for child, parent in tied_translated.items():
         if child not in ALL_PARAM_NAMES:
             raise ValueError(
@@ -666,6 +731,22 @@ def _apply_tied_parameters(space: ParameterSpace, config: dict[str, Any]) -> Non
                 f"tied_parameters: '{parent}' is itself a tied child (tied to "
                 f"'{tied_translated[parent]}') -- chained ties are not supported. "
                 f"Tie '{child}' directly to '{tied_translated[parent]}' instead."
+            )
+        if child in fixed_names:
+            raise ValueError(
+                f"tied_parameters: '{child}' is also listed in fixed_parameters "
+                "-- a tied child's value is derived from its parent every "
+                f"residual evaluation; fixing it independently is a "
+                f"contradiction. Fix '{parent}' instead if you want both pinned."
+            )
+        if parent in fixed_names:
+            raise ValueError(
+                f"tied_parameters: '{child}' is tied to '{parent}', which is "
+                "also listed in fixed_parameters -- fixed_parameters is "
+                "applied AFTER tied_parameters validation, so this would "
+                f"silently freeze '{parent}' out from under an "
+                f"already-validated tie. Tie '{child}' to a non-fixed "
+                f"parameter, or fix '{child}' directly instead."
             )
         if not space.vary.get(parent, False):
             raise ValueError(
