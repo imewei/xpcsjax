@@ -885,7 +885,47 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
 
         popt = np.asarray(hier_result.x, dtype=np.float64)
         n = len(popt)
-        pcov = np.eye(n)  # Hessian covariance is optional; identity placeholder
+
+        # Real Hessian-based Gauss-Newton covariance (mirrors laminar's
+        # BUG-15/H-5 fix at strategies/hybrid_streaming.py:1590-1623). Uses
+        # the pure-JAX scalar loss `_loss_jax` already defined above for the
+        # optimizer's own gradient calls. Any failure along this path --
+        # jax.hessian raising, a non-finite Hessian, inv/pinv raising, or a
+        # non-finite result -- falls back to an identity placeholder +
+        # covariance_is_placeholder=True (single unified except below; a
+        # singular-but-finite Hessian still yields a real pinv-based
+        # covariance and stays non-placeholder). n_data <= n_params is
+        # guarded against division-by-zero the same way laminar's origin
+        # does (max(..., 1)) and is not separately detected as a
+        # placeholder case, matching the "exact mirror of laminar" decision
+        # (spec, "Approaches considered"; see Global Constraints above).
+        n_hier_data = len(y_data)
+        s2_hier = float(hier_result.fun) / max(n_hier_data - n, 1)
+        covariance_is_placeholder = False
+        try:
+            popt_jax = jnp.asarray(popt)
+            H = np.asarray(jax.hessian(_loss_jax)(popt_jax))
+            if not np.all(np.isfinite(H)):
+                raise ValueError("Hessian contains non-finite entries")
+            try:
+                pcov = 2.0 * s2_hier * np.linalg.inv(H)
+            except np.linalg.LinAlgError:
+                logger.warning(
+                    "Singular Hessian in heterodyne L2 path, using pseudo-inverse"
+                )
+                pcov = 2.0 * s2_hier * np.linalg.pinv(H)
+            if not np.all(np.isfinite(pcov)):
+                raise ValueError("Covariance contains non-finite entries")
+        except Exception as e:
+            logger.error(
+                "Hessian covariance failed in heterodyne L2 path (%s); covariance "
+                "is an identity placeholder — reported uncertainties are NOT "
+                "meaningful.",
+                e,
+            )
+            pcov = np.eye(n)
+            covariance_is_placeholder = True
+
         info: dict[str, Any] = {
             "success": bool(hier_result.success),
             "nit": int(hier_result.n_outer_iterations),
@@ -895,7 +935,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
             # evaluations per outer step (physical + per-angle alternations),
             # mirroring laminar's same approximation. Diagnostic only — not exact.
             "function_evaluations": hier_result.n_outer_iterations * 150,
-            "covariance_is_placeholder": True,
+            "covariance_is_placeholder": covariance_is_placeholder,
             "hybrid_streaming_diagnostics": {
                 "phase_iterations": {"phase1": 0, "phase2": hier_result.n_outer_iterations},
                 "warmup_diagnostics": {},

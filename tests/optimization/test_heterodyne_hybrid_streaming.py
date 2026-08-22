@@ -1317,6 +1317,181 @@ def test_streaming_l2_ssr_finite_for_individual():
     assert np.isfinite(info["ssr"]), f"SSR not finite: {info['ssr']}"
 
 
+def test_streaming_l2_real_hessian_covariance_on_success():
+    """L2 hierarchical branch must report a real, well-conditioned Hessian-derived
+    covariance on a normal successful fit -- not the identity placeholder, and not
+    a degenerate all-zero matrix from an exact-zero-residual fixture."""
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        fit_with_stratified_hybrid_streaming_heterodyne,
+    )
+
+    # _make_synthetic_heterodyne generates c2 EXACTLY at the model's initial
+    # parameters (residual ~= 0 by construction). Left un-noised, this collapses
+    # s2 to 0 and the Hessian to rank-deficient (verified during three-brain
+    # review: at n_phi=4, n_t=6 the un-noised Hessian is rank 11/22), giving an
+    # all-zero pcov that would trivially pass "finite" / "not eye" /
+    # "placeholder=False" without exercising the real inv() path. Inject noise
+    # so the fit lands away from the exact optimum and s2 > 0.
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=4, n_t=6)
+    rng = np.random.default_rng(seed=20260821)
+    c2_noisy = c2 + rng.normal(0.0, 1e-3, size=c2.shape)
+
+    strat = build_heterodyne_stratified_data(model, c2_noisy, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+
+    popt, pcov, info = fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={
+            "warmup_iterations": 5,
+            "max_warmup_iterations": 10,
+            "gauss_newton_max_iterations": 5,
+            "verbose": 0,
+        },
+        anti_degeneracy_config={
+            "per_angle_mode": "individual",
+            "hierarchical": {"enable": True, "max_outer_iterations": 2},
+            # NOTE (implementer finding, verified 2026-08-22): L3's default
+            # regularization mode is "relative" (CV-based, uses jnp.std). The
+            # quantile-based per-angle init seeds every angle with the SAME
+            # contrast/offset (all angles are statistically identical in this
+            # synthetic fixture), so each group's std is exactly 0 at init and
+            # stays there through the 2-outer-iteration L2 fit (Stage 2 barely
+            # perturbs it). jnp.std has an unconditional NaN gradient/Hessian
+            # at zero variance (`jax.hessian(jnp.std)([.5]*4)` == all-NaN,
+            # verified directly) -- a pre-existing bug in
+            # xpcsjax/optimization/nlsq/adaptive_regularization.py's CV branch
+            # that is OUT OF SCOPE for this task (only heterodyne_hybrid_streaming.py
+            # and this test file are in scope). Forcing "auto" mode here (which
+            # takes the jnp.var branch instead of jnp.std for n_phi=4 <= 5) is
+            # a real, honest exercise of the new Hessian-covariance code without
+            # tripping the unrelated L3 singularity -- var is polynomial in the
+            # params and has a well-defined Hessian everywhere, including at
+            # zero variance.
+            "regularization": {"mode": "auto"},
+        },
+    )
+
+    n = popt.shape[0]
+    assert pcov.shape == (n, n)
+    assert np.all(np.isfinite(pcov)), "real covariance must be finite"
+    assert not np.allclose(pcov, np.eye(n)), (
+        "pcov must not be the identity placeholder on a successful Hessian solve"
+    )
+    assert not np.allclose(pcov, 0.0), (
+        "pcov must not degenerate to all-zero -- this would indicate the noise "
+        "injection failed to move the fit off the exact-zero-residual point"
+    )
+    assert info["covariance_is_placeholder"] is False
+
+
+def test_streaming_l2_hessian_failure_falls_back_to_placeholder(monkeypatch, caplog):
+    """If jax.hessian raises, the L2 branch must fall back to the identity
+    placeholder, set covariance_is_placeholder=True, and log an ERROR
+    explaining the reported uncertainties are not meaningful."""
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies import (
+        heterodyne_hybrid_streaming as hs,
+    )
+
+    def _raise_hessian(fn):
+        raise RuntimeError("forced hessian failure for test")
+
+    monkeypatch.setattr(hs.jax, "hessian", _raise_hessian)
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=4, n_t=6)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+
+    with caplog.at_level(
+        "ERROR",
+        logger="xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming",
+    ):
+        popt, pcov, info = hs.fit_with_stratified_hybrid_streaming_heterodyne(
+            stratified_data=strat,
+            model=model,
+            physical_param_names=list(model.param_manager.varying_names),
+            initial_params=np.asarray(
+                model.param_manager.get_initial_values(), dtype=np.float64
+            ),
+            bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+            hybrid_config={
+                "warmup_iterations": 5,
+                "max_warmup_iterations": 10,
+                "gauss_newton_max_iterations": 5,
+                "verbose": 0,
+            },
+            anti_degeneracy_config={
+                "per_angle_mode": "individual",
+                "hierarchical": {"enable": True, "max_outer_iterations": 2},
+            },
+        )
+
+    n = popt.shape[0]
+    assert np.array_equal(pcov, np.eye(n))
+    assert info["covariance_is_placeholder"] is True
+    assert any(
+        "identity placeholder" in r.getMessage() and r.levelname == "ERROR"
+        for r in caplog.records
+    ), "expected an ERROR log explaining the covariance is a placeholder"
+
+
+def test_streaming_l2_singular_hessian_uses_pinv(monkeypatch):
+    """A singular Hessian must fall back to pinv and still produce a real
+    (non-placeholder) covariance, not raise or silently degrade to eye(n)."""
+    import jax.numpy as jnp
+
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies import (
+        heterodyne_hybrid_streaming as hs,
+    )
+
+    def _singular_hessian(fn):
+        def _zero_hessian(p):
+            n = p.shape[0]
+            return jnp.zeros((n, n))
+
+        return _zero_hessian
+
+    monkeypatch.setattr(hs.jax, "hessian", _singular_hessian)
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=4, n_t=6)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+
+    popt, pcov, info = hs.fit_with_stratified_hybrid_streaming_heterodyne(
+        stratified_data=strat,
+        model=model,
+        physical_param_names=list(model.param_manager.varying_names),
+        initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+        bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+        hybrid_config={
+            "warmup_iterations": 5,
+            "max_warmup_iterations": 10,
+            "gauss_newton_max_iterations": 5,
+            "verbose": 0,
+        },
+        anti_degeneracy_config={
+            "per_angle_mode": "individual",
+            "hierarchical": {"enable": True, "max_outer_iterations": 2},
+        },
+    )
+
+    n = popt.shape[0]
+    assert np.all(np.isfinite(pcov))
+    assert info["covariance_is_placeholder"] is False
+
+
 def test_streaming_diagnostics_symmetric_keys():
     """Streaming anti_degeneracy block carries the same top-level keys as other paths."""
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
