@@ -1490,7 +1490,7 @@ def test_fixed_wins_over_active_on_conflict():
     assert pm.space.values["D0_ref"] == 3.0
 
 
-def test_fixed_wins_over_LATER_parameter_space_bounds_overlay():
+def test_fixed_wins_over_later_parameter_space_bounds_overlay():
     """v2-review-identified gap: fixed_parameters must win even against
     overlays that run AFTER it in ParameterSpace.from_config()'s call order."""
     config = {
@@ -1572,8 +1572,8 @@ def _apply_fixed_parameters(space: ParameterSpace, config: dict[str, Any]) -> No
 
 - [ ] **Step 5: Run the value/scaling/no-flat-values tests**
 
-Run: `uv run pytest tests/config/test_heterodyne_fixed_parameters.py -k "not LATER" -v`
-Expected: PASS for the first 5. `test_fixed_wins_over_LATER_parameter_space_bounds_overlay` still FAILS — expected, not wired in yet (Task 9).
+Run: `uv run pytest tests/config/test_heterodyne_fixed_parameters.py -k "not later" -v`
+Expected: PASS for the first 5. `test_fixed_wins_over_later_parameter_space_bounds_overlay` still FAILS — expected, not wired in yet (Task 9).
 
 - [ ] **Step 6: Lint and commit**
 
@@ -1617,7 +1617,7 @@ Read `xpcsjax/config/heterodyne_parameter_space.py:341-470` (call sequence) and 
 
 - [ ] **Step 2: Run the overlay-ordering test**
 
-Run: `uv run pytest tests/config/test_heterodyne_fixed_parameters.py::test_fixed_wins_over_LATER_parameter_space_bounds_overlay -v`
+Run: `uv run pytest tests/config/test_heterodyne_fixed_parameters.py::test_fixed_wins_over_later_parameter_space_bounds_overlay -v`
 
 - [ ] **Step 3: Write the tied-child-fixed AND tied-parent-fixed conflict tests**
 

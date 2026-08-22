@@ -2,7 +2,6 @@
 overlay including parameter_space.bounds and grouped parameters, including
 scaling names."""
 
-
 from xpcsjax.config.heterodyne_parameter_manager import ParameterManager
 
 
@@ -56,7 +55,7 @@ def test_fixed_wins_over_active_on_conflict():
     assert pm.space.values["D0_ref"] == 3.0
 
 
-def test_fixed_wins_over_LATER_parameter_space_bounds_overlay():
+def test_fixed_wins_over_later_parameter_space_bounds_overlay():
     """v2-review-identified gap: fixed_parameters must win even against
     overlays that run AFTER it in ParameterSpace.from_config()'s call order."""
     config = {
