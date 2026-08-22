@@ -2317,6 +2317,51 @@ def fit_nlsq_cmaes(
             fixed_contrast_jax = jnp.asarray(fixed_contrast_per_angle)
             fixed_offset_jax = jnp.asarray(fixed_offset_per_angle)
 
+        # ==========================================================================
+        # HONOR fixed_parameters/active_parameters: strip fixed physical
+        # parameters from the optimizer vector ONCE, immediately before
+        # model_for_cmaes is defined (after the shear-weighting block above,
+        # which reads x0's full-length physical tail to find phi0 and must
+        # not see a reduced tail). Physics is always the tail of x0/bounds
+        # regardless of the resolved scaling mode (per-angle, fixed-constant,
+        # averaged, or broadcast).
+        # ==========================================================================
+        from xpcsjax.optimization.nlsq.parameter_utils import (
+            resolve_optimized_physical_parameters,
+            strip_by_mask,
+        )
+
+        physical_names = _get_physical_param_names(analysis_mode)
+        _cmaes_phys_free_mask = None
+        resolved_physical = None
+        if HAS_PARAMETER_MANAGER:
+            resolved_physical = resolve_optimized_physical_parameters(
+                param_manager,
+                physical_names,
+                values_full=x0[-n_physical:],
+                lower_full=bounds[0][-n_physical:],
+                upper_full=bounds[1][-n_physical:],
+            )
+            if not resolved_physical.free_mask.all():
+                _cmaes_phys_free_mask = resolved_physical.free_mask
+                x0 = np.concatenate(
+                    [x0[:-n_physical], strip_by_mask(x0[-n_physical:], _cmaes_phys_free_mask)]
+                )
+                bounds = (
+                    np.concatenate(
+                        [
+                            bounds[0][:-n_physical],
+                            strip_by_mask(bounds[0][-n_physical:], _cmaes_phys_free_mask),
+                        ]
+                    ),
+                    np.concatenate(
+                        [
+                            bounds[1][:-n_physical],
+                            strip_by_mask(bounds[1][-n_physical:], _cmaes_phys_free_mask),
+                        ]
+                    ),
+                )
+
         def model_for_cmaes(xdata_unused: Any, *params: Any) -> Any:
             """JAX-traceable model function wrapper for CMA-ES.
 
@@ -2381,6 +2426,25 @@ def fit_nlsq_cmaes(
             g2_all = offset_per_point + contrast_per_point * g1_all**2
 
             return g2_all
+
+        if _cmaes_phys_free_mask is not None:
+            from xpcsjax.optimization.nlsq.parameter_utils import restore_by_mask_jax
+
+            _base_model_for_cmaes = model_for_cmaes
+            _fixed_physical_full = resolved_physical.values_full
+            _n_physical_cmaes = n_physical
+
+            def model_for_cmaes(xdata_unused: Any, *params: Any) -> Any:
+                n_prefix = len(params) - int(_cmaes_phys_free_mask.sum())
+                params_array = jnp.stack(params)
+                full_physical = restore_by_mask_jax(
+                    params_array[n_prefix:], _fixed_physical_full, _cmaes_phys_free_mask
+                )
+                full_params = (
+                    *params[:n_prefix],
+                    *[full_physical[i] for i in range(_n_physical_cmaes)],
+                )
+                return _base_model_for_cmaes(xdata_unused, *full_params)
 
         # Create xdata placeholder (model_for_cmaes ignores it)
         # Use 1D array to match NLSQ curve_fit's expected shape for refinement
@@ -2560,6 +2624,36 @@ def fit_nlsq_cmaes(
                     )
 
         execution_time = time.time() - start_time
+
+        # ==========================================================================
+        # RESTORE FIXED PHYSICAL PARAMETERS
+        # ==========================================================================
+        # Restore only the FINAL cmaes_result -- after skip/no-skip convergence
+        # AND after Phase 3's result-selection has fully resolved. Phase 3 can
+        # replace cmaes_result wholesale with a still-reduced-length result
+        # built from nlsq_warmstart_params; restoring any earlier would leave
+        # that replacement reduced-length all the way to final_params below.
+        # ==========================================================================
+        if _cmaes_phys_free_mask is not None:
+            from xpcsjax.optimization.nlsq.parameter_utils import restore_by_mask_numpy
+
+            n_prefix = len(cmaes_result.parameters) - int(_cmaes_phys_free_mask.sum())
+            full_popt = restore_by_mask_numpy(
+                cmaes_result.parameters[n_prefix:],
+                resolved_physical.values_full,
+                _cmaes_phys_free_mask,
+            )
+            cmaes_result.parameters = np.concatenate(
+                [cmaes_result.parameters[:n_prefix], full_popt]
+            )
+            if cmaes_result.covariance is not None:
+                n_full = n_prefix + n_physical
+                full_cov = np.zeros((n_full, n_full))
+                free_idx = list(range(n_prefix)) + [
+                    n_prefix + i for i, free in enumerate(_cmaes_phys_free_mask) if free
+                ]
+                full_cov[np.ix_(free_idx, free_idx)] = cmaes_result.covariance
+                cmaes_result.covariance = full_cov
 
         # ==========================================================================
         # EXPAND CONSTANT MODE RESULTS

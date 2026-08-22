@@ -233,3 +233,28 @@ def test_x_scale_map_array_branch_with_fixed_parameter():
     params = np.asarray(result.parameters).ravel()
     d_offset_idx = _physical_index(len(params), _ALL_PHYSICAL_NAMES, "D_offset")
     assert abs(params[d_offset_idx] - 37.5) < 1e-9
+
+
+def test_fixed_parameter_survives_cmaes_fit():
+    """fixed_parameters must survive fit_nlsq_cmaes's own Phase 1 (NLSQ
+    warm-start) / Phase 2 (CMA-ES) / Phase 3 (result-selection) sequence --
+    a distinct engine from fit_nlsq_jax's local path proven in Task 5.
+
+    auto_select is forced off so the fit actually runs through fit_nlsq_cmaes
+    rather than silently falling back to local NLSQ if the synthetic bounds'
+    scale ratio doesn't clear the auto-select threshold -- see
+    _laminar_cmaes_config in test_cmaes_trigger.py for the same pattern.
+    """
+    data = _synthetic_data("laminar_flow")
+    config = _config(
+        "laminar_flow",
+        fixed_parameters={"D_offset": 37.5},
+        extra_top={"optimization": {"nlsq": {"cmaes": {"enable": True, "auto_select": False}}}},
+    )
+    cm = ConfigManager(config_override=config)
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+    params = np.asarray(result.parameters).ravel()
+    d_offset_idx = _physical_index(len(params), _ALL_PHYSICAL_NAMES, "D_offset")
+    assert abs(params[d_offset_idx] - 37.5) < 1e-9
+    if result.uncertainties is not None:
+        assert np.asarray(result.uncertainties).ravel()[d_offset_idx] == 0.0
