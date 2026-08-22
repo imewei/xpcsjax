@@ -1589,7 +1589,14 @@ def fit_nlsq_multistart(
     # Get bounds
     if HAS_PARAMETER_MANAGER:
         param_manager = ParameterManager(config.config, analysis_mode=analysis_mode)
-        bounds_list = param_manager.get_parameter_bounds()
+        # Request the FULL parameter list explicitly: get_parameter_bounds()
+        # with no args defaults to get_all_parameter_names(), which is
+        # active_parameters-filtered and silently omits any excluded
+        # physical parameter -- crashing _bounds_to_arrays below with a
+        # KeyError for that name. Mirrors fit_nlsq_jax's own bounds-building
+        # (this module, ~line 449), which always passes the mode's full
+        # param_names explicitly for the same reason.
+        bounds_list = param_manager.get_parameter_bounds(_get_param_names(analysis_mode))
         bounds_dict = {b["name"]: (b["min"], b["max"]) for b in bounds_list}
     else:
         bounds_dict = _get_parameter_bounds(analysis_mode, param_space)
@@ -1612,10 +1619,30 @@ def fit_nlsq_multistart(
             resolve_optimized_physical_parameters,
         )
 
+        # values_full must be the ACTUAL initial/configured physical values,
+        # not the lower bound -- resolve_optimized_physical_parameters only
+        # overwrites values_full at genuinely fixed_parameters-listed
+        # positions (see its docstring); an active_parameters-excluded
+        # (but not fixed_parameters) position is left exactly as passed in
+        # here, and _SingleFitWorker later restores that slot from it. Using
+        # lower_bounds silently moved an excluded parameter to its lower
+        # bound instead of leaving it at its initial value (dev-suite:
+        # three-brain deep-review finding). `initial_params` here is a
+        # name-keyed dict (see the custom_starts block below, which already
+        # assumes every physical_names entry is present); fall back to the
+        # bounds midpoint when no initial values were provided at all,
+        # mirroring _run_sequential_optimization's identical strategy.
+        if initial_params is not None:
+            physical_values_full = np.array(
+                [initial_params[name] for name in physical_names], dtype=np.float64
+            )
+        else:
+            physical_values_full = (lower_bounds[-n_physical:] + upper_bounds[-n_physical:]) / 2.0
+
         resolved_physical = resolve_optimized_physical_parameters(
             param_manager,
             physical_names,
-            values_full=lower_bounds[-n_physical:],
+            values_full=physical_values_full,
             lower_full=lower_bounds[-n_physical:],
             upper_full=upper_bounds[-n_physical:],
         )
@@ -1866,7 +1893,14 @@ def fit_nlsq_cmaes(
     # Get bounds
     if HAS_PARAMETER_MANAGER:
         param_manager = ParameterManager(config.config, analysis_mode=analysis_mode)
-        bounds_list = param_manager.get_parameter_bounds()
+        # Request the FULL parameter list explicitly: get_parameter_bounds()
+        # with no args defaults to get_all_parameter_names(), which is
+        # active_parameters-filtered and silently omits any excluded
+        # physical parameter -- crashing _bounds_to_arrays below with a
+        # KeyError for that name. Mirrors fit_nlsq_jax's own bounds-building
+        # (this module, ~line 449), which always passes the mode's full
+        # param_names explicitly for the same reason.
+        bounds_list = param_manager.get_parameter_bounds(_get_param_names(analysis_mode))
         bounds_dict = {b["name"]: (b["min"], b["max"]) for b in bounds_list}
     else:
         bounds_dict = _get_parameter_bounds(analysis_mode, param_space)

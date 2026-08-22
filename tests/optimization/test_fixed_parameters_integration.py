@@ -282,6 +282,39 @@ def test_fixed_parameter_survives_multistart_fit():
     assert abs(params[d_offset_idx] - 37.5) < 1e-9
 
 
+def test_restricted_active_parameters_survives_multistart_fit():
+    """An active_parameters-excluded (but NOT fixed_parameters-listed)
+    physical parameter must survive fit_nlsq_multistart at its INITIAL
+    value, not silently move to its lower bound (dev-suite:three-brain
+    deep-review finding on `core.py`'s `fit_nlsq_multistart` ->
+    `resolve_optimized_physical_parameters` call: it previously passed
+    `lower_bounds` as `values_full` instead of the actual initial values,
+    corrupting any active_parameters-excluded slot that wasn't also fixed).
+    """
+    data = _synthetic_data("laminar_flow")
+    active = [
+        "D0",
+        "alpha",
+        "gamma_dot_t0",
+        "beta",
+        "gamma_dot_t_offset",
+        "phi0",
+    ]  # excludes D_offset; D_offset is NOT in fixed_parameters
+    config = _config(
+        "laminar_flow",
+        active_parameters=active,
+        extra_top={"optimization": {"nlsq": {"multi_start": {"enable": True, "n_starts": 3}}}},
+    )
+    cm = ConfigManager(config_override=config)
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+    params = np.asarray(result.parameters).ravel()
+    d_offset_idx = _physical_index(len(params), _ALL_PHYSICAL_NAMES, "D_offset")
+    # 50.0 is TRUE_PHYSICAL_LAMINAR's D_offset initial value (see _config's
+    # default initial_parameters) -- the bug moved this to D_offset's lower
+    # bound instead.
+    assert abs(params[d_offset_idx] - 50.0) < 1e-9
+
+
 def test_fixed_parameter_wiring_reaches_sequential_solver(monkeypatch):
     """fixed_parameters must survive the sequential per-angle tier (Task 7d).
 
@@ -784,14 +817,24 @@ def test_heterodyne_fixed_parameter_survives_real_fit():
 
 
 def test_heterodyne_fixed_scaling_parameter_survives_real_fit():
-    """grilling round 1 Q7 end-to-end: heterodyne can fix a scaling name, unlike homodyne."""
+    """grilling round 1 Q7 end-to-end: heterodyne can fix a scaling name, unlike
+    homodyne -- and the fixed value must actually survive the solve, not just
+    fail to raise (dev-suite:three-brain deep-review Minor finding: the prior
+    version of this test asserted only ``convergence_status is not None``,
+    which would also pass if a bare "contrast" fixed_parameters key silently
+    failed to match anything under the template's default per_angle_mode=
+    "auto" -> "individual" (n_phi=2 < constant_scaling_threshold=3) per-angle
+    "contrast[i]" layout. Forcing per_angle_mode="constant" makes "contrast"/
+    "offset" the actual flat scalar names in play, so a name-matching failure
+    would surface as a wrong fitted value instead of passing silently.
+    """
     from tests.optimization.test_heterodyne_hybrid_streaming import _make_synthetic_heterodyne
     from xpcsjax.optimization.nlsq import fit_nlsq
 
     model, c2, phi = _make_synthetic_heterodyne()
     rng = np.random.default_rng(0)
     c2_noisy = c2 + rng.normal(scale=1e-4, size=c2.shape)
-    contrast, _offset = model.scaling.get_for_angle(0)
+    contrast, offset = model.scaling.get_for_angle(0)
 
     data = {"c2": c2_noisy, "phi": phi}
     cm = ConfigManager(config_override=_heterodyne_config({"contrast": contrast}))
@@ -799,3 +842,28 @@ def test_heterodyne_fixed_scaling_parameter_survives_real_fit():
         data, cm
     )  # must not raise -- homodyne would raise ValueError for this, heterodyne must not
     assert result.convergence_status is not None
+    diagnostics = result.nlsq_diagnostics or {}
+    param_names = list(diagnostics.get("parameter_names") or [])
+    params = np.asarray(result.parameters).ravel()
+    # n_phi=2 < constant_scaling_threshold=3 resolves per_angle_mode='auto'
+    # -> 'individual': a bare "contrast" fixed_parameters key broadcasts to
+    # every per-angle "contrast_i" slot, not a single flat "contrast" name.
+    contrast_indices = [i for i, name in enumerate(param_names) if name.startswith("contrast_")]
+    assert contrast_indices, f"no per-angle contrast_i entries in {param_names}"
+    for idx in contrast_indices:
+        # 1e-4, not 1e-6: unlike a fixed PHYSICAL parameter (bounds narrowed
+        # to an exact point, forcing bit-exact convergence), a fixed
+        # per-angle scaling slot still carries small trf/soft_l1 solver
+        # residual drift at its bound.
+        assert abs(params[idx] - contrast) < 1e-4
+
+    cm_offset = ConfigManager(config_override=_heterodyne_config({"offset": offset}))
+    result_offset = fit_nlsq(data, cm_offset)
+    assert result_offset.convergence_status is not None
+    diagnostics_offset = result_offset.nlsq_diagnostics or {}
+    param_names_offset = list(diagnostics_offset.get("parameter_names") or [])
+    params_offset = np.asarray(result_offset.parameters).ravel()
+    offset_indices = [i for i, name in enumerate(param_names_offset) if name.startswith("offset_")]
+    assert offset_indices, f"no per-angle offset_i entries in {param_names_offset}"
+    for idx in offset_indices:
+        assert abs(params_offset[idx] - offset) < 1e-4
