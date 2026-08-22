@@ -958,12 +958,31 @@ def fit_with_stratified_hybrid_streaming(
     shear_weighting_enabled = shear_weighting_config.get("enable", True)
     shear_weighter: ShearSensitivityWeighting | None = None
 
+    # `_phi0_is_free_for_shear` also gates `shear_weight_update_callback`,
+    # defined much further below in this function -- both read/write the
+    # same enclosing-function-scope name, standard Python closure capture.
+    _phi0_is_free_for_shear = "phi0" in free_physical_names
     if is_laminar_flow and shear_weighting_enabled and n_phi > 3:
         # Get initial phi0 from config or use default
         initial_phi0 = shear_weighting_config.get("initial_phi0", None)
         if initial_phi0 is None:
-            # Try to get from initial parameters
-            initial_phi0 = float(initial_params[-1]) if len(initial_params) > 0 else 0.0
+            # Try to get from initial parameters. `initial_params` here is
+            # still the FULL (pre-strip) vector -- the strip happens later,
+            # after all Layer 1-5 anti-degeneracy object construction -- so
+            # `initial_params[-1]` is phi0 (last physical param) UNLESS phi0
+            # is fixed to a value different from its raw config initial
+            # guess, in which case `initial_params[-1]` is the stale
+            # unfixed guess, not the configured override (dev-suite:
+            # three-brain deep-review finding). `resolved_physical.
+            # values_full`, when available, already carries the correct
+            # value at every position -- the fixed override at fixed slots,
+            # the same raw initial value everywhere else -- so prefer it.
+            if resolved_physical is not None and "phi0" in physical_param_names:
+                initial_phi0 = float(
+                    resolved_physical.values_full[physical_param_names.index("phi0")]
+                )
+            else:
+                initial_phi0 = float(initial_params[-1]) if len(initial_params) > 0 else 0.0
 
         sw_config = ShearWeightingConfig(
             enable=True,
@@ -973,10 +992,23 @@ def fit_with_stratified_hybrid_streaming(
             initial_phi0=initial_phi0,
             normalize=shear_weighting_config.get("normalize", True),
         )
+        # `ShearSensitivityWeighting.update_phi0` is only ever called on the
+        # REDUCED (free-only) parameter vector (via
+        # shear_weight_update_callback, itself only invoked from the L2
+        # hierarchical branch's per-angle-optimized params) -- size it to
+        # n_physical_free and look phi0_index up by name (mirrors the L4
+        # gamma_dot_t0_idx fix above), not the full n_physical / a hardcoded
+        # dense-layout index 6. If phi0 itself is the fixed parameter, it is
+        # absent from `free_physical_names`: phi0_index is left at its
+        # default (unused, since `_phi0_is_free_for_shear` gates the update
+        # callback below to a no-op in that case -- phi0 is pinned to
+        # `initial_phi0`, exactly the configured fixed value, for the whole
+        # solve, which is the correct behavior for a value that never
+        # varies).
         shear_weighter = ShearSensitivityWeighting(
             phi_angles=phi_unique,
-            n_physical=n_physical,
-            phi0_index=6,  # phi0 is last of 7 physical params
+            n_physical=n_physical_free,
+            phi0_index=(free_physical_names.index("phi0") if _phi0_is_free_for_shear else 0),
             config=sw_config,
         )
         logger.info("=" * 60)
@@ -1713,8 +1745,15 @@ def fit_with_stratified_hybrid_streaming(
         # Layer 5: Create callback for shear weight updates
         # Updates weights based on current phi0 estimate at start of each outer iteration
         def shear_weight_update_callback(params: np.ndarray, outer_iter: int) -> None:
-            """Update shear-sensitivity weights based on current phi0."""
-            if shear_weighter_local is not None:
+            """Update shear-sensitivity weights based on current phi0.
+
+            No-op when phi0 itself is the fixed parameter: it is then absent
+            from the REDUCED `params` vector this callback receives, so
+            there is nothing to re-estimate -- the weighter keeps using the
+            `initial_phi0` it was seeded with (the exact configured fixed
+            value), which is correct since phi0 never varies in that case.
+            """
+            if shear_weighter_local is not None and _phi0_is_free_for_shear:
                 shear_weighter_local.update_phi0(params, outer_iter)
 
         assert hierarchical_optimizer is not None  # guarded by use_hierarchical

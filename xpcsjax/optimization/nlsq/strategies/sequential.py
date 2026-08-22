@@ -26,6 +26,7 @@ import numpy as np
 from nlsq import LeastSquares
 
 from xpcsjax.optimization.nlsq.parameter_utils import (
+    restore_by_mask_jax,
     restore_fixed_parameters,
     strip_fixed_parameters,
 )
@@ -918,11 +919,21 @@ def optimize_per_angle_sequential(
         )
         # Wrap residual_func to expand free params back to full params
         # before evaluation, since residual_func uses hard-coded slicing
-        # that expects the full parameter vector
+        # that expects the full parameter vector.
+        #
+        # This closure is JIT-traced (both by NLSQ's own engine.least_squares
+        # in optimize_single_angle, and by this module's _jax_jacobian via
+        # _estimate_initial_jacobian_norms) -- `params` is a JAX tracer in
+        # both call sites, not a concrete array. restore_fixed_parameters
+        # (plain NumPy boolean-mask assignment) cannot accept a tracer and
+        # raises TracerArrayConversionError; restore_by_mask_jax's
+        # `.at[].set()` is JIT-safe and produces an identical result on
+        # concrete arrays too, so it is correct for the zero-length
+        # (all-fixed) fast-path call in optimize_single_angle as well.
         _original_residual = residual_func
 
         def residual_func(params, *args, **kwargs):
-            full_params = restore_fixed_parameters(params, initial_params, free_mask)
+            full_params = restore_by_mask_jax(params, initial_params, free_mask)
             return _original_residual(full_params, *args, **kwargs)
 
     # Optimize each angle

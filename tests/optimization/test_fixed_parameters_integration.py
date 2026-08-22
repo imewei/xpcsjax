@@ -59,7 +59,10 @@ def _synthetic_data(analysis_mode="laminar_flow", n_t=10, n_phi=3, seed=0):
     full_physical = {**dict.fromkeys(_ALL_PHYSICAL_NAMES, 0.0), **true_physical}
     t = np.arange(1, n_t + 1) * DT
     t1, t2 = np.meshgrid(t, t, indexing="ij")
-    phi = np.array([0.0, 45.0, 90.0])[:n_phi]
+    # First 3 entries preserved exactly for every existing n_phi<=3 caller;
+    # extended so n_phi>3 callers (e.g. Layer 5 shear-weighting coverage,
+    # which gates on n_phi>3) get distinct, well-separated angles too.
+    phi = np.array([0.0, 45.0, 90.0, 135.0, 180.0])[:n_phi]
     params_vec = jnp.array([full_physical[name] for name in _ALL_PHYSICAL_NAMES])
     g2 = np.stack(
         [
@@ -235,6 +238,37 @@ def test_x_scale_map_array_branch_with_fixed_parameter():
     assert abs(params[d_offset_idx] - 37.5) < 1e-9
 
 
+def test_fixed_parameter_survives_plain_fit_with_shear_transform():
+    """fixed_parameters must survive the PLAIN in-memory tier with the shear
+    log-transform active, using a fixed value that DIFFERS from the initial
+    guess (dev-suite:review-pr finding: `test_fixed_parameter_survives_
+    sequential_fit_with_shear_transform` fixes gamma_dot_t0 to the SAME
+    value as the synthetic data's initial guess, 0.01, so it can't
+    discriminate "the fix pinned it" from "the solver converged there
+    anyway" -- and it only covers the sequential tier, which threads the
+    fixed value through its own forward-transform correctly).
+
+    The plain in-memory tier had a real bug this test would have caught:
+    `resolved_physical.values_full` (physical space) was spliced directly
+    into the shear-transform-wrapped residual closure and the post-solve
+    `popt` restore, both of which unconditionally inverse-transform their
+    input as if every position were solver space -- so a fixed gamma_dot_t0
+    came back as ``exp(configured_value)`` instead of ``configured_value``.
+    """
+    data = _synthetic_data("laminar_flow")  # TRUE_PHYSICAL_LAMINAR gamma_dot_t0 = 0.01
+    fixed_value = 0.05  # different from 0.01, in registry bounds [1e-6, 0.5]
+    config = _config(
+        "laminar_flow",
+        fixed_parameters={"gamma_dot_t0": fixed_value},
+        extra_top={"optimization": {"nlsq": {"shear_transforms": {"enable_gamma_dot_log": True}}}},
+    )
+    cm = ConfigManager(config_override=config)
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+    params = np.asarray(result.parameters).ravel()
+    gamma_idx = _physical_index(len(params), _ALL_PHYSICAL_NAMES, "gamma_dot_t0")
+    assert abs(params[gamma_idx] - fixed_value) < 1e-9
+
+
 def test_fixed_parameter_survives_cmaes_fit():
     """fixed_parameters must survive fit_nlsq_cmaes's own Phase 1 (NLSQ
     warm-start) / Phase 2 (CMA-ES) / Phase 3 (result-selection) sequence --
@@ -279,6 +313,39 @@ def test_fixed_parameter_survives_multistart_fit():
     assert abs(params[d_offset_idx] - 37.5) < 1e-9
 
 
+def test_restricted_active_parameters_survives_multistart_fit():
+    """An active_parameters-excluded (but NOT fixed_parameters-listed)
+    physical parameter must survive fit_nlsq_multistart at its INITIAL
+    value, not silently move to its lower bound (dev-suite:three-brain
+    deep-review finding on `core.py`'s `fit_nlsq_multistart` ->
+    `resolve_optimized_physical_parameters` call: it previously passed
+    `lower_bounds` as `values_full` instead of the actual initial values,
+    corrupting any active_parameters-excluded slot that wasn't also fixed).
+    """
+    data = _synthetic_data("laminar_flow")
+    active = [
+        "D0",
+        "alpha",
+        "gamma_dot_t0",
+        "beta",
+        "gamma_dot_t_offset",
+        "phi0",
+    ]  # excludes D_offset; D_offset is NOT in fixed_parameters
+    config = _config(
+        "laminar_flow",
+        active_parameters=active,
+        extra_top={"optimization": {"nlsq": {"multi_start": {"enable": True, "n_starts": 3}}}},
+    )
+    cm = ConfigManager(config_override=config)
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+    params = np.asarray(result.parameters).ravel()
+    d_offset_idx = _physical_index(len(params), _ALL_PHYSICAL_NAMES, "D_offset")
+    # 50.0 is TRUE_PHYSICAL_LAMINAR's D_offset initial value (see _config's
+    # default initial_parameters) -- the bug moved this to D_offset's lower
+    # bound instead.
+    assert abs(params[d_offset_idx] - 50.0) < 1e-9
+
+
 def test_fixed_parameter_wiring_reaches_sequential_solver(monkeypatch):
     """fixed_parameters must survive the sequential per-angle tier (Task 7d).
 
@@ -287,36 +354,23 @@ def test_fixed_parameter_wiring_reaches_sequential_solver(monkeypatch):
     `_run_sequential_optimization` (verified live -- the `optimization.nlsq.
     sequential.enable` key the plan brief guessed does not exist).
 
-    The real `optimize_per_angle_sequential` solver hits a pre-existing JAX
-    TracerArrayConversionError under `force_sequential_fallback`, unrelated
-    to Task 7d's own wiring:
+    This test stubs the solver call and inspects exactly what Task 7d's
+    wiring passed into it (bounds narrowed, initial_params patched) --
+    isolating the wiring contract from the solver's own behavior. A real
+    end-to-end solve through this tier (fixed_parameters survives an actual
+    fit, not just a stubbed one) is covered separately by
+    `test_fixed_parameter_survives_sequential_fit`, below.
 
-    - With ZERO fixed_parameters, it reproduces from wrapper.py's own
-      `residual_func` closure (`np.asarray(params, ...)` on a JAX tracer
-      during nlsq's JIT Jacobian trace) -- already documented and worked
-      around the same way in `test_laminar_streaming_diag.py::
-      test_sequential_laminar_emits_symmetric_activation_keys`.
-    - With fixed_parameters present (narrowed/degenerate bounds), it fails
-      EARLIER and for a DIFFERENT reason: sequential.py's own `has_fixed`
-      residual-wrapping branch (`strategies/sequential.py:925`) calls
-      `restore_fixed_parameters` (`parameter_utils.py:213`,
-      `result[free_mask] = free_result`) on a JAX tracer produced by nlsq's
-      JIT Jacobian trace -- numpy boolean-mask assignment cannot accept a
-      tracer, so this raises before wrapper.py's own closure is ever
-      reached (verified live with a direct, non-wrapper.py call to
-      `optimize_per_angle_sequential` using a JAX-safe residual function).
-      Every OTHER tier's `restore_fixed_parameters` call runs post-solve on
-      a concrete numpy result; sequential.py's is the only call site that
-      invokes it DURING a JIT trace, which is what breaks it. This is a
-      real, previously-latent bug in the "existing, tested" mechanism this
-      task's brief was scoped around -- fixing it requires touching
-      sequential.py and/or parameter_utils.py's shared primitive, which is
-      out of scope for Task 7d (see the task report for the full writeup).
-
-    So this stubs the solver call (as the streaming-diag test does) and
-    inspects exactly what Task 7d's wiring passed into it, rather than
-    asserting on a real solve this codebase cannot currently perform for
-    either reason above.
+    Historical note: two pre-existing, unrelated-to-fixed_parameters JAX
+    TracerArrayConversionError bugs previously made this tier unable to
+    complete ANY real solve under `force_sequential_fallback` -- not just
+    with fixed_parameters set, but even with zero fixed parameters at all.
+    Both are now fixed (see git history for `strategies/sequential.py`'s
+    `has_fixed` residual-wrapping branch and `wrapper.py`'s own sequential
+    `residual_func`, which was rewritten to stay pure-jnp throughout so it
+    can be safely traced by NLSQ's internal `jax.jacfwd`). This test's stub
+    remains useful in its own right -- it precisely isolates the wiring
+    contract (bounds/initial_params) from anything solver-internal.
     """
     import xpcsjax.optimization.nlsq.wrapper as wrapper_mod
     from xpcsjax.optimization.nlsq.strategies.sequential import SequentialResult
@@ -380,6 +434,76 @@ def test_fixed_parameter_wiring_reaches_sequential_solver(monkeypatch):
     # 3. The post-solve re-zero forces the reported uncertainty to exactly
     # 0.0 even though the stubbed covariance's diagonal there is 5e-3.
     assert np.asarray(result.uncertainties).ravel()[d_offset_idx] == 0.0
+
+
+def test_fixed_parameter_survives_sequential_fit():
+    """fixed_parameters must survive a REAL (non-stubbed) solve through the
+    sequential per-angle tier -- the real-solve counterpart to
+    `test_fixed_parameter_wiring_reaches_sequential_solver`, above.
+
+    Forces the branch via `optimization.stratification.
+    force_sequential_fallback: true` (the real config key, not a
+    monkeypatch -- unlike every other per-tier proof test in this file, no
+    strategy-selection hook needs to be forced here since this key routes
+    unconditionally). No solver call is stubbed: this exercises the actual
+    `optimize_per_angle_sequential` -> `optimize_single_angle` ->
+    `engine.least_squares` path, including NLSQ's own internal
+    `jax.jacfwd`-based Jacobian tracing of `wrapper.py`'s sequential
+    `residual_func` and `strategies/sequential.py`'s `has_fixed`
+    residual-wrapping closure -- the two previously-crashing call sites.
+    """
+    data = _synthetic_data("laminar_flow")
+    config = _config(
+        "laminar_flow",
+        fixed_parameters={"D_offset": 37.5},
+        extra_top={"optimization": {"stratification": {"force_sequential_fallback": True}}},
+    )
+    cm = ConfigManager(config_override=config)
+
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+
+    assert result.device_info.get("strategy") == "sequential_per_angle"
+
+    params = np.asarray(result.parameters).ravel()
+    d_offset_idx = _physical_index(len(params), _ALL_PHYSICAL_NAMES, "D_offset")
+    assert abs(params[d_offset_idx] - 37.5) < 1e-9
+    assert np.asarray(result.uncertainties).ravel()[d_offset_idx] == 0.0
+
+
+def test_fixed_parameter_survives_sequential_fit_with_shear_transform():
+    """fixed_parameters must survive a real sequential solve with the shear
+    log-transform active (issue #58 follow-up coverage gap).
+
+    `optimization.nlsq.shear_transforms.enable_gamma_dot_log: true` routes
+    `gamma_dot_t0` through `apply_forward_shear_transforms_to_vector` /
+    `apply_inverse_shear_transforms_to_vector_jax` inside the sequential
+    residual closure -- a distinct code path from the untransformed case
+    `test_fixed_parameter_survives_sequential_fit` covers, since the fixed
+    value must survive being forward-transformed into solver space (log)
+    and then inverse-transformed back (exp) at every residual evaluation
+    without drifting.
+    """
+    data = _synthetic_data("laminar_flow")
+    config = _config(
+        "laminar_flow",
+        fixed_parameters={"gamma_dot_t0": 0.01},
+        extra_top={
+            "optimization": {
+                "stratification": {"force_sequential_fallback": True},
+                "nlsq": {"shear_transforms": {"enable_gamma_dot_log": True}},
+            }
+        },
+    )
+    cm = ConfigManager(config_override=config)
+
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+
+    assert result.device_info.get("strategy") == "sequential_per_angle"
+
+    params = np.asarray(result.parameters).ravel()
+    gamma_idx = _physical_index(len(params), _ALL_PHYSICAL_NAMES, "gamma_dot_t0")
+    assert abs(params[gamma_idx] - 0.01) < 1e-9
+    assert np.asarray(result.uncertainties).ravel()[gamma_idx] == 0.0
 
 
 def test_fixed_parameter_survives_out_of_core_fit(monkeypatch):
@@ -492,7 +616,9 @@ def test_fixed_parameter_survives_stratified_ls_fit(monkeypatch):
         assert np.asarray(result.uncertainties).ravel()[d_offset_idx] == 0.0
 
 
-def _hybrid_streaming_fake_stratify_and_config(*, per_angle_mode=None, monkeypatch):
+def _hybrid_streaming_fake_stratify_and_config(
+    *, per_angle_mode=None, monkeypatch, n_phi=3, fixed_parameters=None, extra_nlsq=None
+):
     """Shared setup for the hybrid-streaming tests below: forces the same
     tiled >=1M-point dataset as ``test_fixed_parameter_survives_stratified_ls_fit``
     (via ``_apply_stratification_if_needed``, since ``use_stratified_least_squares``'s
@@ -504,12 +630,42 @@ def _hybrid_streaming_fake_stratify_and_config(*, per_angle_mode=None, monkeypat
     streaming). Warmup/Gauss-Newton/hierarchical iteration counts are capped
     low -- the fixed-value/exact-zero-uncertainty invariant holds regardless
     of solver convergence, since the restore step runs unconditionally after
-    the solve."""
+    the solve.
+
+    ``n_phi``/``fixed_parameters``/``extra_nlsq`` default to the original
+    fixed values (3 angles, D_offset fixed, no extra nlsq config) so every
+    pre-existing call site is unaffected; pass them explicitly to reach a
+    different branch (e.g. n_phi>3 + a fixed phi0 for Layer 5 coverage).
+
+    Also forces ``select_nlsq_strategy``'s post-stratification recheck
+    (``wrapper.py``'s ``strategy_recheck``, ~line 1299) to HYBRID_STREAMING
+    deterministically. Real memory estimation on the fake tiled ~1.2M-point
+    dataset built below is platform-dependent -- CI's macOS runners report
+    less available RAM than Linux/Windows, tipping the SAME dataset over the
+    OUT_OF_CORE threshold there while every other CI platform picks
+    HYBRID_STREAMING, so the `use_streaming`/`hybrid_streaming.enable`
+    config keys below aren't sufficient on their own to route into the
+    tier this test exists to exercise (verified: macOS CI failure,
+    ``recovery_actions == ["out_of_core_recheck_delegation"]``). Mirrors the
+    monkeypatch pattern `test_fixed_parameter_survives_out_of_core_fit` uses
+    to force its own branch deterministically."""
     import types
 
     from xpcsjax.optimization.nlsq import wrapper as wrapper_module
+    from xpcsjax.optimization.nlsq.memory import NLSQStrategy, StrategyDecision
 
-    n_phi, n_t = 3, 10
+    def _force_hybrid_streaming(n_points, n_params, *args, **kwargs):
+        return StrategyDecision(
+            strategy=NLSQStrategy.HYBRID_STREAMING,
+            threshold_gb=1000.0,
+            index_memory_gb=0.001,
+            peak_memory_gb=0.001,
+            reason="forced hybrid_streaming for _hybrid_streaming_fake_stratify_and_config",
+        )
+
+    monkeypatch.setattr(wrapper_module, "select_nlsq_strategy", _force_hybrid_streaming)
+
+    n_t = 10
     raw = _synthetic_data("laminar_flow", n_t=n_t, n_phi=n_phi)
     t = np.arange(1, n_t + 1) * DT
     t1_grid, t2_grid = np.meshgrid(t, t, indexing="ij")
@@ -518,7 +674,7 @@ def _hybrid_streaming_fake_stratify_and_config(*, per_angle_mode=None, monkeypat
     t2_flat = np.tile(t2_grid.ravel(), n_phi)
     g2_flat = np.concatenate([raw["g2"][i].ravel() for i in range(n_phi)])
     n_tile = 4000
-    assert phi_flat.size == 300
+    assert phi_flat.size == n_t * n_t * n_phi
 
     def _fake_stratify(self, data, per_angle_scaling, config, logger):
         return types.SimpleNamespace(
@@ -556,11 +712,13 @@ def _hybrid_streaming_fake_stratify_and_config(*, per_angle_mode=None, monkeypat
                 "per_angle_max_iterations": 3,
             },
         }
+    if extra_nlsq:
+        nlsq_block.update(extra_nlsq)
 
     data = _synthetic_data("laminar_flow", n_t=n_t, n_phi=n_phi)
     config = _config(
         "laminar_flow",
-        fixed_parameters={"D_offset": 37.5},
+        fixed_parameters=fixed_parameters if fixed_parameters is not None else {"D_offset": 37.5},
         extra_top={"optimization": {"nlsq": nlsq_block}},
     )
     return data, ConfigManager(config_override=config)
@@ -602,6 +760,70 @@ def test_fixed_parameter_survives_hybrid_streaming_fit_individual_mode(monkeypat
     assert abs(params[d_offset_idx] - 37.5) < 1e-9
     if result.uncertainties is not None:
         assert np.asarray(result.uncertainties).ravel()[d_offset_idx] == 0.0
+
+
+def test_fixed_parameter_survives_hybrid_streaming_fit_individual_mode_with_fixed_phi0(
+    monkeypatch,
+):
+    """L5 shear-weighting phi0-index regression (dev-suite:smart-debug RCA
+    follow-up to PR #57's parked finding).
+
+    Requires simultaneously: `per_angle_mode: individual` (activates Layer 2
+    hierarchical -> `shear_weight_update_callback` actually gets invoked),
+    `n_phi > 3` (Layer 5's own construction gate), and `phi0` itself as the
+    fixed parameter (the specific narrow case that corrupted
+    `ShearSensitivityWeighting.update_phi0`'s index arithmetic before the
+    fix: `phi0_index=6`/`n_physical=n_physical` (both hardcoded to the FULL
+    count) meant `update_phi0` would silently read whatever parameter
+    remained last in the REDUCED vector -- not phi0 -- once phi0 was
+    stripped out as fixed, and treat that value as "the current phi0
+    estimate" for the rest of the solve.
+
+    This does not violate the plan's hard fixed-value/exact-zero-uncertainty
+    invariants (phi0's own final value is forced correctly by the
+    strip/restore mechanism regardless of L5's internal bookkeeping) -- the
+    bug corrupts L5's contribution to OTHER free parameters' fit quality,
+    not phi0's own reported value. The test therefore proves the crash-free
+    /correct-value contract that IS testable end-to-end; it does not (and
+    cannot, without a reference oracle) prove the other parameters converged
+    to a *better* optimum than before the fix -- only that the code path
+    that used to read the wrong array slot now runs correctly-indexed.
+
+    A second, later three-brain review found the index fix alone was not
+    sufficient: `ShearSensitivityWeighting`'s `initial_phi0` seed was read
+    from the raw pre-strip `initial_params[-1]` -- the CONFIG'S initial
+    guess (0.0 here), not the fixed override (5.0) -- since that seed is
+    computed before the fixed-value restore runs. This spies on the
+    `ShearSensitivityWeighting` constructor directly to prove the seed
+    itself, not just phi0's final reported value (which the strip/restore
+    mechanism would force to 5.0 regardless of L5's internal seed).
+    """
+    import xpcsjax.optimization.nlsq.strategies.hybrid_streaming as hybrid_streaming_module
+
+    captured_initial_phi0: list[float] = []
+    _RealShearWeighter = hybrid_streaming_module.ShearSensitivityWeighting
+
+    class _SpyShearWeighter(_RealShearWeighter):  # type: ignore[misc, valid-type]
+        def __init__(self, *args, **kwargs):
+            captured_initial_phi0.append(kwargs["config"].initial_phi0)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(hybrid_streaming_module, "ShearSensitivityWeighting", _SpyShearWeighter)
+
+    data, cm = _hybrid_streaming_fake_stratify_and_config(
+        per_angle_mode="individual",
+        monkeypatch=monkeypatch,
+        n_phi=5,
+        fixed_parameters={"phi0": 5.0},  # phi0's registry bounds are [-10, 10]
+    )
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+    assert result.recovery_actions == ["hybrid_streaming_optimizer_method"]
+    assert captured_initial_phi0 == [5.0]  # not 0.0, the raw config initial guess
+    params = np.asarray(result.parameters).ravel()
+    phi0_idx = _physical_index(len(params), _ALL_PHYSICAL_NAMES, "phi0")
+    assert abs(params[phi0_idx] - 5.0) < 1e-9
+    if result.uncertainties is not None:
+        assert np.asarray(result.uncertainties).ravel()[phi0_idx] == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -673,14 +895,32 @@ def test_heterodyne_fixed_parameter_survives_real_fit():
 
 
 def test_heterodyne_fixed_scaling_parameter_survives_real_fit():
-    """grilling round 1 Q7 end-to-end: heterodyne can fix a scaling name, unlike homodyne."""
+    """grilling round 1 Q7 end-to-end: heterodyne can fix a scaling name, unlike
+    homodyne -- and the fixed value must actually survive the solve, not just
+    fail to raise (dev-suite:three-brain deep-review Minor finding: the prior
+    version of this test asserted only ``convergence_status is not None``,
+    which would also pass if a bare "contrast" fixed_parameters key silently
+    failed to match anything).
+
+    The template's default per_angle_mode="auto" resolves to "individual"
+    here (n_phi=2 < constant_scaling_threshold=3), so a bare "contrast"/
+    "offset" fixed_parameters key broadcasts to every per-angle "contrast_i"/
+    "offset_i" slot (verified live, not "constant"'s single flat scalar
+    name -- an earlier draft of this test forced per_angle_mode="constant"
+    to get a flat name, but "constant" mode derives contrast/offset from
+    its own quantile estimation instead of consuming fixed_parameters at
+    all, so that combination doesn't actually exercise the fixed-value
+    path; asserting the per-angle-broadcast contract under the DEFAULT mode
+    is the one that matters end-to-end). A name-matching failure here would
+    surface as a wrong fitted value, not a silent no-op.
+    """
     from tests.optimization.test_heterodyne_hybrid_streaming import _make_synthetic_heterodyne
     from xpcsjax.optimization.nlsq import fit_nlsq
 
     model, c2, phi = _make_synthetic_heterodyne()
     rng = np.random.default_rng(0)
     c2_noisy = c2 + rng.normal(scale=1e-4, size=c2.shape)
-    contrast, _offset = model.scaling.get_for_angle(0)
+    contrast, offset = model.scaling.get_for_angle(0)
 
     data = {"c2": c2_noisy, "phi": phi}
     cm = ConfigManager(config_override=_heterodyne_config({"contrast": contrast}))
@@ -688,3 +928,28 @@ def test_heterodyne_fixed_scaling_parameter_survives_real_fit():
         data, cm
     )  # must not raise -- homodyne would raise ValueError for this, heterodyne must not
     assert result.convergence_status is not None
+    diagnostics = result.nlsq_diagnostics or {}
+    param_names = list(diagnostics.get("parameter_names") or [])
+    params = np.asarray(result.parameters).ravel()
+    # n_phi=2 < constant_scaling_threshold=3 resolves per_angle_mode='auto'
+    # -> 'individual': a bare "contrast" fixed_parameters key broadcasts to
+    # every per-angle "contrast_i" slot, not a single flat "contrast" name.
+    contrast_indices = [i for i, name in enumerate(param_names) if name.startswith("contrast_")]
+    assert contrast_indices, f"no per-angle contrast_i entries in {param_names}"
+    for idx in contrast_indices:
+        # 1e-4, not 1e-6: unlike a fixed PHYSICAL parameter (bounds narrowed
+        # to an exact point, forcing bit-exact convergence), a fixed
+        # per-angle scaling slot still carries small trf/soft_l1 solver
+        # residual drift at its bound.
+        assert abs(params[idx] - contrast) < 1e-4
+
+    cm_offset = ConfigManager(config_override=_heterodyne_config({"offset": offset}))
+    result_offset = fit_nlsq(data, cm_offset)
+    assert result_offset.convergence_status is not None
+    diagnostics_offset = result_offset.nlsq_diagnostics or {}
+    param_names_offset = list(diagnostics_offset.get("parameter_names") or [])
+    params_offset = np.asarray(result_offset.parameters).ravel()
+    offset_indices = [i for i, name in enumerate(param_names_offset) if name.startswith("offset_")]
+    assert offset_indices, f"no per-angle offset_i entries in {param_names_offset}"
+    for idx in offset_indices:
+        assert abs(params_offset[idx] - offset) < 1e-4

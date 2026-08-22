@@ -1589,7 +1589,14 @@ def fit_nlsq_multistart(
     # Get bounds
     if HAS_PARAMETER_MANAGER:
         param_manager = ParameterManager(config.config, analysis_mode=analysis_mode)
-        bounds_list = param_manager.get_parameter_bounds()
+        # Request the FULL parameter list explicitly: get_parameter_bounds()
+        # with no args defaults to get_all_parameter_names(), which is
+        # active_parameters-filtered and silently omits any excluded
+        # physical parameter -- crashing _bounds_to_arrays below with a
+        # KeyError for that name. Mirrors fit_nlsq_jax's own bounds-building
+        # (this module, ~line 449), which always passes the mode's full
+        # param_names explicitly for the same reason.
+        bounds_list = param_manager.get_parameter_bounds(_get_param_names(analysis_mode))
         bounds_dict = {b["name"]: (b["min"], b["max"]) for b in bounds_list}
     else:
         bounds_dict = _get_parameter_bounds(analysis_mode, param_space)
@@ -1612,10 +1619,30 @@ def fit_nlsq_multistart(
             resolve_optimized_physical_parameters,
         )
 
+        # values_full must be the ACTUAL initial/configured physical values,
+        # not the lower bound -- resolve_optimized_physical_parameters only
+        # overwrites values_full at genuinely fixed_parameters-listed
+        # positions (see its docstring); an active_parameters-excluded
+        # (but not fixed_parameters) position is left exactly as passed in
+        # here, and _SingleFitWorker later restores that slot from it. Using
+        # lower_bounds silently moved an excluded parameter to its lower
+        # bound instead of leaving it at its initial value (dev-suite:
+        # three-brain deep-review finding). `initial_params` here is a
+        # name-keyed dict (see the custom_starts block below, which already
+        # assumes every physical_names entry is present); fall back to the
+        # bounds midpoint when no initial values were provided at all,
+        # mirroring _run_sequential_optimization's identical strategy.
+        if initial_params is not None:
+            physical_values_full = np.array(
+                [initial_params[name] for name in physical_names], dtype=np.float64
+            )
+        else:
+            physical_values_full = (lower_bounds[-n_physical:] + upper_bounds[-n_physical:]) / 2.0
+
         resolved_physical = resolve_optimized_physical_parameters(
             param_manager,
             physical_names,
-            values_full=lower_bounds[-n_physical:],
+            values_full=physical_values_full,
             lower_full=lower_bounds[-n_physical:],
             upper_full=upper_bounds[-n_physical:],
         )
@@ -1866,7 +1893,14 @@ def fit_nlsq_cmaes(
     # Get bounds
     if HAS_PARAMETER_MANAGER:
         param_manager = ParameterManager(config.config, analysis_mode=analysis_mode)
-        bounds_list = param_manager.get_parameter_bounds()
+        # Request the FULL parameter list explicitly: get_parameter_bounds()
+        # with no args defaults to get_all_parameter_names(), which is
+        # active_parameters-filtered and silently omits any excluded
+        # physical parameter -- crashing _bounds_to_arrays below with a
+        # KeyError for that name. Mirrors fit_nlsq_jax's own bounds-building
+        # (this module, ~line 449), which always passes the mode's full
+        # param_names explicitly for the same reason.
+        bounds_list = param_manager.get_parameter_bounds(_get_param_names(analysis_mode))
         bounds_dict = {b["name"]: (b["min"], b["max"]) for b in bounds_list}
     else:
         bounds_dict = _get_parameter_bounds(analysis_mode, param_space)
@@ -2362,7 +2396,20 @@ def fit_nlsq_cmaes(
             # read the wrong index (e.g. D_offset instead of phi0) in individual mode.
             physical_params = x0[len(x0) - n_physical :]
             phi0_idx = _get_physical_param_names(analysis_mode).index("phi0")
-            phi0_current_deg = float(physical_params[phi0_idx])
+            # If phi0 is itself a fixed_parameters override, x0's warm-started
+            # value may not equal the configured override yet (this runs
+            # BEFORE resolve_optimized_physical_parameters/the fixed-value
+            # restore further below) -- read the configured value directly
+            # instead of trusting x0 (dev-suite:three-brain deep-review
+            # finding, same class as hybrid_streaming.py's initial_phi0 fix).
+            _cmaes_fixed_phi0 = (
+                param_manager.get_fixed_parameters().get("phi0") if HAS_PARAMETER_MANAGER else None
+            )
+            phi0_current_deg = (
+                float(_cmaes_fixed_phi0)
+                if _cmaes_fixed_phi0 is not None
+                else float(physical_params[phi0_idx])
+            )
 
             # Compute per-angle shear weights
             shear_weights = ad_controller.shear_weighter.get_weights(phi0_current_deg)
@@ -2879,8 +2926,18 @@ def fit_nlsq_cmaes(
             quality_flag = "poor"
 
     except ValueError as e:
-        if "per_angle_mode" in str(e):
-            raise  # config rejection (Phase 6 resolver), not a solver failure
+        if "per_angle_mode" in str(e) or "fixed_parameters" in str(e):
+            # Config rejection (Phase 6 per_angle_mode resolver, or
+            # resolve_optimized_physical_parameters's fixed_parameters/
+            # active_parameters guards -- scaling-name, unrecognized-name,
+            # zero-varying), not a solver failure. Every one of that
+            # resolver's ValueError messages contains "fixed_parameters".
+            # Without this, these config-validation errors were silently
+            # downgraded into a generic "CMA-ES optimization failed" result
+            # below -- the exact "raise loudly, don't silently no-op" contract
+            # this plan exists to establish, inverted on this one tier
+            # (dev-suite:review-pr finding).
+            raise
         execution_time = time.time() - start_time
         logger.error(f"CMA-ES optimization failed: {e}")
         return _cmaes_failed_result(x0, execution_time, e)

@@ -178,6 +178,7 @@ from xpcsjax.optimization.nlsq.transforms import (  # noqa: E402
     apply_forward_shear_transforms_to_bounds,
     apply_forward_shear_transforms_to_vector,
     apply_inverse_shear_transforms_to_vector,
+    apply_inverse_shear_transforms_to_vector_jax,
     build_per_parameter_x_scale,
     build_physical_index_map,
     format_x_scale_for_log,
@@ -2274,7 +2275,31 @@ class NLSQWrapper(NLSQAdapterBase):
                         strip_by_mask(x_scale_value[-n_physical:], _phys_free_mask),
                     ]
                 )
+            # `resolved_physical.values_full` is PHYSICAL space (it's built
+            # upstream in core.py from the raw config value, before any
+            # shear transform runs). The residual closure this feeds
+            # (`_base_wrapped_residual_fn` = `solver_residual_fn`, wrapped by
+            # `wrap_model_function_with_transforms` above when
+            # `transform_state` is truthy) inverse-transforms EVERY position
+            # of its input unconditionally -- so splicing a physical-space
+            # value into a vector it treats as all-solver-space double-
+            # applies the transform (e.g. reports exp(0.02) instead of 0.02
+            # for a fixed gamma_dot_t0 under enable_gamma_dot_log). Forward-
+            # transform a copy of values_full through the SAME index map/
+            # config used for `validated_params` above, so the closure's
+            # internal inverse-transform lands back on the correct physical
+            # value (dev-suite:review-pr finding). `resolved_physical.
+            # values_full` itself is left untouched -- `presolve_params_physical`
+            # above (and other consumers) still need it in physical space.
             _fixed_physical_full = resolved_physical.values_full
+            if transform_state:
+                _padded_fixed = np.concatenate(
+                    [np.zeros(_scaling_head_size), resolved_physical.values_full]
+                )
+                _padded_fixed_solver, _ = apply_forward_shear_transforms_to_vector(
+                    _padded_fixed, physical_index_map, transform_cfg
+                )
+                _fixed_physical_full = _padded_fixed_solver[_scaling_head_size:]
             _base_wrapped_residual_fn = wrapped_residual_fn
 
             # The solver-facing closure signature is f(xdata, *params) -- xdata
@@ -2399,8 +2424,24 @@ class NLSQWrapper(NLSQAdapterBase):
         ):
             _n_physical_full = len(resolved_physical.physical_names)
             n_prefix = len(popt) - int(_phys_free_mask.sum())
+            # `popt` here is still SOLVER space (inverse-transform runs later,
+            # inside `_post_process_results` -- see the comment above). Splice
+            # in the same solver-space fixed values used for the residual
+            # closure, not the raw physical-space `values_full`, or a fixed
+            # gamma_dot_t0/beta under an active shear transform gets
+            # double-transformed on the way back out (dev-suite:review-pr
+            # finding, same root cause as the residual-closure fix above).
+            _fixed_physical_for_popt = resolved_physical.values_full
+            if transform_state:
+                _padded_fixed_popt = np.concatenate(
+                    [np.zeros(_scaling_head_size), resolved_physical.values_full]
+                )
+                _padded_fixed_popt_solver, _ = apply_forward_shear_transforms_to_vector(
+                    _padded_fixed_popt, physical_index_map, transform_cfg
+                )
+                _fixed_physical_for_popt = _padded_fixed_popt_solver[_scaling_head_size:]
             full_physical = restore_by_mask_numpy(
-                popt[n_prefix:], resolved_physical.values_full, _phys_free_mask
+                popt[n_prefix:], _fixed_physical_for_popt, _phys_free_mask
             )
             popt = np.concatenate([popt[:n_prefix], full_physical])
             if pcov is not None:
@@ -3699,14 +3740,29 @@ class NLSQWrapper(NLSQAdapterBase):
             physical_params: np.ndarray,
             contrast_params: np.ndarray | float,
             offset_params: np.ndarray | float,
-        ) -> np.ndarray:
+        ) -> jnp.ndarray:
+            # JIT-safe: this residual is traced by NLSQ's internal jax.jacfwd
+            # (via optimize_single_angle's residuals() closure, and by this
+            # module's own _jax_jacobian via _estimate_initial_jacobian_norms),
+            # so contrast_params/offset_params/physical_params may be JAX
+            # tracers -- float()/np.asarray() on a tracer raises
+            # TracerArrayConversionError. compute_g2_scaled and
+            # apply_diagonal_correction both already accept traced jnp values
+            # (see their own type contracts), so this stays pure-jnp
+            # throughout, no float()/np.asarray() casts on param-derived
+            # values -- mirroring wrap_model_function_with_transforms's
+            # established pattern for the other NLSQ tiers.
+            #
+            # phi_index/phi_unique_all are data-derived (never params-derived,
+            # phi_index comes from np.unique() over static index arrays in the
+            # caller), so this stays a concrete Python float.
             phi_val = float(phi_unique_all[phi_index])
             if solver_per_angle_scaling:
-                contrast_val = float(contrast_params[phi_index])
-                offset_val = float(offset_params[phi_index])
+                contrast_val = contrast_params[phi_index]
+                offset_val = offset_params[phi_index]
             else:
-                contrast_val = float(contrast_params)
-                offset_val = float(offset_params)
+                contrast_val = contrast_params
+                offset_val = offset_params
 
             g2_grid = compute_g2_scaled(
                 params=jnp.asarray(physical_params),
@@ -3720,8 +3776,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 dt=dt_value,
             )
             g2_grid = jnp.squeeze(g2_grid, axis=0)
-            g2_grid = apply_diagonal_correction(g2_grid)
-            return np.asarray(g2_grid, dtype=np.float64)
+            return apply_diagonal_correction(g2_grid)
 
         residual_debug_logged = False
 
@@ -3731,11 +3786,25 @@ class NLSQWrapper(NLSQAdapterBase):
             t1_vals: np.ndarray,
             t2_vals: np.ndarray,
             g2_vals: np.ndarray,
-        ) -> np.ndarray:
-            """Residual function compatible with sequential optimization."""
-            params_np = np.asarray(params, dtype=np.float64)
+        ) -> jnp.ndarray:
+            """Residual function compatible with sequential optimization.
+
+            JIT-safe: `params` is a JAX tracer whenever this closure runs
+            inside optimize_single_angle's JIT-traced `residuals()` closure
+            (NLSQ's engine.least_squares differentiates it via jax.jacfwd
+            internally) or inside this module's own _jax_jacobian (used by
+            _estimate_initial_jacobian_norms for pre-solve diagnostics).
+            `params` is a concrete numpy array only for the post-solve
+            diagnostic call in `_run_sequential_optimization` (computing
+            `final_residuals`). Both cases are handled uniformly by staying
+            pure-jnp throughout -- jnp.asarray is a no-op on an
+            already-concrete array and a valid conversion under trace,
+            whereas np.asarray()/float() on a tracer raises
+            TracerArrayConversionError.
+            """
+            params_np = jnp.asarray(params, dtype=jnp.float64)
             if transform_state:
-                params_np = apply_inverse_shear_transforms_to_vector(
+                params_np = apply_inverse_shear_transforms_to_vector_jax(
                     params_np,
                     transform_state,
                 )
@@ -3749,8 +3818,8 @@ class NLSQWrapper(NLSQAdapterBase):
                 offset_params = params_np[n_phi_total : 2 * n_phi_total]
                 physical_params = params_np[2 * n_phi_total :]
             else:
-                contrast_params = float(params_np[0])
-                offset_params = float(params_np[1])
+                contrast_params = params_np[0]
+                offset_params = params_np[1]
                 physical_params = params_np[2:]
 
             # Note: clip removed - sequential residual data comes from same source as
@@ -3761,7 +3830,14 @@ class NLSQWrapper(NLSQAdapterBase):
             t1_indices = np.searchsorted(t1_unique_all, t1_section)
             t2_indices = np.searchsorted(t2_unique_all, t2_section)
 
-            g2_model = np.empty_like(g2_section, dtype=np.float64)
+            # g2_model depends on the (possibly-traced) physical/contrast/
+            # offset params, so it must be built as a JAX array via
+            # .at[].set() rather than mutated in place like a NumPy array
+            # (assigning a tracer into a concrete np.ndarray raises
+            # TracerArrayConversionError). sigma_vals never depends on
+            # params -- it is purely data-derived from sigma_array -- so it
+            # stays a plain, in-place-mutated NumPy array as before.
+            g2_model = jnp.zeros_like(g2_section)
             sigma_vals = np.empty_like(g2_section, dtype=np.float64)
 
             nonlocal residual_debug_logged
@@ -3775,10 +3851,11 @@ class NLSQWrapper(NLSQAdapterBase):
 
             for phi_idx in np.unique(phi_indices):
                 mask = phi_indices == phi_idx
+                mask_idx = np.where(mask)[0]
                 g2_grid = _compute_g2_grid_for_phi(
                     phi_idx, physical_params, contrast_params, offset_params
                 )
-                g2_model[mask] = g2_grid[t1_indices[mask], t2_indices[mask]]
+                g2_model = g2_model.at[mask_idx].set(g2_grid[t1_indices[mask], t2_indices[mask]])
                 sigma_slice = sigma_array[phi_idx]
                 sigma_vals[mask] = sigma_slice[t1_indices[mask], t2_indices[mask]]
 
@@ -3865,28 +3942,56 @@ class NLSQWrapper(NLSQAdapterBase):
                 status = "active"
             param_status[name] = status
 
+        # jac_initial_norms/jac_final_norms are computed inside
+        # optimize_single_angle on the FREE-only parameter vector (sequential.py
+        # strips fixed physical slots via strip_fixed_parameters before ever
+        # calling _estimate_initial_jacobian_norms/the solver), so they are
+        # shorter than `param_names` (full length) whenever a physical
+        # parameter is fixed. Derive the same free mask sequential.py's own
+        # strip_fixed_parameters uses (lower < upper) from `bounds` -- the
+        # narrowed bounds already threaded through this function -- to map a
+        # reduced-length norms array onto the correct subset of names. A
+        # fixed parameter has no Jacobian column here at all (it was never
+        # differentiated), so it is correctly omitted from the dict rather
+        # than reported as a misleading 0.0.
+        _bounds_lower_diag = np.asarray(bounds[0]) if bounds is not None else None
+        _bounds_upper_diag = np.asarray(bounds[1]) if bounds is not None else None
+        if (
+            _bounds_lower_diag is not None
+            and _bounds_upper_diag is not None
+            and len(_bounds_lower_diag) == len(param_names)
+        ):
+            free_mask_diag = _bounds_lower_diag < _bounds_upper_diag
+        else:
+            free_mask_diag = np.ones(len(param_names), dtype=bool)
+        free_param_names_diag = [n for n, m in zip(param_names, free_mask_diag, strict=False) if m]
+
         def _norm_array_to_dict(array: np.ndarray | None) -> dict[str, float] | None:
             if array is None:
                 return None
-            return {name: float(array[idx]) for idx, name in enumerate(param_names)}
+            if len(array) == len(param_names):
+                names_for_array = param_names
+            elif len(array) == len(free_param_names_diag):
+                names_for_array = free_param_names_diag
+            else:
+                logger.debug(
+                    "Sequential jac-norm diagnostics: array length %d matches "
+                    "neither full (%d) nor free (%d) parameter-name count; "
+                    "skipping this diagnostic entry",
+                    len(array),
+                    len(param_names),
+                    len(free_param_names_diag),
+                )
+                return None
+            return {name: float(array[idx]) for idx, name in enumerate(names_for_array)}
 
         per_angle_jac = {}
         for angle_result in sequential_result.per_angle_results:
             angle_label = f"phi_{angle_result['phi_angle']:.2f}"
             per_angle_jac[angle_label] = {
-                "initial": None,
-                "final": None,
+                "initial": _norm_array_to_dict(angle_result.get("jac_initial_norms")),
+                "final": _norm_array_to_dict(angle_result.get("jac_final_norms")),
             }
-            if angle_result.get("jac_initial_norms") is not None:
-                per_angle_jac[angle_label]["initial"] = {
-                    name: float(angle_result["jac_initial_norms"][idx])
-                    for idx, name in enumerate(param_names)
-                }
-            if angle_result.get("jac_final_norms") is not None:
-                per_angle_jac[angle_label]["final"] = {
-                    name: float(angle_result["jac_final_norms"][idx])
-                    for idx, name in enumerate(param_names)
-                }
 
         total_nfev = sum(r.get("n_iterations", 0) for r in sequential_result.per_angle_results)
 

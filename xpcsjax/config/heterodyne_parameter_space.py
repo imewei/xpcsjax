@@ -606,10 +606,11 @@ def _apply_fixed_parameters(space: ParameterSpace, config: dict[str, Any]) -> No
 def _apply_tied_parameters(space: ParameterSpace, config: dict[str, Any]) -> None:
     """Apply ``initial_parameters.tied_parameters`` to *space*.
 
-    MUST be called LAST in :meth:`ParameterSpace.from_config` -- after the
-    flat, bounds, and grouped-format overlays have all resolved
-    ``space.vary`` -- so a later grouped-format ``vary: true`` for a tied
-    child cannot silently undo the tie.
+    Called after the flat, bounds, and grouped-format overlays have all
+    resolved ``space.vary``, so a later grouped-format ``vary: true`` for a
+    tied child cannot silently undo the tie -- but NOT last overall:
+    ``_apply_fixed_parameters`` runs after this, so a fixed_parameters entry
+    always wins over a tie (see that function's docstring).
 
     Supports::
 
