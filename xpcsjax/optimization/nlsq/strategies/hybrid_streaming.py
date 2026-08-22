@@ -10,6 +10,7 @@ This module provides:
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from typing import Any, cast
 
 import jax
@@ -29,6 +30,12 @@ from xpcsjax.optimization.nlsq.gradient_monitor import (
 from xpcsjax.optimization.nlsq.hierarchical import (
     HierarchicalConfig,
     HierarchicalOptimizer,
+)
+from xpcsjax.optimization.nlsq.parameter_utils import (
+    ResolvedPhysicalParameters,
+    restore_by_mask_jax,
+    restore_by_mask_numpy,
+    strip_by_mask,
 )
 from xpcsjax.optimization.nlsq.parameter_utils import (
     classify_parameter_status as _classify_parameter_status,
@@ -393,6 +400,7 @@ def fit_with_stratified_hybrid_streaming(
     logger: Any,
     hybrid_config: dict | None = None,
     anti_degeneracy_config: dict | None = None,
+    resolved_physical: ResolvedPhysicalParameters | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     """Fit using NLSQ AdaptiveHybridStreamingOptimizer for large datasets.
 
@@ -556,6 +564,31 @@ def fit_with_stratified_hybrid_streaming(
     # inside conditional blocks, causing UnboundLocalError when those
     # conditions were false but shear_weighter tried to use it.
     n_physical = len(physical_param_names)
+
+    # Fixed physical parameters reduce the count structures BUILT IN THIS
+    # SECTION (HierarchicalOptimizer, the L4 gradient monitor) must use --
+    # both are constructed here, well before the mode-transform-derived
+    # `fit_initial_params` strip further down, but both must size themselves
+    # to match the REDUCED vector `active_model_fn`/`loss_fn` will actually
+    # see once wrapped. Computed early (count only, not the strip itself) so
+    # every consumer in this section can use it uniformly.
+    _phys_free_mask_early: np.ndarray | None = (
+        resolved_physical.free_mask
+        if resolved_physical is not None and not resolved_physical.free_mask.all()
+        else None
+    )
+    n_physical_free = (
+        int(_phys_free_mask_early.sum()) if _phys_free_mask_early is not None else n_physical
+    )
+    free_physical_names = (
+        [
+            name
+            for name, free in zip(physical_param_names, _phys_free_mask_early, strict=True)
+            if free
+        ]
+        if _phys_free_mask_early is not None
+        else physical_param_names
+    )
 
     # Parse anti-degeneracy configuration
     ad_config = anti_degeneracy_config or {}
@@ -777,7 +810,13 @@ def fit_with_stratified_hybrid_streaming(
         hierarchical_optimizer = HierarchicalOptimizer(
             config=hier_config,
             n_phi=n_phi,
-            n_physical=n_physical,
+            # A fixed physical parameter is stripped out of the vector this
+            # optimizer receives (`fit_initial_params`, wrapped via
+            # `active_model_fn`/`loss_fn`), so its internal physical-index
+            # split must be sized to the REDUCED count, not the full
+            # `n_physical` -- otherwise `.physical_indices` runs past the
+            # end of the actual (reduced-length) parameter array.
+            n_physical=n_physical_free,
         )
         logger.info("=" * 60)
         logger.info("ANTI-DEGENERACY DEFENSE: Layer 2 - Hierarchical Optimization")
@@ -865,15 +904,29 @@ def fit_with_stratified_hybrid_streaming(
         n_per_angle = ParameterIndexMapper.canonical(
             mode=_canonical_l4, n_phi=n_phi, n_physics=n_physical
         ).n_optimized  # 0 (constant) | 2 (averaged) | 2*n_phi (individual)
-        # n_physical defined unconditionally above
+        # The monitor's `.check()` only ever sees the REDUCED gradient/params
+        # array (it is called from `grad_fn`, which differentiates `loss_fn`
+        # -> `active_model_fn`, wrapped to accept free-only physical params
+        # when a fixed physical parameter is active) -- size its indices to
+        # `n_physical_free`, not the full `n_physical`, or they run past the
+        # end of that array.
         # Use numpy arrays for indices (JAX compatibility)
         per_angle_indices = np.arange(n_per_angle, dtype=np.intp)
-        physical_indices = np.arange(n_per_angle, n_per_angle + n_physical, dtype=np.intp)
+        physical_indices = np.arange(n_per_angle, n_per_angle + n_physical_free, dtype=np.intp)
 
-        # Compute gamma_dot_t0 index for watch_parameters
-        # In laminar_flow, physical params are [D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0]
-        # gamma_dot_t0 is at physical_indices[3] = n_per_angle + 3
-        gamma_dot_t0_idx = n_per_angle + 3  # Index of gamma_dot_t0 in full param vector
+        # Compute gamma_dot_t0 index for watch_parameters. In laminar_flow,
+        # physical params are [D0, alpha, D_offset, gamma_dot_t0, beta,
+        # gamma_dot_t_offset, phi0] -- gamma_dot_t0 is nominally at
+        # physical_indices[3]. When a physical parameter earlier in that list
+        # is fixed (and therefore absent from `free_physical_names`),
+        # gamma_dot_t0's position within the REDUCED physical block shifts;
+        # look it up by name instead of assuming index 3. If gamma_dot_t0
+        # ITSELF is the fixed parameter, there is nothing to watch (it is no
+        # longer a free variable at all) -- `watch_parameters` stays empty.
+        _watch_parameters: list[int] = []
+        if "gamma_dot_t0" in free_physical_names:
+            gamma_dot_t0_idx = n_per_angle + free_physical_names.index("gamma_dot_t0")
+            _watch_parameters = [gamma_dot_t0_idx]
 
         monitor_config = GradientMonitorConfig(
             enable=True,
@@ -882,7 +935,7 @@ def fit_with_stratified_hybrid_streaming(
             response_mode=gradient_monitoring_config.get("response", "hierarchical"),
             # NEW (Dec 2025): Watch gamma_dot_t0 specifically for gradient collapse
             # This detects when shear parameter gradient vanishes during L-BFGS warmup
-            watch_parameters=[gamma_dot_t0_idx],
+            watch_parameters=_watch_parameters,
             watch_threshold=float(gradient_monitoring_config.get("watch_threshold", 1e-8)),
         )
         gradient_monitor = GradientCollapseMonitor(
@@ -1483,8 +1536,95 @@ def fit_with_stratified_hybrid_streaming(
             fit_bounds = (fit_lower, fit_upper)
         logger.warning("=" * 60)
 
+    # =====================================================================
+    # Fixed/active physical parameters: strip the fixed physical slots out
+    # of the optimizer-facing vector/bounds. Physical params are ALWAYS the
+    # trailing ``n_physical`` slice of ``fit_initial_params`` regardless of
+    # scaling mode (use_fixed_scaling: [physical] alone; use_averaged_scaling
+    # / use_constant: [contrast_const, offset_const, physical]; else
+    # (individual, ``fit_initial_params`` unmodified from ``initial_params``):
+    # [contrast(n_phi), offset(n_phi), physical]) -- confirmed by tracing all
+    # four branches above, so a single tail-strip applied AFTER the
+    # scaling-mode transform resolves is correct for every mode.
+    # ``resolved_physical=None`` (or an all-free mask) is a complete no-op.
+    _phys_free_mask: np.ndarray | None = None
+    _fixed_physical_full: np.ndarray | None = None
+    _n_phys_free = n_physical
+    if resolved_physical is not None and not resolved_physical.free_mask.all():
+        _phys_free_mask = resolved_physical.free_mask
+        _fixed_physical_full = resolved_physical.values_full
+        _n_phys_free = int(_phys_free_mask.sum())
+        _n_prefix_strip = len(fit_initial_params) - n_physical
+        phys_slice = fit_initial_params[-n_physical:]
+        fit_initial_params = np.concatenate(
+            [fit_initial_params[:_n_prefix_strip], strip_by_mask(phys_slice, _phys_free_mask)]
+        )
+        if fit_bounds is not None:
+            lower, upper = fit_bounds
+            fit_bounds = (
+                np.concatenate(
+                    [
+                        lower[:_n_prefix_strip],
+                        strip_by_mask(lower[-n_physical:], _phys_free_mask),
+                    ]
+                ),
+                np.concatenate(
+                    [
+                        upper[:_n_prefix_strip],
+                        strip_by_mask(upper[-n_physical:], _phys_free_mask),
+                    ]
+                ),
+            )
+        logger.info(
+            f"Fixed physical parameters active: {n_physical - _n_phys_free} "
+            f"of {n_physical} physical params fixed; optimizer vector reduced to "
+            f"{len(fit_initial_params)} params"
+        )
+
     # Phase 6: per-angle scaling uses the standard pointwise model on all resolved modes.
-    active_model_fn = model_fn_pointwise
+    active_model_fn: Callable[..., Any] = model_fn_pointwise
+
+    # Solver-facing model: when fixed physical parameters are active, the
+    # optimizer only sees the reduced (free-only) vector. This wrapper
+    # restores the full physical tail via `restore_by_mask_jax` (JAX
+    # ``.at[].set()`` -- safe inside a function JAX traces for gradients/
+    # Hessians) before delegating to the original point-wise model. Both
+    # consumers below (the L2 hierarchical `loss_fn` and the plain
+    # `optimizer.fit(func=...)` path) read `active_model_fn` by name, so
+    # reassigning it once covers both call sites. When no physical
+    # parameters are fixed this is exactly `model_fn_pointwise` itself, so
+    # every call site is byte-identical to the pre-fix behavior.
+    _solver_model_fn: Callable[..., Any]
+    if _phys_free_mask is not None:
+        assert _fixed_physical_full is not None
+        _base_model_fn = active_model_fn
+        _fixed_physical_tail = _fixed_physical_full
+        _n_phys_free_closure = _n_phys_free
+        _n_reduced_expected = len(fit_initial_params)
+
+        def _solver_model_fn(x_batch: Any, *free_params: Any) -> Any:
+            free_arr = jnp.stack(free_params)
+            # NLSQ's optimizer must call this with one scalar per REDUCED
+            # (free-only) parameter, matching `fit_initial_params`'s length
+            # -- if it ever splats the full-length vector instead (or a
+            # single array), fail loudly here rather than silently
+            # restoring the wrong physical slots.
+            if free_arr.shape[0] != _n_reduced_expected:
+                raise ValueError(
+                    "_solver_model_fn received "
+                    f"{free_arr.shape[0]} parameters, expected "
+                    f"{_n_reduced_expected} (the reduced free-only vector "
+                    "length) -- the optimizer's call arity does not match "
+                    "the fixed-parameter strip."
+                )
+            n_prefix = free_arr.shape[0] - _n_phys_free_closure
+            full_physical = restore_by_mask_jax(
+                free_arr[n_prefix:], _fixed_physical_tail, _phys_free_mask
+            )
+            full_params = jnp.concatenate([free_arr[:n_prefix], full_physical])
+            return _base_model_fn(x_batch, *full_params)
+
+        active_model_fn = _solver_model_fn
 
     # Run hybrid optimization
     logger.info("Starting hybrid optimization (L-BFGS + Gauss-Newton)...")
@@ -1690,6 +1830,40 @@ def fit_with_stratified_hybrid_streaming(
 
     # Extract results
     popt = np.asarray(result["x"])
+
+    # Restore fixed physical parameters into the full-length popt/pcov BEFORE
+    # any of the downstream inverse-transformation blocks (which assume
+    # ``len(popt)`` spans the full ``n_physical`` physical block, e.g.
+    # ``n_physical_opt = len(popt) - 2``). Mutates ``result["pcov"]`` in
+    # place since every downstream branch (including the final "individual
+    # mode, no inverse transform" fallback) reads it via
+    # ``result.get("pcov", None)`` rather than a pre-extracted local. Fixed
+    # slots get a zero row/column (exact-zero uncertainty invariant), not an
+    # approximated small variance.
+    if _phys_free_mask is not None:
+        assert _fixed_physical_full is not None
+        n_prefix = len(popt) - _n_phys_free
+        full_physical = restore_by_mask_numpy(
+            popt[n_prefix:], _fixed_physical_full, _phys_free_mask
+        )
+        popt = np.concatenate([popt[:n_prefix], full_physical])
+        _pcov_reduced = result.get("pcov", None)
+        if _pcov_reduced is not None and _pcov_reduced.shape[0] == n_prefix + _n_phys_free:
+            n_full = n_prefix + n_physical
+            full_cov = np.zeros((n_full, n_full))
+            free_idx = list(range(n_prefix)) + [
+                n_prefix + i for i, free in enumerate(_phys_free_mask) if free
+            ]
+            full_cov[np.ix_(free_idx, free_idx)] = np.asarray(_pcov_reduced)
+            result["pcov"] = full_cov
+        elif _pcov_reduced is not None:
+            logger.warning(
+                "Fixed physical parameters active but result['pcov'] shape "
+                f"{_pcov_reduced.shape} does not match the expected reduced "
+                f"size ({n_prefix + _n_phys_free}, {n_prefix + _n_phys_free}); "
+                "leaving it unexpanded (downstream shape-mismatch fallback "
+                "will apply)."
+            )
 
     # =====================================================================
     # Anti-Degeneracy Defense System - INVERSE TRANSFORMATION

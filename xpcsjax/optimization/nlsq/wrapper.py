@@ -1536,6 +1536,7 @@ class NLSQWrapper(NLSQAdapterBase):
                             logger=logger,
                             hybrid_config=hybrid_streaming_config,
                             anti_degeneracy_config=anti_degeneracy_config,
+                            resolved_physical=resolved_physical,
                         )
 
                         # Compute final residuals for result creation
@@ -1558,6 +1559,17 @@ class NLSQWrapper(NLSQAdapterBase):
                         # Compute effective DOF for reduced_chi_squared.
                         # In averaged mode, popt has compressed length (e.g. 9),
                         # but the true model DOF is 2*n_phi + n_physical (e.g. 53).
+                        # A fixed physical parameter must not consume a DOF either --
+                        # subtract the fixed count from n_physical before computing
+                        # the constrained-mode formula, and override the
+                        # individual-mode None fallback (which would otherwise
+                        # default to len(popt), overcounting by the fixed count
+                        # since popt is restored to full length by this point).
+                        _hs_n_fixed_physical = (
+                            0
+                            if resolved_physical is None
+                            else n_physical - int(resolved_physical.free_mask.sum())
+                        )
                         _hs_n_params_effective: int | None = None
                         if per_angle_scaling and anti_degeneracy_config:
                             from xpcsjax.optimization.nlsq.per_angle_mode import (
@@ -1579,8 +1591,10 @@ class NLSQWrapper(NLSQAdapterBase):
                                     is_laminar_flow=(analysis_mode == AnalysisMode.LAMINAR_FLOW),
                                 ),
                                 n_phi=n_angles_check,
-                                n_physical=n_physical,
+                                n_physical=n_physical - _hs_n_fixed_physical,
                             )
+                        if _hs_n_params_effective is None and _hs_n_fixed_physical > 0:
+                            _hs_n_params_effective = len(popt) - _hs_n_fixed_physical
 
                         # Create result
                         result = self._create_fit_result(
@@ -1602,6 +1616,23 @@ class NLSQWrapper(NLSQAdapterBase):
                             n_params_effective=_hs_n_params_effective,
                             anti_degeneracy_info=info.get("anti_degeneracy"),
                         )
+
+                        # A fixed physical parameter's true covariance diagonal is
+                        # exactly 0 -- `fit_with_stratified_hybrid_streaming`
+                        # already restores it that way. But `_create_fit_result`'s
+                        # `_safe_uncertainties_from_pcov` floors ANY near-zero
+                        # diagonal entry as a numerical-safety net for genuinely
+                        # singular/ill-conditioned solves; it cannot distinguish
+                        # "singular" from "deliberately fixed". Force the reported
+                        # uncertainty back to exactly 0.0 at every FIXED physical
+                        # position, mirroring `_post_process_results`'s equivalent
+                        # re-zero for the plain/out-of-core/stratified-LS tiers.
+                        if resolved_physical is not None and not resolved_physical.free_mask.all():
+                            _hs_unc = np.array(result.uncertainties, dtype=float)
+                            for _hs_i, _hs_free in enumerate(resolved_physical.free_mask):
+                                if not _hs_free:
+                                    _hs_unc[-n_physical + _hs_i] = 0.0
+                            result.uncertainties = _hs_unc
 
                         logger.info("=" * 80)
                         logger.info("HYBRID STREAMING OPTIMIZATION COMPLETE")
@@ -4459,6 +4490,7 @@ class NLSQWrapper(NLSQAdapterBase):
         logger: Any,
         hybrid_config: dict | None = None,
         anti_degeneracy_config: dict | None = None,
+        resolved_physical: ResolvedPhysicalParameters | None = None,
     ) -> tuple[np.ndarray, np.ndarray, dict]:
         """Fit using NLSQ AdaptiveHybridStreamingOptimizer for large datasets."""
         return fit_with_stratified_hybrid_streaming(
@@ -4470,6 +4502,7 @@ class NLSQWrapper(NLSQAdapterBase):
             logger=logger,
             hybrid_config=hybrid_config,
             anti_degeneracy_config=anti_degeneracy_config,
+            resolved_physical=resolved_physical,
         )
 
     def _create_fit_result(

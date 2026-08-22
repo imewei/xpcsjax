@@ -490,3 +490,115 @@ def test_fixed_parameter_survives_stratified_ls_fit(monkeypatch):
     assert abs(params[d_offset_idx] - 37.5) < 1e-9
     if result.uncertainties is not None:
         assert np.asarray(result.uncertainties).ravel()[d_offset_idx] == 0.0
+
+
+def _hybrid_streaming_fake_stratify_and_config(*, per_angle_mode=None, monkeypatch):
+    """Shared setup for the hybrid-streaming tests below: forces the same
+    tiled >=1M-point dataset as ``test_fixed_parameter_survives_stratified_ls_fit``
+    (via ``_apply_stratification_if_needed``, since ``use_stratified_least_squares``'s
+    gate is a bare point-count check with no ``select_nlsq_strategy`` hook to
+    monkeypatch), plus the config keys needed to route into
+    ``fit_with_stratified_hybrid_streaming`` instead of falling through to
+    stratified-LS: ``nlsq.use_streaming`` (forces streaming mode) and
+    ``nlsq.hybrid_streaming.enable`` (prefers the hybrid optimizer over basic
+    streaming). Warmup/Gauss-Newton/hierarchical iteration counts are capped
+    low -- the fixed-value/exact-zero-uncertainty invariant holds regardless
+    of solver convergence, since the restore step runs unconditionally after
+    the solve."""
+    import types
+
+    from xpcsjax.optimization.nlsq import wrapper as wrapper_module
+
+    n_phi, n_t = 3, 10
+    raw = _synthetic_data("laminar_flow", n_t=n_t, n_phi=n_phi)
+    t = np.arange(1, n_t + 1) * DT
+    t1_grid, t2_grid = np.meshgrid(t, t, indexing="ij")
+    phi_flat = np.concatenate([np.full(n_t * n_t, p) for p in raw["phi"]])
+    t1_flat = np.tile(t1_grid.ravel(), n_phi)
+    t2_flat = np.tile(t2_grid.ravel(), n_phi)
+    g2_flat = np.concatenate([raw["g2"][i].ravel() for i in range(n_phi)])
+    n_tile = 4000
+    assert phi_flat.size == 300
+
+    def _fake_stratify(self, data, per_angle_scaling, config, logger):
+        return types.SimpleNamespace(
+            phi_flat=np.tile(phi_flat, n_tile),
+            t1_flat=np.tile(t1_flat, n_tile),
+            t2_flat=np.tile(t2_flat, n_tile),
+            g2_flat=np.tile(g2_flat, n_tile),
+            sigma=None,
+            q=Q,
+            L=L,
+            dt=DT,
+        )
+
+    monkeypatch.setattr(
+        wrapper_module.NLSQWrapper, "_apply_stratification_if_needed", _fake_stratify
+    )
+
+    nlsq_block: dict = {
+        "use_streaming": True,
+        "hybrid_streaming": {
+            "enable": True,
+            "warmup_iterations": 2,
+            "max_warmup_iterations": 2,
+            "gauss_newton_max_iterations": 2,
+            "chunk_size": 100_000,
+        },
+    }
+    if per_angle_mode is not None:
+        nlsq_block["anti_degeneracy"] = {
+            "per_angle_mode": per_angle_mode,
+            "hierarchical": {
+                "enable": True,
+                "max_outer_iterations": 1,
+                "physical_max_iterations": 3,
+                "per_angle_max_iterations": 3,
+            },
+        }
+
+    data = _synthetic_data("laminar_flow", n_t=n_t, n_phi=n_phi)
+    config = _config(
+        "laminar_flow",
+        fixed_parameters={"D_offset": 37.5},
+        extra_top={"optimization": {"nlsq": nlsq_block}},
+    )
+    return data, ConfigManager(config_override=config)
+
+
+def test_fixed_parameter_survives_hybrid_streaming_fit(monkeypatch):
+    """fixed_parameters must survive the hybrid-streaming (L-BFGS warmup +
+    Gauss-Newton) tier (Task 7f) on its default (non-hierarchical) branch:
+    n_phi=3 resolves ``auto -> averaged`` (``constant_scaling_threshold``
+    default 3), which sets ``use_constant=True`` and therefore SKIPS Layer 2
+    hierarchical optimization -- exercising the plain
+    ``optimizer.fit(func=active_model_fn, ...)`` path where the fixed
+    physical parameter is threaded through the point-wise model wrapper."""
+    data, cm = _hybrid_streaming_fake_stratify_and_config(monkeypatch=monkeypatch)
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+    # Prove the hybrid-streaming branch actually ran, not that it silently
+    # fell through to stratified-LS via the try/except fallback.
+    assert result.recovery_actions == ["hybrid_streaming_optimizer_method"]
+    params = np.asarray(result.parameters).ravel()
+    d_offset_idx = _physical_index(len(params), _ALL_PHYSICAL_NAMES, "D_offset")
+    assert abs(params[d_offset_idx] - 37.5) < 1e-9
+    if result.uncertainties is not None:
+        assert np.asarray(result.uncertainties).ravel()[d_offset_idx] == 0.0
+
+
+def test_fixed_parameter_survives_hybrid_streaming_fit_individual_mode(monkeypatch):
+    """Same as above, but with ``per_angle_mode: individual`` forced
+    explicitly so ``use_constant=False`` and Layer 2 hierarchical
+    optimization activates -- exercising the ``hierarchical_optimizer.fit(loss_fn=...)``
+    branch, which wraps the fixed physical parameter through a DIFFERENT
+    closure (``loss_fn`` -> ``active_model_fn``) than the plain branch above."""
+    data, cm = _hybrid_streaming_fake_stratify_and_config(
+        per_angle_mode="individual", monkeypatch=monkeypatch
+    )
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+    assert result.recovery_actions == ["hybrid_streaming_optimizer_method"]
+    params = np.asarray(result.parameters).ravel()
+    d_offset_idx = _physical_index(len(params), _ALL_PHYSICAL_NAMES, "D_offset")
+    assert abs(params[d_offset_idx] - 37.5) < 1e-9
+    if result.uncertainties is not None:
+        assert np.asarray(result.uncertainties).ravel()[d_offset_idx] == 0.0
