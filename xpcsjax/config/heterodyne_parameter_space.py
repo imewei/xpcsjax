@@ -517,6 +517,10 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
     )
 
     if has_flat_values:
+        # has_flat_values already confirmed both are non-None list instances;
+        # mypy can't narrow through the intermediate boolean, so assert here.
+        assert param_names_raw is not None
+        assert param_values is not None
         # Apply name mapping for legacy/alias names, then heterodyne public→canonical
         # rename (v_beta→beta, phi0_het→phi0) so template names resolve.
         param_names = [
