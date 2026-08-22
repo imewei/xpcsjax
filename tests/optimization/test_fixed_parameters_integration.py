@@ -258,3 +258,22 @@ def test_fixed_parameter_survives_cmaes_fit():
     assert abs(params[d_offset_idx] - 37.5) < 1e-9
     if result.uncertainties is not None:
         assert np.asarray(result.uncertainties).ravel()[d_offset_idx] == 0.0
+
+
+def test_fixed_parameter_survives_multistart_fit():
+    """fixed_parameters must survive fit_nlsq_multistart's own LHS
+    sampling/screening -- `_SingleFitWorker` narrows `start_params` to the
+    free physical subset (Task 7), reconstructs the full vector, and its
+    recursive `fit_nlsq_jax(..., _skip_global_selection=True)` call
+    independently re-derives and enforces the fixed value regardless."""
+    data = _synthetic_data("laminar_flow")
+    config = _config(
+        "laminar_flow",
+        fixed_parameters={"D_offset": 37.5},
+        extra_top={"optimization": {"nlsq": {"multi_start": {"enable": True, "n_starts": 3}}}},
+    )
+    cm = ConfigManager(config_override=config)
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+    params = np.asarray(result.parameters).ravel()
+    d_offset_idx = _physical_index(len(params), _ALL_PHYSICAL_NAMES, "D_offset")
+    assert abs(params[d_offset_idx] - 37.5) < 1e-9

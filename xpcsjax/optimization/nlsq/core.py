@@ -1372,6 +1372,14 @@ class _SingleFitWorker:
         Whether to use per-angle contrast/offset scaling.
     analysis_mode : str
         Analysis mode ("laminar_flow", "static_anisotropic", or "static_isotropic").
+    phys_free_mask : np.ndarray | None
+        Boolean mask (length = n_physical) marking which physical parameters
+        are free. When set, ``start_params`` is the NARROWED (free-subset)
+        vector `fit_nlsq_multistart` samples via LHS -- see ``__call__``.
+    fixed_physical_full : np.ndarray | None
+        Full-length physical parameter values with the CONFIGURED fixed
+        value already substituted at every fixed position (only meaningful
+        together with ``phys_free_mask``).
     """
 
     def __init__(
@@ -1379,6 +1387,8 @@ class _SingleFitWorker:
         config: Any,  # ConfigManager
         per_angle_scaling: bool,
         analysis_mode: AnalysisMode,
+        phys_free_mask: np.ndarray | None = None,
+        fixed_physical_full: np.ndarray | None = None,
     ) -> None:
         # Extract picklable data from ConfigManager
         # This avoids pickle issues with loggers, file handles, etc.
@@ -1386,6 +1396,8 @@ class _SingleFitWorker:
         self.config_file = config.config_file  # str is picklable
         self.per_angle_scaling = per_angle_scaling
         self.analysis_mode = analysis_mode
+        self.phys_free_mask = phys_free_mask
+        self.fixed_physical_full = fixed_physical_full
 
     def __call__(self, fit_data: dict[str, Any], start_params: np.ndarray) -> SingleStartResult:
         """Run a single NLSQ fit.
@@ -1395,7 +1407,9 @@ class _SingleFitWorker:
         fit_data : dict
             XPCS data dictionary.
         start_params : np.ndarray
-            Starting parameter values as array.
+            Starting parameter values as array. NARROWED to the free
+            physical subset when ``self.phys_free_mask`` is set -- restored
+            to full length before use (see below).
 
         Returns
         -------
@@ -1415,9 +1429,29 @@ class _SingleFitWorker:
             config_override=self.config_dict,
         )
 
-        # Convert array to dict
         param_names = _get_param_names(self.analysis_mode)
-        params_dict = {name: float(start_params[i]) for i, name in enumerate(param_names)}
+
+        # HONOR fixed_parameters/active_parameters: `fit_nlsq_multistart`
+        # narrows the sampled vector to the free physical subset (avoids
+        # wasting LHS budget on locked dimensions). Restore the fixed
+        # physical positions here so `params_dict` (and every SingleStartResult
+        # field below) is always full-length -- a Task-5/6-class bug would be
+        # returning a narrow `final_params`/`initial_params` on the failure
+        # path that downstream code (e.g. `to_optimization_result`) expects
+        # to be full-length.
+        if self.phys_free_mask is not None:
+            from xpcsjax.optimization.nlsq.parameter_utils import restore_by_mask_numpy
+
+            n_prefix = len(start_params) - int(self.phys_free_mask.sum())
+            physical_full = restore_by_mask_numpy(
+                start_params[n_prefix:], self.fixed_physical_full, self.phys_free_mask
+            )
+            full_start_params = np.concatenate([start_params[:n_prefix], physical_full])
+        else:
+            full_start_params = start_params
+
+        # Convert array to dict
+        params_dict = {name: float(full_start_params[i]) for i, name in enumerate(param_names)}
 
         try:
             result = fit_nlsq_jax(
@@ -1430,7 +1464,7 @@ class _SingleFitWorker:
 
             return SingleStartResult(
                 start_idx=0,
-                initial_params=start_params,
+                initial_params=full_start_params,
                 final_params=np.array(result.parameters),
                 chi_squared=result.chi_squared,
                 reduced_chi_squared=result.reduced_chi_squared,
@@ -1445,8 +1479,8 @@ class _SingleFitWorker:
         except (ValueError, RuntimeError, TypeError, OSError, MemoryError) as e:
             return SingleStartResult(
                 start_idx=0,
-                initial_params=start_params,
-                final_params=start_params,
+                initial_params=full_start_params,
+                final_params=full_start_params,
                 chi_squared=np.inf,
                 success=False,
                 message=str(e),
@@ -1563,12 +1597,49 @@ def fit_nlsq_multistart(
     lower_bounds, upper_bounds = _bounds_to_arrays(bounds_dict, analysis_mode)
     bounds_array = np.column_stack([lower_bounds, upper_bounds])
 
+    # HONOR fixed_parameters/active_parameters: narrow bounds_array (and,
+    # further below, any custom start vector) to the free physical subset
+    # BEFORE LHS generation/screening -- mirrors fit_nlsq_cmaes's strip
+    # pattern in this module. Physics is always the tail of the full
+    # parameter vector. `_SingleFitWorker` narrows/restores its own end
+    # (see its __call__) using the mask and fixed values threaded below.
+    physical_names = _get_physical_param_names(analysis_mode)
+    n_physical = len(physical_names)
+    phys_free_mask = None
+    resolved_physical = None
+    if HAS_PARAMETER_MANAGER:
+        from xpcsjax.optimization.nlsq.parameter_utils import (
+            resolve_optimized_physical_parameters,
+        )
+
+        resolved_physical = resolve_optimized_physical_parameters(
+            param_manager,
+            physical_names,
+            values_full=lower_bounds[-n_physical:],
+            lower_full=lower_bounds[-n_physical:],
+            upper_full=upper_bounds[-n_physical:],
+        )
+        if not resolved_physical.free_mask.all():
+            phys_free_mask = resolved_physical.free_mask
+            bounds_array = np.concatenate(
+                [
+                    bounds_array[:-n_physical],
+                    bounds_array[-n_physical:][phys_free_mask],
+                ]
+            )
+            lower_bounds = bounds_array[:, 0]
+            upper_bounds = bounds_array[:, 1]
+
     # Create picklable single fit worker (replaces closure-based function)
     # This enables parallel execution with ProcessPoolExecutor
     single_fit_func = _SingleFitWorker(
         config=config,
         per_angle_scaling=per_angle_scaling,
         analysis_mode=analysis_mode,
+        phys_free_mask=phys_free_mask,
+        fixed_physical_full=resolved_physical.values_full
+        if resolved_physical is not None
+        else None,
     )
 
     # Create cost function for screening
@@ -1608,6 +1679,14 @@ def fit_nlsq_multistart(
         # Convert initial_params dict to array in correct order
         param_names = _get_param_names(analysis_mode)
         initial_array = np.array([initial_params[name] for name in param_names])
+        if phys_free_mask is not None:
+            # Narrow to the free physical subset, matching bounds_array above.
+            initial_array = np.concatenate(
+                [
+                    initial_array[:-n_physical],
+                    initial_array[-n_physical:][phys_free_mask],
+                ]
+            )
         custom_starts = [initial_array.tolist()]
         logger.info("Including user-specified initial parameters as custom start point")
 
