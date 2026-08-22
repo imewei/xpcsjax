@@ -340,7 +340,6 @@ class ParameterSpace:
 
         # --- Flat format: initial_parameters (homodyne parity) ---------------
         _apply_initial_parameters(space, config)
-        _apply_fixed_parameters(space, config)
 
         # --- List format: parameter_space.bounds (homodyne parity) ----------
         # Mirrors homodyne ParameterManager._load_config_bounds: explicit
@@ -465,10 +464,15 @@ class ParameterSpace:
                             )
                         space.vary[param_name] = new_vary
 
-        # --- Tied parameters (must run LAST): forces vary[child]=False after
-        # every other overlay (flat/bounds/grouped) has resolved space.vary,
-        # so a later grouped-format vary:true cannot silently undo a tie. ---
+        # --- Tied parameters: forces vary[child]=False after every other
+        # overlay (flat/bounds/grouped) has resolved space.vary, so a later
+        # grouped-format vary:true cannot silently undo a tie. Must run before
+        # _apply_fixed_parameters. ---
         _apply_tied_parameters(space, config)
+
+        # --- Fixed parameters (must run LAST): ensures fixed_parameters wins
+        # against every other overlay (initial/bounds/grouped/tied). ---
+        _apply_fixed_parameters(space, config)
 
         # Stash the original config dict on the instance so callers can
         # round-trip back to YAML. mypy doesn't allow a type annotation on a
@@ -687,6 +691,24 @@ def _apply_tied_parameters(space: ParameterSpace, config: dict[str, Any]) -> Non
         }
 
     children = set(tied_translated.keys())
+
+    # Extract fixed_parameters from raw config to validate against tied ties.
+    # Must read the raw config dict directly, not space.vary, because
+    # _apply_fixed_parameters hasn't run yet in the new call order
+    # (_apply_fixed_parameters is called AFTER _apply_tied_parameters).
+    from xpcsjax.config.types import PARAMETER_NAME_MAPPING
+
+    fixed_raw = initial.get("fixed_parameters")
+    fixed_names: set[str] = set()
+    if fixed_raw is not None and isinstance(fixed_raw, dict):
+        fixed_names = {
+            _INBOUND_NAME_ALIAS.get(
+                PARAMETER_NAME_MAPPING.get(str(n), str(n)),
+                PARAMETER_NAME_MAPPING.get(str(n), str(n)),
+            )
+            for n in fixed_raw
+        }
+
     for child, parent in tied_translated.items():
         if child not in ALL_PARAM_NAMES:
             raise ValueError(
@@ -705,6 +727,22 @@ def _apply_tied_parameters(space: ParameterSpace, config: dict[str, Any]) -> Non
                 f"tied_parameters: '{parent}' is itself a tied child (tied to "
                 f"'{tied_translated[parent]}') -- chained ties are not supported. "
                 f"Tie '{child}' directly to '{tied_translated[parent]}' instead."
+            )
+        if child in fixed_names:
+            raise ValueError(
+                f"tied_parameters: '{child}' is also listed in fixed_parameters "
+                "-- a tied child's value is derived from its parent every "
+                f"residual evaluation; fixing it independently is a "
+                f"contradiction. Fix '{parent}' instead if you want both pinned."
+            )
+        if parent in fixed_names:
+            raise ValueError(
+                f"tied_parameters: '{child}' is tied to '{parent}', which is "
+                "also listed in fixed_parameters -- fixed_parameters is "
+                "applied AFTER tied_parameters validation, so this would "
+                f"silently freeze '{parent}' out from under an "
+                f"already-validated tie. Tie '{child}' to a non-fixed "
+                f"parameter, or fix '{child}' directly instead."
             )
         if not space.vary.get(parent, False):
             raise ValueError(

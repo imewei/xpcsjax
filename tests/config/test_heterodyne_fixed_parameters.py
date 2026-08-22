@@ -2,6 +2,8 @@
 overlay including parameter_space.bounds and grouped parameters, including
 scaling names."""
 
+import pytest
+
 from xpcsjax.config.heterodyne_parameter_manager import ParameterManager
 
 
@@ -66,3 +68,31 @@ def test_fixed_wins_over_later_parameter_space_bounds_overlay():
     pm = ParameterManager.from_config(config)
     assert pm.space.vary["D0_ref"] is False
     assert pm.space.values["D0_ref"] == 5.0
+
+
+def test_tied_child_also_fixed_raises():
+    config = {
+        "analysis_mode": "two_component",
+        "initial_parameters": {
+            "tied_parameters": {"D0_ref": "D0_sample"},
+            "fixed_parameters": {"D0_ref": 5.0},
+        },
+    }
+    with pytest.raises(ValueError, match="tied_parameters.*D0_ref.*fixed_parameters"):
+        ParameterManager.from_config(config)
+
+
+def test_tied_parent_also_fixed_raises():
+    """The parent-side mirror of the child check -- antigravity round-4 finding.
+    space.vary is not a reliable signal here because _apply_fixed_parameters
+    hasn't run yet when _apply_tied_parameters validates; must read the raw
+    fixed_parameters config dict directly."""
+    config = {
+        "analysis_mode": "two_component",
+        "initial_parameters": {
+            "tied_parameters": {"D0_sample": "D0_ref"},
+            "fixed_parameters": {"D0_ref": 5.0},
+        },
+    }
+    with pytest.raises(ValueError, match="tied_parameters.*D0_ref.*fixed_parameters"):
+        ParameterManager.from_config(config)
