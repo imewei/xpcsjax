@@ -340,6 +340,7 @@ class ParameterSpace:
 
         # --- Flat format: initial_parameters (homodyne parity) ---------------
         _apply_initial_parameters(space, config)
+        _apply_fixed_parameters(space, config)
 
         # --- List format: parameter_space.bounds (homodyne parity) ----------
         # Mirrors homodyne ParameterManager._load_config_bounds: explicit
@@ -504,38 +505,39 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
     param_names_raw = initial.get("parameter_names")
     param_values = initial.get("values")
 
-    if (
-        not param_names_raw
-        or not isinstance(param_names_raw, list)
-        or param_values is None
-        or not isinstance(param_values, list)
-    ):
-        return
+    has_flat_values = (
+        param_names_raw
+        and isinstance(param_names_raw, list)
+        and param_values is not None
+        and isinstance(param_values, list)
+    )
 
-    # Apply name mapping for legacy/alias names, then heterodyne public→canonical
-    # rename (v_beta→beta, phi0_het→phi0) so template names resolve.
-    param_names = [
-        _INBOUND_NAME_ALIAS.get(m, m)
-        for m in (PARAMETER_NAME_MAPPING.get(str(n), str(n)) for n in param_names_raw)
-    ]
+    if has_flat_values:
+        # Apply name mapping for legacy/alias names, then heterodyne public→canonical
+        # rename (v_beta→beta, phi0_het→phi0) so template names resolve.
+        param_names = [
+            _INBOUND_NAME_ALIAS.get(m, m)
+            for m in (PARAMETER_NAME_MAPPING.get(str(n), str(n)) for n in param_names_raw)
+        ]
 
-    if len(param_names) != len(param_values):
-        logger.warning(
-            "initial_parameters: parameter_names (%d) and values (%d) length mismatch; "
-            "skipping flat-format override",
-            len(param_names),
-            len(param_values),
-        )
-        return
-
-    for name, value in zip(param_names, param_values, strict=True):
-        if name in space.values:
-            space.values[name] = coerce_finite_float(
-                value, context=f"initial_parameters.values[{name!r}]"
+        if len(param_names) != len(param_values):
+            logger.warning(
+                "initial_parameters: parameter_names (%d) and values (%d) length mismatch; "
+                "skipping flat-format override",
+                len(param_names),
+                len(param_values),
             )
-            logger.debug("initial_parameters: set %s = %.6g (flat-format override)", name, value)
         else:
-            logger.warning("initial_parameters: unknown parameter '%s', skipping", name)
+            for name, value in zip(param_names, param_values, strict=True):
+                if name in space.values:
+                    space.values[name] = coerce_finite_float(
+                        value, context=f"initial_parameters.values[{name!r}]"
+                    )
+                    logger.debug(
+                        "initial_parameters: set %s = %.6g (flat-format override)", name, value
+                    )
+                else:
+                    logger.warning("initial_parameters: unknown parameter '%s', skipping", name)
 
     # active_parameters: if provided, only these parameters vary. An explicit
     # empty list means "fix everything" and must NOT be treated as absent.
@@ -554,6 +556,43 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
             "initial_parameters: active_parameters set %d params to vary",
             len(active_names),
         )
+
+
+def _apply_fixed_parameters(space: ParameterSpace, config: dict[str, Any]) -> None:
+    """Apply ``initial_parameters.fixed_parameters`` to *space*.
+
+    Sets BOTH the vary flag and the value -- expand_varying_to_full() fills
+    non-varying positions from space.values, so the value write is required.
+
+    MUST run LAST in ParameterSpace.from_config()'s call sequence -- after
+    _apply_initial_parameters, _apply_parameter_space_bounds, the grouped
+    parameters.* overlay, and _apply_tied_parameters -- so a fixed parameter
+    always wins regardless of what any other overlay sets. Not scoped to
+    physical-only (grilling round 1 Q7 -- heterodyne's fixed_parameters
+    mirrors active_parameters' existing scope, which already includes
+    contrast/offset via ALL_PARAM_NAMES_WITH_SCALING).
+    """
+    from xpcsjax.config.types import PARAMETER_NAME_MAPPING
+
+    initial = config.get("initial_parameters", {})
+    if not initial or not isinstance(initial, dict):
+        return
+
+    fixed_raw = initial.get("fixed_parameters")
+    if fixed_raw is None or not isinstance(fixed_raw, dict):
+        return
+
+    for name, value in fixed_raw.items():
+        mapped = PARAMETER_NAME_MAPPING.get(str(name), str(name))
+        canonical = _INBOUND_NAME_ALIAS.get(mapped, mapped)
+        if canonical not in space.values:
+            logger.warning("fixed_parameters: unknown parameter '%s', skipping", name)
+            continue
+        space.values[canonical] = coerce_finite_float(
+            value, context=f"initial_parameters.fixed_parameters[{canonical!r}]"
+        )
+        space.vary[canonical] = False
+        logger.debug("fixed_parameters: fixed %s = %.6g", canonical, value)
 
 
 def _apply_tied_parameters(space: ParameterSpace, config: dict[str, Any]) -> None:
