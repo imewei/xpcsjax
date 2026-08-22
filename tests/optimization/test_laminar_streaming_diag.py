@@ -76,13 +76,18 @@ def test_sequential_laminar_emits_symmetric_activation_keys(monkeypatch):
     activation keys. The sequential path runs no L2/L3/L5, so they are honest
     inactive markers. Diagnostics-only: this asserts only on nlsq_diagnostics.
 
-    The real ``optimize_per_angle_sequential`` solver hits an unrelated, pre-
-    existing JAX TracerArrayConversionError on this tiny synthetic fixture (the
-    homodyne sequential solver is otherwise exercised only via heterodyne tests),
-    which an outer guard swallows into a stub result — so the Site 4 result-build
-    is never reached. We stub the solver with a minimal successful
-    ``SequentialResult`` so the *real* Site 4 payload-build + anti-degeneracy
-    merge runs end-to-end. This isolates exactly the wiring under test.
+    A pre-existing JAX TracerArrayConversionError that used to block any real
+    ``optimize_per_angle_sequential`` solve is now fixed (see git history for
+    ``wrapper.py``'s sequential ``residual_func`` and ``strategies/
+    sequential.py``'s ``has_fixed`` branch, both rewritten to stay
+    trace-safe) — see ``test_fixed_parameters_integration.py::
+    test_fixed_parameter_survives_sequential_fit`` for a real end-to-end
+    proof. This test still stubs the solver deliberately, not to work
+    around that bug: the goal here is isolating the Site 4 payload-build +
+    anti-degeneracy merge from solver convergence behavior on this tiny
+    synthetic fixture, so we stub the solver with a minimal successful
+    ``SequentialResult`` and assert only on the diagnostics wiring under
+    test.
     """
     import xpcsjax.optimization.nlsq.wrapper as wrapper_mod
     from xpcsjax.optimization.nlsq.strategies.sequential import SequentialResult
