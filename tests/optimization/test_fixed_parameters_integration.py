@@ -635,10 +635,35 @@ def _hybrid_streaming_fake_stratify_and_config(
     ``n_phi``/``fixed_parameters``/``extra_nlsq`` default to the original
     fixed values (3 angles, D_offset fixed, no extra nlsq config) so every
     pre-existing call site is unaffected; pass them explicitly to reach a
-    different branch (e.g. n_phi>3 + a fixed phi0 for Layer 5 coverage)."""
+    different branch (e.g. n_phi>3 + a fixed phi0 for Layer 5 coverage).
+
+    Also forces ``select_nlsq_strategy``'s post-stratification recheck
+    (``wrapper.py``'s ``strategy_recheck``, ~line 1299) to HYBRID_STREAMING
+    deterministically. Real memory estimation on the fake tiled ~1.2M-point
+    dataset built below is platform-dependent -- CI's macOS runners report
+    less available RAM than Linux/Windows, tipping the SAME dataset over the
+    OUT_OF_CORE threshold there while every other CI platform picks
+    HYBRID_STREAMING, so the `use_streaming`/`hybrid_streaming.enable`
+    config keys below aren't sufficient on their own to route into the
+    tier this test exists to exercise (verified: macOS CI failure,
+    ``recovery_actions == ["out_of_core_recheck_delegation"]``). Mirrors the
+    monkeypatch pattern `test_fixed_parameter_survives_out_of_core_fit` uses
+    to force its own branch deterministically."""
     import types
 
     from xpcsjax.optimization.nlsq import wrapper as wrapper_module
+    from xpcsjax.optimization.nlsq.memory import NLSQStrategy, StrategyDecision
+
+    def _force_hybrid_streaming(n_points, n_params, *args, **kwargs):
+        return StrategyDecision(
+            strategy=NLSQStrategy.HYBRID_STREAMING,
+            threshold_gb=1000.0,
+            index_memory_gb=0.001,
+            peak_memory_gb=0.001,
+            reason="forced hybrid_streaming for _hybrid_streaming_fake_stratify_and_config",
+        )
+
+    monkeypatch.setattr(wrapper_module, "select_nlsq_strategy", _force_hybrid_streaming)
 
     n_t = 10
     raw = _synthetic_data("laminar_flow", n_t=n_t, n_phi=n_phi)
