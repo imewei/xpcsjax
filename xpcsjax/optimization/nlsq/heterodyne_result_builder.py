@@ -555,7 +555,19 @@ def build_hybrid_streaming_result(
     # ------------------------------------------------------------------
     # Uncertainties from covariance diagonal
     # ------------------------------------------------------------------
-    uncertainties = np.sqrt(np.clip(np.diag(pcov), 0.0, None))
+    # The L2/hierarchical hybrid-streaming branch never computes a real
+    # Hessian-based covariance -- it ships ``pcov = np.eye(n)`` and flags it
+    # via ``info["covariance_is_placeholder"]`` (see
+    # strategies/heterodyne_hybrid_streaming.py). Left unguarded, that
+    # placeholder reports a false-but-finite ``uncertainty = 1.0`` for every
+    # parameter regardless of true physical scale. Honor the flag the same
+    # way the nearby L4 post-solve-condition fallback already does (NaN, not
+    # a fabricated number) instead of silently shipping it as real.
+    if info.get("covariance_is_placeholder", False):
+        pcov = np.full_like(pcov, np.nan)
+        uncertainties = np.full(n, np.nan)
+    else:
+        uncertainties = np.sqrt(np.clip(np.diag(pcov), 0.0, None))
 
     # ------------------------------------------------------------------
     # chi2 placeholder — the hybrid-streaming optimizer does not decompose
