@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -495,14 +496,17 @@ def fit_with_stratified_least_squares(
     # before delegating to the original `residual_fn` instance. When no
     # physical parameters are fixed this is exactly `residual_fn` itself, so
     # every call site below is byte-identical to the pre-fix behavior.
+    _solver_residual_fn: Callable[[Any], Any]
     if _phys_free_mask is not None:
+        assert _fixed_physical_full is not None
         _n_phys_free = int(_phys_free_mask.sum())
         _base_residual_fn = residual_fn
+        _fixed_physical_tail = _fixed_physical_full
 
         def _solver_residual_fn(free_params: Any) -> Any:
             n_prefix = free_params.shape[0] - _n_phys_free
             full_physical = restore_by_mask_jax(
-                free_params[n_prefix:], _fixed_physical_full, _phys_free_mask
+                free_params[n_prefix:], _fixed_physical_tail, _phys_free_mask
             )
             full_params = jnp.concatenate([free_params[:n_prefix], full_physical])
             return _base_residual_fn(full_params)
@@ -924,6 +928,7 @@ def fit_with_stratified_least_squares(
     # Fixed slots get a zero row/column in pcov (exact-zero uncertainty
     # invariant), not an approximated small variance.
     if _phys_free_mask is not None:
+        assert _fixed_physical_full is not None
         n_prefix = len(popt) - int(_phys_free_mask.sum())
         full_physical = restore_by_mask_numpy(
             popt[n_prefix:], _fixed_physical_full, _phys_free_mask
