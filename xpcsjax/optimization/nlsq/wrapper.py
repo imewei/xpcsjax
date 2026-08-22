@@ -2266,7 +2266,31 @@ class NLSQWrapper(NLSQAdapterBase):
                         strip_by_mask(x_scale_value[-n_physical:], _phys_free_mask),
                     ]
                 )
+            # `resolved_physical.values_full` is PHYSICAL space (it's built
+            # upstream in core.py from the raw config value, before any
+            # shear transform runs). The residual closure this feeds
+            # (`_base_wrapped_residual_fn` = `solver_residual_fn`, wrapped by
+            # `wrap_model_function_with_transforms` above when
+            # `transform_state` is truthy) inverse-transforms EVERY position
+            # of its input unconditionally -- so splicing a physical-space
+            # value into a vector it treats as all-solver-space double-
+            # applies the transform (e.g. reports exp(0.02) instead of 0.02
+            # for a fixed gamma_dot_t0 under enable_gamma_dot_log). Forward-
+            # transform a copy of values_full through the SAME index map/
+            # config used for `validated_params` above, so the closure's
+            # internal inverse-transform lands back on the correct physical
+            # value (dev-suite:review-pr finding). `resolved_physical.
+            # values_full` itself is left untouched -- `presolve_params_physical`
+            # above (and other consumers) still need it in physical space.
             _fixed_physical_full = resolved_physical.values_full
+            if transform_state:
+                _padded_fixed = np.concatenate(
+                    [np.zeros(_scaling_head_size), resolved_physical.values_full]
+                )
+                _padded_fixed_solver, _ = apply_forward_shear_transforms_to_vector(
+                    _padded_fixed, physical_index_map, transform_cfg
+                )
+                _fixed_physical_full = _padded_fixed_solver[_scaling_head_size:]
             _base_wrapped_residual_fn = wrapped_residual_fn
 
             # The solver-facing closure signature is f(xdata, *params) -- xdata
@@ -2391,8 +2415,24 @@ class NLSQWrapper(NLSQAdapterBase):
         ):
             _n_physical_full = len(resolved_physical.physical_names)
             n_prefix = len(popt) - int(_phys_free_mask.sum())
+            # `popt` here is still SOLVER space (inverse-transform runs later,
+            # inside `_post_process_results` -- see the comment above). Splice
+            # in the same solver-space fixed values used for the residual
+            # closure, not the raw physical-space `values_full`, or a fixed
+            # gamma_dot_t0/beta under an active shear transform gets
+            # double-transformed on the way back out (dev-suite:review-pr
+            # finding, same root cause as the residual-closure fix above).
+            _fixed_physical_for_popt = resolved_physical.values_full
+            if transform_state:
+                _padded_fixed_popt = np.concatenate(
+                    [np.zeros(_scaling_head_size), resolved_physical.values_full]
+                )
+                _padded_fixed_popt_solver, _ = apply_forward_shear_transforms_to_vector(
+                    _padded_fixed_popt, physical_index_map, transform_cfg
+                )
+                _fixed_physical_for_popt = _padded_fixed_popt_solver[_scaling_head_size:]
             full_physical = restore_by_mask_numpy(
-                popt[n_prefix:], resolved_physical.values_full, _phys_free_mask
+                popt[n_prefix:], _fixed_physical_for_popt, _phys_free_mask
             )
             popt = np.concatenate([popt[:n_prefix], full_physical])
             if pcov is not None:

@@ -2926,8 +2926,18 @@ def fit_nlsq_cmaes(
             quality_flag = "poor"
 
     except ValueError as e:
-        if "per_angle_mode" in str(e):
-            raise  # config rejection (Phase 6 resolver), not a solver failure
+        if "per_angle_mode" in str(e) or "fixed_parameters" in str(e):
+            # Config rejection (Phase 6 per_angle_mode resolver, or
+            # resolve_optimized_physical_parameters's fixed_parameters/
+            # active_parameters guards -- scaling-name, unrecognized-name,
+            # zero-varying), not a solver failure. Every one of that
+            # resolver's ValueError messages contains "fixed_parameters".
+            # Without this, these config-validation errors were silently
+            # downgraded into a generic "CMA-ES optimization failed" result
+            # below -- the exact "raise loudly, don't silently no-op" contract
+            # this plan exists to establish, inverted on this one tier
+            # (dev-suite:review-pr finding).
+            raise
         execution_time = time.time() - start_time
         logger.error(f"CMA-ES optimization failed: {e}")
         return _cmaes_failed_result(x0, execution_time, e)

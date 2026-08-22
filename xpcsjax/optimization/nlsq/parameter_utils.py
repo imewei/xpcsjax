@@ -68,7 +68,8 @@ def resolve_optimized_physical_parameters(
     Raises
     ------
     ValueError
-        If ``fixed_parameters`` names a scaling parameter, or if the
+        If ``fixed_parameters`` names a scaling parameter, an unrecognized
+        parameter (e.g. a typo), or if the
         resulting free set is empty and ``allow_all_fixed`` is False.
     """
     fixed_params = param_manager.get_fixed_parameters()
@@ -79,6 +80,20 @@ def resolve_optimized_physical_parameters(
             "which is not supported for this analysis mode -- fixed_parameters "
             "only constrains physical parameters here. Use 'per_angle_scaling' "
             "initial values to control contrast/offset instead."
+        )
+    unknown_fixed = [
+        name for name in fixed_params if name not in physical_names and name not in scaling_fixed
+    ]
+    if unknown_fixed:
+        # Without this, an unrecognized/typo'd name (e.g. "D0_typoo") matches
+        # neither `physical_names` below (so its value substitution silently
+        # never fires) nor `get_optimizable_parameters()`'s subtraction --
+        # exactly the silent no-op this whole plan exists to eliminate
+        # (dev-suite:review-pr finding).
+        raise ValueError(
+            f"fixed_parameters names unrecognized parameter(s) {unknown_fixed!r} "
+            f"-- not in this mode's physical parameters {physical_names!r} nor a "
+            "recognized scaling name. Check for a typo."
         )
 
     optimizable = set(param_manager.get_optimizable_parameters())

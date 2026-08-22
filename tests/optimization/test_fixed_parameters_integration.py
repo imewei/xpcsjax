@@ -238,6 +238,37 @@ def test_x_scale_map_array_branch_with_fixed_parameter():
     assert abs(params[d_offset_idx] - 37.5) < 1e-9
 
 
+def test_fixed_parameter_survives_plain_fit_with_shear_transform():
+    """fixed_parameters must survive the PLAIN in-memory tier with the shear
+    log-transform active, using a fixed value that DIFFERS from the initial
+    guess (dev-suite:review-pr finding: `test_fixed_parameter_survives_
+    sequential_fit_with_shear_transform` fixes gamma_dot_t0 to the SAME
+    value as the synthetic data's initial guess, 0.01, so it can't
+    discriminate "the fix pinned it" from "the solver converged there
+    anyway" -- and it only covers the sequential tier, which threads the
+    fixed value through its own forward-transform correctly).
+
+    The plain in-memory tier had a real bug this test would have caught:
+    `resolved_physical.values_full` (physical space) was spliced directly
+    into the shear-transform-wrapped residual closure and the post-solve
+    `popt` restore, both of which unconditionally inverse-transform their
+    input as if every position were solver space -- so a fixed gamma_dot_t0
+    came back as ``exp(configured_value)`` instead of ``configured_value``.
+    """
+    data = _synthetic_data("laminar_flow")  # TRUE_PHYSICAL_LAMINAR gamma_dot_t0 = 0.01
+    fixed_value = 0.05  # different from 0.01, in registry bounds [1e-6, 0.5]
+    config = _config(
+        "laminar_flow",
+        fixed_parameters={"gamma_dot_t0": fixed_value},
+        extra_top={"optimization": {"nlsq": {"shear_transforms": {"enable_gamma_dot_log": True}}}},
+    )
+    cm = ConfigManager(config_override=config)
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+    params = np.asarray(result.parameters).ravel()
+    gamma_idx = _physical_index(len(params), _ALL_PHYSICAL_NAMES, "gamma_dot_t0")
+    assert abs(params[gamma_idx] - fixed_value) < 1e-9
+
+
 def test_fixed_parameter_survives_cmaes_fit():
     """fixed_parameters must survive fit_nlsq_cmaes's own Phase 1 (NLSQ
     warm-start) / Phase 2 (CMA-ES) / Phase 3 (result-selection) sequence --
