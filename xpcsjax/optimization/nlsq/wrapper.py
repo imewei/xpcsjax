@@ -2090,10 +2090,21 @@ class NLSQWrapper(NLSQAdapterBase):
         # a full-length physical vector underneath. `resolved_physical=None`
         # (every caller not yet updated by this plan) is a complete no-op.
         _phys_free_mask: np.ndarray | None = None
+        # Full-length pre-solve physical vector (fixed slots already carrying
+        # their override value via `resolved_physical.values_full`), saved
+        # BEFORE `validated_params` is stripped down to the free-only
+        # optimizer vector below. `_post_process_results` needs this -- not
+        # the stripped `validated_params` -- to compare against the
+        # already-restored (full-length) `popt` for `params_changed`; comparing
+        # the stripped and restored vectors directly is a shape mismatch.
+        presolve_params_physical = validated_params
         if resolved_physical is not None and not resolved_physical.free_mask.all():
             n_physical = len(resolved_physical.physical_names)
             _phys_free_mask = resolved_physical.free_mask
             phys_slice = validated_params[-n_physical:]
+            presolve_params_physical = np.concatenate(
+                [validated_params[:-n_physical], resolved_physical.values_full]
+            )
             validated_params = np.concatenate(
                 [validated_params[:-n_physical], strip_by_mask(phys_slice, _phys_free_mask)]
             )
@@ -2297,6 +2308,8 @@ class NLSQWrapper(NLSQAdapterBase):
             info=info,
             transform_state=transform_state,
             validated_params=validated_params,
+            presolve_params_physical=presolve_params_physical,
+            resolved_physical=resolved_physical,
             residual_counter=residual_counter,
             base_residual_fn=base_residual_fn,
             xdata=xdata,
@@ -2403,6 +2416,8 @@ class NLSQWrapper(NLSQAdapterBase):
         info: dict[str, Any],
         transform_state: Any,
         validated_params: np.ndarray,
+        presolve_params_physical: np.ndarray,
+        resolved_physical: ResolvedPhysicalParameters | None,
         residual_counter: Any,
         base_residual_fn: Callable[..., np.ndarray],
         xdata: np.ndarray,
@@ -2578,12 +2593,16 @@ class NLSQWrapper(NLSQAdapterBase):
         function_evals = iterations
         cost_reduction = (initial_cost - final_cost) / initial_cost if initial_cost > 0 else 0
         # popt is already inverse-transformed to physical space above (when
-        # transform_state is truthy); validated_params is still the pre-solve x0
-        # in TRANSFORM/solver space (forward-transformed by the caller before the
-        # solve). Compare both in physical space, or params_changed can spuriously
-        # read True/False just from the parameterization mismatch, not real motion.
+        # transform_state is truthy) AND already restored to full physical
+        # length (when a resolver stripped fixed physical slots for the
+        # solve). `presolve_params_physical` is the matching full-length,
+        # pre-solve counterpart -- unlike `validated_params`, which stays in
+        # its STRIPPED, solver-facing shape when a resolver was used, and
+        # would shape-mismatch against the now-restored `popt` here. Compare
+        # both in physical space, or params_changed can spuriously read
+        # True/False just from the parameterization mismatch, not real motion.
         initial_params_physical = apply_inverse_shear_transforms_to_vector(
-            validated_params,
+            presolve_params_physical,
             transform_state,
         )
         params_changed = not np.allclose(popt, initial_params_physical, rtol=1e-8)
@@ -2646,6 +2665,24 @@ class NLSQWrapper(NLSQAdapterBase):
             diagnostics_payload=diagnostics_payload if diagnostics_enabled else None,
             n_params_effective=n_dof_effective,
         )
+
+        # A fixed physical parameter's true covariance diagonal is exactly 0 --
+        # `result.covariance` already reflects that (the restore block above never
+        # writes a nonzero value into a fixed slot's diagonal). But
+        # `_safe_uncertainties_from_pcov` (recovery.py) floors ANY near-zero
+        # diagonal entry to sqrt(1e-10) as a numerical-safety net for genuinely
+        # singular/ill-conditioned solves -- it can't distinguish "singular" from
+        # "deliberately fixed" because it isn't given that information. Force the
+        # reported uncertainty back to exactly 0.0 at every FIXED physical
+        # position (physics is always the tail, per the layout contract above);
+        # every other position keeps whatever the floor produced.
+        if resolved_physical is not None and not resolved_physical.free_mask.all():
+            n_physical = len(resolved_physical.physical_names)
+            unc = np.array(result.uncertainties, dtype=float)
+            for i, free in enumerate(resolved_physical.free_mask):
+                if not free:
+                    unc[-n_physical + i] = 0.0
+            result.uncertainties = unc
 
         # Anti-degeneracy: emit the SYMMETRIC top-level activation key set so the
         # laminar in-memory result mirrors heterodyne's contract

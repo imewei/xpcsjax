@@ -462,6 +462,23 @@ def fit_nlsq_jax(
     lower_bounds, upper_bounds = _bounds_to_arrays(bounds_dict, analysis_mode)
     bounds = (lower_bounds, upper_bounds)
 
+    resolved_physical = None
+    if HAS_PARAMETER_MANAGER:
+        from xpcsjax.optimization.nlsq.parameter_utils import (
+            resolve_optimized_physical_parameters,
+        )
+
+        physical_names = _get_physical_param_names(analysis_mode)
+        full_names = _get_param_names(analysis_mode)
+        physical_idx = np.array([full_names.index(name) for name in physical_names])
+        resolved_physical = resolve_optimized_physical_parameters(
+            param_manager,
+            physical_names,
+            values_full=np.asarray(x0)[physical_idx],
+            lower_full=np.asarray(lower_bounds)[physical_idx],
+            upper_full=np.asarray(upper_bounds)[physical_idx],
+        )
+
     # Convert data dict to object if needed (NLSQWrapper expects object attributes)
     data = _normalize_data_to_object(data, config, logger)
 
@@ -534,6 +551,7 @@ def fit_nlsq_jax(
                 diagnostics_enabled=diagnostics_enabled,
                 shear_transforms=shear_transform_cfg,
                 per_angle_scaling_initial=per_angle_scaling_initial,
+                resolved_physical=resolved_physical,
             )
 
             # adapter.fit() catches internal solver/model failures itself and
@@ -585,6 +603,7 @@ def fit_nlsq_jax(
                 shear_transforms=shear_transform_cfg,
                 per_angle_scaling_initial=per_angle_scaling_initial,
                 on_iteration=on_iteration,
+                resolved_physical=resolved_physical,
             )
 
             # T023: Add fallback info to device_info
