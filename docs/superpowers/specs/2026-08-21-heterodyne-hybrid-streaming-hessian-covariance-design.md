@@ -115,17 +115,36 @@ After `hierarchical_optimizer.fit(...)` returns `hier_result`:
    value, which laminar treats as SSR-equivalent for the Gauss-Newton scaling; this
    is consistent because `_loss_jax` returns the same weighted-MSE-times-N quantity
    laminar's `loss_fn` returns).
-3. `H = np.asarray(jax.hessian(_loss_jax)(jnp.asarray(popt)))`, wrapped in
-   `try/except Exception` — any failure (tracing error, shape mismatch, OOM) is
-   caught and logged via `logger.warning`, `H = None`.
-4. If `H is not None`: `pcov = 2.0 * s2 * np.linalg.inv(H)`, falling back to
-   `np.linalg.pinv(H)` on `np.linalg.LinAlgError`, with a `logger.warning` on that
-   fallback path (matches laminar's singular-Hessian handling).
-5. If `H is None`: `pcov = np.eye(n)`, `covariance_is_placeholder = True`,
-   `logger.error(...)` stating uncertainties are not meaningful (matches laminar's
-   `H-5` log message).
+3. `H = np.asarray(jax.hessian(_loss_jax)(jnp.asarray(popt)))`, computed inside a
+   single `try/except Exception` that also encloses steps 4 and the finiteness
+   checks below — any failure at any point in this chain (tracing error, shape
+   mismatch, OOM, a `pinv` failure, or a non-finite result) is caught by the
+   same `except` and routes to step 5. `H` is explicitly checked for
+   finiteness (`np.all(np.isfinite(H))`) before use: `np.linalg.inv`/`pinv` can
+   return NaN-filled output *without raising* on a non-finite input, which
+   would otherwise silently leave `covariance_is_placeholder=False` on a
+   meaningless covariance (three-brain review finding, Codex, 2026-08-22) — a
+   non-finite `H` raises internally to reach the same fallback as an outright
+   exception.
+4. `pcov = 2.0 * s2 * np.linalg.inv(H)`, falling back to `np.linalg.pinv(H)` on
+   `np.linalg.LinAlgError` (with a `logger.warning` on that fallback path,
+   matching laminar's singular-Hessian handling). The resulting `pcov` is
+   itself checked for finiteness before being accepted; a non-finite `pcov`
+   also routes to step 5, not silently returned.
+5. On any failure caught by the try/except in step 3 (Hessian computation
+   failed, `H` non-finite, `pinv` itself raised, or `pcov` non-finite):
+   `pcov = np.eye(n)`, `covariance_is_placeholder = True`, `logger.error(...)`
+   stating uncertainties are not meaningful (matches laminar's `H-5` log
+   message).
 6. `info["covariance_is_placeholder"]` is set from the computed
    `covariance_is_placeholder` value (replacing the current unconditional `True`).
+
+**Known inherited edge case, not newly handled:** `n_data <= n_params`
+(underdetermined fit) is guarded against division-by-zero via
+`max(n_data - n, 1)` but is not separately detected as a placeholder case —
+this is inherited byte-for-byte from laminar's own origin
+(`hybrid_streaming.py:1593`) and left as-is per the "exact mirror of laminar"
+decision (three-brain review, Codex finding, 2026-08-22).
 
 ### Regularization interaction
 
@@ -168,7 +187,16 @@ All new tests live in `tests/optimization/test_heterodyne_hybrid_streaming.py`
    `individual`-mode fixture pattern in this file) through a small, well-posed
    synthetic problem; assert `pcov` is finite, `pcov.shape == (n, n)`, `pcov` is
    NOT `np.eye(n)` (e.g. `not np.allclose(pcov, np.eye(n))`), and
-   `info["covariance_is_placeholder"] is False`.
+   `info["covariance_is_placeholder"] is False`. **The fixture must inject
+   noise** (this repo's existing `1e-3` Gaussian-noise convention) rather than
+   use the shared `_make_synthetic_heterodyne` helper unmodified — that helper
+   builds `c2` at the model's exact initial parameters (zero residual by
+   construction), which collapses `s2` to 0 and produces a degenerate all-zero
+   `pcov` that would trivially satisfy the above assertions without exercising
+   the real `inv()` path (three-brain review finding, Codex, 2026-08-22,
+   empirically verified: rank-11/22 Hessian at `n_phi=4, n_t=6` un-noised). Add
+   an explicit `not np.allclose(pcov, 0.0)` assertion to catch this failure
+   mode directly.
 2. **Fallback preserved on Hessian failure** — monkeypatch `jax.hessian` (or the
    module-level reference used in `heterodyne_hybrid_streaming.py`) to raise;
    assert `pcov == np.eye(n)`, `info["covariance_is_placeholder"] is True`, and a
@@ -178,10 +206,12 @@ All new tests live in `tests/optimization/test_heterodyne_hybrid_streaming.py`
    (e.g. rank-deficient) and assert `pcov` is computed via `pinv` without raising,
    `covariance_is_placeholder is False` (a pinv-derived covariance is still real,
    just ill-conditioned — distinct from the "Hessian call itself failed" case).
-4. **Full regression pass** — rerun `test_heterodyne_hybrid_streaming.py` (59
-   existing tests) and `test_heterodyne_tied_result_assembly.py` in full; both
+4. **Full regression pass** — rerun `test_heterodyne_hybrid_streaming.py` (50
+   existing tests, verified via `pytest --collect-only`) and
+   `test_heterodyne_tied_result_assembly.py` (9 existing tests) in full; both
    should remain green (existing assertions are shape-only on `pcov`, not
-   value-pinned to identity).
+   value-pinned to identity) — 62 total across both files once the 3 new tests
+   above are added.
 5. **No parity impact** — `tests/parity/` golden/`rtol=1e-10` tests pin `popt` and
    `chi_squared`, not `pcov`; no golden regeneration expected or required.
 
