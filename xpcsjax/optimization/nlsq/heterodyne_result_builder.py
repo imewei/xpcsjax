@@ -555,9 +555,12 @@ def build_hybrid_streaming_result(
     # ------------------------------------------------------------------
     # Uncertainties from covariance diagonal
     # ------------------------------------------------------------------
-    # The L2/hierarchical hybrid-streaming branch never computes a real
-    # Hessian-based covariance -- it ships ``pcov = np.eye(n)`` and flags it
-    # via ``info["covariance_is_placeholder"]`` (see
+    # The L2/hierarchical hybrid-streaming branch computes a real
+    # Hessian-based covariance, but falls back to ``pcov = np.eye(n)`` when
+    # that computation fails or yields a non-PSD result (a bounded L-BFGS-B
+    # solution resting on a bound is not an interior stationary point, so its
+    # unconstrained Hessian need not be positive-semi-definite). It signals
+    # which case it is via ``info["covariance_is_placeholder"]`` (see
     # strategies/heterodyne_hybrid_streaming.py). Left unguarded, that
     # placeholder reports a false-but-finite ``uncertainty = 1.0`` for every
     # parameter regardless of true physical scale. Honor the flag the same

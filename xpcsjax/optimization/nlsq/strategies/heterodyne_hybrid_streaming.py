@@ -890,13 +890,19 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         # BUG-15/H-5 fix at strategies/hybrid_streaming.py:1590-1623). Uses
         # the pure-JAX scalar loss `_loss_jax` already defined above for the
         # optimizer's own gradient calls. Any failure along this path --
-        # jax.hessian raising, a non-finite Hessian, inv/pinv raising, or a
-        # non-finite result -- falls back to an identity placeholder +
-        # covariance_is_placeholder=True (single unified except below; a
-        # singular-but-finite Hessian still yields a real pinv-based
-        # covariance and stays non-placeholder). n_data <= n_params is
-        # guarded against division-by-zero the same way laminar's origin
-        # does (max(..., 1)) and is not separately detected as a
+        # jax.hessian raising, a non-finite Hessian, inv/pinv raising, a
+        # non-finite result, or a NEGATIVE covariance diagonal -- falls back
+        # to an identity placeholder + covariance_is_placeholder=True (single
+        # unified except below; a singular-but-finite Hessian still yields a
+        # real pinv-based covariance and stays non-placeholder). The negative-
+        # diagonal guard matters because L2 uses bounded L-BFGS-B: a solution
+        # resting on a bound is not an interior stationary point, so the
+        # unconstrained Hessian there need not be positive-semi-definite, and
+        # pinv of an indefinite H yields negative variances that
+        # heterodyne_result_builder would silently clip to sigma = 0.0 --
+        # a confidently-wrong "known" in place of an honest "unknown".
+        # n_data <= n_params is guarded against division-by-zero the same way
+        # laminar's origin does (max(..., 1)) and is not separately detected as a
         # placeholder case, matching the "exact mirror of laminar" decision
         # (spec, "Approaches considered"; see Global Constraints above).
         n_hier_data = len(y_data)
@@ -910,12 +916,12 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
             try:
                 pcov = 2.0 * s2_hier * np.linalg.inv(H)
             except np.linalg.LinAlgError:
-                logger.warning(
-                    "Singular Hessian in heterodyne L2 path, using pseudo-inverse"
-                )
+                logger.warning("Singular Hessian in heterodyne L2 path, using pseudo-inverse")
                 pcov = 2.0 * s2_hier * np.linalg.pinv(H)
             if not np.all(np.isfinite(pcov)):
                 raise ValueError("Covariance contains non-finite entries")
+            if np.any(np.diag(pcov) < 0):
+                raise ValueError("Covariance has negative diagonal (Hessian not positive-definite)")
         except Exception as e:
             logger.error(
                 "Hessian covariance failed in heterodyne L2 path (%s); covariance "
@@ -941,6 +947,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
                 "warmup_diagnostics": {},
                 "gauss_newton_diagnostics": {"final_cost": hier_result.fun},
                 "hierarchical_history": hier_result.history,
+                "covariance_is_placeholder": covariance_is_placeholder,
             },
         }
         hierarchical_active = True
@@ -1030,11 +1037,14 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         gm_block = gradient_monitor_diagnostics(monitor)
         if gm_block["mechanism"] == "post_solve_fallback":
             # Compute post-solve covariance condition as fallback indicator.
-            # On the hierarchical path pcov is an identity placeholder
-            # (info["covariance_is_placeholder"] is True), so cond(I)=1.0 would
-            # masquerade as a real, well-conditioned covariance. Report NaN there;
-            # only compute the real condition number on a genuine pcov (plain
-            # streaming branch).
+            # info["covariance_is_placeholder"] is DYNAMIC: the hierarchical
+            # branch now computes a real Hessian-based covariance and only
+            # falls back to the identity placeholder when that fails (see the
+            # covariance block above), and the plain streaming branch reports
+            # whatever the optimizer produced. When the flag is True, pcov is
+            # the identity placeholder and cond(I)=1.0 would masquerade as a
+            # real, well-conditioned covariance -- report NaN there; only
+            # compute the real condition number on a genuine pcov.
             is_placeholder = bool(info.get("covariance_is_placeholder", False))
             if (not is_placeholder) and pcov.ndim == 2 and pcov.shape[0] > 0:
                 pcov_cond = float(np.linalg.cond(pcov))
