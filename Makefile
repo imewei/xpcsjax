@@ -376,7 +376,7 @@ format:
 
 lint:
 	@echo "$(BOLD)$(BLUE)Running linting checks...$(RESET)"
-	$(RUN_CMD) $(RUFF) check $(SRC_DIR)
+	$(RUN_CMD) $(RUFF) check .
 	@echo "$(BOLD)$(GREEN)✓ No linting errors!$(RESET)"
 
 type-check:
@@ -441,7 +441,7 @@ verify:
 	@echo "$(BOLD)$(BLUE)======================================$(RESET)"
 	@echo ""
 	@echo "$(BOLD)Step 1/3: Linting$(RESET)"
-	@$(RUN_CMD) $(RUFF) check $(SRC_DIR) $(TEST_DIR) || (echo "$(RED)Lint check failed!$(RESET)" && exit 1)
+	@$(RUN_CMD) $(RUFF) check . || (echo "$(RED)Lint check failed!$(RESET)" && exit 1)
 	@echo ""
 	@echo "$(BOLD)Step 2/3: Type checking (advisory)$(RESET)"
 	@$(RUN_CMD) mypy $(SRC_DIR) --no-error-summary 2>&1 | tail -1 || true
@@ -460,7 +460,7 @@ verify-fast:
 	@echo "$(BOLD)$(BLUE)======================================$(RESET)"
 	@echo ""
 	@echo "$(BOLD)Step 1/2: Linting$(RESET)"
-	@$(RUN_CMD) $(RUFF) check $(SRC_DIR) $(TEST_DIR) || (echo "$(RED)Lint check failed!$(RESET)" && exit 1)
+	@$(RUN_CMD) $(RUFF) check . || (echo "$(RED)Lint check failed!$(RESET)" && exit 1)
 	@echo ""
 	@echo "$(BOLD)Step 2/2: Type checking (advisory)$(RESET)"
 	@$(RUN_CMD) mypy $(SRC_DIR) --no-error-summary 2>&1 | tail -1 || true
