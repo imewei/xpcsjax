@@ -887,24 +887,33 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         n = len(popt)
 
         # Real Hessian-based Gauss-Newton covariance (mirrors laminar's
-        # BUG-15/H-5 fix at strategies/hybrid_streaming.py:1590-1623). Uses
-        # the pure-JAX scalar loss `_loss_jax` already defined above for the
-        # optimizer's own gradient calls. Any failure along this path --
-        # jax.hessian raising, a non-finite Hessian, inv/pinv raising, a
-        # non-finite result, or a NEGATIVE covariance diagonal -- falls back
-        # to an identity placeholder + covariance_is_placeholder=True (single
-        # unified except below; a singular-but-finite Hessian still yields a
-        # real pinv-based covariance and stays non-placeholder). The negative-
-        # diagonal guard matters because L2 uses bounded L-BFGS-B: a solution
-        # resting on a bound is not an interior stationary point, so the
-        # unconstrained Hessian there need not be positive-semi-definite, and
-        # pinv of an indefinite H yields negative variances that
-        # heterodyne_result_builder would silently clip to sigma = 0.0 --
-        # a confidently-wrong "known" in place of an honest "unknown".
+        # BUG-15/H-5 fix at strategies/hybrid_streaming.py:1590-1623, but
+        # deliberately diverges from it on singular Hessians -- see below).
+        # Uses the pure-JAX scalar loss `_loss_jax` already defined above for
+        # the optimizer's own gradient calls. Any failure along this path --
+        # jax.hessian raising, a non-finite Hessian, a SINGULAR Hessian, a
+        # non-finite covariance, or a negative covariance diagonal -- falls
+        # back to an identity placeholder + covariance_is_placeholder=True
+        # (single unified except below).
+        #
+        # A singular Hessian is treated as a full failure, NOT recovered via
+        # np.linalg.pinv (unlike laminar's origin). L2 uses bounded L-BFGS-B:
+        # a solution resting on a bound is not an interior stationary point,
+        # so the unconstrained Hessian there need not be positive-definite --
+        # and pinv's Moore-Penrose null-space treatment sets the singular
+        # direction's variance to EXACTLY 0.0 (infinite precision) rather
+        # than the statistically correct answer (unbounded uncertainty, since
+        # that direction is genuinely unidentified by the fit). A negative-
+        # diagonal guard alone does not catch this -- 0.0 is not < 0 -- so
+        # heterodyne_result_builder would silently clip it to sigma = 0.0,
+        # the same confidently-wrong "known" this whole guard exists to
+        # prevent, just at the zero boundary instead of the negative one.
         # n_data <= n_params is guarded against division-by-zero the same way
         # laminar's origin does (max(..., 1)) and is not separately detected as a
         # placeholder case, matching the "exact mirror of laminar" decision
-        # (spec, "Approaches considered"; see Global Constraints above).
+        # (spec, "Approaches considered"; see Global Constraints above) --
+        # that decision covers the DOF guard only, not the pinv divergence
+        # above.
         n_hier_data = len(y_data)
         s2_hier = float(hier_result.fun) / max(n_hier_data - n, 1)
         covariance_is_placeholder = False
@@ -915,9 +924,12 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
                 raise ValueError("Hessian contains non-finite entries")
             try:
                 pcov = 2.0 * s2_hier * np.linalg.inv(H)
-            except np.linalg.LinAlgError:
-                logger.warning("Singular Hessian in heterodyne L2 path, using pseudo-inverse")
-                pcov = 2.0 * s2_hier * np.linalg.pinv(H)
+            except np.linalg.LinAlgError as le:
+                raise ValueError(
+                    "Hessian is singular -- a pseudo-inverse covariance would "
+                    "misreport the unidentified (null-space) directions as "
+                    "exactly zero variance instead of unbounded uncertainty"
+                ) from le
             if not np.all(np.isfinite(pcov)):
                 raise ValueError("Covariance contains non-finite entries")
             if np.any(np.diag(pcov) < 0):
@@ -928,6 +940,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
                 "is an identity placeholder — reported uncertainties are NOT "
                 "meaningful.",
                 e,
+                exc_info=True,
             )
             pcov = np.eye(n)
             covariance_is_placeholder = True
@@ -1081,6 +1094,13 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         gradient_monitor=gm_block,
         per_angle_mode=meta["per_angle_mode"],
         n_optimized=int(meta["n_scaling"]),
+        # Thread the L2 branch's real/placeholder covariance flag into the
+        # public anti_degeneracy block, mirroring heterodyne_stratified_ls.py's
+        # established pattern for the same flag. Read from `info` (not the
+        # local `covariance_is_placeholder` var, which only the L2 branch
+        # sets) so the plain-path branch's absence of the key degrades safely
+        # to False instead of raising NameError.
+        covariance_is_placeholder=bool(info.get("covariance_is_placeholder", False)),
         **_extra_constant_scaling,
     )
 
