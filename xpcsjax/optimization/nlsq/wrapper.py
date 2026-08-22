@@ -1092,19 +1092,28 @@ class NLSQWrapper(NLSQAdapterBase):
                 n_physical = len(resolved_physical.physical_names)
                 if seq_initial_params is not None:
                     seq_initial_params = np.array(seq_initial_params, dtype=np.float64)
+                # Single `is not None` narrowing for seq_lower/seq_upper's
+                # whole lifetime (assign, mutate in the loop, reassemble) --
+                # the original two-separate-checks-on-the-same-variable
+                # pattern is runtime-safe (seq_bounds is never reassigned
+                # in between) but CodeQL's static analyzer can't correlate
+                # them, flagging both as "may be used before initialized"
+                # (py/uninitialized-local-variable, CI CodeQL gate on PR #57).
                 if seq_bounds is not None:
                     seq_lower = np.array(seq_bounds[0], dtype=np.float64)
                     seq_upper = np.array(seq_bounds[1], dtype=np.float64)
-                for i, free in enumerate(resolved_physical.free_mask):
-                    if not free:
-                        fixed_val = resolved_physical.values_full[i]
-                        if seq_initial_params is not None:
-                            seq_initial_params[-n_physical + i] = fixed_val
-                        if seq_bounds is not None:
+                    for i, free in enumerate(resolved_physical.free_mask):
+                        if not free:
+                            fixed_val = resolved_physical.values_full[i]
+                            if seq_initial_params is not None:
+                                seq_initial_params[-n_physical + i] = fixed_val
                             seq_lower[-n_physical + i] = fixed_val
                             seq_upper[-n_physical + i] = fixed_val
-                if seq_bounds is not None:
                     seq_bounds = (seq_lower, seq_upper)
+                else:
+                    for i, free in enumerate(resolved_physical.free_mask):
+                        if not free and seq_initial_params is not None:
+                            seq_initial_params[-n_physical + i] = resolved_physical.values_full[i]
             seq_result = self._run_sequential_optimization(
                 stratified_data.data,
                 config,
