@@ -2396,7 +2396,20 @@ def fit_nlsq_cmaes(
             # read the wrong index (e.g. D_offset instead of phi0) in individual mode.
             physical_params = x0[len(x0) - n_physical :]
             phi0_idx = _get_physical_param_names(analysis_mode).index("phi0")
-            phi0_current_deg = float(physical_params[phi0_idx])
+            # If phi0 is itself a fixed_parameters override, x0's warm-started
+            # value may not equal the configured override yet (this runs
+            # BEFORE resolve_optimized_physical_parameters/the fixed-value
+            # restore further below) -- read the configured value directly
+            # instead of trusting x0 (dev-suite:three-brain deep-review
+            # finding, same class as hybrid_streaming.py's initial_phi0 fix).
+            _cmaes_fixed_phi0 = (
+                param_manager.get_fixed_parameters().get("phi0") if HAS_PARAMETER_MANAGER else None
+            )
+            phi0_current_deg = (
+                float(_cmaes_fixed_phi0)
+                if _cmaes_fixed_phi0 is not None
+                else float(physical_params[phi0_idx])
+            )
 
             # Compute per-angle shear weights
             shear_weights = ad_controller.shear_weighter.get_weights(phi0_current_deg)

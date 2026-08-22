@@ -969,9 +969,20 @@ def fit_with_stratified_hybrid_streaming(
             # Try to get from initial parameters. `initial_params` here is
             # still the FULL (pre-strip) vector -- the strip happens later,
             # after all Layer 1-5 anti-degeneracy object construction -- so
-            # `initial_params[-1]` is correctly phi0 (last physical param)
-            # regardless of whether phi0 itself is later fixed.
-            initial_phi0 = float(initial_params[-1]) if len(initial_params) > 0 else 0.0
+            # `initial_params[-1]` is phi0 (last physical param) UNLESS phi0
+            # is fixed to a value different from its raw config initial
+            # guess, in which case `initial_params[-1]` is the stale
+            # unfixed guess, not the configured override (dev-suite:
+            # three-brain deep-review finding). `resolved_physical.
+            # values_full`, when available, already carries the correct
+            # value at every position -- the fixed override at fixed slots,
+            # the same raw initial value everywhere else -- so prefer it.
+            if resolved_physical is not None and "phi0" in physical_param_names:
+                initial_phi0 = float(
+                    resolved_physical.values_full[physical_param_names.index("phi0")]
+                )
+            else:
+                initial_phi0 = float(initial_params[-1]) if len(initial_params) > 0 else 0.0
 
         sw_config = ShearWeightingConfig(
             enable=True,

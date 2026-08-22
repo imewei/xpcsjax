@@ -732,7 +732,28 @@ def test_fixed_parameter_survives_hybrid_streaming_fit_individual_mode_with_fixe
     cannot, without a reference oracle) prove the other parameters converged
     to a *better* optimum than before the fix -- only that the code path
     that used to read the wrong array slot now runs correctly-indexed.
+
+    A second, later three-brain review found the index fix alone was not
+    sufficient: `ShearSensitivityWeighting`'s `initial_phi0` seed was read
+    from the raw pre-strip `initial_params[-1]` -- the CONFIG'S initial
+    guess (0.0 here), not the fixed override (5.0) -- since that seed is
+    computed before the fixed-value restore runs. This spies on the
+    `ShearSensitivityWeighting` constructor directly to prove the seed
+    itself, not just phi0's final reported value (which the strip/restore
+    mechanism would force to 5.0 regardless of L5's internal seed).
     """
+    import xpcsjax.optimization.nlsq.strategies.hybrid_streaming as hybrid_streaming_module
+
+    captured_initial_phi0: list[float] = []
+    _RealShearWeighter = hybrid_streaming_module.ShearSensitivityWeighting
+
+    class _SpyShearWeighter(_RealShearWeighter):  # type: ignore[misc, valid-type]
+        def __init__(self, *args, **kwargs):
+            captured_initial_phi0.append(kwargs["config"].initial_phi0)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(hybrid_streaming_module, "ShearSensitivityWeighting", _SpyShearWeighter)
+
     data, cm = _hybrid_streaming_fake_stratify_and_config(
         per_angle_mode="individual",
         monkeypatch=monkeypatch,
@@ -741,6 +762,7 @@ def test_fixed_parameter_survives_hybrid_streaming_fit_individual_mode_with_fixe
     )
     result = fit_nlsq_jax(data, cm, use_adapter=False)
     assert result.recovery_actions == ["hybrid_streaming_optimizer_method"]
+    assert captured_initial_phi0 == [5.0]  # not 0.0, the raw config initial guess
     params = np.asarray(result.parameters).ravel()
     phi0_idx = _physical_index(len(params), _ALL_PHYSICAL_NAMES, "phi0")
     assert abs(params[phi0_idx] - 5.0) < 1e-9
@@ -822,11 +844,19 @@ def test_heterodyne_fixed_scaling_parameter_survives_real_fit():
     fail to raise (dev-suite:three-brain deep-review Minor finding: the prior
     version of this test asserted only ``convergence_status is not None``,
     which would also pass if a bare "contrast" fixed_parameters key silently
-    failed to match anything under the template's default per_angle_mode=
-    "auto" -> "individual" (n_phi=2 < constant_scaling_threshold=3) per-angle
-    "contrast[i]" layout. Forcing per_angle_mode="constant" makes "contrast"/
-    "offset" the actual flat scalar names in play, so a name-matching failure
-    would surface as a wrong fitted value instead of passing silently.
+    failed to match anything).
+
+    The template's default per_angle_mode="auto" resolves to "individual"
+    here (n_phi=2 < constant_scaling_threshold=3), so a bare "contrast"/
+    "offset" fixed_parameters key broadcasts to every per-angle "contrast_i"/
+    "offset_i" slot (verified live, not "constant"'s single flat scalar
+    name -- an earlier draft of this test forced per_angle_mode="constant"
+    to get a flat name, but "constant" mode derives contrast/offset from
+    its own quantile estimation instead of consuming fixed_parameters at
+    all, so that combination doesn't actually exercise the fixed-value
+    path; asserting the per-angle-broadcast contract under the DEFAULT mode
+    is the one that matters end-to-end). A name-matching failure here would
+    surface as a wrong fitted value, not a silent no-op.
     """
     from tests.optimization.test_heterodyne_hybrid_streaming import _make_synthetic_heterodyne
     from xpcsjax.optimization.nlsq import fit_nlsq
