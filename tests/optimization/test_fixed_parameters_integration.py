@@ -277,3 +277,42 @@ def test_fixed_parameter_survives_multistart_fit():
     params = np.asarray(result.parameters).ravel()
     d_offset_idx = _physical_index(len(params), _ALL_PHYSICAL_NAMES, "D_offset")
     assert abs(params[d_offset_idx] - 37.5) < 1e-9
+
+
+def test_fixed_parameter_survives_out_of_core_fit(monkeypatch):
+    """fixed_parameters must survive the out-of-core (chunk-wise J^T J
+    accumulation) tier (Task 7c). `select_nlsq_strategy` is purely
+    memory-based (no config key forces OUT_OF_CORE) -- monkeypatch it, on the
+    name as imported into wrapper.py, to force the branch deterministically
+    on a small synthetic dataset. This covers the first OUT_OF_CORE branch
+    point (`wrapper.py`'s initial strategy check, `recovery_actions ==
+    ["out_of_core_delegation"]`); the strategy-recheck branch point
+    (`out_of_core_recheck_delegation`) shares the exact same
+    strip/mask/restore code path in `out_of_core.py` and is not
+    independently exercised here."""
+    from xpcsjax.optimization.nlsq import wrapper as wrapper_module
+    from xpcsjax.optimization.nlsq.memory import NLSQStrategy, StrategyDecision
+
+    def _force_out_of_core(n_points, n_params, *args, **kwargs):
+        return StrategyDecision(
+            strategy=NLSQStrategy.OUT_OF_CORE,
+            threshold_gb=0.001,
+            index_memory_gb=0.0,
+            peak_memory_gb=1.0,
+            reason="forced out_of_core for test_fixed_parameter_survives_out_of_core_fit",
+        )
+
+    monkeypatch.setattr(wrapper_module, "select_nlsq_strategy", _force_out_of_core)
+
+    data = _synthetic_data("laminar_flow")
+    config = _config("laminar_flow", fixed_parameters={"D_offset": 37.5})
+    cm = ConfigManager(config_override=config)
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+    # Prove the branch actually ran, not that the mock silently no-opted.
+    assert result.device_info.get("strategy") == "out_of_core"
+    assert result.recovery_actions == ["out_of_core_delegation"]
+    params = np.asarray(result.parameters).ravel()
+    d_offset_idx = _physical_index(len(params), _ALL_PHYSICAL_NAMES, "D_offset")
+    assert abs(params[d_offset_idx] - 37.5) < 1e-9
+    if result.uncertainties is not None:
+        assert np.asarray(result.uncertainties).ravel()[d_offset_idx] == 0.0

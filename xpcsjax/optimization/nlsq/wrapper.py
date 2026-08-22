@@ -974,10 +974,24 @@ class NLSQWrapper(NLSQAdapterBase):
                 config=config,
                 fast_chi2_mode=use_fast_mode,
                 anti_degeneracy_config=ooc_anti_degeneracy_config,
+                resolved_physical=resolved_physical,
             )
 
             execution_time = time.time() - start_time
             uncertainties = _safe_uncertainties_from_pcov(pcov, len(popt))
+            # A fixed physical parameter's true covariance diagonal is exactly
+            # 0 (out_of_core.py's masked pcov build never writes a nonzero
+            # value there), but `_safe_uncertainties_from_pcov` floors ANY
+            # near-zero diagonal entry as a generic numerical-safety net --
+            # force the reported uncertainty back to exactly 0.0 at every
+            # FIXED physical position (mirrors `_post_process_results`'s
+            # equivalent re-zero for the plain NLSQ tail).
+            if resolved_physical is not None and not resolved_physical.free_mask.all():
+                _ooc_init_n_physical = len(resolved_physical.physical_names)
+                uncertainties = np.array(uncertainties, dtype=float)
+                for _i, _free in enumerate(resolved_physical.free_mask):
+                    if not _free:
+                        uncertainties[-_ooc_init_n_physical + _i] = 0.0
             # Effective DOF for reduced chi-squared: in averaged mode the
             # optimizer works on a compressed param vector but the true model
             # DOF is 2*n_phi + n_physical (one contrast+offset per angle).
@@ -1279,10 +1293,25 @@ class NLSQWrapper(NLSQAdapterBase):
                     config=config,
                     fast_chi2_mode=use_fast_mode,
                     anti_degeneracy_config=recheck_anti_degeneracy_config,
+                    resolved_physical=resolved_physical,
                 )
 
                 execution_time = time.time() - start_time
                 uncertainties = _safe_uncertainties_from_pcov(pcov, len(popt))
+                # A fixed physical parameter's true covariance diagonal is
+                # exactly 0 (out_of_core.py's masked pcov build never writes a
+                # nonzero value there), but `_safe_uncertainties_from_pcov`
+                # floors ANY near-zero diagonal entry as a generic
+                # numerical-safety net -- force the reported uncertainty back
+                # to exactly 0.0 at every FIXED physical position (mirrors
+                # `_post_process_results`'s equivalent re-zero for the plain
+                # NLSQ tail).
+                if resolved_physical is not None and not resolved_physical.free_mask.all():
+                    _ooc_recheck_n_physical = len(resolved_physical.physical_names)
+                    uncertainties = np.array(uncertainties, dtype=float)
+                    for _i, _free in enumerate(resolved_physical.free_mask):
+                        if not _free:
+                            uncertainties[-_ooc_recheck_n_physical + _i] = 0.0
                 # Effective DOF for reduced chi-squared: in averaged mode the
                 # optimizer works on a compressed param vector but the true model
                 # DOF is 2*n_phi + n_physical (one contrast+offset per angle).
@@ -4336,6 +4365,7 @@ class NLSQWrapper(NLSQAdapterBase):
         config: Any,
         fast_chi2_mode: bool = False,
         anti_degeneracy_config: dict | None = None,
+        resolved_physical: ResolvedPhysicalParameters | None = None,
     ) -> tuple[np.ndarray, np.ndarray, dict]:
         """Fit using Out-of-Core Global Accumulation for massive datasets."""
         return fit_with_out_of_core_accumulation(
@@ -4349,6 +4379,7 @@ class NLSQWrapper(NLSQAdapterBase):
             config=config,
             fast_chi2_mode=fast_chi2_mode,
             anti_degeneracy_config=anti_degeneracy_config,
+            resolved_physical=resolved_physical,
         )
 
     def _fit_with_stratified_hybrid_streaming(
