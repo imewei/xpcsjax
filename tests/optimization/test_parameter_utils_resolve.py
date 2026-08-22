@@ -43,7 +43,7 @@ def test_no_config_is_all_free_and_byte_identical():
     np.testing.assert_array_equal(resolved.values_full, values)
 
 
-def test_fixed_parameter_excluded_from_free_mask_AND_value_substituted():
+def test_fixed_parameter_excluded_from_free_mask_and_value_substituted():
     """The critical v1 regression: the resolved value must be the CONFIGURED
     fixed value, not whatever the flat initial-values array happened to have --
     use DIFFERENT numbers so a bug that leaves values_full unchanged is caught."""
