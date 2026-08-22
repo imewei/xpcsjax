@@ -419,3 +419,74 @@ def test_fixed_parameter_survives_out_of_core_fit(monkeypatch):
     assert abs(params[d_offset_idx] - 37.5) < 1e-9
     if result.uncertainties is not None:
         assert np.asarray(result.uncertainties).ravel()[d_offset_idx] == 0.0
+
+
+def test_fixed_parameter_survives_stratified_ls_fit(monkeypatch):
+    """fixed_parameters must survive the stratified-LS (double-chunking,
+    >=1M point) tier (Task 7e). `use_stratified_least_squares` gates purely
+    on ``len(stratified_data.g2_flat) >= 1_000_000`` -- unlike OUT_OF_CORE
+    there is no `select_nlsq_strategy` hook to monkeypatch, so this stubs
+    `_apply_stratification_if_needed` to hand back the real 3-angle
+    synthetic data TILED past the 1M-point threshold (physically real,
+    repeated points -- not fabricated), letting the actual
+    `fit_with_stratified_least_squares` code path run for real. NLSQ's
+    `max_iterations` is capped low via config: a fixed physical parameter's
+    exact-value/exact-zero-uncertainty invariant holds regardless of solver
+    convergence (the restore step runs unconditionally after the solve), so
+    this keeps the test fast without weakening what it proves."""
+    import types
+
+    from xpcsjax.optimization.nlsq import wrapper as wrapper_module
+
+    n_phi, n_t = 3, 10
+    raw = _synthetic_data("laminar_flow", n_t=n_t, n_phi=n_phi)
+    t = np.arange(1, n_t + 1) * DT
+    t1_grid, t2_grid = np.meshgrid(t, t, indexing="ij")
+    phi_flat = np.concatenate([np.full(n_t * n_t, p) for p in raw["phi"]])
+    t1_flat = np.tile(t1_grid.ravel(), n_phi)
+    t2_flat = np.tile(t2_grid.ravel(), n_phi)
+    g2_flat = np.concatenate([raw["g2"][i].ravel() for i in range(n_phi)])
+    # `create_stratified_chunks`'s no-`chunk_sizes` fallback slices
+    # sequentially by `target_chunk_size` (100_000). The one repeating
+    # "cycle" here is `phi_flat.size` == 300 (100 points per angle block);
+    # n_tile=4000 makes the total 1,200,000 -- an exact multiple of BOTH
+    # 300 (so every 100_000-point chunk boundary still lands on an
+    # angle-block boundary) and 100_000 (so there is no undersized trailing
+    # chunk). A non-aligned total leaves a short last chunk that can miss an
+    # angle entirely and fail `validate_chunk_structure()` (verified: 200
+    # points then a 2-of-3-name Chunk error).
+    n_tile = 4000
+    assert phi_flat.size == 300  # pins the alignment arithmetic above
+
+    def _fake_stratify(self, data, per_angle_scaling, config, logger):
+        return types.SimpleNamespace(
+            phi_flat=np.tile(phi_flat, n_tile),
+            t1_flat=np.tile(t1_flat, n_tile),
+            t2_flat=np.tile(t2_flat, n_tile),
+            g2_flat=np.tile(g2_flat, n_tile),
+            sigma=None,  # unweighted sentinel (matches the production convention)
+            q=Q,
+            L=L,
+            dt=DT,
+        )
+
+    monkeypatch.setattr(
+        wrapper_module.NLSQWrapper, "_apply_stratification_if_needed", _fake_stratify
+    )
+
+    data = _synthetic_data("laminar_flow", n_t=n_t, n_phi=n_phi)
+    config = _config(
+        "laminar_flow",
+        fixed_parameters={"D_offset": 37.5},
+        extra_top={"optimization": {"nlsq": {"max_iterations": 3}}},
+    )
+    cm = ConfigManager(config_override=config)
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+    # Prove the stratified-LS branch actually ran, not that the mock
+    # silently fell through to a different tier.
+    assert result.recovery_actions == ["stratified_least_squares_method"]
+    params = np.asarray(result.parameters).ravel()
+    d_offset_idx = _physical_index(len(params), _ALL_PHYSICAL_NAMES, "D_offset")
+    assert abs(params[d_offset_idx] - 37.5) < 1e-9
+    if result.uncertainties is not None:
+        assert np.asarray(result.uncertainties).ravel()[d_offset_idx] == 0.0

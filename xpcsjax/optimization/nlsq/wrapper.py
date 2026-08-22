@@ -1654,6 +1654,7 @@ class NLSQWrapper(NLSQAdapterBase):
                     anti_degeneracy_config=anti_degeneracy_config,
                     nlsq_config_dict=nlsq_config_dict,
                     analysis_mode=analysis_mode,
+                    resolved_physical=resolved_physical,
                 )
 
                 # Compute final residuals for result creation
@@ -1721,6 +1722,24 @@ class NLSQWrapper(NLSQAdapterBase):
                     n_params_effective=_sls_n_params_effective,
                     anti_degeneracy_info=info.get("anti_degeneracy"),
                 )
+
+                # A fixed physical parameter's true covariance diagonal is
+                # exactly 0 -- `fit_with_stratified_least_squares` already
+                # restores it that way. But `_create_fit_result`'s
+                # `_safe_uncertainties_from_pcov` floors ANY near-zero
+                # diagonal entry as a numerical-safety net for genuinely
+                # singular/ill-conditioned solves; it cannot distinguish
+                # "singular" from "deliberately fixed". Force the reported
+                # uncertainty back to exactly 0.0 at every FIXED physical
+                # position, mirroring `_post_process_results`'s equivalent
+                # re-zero for the plain/out-of-core tiers.
+                if resolved_physical is not None and not resolved_physical.free_mask.all():
+                    _sls_n_physical = len(resolved_physical.physical_names)
+                    _sls_unc = np.array(result.uncertainties, dtype=float)
+                    for _sls_i, _sls_free in enumerate(resolved_physical.free_mask):
+                        if not _sls_free:
+                            _sls_unc[-_sls_n_physical + _sls_i] = 0.0
+                    result.uncertainties = _sls_unc
 
                 logger.info("=" * 80)
                 logger.info("STRATIFIED LEAST-SQUARES COMPLETE")
@@ -4384,6 +4403,7 @@ class NLSQWrapper(NLSQAdapterBase):
         anti_degeneracy_config: dict | None = None,
         nlsq_config_dict: dict | None = None,
         analysis_mode: AnalysisMode | None = None,
+        resolved_physical: ResolvedPhysicalParameters | None = None,
     ) -> tuple[np.ndarray, np.ndarray, dict]:
         """Fit using NLSQ's least_squares() with stratified residual function."""
         return fit_with_stratified_least_squares(
@@ -4397,6 +4417,7 @@ class NLSQWrapper(NLSQAdapterBase):
             anti_degeneracy_config=anti_degeneracy_config,
             nlsq_config_dict=nlsq_config_dict,
             analysis_mode=analysis_mode,
+            resolved_physical=resolved_physical,
         )
 
     def _fit_with_out_of_core_accumulation(
