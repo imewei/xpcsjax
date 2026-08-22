@@ -602,3 +602,89 @@ def test_fixed_parameter_survives_hybrid_streaming_fit_individual_mode(monkeypat
     assert abs(params[d_offset_idx] - 37.5) < 1e-9
     if result.uncertainties is not None:
         assert np.asarray(result.uncertainties).ravel()[d_offset_idx] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Task 11: heterodyne real-fit integration (Tasks 8-10's config-layer wiring)
+# ---------------------------------------------------------------------------
+
+_TWO_COMPONENT_TEMPLATE_PATH = "xpcsjax/config/templates/xpcsjax_two_component.yaml"
+
+
+def _heterodyne_config(fixed_parameters):
+    """Load the SAME template _make_synthetic_heterodyne() uses, so the
+    fitted model shares the exact geometry (t/q/dt) that generated c2 --
+    do not hand-build a minimal config (round 3 Codex finding #8).
+
+    Invariant this relies on: the synthetic-data generator and the fit call
+    must use the exact same analyzer_parameters.dt/start_frame/end_frame (or
+    temporal.dt/time_length/t_start) -- HeterodyneModel.sync_time_axis is
+    length-only (it reads len(t), not the values), so both sides resync to
+    an identical model.t as long as they load the same template and the
+    same n_t; if a future edit changes those between generation and fit,
+    the length-only trim will silently diverge again.
+    """
+    import copy
+
+    base_config = copy.deepcopy(ConfigManager(_TWO_COMPONENT_TEMPLATE_PATH).config)
+    base_config["initial_parameters"]["fixed_parameters"] = fixed_parameters
+    return base_config
+
+
+def _fixed_value_survives(result, name):
+    """Read the fitted value for `name` using the SAME parameter_names
+    metadata the codebase itself uses to interpret result.parameters
+    positionally (round 3 Codex finding #10 -- not full ALL_PARAM_NAMES order)."""
+    diagnostics = result.nlsq_diagnostics or {}
+    param_names = diagnostics.get("parameter_names")
+    assert param_names is not None, (
+        "result.nlsq_diagnostics['parameter_names'] missing -- re-check Step 0"
+    )
+    params = np.asarray(result.parameters).ravel()
+    return params[list(param_names).index(name)]
+
+
+def test_heterodyne_fixed_parameter_survives_real_fit():
+    from tests.optimization.test_heterodyne_hybrid_streaming import _make_synthetic_heterodyne
+    from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
+    from xpcsjax.optimization.nlsq import fit_nlsq
+
+    # n_t=12 -> 144 points/angle: n_phi=2 resolves per_angle_mode='individual'
+    # (n_phi < constant_scaling_threshold=3), which runs the L2 Stage-1
+    # per-angle quantile warm-start; that estimator floors at >=100 finite
+    # samples/angle (heterodyne_scaling_utils.py:750) -- the default n_t=8
+    # (64 points) raises there, unrelated to fixed_parameters wiring.
+    model, c2, phi = _make_synthetic_heterodyne(n_t=12)
+    rng = np.random.default_rng(0)
+    c2_noisy = c2 + rng.normal(
+        scale=1e-4, size=c2.shape
+    )  # inject noise -- helper's data is noise-free
+    fixed_name = "D_offset_sample"
+    physical_values = model.param_manager.get_full_values()
+    fixed_value = float(physical_values[list(ALL_PARAM_NAMES).index(fixed_name)])
+
+    data = {
+        "c2": c2_noisy,
+        "phi": phi,
+    }  # ONLY what _fit_nlsq_heterodyne actually reads -- see Step 0/1 above
+    cm = ConfigManager(config_override=_heterodyne_config({fixed_name: fixed_value}))
+    result = fit_nlsq(data, cm)
+    assert abs(_fixed_value_survives(result, fixed_name) - fixed_value) < 1e-6
+
+
+def test_heterodyne_fixed_scaling_parameter_survives_real_fit():
+    """grilling round 1 Q7 end-to-end: heterodyne can fix a scaling name, unlike homodyne."""
+    from tests.optimization.test_heterodyne_hybrid_streaming import _make_synthetic_heterodyne
+    from xpcsjax.optimization.nlsq import fit_nlsq
+
+    model, c2, phi = _make_synthetic_heterodyne()
+    rng = np.random.default_rng(0)
+    c2_noisy = c2 + rng.normal(scale=1e-4, size=c2.shape)
+    contrast, _offset = model.scaling.get_for_angle(0)
+
+    data = {"c2": c2_noisy, "phi": phi}
+    cm = ConfigManager(config_override=_heterodyne_config({"contrast": contrast}))
+    result = fit_nlsq(
+        data, cm
+    )  # must not raise -- homodyne would raise ValueError for this, heterodyne must not
+    assert result.convergence_status is not None
