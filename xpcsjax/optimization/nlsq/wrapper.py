@@ -1075,11 +1075,41 @@ class NLSQWrapper(NLSQAdapterBase):
 
         if isinstance(stratified_data, UseSequentialOptimization):
             logger.info(f"Using sequential per-angle optimization: {stratified_data.reason}")
-            return self._run_sequential_optimization(
+            seq_initial_params = initial_params
+            seq_bounds = bounds
+            if resolved_physical is not None and not resolved_physical.free_mask.all():
+                # Sequential's own strip_fixed_parameters/restore_fixed_parameters
+                # (strategies/sequential.py) derives its free/fixed mask from
+                # bounds equality (lower == upper), so narrowing bounds is enough
+                # to strip the fixed physical slots out of its solve. But its
+                # restore step re-inserts values FROM `initial_params` at the
+                # fixed positions, not from the bounds -- and this method's raw
+                # `initial_params` was never patched with the configured fixed
+                # value (only `resolved_physical.values_full` was, in
+                # `resolve_optimized_physical_parameters`). Patch both so the
+                # restored fixed value is the configured one, not whatever
+                # placeholder initial guess the fixed slot happened to carry.
+                n_physical = len(resolved_physical.physical_names)
+                if seq_initial_params is not None:
+                    seq_initial_params = np.array(seq_initial_params, dtype=np.float64)
+                if seq_bounds is not None:
+                    seq_lower = np.array(seq_bounds[0], dtype=np.float64)
+                    seq_upper = np.array(seq_bounds[1], dtype=np.float64)
+                for i, free in enumerate(resolved_physical.free_mask):
+                    if not free:
+                        fixed_val = resolved_physical.values_full[i]
+                        if seq_initial_params is not None:
+                            seq_initial_params[-n_physical + i] = fixed_val
+                        if seq_bounds is not None:
+                            seq_lower[-n_physical + i] = fixed_val
+                            seq_upper[-n_physical + i] = fixed_val
+                if seq_bounds is not None:
+                    seq_bounds = (seq_lower, seq_upper)
+            seq_result = self._run_sequential_optimization(
                 stratified_data.data,
                 config,
-                initial_params,
-                bounds,
+                seq_initial_params,
+                seq_bounds,
                 analysis_mode,
                 per_angle_scaling,
                 logger,
@@ -1089,6 +1119,22 @@ class NLSQWrapper(NLSQAdapterBase):
                 physical_param_names=physical_param_names,
                 per_angle_scaling_initial=per_angle_scaling_initial,
             )
+            if resolved_physical is not None and not resolved_physical.free_mask.all():
+                # combine_angle_results (sequential.py) inverse-variance-weights
+                # per-angle covariances; a fixed slot's per-angle variance is
+                # exactly 0 everywhere, which makes it a "dead" column (no
+                # usable positive variance) that falls back to a per-angle
+                # SCALAR weight instead of reporting exactly-zero combined
+                # variance. Force the reported uncertainty back to exactly 0.0
+                # at every FIXED physical position, mirroring the equivalent
+                # re-zero for the plain and out-of-core tiers above.
+                n_physical = len(resolved_physical.physical_names)
+                unc = np.array(seq_result.uncertainties, dtype=float)
+                for i, free in enumerate(resolved_physical.free_mask):
+                    if not free:
+                        unc[-n_physical + i] = 0.0
+                seq_result.uncertainties = unc
+            return seq_result
 
         # NEW: Check if stratified least_squares should be used (double-chunking fix)
         # Conditions:

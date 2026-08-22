@@ -279,6 +279,109 @@ def test_fixed_parameter_survives_multistart_fit():
     assert abs(params[d_offset_idx] - 37.5) < 1e-9
 
 
+def test_fixed_parameter_wiring_reaches_sequential_solver(monkeypatch):
+    """fixed_parameters must survive the sequential per-angle tier (Task 7d).
+
+    `optimization.stratification.force_sequential_fallback: true` is the
+    actual config key `_apply_stratification_if_needed` reads to route into
+    `_run_sequential_optimization` (verified live -- the `optimization.nlsq.
+    sequential.enable` key the plan brief guessed does not exist).
+
+    The real `optimize_per_angle_sequential` solver hits a pre-existing JAX
+    TracerArrayConversionError under `force_sequential_fallback`, unrelated
+    to Task 7d's own wiring:
+
+    - With ZERO fixed_parameters, it reproduces from wrapper.py's own
+      `residual_func` closure (`np.asarray(params, ...)` on a JAX tracer
+      during nlsq's JIT Jacobian trace) -- already documented and worked
+      around the same way in `test_laminar_streaming_diag.py::
+      test_sequential_laminar_emits_symmetric_activation_keys`.
+    - With fixed_parameters present (narrowed/degenerate bounds), it fails
+      EARLIER and for a DIFFERENT reason: sequential.py's own `has_fixed`
+      residual-wrapping branch (`strategies/sequential.py:925`) calls
+      `restore_fixed_parameters` (`parameter_utils.py:213`,
+      `result[free_mask] = free_result`) on a JAX tracer produced by nlsq's
+      JIT Jacobian trace -- numpy boolean-mask assignment cannot accept a
+      tracer, so this raises before wrapper.py's own closure is ever
+      reached (verified live with a direct, non-wrapper.py call to
+      `optimize_per_angle_sequential` using a JAX-safe residual function).
+      Every OTHER tier's `restore_fixed_parameters` call runs post-solve on
+      a concrete numpy result; sequential.py's is the only call site that
+      invokes it DURING a JIT trace, which is what breaks it. This is a
+      real, previously-latent bug in the "existing, tested" mechanism this
+      task's brief was scoped around -- fixing it requires touching
+      sequential.py and/or parameter_utils.py's shared primitive, which is
+      out of scope for Task 7d (see the task report for the full writeup).
+
+    So this stubs the solver call (as the streaming-diag test does) and
+    inspects exactly what Task 7d's wiring passed into it, rather than
+    asserting on a real solve this codebase cannot currently perform for
+    either reason above.
+    """
+    import xpcsjax.optimization.nlsq.wrapper as wrapper_mod
+    from xpcsjax.optimization.nlsq.strategies.sequential import SequentialResult
+
+    data = _synthetic_data("laminar_flow")
+    config = _config(
+        "laminar_flow",
+        fixed_parameters={"D_offset": 37.5},
+        extra_top={"optimization": {"stratification": {"force_sequential_fallback": True}}},
+    )
+    cm = ConfigManager(config_override=config)
+
+    captured: dict = {}
+
+    def _fake_sequential(**kwargs):
+        captured["initial_params"] = np.array(kwargs["initial_params"], dtype=np.float64)
+        captured["bounds"] = tuple(np.array(b, dtype=np.float64) for b in kwargs["bounds"])
+        # Mirror restore_fixed_parameters's real behavior: every angle's
+        # result carries the (patched) initial_params value at fixed slots.
+        combined = captured["initial_params"].copy()
+        n_p = combined.shape[0]
+        # Non-zero diagonal even at the fixed slot, mirroring
+        # combine_angle_results' "dead"-column fallback (a fixed slot has
+        # exactly-zero per-angle variance everywhere, so it is excluded from
+        # the usable inverse-variance mask and falls back to a non-zero
+        # scalar per-angle weight instead of reporting zero combined
+        # variance) -- proves the wrapper's post-solve re-zero, not the mock.
+        combined_covariance = np.eye(n_p, dtype=np.float64) * 5e-3
+        return SequentialResult(
+            combined_parameters=combined,
+            combined_covariance=combined_covariance,
+            per_angle_results=[{"phi_angle": 0.0, "n_iterations": 3, "success": True}],
+            n_angles_optimized=1,
+            n_angles_failed=0,
+            total_cost=1.0,
+            success_rate=1.0,
+        )
+
+    monkeypatch.setattr(wrapper_mod, "optimize_per_angle_sequential", _fake_sequential)
+
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+
+    assert result.device_info.get("strategy") == "sequential_per_angle"
+
+    n_physical = len(_ALL_PHYSICAL_NAMES)
+    d_offset_phys_idx = _ALL_PHYSICAL_NAMES.index("D_offset")
+
+    # 1. Bounds were narrowed to the exact configured fixed value at the
+    # D_offset slot (Step 1's bounds-narrowing).
+    lower, upper = captured["bounds"]
+    assert lower[-n_physical + d_offset_phys_idx] == 37.5
+    assert upper[-n_physical + d_offset_phys_idx] == 37.5
+    # 2. initial_params was ALSO patched to the same value -- sequential's
+    # own restore_fixed_parameters re-inserts values FROM initial_params,
+    # not from the bounds, so narrowing bounds alone is not sufficient.
+    assert captured["initial_params"][-n_physical + d_offset_phys_idx] == 37.5
+
+    params = np.asarray(result.parameters).ravel()
+    d_offset_idx = _physical_index(len(params), _ALL_PHYSICAL_NAMES, "D_offset")
+    assert abs(params[d_offset_idx] - 37.5) < 1e-9
+    # 3. The post-solve re-zero forces the reported uncertainty to exactly
+    # 0.0 even though the stubbed covariance's diagonal there is 5e-3.
+    assert np.asarray(result.uncertainties).ravel()[d_offset_idx] == 0.0
+
+
 def test_fixed_parameter_survives_out_of_core_fit(monkeypatch):
     """fixed_parameters must survive the out-of-core (chunk-wise J^T J
     accumulation) tier (Task 7c). `select_nlsq_strategy` is purely
