@@ -74,6 +74,55 @@ def test_scaling_name_in_fixed_parameters_raises():
         resolve_optimized_physical_parameters(pm, PHYSICAL_NAMES_LAMINAR, values, lower, upper)
 
 
+def test_scaling_name_in_active_parameters_is_silently_stripped_not_rejected():
+    """Locks in the asymmetry documented in resolve_optimized_physical_parameters's
+    docstring: a scaling name in fixed_parameters raises (see
+    test_scaling_name_in_fixed_parameters_raises above), but a scaling name in
+    active_parameters is silently stripped by
+    ParameterManager.get_active_parameters() (SCALING_PARAM_NAMES filter)
+    before it ever reaches this function -- so a typo alongside a scaling name
+    must cite ONLY the typo, never "contrast". A future refactor of that
+    upstream stripping should trip this test if it ever changes."""
+    config = {
+        "analysis_mode": "laminar_flow",
+        "initial_parameters": {"active_parameters": ["D0", "contrast", "D_offset_typo"]},
+    }
+    pm = ParameterManager(config, analysis_mode=AnalysisMode.LAMINAR_FLOW)
+    values, lower, upper = _base_arrays()
+    with pytest.raises(ValueError, match="D_offset_typo") as exc_info:
+        resolve_optimized_physical_parameters(pm, PHYSICAL_NAMES_LAMINAR, values, lower, upper)
+    assert "contrast" not in str(exc_info.value)
+
+
+def test_typo_in_active_parameters_raises():
+    """A typo'd active_parameters entry must be rejected, not silently freeze
+    the intended parameter (asymmetry with fixed_parameters' unknown_fixed
+    check -- see resolve_optimized_physical_parameters docstring)."""
+    config = {
+        "analysis_mode": "laminar_flow",
+        "initial_parameters": {"active_parameters": ["D0", "D_offset_typo"]},
+    }
+    pm = ParameterManager(config, analysis_mode=AnalysisMode.LAMINAR_FLOW)
+    values, lower, upper = _base_arrays()
+    with pytest.raises(ValueError, match="D_offset_typo"):
+        resolve_optimized_physical_parameters(pm, PHYSICAL_NAMES_LAMINAR, values, lower, upper)
+
+
+def test_valid_active_parameters_still_works():
+    config = {
+        "analysis_mode": "laminar_flow",
+        "initial_parameters": {"active_parameters": ["D0", "D_offset"]},
+    }
+    pm = ParameterManager(config, analysis_mode=AnalysisMode.LAMINAR_FLOW)
+    values, lower, upper = _base_arrays()
+    resolved = resolve_optimized_physical_parameters(
+        pm, PHYSICAL_NAMES_LAMINAR, values, lower, upper
+    )
+    np.testing.assert_array_equal(
+        resolved.free_mask, [True, False, True, False, False, False, False]
+    )
+
+
 def test_all_physical_fixed_raises_by_default():
     fixed = {name: 0.0 for name in PHYSICAL_NAMES_LAMINAR}
     config = {"analysis_mode": "laminar_flow", "initial_parameters": {"fixed_parameters": fixed}}

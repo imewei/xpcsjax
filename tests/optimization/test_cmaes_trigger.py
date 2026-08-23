@@ -265,3 +265,50 @@ def test_cmaes_nan_q_is_rejected_not_silently_fit(monkeypatch):
     assert res.success is False
     assert res.convergence_status == "failed"
     assert "not finite" in res.device_info["error"]
+
+
+def test_cmaes_typo_active_parameters_propagates_not_silently_failed():
+    """PR #63 review finding: resolve_optimized_physical_parameters's new
+    unknown_active ValueError doesn't contain "fixed_parameters" or
+    "per_angle_mode", so on the CMA-ES path it fell through the except
+    ValueError re-raise gate (core.py, ~line 2928) into a generic
+    _cmaes_failed_result -- indistinguishable from an ordinary numerical
+    convergence failure. The gate now also matches "active_parameters"; this
+    must raise, not return a graceful failed/inf result like the NaN-q case
+    above (that one is genuinely swallowed by design -- this one is a config
+    typo and must propagate loudly)."""
+    from xpcsjax.config import ConfigManager
+    from xpcsjax.optimization.nlsq.core import fit_nlsq_cmaes
+
+    cfg = ConfigManager(
+        config_override={
+            "analysis_mode": "laminar_flow",
+            "initial_parameters": {"active_parameters": ["D0", "D_offset_typo"]},
+            "analyzer_parameters": {
+                "dt": 0.1,
+                "start_frame": 1,
+                "end_frame": 10,
+                "temporal": {"dt": 0.1, "start_frame": 1, "end_frame": 10},
+                "scattering": {"wavevector_q": 0.0237},
+                "geometry": {"stator_rotor_gap": 2_000_000.0},
+            },
+            "optimization": {
+                "method": "nlsq",
+                "nlsq": {
+                    "max_iterations": 20,
+                    "cmaes": {"enable": True, "auto_select": False},
+                    "multi_start": {"enable": False},
+                    "anti_degeneracy": {
+                        "enable": True,
+                        "per_angle_mode": "individual",
+                        "constant_scaling_threshold": 3,
+                    },
+                },
+                "stratification": {"enabled": False},
+            },
+        }
+    )
+    data = _tiny_laminar_data()
+
+    with pytest.raises(ValueError, match="active_parameters"):
+        fit_nlsq_cmaes(data, cfg)
