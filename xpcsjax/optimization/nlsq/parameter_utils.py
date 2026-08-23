@@ -68,10 +68,27 @@ def resolve_optimized_physical_parameters(
     Raises
     ------
     ValueError
-        If ``fixed_parameters`` names a scaling parameter, an unrecognized
-        parameter (e.g. a typo), or if the
+        If ``fixed_parameters`` or ``active_parameters`` names a scaling
+        parameter or an unrecognized parameter (e.g. a typo), or if the
         resulting free set is empty and ``allow_all_fixed`` is False.
     """
+    # An explicit `active_parameters` list is taken verbatim by
+    # ParameterManager.get_active_parameters() -- unlike `fixed_parameters`
+    # (validated below), a typo'd entry there isn't rejected: it just never
+    # matches a position in `physical_names`, so the free_mask built from it
+    # silently narrows (or, for a full replacement list, silently drops every
+    # OTHER intended parameter too). Reject with the same shape of error as
+    # the unknown_fixed check below instead of silently freezing whatever the
+    # user meant to free.
+    active_params = param_manager.get_active_parameters()
+    unknown_active = [name for name in active_params if name not in physical_names]
+    if unknown_active:
+        raise ValueError(
+            f"active_parameters names unrecognized parameter(s) {unknown_active!r} "
+            f"-- not in this mode's physical parameters {physical_names!r}. Check "
+            "for a typo."
+        )
+
     fixed_params = param_manager.get_fixed_parameters()
     scaling_fixed = [name for name in fixed_params if name in SCALING_PARAM_NAMES]
     if scaling_fixed:

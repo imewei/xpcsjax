@@ -115,6 +115,35 @@ class ParameterManager:
         # Load config bounds if available
         self._load_config_bounds()
 
+        # tied_parameters is a real, fully-implemented feature ONLY for
+        # two_component (see xpcsjax/config/heterodyne_parameter_space.py --
+        # ParameterSpace here has no tied/DOF-reduction mechanism at all).
+        # ConfigManager._validate_config only checks unknown TOP-LEVEL keys,
+        # so a tied_parameters entry under initial_parameters would otherwise
+        # be silently accepted and silently ignored -- the parameter stays
+        # independently free instead of being constrained, a scientifically
+        # different (and unintended) fit with zero warning. Reject loudly
+        # instead of a config bypass.
+        initial_params = self.config_dict.get("initial_parameters")
+        if isinstance(initial_params, dict):
+            tied_raw = initial_params.get("tied_parameters")
+            if isinstance(tied_raw, dict) and tied_raw:
+                mode_str = str(self.analysis_mode).lower()
+                is_two_component = (
+                    "two_component" in mode_str
+                    or "two-component" in mode_str
+                    or "heterodyne" in mode_str
+                )
+                if not is_two_component:
+                    raise ValueError(
+                        f"initial_parameters.tied_parameters is set ({list(tied_raw)}) "
+                        f"but analysis_mode={self.analysis_mode!r} does not support "
+                        "parameter tying -- tied_parameters is implemented only for "
+                        "two_component. Remove tied_parameters, or use "
+                        "fixed_parameters/active_parameters to constrain this mode's "
+                        "parameters instead."
+                    )
+
     @staticmethod
     def _build_default_bounds() -> dict[str, BoundDict]:
         """Materialize default bounds from the ParameterRegistry.
