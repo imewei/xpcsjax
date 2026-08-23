@@ -255,7 +255,7 @@ To cite the software itself:
   year        = {2026},
   version     = {0.1.4},
   institution = {Argonne National Laboratory},
-  url         = {https://github.com/imewei/xpcsjax}
+  url         = {https://gitlab.osti.gov/wchen/xpcsjax}
 }
 ```
 
