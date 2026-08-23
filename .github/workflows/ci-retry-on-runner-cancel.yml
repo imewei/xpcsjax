@@ -1,0 +1,116 @@
+name: Retry CI on Runner Cancellation
+
+# ci.yml's own in-job "Retry Test on runner-cancel flake" step only helps when
+# the pytest PROCESS is cancelled but the runner VM survives to run the retry
+# step. It cannot help when the runner itself is killed mid-job ("The runner
+# has received a shutdown signal") -- no runner is left to execute anything,
+# including that retry step (observed repeatedly on ubuntu-latest: the "Test"
+# step's own conclusion is "cancelled", but "Retry Test on runner-cancel
+# flake" shows "skipped", not "cancelled" -- it never got a chance to run).
+#
+# The only way to recover from a fully-dead runner is to schedule a NEW job on
+# a NEW runner, which this workflow does via the GitHub API. It is a
+# COSMETIC-and-signal-quality fix, not a correctness one: py3.14 is already
+# `continue-on-error: true` in ci.yml, so this failure mode never blocks a
+# merge today -- but leaving a real-looking red X on an informational,
+# infra-caused failure costs a human real investigation time to confirm it's
+# not a genuine regression (as happened repeatedly working through PR #61).
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  # Lets a human manually exercise this workflow's actual detect+rerun logic
+  # against any run_id (including a real historical one) without waiting for
+  # a fresh external-cancellation flake to occur naturally -- workflow_run
+  # can only be dry-run for real once this file is on the default branch and
+  # a new CI run happens to hit the same condition.
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "CI run ID to check for runner-killed jobs and retry"
+        required: true
+        type: string
+
+# `actions: write` is required to list a run's jobs and call the per-job
+# rerun API.
+permissions:
+  actions: write
+
+# One retry-check per source run at a time; a second workflow_run event for
+# the same run (e.g. GitHub redelivering the webhook) should not race a
+# rerun-in-progress against itself.
+concurrency:
+  group: ci-retry-${{ github.event.workflow_run.id || inputs.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  retry-on-runner-cancel:
+    runs-on: ubuntu-latest
+    # `run_attempt` increments automatically on every rerun (manual, UI, or
+    # API) of the SOURCE run -- gating the automatic (workflow_run) path on
+    # it bounds retries to at most 2 per run with no extra state to track. A
+    # manual workflow_dispatch invocation is a deliberate one-off human
+    # action, not part of the automated retry loop this bound protects
+    # against, so it is exempt from the gate.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.run_attempt < 3
+    steps:
+      - name: Check for runner-killed Test steps and re-run just those jobs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt || 'manual' }}
+        run: |
+          set -euo pipefail
+
+          # The overall run conclusion cannot be used to gate this: py3.14 is
+          # continue-on-error, so a py3.14-only runner death still leaves the
+          # overall run at conclusion=success (this is also why there is no
+          # cheaper up-front `if: conclusion != 'success'` filter above --
+          # the exact case this workflow exists to catch would be excluded
+          # by such a filter). The real signal is the "Test" step's own
+          # conclusion inside each matrix job. No --paginate: this repo's CI
+          # matrix is ~10 jobs, well under one page, and --paginate combined
+          # with a per-page jq array filter would concatenate multiple
+          # `[...]` JSON arrays into invalid JSON if it ever did span pages.
+          #
+          # This jq filter is the GATE deciding whether to retry at all -- it
+          # is NOT used to select which jobs get rerun. An earlier version of
+          # this workflow tried per-job reruns (`POST .../jobs/{id}/rerun`
+          # once per cancelled job, looping over exactly the jobs this filter
+          # finds) specifically to avoid `gh run rerun --failed`'s coarser,
+          # whole-run scope. That was verified LIVE against run 32619088707
+          # (2026-08-23, two cancelled jobs: ubuntu-latest py3.12 and
+          # py3.14) and found broken: rerunning the first job by ID puts the
+          # ENTIRE RUN back into "in_progress" for a new attempt, and any
+          # further per-job rerun call against that same (now in-progress)
+          # run is rejected with HTTP 403 "The workflow run containing this
+          # job is already running" -- so the loop's second iteration always
+          # fails whenever more than one job needs retrying in the same run,
+          # which is exactly the common case this workflow exists for. There
+          # is no batch/multi-job rerun endpoint, so `--failed` (a single,
+          # whole-run call, which is what GitHub's own "Re-run failed jobs"
+          # UI button does) is the only mechanism that correctly handles
+          # multiple cancelled jobs at once. Its coarser scope (it may also
+          # rerun a job that failed for a genuine reason elsewhere in the
+          # same run, not just the runner-killed one(s)) is a real but
+          # accepted tradeoff, identical to what every GitHub Actions user
+          # already accepts from the stock "Re-run failed jobs" button: it
+          # costs some extra CI minutes, but the original failed attempt's
+          # result stays visible under the run's attempt history, so nothing
+          # is silently hidden. This script's own precise per-job/per-step
+          # detection is what keeps that risk narrow -- it only fires
+          # `--failed` when a genuine runner-killed "Test" step was actually
+          # found, never for a run that failed for entirely organic reasons.
+          cancelled_jobs=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" \
+            -q '.jobs[] | select(any(.steps[]?; .name == "Test" and .conclusion == "cancelled")) | .name')
+
+          if [ -z "${cancelled_jobs}" ]; then
+            echo "No runner-killed Test steps found on attempt ${RUN_ATTEMPT}; nothing to retry."
+            exit 0
+          fi
+
+          echo "Runner-killed Test step(s) found on attempt ${RUN_ATTEMPT}:"
+          echo "${cancelled_jobs}"
+          echo "Re-running failed jobs for run ${RUN_ID}..."
+          gh run rerun "${RUN_ID}" --failed --repo "${REPO}"
