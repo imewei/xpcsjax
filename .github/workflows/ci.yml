@@ -53,10 +53,6 @@ jobs:
     # timeout instead of an opaque "The operation was canceled." with no test
     # outcome.
     timeout-minutes: 120
-    # py3.14 is informational: jax/PySide6 wheels may not yet exist for a
-    # freshly-released interpreter, so a 3.14 failure must not fail the run.
-    # Drop this and the 3.14 matrix entry once 3.14 is a supported target.
-    continue-on-error: ${{ matrix.python-version == '3.14' }}
     strategy:
       fail-fast: false
       matrix:
@@ -83,9 +79,29 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libegl1 libgl1 libxkbcommon0 libdbus-1-3
       - name: Sync deps
+        id: install
+        # py3.14 is informational ONLY here, at install: jax/PySide6 wheels
+        # may not yet exist for a freshly-released interpreter, and a source
+        # build isn't attempted (see below), so `uv sync` can legitimately
+        # fail on 3.14 alone. Scoped to this one step (not the whole job) so
+        # a REAL test failure or runner cancellation later in the job is
+        # never masked by it -- that was the bug in the old job-level
+        # `continue-on-error`, which hid actual CI infra cancellations behind
+        # "informational, don't worry about it" for 3.14 specifically. Drop
+        # this scoping and the 3.14 matrix entry once 3.14 is a supported
+        # target with real wheels.
+        continue-on-error: ${{ matrix.python-version == '3.14' }}
         run: uv sync --extra dev --python ${{ matrix.python-version }}
       - name: Test
         id: test
+        # Skip testing entirely when install failed on 3.14 (missing
+        # wheels) rather than running pytest against a broken/incomplete
+        # venv and turning a clean "wheels not published yet" signal into a
+        # confusing raft of ImportErrors. For 3.12/3.13, install has no
+        # continue-on-error, so a real install failure already halts the
+        # job before this step is reached -- this condition only changes
+        # behavior for 3.14.
+        if: steps.install.outcome == 'success'
         env:
           JAX_ENABLE_X64: "1"
           QT_QPA_PLATFORM: offscreen
@@ -100,7 +116,11 @@ jobs:
       # failure (e.g. host rebalance, runner-pool churn) — observed on
       # commit c8aba82 where 4 of 9 matrix jobs were externally cancelled
       # mid-test with all assertions passing. Re-running on `cancelled` only
-      # is conservative: real test failures still fail-fast.
+      # is conservative: real test failures still fail-fast. This (and the
+      # separate ci-retry-on-runner-cancel.yml workflow) now applies to
+      # every matrix cell including 3.14 -- a 3.14 cancellation during Test
+      # is a real infra event, not something the install-time
+      # `continue-on-error` above should absorb.
       - name: Retry Test on runner-cancel flake
         if: steps.test.conclusion == 'cancelled'
         env:

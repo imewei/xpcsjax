@@ -9,12 +9,14 @@ name: Retry CI on Runner Cancellation
 # flake" shows "skipped", not "cancelled" -- it never got a chance to run).
 #
 # The only way to recover from a fully-dead runner is to schedule a NEW job on
-# a NEW runner, which this workflow does via the GitHub API. It is a
-# COSMETIC-and-signal-quality fix, not a correctness one: py3.14 is already
-# `continue-on-error: true` in ci.yml, so this failure mode never blocks a
-# merge today -- but leaving a real-looking red X on an informational,
-# infra-caused failure costs a human real investigation time to confirm it's
-# not a genuine regression (as happened repeatedly working through PR #61).
+# a NEW runner, which this workflow does via the GitHub API. It applies to
+# every matrix cell (ci.yml no longer masks this at the job level for py3.14
+# -- `continue-on-error` there is scoped to the install step only, so a
+# runner-killed Test step on ANY Python version, including 3.14, is a real,
+# blocking-eligible failure that needs this retry, not a cosmetic one to
+# absorb silently). Leaving a real-looking red X on an infra-caused
+# cancellation costs a human real investigation time to confirm it's not a
+# genuine regression (as happened repeatedly working through PR #61).
 on:
   workflow_run:
     workflows: ["CI"]
