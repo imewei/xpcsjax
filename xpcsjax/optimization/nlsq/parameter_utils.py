@@ -68,9 +68,15 @@ def resolve_optimized_physical_parameters(
     Raises
     ------
     ValueError
-        If ``fixed_parameters`` or ``active_parameters`` names a scaling
-        parameter or an unrecognized parameter (e.g. a typo), or if the
-        resulting free set is empty and ``allow_all_fixed`` is False.
+        If ``fixed_parameters`` names a scaling parameter, if
+        ``fixed_parameters`` or ``active_parameters`` names an unrecognized
+        parameter (e.g. a typo), or if the resulting free set is empty and
+        ``allow_all_fixed`` is False. (A scaling name in ``active_parameters``
+        cannot reach this function at all --
+        ``ParameterManager.get_active_parameters()`` silently strips
+        ``SCALING_PARAM_NAMES`` before returning, by the same physical-only
+        contract as ``fixed_parameters`` above; only ``fixed_parameters`` can
+        trigger the scaling-name branch below.)
     """
     # An explicit `active_parameters` list is taken verbatim by
     # ParameterManager.get_active_parameters() -- unlike `fixed_parameters`

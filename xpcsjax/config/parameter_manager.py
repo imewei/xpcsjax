@@ -123,26 +123,23 @@ class ParameterManager:
         # be silently accepted and silently ignored -- the parameter stays
         # independently free instead of being constrained, a scientifically
         # different (and unintended) fit with zero warning. Reject loudly
-        # instead of a config bypass.
+        # instead of a config bypass. Checked on ANY truthy value (not just a
+        # well-formed dict): a malformed tied_parameters (e.g. a YAML list
+        # typo) must not silently bypass this guard either -- shape
+        # validation is heterodyne_parameter_space.py's job for the mode
+        # that actually supports the key, not a reason to skip this reject.
         initial_params = self.config_dict.get("initial_parameters")
         if isinstance(initial_params, dict):
             tied_raw = initial_params.get("tied_parameters")
-            if isinstance(tied_raw, dict) and tied_raw:
-                mode_str = str(self.analysis_mode).lower()
-                is_two_component = (
-                    "two_component" in mode_str
-                    or "two-component" in mode_str
-                    or "heterodyne" in mode_str
+            if tied_raw and not self._mode_is_two_component(self.analysis_mode):
+                raise ValueError(
+                    f"initial_parameters.tied_parameters is set ({tied_raw!r}) "
+                    f"but analysis_mode={self.analysis_mode!r} does not support "
+                    "parameter tying -- tied_parameters is implemented only for "
+                    "two_component. Remove tied_parameters, or use "
+                    "fixed_parameters/active_parameters to constrain this mode's "
+                    "parameters instead."
                 )
-                if not is_two_component:
-                    raise ValueError(
-                        f"initial_parameters.tied_parameters is set ({list(tied_raw)}) "
-                        f"but analysis_mode={self.analysis_mode!r} does not support "
-                        "parameter tying -- tied_parameters is implemented only for "
-                        "two_component. Remove tied_parameters, or use "
-                        "fixed_parameters/active_parameters to constrain this mode's "
-                        "parameters instead."
-                    )
 
     @staticmethod
     def _build_default_bounds() -> dict[str, BoundDict]:
@@ -609,9 +606,28 @@ class ParameterManager:
         mode = self.analysis_mode.lower()
         if "static" in mode:
             return get_registry().get_param_names(AnalysisMode.STATIC_ANISOTROPIC)
-        if "two_component" in mode or "two-component" in mode or "heterodyne" in mode:
+        if self._mode_is_two_component(mode):
             return get_registry().get_param_names(AnalysisMode.TWO_COMPONENT)
         return get_registry().get_param_names(AnalysisMode.LAMINAR_FLOW)
+
+    @staticmethod
+    def _mode_is_two_component(mode: str) -> bool:
+        """Substring-match ``mode`` against two_component's known synonyms.
+
+        Deliberately NOT ``AnalysisMode.parse(mode) == AnalysisMode.TWO_COMPONENT``
+        or a strict ``==`` -- ConfigManager defers ``analysis_mode`` validation
+        (see class docstring / :meth:`_get_default_active_parameters`), so this
+        must tolerate a mode string the registry would reject rather than
+        raising. Single source of truth for the synonym set within this class;
+        shared by :meth:`_get_default_active_parameters` and the
+        ``tied_parameters`` cross-mode guard in ``__init__``.
+        """
+        mode_lower = str(mode).lower()
+        return (
+            "two_component" in mode_lower
+            or "two-component" in mode_lower
+            or "heterodyne" in mode_lower
+        )
 
     def get_all_parameter_names(self) -> list[str]:
         """Get all parameter names including scaling parameters.

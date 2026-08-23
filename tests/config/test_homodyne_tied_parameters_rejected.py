@@ -46,6 +46,22 @@ def test_empty_tied_parameters_dict_is_noop_for_homodyne():
     ParameterManager(config_dict=config, analysis_mode=AnalysisMode.LAMINAR_FLOW)
 
 
+@pytest.mark.parametrize("malformed_tied", [["D0", "D_offset"], "D_offset", 1])
+def test_malformed_tied_parameters_still_rejected_for_homodyne(malformed_tied):
+    """Review finding on PR #63: the guard originally only fired for a
+    well-formed dict (``isinstance(tied_raw, dict) and tied_raw``), so a
+    malformed tied_parameters (a YAML list/string/int typo instead of a
+    mapping) silently bypassed it on every homodyne mode -- exactly the
+    silent-ignore bug this file exists to close, just reached via a shape
+    typo instead of a mode mismatch. Any truthy value must raise."""
+    config = {
+        "analysis_mode": "laminar_flow",
+        "initial_parameters": {"tied_parameters": malformed_tied},
+    }
+    with pytest.raises(ValueError, match="tied_parameters"):
+        ParameterManager(config_dict=config, analysis_mode=AnalysisMode.LAMINAR_FLOW)
+
+
 def test_tied_parameters_still_allowed_for_two_component():
     config = {
         "analysis_mode": "two_component",
