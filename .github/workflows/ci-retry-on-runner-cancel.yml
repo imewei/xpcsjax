@@ -1,0 +1,72 @@
+name: Retry CI on Runner Cancellation
+
+# ci.yml's own in-job "Retry Test on runner-cancel flake" step only helps when
+# the pytest PROCESS is cancelled but the runner VM survives to run the retry
+# step. It cannot help when the runner itself is killed mid-job ("The runner
+# has received a shutdown signal") -- no runner is left to execute anything,
+# including that retry step (observed repeatedly on ubuntu-latest: the "Test"
+# step's own conclusion is "cancelled", but "Retry Test on runner-cancel
+# flake" shows "skipped", not "cancelled" -- it never got a chance to run).
+#
+# The only way to recover from a fully-dead runner is to schedule a NEW job on
+# a NEW runner, which this workflow does via the GitHub API. It is a
+# COSMETIC-and-signal-quality fix, not a correctness one: py3.14 is already
+# `continue-on-error: true` in ci.yml, so this failure mode never blocks a
+# merge today -- but leaving a real-looking red X on an informational,
+# infra-caused failure costs a human real investigation time to confirm it's
+# not a genuine regression (as happened repeatedly working through PR #61).
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+# `actions: write` is required to call the re-run API on the finished run.
+permissions:
+  actions: write
+
+# One retry-check per source run at a time; a second workflow_run event for
+# the same run (e.g. GitHub redelivering the webhook) should not race a
+# rerun-in-progress against itself.
+concurrency:
+  group: ci-retry-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  retry-on-runner-cancel:
+    runs-on: ubuntu-latest
+    # `run_attempt` increments automatically on every rerun (manual, UI, or
+    # API) of the SOURCE run -- gating on it bounds this to at most 2 retries
+    # per run with no extra state to track or clean up.
+    if: github.event.workflow_run.run_attempt < 3
+    steps:
+      - name: Check for a runner-killed Test step and re-run if found
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          set -euo pipefail
+
+          # The overall run conclusion cannot be used to gate this: py3.14 is
+          # continue-on-error, so a py3.14-only runner death still leaves the
+          # overall run at conclusion=success. The real signal is the "Test"
+          # step's own conclusion inside each matrix job. No --paginate: this
+          # repo's CI matrix is ~10 jobs, well under one page, and --paginate
+          # combined with a per-page jq array filter would concatenate
+          # multiple `[...]` JSON arrays into invalid JSON if it ever did
+          # span pages.
+          cancelled_jobs=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" \
+            -q '[.jobs[] | select(.steps[]? | select(.name == "Test" and .conclusion == "cancelled")) | .name]')
+
+          count=$(echo "${cancelled_jobs}" | jq 'length')
+
+          if [ "${count}" -eq 0 ]; then
+            echo "No runner-killed Test steps found on attempt ${RUN_ATTEMPT}; nothing to retry."
+            exit 0
+          fi
+
+          echo "Runner-killed Test step(s) found on attempt ${RUN_ATTEMPT}:"
+          echo "${cancelled_jobs}" | jq -r '.[]'
+          echo "Re-running failed jobs for run ${RUN_ID}..."
+          gh run rerun "${RUN_ID}" --failed --repo "${REPO}"
