@@ -1317,25 +1317,36 @@ def test_streaming_l2_ssr_finite_for_individual():
     assert np.isfinite(info["ssr"]), f"SSR not finite: {info['ssr']}"
 
 
-def test_streaming_l2_real_data_singular_hessian_falls_back_to_placeholder(caplog):
-    """A genuine bounded-L2 solve whose Hessian is SINGULAR must fall back to the
-    honest identity placeholder, not a pseudo-inverse covariance.
+def test_streaming_l2_real_data_non_psd_hessian_falls_back_to_placeholder(caplog):
+    """A genuine bounded-L2 solve whose Hessian is NOT positive-definite must fall
+    back to the honest identity placeholder, not a misleading covariance.
 
     L2 uses bounded L-BFGS-B, so a solution resting on a bound is not an interior
-    stationary point and its unconstrained Hessian need not be full-rank. Empirically
-    (verified during three-brain review) this fixture's Hessian is rank-deficient
-    at every size tried (n_t = 6, 12, 16 -- bigger fixtures made it worse, not
-    better; at n_phi=4, n_t=6 the un-noised Hessian is rank 11/22), which is exactly
-    the kind of boundary-constrained solve this codebase's own 5-layer
-    anti-degeneracy design anticipates. `np.linalg.inv` raises `LinAlgError` on
-    this genuinely singular Hessian, which now routes straight to the identity
-    placeholder (see the block comment above the covariance computation in
-    `heterodyne_hybrid_streaming.py` for why pinv is deliberately NOT attempted
-    here). The deterministic complement that proves the SUCCESS path is
+    stationary point and its unconstrained Hessian need not be positive-definite.
+    Empirically (verified during three-brain and PR review) this fixture's Hessian
+    is degenerate at every size tried (n_t = 6, 12, 16 -- bigger fixtures made it
+    worse, not better; at n_phi=4, n_t=6 the un-noised Hessian is rank 11/22),
+    which is exactly the kind of boundary-constrained solve this codebase's own
+    5-layer anti-degeneracy design anticipates.
+
+    WHICH of the two non-PSD failure modes fires on this exact fixture is
+    genuinely platform/BLAS-dependent, confirmed by CI: on the maintainer's dev
+    machine `np.linalg.inv` raises `LinAlgError` (Hessian numerically singular);
+    on GitHub's ubuntu-latest/py3.14 runner (different XLA:CPU/BLAS backend --
+    see CLAUDE.md's documented precedent for this exact class of platform
+    fragility) `inv` succeeds but returns a negative-diagonal covariance instead.
+    Both are non-PSD Hessians from the same underlying degeneracy and both
+    correctly route to the identity placeholder -- see the block comment above
+    the covariance computation in `heterodyne_hybrid_streaming.py` for the full
+    rationale on both guards. This test asserts the OUTCOME (placeholder fires,
+    for one of these two specific reasons) rather than committing to exactly
+    which numerical path a non-convex boundary solve happens to take on a given
+    host. The deterministic complement that proves the SUCCESS path is
     ``test_streaming_l2_real_hessian_covariance_via_inv_on_success``; the
-    deterministic complement that proves the mechanism itself (mocked singular
-    Hessian, not real physics data) is
-    ``test_streaming_l2_singular_hessian_falls_back_to_placeholder``.
+    deterministic complements that prove each mechanism individually (mocked
+    Hessians, not real physics data, so platform-independent) are
+    ``test_streaming_l2_singular_hessian_falls_back_to_placeholder`` and
+    ``test_streaming_l2_hessian_failure_falls_back_to_placeholder``.
     """
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
         build_heterodyne_stratified_data,
@@ -1349,8 +1360,8 @@ def test_streaming_l2_real_data_singular_hessian_falls_back_to_placeholder(caplo
     # s2 to 0 -- pcov would be all-zero regardless of H's rank, which would still
     # satisfy "finite"/"not eye" checks in a success-oriented test but proves
     # nothing here either. Inject noise so s2 > 0 and the genuinely rank-deficient
-    # Hessian (confirmed at every size tried) reaches the singular-Hessian branch
-    # rather than being masked by a degenerate s2=0 scale factor.
+    # Hessian (confirmed at every size tried) reaches one of the non-PSD guard
+    # branches rather than being masked by a degenerate s2=0 scale factor.
     model, c2, phi = _make_synthetic_heterodyne(n_phi=4, n_t=6)
     rng = np.random.default_rng(seed=20260821)
     c2_noisy = c2 + rng.normal(0.0, 1e-3, size=c2.shape)
@@ -1408,13 +1419,17 @@ def test_streaming_l2_real_data_singular_hessian_falls_back_to_placeholder(caplo
     assert info["hybrid_streaming_diagnostics"]["covariance_is_placeholder"] is True, (
         "nested diagnostics block must mirror the top-level flag"
     )
-    # Pin WHICH failure fired. The single `except` handler catches the singular-
-    # Hessian guard, a non-finite Hessian, and the out-of-scope L3 NaN
-    # singularity identically, so without this a future L3 regression would
-    # silently turn this into a test of the wrong failure mode.
-    assert any(
-        "singular" in r.getMessage().lower() and r.levelname == "ERROR" for r in caplog.records
-    ), "expected the singular-Hessian guard to be the failure that fired"
+    # Pin WHICH FAMILY of failure fired: either non-PSD guard (singular Hessian,
+    # or a successful-but-negative-diagonal inv() -- both legitimate outcomes of
+    # this same degeneracy, platform-dependent per the docstring above), but NOT
+    # a non-finite Hessian or the out-of-scope L3 NaN singularity. Without this,
+    # a future L3 regression would silently turn this into a test of the wrong
+    # failure mode.
+    msg = " ".join(r.getMessage().lower() for r in caplog.records if r.levelname == "ERROR")
+    assert "singular" in msg or "negative diagonal" in msg, (
+        "expected a non-PSD-Hessian guard (singular or negative-diagonal) to be "
+        "the failure that fired, not something else"
+    )
 
 
 def test_streaming_l2_real_hessian_covariance_via_inv_on_success(monkeypatch, caplog):
@@ -1422,7 +1437,7 @@ def test_streaming_l2_real_hessian_covariance_via_inv_on_success(monkeypatch, ca
     report a genuine, non-placeholder covariance.
 
     Deterministic complement to
-    ``test_streaming_l2_real_data_singular_hessian_falls_back_to_placeholder``,
+    ``test_streaming_l2_real_data_non_psd_hessian_falls_back_to_placeholder``,
     which proves the PSD guard fires correctly on the codebase's own real degenerate
     solves. This test proves the SUCCESS path itself is correct when the Hessian
     genuinely IS positive-definite, without depending on a real fit happening to land
