@@ -74,18 +74,36 @@ jobs:
           # with a per-page jq array filter would concatenate multiple
           # `[...]` JSON arrays into invalid JSON if it ever did span pages.
           #
-          # Identify and rerun by job ID, NOT `gh run rerun --failed`:
-          # GitHub's rerun-failed-jobs endpoint is scoped to the WHOLE run,
-          # and its exact definition of "failed" is not documented to
-          # distinguish a runner-killed "cancelled" conclusion from a
-          # genuine "failure" conclusion (confirmed against GitHub's own
-          # OpenAPI description, which gives no such detail). Rerunning by
-          # explicit job ID via the per-job rerun endpoint is unambiguous:
-          # it reruns exactly the runner-killed job(s) this script
-          # identified, never a job that failed for a real reason elsewhere
-          # in the same run.
+          # This jq filter is the GATE deciding whether to retry at all -- it
+          # is NOT used to select which jobs get rerun. An earlier version of
+          # this workflow tried per-job reruns (`POST .../jobs/{id}/rerun`
+          # once per cancelled job, looping over exactly the jobs this filter
+          # finds) specifically to avoid `gh run rerun --failed`'s coarser,
+          # whole-run scope. That was verified LIVE against run 32619088707
+          # (2026-08-23, two cancelled jobs: ubuntu-latest py3.12 and
+          # py3.14) and found broken: rerunning the first job by ID puts the
+          # ENTIRE RUN back into "in_progress" for a new attempt, and any
+          # further per-job rerun call against that same (now in-progress)
+          # run is rejected with HTTP 403 "The workflow run containing this
+          # job is already running" -- so the loop's second iteration always
+          # fails whenever more than one job needs retrying in the same run,
+          # which is exactly the common case this workflow exists for. There
+          # is no batch/multi-job rerun endpoint, so `--failed` (a single,
+          # whole-run call, which is what GitHub's own "Re-run failed jobs"
+          # UI button does) is the only mechanism that correctly handles
+          # multiple cancelled jobs at once. Its coarser scope (it may also
+          # rerun a job that failed for a genuine reason elsewhere in the
+          # same run, not just the runner-killed one(s)) is a real but
+          # accepted tradeoff, identical to what every GitHub Actions user
+          # already accepts from the stock "Re-run failed jobs" button: it
+          # costs some extra CI minutes, but the original failed attempt's
+          # result stays visible under the run's attempt history, so nothing
+          # is silently hidden. This script's own precise per-job/per-step
+          # detection is what keeps that risk narrow -- it only fires
+          # `--failed` when a genuine runner-killed "Test" step was actually
+          # found, never for a run that failed for entirely organic reasons.
           cancelled_jobs=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" \
-            -q '.jobs[] | select(any(.steps[]?; .name == "Test" and .conclusion == "cancelled")) | "\(.id) \(.name)"')
+            -q '.jobs[] | select(any(.steps[]?; .name == "Test" and .conclusion == "cancelled")) | .name')
 
           if [ -z "${cancelled_jobs}" ]; then
             echo "No runner-killed Test steps found on attempt ${RUN_ATTEMPT}; nothing to retry."
@@ -94,10 +112,5 @@ jobs:
 
           echo "Runner-killed Test step(s) found on attempt ${RUN_ATTEMPT}:"
           echo "${cancelled_jobs}"
-
-          while IFS= read -r line; do
-            job_id="${line%% *}"
-            job_name="${line#* }"
-            echo "Re-running job ${job_id} (${job_name})..."
-            gh api -X POST "repos/${REPO}/actions/jobs/${job_id}/rerun" >/dev/null
-          done <<< "${cancelled_jobs}"
+          echo "Re-running failed jobs for run ${RUN_ID}..."
+          gh run rerun "${RUN_ID}" --failed --repo "${REPO}"
