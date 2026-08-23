@@ -885,7 +885,66 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
 
         popt = np.asarray(hier_result.x, dtype=np.float64)
         n = len(popt)
-        pcov = np.eye(n)  # Hessian covariance is optional; identity placeholder
+
+        # Real Hessian-based Gauss-Newton covariance (mirrors laminar's
+        # BUG-15/H-5 fix at strategies/hybrid_streaming.py:1590-1623, but
+        # deliberately diverges from it on singular Hessians -- see below).
+        # Uses the pure-JAX scalar loss `_loss_jax` already defined above for
+        # the optimizer's own gradient calls. Any failure along this path --
+        # jax.hessian raising, a non-finite Hessian, a SINGULAR Hessian, a
+        # non-finite covariance, or a negative covariance diagonal -- falls
+        # back to an identity placeholder + covariance_is_placeholder=True
+        # (single unified except below).
+        #
+        # A singular Hessian is treated as a full failure, NOT recovered via
+        # np.linalg.pinv (unlike laminar's origin). L2 uses bounded L-BFGS-B:
+        # a solution resting on a bound is not an interior stationary point,
+        # so the unconstrained Hessian there need not be positive-definite --
+        # and pinv's Moore-Penrose null-space treatment sets the singular
+        # direction's variance to EXACTLY 0.0 (infinite precision) rather
+        # than the statistically correct answer (unbounded uncertainty, since
+        # that direction is genuinely unidentified by the fit). A negative-
+        # diagonal guard alone does not catch this -- 0.0 is not < 0 -- so
+        # heterodyne_result_builder would silently clip it to sigma = 0.0,
+        # the same confidently-wrong "known" this whole guard exists to
+        # prevent, just at the zero boundary instead of the negative one.
+        # n_data <= n_params is guarded against division-by-zero the same way
+        # laminar's origin does (max(..., 1)) and is not separately detected as a
+        # placeholder case, matching the "exact mirror of laminar" decision
+        # (spec, "Approaches considered"; see Global Constraints above) --
+        # that decision covers the DOF guard only, not the pinv divergence
+        # above.
+        n_hier_data = len(y_data)
+        s2_hier = float(hier_result.fun) / max(n_hier_data - n, 1)
+        covariance_is_placeholder = False
+        try:
+            popt_jax = jnp.asarray(popt)
+            H = np.asarray(jax.hessian(_loss_jax)(popt_jax))
+            if not np.all(np.isfinite(H)):
+                raise ValueError("Hessian contains non-finite entries")
+            try:
+                pcov = 2.0 * s2_hier * np.linalg.inv(H)
+            except np.linalg.LinAlgError as le:
+                raise ValueError(
+                    "Hessian is singular -- a pseudo-inverse covariance would "
+                    "misreport the unidentified (null-space) directions as "
+                    "exactly zero variance instead of unbounded uncertainty"
+                ) from le
+            if not np.all(np.isfinite(pcov)):
+                raise ValueError("Covariance contains non-finite entries")
+            if np.any(np.diag(pcov) < 0):
+                raise ValueError("Covariance has negative diagonal (Hessian not positive-definite)")
+        except Exception as e:
+            logger.error(
+                "Hessian covariance failed in heterodyne L2 path (%s); covariance "
+                "is an identity placeholder — reported uncertainties are NOT "
+                "meaningful.",
+                e,
+                exc_info=True,
+            )
+            pcov = np.eye(n)
+            covariance_is_placeholder = True
+
         info: dict[str, Any] = {
             "success": bool(hier_result.success),
             "nit": int(hier_result.n_outer_iterations),
@@ -895,12 +954,13 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
             # evaluations per outer step (physical + per-angle alternations),
             # mirroring laminar's same approximation. Diagnostic only — not exact.
             "function_evaluations": hier_result.n_outer_iterations * 150,
-            "covariance_is_placeholder": True,
+            "covariance_is_placeholder": covariance_is_placeholder,
             "hybrid_streaming_diagnostics": {
                 "phase_iterations": {"phase1": 0, "phase2": hier_result.n_outer_iterations},
                 "warmup_diagnostics": {},
                 "gauss_newton_diagnostics": {"final_cost": hier_result.fun},
                 "hierarchical_history": hier_result.history,
+                "covariance_is_placeholder": covariance_is_placeholder,
             },
         }
         hierarchical_active = True
@@ -990,11 +1050,14 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         gm_block = gradient_monitor_diagnostics(monitor)
         if gm_block["mechanism"] == "post_solve_fallback":
             # Compute post-solve covariance condition as fallback indicator.
-            # On the hierarchical path pcov is an identity placeholder
-            # (info["covariance_is_placeholder"] is True), so cond(I)=1.0 would
-            # masquerade as a real, well-conditioned covariance. Report NaN there;
-            # only compute the real condition number on a genuine pcov (plain
-            # streaming branch).
+            # info["covariance_is_placeholder"] is DYNAMIC: the hierarchical
+            # branch now computes a real Hessian-based covariance and only
+            # falls back to the identity placeholder when that fails (see the
+            # covariance block above), and the plain streaming branch reports
+            # whatever the optimizer produced. When the flag is True, pcov is
+            # the identity placeholder and cond(I)=1.0 would masquerade as a
+            # real, well-conditioned covariance -- report NaN there; only
+            # compute the real condition number on a genuine pcov.
             is_placeholder = bool(info.get("covariance_is_placeholder", False))
             if (not is_placeholder) and pcov.ndim == 2 and pcov.shape[0] > 0:
                 pcov_cond = float(np.linalg.cond(pcov))
@@ -1031,6 +1094,13 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         gradient_monitor=gm_block,
         per_angle_mode=meta["per_angle_mode"],
         n_optimized=int(meta["n_scaling"]),
+        # Thread the L2 branch's real/placeholder covariance flag into the
+        # public anti_degeneracy block, mirroring heterodyne_stratified_ls.py's
+        # established pattern for the same flag. Read from `info` (not the
+        # local `covariance_is_placeholder` var, which only the L2 branch
+        # sets) so the plain-path branch's absence of the key degrades safely
+        # to False instead of raising NameError.
+        covariance_is_placeholder=bool(info.get("covariance_is_placeholder", False)),
         **_extra_constant_scaling,
     )
 

@@ -1317,6 +1317,347 @@ def test_streaming_l2_ssr_finite_for_individual():
     assert np.isfinite(info["ssr"]), f"SSR not finite: {info['ssr']}"
 
 
+def test_streaming_l2_real_data_non_psd_hessian_falls_back_to_placeholder(caplog):
+    """A genuine bounded-L2 solve whose Hessian is NOT positive-definite must fall
+    back to the honest identity placeholder, not a misleading covariance.
+
+    L2 uses bounded L-BFGS-B, so a solution resting on a bound is not an interior
+    stationary point and its unconstrained Hessian need not be positive-definite.
+    Empirically (verified during three-brain and PR review) this fixture's Hessian
+    is degenerate at every size tried (n_t = 6, 12, 16 -- bigger fixtures made it
+    worse, not better; at n_phi=4, n_t=6 the un-noised Hessian is rank 11/22),
+    which is exactly the kind of boundary-constrained solve this codebase's own
+    5-layer anti-degeneracy design anticipates.
+
+    WHICH of the two non-PSD failure modes fires on this exact fixture is
+    genuinely platform/BLAS-dependent, confirmed by CI: on the maintainer's dev
+    machine `np.linalg.inv` raises `LinAlgError` (Hessian numerically singular);
+    on GitHub's ubuntu-latest/py3.14 runner (different XLA:CPU/BLAS backend --
+    see CLAUDE.md's documented precedent for this exact class of platform
+    fragility) `inv` succeeds but returns a negative-diagonal covariance instead.
+    Both are non-PSD Hessians from the same underlying degeneracy and both
+    correctly route to the identity placeholder -- see the block comment above
+    the covariance computation in `heterodyne_hybrid_streaming.py` for the full
+    rationale on both guards. This test asserts the OUTCOME (placeholder fires,
+    for one of these two specific reasons) rather than committing to exactly
+    which numerical path a non-convex boundary solve happens to take on a given
+    host. The deterministic complement that proves the SUCCESS path is
+    ``test_streaming_l2_real_hessian_covariance_via_inv_on_success``; the
+    deterministic complements that prove each mechanism individually (mocked
+    Hessians, not real physics data, so platform-independent) are
+    ``test_streaming_l2_singular_hessian_falls_back_to_placeholder`` and
+    ``test_streaming_l2_hessian_failure_falls_back_to_placeholder``.
+    """
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming import (
+        fit_with_stratified_hybrid_streaming_heterodyne,
+    )
+
+    # _make_synthetic_heterodyne generates c2 EXACTLY at the model's initial
+    # parameters (residual ~= 0 by construction). Left un-noised, this collapses
+    # s2 to 0 -- pcov would be all-zero regardless of H's rank, which would still
+    # satisfy "finite"/"not eye" checks in a success-oriented test but proves
+    # nothing here either. Inject noise so s2 > 0 and the genuinely rank-deficient
+    # Hessian (confirmed at every size tried) reaches one of the non-PSD guard
+    # branches rather than being masked by a degenerate s2=0 scale factor.
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=4, n_t=6)
+    rng = np.random.default_rng(seed=20260821)
+    c2_noisy = c2 + rng.normal(0.0, 1e-3, size=c2.shape)
+
+    strat = build_heterodyne_stratified_data(model, c2_noisy, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+
+    with caplog.at_level(
+        "ERROR",
+        logger="xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming",
+    ):
+        popt, pcov, info = fit_with_stratified_hybrid_streaming_heterodyne(
+            stratified_data=strat,
+            model=model,
+            physical_param_names=list(model.param_manager.varying_names),
+            initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+            bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+            hybrid_config={
+                "warmup_iterations": 5,
+                "max_warmup_iterations": 10,
+                "gauss_newton_max_iterations": 5,
+                "verbose": 0,
+            },
+            anti_degeneracy_config={
+                "per_angle_mode": "individual",
+                "hierarchical": {"enable": True, "max_outer_iterations": 2},
+                # NOTE (implementer finding, verified 2026-08-22): L3's default
+                # regularization mode is "relative" (CV-based, uses jnp.std). The
+                # quantile-based per-angle init seeds every angle with the SAME
+                # contrast/offset (all angles are statistically identical in this
+                # synthetic fixture), so each group's std is exactly 0 at init and
+                # stays there through the 2-outer-iteration L2 fit (Stage 2 barely
+                # perturbs it). jnp.std has an unconditional NaN gradient/Hessian
+                # at zero variance (`jax.hessian(jnp.std)([.5]*4)` == all-NaN,
+                # verified directly) -- a pre-existing bug in
+                # xpcsjax/optimization/nlsq/adaptive_regularization.py's CV branch
+                # that is OUT OF SCOPE for this task (only heterodyne_hybrid_streaming.py
+                # and this test file are in scope). Forcing "auto" mode here (which
+                # takes the jnp.var branch instead of jnp.std for n_phi=4 <= 5)
+                # keeps this test on the failure mode it is meant to prove -- var is
+                # polynomial in the params and has a well-defined Hessian everywhere,
+                # including at zero variance, so the covariance block reaches the PSD
+                # guard rather than dying on the unrelated L3 NaN singularity. Do NOT
+                # remove this override: without it the assertions below would pass for
+                # the WRONG reason.
+                "regularization": {"mode": "auto"},
+            },
+        )
+
+    n = popt.shape[0]
+    assert pcov.shape == (n, n)
+    assert np.all(np.isfinite(pcov))
+    assert np.array_equal(pcov, np.eye(n))
+    assert info["covariance_is_placeholder"] is True
+    assert info["hybrid_streaming_diagnostics"]["covariance_is_placeholder"] is True, (
+        "nested diagnostics block must mirror the top-level flag"
+    )
+    # Pin WHICH FAMILY of failure fired: either non-PSD guard (singular Hessian,
+    # or a successful-but-negative-diagonal inv() -- both legitimate outcomes of
+    # this same degeneracy, platform-dependent per the docstring above), but NOT
+    # a non-finite Hessian or the out-of-scope L3 NaN singularity. Without this,
+    # a future L3 regression would silently turn this into a test of the wrong
+    # failure mode.
+    msg = " ".join(r.getMessage().lower() for r in caplog.records if r.levelname == "ERROR")
+    assert "singular" in msg or "negative diagonal" in msg, (
+        "expected a non-PSD-Hessian guard (singular or negative-diagonal) to be "
+        "the failure that fired, not something else"
+    )
+
+
+def test_streaming_l2_real_hessian_covariance_via_inv_on_success(monkeypatch, caplog):
+    """A well-conditioned (SPD) Hessian must take the real ``np.linalg.inv`` path and
+    report a genuine, non-placeholder covariance.
+
+    Deterministic complement to
+    ``test_streaming_l2_real_data_non_psd_hessian_falls_back_to_placeholder``,
+    which proves the PSD guard fires correctly on the codebase's own real degenerate
+    solves. This test proves the SUCCESS path itself is correct when the Hessian
+    genuinely IS positive-definite, without depending on a real fit happening to land
+    there -- reverse-engineering a genuinely well-conditioned real fixture is
+    nontrivial (three sizes were tried and all were degenerate), so the Hessian is
+    mocked, exactly as the neighbouring failure / pinv tests do.
+    """
+    import jax.numpy as jnp
+
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies import (
+        heterodyne_hybrid_streaming as hs,
+    )
+
+    def _well_conditioned_hessian(fn):
+        def _spd_hessian(p):
+            n = p.shape[0]
+            return jnp.eye(n) * 4.0  # arbitrary well-conditioned SPD matrix
+
+        return _spd_hessian
+
+    monkeypatch.setattr(hs.jax, "hessian", _well_conditioned_hessian)
+
+    # Noise is load-bearing: the fixture generates c2 exactly at the initial
+    # params, so an un-noised fit gives hier_result.fun ~= 0 -> s2 ~= 0 ->
+    # pcov = 2*s2*inv(4I) = all-zeros. That would still satisfy "finite",
+    # "not eye", and "placeholder is False" while proving nothing, so inject
+    # noise to keep s2 strictly positive.
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=4, n_t=6)
+    rng = np.random.default_rng(seed=20260822)
+    c2_noisy = c2 + rng.normal(0.0, 1e-3, size=c2.shape)
+
+    strat = build_heterodyne_stratified_data(model, c2_noisy, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+
+    with caplog.at_level(
+        "WARNING",
+        logger="xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming",
+    ):
+        popt, pcov, info = hs.fit_with_stratified_hybrid_streaming_heterodyne(
+            stratified_data=strat,
+            model=model,
+            physical_param_names=list(model.param_manager.varying_names),
+            initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+            bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+            hybrid_config={
+                "warmup_iterations": 5,
+                "max_warmup_iterations": 10,
+                "gauss_newton_max_iterations": 5,
+                "verbose": 0,
+            },
+            anti_degeneracy_config={
+                "per_angle_mode": "individual",
+                "hierarchical": {"enable": True, "max_outer_iterations": 2},
+            },
+        )
+
+    n = popt.shape[0]
+    assert pcov.shape == (n, n)
+    assert np.all(np.isfinite(pcov))
+    assert np.all(np.diag(pcov) > 0), "SPD Hessian must yield strictly positive variances"
+    assert not np.array_equal(pcov, np.eye(n))
+    assert info["covariance_is_placeholder"] is False
+    assert info["hybrid_streaming_diagnostics"]["covariance_is_placeholder"] is False, (
+        "nested diagnostics block must mirror the top-level flag"
+    )
+    # pinv(4I) == inv(4I) numerically, so an isotropic mock cannot distinguish
+    # the two branches by comparing pcov's shape/positivity/eye-ness alone --
+    # a dropped 2.0 factor, a wrong s2, or H.T instead of H would all still
+    # satisfy those checks. Compute the exact expected covariance from the
+    # formula this branch is supposed to implement (2 * s2 * inv(H)) using
+    # only publicly returned fields, and compare element-wise.
+    n_hier_data = int(info["n_data_points"])
+    final_cost = float(
+        info["hybrid_streaming_diagnostics"]["gauss_newton_diagnostics"]["final_cost"]
+    )
+    s2_hier = final_cost / max(n_hier_data - n, 1)
+    H_mock = np.eye(n) * 4.0
+    expected_pcov = 2.0 * s2_hier * np.linalg.inv(H_mock)
+    np.testing.assert_allclose(
+        pcov,
+        expected_pcov,
+        rtol=1e-10,
+        err_msg="pcov does not match 2*s2*inv(H) for the known mocked H -- "
+        "formula/scale-factor regression",
+    )
+    # The exact-formula check above already proves inv() (not pinv) ran --
+    # pinv(4I) == inv(4I) so this would pass either way on VALUES alone, but a
+    # WARNING log is unique to the pinv branch, so its absence is independent
+    # confirmation of which branch actually executed.
+    assert not any("Singular Hessian" in r.getMessage() for r in caplog.records), (
+        "expected the real np.linalg.inv path, but the pinv fallback fired"
+    )
+
+
+def test_streaming_l2_hessian_failure_falls_back_to_placeholder(monkeypatch, caplog):
+    """If jax.hessian raises, the L2 branch must fall back to the identity
+    placeholder, set covariance_is_placeholder=True, and log an ERROR
+    explaining the reported uncertainties are not meaningful."""
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies import (
+        heterodyne_hybrid_streaming as hs,
+    )
+
+    def _raise_hessian(fn):
+        raise RuntimeError("forced hessian failure for test")
+
+    monkeypatch.setattr(hs.jax, "hessian", _raise_hessian)
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=4, n_t=6)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+
+    with caplog.at_level(
+        "ERROR",
+        logger="xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming",
+    ):
+        popt, pcov, info = hs.fit_with_stratified_hybrid_streaming_heterodyne(
+            stratified_data=strat,
+            model=model,
+            physical_param_names=list(model.param_manager.varying_names),
+            initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+            bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+            hybrid_config={
+                "warmup_iterations": 5,
+                "max_warmup_iterations": 10,
+                "gauss_newton_max_iterations": 5,
+                "verbose": 0,
+            },
+            anti_degeneracy_config={
+                "per_angle_mode": "individual",
+                "hierarchical": {"enable": True, "max_outer_iterations": 2},
+            },
+        )
+
+    n = popt.shape[0]
+    assert np.array_equal(pcov, np.eye(n))
+    assert info["covariance_is_placeholder"] is True
+    assert info["hybrid_streaming_diagnostics"]["covariance_is_placeholder"] is True, (
+        "nested diagnostics block must mirror the top-level flag"
+    )
+    assert any(
+        "identity placeholder" in r.getMessage() and r.levelname == "ERROR" for r in caplog.records
+    ), "expected an ERROR log explaining the covariance is a placeholder"
+
+
+def test_streaming_l2_singular_hessian_falls_back_to_placeholder(monkeypatch, caplog):
+    """A singular Hessian must fall back to the identity placeholder, NOT a
+    pseudo-inverse.
+
+    Deliberately diverges from laminar's origin (which recovers via
+    ``np.linalg.pinv`` and stays non-placeholder): ``pinv``'s Moore-Penrose
+    null-space treatment reports the unidentified direction's variance as
+    EXACTLY 0.0 (infinite precision) rather than the statistically correct
+    answer (unbounded uncertainty, since a singular Hessian means that
+    direction is genuinely unconstrained by the fit) -- a confidently-wrong
+    "known" that the PSD guard's `< 0` check cannot catch, since 0.0 is not
+    negative. See the block comment above the covariance computation in
+    ``heterodyne_hybrid_streaming.py`` for the full rationale.
+    """
+    import jax.numpy as jnp
+
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies import (
+        heterodyne_hybrid_streaming as hs,
+    )
+
+    def _singular_hessian(fn):
+        def _zero_hessian(p):
+            n = p.shape[0]
+            return jnp.zeros((n, n))
+
+        return _zero_hessian
+
+    monkeypatch.setattr(hs.jax, "hessian", _singular_hessian)
+
+    model, c2, phi = _make_synthetic_heterodyne(n_phi=4, n_t=6)
+    strat = build_heterodyne_stratified_data(model, c2, phi, weights=None)
+    lo, hi = model.param_manager.get_bounds()
+
+    with caplog.at_level(
+        "ERROR",
+        logger="xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming",
+    ):
+        popt, pcov, info = hs.fit_with_stratified_hybrid_streaming_heterodyne(
+            stratified_data=strat,
+            model=model,
+            physical_param_names=list(model.param_manager.varying_names),
+            initial_params=np.asarray(model.param_manager.get_initial_values(), dtype=np.float64),
+            bounds=(np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)),
+            hybrid_config={
+                "warmup_iterations": 5,
+                "max_warmup_iterations": 10,
+                "gauss_newton_max_iterations": 5,
+                "verbose": 0,
+            },
+            anti_degeneracy_config={
+                "per_angle_mode": "individual",
+                "hierarchical": {"enable": True, "max_outer_iterations": 2},
+            },
+        )
+
+    n = popt.shape[0]
+    assert pcov.shape == (n, n)
+    assert np.array_equal(pcov, np.eye(n))
+    assert info["covariance_is_placeholder"] is True
+    assert info["hybrid_streaming_diagnostics"]["covariance_is_placeholder"] is True, (
+        "nested diagnostics block must mirror the top-level flag"
+    )
+    assert any(
+        "singular" in r.getMessage().lower() and r.levelname == "ERROR" for r in caplog.records
+    ), "expected the ERROR log to name the singular-Hessian failure specifically"
+
+
 def test_streaming_diagnostics_symmetric_keys():
     """Streaming anti_degeneracy block carries the same top-level keys as other paths."""
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
