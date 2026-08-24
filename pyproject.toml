@@ -44,6 +44,7 @@ dev = [
     "pytest-env>=1.1",          # inject JAX_ENABLE_X64=1 via [tool.pytest.ini_options] env
     "pytest-mpl>=0.17",
     "pytest-xdist>=3.8",
+    "pytest-split>=0.10",       # CI-only test sharding on ubuntu-latest (see ci.yml test-ubuntu job)
     "pytest-benchmark>=5.2",    # tests/benchmarks/test_perf_regression.py + make perf-baseline/perf-compare
     "pytest-timeout>=2.4",      # --timeout guard in the perf-regression targets (make perf-*)
     "hypothesis>=6",            # property tests (Task 33) — xpcsjax-specific addition
