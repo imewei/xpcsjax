@@ -34,7 +34,8 @@ TEST_DIR := tests
 # so a heavy synthetic fit landing on a busy xdist worker self-limits to streaming.
 HEAVY_NODES := \
   tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first \
-  tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit
+  tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit \
+  tests/optimization/test_fixed_parameters_integration.py::test_fixed_parameter_survives_stratified_ls_fit
 HEAVY_FILES :=
 ENV_GATED_FILES :=
 #
