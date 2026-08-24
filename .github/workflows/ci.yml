@@ -55,13 +55,19 @@ jobs:
   # need for the shard overhead, so they stay a single job per Python
   # version in test-other below.
   #
-  # ponytail: shards are split by pytest-split's default (test-count-based)
-  # algorithm, not by measured duration -- no `.test_durations` file exists
-  # yet. This is a deliberate simplification: even an unbalanced split
-  # meaningfully shrinks the worst-case single-job wall-clock vs one
-  # unsharded ~40-90 min job, and a naive split is zero extra CI time to
-  # produce. Upgrade to `pytest --store-durations` (committed once, refreshed
-  # periodically) if shard wall-clocks turn out lopsided in practice.
+  # ponytail: shards are split by pytest-split's default (test-count-based,
+  # collection-order-contiguous) algorithm, not by measured duration -- no
+  # `.test_durations` file exists yet. This is a KNOWN, VERIFIED imbalance,
+  # not a hypothetical: shard 3 is currently 100% tests/optimization (675 of
+  # 675 -- this repo's heaviest, JIT-cold-compile-dominated module) and
+  # shard 2 is 70% tests/optimization (472/675), while shard 1 is 0%. Still
+  # a deliberate simplification for the first cut -- even this uneven split
+  # shrinks each shard's worst-case wall-clock well below one unsharded
+  # ~40-90 min job, and a naive split is zero extra CI time to produce.
+  # Watch shard 3's actual wall-clock on the first real CI runs; if it's
+  # tight against the 60-min timeout below, upgrade to `pytest
+  # --store-durations` (generated from real CI timing, then committed) to
+  # rebalance by measured duration rather than raw test count.
   test-ubuntu:
     name: Test (ubuntu-latest, py${{ matrix.python-version }}, shard ${{ matrix.shard }}/4)
     needs: lint
@@ -113,6 +119,19 @@ jobs:
         # "informational, don't worry about it" for 3.14 specifically. Drop
         # this scoping and the 3.14 matrix entry once 3.14 is a supported
         # target with real wheels.
+        #
+        # Sharding means this install now runs 4 INDEPENDENT times for
+        # py3.14 (once per shard's own VM) instead of once pre-sharding --
+        # a transient failure (e.g. a PyPI network blip) hitting only one
+        # shard now silently reads as "that shard tested nothing" under the
+        # same green "informational only" umbrella that already covers the
+        # all-4-shards-failed case, rather than the single all-or-nothing
+        # outcome this job had before. Accepted: py3.14 coverage here is
+        # explicitly best-effort already (see above), and sharing one
+        # install across 4 independent jobs isn't feasible without real
+        # added infra (a shared venv artifact/cache keyed per shard). Not
+        # fixed here -- flagged so a future reader doesn't mistake a
+        # 3-of-4-shards-green py3.14 run for full coverage.
         continue-on-error: ${{ matrix.python-version == '3.14' }}
         run: uv sync --extra dev --python ${{ matrix.python-version }}
       - name: Test
@@ -200,8 +219,27 @@ jobs:
       # VM survives long enough to run a subsequent step (the case it was
       # originally written for), which recovers faster than waiting on the
       # external ci-retry-on-runner-cancel.yml workflow's brand-new runner.
+      #
+      # Restricted to `push` events -- `cancelled()` is true for ANY
+      # cancellation, not just a genuine runner-infra kill. On `pull_request`
+      # events, ci.yml's own concurrency block sets `cancel-in-progress:
+      # true`, so an ordinary force-push routinely cancels an in-flight PR
+      # run mid-Test -- verified live (run 32598628068: every matrix job
+      # cancelled with a plain teardown log, no runner-shutdown-signature
+      # line at all). Before this fix that case was moot (the step never
+      # ran regardless); now that it can run, retrying an already-superseded
+      # PR commit would burn a full extra shard run for no benefit. The
+      # separate ci-retry-on-runner-cancel.yml workflow already solves this
+      # correctly by grepping the job's log for the shutdown signature
+      # before retrying -- doing the same from inside this step would need
+      # fetching this job's own log mid-run via the API, real added
+      # complexity for a class of event (`push` to main has no
+      # cancel-in-progress) this scoping already avoids for the common case.
+      # A human explicitly cancelling a push-triggered run is the one
+      # residual gap this doesn't close; accepted as materially rarer than
+      # routine PR force-push churn.
       - name: Retry Test on runner-cancel flake
-        if: cancelled() && steps.test.conclusion == 'cancelled'
+        if: github.event_name == 'push' && cancelled() && steps.test.conclusion == 'cancelled'
         env:
           JAX_ENABLE_X64: "1"
           QT_QPA_PLATFORM: offscreen
@@ -309,37 +347,11 @@ jobs:
             "tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first" \
             "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit" \
             "tests/optimization/test_fixed_parameters_integration.py::test_fixed_parameter_survives_stratified_ls_fit"
-      # Retry the entire Test step once if the runner-side cancellation was
-      # the cause. CI infra occasionally cancels jobs in-flight with no test
-      # failure (e.g. host rebalance, runner-pool churn) — observed on
-      # commit c8aba82 where 4 of 9 matrix jobs were externally cancelled
-      # mid-test with all assertions passing. Re-running on `cancelled` only
-      # is conservative: real test failures still fail-fast. This (and the
-      # separate ci-retry-on-runner-cancel.yml workflow) now applies to
-      # every matrix cell including 3.14 -- a 3.14 cancellation during Test
-      # is a real infra event, not something the install-time
-      # `continue-on-error` above should absorb.
-      #
-      # `cancelled()` is REQUIRED here, not decorative -- GitHub implicitly
-      # ANDs a bare `if:` with `success()` unless it contains one of
-      # success()/always()/cancelled()/failure() (GitHub Actions expressions
-      # docs, "status check functions"). Without it, this step was
-      # structurally unreachable: the Test step's own conclusion is already
-      # non-success by the time this `if:` is evaluated, so the implicit
-      # success() fails first and `steps.test.conclusion == 'cancelled'`
-      # never gets the chance to matter -- regardless of whether the runner
-      # VM itself survived. Consistent with that: across 60 recent CI runs
-      # in this repo's history, "Retry Test on runner-cancel flake" has a
-      # conclusion other than "skipped" in ZERO of them, despite many
-      # genuine Test-step cancellations (that data alone doesn't prove the
-      # implicit-gate was the sole cause vs. the runner also being dead
-      # every time -- the docs-based reasoning above is what's decisive).
-      # This fixes the in-job path so it can actually fire when the runner
-      # VM survives long enough to run a subsequent step (the case it was
-      # originally written for), which recovers faster than waiting on the
-      # external ci-retry-on-runner-cancel.yml workflow's brand-new runner.
+      # See test-ubuntu's "Retry Test on runner-cancel flake" step above
+      # for the full rationale (why `cancelled()` is required, and why this
+      # is scoped to `push` events only) -- identical logic applies here.
       - name: Retry Test on runner-cancel flake
-        if: cancelled() && steps.test.conclusion == 'cancelled'
+        if: github.event_name == 'push' && cancelled() && steps.test.conclusion == 'cancelled'
         env:
           JAX_ENABLE_X64: "1"
           QT_QPA_PLATFORM: offscreen

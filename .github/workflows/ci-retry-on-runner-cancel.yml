@@ -110,9 +110,14 @@ jobs:
           # the exact case this workflow exists to catch would be excluded
           # by such a filter). The real signal is the "Test" step's own
           # conclusion inside each matrix job. No --paginate: this repo's CI
-          # matrix is ~10 jobs, well under one page, and --paginate combined
-          # with a per-page jq array filter would concatenate multiple
-          # `[...]` JSON arrays into invalid JSON if it ever did span pages.
+          # matrix is 19 jobs (1 lint + 12 sharded ubuntu + 6 macos/windows,
+          # since the ubuntu 4-way sharding in ci.yml's test-ubuntu job --
+          # up from ~10 pre-sharding), still comfortably under GitHub's
+          # default 30-per-page, and --paginate combined with a per-page jq
+          # array filter would concatenate multiple `[...]` JSON arrays into
+          # invalid JSON if it ever did span pages. Revisit if the matrix
+          # grows again (a 5th shard, a 4th Python version) toward that
+          # 30-job cliff -- it would silently truncate job detection here.
           #
           # This detection is the GATE deciding whether to retry at all -- it
           # is NOT used to select which jobs get rerun. An earlier version of
