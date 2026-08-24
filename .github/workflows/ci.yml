@@ -146,10 +146,12 @@ jobs:
         run: |
           uv run pytest -v -n 2 \
             --deselect "tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first" \
-            --deselect "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit"
+            --deselect "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit" \
+            --deselect "tests/optimization/test_fixed_parameters_integration.py::test_fixed_parameter_survives_stratified_ls_fit"
           uv run pytest -v -p no:xdist \
             "tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first" \
-            "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit"
+            "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit" \
+            "tests/optimization/test_fixed_parameters_integration.py::test_fixed_parameter_survives_stratified_ls_fit"
       # Retry the entire Test step once if the runner-side cancellation was
       # the cause. CI infra occasionally cancels jobs in-flight with no test
       # failure (e.g. host rebalance, runner-pool churn) — observed on
@@ -174,7 +176,9 @@ jobs:
         run: |
           uv run pytest -v -n 2 \
             --deselect "tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first" \
-            --deselect "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit"
+            --deselect "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit" \
+            --deselect "tests/optimization/test_fixed_parameters_integration.py::test_fixed_parameter_survives_stratified_ls_fit"
           uv run pytest -v -p no:xdist \
             "tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first" \
-            "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit"
+            "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit" \
+            "tests/optimization/test_fixed_parameters_integration.py::test_fixed_parameter_survives_stratified_ls_fit"
