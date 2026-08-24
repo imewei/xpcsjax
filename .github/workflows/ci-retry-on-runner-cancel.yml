@@ -21,16 +21,35 @@ name: Retry CI on Runner Cancellation
 # GitHub does NOT always label the killed "Test" step's own conclusion as
 # "cancelled" -- verified live on run 32694721181, job
 # "Test (ubuntu-latest, py3.14)": the Test step's conclusion was "failure",
-# yet its log tail is byte-identical to every "cancelled"-labeled case
-# ("The runner has received a shutdown signal..." / "Process completed with
-# exit code 143." / "Cleaning up orphan processes"). Same external event,
-# different GitHub-side label. Filtering on conclusion=="cancelled" alone
-# therefore misses some fraction of real runner deaths and lets them surface
-# as ordinary-looking test failures. The detection step below also checks
-# conclusion=="failure" jobs, but only treats them as retry-eligible after
-# grepping that job's own log for the runner-shutdown signature -- a genuine
-# pytest failure never produces that exact runner-infra message, so this
-# does not risk silently retrying (and masking) a real regression.
+# yet its log tail is byte-identical to every "cancelled"-labeled case in
+# the SAME run ("The runner has received a shutdown signal..." then either
+# "Process completed with exit code 143." or "The operation was canceled.").
+# Same external event, different GitHub-side label. Nor is "cancelled" on
+# its own sufficient evidence of a runner death in the other direction --
+# run 32598628068 (2026-08-22, an ordinary PR force-push superseding an
+# in-flight run) shows every matrix job "cancelled" with a plain teardown
+# log and no shutdown-signal line at all, indistinguishable from a real
+# runner kill by conclusion label alone. The detection step below therefore
+# does not trust either conclusion label by itself: any Test step reporting
+# "cancelled" OR "failure" is only treated as retry-eligible after grepping
+# that job's own log for the runner-shutdown signature -- a genuine pytest
+# failure and a genuine intentional cancellation both never produce that
+# exact runner-infra message, so neither can be mistaken for the other and
+# a real regression can't be silently retried (and masked) by this.
+#
+# A rerun attempt can ALSO be starved to zero jobs before any runner ever
+# picks it up -- verified live on run 32720872905 (2026-08-24): attempt 2's
+# rerun got queued behind ci.yml's `ci-${{ github.ref }}` concurrency group,
+# a second push landed on main in the meantime, and GitHub's "at most one
+# PENDING run per concurrency group, newest supersedes" rule (which applies
+# regardless of cancel-in-progress) silently cancelled the pending retry
+# with zero jobs ever dispatched. That attempt's jobs list is empty, so the
+# per-job loop below finds nothing to grep and would otherwise report
+# "nothing to retry" -- permanently losing a retry that was never even a
+# real failure (nothing ran, so nothing could have failed on the merits).
+# Detected separately below via the run's own conclusion + an empty job
+# list, using `gh run rerun` (no `--failed`, since there is no failed-job
+# record for GitHub to select against) to restart the whole attempt.
 on:
   workflow_run:
     workflows: ["CI"]
@@ -76,6 +95,11 @@ jobs:
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
           RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt || 'manual' }}
+          # Only populated on the workflow_run path -- the event payload
+          # already carries the source run's conclusion, so this needs no
+          # extra API call. Empty on workflow_dispatch; re-fetched below in
+          # that case since there is no event payload to read it from.
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion || '' }}
         run: |
           set -euo pipefail
 
@@ -119,32 +143,127 @@ jobs:
           # `--failed` when a genuine runner-killed "Test" step was actually
           # found, never for a run that failed for entirely organic reasons.
           #
-          # Two-tier detection (see the file-header comment for why): a Test
-          # step conclusion of "cancelled" is trusted outright. A conclusion
-          # of "failure" is only trusted after confirming the job's own log
-          # ends with the runner-infra shutdown signature -- a real pytest
-          # failure's log ends with pytest's own summary/traceback, never
-          # that message, so this cannot mistake a genuine regression for an
-          # infra kill.
+          # Neither "cancelled" nor "failure" is trusted by conclusion label
+          # alone (see the file-header comment for why) -- both are only
+          # treated as retry-eligible after confirming the job's own log
+          # carries the runner-infra shutdown signature via
+          # detect_runner_killed_jobs below.
+          #
+          # `gh run rerun` can itself lose a race against a duplicate
+          # workflow_run delivery (this workflow's own concurrency group is
+          # per-run-id and queues, not skips, a redelivered duplicate -- see
+          # the group comment above) -- verified live on run 32649887926
+          # (2026-08-23): the second, redundant invocation hit
+          # "run ... cannot be rerun; This workflow is already running" and
+          # exited 1, hard-failing this workflow for a no-op that the first
+          # invocation had already handled correctly. That specific message
+          # means the goal (a fresh attempt is running) is already achieved,
+          # so it is treated as success, not an error; any other `gh run
+          # rerun` failure still propagates.
+          rerun_or_tolerate() {
+            local out
+            if out=$(gh run rerun "$@" --repo "${REPO}" 2>&1); then
+              echo "${out}"
+              return 0
+            fi
+            echo "${out}"
+            # Matched narrowly against GitHub's own exact wording (observed
+            # verbatim on run 32649887926) rather than a bare "already
+            # running" substring, so an unrelated CLI/API error can't be
+            # coincidentally swallowed here.
+            if echo "${out}" | grep -qi "cannot be rerun; This workflow is already running"; then
+              echo "Run ${RUN_ID} is already back in progress (a concurrent retry attempt won this race) -- treating as done."
+              return 0
+            fi
+            return 1
+          }
+
+          # Shared by both the normal per-job-loop path and the zero-job
+          # starvation check below: given a jobs_json blob (same {id, name,
+          # test_conclusion} shape), prints the names of jobs whose "Test"
+          # step matches the runner-kill signature, one per line, and
+          # nothing if none match. Reused so the starvation branch can ask
+          # "did the attempt THIS retried actually show a confirmed runner
+          # kill" instead of trusting an empty, cancelled attempt on its own.
+          #
+          # A conclusion of "cancelled" is NOT trusted on its own -- verified
+          # live that it is NOT unique to runner deaths: run 32598628068
+          # (2026-08-22, an ordinary PR force-push superseding an in-flight
+          # run via ci.yml's `cancel-in-progress: true`) shows every matrix
+          # job cancelled with a plain teardown log ("Cleaning up orphan
+          # processes", no shutdown-signal line at all) -- indistinguishable
+          # from a real runner kill by conclusion alone. The shutdown-signal
+          # log line, in contrast, was verified present on EVERY confirmed
+          # runner-kill job regardless of which conclusion GitHub assigned
+          # it: run 32694721181's "cancelled" jobs (ubuntu py3.12/py3.13) end
+          # with the same "The runner has received a shutdown signal..."
+          # line as its "failure"-labeled job (py3.14), just followed by
+          # "The operation was canceled." instead of "exit code 143" --
+          # confirming the log line, not the conclusion label, is the
+          # reliable signature. So every conclusion in {cancelled, failure}
+          # is checked against the log the same way; a real pytest failure
+          # or a genuine PR-supersession cancellation never produces that
+          # exact runner-infra message, so neither can be mistaken for this.
+          detect_runner_killed_jobs() {
+            local jobs_json="$1"
+            local found=""
+            while IFS=$'\t' read -r job_id job_name test_conclusion; do
+              [ -z "${job_id}" ] && continue
+              case "${test_conclusion}" in
+                cancelled | failure)
+                  if gh api "repos/${REPO}/actions/jobs/${job_id}/logs" 2>/dev/null \
+                      | grep -qi "runner has received a shutdown signal"; then
+                    echo "Job '${job_name}' (id ${job_id}): Test step conclusion is '${test_conclusion}' and log matches the runner-shutdown signature -- treating as infra kill." >&2
+                    found="${found}${job_name}"$'\n'
+                  fi
+                  ;;
+              esac
+            done < <(echo "${jobs_json}" | jq -r '.[] | [(.id|tostring), .name, .test_conclusion] | @tsv')
+            echo "${found}"
+          }
+
           jobs_json=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" \
             -q '[.jobs[] | {id, name, test_conclusion: ([.steps[]? | select(.name == "Test") | .conclusion] | first // "")}]')
 
-          runner_killed_jobs=""
-          while IFS=$'\t' read -r job_id job_name test_conclusion; do
-            [ -z "${job_id}" ] && continue
-            case "${test_conclusion}" in
-              cancelled)
-                runner_killed_jobs="${runner_killed_jobs}${job_name}"$'\n'
-                ;;
-              failure)
-                if gh api "repos/${REPO}/actions/jobs/${job_id}/logs" 2>/dev/null \
-                    | grep -qi "runner has received a shutdown signal"; then
-                  echo "Job '${job_name}' (id ${job_id}): Test step conclusion is 'failure' but log matches the runner-shutdown signature -- treating as infra kill."
-                  runner_killed_jobs="${runner_killed_jobs}${job_name}"$'\n'
-                fi
-                ;;
-            esac
-          done < <(echo "${jobs_json}" | jq -r '.[] | [(.id|tostring), .name, .test_conclusion] | @tsv')
+          if [ "$(echo "${jobs_json}" | jq 'length')" = "0" ]; then
+            run_conclusion="${RUN_CONCLUSION}"
+            if [ -z "${run_conclusion}" ]; then
+              run_conclusion=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}" -q '.conclusion')
+            fi
+            # "cancelled + zero jobs" is NOT on its own evidence of infra
+            # starvation -- it is also exactly what a normal, intentional
+            # cancellation looks like: a PR force-push superseding an
+            # attempt-1 run via ci.yml's `cancel-in-progress: true` (routine,
+            # frequent, and correct to leave alone), or a human clicking
+            # "Cancel workflow" before any job started. Neither of those
+            # should trigger an automatic rerun. What actually happened on
+            # run 32720872905 was specific: attempt 2 -- itself already a
+            # rerun of an attempt that showed a confirmed runner-kill
+            # signature -- got starved to zero jobs by concurrency-group
+            # contention. So this only retries when BOTH hold: (a) this is
+            # already a rerun (attempt >= 2 -- an attempt-1 cancellation has
+            # no prior attempt to have been retrying), and (b) the attempt it
+            # retried actually shows the runner-kill signature via the same
+            # detection used below, not merely "cancelled".
+            if [ "${run_conclusion}" = "cancelled" ] && [[ "${RUN_ATTEMPT}" =~ ^[0-9]+$ ]] && [ "${RUN_ATTEMPT}" -ge 2 ]; then
+              prev_attempt=$((RUN_ATTEMPT - 1))
+              prev_jobs_json=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/attempts/${prev_attempt}/jobs" \
+                -q '[.jobs[] | {id, name, test_conclusion: ([.steps[]? | select(.name == "Test") | .conclusion] | first // "")}]')
+              prev_runner_killed=$(detect_runner_killed_jobs "${prev_jobs_json}")
+              if [ -n "${prev_runner_killed}" ]; then
+                echo "Attempt ${RUN_ATTEMPT} dispatched zero jobs and was cancelled; attempt ${prev_attempt} (the one it retried) shows a confirmed runner-kill signature, so this is starvation of that retry, not a fresh/intentional cancellation. Restarting the whole run."
+                echo "Re-running run ${RUN_ID} from scratch..."
+                rerun_or_tolerate "${RUN_ID}"
+                exit $?
+              fi
+              echo "Attempt ${RUN_ATTEMPT} dispatched zero jobs and was cancelled, but attempt ${prev_attempt} shows no runner-kill signature -- looks like an intentional cancellation (PR supersession or a manual cancel), not infra starvation. Leaving it alone."
+              exit 0
+            fi
+            echo "Attempt ${RUN_ATTEMPT} dispatched zero jobs (run conclusion '${run_conclusion}'); nothing to retry."
+            exit 0
+          fi
+
+          runner_killed_jobs=$(detect_runner_killed_jobs "${jobs_json}")
 
           if [ -z "${runner_killed_jobs}" ]; then
             echo "No runner-killed Test steps found on attempt ${RUN_ATTEMPT}; nothing to retry."
@@ -154,4 +273,4 @@ jobs:
           echo "Runner-killed Test step(s) found on attempt ${RUN_ATTEMPT}:"
           echo "${runner_killed_jobs}"
           echo "Re-running failed jobs for run ${RUN_ID}..."
-          gh run rerun "${RUN_ID}" --failed --repo "${REPO}"
+          rerun_or_tolerate "${RUN_ID}" --failed
