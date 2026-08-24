@@ -17,6 +17,20 @@ name: Retry CI on Runner Cancellation
 # absorb silently). Leaving a real-looking red X on an infra-caused
 # cancellation costs a human real investigation time to confirm it's not a
 # genuine regression (as happened repeatedly working through PR #61).
+#
+# GitHub does NOT always label the killed "Test" step's own conclusion as
+# "cancelled" -- verified live on run 32694721181, job
+# "Test (ubuntu-latest, py3.14)": the Test step's conclusion was "failure",
+# yet its log tail is byte-identical to every "cancelled"-labeled case
+# ("The runner has received a shutdown signal..." / "Process completed with
+# exit code 143." / "Cleaning up orphan processes"). Same external event,
+# different GitHub-side label. Filtering on conclusion=="cancelled" alone
+# therefore misses some fraction of real runner deaths and lets them surface
+# as ordinary-looking test failures. The detection step below also checks
+# conclusion=="failure" jobs, but only treats them as retry-eligible after
+# grepping that job's own log for the runner-shutdown signature -- a genuine
+# pytest failure never produces that exact runner-infra message, so this
+# does not risk silently retrying (and masking) a real regression.
 on:
   workflow_run:
     workflows: ["CI"]
@@ -76,7 +90,7 @@ jobs:
           # with a per-page jq array filter would concatenate multiple
           # `[...]` JSON arrays into invalid JSON if it ever did span pages.
           #
-          # This jq filter is the GATE deciding whether to retry at all -- it
+          # This detection is the GATE deciding whether to retry at all -- it
           # is NOT used to select which jobs get rerun. An earlier version of
           # this workflow tried per-job reruns (`POST .../jobs/{id}/rerun`
           # once per cancelled job, looping over exactly the jobs this filter
@@ -104,15 +118,40 @@ jobs:
           # detection is what keeps that risk narrow -- it only fires
           # `--failed` when a genuine runner-killed "Test" step was actually
           # found, never for a run that failed for entirely organic reasons.
-          cancelled_jobs=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" \
-            -q '.jobs[] | select(any(.steps[]?; .name == "Test" and .conclusion == "cancelled")) | .name')
+          #
+          # Two-tier detection (see the file-header comment for why): a Test
+          # step conclusion of "cancelled" is trusted outright. A conclusion
+          # of "failure" is only trusted after confirming the job's own log
+          # ends with the runner-infra shutdown signature -- a real pytest
+          # failure's log ends with pytest's own summary/traceback, never
+          # that message, so this cannot mistake a genuine regression for an
+          # infra kill.
+          jobs_json=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" \
+            -q '[.jobs[] | {id, name, test_conclusion: ([.steps[]? | select(.name == "Test") | .conclusion] | first // "")}]')
 
-          if [ -z "${cancelled_jobs}" ]; then
+          runner_killed_jobs=""
+          while IFS=$'\t' read -r job_id job_name test_conclusion; do
+            [ -z "${job_id}" ] && continue
+            case "${test_conclusion}" in
+              cancelled)
+                runner_killed_jobs="${runner_killed_jobs}${job_name}"$'\n'
+                ;;
+              failure)
+                if gh api "repos/${REPO}/actions/jobs/${job_id}/logs" 2>/dev/null \
+                    | grep -qi "runner has received a shutdown signal"; then
+                  echo "Job '${job_name}' (id ${job_id}): Test step conclusion is 'failure' but log matches the runner-shutdown signature -- treating as infra kill."
+                  runner_killed_jobs="${runner_killed_jobs}${job_name}"$'\n'
+                fi
+                ;;
+            esac
+          done < <(echo "${jobs_json}" | jq -r '.[] | [(.id|tostring), .name, .test_conclusion] | @tsv')
+
+          if [ -z "${runner_killed_jobs}" ]; then
             echo "No runner-killed Test steps found on attempt ${RUN_ATTEMPT}; nothing to retry."
             exit 0
           fi
 
           echo "Runner-killed Test step(s) found on attempt ${RUN_ATTEMPT}:"
-          echo "${cancelled_jobs}"
+          echo "${runner_killed_jobs}"
           echo "Re-running failed jobs for run ${RUN_ID}..."
           gh run rerun "${RUN_ID}" --failed --repo "${REPO}"
