@@ -110,7 +110,39 @@ jobs:
           # maintainer-local absolute paths (/home/.../Projects/data/...), so it
           # only runs on a maintainer machine and self-skips in CI by design.
           # The portable heterodyne parity + cross-mode suites run unconditionally.
-        run: uv run pytest -v
+        # -n 2 (not -n auto): GitHub-hosted ubuntu-latest/windows-latest are
+        # 2-core standard runners (macos-latest gets 3-4 -- -n auto would let
+        # it use more workers than the other two, adding cross-OS variance).
+        # A fixed, uniform cap keeps behavior predictable across the matrix.
+        # Was serial (bare `pytest -v`) previously, taking 80-90 min on
+        # ubuntu/py3.14 vs the 23-41 min norm cited above -- every extra
+        # minute is more exposure to GitHub's runner-pool cancellation
+        # window (see the Retry step below), so cutting wall-clock time is a
+        # real mitigation, not just a speedup. The per-fit memory budget
+        # (xpcsjax/optimization/nlsq/memory.py) already reads
+        # PYTEST_XDIST_WORKER_COUNT (set automatically by xdist) and divides
+        # accordingly, so this is a supported execution mode, not new
+        # territory -- `make verify`/`make test-smoke` already run `-n auto`
+        # locally.
+        #
+        # The two --deselect'd nodes below MUST mirror Makefile's HEAVY_NODES
+        # exactly (update both together) -- they are individually slow/flaky
+        # under xdist (shared file with cheap tests, so the whole file can't
+        # be --ignore'd) and are deselected from every LOCAL parallel pass
+        # too, run serially afterward via `make test-heavy-serial`. CI's
+        # previous bare `pytest -v` never hit this because it never used
+        # xdist; naively adding `-n 2` without mirroring the same exclusion
+        # would put these OOM/flake-risky nodes under parallel execution for
+        # the first time. bash's default `-e` (GitHub Actions run steps use
+        # `bash -eo pipefail`) means the second line only runs if the first
+        # succeeds, preserving fail-fast on a real failure.
+        run: |
+          uv run pytest -v -n 2 \
+            --deselect "tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first" \
+            --deselect "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit"
+          uv run pytest -v -p no:xdist \
+            "tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first" \
+            "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit"
       # Retry the entire Test step once if the runner-side cancellation was
       # the cause. CI infra occasionally cancels jobs in-flight with no test
       # failure (e.g. host rebalance, runner-pool churn) — observed on
@@ -126,4 +158,13 @@ jobs:
         env:
           JAX_ENABLE_X64: "1"
           QT_QPA_PLATFORM: offscreen
-        run: uv run pytest -v
+        # Same two-pass split as the Test step above (deselect HEAVY_NODES
+        # from the parallel pass, run them serially after) -- must stay in
+        # sync with it and with Makefile's HEAVY_NODES.
+        run: |
+          uv run pytest -v -n 2 \
+            --deselect "tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first" \
+            --deselect "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit"
+          uv run pytest -v -p no:xdist \
+            "tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first" \
+            "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit"
