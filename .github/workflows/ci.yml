@@ -77,6 +77,12 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.13", "3.14"]
+        # The shard count (4) has no single source of truth -- it must stay
+        # in sync with `--splits 4` in both the Test and Retry steps below,
+        # and with the "/4" in this job's `name:` template above. Changing
+        # one without the others is caught loud, not silent: pytest-split
+        # hard-errors ("argument --group must be >= 1 and <= N", exit 4) on
+        # any mismatch between --group and --splits, verified locally.
         shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
