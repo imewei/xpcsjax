@@ -675,10 +675,24 @@ def _apply_tied_parameters(space: ParameterSpace, config: dict[str, Any]) -> Non
     # _apply_parameter_space_bounds already do -- ALL_PARAM_NAMES uses the
     # internal kernel names, but tied_parameters is a user-facing config
     # surface that legitimately uses the public template names.
-    tied_translated = {
-        _INBOUND_NAME_ALIAS.get(child, child): _INBOUND_NAME_ALIAS.get(parent, parent)
-        for child, parent in tied_raw.items()
-    }
+    #
+    # Built via an explicit loop (not a dict comprehension) so a config that
+    # uses both an alias and its canonical name as separate tied_parameters
+    # keys (e.g. ``beta: v_beta`` and ``v_beta: D0_ref``, both canonicalizing
+    # to child "beta") raises instead of the second entry silently
+    # overwriting the first -- mirrors the alias/canonical collision guard
+    # the grouped-overlay parser already applies above (see "specifies both
+    # an alias and its canonical name" a few hundred lines up).
+    tied_translated: dict[str, str] = {}
+    for child_raw, parent_raw in tied_raw.items():
+        child = _INBOUND_NAME_ALIAS.get(child_raw, child_raw)
+        if child in tied_translated:
+            raise ValueError(
+                "tied_parameters specifies both an alias and its canonical "
+                f"name for '{child}' (keys: {sorted(tied_raw)}); remove the "
+                "duplicate."
+            )
+        tied_translated[child] = _INBOUND_NAME_ALIAS.get(parent_raw, parent_raw)
 
     # Explicit ``active_parameters`` whitelist, translated the same way
     # ``_apply_active_parameters`` (above) resolves it -- used below to scope

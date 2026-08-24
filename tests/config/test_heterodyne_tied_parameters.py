@@ -36,6 +36,18 @@ def test_tied_parameters_self_tie_rejected():
         ParameterSpace.from_config(config)
 
 
+def test_tied_parameters_alias_canonical_collision_rejected():
+    # "beta" and its public alias "v_beta" both canonicalize to the same
+    # internal child name -- using both as separate tied_parameters keys
+    # must be rejected, not silently collapsed to whichever entry the dict
+    # comprehension processed last (three-brain audit finding, 2026-08-24).
+    config = _base_config(
+        initial_parameters={"tied_parameters": {"beta": "v_beta", "v_beta": "D0_ref"}}
+    )
+    with pytest.raises(ValueError, match="alias and its canonical name"):
+        ParameterSpace.from_config(config)
+
+
 def test_tied_parameters_chain_rejected():
     config = _base_config(
         initial_parameters={
