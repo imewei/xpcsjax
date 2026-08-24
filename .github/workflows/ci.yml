@@ -133,9 +133,16 @@ jobs:
         # previous bare `pytest -v` never hit this because it never used
         # xdist; naively adding `-n 2` without mirroring the same exclusion
         # would put these OOM/flake-risky nodes under parallel execution for
-        # the first time. bash's default `-e` (GitHub Actions run steps use
-        # `bash -eo pipefail`) means the second line only runs if the first
-        # succeeds, preserving fail-fast on a real failure.
+        # the first time. Explicit `shell: bash` -- GitHub Actions defaults
+        # windows-latest `run:` steps to pwsh, which parses this step's `\`
+        # line-continuations as literal characters, not continuations
+        # (pwsh uses a backtick), and then chokes on the next line starting
+        # with `--deselect` ("Missing expression after unary operator '--'").
+        # Git for Windows ships bash on windows-latest runners specifically
+        # for this. bash's default `-e` (GitHub Actions bash steps run
+        # `bash -eo pipefail`) means the second command only runs if the
+        # first succeeds, preserving fail-fast on a real failure.
+        shell: bash
         run: |
           uv run pytest -v -n 2 \
             --deselect "tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first" \
@@ -160,7 +167,10 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         # Same two-pass split as the Test step above (deselect HEAVY_NODES
         # from the parallel pass, run them serially after) -- must stay in
-        # sync with it and with Makefile's HEAVY_NODES.
+        # sync with it and with Makefile's HEAVY_NODES. Explicit `shell: bash`
+        # for the same reason as the Test step above (windows-latest
+        # defaults to pwsh, which can't parse this step's `\` continuations).
+        shell: bash
         run: |
           uv run pytest -v -n 2 \
             --deselect "tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first" \
