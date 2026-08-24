@@ -42,22 +42,42 @@ jobs:
       - name: Type check
         run: uv run mypy xpcsjax
 
-  test:
-    name: Test (${{ matrix.os }}, py${{ matrix.python-version }})
+  # Sharded separately from macos/windows below. ubuntu-latest is the ONLY
+  # OS observed hit by GitHub's runner-pool infra kills ("The runner has
+  # received a shutdown signal", exit 143/143-via-cancel) -- verified across
+  # many runs, always ubuntu, always partway through a 40-90 min job, never
+  # macos-latest/windows-latest. Splitting the suite into SHARD_TOTAL pieces
+  # per Python version shrinks each individual job's wall-clock (the actual
+  # exposure window to that infra event), which is the only lever available
+  # from the repo side for an external GitHub-side cancellation (see
+  # ci-retry-on-runner-cancel.yml's header comment for the retry side of
+  # this mitigation). macos/windows never showed the problem and have no
+  # need for the shard overhead, so they stay a single job per Python
+  # version in test-other below.
+  #
+  # ponytail: shards are split by pytest-split's default (test-count-based)
+  # algorithm, not by measured duration -- no `.test_durations` file exists
+  # yet. This is a deliberate simplification: even an unbalanced split
+  # meaningfully shrinks the worst-case single-job wall-clock vs one
+  # unsharded ~40-90 min job, and a naive split is zero extra CI time to
+  # produce. Upgrade to `pytest --store-durations` (committed once, refreshed
+  # periodically) if shard wall-clocks turn out lopsided in practice.
+  test-ubuntu:
+    name: Test (ubuntu-latest, py${{ matrix.python-version }}, shard ${{ matrix.shard }}/4)
     needs: lint
-    runs-on: ${{ matrix.os }}
-    # Per-job hard cap. GitHub-hosted runners default to 360 min; observed
-    # matrix-job durations range 23-41 min on a healthy run, so 120 leaves
-    # headroom for the runner-cancel retry below (~2x worst-case healthy run).
-    # An explicit cap turns any GitHub-side cancellation into a deterministic
-    # timeout instead of an opaque "The operation was canceled." with no test
-    # outcome.
-    timeout-minutes: 120
+    runs-on: ubuntu-latest
+    # Per-job hard cap. Pre-sharding, observed matrix-job durations ranged
+    # 23-90 min; each of the 4 shards here should land well under a quarter
+    # of that, so 60 leaves generous headroom for the runner-cancel retry
+    # below while still turning any GitHub-side cancellation into a
+    # deterministic timeout instead of an opaque "The operation was
+    # canceled." with no test outcome.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.12", "3.13", "3.14"]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
@@ -66,14 +86,11 @@ jobs:
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
         with:
           enable-cache: true
-      - name: Install Qt system libraries (headless PySide6, Linux only)
+      - name: Install Qt system libraries (headless PySide6)
         # PySide6 (pulled in via the pytest-qt plugin) links libEGL/libGL at
         # import time, which the bare ubuntu runner lacks -> pytest aborts with
         # `ImportError: libEGL.so.1`. The minimal runtime set lets Qt run under
-        # the offscreen platform (QT_QPA_PLATFORM below). macOS and Windows
-        # runners ship the system GL stack and the PySide6 wheels bundle Qt, so
-        # no equivalent install is needed there.
-        if: runner.os == 'Linux'
+        # the offscreen platform (QT_QPA_PLATFORM below).
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -110,38 +127,172 @@ jobs:
           # maintainer-local absolute paths (/home/.../Projects/data/...), so it
           # only runs on a maintainer machine and self-skips in CI by design.
           # The portable heterodyne parity + cross-mode suites run unconditionally.
-        # -n 2 (not -n auto): GitHub-hosted ubuntu-latest/windows-latest are
-        # 2-core standard runners (macos-latest gets 3-4 -- -n auto would let
-        # it use more workers than the other two, adding cross-OS variance).
-        # A fixed, uniform cap keeps behavior predictable across the matrix.
-        # Was serial (bare `pytest -v`) previously, taking 80-90 min on
-        # ubuntu/py3.14 vs the 23-41 min norm cited above -- every extra
-        # minute is more exposure to GitHub's runner-pool cancellation
-        # window (see the Retry step below), so cutting wall-clock time is a
-        # real mitigation, not just a speedup. The per-fit memory budget
+        # -n 2 (not -n auto): GitHub-hosted ubuntu-latest is a 2-core
+        # standard runner. The per-fit memory budget
         # (xpcsjax/optimization/nlsq/memory.py) already reads
         # PYTEST_XDIST_WORKER_COUNT (set automatically by xdist) and divides
         # accordingly, so this is a supported execution mode, not new
         # territory -- `make verify`/`make test-smoke` already run `-n auto`
         # locally.
         #
-        # The two --deselect'd nodes below MUST mirror Makefile's HEAVY_NODES
-        # exactly (update both together) -- they are individually slow/flaky
-        # under xdist (shared file with cheap tests, so the whole file can't
-        # be --ignore'd) and are deselected from every LOCAL parallel pass
-        # too, run serially afterward via `make test-heavy-serial`. CI's
-        # previous bare `pytest -v` never hit this because it never used
-        # xdist; naively adding `-n 2` without mirroring the same exclusion
-        # would put these OOM/flake-risky nodes under parallel execution for
-        # the first time. Explicit `shell: bash` -- GitHub Actions defaults
-        # windows-latest `run:` steps to pwsh, which parses this step's `\`
-        # line-continuations as literal characters, not continuations
-        # (pwsh uses a backtick), and then chokes on the next line starting
-        # with `--deselect` ("Missing expression after unary operator '--'").
-        # Git for Windows ships bash on windows-latest runners specifically
-        # for this. bash's default `-e` (GitHub Actions bash steps run
-        # `bash -eo pipefail`) means the second command only runs if the
-        # first succeeds, preserving fail-fast on a real failure.
+        # --splits/--group (pytest-split) partition the collected set into
+        # matrix.shard of 4 pieces; --deselect happens first (same
+        # HEAVY_NODES list as Makefile, see below), so shards are drawn from
+        # the already-deselected set and the heavy-node serial pass isn't
+        # accidentally duplicated across shards -- it runs ONLY on shard 1
+        # (the `if` guard below), same total heavy-node coverage as before,
+        # just not repeated 4x.
+        #
+        # The three --deselect'd nodes below MUST mirror Makefile's
+        # HEAVY_NODES exactly (update both together) -- they are
+        # individually slow/flaky under xdist (shared file with cheap tests,
+        # so the whole file can't be --ignore'd) and are deselected from
+        # every LOCAL parallel pass too, run serially afterward via
+        # `make test-heavy-serial`. Explicit `shell: bash` for consistency
+        # with test-other's windows step (this job is ubuntu-only, so bash
+        # is already the default runner shell, but an explicit shell keeps
+        # both jobs' Test steps visually identical for easier diffing).
+        shell: bash
+        run: |
+          uv run pytest -v -n 2 \
+            --deselect "tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first" \
+            --deselect "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit" \
+            --deselect "tests/optimization/test_fixed_parameters_integration.py::test_fixed_parameter_survives_stratified_ls_fit" \
+            --splits 4 --group ${{ matrix.shard }}
+          if [ "${{ matrix.shard }}" = "1" ]; then
+            uv run pytest -v -p no:xdist \
+              "tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first" \
+              "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit" \
+              "tests/optimization/test_fixed_parameters_integration.py::test_fixed_parameter_survives_stratified_ls_fit"
+          fi
+      # Retry the entire Test step once if the runner-side cancellation was
+      # the cause. CI infra occasionally cancels jobs in-flight with no test
+      # failure (e.g. host rebalance, runner-pool churn) — observed on
+      # commit c8aba82 where 4 of 9 matrix jobs were externally cancelled
+      # mid-test with all assertions passing. Re-running on `cancelled` only
+      # is conservative: real test failures still fail-fast. This (and the
+      # separate ci-retry-on-runner-cancel.yml workflow) now applies to
+      # every matrix cell including 3.14 -- a 3.14 cancellation during Test
+      # is a real infra event, not something the install-time
+      # `continue-on-error` above should absorb.
+      #
+      # `cancelled()` is REQUIRED here, not decorative -- GitHub implicitly
+      # ANDs a bare `if:` with `success()` unless it contains one of
+      # success()/always()/cancelled()/failure() (GitHub Actions expressions
+      # docs, "status check functions"). Without it, this step was
+      # structurally unreachable: the Test step's own conclusion is already
+      # non-success by the time this `if:` is evaluated, so the implicit
+      # success() fails first and `steps.test.conclusion == 'cancelled'`
+      # never gets the chance to matter -- regardless of whether the runner
+      # VM itself survived. Consistent with that: across 60 recent CI runs
+      # in this repo's history, "Retry Test on runner-cancel flake" has a
+      # conclusion other than "skipped" in ZERO of them, despite many
+      # genuine Test-step cancellations (that data alone doesn't prove the
+      # implicit-gate was the sole cause vs. the runner also being dead
+      # every time -- the docs-based reasoning above is what's decisive).
+      # This fixes the in-job path so it can actually fire when the runner
+      # VM survives long enough to run a subsequent step (the case it was
+      # originally written for), which recovers faster than waiting on the
+      # external ci-retry-on-runner-cancel.yml workflow's brand-new runner.
+      - name: Retry Test on runner-cancel flake
+        if: cancelled() && steps.test.conclusion == 'cancelled'
+        env:
+          JAX_ENABLE_X64: "1"
+          QT_QPA_PLATFORM: offscreen
+        # Same shard + heavy-node-on-shard-1-only split as the Test step
+        # above -- must stay in sync with it and with Makefile's HEAVY_NODES.
+        shell: bash
+        run: |
+          uv run pytest -v -n 2 \
+            --deselect "tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first" \
+            --deselect "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit" \
+            --deselect "tests/optimization/test_fixed_parameters_integration.py::test_fixed_parameter_survives_stratified_ls_fit" \
+            --splits 4 --group ${{ matrix.shard }}
+          if [ "${{ matrix.shard }}" = "1" ]; then
+            uv run pytest -v -p no:xdist \
+              "tests/optimization/test_heterodyne_joint_escapes.py::test_individual_cmaes_escape_returns_scaling_first" \
+              "tests/gui/test_worker_handle.py::test_handle_synthesizes_died_on_abnormal_exit" \
+              "tests/optimization/test_fixed_parameters_integration.py::test_fixed_parameter_survives_stratified_ls_fit"
+          fi
+
+  # macos-latest/windows-latest: never observed hit by the runner-shutdown
+  # infra kill (see test-ubuntu's header comment), so no sharding overhead --
+  # one job per Python version, exactly as the matrix behaved before sharding.
+  test-other:
+    name: Test (${{ matrix.os }}, py${{ matrix.python-version }})
+    needs: lint
+    runs-on: ${{ matrix.os }}
+    # Per-job hard cap. GitHub-hosted runners default to 360 min; observed
+    # matrix-job durations range 23-41 min on a healthy run, so 120 leaves
+    # headroom for the runner-cancel retry below (~2x worst-case healthy run).
+    # An explicit cap turns any GitHub-side cancellation into a deterministic
+    # timeout instead of an opaque "The operation was canceled." with no test
+    # outcome.
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
+        with:
+          enable-cache: true
+      - name: Sync deps
+        id: install
+        # py3.14 is informational ONLY here, at install: jax/PySide6 wheels
+        # may not yet exist for a freshly-released interpreter, and a source
+        # build isn't attempted (see below), so `uv sync` can legitimately
+        # fail on 3.14 alone. Scoped to this one step (not the whole job) so
+        # a REAL test failure or runner cancellation later in the job is
+        # never masked by it -- that was the bug in the old job-level
+        # `continue-on-error`, which hid actual CI infra cancellations behind
+        # "informational, don't worry about it" for 3.14 specifically. Drop
+        # this scoping and the 3.14 matrix entry once 3.14 is a supported
+        # target with real wheels.
+        continue-on-error: ${{ matrix.python-version == '3.14' }}
+        run: uv sync --extra dev --python ${{ matrix.python-version }}
+      - name: Test
+        id: test
+        # Skip testing entirely when install failed on 3.14 (missing
+        # wheels) rather than running pytest against a broken/incomplete
+        # venv and turning a clean "wheels not published yet" signal into a
+        # confusing raft of ImportErrors. For 3.12/3.13, install has no
+        # continue-on-error, so a real install failure already halts the
+        # job before this step is reached -- this condition only changes
+        # behavior for 3.14.
+        if: steps.install.outcome == 'success'
+        env:
+          JAX_ENABLE_X64: "1"
+          QT_QPA_PLATFORM: offscreen
+          # NOTE: do NOT set XPCSJAX_RUN_CHARACTERIZATION here. That gate runs a
+          # LIVE fit against the upstream `homodyne` package using datasets at
+          # maintainer-local absolute paths (/home/.../Projects/data/...), so it
+          # only runs on a maintainer machine and self-skips in CI by design.
+          # The portable heterodyne parity + cross-mode suites run unconditionally.
+        # -n 2 (not -n auto): GitHub-hosted windows-latest is a 2-core
+        # standard runner (macos-latest gets 3-4 -- -n auto would let it use
+        # more workers than windows, adding cross-OS variance). A fixed,
+        # uniform cap keeps behavior predictable across the matrix.
+        #
+        # The three --deselect'd nodes below MUST mirror Makefile's
+        # HEAVY_NODES exactly (update both together) -- they are
+        # individually slow/flaky under xdist (shared file with cheap tests,
+        # so the whole file can't be --ignore'd) and are deselected from
+        # every LOCAL parallel pass too, run serially afterward via
+        # `make test-heavy-serial`. Explicit `shell: bash` -- GitHub Actions
+        # defaults windows-latest `run:` steps to pwsh, which parses this
+        # step's `\` line-continuations as literal characters, not
+        # continuations (pwsh uses a backtick), and then chokes on the next
+        # line starting with `--deselect` ("Missing expression after unary
+        # operator '--'"). Git for Windows ships bash on windows-latest
+        # runners specifically for this. bash's default `-e` (GitHub Actions
+        # bash steps run `bash -eo pipefail`) means the second command only
+        # runs if the first succeeds, preserving fail-fast on a real failure.
         shell: bash
         run: |
           uv run pytest -v -n 2 \
@@ -162,8 +313,27 @@ jobs:
       # every matrix cell including 3.14 -- a 3.14 cancellation during Test
       # is a real infra event, not something the install-time
       # `continue-on-error` above should absorb.
+      #
+      # `cancelled()` is REQUIRED here, not decorative -- GitHub implicitly
+      # ANDs a bare `if:` with `success()` unless it contains one of
+      # success()/always()/cancelled()/failure() (GitHub Actions expressions
+      # docs, "status check functions"). Without it, this step was
+      # structurally unreachable: the Test step's own conclusion is already
+      # non-success by the time this `if:` is evaluated, so the implicit
+      # success() fails first and `steps.test.conclusion == 'cancelled'`
+      # never gets the chance to matter -- regardless of whether the runner
+      # VM itself survived. Consistent with that: across 60 recent CI runs
+      # in this repo's history, "Retry Test on runner-cancel flake" has a
+      # conclusion other than "skipped" in ZERO of them, despite many
+      # genuine Test-step cancellations (that data alone doesn't prove the
+      # implicit-gate was the sole cause vs. the runner also being dead
+      # every time -- the docs-based reasoning above is what's decisive).
+      # This fixes the in-job path so it can actually fire when the runner
+      # VM survives long enough to run a subsequent step (the case it was
+      # originally written for), which recovers faster than waiting on the
+      # external ci-retry-on-runner-cancel.yml workflow's brand-new runner.
       - name: Retry Test on runner-cancel flake
-        if: steps.test.conclusion == 'cancelled'
+        if: cancelled() && steps.test.conclusion == 'cancelled'
         env:
           JAX_ENABLE_X64: "1"
           QT_QPA_PLATFORM: offscreen
