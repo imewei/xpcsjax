@@ -1344,7 +1344,7 @@ def test_streaming_l2_real_data_non_psd_hessian_falls_back_to_placeholder(caplog
     host. The deterministic complement that proves the SUCCESS path is
     ``test_streaming_l2_real_hessian_covariance_via_inv_on_success``; the
     deterministic complements that prove each mechanism individually (mocked
-    Hessians, not real physics data, so platform-independent) are
+    Hessians, not real physics data, so results do not vary by host platform) are
     ``test_streaming_l2_singular_hessian_falls_back_to_placeholder`` and
     ``test_streaming_l2_hessian_failure_falls_back_to_placeholder``.
     """
@@ -1528,8 +1528,8 @@ def test_streaming_l2_real_hessian_covariance_via_inv_on_success(monkeypatch, ca
     )
     # The exact-formula check above already proves inv() (not pinv) ran --
     # pinv(4I) == inv(4I) so this would pass either way on VALUES alone, but a
-    # WARNING log is unique to the pinv branch, so its absence is independent
-    # confirmation of which branch actually executed.
+    # WARNING log is unique to the pinv branch, so its absence is separate
+    # corroborating confirmation of which branch actually executed.
     assert not any("Singular Hessian" in r.getMessage() for r in caplog.records), (
         "expected the real np.linalg.inv path, but the pinv fallback fired"
     )
