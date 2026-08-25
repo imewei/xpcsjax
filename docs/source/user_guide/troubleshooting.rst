@@ -154,6 +154,57 @@ Fix
   cannot move the parameters, the data is not sensitive to them — a
   scientifically interesting result on its own.
 
+``fixed_parameters`` / ``active_parameters`` rejected with ``ValueError``
+---------------------------------------------------------------------------
+
+Symptom
+~~~~~~~
+
+.. code-block:: text
+
+   ValueError: fixed_parameters names unrecognized parameter(s) ['D0_typoo']
+   -- not in this mode's physical parameters [...]. Check for a typo.
+
+   ValueError: active_parameters names unrecognized parameter(s) [...]
+   -- not in this mode's physical parameters [...]. Check for a typo.
+
+   ValueError: fixed_parameters names scaling parameter(s) ['contrast'],
+   which is not supported for this analysis mode -- fixed_parameters
+   only constrains physical parameters here.
+
+   ValueError: fixed_parameters/active_parameters leave nothing left to
+   optimize: every physical parameter in [...] is fixed or excluded.
+   Free at least one parameter.
+
+Cause
+~~~~~
+
+``initial_parameters.fixed_parameters`` and
+``initial_parameters.active_parameters`` (see
+:ref:`fixed_active_parameters`) are validated at fit time, not at
+config-load time. Each message above corresponds to a distinct mistake:
+
+* A name in ``fixed_parameters`` or ``active_parameters`` does not match
+  any physical parameter for the configured mode — almost always a typo.
+  Before this validation was added, a typo'd ``active_parameters`` entry
+  silently narrowed (or emptied) the intended free set instead of raising,
+  which produced a confusing "all-zeros"/flat fit (see above) with no
+  error at all.
+* ``fixed_parameters`` names a scaling parameter — this key is
+  physical-parameter-only by design.
+* ``fixed_parameters`` and ``active_parameters`` combine to leave zero
+  free physical parameters.
+
+Fix
+~~~
+
+1. Check the spelling against
+   :meth:`xpcsjax.config.ConfigManager.get_active_parameters` for the
+   configured mode.
+2. To hold contrast/offset at a fixed value, use ``per_angle_scaling``
+   initial values instead of ``fixed_parameters``.
+3. Free at least one physical parameter between the two keys.
+
 ``convergence_status == "max_iter"``
 ------------------------------------
 

@@ -841,6 +841,13 @@ class NLSQWrapper(NLSQAdapterBase):
             Shear-transform configuration (laminar flow).
         per_angle_scaling_initial : dict, optional
             Initial per-angle scaling values keyed by parameter name.
+        resolved_physical : ResolvedPhysicalParameters | None, optional
+            Pre-resolved free/fixed physical-parameter split (see
+            :func:`~xpcsjax.optimization.nlsq.parameter_utils.resolve_optimized_physical_parameters`).
+            Threaded into every dispatched tier (sequential, out-of-core,
+            hybrid-streaming, stratified-LS); fixed positions are restored
+            into the returned ``result.parameters`` at their configured
+            value with a zero covariance row/column. ``None`` is a no-op.
 
         Returns
         -------

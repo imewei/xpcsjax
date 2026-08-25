@@ -236,6 +236,64 @@ block (in ``ParameterSpace.from_config``) reaches parity with the long-standing
 homodyne behaviour exposed through
 :meth:`xpcsjax.config.ConfigManager.get_parameter_bounds`.
 
+.. _fixed_active_parameters:
+
+Freezing and limiting parameters (``fixed_parameters`` / ``active_parameters``)
+---------------------------------------------------------------------------------
+
+``initial_parameters`` accepts two keys that narrow which *physical*
+parameters the optimiser actually varies. Both work identically in
+homodyne and heterodyne configurations, and both are honored on **every**
+NLSQ execution tier — the default in-memory fit, multistart, the CMA-ES
+escape, the sequential tier, the out-of-core tier, hybrid-streaming, and
+stratified-LS:
+
+.. code-block:: yaml
+
+   initial_parameters:
+     values: [1.0e3, 0.0, 0.0, ...]   # still required for every parameter
+     active_parameters: [D0, alpha]   # optional: whitelist which vary
+     fixed_parameters:                # optional: freeze at a constant
+       D_offset: 10.0
+
+``fixed_parameters``
+    A ``{name: value}`` mapping. Each named parameter is held at ``value``
+    for the entire solve — it never enters the optimizer's free vector, so
+    it contributes no degree of freedom.
+
+``active_parameters``
+    An explicit whitelist of parameter names to vary; any physical
+    parameter not listed is excluded from the free set (on top of anything
+    named in ``fixed_parameters``). An explicit ``active_parameters: []``
+    means "vary nothing" — it is not equivalent to omitting the key, which
+    falls back to the mode's full parameter set.
+
+Both keys are **physical-parameter-only** and validated at fit time:
+
+* Naming a scaling parameter (``contrast`` / ``offset``, or a per-angle
+  ``contrast_N`` / ``offset_N``) in ``fixed_parameters`` raises
+  ``ValueError`` — freeze scaling via ``per_angle_scaling`` initial values
+  instead.
+* An unrecognized name in either key (a typo) raises ``ValueError`` rather
+  than silently narrowing the free set to whatever names did match.
+* Leaving zero free physical parameters (``fixed_parameters`` and
+  ``active_parameters`` combined) raises ``ValueError`` — free at least
+  one.
+
+See :doc:`/user_guide/troubleshooting` for the exact error text and how to
+diagnose each case.
+
+A frozen parameter still appears in ``result.parameters`` at its
+configured value, with zero uncertainty and a zero row/column in
+``result.covariance`` — it is not omitted from the result. See
+:doc:`/user_guide/interpreting_results` for the full parameter-ordering
+contract.
+
+For ``two_component``, these two keys compose with :ref:`tied_parameters`
+below: a tied child is subject to the same non-varying treatment as an
+ordinary fixed parameter, and a name listed as both a tied child and in
+``active_parameters`` has the tie win (see the validation rules below).
+
 .. _tied_parameters:
 
 Tying two physics parameters together (``tied_parameters``)

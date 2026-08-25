@@ -1304,6 +1304,15 @@ class NLSQAdapter(NLSQAdapterBase):
             Anti-degeneracy controller (physics-specific). When it exposes
             ``create_nlsq_callbacks()``, the returned callbacks are injected
             into the solve.
+        resolved_physical : ResolvedPhysicalParameters | None, optional
+            Pre-resolved free/fixed physical-parameter split (see
+            :func:`~xpcsjax.optimization.nlsq.parameter_utils.resolve_optimized_physical_parameters`).
+            When ``resolved_physical.free_mask`` is not all-``True``, the
+            optimizer-facing vector/bounds are narrowed to the free physical
+            subset and the returned ``popt``/``pcov`` are restored to full
+            length, with fixed positions pinned at their configured value and
+            a zero covariance row/column. ``None`` is a no-op (every physical
+            parameter is free).
 
         Returns
         -------

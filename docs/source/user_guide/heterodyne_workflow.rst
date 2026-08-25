@@ -84,6 +84,13 @@ and is accessible through
 ``initial_parameters.values`` length from that list rather than
 hard-coding ``14`` or ``16``.
 
+``fixed_parameters`` and ``active_parameters`` (see
+:ref:`fixed_active_parameters`) work the same way here to freeze one of
+the fourteen physics parameters or narrow which of them vary, and are
+honored on every heterodyne execution tier (in-memory joint fit,
+hybrid-streaming, and stratified-LS). They compose with ``tied_parameters``
+below.
+
 Per-angle reparameterisation for multi-angle fits
 -------------------------------------------------
 

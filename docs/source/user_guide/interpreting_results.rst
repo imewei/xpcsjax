@@ -108,6 +108,14 @@ seven entries. For ``two_component`` / ``heterodyne`` it is the
 fourteen physics parameters returned by the registry, with per-angle
 scaling handled separately by the per-angle reparameterisation layer.
 
+If the config used :ref:`fixed_active_parameters` (``fixed_parameters`` /
+``active_parameters``) to freeze one or more physical parameters, those
+entries are **not** dropped from ``result.parameters`` — they stay at
+their configured value, in the same registry-order position, with zero
+``uncertainties`` and a zero row/column in ``result.covariance`` (a frozen
+constant, not an estimation failure). Do not mistake a zero uncertainty
+here for a well-constrained fit.
+
 Reduced chi-squared interpretation
 ----------------------------------
 
@@ -258,6 +266,16 @@ records the ``{child: parent}`` map. The child's entry in ``result.parameters``
 and its uncertainty are copies of the parent's, not independent estimates —
 check this key before treating a tied child's uncertainty as informative on
 its own.
+
+For a heterodyne fit that routes through the hybrid-streaming L2
+(``individual`` / Fourier per-angle-mode) branch, check
+``result.nlsq_diagnostics.get("covariance_is_placeholder")``. When ``True``,
+the Hessian-based covariance computation failed (or was non-PSD) and
+``result.covariance`` / ``result.uncertainties`` were filled with ``NaN``
+rather than a fabricated number — treat the fit's point estimate as usable
+but its uncertainties as unavailable. When ``False`` or absent, the
+covariance is a real Gauss-Newton estimate (:math:`2\sigma^2 H^{-1}`, with a
+pseudo-inverse fallback on a singular Hessian).
 
 Serialisation
 -------------

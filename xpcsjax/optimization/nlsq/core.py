@@ -317,7 +317,11 @@ def fit_nlsq_jax(
     ImportError
         If NLSQ package is not available
     ValueError
-        If data validation fails
+        If data validation fails, or if ``config``'s
+        ``initial_parameters.fixed_parameters`` / ``active_parameters``
+        names an unrecognized or scaling parameter, or leaves zero free
+        physical parameters (see
+        :func:`~xpcsjax.optimization.nlsq.parameter_utils.resolve_optimized_physical_parameters`).
     """
     # Determine which backend to use
     _use_adapter = use_adapter and HAS_NLSQ_ADAPTER
@@ -1834,7 +1838,11 @@ def fit_nlsq_cmaes(
     ImportError
         If CMA-ES is not available (requires NLSQ with evosax).
     ValueError
-        If CMA-ES is not enabled in configuration.
+        If CMA-ES is not enabled in configuration, or if ``config``'s
+        ``initial_parameters.fixed_parameters`` / ``active_parameters``
+        names an unrecognized or scaling parameter, or leaves zero free
+        physical parameters (see
+        :func:`~xpcsjax.optimization.nlsq.parameter_utils.resolve_optimized_physical_parameters`).
 
     Examples
     --------

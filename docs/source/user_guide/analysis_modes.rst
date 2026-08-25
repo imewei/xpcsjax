@@ -179,6 +179,10 @@ The authoritative active-parameter ordering for any given mode is the
 the ``values`` array in ``initial_parameters`` and the bounds map in
 ``parameter_bounds``.
 
+To vary only a subset of a mode's parameters, or freeze one at a constant
+without dropping it from the model, see
+:ref:`fixed_active_parameters` in :doc:`/user_guide/configuration`.
+
 Programmatic mode inspection
 ----------------------------
 

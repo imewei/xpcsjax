@@ -11,6 +11,70 @@ the rendered documentation.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-08-25
+
+### Added
+
+- **`fixed_parameters` / `active_parameters` support across every NLSQ execution
+  tier** (#55, #57, #59). A user can now freeze named physical parameters or
+  restrict the optimized set for `NLSQWrapper.fit()`, `NLSQAdapter.fit()`, the
+  CMA-ES escape, and the sequential, out-of-core, stratified-LS, and
+  hybrid-streaming tiers alike — `resolve_optimized_physical_parameters` computes
+  a single mask-based strip/restore descriptor threaded through all of them, so
+  the free-parameter subset stays consistent regardless of which tier a fit
+  dispatches to. Unknown names in either config key raise `ValueError` instead of
+  silently narrowing or ignoring the request.
+- **`tied_parameters` is now homodyne-invalid, not silently ignored.** Homodyne's
+  `ParameterSpace`/`ParameterManager` have no tie/DOF-reduction mechanism (it is
+  a `two_component`-only feature); configuring `tied_parameters` on
+  `static_anisotropic`/`static_isotropic`/`laminar_flow` now raises `ValueError`
+  at construction instead of silently producing two fully independent free
+  parameters.
+- **Heterodyne hybrid-streaming L2 now reports a real Hessian-based covariance**
+  (`2*sigma^2*H^-1`, pseudo-inverse fallback on a singular Hessian) in place of
+  the previous identity placeholder, mirroring the `laminar_flow` fix. Falls back
+  to identity with `covariance_is_placeholder=True` only when the Hessian itself
+  is non-finite.
+
+### Fixed
+
+- **`tied_parameters` alias/canonical name collisions are now rejected, not
+  silently last-writer-wins**, across six config-load sites: the heterodyne
+  `_apply_tied_parameters`, `_apply_initial_parameters`, `_apply_fixed_parameters`,
+  `_apply_parameter_space_bounds`, and the homodyne `ParameterManager`'s bounds
+  loader (#67). A config that names both a parameter's public alias (e.g.
+  `v_beta`) and its internal canonical name (`beta`) as separate entries — for
+  example `tied_parameters: {beta: v_beta, v_beta: D0_ref}` — previously
+  collapsed to whichever entry a dict comprehension processed last, dropping one
+  tie/bound/fixed-value with no diagnostic; all now raise `ValueError` on
+  collision.
+- **`active_parameters` typos now raise, matching `fixed_parameters`.**
+  `resolve_optimized_physical_parameters` validated `fixed_parameters` names
+  strictly but had no equivalent check for `active_parameters`, so a typo'd name
+  silently narrowed the optimized set instead of erroring.
+- **Heterodyne stratified-LS no longer attempts a doomed OOM allocation before
+  falling back to the Layer-2 escape.** At `per_angle_mode=individual` with
+  enough angles, the unconditional baseline `trf` solve's dense Jacobian sizing
+  didn't account for the per-angle scaling tail, so a fit that was always going
+  to need the hierarchical escape first tried (and failed) a multi-tens-of-GB
+  allocation, wasting time and logging a misleading error. A pre-flight memory
+  estimate now skips straight to the escape when the baseline solve would exceed
+  budget and the escape can pick up from `p0_full` anyway.
+- **Cached `t1`/`t2` arrays are now always recomputed from the current `dt`
+  convention** instead of trusted verbatim from a `.npz` cache. The dt
+  fingerprint check only fired when the cache carried dt metadata, so a
+  cache built by an older xpcsjax version or an external converter (no dt key)
+  passed silently and could desync frame-0 alignment against a cache-free run.
+- **Scalar `per_angle_scaling` contrast/offset values are no longer dropped.**
+  `get_initial_parameters()` only injected list-typed contrast/offset values,
+  so a `two_component` config writing a bare scalar (documented as equivalent to
+  a length-1 list) hit a `KeyError` in simulated-data plot rendering; scalars are
+  now normalized to length-1 lists at both injection sites.
+- **CI stability**: retry workflow hardened against starvation and
+  false-positive cancellations, the runner-cancellation label mismatch (GitHub
+  reports a runner-killed step as `failure`, not `cancelled`) is now handled,
+  and the Ubuntu test matrix is sharded to cut per-shard wall time (#65, #66).
+
 ## [0.1.4] - 2026-08-13
 
 ### Fixed
@@ -469,7 +533,8 @@ results, public API, and config formats are identical to 0.1.0.
 - GPU support. v0.1 sets `NLSQ_SKIP_GPU_CHECK=1` and runs CPU-only;
   GPU paths are planned for v0.2+.
 
-[Unreleased]: https://github.com/imewei/xpcsjax/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/imewei/xpcsjax/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/imewei/xpcsjax/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/imewei/xpcsjax/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/imewei/xpcsjax/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/imewei/xpcsjax/compare/v0.1.1...v0.1.2

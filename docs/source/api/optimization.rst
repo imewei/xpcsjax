@@ -25,6 +25,19 @@ Lower-level fit functions
 
 .. autofunction:: xpcsjax.optimization.nlsq.core.fit_nlsq_cmaes
 
+Fixed and active physical parameters
+-------------------------------------
+
+The free/fixed split for ``initial_parameters.fixed_parameters`` /
+``active_parameters`` (see :ref:`fixed_active_parameters` in
+:doc:`/user_guide/configuration`) is resolved by this function at the entry
+point of every NLSQ execution tier.
+
+.. autofunction:: xpcsjax.optimization.nlsq.parameter_utils.resolve_optimized_physical_parameters
+
+.. autoclass:: xpcsjax.optimization.nlsq.parameter_utils.ResolvedPhysicalParameters
+   :members:
+
 Strategy selection
 ------------------
 

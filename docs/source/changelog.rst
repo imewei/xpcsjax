@@ -8,6 +8,26 @@ current release line.
 Unreleased
 ----------
 
+v0.1.5 — fixed/active/tied parameter hardening and heterodyne covariance fix
+------------------------------------------------------------------------------
+
+*Released 2026-08-25.*
+
+* **``fixed_parameters``/``active_parameters`` now honored across every NLSQ
+  execution tier** — sequential, out-of-core, stratified-LS, hybrid-streaming,
+  and the CMA-ES escape all thread the same mask-based strip/restore
+  descriptor, and unknown names in either key now raise instead of silently
+  narrowing or ignoring the request.
+* **``tied_parameters`` alias/canonical name collisions now raise
+  ``ValueError``** instead of silently last-writer-wins across six config-load
+  sites, and ``tied_parameters`` on a non-``two_component`` mode (which has no
+  tie mechanism) is now rejected instead of silently accepted and ignored.
+* **Heterodyne hybrid-streaming L2 reports a real Hessian-based covariance**
+  in place of the previous identity placeholder.
+* Fixed a stale-cache ``t1``/``t2`` desync risk, a dropped-scalar
+  ``per_angle_scaling`` bug, and a doomed pre-escape OOM allocation attempt on
+  the heterodyne stratified-LS path.
+
 v0.1.4 — NPZ result-file completeness and module-review sweep
 ---------------------------------------------------------------
 
