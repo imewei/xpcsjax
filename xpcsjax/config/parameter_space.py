@@ -150,6 +150,14 @@ class ParameterSpace:
             # Apply name mapping. ``.get(name, name)`` returns the mapped str
             # or falls back to the original ``name`` — never None. Coerce so
             # mypy doesn't lose the str invariant through ``dict[str, str].get``.
+            #
+            # NOTE: an alias/canonical-name collision here (e.g. both
+            # "gamma_dot_0" and "gamma_dot_t0" in the same bounds list) is
+            # already caught upstream by ParameterManager._load_config_bounds
+            # -- ``ParameterManager(config_dict, ...)`` above (this method's
+            # first statement) parses the identical ``parameter_space.bounds``
+            # list and raises before this loop ever runs, so an explicit
+            # duplicate guard here would be unreachable dead code.
             canonical_name: str = str(PARAMETER_NAME_MAPPING.get(param_name, param_name))
             config_bounds_lookup[canonical_name] = bound_entry
 

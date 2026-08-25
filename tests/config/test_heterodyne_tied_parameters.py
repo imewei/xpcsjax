@@ -36,6 +36,50 @@ def test_tied_parameters_self_tie_rejected():
         ParameterSpace.from_config(config)
 
 
+def test_tied_parameters_alias_canonical_collision_rejected():
+    # "beta" and its public alias "v_beta" both canonicalize to the same
+    # internal child name -- using both as separate tied_parameters keys
+    # must be rejected, not silently collapsed to whichever entry the dict
+    # comprehension processed last (three-brain audit finding, 2026-08-24).
+    config = _base_config(
+        initial_parameters={"tied_parameters": {"beta": "v_beta", "v_beta": "D0_ref"}}
+    )
+    with pytest.raises(ValueError, match="alias and its canonical name"):
+        ParameterSpace.from_config(config)
+
+
+def test_tied_parameters_alias_canonical_collision_reverse_order_rejected():
+    # Same collision as above with raw-key insertion order reversed -- the
+    # guard must not depend on which key comes first (review-pr
+    # pr-test-analyzer finding).
+    config = _base_config(
+        initial_parameters={"tied_parameters": {"v_beta": "D0_ref", "beta": "v_beta"}}
+    )
+    with pytest.raises(ValueError, match="alias and its canonical name"):
+        ParameterSpace.from_config(config)
+
+
+def test_tied_parameters_phi0_alias_canonical_collision_rejected():
+    # Same collision class on the OTHER alias pair (phi0_het -> phi0), not
+    # just v_beta/beta -- confirms the guard is generic over
+    # _INBOUND_NAME_ALIAS, not coupled to one specific entry
+    # (review-pr pr-test-analyzer finding).
+    config = _base_config(
+        initial_parameters={"tied_parameters": {"phi0": "phi0_het", "phi0_het": "D0_ref"}}
+    )
+    with pytest.raises(ValueError, match="alias and its canonical name"):
+        ParameterSpace.from_config(config)
+
+
+def test_tied_parameters_lone_alias_key_still_canonicalizes():
+    # The valid, non-colliding case: a single alias used once must still
+    # translate to its canonical name (review-pr pr-test-analyzer finding --
+    # the collision guard must not fire on ordinary alias usage).
+    config = _base_config(initial_parameters={"tied_parameters": {"v_beta": "D0_sample"}})
+    space = ParameterSpace.from_config(config)
+    assert space.tied == {"beta": "D0_sample"}
+
+
 def test_tied_parameters_chain_rejected():
     config = _base_config(
         initial_parameters={

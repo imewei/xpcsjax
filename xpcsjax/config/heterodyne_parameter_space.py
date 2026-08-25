@@ -536,8 +536,17 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
                 len(param_values),
             )
         else:
+            seen_names: set[str] = set()
             for name, value in zip(param_names, param_values, strict=True):
                 if name in space.values:
+                    if name in seen_names:
+                        raise ValueError(
+                            "initial_parameters: 'parameter_names'/'values' specifies "
+                            f"both an alias and its canonical name for {name!r} (or "
+                            f"lists it twice) (keys: {sorted(param_names)}); remove "
+                            "the duplicate."
+                        )
+                    seen_names.add(name)
                     space.values[name] = coerce_finite_float(
                         value, context=f"initial_parameters.values[{name!r}]"
                     )
@@ -590,12 +599,19 @@ def _apply_fixed_parameters(space: ParameterSpace, config: dict[str, Any]) -> No
     if fixed_raw is None or not isinstance(fixed_raw, dict):
         return
 
+    seen_canonical: set[str] = set()
     for name, value in fixed_raw.items():
         mapped = PARAMETER_NAME_MAPPING.get(str(name), str(name))
         canonical = _INBOUND_NAME_ALIAS.get(mapped, mapped)
         if canonical not in space.values:
             logger.warning("fixed_parameters: unknown parameter '%s', skipping", name)
             continue
+        if canonical in seen_canonical:
+            raise ValueError(
+                "fixed_parameters specifies both an alias and its canonical name "
+                f"for {canonical!r} (keys: {sorted(fixed_raw)}); remove the duplicate."
+            )
+        seen_canonical.add(canonical)
         space.values[canonical] = coerce_finite_float(
             value, context=f"initial_parameters.fixed_parameters[{canonical!r}]"
         )
@@ -634,10 +650,11 @@ def _apply_tied_parameters(space: ParameterSpace, config: dict[str, Any]) -> Non
     Raises
     ------
     ValueError
-        If ``tied_parameters`` is not a mapping, if a child/parent name is
-        not a known physics parameter, if a tie is self-referential, if a
-        tie chains (a parent is itself a tied child), or if a parent is not
-        currently varying.
+        If ``tied_parameters`` is not a mapping, if two keys canonicalize to
+        the same child (an alias and its canonical name both used), if a
+        child/parent name is not a known physics parameter, if a tie is
+        self-referential, if a tie chains (a parent is itself a tied child),
+        or if a parent is not currently varying.
     """
     initial = config.get("initial_parameters", {})
     if not initial or not isinstance(initial, dict):
@@ -675,10 +692,27 @@ def _apply_tied_parameters(space: ParameterSpace, config: dict[str, Any]) -> Non
     # _apply_parameter_space_bounds already do -- ALL_PARAM_NAMES uses the
     # internal kernel names, but tied_parameters is a user-facing config
     # surface that legitimately uses the public template names.
-    tied_translated = {
-        _INBOUND_NAME_ALIAS.get(child, child): _INBOUND_NAME_ALIAS.get(parent, parent)
-        for child, parent in tied_raw.items()
-    }
+    #
+    # Built via an explicit loop (not a dict comprehension) so a config that
+    # uses both an alias and its canonical name as separate tied_parameters
+    # keys (e.g. ``beta: v_beta`` and ``v_beta: D0_ref``, both canonicalizing
+    # to child "beta") raises instead of the second entry silently
+    # overwriting the first -- mirrors the alias/canonical collision guard
+    # the grouped-overlay parser already applies above (see "specifies both
+    # an alias and its canonical name" a few hundred lines up).
+    tied_translated: dict[str, str] = {}
+    for child_raw, parent_raw in tied_raw.items():
+        # The type-validation loop above already guarantees both are str;
+        # mypy can't carry that narrowing across a separate loop, so assert.
+        assert isinstance(child_raw, str) and isinstance(parent_raw, str)
+        child = _INBOUND_NAME_ALIAS.get(child_raw, child_raw)
+        if child in tied_translated:
+            raise ValueError(
+                "tied_parameters specifies both an alias and its canonical "
+                f"name for '{child}' (keys: {sorted(tied_raw)}); remove the "
+                "duplicate."
+            )
+        tied_translated[child] = _INBOUND_NAME_ALIAS.get(parent_raw, parent_raw)
 
     # Explicit ``active_parameters`` whitelist, translated the same way
     # ``_apply_active_parameters`` (above) resolves it -- used below to scope
@@ -846,6 +880,7 @@ def _apply_parameter_space_bounds(space: ParameterSpace, config: dict[str, Any])
         logger.warning("parameter_space.bounds must be a list; ignoring")
         return
 
+    seen_names: set[str] = set()
     for entry in config_bounds:
         if not isinstance(entry, dict):
             continue
@@ -860,6 +895,13 @@ def _apply_parameter_space_bounds(space: ParameterSpace, config: dict[str, Any])
         if name not in space.bounds:
             logger.warning("parameter_space.bounds: unknown parameter '%s', skipping", raw_name)
             continue
+        if name in seen_names:
+            raise ValueError(
+                "parameter_space.bounds specifies both an alias and its canonical "
+                f"name for {name!r} (raw name {raw_name!r} collides with an earlier "
+                "entry); remove the duplicate."
+            )
+        seen_names.add(name)
         if "min" in entry and "max" in entry:
             lo = coerce_finite_float(
                 entry["min"], context=f"parameter_space.bounds[{raw_name!r}].min"

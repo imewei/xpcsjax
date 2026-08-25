@@ -14,6 +14,7 @@ kernel names (``beta``, ``phi0``) so the overrides land on the right entry.
 """
 
 import numpy as np
+import pytest
 
 from xpcsjax.config.heterodyne_parameter_space import (
     ALL_PARAM_NAMES_WITH_SCALING,
@@ -85,3 +86,35 @@ def test_parameter_space_bounds_unknown_name_is_skipped():
     }
     space = ParameterSpace.from_config(config)
     assert _resolved_bounds(space, "v0") == (10.0, 5000.0)
+
+
+def test_parameter_space_bounds_alias_canonical_collision_rejected():
+    """``v_beta`` and its canonical name ``beta`` both listed in
+    parameter_space.bounds must be rejected, not silently overwrite each
+    other's [min, max] with no diagnostic (review-pr silent-failure-hunter
+    finding, same bug class as the tied_parameters alias-collision fix)."""
+    config = {
+        "parameter_space": {
+            "bounds": [
+                {"name": "v_beta", "min": -2.0, "max": 2.0},
+                {"name": "beta", "min": 0.0, "max": 2.0},
+            ],
+        },
+    }
+    with pytest.raises(ValueError, match="alias and its canonical name"):
+        ParameterSpace.from_config(config)
+
+
+def test_initial_parameters_flat_values_alias_canonical_collision_rejected():
+    """``initial_parameters.parameter_names``/``values`` listing both
+    ``v_beta`` and ``beta`` must be rejected, not silently keep whichever
+    value was processed last (review-pr silent-failure-hunter finding)."""
+    config = {
+        "analysis_mode": "two_component",
+        "initial_parameters": {
+            "parameter_names": ["v_beta", "beta"],
+            "values": [-0.5, 1.0],
+        },
+    }
+    with pytest.raises(ValueError, match="alias and its canonical name"):
+        ParameterSpace.from_config(config)

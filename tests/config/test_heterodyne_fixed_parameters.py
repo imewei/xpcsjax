@@ -111,3 +111,14 @@ def test_active_parameters_empty_list_also_raises():
     config = {"analysis_mode": "two_component", "initial_parameters": {"active_parameters": []}}
     with pytest.raises(ValueError, match="[Nn]othing left to optimize|no varying"):
         ParameterManager.from_config(config)
+
+
+def test_fixed_parameters_alias_canonical_collision_rejected():
+    # "beta" and its public alias "v_beta" both canonicalize to the same
+    # internal name -- using both as separate fixed_parameters keys must be
+    # rejected, not silently collapsed to whichever entry is processed last
+    # (review-pr silent-failure-hunter finding, same bug class as the
+    # tied_parameters fix this file's sibling test module covers).
+    config = _config(fixed_parameters={"beta": 0.5, "v_beta": 0.9})
+    with pytest.raises(ValueError, match="alias and its canonical name"):
+        ParameterManager.from_config(config)

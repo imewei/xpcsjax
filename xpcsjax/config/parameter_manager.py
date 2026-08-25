@@ -183,6 +183,7 @@ class ParameterManager:
             return
 
         # Merge config bounds with defaults
+        seen_names: set[str] = set()
         for bound_dict in config_bounds:
             if not isinstance(bound_dict, dict):
                 continue
@@ -201,6 +202,14 @@ class ParameterManager:
             # mapping; narrow back to str so the BoundDict indexing below
             # type-checks cleanly.
             param_name: str = self._param_name_mapping.get(raw_name, raw_name)
+
+            if param_name in seen_names:
+                raise ValueError(
+                    "parameter_space.bounds specifies both an alias and its "
+                    f"canonical name for {param_name!r} (raw name {raw_name!r} "
+                    "collides with an earlier entry); remove the duplicate."
+                )
+            seen_names.add(param_name)
 
             # Convert min/max to floats (handles YAML string parsing like
             # "1e5"). A null bound ("min:" left blank in YAML) is treated as
