@@ -126,27 +126,7 @@ def _config(
     return config
 
 
-@pytest.mark.parametrize(
-    "use_adapter",
-    [
-        False,
-        pytest.param(
-            True,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "NLSQAdapter cannot complete a real solve via fit_nlsq_jax: "
-                    "_normalize_data_to_object collapses 2D t1/t2 to length-n_t while "
-                    "_flatten_xpcs_data needs angle-tiled flat arrays, and nlsq.curve_fit "
-                    "rejects the resulting 3-column xdata even with adapter-native flat "
-                    "data. Both reproduce with resolved_physical=None -- pre-existing, "
-                    "unrelated to fixed_parameters. Task 4's adapter.py wiring is "
-                    "therefore unreachable through this entry point (verified live)."
-                ),
-            ),
-        ),
-    ],
-)
+@pytest.mark.parametrize("use_adapter", [False, True])
 @pytest.mark.parametrize(
     "analysis_mode", ["static_isotropic", "static_anisotropic", "laminar_flow"]
 )

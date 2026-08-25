@@ -1119,14 +1119,30 @@ class NLSQAdapter(NLSQAdapterBase):
             # column when len(phi) > n_phi and raised a column-stack ValueError;
             # duplicate angles instead collapse to a shared unique index below.
             n_angles = len(phi)
-            if len(t1) % n_angles != 0:
+            n_points = len(g2)
+            if len(t1) % n_angles == 0:
+                n_time_per_angle = len(t1) // n_angles
+                phi_broadcast = np.repeat(np.asarray(phi), n_time_per_angle)
+            elif len(t1) == len(t2) and n_points == n_angles * len(t1) * len(t2):
+                # t1/t2 are the shared marginal time vectors of a SINGLE
+                # (n_t1, n_t2) meshgrid reused across every angle -- the raw
+                # loader/CLI data shape after `_normalize_data_to_object`
+                # collapses a 2D t1/t2 meshgrid to these 1D marginals. Neither
+                # is angle-tiled yet, so the len(t1) % n_angles rectangular
+                # check above can't apply to them. Reconstruct the full grid
+                # and tile it once per angle block; phi repeats per point
+                # within a block, matching g2's angle-major ravel order.
+                t1_grid, t2_grid = np.meshgrid(t1, t2, indexing="ij")
+                block_size = t1_grid.size
+                t1 = np.tile(t1_grid.ravel(), n_angles)
+                t2 = np.tile(t2_grid.ravel(), n_angles)
+                phi_broadcast = np.repeat(np.asarray(phi), block_size)
+            else:
                 raise ValueError(
                     f"Cannot broadcast {n_angles} phi angles over {len(t1)} flattened "
                     "time points: not an integer number of points per angle. "
                     "Expected an angle-major rectangular layout."
                 )
-            n_time_per_angle = len(t1) // n_angles
-            phi_broadcast = np.repeat(np.asarray(phi), n_time_per_angle)
         else:
             phi_broadcast = phi
 
@@ -1380,6 +1396,13 @@ class NLSQAdapter(NLSQAdapterBase):
                     strip_by_mask(np.asarray(initial_params)[-n_physical:], _phys_free_mask),
                 ]
             )
+            # `n_params` (computed above from the pre-narrowing initial_params)
+            # must track this reassignment too -- the except block below pairs
+            # `parameters=initial_params` (narrowed) with
+            # `uncertainties=np.zeros(n_params)` (would otherwise stay at the
+            # stale full-length count), which OptimizationResult's
+            # length-consistency check rejects.
+            n_params = len(initial_params)
             bounds = (
                 np.concatenate(
                     [
@@ -1448,11 +1471,36 @@ class NLSQAdapter(NLSQAdapterBase):
                     fit_kwargs.update(callbacks)
                     logger.debug("Injected anti-degeneracy callbacks: %s", list(callbacks.keys()))
 
-        # Run optimization via CurveFit
+        # Run optimization via CurveFit.
+        # nlsq's own input validators disagree on 2-D xdata orientation: the
+        # stability validator (`enable_stability=True`, on by default here)
+        # wants shape (M_points, k_predictors), while `_validate_data_lengths`
+        # a few steps later wants (k_predictors, M_points) -- no single 2-D
+        # ndarray satisfies both. A tuple of 1-D column arrays sidesteps this:
+        # `_validate_and_convert_arrays`'s tuple branch checks each array's
+        # length directly (satisfying the stability validator), and
+        # `_convert_and_validate_arrays` converts a tuple via
+        # ``np.asarray(tuple_of_1D_arrays)`` -- which stacks rows, landing on
+        # exactly the (k, M) shape `_validate_data_lengths` wants. By the time
+        # the model callback below runs -- inside a JIT trace, so `xd` is a
+        # JAX tracer, not a concrete array; ``np.asarray()`` would force a
+        # ``TracerArrayConversionError`` -- nlsq has that (k, M) array;
+        # ``.T`` (supported natively by both plain ndarrays and JAX tracers)
+        # transposes it back to the (M, k) layout `_flatten_xpcs_data`/
+        # `_build_model_function` use everywhere else in this adapter.
+        _curve_fit_xdata = xdata
+        _curve_fit_model_func = model_func
+        if xdata.ndim == 2:
+            _curve_fit_xdata = tuple(xdata.T)
+            _inner_model_func = model_func
+
+            def _curve_fit_model_func(xd: np.ndarray, *params: float) -> np.ndarray:
+                return _inner_model_func(xd.T, *params)
+
         try:
             result = self._fitter.curve_fit(
-                f=model_func,
-                xdata=xdata,
+                f=_curve_fit_model_func,
+                xdata=_curve_fit_xdata,
                 ydata=ydata,
                 **fit_kwargs,
             )
