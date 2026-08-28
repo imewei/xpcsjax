@@ -818,7 +818,18 @@ def _fit_nlsq_heterodyne(
     # default auto budget would silently return the plain engine solve and drop
     # the escape. See the engine-route gate below.
     multistart_on = bool(getattr(nlsq_cfg, "multistart", False))
-    if isinstance(ms_dict, dict) and ms_dict.get("enable", False) and not cmaes_on:
+    # ``not multistart_on`` mirrors the hybrid_streaming/stratified-LS/engine-route
+    # gates below: without it, a config that sets BOTH the nested
+    # ``multi_start.enable`` and the flat ``multistart`` scalar would run the
+    # outer (n_starts+1)-candidate driver with EACH candidate re-running its own
+    # flat-multistart escape inside fit_nlsq_multi_phi — an ~N*M blowup instead
+    # of the intended single escape.
+    if (
+        isinstance(ms_dict, dict)
+        and ms_dict.get("enable", False)
+        and not cmaes_on
+        and not multistart_on
+    ):
         from xpcsjax.optimization.nlsq.heterodyne_logging import (
             log_strategy_selection as _log_strategy,
         )

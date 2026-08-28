@@ -2688,7 +2688,15 @@ class NLSQWrapper(NLSQAdapterBase):
         reported_iterations = -1
         if isinstance(info, dict):
             reported_iterations = info.get("nit", info.get("nfev", -1))
-        iterations = max(0, corrected_nfev)
+        # OptimizationResult.iterations is documented as the optimizer
+        # iteration count (nit), NOT nfev -- result_builder.py's convention,
+        # which names wrapper.py as a caller that must follow it (nfev >> nit
+        # for a trust-region solve). Prefer nit-first `reported_iterations`;
+        # only fall back to the nfev-derived `corrected_nfev` when NLSQ's
+        # `info` dict didn't report nit/nfev at all.
+        iterations = (
+            max(0, reported_iterations) if reported_iterations != -1 else max(0, corrected_nfev)
+        )
 
         if reported_iterations == -1:
             logger.debug(
@@ -3342,6 +3350,17 @@ class NLSQWrapper(NLSQAdapterBase):
                 self.sigma = original_data.sigma  # Uncertainty/error bars (CRITICAL)
                 self.q = original_data.q  # Wavevector magnitude (CRITICAL)
                 self.L = original_data.L  # Sample-detector distance (CRITICAL)
+
+                # Raw (loader-order, NOT sorted) per-angle phi array — sigma's
+                # axis-0 order follows THIS order, not the sorted-unique `self.phi`
+                # above. Consumers that gather sigma by a sorted-phi-derived index
+                # (e.g. hybrid_streaming.py's _bin_to_grid against a sorted
+                # phi_unique) need this to build a sorted-index -> raw-row mapping;
+                # without it they'd silently misassign sigma to the wrong angle
+                # whenever the raw phi order isn't already ascending.
+                self.phi_raw = (
+                    np.asarray(original_data.phi) if hasattr(original_data, "phi") else None
+                )
 
                 # Copy optional dt if present (time step)
                 if hasattr(original_data, "dt"):

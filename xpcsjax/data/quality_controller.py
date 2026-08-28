@@ -53,6 +53,12 @@ except ImportError:
     jnp = np  # type: ignore[misc]
     HAS_JAX = False
 
+
+def _is_jax_array(arr: Any) -> bool:
+    """Return True only for actual JAX arrays (mirrors xpcs_loader.py)."""
+    return HAS_JAX and isinstance(arr, jnp.ndarray)
+
+
 # V2 system integration
 try:
     from xpcsjax.utils.logging import get_logger, log_performance
@@ -883,6 +889,20 @@ class DataQualityController:
             if hasattr(value, "shape") or isinstance(value, (list, tuple, np.ndarray)):
                 try:
                     arr = np.asarray(value)
+                    if key == "wavevector_q_list":
+                        # NaN here is legitimate bad-pixel masking (one entry per
+                        # (q, phi) pair) — mirrors xpcs_loader.py's carve-out.
+                        # Still hard-flag inf: that indicates real corruption.
+                        if arr.size and np.isinf(arr).any():
+                            result.issues.append(
+                                ValidationIssue(
+                                    severity="error",
+                                    category="data_quality",
+                                    message="wavevector_q_list contains inf values",
+                                    recommendation="Check data preprocessing and source quality",
+                                ),
+                            )
+                        continue
                     finite_fraction = np.sum(np.isfinite(arr)) / arr.size if arr.size > 0 else 0.0
                     result.metrics.finite_fraction = max(
                         result.metrics.finite_fraction,
@@ -1392,8 +1412,15 @@ class DataQualityController:
         data_modified = False
 
         for key, value in data.items():
+            if key == "wavevector_q_list":
+                # NaN here is legitimate bad-pixel masking (one entry per
+                # (q, phi) pair); fabricating a median would assign a fake q
+                # to an intentionally-excluded pixel. inf is still repaired
+                # by _repair_infinite_values.
+                continue
             if hasattr(value, "shape") or isinstance(value, (list, tuple, np.ndarray)):
                 try:
+                    is_jax_input = _is_jax_array(value)
                     arr = np.asarray(value)
                     nan_mask = ~np.isfinite(arr)
                     # Track repair per key — a cumulative flag would falsely
@@ -1420,14 +1447,14 @@ class DataQualityController:
                             # array creates a detached copy, so the loop above mutated
                             # `arr` only — we must propagate it back to `data`.
                             if key_modified:
-                                data[key] = arr
+                                data[key] = jnp.asarray(arr) if is_jax_input else arr
                         else:
                             # For other arrays, use median replacement
                             finite_values = arr[np.isfinite(arr)]
                             if len(finite_values) > 0:
                                 replacement_value = np.median(finite_values)
                                 arr[nan_mask] = replacement_value
-                                data[key] = arr
+                                data[key] = jnp.asarray(arr) if is_jax_input else arr
                                 key_modified = True
 
                         if key_modified:
@@ -1462,6 +1489,7 @@ class DataQualityController:
         for key, value in data.items():
             if hasattr(value, "shape") or isinstance(value, (list, tuple, np.ndarray)):
                 try:
+                    is_jax_input = _is_jax_array(value)
                     arr = np.asarray(value)
                     inf_mask = np.isinf(arr)
 
@@ -1477,7 +1505,7 @@ class DataQualityController:
                             if np.any(neg_inf_mask):
                                 arr[neg_inf_mask] = np.min(finite_values)
 
-                            data[key] = arr
+                            data[key] = jnp.asarray(arr) if is_jax_input else arr
                             data_modified = True
                             repairs_applied.append(f"Repaired infinite values in {key}")
                 except (AttributeError, TypeError, IndexError, ValueError) as e:

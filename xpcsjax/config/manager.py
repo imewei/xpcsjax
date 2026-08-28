@@ -524,6 +524,14 @@ class ConfigManager:
         # Set the value
         config_ref[keys[-1]] = value
 
+        # A top-level analysis_mode write bypasses the normalization every
+        # other entry point (construction, apply_cli_overrides) runs — without
+        # this, self.analysis_mode (strict AnalysisMode(value)) and
+        # _get_parameter_manager()'s hand-rolled synonym matching can disagree
+        # on the same unnormalized string (e.g. "HETERODYNE").
+        if keys == ["analysis_mode"]:
+            self._normalize_schema()
+
         # Invalidate cached ParameterManager — config mutations may change
         # analysis_mode, parameter_space.bounds, or active_parameters.
         self._cached_param_manager = None

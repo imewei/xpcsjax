@@ -568,6 +568,15 @@ class ParameterManager:
                     if name not in SCALING_PARAM_NAMES
                     and self._extract_base_param_name(name) is None
                 ]
+                # NOTE: unlike the parameter_names fallback branch below, a
+                # stale-mode/typo'd name here is deliberately NOT silently
+                # corrected to mode defaults. PR #63's
+                # test_cmaes_typo_active_parameters_propagates_not_silently_failed
+                # pins the contract that an active_parameters typo must
+                # propagate as a loud ValueError (from
+                # resolve_optimized_physical_parameters's unknown_active
+                # check downstream), not be swallowed here — a config typo is
+                # different from a genuinely stale analysis_mode.
             else:
                 # Fall back to parameter_names from initial_parameters
                 param_names = initial_params.get("parameter_names")

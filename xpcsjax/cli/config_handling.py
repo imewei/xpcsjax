@@ -290,6 +290,29 @@ def _apply_parameter_overrides(
         )
         return
 
+    # get_initial_parameters() only back-fills registry midpoint defaults when
+    # config["initial_parameters"]["values"] is entirely null; a partial,
+    # explicit values list returns just that subset. Without back-filling
+    # here, any active_names entry missing from `current` would silently drop
+    # out of the rewritten initial_parameters block below instead of getting
+    # a midpoint default -- losing previously-present parameters with no log.
+    missing = [name for name in active_names if name not in current]
+    if missing:
+        try:
+            midpoints = config_manager._calculate_midpoint_defaults()  # noqa: SLF001
+        except Exception:
+            midpoints = {}
+        for name in missing:
+            if name in midpoints:
+                current[name] = midpoints[name]
+        still_missing = [name for name in missing if name not in current]
+        if still_missing:
+            logger.warning(
+                "initial_parameters.values is missing %s with no registry default "
+                "available; these will be dropped from the rewritten config",
+                still_missing,
+            )
+
     applied: dict[str, float] = {}
     for name, val in overrides.items():
         if name in active_names:

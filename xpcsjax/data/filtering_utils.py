@@ -526,6 +526,33 @@ class XPCSDataFilter:
         if not filter_masks:
             return np.array([])
 
+        # Guard the invariant the &=/|= combination below assumes silently:
+        # a length mismatch (e.g. a quality mask sized to len(correlation_matrices)
+        # combined with a q/phi mask sized to len(dqlist)/len(dphilist)) would
+        # otherwise raise a bare numpy ValueError indistinguishable from the
+        # intentional stride-guard ValueError at the call site, bypassing this
+        # class's advertised fallback_on_empty graceful-degradation contract.
+        # Drop the mismatched mask (with a warning) instead of crashing past it.
+        names = list(filter_masks.keys())
+        lengths = [len(m) for m in filter_masks.values()]
+        # sorted() before max() breaks a count tie deterministically (smallest
+        # length wins) instead of relying on set iteration order.
+        reference_len = max(sorted(set(lengths)), key=lengths.count)
+        filter_masks = {
+            name: mask for name, mask in filter_masks.items() if len(mask) == reference_len
+        }
+        for name, length in zip(names, lengths, strict=True):
+            if length != reference_len:
+                logger.warning(
+                    "Dropping filter mask %r (length %d != expected %d); "
+                    "check upstream array-length consistency",
+                    name,
+                    length,
+                    reference_len,
+                )
+        if not filter_masks:
+            return np.array([])
+
         masks = list(filter_masks.values())
 
         if self.combine_criteria == FilterCriteria.AND:

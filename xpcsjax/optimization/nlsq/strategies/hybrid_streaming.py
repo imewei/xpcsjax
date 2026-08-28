@@ -849,13 +849,17 @@ def fit_with_stratified_hybrid_streaming(
         # Bridge the controller's resolved flags to the canonical mode string.
         from xpcsjax.optimization.nlsq.parameter_index_mapper import ParameterIndexMapper
 
-        _canonical = (
-            "constant"
-            if use_fixed_scaling
-            else "averaged"
-            if use_averaged_scaling
-            else "individual"
-        )
+        # Derive from per_angle_mode_actual directly (it is always one of
+        # "constant"/"averaged"/"individual" per use_constant's definition
+        # above), NOT from the use_fixed_scaling/use_averaged_scaling success
+        # flags: a quantile-estimation failure in "constant" mode leaves
+        # use_fixed_scaling=False while use_constant/per_angle_mode_actual
+        # stay "constant" (see the `elif use_constant:` param-vector branch
+        # below, added specifically for this fallback state) — the old
+        # two-way ternary fell through to "individual" for that state,
+        # mis-sizing L3's group indices against the real 2-element scaling
+        # head.
+        _canonical = per_angle_mode_actual
         _mapper = ParameterIndexMapper.canonical(mode=_canonical, n_phi=n_phi, n_physics=n_physical)
         mode_group_indices = _mapper.group_indices or None  # [] (constant) -> None
         logger.debug(f"L3 group indices from mapper ({_canonical}): {_mapper.group_indices}")
@@ -894,13 +898,11 @@ def fit_with_stratified_hybrid_streaming(
         # L3 was skipped (regularization disabled) — it is a cheap pure dataclass.
         from xpcsjax.optimization.nlsq.parameter_index_mapper import ParameterIndexMapper
 
-        _canonical_l4 = (
-            "constant"
-            if use_fixed_scaling
-            else "averaged"
-            if use_averaged_scaling
-            else "individual"
-        )
+        # Same fix as _canonical above: derive from per_angle_mode_actual
+        # directly, not from the use_fixed_scaling/use_averaged_scaling
+        # success flags (which can disagree with per_angle_mode_actual on a
+        # constant-mode quantile-estimation failure).
+        _canonical_l4 = per_angle_mode_actual
         n_per_angle = ParameterIndexMapper.canonical(
             mode=_canonical_l4, n_phi=n_phi, n_physics=n_physical
         ).n_optimized  # 0 (constant) | 2 (averaged) | 2*n_phi (individual)
@@ -1354,11 +1356,16 @@ def fit_with_stratified_hybrid_streaming(
         """
         raw = np.searchsorted(grid, values)
         n_oob = int(np.sum(raw >= len(grid)))
-        if n_oob > 0:
+        # Below-grid points snap to bin 0 just like a legitimate grid[0] value,
+        # so raw alone cannot surface them — count them explicitly (mirrors
+        # the heterodyne twin in heterodyne_hybrid_streaming.py).
+        n_low = int(np.sum(np.asarray(values) < grid[0]))
+        if n_oob > 0 or n_low > 0:
             logger.warning(
-                "%d data point(s) lie beyond the %s grid; clipped to the boundary "
-                "bin. Check data/config grid alignment.",
+                "%d data point(s) lie above and %d below the %s grid; clipped to "
+                "the boundary bin. Check data/config grid alignment.",
                 n_oob,
+                n_low,
                 axis_name,
             )
         return np.clip(raw, 0, len(grid) - 1)
@@ -1417,7 +1424,31 @@ def fit_with_stratified_hybrid_streaming(
     sigma: np.ndarray | None = None
     if getattr(stratified_data, "sigma", None) is not None:
         sigma_3d = np.asarray(stratified_data.sigma, dtype=np.float64)
-        sigma_sel = sigma_3d[phi_idx_arr, t1_idx_arr, t2_idx_arr]
+        # sigma_3d's axis-0 follows the RAW (loader-order) phi array, not the
+        # sorted phi_unique that phi_idx_arr indexes into (built via
+        # _bin_to_grid against phi_unique above). Reconcile the two orderings
+        # via stratified_data.phi_raw before gathering, or a data set whose
+        # phi angles aren't already ascending would silently misassign sigma
+        # to the wrong angle.
+        phi_raw = getattr(stratified_data, "phi_raw", None)
+        if phi_raw is not None and len(phi_raw) == sigma_3d.shape[0]:
+            phi_raw = np.asarray(phi_raw, dtype=np.float64)
+            value_to_row = {float(v): i for i, v in enumerate(phi_raw)}
+            try:
+                sorted_to_raw_row = np.array(
+                    [value_to_row[float(v)] for v in phi_unique], dtype=np.int64
+                )
+            except KeyError:
+                logger.warning(
+                    "Could not map sorted phi_unique values onto stratified_data."
+                    "phi_raw (raw loader order); falling back to identity indexing "
+                    "of sigma, which is only correct if phi was already ascending."
+                )
+                sorted_to_raw_row = np.arange(sigma_3d.shape[0])
+        else:
+            sorted_to_raw_row = np.arange(sigma_3d.shape[0])
+        sigma_row_idx_arr = sorted_to_raw_row[phi_idx_arr]
+        sigma_sel = sigma_3d[sigma_row_idx_arr, t1_idx_arr, t2_idx_arr]
         sigma = sigma_sel[non_diagonal_mask]
 
     prep_time = time.perf_counter() - prep_start

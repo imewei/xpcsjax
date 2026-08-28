@@ -197,9 +197,12 @@ class BenchmarkingMixin:
 
         logger.info("Benchmarking gradient computation performance...")
 
-        # Test parameters for performance evaluation
+        # Test parameters for performance evaluation. compute_g2's matrix-mode
+        # kernels assume t1 == t2 (see jax_backend.py docstring) and silently
+        # ignore t2 — a distinct t2 here would benchmark a no-op lag with no
+        # error, so keep them identical.
         test_t1 = jnp.array([0.0, 0.1, 0.2])
-        test_t2 = jnp.array([1.0, 1.1, 1.2])
+        test_t2 = test_t1
         test_phi = jnp.array([0.0, 45.0, 90.0])
         test_q = 0.01
         test_L = 1e6  # 1 mm in Angstroms, center of valid range [1e5, 1e8]
@@ -319,9 +322,10 @@ class BenchmarkingMixin:
 
         logger.info("Validating gradient accuracy...")
 
-        # Simple test case for validation
+        # Simple test case for validation. See benchmark_gradient_performance:
+        # matrix-mode kernels assume t1 == t2 and silently ignore t2.
         test_t1 = jnp.array([0.0])
-        test_t2 = jnp.array([1.0])
+        test_t2 = test_t1
         test_phi = jnp.array([0.0])
         test_q = 0.01
         test_L = 1e6  # 1 mm in Angstroms, center of valid range [1e5, 1e8]

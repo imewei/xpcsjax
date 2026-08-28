@@ -2921,8 +2921,12 @@ def fit_nlsq_cmaes(
                 n_params = len(final_params)
         else:
             n_params = len(final_params)
-        dof = max(1, n_data - n_params)
-        reduced_chi_squared = cmaes_result.chi_squared / dof
+        # An underdetermined fit (n_params >= n_data) has no meaningful dof;
+        # flooring it to 1 would let a trivially-small SSR mint a confidently
+        # "good" quality_flag for a statistically meaningless fit. Mirrors
+        # wrapper.py's _safe_reduced_chi_squared.
+        dof = n_data - n_params
+        reduced_chi_squared = cmaes_result.chi_squared / dof if dof > 0 else float("inf")
 
         # Determine quality flag using reduced chi-squared thresholds
         # consistent with NLSQWrapper's 3-level system (wrapper.py:3577-3583)

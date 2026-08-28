@@ -1219,9 +1219,12 @@ class NLSQAdapter(NLSQAdapterBase):
             cost = info.get("cost", float("nan"))
             chi_squared = float(cost) * 2.0  # cost = 0.5 * sum(r²)
 
-        # Reduced chi-squared
-        dof = max(1, n_data - n_params)
-        reduced_chi_squared = chi_squared / dof
+        # Reduced chi-squared. An underdetermined fit (n_params >= n_data) has
+        # no meaningful dof; flooring it to 1 would let a trivially-small SSR
+        # mint a confidently "good" quality_flag for a statistically
+        # meaningless fit. Mirrors wrapper.py's _safe_reduced_chi_squared.
+        dof = n_data - n_params
+        reduced_chi_squared = chi_squared / dof if dof > 0 else float("inf")
 
         # Convergence status
         success = info.get("success", False)

@@ -415,7 +415,10 @@ def validate_args(args: argparse.Namespace) -> list[str]:
     phi_angles_str: str | None = getattr(args, "phi_angles", None)
     if phi_angles_str is not None:
         try:
-            [float(x.strip()) for x in phi_angles_str.split(",")]
+            # Filter empty tokens the same way the real consumers do
+            # (plot_families/simulated.py, service/data.py) so a trailing or
+            # double comma doesn't trip a false "malformed value" warning here.
+            [float(x.strip()) for x in phi_angles_str.split(",") if x.strip()]
         except ValueError:
             warnings.append(
                 f"--phi-angles must be comma-separated numbers "

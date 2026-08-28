@@ -272,7 +272,14 @@ class AsyncWriter:
                 type(exc).__name__,
                 exc,
             )
-            logger.debug("Background write traceback:", exc_info=True)
+            # exc came from Future.exception(), a plain return value, not from
+            # an active except block — exc_info=True relies on sys.exc_info()
+            # ambient state, which is empty here, and would log "NoneType:
+            # None" instead of the real traceback. Pass the tuple explicitly.
+            logger.debug(
+                "Background write traceback:",
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
             errors.append(exc)
         # Remove only futures that finished (succeeded or errored); keep timed-out ones
         with self._lock:

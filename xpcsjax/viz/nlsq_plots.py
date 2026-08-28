@@ -1684,6 +1684,21 @@ def generate_nlsq_plots(
         diagnostics = getattr(result, "nlsq_diagnostics", None) or {}
         per_angle_mode = diagnostics.get("per_angle_mode")
         supported_non_individual = per_angle_mode in ("averaged", "constant")
+        if supported_non_individual:
+            # ``model`` and ``result`` are independently-suppliable args (e.g. a
+            # cached result paired with a freshly-constructed model), so a size
+            # floor is still needed here: without it a too-short params vector
+            # silently truncates physical_params and feeds JAX's clip-not-raise
+            # out-of-bounds indexing, producing a wrong-but-finite fitted surface.
+            n_physical_floor = n_physical + 2 if per_angle_mode == "averaged" else n_physical
+            if n_total < n_physical_floor:
+                raise NotImplementedError(
+                    f"Heterodyne result has {n_total} parameters but "
+                    f"{per_angle_mode!r} scaling mode needs at least "
+                    f"{n_physical_floor} ({n_physical} physics"
+                    f"{' + 2 averaged scaling' if per_angle_mode == 'averaged' else ''})."
+                    " The (model, result) pair looks mismatched."
+                )
         if not supported_non_individual and n_total != individual_total:
             if n_total == n_physical:
                 raise NotImplementedError(

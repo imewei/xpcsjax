@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -51,11 +52,11 @@ class PhysicsFactors:
     phi_angle: float  # Detector phi angle (degrees)
 
     def __post_init__(self) -> None:
-        """Validate that ``q`` and ``dt`` are strictly positive."""
-        if self.q <= 0:
-            raise ValueError(f"q must be positive, got {self.q}")
-        if self.dt <= 0:
-            raise ValueError(f"dt must be positive, got {self.dt}")
+        """Validate that ``q`` and ``dt`` are finite and strictly positive."""
+        if not math.isfinite(self.q) or self.q <= 0:
+            raise ValueError(f"q must be finite and positive, got {self.q}")
+        if not math.isfinite(self.dt) or self.dt <= 0:
+            raise ValueError(f"dt must be finite and positive, got {self.dt}")
 
     @property
     def time_extent(self) -> float:

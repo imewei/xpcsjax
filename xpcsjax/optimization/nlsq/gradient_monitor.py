@@ -290,6 +290,13 @@ class GradientCollapseMonitor:
                 self.best_loss = loss
                 self.best_params = params.copy()
 
+        # No per-angle scaling block to compare against (e.g. frozen/constant
+        # per-angle mode): a zero per_angle_grad_norm is then definitional, not
+        # diagnostic, so the ratio-based collapse check below is meaningless —
+        # skip it rather than let denom=0 unconditionally report inf/COLLAPSE.
+        if self.per_angle_indices.size == 0:
+            return "OK"
+
         # Compute gradient norms
         physical_grad_norm = np.linalg.norm(gradients[self.physical_indices])
         per_angle_grad_norm = np.linalg.norm(gradients[self.per_angle_indices])

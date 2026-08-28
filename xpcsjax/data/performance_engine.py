@@ -723,6 +723,11 @@ class MultiLevelCache:
         Any or None
             The cached item, or ``None`` on a miss across all tiers.
         """
+        # Lock scoped to in-memory bookkeeping only — disk I/O (reads, and the
+        # SSD-promotion write on an HDD hit) happens outside it, mirroring
+        # put()'s deliberate discipline (see that method's own comment). A
+        # single ambient lock across disk I/O would serialize all concurrent
+        # cache access for the duration of the read/write.
         with self._lock:
             current_time = time.time()
 
@@ -735,38 +740,50 @@ class MultiLevelCache:
                 logger.debug(f"Cache hit (memory): {key}")
                 return item
 
-            # Check SSD cache
-            ssd_path = self._ssd_cache_path / f"{key}.zstd"
-            if ssd_path.exists():
-                try:
-                    item = self._load_from_disk(ssd_path)
+        # Check SSD cache (disk read outside the lock)
+        ssd_path = self._ssd_cache_path / f"{key}.zstd"
+        if ssd_path.exists():
+            try:
+                item = self._load_from_disk(ssd_path)
+            except (OSError, ValueError) as e:
+                logger.warning(f"Failed to load from SSD cache {key}: {e}")
+            else:
+                with self._lock:
+                    current_time = time.time()
                     # Promote to memory cache
                     self._put_memory(key, item, current_time)
                     self._update_access_stats(key, current_time)
                     self._hits += 1
-                    logger.debug(f"Cache hit (SSD): {key}")
-                    return item
-                except (OSError, ValueError) as e:
-                    logger.warning(f"Failed to load from SSD cache {key}: {e}")
+                logger.debug(f"Cache hit (SSD): {key}")
+                return item
 
-            # Check HDD cache
-            hdd_path = self._hdd_cache_path / f"{key}.zstd"
-            if hdd_path.exists():
-                try:
-                    item = self._load_from_disk(hdd_path)
-                    # Promote to memory and SSD cache
+        # Check HDD cache (disk read + SSD-promotion write outside the lock)
+        hdd_path = self._hdd_cache_path / f"{key}.zstd"
+        if hdd_path.exists():
+            try:
+                item = self._load_from_disk(hdd_path)
+            except (OSError, ValueError) as e:
+                logger.warning(f"Failed to load from HDD cache {key}: {e}")
+            else:
+                with self._lock:
+                    current_time = time.time()
+                    # Promote to memory cache
                     self._put_memory(key, item, current_time)
+                # SSD-promotion write outside the lock (mirrors put()).
+                try:
                     self._put_ssd(key, item)
+                except OSError as e:
+                    logger.warning(f"Failed to promote HDD hit to SSD cache {key}: {e}")
+                with self._lock:
                     self._update_access_stats(key, current_time)
                     self._hits += 1
-                    logger.debug(f"Cache hit (HDD): {key}")
-                    return item
-                except (OSError, ValueError) as e:
-                    logger.warning(f"Failed to load from HDD cache {key}: {e}")
+                logger.debug(f"Cache hit (HDD): {key}")
+                return item
 
+        with self._lock:
             self._misses += 1
-            logger.debug(f"Cache miss: {key}")
-            return None
+        logger.debug(f"Cache miss: {key}")
+        return None
 
     def put(self, key: str, item: Any, priority: int = 5) -> None:
         """Store an item, choosing tiers by priority and access frequency.
