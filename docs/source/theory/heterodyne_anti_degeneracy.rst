@@ -21,7 +21,7 @@ Mode             Optimizer params (K=2, n_phi)  Notes
 ``constant``     ``n_physics``                  beta, offset pre-estimated
                                                 from quantile and frozen
 ``auto``         depends on n_phi:              recommended default
-                 n_phi < 3 -> constant
+                 n_phi < 3 -> individual
                  n_phi >= 3 -> averaged
 ``individual``   ``n_physics + 2*n_phi``        free per-angle scaling
 ================ ============================== ===========================
@@ -76,17 +76,25 @@ path.  "Gated" means the layer runs only for the listed
      - all modes
      - averaged/individual/constant reparameterization of the scaling tail
    * - L2
-     - all modes (inline two-stage)
+     - ``constant``/``averaged`` (inline two-stage); **no-op for**
+       ``individual``
      - ``individual`` only
-     - ``auto_averaged`` and ``fixed_constant`` skip L2 (≤ 2 DoF; no cancellation risk)
+     - Standard and STREAMING paths gate L2 on **opposite** per-angle
+       modes -- see the L2 prose below
    * - L3
      - all modes
-     - all modes (group-variance config on plain branch; ``compute_regularization_jax`` in hier. loss)
+     - whenever there is a scaling tail (group-variance config on plain
+       branch; ``compute_regularization_jax`` in hier. loss) --
+       ``regularization.enable`` is read but not actually checked as a
+       gate on this path
      - Mode-aware group indices
    * - L4
      - all modes
-     - all modes (``callback=`` on plain branch; gradient computed via ``_hier_grad`` on L2 branch)
-     - Strictly observational; monitor-on == monitor-off objective
+     - *constructed* whenever there is a scaling tail, but only *checked*
+       on the L2 (hierarchical) branch's ``grad_fn``; the plain branch's
+       solver call passes no callback, so the monitor sits unused there
+     - Strictly observational where it runs; monitor-on == monitor-off
+       objective
    * - L5
      - not applicable
      - not applicable
@@ -95,37 +103,56 @@ path.  "Gated" means the layer runs only for the listed
 L1: Mode-level reparameterization
   Selected by ``per_angle_mode``. Removes the flat optimization direction
   algebraically.  Active on both the standard joint-fit path and the
-  STREAMING path for all modes except ``fixed_constant`` (which freezes
+  STREAMING path for all modes except ``constant`` (which freezes
   the scaling tail entirely inside the JIT closure).
 
 L2: Hierarchical optimization
-  **Standard path:** activated by ``config.enable_hierarchical``. Runs as a
-  two-stage solve: stage 1 fits the physics-only parameters with
-  quantile-frozen scaling (the same path the standalone ``constant`` mode
-  uses); stage 2 warm-starts the joint solve from the stage-1 estimate.
-  Stage-1 χ² and the stage-1/stage-2 χ² ratio are recorded in
-  ``result.nlsq_diagnostics['hierarchical']``.  Note this is an inline
-  two-stage implementation, not a delegation to the shared
+  **The standard path and the STREAMING path gate L2 on opposite
+  per-angle modes** -- this is a real, non-obvious asymmetry, not a typo:
+
+  **Standard path:** activated by ``config.enable_hierarchical`` for the
+  ``constant``/``averaged`` **joint** solve (``_build_joint_problem`` /
+  ``_fit_joint_multi_phi``). Runs as a two-stage solve: stage 1 fits the
+  physics-only parameters with quantile-frozen scaling (the same path the
+  standalone ``constant`` mode uses); stage 2 warm-starts the joint solve
+  from the stage-1 estimate. Stage-1 χ² and the stage-1/stage-2 χ² ratio
+  are recorded in ``result.nlsq_diagnostics['hierarchical']``. This is an
+  inline two-stage implementation, not a delegation to the shared
   :class:`~xpcsjax.optimization.nlsq.hierarchical.HierarchicalOptimizer`
   (used by the STREAMING path below) — see the follow-up tracking item for
   unifying with homodyne's helper.
 
+  For ``individual`` mode, the standard path does **not** go through the
+  joint solver at all -- it runs a separate per-angle sequential fit where
+  each angle's scaling is already fixed at its pre-computed value (the
+  per-angle equivalent of stage 1). A second joint refine across angles is
+  precisely what ``individual`` mode declines to do, so there is no
+  stage 2; ``result.nlsq_diagnostics`` reports
+  ``hierarchical_scope='individual_mode_no_stage2'`` when
+  ``enable_hierarchical`` was requested anyway.
+
   **STREAMING path:** wired via
   :class:`~xpcsjax.optimization.nlsq.hierarchical.HierarchicalOptimizer`
   and gated to ``individual`` mode (i.e. ``not use_constant``
-  — exactly mirroring laminar_flow's streaming gate).  ``auto_averaged``
-  and ``fixed_constant`` modes skip L2 because they have at most 2
-  per-angle DoF, so gradient-cancellation degeneracy cannot arise.
+  — exactly mirroring laminar_flow's streaming gate). ``averaged`` and
+  ``constant`` modes skip L2 because they have at most 2 per-angle DoF, so
+  gradient-cancellation degeneracy cannot arise.
 
-  The STREAMING L2 branch permutes heterodyne's native ``[physics | scaling]``
-  vector to the ``[per_angle | physics]`` layout that
+  The STREAMING path builds its parameter vector directly as
+  ``[contrast, offset, physics]`` (per-angle-scaling-first) -- this is
+  already the ``[per_angle_params, physical_params]`` layout that
   :class:`~xpcsjax.optimization.nlsq.hierarchical.HierarchicalOptimizer`
-  expects, runs the alternating solver, then un-permutes the result.
-  Covariance on this path is an identity placeholder
-  (``info["covariance_is_placeholder"] = True``); the post-solve condition
-  number is reported as ``NaN`` rather than the meaningless ``cond(I) = 1``.
-  The L4 monitor is applied in ``_hier_grad`` after un-permuting to native
-  index layout so the physical/per-angle index slices remain valid.
+  expects, so **no permutation is needed**; the vector is passed straight
+  through as ``p0``. Covariance on this path is computed from the Hessian
+  of the loss function (``2 s^2 (H^{-1})``, or a pseudo-inverse if ``H``
+  is singular); it becomes an identity placeholder
+  (``info["covariance_is_placeholder"] = True``) **only** when the
+  Hessian computation itself raises. In that fallback case the post-solve
+  condition number is reported as ``NaN`` rather than the meaningless
+  ``cond(I) = 1``. The L4 monitor is applied inside the L2 branch's own
+  ``grad_fn`` closure,
+  which calls ``gradient_monitor.check(...)`` on every hierarchical-solver
+  gradient evaluation.
 
 L3: Adaptive CV regularization
   Activated by ``config.regularization_mode != 'none'``. Instantiates
@@ -239,5 +266,5 @@ equivalent contract is:
    streaming path, with the same gating rules (L2 only for
    ``individual``; L5 omitted).
 2. **Objective parity** — optimized-scaling SSR ≤ frozen-scaling baseline
-   (``info["ssr"] <= info["ssr_frozen_baseline"]``), verified by the
-   ``fixed_constant`` regression guard test.
+   (``info["ssr"] <= info["ssr_frozen_baseline"]``), verified in
+   ``tests/optimization/test_heterodyne_hybrid_streaming.py``.

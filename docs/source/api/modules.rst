@@ -25,6 +25,10 @@ themselves. Their own submodules that are documented via ``autoclass``/
 
 .. py:module:: xpcsjax.cli.main
 
+.. py:module:: xpcsjax.cli.plot_backend
+
+.. py:module:: xpcsjax.cli.plot_families.simulated
+
 .. py:module:: xpcsjax.cli.xla_config
 
 .. py:module:: xpcsjax.config
@@ -96,6 +100,8 @@ themselves. Their own submodules that are documented via ``autoclass``/
 .. py:module:: xpcsjax.data.angle_filtering
 
 .. py:module:: xpcsjax.data.config
+
+.. py:module:: xpcsjax.data.dataset
 
 .. py:module:: xpcsjax.data.filtering_utils
 
@@ -173,6 +179,8 @@ themselves. Their own submodules that are documented via ``autoclass``/
 
 .. py:module:: xpcsjax.optimization.nlsq.heterodyne_data_prep
 
+.. py:module:: xpcsjax.optimization.nlsq.heterodyne_engine_route
+
 .. py:module:: xpcsjax.optimization.nlsq.heterodyne_logging
 
 .. py:module:: xpcsjax.optimization.nlsq.heterodyne_memory
@@ -195,6 +203,8 @@ themselves. Their own submodules that are documented via ``autoclass``/
 
 .. py:module:: xpcsjax.optimization.nlsq.memory
 
+.. py:module:: xpcsjax.optimization.nlsq.model_adapter
+
 .. py:module:: xpcsjax.optimization.nlsq.multistart
 
 .. py:module:: xpcsjax.optimization.nlsq.parallel_accumulator
@@ -202,6 +212,8 @@ themselves. Their own submodules that are documented via ``autoclass``/
 .. py:module:: xpcsjax.optimization.nlsq.parameter_index_mapper
 
 .. py:module:: xpcsjax.optimization.nlsq.parameter_utils
+
+.. py:module:: xpcsjax.optimization.nlsq.per_angle_mode
 
 .. py:module:: xpcsjax.optimization.nlsq.progress
 

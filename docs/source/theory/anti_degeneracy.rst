@@ -212,15 +212,22 @@ is
 
 When :math:`\mathrm{ratio} < \tau` (default :math:`10^{-2}`) for
 :math:`N_c` consecutive iterations (default :math:`5`), collapse is
-declared and one of four responses is taken:
+declared and recorded.
 
-* ``warn`` -- log a warning and continue;
-* ``hierarchical`` -- switch to Layer 2 alternation;
-* ``reset`` -- reset per-angle parameters to their mean values;
-* ``abort`` -- terminate with a diagnostic.
+.. important::
 
-The default response is ``hierarchical``, which composes naturally with
-Layer 2.
+   **Layer 4 is strictly observational in the wired solve path.** The
+   per-iteration callback actually passed to the NLSQ solver
+   (:func:`~xpcsjax.optimization.nlsq.gradient_monitor.build_gradient_collapse_callback`)
+   feeds the monitor and always returns ``None`` -- monitor-on and
+   monitor-off produce a bit-identical fit trajectory. ``response_mode``
+   (``"warn"`` / ``"hierarchical"`` / ``"reset"`` / ``"abort"``, default
+   ``"hierarchical"``) configures what :meth:`GradientCollapseMonitor.get_response`
+   *would* recommend, and it is surfaced in diagnostics for a human or a
+   post-hoc caller to act on -- but no production call site currently
+   invokes ``get_response()`` to change the running solve. Treat collapse
+   detection as a diagnostic signal (log it, inspect
+   ``nlsq_diagnostics["gradient_monitor"]``), not as an active intervention.
 
 Layer 5 -- Shear-sensitivity weighting
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -409,9 +416,13 @@ Notes on the recommendations:
 * **L1** is always the primary defense. For ``static_isotropic`` it is the
   *only* one that matters (``per_angle_mode: "constant"`` freezes scaling; the
   3-parameter problem is unimodal).
-* **L2 and L4 are coupled.** ``response: "hierarchical"`` only does something
-  if L2 is enabled to escalate into --- hence ``laminar_flow`` and
-  ``two_component`` pair them, while the static modes pair ``warn`` with L2
+* **L2 and L4 are configured together.** ``gradient_response_mode:
+  "hierarchical"`` records that collapse *should* escalate into Layer 2 --
+  but see the Layer 4 note above: the production callback never actually
+  triggers this escalation, so pairing them is a documentation convention
+  (and a hook for a human/future caller reading the diagnostics) rather
+  than a live runtime interaction. ``laminar_flow`` and ``two_component``
+  pair ``hierarchical`` with L2 on; the static modes pair ``warn`` with L2
   off.
 * **L2 is mandatory for L5.** In ``laminar_flow`` the alternating
   frozen-scaling / frozen-physics solve breaks the absorption coupling so the
@@ -430,27 +441,52 @@ Configuration
 
 The controller is configured by an
 :class:`~xpcsjax.optimization.nlsq.anti_degeneracy_controller.AntiDegeneracyConfig`
-dataclass with the following key fields:
+dataclass, built via ``AntiDegeneracyConfig.from_dict()`` from the mode
+YAML's ``anti_degeneracy:`` block. **The YAML shape is nested** (a
+sub-mapping per layer); the flat ``layer_field`` names below are the
+*Python dataclass attribute*, not the YAML key:
 
-* ``enable`` (default ``True``) -- master switch;
-* ``per_angle_mode`` (default ``"auto"``) -- one of
-  ``"individual"``, ``"constant"``, ``"averaged"``, ``"auto"``;
-* ``constant_scaling_threshold`` (default 3) -- :math:`N_\phi` at which
-  ``"auto"`` switches from ``"individual"`` to ``"averaged"``;
-* ``hierarchical_enable`` (default ``True``) -- Layer 2 on/off;
-* ``hierarchical_max_outer_iterations`` (default 5) -- maximum outer loops;
-* ``regularization_mode`` (default ``"relative"``) -- one of
-  ``"absolute"``, ``"relative"``, ``"auto"``;
-* ``gradient_monitoring_enable`` (default ``True``) -- Layer 4 on/off;
-* ``gradient_ratio_threshold`` (default :math:`10^{-2}`) -- collapse
-  threshold;
-* ``gradient_response_mode`` (default ``"hierarchical"``) -- response on
-  collapse.
+.. code-block:: yaml
 
-The full set of fields is enumerated in
-:mod:`xpcsjax.optimization.nlsq.anti_degeneracy_controller`. Layer 5's
-parameters (\ :math:`w_\mathrm{min}`, :math:`a`, update frequency) live on
-:class:`~xpcsjax.optimization.nlsq.shear_weighting.ShearWeightingConfig`.
+   anti_degeneracy:
+     enable: true                         # -> AntiDegeneracyConfig.enable
+     per_angle_mode: "auto"               # "individual" | "constant" | "averaged" | "auto"
+     constant_scaling_threshold: 3        # Nphi cutover: auto -> "averaged" at n_phi >= threshold, else "individual"
+     execute_layers: false                # opt-in L2/L3 escape gate on the >=1M stratified-LS path only
+
+     hierarchical:                        # -> hierarchical_* fields
+       enable: true                       # hierarchical_enable
+       max_outer_iterations: 5            # hierarchical_max_outer_iterations
+       outer_tolerance: 1.0e-6            # hierarchical_outer_tolerance
+       physical_max_iterations: 100       # hierarchical_physical_max_iterations
+       per_angle_max_iterations: 50       # hierarchical_per_angle_max_iterations
+
+     regularization:                      # -> regularization_* fields
+       enable: false
+       mode: "relative"                   # regularization_mode: "absolute" | "relative" | "auto"
+       lambda: 1.0                        # regularization_lambda
+       target_cv: 0.10                    # regularization_target_cv
+       target_contribution: 0.10          # regularization_target_contribution
+       max_cv: 0.20                       # regularization_max_cv
+       auto_tune_lambda: true             # regularization_auto_tune_lambda
+
+     gradient_monitoring:                 # -> gradient_* fields
+       enable: true                       # gradient_monitoring_enable
+       ratio_threshold: 0.01              # gradient_ratio_threshold
+       consecutive_triggers: 5            # gradient_consecutive_triggers
+       response: "hierarchical"           # gradient_response_mode -- see the Layer 4 note above: not currently wired to change the running solve
+
+     shear_weighting:                     # -> shear_weighting_* fields (laminar_flow only)
+       enable: true
+       min_weight: 0.3
+       alpha: 1.0
+
+``enable``, ``per_angle_mode``, ``constant_scaling_threshold``, and
+``execute_layers`` are the only top-level (non-nested) keys; every other
+layer's settings live under its own sub-mapping. The full set of fields
+and their nested-key mapping is enumerated in
+:meth:`AntiDegeneracyConfig.from_dict()
+<xpcsjax.optimization.nlsq.anti_degeneracy_controller.AntiDegeneracyConfig.from_dict>`.
 
 Usage
 -----

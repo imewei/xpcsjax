@@ -125,6 +125,14 @@ is accumulated as a function of the absolute times :math:`t_1` and
    :math:`c_2` is dimensionless and satisfies :math:`c_2 \geq 1` for classical
    intensity fluctuations (Cauchy--Schwarz). For ergodic decorrelating
    dynamics, :math:`c_2(t_1, t_2) \to 1` as :math:`|t_2 - t_1| \to \infty`.
+   This is a statement about the *true* physical :math:`c_2`; xpcsjax's
+   *fitted* forward model :math:`\mathrm{offset} + \mathrm{contrast}\times
+   g_1^2` does not hard-enforce it -- ``offset`` is bounded down to
+   :math:`0.5` (not :math:`1.0`) to absorb baseline-calibration error in
+   real data, and the model value is not clipped at runtime (clipping
+   would kill gradients at the boundary). A fitted ``offset`` well below 1
+   is a data-quality signal worth checking, not something the solver is
+   prevented from returning.
 
 The Siegert relation
 --------------------
@@ -166,11 +174,14 @@ that xpcsjax fits in ``two_component`` mode (:doc:`heterodyne_model`).
    In xpcsjax, the diffusion integral
    :math:`\mathcal{D}(t_1, t_2) = \int_{t_1}^{t_2} J(t')\,dt'` is evaluated
    numerically by cumulative trapezoidal integration on the experimental time
-   grid --- no closed-form antiderivative is ever substituted, because the
-   power-law parameterisation :math:`J(t) = D_0 t^\alpha + D_\mathrm{offset}`
-   does not admit one for generic :math:`\alpha`. See
-   :doc:`transport_coefficient` for the integration convention and the
-   :math:`D_0 = 2 D_\mathrm{SE}` factor.
+   grid --- no closed-form antiderivative is ever substituted. A closed form
+   (:math:`D_0 \tau^{\alpha+1}/(\alpha+1)`) does exist for :math:`\alpha \neq
+   -1`, but it is evaluated at the *nominal* grid spacing rather than the
+   true (possibly irregular) sampling, and it drops the constant
+   :math:`D_\mathrm{offset}` term entirely -- both introduce error relative
+   to trapezoidal integration on the real time grid, which is why xpcsjax
+   never substitutes it. See :doc:`transport_coefficient` for the
+   integration convention and the :math:`D_0 = 2 D_\mathrm{SE}` factor.
 
 Wiener--Khinchin and the equilibrium projection
 -----------------------------------------------

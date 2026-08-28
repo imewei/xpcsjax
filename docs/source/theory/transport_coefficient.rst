@@ -80,10 +80,19 @@ Equation :eq:`cf_c1_general` of :doc:`correlation_functions`) is
    \;=\; \int_{t_1}^{t_2} J(t')\,dt'
    \;=\; \mathrm{Var}\!\left[x(t_2) - x(t_1)\right].
 
-The right-hand identity follows directly from
-:eq:`tc_J_variance`: integrating the variance growth rate over
-:math:`[t_1, t_2]` gives the variance of the net displacement. This
-identification confirms that :math:`J` directly controls how the
+Integrating the variance growth rate over :math:`[t_1, t_2]` gives, by the
+fundamental theorem of calculus, :math:`\mathrm{Var}[x(t_2)] -
+\mathrm{Var}[x(t_1)]` exactly -- for *any* process. The further identity
+with :math:`\mathrm{Var}[x(t_2) - x(t_1)]` shown above additionally
+requires :math:`\mathrm{Cov}[x(t_1),\, x(t_2) - x(t_1)] = 0`, i.e. that the
+increment past :math:`t_1` is uncorrelated with the state at :math:`t_1`
+(a Markovian / independent-increment property). This holds for the
+Wiener and generalised-anomalous-diffusion processes xpcsjax targets, but
+is not a universal property of every non-stationary process; it is *not*
+assumed anywhere in the numerical implementation, which only ever
+evaluates the direct integral :math:`\int_{t_1}^{t_2} J(t')\,dt'`, never
+a displacement-variance surrogate. This identification confirms that
+:math:`J` directly controls how the
 Debye--Waller factor of :math:`c_1` decays.
 
 xpcsjax parameterisation
@@ -100,10 +109,16 @@ offset,
 where
 
 * :math:`D_0 > 0` is the diffusion prefactor;
-* :math:`\alpha \in (-1, 1]` is the anomalous exponent
+* :math:`\alpha` is the anomalous exponent
   (:math:`\alpha = 0` Brownian, :math:`\alpha < 0` sub-diffusive aging,
-  :math:`\alpha > 0` super-diffusive);
-* :math:`D_\mathrm{offset} \geq 0` is a constant background diffusion.
+  :math:`\alpha > 0` super-diffusive); the registry bounds it to
+  :math:`[-2, 2]`, wider than the :math:`(-1, 1]` range often quoted for
+  physically "ordinary" anomalous diffusion, to let the fit explore more
+  extreme aging/super-diffusive regimes;
+* :math:`D_\mathrm{offset}` is a constant background diffusion, bounded by
+  the registry to :math:`[-10^5, 10^5]\,\text{\AA}^2/\mathrm{s}` -- not
+  constrained to be non-negative (a small negative offset can absorb
+  background-subtraction error in real data).
 
 The diffusion integral entering :math:`c_1` (and therefore :math:`c_2`
 through the Siegert relation) is computed by cumulative trapezoidal
@@ -201,7 +216,7 @@ Stokes--Einstein diffusion coefficient (xpcsjax uses :math:`D_0 = 2 D`).
      - :math:`D` = constant
    * - Anomalous diffusion
      - :math:`2 D_0\, t^{\alpha}`
-     - :math:`\alpha \in (-1, 1]`
+     - :math:`\alpha \in [-2, 2]` (registry bounds)
    * - Ornstein--Uhlenbeck
      - :math:`2 D\!\left(1 - e^{-\gamma t}\right)^{2}`
      - Confinement radius
@@ -251,10 +266,15 @@ Three consequences follow:
    :math:`q^2 \mathcal{D}` is large, the residual saturates, and the fit
    becomes insensitive to further increases of :math:`D_0`. The informative
    data live close to the diagonal.
-2. With :math:`\alpha < 0`, the integrand diverges at :math:`t = 0`. The
-   trapezoidal rule integrates from the first available frame, and xpcsjax
-   relies on the data loader to start the time grid at a strictly positive
-   value (typically the integration time of the first frame).
+2. With :math:`\alpha < 0`, the integrand diverges at :math:`t = 0`.
+   :func:`xpcsjax.core.physics_utils.calculate_diffusion_coefficient`
+   defends against this directly -- it clamps any time value at or below a
+   small epsilon (half the inferred grid spacing, floored at
+   :math:`10^{-8}`) up to that epsilon before evaluating :math:`t^\alpha`
+   -- so a zero or near-zero first frame does not itself produce
+   ``inf``/``NaN``. In practice the data loader also starts the time grid
+   at the first frame's positive integration time, but xpcsjax does not
+   rely on that convention alone for numerical safety.
 3. Because the integral is monotone non-decreasing in :math:`D_0` and is
    evaluated by a vectorised cumulative-trapezoid kernel, the Jacobian is
    dense and well-behaved. This is precisely the property that the

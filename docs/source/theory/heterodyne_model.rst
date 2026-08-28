@@ -9,8 +9,9 @@ reference volume --- the intensity correlation function picks up
 cross-correlation contributions whose oscillatory pattern encodes the
 relative velocity directly. The ``two_component`` mode in
 :class:`xpcsjax.core.HeterodyneModel` implements this generalisation of
-the Siegert relation, following the derivation of [He2025]_ (PNAS 2025
-SI Section F, Equations S-77 through S-98).
+the Siegert relation, following the multi-component derivation of
+[He2024]_ (SI Appendix section 2.F) as restated and applied in
+[He2025]_ (main text Eqs. 1--3).
 
 This page derives the two-component kernel, lists the 14 physical parameters
 together with the 2 scaling parameters, and describes the multi-angle dispatch,
@@ -18,12 +19,35 @@ which returns a single
 :class:`~xpcsjax.optimization.nlsq.results.OptimizationResult` with per-angle
 detail recorded under ``nlsq_diagnostics``.
 
+.. note::
+
+   The general :math:`N`-component reduction below (Eqs. :eq:`het_field`--
+   :eq:`het_f2`) follows [He2024]_ (main text Eq. 14; SI Appendix section
+   2.F, Eqs. S99, S101, S102, S106, S107, S126). [He2025]_'s own
+   Materials and Methods (main text Eqs. 1--3) restates the specialised
+   :math:`N=2` homodyne (Eq. 1) and heterodyne (Eq. 2, with the :math:`f^2`
+   normalisation as Eq. 3) forms directly, explicitly citing [He2024]_ SI
+   Appendix sections 2.E/2.F for "the complete derivation." Earlier
+   revisions of this page cited only [He2025]_ with a fabricated locator
+   ("SI Section F, Eqs. S-77 through S-98") -- that specific locator was
+   wrong: no such section/equations exist in the [He2025]_ SI PDF as
+   published (``pnas.2514216122.sapp.pdf``, verified page-by-page and by
+   full-text search -- it contains only the single-component
+   colloidal-yielding characterization, simulation methods, and figures
+   S1--S24; no equation is labelled beyond ``[1]``--``[8]``, all in the
+   main text). [He2025]_'s own main text says its SI Appendix "briefly
+   derives" both the laminar-flow and shear-banding/heterodyne forms --
+   that specific claim about its own SI's contents could not be confirmed
+   in the SI PDF checked here. What *is* directly confirmed is that
+   [He2025]_'s main text (Materials and Methods, Eqs. 1--3) legitimately
+   restates the two-component formula.
+
 Multi-component scattered field
 -------------------------------
 
 For :math:`N` distinguishable scattering components, the total scattered
-field at wavevector :math:`\mathbf{q}` and time :math:`t` is (Eq. S-77 of
-[He2025]_):
+field at wavevector :math:`\mathbf{q}` and time :math:`t` is ([He2024]_ SI
+Appendix section 2.F; restated for :math:`N=2` in [He2025]_ Eqs. 1--3):
 
 .. math::
    :label: het_field
@@ -36,7 +60,7 @@ where :math:`x_n(t)` is the field amplitude fraction of component
 component has its own transport coefficient :math:`J_n(t)` and mean
 velocity :math:`\langle v_n(t)\rangle`.
 
-Two key assumptions (Eq. S-84 of [He2025]_) close the derivation:
+Two key assumptions ([He2024]_ SI Appendix section 2.F) close the derivation:
 
 1. **Uniform scattering contrast.** All components scatter with the same
    contrast factor, so that intensity fractions are determined solely by the
@@ -49,7 +73,7 @@ General N-component correlation
 -------------------------------
 
 Under the two assumptions above, the second-order two-time correlation of
-the multi-component intensity is (Eq. S-94 of [He2025]_):
+the multi-component intensity is ([He2024]_ main text Eq. 14):
 
 .. math::
    :label: het_cN
@@ -107,7 +131,8 @@ component (:math:`s`):
   mean velocity :math:`\langle v(t)\rangle`, and flow angle :math:`\varphi`.
 
 The sample fraction is :math:`x_s(t) \in [0, 1]` and the reference fraction
-is :math:`x_r(t) = 1 - x_s(t)`. The two-time correlation (Eq. S-95) is
+is :math:`x_r(t) = 1 - x_s(t)`. The two-time correlation
+([He2024]_ SI Appendix section 2.F; [He2025]_ Eq. 2) is
 
 .. math::
    :label: het_c2_two_comp
@@ -133,6 +158,19 @@ with
             \cos\!\left(q\cos\varphi\!\int_{t_1}^{t_2}
                 \langle v(t')\rangle\, dt'\right).
 
+.. note::
+
+   [He2025]_ Eq. 2 (Materials and Methods) presents this same result for
+   the "static reference" case discussed in its main text
+   (:math:`v_r = 0`, :math:`J_r(t) = 0`), where :math:`A_{rr} \equiv 1`
+   collapses out and a single shared decay envelope
+   :math:`e^{-q^2\int J(t)\,dt}` multiplies the whole bracket. The general
+   form above keeps :math:`A_{rr}`, :math:`A_{ss}`, :math:`A_{rs}` as
+   independent decays, matching :class:`xpcsjax.core.HeterodyneModel`,
+   which fits both :math:`J_r(t)` and :math:`J_s(t)` as free branches
+   (see the parameter table below) rather than pinning the reference to
+   :math:`J_r \equiv 0`.
+
 The three contributions admit a clean physical reading:
 
 **Reference self-correlation** -- a monotonic diffusive decay set by the
@@ -154,7 +192,7 @@ Normalisation
 
 The factor :math:`f^2` in :eq:`het_c2_two_comp` ensures
 :math:`c_2(\mathbf{q}, t, t) = 1 + \beta` on the diagonal. For the
-two-component system,
+two-component system ([He2025]_ Eq. 3),
 
 .. math::
 
@@ -189,8 +227,12 @@ Equilibrium projection (one-time form)
 
 If the composition fractions, the transport coefficients, and the velocity
 are all time-independent, :eq:`het_c2_two_comp` reduces to a function of
-the lag :math:`\tau = t_2 - t_1` only. With the equilibrium sample fraction
-:math:`x \equiv I_s / (I_s + I_r)` (Eq. S-98 of [He2025]_):
+the lag :math:`\tau = t_2 - t_1` only. With the equilibrium **intensity**
+sample fraction :math:`x \equiv I_s / (I_s + I_r) = x_s^2/(x_s^2+x_r^2)`
+([He2024]_ SI Appendix section 2.F) -- note this is *not* the amplitude
+fraction :math:`x_s(t)` used above; the substitution absorbs the
+:math:`f^2` normalisation of :eq:`het_f2` exactly, which is why no explicit
+:math:`f^2` term appears below:
 
 .. math::
    :label: het_g2_eq
@@ -255,42 +297,51 @@ branch has the same power-law-plus-offset structure as the homodyne kernel
      - Velocity prefactor (\ :math:`\mathrm{nm}/\mathrm{s}` or
        :math:`\text{\AA}/\mathrm{s}`, instrument dependent).
    * -
-     - :math:`\beta_v`
+     - :math:`v_\beta` (:math:`\beta_v` in kernel docstrings)
      - Velocity time exponent.
    * -
      - :math:`v_\mathrm{offset}`
      - Velocity background.
+   * - Composition (sample fraction)
+     - :math:`f_0`
+     - Sample-fraction amplitude coefficient.
    * -
-     - :math:`\varphi`
-     - Flow direction in the detector frame (radians).
-   * - Composition history
-     - :math:`x_{s,0}`
-     - Initial sample fraction at :math:`t = 0`.
+     - :math:`f_1`
+     - Sample-fraction rate coefficient.
    * -
-     - :math:`r_x`
-     - Sample-fraction time-evolution rate.
+     - :math:`f_2`
+     - Sample-fraction time-shift coefficient.
    * -
-     - :math:`x_{s,\infty}`
-     - Asymptotic sample fraction.
-   * -
-     - :math:`q`-encoding factor
-     - Velocity-encoding constant absorbing the
-       :math:`q \cos\varphi` projection (used by
-       :mod:`xpcsjax.core.physics_factors` to precompute
-       :math:`q L \Delta t / (2\pi)`).
+     - :math:`f_3`
+     - Sample-fraction offset coefficient.
+   * - Flow angle
+     - :math:`\varphi_0` (registry name ``phi0_het``)
+     - Flow-direction offset relative to the per-angle detector position
+       (**degrees**, bounds :math:`[-10, 10]`).
 
-Together with the 2 per-angle scaling parameters
+The composition (sample-fraction) block does not use a closed-form
+relaxation model. :class:`xpcsjax.core.HeterodyneModel` computes the
+time-dependent sample fraction as a smoothly clipped exponential,
+
+.. math::
+   :label: het_fraction
+
+   x_s(t) \;=\; \mathrm{clip}\!\left(f_0\, e^{f_1 (t - f_2)} + f_3,\; 0,\; 1\right),
+
+implemented by ``xpcsjax.core.heterodyne_physics_kernel._fraction``. The
+flow angle enters the cross-term phase as
+:math:`\varphi = \mathrm{deg2rad}(\phi_k + \varphi_0)`, where
+:math:`\phi_k` is the per-angle detector position (degrees) -- so
+:math:`\varphi_0` is a small per-experiment calibration offset, not the
+full angle between velocity and scattering vector.
+
+Together with the per-angle scaling parameters
 :math:`(\beta(\phi_k), c_\mathrm{offset}(\phi_k))` --- handled by the
 anti-degeneracy controller exactly as in the homodyne model --- the total
-parameter count is **16**.
-
-.. note::
-
-   The velocity-encoding factor on the last row is *fixed* by the
-   experimental geometry and the chosen :math:`q`-ring; it is not freely
-   optimised. The :mod:`xpcsjax.core.physics_factors` module precomputes
-   :math:`q^2 \Delta t / 2` and :math:`q L \Delta t / (2 \pi)`, which appear
-   in the diffusion exponent and the velocity-encoding cosine respectively.
+optimised parameter count is mode-dependent: **14** for ``constant``
+(frozen scaling), **16** for ``averaged`` (2 shared scaling parameters,
+the ``auto`` default at :math:`n_\phi \geq 3`), and
+:math:`14 + 2 n_\phi` for ``individual``.
 
 .. _het_dispatch:
 
@@ -365,7 +416,8 @@ Comparison with the homodyne model
      - Static + flowing mixture (reference + sample geometry)
    * - Primary reference
      - [He2024]_
-     - [He2025]_
+     - [He2024]_ (general derivation, SI 2.F); [He2025]_ (:math:`N=2`
+       form restated, main text Eqs. 1--3)
 
 .. seealso::
 

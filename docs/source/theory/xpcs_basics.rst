@@ -160,9 +160,9 @@ a function of the lag only,
 where for Brownian diffusion :math:`\Gamma = D q^2`. This is the standard
 single-exponential model familiar from dynamic light scattering. xpcsjax can
 fit equilibrium data either with the dedicated static modes
-(``static``, ``static_isotropic``, ``static_anisotropic``) or, equivalently,
-through the laminar-flow kernel with zero shear rate; see
-:doc:`homodyne_model`.
+(``static_isotropic``, ``static_anisotropic`` -- bare ``"static"`` is not a
+valid ``analysis_mode`` value) or, equivalently, through the laminar-flow
+kernel with zero shear rate; see :doc:`homodyne_model`.
 
 Analysis modes implemented in xpcsjax
 -------------------------------------

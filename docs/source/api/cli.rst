@@ -62,6 +62,16 @@ the ``load → optimise → save → plot`` pipeline:
 .. automodule:: xpcsjax.cli.plot_dispatch
    :members:
 
+``plot_dispatch`` fans out to per-family helper modules; the shared backend
+and directory resolvers, and the simulated-family phi-angle parser, are
+public functions worth documenting on their own:
+
+.. autofunction:: xpcsjax.cli.plot_backend.resolve_plots_dir
+
+.. autofunction:: xpcsjax.cli.plot_backend.should_use_datashader
+
+.. autofunction:: xpcsjax.cli.plot_families.simulated.resolve_phi_angles_for_sim
+
 Config generator
 ----------------
 

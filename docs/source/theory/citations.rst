@@ -51,9 +51,12 @@ Primary references
 
    Applies the :math:`J(t)` framework to the yielding transition in
    repulsive (Andrade creep) and attractive (shear banding) colloidal
-   suspensions. Introduces the multi-component heterodyne formula and the
-   non-Gaussian displacement analysis used by xpcsjax's
-   :class:`~xpcsjax.core.HeterodyneModel`.
+   suspensions, and the non-Gaussian displacement analysis used by
+   xpcsjax's :class:`~xpcsjax.core.HeterodyneModel`. The general
+   multi-component heterodyne formula was introduced in [He2024]_; this
+   paper's own Materials and Methods restates the specialised
+   two-component form directly (main text Eqs. 1--3) while citing
+   [He2024]_ for the complete derivation.
 
    .. code-block:: bibtex
 

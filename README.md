@@ -56,9 +56,23 @@ of `jax`, `nlsq`, `evosax`, `h5py`, `jaxopt`, `psutil`, `tqdm`, etc.).
 `uv sync && uv pip install -e ".[dev]"`. See
 [`docs/source/development/contributing.rst`](docs/source/development/contributing.rst).
 
+Sanity-check the install (environment, dependencies, JAX config) with:
+
+```bash
+xpcsjax-validate
+```
+
 ---
 
 ## Quickstart
+
+No config yet? Generate one from a mode template:
+
+```bash
+xpcsjax-config --mode laminar_flow --output config.yaml
+```
+
+Then fit:
 
 ```python
 from xpcsjax import load_xpcs_data, fit_nlsq

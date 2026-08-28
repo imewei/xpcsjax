@@ -144,12 +144,15 @@ The scaling treatment is selected by ``anti_degeneracy_config.per_angle_mode``:
    * - ``per_angle_mode`` value
      - Optimized params
      - Notes
-   * - ``"fixed_constant"``
+   * - ``"constant"``
      - none (scaling frozen)
-     - Explicit opt-out via ``per_angle_mode="constant"``; freezes scaling (no L1/L2/L3).
-   * - ``"auto"`` → ``"auto_averaged"`` / ``"individual"``
+     - Explicit opt-out; freezes scaling (no L1/L2/L3). The resolved-mode
+       token actually produced by ``_resolve_streaming_per_angle_mode`` is
+       the canonical ``"constant"`` -- not a separate
+       ``"fixed_constant"`` value.
+   * - ``"auto"`` → ``"averaged"`` / ``"individual"``
      - 2 (mean) at ``n_phi ≥ threshold``; else 2·n_phi
-     - **THE DEFAULT**, including when ``anti_degeneracy_config`` is absent or ``None`` (mirrors laminar — no "freeze when unconfigured" special case). Resolves to ``auto_averaged`` at ``n_phi ≥ constant_scaling_threshold`` (default 3), else ``individual``.
+     - **THE DEFAULT**, including when ``anti_degeneracy_config`` is absent or ``None`` (mirrors laminar — no "freeze when unconfigured" special case). Resolves to ``"averaged"`` at ``n_phi ≥ constant_scaling_threshold`` (default 3), else ``"individual"``.
    * - ``"individual"``
      - 2 × n_phi
      - Per-angle contrast + offset optimized jointly.
@@ -157,22 +160,35 @@ The scaling treatment is selected by ``anti_degeneracy_config.per_angle_mode``:
 Layer activation on the STREAMING path
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-- **L1** — active for all optimized modes (``auto_averaged``, ``individual``);
-  skipped for ``fixed_constant`` (no tail to reparameterize).
+- **L1** — active for all optimized modes (``averaged``, ``individual``);
+  skipped for ``constant`` (no tail to reparameterize).
 - **L2** — active for ``individual`` only, gated identically to
-  ``laminar_flow`` streaming (``not use_constant``).  ``auto_averaged`` and
-  ``fixed_constant`` have ≤ 2 per-angle DoF so hierarchical alternation is not
-  needed.  On the L2 branch the ``[physics | scaling]`` vector is permuted to
-  the ``[per_angle | physics]`` layout expected by
-  :class:`~xpcsjax.optimization.nlsq.hierarchical.HierarchicalOptimizer` and
-  un-permuted on exit; covariance is an identity placeholder on this branch.
-- **L3** — active when ``anti_degeneracy_config.regularization.enable`` is
-  ``True`` (default) and there is a scaling tail (``n_scaling > 0``).  Uses
-  group-variance config on the plain branch and
+  ``laminar_flow`` streaming (``not use_constant``).  ``averaged`` and
+  ``constant`` have ≤ 2 per-angle DoF so hierarchical alternation is not
+  needed.  The streaming path builds its parameter vector directly as
+  ``[contrast, offset, physics]``, which is already the
+  ``[per_angle_params, physical_params]`` layout
+  :class:`~xpcsjax.optimization.nlsq.hierarchical.HierarchicalOptimizer`
+  expects (see its own docstring) -- it is passed straight through with no
+  permutation step. Covariance is computed from the Hessian of the loss
+  (``2 s^2 (H^{-1})``, falling back to a pseudo-inverse if ``H`` is
+  singular); it is an identity placeholder **only** if the Hessian
+  computation itself raises, which is logged as an error since the
+  reported uncertainties are then not meaningful.
+- **L3** — active whenever there is a scaling tail (``per_angle_scaling``
+  is true); the config's ``regularization.enable`` flag is read into
+  local variables but is **not** actually checked before constructing
+  ``AdaptiveRegularizer`` (``AdaptiveRegularizationConfig(enable=True,
+  ...)`` is hardcoded). Uses group-variance config on the plain branch and
   ``compute_regularization_jax`` inside the hierarchical loss.
-- **L4** — always active when there is a scaling tail.  The gradient-collapse
-  monitor is wired via ``callback=`` on the plain branch and via
-  ``_hier_grad`` on the L2 branch.  Strictly observational: monitor-on ==
+- **L4** — the monitor is *constructed* whenever
+  ``gradient_monitoring.enable`` (default ``True``) and there is a scaling
+  tail, but it is only ever *checked* on the L2 (hierarchical) branch's
+  ``grad_fn`` closure. **The plain (non-hierarchical) branch's
+  ``optimizer.fit(...)`` call passes no ``callback=`` at all**, so on that
+  branch the constructed monitor sits unused for the whole solve --
+  "always active" describes construction, not observation. Strictly
+  observational where it does run: monitor-on ==
   monitor-off objective.
 - **L5** — omitted by design (``laminar_flow``-only); the diagnostics block
   reports the ``'laminar_flow_inactive'`` sentinel.

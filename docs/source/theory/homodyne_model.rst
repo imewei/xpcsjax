@@ -236,22 +236,29 @@ Parameter sets per mode
    * - Mode
      - Symbol
      - Role
-   * - ``static`` (3 params)
+   * - ``static_isotropic`` /
+       ``static_anisotropic`` (3 params)
      - :math:`D_0`
      - Diffusion prefactor (\ :math:`\text{\AA}^2 / \mathrm{s}` units).
    * -
      - :math:`\alpha`
-     - Anomalous exponent (:math:`\alpha = 0` Brownian, :math:`< 0` sub-diffusive).
+     - Anomalous exponent (:math:`\alpha = 0` Brownian, :math:`< 0`
+       sub-diffusive; registry bounds :math:`[-2, 2]`).
    * -
      - :math:`D_\mathrm{offset}`
-     - Constant diffusion background.
-   * - ``static_isotropic`` (3 params)
-     - same
-     - As ``static``; per-angle scaling forced uniform.
-   * - ``static_anisotropic`` (3 params)
-     - same
-     - As ``static``; per-angle scaling treated per
-       :doc:`anti_degeneracy` mode.
+     - Constant diffusion background (registry bounds
+       :math:`[-10^5, 10^5]\,\text{\AA}^2/\mathrm{s}`; not constrained to
+       be non-negative).
+   * -
+     -
+     - ``static_isotropic`` forces per-angle scaling uniform;
+       ``static_anisotropic`` treats it per :doc:`anti_degeneracy` mode.
+       These are the only two valid ``analysis_mode`` values for a
+       static fit -- bare ``"static"`` is rejected by
+       :meth:`~xpcsjax.config.parameter_registry.AnalysisMode.parse`
+       (it is an internal-only synonym, resolved to
+       ``static_anisotropic``, that a config file cannot request
+       directly).
    * - ``laminar_flow`` (7 params)
      - :math:`D_0`
      - Diffusion prefactor.
@@ -272,7 +279,9 @@ Parameter sets per mode
      - Constant shear-rate background.
    * -
      - :math:`\phi_0`
-     - Flow-direction offset relative to the detector frame (radians).
+     - Flow-direction offset relative to the detector frame (**degrees**,
+       registry bounds :math:`[-10, 10]`; ``jax_backend.py`` computes
+       ``deg2rad(phi0 - phi)``, so both are in the same, degree, unit).
 
 Forward API
 -----------
