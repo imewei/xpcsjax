@@ -189,9 +189,11 @@ parameters and the flow angle (7 physics parameters total).
 
 ### Heterodyne (`two_component`)
 
-Two-component scattering (PNAS 2025 SI Eqs. S-77–S-98): light from a moving **sample**
-interferes with a static **reference**, and the cross-term oscillates at a frequency set
-by the sample velocity. The two-time correlation (Eq. S-95) is
+Two-component scattering ([He et al. PNAS 2024](https://doi.org/10.1073/pnas.2401162121)
+SI Appendix section 2.F / main-text Eq. 14; restated for N=2 in
+[He et al. PNAS 2025](https://doi.org/10.1073/pnas.2514216122) main-text Eqs. 1–3): light
+from a moving **sample** interferes with a static **reference**, and the cross-term
+oscillates at a frequency set by the sample velocity. The two-time correlation is
 
 $$c_2(\vec{q}, t_1, t_2) = 1 + \frac{\beta}{f^2}\left[C_{\text{ref}} + C_{\text{sample}} + C_{\text{cross}}\right]$$
 
