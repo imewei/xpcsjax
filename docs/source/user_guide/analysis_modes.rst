@@ -64,7 +64,7 @@ same three active parameters:
      - Effective diffusion coefficient at the reference time.
    * - ``alpha``
      - Time-exponent of the diffusion law,
-       :math:`D(t) \propto t^{\alpha}`.
+       :math:`J(t) \propto t^{\alpha}`.
    * - ``D_offset``
      - Additive offset on the diffusion term, absorbing background
        structure.

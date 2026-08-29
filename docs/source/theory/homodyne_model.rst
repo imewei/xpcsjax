@@ -29,14 +29,14 @@ All homodyne modes share three building blocks.
 .. math::
    :label: hm_Dt
 
-   D(t) \;=\; D_0 \cdot t^\alpha + D_\mathrm{offset},
+   J(t) \;=\; D_0 \cdot t^\alpha + D_\mathrm{offset},
 
 the diffusion integral entering the Siegert relation is
 
 .. math::
    :label: hm_diff_integral
 
-   \mathcal{D}(t_1, t_2) \;=\; \int_{t_1}^{t_2} D(t')\,dt',
+   \mathcal{D}(t_1, t_2) \;=\; \int_{t_1}^{t_2} J(t')\,dt',
 
 evaluated by cumulative trapezoidal integration on the experimental time
 grid. The :math:`D_0 = 2 D_\mathrm{SE}` convention is detailed in
