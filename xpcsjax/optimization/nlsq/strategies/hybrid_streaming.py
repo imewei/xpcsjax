@@ -391,6 +391,18 @@ def _resolve_streaming_per_angle_mode(
     )
 
 
+def _resolve_scaling_mode_for_indexing(mode: str, use_fixed_scaling: bool) -> str:
+    """Resolve the canonical per-angle mode used for L3/L4 index construction.
+
+    "constant" configured but quantile-based fixed-scaling estimation failed
+    (use_fixed_scaling stayed False) builds the real 2-param
+    [contrast_mean, offset_mean, *physical] vector -- the "averaged" layout,
+    not the frozen 0-param "constant" layout. Every other combination maps
+    to itself unchanged.
+    """
+    return "averaged" if (mode == "constant" and not use_fixed_scaling) else mode
+
+
 def fit_with_stratified_hybrid_streaming(
     stratified_data: Any,
     per_angle_scaling: bool,
@@ -870,12 +882,9 @@ def fit_with_stratified_hybrid_streaming(
         # fallback state has one, and it is shaped like "averaged" (2
         # params), not "individual". Resolve to "averaged" for indexing
         # purposes in that one case only — per_angle_mode_actual itself is
-        # left untouched (still reported as "constant" in diagnostics).
-        _canonical = (
-            "averaged"
-            if (per_angle_mode_actual == "constant" and not use_fixed_scaling)
-            else per_angle_mode_actual
-        )
+        # left untouched (still reported as "constant" in diagnostics). See
+        # _resolve_scaling_mode_for_indexing.
+        _canonical = _resolve_scaling_mode_for_indexing(per_angle_mode_actual, use_fixed_scaling)
         _mapper = ParameterIndexMapper.canonical(mode=_canonical, n_phi=n_phi, n_physics=n_physical)
         mode_group_indices = _mapper.group_indices or None  # [] (constant) -> None
         logger.debug(f"L3 group indices from mapper ({_canonical}): {_mapper.group_indices}")
@@ -921,12 +930,9 @@ def fit_with_stratified_hybrid_streaming(
         # fallback state ("constant" configured, quantile estimation failed)
         # to "averaged" for indexing, since its real vector is the 2-param
         # [contrast_mean, offset_mean, *physical] layout, not the frozen
-        # 0-param "constant" layout (see the matching L3 comment above).
-        _canonical_l4 = (
-            "averaged"
-            if (per_angle_mode_actual == "constant" and not use_fixed_scaling)
-            else per_angle_mode_actual
-        )
+        # 0-param "constant" layout (see the matching L3 comment above and
+        # _resolve_scaling_mode_for_indexing).
+        _canonical_l4 = _resolve_scaling_mode_for_indexing(per_angle_mode_actual, use_fixed_scaling)
         n_per_angle = ParameterIndexMapper.canonical(
             mode=_canonical_l4, n_phi=n_phi, n_physics=n_physical
         ).n_optimized  # 0 (constant) | 2 (averaged) | 2*n_phi (individual)
