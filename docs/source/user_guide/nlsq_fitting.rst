@@ -123,9 +123,16 @@ Practical consequences:
   transform is the principal reason that ``JAX_ENABLE_X64=1`` is
   mandatory at the package level.
 
-Each entry is checked against the active parameter list at load time; an
-entry naming an unrecognised parameter is skipped with a warning rather
-than aborting the load (see :ref:`parameter_space_bounds`):
+Each entry is merged into the parameter registry at load time. Naming a
+parameter already in the registry overrides its bounds; naming an
+unregistered parameter *without* both ``min`` and ``max`` raises
+``ValueError`` immediately (rather than deferring to a confusing
+``KeyError`` later); naming one *with* both is accepted as a new tracked
+bound with no warning. (Heterodyne's alias-resolving
+``ParameterSpace.from_config`` path is more lenient — see
+:ref:`parameter_space_bounds` — but ``ConfigManager.get_parameter_bounds``
+above goes through the shared ``ParameterManager``, which does not
+warn-and-skip.)
 
 .. code-block:: yaml
 
