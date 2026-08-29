@@ -171,8 +171,7 @@ that xpcsjax fits in ``two_component`` mode (:doc:`heterodyne_model`).
 
 .. note::
 
-   In xpcsjax, the cumulative diffusion
-   :math:`\mathcal{D}(t_1, t_2) = \int_{t_1}^{t_2} J(t')\,dt'` is evaluated
+   In xpcsjax, :math:`\mathcal{D}(t_1, t_2) = \int_{t_1}^{t_2} J(t')\,dt'` is evaluated
    numerically by cumulative trapezoidal integration on the experimental time
    grid --- no closed-form antiderivative is ever substituted. A closed form
    (:math:`D_0 \tau^{\alpha+1}/(\alpha+1)`) does exist for :math:`\alpha \neq
