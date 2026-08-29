@@ -34,4 +34,4 @@ class NLSQAdapterBase(ABC):
         ...
 
 
-__all__ = ["NLSQAdapterBase"]
+__all__ = ["NLSQAdapterBase", "PER_ANGLE_SCALING_REMOVED_MSG"]

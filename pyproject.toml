@@ -181,7 +181,6 @@ omit = [
     # I/O and perf infra — only meaningful with real HDF5 fixtures.
     "xpcsjax/data/performance_engine.py",
     "xpcsjax/data/memory_manager.py",
-    "xpcsjax/utils/async_io.py",
     "xpcsjax/utils/path_validation.py",
 ]
 

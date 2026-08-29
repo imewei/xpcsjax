@@ -15,19 +15,9 @@ Package surface
 CPU detection and configuration
 --------------------------------
 
-``detect_cpu_info``, ``configure_cpu_hpc``, ``get_optimal_batch_size``, and
-``benchmark_cpu_performance`` are re-exported through ``xpcsjax.device``'s
-``__all__`` and already rendered above by the package-level ``automodule``.
-``configure_cpu_threading`` is not re-exported, so it needs its own entry:
+``detect_cpu_info`` and ``configure_cpu_hpc`` are re-exported through
+``xpcsjax.device``'s ``__all__`` and already rendered above by the
+package-level ``automodule``. ``configure_cpu_threading`` is not
+re-exported, so it needs its own entry:
 
 .. autofunction:: xpcsjax.device.cpu.configure_cpu_threading
-
-Hardware configuration
------------------------
-
-Used internally for NLSQ thread and memory budget decisions.
-
-.. autoclass:: xpcsjax.device.config.HardwareConfig
-   :members:
-
-.. autofunction:: xpcsjax.device.config.detect_hardware

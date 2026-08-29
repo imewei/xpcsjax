@@ -11,8 +11,9 @@ Key Features:
 - Multi-core thread allocation strategies
 
 Usage:
-    from xpcsjax.device.cpu import configure_cpu_threading
-    config = configure_cpu_threading()
+    from xpcsjax.device import configure_cpu_hpc, detect_cpu_info
+    info = detect_cpu_info()
+    config = configure_cpu_hpc()
 """
 
 from __future__ import annotations
@@ -28,10 +29,6 @@ import logging
 # Suppress JAX backend logs (set to ERROR to hide GPU fallback warnings)
 logging.getLogger("jax._src.xla_bridge").setLevel(logging.ERROR)
 logging.getLogger("jax._src.compiler").setLevel(logging.ERROR)
-
-from xpcsjax.utils.logging import get_logger  # noqa: E402 - After logging config
-
-logger = get_logger(__name__)
 
 # Re-exported for public API. `xpcsjax.device.cpu` is an internal sibling
 # module (not an optional external package) and its own hard dependency,
