@@ -104,7 +104,7 @@ offset,
 .. math::
    :label: tc_D_model
 
-   D(t) \;=\; D_0 \cdot t^\alpha + D_\mathrm{offset},
+   J(t) \;=\; D_0 \cdot t^\alpha + D_\mathrm{offset},
 
 where
 
@@ -128,7 +128,7 @@ integration on the experimental time grid:
    :label: tc_integral_xpcsjax
 
    \mathcal{D}(t_1, t_2)
-   \;=\; \int_{t_1}^{t_2} D(t')\, dt'.
+   \;=\; \int_{t_1}^{t_2} J(t')\, dt'.
 
 The trapezoidal kernel and the precomputed geometric factors
 :math:`q^2 \Delta t / 2` and :math:`q L \Delta t / (2\pi)` are exposed by
@@ -163,7 +163,7 @@ Siegert relation :eq:`cf_siegert`: the measured :math:`c_2` depends on
 :math:`|c_1|^2 = \exp(-q^2 \mathcal{D})` rather than on :math:`c_1` itself.
 For the textbook equilibrium result
 :math:`|c_1|^2 = \exp(-2 q^2 D_\mathrm{SE}\,\tau)` to hold, the integral
-:math:`\mathcal{D} = \int D(t')\,dt'` must equal :math:`2 D_\mathrm{SE}\,\tau`,
+:math:`\mathcal{D} = \int J(t')\,dt'` must equal :math:`2 D_\mathrm{SE}\,\tau`,
 which requires :math:`D_0 = 2 D_\mathrm{SE}`.
 
 .. warning::
@@ -184,7 +184,7 @@ see warning above), the mean-squared displacement is
 
    \mathrm{MSD}(t)
    \;\equiv\; \mathrm{Var}\!\left[x(t) - x(0)\right]
-   \;=\; \int_0^t D(t')\, dt'.
+   \;=\; \int_0^t J(t')\, dt'.
 
 The effective physical (Stokes--Einstein) diffusion coefficient at time
 :math:`t` is therefore half the xpcsjax integrand averaged over time:
