@@ -55,6 +55,16 @@ def test_version_at_least(actual: str, minimum: str, ok: bool) -> None:
     assert _version_at_least(actual, minimum) is ok
 
 
+def test_version_at_least_returns_none_for_unparseable_version() -> None:
+    # A non-PEP-440 version string (e.g. a VCS/local build marker) must not
+    # raise packaging.version.InvalidVersion out of this helper -- it's a
+    # third, distinct outcome from "satisfies"/"outdated", surfaced as None
+    # so callers can bucket it separately instead of a raised exception
+    # collapsing the whole caller's per-item breakdown.
+    assert _version_at_least("not-a-version", "1.0.0") is None
+    assert _version_at_least("0.0.0-dirty", "1.0.0") is None
+
+
 # --- result dataclass -------------------------------------------------------
 
 
@@ -82,6 +92,32 @@ def test_dependency_versions_probe_passes() -> None:
     r = SystemValidator().test_dependency_versions()
     assert r.success is True, r.details
     assert "required dependencies satisfied" in r.message
+
+
+def test_dependency_versions_probe_buckets_unparseable_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A dependency reporting a non-PEP-440 version string must not collapse
+    # the whole probe into one opaque "Test raised exception" ERROR (the
+    # SystemValidator.validate() blanket except) -- it should surface as its
+    # own "Unparseable version" bucket, distinct from missing/outdated, while
+    # every other well-formed dependency is still evaluated normally.
+    real_version = sv.importlib_metadata.version
+    first_dist = sv.REQUIRED_DEPENDENCIES[0][0]
+
+    def fake_version(dist_name: str) -> str:
+        if dist_name == first_dist:
+            return "not-a-version"
+        return real_version(dist_name)
+
+    monkeypatch.setattr(sv.importlib_metadata, "version", fake_version)
+
+    r = SystemValidator().test_dependency_versions()
+    assert r.success is False
+    assert "dependency issue(s) detected" in r.message
+    assert r.details is not None
+    assert "Unparseable version" in r.details
+    assert first_dist in r.details
 
 
 def test_jax_installation_probe_x64_enabled() -> None:

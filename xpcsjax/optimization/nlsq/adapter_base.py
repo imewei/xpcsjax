@@ -11,10 +11,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from xpcsjax.utils.logging import get_logger
-
-logger = get_logger(__name__)
-
 # Shared by NLSQAdapter.fit() (adapter.py) and NLSQWrapper.fit() (wrapper.py) — both reject
 # the removed per_angle_scaling=False legacy mode with this exact message.
 PER_ANGLE_SCALING_REMOVED_MSG = (
