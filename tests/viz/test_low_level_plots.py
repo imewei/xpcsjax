@@ -253,7 +253,7 @@ def test_evaluate_heterodyne_duplicate_phi_uses_own_scaling(
     a shared phi the g1² surface is identical, so any difference must come from
     the per-index scaling.
     """
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
     from xpcsjax.optimization.nlsq.results import OptimizationResult
 
     t = synthetic_multi_angle_data["t1"]
@@ -267,7 +267,7 @@ def test_evaluate_heterodyne_duplicate_phi_uses_own_scaling(
         "t2": t,
         "dt": 0.1,
     }
-    het = HeterodyneModel()
+    het = HeterodynePhysicsAdapter()
     physical = np.asarray(het.get_default_parameters(), dtype=float)
     # Distinct scaling for the duplicate pair: idx1 -> (0.2, 1.0), idx2 -> (0.5, 2.0).
     contrasts = np.array([0.2, 0.2, 0.5, 0.2])

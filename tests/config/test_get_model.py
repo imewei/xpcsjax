@@ -1,7 +1,7 @@
 """Config-driven dispatch returns the right physics model class.
 
 Task 28: validates that :meth:`ConfigManager.get_model` routes
-``analysis_mode: two_component`` to :class:`HeterodyneModel` and the homodyne
+``analysis_mode: two_component`` to :class:`HeterodynePhysicsAdapter` and the homodyne
 modes (``static`` / ``laminar_flow``) to the legacy ``CombinedModel`` path.
 """
 
@@ -31,57 +31,57 @@ experimental_data:
 
 
 def test_two_component_dispatches_to_heterodyne(tmp_path):
-    """analysis_mode: two_component must produce a HeterodyneModel instance."""
+    """analysis_mode: two_component must produce a HeterodynePhysicsAdapter instance."""
     from xpcsjax.config import ConfigManager
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
     from xpcsjax.core.models import PhysicsModelBase
 
     cfg = ConfigManager(_write_config(tmp_path, "two_component"))
     model = cfg.get_model()
 
-    assert isinstance(model, HeterodyneModel), (
-        f"expected HeterodyneModel for analysis_mode='two_component', got {type(model).__name__}"
+    assert isinstance(model, HeterodynePhysicsAdapter), (
+        f"expected HeterodynePhysicsAdapter for analysis_mode='two_component', got {type(model).__name__}"
     )
     assert isinstance(model, PhysicsModelBase)
 
 
 def test_heterodyne_synonym_dispatches_to_heterodyne(tmp_path):
-    """analysis_mode: heterodyne (synonym) must also produce HeterodyneModel."""
+    """analysis_mode: heterodyne (synonym) must also produce HeterodynePhysicsAdapter."""
     from xpcsjax.config import ConfigManager
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
 
     cfg = ConfigManager(_write_config(tmp_path, "heterodyne"))
     model = cfg.get_model()
 
-    assert isinstance(model, HeterodyneModel), (
-        f"expected HeterodyneModel for analysis_mode='heterodyne' synonym, "
+    assert isinstance(model, HeterodynePhysicsAdapter), (
+        f"expected HeterodynePhysicsAdapter for analysis_mode='heterodyne' synonym, "
         f"got {type(model).__name__}"
     )
 
 
 def test_static_does_not_dispatch_to_heterodyne(tmp_path):
-    """analysis_mode: static_anisotropic must NOT produce a HeterodyneModel (sanity)."""
+    """analysis_mode: static_anisotropic must NOT produce a HeterodynePhysicsAdapter (sanity)."""
     from xpcsjax.config import ConfigManager
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
 
     cfg = ConfigManager(_write_config(tmp_path, "static_anisotropic"))
     model = cfg.get_model()
 
-    assert not isinstance(model, HeterodyneModel), (
+    assert not isinstance(model, HeterodynePhysicsAdapter), (
         f"expected non-heterodyne model for analysis_mode='static_anisotropic', "
         f"got {type(model).__name__}"
     )
 
 
 def test_laminar_flow_does_not_dispatch_to_heterodyne(tmp_path):
-    """analysis_mode: laminar_flow must NOT produce a HeterodyneModel."""
+    """analysis_mode: laminar_flow must NOT produce a HeterodynePhysicsAdapter."""
     from xpcsjax.config import ConfigManager
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
 
     cfg = ConfigManager(_write_config(tmp_path, "laminar_flow"))
     model = cfg.get_model()
 
-    assert not isinstance(model, HeterodyneModel), (
+    assert not isinstance(model, HeterodynePhysicsAdapter), (
         f"expected non-heterodyne model for analysis_mode='laminar_flow', "
         f"got {type(model).__name__}"
     )
@@ -89,14 +89,14 @@ def test_laminar_flow_does_not_dispatch_to_heterodyne(tmp_path):
 
 def test_make_model_accepts_dict():
     """make_model should also work on a raw config dict (no ConfigManager)."""
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
     from xpcsjax.core.models import make_model
 
     model = make_model({"analysis_mode": "two_component"})
-    assert isinstance(model, HeterodyneModel)
+    assert isinstance(model, HeterodynePhysicsAdapter)
 
     model = make_model({"analysis_mode": "static_anisotropic"})
-    assert not isinstance(model, HeterodyneModel)
+    assert not isinstance(model, HeterodynePhysicsAdapter)
 
 
 def test_config_manager_normalizes_heterodyne_synonym(tmp_path):

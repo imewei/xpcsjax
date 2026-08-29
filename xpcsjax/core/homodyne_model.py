@@ -11,7 +11,7 @@ initialization, and a high-level API delegates to JIT-compiled functional cores:
 
 See Also
 --------
-xpcsjax.core.heterodyne_model.HeterodyneModel : Two-component heterodyne analog.
+xpcsjax.core.heterodyne_model.HeterodynePhysicsAdapter : Two-component heterodyne analog.
 
 Examples
 --------
@@ -103,7 +103,7 @@ class HomodyneModel:
     See Also
     --------
     compute_c2 : Primary entry point for computing correlation surfaces.
-    xpcsjax.core.heterodyne_model.HeterodyneModel : Two-component heterodyne analog.
+    xpcsjax.core.heterodyne_model.HeterodynePhysicsAdapter : Two-component heterodyne analog.
 
     Examples
     --------

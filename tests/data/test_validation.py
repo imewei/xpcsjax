@@ -125,6 +125,26 @@ def test_tau0_self_correlation_spike_is_not_flagged() -> None:
     assert _correlation_warnings(report) == []
 
 
+def test_single_frame_matrix_skips_near_zero_lag_check() -> None:
+    """A <=1-frame matrix has no lag-1 (first superdiagonal) to check; the
+    fix must skip the near-zero-lag check entirely rather than reading
+    diagonal[0] (the excluded tau=0 spike) as if it were lag-1 data.
+
+    Discriminating value: 2.4 is outside the pre-fix code's [0.5, 2.0] band,
+    so the bug (reading diagonal[0]=2.4 through that check) would emit a
+    spurious "unusual near-zero-lag correlation" warning for a matrix that
+    has no lag-1 information to be unusual about. The fix emits none.
+    """
+    data = _clean_data()
+    data["c2_exp"] = np.stack([np.array([[2.4]]), np.array([[2.4]])])
+    data["t1"] = np.array([0.0])
+    data["t2"] = np.array([0.0])
+
+    report = validate_xpcs_data(data, validation_level="full")
+
+    assert _correlation_warnings(report) == []
+
+
 def test_overnormalized_near_zero_lag_is_still_flagged() -> None:
     """The lag-aware check must still catch genuinely over-normalized data.
 

@@ -91,7 +91,7 @@ nitpick_ignore_regex = [
     (r"py:class", r"PhysicsModelBase|DiffusionModel|CombinedModel|PhysicsFactors"),
     (
         r"py:meth",
-        r"from_config|HomodyneModel\.compute_c2|HeterodyneModel\.compute_g1|compute_g1|compute_c2_single_angle",
+        r"from_config|HomodyneModel\.compute_c2|HeterodynePhysicsAdapter\.compute_g1|compute_g1|compute_c2_single_angle",
     ),
     (r"py:func", r"xpcsjax\.core\.models\.make_model"),
     # Bare attribute names referenced from inside autodoc'd docstrings.

@@ -41,7 +41,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 _TWO_COMPONENT_MODE: AnalysisMode = "two_component"
 
 
-class HeterodyneModel(PhysicsModelBase):
+class HeterodynePhysicsAdapter(PhysicsModelBase):
     """Two-component reference + sample heterodyne XPCS model (14 physics params).
 
     Wraps the heterodyne physics in the xpcsjax
@@ -93,7 +93,7 @@ class HeterodyneModel(PhysicsModelBase):
 
     Examples
     --------
-    >>> model = HeterodyneModel()
+    >>> model = HeterodynePhysicsAdapter()
     >>> model.parameter_names[:3]
     ['D0_ref', 'alpha_ref', 'D_offset_ref']
     >>> params = model.get_default_parameters()
@@ -332,4 +332,4 @@ class HeterodyneModel(PhysicsModelBase):
         return (c2_model - c2_exp).reshape(-1)
 
 
-__all__ = ["HeterodyneModel"]
+__all__ = ["HeterodynePhysicsAdapter"]

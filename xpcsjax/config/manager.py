@@ -559,14 +559,14 @@ class ConfigManager:
         Thin wrapper over :func:`xpcsjax.core.models.make_model` so that engine
         and test code can build the appropriate model directly from a
         ``ConfigManager`` instance. Routing matches ``make_model``:
-        ``two_component`` / ``heterodyne`` → ``HeterodyneModel``; the homodyne
-        modes → ``CombinedModel``.
+        ``two_component`` / ``heterodyne`` → ``HeterodynePhysicsAdapter``; the
+        homodyne modes → ``CombinedModel``.
 
         Returns
         -------
         Any
-            The model instance produced by ``make_model`` (a ``HeterodyneModel``
-            or ``CombinedModel``).
+            The model instance produced by ``make_model`` (a
+            ``HeterodynePhysicsAdapter`` or ``CombinedModel``).
 
         See Also
         --------

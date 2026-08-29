@@ -371,10 +371,26 @@ class StratifiedResidualFunction:
 
         # A2: Precompute the diagonal mask ONCE (was recomputed every iteration
         # inside the residual, polluting the jacfwd tape with two large float
-        # temporaries). Diagonal points (t1 == t2) map to identical grid indices
-        # by construction, so an integer-exact comparison is both correct and
-        # avoids storing the ~370 MB float t1/t2 value arrays at 23M points.
-        self._diag_mask = self.t1_indices_all != self.t2_indices_all
+        # temporaries).
+        #
+        # CORRECTNESS FIX: t1_indices_all/t2_indices_all index into two
+        # SEPARATELY-computed unique arrays (t1_unique from np.unique(all_t1),
+        # t2_unique from np.unique(all_t2) -- see _precompute_chunk_metadata).
+        # "Diagonal points map to identical grid indices by construction" only
+        # holds when t1_unique and t2_unique are the same array; stratified
+        # chunking gives no such guarantee (e.g. a chunk whose t1 values never
+        # include the grid's largest timestamp, or whose t2 values never
+        # include the smallest, shifts one unique array relative to the
+        # other). This is the exact defect strategies/residual_jit.py fixed
+        # (2026-01-15): comparing indices instead of values. Fixed here the
+        # same way, but using actual chunk t1/t2 VALUES only transiently, at
+        # this one-time setup call -- not retained afterward -- so the A2
+        # memory win (no float t1/t2 arrays alive during the per-iteration
+        # jacfwd-traced residual) is preserved.
+        t1_values_all = np.concatenate([chunk.t1 for chunk in self.chunks], axis=0)
+        t2_values_all = np.concatenate([chunk.t2 for chunk in self.chunks], axis=0)
+        self._diag_mask = jnp.asarray(np.abs(t1_values_all - t2_values_all) > 1e-15)
+        del t1_values_all, t2_values_all
 
         # Compute chunk boundaries for index lookup
         chunk_sizes = [len(cast(jnp.ndarray, chunk_jax["g2"])) for chunk_jax in self.chunks_jax]
@@ -627,12 +643,10 @@ class StratifiedResidualFunction:
 
         # A2: Mask diagonal points (t1 == t2) to zero. Diagonal
         # points are autocorrelation artifacts, not physics. The mask is
-        # precomputed once in _concatenate_chunk_data (self._diag_mask) using
-        # the integer grid indices — diagonal points have identical t1/t2
-        # indices by construction, so the comparison is exact and needs no
-        # float tolerance. This keeps the residual bitwise-equal to the prior
-        # value-based test while removing two large float temporaries from the
-        # jacfwd tape (and ~370 MB of stored value arrays at 23M points).
+        # precomputed once in _concatenate_chunk_data (self._diag_mask) from
+        # actual t1/t2 VALUES (not grid indices -- see the correctness note
+        # there), computed transiently at setup time so no float t1/t2 value
+        # arrays are retained here in the jacfwd-traced residual path.
         residuals = jnp.where(self._diag_mask, residuals, 0.0)
 
         return residuals

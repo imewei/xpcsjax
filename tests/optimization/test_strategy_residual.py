@@ -109,6 +109,43 @@ def test_zero_sigma_point_is_masked_no_nan() -> None:
     assert res[1] == pytest.approx(0.0, abs=1e-12)  # masked by zero sigma
 
 
+def test_diag_mask_uses_values_not_independent_unique_indices() -> None:
+    """Regression: t1_unique = np.unique(all_t1) and t2_unique = np.unique(all_t2)
+    are built independently, so an index-based diagonal comparison
+    (t1_indices != t2_indices) is only correct when those two unique arrays
+    happen to be identical. This chunk's t1/t2 value sets differ, so they are
+    not: t1=[1.0, 2.0] -> t1_unique=[1.0, 2.0] (indices 0, 1); t2=[2.0, 2.0]
+    -> t2_unique=[2.0] (a single value, index 0 for every point).
+
+    Point 0: t1=1.0 (t1_index=0), t2=2.0 (t2_index=0) -- truly OFF-diagonal
+    (1.0 != 2.0), but the indices are EQUAL (0 == 0) -- an index-based mask
+    would wrongly call this diagonal and zero out a real residual.
+    Point 1: t1=2.0 (t1_index=1), t2=2.0 (t2_index=0) -- truly ON the
+    diagonal (2.0 == 2.0), but the indices DIFFER (1 != 0) -- an
+    index-based mask would wrongly call this off-diagonal and leave an
+    autocorrelation artifact in the residual.
+
+    A value-based mask (compare t1 and t2 directly) gets both right.
+    """
+    chunk = SimpleNamespace(
+        phi=np.array([0.0, 0.0]),
+        t1=np.array([1.0, 2.0]),
+        t2=np.array([2.0, 2.0]),
+        g2=np.array([1.3, 1.3]),
+        q=0.01,
+        L=1.0,
+        dt=1.0,
+    )
+    stratified = SimpleNamespace(chunks=[chunk], sigma=np.ones((1, 2, 2)))
+
+    rf = StratifiedResidualFunction(
+        stratified, per_angle_scaling=False, physical_param_names=_PHYSICAL
+    )
+
+    assert bool(rf._diag_mask[0]) is True, "point 0 (t1=1.0 != t2=2.0) must NOT be masked"
+    assert bool(rf._diag_mask[1]) is False, "point 1 (t1=2.0 == t2=2.0) must be masked"
+
+
 def test_residuals_are_deterministic() -> None:
     rf = StratifiedResidualFunction(
         _stratified(), per_angle_scaling=True, physical_param_names=_PHYSICAL

@@ -70,9 +70,9 @@ def homodyne_model(minimal_homodyne_config):
 
 @pytest.fixture
 def heterodyne_model():
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
 
-    return HeterodyneModel()
+    return HeterodynePhysicsAdapter()
 
 
 @pytest.fixture
@@ -106,11 +106,11 @@ def converged_heterodyne_result(synthetic_multi_angle_data):
     surface to ~0, which the range assertion in
     ``test_evaluate_heterodyne_returns_2d_finite`` catches.
     """
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
     from xpcsjax.optimization.nlsq.results import OptimizationResult
 
     n_phi = synthetic_multi_angle_data["phi_angles_list"].size
-    het = HeterodyneModel()
+    het = HeterodynePhysicsAdapter()
     physical = np.asarray(het.get_default_parameters(), dtype=float)
     contrasts = np.full(n_phi, 0.2, dtype=float)
     offsets = np.full(n_phi, 1.0, dtype=float)

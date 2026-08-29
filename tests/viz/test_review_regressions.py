@@ -90,10 +90,10 @@ def test_generate_plots_missing_analyzer_parameters_raises_valueerror(tmp_path):
     raise the clear ``ValueError``, not an opaque ``AttributeError`` deep
     inside the per-angle render loop.
     """
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
     from xpcsjax.viz.nlsq_plots import generate_nlsq_plots
 
-    model = HeterodyneModel()
+    model = HeterodynePhysicsAdapter()
     n_phi = 3
     result = _make_heterodyne_result(2 * n_phi + len(model.parameter_names))
     data = _make_heterodyne_data(n_phi=n_phi)
@@ -176,10 +176,10 @@ def test_generate_plots_missing_analysis_mode_falls_back_to_laminar_flow(tmp_pat
 
 def test_heterodyne_constant_mode_raises_not_implemented(tmp_path):
     """n_total == n_physical (constant mode) → NotImplementedError upfront."""
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
     from xpcsjax.viz.nlsq_plots import generate_nlsq_plots
 
-    model = HeterodyneModel()
+    model = HeterodynePhysicsAdapter()
     n_physical = len(model.parameter_names)
     result = _make_heterodyne_result(n_physical)  # constant mode shape
     data = _make_heterodyne_data(n_phi=3)
@@ -197,10 +197,10 @@ def test_heterodyne_constant_mode_raises_not_implemented(tmp_path):
 
 def test_heterodyne_unknown_layout_raises_not_implemented(tmp_path):
     """A parameter count between constant and individual → NotImplementedError."""
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
     from xpcsjax.viz.nlsq_plots import generate_nlsq_plots
 
-    model = HeterodyneModel()
+    model = HeterodynePhysicsAdapter()
     n_physical = len(model.parameter_names)
     # Pick a residual that's even but does NOT equal 2 * n_phi (n_phi=3 → 6).
     # n_total = n_physical + 4 is an intermediate per-angle shape that matches
@@ -221,10 +221,10 @@ def test_heterodyne_unknown_layout_raises_not_implemented(tmp_path):
 
 def test_heterodyne_individual_layout_does_not_raise(tmp_path):
     """The individual layout (n_physical + 2*n_phi) is the supported path."""
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
     from xpcsjax.viz.nlsq_plots import generate_nlsq_plots
 
-    model = HeterodyneModel()
+    model = HeterodynePhysicsAdapter()
     n_physical = len(model.parameter_names)
     n_phi = 3
     n_total = n_physical + 2 * n_phi
@@ -672,11 +672,11 @@ def test_save_fig_closes_on_savefig_exception(tmp_path):
 
 def test_heterodyne_averaged_mode_does_not_raise(tmp_path):
     """Averaged mode (14 physics + 2 shared scaling, per_angle_mode in diag)."""
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
     from xpcsjax.optimization.nlsq.results import OptimizationResult
     from xpcsjax.viz.nlsq_plots import _unpack_heterodyne_scaling, generate_nlsq_plots
 
-    model = HeterodyneModel()
+    model = HeterodynePhysicsAdapter()
     n_phi = 3
     physical = np.asarray(model.get_default_parameters(), dtype=float)
     # Canonical scaling-first averaged layout: [contrast, offset, physics...].
@@ -718,11 +718,11 @@ def test_heterodyne_individual_markerless_is_scaling_first():
     three blocks carry disjoint value ranges, so any head/tail swap fails here
     rather than silently mis-plotting (the C044 failure mode).
     """
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
     from xpcsjax.optimization.nlsq.results import OptimizationResult
     from xpcsjax.viz.nlsq_plots import _unpack_heterodyne_scaling, _unpack_result_params
 
-    model = HeterodyneModel()
+    model = HeterodynePhysicsAdapter()
     n_phi = 3
     n_physical = len(model.parameter_names)
     contrasts_in = np.array([1.1, 1.2, 1.3])
@@ -759,11 +759,11 @@ def test_heterodyne_averaged_fallback_reads_scaling_first_head(tmp_path):
     """F4: averaged fallback (no averaged_* diag keys) reads the scaling-FIRST
     HEAD params[0]/[1], not the physics-first tail params[-2]/[-1].
     """
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
     from xpcsjax.optimization.nlsq.results import OptimizationResult
     from xpcsjax.viz.nlsq_plots import _unpack_heterodyne_scaling, _unpack_result_params
 
-    model = HeterodyneModel()
+    model = HeterodynePhysicsAdapter()
     n_phi = 3
     physical = np.asarray(model.get_default_parameters(), dtype=float)
     # Scaling-first averaged layout [c, o, physics...]; c/o distinct from the
@@ -840,11 +840,11 @@ def test_laminar_flow_combined_model_does_not_raise(tmp_path):
 
 def test_heterodyne_constant_mode_with_diag_does_not_raise(tmp_path):
     """Constant mode (14 physics, frozen per-angle scaling in diagnostics)."""
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
     from xpcsjax.optimization.nlsq.results import OptimizationResult
     from xpcsjax.viz.nlsq_plots import _unpack_heterodyne_scaling, generate_nlsq_plots
 
-    model = HeterodyneModel()
+    model = HeterodynePhysicsAdapter()
     n_phi = 3
     physical = np.asarray(model.get_default_parameters(), dtype=float)
     result = OptimizationResult(
@@ -959,10 +959,10 @@ def test_averaged_physics_first_uncertainties_use_head_slice(tmp_path, monkeypat
     physics-first averaged result, not the trailing slice (which would drop the
     first 2 physics uncertainties and inject contrast/offset uncertainties)."""
     import xpcsjax.viz.nlsq_plots as npl
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
     from xpcsjax.optimization.nlsq.results import OptimizationResult
 
-    model = HeterodyneModel()
+    model = HeterodynePhysicsAdapter()
     n_phi = 3
     physical = np.asarray(model.get_default_parameters(), dtype=float)  # 14
     n_phys = physical.size

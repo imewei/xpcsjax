@@ -391,6 +391,18 @@ def _resolve_streaming_per_angle_mode(
     )
 
 
+def _resolve_scaling_mode_for_indexing(mode: str, use_fixed_scaling: bool) -> str:
+    """Resolve the canonical per-angle mode used for L3/L4 index construction.
+
+    "constant" configured but quantile-based fixed-scaling estimation failed
+    (use_fixed_scaling stayed False) builds the real 2-param
+    [contrast_mean, offset_mean, *physical] vector -- the "averaged" layout,
+    not the frozen 0-param "constant" layout. Every other combination maps
+    to itself unchanged.
+    """
+    return "averaged" if (mode == "constant" and not use_fixed_scaling) else mode
+
+
 def fit_with_stratified_hybrid_streaming(
     stratified_data: Any,
     per_angle_scaling: bool,
@@ -859,7 +871,20 @@ def fit_with_stratified_hybrid_streaming(
         # two-way ternary fell through to "individual" for that state,
         # mis-sizing L3's group indices against the real 2-element scaling
         # head.
-        _canonical = per_angle_mode_actual
+        #
+        # But literal "constant" is ALSO wrong for that fallback state:
+        # ParameterIndexMapper.canonical(mode="constant", ...).n_optimized is
+        # 0 (frozen, no scaling head at all), while the `elif use_constant:`
+        # branch below builds a REAL 2-param [contrast_mean, offset_mean,
+        # *physical] vector for this exact state (quantile estimation failed,
+        # use_fixed_scaling stayed False). A true frozen "constant" fit
+        # (use_fixed_scaling=True) has no scaling head to group; only the
+        # fallback state has one, and it is shaped like "averaged" (2
+        # params), not "individual". Resolve to "averaged" for indexing
+        # purposes in that one case only — per_angle_mode_actual itself is
+        # left untouched (still reported as "constant" in diagnostics). See
+        # _resolve_scaling_mode_for_indexing.
+        _canonical = _resolve_scaling_mode_for_indexing(per_angle_mode_actual, use_fixed_scaling)
         _mapper = ParameterIndexMapper.canonical(mode=_canonical, n_phi=n_phi, n_physics=n_physical)
         mode_group_indices = _mapper.group_indices or None  # [] (constant) -> None
         logger.debug(f"L3 group indices from mapper ({_canonical}): {_mapper.group_indices}")
@@ -901,8 +926,13 @@ def fit_with_stratified_hybrid_streaming(
         # Same fix as _canonical above: derive from per_angle_mode_actual
         # directly, not from the use_fixed_scaling/use_averaged_scaling
         # success flags (which can disagree with per_angle_mode_actual on a
-        # constant-mode quantile-estimation failure).
-        _canonical_l4 = per_angle_mode_actual
+        # constant-mode quantile-estimation failure) -- AND resolve that one
+        # fallback state ("constant" configured, quantile estimation failed)
+        # to "averaged" for indexing, since its real vector is the 2-param
+        # [contrast_mean, offset_mean, *physical] layout, not the frozen
+        # 0-param "constant" layout (see the matching L3 comment above and
+        # _resolve_scaling_mode_for_indexing).
+        _canonical_l4 = _resolve_scaling_mode_for_indexing(per_angle_mode_actual, use_fixed_scaling)
         n_per_angle = ParameterIndexMapper.canonical(
             mode=_canonical_l4, n_phi=n_phi, n_physics=n_physical
         ).n_optimized  # 0 (constant) | 2 (averaged) | 2*n_phi (individual)
@@ -1819,8 +1849,19 @@ def fit_with_stratified_hybrid_streaming(
                     f"(n_data={n_hier_data}, n_params={n_hier_params})"
                 )
             except np.linalg.LinAlgError:
-                logger.warning("Singular Hessian in hierarchical path, using pseudo-inverse")
-                pcov_hier = 2.0 * s2_hier * np.linalg.pinv(H)
+                # A pseudo-inverse would misreport the unidentified (null-space)
+                # direction's variance as exactly 0.0 (infinite confidence)
+                # instead of the statistically correct unbounded uncertainty --
+                # e.g. when the L-BFGS-B solution rests on a bound and the
+                # unconstrained Hessian there is not positive-definite. Fall
+                # back to the placeholder instead of silently trusting pinv
+                # (mirrors heterodyne_hybrid_streaming.py's equivalent guard).
+                logger.error(
+                    "Singular Hessian in hierarchical path; covariance is an "
+                    "identity placeholder — reported uncertainties are NOT meaningful."
+                )
+                pcov_hier = np.eye(n_hier_params)
+                covariance_is_placeholder = True
         else:
             # H-5: an identity covariance is fabricated, not measured. Reported
             # uncertainties (±1.0 for every parameter) are meaningless; flag it
