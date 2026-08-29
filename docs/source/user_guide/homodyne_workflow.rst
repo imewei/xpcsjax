@@ -111,7 +111,7 @@ The model takes a single ``config`` ``dict``:
 
    model_config = {
        "analyzer_parameters": {
-           "temporal":   {"dt": 0.05, "start_frame": 0, "end_frame": 2000},
+           "dt": 0.05, "start_frame": 1, "end_frame": 2000,
            "scattering": {"wavevector_q": 0.012},
            "geometry":   {"stator_rotor_gap": 1.0e-3},
        },

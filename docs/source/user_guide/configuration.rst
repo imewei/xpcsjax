@@ -167,8 +167,9 @@ Public methods
     is absent, or it is not a mapping. It never returns ``None``.
 
 :meth:`xpcsjax.config.ConfigManager.get_parameter_bounds`
-    Returns the bounds ``(lower, upper)`` arrays for the active
-    parameters of the configured mode.
+    Returns a ``list[dict]``, one entry per active parameter, each with
+    ``'name'``, ``'min'``, ``'max'``, and ``'type'`` keys — not a
+    ``(lower, upper)`` array pair.
 
 :meth:`xpcsjax.config.ConfigManager.get_active_parameters`
     Returns the ordered list of parameter names for the active analysis
@@ -408,7 +409,7 @@ Validation behaviour
 
 * Presence of the mandatory top-level keys.
 * Consistency between ``analysis_mode`` and the lengths of
-  ``initial_parameters.values`` and ``parameter_bounds``.
+  ``initial_parameters.values`` and ``parameter_space.bounds``.
 * Numeric plausibility of bounds (``lower < upper``, finite values).
 * Physical plausibility of analyzer parameters (e.g. positive ``dt``,
   ``start_frame < end_frame``).
@@ -422,6 +423,6 @@ What to read next
 
 * :doc:`/user_guide/analysis_modes` for the per-mode parameter
   inventory referenced by ``initial_parameters`` and
-  ``parameter_bounds``.
+  ``parameter_space.bounds``.
 * :doc:`/user_guide/nlsq_fitting` for the ``optimization.nlsq``
   sub-keys.

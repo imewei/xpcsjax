@@ -14,8 +14,9 @@ Homodyne model
 The homodyne model uses a *hybrid* architecture — stateful storage of
 configuration and pre-computed physics factors, with high-level methods that
 delegate to JIT-compiled functional cores. ``HomodyneModel.__init__`` accepts
-a config dict with ``analyzer_parameters.temporal/scattering/geometry`` keys
-(matching the YAML schema).
+a config dict with ``analyzer_parameters.{dt,start_frame,end_frame}`` plus
+``analyzer_parameters.scattering``/``geometry`` sub-blocks (matching the
+YAML schema).
 
 The primary user-facing method, ``compute_c2``, takes a parameter vector and
 an array of φ angles and returns the C2 correlation stack:

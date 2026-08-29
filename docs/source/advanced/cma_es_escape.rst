@@ -159,10 +159,13 @@ The YAML block recognised by xpcsjax:
           normalize: true
           refine_with_nlsq: true
 
-The homodyne adapter reads this ``optimization.nlsq.cmaes`` block.
-Heterodyne (``two_component``) instead uses flat keys ``enable_cmaes`` /
-``cmaes_sigma0`` / ``cmaes_max_iterations``; see
-:doc:`/examples/heterodyne_multiangle` for the heterodyne layout.
+Both the homodyne and heterodyne adapters read this same nested
+``optimization.nlsq.cmaes`` YAML block (``enable``, ``sigma``,
+``max_generations``, ...); see :doc:`/examples/heterodyne_multiangle` for
+the heterodyne layout. Internally, heterodyne's ``NLSQConfig.from_dict``
+unpacks that block into flat dataclass fields named ``enable_cmaes`` /
+``cmaes_sigma0`` / ``cmaes_max_iterations`` — those are Python attribute
+names, not YAML keys, so they never appear in the config file itself.
 
 Cross-references
 ----------------
