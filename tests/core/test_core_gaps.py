@@ -1,8 +1,8 @@
 """Gap-filling tests for xpcsjax.core identified by Codex + Gemini review.
 
 Covers four previously untested paths:
-  T2 - HeterodyneModel.compute_g1 multi-phi vmap output shape
-  T3 - HeterodyneModel.compute_residual end-to-end flat residual
+  T2 - HeterodynePhysicsAdapter.compute_g1 multi-phi vmap output shape
+  T3 - HeterodynePhysicsAdapter.compute_residual end-to-end flat residual
   T8 - HomodyneModel.__init__ rejects negative end_frame sentinel
   T10 - make_model handles "heterodyne" synonym and non-string analysis_mode
 """
@@ -15,20 +15,20 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from xpcsjax.core.heterodyne_model import HeterodyneModel
+from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
 from xpcsjax.core.models import make_model
 
 # ---------------------------------------------------------------------------
-# T2: HeterodyneModel.compute_g1 — multi-phi vmap path
+# T2: HeterodynePhysicsAdapter.compute_g1 — multi-phi vmap path
 # ---------------------------------------------------------------------------
 
 
 class TestHeterodyneComputeG1MultiPhi:
-    """HeterodyneModel.compute_g1 with a phi array exercises jax.vmap."""
+    """HeterodynePhysicsAdapter.compute_g1 with a phi array exercises jax.vmap."""
 
     @pytest.fixture
-    def model_and_params(self) -> tuple[HeterodyneModel, jnp.ndarray]:
-        model = HeterodyneModel()
+    def model_and_params(self) -> tuple[HeterodynePhysicsAdapter, jnp.ndarray]:
+        model = HeterodynePhysicsAdapter()
         params = model.get_default_parameters()
         return model, params
 
@@ -100,16 +100,16 @@ class TestHeterodyneComputeG1MultiPhi:
 
 
 # ---------------------------------------------------------------------------
-# T3: HeterodyneModel.compute_residual — end-to-end flat residual
+# T3: HeterodynePhysicsAdapter.compute_residual — end-to-end flat residual
 # ---------------------------------------------------------------------------
 
 
 class TestHeterodyneComputeResidual:
-    """HeterodyneModel.compute_residual returns a flat 1-D residual array."""
+    """HeterodynePhysicsAdapter.compute_residual returns a flat 1-D residual array."""
 
     @pytest.fixture
-    def model(self) -> HeterodyneModel:
-        return HeterodyneModel()
+    def model(self) -> HeterodynePhysicsAdapter:
+        return HeterodynePhysicsAdapter()
 
     def _make_data(self, N: int = 6, n_phi: int = 2) -> dict:
         t = np.linspace(0.0, float(N - 1), N)
@@ -126,14 +126,14 @@ class TestHeterodyneComputeResidual:
             "offset": 0.0,
         }
 
-    def test_residual_is_1d(self, model: HeterodyneModel) -> None:
+    def test_residual_is_1d(self, model: HeterodynePhysicsAdapter) -> None:
         """compute_residual must return a 1-D array."""
         params = model.get_default_parameters()
         data = self._make_data(N=6, n_phi=2)
         residual = model.compute_residual(params, data)
         assert residual.ndim == 1
 
-    def test_residual_length_equals_total_elements(self, model: HeterodyneModel) -> None:
+    def test_residual_length_equals_total_elements(self, model: HeterodynePhysicsAdapter) -> None:
         """Length must be n_phi * N * N."""
         N, n_phi = 6, 2
         params = model.get_default_parameters()
@@ -141,14 +141,14 @@ class TestHeterodyneComputeResidual:
         residual = model.compute_residual(params, data)
         assert residual.shape == (n_phi * N * N,)
 
-    def test_residual_finite_for_default_params(self, model: HeterodyneModel) -> None:
+    def test_residual_finite_for_default_params(self, model: HeterodynePhysicsAdapter) -> None:
         """Residual against a synthetic all-ones c2 must be finite."""
         params = model.get_default_parameters()
         data = self._make_data()
         residual = model.compute_residual(params, data)
         assert jnp.all(jnp.isfinite(residual))
 
-    def test_residual_zero_for_perfect_fit(self, model: HeterodyneModel) -> None:
+    def test_residual_zero_for_perfect_fit(self, model: HeterodynePhysicsAdapter) -> None:
         """When c2_exp == c2_model, residual must be all-zero."""
         N = 6
         params = model.get_default_parameters()
@@ -171,7 +171,7 @@ class TestHeterodyneComputeResidual:
         residual = model.compute_residual(params, data)
         assert jnp.allclose(residual, 0.0, atol=1e-10), "perfect-fit residual must be zero"
 
-    def test_residual_uses_phi_angle_fallback_key(self, model: HeterodyneModel) -> None:
+    def test_residual_uses_phi_angle_fallback_key(self, model: HeterodynePhysicsAdapter) -> None:
         """compute_residual accepts 'phi_angle' (singular) as well as 'phi_angles_list'."""
         N = 4
         params = model.get_default_parameters()
@@ -240,19 +240,19 @@ class TestMakeModelDispatch:
     """make_model dispatches correctly for edge-case mode strings."""
 
     def test_heterodyne_string_returns_heterodyne_model(self) -> None:
-        """'heterodyne' synonym must dispatch to HeterodyneModel."""
+        """'heterodyne' synonym must dispatch to HeterodynePhysicsAdapter."""
         model = make_model({"analysis_mode": "heterodyne"})
-        assert isinstance(model, HeterodyneModel)
+        assert isinstance(model, HeterodynePhysicsAdapter)
 
     def test_two_component_string_returns_heterodyne_model(self) -> None:
-        """'two_component' must dispatch to HeterodyneModel."""
+        """'two_component' must dispatch to HeterodynePhysicsAdapter."""
         model = make_model({"analysis_mode": "two_component"})
-        assert isinstance(model, HeterodyneModel)
+        assert isinstance(model, HeterodynePhysicsAdapter)
 
     def test_two_dash_component_string_returns_heterodyne_model(self) -> None:
-        """'two-component' hyphenated variant must dispatch to HeterodyneModel."""
+        """'two-component' hyphenated variant must dispatch to HeterodynePhysicsAdapter."""
         model = make_model({"analysis_mode": "two-component"})
-        assert isinstance(model, HeterodyneModel)
+        assert isinstance(model, HeterodynePhysicsAdapter)
 
     def test_non_string_mode_raises_value_error(self) -> None:
         """Integer analysis_mode must raise ValueError, not AttributeError."""
@@ -265,7 +265,7 @@ class TestMakeModelDispatch:
 
         model = make_model({"analysis_mode": "static_anisotropic"})
         assert isinstance(model, PhysicsModelBase)
-        assert not isinstance(model, HeterodyneModel)
+        assert not isinstance(model, HeterodynePhysicsAdapter)
 
     def test_missing_mode_defaults_to_static(self) -> None:
         """Missing analysis_mode key must default to 'static_anisotropic' without error."""

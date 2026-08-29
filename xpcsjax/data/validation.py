@@ -573,11 +573,16 @@ def _validate_correlation_matrices(
                 near_zero_lag_correlation = (
                     float(np.median(finite_superdiag)) if finite_superdiag.size > 0 else 0.0
                 )
+                has_lag1 = True
             else:
-                diagonal = np.diag(matrix)
-                near_zero_lag_correlation = float(diagonal[0]) if len(diagonal) > 0 else 0.0
+                # No lag-1 (first superdiagonal) exists for a <=1-frame matrix,
+                # so there is nothing to check against the Siegert ceiling.
+                # diagonal[0] would be the excluded tau=0 self-correlation
+                # spike itself -- exactly the value this check exists to avoid.
+                near_zero_lag_correlation = 0.0
+                has_lag1 = False
 
-            if not (0.5 <= near_zero_lag_correlation <= 2.0):
+            if has_lag1 and not (0.5 <= near_zero_lag_correlation <= 2.0):
                 report.add_issue(
                     ValidationIssue(
                         severity="warning",

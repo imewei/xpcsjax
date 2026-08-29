@@ -50,6 +50,11 @@ def coerce_finite_float(value: Any, *, context: str) -> float:
         If ``value`` coerces to ``NaN`` / ``±inf`` (or is not numeric — the
         underlying ``float()`` raises, preserving the prior failure mode).
     """
+    if isinstance(value, bool):
+        # bool is an int subclass -- float(True)/float(False) silently coerce
+        # to 1.0/0.0, both finite, so a stray YAML boolean (e.g. a typo'd
+        # `max: true`) would pass this check instead of being rejected.
+        raise ValueError(f"{context}: boolean {value!r} is not a valid configuration number")
     coerced = float(value)
     if not math.isfinite(coerced):
         raise ValueError(

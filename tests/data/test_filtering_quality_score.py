@@ -13,6 +13,7 @@ mirroring the already-correct check in ``data/validation.py``.
 """
 
 import numpy as np
+import pytest
 
 from xpcsjax.data.filtering_utils import XPCSDataFilter
 
@@ -64,3 +65,24 @@ def test_single_element_matrix_does_not_crash():
     score = f._calculate_matrix_quality_score(matrix)
 
     assert 0.0 <= score <= 1.0
+
+
+def test_single_element_matrix_uses_neutral_diagonal_quality():
+    """A <=1-frame matrix has no lag-1 to check against the Siegert ceiling;
+    the fix must score it neutrally regardless of the diagonal value, not by
+    evaluating diagonal[0] (which is the excluded tau=0 spike, not lag-1 data).
+
+    Discriminating value: 1.3 sits *inside* the pre-fix code's [0.5, 2.0]
+    Siegert band, so the bug (reading diagonal[0]=1.3 through that check)
+    would score diagonal_quality=1.0 -- coincidentally "clean" for a reading
+    that isn't lag-1 data at all -- giving a perfect 1.0 total. The fix's
+    constant neutral 0.5 gives 0.85 instead, regardless of the actual value.
+    """
+    f = XPCSDataFilter()
+    matrix = np.array([[1.3]], dtype=np.float64)
+
+    score = f._calculate_matrix_quality_score(matrix)
+
+    # finite(0.4) + diagonal(neutral 0.5*0.3=0.15) + symmetry(0.2, 1x1 is
+    # trivially symmetric) + range(0.1, mean=1.3 is within [0.1,5.0]) = 0.85.
+    assert score == pytest.approx(0.85), f"unexpected score for degenerate matrix: {score:.3f}"

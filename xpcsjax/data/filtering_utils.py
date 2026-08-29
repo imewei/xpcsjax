@@ -479,11 +479,14 @@ class XPCSDataFilter:
                     near_zero_lag_correlation = (
                         float(np.median(finite_superdiag)) if finite_superdiag.size > 0 else 0.0
                     )
+                    diagonal_quality = 1.0 if 0.5 <= near_zero_lag_correlation <= 2.0 else 0.5
                 else:
-                    diagonal = np.diag(matrix)
-                    near_zero_lag_correlation = float(diagonal[0]) if len(diagonal) > 0 else 0.0
-
-                diagonal_quality = 1.0 if 0.5 <= near_zero_lag_correlation <= 2.0 else 0.5
+                    # No lag-1 (first superdiagonal) exists for a <=1-frame matrix,
+                    # so there is nothing to check against the Siegert ceiling.
+                    # diagonal[0] would be the excluded tau=0 self-correlation
+                    # spike itself (~2.4 for raw XPCS) -- exactly the value this
+                    # function exists to NOT read. Neutral score, not a penalty.
+                    diagonal_quality = 0.5
 
                 # Check matrix symmetry.
                 # Use nanmean: up to 10% non-finite values pass the finite_fraction guard.

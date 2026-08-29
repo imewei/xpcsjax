@@ -653,7 +653,7 @@ def make_model(config_or_manager: Any) -> PhysicsModelBase:
 
     Dispatches based on the ``analysis_mode`` field:
 
-    - ``"two_component"`` / ``"heterodyne"`` → :class:`HeterodyneModel`
+    - ``"two_component"`` / ``"heterodyne"`` → :class:`HeterodynePhysicsAdapter`
       (xpcsjax.core.heterodyne_model)
     - ``"static_anisotropic"`` / ``"static_isotropic"`` /
       ``"laminar_flow"`` → :class:`CombinedModel` via :func:`create_model`
@@ -678,7 +678,7 @@ def make_model(config_or_manager: Any) -> PhysicsModelBase:
     --------
     >>> cfg = ConfigManager("config.yaml")  # analysis_mode: two_component
     >>> model = make_model(cfg)
-    >>> isinstance(model, HeterodyneModel)
+    >>> isinstance(model, HeterodynePhysicsAdapter)
     True
     """
     # Accept both ConfigManager (has .config) and raw dict
@@ -699,7 +699,7 @@ def make_model(config_or_manager: Any) -> PhysicsModelBase:
     # "static_ref" and "static_both" are reduced-parameter heterodyne modes
     # (validated in NLSQConfig.validate() against the module-level
     # _VALID_ANALYSIS_MODES frozenset in heterodyne_config.py), but no
-    # model implementation exists for them — HeterodyneModel always
+    # model implementation exists for them — HeterodynePhysicsAdapter always
     # resolves the full 14-parameter two_component set, so it cannot
     # represent them. Raise rather than silently substituting the wrong
     # (full) model. (The reduced-model classes that once backed these modes,
@@ -708,7 +708,7 @@ def make_model(config_or_manager: Any) -> PhysicsModelBase:
     if mode_lower in ("static_ref", "static_both"):
         raise NotImplementedError(
             f"analysis_mode={raw_mode!r} is not supported by make_model(): "
-            "HeterodyneModel only implements the full two_component parameter "
+            "HeterodynePhysicsAdapter only implements the full two_component parameter "
             "set, and no reduced-parameter model implementation exists for "
             "'static_ref'/'static_both'."
         )
@@ -717,10 +717,10 @@ def make_model(config_or_manager: Any) -> PhysicsModelBase:
     if "two_component" in mode_lower or "two-component" in mode_lower or "heterodyne" in mode_lower:
         # Local import to avoid circular dependency (heterodyne_model imports
         # PhysicsModelBase from this module).
-        from xpcsjax.core.heterodyne_model import HeterodyneModel
+        from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
 
-        logger.info("make_model: dispatching to HeterodyneModel (mode=%s)", raw_mode)
-        return HeterodyneModel()
+        logger.info("make_model: dispatching to HeterodynePhysicsAdapter (mode=%s)", raw_mode)
+        return HeterodynePhysicsAdapter()
 
     # Homodyne path — delegate to existing create_model factory. Use
     # AnalysisMode.parse (the M-8 single source of truth for synonyms), not

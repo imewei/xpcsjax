@@ -195,10 +195,10 @@ def _is_homodyne_family(model: Any) -> bool:
 
 
 def _is_heterodyne_family(model: Any) -> bool:
-    """Return ``True`` for :class:`HeterodyneModel` (per-angle ``[c.., o.., *physical]``)."""
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    """Return ``True`` for :class:`HeterodynePhysicsAdapter` (per-angle ``[c.., o.., *physical]``)."""
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
 
-    return isinstance(model, HeterodyneModel)
+    return isinstance(model, HeterodynePhysicsAdapter)
 
 
 def _is_supported_viz_model(model: Any) -> bool:
@@ -291,7 +291,7 @@ def _unpack_result_params(
         ``result.parameters[0]`` is contrast, ``[1]`` is offset, ``[2:]`` are the
         physical params. ``parameter_names`` excludes contrast/offset.
 
-    HeterodyneModel
+    HeterodynePhysicsAdapter
         ``contrast`` and ``offset`` are named slots inside the 14-element registry
         vector. ``physical_params`` is the full 14-element vector (the
         ``compute_g1`` API consumes the whole vector). ``parameter_names`` is the
@@ -360,7 +360,7 @@ def _unpack_result_params(
         residual = n_total - n_physical
         if residual < 0 or residual % 2 != 0:
             raise ValueError(
-                f"HeterodyneModel expects 2*n_phi + {n_physical} params "
+                f"HeterodynePhysicsAdapter expects 2*n_phi + {n_physical} params "
                 f"(per-angle layout); got {n_total}. The residual "
                 f"{residual} is not divisible by 2."
             )
@@ -377,7 +377,7 @@ def _unpack_result_params(
 
     raise TypeError(
         f"Unsupported model type: {type(model).__name__}. "
-        f"Expected HomodyneModel, CombinedModel, or HeterodyneModel."
+        f"Expected HomodyneModel, CombinedModel, or HeterodynePhysicsAdapter."
     )
 
 
@@ -429,7 +429,7 @@ def _unpack_heterodyne_scaling(
     """
     if not _is_heterodyne_family(model):
         raise TypeError(
-            f"_unpack_heterodyne_scaling expects HeterodyneModel; got {type(model).__name__}"
+            f"_unpack_heterodyne_scaling expects HeterodynePhysicsAdapter; got {type(model).__name__}"
         )
     params = np.asarray(result.parameters, dtype=float)
     n_physical = len(model.parameter_names)
@@ -540,7 +540,7 @@ def _evaluate_c2_per_angle(
         then calls ``model.compute_c2_single_angle(physical_params, phi, contrast,
         offset)`` which uses the model's stored t-grid/q/L/dt state.
 
-    HeterodyneModel
+    HeterodynePhysicsAdapter
         Reads per-angle ``contrasts[i]`` / ``offsets[i]`` from the per-angle
         fit-time layout in ``result.parameters`` (via
         ``_unpack_heterodyne_scaling``), evaluates ``model.compute_g1`` to get
@@ -646,7 +646,7 @@ def _evaluate_c2_per_angle(
 
     raise TypeError(
         f"Unsupported model type: {type(model).__name__}. "
-        f"Expected HomodyneModel, CombinedModel, or HeterodyneModel."
+        f"Expected HomodyneModel, CombinedModel, or HeterodynePhysicsAdapter."
     )
 
 
@@ -1537,7 +1537,7 @@ def generate_nlsq_plots(
     model
         :class:`~xpcsjax.HomodyneModel`, the bare ``CombinedModel`` returned by
         :func:`xpcsjax.core.models.make_model` for the homodyne modes, or
-        :class:`~xpcsjax.HeterodyneModel`. The two families use different
+        :class:`~xpcsjax.core.heterodyne_model.HeterodynePhysicsAdapter`. The two families use different
         ``result.parameters`` layouts, and heterodyne's varies by per-angle
         mode. The per-model unpacking is dispatched internally, so callers do
         not need to reconcile the layouts; code that must slice
@@ -1598,7 +1598,7 @@ def generate_nlsq_plots(
         shape mismatch, or missing physics keys in config.
     TypeError
         Unsupported model type (not HomodyneModel, CombinedModel, or
-        HeterodyneModel).
+        HeterodynePhysicsAdapter).
     NotImplementedError
         Heterodyne result whose per-angle scaling layout is unsupported by
         viz (e.g. a ``constant`` layout without the matching ``per_angle_mode``
@@ -1625,7 +1625,7 @@ def generate_nlsq_plots(
     if not _is_supported_viz_model(model):
         raise TypeError(
             f"Unsupported model type: {type(model).__name__}. "
-            f"Expected HomodyneModel, CombinedModel, or HeterodyneModel."
+            f"Expected HomodyneModel, CombinedModel, or HeterodynePhysicsAdapter."
         )
 
     # Resolve config to a plain dict

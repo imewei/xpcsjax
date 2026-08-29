@@ -1,29 +1,29 @@
-"""HeterodyneModel implements the PhysicsModelBase contract with 14 physics params."""
+"""HeterodynePhysicsAdapter implements the PhysicsModelBase contract with 14 physics params."""
 
 from __future__ import annotations
 
 import jax.numpy as jnp  # noqa: F401  (imported to ensure JAX is initialized before model use)
 import numpy as np  # noqa: F401
 
-from xpcsjax.core.heterodyne_model import HeterodyneModel
+from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
 from xpcsjax.core.models import PhysicsModelBase
 
 
 def test_is_physics_model() -> None:
-    """HeterodyneModel must satisfy the PhysicsModelBase contract."""
-    model = HeterodyneModel()
+    """HeterodynePhysicsAdapter must satisfy the PhysicsModelBase contract."""
+    model = HeterodynePhysicsAdapter()
     assert isinstance(model, PhysicsModelBase)
 
 
 def test_analysis_mode_is_two_component() -> None:
     """The wrapper reports its analysis_mode."""
-    model = HeterodyneModel()
+    model = HeterodynePhysicsAdapter()
     assert model.analysis_mode == "two_component"
 
 
 def test_param_names_match_registry() -> None:
     """The 14 heterodyne param names come from the registry, in registry order."""
-    model = HeterodyneModel()
+    model = HeterodynePhysicsAdapter()
     expected = (
         "D0_ref",
         "alpha_ref",
@@ -42,13 +42,13 @@ def test_param_names_match_registry() -> None:
     )
     # Adapt to whatever attribute the base class uses (parameter_names vs param_names)
     names = getattr(model, "parameter_names", None) or getattr(model, "param_names", None)
-    assert names is not None, "HeterodyneModel must expose parameter_names or param_names"
+    assert names is not None, "HeterodynePhysicsAdapter must expose parameter_names or param_names"
     assert tuple(names) == expected, f"got {tuple(names)}"
 
 
 def test_param_bounds_match_docs() -> None:
     """Spot-check three bounds against heterodyne docs/registry."""
-    model = HeterodyneModel()
+    model = HeterodynePhysicsAdapter()
     names = getattr(model, "parameter_names", None) or getattr(model, "param_names", None)
     # Try get_parameter_bounds() method (PhysicsModelBase contract) first
     if hasattr(model, "get_parameter_bounds"):
@@ -64,16 +64,16 @@ def test_param_bounds_match_docs() -> None:
 
 def test_default_params_length_14() -> None:
     """get_default_parameters returns a 14-element array."""
-    model = HeterodyneModel()
+    model = HeterodynePhysicsAdapter()
     defaults = model.get_default_parameters()
     assert defaults.shape == (14,)
 
 
 def test_model_constructible_via_from_config() -> None:
-    """If HeterodyneModel exposes a from_config classmethod, it must accept a minimal config dict.
+    """If HeterodynePhysicsAdapter exposes a from_config classmethod, it must accept a minimal config dict.
 
     Skip if from_config doesn't exist — the bare constructor is sufficient.
     """
-    if hasattr(HeterodyneModel, "from_config"):
-        model = HeterodyneModel.from_config({"analysis_mode": "two_component"})
+    if hasattr(HeterodynePhysicsAdapter, "from_config"):
+        model = HeterodynePhysicsAdapter.from_config({"analysis_mode": "two_component"})
         assert model is not None

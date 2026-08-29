@@ -153,7 +153,7 @@ class CachedModel:
     Attributes
     ----------
     model : Any
-        Model instance (``CombinedModel`` or ``HeterodyneModel``) for computing
+        Model instance (``CombinedModel`` or ``HeterodynePhysicsAdapter``) for computing
         g1/g2 values.
     model_func : Callable
         Model prediction function (NumPy-compatible wrapper for NLSQ curve_fit).
@@ -235,7 +235,7 @@ def _get_or_create_heterodyne_model(
     per_angle_scaling: bool = True,
     enable_jit: bool = True,
 ) -> tuple[Any, Callable[[np.ndarray, Any], np.ndarray], bool]:
-    """Construct a :class:`HeterodyneModel` + ``model_func`` for NLSQ curve_fit.
+    """Construct a :class:`HeterodynePhysicsAdapter` + ``model_func`` for NLSQ curve_fit.
 
     Separate path from the homodyne :func:`get_or_create_model` so the existing
     per-angle scaling expansion / lineage gating machinery is unaffected. The
@@ -277,7 +277,7 @@ def _get_or_create_heterodyne_model(
         cheap).
     """
     from xpcsjax.core.heterodyne_jax_backend import compute_c2_heterodyne
-    from xpcsjax.core.heterodyne_model import HeterodyneModel
+    from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter
 
     if len(phi_angles) != 1:
         raise ValueError(
@@ -289,7 +289,7 @@ def _get_or_create_heterodyne_model(
     if q <= 0:
         raise ValueError(f"q must be positive, got {q}")
 
-    model = HeterodyneModel()
+    model = HeterodynePhysicsAdapter()
 
     import jax.numpy as jnp
 
@@ -391,7 +391,7 @@ def get_or_create_model(
     -------
     tuple
         ``(model, model_func, cache_hit)`` where ``model`` is a
-        ``CombinedModel`` or ``HeterodyneModel`` instance, ``model_func`` is
+        ``CombinedModel`` or ``HeterodynePhysicsAdapter`` instance, ``model_func`` is
         the prediction function (JIT-compiled if ``enable_jit=True``), and
         ``cache_hit`` is ``True`` if the model was retrieved from cache.
 
