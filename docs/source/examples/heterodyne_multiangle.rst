@@ -24,10 +24,8 @@ multi-:math:`\phi` fit packs its per-angle detail (``chi2_per_angle``,
 Configuration
 -------------
 
-The crucial detail in a heterodyne YAML is the ``optimization.nlsq`` block.
-Heterodyne nests NLSQ tuning options one level deeper than homodyne; xpcsjax
-unwraps this nesting before handing the dictionary to the adapter, so omitting
-the ``nlsq:`` key silently turns off optimizer-level overrides.
+Optimiser tuning lives under ``optimization.nlsq``, the same nesting used
+by every homodyne template.
 
 The 14 physics parameters use the registry's canonical heterodyne names. Note in
 particular ``v_beta`` (the velocity exponent, **not** ``beta``) and ``phi0_het``
@@ -38,8 +36,7 @@ shear exponent ``beta`` and flow angle ``phi0``.
 .. code-block:: yaml
 
     # config_heterodyne.yaml
-    analysis_settings:
-      analysis_mode: two_component
+    analysis_mode: two_component
 
     experimental_data:
       data_folder_path: ./data/
@@ -48,31 +45,38 @@ shear exponent ``beta`` and flow angle ``phi0``.
       phi_angles_file: phi_angles.txt
 
     analyzer_parameters:
-      temporal:
-        dt: 0.05
-        start_frame: 1
-        end_frame: 801
+      dt: 0.05
+      start_frame: 1
+      end_frame: 801
       scattering:
         wavevector_q: 0.0072
 
     initial_parameters:
+      # 14 physics parameters only — per-angle contrast/offset are
+      # configured separately below, not appended to this list.
       values:
         [1.0e4, 0.0, 0.0,
          1.0e4, 0.0, 0.0,
          1.0e3, 1.0, 0.0,
          0.5, 0.0, 0.0, 0.0,
-         0.0,
-         0.5, 1.0]
+         0.0]
       parameter_names:
         [D0_ref, alpha_ref, D_offset_ref,
          D0_sample, alpha_sample, D_offset_sample,
          v0, v_beta, v_offset,
          f0, f1, f2, f3,
-         phi0_het,
-         contrast, offset]
+         phi0_het]
+
+      per_angle_scaling:
+        contrast: null   # null = quantile init, or a single float (broadcast)
+        offset:   null
 
     parameter_space:
+      # contrast/offset come first, matching the optimizer's free-vector
+      # order, then the 14 physics parameters.
       bounds:
+        - {name: contrast,          min: 0.0,     max: 1.0}
+        - {name: offset,            min: 0.5,     max: 1.5}
         - {name: D0_ref,            min: 1.0,     max: 1.0e6}
         - {name: alpha_ref,         min: -2.0,    max: 2.0}
         - {name: D_offset_ref,      min: 0.0,     max: 1.0e4}
@@ -80,20 +84,19 @@ shear exponent ``beta`` and flow angle ``phi0``.
         - {name: alpha_sample,      min: -2.0,    max: 2.0}
         - {name: D_offset_sample,   min: 0.0,     max: 1.0e4}
         - {name: v0,                min: 0.0,     max: 1.0e5}
-        - {name: v_beta,            min: -2.0,    max: 2.0}
+        - {name: v_beta,            min: 0.0,     max: 2.0}
         - {name: v_offset,          min: -1.0e3,  max: 1.0e3}
         - {name: f0,                min: 0.0,     max: 1.0}
         - {name: f1,                min: -1.0,    max: 1.0}
-        - {name: f2,                min: 0.0,     max: 100.0}
-        - {name: f3,                min: 0.0,     max: 1.0}
+        - {name: f2,                min: -1.0,    max: 1.0}
+        - {name: f3,                min: -1.0,    max: 1.0}
         - {name: phi0_het,          min: -10.0,   max: 10.0}
-        - {name: contrast,          min: 0.0,     max: 1.0}
-        - {name: offset,            min: 0.5,     max: 1.5}
 
     optimization:
+      method: "nlsq"
       nlsq:
-        max_nfev: 2000
-        ftol: 1.0e-10
+        max_iterations: 2000
+        tolerance: 1.0e-10
         xtol: 1.0e-10
         gtol: 1.0e-10
         cmaes:
@@ -101,12 +104,6 @@ shear exponent ``beta`` and flow angle ``phi0``.
         anti_degeneracy:
           enable: true
           per_angle_mode: auto
-
-.. warning::
-
-   ``optimization.nlsq`` is **not** the same as the top-level ``nlsq:`` key used
-   by homodyne. Keep the ``optimization:`` parent in heterodyne configs — the
-   heterodyne adapter looks there first.
 
 Running the fit
 ---------------

@@ -33,29 +33,23 @@ schema. A minimal homodyne config looks like:
      data_folder_path: /path/to/data
 
    analyzer_parameters:
-     temporal:
-       dt: 0.001                          # time step [s]
-       start_frame: 0
-       end_frame: 999
+     dt: 0.001                            # time step [s]
+     start_frame: 1
+     end_frame: 999
      scattering:
        wavevector_q: 0.0237               # [Å⁻¹]
      geometry:
        stator_rotor_gap: 2.0e6            # [Å]
 
    initial_parameters:
-     active:
-       - D0
-       - alpha
-       - D_offset
-     values:
-       D0: 1.0e-4
-       alpha: 1.0
-       D_offset: 0.0
+     parameter_names: [D0, alpha, D_offset]
+     values: [1.0e-4, 1.0, 0.0]
 
-   parameter_bounds:
-     D0:        [1.0e-8, 1.0e-2]
-     alpha:     [-2.0,   2.0]
-     D_offset:  [-1.0e-4, 1.0e-4]
+   parameter_space:
+     bounds:
+       - {name: D0,       min: 1.0e-8,  max: 1.0e-2}
+       - {name: alpha,    min: -2.0,    max: 2.0}
+       - {name: D_offset, min: -1.0e-4, max: 1.0e-4}
 
    optimization:
      nlsq:
