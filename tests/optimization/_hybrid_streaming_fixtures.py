@@ -91,6 +91,35 @@ class _NullLogger:
         pass
 
 
+def _constant_mode_initial_and_bounds(
+    n_phi: int,
+) -> tuple[np.ndarray, tuple[np.ndarray, np.ndarray]]:
+    """Full per-angle [contrast, offset, *physical] initial values + bounds
+    for the constant-mode quantile-failure fallback tests."""
+    initial_params = np.concatenate(
+        [
+            np.full(n_phi, 0.3),  # per-angle contrast
+            np.full(n_phi, 1.0),  # per-angle offset
+            np.array([1000.0, 0.9, 5.0, 0.5, 0.0, 0.0, 45.0]),  # physical
+        ]
+    )
+    lower = np.concatenate(
+        [
+            np.zeros(n_phi),
+            np.full(n_phi, 0.5),
+            np.array([1.0, 0.1, 0.0, 0.0, -1.0, -1.0, 0.0]),
+        ]
+    )
+    upper = np.concatenate(
+        [
+            np.ones(n_phi),
+            np.full(n_phi, 1.5),
+            np.array([1e5, 2.0, 100.0, 100.0, 1.0, 1.0, 360.0]),
+        ]
+    )
+    return initial_params, (lower, upper)
+
+
 def _laminar_dataset(n_phi: int = 4, n_t: int = 5) -> tuple[_FakeStratifiedData, int]:
     phi_unique = np.linspace(0.0, 90.0, n_phi)
     t_unique = np.linspace(0.1, 0.1 * n_t, n_t)

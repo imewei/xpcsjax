@@ -30,6 +30,7 @@ from xpcsjax.optimization.nlsq.strategies import hybrid_streaming as hs
 from ._hybrid_streaming_fixtures import (
     _PHYSICAL_NAMES,
     _CapturingOptimizer,
+    _constant_mode_initial_and_bounds,
     _laminar_dataset,
     _NullLogger,
 )
@@ -43,28 +44,7 @@ def test_explicit_constant_mode_quantile_failure_uses_reduced_layout(monkeypatch
     stratified_data, n_phi = _laminar_dataset()
     n_physical = len(_PHYSICAL_NAMES)
 
-    initial_params = np.concatenate(
-        [
-            np.full(n_phi, 0.3),  # per-angle contrast
-            np.full(n_phi, 1.0),  # per-angle offset
-            np.array([1000.0, 0.9, 5.0, 0.5, 0.0, 0.0, 45.0]),  # physical
-        ]
-    )
-    lower = np.concatenate(
-        [
-            np.zeros(n_phi),
-            np.full(n_phi, 0.5),
-            np.array([1.0, 0.1, 0.0, 0.0, -1.0, -1.0, 0.0]),
-        ]
-    )
-    upper = np.concatenate(
-        [
-            np.ones(n_phi),
-            np.full(n_phi, 1.5),
-            np.array([1e5, 2.0, 100.0, 100.0, 1.0, 1.0, 360.0]),
-        ]
-    )
-    bounds = (lower, upper)
+    initial_params, bounds = _constant_mode_initial_and_bounds(n_phi)
 
     def _raise_quantile(*args: Any, **kwargs: Any) -> Any:
         raise RuntimeError("quantile estimation forced failure")
@@ -120,28 +100,7 @@ def test_constant_mode_quantile_failure_resolves_l3_l4_as_averaged(monkeypatch):
     """
     stratified_data, n_phi = _laminar_dataset()
 
-    initial_params = np.concatenate(
-        [
-            np.full(n_phi, 0.3),
-            np.full(n_phi, 1.0),
-            np.array([1000.0, 0.9, 5.0, 0.5, 0.0, 0.0, 45.0]),
-        ]
-    )
-    lower = np.concatenate(
-        [
-            np.zeros(n_phi),
-            np.full(n_phi, 0.5),
-            np.array([1.0, 0.1, 0.0, 0.0, -1.0, -1.0, 0.0]),
-        ]
-    )
-    upper = np.concatenate(
-        [
-            np.ones(n_phi),
-            np.full(n_phi, 1.5),
-            np.array([1e5, 2.0, 100.0, 100.0, 1.0, 1.0, 360.0]),
-        ]
-    )
-    bounds = (lower, upper)
+    initial_params, bounds = _constant_mode_initial_and_bounds(n_phi)
 
     def _raise_quantile(*args: Any, **kwargs: Any) -> Any:
         raise RuntimeError("quantile estimation forced failure")
