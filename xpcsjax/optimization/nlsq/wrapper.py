@@ -2951,10 +2951,9 @@ class NLSQWrapper(NLSQAdapterBase):
     def _prepare_xy_data(self, data: Any) -> tuple[np.ndarray, np.ndarray]:
         """Transform multi-dimensional XPCS data to flattened 1D arrays.
 
-        Named distinctly from the base ``NLSQAdapterBase._prepare_data``
-        (``(t1, t2, phi, g2, weights) -> dict``): this wrapper variant takes a
-        single data object and returns flattened ``(xdata, ydata)``. The two
-        are different operations, so this is intentionally not an override.
+        Named distinctly from ``_prepare_data``-style helpers elsewhere in
+        the codebase: this wrapper variant takes a single data object and
+        returns flattened ``(xdata, ydata)``, a different operation.
 
         Parameters
         ----------
@@ -4410,8 +4409,8 @@ class NLSQWrapper(NLSQAdapterBase):
                 # CRITICAL: Keep all arrays in JAX (no np.asarray) for JIT compatibility
                 # Note: clip removed - phi_requested is a subset of phi which was used to
                 # build phi_unique, so all values are guaranteed to be in range (unlike
-                # residual_jit.py/gradient_diagnostics.py, which take externally-supplied
-                # phi/t1/t2 that can drift off their grids and legitimately need a clip).
+                # residual_jit.py, which takes externally-supplied phi/t1/t2 that can
+                # drift off their grids and legitimately need a clip).
                 # The clip was causing optimization to converge to wrong local minima:
                 # an out-of-range index is a case that provably cannot occur here, but if
                 # it ever did, jnp.clip's gather-VJP CLAMPS the gradient contribution onto

@@ -26,8 +26,6 @@ physics_validators
 types
     ``TypedDict`` definitions (including the ``data_type`` vocabulary) for type
     safety.
-parameter_names
-    Parameter-name constants.
 """
 
 from xpcsjax.config.manager import ConfigManager, load_xpcs_config

@@ -35,6 +35,10 @@ dependencies = [
     "datashader>=0.16",
     "xarray>=2024.0",
     "colorcet>=3.1",
+    # PEP 440 version comparison in xpcsjax/runtime/utils/system_validator.py.
+    # Already present transitively (matplotlib, pytest, ...); declared
+    # explicitly here to match the direct top-level use.
+    "packaging>=24.0",
 ]
 
 [project.optional-dependencies]

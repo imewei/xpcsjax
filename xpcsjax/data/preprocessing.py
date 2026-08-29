@@ -1169,78 +1169,6 @@ class PreprocessingPipeline:
         )
 
 
-# Utility functions for easy integration
-
-
-def create_default_preprocessing_config() -> dict[str, Any]:
-    """Create the default preprocessing configuration.
-
-    Returns
-    -------
-    dict
-        Dictionary with default preprocessing settings.
-    """
-    return {
-        "preprocessing": {
-            "enabled": True,
-            "cache_intermediates": False,
-            "progress_reporting": True,
-            "abort_on_error": False,
-            "stages": {
-                "correct_diagonal": {
-                    "enabled": True,
-                    "method": "statistical",
-                    "window_size": 3,
-                    "estimator": "median",
-                },
-                "normalize_data": {"enabled": True, "method": "baseline"},
-                "reduce_noise": {
-                    "enabled": False,
-                    "method": "none",
-                    "kernel_size": 3,
-                    "sigma": 1.0,
-                },
-                "standardize_format": {"enabled": True},
-                "validate_output": {"enabled": True},
-            },
-        },
-    }
-
-
-def preprocess_xpcs_data(
-    data: dict[str, Any],
-    config: dict[str, Any] | None = None,
-) -> PreprocessingResult:
-    """Preprocess XPCS data using a one-shot convenience wrapper.
-
-    Builds a :class:`PreprocessingPipeline` and runs it over ``data``, using the
-    default configuration when ``config`` is ``None``.
-
-    Parameters
-    ----------
-    data
-        Input data dictionary from the XPCS loader.
-    config
-        Optional preprocessing configuration; defaults from
-        :func:`create_default_preprocessing_config` are used when ``None``.
-
-    Returns
-    -------
-    PreprocessingResult
-        Result holding the processed data and its provenance.
-
-    Examples
-    --------
-    >>> result = preprocess_xpcs_data(data)
-    >>> processed = result.data
-    """
-    if config is None:
-        config = create_default_preprocessing_config()
-
-    pipeline = PreprocessingPipeline(config)
-    return pipeline.process(data)
-
-
 # Export main classes and functions
 __all__ = [
     "PreprocessingPipeline",
@@ -1251,6 +1179,4 @@ __all__ = [
     "NoiseReductionMethod",
     "PreprocessingError",
     "PreprocessingConfigurationError",
-    "create_default_preprocessing_config",
-    "preprocess_xpcs_data",
 ]

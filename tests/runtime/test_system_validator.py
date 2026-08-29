@@ -22,7 +22,6 @@ from xpcsjax.runtime.utils.system_validator import (
     Severity,
     SystemValidator,
     ValidationResult,
-    _parse_version,
     _print_report,
     _result_to_dict,
     _version_at_least,
@@ -30,25 +29,6 @@ from xpcsjax.runtime.utils.system_validator import (
 )
 
 # --- version helpers (pure) -------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        ("1.2.3", (1, 2, 3)),
-        ("1.2.3rc1+abc", (1, 2, 3)),
-        ("0.8.2", (0, 8, 2)),
-        ("2", (2,)),
-        ("1.2.dev0", (1, 2)),  # non-numeric chunk halts parsing
-        ("1.2-3", (1,)),  # split on '-' keeps only leading "1.2"... -> (1, 2)
-    ],
-)
-def test_parse_version(text: str, expected: tuple[int, ...]) -> None:
-    # "1.2-3": re.split on '-' yields "1.2" -> (1, 2)
-    if text == "1.2-3":
-        assert _parse_version(text) == (1, 2)
-    else:
-        assert _parse_version(text) == expected
 
 
 @pytest.mark.parametrize(
@@ -63,10 +43,9 @@ def test_parse_version(text: str, expected: tuple[int, ...]) -> None:
         ("1.9", "2.0", False),
         ("0.8.2", "0.8.2", True),
         ("0.8.1", "0.8.2", False),
-        # A pre-release / dev build of the required minimum must NOT satisfy
-        # it: _parse_version drops the non-numeric suffix, so the numeric
-        # tuples alone are equal (1, 2, 3) == (1, 2, 3) -- _version_at_least
-        # must break that tie using _is_final_release, not silently pass.
+        # A pre-release / dev build must NOT satisfy the final-release minimum
+        # of the same numeric version -- packaging.version.Version orders
+        # pre-release/dev builds strictly before the final release.
         ("1.2.3rc1", "1.2.3", False),
         ("0.8.2.dev20250101", "0.8.2", False),
         ("1.2.3", "1.2.3rc1", True),

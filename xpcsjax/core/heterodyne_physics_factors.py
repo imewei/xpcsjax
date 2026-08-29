@@ -58,28 +58,6 @@ class PhysicsFactors:
         if not math.isfinite(self.dt) or self.dt <= 0:
             raise ValueError(f"dt must be finite and positive, got {self.dt}")
 
-    @property
-    def time_extent(self) -> float:
-        """Total time span."""
-        return float(self.t[-1] - self.t[0])
-
-    def get_q_cosine(self, phi0: float = 0.0) -> jnp.ndarray:
-        """Return ``q * cos(phi_total)`` for the cross-term phase.
-
-        Parameters
-        ----------
-        phi0 : float, optional
-            Additional angle (degrees) from fit parameters; corresponds to
-            the registry ``phi0_het``.
-
-        Returns
-        -------
-        jnp.ndarray
-            ``q * cos(phi_angle + phi0)`` as a JAX scalar.
-        """
-        total_phi_rad = jnp.deg2rad(self.phi_angle + phi0)
-        return self.q * jnp.cos(total_phi_rad)
-
 
 def create_physics_factors(
     n_times: int,

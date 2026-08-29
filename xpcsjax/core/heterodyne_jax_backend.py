@@ -363,14 +363,6 @@ def _compute_residuals_jit(
     return residuals[rows, cols]  # type: ignore[no-any-return]
 
 
-# Jacobian of residuals with respect to parameters (for NLSQ).
-# jacfwd (forward-mode) does 14 JVP passes for 14 parameters,
-# whereas jacobian (reverse-mode) would do ~N² backward passes
-# (one per residual element).  For the XPCS use-case with N=200-500
-# this is ~8,900x cheaper at N=500 (125K residuals vs 14 params).
-_compute_residuals_jacobian_jit = jax.jit(jax.jacfwd(_compute_residuals_jit, argnums=0))
-
-
 @jax.jit
 def compute_chi_squared(
     params: jnp.ndarray,
@@ -421,82 +413,6 @@ def compute_chi_squared(
     rows, cols = _offdiag_indices(c2_data.shape[0])
     diff = c2_model[rows, cols] - c2_data[rows, cols]
     return jnp.sum(diff**2 * weights[rows, cols])
-
-
-def batch_chi_squared(
-    params_batch: jnp.ndarray,
-    t: jnp.ndarray,
-    q: float,
-    dt: float,
-    phi_angle: float,
-    c2_data: jnp.ndarray,
-    weights: jnp.ndarray,
-    contrast: float = 1.0,
-    offset: float = 1.0,
-    chunk_size: int | None = None,
-) -> jnp.ndarray:
-    """Compute chi-squared over a batch of parameter sets (vectorized).
-
-    Uses ``jax.vmap`` for efficient parallel evaluation. For large batches
-    or large time grids, ``chunk_size`` limits simultaneous ``N x N``
-    allocations to prevent XLA memory exhaustion (each vmap'd evaluation
-    allocates multiple ``N x N`` intermediate matrices).
-
-    Parameters
-    ----------
-    params_batch : jnp.ndarray
-        Parameter sets, shape ``(n_sets, 14)``.
-    t : jnp.ndarray
-        Time array, shape ``(N,)``.
-    q : float
-        Scattering wavevector magnitude.
-    dt : float
-        Time step.
-    phi_angle : float
-        Detector phi angle in degrees.
-    c2_data : jnp.ndarray
-        Experimental data.
-    weights : jnp.ndarray
-        Weights.
-    contrast : float, optional
-        Speckle contrast, default ``1.0``.
-    offset : float, optional
-        Baseline offset, default ``1.0``.
-    chunk_size : int, optional
-        Max batch elements to vmap simultaneously. When ``None`` (default),
-        auto-selects from the time-grid size to keep peak memory under
-        ~1.6 GB.
-
-    Returns
-    -------
-    jnp.ndarray
-        Chi-squared values, shape ``(n_sets,)``.
-    """
-    n_sets = params_batch.shape[0]
-    n_times = t.shape[0]
-
-    def single_chi2(params: jnp.ndarray) -> jnp.ndarray:
-        return compute_chi_squared(  # type: ignore[no-any-return]
-            params, t, q, dt, phi_angle, c2_data, weights, contrast, offset
-        )
-
-    if chunk_size is None:
-        # Auto-select: each evaluation creates ~12 N×N float64 matrices
-        # (half_tr, cumsum, integral matrix, ref/sample/cross terms, plus
-        # XLA intermediates) → ~96 N² bytes per evaluation.
-        # Target peak ≈ 1.6 GB → chunk_size ≈ 1.6e9 / (96 * N²).
-        matrix_bytes = 96 * n_times * n_times
-        chunk_size = max(1, int(1.6e9 / max(matrix_bytes, 1)))
-
-    if n_sets <= chunk_size:
-        return jax.vmap(single_chi2)(params_batch)
-
-    # Chunked evaluation to bound peak memory
-    chunks = []
-    for start in range(0, n_sets, chunk_size):
-        chunk = params_batch[start : start + chunk_size]
-        chunks.append(jax.vmap(single_chi2)(chunk))
-    return jnp.concatenate(chunks)
 
 
 @jax.jit
@@ -558,62 +474,3 @@ def compute_multi_angle_residuals(
     compute_all = jax.vmap(single_angle_residual, in_axes=(0, 0, 0, 0, 0))
     residuals_batch = compute_all(phi_angles, c2_data_batch, weights_batch, contrasts, offsets)
     return residuals_batch.ravel()
-
-
-# Gradient of chi-squared with respect to parameters
-compute_chi_squared_grad = jax.jit(jax.grad(compute_chi_squared, argnums=0))
-
-# Hessian of chi-squared (for uncertainty estimation).
-# Forward-over-reverse (jacfwd ∘ grad) is preferred over hessian()
-# (reverse-over-reverse) for a (14,14) output: it runs 14 JVP passes
-# over the gradient graph rather than 14 backward passes over 14
-# backward passes, giving a ~14x reduction in graph size on CPU.
-compute_chi_squared_hessian = jax.jit(
-    jax.jacfwd(jax.grad(compute_chi_squared, argnums=0), argnums=0)
-)
-
-
-def compute_residuals_jacobian(
-    params: jnp.ndarray,
-    t: jnp.ndarray,
-    q: float,
-    dt: float,
-    phi_angle: float,
-    c2_data: jnp.ndarray,
-    weights: jnp.ndarray | None = None,
-    contrast: float = 1.0,
-    offset: float = 1.0,
-) -> jnp.ndarray:
-    """Compute the Jacobian of residuals with respect to parameters.
-
-    Parameters
-    ----------
-    params : jnp.ndarray
-        Parameter array, shape ``(14,)``.
-    t : jnp.ndarray
-        Time array.
-    q : float
-        Scattering wavevector magnitude.
-    dt : float
-        Time step.
-    phi_angle : float
-        Detector phi angle in degrees.
-    c2_data : jnp.ndarray
-        Experimental correlation data.
-    weights : jnp.ndarray, optional
-        Weights (``1 / uncertainty**2``). Defaults to ones when ``None``.
-    contrast : float, optional
-        Speckle contrast (the kernel-internal ``beta``), default ``1.0``.
-    offset : float, optional
-        Baseline offset, default ``1.0``.
-
-    Returns
-    -------
-    jnp.ndarray
-        Jacobian matrix of residuals with respect to the 14 parameters.
-    """
-    if weights is None:
-        weights = jnp.ones_like(c2_data)
-    return _compute_residuals_jacobian_jit(  # type: ignore[no-any-return]
-        params, t, q, dt, phi_angle, c2_data, weights, contrast, offset
-    )

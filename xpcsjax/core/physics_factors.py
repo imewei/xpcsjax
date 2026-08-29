@@ -110,12 +110,11 @@ class PhysicsFactors:
         q: float,
         L: float,
         dt: float,
-        validate: bool = True,
     ) -> "PhysicsFactors":
         """Create PhysicsFactors from experimental configuration.
 
         This is the recommended way to create PhysicsFactors instances.
-        It computes the derived factors and optionally validates all values.
+        It computes the derived factors and validates all values.
 
         Parameters
         ----------
@@ -125,8 +124,6 @@ class PhysicsFactors:
             Sample-detector distance (stator_rotor_gap) [Å]
         dt : float
             Time step between frames [s]
-        validate : bool, default=True
-            Whether to validate parameter ranges
 
         Returns
         -------
@@ -136,7 +133,7 @@ class PhysicsFactors:
         Raises
         ------
         ValueError
-            If any parameter is invalid and validate=True
+            If any parameter is invalid
 
         Examples
         --------
@@ -155,28 +152,14 @@ class PhysicsFactors:
         wavevector_q_squared_half_dt = 0.5 * (q**2) * dt_value
         sinc_prefactor = 0.5 / np.pi * q * L * dt_value
 
-        if validate:
-            # Normal construction: __post_init__ runs self._validate().
-            instance = cls(
-                wavevector_q=q,
-                stator_rotor_gap=L,
-                dt=dt_value,
-                wavevector_q_squared_half_dt=wavevector_q_squared_half_dt,
-                sinc_prefactor=sinc_prefactor,
-            )
-        else:
-            # __post_init__ always validates, so honoring validate=False
-            # requires bypassing __init__/__post_init__ entirely rather than
-            # calling cls(...) (which previously ran _validate() regardless
-            # of this flag).
-            instance = object.__new__(cls)
-            object.__setattr__(instance, "wavevector_q", q)
-            object.__setattr__(instance, "stator_rotor_gap", L)
-            object.__setattr__(instance, "dt", dt_value)
-            object.__setattr__(
-                instance, "wavevector_q_squared_half_dt", wavevector_q_squared_half_dt
-            )
-            object.__setattr__(instance, "sinc_prefactor", sinc_prefactor)
+        # __post_init__ runs self._validate().
+        instance = cls(
+            wavevector_q=q,
+            stator_rotor_gap=L,
+            dt=dt_value,
+            wavevector_q_squared_half_dt=wavevector_q_squared_half_dt,
+            sinc_prefactor=sinc_prefactor,
+        )
 
         logger.debug(f"Created PhysicsFactors: q={q:.6e}, L={L:.6e}, dt={dt_value:.6e}")
         logger.debug(f"  q^2*dt/2 = {wavevector_q_squared_half_dt:.6e}")

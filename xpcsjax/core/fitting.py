@@ -19,7 +19,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -58,72 +57,6 @@ class ParameterSpace:
 
     # Optional configuration manager for bound override
     config_manager: Any | None = None
-
-    def get_param_bounds(self, analysis_mode: AnalysisMode) -> list[tuple[float, float]]:
-        """Get parameter bounds based on analysis mode with configuration override support.
-
-        Uses ParameterManager for consistent parameter handling and name mapping.
-
-        Parameters
-        ----------
-        analysis_mode : str
-            Analysis mode: "static_anisotropic", "static_isotropic", or "laminar_flow"
-
-        Returns
-        -------
-        list of tuple
-            List of (min, max) bounds tuples for each parameter
-        """
-        # Strategy 1: Use ParameterManager for full integration (Phase 4.2+)
-        if self.config_manager:
-            try:
-                from xpcsjax.config.parameter_manager import ParameterManager
-
-                # Get config dict from manager
-                config_dict = None
-                if hasattr(self.config_manager, "config"):
-                    config_dict = self.config_manager.config
-                elif isinstance(self.config_manager, dict):
-                    config_dict = self.config_manager
-
-                # Create ParameterManager
-                param_manager = ParameterManager(config_dict, analysis_mode)
-
-                # Get active parameters (physical only, excludes scaling)
-                active_params = param_manager.get_active_parameters()
-
-                # Get bounds as tuples
-                bounds = param_manager.get_bounds_as_tuples(active_params)
-
-                logger.info(
-                    f"Loaded {len(bounds)} parameter bounds from ParameterManager for {analysis_mode} mode",
-                )
-                return bounds
-
-            except (TypeError, KeyError, AttributeError, ValueError) as e:
-                logger.warning(
-                    f"Failed to use ParameterManager: {e}, falling back to defaults",
-                )
-
-        # Fallback to hardcoded defaults
-        logger.debug(f"Using default hardcoded bounds for {analysis_mode} mode")
-        bounds = [
-            self.D0_bounds,
-            self.alpha_bounds,
-            self.D_offset_bounds,
-        ]
-
-        if analysis_mode == "laminar_flow":
-            bounds.extend(
-                [
-                    self.gamma_dot_t0_bounds,
-                    self.beta_bounds,
-                    self.gamma_dot_t_offset_bounds,
-                    self.phi0_bounds,
-                ],
-            )
-
-        return bounds
 
 
 __all__ = ["ParameterSpace"]

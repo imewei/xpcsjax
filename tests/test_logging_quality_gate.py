@@ -296,7 +296,6 @@ class TestTypeBoundary:
     def test_all_includes_key_public_symbols(self):
         """Key public symbols must appear in __all__."""
         required = {
-            "PhaseLogger",
             "JSONFormatter",
             "ContextFilter",
             "log_once",

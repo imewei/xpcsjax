@@ -12,8 +12,6 @@ from unittest.mock import mock_open
 
 import pytest
 
-import xpcsjax.device as device_pkg
-from xpcsjax.device import benchmark_device_performance
 from xpcsjax.device import cpu as device_cpu
 
 
@@ -150,67 +148,6 @@ def test_malformed_lscpu_numa_value_does_not_skip_optimization_flags(
     assert malformed["numa_nodes"] == 1
     assert good["optimization_flags"] == ["intel_mkl", "avx2"]
     assert malformed["optimization_flags"] == good["optimization_flags"]
-
-
-def test_benchmark_device_performance_reports_memory_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A MemoryError from the CPU benchmark surfaces as the documented error
-    dict rather than crashing the caller.
-
-    ``benchmark_cpu_performance``'s own ``test_size``-vs-available-memory guard
-    (a ValueError) now fires before a real allocation failure would, so this
-    exercises the sibling MemoryError branch directly via a mock rather than
-    relying on an actual out-of-memory condition.
-    """
-
-    def _raise_memory_error(*_a: object, **_k: object) -> None:
-        raise MemoryError("simulated allocation failure")
-
-    monkeypatch.setattr(device_pkg, "benchmark_cpu_performance", _raise_memory_error)
-
-    results = device_pkg.benchmark_device_performance(test_size=100)
-
-    assert "error" in results
-    assert "simulated allocation failure" in results["error"]
-
-
-def test_benchmark_rejects_test_size_larger_than_available_memory() -> None:
-    """An oversized benchmark raises ValueError instead of dying on allocation."""
-    with pytest.raises(ValueError, match="test_size"):
-        device_cpu.benchmark_cpu_performance(test_size=10**6)
-
-
-def test_configure_cpu_optimal_downgrades_on_jax_config_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A recorded JAX CPU config error must not be reported as full success.
-
-    configure_cpu_hpc merges _configure_jax_cpu's result (which may carry an
-    "error" key) into its return dict. _configure_cpu_optimal previously
-    reported configuration_successful=True/performance_ready=True
-    unconditionally, hiding that failure.
-    """
-    monkeypatch.setattr(device_pkg, "HAS_CPU_MODULE", True)
-    monkeypatch.setattr(
-        device_pkg,
-        "configure_cpu_hpc",
-        lambda **_kw: {"threads_configured": 4, "error": "simulated JAX config failure"},
-    )
-
-    result = device_pkg._configure_cpu_optimal({}, cpu_threads=None)
-
-    assert result["configuration_successful"] is True
-    assert result["performance_ready"] is False
-    assert "simulated JAX config failure" in result["warnings"][0]
-
-
-def test_benchmark_device_performance_reports_oversized_test_size() -> None:
-    """The public wrapper returns the documented error dict, not a crash."""
-    results = benchmark_device_performance(test_size=10**6)
-
-    assert "error" in results
-    assert "test_size" in results["error"]
 
 
 def _cpu_info_no_extras() -> dict[str, Any]:

@@ -644,61 +644,10 @@ class XPCSDataFilter:
                 raise DataFilteringError("Duplicate indices in filtering result")
 
 
-# Convenience functions for integration
-
-
-def apply_data_filtering(
-    dqlist: np.ndarray,
-    dphilist: np.ndarray,
-    config: dict[str, Any],
-    correlation_matrices: list[np.ndarray] | None = None,
-) -> np.ndarray | None:
-    """Apply data filtering using a one-shot convenience wrapper.
-
-    Builds an :class:`XPCSDataFilter` from ``config`` and applies it, raising
-    :class:`DataFilteringError` if filtering errors occur and no fallback was
-    used.
-
-    Parameters
-    ----------
-    dqlist
-        Array of q-values.
-    dphilist
-        Array of phi angles.
-    config
-        Configuration dictionary controlling the filtering behavior.
-    correlation_matrices
-        Optional correlation matrices used for quality filtering.
-
-    Returns
-    -------
-    numpy.ndarray or None
-        Array of selected indices, or ``None`` if no filtering was applied.
-
-    Raises
-    ------
-    DataFilteringError
-        If filtering reports errors and no fallback was used.
-    """
-    filter_obj = XPCSDataFilter(config)
-    result = filter_obj.apply_filtering(dqlist, dphilist, correlation_matrices)
-
-    if result.errors:
-        logger.error(f"Filtering errors: {result.errors}")
-        if not result.fallback_used:
-            raise DataFilteringError(f"Filtering failed: {result.errors}")
-
-    if result.warnings:
-        logger.warning(f"Filtering warnings: {result.warnings}")
-
-    return result.selected_indices
-
-
 # Export main classes and functions
 __all__ = [
     "XPCSDataFilter",
     "FilteringResult",
     "FilterCriteria",
     "DataFilteringError",
-    "apply_data_filtering",
 ]

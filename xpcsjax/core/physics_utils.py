@@ -13,7 +13,6 @@ These functions were consolidated from:
 to eliminate code duplication and ensure consistent behavior across backends.
 
 Key Functions:
-- safe_len: JAX-safe length function for scalars and arrays
 - safe_exp: Overflow-protected exponential
 - safe_sinc: Numerically stable unnormalized sinc function
 - _calculate_diffusion_coefficient_impl_jax: Time-dependent diffusion D(t)
@@ -37,49 +36,6 @@ EPS = 1e-12  # Numerical stability epsilon
 # =============================================================================
 # UTILITY FUNCTIONS
 # =============================================================================
-
-
-def safe_len(obj: object) -> int:
-    """Return a JAX-safe length for scalars, arrays, and JAX objects.
-
-    Parameters
-    ----------
-    obj : object
-        Any object that might have a length or shape.
-
-    Returns
-    -------
-    int
-        Length of the object (first-dimension size for arrays), or 1 for
-        scalars and unsized objects.
-    """
-    # Handle JAX arrays and numpy arrays with shape attribute
-    if hasattr(obj, "shape"):
-        if obj.shape == () or len(obj.shape) == 0:
-            # Scalar (0-dimensional array)
-            return 1
-        else:
-            # Array - return first dimension size
-            return int(obj.shape[0])
-
-    # Handle objects with __len__ method (lists, tuples, etc.)
-    if hasattr(obj, "__len__"):
-        try:
-            return len(obj)
-        except TypeError:
-            # This catches "len() of unsized object" errors
-            return 1
-
-    # Handle scalars (int, float, etc.)
-    if hasattr(obj, "__iter__") and not isinstance(obj, (str, bytes)):
-        # Iterable but not string/bytes
-        try:
-            return len(list(obj))
-        except (TypeError, ValueError):
-            return 1
-
-    # Default case: treat as scalar
-    return 1
 
 
 @jit

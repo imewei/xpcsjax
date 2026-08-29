@@ -58,13 +58,8 @@ from xpcsjax.core.jax_backend import (
     jax_available,
     jnp,
 )
-from xpcsjax.core.model_mixins import (
-    BenchmarkingMixin,
-    GradientCapabilityMixin,
-    OptimizationRecommendationMixin,
-)
 from xpcsjax.core.physics import validate_parameters
-from xpcsjax.core.physics_utils import PI, safe_len
+from xpcsjax.core.physics_utils import PI
 from xpcsjax.utils.logging import get_logger, log_calls
 
 logger = get_logger(__name__)
@@ -134,7 +129,7 @@ class PhysicsModelBase(ABC):
             # In JIT context: params is a tracer, keep it as a JAX array
             params_arr = jnp.atleast_1d(params)
 
-        params_len = safe_len(params_arr)
+        params_len = len(params_arr)
         if params_len != self.n_params:
             raise ValueError(f"Expected {self.n_params} parameters, got {params_len}")
 
@@ -278,12 +273,7 @@ class ShearModel(PhysicsModelBase):
         return jnp.array([0.01, 0.0, 0.0, 0.0])  # Constant shear, zero offset
 
 
-class CombinedModel(
-    PhysicsModelBase,
-    GradientCapabilityMixin,
-    BenchmarkingMixin,
-    OptimizationRecommendationMixin,
-):
+class CombinedModel(PhysicsModelBase):
     """Combined diffusion + shear model for complete XPCS homodyne analysis.
 
     This is the full model used for laminar flow analysis with both
@@ -295,11 +285,6 @@ class CombinedModel(
     - φ₀: Angular offset parameter
 
     For static analysis, only the first 3 diffusion parameters are used.
-
-    Mixin capabilities:
-    - GradientCapabilityMixin: gradient/Hessian access with backend selection
-    - BenchmarkingMixin: performance benchmarking and accuracy validation
-    - OptimizationRecommendationMixin: optimization guidance and model info
     """
 
     def __init__(self, analysis_mode: AnalysisMode = AnalysisMode.LAMINAR_FLOW):
@@ -622,12 +607,6 @@ class CombinedModel(
 
         return defaults
 
-    # Mixin methods are inherited from:
-    # - GradientCapabilityMixin: get_gradient_function, get_hessian_function,
-    #   supports_gradients, get_best_gradient_method, get_gradient_capabilities
-    # - BenchmarkingMixin: benchmark_gradient_performance, validate_gradient_accuracy
-    # - OptimizationRecommendationMixin: get_optimization_recommendations, get_model_info
-
 
 # Factory functions for easy model creation
 def create_model(analysis_mode: AnalysisMode) -> CombinedModel:
@@ -719,18 +698,19 @@ def make_model(config_or_manager: Any) -> PhysicsModelBase:
 
     # "static_ref" and "static_both" are reduced-parameter heterodyne modes
     # (validated in NLSQConfig.validate() against the module-level
-    # _VALID_ANALYSIS_MODES frozenset in heterodyne_config.py). The reduced parameter
-    # sets are only implemented by xpcsjax.core.heterodyne_models.ReducedModel,
-    # which does not implement the PhysicsModelBase contract this factory
-    # returns — HeterodyneModel always resolves the full 14-parameter
-    # two_component set, so it cannot represent them. Raise rather than
-    # silently substituting the wrong (full) model.
+    # _VALID_ANALYSIS_MODES frozenset in heterodyne_config.py), but no
+    # model implementation exists for them — HeterodyneModel always
+    # resolves the full 14-parameter two_component set, so it cannot
+    # represent them. Raise rather than silently substituting the wrong
+    # (full) model. (The reduced-model classes that once backed these modes,
+    # xpcsjax.core.heterodyne_models.ReducedModel/create_model(), were
+    # removed as dead code — nothing ever routed to them.)
     if mode_lower in ("static_ref", "static_both"):
         raise NotImplementedError(
             f"analysis_mode={raw_mode!r} is not supported by make_model(): "
             "HeterodyneModel only implements the full two_component parameter "
-            "set. Use xpcsjax.core.heterodyne_models.create_model() for the "
-            "reduced static_ref/static_both models."
+            "set, and no reduced-parameter model implementation exists for "
+            "'static_ref'/'static_both'."
         )
 
     # Heterodyne / two-component dispatch.

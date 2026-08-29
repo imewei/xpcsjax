@@ -23,7 +23,6 @@ Configuration structure:
 
 import copy
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -40,36 +39,18 @@ except ImportError:
     HAS_YAML = False
     yaml_module = None
 
-# V2 logging integration
-try:
-    from xpcsjax.data.validators import (
-        validate_enum_value,
-        validate_file_path,
-        validate_frame_range,
-        validate_numeric_range,
-        validate_positive_value,
-    )
-    from xpcsjax.utils.logging import get_logger
-
-    HAS_V2_LOGGING = True
-    HAS_VALIDATORS = True
-except ImportError:
-    import logging
-    from collections.abc import Callable
-
-    HAS_V2_LOGGING = False
-    HAS_VALIDATORS = False
-
-    def get_logger(name: str, **kwargs: Any) -> logging.Logger:  # type: ignore[misc]
-        return logging.getLogger(name)
-
-    # Fallback stubs when validators module not available
-    validate_file_path_func: Callable[..., list[str]] | None = None
-    validate_frame_range_func: Callable[..., list[str]] | None = None
-    validate_positive_value_func: Callable[..., list[str]] | None = None
-    validate_numeric_range_func: Callable[..., list[str]] | None = None
-    validate_enum_value_func: Callable[..., list[str]] | None = None
-
+# xpcsjax.data.validators is a sibling module shipped unconditionally in the
+# same package — never an optional/extra dependency — so the ImportError
+# fallback this try/except once guarded (a duplicate ~100-line inline
+# validator plus stub logger) was unreachable dead code. Removed.
+from xpcsjax.data.validators import (
+    validate_enum_value,
+    validate_file_path,
+    validate_frame_range,
+    validate_numeric_range,
+    validate_positive_value,
+)
+from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -399,193 +380,87 @@ def _validate_parameter_values(config: dict[str, Any]) -> list[str]:
     data_filtering = config.get("data_filtering", {})
     v2_features = config.get("v2_features", {})
 
-    if HAS_VALIDATORS:
-        # Use modern validators (reduced complexity path)
+    errors.extend(
+        validate_file_path(
+            exp_data.get("data_folder_path"),
+            exp_data.get("data_file_name"),
+        )
+    )
+
+    errors.extend(
+        validate_frame_range(
+            analyzer.get("start_frame"),
+            analyzer.get("end_frame"),
+        )
+    )
+
+    errors.extend(validate_positive_value(analyzer.get("dt"), "dt"))
+
+    # Data filtering validation (only when enabled)
+    if data_filtering.get("enabled", False):
         errors.extend(
-            validate_file_path(
-                exp_data.get("data_folder_path"),
-                exp_data.get("data_file_name"),
+            validate_numeric_range(
+                data_filtering.get("q_range"),
+                "q_range",
+                require_positive=True,
             )
         )
-
         errors.extend(
-            validate_frame_range(
-                analyzer.get("start_frame"),
-                analyzer.get("end_frame"),
+            validate_numeric_range(
+                data_filtering.get("phi_range"),
+                "phi_range",
+                value_bounds=(-360, 360),
+                allow_wrapped=True,
             )
         )
-
-        errors.extend(validate_positive_value(analyzer.get("dt"), "dt"))
-
-        # Data filtering validation (only when enabled)
-        if data_filtering.get("enabled", False):
-            errors.extend(
-                validate_numeric_range(
-                    data_filtering.get("q_range"),
-                    "q_range",
-                    require_positive=True,
-                )
-            )
-            errors.extend(
-                validate_numeric_range(
-                    data_filtering.get("phi_range"),
-                    "phi_range",
-                    value_bounds=(-360, 360),
-                    allow_wrapped=True,
-                )
-            )
-            errors.extend(
-                validate_positive_value(
-                    data_filtering.get("quality_threshold"),
-                    "quality_threshold",
-                )
-            )
-            errors.extend(
-                validate_enum_value(
-                    data_filtering.get("combine_criteria"),
-                    "combine_criteria",
-                    ["AND", "OR"],
-                    default="AND",
-                )
-            )
-            errors.extend(
-                validate_enum_value(
-                    data_filtering.get("validation_level"),
-                    "data_filtering.validation_level",
-                    ["basic", "strict"],
-                    default="basic",
-                )
-            )
-
-        # v2_features validation
         errors.extend(
-            validate_enum_value(
-                v2_features.get("output_format"),
-                "output_format",
-                ["numpy", "jax", "auto"],
-                default="auto",
+            validate_positive_value(
+                data_filtering.get("quality_threshold"),
+                "quality_threshold",
             )
         )
         errors.extend(
             validate_enum_value(
-                v2_features.get("validation_level"),
-                "validation_level",
-                ["none", "basic", "full"],
+                data_filtering.get("combine_criteria"),
+                "combine_criteria",
+                ["AND", "OR"],
+                default="AND",
+            )
+        )
+        errors.extend(
+            validate_enum_value(
+                data_filtering.get("validation_level"),
+                "data_filtering.validation_level",
+                ["basic", "strict"],
                 default="basic",
             )
         )
-        errors.extend(
-            validate_enum_value(
-                v2_features.get("cache_strategy"),
-                "cache_strategy",
-                ["none", "simple", "intelligent"],
-                default="intelligent",
-            )
-        )
-    else:
-        # Fallback: inline validation for environments without validators module
-        errors.extend(_validate_parameter_values_fallback(config))
-
-    return errors
-
-
-def _validate_parameter_values_fallback(config: dict[str, Any]) -> list[str]:
-    """Fallback validation when validators module is not available."""
-    errors: list[str] = []
-
-    exp_data = config.get("experimental_data", {})
-    analyzer = config.get("analyzer_parameters", {})
-    data_filtering = config.get("data_filtering", {})
-    v2_features = config.get("v2_features", {})
-
-    # File path validation
-    data_folder = exp_data.get("data_folder_path", "")
-    if data_folder and not os.path.exists(data_folder):
-        errors.append(f"Data folder does not exist: {data_folder}")
-    data_file = exp_data.get("data_file_name", "")
-    if data_folder and data_file:
-        full_path = os.path.join(data_folder, data_file)
-        if not os.path.exists(full_path):
-            errors.append(f"Data file does not exist: {full_path}")
-
-    # Frame range validation
-    start_frame = analyzer.get("start_frame")
-    end_frame = analyzer.get("end_frame")
-    if (
-        start_frame is not None
-        and end_frame is not None
-        and end_frame != -1
-        and start_frame >= end_frame
-    ):
-        errors.append(f"start_frame ({start_frame}) must be less than end_frame ({end_frame})")
-    # Independent of end_frame, mirroring validators.validate_frame_range: a
-    # config with start_frame set but no end_frame must still be rejected.
-    if start_frame is not None and start_frame < 1:
-        errors.append(f"start_frame ({start_frame}) must be >= 1")
-
-    # dt validation
-    dt = analyzer.get("dt")
-    if dt is not None and dt <= 0:
-        errors.append(f"dt ({dt}) must be positive")
-
-    # Data filtering validation
-    if data_filtering.get("enabled", False):
-        q_range = data_filtering.get("q_range", {})
-        if q_range:
-            q_min, q_max = q_range.get("min"), q_range.get("max")
-            if q_min is not None and q_min <= 0:
-                errors.append(f"q_range.min ({q_min}) must be positive")
-            if q_max is not None and q_max <= 0:
-                errors.append(f"q_range.max ({q_max}) must be positive")
-            if q_min is not None and q_max is not None and q_min >= q_max:
-                errors.append(f"q_range.min ({q_min}) must be less than q_range.max ({q_max})")
-
-        phi_range = data_filtering.get("phi_range", {})
-        if phi_range:
-            phi_min, phi_max = phi_range.get("min"), phi_range.get("max")
-            if phi_min is not None and phi_max is not None and phi_min == phi_max:
-                errors.append(
-                    f"phi_range.min ({phi_min}) equals phi_range.max ({phi_max}): zero-width range"
-                )
-            elif phi_min is not None and phi_max is not None and phi_min > phi_max:
-                logger.debug(
-                    f"phi_range [{phi_min}, {phi_max}] is a wrapped range across +/-180 degrees"
-                )
-            if phi_min is not None and not (-360 <= phi_min <= 360):
-                errors.append(f"phi_range.min ({phi_min}) should be in range [-360, 360]")
-            if phi_max is not None and not (-360 <= phi_max <= 360):
-                errors.append(f"phi_range.max ({phi_max}) should be in range [-360, 360]")
-
-        quality_threshold = data_filtering.get("quality_threshold")
-        if quality_threshold is not None and quality_threshold <= 0:
-            errors.append(f"quality_threshold ({quality_threshold}) must be positive")
-
-        combine_criteria = data_filtering.get("combine_criteria", "AND")
-        if combine_criteria not in ["AND", "OR"]:
-            errors.append(f"combine_criteria must be one of: AND, OR (got: {combine_criteria})")
-
-        validation_level = data_filtering.get("validation_level", "basic")
-        if validation_level not in ["basic", "strict"]:
-            errors.append(
-                f"data_filtering.validation_level must be one of: basic, strict (got: {validation_level})"
-            )
 
     # v2_features validation
-    output_format = v2_features.get("output_format", "auto")
-    if output_format not in ["numpy", "jax", "auto"]:
-        errors.append(f"output_format must be one of: numpy, jax, auto (got: {output_format})")
-
-    validation_level = v2_features.get("validation_level", "basic")
-    if validation_level not in ["none", "basic", "full"]:
-        errors.append(
-            f"validation_level must be one of: none, basic, full (got: {validation_level})"
+    errors.extend(
+        validate_enum_value(
+            v2_features.get("output_format"),
+            "output_format",
+            ["numpy", "jax", "auto"],
+            default="auto",
         )
-
-    cache_strategy = v2_features.get("cache_strategy", "intelligent")
-    if cache_strategy not in ["none", "simple", "intelligent"]:
-        errors.append(
-            f"cache_strategy must be one of: none, simple, intelligent (got: {cache_strategy})"
+    )
+    errors.extend(
+        validate_enum_value(
+            v2_features.get("validation_level"),
+            "validation_level",
+            ["none", "basic", "full"],
+            default="basic",
         )
+    )
+    errors.extend(
+        validate_enum_value(
+            v2_features.get("cache_strategy"),
+            "cache_strategy",
+            ["none", "simple", "intelligent"],
+            default="intelligent",
+        )
+    )
 
     return errors
 
@@ -675,133 +550,12 @@ def apply_config_defaults(
     return config_with_defaults
 
 
-def migrate_json_to_yaml_config(
-    json_config: dict[str, Any],
-    yaml_output_path: str | Path | None = None,
-) -> dict[str, Any]:
-    """Migrate a JSON configuration to YAML format.
-
-    Parameters
-    ----------
-    json_config
-        JSON configuration dictionary.
-    yaml_output_path
-        Optional path to which the YAML configuration is saved.
-
-    Returns
-    -------
-    dict
-        YAML configuration dictionary.
-    """
-    # Structure is already suitable, so just copy
-    # In the future, this could include more sophisticated transformations
-    yaml_config = json_config.copy()
-
-    # Add v2 features section if not present
-    if "v2_features" not in yaml_config:
-        v2_features_schema = XPCS_CONFIG_SCHEMA["v2_features"]
-        if isinstance(v2_features_schema, dict) and "defaults" in v2_features_schema:
-            v2_defaults = v2_features_schema["defaults"]
-            if isinstance(v2_defaults, dict):
-                yaml_config["v2_features"] = v2_defaults.copy()
-
-    # Apply defaults
-    yaml_config = apply_config_defaults(yaml_config)
-
-    if yaml_output_path:
-        save_yaml_config(yaml_config, yaml_output_path)
-
-    logger.info("Migrated JSON configuration to YAML format")
-    return yaml_config
-
-
-def save_yaml_config(config: dict[str, Any], output_path: str | Path) -> None:
-    """Save a configuration to a YAML file.
-
-    Parameters
-    ----------
-    config
-        Configuration dictionary.
-    output_path
-        Path to which the YAML file is written.
-
-    Raises
-    ------
-    XPCSConfigurationError
-        If PyYAML is unavailable or writing the file fails.
-    """
-    if not HAS_YAML or yaml_module is None:
-        raise XPCSConfigurationError("PyYAML required to save YAML configuration files")
-
-    output_path = Path(output_path)
-
-    # Create directory if it doesn't exist
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    try:
-        with open(output_path, "w", encoding="utf-8") as f:
-            yaml_module.dump(config, f, default_flow_style=False, indent=2, sort_keys=False)
-
-        logger.info(f"Saved YAML configuration to: {output_path}")
-
-    except (OSError, ValueError) as e:
-        raise XPCSConfigurationError(
-            f"Failed to save YAML configuration to {output_path}: {e}",
-        ) from e
-
-
-def create_example_yaml_config(
-    output_path: str | Path,
-    data_folder: str = "/path/to/data",
-    data_file: str = "experiment.hdf",
-) -> None:
-    """Create an example YAML configuration file.
-
-    Args:
-        output_path: Path to save example configuration
-        data_folder: Example data folder path
-        data_file: Example data file name
-    """
-    example_config = {
-        "experimental_data": {
-            "data_folder_path": data_folder,
-            "data_file_name": data_file,
-            "phi_angles_path": "./output/",
-            "cache_file_path": "./cache/",
-            "cache_filename_template": "cached_c2_frames_${start_frame}_${end_frame}.npz",
-            "cache_compression": True,
-            "apply_diagonal_correction": True,
-        },
-        "analyzer_parameters": {
-            "dt": 0.001,
-            "start_frame": 1,
-            "end_frame": 1000,
-            "time_unit": "seconds",
-        },
-        "v2_features": {
-            "output_format": "auto",
-            "validation_level": "basic",
-            "performance_optimization": True,
-            "physics_validation": False,
-            "cache_strategy": "intelligent",
-            "parallel_processing": False,
-            "gpu_acceleration": False,
-        },
-    }
-
-    save_yaml_config(example_config, output_path)
-    logger.info(f"Created example YAML configuration: {output_path}")
-
-
 # Export main functions
 __all__ = [
     "load_yaml_config",
     "load_json_config",
     "validate_config_schema",
     "apply_config_defaults",
-    "migrate_json_to_yaml_config",
-    "save_yaml_config",
-    "create_example_yaml_config",
     "ConfigValidationResult",
     "XPCSConfigurationError",
     "XPCS_CONFIG_SCHEMA",

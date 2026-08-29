@@ -15,12 +15,13 @@ import importlib
 import importlib.metadata as importlib_metadata
 import os
 import platform
-import re
 import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from packaging.version import Version
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -58,6 +59,7 @@ REQUIRED_DEPENDENCIES: tuple[tuple[str, str, str], ...] = (
     ("datashader", "0.16", "datashader"),
     ("xarray", "2024.0", "xarray"),
     ("colorcet", "3.1", "colorcet"),
+    ("packaging", "24.0", "packaging"),
 )
 
 # Required config templates under xpcsjax/config/templates/
@@ -123,79 +125,12 @@ class ValidationResult:
 # ---------------------------------------------------------------------------
 
 
-def _parse_version(version: str) -> tuple[int, ...]:
-    """Parse a PEP 440-ish version string into an int tuple for comparison.
-
-    Strips pre-release / dev / local suffixes (e.g. ``1.2.3rc1+abc`` ->
-    ``(1, 2, 3)``). Non-numeric trailing components are dropped to keep ordering
-    total.
-
-    Parameters
-    ----------
-    version : str
-        Version string to parse.
-
-    Returns
-    -------
-    tuple of int
-        Numeric release components.
-    """
-    cleaned = re.split(r"[+\-]", version)[0]
-    parts: list[int] = []
-    for chunk in cleaned.split("."):
-        m = re.match(r"(\d+)", chunk)
-        if m is None:
-            break
-        parts.append(int(m.group(1)))
-    return tuple(parts)
-
-
-def _is_final_release(version: str) -> bool:
-    """Return whether ``version`` is a final release (no pre-release/dev suffix).
-
-    Strips local version metadata (``+...``, PEP 440 §local-version) — that
-    part is genuinely opaque build info, safe to discard. What remains is
-    checked for a PEP 440 pre-release/dev marker (``a``/``b``/``c``/``rc``/
-    ``dev``, optionally digit-suffixed, optionally ``.``- or ``-``-prefixed)
-    ANYWHERE in the string, not just as a suffix split on ``-``/``+`` — a
-    plain hyphen-prefixed splitter (the prior implementation) strips
-    ``-rc1`` off entirely as if it were build metadata, silently
-    misclassifying a release candidate as final. A ``.postN`` post-release
-    suffix does NOT match any of these markers, so it's correctly classified
-    as final (PEP 440 post-releases sort *after*, not before, the base
-    release).
-
-    Parameters
-    ----------
-    version : str
-        Version string to classify.
-
-    Returns
-    -------
-    bool
-        ``True`` if ``version`` carries no pre-release/dev suffix.
-    """
-    cleaned = version.split("+", 1)[0]
-    return not re.search(r"[.\-]?(a|b|c|rc|dev)\d*\b", cleaned, re.IGNORECASE)
-
-
 def _version_at_least(actual: str, minimum: str) -> bool:
-    """Return whether ``actual`` is at least ``minimum``.
+    """Return whether ``actual`` is at least ``minimum`` per PEP 440 ordering.
 
-    Both versions are normalized via :func:`_parse_version` first, then
-    zero-padded to equal length before comparison so that semantically-equal
-    versions of differing component counts compare equal (e.g. ``"2.3"`` is
-    treated as ``"2.3.0"``). A raw tuple comparison would rank the shorter
-    tuple as *less* even when the missing trailing components are all zero
-    (``(2, 3) < (2, 3, 0)``), which would spuriously flag an up-to-date
-    dependency as outdated whenever a minimum is declared with a trailing
-    ``.0`` (or a distribution reports a coarser version than the requirement).
-
-    A :func:`_is_final_release` flag is compared as a secondary key so that
-    pre-release / dev builds (``1.2.3rc1``, ``0.8.2.dev20250101``, ...) never
-    silently satisfy a minimum for the same numeric release — the numeric
-    tuple alone can't distinguish them since :func:`_parse_version` drops the
-    non-numeric suffix entirely.
+    Delegates to :class:`packaging.version.Version`, which already handles
+    zero-padding equivalence (``"2.3" == "2.3.0"``) and pre-release / dev
+    ordering (``"1.2.3rc1" < "1.2.3"``) correctly — no need to hand-roll it.
 
     Parameters
     ----------
@@ -209,14 +144,7 @@ def _version_at_least(actual: str, minimum: str) -> bool:
     bool
         ``True`` if ``actual >= minimum``.
     """
-    a = _parse_version(actual)
-    m = _parse_version(minimum)
-    width = max(len(a), len(m))
-    a_padded = a + (0,) * (width - len(a))
-    m_padded = m + (0,) * (width - len(m))
-    a_key = (a_padded, _is_final_release(actual))
-    m_key = (m_padded, _is_final_release(minimum))
-    return a_key >= m_key
+    return Version(actual) >= Version(minimum)
 
 
 # ---------------------------------------------------------------------------

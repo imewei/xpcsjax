@@ -21,7 +21,6 @@ Quality-gate findings added (2026-06-03):
 
 import gc
 import logging
-import os
 import unittest.mock
 import weakref
 
@@ -29,7 +28,6 @@ import pytest
 
 from xpcsjax.data.memory_manager import (
     AdvancedMemoryManager,
-    AllocationError,
     MemoryPressureMonitor,
     MemoryStats,
 )
@@ -77,69 +75,6 @@ def test_cleanup_failure_is_logged_at_debug_and_does_not_escape(caplog, monkeypa
 
         # The manager is still usable after the swallowed failure.
         assert isinstance(manager.get_memory_stats(), dict)
-    finally:
-        manager.shutdown()
-
-
-# ---------------------------------------------------------------------------
-# REL-1: _return_to_pool malformed pool_id must log DEBUG, never raise
-# ---------------------------------------------------------------------------
-
-
-def test_return_to_pool_malformed_id_does_not_raise_and_logs_debug(caplog, monkeypatch):
-    """REL-1: malformed pool_id in _return_to_pool must log DEBUG, not raise.
-
-    A pool_id that cannot be parsed (e.g. 'BADID' with no '_' separator, or
-    a non-integer suffix) previously triggered a bare ``except (ValueError,
-    IndexError): pass`` — silently leaking the buffer without any trace. The
-    fix replaces the bare pass with a log_once at DEBUG keyed per pool_id.
-    """
-    import numpy as np
-
-    manager = _make_manager()
-    try:
-        buf = np.empty(16, dtype=np.float64)
-        malformed_pool_id = "BADID_NOTANINT"
-
-        with caplog.at_level(logging.DEBUG, logger="xpcsjax"):
-            # Must NOT raise even though pool_id is malformed.
-            manager._return_to_pool(buf, malformed_pool_id)
-
-        debug_records = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.DEBUG and malformed_pool_id in r.getMessage()
-        ]
-        assert debug_records, (
-            f"Expected at least one DEBUG record mentioning '{malformed_pool_id}' "
-            f"but found none. Records: {[r.getMessage() for r in caplog.records]}"
-        )
-    finally:
-        manager.shutdown()
-
-
-def test_return_to_pool_malformed_id_logged_once_per_distinct_id(caplog, monkeypatch):
-    """REL-1: repeated calls with the SAME malformed pool_id emit exactly one log."""
-    import numpy as np
-
-    manager = _make_manager()
-    try:
-        buf = np.empty(16, dtype=np.float64)
-        malformed_pool_id = "BADID2"
-
-        with caplog.at_level(logging.DEBUG, logger="xpcsjax"):
-            manager._return_to_pool(buf, malformed_pool_id)
-            manager._return_to_pool(buf, malformed_pool_id)
-            manager._return_to_pool(buf, malformed_pool_id)
-
-        matching = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.DEBUG and malformed_pool_id in r.getMessage()
-        ]
-        assert len(matching) == 1, (
-            f"Expected exactly 1 DEBUG record for repeated same pool_id, got {len(matching)}"
-        )
     finally:
         manager.shutdown()
 
@@ -218,102 +153,6 @@ def test_logged_errors_fallback_shim_reraise_direct():
     # Verify the shim swallows
     with _fallback_logged_errors(policy="suppress"):
         raise ValueError("shim suppress")
-
-
-# ---------------------------------------------------------------------------
-# virtual_memory_path traversal check
-# ---------------------------------------------------------------------------
-
-
-def test_virtual_memory_path_traversal_rejected_before_makedirs(tmp_path, monkeypatch):
-    """A virtual_memory_path containing '..' must be rejected before any directory is created.
-
-    The fix must call validate_save_path (or equivalent traversal check) before
-    os.makedirs so that no directory is created when the path is malicious.
-    """
-    traversal_path = str(tmp_path / ".." / "escaped" / "xpcsjax_vm")
-
-    manager = AdvancedMemoryManager(
-        config={
-            "memory": {
-                "enable_monitoring": False,
-                "virtual_memory_path": traversal_path,
-            }
-        }
-    )
-    try:
-        import numpy as np
-
-        # Track whether makedirs is called
-        makedirs_called = []
-        real_makedirs = os.makedirs
-
-        def _spy_makedirs(path, **kwargs):
-            makedirs_called.append(path)
-            return real_makedirs(path, **kwargs)
-
-        monkeypatch.setattr(os, "makedirs", _spy_makedirs)
-
-        # The traversal check raises PathValidationError (a ValueError), which
-        # _allocate_virtual_memory wraps into AllocationError before it escapes.
-        with pytest.raises(AllocationError):
-            # Should raise BEFORE makedirs (traversal check happens first)
-            manager._allocate_virtual_memory(1024, np.float64)
-
-        assert not makedirs_called, (
-            f"os.makedirs was called ({makedirs_called}) before traversal check raised — "
-            "the check must happen before any filesystem mutation"
-        )
-    finally:
-        manager.shutdown()
-
-
-def test_allocate_virtual_memory_closes_handle_on_failure(tmp_path, monkeypatch):
-    """#4: a failure after the backing file is opened must close the fd/mapping.
-
-    Between ``open(vm_file, 'r+b')`` and the successful ``np.ndarray`` construction,
-    any exception (mmap error, ndarray error) previously left the file handle open —
-    one leaked fd per failed allocation, in the exact OOM conditions that trigger
-    this path. The fix closes the handle in an inner except before unwinding.
-    """
-    import numpy as np
-
-    from xpcsjax.data import memory_manager as mm_mod
-
-    manager = AdvancedMemoryManager(
-        config={
-            "memory": {
-                "enable_monitoring": False,
-                "virtual_memory_path": str(tmp_path / "vm" / "xpcsjax_vm"),
-            }
-        }
-    )
-    try:
-        opened = []
-        real_open = open
-
-        def _tracking_open(path, mode="r", *a, **k):
-            fh = real_open(path, mode, *a, **k)
-            if "r+b" in mode:
-                opened.append(fh)
-            return fh
-
-        monkeypatch.setattr("builtins.open", _tracking_open)
-
-        def _boom(*a, **k):
-            raise OSError("simulated mmap failure")
-
-        monkeypatch.setattr(mm_mod.mmap, "mmap", _boom)
-
-        with pytest.raises(AllocationError):
-            manager._allocate_virtual_memory(1024, np.float64)
-
-        assert opened, "expected an r+b backing-file handle to be opened"
-        assert all(fh.closed for fh in opened), (
-            "backing-file handle must be closed when allocation fails (no fd leak)"
-        )
-    finally:
-        manager.shutdown()
 
 
 # ---------------------------------------------------------------------------

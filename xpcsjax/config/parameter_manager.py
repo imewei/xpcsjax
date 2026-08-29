@@ -671,26 +671,6 @@ class ParameterManager:
                 all_params.append(p)
         return all_params
 
-    def get_effective_parameter_count(self) -> int:
-        """Get the effective number of physical parameters (excludes scaling).
-
-        Returns
-        -------
-        int
-            Number of physical parameters used in the analysis:
-
-            - Static mode: 3 (D0, alpha, D_offset)
-            - Laminar flow mode: 7 (D0, alpha, D_offset, gamma_dot_t0, beta,
-              gamma_dot_t_offset, phi0)
-
-        Examples
-        --------
-        >>> pm = ParameterManager(config_dict, "static_anisotropic")
-        >>> pm.get_effective_parameter_count()
-        3
-        """
-        return len(self.get_active_parameters())
-
     def get_total_parameter_count(self) -> int:
         """Get total number of parameters including scaling parameters.
 
@@ -851,44 +831,6 @@ class ParameterManager:
             return {}
 
         return fixed_params
-
-    def is_parameter_active(self, param_name: str) -> bool:
-        """Check if a parameter is active (being optimized).
-
-        Parameters
-        ----------
-        param_name : str
-            Parameter name to check
-
-        Returns
-        -------
-        bool
-            True if parameter is active, False if fixed
-
-        Examples
-        --------
-        >>> pm = ParameterManager(config)
-        >>> pm.is_parameter_active("D0")
-        True
-        >>> pm.is_parameter_active("contrast")  # if fixed
-        False
-        """
-        active_params = self.get_active_parameters()
-        fixed_params = self.get_fixed_parameters()
-
-        # Apply name mapping to input parameter
-        canonical_name = self._param_name_mapping.get(param_name, param_name)
-
-        # Check if parameter is in fixed list (need to check both config and canonical names)
-        is_fixed = False
-        for fixed_name in fixed_params.keys():
-            fixed_canonical = self._param_name_mapping.get(fixed_name, fixed_name)
-            if canonical_name == fixed_canonical or canonical_name == fixed_name:
-                is_fixed = True
-                break
-
-        # Parameter is active if it's in active list and not fixed
-        return canonical_name in active_params and not is_fixed
 
     def get_optimizable_parameters(self) -> list[str]:
         """Get list of parameters that should be optimized (active - fixed).

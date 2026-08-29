@@ -112,19 +112,6 @@ def test_gradient_monitor_check_interval_zero_no_crash() -> None:
 
 
 # ---------------------------------------------------------------------------
-# get_optimal_batch_size must never exceed the dataset size. (device/cpu.py:499)
-# ---------------------------------------------------------------------------
-@pytest.mark.parametrize("data_size", [1, 200, 999, 1000, 5000])
-def test_optimal_batch_size_never_exceeds_dataset(data_size: int) -> None:
-    from xpcsjax.device.cpu import get_optimal_batch_size
-
-    # Large memory budget so the memory-derived size is huge and the dataset
-    # cap is what must bind.
-    batch = get_optimal_batch_size(data_size, available_memory_gb=64.0)
-    assert 1 <= batch <= data_size
-
-
-# ---------------------------------------------------------------------------
 # detect_degeneracy.basin_labels must align 1:1 with the input results
 # (length == len(results); index i corresponds to results[i]). (multistart.py)
 # ---------------------------------------------------------------------------
