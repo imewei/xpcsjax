@@ -145,8 +145,6 @@ try:
         PreprocessingProvenance,
         PreprocessingResult,
         PreprocessingStage,
-        create_default_preprocessing_config,
-        preprocess_xpcs_data,
     )
 
     HAS_PREPROCESSING = True
@@ -260,8 +258,6 @@ if HAS_PREPROCESSING:
             "NoiseReductionMethod",
             "PreprocessingError",
             "PreprocessingConfigurationError",
-            "create_default_preprocessing_config",
-            "preprocess_xpcs_data",
         ],
     )
 

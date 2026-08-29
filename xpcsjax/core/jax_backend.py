@@ -391,8 +391,8 @@ def _compute_g1_diffusion_core(
             # time and float() unconditionally raises, landing in the
             # except branch on every call. Removed rather than kept as
             # theatre; callers should pass an explicit time_grid instead
-            # (see model_for_cmaes in optimization/nlsq/core.py and
-            # gradient_diagnostics.py for real callers threading one).
+            # (see model_for_cmaes in optimization/nlsq/core.py for real
+            # callers threading one).
             _FALLBACK_GRID_SIZE = 10001
             grid_indices = jnp.arange(_FALLBACK_GRID_SIZE, dtype=jnp.result_type(dt))
             time_grid_used = grid_indices * dt
@@ -557,8 +557,8 @@ def _compute_g1_shear_core(
             # time and float() unconditionally raises, landing in the
             # except branch on every call. Removed rather than kept as
             # theatre; callers should pass an explicit time_grid instead
-            # (see model_for_cmaes in optimization/nlsq/core.py and
-            # gradient_diagnostics.py for real callers threading one).
+            # (see model_for_cmaes in optimization/nlsq/core.py for real
+            # callers threading one).
             _FALLBACK_GRID_SIZE = 10001
             grid_indices = jnp.arange(_FALLBACK_GRID_SIZE, dtype=jnp.result_type(dt))
             time_grid_used = grid_indices * dt

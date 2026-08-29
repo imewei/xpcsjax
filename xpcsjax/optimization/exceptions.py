@@ -45,11 +45,6 @@ xpcsjax.optimization.strategy : Strategy selection and fallback logic
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    pass
-
 
 class NLSQOptimizationError(Exception):
     """Base exception for all NLSQ optimization errors.

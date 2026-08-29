@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 import numpy as np
@@ -17,9 +16,6 @@ from xpcsjax.core.heterodyne_jax_backend import compute_c2_heterodyne
 # (``v_beta``, ``phi0_het``) instead of the upstream heterodyne names
 # (``beta``, ``phi0``) that would collide with the homodyne flow params.
 ALL_PARAM_NAMES: tuple[str, ...] = tuple(get_registry().get_param_names(AnalysisMode.TWO_COMPONENT))
-
-if TYPE_CHECKING:
-    pass
 
 
 class HeterodyneModelBase(ABC):

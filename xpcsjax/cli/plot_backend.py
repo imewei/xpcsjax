@@ -27,8 +27,8 @@ logger = get_logger(__name__)
 
 # Monotonic per-call token so the per-phi ``log_once`` keys never collapse
 # across separate dispatch-function calls when ``run_id`` is None (no
-# configured log context). Mirrors the async_io._WAIT_ALL_CALL_COUNTER defense:
-# without it, two successive calls would share a static ``"None:..."`` key in
+# configured log context). Without it, two successive calls would share a
+# static ``"None:..."`` key in
 # the process-global dedup cache and the second call's per-angle warning would
 # be silently suppressed. Keeping run_id in the key still scopes by run when
 # one is set; the token scopes by dispatch-function call.

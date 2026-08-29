@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QMessageBox, QWidget
 
 def show_failure(
     parent: QWidget | None,
+    *,
     title: str,
     friendly: str,
     details: str,

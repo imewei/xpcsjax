@@ -399,7 +399,7 @@ class MainWindow(QMainWindow):
                 self._central_stack.setCurrentIndex(0)  # show_error is text-only
         # Identify which run failed (matters once multiple runs share the window).
         title = f"{title} (run {run_id[:8]})"
-        show_failure(self, title, friendly, details)
+        show_failure(self, title=title, friendly=friendly, details=details)
 
     def _on_run_finished(
         self, run_id: str, result_path: str, summary: ResultSummary | None

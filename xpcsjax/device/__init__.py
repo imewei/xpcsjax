@@ -33,31 +33,13 @@ from xpcsjax.utils.logging import get_logger  # noqa: E402 - After logging confi
 
 logger = get_logger(__name__)
 
-# Import CPU-specific module (re-exported for public API)
-try:
-    from xpcsjax.device.cpu import (  # noqa: F401
-        configure_cpu_hpc,
-        detect_cpu_info,
-    )
+# Re-exported for public API. `xpcsjax.device.cpu` is an internal sibling
+# module (not an optional external package) and its own hard dependency,
+# psutil, is a required (non-extra) install — this import cannot fail in any
+# supported install, so no soft-fail guard is needed.
+from xpcsjax.device.cpu import configure_cpu_hpc, detect_cpu_info  # noqa: E402,F401
 
-    HAS_CPU_MODULE = True
-except ImportError as e:
-    logger.warning(f"CPU optimization module not available: {e}")
-    HAS_CPU_MODULE = False
-
-
-# Main exports. Literal __all__ + conditional ``+=`` so Pyright can analyze it
-# (reportUnsupportedDunderAll); assigning a dynamically-built variable was not
-# statically supported. The CPU symbols are statically importable (the
-# try-import above), so they pass the dunder-all presence check.
 __all__ = [
-    # Status flags
-    "HAS_CPU_MODULE",
+    "configure_cpu_hpc",
+    "detect_cpu_info",
 ]
-
-# Add CPU-specific exports if available
-if HAS_CPU_MODULE:
-    __all__ += [
-        "configure_cpu_hpc",
-        "detect_cpu_info",
-    ]

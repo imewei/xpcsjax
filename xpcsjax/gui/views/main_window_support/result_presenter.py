@@ -118,7 +118,7 @@ class ResultPresenter(QObject):
             The error message text to display.
         """
         # A colored "FIT FAILED" header is a secondary signal (the status pill
-        # and the modal ErrorDialog already carry the primary one), but plain
+        # and the modal show_failure() dialog already carry the primary one), but plain
         # text gave a scanning eye zero anchor between this and a normal result.
         color = current_palette().danger
         self._mw._results.clear()

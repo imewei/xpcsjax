@@ -21,7 +21,7 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from packaging.version import Version
+from packaging.version import InvalidVersion, Version
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -125,7 +125,7 @@ class ValidationResult:
 # ---------------------------------------------------------------------------
 
 
-def _version_at_least(actual: str, minimum: str) -> bool:
+def _version_at_least(actual: str, minimum: str) -> bool | None:
     """Return whether ``actual`` is at least ``minimum`` per PEP 440 ordering.
 
     Delegates to :class:`packaging.version.Version`, which already handles
@@ -141,10 +141,19 @@ def _version_at_least(actual: str, minimum: str) -> bool:
 
     Returns
     -------
-    bool
-        ``True`` if ``actual >= minimum``.
+    bool or None
+        ``True``/``False`` for a normal comparison, or ``None`` when
+        ``actual`` isn't a parseable PEP 440 version (e.g. a package
+        reporting a VCS/local build string like ``"0.0.0-dirty"``) — this
+        keeps one unparseable distribution from raising out of
+        :meth:`SystemValidator.test_dependency_versions` and collapsing the
+        per-dependency present/outdated/missing breakdown for every other
+        dependency into a single opaque error.
     """
-    return Version(actual) >= Version(minimum)
+    try:
+        return Version(actual) >= Version(minimum)
+    except InvalidVersion:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +270,7 @@ class SystemValidator:
         """
         missing: list[str] = []
         outdated: list[str] = []
+        unparseable: list[str] = []
         present: list[str] = []
 
         for dist_name, min_version, _import_name in REQUIRED_DEPENDENCIES:
@@ -269,12 +279,15 @@ class SystemValidator:
             except importlib_metadata.PackageNotFoundError:
                 missing.append(f"{dist_name} (need >= {min_version})")
                 continue
-            if _version_at_least(actual, min_version):
+            satisfies = _version_at_least(actual, min_version)
+            if satisfies is None:
+                unparseable.append(f"{dist_name}=={actual} (not a valid PEP 440 version)")
+            elif satisfies:
                 present.append(f"{dist_name}=={actual}")
             else:
                 outdated.append(f"{dist_name}=={actual} (need >= {min_version})")
 
-        if not missing and not outdated:
+        if not missing and not outdated and not unparseable:
             return ValidationResult(
                 success=True,
                 severity=Severity.INFO,
@@ -288,10 +301,14 @@ class SystemValidator:
             problems.append("Missing: " + ", ".join(missing))
         if outdated:
             problems.append("Outdated: " + ", ".join(outdated))
+        if unparseable:
+            problems.append("Unparseable version: " + ", ".join(unparseable))
         return ValidationResult(
             success=False,
             severity=Severity.ERROR,
-            message=f"{len(missing) + len(outdated)} dependency issue(s) detected",
+            message=(
+                f"{len(missing) + len(outdated) + len(unparseable)} dependency issue(s) detected"
+            ),
             name="Dependency Versions",
             details="\n  ".join(problems) + "\n  Run `uv sync` to resolve.",
         )
