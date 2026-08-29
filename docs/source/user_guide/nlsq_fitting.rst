@@ -98,8 +98,9 @@ fit took.
 Bounds and parameter transforms
 -------------------------------
 
-Bounds are specified in YAML under ``parameter_bounds`` as
-``[lower, upper]`` pairs per parameter name. They are pulled by
+Bounds are specified in YAML under ``parameter_space.bounds`` — a list of
+``{name, min, max}`` entries, one per parameter, matching every shipped
+template. They are pulled by
 :meth:`xpcsjax.config.ConfigManager.get_parameter_bounds` and threaded into the
 optimiser through the xpcsjax parameter-transform layer.
 
@@ -122,16 +123,24 @@ Practical consequences:
   transform is the principal reason that ``JAX_ENABLE_X64=1`` is
   mandatory at the package level.
 
-Bound configuration accepts both per-parameter dict form and
-mode-specific list form. The dict form is checked against the active
-parameter list at load time:
+Each entry is merged into the parameter registry at load time. Naming a
+parameter already in the registry overrides its bounds; naming an
+unregistered parameter *without* both ``min`` and ``max`` raises
+``ValueError`` immediately (rather than deferring to a confusing
+``KeyError`` later); naming one *with* both is accepted as a new tracked
+bound with no warning. (Heterodyne's alias-resolving
+``ParameterSpace.from_config`` path is more lenient — see
+:ref:`parameter_space_bounds` — but ``ConfigManager.get_parameter_bounds``
+above goes through the shared ``ParameterManager``, which does not
+warn-and-skip.)
 
 .. code-block:: yaml
 
-   parameter_bounds:
-     D0:       [1.0e1, 1.0e5]
-     alpha:    [-1.0, 1.0]
-     D_offset: [-1.0e3, 1.0e3]
+   parameter_space:
+     bounds:
+       - {name: D0,       min: 1.0e1,  max: 1.0e5}
+       - {name: alpha,    min: -1.0,   max: 1.0}
+       - {name: D_offset, min: -1.0e3, max: 1.0e3}
 
 Convergence criteria
 --------------------

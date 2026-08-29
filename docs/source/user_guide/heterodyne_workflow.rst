@@ -176,30 +176,50 @@ A starter heterodyne YAML:
      data_file_name: heterodyne_dataset.h5
 
    analyzer_parameters:
-     temporal:
-       dt: 0.05
-       start_frame: 0
-       end_frame: 1500
+     dt: 0.05
+     start_frame: 1
+     end_frame: 1500
      scattering:
        wavevector_q: 0.015
      geometry:
        stator_rotor_gap: 1.0e-3
 
    initial_parameters:
-     values: [
-       # Component 1 (3)
-       1.0e3, 0.0, 0.0,
-       # Component 2 (3)
-       1.0e2, 0.0, 0.0,
-       # Coupling + amplitudes + reference-beam terms (8)
-       0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-       # Per-angle scaling (2)
-       0.5, 1.0,
-     ]
+     parameter_names:
+       # reference transport (3) + sample transport (3)
+       - D0_ref
+       - alpha_ref
+       - D_offset_ref
+       - D0_sample
+       - alpha_sample
+       - D_offset_sample
+       # relative velocity field (3)
+       - v0
+       - v_beta
+       - v_offset
+       # sample-fraction kinetics (4) + flow angle (1)
+       - f0
+       - f1
+       - f2
+       - f3
+       - phi0_het
 
-   parameter_bounds:
-     # name -> [lower, upper] for each active parameter
-     # ...
+     values: [1.0e4, 0.0, 0.0, 1.0e4, 0.0, 0.0, 1.0e3, 1.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.0]
+
+     # per-angle contrast/offset are configured separately, not appended here
+     per_angle_scaling:
+       contrast: null
+       offset: null
+
+   parameter_space:
+     bounds:
+       # one {name, min, max} entry per parameter above; see
+       # xpcsjax/config/templates/xpcsjax_two_component.yaml for the full
+       # registry-matched set
+       - {name: D0_sample, min: 1.0e1, max: 1.0e6}
+       - {name: alpha_sample, min: -2.0, max: 2.0}
+       # ...
+
    optimization:
      nlsq:
        max_iterations: 2000

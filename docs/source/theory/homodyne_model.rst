@@ -24,14 +24,14 @@ Common ingredients
 
 All homodyne modes share three building blocks.
 
-**Diffusion integral.** With the power-law parameterisation
+**Time-integrated** :math:`J(t)`. With the power-law parameterisation
 
 .. math::
    :label: hm_Dt
 
    J(t) \;=\; D_0 \cdot t^\alpha + D_\mathrm{offset},
 
-the diffusion integral entering the Siegert relation is
+the quantity entering the Siegert relation is
 
 .. math::
    :label: hm_diff_integral
@@ -206,7 +206,7 @@ time exponent (distinct from the speckle contrast :math:`\beta` --- context
 disambiguates), and :math:`\dot{\gamma}_\mathrm{offset}` is a constant
 background. The accumulated strain :math:`\Gamma(t_1, t_2)` is computed by
 cumulative trapezoidal integration on the experimental time grid, matching
-the diffusion integral convention.
+the :math:`\mathcal{D}(t_1, t_2)` integration convention above.
 
 Angular dependence
 ~~~~~~~~~~~~~~~~~~
@@ -296,7 +296,7 @@ The class :class:`xpcsjax.core.HomodyneModel` exposes the kernel through
 
    config = {
        "analyzer_parameters": {
-           "temporal": {"dt": 0.05, "start_frame": 0, "end_frame": 1000},
+           "dt": 0.05, "start_frame": 1, "end_frame": 1000,
            "scattering": {"wavevector_q": q},
            "geometry": {"stator_rotor_gap": h_gap},
        },

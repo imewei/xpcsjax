@@ -138,7 +138,7 @@ practice at synchrotron beamlines:
 For homodyne datasets the canonical correlation array is stored under
 the dataset path documented by the originating beamline. The loader
 applies the configured frame range
-(``analyzer_parameters.temporal.start_frame`` and ``end_frame``) when
+(``analyzer_parameters.start_frame`` and ``end_frame``) when
 slicing into the array, so the returned ``c2_exp`` already reflects the
 analysis window — there is no separate cropping step downstream.
 

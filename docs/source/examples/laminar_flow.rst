@@ -21,8 +21,7 @@ A representative seven-parameter config:
 .. code-block:: yaml
 
     # config_laminar_flow.yaml
-    analysis_settings:
-      analysis_mode: laminar_flow
+    analysis_mode: laminar_flow
 
     experimental_data:
       data_folder_path: ./data/
@@ -31,10 +30,9 @@ A representative seven-parameter config:
       phi_angles_file: phi_angles.txt
 
     analyzer_parameters:
-      temporal:
-        dt: 0.1
-        start_frame: 1
-        end_frame: 401
+      dt: 0.1
+      start_frame: 1
+      end_frame: 401
       scattering:
         wavevector_q: 0.0054
       geometry:
@@ -55,7 +53,7 @@ A representative seven-parameter config:
         - {name: gamma_dot_t_offset,  min: 0.0,    max: 1.0}
         - {name: phi0,                min: -90.0,  max: 90.0}
 
-    optimization_config:
+    optimization:
       angle_filtering:
         enabled: true
         target_ranges:
@@ -63,11 +61,12 @@ A representative seven-parameter config:
           - {min_angle: 170.0, max_angle: 190.0}
         fallback_to_all_angles: true
 
-    optimization:
       nlsq:
         anti_degeneracy:
           enable: true
           per_angle_mode: auto
+          hierarchical:
+            enable: true          # REQUIRED — shear_weighting has no effect without L2
           shear_weighting:
             enable: true
 

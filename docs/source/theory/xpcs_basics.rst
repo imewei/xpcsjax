@@ -221,7 +221,7 @@ against ``c2_exp``. For homodyne the forward call is:
 
    config = {
        "analyzer_parameters": {
-           "temporal": {"dt": 0.05, "start_frame": 0, "end_frame": 1000},
+           "dt": 0.05, "start_frame": 1, "end_frame": 1000,
            "scattering": {"wavevector_q": q},
            "geometry": {"stator_rotor_gap": h_gap},
        },

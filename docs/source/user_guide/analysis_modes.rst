@@ -176,8 +176,8 @@ Parameter inventory matrix
 The authoritative active-parameter ordering for any given mode is the
 ``list[str]`` returned by
 :meth:`xpcsjax.config.ConfigManager.get_active_parameters`. Use it to align
-the ``values`` array in ``initial_parameters`` and the bounds map in
-``parameter_bounds``.
+the ``values`` array in ``initial_parameters`` and the bounds list in
+``parameter_space.bounds``.
 
 To vary only a subset of a mode's parameters, or freeze one at a constant
 without dropping it from the model, see
@@ -199,8 +199,8 @@ fit is run:
    print(cfg.analysis_mode)                 # AnalysisMode.LAMINAR_FLOW
    print(cfg.analysis_mode.value)           # "laminar_flow"  (bare string)
    print(cfg.get_active_parameters())       # e.g. ["D0", "alpha", "D_offset", ...]
-   lo, hi = cfg.get_parameter_bounds()
-   print(list(zip(cfg.get_active_parameters(), lo, hi)))
+   bounds = cfg.get_parameter_bounds()      # list[dict] with 'name'/'min'/'max'/'type'
+   print([(b["name"], b["min"], b["max"]) for b in bounds])
 
 This is the recommended sanity check before launching a long fit on a
 new configuration.

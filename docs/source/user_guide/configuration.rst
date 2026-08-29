@@ -13,46 +13,50 @@ configuration to the rest of the pipeline.
 The YAML schema
 ---------------
 
-A minimal homodyne configuration has five top-level sections:
+A minimal homodyne configuration, following the shape of the shipped
+``xpcsjax/config/templates/xpcsjax_static_isotropic.yaml`` template:
 
 .. code-block:: yaml
 
    analysis_mode: static_isotropic
 
    experimental_data:
-     data_file_name: experiment.h5
-     # ... beamline-specific fields ...
+     data_folder_path: "./data/"
+     data_file_name: "experiment.h5"
+     phi_angles_path: "./data/"
+     phi_angles_file: "phi_list.txt"
 
    analyzer_parameters:
-     temporal:
-       dt: 0.05
-       start_frame: 0
-       end_frame: 1000
+     dt: 0.05
+     start_frame: 1
+     end_frame: 1000
      scattering:
        wavevector_q: 0.01
      geometry:
        stator_rotor_gap: 1.0e-3
 
    initial_parameters:
+     parameter_names: [D0, alpha, D_offset]
      values: [1.0e3, 0.0, 0.0]    # mode-dependent length
 
-   parameter_bounds:
-     D0: [1.0e1, 1.0e5]
-     alpha: [-1.0, 1.0]
-     D_offset: [-1.0e3, 1.0e3]
+   parameter_space:
+     bounds:
+       - {name: D0, min: 1.0e1, max: 1.0e5}
+       - {name: alpha, min: -1.0, max: 1.0}
+       - {name: D_offset, min: -1.0e3, max: 1.0e3}
 
    optimization:
      nlsq:
        max_iterations: 1000
        tolerance: 1.0e-8
 
-The same five top-level sections appear in heterodyne configurations,
-with two differences: ``analysis_mode`` is ``two_component`` or
-``heterodyne``, and the parameter lists under ``initial_parameters`` /
-``parameter_bounds`` cover the fourteen heterodyne physics parameters
-plus the two contrast/offset scaling parameters. See
-:doc:`/user_guide/analysis_modes` for the parameter inventory of each
-mode.
+The same top-level keys appear in heterodyne configurations
+(``xpcsjax_two_component.yaml``), with two differences: ``analysis_mode``
+is ``two_component`` or ``heterodyne``, and the parameter lists under
+``initial_parameters`` / ``parameter_space.bounds`` cover the fourteen
+heterodyne physics parameters plus the two contrast/offset scaling
+parameters. See :doc:`/user_guide/analysis_modes` for the parameter
+inventory of each mode.
 
 Top-level keys
 ~~~~~~~~~~~~~~
@@ -70,9 +74,10 @@ Top-level keys
     :doc:`/user_guide/data_loading`.
 
 ``analyzer_parameters``
-    Physical constants and analysis-window settings. The ``temporal``
-    sub-block (``dt``, ``start_frame``, ``end_frame``) defines the time
-    axis. ``scattering.wavevector_q`` is the canonical :math:`q` used
+    Physical constants and analysis-window settings, as flat fields —
+    ``dt``, ``start_frame``, ``end_frame``, ``frame_step``, ``time_unit``
+    — not nested under a ``temporal`` sub-block.
+    ``scattering.wavevector_q`` is the canonical :math:`q` used
     when the data does not carry per-angle q values. ``geometry``
     holds setup-specific quantities such as the stator–rotor gap for
     laminar-flow analyses.
@@ -81,21 +86,27 @@ Top-level keys
     A ``values`` list of starting points for the optimiser; the length
     must match the active parameter count for the configured mode.
 
-``parameter_bounds``
-    Per-parameter ``[lower, upper]`` pairs. Bounds are enforced inside
-    the trust-region solve via the xpcsjax parameter-transform layer
-    (see :doc:`/user_guide/nlsq_fitting`).
+``parameter_space``
+    Its ``bounds`` list gives one entry per parameter, each an object
+    with ``name``, ``min``, ``max`` (see
+    :ref:`parameter_space_bounds` below). There is no separate flat
+    ``parameter_bounds`` mapping — ``parameter_space.bounds`` is the
+    only bounds format the config manager reads. Bounds are enforced
+    inside the trust-region solve via the xpcsjax parameter-transform
+    layer (see :doc:`/user_guide/nlsq_fitting`).
 
 ``optimization.nlsq``
     Optimiser-specific knobs: iteration cap, convergence tolerances,
     strategy hints, anti-degeneracy controller settings, multistart
     configuration. Sensible defaults apply when fields are omitted.
 
-Beyond these five sections, additional blocks (logging, diagnostics,
-caching) are recognised and merged in by :class:`xpcsjax.config.ConfigManager`. The
-schema is checked at load time; unknown keys are not silently dropped
-but they also do not abort the load if they live under namespaces
-reserved for forward compatibility.
+Beyond these sections, additional top-level blocks — ``metadata``,
+``analysis_settings``, ``phi_filtering``, ``noise_estimation``,
+``performance``, ``logging``, ``quality_control``, ``plotting``,
+``output``, ``validation`` — are recognised and merged in by
+:class:`xpcsjax.config.ConfigManager`. The schema is checked at load
+time; unknown top-level keys are not rejected but are logged as a
+warning (possible typo).
 
 The :class:`xpcsjax.config.ConfigManager` class
 --------------------------------
@@ -156,8 +167,9 @@ Public methods
     is absent, or it is not a mapping. It never returns ``None``.
 
 :meth:`xpcsjax.config.ConfigManager.get_parameter_bounds`
-    Returns the bounds ``(lower, upper)`` arrays for the active
-    parameters of the configured mode.
+    Returns a ``list[dict]``, one entry per active parameter, each with
+    ``'name'``, ``'min'``, ``'max'``, and ``'type'`` keys — not a
+    ``(lower, upper)`` array pair.
 
 :meth:`xpcsjax.config.ConfigManager.get_active_parameters`
     Returns the ordered list of parameter names for the active analysis
@@ -204,10 +216,11 @@ entire sub-block (rather than merging into it), set the sub-block to
 Overriding bounds (``parameter_space.bounds``)
 ----------------------------------------------
 
-Alongside the flat ``parameter_bounds`` mapping, both modes accept a
-**list-format** ``parameter_space.bounds`` block. Each entry names a single
-parameter and supplies an explicit ``[min, max]`` window (plus optional
-``value`` and ``vary`` overrides):
+Both modes accept a ``parameter_space.bounds`` block — the list format shown
+in every shipped template. Each entry names a single parameter and supplies
+an explicit ``[min, max]`` window (plus optional ``value`` and ``vary``
+overrides); a partial list overrides just those parameters and leaves the
+rest at their registry defaults:
 
 .. code-block:: yaml
 
@@ -396,7 +409,7 @@ Validation behaviour
 
 * Presence of the mandatory top-level keys.
 * Consistency between ``analysis_mode`` and the lengths of
-  ``initial_parameters.values`` and ``parameter_bounds``.
+  ``initial_parameters.values`` and ``parameter_space.bounds``.
 * Numeric plausibility of bounds (``lower < upper``, finite values).
 * Physical plausibility of analyzer parameters (e.g. positive ``dt``,
   ``start_frame < end_frame``).
@@ -410,6 +423,6 @@ What to read next
 
 * :doc:`/user_guide/analysis_modes` for the per-mode parameter
   inventory referenced by ``initial_parameters`` and
-  ``parameter_bounds``.
+  ``parameter_space.bounds``.
 * :doc:`/user_guide/nlsq_fitting` for the ``optimization.nlsq``
   sub-keys.

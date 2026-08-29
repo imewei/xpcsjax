@@ -70,7 +70,7 @@ It measures how rapidly positional uncertainty accumulates at time
    framework generalises this to **non-stationary** processes where
    :math:`J(t)` varies with time (aging, yielding, transient flow).
 
-The diffusion integral that enters the correlation function (cf.
+The quantity entering the correlation function (cf.
 Equation :eq:`cf_c1_general` of :doc:`correlation_functions`) is
 
 .. math::
@@ -120,7 +120,7 @@ where
   constrained to be non-negative (a small negative offset can absorb
   background-subtraction error in real data).
 
-The diffusion integral entering :math:`c_1` (and therefore :math:`c_2`
+:math:`\mathcal{D}(t_1, t_2)` entering :math:`c_1` (and therefore :math:`c_2`
 through the Siegert relation) is computed by cumulative trapezoidal
 integration on the experimental time grid:
 

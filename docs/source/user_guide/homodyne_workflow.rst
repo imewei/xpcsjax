@@ -46,22 +46,23 @@ A minimum-viable YAML for a static isotropic fit looks like:
      data_file_name: dataset.h5
 
    analyzer_parameters:
-     temporal:
-       dt: 0.05
-       start_frame: 0
-       end_frame: 2000
+     dt: 0.05
+     start_frame: 1
+     end_frame: 2000
      scattering:
        wavevector_q: 0.012
      geometry:
        stator_rotor_gap: 1.0e-3   # ignored by static modes
 
    initial_parameters:
+     parameter_names: [D0, alpha, D_offset]
      values: [1.0e3, 0.0, 0.0]
 
-   parameter_bounds:
-     D0:       [1.0e1, 1.0e5]
-     alpha:    [-0.5, 0.5]
-     D_offset: [-1.0e3, 1.0e3]
+   parameter_space:
+     bounds:
+       - {name: D0,       min: 1.0e1,  max: 1.0e5}
+       - {name: alpha,    min: -0.5,   max: 0.5}
+       - {name: D_offset, min: -1.0e3, max: 1.0e3}
 
    optimization:
      nlsq:
@@ -110,7 +111,7 @@ The model takes a single ``config`` ``dict``:
 
    model_config = {
        "analyzer_parameters": {
-           "temporal":   {"dt": 0.05, "start_frame": 0, "end_frame": 2000},
+           "dt": 0.05, "start_frame": 1, "end_frame": 2000,
            "scattering": {"wavevector_q": 0.012},
            "geometry":   {"stator_rotor_gap": 1.0e-3},
        },

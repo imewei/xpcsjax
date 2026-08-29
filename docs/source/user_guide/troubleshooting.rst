@@ -143,10 +143,11 @@ Fix
   .. code-block:: python
 
      names = cfg.get_active_parameters()
-     lo, hi = cfg.get_parameter_bounds()
-     init = cfg.get_initial_parameters()
-     for n, x0, a, b in zip(names, init, lo, hi):
-         print(f"{n:>12s} init={x0:.3e}  bounds=[{a:.3e}, {b:.3e}]")
+     bounds = cfg.get_parameter_bounds()      # list[dict], one per parameter
+     init = cfg.get_initial_parameters()      # dict[str, float], keyed by name
+     for n, b in zip(names, bounds):
+         x0 = init[n]
+         print(f"{n:>12s} init={x0:.3e}  bounds=[{b['min']:.3e}, {b['max']:.3e}]")
 
 * Widen the bounds on the offending parameters.
 * If the bounds genuinely should be tight, force a multistart with

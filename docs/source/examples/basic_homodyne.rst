@@ -23,9 +23,13 @@ this:
 .. code-block:: yaml
 
     # config_static_isotropic.yaml
+    analysis_mode: static_isotropic
+
     analysis_settings:
-      analysis_mode: static_isotropic
-      static_submode: isotropic
+      model_description:
+        type: "static_isotropic"
+        parameters: ["D0", "alpha", "D_offset"]
+        per_angle_scaling: false
 
     experimental_data:
       data_folder_path: ./data/
@@ -34,10 +38,9 @@ this:
       phi_angles_file: phi_angles.txt
 
     analyzer_parameters:
-      temporal:
-        dt: 0.1
-        start_frame: 1
-        end_frame: 401
+      dt: 0.1
+      start_frame: 1
+      end_frame: 401
       scattering:
         wavevector_q: 0.0054
       geometry:
@@ -53,7 +56,7 @@ this:
         - {name: alpha,     min: -2.0,   max: 2.0}
         - {name: D_offset,  min: 0.0,    max: 1.0e4}
 
-    optimization_config:
+    optimization:
       angle_filtering:
         enabled: false
 
