@@ -312,11 +312,26 @@ class HomodyneModel:
         """Extract and validate configuration parameters."""
         try:
             analyzer_params = config["analyzer_parameters"]
+            # Canonical shipped templates (xpcsjax/config/templates/*.yaml) put
+            # dt/start_frame/end_frame FLAT under analyzer_parameters; a legacy
+            # nested analyzer_parameters.temporal.{dt,start_frame,end_frame}
+            # form is also accepted for backward compatibility. Flat takes
+            # precedence — mirrors HeterodyneModel.from_config's ap.get(...)
+            # pattern in heterodyne_model_stateful.py.
+            temporal = analyzer_params.get("temporal", {})
 
             # Temporal parameters
-            self.dt = analyzer_params["temporal"]["dt"]
-            self.start_frame = analyzer_params["temporal"]["start_frame"]
-            self.end_frame = analyzer_params["temporal"]["end_frame"]
+            self.dt = analyzer_params["dt"] if "dt" in analyzer_params else temporal["dt"]
+            self.start_frame = (
+                analyzer_params["start_frame"]
+                if "start_frame" in analyzer_params
+                else temporal["start_frame"]
+            )
+            self.end_frame = (
+                analyzer_params["end_frame"]
+                if "end_frame" in analyzer_params
+                else temporal["end_frame"]
+            )
 
             # Physical parameters
             self.wavevector_q = analyzer_params["scattering"]["wavevector_q"]

@@ -28,7 +28,7 @@ graph TB
         DQC["DataQualityController"]
         MEM["AdvancedMemoryManager"]
         LOAD --> DQC
-        DQC --> MEM
+        LOAD --> MEM
     end
 
     subgraph core["Core Physics Models (JAX kernels)"]

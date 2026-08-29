@@ -365,7 +365,11 @@ def create_physics_factors_from_config_dict(config: dict) -> PhysicsFactors:
     """
     try:
         analyzer_params = config["analyzer_parameters"]
-        dt = analyzer_params["temporal"]["dt"]
+        # Canonical shipped templates put dt FLAT under analyzer_parameters;
+        # a legacy nested analyzer_parameters.temporal.dt form is also
+        # accepted for backward compatibility (mirrors HomodyneModel's
+        # _extract_config in homodyne_model.py). Flat takes precedence.
+        dt = analyzer_params["dt"] if "dt" in analyzer_params else analyzer_params["temporal"]["dt"]
         q = analyzer_params["scattering"]["wavevector_q"]
         L = analyzer_params["geometry"]["stator_rotor_gap"]
 
@@ -374,7 +378,8 @@ def create_physics_factors_from_config_dict(config: dict) -> PhysicsFactors:
     except KeyError as e:
         raise KeyError(
             f"Missing required configuration key: {e}. "
-            f"Expected structure: config['analyzer_parameters']['temporal']['dt'], "
+            f"Expected structure: config['analyzer_parameters']['dt'] (or the "
+            f"legacy config['analyzer_parameters']['temporal']['dt']), "
             f"config['analyzer_parameters']['scattering']['wavevector_q'], "
             f"config['analyzer_parameters']['geometry']['stator_rotor_gap']",
         ) from e

@@ -742,9 +742,13 @@ def make_model(config_or_manager: Any) -> PhysicsModelBase:
         logger.info("make_model: dispatching to HeterodyneModel (mode=%s)", raw_mode)
         return HeterodyneModel()
 
-    # Homodyne path — delegate to existing create_model factory
+    # Homodyne path — delegate to existing create_model factory. Use
+    # AnalysisMode.parse (the M-8 single source of truth for synonyms), not
+    # the strict AnalysisMode(mode_lower) constructor: the latter rejects
+    # documented synonyms like "laminar" (-> laminar_flow) that .parse()
+    # accepts, so a valid config could raise ValueError here.
     logger.info("make_model: dispatching to CombinedModel (mode=%s)", raw_mode)
-    return create_model(AnalysisMode(mode_lower))
+    return create_model(AnalysisMode.parse(raw_mode))
 
 
 # Export main classes and functions

@@ -453,7 +453,11 @@ class HeterodyneModel:
 
         contrast_val, offset_val = self.scaling.get_for_angle(angle_idx)
 
-        varying_idx_jax = jnp.array(self.param_manager.varying_indices)
+        # Explicit int dtype: jnp.array([]) on an empty varying_indices list
+        # (e.g. every physical parameter fixed) defaults to float64, and a
+        # float-dtype .at[...].set() indexer raises TypeError ("Indexer must
+        # have integer or boolean type").
+        varying_idx_jax = jnp.array(self.param_manager.varying_indices, dtype=jnp.int32)
         fixed_values_jax = jnp.array(self.param_manager.get_full_values())
 
         @jax.jit

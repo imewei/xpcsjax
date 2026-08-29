@@ -714,89 +714,93 @@ def plot_nlsq_fit(
     >>> plot_nlsq_fit(c2_exp, c2_fit, save_path="fit.png")  # saved, returns None
     """
     fig, axes = plt.subplots(1, 3, figsize=figsize)
+    try:
 
-    if c2_exp.size == 0 or c2_fit.size == 0:
-        return _empty_data_fallback(fig, save_path)
+        if c2_exp.size == 0 or c2_fit.size == 0:
+            return _empty_data_fallback(fig, save_path)
 
-    # x = t₁ (horizontal), y = t₂ (vertical): the (n_t1, n_t2) surfaces are
-    # transposed at imshow so rows→t₂→y and cols→t₁→x, with extent following.
-    _, _, extent = _resolve_extent(c2_exp.shape, t, t2)
+        # x = t₁ (horizontal), y = t₂ (vertical): the (n_t1, n_t2) surfaces are
+        # transposed at imshow so rows→t₂→y and cols→t₁→x, with extent following.
+        _, _, extent = _resolve_extent(c2_exp.shape, t, t2)
 
-    combined = np.concatenate([c2_exp.ravel(), c2_fit.ravel()])
-    finite = combined[np.isfinite(combined)]
-    data_min = float(np.nanmin(finite)) if finite.size > 0 else 1.0
-    data_max = float(np.nanmax(finite)) if finite.size > 0 else 1.5
-    vmin_shared = max(1.0, data_min)
-    vmax_shared = min(1.5, data_max)
-    if vmin_shared >= vmax_shared:
-        vmax_shared = vmin_shared + 0.5
+        combined = np.concatenate([c2_exp.ravel(), c2_fit.ravel()])
+        finite = combined[np.isfinite(combined)]
+        data_min = float(np.nanmin(finite)) if finite.size > 0 else 1.0
+        data_max = float(np.nanmax(finite)) if finite.size > 0 else 1.5
+        vmin_shared = max(1.0, data_min)
+        vmax_shared = min(1.5, data_max)
+        if vmin_shared >= vmax_shared:
+            vmax_shared = vmin_shared + 0.5
 
-    phi_str = f" (φ={phi_deg:.1f}°)" if phi_deg is not None else ""
+        phi_str = f" (φ={phi_deg:.1f}°)" if phi_deg is not None else ""
 
-    im0 = axes[0].imshow(
-        c2_exp.T,
-        origin="lower",
-        extent=extent,
-        aspect="auto",
-        cmap="jet",
-        vmin=vmin_shared,
-        vmax=vmax_shared,
-    )
-    axes[0].set_box_aspect(1)
-    axes[0].set_title(f"Experimental Data{phi_str}")
-    axes[0].set_xlabel("t₁")
-    axes[0].set_ylabel("t₂")
-    plt.colorbar(im0, ax=axes[0], label="c₂")
-
-    im1 = axes[1].imshow(
-        c2_fit.T,
-        origin="lower",
-        extent=extent,
-        aspect="auto",
-        cmap="jet",
-        vmin=vmin_shared,
-        vmax=vmax_shared,
-    )
-    axes[1].set_box_aspect(1)
-    axes[1].set_title(f"Fitted Model{phi_str}")
-    axes[1].set_xlabel("t₁")
-    axes[1].set_ylabel("t₂")
-    plt.colorbar(im1, ax=axes[1], label="c₂")
-
-    residual = c2_exp - c2_fit
-    finite_r = residual[np.isfinite(residual)]
-    vmax_r = float(np.nanpercentile(np.abs(finite_r), 99)) if finite_r.size > 0 else 1.0
-    if vmax_r == 0.0 or not np.isfinite(vmax_r):
-        vmax_r = 1.0
-    im2 = axes[2].imshow(
-        residual.T,
-        origin="lower",
-        extent=extent,
-        aspect="auto",
-        cmap="RdBu_r",
-        vmin=-vmax_r,
-        vmax=vmax_r,
-    )
-    axes[2].set_box_aspect(1)
-    axes[2].set_title(f"Residuals{phi_str}")
-    axes[2].set_xlabel("t₁")
-    axes[2].set_ylabel("t₂")
-    plt.colorbar(im2, ax=axes[2], label="Residual")
-
-    if reduced_chi_squared is not None:
-        fig.suptitle(
-            f"NLSQ Fit Results  χ²_red = {reduced_chi_squared:.3f}",
-            fontsize=12,
-            fontweight="bold",
+        im0 = axes[0].imshow(
+            c2_exp.T,
+            origin="lower",
+            extent=extent,
+            aspect="auto",
+            cmap="jet",
+            vmin=vmin_shared,
+            vmax=vmax_shared,
         )
+        axes[0].set_box_aspect(1)
+        axes[0].set_title(f"Experimental Data{phi_str}")
+        axes[0].set_xlabel("t₁")
+        axes[0].set_ylabel("t₂")
+        plt.colorbar(im0, ax=axes[0], label="c₂")
 
-    fig.tight_layout()
+        im1 = axes[1].imshow(
+            c2_fit.T,
+            origin="lower",
+            extent=extent,
+            aspect="auto",
+            cmap="jet",
+            vmin=vmin_shared,
+            vmax=vmax_shared,
+        )
+        axes[1].set_box_aspect(1)
+        axes[1].set_title(f"Fitted Model{phi_str}")
+        axes[1].set_xlabel("t₁")
+        axes[1].set_ylabel("t₂")
+        plt.colorbar(im1, ax=axes[1], label="c₂")
 
-    if save_path is not None:
-        _save_fig(fig, save_path)
-        return None
+        residual = c2_exp - c2_fit
+        finite_r = residual[np.isfinite(residual)]
+        vmax_r = float(np.nanpercentile(np.abs(finite_r), 99)) if finite_r.size > 0 else 1.0
+        if vmax_r == 0.0 or not np.isfinite(vmax_r):
+            vmax_r = 1.0
+        im2 = axes[2].imshow(
+            residual.T,
+            origin="lower",
+            extent=extent,
+            aspect="auto",
+            cmap="RdBu_r",
+            vmin=-vmax_r,
+            vmax=vmax_r,
+        )
+        axes[2].set_box_aspect(1)
+        axes[2].set_title(f"Residuals{phi_str}")
+        axes[2].set_xlabel("t₁")
+        axes[2].set_ylabel("t₂")
+        plt.colorbar(im2, ax=axes[2], label="Residual")
 
-    return fig
+        if reduced_chi_squared is not None:
+            fig.suptitle(
+                f"NLSQ Fit Results  χ²_red = {reduced_chi_squared:.3f}",
+                fontsize=12,
+                fontweight="bold",
+            )
+
+        fig.tight_layout()
+
+        if save_path is not None:
+            _save_fig(fig, save_path)
+            return None
+
+        return fig
+    except Exception:
+        plt.close(fig)
+        raise
 
 
 def plot_residual_map(
@@ -858,108 +862,112 @@ def plot_residual_map(
     True
     """
     fig, axes = plt.subplots(2, 2, figsize=figsize)
+    try:
 
-    if c2_exp.size == 0 or c2_fit.size == 0:
-        return _empty_data_fallback(fig, save_path)
+        if c2_exp.size == 0 or c2_fit.size == 0:
+            return _empty_data_fallback(fig, save_path)
 
-    residuals = c2_exp - c2_fit
-    # x = t₁ (horizontal), y = t₂ (vertical): transpose the (n_t1, n_t2) map.
-    t1_vec, _, extent = _resolve_extent(residuals.shape, t, t2)
+        residuals = c2_exp - c2_fit
+        # x = t₁ (horizontal), y = t₂ (vertical): transpose the (n_t1, n_t2) map.
+        t1_vec, _, extent = _resolve_extent(residuals.shape, t, t2)
 
-    # [0,0] Residual Map
-    finite_r = residuals[np.isfinite(residuals)]
-    vmax = float(np.nanpercentile(np.abs(finite_r), 99)) if finite_r.size > 0 else 1.0
-    if vmax == 0.0 or not np.isfinite(vmax):
-        vmax = 1.0
-    im = axes[0, 0].imshow(
-        residuals.T,
-        origin="lower",
-        extent=extent,
-        aspect="auto",
-        cmap="RdBu_r",
-        vmin=-vmax,
-        vmax=vmax,
-    )
-    axes[0, 0].set_box_aspect(1)
-    axes[0, 0].set_title("Residual Map")
-    axes[0, 0].set_xlabel("t₁")
-    axes[0, 0].set_ylabel("t₂")
-    plt.colorbar(im, ax=axes[0, 0])
-
-    # [0,1] Histogram + Normal overlay
-    flat_finite = residuals.ravel()[np.isfinite(residuals.ravel())]
-    if flat_finite.size > 0:
-        axes[0, 1].hist(flat_finite, bins=50, density=True, alpha=0.7)
-    else:
-        axes[0, 1].text(
-            0.5,
-            0.5,
-            "No finite residuals",
-            ha="center",
-            va="center",
-            transform=axes[0, 1].transAxes,
+        # [0,0] Residual Map
+        finite_r = residuals[np.isfinite(residuals)]
+        vmax = float(np.nanpercentile(np.abs(finite_r), 99)) if finite_r.size > 0 else 1.0
+        if vmax == 0.0 or not np.isfinite(vmax):
+            vmax = 1.0
+        im = axes[0, 0].imshow(
+            residuals.T,
+            origin="lower",
+            extent=extent,
+            aspect="auto",
+            cmap="RdBu_r",
+            vmin=-vmax,
+            vmax=vmax,
         )
-    axes[0, 1].set_box_aspect(1)
-    axes[0, 1].set_xlabel("Residual Value")
-    axes[0, 1].set_ylabel("Density")
-    axes[0, 1].set_title("Residual Distribution")
-    # Stats over the already-computed finite residuals — nanmean/nanstd ignore
-    # NaN but not inf, and flat_finite has both excluded.
-    mu = float(np.mean(flat_finite)) if flat_finite.size > 0 else 0.0
-    sigma = float(np.std(flat_finite)) if flat_finite.size > 0 else 0.0
-    if np.isfinite(sigma) and sigma > 0:
-        x = np.linspace(mu - 4 * sigma, mu + 4 * sigma, 200)
-        pdf = np.exp(-((x - mu) ** 2) / (2 * sigma**2)) / (sigma * np.sqrt(2 * np.pi))
-        axes[0, 1].plot(
-            x,
-            pdf,
-            "r-",
-            lw=2,
-            label=f"Normal(μ={mu:.2e}, σ={sigma:.2e})",
-        )
-        axes[0, 1].legend()
+        axes[0, 0].set_box_aspect(1)
+        axes[0, 0].set_title("Residual Map")
+        axes[0, 0].set_xlabel("t₁")
+        axes[0, 0].set_ylabel("t₂")
+        plt.colorbar(im, ax=axes[0, 0])
 
-    # [1,0] Diagonal residuals — length is min(n_t1, n_t2); plot against t1 truncated.
-    diag = np.diag(residuals)
-    axes[1, 0].plot(t1_vec[: diag.size], diag, "b-", lw=1)
-    axes[1, 0].axhline(0, color="k", linestyle="--", alpha=0.5)
-    axes[1, 0].set_box_aspect(1)
-    axes[1, 0].set_xlabel("Time")
-    axes[1, 0].set_ylabel("Residual")
-    axes[1, 0].set_title("Diagonal Residuals")
+        # [0,1] Histogram + Normal overlay
+        flat_finite = residuals.ravel()[np.isfinite(residuals.ravel())]
+        if flat_finite.size > 0:
+            axes[0, 1].hist(flat_finite, bins=50, density=True, alpha=0.7)
+        else:
+            axes[0, 1].text(
+                0.5,
+                0.5,
+                "No finite residuals",
+                ha="center",
+                va="center",
+                transform=axes[0, 1].transAxes,
+            )
+        axes[0, 1].set_box_aspect(1)
+        axes[0, 1].set_xlabel("Residual Value")
+        axes[0, 1].set_ylabel("Density")
+        axes[0, 1].set_title("Residual Distribution")
+        # Stats over the already-computed finite residuals — nanmean/nanstd ignore
+        # NaN but not inf, and flat_finite has both excluded.
+        mu = float(np.mean(flat_finite)) if flat_finite.size > 0 else 0.0
+        sigma = float(np.std(flat_finite)) if flat_finite.size > 0 else 0.0
+        if np.isfinite(sigma) and sigma > 0:
+            x = np.linspace(mu - 4 * sigma, mu + 4 * sigma, 200)
+            pdf = np.exp(-((x - mu) ** 2) / (2 * sigma**2)) / (sigma * np.sqrt(2 * np.pi))
+            axes[0, 1].plot(
+                x,
+                pdf,
+                "r-",
+                lw=2,
+                label=f"Normal(μ={mu:.2e}, σ={sigma:.2e})",
+            )
+            axes[0, 1].legend()
 
-    # [1,1] Residuals vs Fitted. A single angle can carry 10^7-10^8 points
-    # (datashader_backend.py's module docstring); an unstrided PathCollection
-    # over that many points allocates ~GB-scale offsets/color arrays per
-    # worker before rendering even starts. Subsample with a fixed seed
-    # (reproducibility) so the scatter stays representative, not the full set.
-    fitted_flat = c2_fit.ravel()
-    residuals_flat = residuals.ravel()
-    _MAX_RESIDUAL_SCATTER_POINTS = 50_000
-    if fitted_flat.size > _MAX_RESIDUAL_SCATTER_POINTS:
-        rng = np.random.default_rng(42)
-        idx = rng.choice(fitted_flat.size, size=_MAX_RESIDUAL_SCATTER_POINTS, replace=False)
-        fitted_flat = fitted_flat[idx]
-        residuals_flat = residuals_flat[idx]
-    axes[1, 1].scatter(fitted_flat, residuals_flat, alpha=0.1, s=1)
-    axes[1, 1].axhline(0, color="r", linestyle="--")
-    axes[1, 1].set_box_aspect(1)
-    axes[1, 1].set_xlabel("Fitted Value")
-    axes[1, 1].set_ylabel("Residual")
-    axes[1, 1].set_title("Residuals vs Fitted")
+        # [1,0] Diagonal residuals — length is min(n_t1, n_t2); plot against t1 truncated.
+        diag = np.diag(residuals)
+        axes[1, 0].plot(t1_vec[: diag.size], diag, "b-", lw=1)
+        axes[1, 0].axhline(0, color="k", linestyle="--", alpha=0.5)
+        axes[1, 0].set_box_aspect(1)
+        axes[1, 0].set_xlabel("Time")
+        axes[1, 0].set_ylabel("Residual")
+        axes[1, 0].set_title("Diagonal Residuals")
 
-    if phi_deg is not None:
-        fig.suptitle(
-            f"NLSQ Residual Diagnostics  (φ={phi_deg:.1f}°)",
-            fontsize=12,
-            fontweight="bold",
-        )
+        # [1,1] Residuals vs Fitted. A single angle can carry 10^7-10^8 points
+        # (datashader_backend.py's module docstring); an unstrided PathCollection
+        # over that many points allocates ~GB-scale offsets/color arrays per
+        # worker before rendering even starts. Subsample with a fixed seed
+        # (reproducibility) so the scatter stays representative, not the full set.
+        fitted_flat = c2_fit.ravel()
+        residuals_flat = residuals.ravel()
+        _MAX_RESIDUAL_SCATTER_POINTS = 50_000
+        if fitted_flat.size > _MAX_RESIDUAL_SCATTER_POINTS:
+            rng = np.random.default_rng(42)
+            idx = rng.choice(fitted_flat.size, size=_MAX_RESIDUAL_SCATTER_POINTS, replace=False)
+            fitted_flat = fitted_flat[idx]
+            residuals_flat = residuals_flat[idx]
+        axes[1, 1].scatter(fitted_flat, residuals_flat, alpha=0.1, s=1)
+        axes[1, 1].axhline(0, color="r", linestyle="--")
+        axes[1, 1].set_box_aspect(1)
+        axes[1, 1].set_xlabel("Fitted Value")
+        axes[1, 1].set_ylabel("Residual")
+        axes[1, 1].set_title("Residuals vs Fitted")
 
-    fig.tight_layout()
-    if save_path is not None:
-        _save_fig(fig, save_path)
-        return None
-    return fig
+        if phi_deg is not None:
+            fig.suptitle(
+                f"NLSQ Residual Diagnostics  (φ={phi_deg:.1f}°)",
+                fontsize=12,
+                fontweight="bold",
+            )
+
+        fig.tight_layout()
+        if save_path is not None:
+            _save_fig(fig, save_path)
+            return None
+        return fig
+    except Exception:
+        plt.close(fig)
+        raise
 
 
 def plot_simulated_data(
@@ -1029,83 +1037,87 @@ def plot_simulated_data(
     True
     """
     fig, ax = plt.subplots(figsize=figsize)
+    try:
 
-    # Empty-input fallback — mirrors plot_nlsq_fit / plot_residual_map.
-    if c2_sim.size == 0:
-        return _empty_data_fallback(fig, save_path)
+        # Empty-input fallback — mirrors plot_nlsq_fit / plot_residual_map.
+        if c2_sim.size == 0:
+            return _empty_data_fallback(fig, save_path)
 
-    # x = t₁ (horizontal), y = t₂ (vertical): transpose the (n_t1, n_t2) surface
-    # so rows→t₂→y and cols→t₁→x, consistent with plot_nlsq_fit and
-    # plot_residual_map (which also transpose + use a (t₁, t₂) extent).
-    _, _, extent = _resolve_extent(c2_sim.shape, t, t2)
+        # x = t₁ (horizontal), y = t₂ (vertical): transpose the (n_t1, n_t2) surface
+        # so rows→t₂→y and cols→t₁→x, consistent with plot_nlsq_fit and
+        # plot_residual_map (which also transpose + use a (t₁, t₂) extent).
+        _, _, extent = _resolve_extent(c2_sim.shape, t, t2)
 
-    vmin, vmax = _resolve_color_limits(c2_sim, percentile_min=1.0, percentile_max=99.0)
-    vmin = max(1.0, vmin)
-    vmax = min(1.6, vmax) if vmax > 1.0 else vmax
-    if vmin >= vmax:
-        # Degenerate sub-1.0 surface: avoid passing vmin > vmax (inverted colormap)
-        vmax = vmin + 0.5
+        vmin, vmax = _resolve_color_limits(c2_sim, percentile_min=1.0, percentile_max=99.0)
+        vmin = max(1.0, vmin)
+        vmax = min(1.6, vmax) if vmax > 1.0 else vmax
+        if vmin >= vmax:
+            # Degenerate sub-1.0 surface: avoid passing vmin > vmax (inverted colormap)
+            vmax = vmin + 0.5
 
-    im = ax.imshow(
-        c2_sim.T,
-        origin="lower",
-        extent=extent,
-        aspect="auto",
-        cmap="jet",
-        interpolation="bilinear",
-        vmin=vmin,
-        vmax=vmax,
-    )
-    ax.set_box_aspect(1)
-    base_title = title if title is not None else "Simulated C₂(t₁, t₂)"
-    if phi_deg is not None:
-        base_title = f"{base_title} at φ={phi_deg:.1f}°"
-    ax.set_title(base_title, fontsize=13, fontweight="bold")
-    ax.set_xlabel("t₁ (s)" if t is not None else "t₁ Index", fontsize=11)
-    ax.set_ylabel("t₂ (s)" if t is not None else "t₂ Index", fontsize=11)
-    cbar = plt.colorbar(im, ax=ax, label="C₂", shrink=0.9)
-    cbar.ax.tick_params(labelsize=9)
-
-    finite = c2_sim[np.isfinite(c2_sim)]
-    if finite.size > 0:
-        # Use the finite subset, not raw c2_sim: nanmean/nanmin/nanmax only
-        # skip NaN, not inf, so a single inf would poison the annotation.
-        mean_v = float(np.mean(finite))
-        min_v = float(np.min(finite))
-        max_v = float(np.max(finite))
-        ax.text(
-            0.02,
-            0.98,
-            f"Mean: {mean_v:.4f}\nRange: [{min_v:.4f}, {max_v:.4f}]",
-            transform=ax.transAxes,
-            fontsize=9,
-            verticalalignment="top",
-            bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.8},
+        im = ax.imshow(
+            c2_sim.T,
+            origin="lower",
+            extent=extent,
+            aspect="auto",
+            cmap="jet",
+            interpolation="bilinear",
+            vmin=vmin,
+            vmax=vmax,
         )
+        ax.set_box_aspect(1)
+        base_title = title if title is not None else "Simulated C₂(t₁, t₂)"
+        if phi_deg is not None:
+            base_title = f"{base_title} at φ={phi_deg:.1f}°"
+        ax.set_title(base_title, fontsize=13, fontweight="bold")
+        ax.set_xlabel("t₁ (s)" if t is not None else "t₁ Index", fontsize=11)
+        ax.set_ylabel("t₂ (s)" if t is not None else "t₂ Index", fontsize=11)
+        cbar = plt.colorbar(im, ax=ax, label="C₂", shrink=0.9)
+        cbar.ax.tick_params(labelsize=9)
 
-    meta_lines = []
-    if analysis_mode is not None:
-        meta_lines.append(f"Mode: {analysis_mode}")
-    if contrast is not None:
-        meta_lines.append(f"Contrast: {contrast:.3f}")
-    if offset is not None:
-        meta_lines.append(f"Offset: {offset:.3f}")
-    if meta_lines:
-        ax.text(
-            0.02,
-            0.02,
-            "\n".join(meta_lines),
-            transform=ax.transAxes,
-            fontsize=8,
-            verticalalignment="bottom",
-            bbox={"boxstyle": "round", "facecolor": "lightgreen", "alpha": 0.7},
-        )
+        finite = c2_sim[np.isfinite(c2_sim)]
+        if finite.size > 0:
+            # Use the finite subset, not raw c2_sim: nanmean/nanmin/nanmax only
+            # skip NaN, not inf, so a single inf would poison the annotation.
+            mean_v = float(np.mean(finite))
+            min_v = float(np.min(finite))
+            max_v = float(np.max(finite))
+            ax.text(
+                0.02,
+                0.98,
+                f"Mean: {mean_v:.4f}\nRange: [{min_v:.4f}, {max_v:.4f}]",
+                transform=ax.transAxes,
+                fontsize=9,
+                verticalalignment="top",
+                bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.8},
+            )
 
-    fig.tight_layout()
-    if save_path is not None:
-        _save_fig(fig, save_path)
-        return None
-    return fig
+        meta_lines = []
+        if analysis_mode is not None:
+            meta_lines.append(f"Mode: {analysis_mode}")
+        if contrast is not None:
+            meta_lines.append(f"Contrast: {contrast:.3f}")
+        if offset is not None:
+            meta_lines.append(f"Offset: {offset:.3f}")
+        if meta_lines:
+            ax.text(
+                0.02,
+                0.02,
+                "\n".join(meta_lines),
+                transform=ax.transAxes,
+                fontsize=8,
+                verticalalignment="bottom",
+                bbox={"boxstyle": "round", "facecolor": "lightgreen", "alpha": 0.7},
+            )
+
+        fig.tight_layout()
+        if save_path is not None:
+            _save_fig(fig, save_path)
+            return None
+        return fig
+    except Exception:
+        plt.close(fig)
+        raise
 
 
 _COMPRESSION_MAP = {
