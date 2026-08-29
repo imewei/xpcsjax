@@ -12,9 +12,10 @@ Public surface
 
 The orchestrator and the three low-level plot functions are the primary
 user-facing interface. All four accept both
-:class:`~xpcsjax.core.HomodyneModel` and
-:class:`~xpcsjax.core.HeterodyneModel` (the heterodyne path requires
-``individual`` per-angle scaling layout — see :ref:`viz-heterodyne`).
+:class:`~xpcsjax.core.HomodyneModel` and the heterodyne
+``HeterodynePhysicsAdapter`` (:mod:`xpcsjax.core.heterodyne_model`; the
+heterodyne path requires ``individual`` per-angle scaling layout — see
+:ref:`viz-heterodyne`).
 
 Orchestrator
 ~~~~~~~~~~~~
@@ -44,9 +45,9 @@ Diagnostics
 Heterodyne support
 ------------------
 
-Both model types are accepted by all viz functions. For
-:class:`~xpcsjax.core.HeterodyneModel`, the ``individual`` per-angle scaling
-layout is required:
+Both model types are accepted by all viz functions. For the heterodyne
+``HeterodynePhysicsAdapter``, the ``individual`` per-angle scaling layout is
+required:
 
 .. code-block:: text
 

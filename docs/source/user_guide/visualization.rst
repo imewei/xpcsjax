@@ -133,7 +133,8 @@ pass ``save_path=Path(...)`` to save and close.
 Model support
 -------------
 
-Both :class:`~xpcsjax.core.HomodyneModel` and :class:`~xpcsjax.core.HeterodyneModel`
+Both :class:`~xpcsjax.core.HomodyneModel` and the heterodyne
+``HeterodynePhysicsAdapter`` (:mod:`xpcsjax.core.heterodyne_model`)
 are supported. For heterodyne, the orchestrator handles the per-angle
 ``individual``, ``averaged`` (including ``auto`` when it resolves to
 ``averaged``), and reconstructable ``constant`` scaling layouts — it

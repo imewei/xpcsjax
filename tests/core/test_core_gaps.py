@@ -239,17 +239,17 @@ class TestHomodyneModelInitValidation:
 class TestMakeModelDispatch:
     """make_model dispatches correctly for edge-case mode strings."""
 
-    def test_heterodyne_string_returns_heterodyne_model(self) -> None:
+    def test_heterodyne_string_returns_heterodyne_adapter(self) -> None:
         """'heterodyne' synonym must dispatch to HeterodynePhysicsAdapter."""
         model = make_model({"analysis_mode": "heterodyne"})
         assert isinstance(model, HeterodynePhysicsAdapter)
 
-    def test_two_component_string_returns_heterodyne_model(self) -> None:
+    def test_two_component_string_returns_heterodyne_adapter(self) -> None:
         """'two_component' must dispatch to HeterodynePhysicsAdapter."""
         model = make_model({"analysis_mode": "two_component"})
         assert isinstance(model, HeterodynePhysicsAdapter)
 
-    def test_two_dash_component_string_returns_heterodyne_model(self) -> None:
+    def test_two_dash_component_string_returns_heterodyne_adapter(self) -> None:
         """'two-component' hyphenated variant must dispatch to HeterodynePhysicsAdapter."""
         model = make_model({"analysis_mode": "two-component"})
         assert isinstance(model, HeterodynePhysicsAdapter)

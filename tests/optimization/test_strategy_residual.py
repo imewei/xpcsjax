@@ -114,14 +114,16 @@ def test_diag_mask_uses_values_not_independent_unique_indices() -> None:
     are built independently, so an index-based diagonal comparison
     (t1_indices != t2_indices) is only correct when those two unique arrays
     happen to be identical. This chunk's t1/t2 value sets differ, so they are
-    not: t1_unique=[1,2,3] (indices 0,1,2), t2_unique=[2,3] (indices 0,1).
+    not: t1=[1.0, 2.0] -> t1_unique=[1.0, 2.0] (indices 0, 1); t2=[2.0, 2.0]
+    -> t2_unique=[2.0] (a single value, index 0 for every point).
 
-    Point 0: t1=1.0, t2=2.0 -- truly OFF-diagonal (1.0 != 2.0), but
-    t1_index=0, t2_index=0 -- an index-based mask would wrongly call this
-    diagonal and zero out a real residual.
-    Point 1: t1=2.0, t2=2.0 -- truly ON the diagonal (2.0 == 2.0), but
-    t1_index=1, t2_index=0 -- an index-based mask would wrongly call this
-    off-diagonal and leave an autocorrelation artifact in the residual.
+    Point 0: t1=1.0 (t1_index=0), t2=2.0 (t2_index=0) -- truly OFF-diagonal
+    (1.0 != 2.0), but the indices are EQUAL (0 == 0) -- an index-based mask
+    would wrongly call this diagonal and zero out a real residual.
+    Point 1: t1=2.0 (t1_index=1), t2=2.0 (t2_index=0) -- truly ON the
+    diagonal (2.0 == 2.0), but the indices DIFFER (1 != 0) -- an
+    index-based mask would wrongly call this off-diagonal and leave an
+    autocorrelation artifact in the residual.
 
     A value-based mask (compare t1 and t2 directly) gets both right.
     """

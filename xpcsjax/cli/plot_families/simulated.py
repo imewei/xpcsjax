@@ -238,8 +238,8 @@ def _evaluate_model_c2(
       laminar_flow) exposes
       ``compute_g2(params, t1, t2, phi, q, L, contrast, offset, dt)`` which
       applies ``c2 = offset + contrast*g1^2`` internally.
-    * ``HeterodyneModel`` (mode two_component) has NO ``compute_g2``; its
-      ``compute_g1(params, t1, t2, phi, q, L, dt)`` returns a NORMALIZED
+    * ``HeterodynePhysicsAdapter`` (mode two_component) has NO ``compute_g2``;
+      its ``compute_g1(params, t1, t2, phi, q, L, dt)`` returns a NORMALIZED
       surface (the kernel is called with ``contrast=1.0, offset=0.0`` —
       see heterodyne_model.py:195-217), so this function applies
       ``offset + contrast*g1^2`` itself for that branch.
@@ -248,10 +248,10 @@ def _evaluate_model_c2(
 
     Parity note: this mirrors ``xpcsjax.viz.nlsq_plots`` model dispatch.
     ``CombinedModel.compute_g2`` applies ``offset + contrast*g1^2``
-    internally, but ``HeterodyneModel.compute_g1`` calls the kernel with
-    ``contrast=1.0, offset=0.0`` (heterodyne_model.py:195-217), returning a
-    NORMALIZED surface — so this branch must apply the scaling itself, the
-    same way ``viz.nlsq_plots`` does at its HeterodyneModel branch.
+    internally, but ``HeterodynePhysicsAdapter.compute_g1`` calls the kernel
+    with ``contrast=1.0, offset=0.0`` (heterodyne_model.py:195-217), returning
+    a NORMALIZED surface — so this branch must apply the scaling itself, the
+    same way ``viz.nlsq_plots`` does at its HeterodynePhysicsAdapter branch.
     """
     import jax.numpy as jnp
 
@@ -266,9 +266,9 @@ def _evaluate_model_c2(
         out = g2_method(p_arr, t1_j, t2_j, phi_arr, q, L, contrast, offset, dt)
         arr = np.asarray(out)
     else:
-        # HeterodyneModel path — compute_g1 returns a normalized surface
-        # (kernel called with contrast=1/offset=0). Apply scaling here to
-        # match the viz layer's HeterodyneModel branch.
+        # HeterodynePhysicsAdapter path — compute_g1 returns a normalized
+        # surface (kernel called with contrast=1/offset=0). Apply scaling
+        # here to match the viz layer's HeterodynePhysicsAdapter branch.
         g1_method = getattr(model, "compute_g1", None)
         if g1_method is None:
             raise AttributeError(f"{type(model).__name__} has neither compute_g2 nor compute_g1")
