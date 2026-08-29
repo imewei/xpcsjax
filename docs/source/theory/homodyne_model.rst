@@ -24,14 +24,14 @@ Common ingredients
 
 All homodyne modes share three building blocks.
 
-**Diffusion integral.** With the power-law parameterisation
+**Cumulative diffusion.** With the power-law parameterisation
 
 .. math::
    :label: hm_Dt
 
    J(t) \;=\; D_0 \cdot t^\alpha + D_\mathrm{offset},
 
-the diffusion integral entering the Siegert relation is
+the cumulative diffusion entering the Siegert relation is
 
 .. math::
    :label: hm_diff_integral
@@ -206,7 +206,7 @@ time exponent (distinct from the speckle contrast :math:`\beta` --- context
 disambiguates), and :math:`\dot{\gamma}_\mathrm{offset}` is a constant
 background. The accumulated strain :math:`\Gamma(t_1, t_2)` is computed by
 cumulative trapezoidal integration on the experimental time grid, matching
-the diffusion integral convention.
+the cumulative-diffusion convention.
 
 Angular dependence
 ~~~~~~~~~~~~~~~~~~
