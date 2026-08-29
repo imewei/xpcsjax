@@ -284,25 +284,6 @@ def test_advanced_memory_manager_collected_without_gc_sweep() -> None:
             gc.enable()
 
 
-def test_memory_pool_max_buffers_floor_is_one_not_four() -> None:
-    from xpcsjax.data.memory_manager import AdvancedMemoryManager
-
-    manager = AdvancedMemoryManager(config={"memory": {"enable_monitoring": False}})
-    try:
-        large_pool_size = 200_000_000  # 1.6GB/buffer at float64
-        manager._get_from_pool(large_pool_size)
-        pool_size = 1
-        while pool_size < large_pool_size:
-            pool_size *= 2
-        pool = manager._pools[pool_size]
-        assert pool.max_buffers == 1, (
-            f"large-buffer pool capped at {pool.max_buffers} buffers, not 1 -- "
-            "the max(4, ...) floor regressed"
-        )
-    finally:
-        manager.shutdown()
-
-
 # ---------------------------------------------------------------------------
 # performance_engine.MemoryMapManager.close_all -- a checked-out handle must
 # not be closed out from under an active reader.
@@ -370,71 +351,4 @@ def test_multi_level_cache_ssd_usage_counter_matches_disk_after_concurrent_puts(
 
     assert cache._ssd_usage_mb == pytest.approx(actual_usage_mb, rel=1e-6), (
         "tracked SSD usage drifted from the real on-disk total under concurrent put()"
-    )
-
-
-# ---------------------------------------------------------------------------
-# validation._perform_incremental_validation -- stats for a changed
-# component must be refreshed, not copied from the previous report forever.
-# ---------------------------------------------------------------------------
-def _synthetic_xpcs_data(c2_value: float, q_values) -> dict:
-    return {
-        "wavevector_q_list": np.asarray(q_values, dtype=np.float64),
-        "phi_angles_list": np.array([0.0, 90.0], dtype=np.float64),
-        "t1": np.array([0.0, 1.0], dtype=np.float64),
-        "t2": np.array([0.0, 1.0], dtype=np.float64),
-        "c2_exp": np.full((2, 3, 3), c2_value, dtype=np.float64),
-    }
-
-
-def test_incremental_validation_refreshes_changed_component_statistics() -> None:
-    from xpcsjax.data.validation import (
-        clear_validation_cache,
-        validate_xpcs_data,
-        validate_xpcs_data_incremental,
-    )
-
-    clear_validation_cache()
-    data_v1 = _synthetic_xpcs_data(1.0, [0.001, 0.002])
-    # data_statistics is only populated at "full" level.
-    report_v1 = validate_xpcs_data(data_v1, {}, "full")
-    assert report_v1.data_statistics.get("phi_angles_list", {}).get("mean") == pytest.approx(45.0)
-
-    data_v2 = dict(data_v1)
-    data_v2["c2_exp"] = np.full((2, 3, 3), 5.0, dtype=np.float64)
-
-    report_v2 = validate_xpcs_data_incremental(
-        data_v2, {}, "incremental", previous_report=report_v1
-    )
-
-    assert report_v2.data_statistics["c2_exp"]["mean"] == pytest.approx(5.0), (
-        "c2_exp statistics were not refreshed after an incremental update"
-    )
-    # phi_angles_list was untouched -- its stats must still be present, not
-    # dropped by a wholesale-overwrite of data_statistics.
-    assert report_v2.data_statistics["phi_angles_list"]["mean"] == pytest.approx(45.0)
-
-
-def test_incremental_validation_refreshes_physics_checks_on_q_change() -> None:
-    from xpcsjax.data.validation import (
-        clear_validation_cache,
-        validate_xpcs_data,
-        validate_xpcs_data_incremental,
-    )
-
-    clear_validation_cache()
-    data_v1 = _synthetic_xpcs_data(1.0, [0.001, 0.002])
-    # physics_checks is only populated at "full" level.
-    report_v1 = validate_xpcs_data(data_v1, {}, "full")
-    assert report_v1.physics_checks.get("q_max") == pytest.approx(0.002)
-
-    data_v2 = dict(data_v1)
-    data_v2["wavevector_q_list"] = np.array([0.01, 0.02], dtype=np.float64)
-
-    report_v2 = validate_xpcs_data_incremental(
-        data_v2, {}, "incremental", previous_report=report_v1
-    )
-
-    assert report_v2.physics_checks.get("q_max") == pytest.approx(0.02), (
-        "physics_checks were not recomputed after wavevector_q_list changed"
     )

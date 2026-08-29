@@ -7,7 +7,6 @@ from xpcsjax.utils.logging import (
     configure_logging,
     get_logger,
     log_calls,
-    log_operation,
     log_performance,
     with_context,
 )
@@ -25,7 +24,6 @@ __all__ = [
     "with_context",
     "log_performance",
     "log_calls",
-    "log_operation",
     # Path validation utilities
     "PathValidationError",
     "validate_save_path",

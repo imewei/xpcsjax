@@ -33,7 +33,7 @@ from xpcsjax.gui.project.model import Project
 from xpcsjax.gui.project.persist import load_project, save_project
 from xpcsjax.gui.result_loader import load_result_summary
 from xpcsjax.gui.theme import repolish
-from xpcsjax.gui.views.error_dialog import ErrorDialog
+from xpcsjax.gui.views.error_dialog import show_failure
 from xpcsjax.gui.views.inspector import InspectorDock
 from xpcsjax.gui.views.main_window_support.project_dialog_handler import ProjectDialogHandler
 from xpcsjax.gui.views.main_window_support.result_presenter import ResultPresenter
@@ -399,7 +399,7 @@ class MainWindow(QMainWindow):
                 self._central_stack.setCurrentIndex(0)  # show_error is text-only
         # Identify which run failed (matters once multiple runs share the window).
         title = f"{title} (run {run_id[:8]})"
-        ErrorDialog.show_failure(self, title, friendly, details)
+        show_failure(self, title=title, friendly=friendly, details=details)
 
     def _on_run_finished(
         self, run_id: str, result_path: str, summary: ResultSummary | None

@@ -26,90 +26,19 @@ Where g₁ = g₁_diffusion × g₁_shear captures:
 - Time-dependent shear: g₁_shear = [sinc(Φ)]²
 """
 
-from collections.abc import Callable
-
-# Handle JAX import with graceful fallback
-try:
-    import jax
-    import jax.numpy as jnp
-    from jax import grad, hessian, jacobian, jit, vmap
-
-    JAX_AVAILABLE = True
-except ImportError:
-    # Fallback to numpy when JAX is not available
-    import numpy as jnp  # type: ignore[no-redef]
-
-    JAX_AVAILABLE = False
-
-    # Import NumPy-based gradients for graceful fallback. The optional
-    # numpy_gradients module is not shipped (this fallback is only reachable when
-    # JAX is unavailable); the try/except degrades gracefully via the
-    # NUMPY_GRADIENTS_AVAILABLE flag.
-    try:
-        from xpcsjax.core.numpy_gradients import (  # pyright: ignore[reportMissingImports]
-            numpy_gradient,
-            numpy_hessian,
-        )
-
-        NUMPY_GRADIENTS_AVAILABLE = True
-    except ImportError:
-        NUMPY_GRADIENTS_AVAILABLE = False
-
-    # Create fallback decorators
-    def jit(  # type: ignore[no-redef,misc,unused-ignore]
-        func: Callable, *args: object, **kwargs: object
-    ) -> Callable:
-        """No-op JIT decorator for NumPy fallback.
-
-        Accepts and ignores ``jax.jit`` keyword arguments (``static_argnums``,
-        ``donate_argnums``, ...) so module-level pre-JIT calls such as
-        ``jit(grad(f), static_argnums=(6, 7, 10))`` do not raise ``TypeError``
-        when JAX is unavailable and this no-op shim is bound instead.
-        """
-        return func
-
-    def vmap(func: Callable, *args: object, **kwargs: object) -> Callable:  # type: ignore[no-redef,misc,unused-ignore]
-        """Vectorize a function with Python loops (NumPy fallback for vmap)."""
-
-        def vectorized_func(inputs: object, *vargs: object, **vkwargs: object) -> object:
-            if hasattr(inputs, "__iter__") and not isinstance(inputs, str):
-                return [func(inp, *vargs, **vkwargs) for inp in inputs]
-            return func(inputs, *vargs, **vkwargs)
-
-        return vectorized_func
-
-    def grad(func: Callable, argnums: int = 0) -> Callable:  # type: ignore[no-redef,misc,unused-ignore]
-        """Intelligent fallback gradient function with performance warnings."""
-        if NUMPY_GRADIENTS_AVAILABLE:
-            return _create_gradient_fallback(func, argnums)
-        else:
-            return _create_no_gradient_fallback(
-                func.__name__ if hasattr(func, "__name__") else "function",
-            )
-
-    def hessian(func: Callable, argnums: int = 0) -> Callable:  # type: ignore[no-redef,misc,unused-ignore]
-        """Intelligent fallback Hessian function with performance warnings."""
-        if NUMPY_GRADIENTS_AVAILABLE:
-            return _create_hessian_fallback(func, argnums)
-        else:
-            return _create_no_hessian_fallback(
-                func.__name__ if hasattr(func, "__name__") else "function",
-            )
-
-    def jacobian(func: Callable, argnums: int = 0) -> Callable:  # type: ignore[no-redef,misc,unused-ignore]
-        """Fallback Jacobian (NumPy) — mirrors grad for array-valued outputs."""
-        if NUMPY_GRADIENTS_AVAILABLE:
-            return _create_gradient_fallback(func, argnums)
-        else:
-            return _create_no_gradient_fallback(
-                func.__name__ if hasattr(func, "__name__") else "function",
-            )
-
-
 import threading
 from collections import OrderedDict
-from functools import partial, wraps
+from functools import partial
 from typing import Any, cast
+
+# jax>=0.8.2 is an unconditional hard dependency (pyproject.toml) imported
+# before this module by xpcsjax/__init__.py, so the ImportError fallback this
+# try/except once guarded (a pure-NumPy grad/hessian/jacobian/jit/vmap shim,
+# plus an import of a xpcsjax.core.numpy_gradients module that was never
+# actually shipped) was unreachable dead code. Removed; JAX is unconditional.
+import jax
+import jax.numpy as jnp
+from jax import grad, hessian, jacobian, jit, vmap
 
 from xpcsjax.core.physics_utils import (
     PI,
@@ -129,10 +58,12 @@ from xpcsjax.core.physics_utils import (
 )
 from xpcsjax.utils.logging import get_logger, log_performance
 
+JAX_AVAILABLE = True
+NUMPY_GRADIENTS_AVAILABLE = False
+
 logger = get_logger(__name__)
 
 # Performance tracking for fallback warnings
-_performance_warned: set[str] = set()
 _fallback_stats = {
     "gradient_calls": 0,
     "hessian_calls": 0,
@@ -162,22 +93,17 @@ _cache_stats: dict[str, int] = {
 
 # Define exception types for array hash key computation
 # JAX raises ConcretizationTypeError when accessing traced values inside JIT
-if JAX_AVAILABLE:
-    _jax_tracer_exceptions: list[type[Exception]] = [
-        TypeError,
-        jax.errors.ConcretizationTypeError,  # type: ignore[attr-defined,unused-ignore]
-        jax.errors.TracerArrayConversionError,  # type: ignore[attr-defined,unused-ignore]
-    ]
-    # UnexpectedTracerError is raised by np.asarray() on traced values in
-    # newer JAX versions — add it when available.
-    _unexpected = getattr(jax.errors, "UnexpectedTracerError", None)
-    if _unexpected is not None:
-        _jax_tracer_exceptions.append(_unexpected)
-    _ARRAY_HASH_EXCEPTIONS: tuple[type[Exception], ...] = tuple(  # type: ignore[no-redef,unused-ignore]
-        _jax_tracer_exceptions
-    )
-else:
-    _ARRAY_HASH_EXCEPTIONS: tuple[type[Exception], ...] = (TypeError,)  # type: ignore[no-redef,unused-ignore]
+_jax_tracer_exceptions: list[type[Exception]] = [
+    TypeError,
+    jax.errors.ConcretizationTypeError,  # type: ignore[attr-defined,unused-ignore]
+    jax.errors.TracerArrayConversionError,  # type: ignore[attr-defined,unused-ignore]
+]
+# UnexpectedTracerError is raised by np.asarray() on traced values in
+# newer JAX versions — add it when available.
+_unexpected = getattr(jax.errors, "UnexpectedTracerError", None)
+if _unexpected is not None:
+    _jax_tracer_exceptions.append(_unexpected)
+_ARRAY_HASH_EXCEPTIONS: tuple[type[Exception], ...] = tuple(_jax_tracer_exceptions)
 
 
 def _get_array_hash_key(arr: "jnp.ndarray") -> tuple | None:
@@ -365,103 +291,6 @@ jax_available = JAX_AVAILABLE
 numpy_gradients_available = NUMPY_GRADIENTS_AVAILABLE if not JAX_AVAILABLE else False
 
 
-if not JAX_AVAILABLE:
-    if NUMPY_GRADIENTS_AVAILABLE:
-        logger.warning(
-            "JAX not available - using NumPy gradients fallback.\n"
-            "Performance will be 10-50x slower than JAX.\n"
-            "Install JAX for optimal performance: pip install jax",
-        )
-    else:
-        logger.error(
-            "Neither JAX nor NumPy gradients available.\n"
-            "Install NumPy gradients: pip install scipy\n"
-            "Or install JAX for optimal performance: pip install jax",
-        )
-
-
-def _create_gradient_fallback(func: Callable, argnums: int = 0) -> Callable:
-    """Create intelligent gradient fallback with performance monitoring."""
-    func_name = getattr(func, "__name__", "unknown")
-
-    @wraps(func)
-    def fallback_gradient(*args: object, **kwargs: object) -> object:
-        _fallback_stats["gradient_calls"] += 1
-
-        # Issue performance warning (once per function)
-        if func_name not in _performance_warned:
-            logger.warning(
-                f"Using NumPy gradient fallback for {func_name}. "
-                f"Expected 10-50x performance degradation. "
-                f"Install JAX for optimal performance.",
-            )
-            _performance_warned.add(func_name)
-
-        # Use numpy_gradient with appropriate configuration
-        grad_func = numpy_gradient(func, argnums)
-        return grad_func(*args, **kwargs)
-
-    return fallback_gradient
-
-
-def _create_hessian_fallback(func: Callable, argnums: int = 0) -> Callable:
-    """Create intelligent Hessian fallback with performance monitoring."""
-    func_name = getattr(func, "__name__", "unknown")
-
-    @wraps(func)
-    def fallback_hessian(*args: object, **kwargs: object) -> object:
-        _fallback_stats["hessian_calls"] += 1
-
-        # Issue performance warning (once per function)
-        if func_name not in _performance_warned:
-            logger.warning(
-                f"Using NumPy Hessian fallback for {func_name}. "
-                f"Expected 50-200x performance degradation. "
-                f"Install JAX for optimal performance.",
-            )
-            _performance_warned.add(func_name)
-
-        # Use numpy_hessian with appropriate configuration
-        hess_func = numpy_hessian(func, argnums)
-        return hess_func(*args, **kwargs)
-
-    return fallback_hessian
-
-
-def _create_no_gradient_fallback(func_name: str) -> Callable:
-    """Create informative gradient fallback when no numerical differentiation is available."""
-
-    def no_gradient_available(*args: object, **kwargs: object) -> object:
-        error_msg = (
-            f"Gradient computation not available for {func_name}.\n"
-            f"Install NumPy gradients support or JAX:\n"
-            f"  pip install scipy (for numerical differentiation)\n"
-            f"  pip install jax (recommended for optimal performance)\n"
-            f"\nCurrently available backends: None"
-        )
-        logger.error(error_msg)
-        raise ImportError(error_msg)
-
-    return no_gradient_available
-
-
-def _create_no_hessian_fallback(func_name: str) -> Callable:
-    """Create informative Hessian fallback when no numerical differentiation is available."""
-
-    def no_hessian_available(*args: object, **kwargs: object) -> object:
-        error_msg = (
-            f"Hessian computation not available for {func_name}.\n"
-            f"Install NumPy gradients support or JAX:\n"
-            f"  pip install scipy (for numerical differentiation)\n"
-            f"  pip install jax (recommended for optimal performance)\n"
-            f"\nCurrently available backends: None"
-        )
-        logger.error(error_msg)
-        raise ImportError(error_msg)
-
-    return no_hessian_available
-
-
 # Core physics computations with discrete numerical integration
 # Note: _calculate_diffusion_coefficient_impl_jax, _calculate_shear_rate_impl_jax,
 # and _create_time_integral_matrix_impl_jax are now imported from physics_utils.py
@@ -541,8 +370,8 @@ def _compute_g1_diffusion_core(
             # time and float() unconditionally raises, landing in the
             # except branch on every call. Removed rather than kept as
             # theatre; callers should pass an explicit time_grid instead
-            # (see model_for_cmaes in optimization/nlsq/core.py and
-            # gradient_diagnostics.py for real callers threading one).
+            # (see model_for_cmaes in optimization/nlsq/core.py for real
+            # callers threading one).
             _FALLBACK_GRID_SIZE = 10001
             grid_indices = jnp.arange(_FALLBACK_GRID_SIZE, dtype=jnp.result_type(dt))
             time_grid_used = grid_indices * dt
@@ -707,8 +536,8 @@ def _compute_g1_shear_core(
             # time and float() unconditionally raises, landing in the
             # except branch on every call. Removed rather than kept as
             # theatre; callers should pass an explicit time_grid instead
-            # (see model_for_cmaes in optimization/nlsq/core.py and
-            # gradient_diagnostics.py for real callers threading one).
+            # (see model_for_cmaes in optimization/nlsq/core.py for real
+            # callers threading one).
             _FALLBACK_GRID_SIZE = 10001
             grid_indices = jnp.arange(_FALLBACK_GRID_SIZE, dtype=jnp.result_type(dt))
             time_grid_used = grid_indices * dt
@@ -1534,15 +1363,6 @@ def vectorized_g2_computation(
         )
     dt_value = dt
 
-    if not JAX_AVAILABLE:
-        logger.warning("JAX not available - using slower numpy fallback")
-        # Simple loop fallback
-        results = []
-        for params in params_batch:
-            result = compute_g2_scaled(params, t1, t2, phi, q, L, contrast, offset, dt_value)
-            results.append(result)
-        return jnp.stack(results)
-
     # JAX vectorized version — use module-level vmapped function to avoid re-tracing
     return _vmap_g2_scaled(params_batch, t1, t2, phi, q, L, contrast, offset, dt_value)
 
@@ -1607,27 +1427,6 @@ def batch_chi_squared(
         )
     dt_value = dt
 
-    if not JAX_AVAILABLE:
-        logger.warning("JAX not available - using slower numpy fallback")
-        # Simple loop fallback
-        results = []
-        for params in params_batch:
-            result = compute_chi_squared(
-                params,
-                data,
-                sigma,
-                t1,
-                t2,
-                phi,
-                q,
-                L,
-                contrast,
-                offset,
-                dt_value,
-            )
-            results.append(result)
-        return jnp.array(results)
-
     # JAX vectorized version — use module-level vmapped function to avoid re-tracing
     return jnp.asarray(
         _vmap_chi_squared(
@@ -1654,32 +1453,12 @@ def validate_backend() -> dict[str, Any]:
         "numpy_gradients_available": numpy_gradients_available,
         "gradient_support": False,
         "hessian_support": False,
-        "backend_type": "unknown",
-        "performance_estimate": "unknown",
+        "backend_type": "jax_native",
+        "performance_estimate": "optimal (1x)",
         "recommendations": cast(list[str], []),
         "fallback_stats": _fallback_stats.copy(),
         "test_results": cast(dict[str, str], {}),
     }
-
-    # Determine backend type and performance characteristics
-    if JAX_AVAILABLE:
-        results["backend_type"] = "jax_native"
-        results["performance_estimate"] = "optimal (1x)"
-    elif numpy_gradients_available:
-        results["backend_type"] = "numpy_fallback"
-        results["performance_estimate"] = "degraded (10-50x slower)"
-        cast(list[str], results["recommendations"]).append(
-            "Install JAX for optimal performance: pip install jax",
-        )
-    else:
-        results["backend_type"] = "none"
-        results["performance_estimate"] = "unavailable"
-        cast(list[str], results["recommendations"]).extend(
-            [
-                "Install JAX for optimal performance: pip install jax",
-                "Or install scipy for basic functionality: pip install scipy",
-            ],
-        )
 
     # Test basic computation
     try:
@@ -1702,9 +1481,6 @@ def validate_backend() -> dict[str, Any]:
             results["gradient_support"] = True
             cast(dict[str, str], results["test_results"])["gradient_computation"] = "success"
 
-            if not JAX_AVAILABLE:
-                cast(dict[str, str], results["test_results"])["gradient_method"] = "numpy_fallback"
-
         except ImportError as e:
             cast(dict[str, str], results["test_results"])["gradient_computation"] = (
                 f"failed: {str(e)}"
@@ -1722,9 +1498,6 @@ def validate_backend() -> dict[str, Any]:
             hess_func(test_params, test_t1, test_t2, test_q, test_dt)
             results["hessian_support"] = True
             cast(dict[str, str], results["test_results"])["hessian_computation"] = "success"
-
-            if not JAX_AVAILABLE:
-                cast(dict[str, str], results["test_results"])["hessian_method"] = "numpy_fallback"
 
         except ImportError as e:
             cast(dict[str, str], results["test_results"])["hessian_computation"] = (
@@ -1748,31 +1521,6 @@ def validate_backend() -> dict[str, Any]:
 
 def get_device_info() -> dict[str, Any]:
     """Get comprehensive device and backend information."""
-    if not JAX_AVAILABLE:
-        fallback_info: dict[str, Any] = {
-            "available": False,
-            "devices": cast(list[str], []),
-            "backend": "numpy_fallback" if numpy_gradients_available else "none",
-            "fallback_active": True,
-            "performance_impact": ("10-50x slower" if numpy_gradients_available else "unavailable"),
-            "recommendations": cast(list[str], []),
-        }
-
-        if numpy_gradients_available:
-            cast(list[str], fallback_info["recommendations"]).append(
-                "Install JAX for optimal performance: pip install jax",
-            )
-            fallback_info["fallback_stats"] = _fallback_stats.copy()
-        else:
-            cast(list[str], fallback_info["recommendations"]).extend(
-                [
-                    "Install JAX for optimal performance: pip install jax",
-                    "Or install scipy for basic functionality: pip install scipy",
-                ],
-            )
-
-        return fallback_info
-
     try:
         devices = jax.devices()
         return {
@@ -1798,17 +1546,11 @@ def get_device_info() -> dict[str, Any]:
 def get_performance_summary() -> dict[str, Any]:
     """Get performance summary and recommendations."""
     return {
-        "backend_type": (
-            "jax_native"
-            if JAX_AVAILABLE
-            else ("numpy_fallback" if numpy_gradients_available else "none")
-        ),
+        "backend_type": "jax_native",
         "jax_available": JAX_AVAILABLE,
         "numpy_gradients_available": numpy_gradients_available,
         "fallback_stats": _fallback_stats.copy(),
-        "performance_multiplier": (
-            "1x" if JAX_AVAILABLE else ("10-50x" if numpy_gradients_available else "N/A")
-        ),
+        "performance_multiplier": "1x",
         "recommendations": _get_performance_recommendations(),
     }
 
@@ -1817,31 +1559,18 @@ def _get_performance_recommendations() -> list[str]:
     """Get performance optimization recommendations."""
     recommendations = []
 
-    if not JAX_AVAILABLE:
-        recommendations.append(
-            "[PERF] Install JAX for 10-50x performance improvement: pip install jax",
-        )
+    # P2-R7-04: This is a CPU-only package — no GPU/TPU detection.
+    # Report CPU device count for parallel processing hints only.
+    try:
+        import jax
 
-        if not numpy_gradients_available:
+        devices = jax.devices("cpu")
+        if len(devices) > 1:
             recommendations.append(
-                "[PERF] Install scipy for basic numerical differentiation: pip install scipy",
+                f"[INFO] {len(devices)} CPU devices available for parallel processing",
             )
-        else:
-            recommendations.append("[OK] NumPy gradients available as fallback")
-
-    if JAX_AVAILABLE:
-        # P2-R7-04: This is a CPU-only package — no GPU/TPU detection.
-        # Report CPU device count for parallel processing hints only.
-        try:
-            import jax
-
-            devices = jax.devices("cpu")
-            if len(devices) > 1:
-                recommendations.append(
-                    f"[INFO] {len(devices)} CPU devices available for parallel processing",
-                )
-        except Exception:
-            logger.debug("Device inspection failed; proceeding without device hints")
+    except Exception:
+        logger.debug("Device inspection failed; proceeding without device hints")
 
     return recommendations
 

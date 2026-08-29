@@ -57,12 +57,6 @@ Underlying components
 
 .. autoclass:: xpcsjax.core.physics.ValidationResult
 
-.. autoclass:: xpcsjax.core.model_mixins.BenchmarkingMixin
-
-.. autoclass:: xpcsjax.core.model_mixins.GradientCapabilityMixin
-
-.. autoclass:: xpcsjax.core.model_mixins.OptimizationRecommendationMixin
-
 .. autofunction:: xpcsjax.core.heterodyne_jax_backend.compute_c2_heterodyne
 
 .. autofunction:: xpcsjax.core.heterodyne_physics_kernel.compute_c2_unified

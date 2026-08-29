@@ -54,7 +54,7 @@ def test_pyinstaller_spec_covers_runtime_deps():
     ALIAS = {"pyyaml": "yaml", "pillow": "pil"}
     # covered without an explicit collect_all entry (pure-python, or pulled in
     # transitively by an already-listed compiled package like scipy/jax)
-    COVERED = {"numpy", "yaml", "psutil", "tqdm"}
+    COVERED = {"numpy", "yaml", "psutil", "tqdm", "packaging"}
     # test/build-only deps that live in a runtime extra but must NEVER be frozen
     # into the binary: `pytest-qt` is in the `gui` extra (Plan C co-locates it with
     # PySide6 so a headless `.[dev]` install doesn't crash pytest collection). It is

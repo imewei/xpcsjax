@@ -22,7 +22,6 @@ from xpcsjax.runtime.utils.system_validator import (
     Severity,
     SystemValidator,
     ValidationResult,
-    _parse_version,
     _print_report,
     _result_to_dict,
     _version_at_least,
@@ -30,25 +29,6 @@ from xpcsjax.runtime.utils.system_validator import (
 )
 
 # --- version helpers (pure) -------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        ("1.2.3", (1, 2, 3)),
-        ("1.2.3rc1+abc", (1, 2, 3)),
-        ("0.8.2", (0, 8, 2)),
-        ("2", (2,)),
-        ("1.2.dev0", (1, 2)),  # non-numeric chunk halts parsing
-        ("1.2-3", (1,)),  # split on '-' keeps only leading "1.2"... -> (1, 2)
-    ],
-)
-def test_parse_version(text: str, expected: tuple[int, ...]) -> None:
-    # "1.2-3": re.split on '-' yields "1.2" -> (1, 2)
-    if text == "1.2-3":
-        assert _parse_version(text) == (1, 2)
-    else:
-        assert _parse_version(text) == expected
 
 
 @pytest.mark.parametrize(
@@ -63,10 +43,9 @@ def test_parse_version(text: str, expected: tuple[int, ...]) -> None:
         ("1.9", "2.0", False),
         ("0.8.2", "0.8.2", True),
         ("0.8.1", "0.8.2", False),
-        # A pre-release / dev build of the required minimum must NOT satisfy
-        # it: _parse_version drops the non-numeric suffix, so the numeric
-        # tuples alone are equal (1, 2, 3) == (1, 2, 3) -- _version_at_least
-        # must break that tie using _is_final_release, not silently pass.
+        # A pre-release / dev build must NOT satisfy the final-release minimum
+        # of the same numeric version -- packaging.version.Version orders
+        # pre-release/dev builds strictly before the final release.
         ("1.2.3rc1", "1.2.3", False),
         ("0.8.2.dev20250101", "0.8.2", False),
         ("1.2.3", "1.2.3rc1", True),
@@ -74,6 +53,16 @@ def test_parse_version(text: str, expected: tuple[int, ...]) -> None:
 )
 def test_version_at_least(actual: str, minimum: str, ok: bool) -> None:
     assert _version_at_least(actual, minimum) is ok
+
+
+def test_version_at_least_returns_none_for_unparseable_version() -> None:
+    # A non-PEP-440 version string (e.g. a VCS/local build marker) must not
+    # raise packaging.version.InvalidVersion out of this helper -- it's a
+    # third, distinct outcome from "satisfies"/"outdated", surfaced as None
+    # so callers can bucket it separately instead of a raised exception
+    # collapsing the whole caller's per-item breakdown.
+    assert _version_at_least("not-a-version", "1.0.0") is None
+    assert _version_at_least("0.0.0-dirty", "1.0.0") is None
 
 
 # --- result dataclass -------------------------------------------------------
@@ -103,6 +92,32 @@ def test_dependency_versions_probe_passes() -> None:
     r = SystemValidator().test_dependency_versions()
     assert r.success is True, r.details
     assert "required dependencies satisfied" in r.message
+
+
+def test_dependency_versions_probe_buckets_unparseable_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A dependency reporting a non-PEP-440 version string must not collapse
+    # the whole probe into one opaque "Test raised exception" ERROR (the
+    # SystemValidator.validate() blanket except) -- it should surface as its
+    # own "Unparseable version" bucket, distinct from missing/outdated, while
+    # every other well-formed dependency is still evaluated normally.
+    real_version = sv.importlib_metadata.version
+    first_dist = sv.REQUIRED_DEPENDENCIES[0][0]
+
+    def fake_version(dist_name: str) -> str:
+        if dist_name == first_dist:
+            return "not-a-version"
+        return real_version(dist_name)
+
+    monkeypatch.setattr(sv.importlib_metadata, "version", fake_version)
+
+    r = SystemValidator().test_dependency_versions()
+    assert r.success is False
+    assert "dependency issue(s) detected" in r.message
+    assert r.details is not None
+    assert "Unparseable version" in r.details
+    assert first_dist in r.details
 
 
 def test_jax_installation_probe_x64_enabled() -> None:

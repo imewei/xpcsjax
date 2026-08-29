@@ -10,7 +10,6 @@ side-effect-free.
 from __future__ import annotations
 
 import logging
-import math
 import re
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -155,66 +154,6 @@ def test_log_configuration_apply_with_file(tmp_path: Path) -> None:
     cfg = lm.LogConfiguration(file_enabled=True, file_path=log_file)
     out = cfg.apply()
     assert out == log_file
-
-
-# ---------------------------------------------------------------------------
-# _PhaseRecord
-# ---------------------------------------------------------------------------
-
-
-def test_phase_record_duration() -> None:
-    assert lm._PhaseRecord("x").duration is None
-    assert lm._PhaseRecord("x", start_time=1.0, end_time=3.5).duration == pytest.approx(2.5)
-
-
-# ---------------------------------------------------------------------------
-# AnalysisSummaryLogger
-# ---------------------------------------------------------------------------
-
-
-def test_summary_logger_records_and_logs() -> None:
-    summary = lm.AnalysisSummaryLogger(run_id="r1", analysis_mode="laminar_flow")
-    summary.start_phase("loading")
-    summary.end_phase("loading", memory_peak_gb=2.1)
-    summary.end_phase("never_started")  # no-op branch
-    summary.record_metric("chi2", 1.234)
-    summary.add_output_file("/tmp/out.npz")
-    summary.set_convergence_status("converged")
-    summary.increment_warning_count()
-    summary.increment_error_count()
-    summary.set_config_summary(
-        optimizer="nlsq",
-        n_params=7,
-        n_data_points=2_000_000,
-        n_phi_angles=4,
-        data_file="d.h5",
-        extra="z",
-    )
-
-    mock_logger = MagicMock()
-    summary.log_summary(mock_logger)
-    text = mock_logger.info.call_args[0][0]
-    assert "ANALYSIS SUMMARY" in text
-    assert "Run ID: r1" in text
-    assert "converged" in text
-    assert "2,000,000" in text  # int > 1000 gets thousands separators
-    assert "loading:" in text
-    assert "chi2:" in text
-    assert "out.npz" in text
-    assert "Warnings: 1, Errors: 1" in text
-
-
-def test_summary_logger_as_dict_sanitizes_nan() -> None:
-    summary = lm.AnalysisSummaryLogger(run_id="r2", analysis_mode="static_isotropic")
-    summary.start_phase("p")
-    summary.end_phase("p")
-    summary.record_metric("bad", math.nan)
-    summary.record_metric("good", 3.0)
-    d = summary.as_dict()
-    assert d["run_id"] == "r2"
-    assert d["metrics"]["good"] == 3.0
-    assert d["metrics"]["bad"] is None  # NaN sanitized for JSON
-    assert "p" in d["phases"]
 
 
 # ---------------------------------------------------------------------------
@@ -597,25 +536,4 @@ def test_log_performance_logs_and_reraises() -> None:
 
     with pytest.raises(ValueError, match="nope"):
         boom()
-    assert any(c.args[0] == logging.ERROR for c in mock.log.call_args_list)
-
-
-# ---------------------------------------------------------------------------
-# log_operation
-# ---------------------------------------------------------------------------
-
-
-def test_log_operation_success() -> None:
-    mock = MagicMock(spec=logging.Logger)
-    with lm.log_operation("save", logger=mock):
-        pass
-    msgs = " ".join(str(c.args[1]) for c in mock.log.call_args_list)
-    assert "Starting operation" in msgs
-    assert "Completed operation" in msgs
-
-
-def test_log_operation_failure_reraises() -> None:
-    mock = MagicMock(spec=logging.Logger)
-    with pytest.raises(ValueError, match="bad"), lm.log_operation("save", logger=mock):
-        raise ValueError("bad")
     assert any(c.args[0] == logging.ERROR for c in mock.log.call_args_list)

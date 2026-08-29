@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -79,11 +78,6 @@ class ParameterSpace:
                 self.bounds[name] = (info.min_bound, info.max_bound)
 
     @property
-    def n_total(self) -> int:
-        """Total number of parameters."""
-        return len(ALL_PARAM_NAMES)
-
-    @property
     def n_varying(self) -> int:
         """Number of parameters that vary in optimization."""
         return len(self.varying_names)
@@ -92,11 +86,6 @@ class ParameterSpace:
     def varying_names(self) -> list[str]:
         """Names of parameters that vary (physics + scaling)."""
         return [name for name in ALL_PARAM_NAMES_WITH_SCALING if self.vary.get(name, False)]
-
-    @property
-    def fixed_names(self) -> list[str]:
-        """Names of parameters that are fixed."""
-        return [name for name in ALL_PARAM_NAMES_WITH_SCALING if not self.vary.get(name, False)]
 
     @property
     def varying_physics_names(self) -> list[str]:
@@ -156,17 +145,6 @@ class ParameterSpace:
         lower = np.array([self.bounds[name][0] for name in ALL_PARAM_NAMES])
         upper = np.array([self.bounds[name][1] for name in ALL_PARAM_NAMES])
         return lower, upper
-
-    def get_vary_mask(self) -> np.ndarray:
-        """Get a boolean mask for the varying parameters.
-
-        Returns
-        -------
-        numpy.ndarray
-            Boolean array of shape ``(14,)``; ``True`` where the parameter
-            varies during optimization.
-        """
-        return np.array([self.vary[name] for name in ALL_PARAM_NAMES])
 
     def array_to_dict(self, arr: np.ndarray | jnp.ndarray) -> dict[str, float]:
         """Convert a parameter array to a dictionary.
@@ -238,57 +216,6 @@ class ParameterSpace:
                 errors.append(f"{name}={value} outside bounds [{low}, {high}]")
 
         return errors
-
-    def with_single_angle_stabilization(self) -> ParameterSpace:
-        """Return a new ParameterSpace with tightened bounds for single-angle analysis.
-
-        Narrows contrast bounds to ``[value-0.2, value+0.2]`` and offset bounds
-        to ``[value-0.1, value+0.1]``, clamped to the original bounds.
-
-        Returns
-        -------
-        ParameterSpace
-            A new instance with tightened scaling bounds; the original is left
-            unmodified.
-        """
-        new = ParameterSpace(
-            values=deepcopy(self.values),
-            vary=deepcopy(self.vary),
-            bounds=deepcopy(self.bounds),
-            tied=deepcopy(self.tied),
-        )
-
-        # Tighten contrast bounds
-        if "contrast" in new.bounds:
-            low, high = new.bounds["contrast"]
-            val = new.values["contrast"]
-            new_low = max(low, val - 0.2)
-            new_high = min(high, val + 0.2)
-            new.bounds["contrast"] = (new_low, new_high)
-            logger.debug(
-                "Single-angle stabilization: contrast bounds [%.4g, %.4g] -> [%.4g, %.4g]",
-                low,
-                high,
-                new_low,
-                new_high,
-            )
-
-        # Tighten offset bounds
-        if "offset" in new.bounds:
-            low, high = new.bounds["offset"]
-            val = new.values["offset"]
-            new_low = max(low, val - 0.1)
-            new_high = min(high, val + 0.1)
-            new.bounds["offset"] = (new_low, new_high)
-            logger.debug(
-                "Single-angle stabilization: offset bounds [%.4g, %.4g] -> [%.4g, %.4g]",
-                low,
-                high,
-                new_low,
-                new_high,
-            )
-
-        return new
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> ParameterSpace:

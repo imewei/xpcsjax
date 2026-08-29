@@ -13,9 +13,9 @@ uses an ``automodule`` directive for it (``automodule`` registers the
 do not) — currently the ``xpcsjax.cli`` submodules, ``xpcsjax.runtime``,
 and the ``xpcsjax.device``/``xpcsjax.io``/``xpcsjax.utils`` packages
 themselves. Their own submodules that are documented via ``autoclass``/
-``autofunction`` only (``device.config``, ``device.cpu``, ``io.json_utils``,
-``io.nlsq_writers``, ``utils.async_io``, ``utils.logging``,
-``utils.path_validation``) still need their ``py:module`` entry below.
+``autofunction`` only (``device.cpu``, ``io.json_utils``,
+``io.nlsq_writers``, ``utils.logging``, ``utils.path_validation``) still
+need their ``py:module`` entry below.
 
 .. py:module:: xpcsjax
 
@@ -44,8 +44,6 @@ themselves. Their own submodules that are documented via ``autoclass``/
 .. py:module:: xpcsjax.config.manager
 
 .. py:module:: xpcsjax.config.parameter_manager
-
-.. py:module:: xpcsjax.config.parameter_names
 
 .. py:module:: xpcsjax.config.parameter_registry
 
@@ -82,8 +80,6 @@ themselves. Their own submodules that are documented via ``autoclass``/
 .. py:module:: xpcsjax.core.jax_backend
 
 .. py:module:: xpcsjax.core.math_primitives
-
-.. py:module:: xpcsjax.core.model_mixins
 
 .. py:module:: xpcsjax.core.models
 
@@ -125,8 +121,6 @@ themselves. Their own submodules that are documented via ``autoclass``/
 
 .. py:module:: xpcsjax.data.xpcs_loader
 
-.. py:module:: xpcsjax.device.config
-
 .. py:module:: xpcsjax.device.cpu
 
 .. py:module:: xpcsjax.io.json_utils
@@ -162,8 +156,6 @@ themselves. Their own submodules that are documented via ``autoclass``/
 .. py:module:: xpcsjax.optimization.nlsq.fallback_chain
 
 .. py:module:: xpcsjax.optimization.nlsq.fit_computation
-
-.. py:module:: xpcsjax.optimization.nlsq.gradient_diagnostics
 
 .. py:module:: xpcsjax.optimization.nlsq.gradient_monitor
 
@@ -253,8 +245,6 @@ themselves. Their own submodules that are documented via ``autoclass``/
 
 .. py:module:: xpcsjax.optimization.numerical_validation
 
-.. py:module:: xpcsjax.optimization.recovery_strategies
-
 .. py:module:: xpcsjax.post_install
 
 .. py:module:: xpcsjax.runtime.shell
@@ -266,8 +256,6 @@ themselves. Their own submodules that are documented via ``autoclass``/
 .. py:module:: xpcsjax.runtime.utils.system_validator
 
 .. py:module:: xpcsjax.uninstall_scripts
-
-.. py:module:: xpcsjax.utils.async_io
 
 .. py:module:: xpcsjax.utils.logging
 

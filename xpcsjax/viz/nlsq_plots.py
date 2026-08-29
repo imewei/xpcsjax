@@ -54,6 +54,7 @@ import numpy as np
 
 from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.io.json_utils import json_safe, json_serializer
+from xpcsjax.utils.color_limits import symmetric_residual_limit
 from xpcsjax.utils.logging import get_logger
 from xpcsjax.utils.path_validation import validate_plot_save_path
 
@@ -715,7 +716,6 @@ def plot_nlsq_fit(
     """
     fig, axes = plt.subplots(1, 3, figsize=figsize)
     try:
-
         if c2_exp.size == 0 or c2_fit.size == 0:
             return _empty_data_fallback(fig, save_path)
 
@@ -765,17 +765,14 @@ def plot_nlsq_fit(
         plt.colorbar(im1, ax=axes[1], label="c₂")
 
         residual = c2_exp - c2_fit
-        finite_r = residual[np.isfinite(residual)]
-        vmax_r = float(np.nanpercentile(np.abs(finite_r), 99)) if finite_r.size > 0 else 1.0
-        if vmax_r == 0.0 or not np.isfinite(vmax_r):
-            vmax_r = 1.0
+        vmin_r, vmax_r = symmetric_residual_limit(residual)
         im2 = axes[2].imshow(
             residual.T,
             origin="lower",
             extent=extent,
             aspect="auto",
             cmap="RdBu_r",
-            vmin=-vmax_r,
+            vmin=vmin_r,
             vmax=vmax_r,
         )
         axes[2].set_box_aspect(1)
@@ -863,7 +860,6 @@ def plot_residual_map(
     """
     fig, axes = plt.subplots(2, 2, figsize=figsize)
     try:
-
         if c2_exp.size == 0 or c2_fit.size == 0:
             return _empty_data_fallback(fig, save_path)
 
@@ -872,17 +868,14 @@ def plot_residual_map(
         t1_vec, _, extent = _resolve_extent(residuals.shape, t, t2)
 
         # [0,0] Residual Map
-        finite_r = residuals[np.isfinite(residuals)]
-        vmax = float(np.nanpercentile(np.abs(finite_r), 99)) if finite_r.size > 0 else 1.0
-        if vmax == 0.0 or not np.isfinite(vmax):
-            vmax = 1.0
+        vmin_map, vmax = symmetric_residual_limit(residuals)
         im = axes[0, 0].imshow(
             residuals.T,
             origin="lower",
             extent=extent,
             aspect="auto",
             cmap="RdBu_r",
-            vmin=-vmax,
+            vmin=vmin_map,
             vmax=vmax,
         )
         axes[0, 0].set_box_aspect(1)
@@ -1038,7 +1031,6 @@ def plot_simulated_data(
     """
     fig, ax = plt.subplots(figsize=figsize)
     try:
-
         # Empty-input fallback — mirrors plot_nlsq_fit / plot_residual_map.
         if c2_sim.size == 0:
             return _empty_data_fallback(fig, save_path)

@@ -56,9 +56,9 @@ class _FakeHandle(QObject):
 def test_run_failed_renders_error_in_central_panel(qtbot, monkeypatch):
     import xpcsjax.gui.views.main_window as mw
 
-    # ErrorDialog.show_failure() calls box.exec() — a real modal blocks headless
+    # show_failure() calls box.exec() — a real modal blocks headless
     # tests forever, so stub it (matches how other GUI tests avoid QMessageBox).
-    monkeypatch.setattr(mw.ErrorDialog, "show_failure", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(mw, "show_failure", lambda parent, *, title, friendly, details: None)
 
     win = _window(qtbot)
     run_id = "aabbccdd1234567890abcdef12345678"
@@ -75,7 +75,7 @@ def test_run_failed_renders_error_in_central_panel(qtbot, monkeypatch):
 def test_run_failed_does_not_clobber_a_different_pinned_view(qtbot, monkeypatch):
     import xpcsjax.gui.views.main_window as mw
 
-    monkeypatch.setattr(mw.ErrorDialog, "show_failure", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(mw, "show_failure", lambda parent, *, title, friendly, details: None)
 
     win = _window(qtbot)
     viewed_run_id = "11112222333344445555666677778888"

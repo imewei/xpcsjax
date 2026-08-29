@@ -2137,47 +2137,6 @@ class DataQualityController:
 
         return recommendations
 
-    def get_quality_history(self) -> list[dict[str, Any]]:
-        """Return the quality control history as summary dicts.
-
-        Returns
-        -------
-        list of dict
-            One :meth:`QualityControlResult.get_summary` per recorded result.
-        """
-        return [result.get_summary() for result in self._quality_history]
-
-    def clear_cache(self) -> None:
-        """Clear the incremental-validation result cache."""
-        self._validation_cache.clear()
-        logger.debug("Validation cache cleared")
-
-    def get_performance_stats(self) -> dict[str, Any]:
-        """Return validation performance statistics over the history.
-
-        Returns
-        -------
-        dict
-            Validation count, processing-time aggregates, cache size, and number
-            of distinct stages processed; or a message dict when no history
-            exists.
-        """
-        if not self._quality_history:
-            return {"message": "No quality control history available"}
-
-        processing_times = [result.processing_time for result in self._quality_history]
-
-        return {
-            "total_validations": len(self._quality_history),
-            "average_processing_time": np.mean(processing_times),
-            "max_processing_time": np.max(processing_times),
-            "min_processing_time": np.min(processing_times),
-            "cache_size": len(self._validation_cache),
-            "stages_processed": len(
-                {result.stage.value for result in self._quality_history},
-            ),
-        }
-
 
 # Quality control utility functions for easy integration
 def create_quality_controller(config: dict[str, Any]) -> DataQualityController:

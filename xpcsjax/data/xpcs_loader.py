@@ -184,17 +184,12 @@ try:
     from xpcsjax.core.physics import (
         PhysicsConstants as _PhysicsConstants,
     )
-    from xpcsjax.core.physics import (
-        validate_experimental_setup as _validate_experimental_setup,
-    )
 
     HAS_PHYSICS_VALIDATION = True
     PhysicsConstants = _PhysicsConstants
-    validate_experimental_setup = _validate_experimental_setup
 except ImportError:
     HAS_PHYSICS_VALIDATION = False
     PhysicsConstants = None  # type: ignore
-    validate_experimental_setup = None  # type: ignore
 
 # Diagonal correction from unified module
 try:
@@ -208,25 +203,11 @@ except ImportError:
     HAS_DIAGONAL_CORRECTION = False
     apply_diagonal_correction_batch = None  # type: ignore
 
-# Performance engine integration
-try:
-    from xpcsjax.data.memory_manager import (
-        AdvancedMemoryManager as _AdvancedMemoryManager,
-    )
-    from xpcsjax.data.optimization import (
-        AdvancedDatasetOptimizer as _AdvancedDatasetOptimizer,
-    )
-    from xpcsjax.data.performance_engine import PerformanceEngine as _PerformanceEngine
-
-    HAS_PERFORMANCE_ENGINE = True
-    PerformanceEngine = _PerformanceEngine
-    AdvancedMemoryManager = _AdvancedMemoryManager
-    AdvancedDatasetOptimizer = _AdvancedDatasetOptimizer
-except ImportError:
-    HAS_PERFORMANCE_ENGINE = False
-    PerformanceEngine = None  # type: ignore
-    AdvancedMemoryManager = None  # type: ignore
-    AdvancedDatasetOptimizer = None  # type: ignore
+# xpcsjax.data.memory_manager is an internal sibling module (not an optional
+# external package) and its own hard dependency, psutil, is a required
+# (non-extra) install — this import cannot fail in any supported install, so
+# no soft-fail guard is needed.
+from xpcsjax.data.memory_manager import AdvancedMemoryManager  # noqa: E402
 
 logger = get_logger(__name__)
 
@@ -830,10 +811,6 @@ class XPCSDataLoader:
         # Add performance optimization defaults
         performance_defaults = {
             "performance_engine_enabled": True,
-            "memory_mapped_io": True,
-            "advanced_chunking": True,
-            "multi_level_caching": True,
-            "background_prefetching": True,
             "memory_pressure_monitoring": True,
         }
 
@@ -845,10 +822,26 @@ class XPCSDataLoader:
                 self.config["performance"][key] = default_value
 
     def _init_performance_components(self) -> None:
-        """Initialize performance optimization components."""
+        """Initialize performance optimization components.
+
+        ``performance_engine`` is intentionally never constructed here: an
+        audit found XPCSDataLoader never called anything on it besides
+        ``shutdown()`` in :meth:`close` (every actual data-loading feature it
+        offers — the multi-level cache, memory-mapped chunked loading,
+        prefetching — was reachable only through the also-dead
+        ``AdvancedDatasetOptimizer``, never invoked in production). The
+        attribute is kept (always ``None``) so :meth:`close` stays a
+        harmless no-op and external code that only checks
+        ``loader.performance_engine is not None`` keeps working.
+
+        ``memory_manager`` IS constructed: its background pressure-monitor
+        thread has a real, documented side effect (WARNING logs when memory
+        pressure crosses the 75%/90% thresholds — see
+        ``docs/source/theory/heterodyne_memory_strategy.rst``), regardless of
+        whether anyone calls a method on the returned object.
+        """
         self.performance_engine = None
         self.memory_manager = None
-        self.advanced_optimizer = None
 
         # Check if performance optimization is enabled
         performance_config = self.config.get("performance", {})
@@ -856,30 +849,11 @@ class XPCSDataLoader:
             logger.info("Performance engine disabled in configuration")
             return
 
-        if not HAS_PERFORMANCE_ENGINE:
-            logger.warning(
-                "Performance engine not available - falling back to basic optimization",
-            )
-            return
-
         try:
-            # Initialize performance engine
-            if performance_config.get("performance_engine_enabled", True):
-                self.performance_engine = PerformanceEngine(self.config)
-                logger.info("Performance engine initialized")
-
             # Initialize memory manager
             if performance_config.get("memory_pressure_monitoring", True):
                 self.memory_manager = AdvancedMemoryManager(self.config)
                 logger.info("Advanced memory manager initialized")
-
-            # Initialize advanced optimizer
-            self.advanced_optimizer = AdvancedDatasetOptimizer(
-                config=self.config,
-                performance_engine=self.performance_engine,
-                memory_manager=self.memory_manager,
-            )
-            logger.info("Advanced dataset optimizer initialized")
 
         except Exception as e:
             log_exception(
@@ -889,20 +863,21 @@ class XPCSDataLoader:
                 level=logging.DEBUG,
             )
             logger.info("Falling back to basic optimization")
-            self.performance_engine = None
             self.memory_manager = None
-            self.advanced_optimizer = None
 
     def close(self) -> None:
         """Shut down the performance engine and memory manager, if constructed.
 
-        Both already implement a full ``shutdown()`` (monitoring thread join,
-        executor shutdown, cache/mmap cleanup) but nothing ever called it: a
-        loader built with the (default-on) performance engine enabled leaked
-        its monitoring thread — and everything it transitively keeps alive —
-        for the life of the process on every call. Safe to call multiple
-        times; best-effort per component so one failure doesn't block the
-        other's cleanup.
+        ``performance_engine`` is never constructed by
+        :meth:`_init_performance_components` in production (see its
+        docstring), but the attribute stays writable and is documented as
+        such — this branch stays so any external/future code that DOES
+        assign a real :class:`PerformanceEngine` to it still gets its
+        monitoring thread joined on close, instead of silently leaking it.
+        Both components already implement a full ``shutdown()`` (monitoring
+        thread join, executor shutdown, cache/mmap cleanup); safe to call
+        multiple times; best-effort per component so one failure doesn't
+        block the other's cleanup.
         """
         if self.performance_engine is not None:
             try:

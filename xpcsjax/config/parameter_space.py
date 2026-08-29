@@ -255,22 +255,6 @@ class ParameterSpace:
             units=self.units.copy(),
         )
 
-    def drop_parameters(self, names: set[str]) -> "ParameterSpace":
-        """Return a copy with specific parameters removed."""
-        if not names:
-            return self.copy()
-
-        filtered_names = [name for name in self.parameter_names if name not in names]
-        filtered_bounds = {k: v for k, v in self.bounds.items() if k not in names}
-        filtered_units = {k: v for k, v in self.units.items() if k not in names}
-
-        return ParameterSpace(
-            model_type=self.model_type,
-            parameter_names=filtered_names,
-            bounds=filtered_bounds,
-            units=filtered_units,
-        )
-
     def get_bounds(self, param_name: str) -> tuple[float, float]:
         """Get bounds for a specific parameter.
 
@@ -295,27 +279,6 @@ class ParameterSpace:
                 f"Available: {list(self.bounds.keys())}"
             )
         return self.bounds[param_name]
-
-    def get_bounds_array(self) -> tuple[np.ndarray, np.ndarray]:
-        """Get bounds as numpy arrays (for optimization).
-
-        Returns
-        -------
-        lower_bounds : np.ndarray
-            Array of lower bounds (in parameter_names order)
-        upper_bounds : np.ndarray
-            Array of upper bounds (in parameter_names order)
-
-        Examples
-        --------
-        >>> param_space = ParameterSpace.from_defaults('static_anisotropic')
-        >>> lower, upper = param_space.get_bounds_array()
-        >>> lower.shape
-        (3,)
-        """
-        lower = np.array([self.bounds[name][0] for name in self.parameter_names])
-        upper = np.array([self.bounds[name][1] for name in self.parameter_names])
-        return lower, upper
 
     def validate_values(
         self, values: dict[str, float], tolerance: float = 1e-10
@@ -367,50 +330,6 @@ class ParameterSpace:
         is_valid = len(violations) == 0
         return is_valid, violations
 
-    def get_single_angle_geometry_config(self) -> dict[str, float]:
-        """Return heuristic geometry config for single-angle diffusion reparameterization.
-
-        Derives log-space center and delta location parameters from the D0 and
-        D_offset bounds midpoints when those parameters are present. Falls back
-        to sensible defaults when either parameter is absent.
-        """
-        d0_bounds = self.bounds.get("D0", (100.0, 1e5))
-        d_offset_bounds = self.bounds.get("D_offset", (-1e5, 1e5))
-
-        if "D0" not in self.bounds or "D_offset" not in self.bounds:
-            return {
-                "enabled": True,
-                "log_center_loc": 8.0,
-                "log_center_scale": 1.0,
-                "delta_loc": 0.0,
-                "delta_scale": 1.0,
-                "delta_floor": 1e-3,
-            }
-
-        # Use bounds midpoints as heuristic location estimates
-        d0_mid = (d0_bounds[0] + d0_bounds[1]) / 2.0
-        d_offset_mid = (d_offset_bounds[0] + d_offset_bounds[1]) / 2.0
-        d0_half_width = (d0_bounds[1] - d0_bounds[0]) / 2.0
-
-        center_mu = max(d0_mid + d_offset_mid, 1e-6)
-        center_sigma = max(d0_half_width, 1.0)
-
-        log_center_loc = float(np.log(center_mu))
-        log_center_scale = float(max(0.25, np.log1p(center_sigma / center_mu)))
-
-        target_delta = float(np.clip(d0_mid / center_mu, 1e-3, 5.0))
-        delta_loc = float(np.log(np.expm1(target_delta))) if target_delta >= 1e-3 else -5.0
-        delta_scale = float(max(0.5, d0_half_width / center_mu))
-
-        return {
-            "enabled": True,
-            "log_center_loc": log_center_loc,
-            "log_center_scale": log_center_scale,
-            "delta_loc": delta_loc,
-            "delta_scale": delta_scale,
-            "delta_floor": 1e-3,
-        }
-
     def __repr__(self) -> str:
         """Return a concise string representation."""
         return (
@@ -418,56 +337,6 @@ class ParameterSpace:
             f"n_params={len(self.parameter_names)}, "
             f"params={self.parameter_names})"
         )
-
-    def clamp_to_open_interval(self, param_name: str, value: float, epsilon: float = 1e-6) -> float:
-        """Clamp parameter value to strictly inside bounds (open interval).
-
-        TruncatedNormal transforms require values strictly inside (min, max)
-        - not equal to the boundaries. This method ensures values are at least epsilon
-        away from both bounds.
-
-        Parameters
-        ----------
-        param_name : str
-            Parameter name
-        value : float
-            Value to clamp
-        epsilon : float, default 1e-6
-            Minimum distance from boundaries
-
-        Returns
-        -------
-        float
-            Clamped value strictly inside (min + epsilon, max - epsilon)
-
-        Examples
-        --------
-        >>> param_space = ParameterSpace.from_defaults('static_anisotropic')
-        >>> # If offset bounds are [0.5, 1.5] and value equals 0.5 (boundary violation)
-        >>> clamped = param_space.clamp_to_open_interval('offset', 0.5)
-        >>> # Returns 0.500001 (0.5 + 1e-6), strictly inside bounds
-        >>> clamped > 0.5 and clamped < 1.5
-        True
-        """
-        if param_name not in self.bounds:
-            raise KeyError(
-                f"Parameter '{param_name}' not in parameter space. "
-                f"Available: {list(self.bounds.keys())}"
-            )
-
-        min_val, max_val = self.bounds[param_name]
-
-        # Ensure epsilon doesn't exceed half the interval width
-        interval_width = max_val - min_val
-        safe_epsilon = min(epsilon, interval_width / 10.0)
-
-        # Clamp to open interval: (min + epsilon, max - epsilon)
-        # Step 1: Clamp value to be at least min_val + epsilon
-        value_clamped_min = max(value, min_val + safe_epsilon)
-        # Step 2: Clamp value to be at most max_val - epsilon
-        clamped_value = min(value_clamped_min, max_val - safe_epsilon)
-
-        return float(clamped_value)
 
     def __str__(self) -> str:
         """Human-readable string representation."""

@@ -11,7 +11,6 @@ import numpy as np
 from xpcsjax.config.heterodyne_parameter_names import (
     ALL_PARAM_NAMES,
     ALL_PARAM_NAMES_WITH_SCALING,
-    PARAM_GROUPS,
     SCALING_PARAMS,
 )
 from xpcsjax.config.heterodyne_parameter_space import ParameterSpace, registry_info
@@ -53,7 +52,6 @@ class ParameterManager:
 
     # B006: cached index lists (invalidated by set_vary)
     _varying_indices_cache: list[int] | None = field(default=None, init=False, repr=False)
-    _fixed_indices_cache: list[int] | None = field(default=None, init=False, repr=False)
     _varying_names_cache: list[str] | None = field(default=None, init=False, repr=False)
     _tied_idx_pairs_cache: list[tuple[int, int]] | None = field(
         default=None, init=False, repr=False
@@ -145,15 +143,6 @@ class ParameterManager:
                 i for i, name in enumerate(ALL_PARAM_NAMES) if self.space.vary.get(name, False)
             ]
         return list(self._varying_indices_cache)
-
-    @property
-    def fixed_indices(self) -> list[int]:
-        """Indices of fixed parameters in the 14-element physics array."""
-        if self._fixed_indices_cache is None:
-            self._fixed_indices_cache = [
-                i for i, name in enumerate(ALL_PARAM_NAMES) if not self.space.vary.get(name, False)
-            ]
-        return list(self._fixed_indices_cache)
 
     @property
     def tied_idx_pairs(self) -> list[tuple[int, int]]:
@@ -509,7 +498,6 @@ class ParameterManager:
         self._active_params_cache = None
         self._varying_names_cache = None
         self._varying_indices_cache = None
-        self._fixed_indices_cache = None
 
     def set_bounds(self, name: str, lower: float, upper: float) -> None:
         """Set bounds for a parameter.
@@ -541,26 +529,6 @@ class ParameterManager:
             self._default_bounds[name]["max"] = upper
         self._bounds_cache.clear()
 
-    def validate_physics(self, params: np.ndarray | None = None) -> list[str]:
-        """Validate parameters against physics constraints.
-
-        Parameters
-        ----------
-        params : numpy.ndarray, optional
-            Full parameter array of shape ``(14,)``, or ``None`` to use the
-            stored values.
-
-        Returns
-        -------
-        list of str
-            Violation messages (errors and warnings); empty if valid.
-        """
-        if params is None:
-            params = self.get_full_values()
-
-        result = validate_parameters(params)
-        return result.errors + result.warnings
-
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> ParameterManager:
         """Create a ParameterManager from a configuration dictionary.
@@ -583,29 +551,6 @@ class ParameterManager:
                 "scaling combined). Free at least one parameter."
             )
         return cls(space=space)
-
-    def get_group_values(self, group: str) -> dict[str, float]:
-        """Get parameter values for a specific group.
-
-        Parameters
-        ----------
-        group : str
-            Group name, one of ``'reference'``, ``'sample'``, ``'velocity'``,
-            ``'fraction'``, ``'angle'``, or ``'scaling'``.
-
-        Returns
-        -------
-        dict
-            Mapping from parameter name to value for the group.
-
-        Raises
-        ------
-        ValueError
-            If ``group`` is not a recognized group name.
-        """
-        if group not in PARAM_GROUPS:
-            raise ValueError(f"Unknown group: {group}")
-        return {name: self.space.values[name] for name in PARAM_GROUPS[group]}
 
     # ------------------------------------------------------------------
     # New API: bounds queries
@@ -762,16 +707,6 @@ class ParameterManager:
         """
         return list(SCALING_PARAMS) + list(ALL_PARAM_NAMES)
 
-    def get_effective_parameter_count(self) -> int:
-        """Count active (varying) physics parameters, excluding scaling.
-
-        Returns
-        -------
-        int
-            Number of physics parameters whose ``vary`` flag is ``True``.
-        """
-        return len(self.get_active_parameters())
-
     def get_total_parameter_count(self) -> int:
         """Get the total parameter count, including scaling and physics.
 
@@ -799,25 +734,6 @@ class ParameterManager:
             for name in ALL_PARAM_NAMES
             if not self.space.vary.get(name, False)
         }
-
-    def is_parameter_active(self, param_name: str) -> bool:
-        """Check whether a physics parameter is active (``vary=True``).
-
-        Parameters
-        ----------
-        param_name : str
-            Physics parameter name to check. Must be one of the 14 physics
-            parameters; scaling names always return ``False``.
-
-        Returns
-        -------
-        bool
-            ``True`` if the parameter's ``vary`` flag is ``True``, else
-            ``False``.
-        """
-        if param_name not in ALL_PARAM_NAMES:
-            return False
-        return bool(self.space.vary.get(param_name, False))
 
     def get_optimizable_parameters(self) -> list[str]:
         """Return physics parameters that should be optimized.

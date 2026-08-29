@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 import numpy as np
@@ -17,9 +16,6 @@ from xpcsjax.core.heterodyne_jax_backend import compute_c2_heterodyne
 # (``v_beta``, ``phi0_het``) instead of the upstream heterodyne names
 # (``beta``, ``phi0``) that would collide with the homodyne flow params.
 ALL_PARAM_NAMES: tuple[str, ...] = tuple(get_registry().get_param_names(AnalysisMode.TWO_COMPONENT))
-
-if TYPE_CHECKING:
-    pass
 
 
 class HeterodyneModelBase(ABC):
@@ -298,167 +294,6 @@ class TwoComponentModel(HeterodyneModelBase):
         f0, f1, f2, f3 = params[9], params[10], params[11], params[12]
         exponent = jnp.clip(f1 * (t - f2), -100, 100)
         return jnp.clip(f0 * jnp.exp(exponent) + f3, 0.0, 1.0)
-
-
-@dataclass
-class ReducedModel(HeterodyneModelBase):
-    """Reduced heterodyne model with a subset of active parameters.
-
-    Inactive parameters are held fixed at their canonical default values.
-    Useful for simplified analysis modes (e.g. reference-only diffusion).
-
-    Parameters
-    ----------
-    _active_params : tuple of str
-        Ordered tuple of parameter names that are free to vary.
-    """
-
-    _active_params: tuple[str, ...]
-
-    # Full default values for all 14 parameters, sourced from the shared
-    # parameter registry (single source of truth — see TwoComponentModel).
-    _FULL_DEFAULTS: dict[str, float] = field(
-        default_factory=lambda: {
-            name: get_registry().get_param_info(name).default for name in ALL_PARAM_NAMES
-        }
-    )
-
-    def __post_init__(self) -> None:
-        """Validate active params and precompute expansion constants."""
-        invalid = [n for n in self._active_params if n not in ALL_PARAM_NAMES]
-        if invalid:
-            raise ValueError(
-                f"Unknown parameter names: {invalid}. Valid names: {list(ALL_PARAM_NAMES)}"
-            )
-        # Precompute template and index mapping for _expand_to_full
-        object.__setattr__(
-            self,
-            "_template",
-            jnp.array([self._FULL_DEFAULTS[name] for name in ALL_PARAM_NAMES]),
-        )
-        idx_list = [ALL_PARAM_NAMES.index(name) for name in self._active_params]
-        object.__setattr__(self, "_active_indices", tuple(idx_list))
-        object.__setattr__(
-            self,
-            "_active_indices_array",
-            jnp.array(idx_list, dtype=jnp.int32),
-        )
-
-    @property
-    def n_params(self) -> int:
-        """Number of active (free) parameters."""
-        return len(self._active_params)
-
-    @property
-    def param_names(self) -> tuple[str, ...]:
-        """Active parameter names in order."""
-        return self._active_params
-
-    def get_default_params(self) -> np.ndarray:
-        """Get default values for active parameters only."""
-        return np.array([self._FULL_DEFAULTS[name] for name in self._active_params])
-
-    def _expand_to_full(self, params: jnp.ndarray) -> jnp.ndarray:
-        """Expand an active-parameter array to the full 14-element array.
-
-        Uses a precomputed template and index mapping for efficiency;
-        inactive parameters retain their canonical defaults.
-
-        Parameters
-        ----------
-        params : jnp.ndarray
-            Active-parameter array, shape ``(n_params,)``.
-
-        Returns
-        -------
-        jnp.ndarray
-            Full parameter array, shape ``(14,)``.
-        """
-        return self._template.at[self._active_indices_array].set(params)  # type: ignore[attr-defined,no-any-return]
-
-    def compute_correlation(
-        self,
-        params: jnp.ndarray,
-        t: jnp.ndarray,
-        q: float,
-        dt: float,
-        phi_angle: float,
-        contrast: float = 1.0,
-        offset: float = 1.0,
-    ) -> jnp.ndarray:
-        """Compute the model correlation from the reduced parameter set.
-
-        Inactive parameters are held at their canonical defaults.
-
-        Parameters
-        ----------
-        params : jnp.ndarray
-            Active-parameter array, shape ``(n_params,)``.
-        t : jnp.ndarray
-            Time array.
-        q : float
-            Scattering wavevector magnitude.
-        dt : float
-            Time step.
-        phi_angle : float
-            Detector phi angle in degrees.
-        contrast : float, optional
-            Speckle contrast (the kernel-internal ``beta``), default ``1.0``.
-        offset : float, optional
-            Baseline offset, default ``1.0``.
-
-        Returns
-        -------
-        jnp.ndarray
-            Correlation matrix ``c2(t1, t2)``, shape ``(N, N)``.
-        """
-        full_params = self._expand_to_full(params)
-        return compute_c2_heterodyne(full_params, t, q, dt, phi_angle, contrast, offset)  # type: ignore[no-any-return]
-
-
-# ---------------------------------------------------------------------------
-# Analysis mode registry
-# ---------------------------------------------------------------------------
-
-ANALYSIS_MODES: dict[str, tuple[str, ...]] = {
-    "static_ref": ("D0_ref", "alpha_ref", "D_offset_ref"),
-    "static_both": (
-        "D0_ref",
-        "alpha_ref",
-        "D_offset_ref",
-        "D0_sample",
-        "alpha_sample",
-        "D_offset_sample",
-    ),
-    "two_component": ALL_PARAM_NAMES,
-}
-
-
-def create_model(mode: str) -> HeterodyneModelBase:
-    """Return a model instance for the requested analysis mode.
-
-    Parameters
-    ----------
-    mode : str
-        One of ``"static_ref"``, ``"static_both"``, or ``"two_component"``.
-
-    Returns
-    -------
-    HeterodyneModelBase
-        A :class:`TwoComponentModel` for ``"two_component"``; a
-        :class:`ReducedModel` for all other recognised modes.
-
-    Raises
-    ------
-    ValueError
-        If ``mode`` is not a recognised analysis mode.
-    """
-    if mode not in ANALYSIS_MODES:
-        valid = ", ".join(sorted(ANALYSIS_MODES))
-        raise ValueError(f"Unknown analysis mode '{mode}'. Valid modes: {valid}")
-    if mode == "two_component":
-        return TwoComponentModel()
-    return ReducedModel(_active_params=ANALYSIS_MODES[mode])
 
 
 # Default model instance

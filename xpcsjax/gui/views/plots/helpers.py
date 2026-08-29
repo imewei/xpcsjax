@@ -10,6 +10,8 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QRectF
 
+from xpcsjax.utils.color_limits import symmetric_residual_limit
+
 # Colormaps mirror the publication NLSQ figures (nlsq_plots.py): a sequential
 # "jet" for the C₂ surfaces and a diverging "RdBu_r" centred on zero for the
 # residual, so the interactive views match the exported PNGs.
@@ -100,9 +102,10 @@ def _c2_levels(arr: np.ndarray) -> tuple[float, float]:
 
 
 def _residual_levels(arr: np.ndarray) -> tuple[float, float]:
-    """Symmetric ``[-v, v]`` window (99th pct of |residual|) so RdBu_r centres on 0."""
-    finite = np.abs(arr[np.isfinite(arr)])
-    vmax = float(np.percentile(finite, 99)) if finite.size > 0 else 1.0
-    if vmax == 0.0 or not np.isfinite(vmax):
-        vmax = 1.0
-    return (-vmax, vmax)
+    """Symmetric ``[-v, v]`` window (99th pct of |residual|) so RdBu_r centres on 0.
+
+    Delegates to :func:`xpcsjax.utils.color_limits.symmetric_residual_limit`,
+    the same helper the matplotlib and Datashader backends use, so all three
+    render backends compute residual color limits identically.
+    """
+    return symmetric_residual_limit(arr)

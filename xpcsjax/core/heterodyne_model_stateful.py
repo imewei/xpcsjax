@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -416,93 +415,3 @@ class HeterodyneModel:
         if params is None:
             params = self.get_params()
         return self._model.compute_fraction(params, self.t)
-
-    def create_residual_function(
-        self,
-        c2_data: np.ndarray | jnp.ndarray,
-        phi_angle: float,
-        weights: np.ndarray | jnp.ndarray | None = None,
-        angle_idx: int = 0,
-    ) -> Any:
-        """Create a residual function for optimization.
-
-        Returns a function that takes the varying parameters and returns
-        residuals (the fixed parameters are baked in).
-
-        Parameters
-        ----------
-        c2_data : np.ndarray or jnp.ndarray
-            Experimental correlation data.
-        phi_angle : float
-            Detector phi angle in degrees.
-        weights : np.ndarray or jnp.ndarray, optional
-            Weights; defaults to ones when ``None``.
-        angle_idx : int, optional
-            Index into per-angle scaling for the contrast/offset lookup.
-
-        Returns
-        -------
-        callable
-            A JIT-compiled function mapping varying params to residuals.
-        """
-        c2_jax = jnp.asarray(c2_data)
-        weights_jax = jnp.asarray(weights) if weights is not None else jnp.ones_like(c2_jax)
-        t = self.t
-        q = self.q
-        dt = self.dt
-
-        contrast_val, offset_val = self.scaling.get_for_angle(angle_idx)
-
-        # Explicit int dtype: jnp.array([]) on an empty varying_indices list
-        # (e.g. every physical parameter fixed) defaults to float64, and a
-        # float-dtype .at[...].set() indexer raises TypeError ("Indexer must
-        # have integer or boolean type").
-        varying_idx_jax = jnp.array(self.param_manager.varying_indices, dtype=jnp.int32)
-        fixed_values_jax = jnp.array(self.param_manager.get_full_values())
-
-        @jax.jit
-        def residual_fn(varying_params: jnp.ndarray) -> jnp.ndarray:
-            # Reconstruct full params
-            full_params = fixed_values_jax.at[varying_idx_jax].set(varying_params)
-
-            return compute_residuals(
-                full_params,
-                t,
-                q,
-                dt,
-                phi_angle,
-                c2_jax,
-                weights_jax,
-                contrast_val,
-                offset_val,
-            )
-
-        return residual_fn
-
-    def summary(self) -> str:
-        """Return a summary of the model configuration.
-
-        Returns
-        -------
-        str
-            Multi-line summary string.
-        """
-        lines = [
-            "HeterodyneModel Summary",
-            "=" * 40,
-            f"Time points: {self.n_times}",
-            f"Time step: {self.dt}",
-            f"Wavevector q: {self.q}",
-            f"Total params: {self.n_params}",
-            f"Varying params: {self.n_varying}",
-            "",
-            "Current Parameters:",
-            "-" * 40,
-        ]
-
-        params = self.get_params_dict()
-        for name in ALL_PARAM_NAMES:
-            vary = "vary" if name in self.varying_names else "fixed"
-            lines.append(f"  {name:18s}: {params[name]:12.4e} ({vary})")
-
-        return "\n".join(lines)

@@ -44,6 +44,7 @@ except ImportError as e:
         "Reinstall with: pip install xpcsjax (or `uv sync` in this repo)."
     ) from e
 
+from xpcsjax.utils.color_limits import symmetric_residual_limit
 from xpcsjax.utils.logging import get_logger
 from xpcsjax.utils.path_validation import validate_plot_save_path
 
@@ -331,17 +332,9 @@ def plot_c2_comparison_fast(
 
     # Residual colormap: symmetric ±99th-percentile of |residuals| so that
     # RdBu_r midpoint (white) always maps to zero — consistent with the
-    # matplotlib path in plot_nlsq_fit. The original code used data_min/data_max
-    # (asymmetric) AND discarded finite_r in favour of nanmin(residuals) which
-    # could include inf values.
-    finite_r = residuals[np.isfinite(residuals)] if residuals.size > 0 else residuals
-    if finite_r.size > 0:
-        vmax_r = float(np.percentile(np.abs(finite_r), 99))
-        if vmax_r == 0.0 or not np.isfinite(vmax_r):
-            vmax_r = 1.0
-    else:
-        vmax_r = 1.0
-    res_min, res_max = -vmax_r, vmax_r
+    # matplotlib path in plot_nlsq_fit (shared via
+    # xpcsjax.utils.color_limits.symmetric_residual_limit).
+    res_min, res_max = symmetric_residual_limit(residuals)
     img_res = renderer.rasterize_heatmap(
         residuals.T, t1, t2, cmap="RdBu_r", vmin=res_min, vmax=res_max
     )

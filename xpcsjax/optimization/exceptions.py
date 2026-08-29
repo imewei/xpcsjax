@@ -1,15 +1,13 @@
 """Custom exceptions for NLSQ optimization.
 
 This module defines a comprehensive exception hierarchy for handling
-errors specific to NLSQ optimization, including convergence failures
-and numerical instabilities.
+errors specific to NLSQ optimization, including numerical instabilities.
 
 The exception hierarchy enables fine-grained error handling and recovery
 strategies tailored to specific failure modes.
 
 Exception Hierarchy:
     NLSQOptimizationError (base)
-    ├── NLSQConvergenceError (convergence failures)
     └── NLSQNumericalError (NaN/Inf issues)
 
 Examples
@@ -21,10 +19,6 @@ Catching specific errors for targeted recovery:
 ... except NLSQNumericalError as e:
 ...     # Handle NaN/Inf with learning rate reduction
 ...     result = optimizer.fit(data, model, p0, learning_rate=0.5*lr)
-... except NLSQConvergenceError as e:
-...     # Handle convergence failure with perturbation
-...     p0_perturbed = p0 * (1 + 0.01 * np.random.randn(*p0.shape))
-...     result = optimizer.fit(data, model, p0_perturbed)
 
 Using base exception for generic handling:
 
@@ -50,11 +44,6 @@ xpcsjax.optimization.strategy : Strategy selection and fallback logic
 """
 
 from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import numpy as np
 
 
 class NLSQOptimizationError(Exception):
@@ -100,85 +89,6 @@ class NLSQOptimizationError(Exception):
             context_str = ", ".join(f"{k}={v}" for k, v in self.error_context.items())
             return f"{base_msg} (context: {context_str})"
         return base_msg
-
-
-class NLSQConvergenceError(NLSQOptimizationError):
-    """Raised when NLSQ optimization fails to converge.
-
-    This exception indicates that the optimizer could not find a satisfactory
-    solution within the specified constraints (maximum iterations, tolerance, etc.).
-
-    Common Causes
-    -------------
-    - Poor initial guess (p0 too far from optimum)
-    - Overly restrictive parameter bounds
-    - Insufficient maximum iterations
-    - Model function incompatible with data
-    - Local minimum trap
-
-    Recovery Strategies
-    -------------------
-    1. Perturb initial guess: `p0 * (1 + 0.05 * np.random.randn(*p0.shape))`
-    2. Relax bounds: Increase parameter search space
-    3. Increase max iterations: Allow more optimization steps
-    4. Try different optimization method: Switch between 'trf' and 'lm'
-    5. Simplify model: Use fewer parameters
-
-    Attributes
-    ----------
-    iteration_count : int
-        Number of iterations completed before failure
-    final_loss : float
-        Final loss value at termination
-    parameters : np.ndarray
-        Parameter values at termination
-
-    Examples
-    --------
-    >>> try:
-    ...     result = optimizer.fit(data, model, p0, max_iter=100)
-    ... except NLSQConvergenceError as e:
-    ...     print(f"Failed after {e.iteration_count} iterations")
-    ...     print(f"Final loss: {e.final_loss}")
-    ...     # Retry with more iterations
-    ...     result = optimizer.fit(data, model, p0, max_iter=500)
-    """
-
-    def __init__(
-        self,
-        message: str,
-        iteration_count: int | None = None,
-        final_loss: float | None = None,
-        parameters: np.ndarray | None = None,
-        error_context: dict | None = None,
-    ):
-        """Initialize convergence error.
-
-        Parameters
-        ----------
-        message : str
-            Detailed error message
-        iteration_count : int, optional
-            Number of iterations completed
-        final_loss : float, optional
-            Final loss value
-        parameters : np.ndarray, optional
-            Parameter values at termination
-        error_context : dict, optional
-            Additional context
-        """
-        context = error_context or {}
-        if iteration_count is not None:
-            context["iteration_count"] = iteration_count
-        if final_loss is not None:
-            context["final_loss"] = final_loss
-        if parameters is not None:
-            context["n_params"] = len(parameters)
-
-        super().__init__(message, context)
-        self.iteration_count = iteration_count
-        self.final_loss = final_loss
-        self.parameters = parameters
 
 
 class NLSQNumericalError(NLSQOptimizationError):
