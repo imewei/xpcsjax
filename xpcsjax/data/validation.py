@@ -278,10 +278,10 @@ def _validate_data_integrity(data: dict[str, Any], report: DataQualityReport) ->
             # (legitimate bad-pixel masking, one entry per (q, phi) pair, per
             # xpcs_loader.py::_validate_loaded_arrays) but still rejects inf.
             if key == "wavevector_q_list":
-                has_bad = np.isinf(arr).any()
+                has_bad = bool(np.isinf(arr).any())
                 bad_count = np.sum(np.isinf(arr))
             else:
-                has_bad = not np.all(np.isfinite(arr))
+                has_bad = bool(not np.all(np.isfinite(arr)))
                 bad_count = np.sum(~np.isfinite(arr))
             if has_bad:
                 report.add_issue(

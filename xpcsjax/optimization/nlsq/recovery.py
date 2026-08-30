@@ -165,6 +165,7 @@ def execute_with_recovery(
             if use_large:
                 log.debug("Using curve_fit_large with NLSQ automatic memory management")
 
+                x_scale_large: np.ndarray | float | str
                 if isinstance(x_scale_value, (int, float)):
                     x_scale_large = np.abs(current_params) + 1e-3
                     log.info(

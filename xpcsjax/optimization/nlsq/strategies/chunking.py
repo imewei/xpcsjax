@@ -41,7 +41,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 import jax.numpy as jnp
 import numpy as np
@@ -83,6 +83,16 @@ class AngleDistributionStats:
     min_angle: float
     max_angle: float
     is_balanced: bool
+
+
+class AngleGroup(TypedDict):
+    """One angle's points, split out by `create_angle_stratified_data`."""
+
+    phi: np.ndarray
+    t1: np.ndarray
+    t2: np.ndarray
+    g2_exp: np.ndarray
+    size: int
 
 
 @dataclass
@@ -699,7 +709,7 @@ def create_angle_stratified_data(
             "phi contains NaN angle(s); NaN-angle points are grouped and "
             "stratified together (not dropped)"
         )
-    angle_groups = {}
+    angle_groups: dict[int, AngleGroup] = {}
     for idx, angle in enumerate(stats.unique_angles):
         mask = np.isnan(phi_np) if np.isnan(angle) else phi_np == angle
         angle_groups[idx] = {
