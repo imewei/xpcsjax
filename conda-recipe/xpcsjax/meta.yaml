@@ -90,7 +90,7 @@ test:
     # `pip check` is omitted: xpcsjax depends on nlsq, and nlsq's own
     # dist-info METADATA has an upstream bug (dev/docs/GUI extras listed as
     # unconditional Requires-Dist with no extra marker -- still present as of
-    # nlsq 0.7.1, see conda-recipe/nlsq/meta.yaml). `pip check` fails
+    # nlsq 0.7.3, see conda-recipe/nlsq/meta.yaml). `pip check` fails
     # transitively on nlsq's absent dev tools regardless of anything in this
     # recipe.
     - xpcsjax --help
