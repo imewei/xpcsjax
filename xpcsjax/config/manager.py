@@ -443,7 +443,7 @@ class ConfigManager:
         logger.debug("Applying default configuration values (fallback)")
         return {
             "metadata": {
-                "config_version": "0.1.5",
+                "config_version": "0.1.6",
                 "description": "Default minimal configuration",
             },
             "analysis_mode": "static_anisotropic",

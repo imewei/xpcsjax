@@ -30,7 +30,7 @@ copyright = "2026, Wei Chen (Argonne National Laboratory)"
 try:
     _full_version = _md.version("xpcsjax")
 except _md.PackageNotFoundError:
-    _full_version = "0.1.5"
+    _full_version = "0.1.6"
 version = _full_version.split(".post")[0].split("+")[0]
 release = _full_version
 

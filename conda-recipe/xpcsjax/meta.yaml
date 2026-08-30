@@ -1,13 +1,13 @@
 {% set name = "xpcsjax" %}
-{% set version = "0.1.5" %}
+{% set version = "0.1.6" %}
 
 package:
   name: {{ name|lower }}
   version: {{ version }}
 
 source:
-  # 0.1.5 is not on PyPI yet (latest released is 0.1.4) -- build from the
-  # local repo checkout. Bump this to a pypi url + sha256 once 0.1.5 ships.
+  # 0.1.6 is not on PyPI yet (latest released is 0.1.5) -- build from the
+  # local repo checkout. Bump this to a pypi url + sha256 once 0.1.6 ships.
   path: ../..
 
 build:
