@@ -23,6 +23,16 @@ def test_d_offset_overfitting_flagged_above_half_d0() -> None:
     assert any(v.param == "D_offset" and v.severity is ConstraintSeverity.INFO for v in violations)
 
 
+def test_d_offset_overfitting_flagged_when_negative_and_dominant() -> None:
+    # D_offset < -0.5*D0 dominates just as much as D_offset > 0.5*D0 (audit
+    # finding: C045 real fit had D_offset_ref/D0_ref = -0.503, unflagged by
+    # the pre-fix one-sided `D_offset > 0.5 * D0` check).
+    violations = validate_cross_parameter_constraints(
+        {"D0": 1000.0, "alpha": 1.0, "D_offset": -600.0}, min_severity=ConstraintSeverity.INFO
+    )
+    assert any(v.param == "D_offset" and v.severity is ConstraintSeverity.INFO for v in violations)
+
+
 def test_d_offset_within_bound_no_violation() -> None:
     violations = validate_cross_parameter_constraints(
         {"D0": 1000.0, "alpha": 1.0, "D_offset": 100.0}

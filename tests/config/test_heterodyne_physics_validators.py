@@ -45,6 +45,31 @@ def test_cross_parameter_valid_fractions() -> None:
     assert validate_cross_parameter_constraints({"f0": 0.2, "f3": 0.3}) == []
 
 
+def test_cross_parameter_offset_ref_dominance_positive() -> None:
+    violations = validate_cross_parameter_constraints({"D_offset_ref": 700.0, "D0_ref": 1000.0})
+    assert any(v.parameter == "D_offset_ref/D0_ref" for v in violations)
+
+
+def test_cross_parameter_offset_ref_dominance_negative() -> None:
+    # D_offset_ref/D0_ref = -0.6 dominates just as much as +0.6 (audit finding:
+    # C045 real fit had ratio -0.503, unflagged by the pre-fix `ratio > 0.5`
+    # one-sided check).
+    violations = validate_cross_parameter_constraints({"D_offset_ref": -600.0, "D0_ref": 1000.0})
+    assert any(v.parameter == "D_offset_ref/D0_ref" for v in violations)
+
+
+def test_cross_parameter_offset_sample_dominance_negative() -> None:
+    violations = validate_cross_parameter_constraints(
+        {"D_offset_sample": -600.0, "D0_sample": 1000.0}
+    )
+    assert any(v.parameter == "D_offset_sample/D0_sample" for v in violations)
+
+
+def test_cross_parameter_offset_ref_below_threshold_no_violation() -> None:
+    violations = validate_cross_parameter_constraints({"D_offset_ref": -100.0, "D0_ref": 1000.0})
+    assert violations == []
+
+
 def test_time_integral_negative_alpha_requires_positive_tmin() -> None:
     result = validate_time_integral_safety(alpha=-0.5, t_min=0.0, t_max=1.0)
     assert not result  # __bool__ -> is_valid
