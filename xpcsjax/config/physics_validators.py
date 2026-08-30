@@ -300,8 +300,8 @@ def validate_cross_parameter_constraints(
     """Validate constraints that span multiple parameters.
 
     Currently checks for an over-large ``D_offset`` relative to ``D0`` (an
-    offset exceeding half of ``D0``), reported at ``info`` severity as a
-    possible overfitting signal.
+    offset whose magnitude exceeds half of ``D0``, positive or negative),
+    reported at ``info`` severity as a possible overfitting signal.
 
     Parameters
     ----------
@@ -321,7 +321,7 @@ def validate_cross_parameter_constraints(
     # D_offset vs D0 overfitting check
     if all(k in params for k in ["D0", "alpha", "D_offset"]):
         D0, D_offset = params["D0"], params["D_offset"]
-        if D0 > 0 and D_offset > 0.5 * D0:
+        if D0 > 0 and abs(D_offset) > 0.5 * D0:
             if SEVERITY_PRIORITY[ConstraintSeverity.INFO] >= min_priority:
                 ratio = D_offset / D0
                 violations.append(

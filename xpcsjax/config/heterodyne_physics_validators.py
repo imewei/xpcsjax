@@ -302,8 +302,8 @@ def validate_cross_parameter_constraints(
     The cross-parameter checks are:
 
     - ``f0 + f3 > 1`` (``error``): total fraction exceeds unity.
-    - ``D_offset_ref / D0_ref > 0.5`` (``warning``): offset dominates diffusion.
-    - ``D_offset_sample / D0_sample > 0.5`` (``warning``): offset dominates
+    - ``|D_offset_ref / D0_ref| > 0.5`` (``warning``): offset dominates diffusion.
+    - ``|D_offset_sample / D0_sample| > 0.5`` (``warning``): offset dominates
       diffusion.
     - ``v0 <= 0`` (``info``): the two-component model expects a positive
       velocity.
@@ -332,12 +332,12 @@ def validate_cross_parameter_constraints(
     # D_offset_ref / D0_ref ratio
     if "D_offset_ref" in params and "D0_ref" in params and params["D0_ref"] > 0:
         ratio = params["D_offset_ref"] / params["D0_ref"]
-        if ratio > 0.5 and severity_order[ConstraintSeverity.WARNING] >= min_level:
+        if abs(ratio) > 0.5 and severity_order[ConstraintSeverity.WARNING] >= min_level:
             violations.append(
                 PhysicsViolation(
                     parameter="D_offset_ref/D0_ref",
                     value=ratio,
-                    message=f"D_offset_ref/D0_ref = {ratio:.3f} > 0.5; offset dominates diffusion",
+                    message=f"|D_offset_ref/D0_ref| = {abs(ratio):.3f} > 0.5; offset dominates diffusion",
                     severity=ConstraintSeverity.WARNING,
                 )
             )
@@ -345,12 +345,12 @@ def validate_cross_parameter_constraints(
     # D_offset_sample / D0_sample ratio
     if "D_offset_sample" in params and "D0_sample" in params and params["D0_sample"] > 0:
         ratio = params["D_offset_sample"] / params["D0_sample"]
-        if ratio > 0.5 and severity_order[ConstraintSeverity.WARNING] >= min_level:
+        if abs(ratio) > 0.5 and severity_order[ConstraintSeverity.WARNING] >= min_level:
             violations.append(
                 PhysicsViolation(
                     parameter="D_offset_sample/D0_sample",
                     value=ratio,
-                    message=f"D_offset_sample/D0_sample = {ratio:.3f} > 0.5; offset dominates diffusion",
+                    message=f"|D_offset_sample/D0_sample| = {abs(ratio):.3f} > 0.5; offset dominates diffusion",
                     severity=ConstraintSeverity.WARNING,
                 )
             )
