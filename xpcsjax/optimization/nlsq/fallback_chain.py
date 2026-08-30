@@ -362,6 +362,7 @@ def execute_optimization_with_fallback(
                 use_large = current_strategy != OptimizationStrategy.STANDARD
 
                 if use_large:
+                    x_scale_large: np.ndarray | float | str
                     if isinstance(x_scale_value, (int, float)):
                         x_scale_large = np.abs(validated_params) + 1e-3
                         log.info(

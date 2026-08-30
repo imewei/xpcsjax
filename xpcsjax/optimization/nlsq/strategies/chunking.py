@@ -699,7 +699,7 @@ def create_angle_stratified_data(
             "phi contains NaN angle(s); NaN-angle points are grouped and "
             "stratified together (not dropped)"
         )
-    angle_groups = {}
+    angle_groups: dict[int, dict[str, Any]] = {}
     for idx, angle in enumerate(stats.unique_angles):
         mask = np.isnan(phi_np) if np.isnan(angle) else phi_np == angle
         angle_groups[idx] = {
