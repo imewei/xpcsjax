@@ -42,8 +42,9 @@ the rendered documentation.
   `data/filtering_utils.py` and `data/validation.py` read `diagonal[0]`
   into the check instead of skipping it, reintroducing the anti-pattern the
   surrounding code otherwise avoids (#71).
-- 19 correctness gaps closed in the NLSQ fitting workflow and 6 more in the
-  architecture documentation, found via independent step-by-step doc audits.
+- 19 correctness gaps closed in the NLSQ fitting workflow and 6 more across
+  config/core/viz, found via independent step-by-step audits that traced the
+  NLSQ workflow and `docs/diagrams/architecture.md` against the real code.
 
 ### Removed
 

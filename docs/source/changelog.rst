@@ -32,8 +32,9 @@ v0.1.6 — heterodyne naming fix, stratified-LS/hybrid-streaming correctness fix
   (e.g. a typo'd ``max: true``) to ``1.0``/``0.0``.
 * **The degenerate 1-frame Siegert-ceiling check no longer reads the excluded
   ``tau=0`` diagonal spike** in its fallback branch.
-* 19 correctness gaps closed in the NLSQ fitting workflow and 6 more in the
-  architecture documentation, found via independent step-by-step doc audits.
+* 19 correctness gaps closed in the NLSQ fitting workflow and 6 more across
+  config/core/viz, found via independent step-by-step audits that traced the
+  NLSQ workflow and ``docs/diagrams/architecture.md`` against the real code.
 * ~7800 lines of confirmed-dead code removed repo-wide.
 * Docs: config examples across the documentation now match the shipped YAML
   templates exactly (bounds format, key nesting, heterodyne parameter
