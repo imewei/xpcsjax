@@ -1,5 +1,5 @@
 {% set name = "evosax" %}
-{% set version = "0.2.0" %}
+{% set version = "0.3.1" %}
 
 package:
   name: {{ name|lower }}
@@ -7,7 +7,7 @@ package:
 
 source:
   url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/evosax-{{ version }}.tar.gz
-  sha256: 7fefc9be3ea3f18a8346bd473a34d722723644a6096609b6ec9030e9fa4ebdd6
+  sha256: 38609f64704b48921b500b2d4729779beacd82eb39749978fe8e6db790a790dc
 
 build:
   number: 0
@@ -18,7 +18,7 @@ requirements:
   host:
     - python >=3.10
     - pip
-    - setuptools >=61
+    - setuptools >=77
     - wheel
   run:
     - python >=3.10
@@ -41,9 +41,7 @@ about:
   summary: Evolution Strategies in JAX
   license: Apache-2.0
   license_family: APACHE
-  # evosax 0.2.0's sdist ships no LICENSE file (verified: absent from the
-  # tarball); license_file omitted rather than pointed at a path that
-  # doesn't exist.
+  license_file: LICENSE
 
 extra:
   recipe-maintainers:
