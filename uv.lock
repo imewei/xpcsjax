@@ -1010,7 +1010,7 @@ epy = [
 
 [[package]]
 name = "evosax"
-version = "0.2.0"
+version = "0.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dotmap" },
@@ -1019,9 +1019,9 @@ dependencies = [
     { name = "matplotlib" },
     { name = "numpy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/61/1f/93fc7c5db0f71f7fc7b47586c83ad6d865528c5a98f36707796fb3ebf2d9/evosax-0.2.0.tar.gz", hash = "sha256:7fefc9be3ea3f18a8346bd473a34d722723644a6096609b6ec9030e9fa4ebdd6", size = 170689, upload-time = "2025-03-11T10:38:37.284Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/65/2d/3408839c2151b576ffa2fd53cb1e80ab335b6845f0bc9248884dfc79524c/evosax-0.3.1.tar.gz", hash = "sha256:38609f64704b48921b500b2d4729779beacd82eb39749978fe8e6db790a790dc", size = 181134, upload-time = "2026-08-17T15:11:09.093Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/79/90/1bc31c864bcc1ecd22c035bffd7e6a0752e69f3bb3cdc5a41f3030c15fca/evosax-0.2.0-py3-none-any.whl", hash = "sha256:4e4aa4426ca1eb139b3783466c8b67a2e1a1060a75ee3013e54a7cd2a2c1cd14", size = 214037, upload-time = "2025-03-11T10:38:35.579Z" },
+    { url = "https://files.pythonhosted.org/packages/e6/f7/4c4938c0da6a90b0b7df42968d55c72d74256d6ee0e82c64439bce93bba7/evosax-0.3.1-py3-none-any.whl", hash = "sha256:9ffb75539daab3cab783b993b731088575170ed208bf0214310062f9d982d081", size = 224183, upload-time = "2026-08-17T15:11:07.76Z" },
 ]
 
 [[package]]
@@ -2593,7 +2593,7 @@ wheels = [
 
 [[package]]
 name = "nlsq"
-version = "0.7.3"
+version = "0.7.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asv" },
@@ -2643,9 +2643,9 @@ dependencies = [
     { name = "wheel" },
     { name = "xxhash" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/40/d0/f4ffff00017f6e992e5fac537526bb18db5484440617a2240d46335c2681/nlsq-0.7.3.tar.gz", hash = "sha256:b564c8eba774d89b2446f9e79434501b2a5029e9c92fb7622c8c2661218ac13b", size = 3255023, upload-time = "2026-08-30T07:15:36.982Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/38/b8/0b31a71d00597c5c657f3aa3955fa0b9ae87075c400635e60ba711f6e9a5/nlsq-0.7.4.tar.gz", hash = "sha256:66cbcc6af3cace85b03dca06b0cce14c273178ca58985327c7655b19ff570814", size = 3254907, upload-time = "2026-08-30T17:49:07.254Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/51/fa/acd0eb04f5b98b383e8c68bf77a8bf9c38cb26d7de100cfb8653088569e4/nlsq-0.7.3-py3-none-any.whl", hash = "sha256:1a7180c12b87ff8d9cd1b4c09602007f28d56ed808135246209514953dc9da27", size = 655682, upload-time = "2026-08-30T07:15:35.426Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/25/ae4a521adb3b52ba6416261c3d967558256a570bdcbb35e86a244e70e7e7/nlsq-0.7.4-py3-none-any.whl", hash = "sha256:6db8a288dc09b880c4da98fef5854c3f78c44f8389fbbf02fd4ac9bbf3254a31", size = 655672, upload-time = "2026-08-30T17:49:04.161Z" },
 ]
 
 [[package]]
