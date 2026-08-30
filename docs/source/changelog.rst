@@ -11,8 +11,16 @@ Unreleased
 v0.1.6 — heterodyne naming fix, stratified-LS/hybrid-streaming correctness fixes, dead-code cleanup
 -----------------------------------------------------------------------------------------------------
 
-*Released 2026-08-29.*
+*Released 2026-08-30.*
 
+* **Negative-dominant ``D_offset`` now detected in physics validators** — the
+  ``D_offset``/``D0`` overfitting checks compared ``ratio > 0.5`` only,
+  missing the symmetric case where a large-magnitude negative offset
+  dominates ``D0``; both checks now compare ``abs(ratio) > 0.5``.
+* mypy hard-gate failures on main resolved with explicit type annotations
+  and a new ``AngleGroup`` ``TypedDict`` replacing a loose ``dict[str, Any]``.
+* ``nlsq`` bumped to 0.7.4 and ``evosax`` bumped to 0.3.1 (``uv.lock`` and the
+  conda recipe).
 * **Duplicate ``HeterodyneModel`` class name resolved.** The
   ``PhysicsModelBase`` adapter in ``core/heterodyne_model.py`` shared its name
   with the public stateful ``core/heterodyne_model_stateful.py`` class, so the

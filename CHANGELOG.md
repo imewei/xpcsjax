@@ -11,10 +11,20 @@ the rendered documentation.
 
 ## [Unreleased]
 
-## [0.1.6] - 2026-08-29
+## [0.1.6] - 2026-08-30
 
 ### Fixed
 
+- **Negative-dominant `D_offset` now detected in physics validators.** The
+  `D_offset`/`D0` overfitting checks only compared `ratio > 0.5`, missing the
+  symmetric case where a large-magnitude *negative* offset dominates `D0`
+  (e.g. `D_offset_ref/D0_ref = -0.503` in a real C045 `two_component` fit,
+  implying a negative diffusion coefficient at early times). Both checks now
+  compare `abs(ratio) > 0.5` (#75).
+- Resolved mypy hard-gate failures on main (CI run 33300386957): explicit
+  type annotations for union-typed locals in `fallback_chain.py`,
+  `recovery.py`, and `validation.py`, plus a new `AngleGroup` `TypedDict` in
+  `chunking.py` replacing an overly-loose `dict[str, Any]` (#73).
 - **Duplicate `HeterodyneModel` class name.** Two unrelated classes shared
   the name — `core/heterodyne_model.py`'s `PhysicsModelBase` adapter and
   `core/heterodyne_model_stateful.py`'s public stateful model — so
@@ -59,6 +69,13 @@ the rendered documentation.
 - Theory prose terminology and notation cleaned up: dropped the "diffusion
   integral" label for `D(t1,t2)` (referred to by symbol only, alongside
   `J(t)`), and aligned Sphinx theory notation with the README (#69, #70).
+
+### Dependencies
+
+- `nlsq` bumped 0.7.1 → 0.7.4 and `evosax` bumped 0.2.0 → 0.3.1 in
+  `uv.lock` and the conda recipe (`conda-recipe/xpcsjax/meta.yaml`); host
+  `setuptools` floor raised to `>=77` to match evosax 0.3.1's build
+  requirement (#74).
 
 ## [0.1.5] - 2026-08-25
 
