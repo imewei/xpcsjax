@@ -3,7 +3,7 @@ Releasing
 
 How a new xpcsjax version is cut, tagged, and published to PyPI. The project
 follows `Semantic Versioning <https://semver.org/>`_ and `Keep a Changelog
-<https://keepachangelog.com/>`_; the current line is **v0.1.5** (CPU-only;
+<https://keepachangelog.com/>`_; the current line is **v0.1.6** (CPU-only;
 GPU support is planned for v0.2+).
 
 Publishing is automated by the :file:`.github/workflows/release.yml` workflow,
@@ -21,7 +21,7 @@ Site                                          What it holds
 ============================================  ===================================================
 :file:`pyproject.toml` ``[project].version``  Canonical build version (read by the wheel/sdist).
 :file:`xpcsjax/__init__.py` ``__version__``   Runtime constant; kept equal to the build version.
-:file:`docs/source/conf.py`                   Reads the installed metadata; ``0.1.5`` fallback.
+:file:`docs/source/conf.py`                   Reads the installed metadata; ``0.1.6`` fallback.
 :file:`docs/source/installation.rst`          Doctest line ``>>> xpcsjax.__version__``.
 :file:`docs/source/changelog.rst`             User-facing milestone heading.
 :file:`CHANGELOG.md`                          Authoritative dated changelog entry.
@@ -37,12 +37,12 @@ package is not installed.
 
    **Three distinct version concepts live in the tree — do not unify them.**
 
-   * The **package version** (``0.1.5``) — the release identity described above.
+   * The **package version** (``0.1.6``) — the release identity described above.
    * The **data-layer provenance version** (``xpcsjax/data/__init__.py``
      ``__version__ = "2.23.1"``) — tracks the ported upstream ``xpcs_loader``
      and is surfaced by :func:`xpcsjax.data.get_data_module_info`. It is
      intentionally decoupled from the package version.
-   * The **config-schema version** (``config_version: "0.1.5"`` in the config
+   * The **config-schema version** (``config_version: "0.1.6"`` in the config
      templates) — versions the YAML config format. ``ConfigManager`` only warns
      on a **major.minor** mismatch against the package version
      (:meth:`ConfigManager._validate_config_version`), so it does not have to

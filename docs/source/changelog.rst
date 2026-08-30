@@ -8,6 +8,37 @@ current release line.
 Unreleased
 ----------
 
+v0.1.6 — heterodyne naming fix, stratified-LS/hybrid-streaming correctness fixes, dead-code cleanup
+-----------------------------------------------------------------------------------------------------
+
+*Released 2026-08-29.*
+
+* **Duplicate ``HeterodyneModel`` class name resolved.** The
+  ``PhysicsModelBase`` adapter in ``core/heterodyne_model.py`` shared its name
+  with the public stateful ``core/heterodyne_model_stateful.py`` class, so the
+  two import paths silently returned different classes. The adapter is
+  renamed to ``HeterodynePhysicsAdapter``; the public
+  ``xpcsjax.core.HeterodyneModel`` export is unaffected.
+* **Stratified-LS (≥1M point) diagonal-exclusion mask fixed** — it compared
+  indices into two independently-built ``np.unique()`` arrays instead of the
+  actual ``t1``/``t2`` values, wrongly zeroing real off-diagonal points and
+  keeping true diagonal ones.
+* **Hybrid-streaming ``per_angle_mode="constant"`` fallback index
+  misalignment fixed** — the quantile-estimation-failure fallback resolved
+  L3's regularization groups and L4's gradient-collapse-monitor indices from
+  the literal mode string instead of the real 2-param scaling-head layout it
+  actually falls back to.
+* **``coerce_finite_float`` no longer silently coerces a stray YAML boolean**
+  (e.g. a typo'd ``max: true``) to ``1.0``/``0.0``.
+* **The degenerate 1-frame Siegert-ceiling check no longer reads the excluded
+  ``tau=0`` diagonal spike** in its fallback branch.
+* 19 correctness gaps closed in the NLSQ fitting workflow and 6 more in the
+  architecture documentation, found via independent step-by-step doc audits.
+* ~7800 lines of confirmed-dead code removed repo-wide.
+* Docs: config examples across the documentation now match the shipped YAML
+  templates exactly (bounds format, key nesting, heterodyne parameter
+  layout); theory prose terminology and notation cleaned up.
+
 v0.1.5 — fixed/active/tied parameter hardening and heterodyne covariance fix
 ------------------------------------------------------------------------------
 

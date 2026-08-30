@@ -11,6 +11,54 @@ the rendered documentation.
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-08-29
+
+### Fixed
+
+- **Duplicate `HeterodyneModel` class name.** Two unrelated classes shared
+  the name — `core/heterodyne_model.py`'s `PhysicsModelBase` adapter and
+  `core/heterodyne_model_stateful.py`'s public stateful model — so
+  `from xpcsjax.core.heterodyne_model import HeterodyneModel` and
+  `from xpcsjax.core import HeterodyneModel` silently returned different
+  classes. Renamed the adapter to `HeterodynePhysicsAdapter` across every
+  real call site; the public `xpcsjax.core.HeterodyneModel` export is
+  unaffected (#71).
+- **Stratified-LS (>=1M point) diagonal-exclusion mask** compared indices
+  into two independently-built `np.unique()` arrays instead of the actual
+  `t1`/`t2` values, wrongly zeroing real off-diagonal points and keeping
+  true diagonal ones (#71).
+- **Hybrid-streaming `per_angle_mode="constant"` fallback index
+  misalignment.** In the quantile-estimation-failure fallback, L3's
+  regularization group indices and L4's gradient-collapse-monitor watched
+  indices were resolved via the literal `per_angle_mode_actual` string
+  instead of the real 2-param `[contrast_mean, offset_mean, *physical]`
+  layout the fallback actually uses, watching the scaling head as if it
+  were physics (#71).
+- **`coerce_finite_float` no longer silently coerces a stray YAML boolean**
+  (e.g. a typo'd `max: true`) to `1.0`/`0.0` at the shared bounds/values
+  validation boundary (#71).
+- **Degenerate 1-frame Siegert-ceiling check no longer reads the excluded
+  `tau=0` diagonal spike.** The `matrix.shape[1] <= 1` fallback branch in
+  `data/filtering_utils.py` and `data/validation.py` read `diagonal[0]`
+  into the check instead of skipping it, reintroducing the anti-pattern the
+  surrounding code otherwise avoids (#71).
+- 19 correctness gaps closed in the NLSQ fitting workflow and 6 more in the
+  architecture documentation, found via independent step-by-step doc audits.
+
+### Removed
+
+- ~7800 lines of confirmed-dead code removed repo-wide (ponytail-audit).
+
+### Documentation
+
+- Config examples across the documentation now match the shipped YAML
+  templates exactly — bounds format, key nesting, and the heterodyne
+  physics/scaling parameter layout — instead of several invented shapes
+  that a reader could not actually load (#70).
+- Theory prose terminology and notation cleaned up: dropped the "diffusion
+  integral" label for `D(t1,t2)` (referred to by symbol only, alongside
+  `J(t)`), and aligned Sphinx theory notation with the README (#69, #70).
+
 ## [0.1.5] - 2026-08-25
 
 ### Added
@@ -533,7 +581,8 @@ results, public API, and config formats are identical to 0.1.0.
 - GPU support. v0.1 sets `NLSQ_SKIP_GPU_CHECK=1` and runs CPU-only;
   GPU paths are planned for v0.2+.
 
-[Unreleased]: https://github.com/imewei/xpcsjax/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/imewei/xpcsjax/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/imewei/xpcsjax/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/imewei/xpcsjax/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/imewei/xpcsjax/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/imewei/xpcsjax/compare/v0.1.2...v0.1.3
