@@ -131,7 +131,8 @@ trapezoidal integration on the experimental time grid:
    \sum_{k=i}^{j-1} \tfrac{1}{2}\bigl(J(t_k) + J(t_{k+1})\bigr)\,(t_{k+1} - t_k),
    \qquad t_i = t_1,\ t_j = t_2,
 
-the discrete trapezoidal rule evaluated on the experimental time grid.
+This is the discrete trapezoidal rule evaluated on the experimental time
+grid.
 
 The trapezoidal kernel and the precomputed geometric factors
 :math:`q^2 \Delta t / 2` and :math:`q L \Delta t / (2\pi)` are exposed by
