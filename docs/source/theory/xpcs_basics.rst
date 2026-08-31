@@ -275,7 +275,7 @@ Three implementation choices follow directly from the physics above:
    directly onto this structure.
 3. **Float64.** Physical parameters such as :math:`D_0` and
    :math:`\dot{\gamma}_0` span six or more orders of magnitude, and
-   :math:`q^2 \mathcal{D}` can be small while :math:`q^2 \mathcal{D}` for
+   :math:`q^2\!\int_{t_1}^{t_2} J(t')\,dt'` can be small while the same term for
    neighbouring lags differ in the last few significant digits. xpcsjax
    enforces ``JAX_ENABLE_X64=1`` at import time; see
    :mod:`xpcsjax` for the environment setup.

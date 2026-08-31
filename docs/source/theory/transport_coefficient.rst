@@ -76,8 +76,7 @@ Equation :eq:`cf_c1_general` of :doc:`correlation_functions`) is
 .. math::
    :label: tc_diffusion_integral
 
-   \mathcal{D}(t_1, t_2)
-   \;=\; \int_{t_1}^{t_2} J(t')\,dt'
+   \int_{t_1}^{t_2} J(t')\,dt'
    \;=\; \mathrm{Var}\!\left[x(t_2) - x(t_1)\right].
 
 Integrating the variance growth rate over :math:`[t_1, t_2]` gives, by the
@@ -120,15 +119,19 @@ where
   constrained to be non-negative (a small negative offset can absorb
   background-subtraction error in real data).
 
-:math:`\mathcal{D}(t_1, t_2)` entering :math:`c_1` (and therefore :math:`c_2`
-through the Siegert relation) is computed by cumulative trapezoidal
-integration on the experimental time grid:
+:math:`\int_{t_1}^{t_2} J(t')\,dt'` entering :math:`c_1` (and therefore
+:math:`c_2` through the Siegert relation) is computed by cumulative
+trapezoidal integration on the experimental time grid:
 
 .. math::
    :label: tc_integral_xpcsjax
 
-   \mathcal{D}(t_1, t_2)
-   \;=\; \int_{t_1}^{t_2} J(t')\, dt'.
+   \int_{t_1}^{t_2} J(t')\, dt'
+   \;\approx\;
+   \sum_{k=i}^{j-1} \tfrac{1}{2}\bigl(J(t_k) + J(t_{k+1})\bigr)\,(t_{k+1} - t_k),
+   \qquad t_i = t_1,\ t_j = t_2,
+
+the discrete trapezoidal rule evaluated on the experimental time grid.
 
 The trapezoidal kernel and the precomputed geometric factors
 :math:`q^2 \Delta t / 2` and :math:`q L \Delta t / (2\pi)` are exposed by
@@ -160,10 +163,10 @@ motion, the physical Stokes--Einstein diffusion coefficient is
 
 while xpcsjax stores :math:`D_0 = 2 D_\mathrm{SE}`. The reason is the
 Siegert relation :eq:`cf_siegert`: the measured :math:`c_2` depends on
-:math:`|c_1|^2 = \exp(-q^2 \mathcal{D})` rather than on :math:`c_1` itself.
-For the textbook equilibrium result
+:math:`|c_1|^2 = \exp\!\left(-q^2\!\int_{t_1}^{t_2} J(t')\,dt'\right)` rather
+than on :math:`c_1` itself. For the textbook equilibrium result
 :math:`|c_1|^2 = \exp(-2 q^2 D_\mathrm{SE}\,\tau)` to hold, the integral
-:math:`\mathcal{D} = \int J(t')\,dt'` must equal :math:`2 D_\mathrm{SE}\,\tau`,
+:math:`\int_{t_1}^{t_2} J(t')\,dt'` must equal :math:`2 D_\mathrm{SE}\,\tau`,
 which requires :math:`D_0 = 2 D_\mathrm{SE}`.
 
 .. warning::
@@ -247,7 +250,7 @@ integral :eq:`tc_diffusion_integral`. The NLSQ residual at each
    \;=\;
    c_2^{kij,\,\mathrm{meas}}
    - c_\mathrm{offset}(\phi_k)
-   - \beta(\phi_k)\, e^{-q^2 \mathcal{D}(t_i, t_j;\, \theta)}
+   - \beta(\phi_k)\, e^{-q^2\int_{t_i}^{t_j} J(t';\,\theta)\,dt'}
      \, M(\phi_k, t_i, t_j;\, \theta),
 
 where :math:`M` is the mode-specific shear modulation (sinc\ :sup:`2` in
@@ -262,8 +265,8 @@ Three consequences follow:
 
 1. The exponential of the integral means that absolute errors on
    :math:`D_0` translate to relative errors on :math:`c_2` that scale with
-   :math:`q^2 \mathcal{D}`. Far from the diagonal,
-   :math:`q^2 \mathcal{D}` is large, the residual saturates, and the fit
+   :math:`q^2\!\int_{t_i}^{t_j} J(t')\,dt'`. Far from the diagonal,
+   :math:`q^2\!\int_{t_i}^{t_j} J(t')\,dt'` is large, the residual saturates, and the fit
    becomes insensitive to further increases of :math:`D_0`. The informative
    data live close to the diagonal.
 2. With :math:`\alpha < 0`, the integrand diverges at :math:`t = 0`.
