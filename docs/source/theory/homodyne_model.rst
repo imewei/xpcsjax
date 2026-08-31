@@ -36,7 +36,7 @@ the quantity entering the Siegert relation is
 .. math::
    :label: hm_diff_integral
 
-   \mathcal{D}(t_1, t_2) \;=\; \int_{t_1}^{t_2} J(t')\,dt',
+   \int_{t_1}^{t_2} J(t')\,dt',
 
 evaluated by cumulative trapezoidal integration on the experimental time
 grid. The :math:`D_0 = 2 D_\mathrm{SE}` convention is detailed in
@@ -71,7 +71,7 @@ relation reduces to
    c_2(\phi, t_1, t_2)
    \;=\; c_\mathrm{offset}(\phi)
    \;+\; \beta(\phi)\,
-         \exp\!\left(-q^2\,\mathcal{D}(t_1, t_2)\right).
+         \exp\!\left(-q^2\!\int_{t_1}^{t_2} J(t')\,dt'\right).
 
 The two static sub-modes differ only in how they treat the
 :math:`\phi`-dependence of the scaling parameters.
@@ -169,7 +169,7 @@ shear modulation :eq:`hm_sinc2`,
    c_2(\mathbf{q}, t_1, t_2)
    \;=\; c_\mathrm{offset}(\phi)
    \;+\; \beta(\phi)\,
-       \exp\!\left(-q^2\,\mathcal{D}(t_1, t_2)\right)
+       \exp\!\left(-q^2\!\int_{t_1}^{t_2} J(t')\,dt'\right)
        \,
        \mathrm{sinc}^2\!\left(\tfrac{q h \cos(\phi - \phi_0)\,\Gamma(t_1, t_2)}{2\pi}\right),
 
@@ -206,7 +206,7 @@ time exponent (distinct from the speckle contrast :math:`\beta` --- context
 disambiguates), and :math:`\dot{\gamma}_\mathrm{offset}` is a constant
 background. The accumulated strain :math:`\Gamma(t_1, t_2)` is computed by
 cumulative trapezoidal integration on the experimental time grid, matching
-the :math:`\mathcal{D}(t_1, t_2)` integration convention above.
+the :math:`\int_{t_1}^{t_2} J(t')\,dt'` integration convention above.
 
 Angular dependence
 ~~~~~~~~~~~~~~~~~~

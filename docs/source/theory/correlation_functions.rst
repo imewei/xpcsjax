@@ -85,9 +85,7 @@ with the internal (diffusive) piece
 
    c_1^{(\mathrm{in})}(\mathbf{q}, t_1, t_2)
    \;=\;
-   \exp\!\left(-\tfrac{q^2}{2}\,\mathcal{D}(t_1, t_2)\right),
-   \qquad
-   \mathcal{D}(t_1, t_2) \;=\; \int_{t_1}^{t_2} J(t')\,dt',
+   \exp\!\left(-\tfrac{q^2}{2}\int_{t_1}^{t_2} J(t')\,dt'\right),
 
 and the external (drift) piece
 
@@ -171,7 +169,7 @@ that xpcsjax fits in ``two_component`` mode (:doc:`heterodyne_model`).
 
 .. note::
 
-   In xpcsjax, :math:`\mathcal{D}(t_1, t_2) = \int_{t_1}^{t_2} J(t')\,dt'` is evaluated
+   In xpcsjax, :math:`\int_{t_1}^{t_2} J(t')\,dt'` is evaluated
    numerically by cumulative trapezoidal integration on the experimental time
    grid --- no closed-form antiderivative is ever substituted. A closed form
    (:math:`D_0 \tau^{\alpha+1}/(\alpha+1)`) does exist for :math:`\alpha \neq
