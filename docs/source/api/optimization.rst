@@ -235,7 +235,7 @@ The subpackage exposes several module-level booleans that report whether
 optional dependencies were importable at package import time:
 
 * ``NLSQ_CURVEFIT_AVAILABLE`` — ``True`` when the NLSQ ``CurveFit`` JIT
-  cache is present (requires ``nlsq>=0.6.10``).
+  cache is present (requires ``nlsq>=0.7.5``).
 * ``NLSQ_AVAILABLE`` — alias for ``NLSQ_CURVEFIT_AVAILABLE``.
 * ``JAX_AVAILABLE`` — ``True`` when JAX imports cleanly.
 * ``NLSQ_GLOBAL_OPT_AVAILABLE`` — ``True`` when the NLSQ global-optimisation

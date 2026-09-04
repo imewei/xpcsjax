@@ -207,7 +207,7 @@ removed upstream APIs.
 .. warning::
 
    **Do not call removed NLSQ APIs.**
-   The upstream ``nlsq>=0.6.10`` package removed
+   The upstream ``nlsq>=0.7.5`` package removed
    ``WorkflowSelector`` in v0.6.0. xpcsjax also does not call
    ``MemoryBudgetSelector`` because :func:`xpcsjax.optimization.nlsq.select_nlsq_strategy`
    routes memory itself. Both names are tripwires; new code must not

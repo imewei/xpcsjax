@@ -48,7 +48,7 @@ REQUIRED_DEPENDENCIES: tuple[tuple[str, str, str], ...] = (
     ("jax", "0.8.2", "jax"),
     ("jaxlib", "0.8.2", "jaxlib"),
     ("jaxopt", "0.8.3", "jaxopt"),
-    ("nlsq", "0.6.10", "nlsq"),
+    ("nlsq", "0.7.5", "nlsq"),
     ("evosax", "0.2.0", "evosax"),
     ("h5py", "3.15", "h5py"),
     ("pyyaml", "6.0.3", "yaml"),

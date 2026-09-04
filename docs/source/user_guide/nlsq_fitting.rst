@@ -15,7 +15,7 @@ anti-degeneracy controller.
 Division of labour with the upstream NLSQ library
 -------------------------------------------------
 
-xpcsjax depends on the upstream ``nlsq>=0.6.10`` package. The split of
+xpcsjax depends on the upstream ``nlsq>=0.7.5`` package. The split of
 responsibilities is non-negotiable:
 
 NLSQ owns

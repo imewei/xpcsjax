@@ -11,6 +11,28 @@ the rendered documentation.
 
 ## [Unreleased]
 
+### Changed
+
+- **NLSQ floor raised to `nlsq>=0.7.5`** (from `>=0.6.10`) across
+  `pyproject.toml`, `.pre-commit-config.yaml`, the runtime dependency check in
+  `runtime/utils/system_validator.py`, the conda recipes under
+  `conda-recipe/`, and the documentation that quotes the pin. `uv.lock`
+  re-resolved. Follows the bump procedure in
+  `docs/source/development/nlsq_integration.rst`.
+- **`conda-recipe/nlsq/meta.yaml` updated to nlsq 0.7.5**, adding the new
+  `optimistix >=0.1.0` core dependency (introduced upstream in 0.7.4) and
+  restoring the upstream `pyside6 >=6.10.0` floor now that conda-forge ships
+  PySide6 6.11.2 (the recipe previously relaxed it to `>=6.4.0` because
+  conda-forge topped out at 6.9.3).
+
+### Notes
+
+- `optimistix` now resolves into `uv.lock` transitively via nlsq, so the
+  long-deferred `jaxopt` → `optimistix` migration for the L2 hierarchical
+  warm-start (`optimization/nlsq/hierarchical.py`) no longer requires adding a
+  new dependency — only a direct declaration in `pyproject.toml`. `jaxopt`
+  remains the code path in use; nothing was migrated.
+
 ## [0.1.6] - 2026-08-30
 
 ### Fixed

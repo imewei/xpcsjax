@@ -417,7 +417,7 @@ def _build_hybrid_streaming_config(nested: dict[str, Any]) -> Any:
     if HybridStreamingConfig is None:
         raise ImportError(
             "nlsq.HybridStreamingConfig not available. "
-            "Install nlsq>=0.6.10 to use heterodyne hybrid streaming."
+            "Install nlsq>=0.7.5 to use heterodyne hybrid streaming."
         )
 
     defaults: dict[str, Any] = {
@@ -512,7 +512,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     if AdaptiveHybridStreamingOptimizer is None:
         raise ImportError(
             "AdaptiveHybridStreamingOptimizer not available. "
-            "Install nlsq>=0.6.10 to use heterodyne hybrid streaming."
+            "Install nlsq>=0.7.5 to use heterodyne hybrid streaming."
         )
 
     # ------------------------------------------------------------------

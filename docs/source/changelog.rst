@@ -8,6 +8,13 @@ current release line.
 Unreleased
 ----------
 
+* **NLSQ floor raised to** ``nlsq>=0.7.5`` (from ``>=0.6.10``) across
+  :file:`pyproject.toml`, the runtime dependency check, the conda recipes,
+  and the documentation that quotes the pin.
+* ``conda-recipe/nlsq/meta.yaml`` updated to nlsq 0.7.5 — adds the new
+  ``optimistix >=0.1.0`` core dependency and restores the upstream
+  ``pyside6 >=6.10.0`` floor now that conda-forge ships PySide6 6.11.2.
+
 v0.1.6 — heterodyne naming fix, stratified-LS/hybrid-streaming correctness fixes, dead-code cleanup
 -----------------------------------------------------------------------------------------------------
 

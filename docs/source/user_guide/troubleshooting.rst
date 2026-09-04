@@ -23,7 +23,7 @@ Symptom
 Cause
 ~~~~~
 
-xpcsjax declares ``nlsq>=0.6.10`` and ``jax`` as runtime dependencies.
+xpcsjax declares ``nlsq>=0.7.5`` and ``jax`` as runtime dependencies.
 If you installed the package outside of the project's ``uv`` lockfile,
 or with a stale ``pip install`` that did not resolve the constraints,
 these imports can fail.
@@ -39,7 +39,7 @@ Use the project Makefile target rather than ad-hoc installs:
 
 which expands to ``uv pip install -e ".[dev]"`` and respects
 ``uv.lock``. If you are integrating xpcsjax into another project,
-ensure ``nlsq>=0.6.10`` is in your environment and that ``jax`` is
+ensure ``nlsq>=0.7.5`` is in your environment and that ``jax`` is
 installable for your platform.
 
 Slow first compile
