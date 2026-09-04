@@ -1,13 +1,13 @@
 {% set name = "nlsq" %}
-{% set version = "0.7.3" %}
+{% set version = "0.7.5" %}
 
 package:
   name: {{ name|lower }}
   version: {{ version }}
 
 source:
-  url: https://files.pythonhosted.org/packages/40/d0/f4ffff00017f6e992e5fac537526bb18db5484440617a2240d46335c2681/nlsq-{{ version }}.tar.gz
-  sha256: b564c8eba774d89b2446f9e79434501b2a5029e9c92fb7622c8c2661218ac13b
+  url: https://files.pythonhosted.org/packages/a4/1c/1fd0030faf6ff96d16bfcbea15cf8353d17cb7c9c24a6f98218f91913a87/nlsq-{{ version }}.tar.gz
+  sha256: 3dbcb5aee1b0269f64b124902d102b8473c2003692efa73db51670621f588bf3
 
 build:
   number: 0
@@ -33,6 +33,8 @@ requirements:
     - jax >=0.8.0
     - jaxlib >=0.8.0
     - optax >=0.2.6
+    # nlsq 0.7.4 added optimistix to core deps (root-finding / solver backend)
+    - optimistix >=0.1.0
     # Visualization and monitoring
     - matplotlib-base >=3.10.0
     - psutil >=7.2.0
@@ -52,8 +54,9 @@ requirements:
     - evosax >=0.2.0
     # Qt GUI -- both available on conda-forge. nlsq 0.7.1 promoted these from
     # optional to core dependencies (nlsq-gui entry point ships unconditionally).
-    # pyside6: latest on conda-forge is 6.9.3 (relaxed from >=6.10.0 for conda)
-    - pyside6 >=6.4.0
+    # pyside6: conda-forge is at 6.11.2 (verified 2026-09-04), so the upstream
+    # >=6.10.0 floor is satisfiable on conda -- no relaxation needed.
+    - pyside6 >=6.10.0
     - pyqtgraph >=0.14.0
 
 test:

@@ -28,7 +28,7 @@ requirements:
     - jax >=0.8.2
     - jaxlib >=0.8.2
     - jaxopt >=0.8.3
-    - nlsq >=0.6.10
+    - nlsq >=0.7.5
     - evosax >=0.2.0
     - h5py >=3.15
     # Verified 2026-08-10: conda-forge's h5py free-threaded (python3.14t)
@@ -90,7 +90,7 @@ test:
     # `pip check` is omitted: xpcsjax depends on nlsq, and nlsq's own
     # dist-info METADATA has an upstream bug (dev/docs/GUI extras listed as
     # unconditional Requires-Dist with no extra marker -- still present as of
-    # nlsq 0.7.3, see conda-recipe/nlsq/meta.yaml). `pip check` fails
+    # nlsq 0.7.5, see conda-recipe/nlsq/meta.yaml). `pip check` fails
     # transitively on nlsq's absent dev tools regardless of anything in this
     # recipe.
     - xpcsjax --help
