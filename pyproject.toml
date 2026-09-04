@@ -144,6 +144,20 @@ filterwarnings = [
     # nlsq_diagnostics in production), not via this warning, so it is expected
     # test-time noise. (nlsq defines its own class, not scipy's.)
     "ignore::nlsq.result.optimize_warning.OptimizeWarning",
+    # nlsq's OptimizationDiagnostics convergence monitor
+    # (nlsq/utils/diagnostics.py::_check_convergence_health) warns "Optimization
+    # may be stagnant" whenever the cost variance over the last 5 iterations
+    # falls below its threshold -- which is precisely what a *converged*
+    # trust-region solve looks like (see ConvergenceMonitor.detect_stagnation:
+    # ``is_stagnant = relative_variance < threshold or grad_stagnation``). It
+    # fires on healthy fits in tests/parity, so it is an upstream false
+    # positive, not a signal. The monitor is reachable because xpcsjax opts into
+    # ``enable_recovery=True`` (AdapterConfig / core.py) -- a wanted feature that
+    # constructs OptimizationDiagnostics as a side effect (nlsq/core/minpack.py
+    # :3126). Real convergence quality is asserted from the returned
+    # OptimizationResult, never from this warning. Scoped to the stagnation
+    # message only: nlsq's sibling oscillation/divergence warnings stay visible.
+    "ignore:Optimization may be stagnant:RuntimeWarning",
     # numba emits NumbaSystemWarning from tests/viz/test_orchestrator.py
     # ::test_parallel_fallback_on_pool_failure, which INTENTIONALLY simulates a
     # multiprocessing-spawn failure to verify the sequential fallback. The

@@ -10,6 +10,34 @@ from xpcsjax.config import ConfigManager
 from xpcsjax.core.jax_backend import compute_g2_scaled
 from xpcsjax.optimization.nlsq.core import fit_nlsq_jax
 
+# Fixing a parameter here means collapsing its bounds to a zero-width box
+# (lower == upper), which every path except sequential.py keeps in the
+# optimizer vector rather than stripping (only strategies/sequential.py calls
+# ``strip_fixed_parameters``). trf therefore never moves that coordinate and
+# its Jacobian column is structurally zero, so nlsq's NumericalStabilityGuard
+# (nlsq/stability/guard.py) reports ``condition number: inf`` and applies its
+# diagonal regularization. That is the intended consequence of pinning a
+# parameter, not a defect -- the assertions below prove the pinned value
+# survives the solve. Scoped to this module ON PURPOSE: an ill-conditioned
+# Jacobian IS a real signal everywhere else in the suite (it is exactly the
+# degeneracy the anti-degeneracy layers exist to fight), so this must never be
+# promoted to the global ``filterwarnings`` list in pyproject.toml.
+#
+# The second filter covers the guard's SVD fallback on the >=1M stratified-LS
+# node: nlsq skips the condition-number SVD only when the Jacobian exceeds
+# ``max_jacobian_elements_for_svd`` (10M *elements*), but XLA's svdvals on a
+# tall-skinny J allocates an m x m workspace, so a J of ~1.2M rows x 7 cols
+# (8.4M elements -- under the skip threshold) asks for ~11.5 TB and raises
+# RESOURCE_EXHAUSTED. nlsq catches it and falls back to ``condition_number =
+# inf``, so the fit is unaffected, but the element-count heuristic is an
+# upstream bug (it bounds elements, not the SVD workspace).
+pytestmark = [
+    pytest.mark.filterwarnings("ignore:Ill-conditioned Jacobian:UserWarning"),
+    pytest.mark.filterwarnings(
+        "ignore:Could not compute SVD for condition number:UserWarning"
+    ),
+]
+
 TRUE_PHYSICAL_LAMINAR = {
     "D0": 8000.0,
     "alpha": -1.2,

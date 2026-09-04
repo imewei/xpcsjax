@@ -25,6 +25,21 @@ the rendered documentation.
   PySide6 6.11.2 (the recipe previously relaxed it to `>=6.4.0` because
   conda-forge topped out at 6.9.3).
 
+### Changed
+
+- **`make verify` now reports zero warnings** (was 10). Three upstream nlsq
+  warnings were filtered at the narrowest scope that is honest for each:
+  `RuntimeWarning: Optimization may be stagnant` is a global
+  `filterwarnings` entry, because
+  `ConvergenceMonitor.detect_stagnation` fires exactly when a trust-region
+  solve has converged (`relative_variance < threshold or grad_stagnation`) and
+  so is never actionable; the two `NumericalStabilityGuard` warnings
+  (`Ill-conditioned Jacobian`, `Could not compute SVD for condition number`)
+  are scoped to `tests/optimization/test_fixed_parameters_integration.py`
+  via `pytestmark`, since pinning a parameter collapses its bounds to zero
+  width and leaves a structurally-zero Jacobian column by design — an
+  ill-conditioned Jacobian remains a real signal everywhere else.
+
 ### Notes
 
 - `optimistix` now resolves into `uv.lock` transitively via nlsq, so the
