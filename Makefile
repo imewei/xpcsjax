@@ -228,8 +228,8 @@ endif
 	@echo "$(BOLD)Core Dependencies:$(RESET)"
 	@echo "  JAX:       $(shell $(PYTHON) -c 'import jax; print(jax.__version__)' 2>/dev/null || echo 'not installed')"
 	@echo "  NLSQ:      $(shell $(PYTHON) -c 'import nlsq; print(nlsq.__version__)' 2>/dev/null || echo 'not installed')"
-	@echo "  evosax:    $(shell $(PYTHON) -c 'import evosax; print(evosax.__version__)' 2>/dev/null || echo 'not installed')"
-	@echo "  jaxopt:    $(shell $(PYTHON) -c 'import jaxopt; print(jaxopt.__version__)' 2>/dev/null || echo 'not installed')"
+	@echo "  evosax:    $(shell $(PYTHON) -c 'import importlib.metadata as m; print(m.version("evosax"))' 2>/dev/null || echo 'not installed')"
+	@echo "  jaxopt:    $(shell $(PYTHON) -c 'import importlib.metadata as m; print(m.version("jaxopt"))' 2>/dev/null || echo 'not installed')"
 	@echo "  NumPy:     $(shell $(PYTHON) -c 'import numpy; print(numpy.__version__)' 2>/dev/null || echo 'not installed')"
 	@echo ""
 
@@ -685,5 +685,5 @@ verify-nlsq:
 	@echo "$(BOLD)$(BLUE)Verifying NLSQ integration...$(RESET)"
 	@$(RUN_CMD) $(PYTHON) -c "from xpcsjax.optimization import fit_nlsq; print('✓ fit_nlsq imported from xpcsjax.optimization')"
 	@$(RUN_CMD) $(PYTHON) -c "import nlsq; print(f'✓ NLSQ version: {nlsq.__version__}')" 2>/dev/null || echo "✗ NLSQ version check failed"
-	@$(RUN_CMD) $(PYTHON) -c "import evosax; print(f'✓ evosax version: {evosax.__version__}')" 2>/dev/null || echo "✗ evosax version check failed"
+	@$(RUN_CMD) $(PYTHON) -c "import evosax, importlib.metadata as m; print(f'✓ evosax version: {m.version(\"evosax\")}')" 2>/dev/null || echo "✗ evosax version check failed"
 	@echo "$(BOLD)$(GREEN)✓ NLSQ integration verified!$(RESET)"
