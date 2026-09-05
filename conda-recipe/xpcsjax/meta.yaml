@@ -6,9 +6,8 @@ package:
   version: {{ version }}
 
 source:
-  # 0.1.7 is not on PyPI yet (latest released is 0.1.6) -- build from the
-  # local repo checkout. Bump this to a pypi url + sha256 once 0.1.7 ships.
-  path: ../..
+  url: https://files.pythonhosted.org/packages/df/db/0197553a72e362ac513b9483202dd7a27f158b34043ada564377e43e5440/xpcsjax-{{ version }}.tar.gz
+  sha256: 519213df1c803a77929f56c23f72de109a1b7c66c1bb130186de9b4a4d41e590
 
 build:
   number: 0
