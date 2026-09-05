@@ -1,7 +1,7 @@
 NLSQ Integration
 ================
 
-xpcsjax depends on the upstream ``nlsq>=0.7.5`` package for its
+xpcsjax depends on the upstream ``nlsq>=0.7.6`` package for its
 trust-region solver core and JIT-cache infrastructure, and provides
 its own routing, anti-degeneracy, escape, multistart, stratification,
 and weighting layers on top. This page describes the ownership split,
@@ -17,7 +17,7 @@ The dependency pin lives in :file:`pyproject.toml`:
 
    dependencies = [
        ...
-       "nlsq>=0.7.5",     # JAX-native trf + CMA-ES + memory routing
+       "nlsq>=0.7.6",     # JAX-native trf + CMA-ES + memory routing
        "evosax>=0.2.0",    # CMA-ES JAX backend (BIPOP restart)
        ...
    ]
@@ -205,7 +205,7 @@ floor in :file:`pyproject.toml` safely.
 
       dependencies = [
           ...
-          "nlsq>=0.7.NN",   # bumped from 0.7.5
+          "nlsq>=0.7.NN",   # bumped from 0.7.6
           ...
       ]
 

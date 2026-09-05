@@ -47,7 +47,7 @@ logger = get_logger(__name__)
 # ``result.diagnostics.get("convergence_reason")`` against this set rather
 # than trusting ``success`` alone.
 #
-# Verified against the pinned ``nlsq>=0.7.5,<1.0`` backend (nlsq/global_
+# Verified against the pinned ``nlsq>=0.7.6,<1.0`` backend (nlsq/global_
 # optimization/cmaes_optimizer.py): ``CMAESOptimizer`` only ever assigns
 # ``"xtol"`` (step-size tolerance met — genuine convergence), ``"max_
 # generations"``, or ``"max_restarts"`` (both budget exhaustion, NOT

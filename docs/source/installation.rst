@@ -137,7 +137,7 @@ A correct install satisfies four checks:
 
       >>> import xpcsjax
       >>> xpcsjax.__version__
-      '0.1.6'
+      '0.1.7'
 
    The module exposes ``__all__`` but does not actually pull JAX in until
    you touch one of the lazy attributes — that's the public-API contract
@@ -153,7 +153,7 @@ A correct install satisfies four checks:
       import jax
       assert jax.config.read("jax_enable_x64") is True
 
-3. **NLSQ is wired.** The fit path depends on ``nlsq>=0.7.5``::
+3. **NLSQ is wired.** The fit path depends on ``nlsq>=0.7.6``::
 
       >>> from nlsq import CurveFit
       >>> CurveFit is not None
@@ -182,7 +182,7 @@ Troubleshooting
 ---------------
 
 * **``ImportError: nlsq``** — install the NLSQ wheel:
-  ``uv pip install 'nlsq>=0.7.5'``.
+  ``uv pip install 'nlsq>=0.7.6'``.
 
 * **``RuntimeError: WorkflowSelector``** — you are calling an NLSQ pre-0.6.0
   symbol; xpcsjax uses ``CurveFit`` directly. Upgrade NLSQ.

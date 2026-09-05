@@ -104,7 +104,7 @@ If you need to add or amend these flags, do it **inside `xpcsjax/__init__.py` on
 
 ### NLSQ engine: xpcsjax owns strategy, NLSQ owns the trust-region solve
 
-The split with the upstream NLSQ library (`nlsq>=0.7.5`) is:
+The split with the upstream NLSQ library (`nlsq>=0.7.6`) is:
 
 - **NLSQ owns:** `CurveFit` JIT cache, `curve_fit()`, the trust-region (Levenberg-Marquardt) solve. `WorkflowSelector` was removed in NLSQ v0.6.0 — do **not** call it.
 - **xpcsjax owns:** memory-aware strategy routing (`select_nlsq_strategy`), the 5-layer anti-degeneracy controller (`anti_degeneracy_controller.py`), CMA-ES escape (config-gated — homodyne additionally requires the parameter bounds' scale ratio to exceed a static threshold; heterodyne's flat `enable_cmaes` is flag-only — decided before the solve runs, never a runtime auto-trigger), LHS multistart, bounds + parameter transforms, angle-stratified chunking for large datasets, and shear-weighting.

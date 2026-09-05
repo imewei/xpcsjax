@@ -11,22 +11,23 @@ the rendered documentation.
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-09-04
+
 ### Changed
 
-- **NLSQ floor raised to `nlsq>=0.7.5`** (from `>=0.6.10`) across
+- **NLSQ floor raised to `nlsq>=0.7.6`** (from `>=0.6.10`) across
   `pyproject.toml`, `.pre-commit-config.yaml`, the runtime dependency check in
   `runtime/utils/system_validator.py`, the conda recipes under
   `conda-recipe/`, and the documentation that quotes the pin. `uv.lock`
   re-resolved. Follows the bump procedure in
   `docs/source/development/nlsq_integration.rst`.
-- **`conda-recipe/nlsq/meta.yaml` updated to nlsq 0.7.5**, adding the new
-  `optimistix >=0.1.0` core dependency (introduced upstream in 0.7.4) and
-  restoring the upstream `pyside6 >=6.10.0` floor now that conda-forge ships
-  PySide6 6.11.2 (the recipe previously relaxed it to `>=6.4.0` because
-  conda-forge topped out at 6.9.3).
-
-### Changed
-
+- **`conda-recipe/nlsq/meta.yaml` updated to nlsq 0.7.6.** The 0.7.5 step in
+  this line added the `optimistix >=0.1.0` core dependency (introduced
+  upstream in 0.7.4) and restored the upstream `pyside6 >=6.10.0` floor now
+  that conda-forge ships PySide6 6.11.2 (the recipe previously relaxed it to
+  `>=6.4.0` because conda-forge topped out at 6.9.3). 0.7.6 changes neither
+  the dependency set nor the `nlsq` / `nlsq-gui` entry points, so only the
+  version, source URL, and sha256 moved.
 - **`make verify` now reports zero warnings** (was 10). Three upstream nlsq
   warnings were filtered at the narrowest scope that is honest for each:
   `RuntimeWarning: Optimization may be stagnant` is a global
@@ -636,7 +637,8 @@ results, public API, and config formats are identical to 0.1.0.
 - GPU support. v0.1 sets `NLSQ_SKIP_GPU_CHECK=1` and runs CPU-only;
   GPU paths are planned for v0.2+.
 
-[Unreleased]: https://github.com/imewei/xpcsjax/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/imewei/xpcsjax/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/imewei/xpcsjax/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/imewei/xpcsjax/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/imewei/xpcsjax/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/imewei/xpcsjax/compare/v0.1.3...v0.1.4

@@ -1680,15 +1680,15 @@ wheels = [
 
 [[package]]
 name = "jupyter-builder"
-version = "1.2.2"
+version = "1.2.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jupyter-core" },
     { name = "traitlets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6d/e1/e4ef07e2be228271b59e011a746d97feef69577af1f465b1cff0f1d7c760/jupyter_builder-1.2.2.tar.gz", hash = "sha256:b6cea88f58e44b2c5eba96f28d2e0d16fd453d3ca6dc9c4492ff8a1f2e97f601", size = 981074, upload-time = "2026-08-07T06:47:18.742Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/75/3e/56f593e6a664cd14d441724654ce8243f3cac7d3e45867cf084749c8bc75/jupyter_builder-1.2.3.tar.gz", hash = "sha256:01aba6794eb9b19e0e29ae21137ca60ba4135c70347d4b9f664a586822b8c809", size = 1024218, upload-time = "2026-09-04T18:54:09.411Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c4/3b/920bc7f3c2ad25abc0071ae7ae55789f4b85ecf3e4467f0602a88dc668cb/jupyter_builder-1.2.2-py3-none-any.whl", hash = "sha256:6ebcd4c49daf5df6a18068a74a48010406700ed90a76c189fac43eaf85c60c63", size = 915266, upload-time = "2026-08-07T06:47:16.249Z" },
+    { url = "https://files.pythonhosted.org/packages/84/aa/be79e87c50698673f196d0633fc1664607da2289f9688d1de7a1c9db9e71/jupyter_builder-1.2.3-py3-none-any.whl", hash = "sha256:c5ea5a7190c2a7b082494abade98eece1b2b5bd5dbd7d610606cbcd10a1d08b3", size = 947541, upload-time = "2026-09-04T18:54:07.644Z" },
 ]
 
 [[package]]
@@ -2651,7 +2651,7 @@ wheels = [
 
 [[package]]
 name = "nlsq"
-version = "0.7.5"
+version = "0.7.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asv" },
@@ -2702,9 +2702,9 @@ dependencies = [
     { name = "wheel" },
     { name = "xxhash" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a4/1c/1fd0030faf6ff96d16bfcbea15cf8353d17cb7c9c24a6f98218f91913a87/nlsq-0.7.5.tar.gz", hash = "sha256:3dbcb5aee1b0269f64b124902d102b8473c2003692efa73db51670621f588bf3", size = 3280025, upload-time = "2026-09-04T06:22:55.491Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/62/4e/dce5cce84c9ffdbec7053e90e1dceaca0126f1d21ff771a87ae3908797e6/nlsq-0.7.6.tar.gz", hash = "sha256:2db180ae835bb2ed15bec0bd3057cf9c87ad0a82de9d8a5d72bc9578466abaa3", size = 3284020, upload-time = "2026-09-05T00:31:17.64Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e6/36/dc995b11769aef5e56c8797d82d8e29947661e7258b7560ee0bf9b43ca9c/nlsq-0.7.5-py3-none-any.whl", hash = "sha256:df00ba1d3ed384673fdd8cd4da71934e6fb37f7a4ec50acf18cde4fedc17554b", size = 656222, upload-time = "2026-09-04T06:22:53.394Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/0d/466adb4a0062ca1077da653e752e2900778b8298d36d4287ebebd8dc8af5/nlsq-0.7.6-py3-none-any.whl", hash = "sha256:f3ce757d1d9a9ed735e815d8ba9d1ba9e94d62b9f364618d483e208956842ffb", size = 657016, upload-time = "2026-09-05T00:31:16.121Z" },
 ]
 
 [[package]]
@@ -4812,7 +4812,7 @@ wheels = [
 
 [[package]]
 name = "xpcsjax"
-version = "0.1.6"
+version = "0.1.7"
 source = { editable = "." }
 dependencies = [
     { name = "colorcet" },
@@ -4920,7 +4920,7 @@ requires-dist = [
     { name = "mistune", marker = "extra == 'docs'", specifier = ">=3.3.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.19.1" },
     { name = "myst-parser", marker = "extra == 'docs'", specifier = ">=4.0" },
-    { name = "nlsq", specifier = ">=0.7.5" },
+    { name = "nlsq", specifier = ">=0.7.6" },
     { name = "numba", marker = "extra == 'dev'", specifier = ">=0.60" },
     { name = "numpy", specifier = ">=2.3" },
     { name = "packaging", specifier = ">=24.0" },

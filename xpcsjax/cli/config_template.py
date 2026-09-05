@@ -349,7 +349,7 @@ def interactive_builder(mode: str) -> dict[str, Any]:
 
     config: dict[str, Any] = {
         "metadata": {
-            "config_version": "0.1.6",
+            "config_version": "0.1.7",
             "description": f"xpcsjax {mode} — interactive build",
         },
         "analysis_mode": mode,

@@ -1,6 +1,6 @@
 [project]
 name = "xpcsjax"
-version = "0.1.6"
+version = "0.1.7"
 description = "Unified JAX-native XPCS NLSQ fitting (homodyne + heterodyne)"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -14,7 +14,7 @@ dependencies = [
     "jax>=0.8.2",
     "jaxlib>=0.8.2",
     "jaxopt>=0.8.3",            # L-BFGS warmup for HYBRID_STREAMING strategy
-    "nlsq>=0.7.5",               # JAX-native trf + CMA-ES + memory routing
+    "nlsq>=0.7.6",               # JAX-native trf + CMA-ES + memory routing
     "evosax>=0.2.0",            # CMA-ES JAX backend (BIPOP restart)
     # Data handling
     "h5py>=3.15",

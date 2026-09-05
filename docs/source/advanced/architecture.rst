@@ -126,7 +126,7 @@ The boundary between xpcsjax and the upstream NLSQ library is fixed:
    :header-rows: 1
    :widths: 50 50
 
-   * - Owned by ``nlsq>=0.7.5``
+   * - Owned by ``nlsq>=0.7.6``
      - Owned by xpcsjax
    * - ``CurveFit`` JIT cache
      - :func:`~xpcsjax.optimization.nlsq.select_nlsq_strategy`

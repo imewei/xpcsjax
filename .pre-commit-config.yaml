@@ -84,7 +84,7 @@ repos:
           - scipy>=1.17
           - jax>=0.8.2
           - jaxopt>=0.8.3
-          - nlsq>=0.7.5
+          - nlsq>=0.7.6
           - evosax>=0.2.0
           - matplotlib>=3.10
 
