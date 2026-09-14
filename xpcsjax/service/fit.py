@@ -205,4 +205,9 @@ def run_fit(
                 "expected OptimizationResult"
             )
 
+    # Mode-agnostic, scale-free goodness-of-fit (advisory; never raises).
+    from xpcsjax.service.fit_quality import attach_fit_quality
+
+    attach_fit_quality(result, data, config_manager)
+
     return result

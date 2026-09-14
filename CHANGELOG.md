@@ -11,6 +11,22 @@ the rendered documentation.
 
 ## [Unreleased]
 
+### Added
+
+- **Mode-agnostic fit-quality metric `nrmse`** (`xpcsjax/service/fit_quality.py`),
+  attached by `service.fit.run_fit` (CLI and GUI) under
+  `nlsq_diagnostics["fit_quality"]` and surfaced as top-level `nrmse` /
+  `sigma_source` in `nlsq_result.json`. `reduced_chi_squared` is not comparable
+  across modes (homodyne: `sum((r/sigma)^2)/dof` over the full matrix with a
+  constant `sigma = 0.01` placeholder when the data carry no uncertainties;
+  `two_component`: unweighted SSR over the off-diagonal/t>0 mask divided by a
+  far-lag noise-variance estimate). `nrmse = sqrt(SSR/n_valid) / std(c2_data)`
+  over the same `t>0`, off-diagonal mask for every mode, evaluated on the
+  fit-time model; the denominator is a data statistic, so a collapsing fitted
+  contrast cannot improve it. Advisory only — `quality_flag` still follows
+  `reduced_chi_squared`. `sigma_source` names what `reduced_chi_squared` was
+  normalized with (`data` / `default_constant_0.01` / `far_lag_estimate`).
+
 ### Fixed
 
 - **Heterodyne `two_component` ≥1 M stratified-LS path reported `uncertainty = 1.0`

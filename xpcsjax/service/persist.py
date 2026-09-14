@@ -162,6 +162,12 @@ def _extract_metadata(result: OptimizationResult) -> dict[str, Any]:
         "quality_flag": result.quality_flag,
         "sigma_is_default": bool(result.sigma_is_default),
     }
+    # Mode-agnostic NRMSE (service/fit_quality.py) surfaced at top level so
+    # readers need not dig into nlsq_diagnostics to compare fits across modes.
+    _fq = (result.nlsq_diagnostics or {}).get("fit_quality")
+    if isinstance(_fq, dict) and "nrmse" in _fq:
+        meta["nrmse"] = _json_safe(_fq["nrmse"])
+        meta["sigma_source"] = _fq.get("sigma_source")
     if result.recovery_actions:
         meta["recovery_actions"] = list(result.recovery_actions)
     if result.device_info:
