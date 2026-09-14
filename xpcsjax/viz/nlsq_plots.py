@@ -543,10 +543,10 @@ def _evaluate_c2_per_angle(
     HeterodynePhysicsAdapter
         Reads per-angle ``contrasts[i]`` / ``offsets[i]`` from the per-angle
         fit-time layout in ``result.parameters`` (via
-        ``_unpack_heterodyne_scaling``), evaluates ``model.compute_g1`` to get
-        the normalized g1² surface (range [0, 1]) for the matching angle, and
-        applies ``c2 = offset[i] + contrast[i] * g1_sq``. Resolves Spec
-        Amendment 3.
+        ``_unpack_heterodyne_scaling``) and evaluates the fit-time stateful
+        ``HeterodyneModel`` (built from ``config``, time axis synced to the
+        data length exactly as the fit does) via ``compute_correlation`` for
+        the matching angle. Resolves Spec Amendment 3.
     """
     if _is_homodyne_family(model):
         contrasts, offsets, physical_params, _ = _homodyne_scaling_arrays(model, result)
@@ -611,38 +611,39 @@ def _evaluate_c2_per_angle(
             model, result, n_phi_expected=n_phi_expected
         )
 
+        # Validate the config sections the fit-time model reads, raising the
+        # same clear ValueErrors as before (HeterodyneModel.from_config only
+        # WARNS and defaults on a missing wavevector_q / dt).
         ap = config.get("analyzer_parameters") or {}
-        q_raw = (ap.get("scattering") or {}).get("wavevector_q")
-        if q_raw is None:
+        if (ap.get("scattering") or {}).get("wavevector_q") is None:
             raise ValueError("Missing analyzer_parameters.scattering.wavevector_q")
-        q = float(q_raw)
-        L_raw = (ap.get("geometry") or {}).get("stator_rotor_gap")
-        if L_raw is None:
-            raise ValueError("Missing analyzer_parameters.geometry.stator_rotor_gap")
-        L = float(L_raw)
-        # Use explicit None-check so dt=0 is not treated as falsy.
-        dt_raw = ap.get("dt")
-        if dt_raw is None:
-            dt_raw = (ap.get("temporal") or {}).get("dt")
-        if dt_raw is None:
+        if ap.get("dt") is None and (ap.get("temporal") or {}).get("dt") is None:
             raise ValueError("Missing analyzer_parameters: 'dt' or 'temporal.dt' is required")
-        dt = float(dt_raw)
-        t1 = jnp.asarray(data["t1"], dtype=jnp.float64)
-        t2 = jnp.asarray(data["t2"], dtype=jnp.float64)
 
-        g1_sq = model.compute_g1(
-            jnp.asarray(physical_params, dtype=jnp.float64),
-            t1,
-            t2,
-            jnp.asarray([phi_deg], dtype=jnp.float64),
-            q,
-            L,
-            dt,
+        # Evaluate on the FIT-TIME model. The heterodyne fit runs the stateful
+        # HeterodyneModel (optimization/nlsq/__init__.py), whose time axis is
+        # ``arange(n) * dt + t_start`` with ``t_start = dt`` by default (first
+        # usable frame at 1*dt, see heterodyne_model_stateful.from_config),
+        # synced to the data length. Feeding the loader's ``t1`` (origin 0) to
+        # the adapter kernel instead shifted every plotted surface by one dt
+        # relative to what was fit -- negligible at 1000 frames, wrong on short
+        # grids. Building the same model the fit used removes the divergence.
+        from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
+
+        n_t = int(np.asarray(data["c2_exp"]).shape[1])
+        hm = HeterodyneModel.from_config(config)
+        hm.sync_time_axis(np.arange(n_t, dtype=np.float64))
+        full = hm.param_manager.expand_varying_to_full(
+            np.asarray(physical_params, dtype=np.float64)
         )
-        # compute_g1 returns shape (1, n_t1, n_t2) for length-1 phi; drop axis.
-        g1_sq_arr = np.asarray(g1_sq[0])
-        c2 = float(offsets[i]) + float(contrasts[i]) * g1_sq_arr
-        return c2
+        c2 = hm.compute_correlation(
+            phi_angle=float(phi_deg),
+            params=full,
+            contrast=float(contrasts[i]),
+            offset=float(offsets[i]),
+            angle_idx=i,
+        )
+        return np.asarray(c2, dtype=np.float64)
 
     raise TypeError(
         f"Unsupported model type: {type(model).__name__}. "

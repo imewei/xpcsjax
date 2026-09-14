@@ -14,13 +14,9 @@ parameters and the data only::
 
     nrmse = sqrt(SSR / n_valid) / std(c2_data over the same mask)
 
-* the fitted surface is evaluated on the FIT-TIME model: homodyne modes reuse
-  the plots' per-angle evaluator (``xpcsjax.viz.nlsq_plots._evaluate_c2_per_angle``,
-  same kernel and grid as the fit); ``two_component`` uses the stateful
-  ``HeterodyneModel`` the heterodyne fit ran (see the note in
-  :func:`compute_fit_quality` — the viz evaluator's time origin differs by one
-  ``dt`` there). No parameter layout is re-derived here (the viz unpackers are
-  reused);
+* the fitted surface comes from the plots' per-angle evaluator
+  (``xpcsjax.viz.nlsq_plots._evaluate_c2_per_angle``), which evaluates the
+  fit-time model for every mode, so no parameter layout is re-derived here;
 * the mask excludes the ``t=0`` row/column and the main diagonal (the
   zero-lag self-correlation spike) for every mode, i.e. the heterodyne
   ``(n_t - 1) * (n_t - 2)`` support;
@@ -55,13 +51,23 @@ def sigma_source(result: OptimizationResult, mode: str) -> str:
 
     * ``"far_lag_estimate"`` — ``two_component``: SSR / (var(c2 at lag >= n_t/2) * dof),
       falling back to plain MSE when that estimate is degenerate.
-    * ``"default_constant_0.01"`` — homodyne fit with no data ``sigma``
-      (``result.sigma_is_default``): chi2 is on an arbitrary absolute scale.
-    * ``"data"`` — homodyne fit weighted by the data's own ``sigma``.
+    * ``"data"`` — homodyne fit carrying the data's own (heteroscedastic) ``sigma``.
+    * ``"default_constant_0.01"`` — homodyne fit with no data ``sigma`` on the
+      angle-stratified path: ``StratifiedResidualFunctionJIT`` bakes the
+      ``_DEFAULT_SIGMA = 0.01`` placeholder into the residual, so chi2 is
+      ``SSR / 1e-4`` — an arbitrary absolute scale.
+    * ``"none_unweighted"`` — homodyne fit with no data ``sigma`` on the standard
+      (non-stratified) ``NLSQWrapper`` path: a uniform sigma is dropped before
+      the solver (``wrapper.py``, "Sigma weighting" block), so chi2 is the raw
+      SSR.
     """
     if mode == "two_component":
         return "far_lag_estimate"
-    return "default_constant_0.01" if bool(getattr(result, "sigma_is_default", False)) else "data"
+    if not bool(getattr(result, "sigma_is_default", False)):
+        return "data"
+    if getattr(result, "stratification_diagnostics", None) is not None:
+        return "default_constant_0.01"
+    return "none_unweighted"
 
 
 def _off_diagonal_mask(n_t: int) -> np.ndarray:
@@ -86,8 +92,10 @@ def compute_fit_quality(
     """
     # ponytail: the per-angle model evaluator + scaling-layout unpackers live in
     # viz (pulls in matplotlib). Moving them under optimization/ is the upgrade
-    # path if a matplotlib-free fit worker ever matters.
-    from xpcsjax.viz.nlsq_plots import _evaluate_c2_per_angle, _unpack_heterodyne_scaling
+    # path if a matplotlib-free fit worker ever matters. The evaluator is the
+    # fit-time model for every mode (heterodyne: the stateful HeterodyneModel
+    # the fit ran), so the metric and the plots see the same surface.
+    from xpcsjax.viz.nlsq_plots import _evaluate_c2_per_angle
 
     cfg = config_manager.get_config()
     mode = str(cfg.get("analysis_mode", ""))
@@ -97,42 +105,11 @@ def compute_fit_quality(
     phi_angles = np.asarray(data["phi_angles_list"], dtype=np.float64).ravel()
     n_phi = int(min(c2_exp.shape[0], phi_angles.size))
 
-    if mode == "two_component":
-        # Evaluate on the FIT-TIME model: the heterodyne fit runs the stateful
-        # HeterodyneModel whose time axis starts at t_start (= dt by default,
-        # see heterodyne_model_stateful.from_config), synced to the data length
-        # exactly as optimization/nlsq/__init__.py does. The viz evaluator
-        # instead feeds the loader's t1 (starting at 0) to the adapter kernel,
-        # a one-dt origin shift that is invisible on 1000-frame data but not on
-        # short synthetic grids — the metric must not inherit it.
-        from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
-
-        hm = HeterodyneModel.from_config(config_manager.config)
-        hm.sync_time_axis(np.arange(c2_exp.shape[1], dtype=np.float64))
-        contrasts, offsets, physical, _ = _unpack_heterodyne_scaling(
-            model, result, n_phi_expected=int(phi_angles.size)
+    def _c2_fit(i: int) -> np.ndarray:
+        return np.asarray(
+            _evaluate_c2_per_angle(model, result, data, cfg, float(phi_angles[i]), phi_index=i),
+            dtype=np.float64,
         )
-        full = hm.param_manager.expand_varying_to_full(np.asarray(physical, dtype=np.float64))
-
-        def _c2_fit(i: int) -> np.ndarray:
-            return np.asarray(
-                hm.compute_correlation(
-                    phi_angle=float(phi_angles[i]),
-                    params=full,
-                    contrast=float(contrasts[i]),
-                    offset=float(offsets[i]),
-                    angle_idx=i,
-                ),
-                dtype=np.float64,
-            )
-
-    else:
-
-        def _c2_fit(i: int) -> np.ndarray:
-            return np.asarray(
-                _evaluate_c2_per_angle(model, result, data, cfg, float(phi_angles[i]), phi_index=i),
-                dtype=np.float64,
-            )
 
     ssr = 0.0
     s1 = 0.0  # sum of data over mask

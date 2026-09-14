@@ -29,6 +29,13 @@ the rendered documentation.
 
 ### Fixed
 
+- **Heterodyne fitted/residual plots were evaluated one `dt` off the fit-time
+  grid.** `viz.nlsq_plots._evaluate_c2_per_angle` fed the loader's `t1` (origin
+  0) to the adapter kernel, while the heterodyne fit runs the stateful
+  `HeterodyneModel` at `t_start = dt`. Negligible at ~1000 frames, decisive on
+  short grids. The evaluator now builds the same model the fit ran; the NRMSE
+  metric reuses it for every mode. `HeterodyneModel.from_config` also tolerates
+  present-but-null YAML sections (`scattering: null`).
 - **Heterodyne `two_component` ≥1 M stratified-LS path reported `uncertainty = 1.0`
   for every parameter when the `execute_layers` L2 hierarchical candidate was
   accepted.** Two defects: the driver tagged the identity placeholder only under

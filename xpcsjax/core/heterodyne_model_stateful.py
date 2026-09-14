@@ -79,9 +79,11 @@ class HeterodyneModel:
         param_manager = ParameterManager.from_config(config)
 
         # Read from analyzer_parameters (canonical) with legacy fallback
-        ap = config.get("analyzer_parameters", {})
-        temporal = config.get("temporal", {})
-        scattering = config.get("scattering", {})
+        # ``or {}``: a present-but-null YAML section (``scattering: null``)
+        # arrives as None, not a missing key.
+        ap = config.get("analyzer_parameters") or {}
+        temporal = config.get("temporal") or {}
+        scattering = config.get("scattering") or {}
 
         if "dt" not in ap and "dt" not in temporal:
             logger.warning(
@@ -117,7 +119,7 @@ class HeterodyneModel:
             n_times = int(temporal.get("time_length", 1000))
             t_start = float(temporal.get("t_start", dt))
 
-        ap_scat = ap.get("scattering", {})
+        ap_scat = ap.get("scattering") or {}
         if "wavevector_q" not in ap_scat and "wavevector_q" not in scattering:
             logger.warning(
                 "HeterodyneModel.from_config: 'wavevector_q' missing from "
