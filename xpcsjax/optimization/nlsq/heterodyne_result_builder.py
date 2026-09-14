@@ -566,7 +566,10 @@ def build_hybrid_streaming_result(
     # parameter regardless of true physical scale. Honor the flag the same
     # way the nearby L4 post-solve-condition fallback already does (NaN, not
     # a fabricated number) instead of silently shipping it as real.
-    if info.get("covariance_is_placeholder", False):
+    # The stratified-LS driver (heterodyne_stratified_ls.py) threads the same
+    # flag under ``info["anti_degeneracy"]`` only, so read both locations.
+    _ad_flag = (info.get("anti_degeneracy") or {}).get("covariance_is_placeholder", False)
+    if info.get("covariance_is_placeholder", False) or _ad_flag:
         pcov = np.full_like(pcov, np.nan)
         uncertainties = np.full(n, np.nan)
     else:

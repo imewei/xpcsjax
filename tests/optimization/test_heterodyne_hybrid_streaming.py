@@ -2287,3 +2287,32 @@ def test_frozen_per_angle_scaling_invariant_to_input_phi_order():
     assert np.ptp(contrast_a) > 0, "test setup: per-angle contrasts not distinct"
     np.testing.assert_allclose(contrast_a, contrast_d, rtol=1e-12, atol=1e-12)
     np.testing.assert_allclose(offset_a, offset_d, rtol=1e-12, atol=1e-12)
+
+
+def test_build_hybrid_streaming_result_honours_nested_covariance_placeholder():
+    """The stratified-LS driver (``heterodyne_stratified_ls.py``) threads
+    ``covariance_is_placeholder`` under ``info["anti_degeneracy"]`` only, not at
+    the top level of ``info``. The builder must honour that nested flag too,
+    otherwise the identity placeholder ships as a fabricated ``uncertainty=1.0``
+    for every parameter (observed on a real C044 two_component ≥1 M run)."""
+    from xpcsjax.optimization.nlsq.heterodyne_result_builder import build_hybrid_streaming_result
+
+    model, _c2, phi = _make_synthetic_heterodyne()
+    n = model.param_manager.n_varying
+    res = build_hybrid_streaming_result(
+        model=model,
+        popt=np.zeros(n),
+        pcov=np.eye(n),
+        info={
+            "nit": 2,
+            "success": True,
+            "n_data_points": 1000,
+            "anti_degeneracy": {
+                "per_angle_mode": "constant",
+                "covariance_is_placeholder": True,
+            },
+        },
+        phi_angles=phi,
+    )
+    assert np.all(np.isnan(res.uncertainties)), "placeholder covariance must yield NaN, not 1.0"
+    assert res.nlsq_diagnostics["covariance_is_placeholder"] is True

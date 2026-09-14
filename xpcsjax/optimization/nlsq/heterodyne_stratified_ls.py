@@ -1423,6 +1423,9 @@ def fit_heterodyne_stratified_least_squares(
             _ad_block["execute_layers_converged"] = bool(_layer_outcome["success"])
     if _cov_placeholder:
         _ad_block["covariance_is_placeholder"] = True
+        # Also at info top level: the builder's uncertainty guard and the
+        # heterodyne_hybrid_streaming.py contract both read it from there.
+        info["covariance_is_placeholder"] = True
     # Best-effort: controller diagnostics only when the controller was built.
     if ad_controller is not None:
         _ad_block["controller_diagnostics"] = ad_controller.get_diagnostics()
