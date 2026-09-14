@@ -93,16 +93,22 @@ def _chunked_jacfwd_dense(
         # jvp(fn, primal, e_j)[1] == d fn / d x_j == column j of the Jacobian.
         return jax.jvp(fn, (x_jax,), (tangent,))[1]
 
-    blocks: list[np.ndarray] = []
+    jt: np.ndarray | None = None  # (n_in, n_out), filled block by block
     for c0 in range(0, n_in, max(1, col_block)):
         tangents = eye[c0 : c0 + max(1, col_block)]  # (b, n_in)
         # (b, n_out): row r is column (c0 + r) of J. Pull to host and let the
         # device buffer for this block free before the next block allocates.
         block_cols = np.asarray(jax.vmap(_jvp_col)(tangents), dtype=np.float64)
-        blocks.append(block_cols)
+        if jt is None:
+            # Preallocate once (no concatenate copy): at ≥1 M points × tens of
+            # params the dense J is several GB, so a second copy is the peak.
+            jt = np.empty((n_in, block_cols.shape[1]), dtype=np.float64)
+        jt[c0 : c0 + block_cols.shape[0]] = block_cols
 
-    # Stack column-blocks -> (n_in, n_out), transpose -> (n_out, n_in).
-    return np.concatenate(blocks, axis=0).T
+    if jt is None:  # n_in == 0
+        return np.empty((0, 0), dtype=np.float64)
+    # (n_in, n_out) -> (n_out, n_in) as a view.
+    return jt.T
 
 
 def reorder_for_stratification(
@@ -1007,8 +1013,12 @@ def fit_heterodyne_stratified_least_squares(
     # residual below, so the objective is never contaminated.
     hierarchical_active = False
     regularization_active = False
-    _cov_placeholder = False
     _invalidate_adapter_cov = False
+    # True when the reported covariance is NOT a real estimate (all-NaN); surfaced
+    # as ``covariance_is_placeholder`` so the result builder / users can tell
+    # "uncertainties unavailable" from a genuine estimate.
+    _cov_placeholder = False
+    _l2_accepted = False
     # Metadata for an accepted layer candidate so the reported convergence /
     # iterations / status reflect the LAYER that produced popt, not the stale
     # baseline adapter fit (Fix 3). None on the default / rejected / flag-off path.
@@ -1087,7 +1097,12 @@ def fit_heterodyne_stratified_least_squares(
                     popt = cand_popt
                     hierarchical_active = True
                     regularization_active = bool(l3_configured)
-                    _cov_placeholder = True
+                    # popt moved; the baseline adapter covariance is stale. Fall
+                    # through to the host-jacfwd Gauss-Newton covariance at the
+                    # L2 popt (same recompute the L3-only branch uses) instead of
+                    # an identity placeholder.
+                    _invalidate_adapter_cov = True
+                    _l2_accepted = True
                     _layer_outcome = {
                         "kind": "L2_hierarchical",
                         "n_outer": int(candidate["n_outer"]),
@@ -1224,27 +1239,39 @@ def fit_heterodyne_stratified_least_squares(
     final_residual = np.asarray(residual_fn(popt), dtype=np.float64)
     ssr = float(np.sum(final_residual**2))
 
-    # Covariance: use the adapter's covariance when available; otherwise compute
-    # a host-side Jacobian covariance mirroring laminar's stratified-LS path
+    # Covariance: use the adapter's covariance when available; otherwise (an
+    # accepted L2 / L3 candidate moved popt) compute a host-side Jacobian
+    # covariance mirroring laminar's stratified-LS path
     # (strategies/stratified_ls.py lines ~691-710).  At ≥1 M points jacfwd
     # materialises a large (N × n_params) Jacobian, so every known failure mode
     # is caught and falls back to all-NaN (best-effort: a covariance failure must
     # never break the fit).
-    if _cov_placeholder:
-        # Accepted L2 hierarchical branch: the alternating solve does not produce
-        # a Gauss-Newton covariance, so use an identity placeholder (mirrors
-        # strategies/heterodyne_hybrid_streaming.py's ``covariance_is_placeholder``).
-        pcov: np.ndarray = np.eye(int(popt.size), dtype=np.float64)
-    elif _pcov_from_adapter is not None:
-        pcov = _pcov_from_adapter
+    #
+    # Accepted-L2 popt is a BOUNDED alternating solve (clipped to lower/upper), so
+    # it need not be an interior stationary point and JᵀJ may be singular there.
+    # For that branch, mirror strategies/heterodyne_hybrid_streaming.py's L2 rule:
+    # no pseudo-inverse (pinv reports the unidentified null-space directions as
+    # EXACTLY 0.0 variance — infinite precision — the confidently-wrong "known"
+    # this guard exists to prevent) and no non-positive diagonal; either is a
+    # failure → all-NaN + ``covariance_is_placeholder``. The dense-J recompute is
+    # also skipped up-front when it would exceed the memory budget (the same
+    # ``select_nlsq_strategy`` threshold that gated the baseline solve).
+    if _pcov_from_adapter is not None:
+        pcov: np.ndarray = _pcov_from_adapter
     else:
         n_params = int(popt.size)
         n_data = int(meta["n_data_points"])
         s2 = ssr / max(n_data - n_params, 1)
+        _dense_j_gb = n_data * n_params * 8 / 1e9
         try:
             from xpcsjax.utils.logging import get_logger as _get_logger
 
             _cov_log = _get_logger(__name__)
+            if _dense_j_gb > float(_mem_decision.threshold_gb):
+                raise MemoryError(
+                    f"dense Jacobian {_dense_j_gb:.1f} GB exceeds the "
+                    f"{_mem_decision.threshold_gb:.1f} GB budget; skipping"
+                )
             _cov_log.info(
                 "Computing host Jacobian covariance (s²=%.6e, n_data=%d, n_params=%d).",
                 s2,
@@ -1257,14 +1284,21 @@ def fit_heterodyne_stratified_least_squares(
             # post-solve memory spike at >=1M points (see _chunked_jacfwd_dense).
             J = _chunked_jacfwd_dense(residual_fn, popt)
             JTJ = J.T @ J
+            del J
             try:
                 pcov = np.linalg.inv(JTJ) * s2
             except np.linalg.LinAlgError:
+                if _l2_accepted:
+                    raise
                 _cov_log.warning(
                     "Singular Jacobian in heterodyne stratified-LS covariance; "
                     "falling back to pseudo-inverse."
                 )
                 pcov = np.linalg.pinv(JTJ) * s2
+            if _l2_accepted and not (
+                np.all(np.isfinite(pcov)) and np.all(np.diag(pcov) > 0)
+            ):
+                raise ValueError("covariance non-finite or non-positive diagonal at L2 popt")
         except (MemoryError, np.linalg.LinAlgError, ValueError, RuntimeError) as _exc:
             from xpcsjax.utils.logging import get_logger as _get_logger
 
@@ -1275,6 +1309,7 @@ def fit_heterodyne_stratified_least_squares(
                 _exc,
             )
             pcov = np.full((n_params, n_params), np.nan)
+            _cov_placeholder = True
 
     phi_idx_flat = np.asarray(x_data[:, 0], dtype=np.int64)
     n_phi_meta = int(meta["n_phi"])
@@ -1396,9 +1431,11 @@ def fit_heterodyne_stratified_least_squares(
     # builder via ``ad_block.get(..., False)`` — they are HONEST per the executed
     # branch: ``False`` on the default (flag-off) single-solve path, and ``True``
     # only when the gated ``execute_layers`` L2/L3 candidate was accepted by the
-    # keep-better guard above. ``execute_layers_status`` /
-    # ``covariance_is_placeholder`` are surfaced only when the flag is on (so the
-    # flag-off result surface stays byte-identical). (shear_weighting is L5-gated
+    # keep-better guard above. ``execute_layers_status`` is surfaced only when
+    # the flag is on (so the flag-off result surface stays byte-identical);
+    # ``covariance_is_placeholder`` marks an all-NaN covariance (host-jacfwd
+    # recompute skipped or failed) so it is never mistaken for a real estimate.
+    # (shear_weighting is L5-gated
     # off for two_component and set to the heterodyne sentinel inside the builder.)
     _ad_block: dict[str, Any] = {
         "hierarchical_active": hierarchical_active,
@@ -1421,12 +1458,12 @@ def fit_heterodyne_stratified_least_squares(
             _ad_block["execute_layers_kind"] = _layer_outcome["kind"]
             _ad_block["execute_layers_n_outer"] = int(_layer_outcome["n_outer"])
             _ad_block["execute_layers_converged"] = bool(_layer_outcome["success"])
+    # Best-effort: controller diagnostics only when the controller was built.
     if _cov_placeholder:
         _ad_block["covariance_is_placeholder"] = True
         # Also at info top level: the builder's uncertainty guard and the
         # heterodyne_hybrid_streaming.py contract both read it from there.
         info["covariance_is_placeholder"] = True
-    # Best-effort: controller diagnostics only when the controller was built.
     if ad_controller is not None:
         _ad_block["controller_diagnostics"] = ad_controller.get_diagnostics()
     info["anti_degeneracy"] = _ad_block

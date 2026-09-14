@@ -11,6 +11,19 @@ the rendered documentation.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Heterodyne `two_component` ≥1 M stratified-LS path reported `uncertainty = 1.0`
+  for every parameter when the `execute_layers` L2 hierarchical candidate was
+  accepted.** Two defects: the driver tagged the identity placeholder only under
+  `nlsq_diagnostics` (nested), so the result builder's NaN guard never saw it;
+  and the branch used an identity placeholder at all. The builder now honours the
+  flag in both locations, and the accepted L2 branch computes the same
+  host-`jacfwd` Gauss-Newton covariance (`s² (JᵀJ)⁻¹` at the L2 `popt`,
+  data-only residual) the L3-only branch already used, so `result.uncertainties`
+  are real. `_chunked_jacfwd_dense` now fills a preallocated Jacobian instead of
+  concatenating column blocks, halving the host-memory peak of that recompute.
+
 ## [0.1.7] - 2026-09-04
 
 ### Changed

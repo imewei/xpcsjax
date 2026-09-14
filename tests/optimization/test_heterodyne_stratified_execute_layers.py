@@ -298,3 +298,76 @@ def test_execute_layers_exception_falls_back_to_baseline(monkeypatch):
     assert res.nlsq_diagnostics["hierarchical_active"] is False
     assert res.nlsq_diagnostics.get("execute_layers_status") == "attempted_but_rejected"
     np.testing.assert_allclose(res.parameters, baseline.parameters, rtol=1e-6, atol=1e-8)
+
+
+def test_execute_layers_l2_reports_real_covariance(monkeypatch):
+    """An accepted L2 candidate must route through the host-jacfwd Gauss-Newton
+    covariance at the L2 popt (``s² (JᵀJ)⁻¹``), not the identity placeholder
+    that used to ship every uncertainty as exactly 1.0.
+
+    The tiny synthetic fixture is degenerate at the L2 popt (``ref == sample``
+    zeroes the fraction columns; the bounded solve rests on bounds), so a real
+    ``J`` there is singular and correctly yields NaN — see the next test. Here
+    the Jacobian is stubbed with a well-conditioned one to pin the WIRING:
+    accepted L2 → recompute → finite, strictly positive uncertainties, no flag."""
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "individual",
+            "execute_layers": True,
+            "enable_hierarchical": True,
+            "hierarchical_max_outer_iterations": 2,
+        }
+    )
+    rng = np.random.default_rng(0)
+    seen: dict[str, np.ndarray] = {}
+
+    def _well_conditioned_jacobian(fn, x, *, col_block=4):
+        n_out = int(np.asarray(fn(x)).shape[0])
+        n_in = int(np.asarray(x).size)
+        seen["x"] = np.asarray(x, dtype=np.float64).copy()
+        return rng.normal(size=(n_out, n_in)) * (1.0 + np.arange(n_in))
+
+    monkeypatch.setattr(_hsl, "_chunked_jacfwd_dense", _well_conditioned_jacobian)
+    res = _fit(model, c2, phi, cfg)
+    diag = res.nlsq_diagnostics
+    assert diag["execute_layers_kind"] == "L2_hierarchical"
+    assert not diag.get("covariance_is_placeholder", False)
+    # Covariance evaluated at the L2 popt, not the baseline.
+    np.testing.assert_allclose(seen["x"], np.asarray(res.parameters), rtol=0, atol=0)
+    n = len(res.parameters)
+    assert res.covariance.shape == (n, n)
+    assert np.all(np.isfinite(res.covariance))
+    assert not np.array_equal(res.covariance, np.eye(n))
+    assert np.all(np.isfinite(res.uncertainties))
+    assert np.all(res.uncertainties > 0), "pinv null-space would report 0.0 = infinite precision"
+    assert not np.allclose(res.uncertainties, 1.0)
+
+
+def test_execute_layers_l2_singular_jacobian_reports_nan_not_pinv(monkeypatch):
+    """On the accepted-L2 branch a singular JᵀJ must NOT fall back to pinv (which
+    reports null-space variance as exactly 0.0); it must report all-NaN and set
+    ``covariance_is_placeholder`` so the builder emits NaN uncertainties."""
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "individual",
+            "execute_layers": True,
+            "enable_hierarchical": True,
+            "hierarchical_max_outer_iterations": 2,
+        }
+    )
+
+    def _zero_jacobian(fn, x, col_block=4):
+        n_out = int(np.asarray(fn(x)).shape[0])
+        return np.zeros((n_out, int(np.asarray(x).size)), dtype=np.float64)
+
+    monkeypatch.setattr(_hsl, "_chunked_jacfwd_dense", _zero_jacobian)
+    res = _fit(model, c2, phi, cfg)
+    diag = res.nlsq_diagnostics
+    assert diag["execute_layers_kind"] == "L2_hierarchical"
+    assert diag["covariance_is_placeholder"] is True
+    assert np.all(np.isnan(res.uncertainties))
+    assert np.all(np.isnan(res.covariance))

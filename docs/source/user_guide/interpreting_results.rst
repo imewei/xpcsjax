@@ -277,6 +277,14 @@ but its uncertainties as unavailable. When ``False`` or absent, the
 covariance is a real Gauss-Newton estimate (:math:`2\sigma^2 H^{-1}`, with a
 pseudo-inverse fallback on a singular Hessian).
 
+The same flag is emitted by the :math:`\geq 1\,\mathrm{M}`-point stratified-LS
+path when the ``execute_layers`` L2 hierarchical candidate was accepted: that
+branch recomputes a Gauss-Newton covariance (:math:`s^2 (J^\top J)^{-1}`) from
+the data-only Jacobian at the L2 solution, and reports NaN (never a
+pseudo-inverse, whose null-space variances read as exactly zero) when
+:math:`J^\top J` is singular, non-positive on the diagonal, or the dense
+Jacobian would exceed the memory budget.
+
 Serialisation
 -------------
 
