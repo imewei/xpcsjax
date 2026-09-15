@@ -153,7 +153,9 @@ def test_large_executor_optimize_result_without_pcov(monkeypatch: pytest.MonkeyP
     res = ex.LargeDatasetExecutor().execute(
         _resid, np.zeros(2), np.zeros(2), np.array([1.0, 2.0]), None, "soft_l1", 1.0, _logger()
     )
-    np.testing.assert_array_equal(res.pcov, np.eye(2))  # identity fallback
+    # Missing covariance -> unknown: NaN + flag, never an identity.
+    assert np.all(np.isnan(res.pcov)) and res.pcov.shape == (2, 2)
+    assert res.info["covariance_is_placeholder"] is True
 
 
 def test_large_executor_reraises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -237,7 +239,7 @@ def test_streaming_executor_calls_real_fit_api(monkeypatch: pytest.MonkeyPatch) 
     np.testing.assert_allclose(model(xdata, *p0), ydata - _resid(xdata, *p0))
 
 
-def test_streaming_executor_missing_pcov_uses_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_streaming_executor_missing_pcov_is_nan_placeholder(monkeypatch: pytest.MonkeyPatch) -> None:
     class _NoPcov:
         def __init__(self, config: Any) -> None:
             pass
@@ -249,7 +251,9 @@ def test_streaming_executor_missing_pcov_uses_identity(monkeypatch: pytest.Monke
     res = ex.StreamingExecutor().execute(
         _resid, np.zeros(2), np.zeros(2), np.array([1.0, 2.0]), None, "soft_l1", 1.0, _logger()
     )
-    np.testing.assert_array_equal(res.pcov, np.eye(2))  # identity fallback
+    # Missing covariance -> unknown: NaN + flag, never an identity.
+    assert np.all(np.isnan(res.pcov)) and res.pcov.shape == (2, 2)
+    assert res.info["covariance_is_placeholder"] is True
     assert res.convergence_status == "partial"  # success=False
 
 

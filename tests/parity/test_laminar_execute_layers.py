@@ -179,7 +179,7 @@ def test_flag_on_executes_l2_and_l3_keep_better():
     assert "execute_layers_converged" in ad_on
     # L3 rode inside the L2 scalar loss.
     assert "regularization" in ad_on
-    # Identity-placeholder covariance flagged on the accepted L2 branch.
+    # NaN-placeholder covariance flagged on the accepted L2 branch (no identity).
     assert ad_on.get("covariance_is_placeholder") is True
     # Keep-better: the executed data-only objective is never worse than baseline.
     assert info_on["final_cost"] <= info_off["final_cost"] * (1.0 + 1e-3)

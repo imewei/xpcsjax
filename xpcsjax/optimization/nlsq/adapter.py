@@ -76,13 +76,13 @@ from xpcsjax.optimization.nlsq.adapter_base import (
     PER_ANGLE_SCALING_REMOVED_MSG,
     NLSQAdapterBase,
 )
+from xpcsjax.optimization.nlsq.covariance import finalize_covariance
 from xpcsjax.optimization.nlsq.parameter_utils import (
     ResolvedPhysicalParameters,
     restore_by_mask_jax,
     restore_by_mask_numpy,
     strip_by_mask,
 )
-from xpcsjax.optimization.nlsq.result_builder import compute_uncertainties
 from xpcsjax.optimization.nlsq.results import OptimizationResult
 from xpcsjax.utils.logging import get_logger
 
@@ -1196,8 +1196,23 @@ class NLSQAdapter(NLSQAdapterBase):
         """
         n_params = len(popt)
 
-        # Compute uncertainties from covariance diagonal
-        uncertainties = compute_uncertainties(pcov) if pcov is not None else np.zeros(n_params)
+        # ONE covariance rule: the caller (fit) already finalized the REDUCED
+        # solver covariance and threaded the verdict in ``info``; here the pcov
+        # may carry structural zero rows (restored fixed slots), so use the
+        # per-entry rule: placeholder -> all-NaN, else sqrt(diag) with NaN for
+        # non-finite / negative variances and 0.0 for structural zeros.
+        _ph_flag = bool(info.get("covariance_is_placeholder", False)) or pcov is None
+        if _ph_flag or np.asarray(pcov).shape != (n_params, n_params):
+            pcov = np.full((n_params, n_params), np.nan)
+            uncertainties = np.full(n_params, np.nan)
+            _ph_flag = True
+        else:
+            pcov = np.asarray(pcov, dtype=np.float64)
+            _d = np.diag(pcov)
+            uncertainties = np.where(
+                np.isfinite(_d) & (_d >= 0.0), np.sqrt(np.clip(_d, 0.0, None)), np.nan
+            )
+        info = {**info, "covariance_is_placeholder": _ph_flag}
 
         # Compute chi-squared from info.
         # NLSQ/scipy cost = 0.5 * sum(rho(r²)), so chi² = 2 * cost for linear loss.
@@ -1264,7 +1279,7 @@ class NLSQAdapter(NLSQAdapterBase):
         return OptimizationResult(
             parameters=popt,
             uncertainties=uncertainties,
-            covariance=pcov if pcov is not None else np.eye(n_params),
+            covariance=pcov,
             chi_squared=chi_squared,
             reduced_chi_squared=reduced_chi_squared,
             convergence_status=convergence_status,
@@ -1529,6 +1544,23 @@ class NLSQAdapter(NLSQAdapterBase):
             else:
                 raise TypeError(f"Unexpected result type: {type(result)}")
 
+            # ONE covariance rule (covariance.finalize_covariance) on the
+            # REDUCED solver covariance, before the fixed-slot restore below
+            # injects its structural zero rows: real only when finite everywhere
+            # with a strictly positive diagonal, else all-NaN + flag.
+            _reduced_ph = bool((info or {}).get("covariance_is_placeholder", False))
+            if pcov is not None:
+                pcov, _, _fin_ph = finalize_covariance(
+                    np.asarray(pcov, dtype=np.float64), int(np.asarray(popt).size)
+                )
+                _reduced_ph = _reduced_ph or bool(_fin_ph)
+            else:
+                _reduced_ph = True
+            if isinstance(info, dict):
+                info["covariance_is_placeholder"] = _reduced_ph
+            else:
+                info = {"covariance_is_placeholder": _reduced_ph}
+
             # Restore fixed physical parameters into the full-length popt/pcov
             # before any downstream code (which expects the full-length
             # vector) runs. Operates on the local popt/pcov only -- `result`
@@ -1563,8 +1595,9 @@ class NLSQAdapter(NLSQAdapterBase):
             execution_time = time.time() - start_time
             return OptimizationResult(
                 parameters=initial_params,
-                uncertainties=np.zeros(n_params),
-                covariance=np.eye(n_params),
+                # No solve: unknown uncertainties, flagged (never zeros/identity).
+                uncertainties=np.full(n_params, np.nan),
+                covariance=np.full((n_params, n_params), np.nan),
                 chi_squared=float("inf"),
                 reduced_chi_squared=float("inf"),
                 convergence_status="failed",
@@ -1579,6 +1612,7 @@ class NLSQAdapter(NLSQAdapterBase):
                 },
                 recovery_actions=[],
                 quality_flag="poor",
+                nlsq_diagnostics={"covariance_is_placeholder": True},
             )
 
         execution_time = time.time() - start_time

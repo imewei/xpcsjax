@@ -22,8 +22,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from scipy.stats import qmc
 
+from xpcsjax.optimization.nlsq.covariance import finalize_covariance
 from xpcsjax.optimization.nlsq.progress import MultiStartProgressTracker
-from xpcsjax.optimization.nlsq.result_builder import compute_uncertainties
 from xpcsjax.utils.logging import get_logger
 
 # Timeout for individual worker results (seconds)
@@ -332,14 +332,16 @@ class MultiStartResult:
             "best_start_idx": best.start_idx,
         }
 
+        # ONE covariance rule (covariance.finalize_covariance): an absent or
+        # non-real best covariance is all-NaN + covariance_is_placeholder, never
+        # zeros / identity that read as measured values.
+        _ms_cov, _ms_unc, _ms_placeholder = finalize_covariance(best.covariance, n_params)
+        multistart_diagnostics["covariance_is_placeholder"] = bool(_ms_placeholder)
+
         return OptimizationResult(
             parameters=best.final_params,
-            uncertainties=(
-                compute_uncertainties(best.covariance)
-                if best.covariance is not None
-                else np.zeros(n_params)
-            ),
-            covariance=(best.covariance if best.covariance is not None else np.eye(n_params)),
+            uncertainties=_ms_unc,
+            covariance=_ms_cov,
             chi_squared=best.chi_squared,
             reduced_chi_squared=best.reduced_chi_squared,
             convergence_status=convergence_status,

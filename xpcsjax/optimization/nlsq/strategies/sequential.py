@@ -627,25 +627,32 @@ def optimize_single_angle(
                 residuals_final = residuals(result["x"])
                 n_residuals = len(residuals_final)
                 n_params = len(initial_params)
-                s2 = (residuals_final @ residuals_final) / max(n_residuals - n_params, 1)
+                s2 = float(residuals_final @ residuals_final) / max(n_residuals - n_params, 1)
+                JTJ = np.asarray(jac.T @ jac, dtype=np.float64)
                 try:
-                    cov = np.linalg.inv(jac.T @ jac) * s2
+                    cov = np.asarray(np.linalg.inv(JTJ)) * s2
                 except np.linalg.LinAlgError:
-                    try:
-                        cov = np.linalg.pinv(jac.T @ jac) * s2
-                        logger.warning("Singular J^T J - used pinv fallback for covariance")
-                    except np.linalg.LinAlgError:
-                        logger.warning(
-                            "J^T J singular under both inv and pinv - used identity "
-                            "fallback for covariance"
-                        )
-                        cov = np.eye(len(initial_params))
+                    # A per-angle covariance is an INPUT to the inverse-variance
+                    # combination, not a reported value, so a pseudo-inverse is
+                    # acceptable for the determined directions -- but a
+                    # parameter the residual does not depend on at this angle
+                    # (zero Jacobian column) must read as UNKNOWN (NaN), never
+                    # as pinv's exactly-0.0 variance, so the combination
+                    # excludes it instead of weighting it as infinitely precise.
+                    logger.warning(
+                        "Singular J^T J for angle %.2f deg - pseudo-inverse with "
+                        "NaN variance on zero-Jacobian directions",
+                        subset.phi_angle,
+                    )
+                    cov = np.asarray(np.linalg.pinv(JTJ)) * s2
+                    _dead_col = np.diag(JTJ) <= 0.0
+                    cov[_dead_col, :] = np.nan
+                    cov[:, _dead_col] = np.nan
             else:
                 raise ValueError("No Jacobian available")
         except (np.linalg.LinAlgError, ValueError):
-            # Fallback to identity if singular
             logger.warning(f"Could not compute covariance for angle {subset.phi_angle:.2f} deg")
-            cov = np.eye(len(initial_params))
+            cov = np.full((len(initial_params), len(initial_params)), np.nan)
 
         # NLSQ result has different key names
         success = result.get("success", False)
@@ -670,7 +677,7 @@ def optimize_single_angle(
         logger.error(f"Optimization failed for angle {subset.phi_angle:.2f} deg: {e}")
         return {
             "parameters": initial_params,
-            "covariance": np.eye(len(initial_params)),
+            "covariance": np.full((len(initial_params), len(initial_params)), np.nan),
             "cost": np.inf,
             "success": False,
             "n_iterations": 0,
@@ -739,7 +746,10 @@ def combine_angle_results(
         # from a failed solve) by giving those angles zero weight.
         min_var = 1e-10
         var_matrix = np.array([np.diag(cov) for cov in cov_list])
-        mean_vars = var_matrix.mean(axis=1)
+        # Angle-level scalar weight from the mean of that angle's KNOWN
+        # variances (a NaN entry is "unknown here", not "angle failed").
+        with np.errstate(invalid="ignore"):
+            mean_vars = np.nanmean(np.where(np.isfinite(var_matrix), var_matrix, np.nan), axis=1)
         finite = np.isfinite(mean_vars)
         weights = np.zeros_like(mean_vars)
         weights[finite] = 1.0 / np.maximum(mean_vars[finite], min_var)
@@ -751,7 +761,7 @@ def combine_angle_results(
         # flooring it to min_var would hand that entry a ~1e10 weight and let it
         # dictate the parameter on its own.
         param_weights = np.zeros_like(var_matrix)
-        usable = finite[:, np.newaxis] & (var_matrix > 0)
+        usable = np.isfinite(var_matrix) & (var_matrix > 0)
         param_weights[usable] = 1.0 / np.maximum(var_matrix[usable], min_var)
         # A parameter with no usable variance at any angle falls back to the
         # per-angle scalar weight rather than combining to a silent zero.
@@ -759,6 +769,11 @@ def combine_angle_results(
         param_weights[:, dead] = weights[:, np.newaxis]
         if not np.any(weights > 0):
             raise ValueError("All angle covariances are non-finite; cannot inverse-variance weight")
+        # A structural zero (fixed slot: exact-zero variance at EVERY angle) stays
+        # 0; a parameter with no usable variance at any angle for any other
+        # reason has an UNKNOWN combined variance -> NaN, not a fabricated one.
+        _all_zero = np.all(var_matrix == 0.0, axis=0)
+        _unknown = dead & ~_all_zero
     elif weighting == "n_points":
         # Weight by number of data points
         weights = np.array([r["n_points"] for r in successful], dtype=float)
@@ -791,6 +806,8 @@ def combine_angle_results(
         # blow up to ~1e10 weight here, making the reported uncertainty
         # inconsistent with (tighter than) the mean it's supposed to describe.
         combined_var = 1.0 / np.maximum(param_weights.sum(axis=0), 1e-300)
+        combined_var = np.where(_all_zero, 0.0, combined_var)
+        combined_var = np.where(_unknown, np.nan, combined_var)
         combined_cov = np.diag(combined_var)
     else:
         # Weighted average of covariances

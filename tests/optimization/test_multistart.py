@@ -123,8 +123,11 @@ def test_to_optimization_result_no_covariance_failed() -> None:
     )
     opt = msr.to_optimization_result()
     assert opt.convergence_status == "failed"
-    np.testing.assert_array_equal(opt.covariance, np.eye(2))  # fallback identity
-    np.testing.assert_array_equal(opt.uncertainties, np.zeros(2))  # fallback zeros
+    # No covariance -> UNKNOWN (NaN + placeholder flag), never an identity /
+    # zeros sentinel that reads as a measured value.
+    assert np.all(np.isnan(opt.covariance)) and opt.covariance.shape == (2, 2)
+    assert np.all(np.isnan(opt.uncertainties))
+    assert opt.nlsq_diagnostics["covariance_is_placeholder"] is True
 
 
 # ---------------------------------------------------------------------------

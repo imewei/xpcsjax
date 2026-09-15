@@ -17,6 +17,7 @@ from typing import Any
 
 import numpy as np
 
+from xpcsjax.optimization.nlsq.covariance import finalize_covariance
 from xpcsjax.optimization.nlsq.parameter_utils import ResolvedPhysicalParameters
 from xpcsjax.optimization.nlsq.strategies.chunking import (
     calculate_adaptive_chunk_size,
@@ -498,23 +499,36 @@ def fit_with_out_of_core_accumulation(
             return active_step
         return jnp.zeros(n_params).at[jnp.asarray(free_idx)].set(active_step)
 
-    def _pcov_from_active_jtj(active_JtJ: Any, chi2: float, count: int) -> np.ndarray:
+    def _pcov_from_active_jtj(
+        active_JtJ: Any, chi2: float, count: int
+    ) -> tuple[np.ndarray, bool]:
         """Invert the free-submatrix Hessian into a full-length covariance.
 
         Zeros on every fixed row/column -- exactly 0 uncertainty, matching
-        the plain NLSQ tail's contract.
+        the plain NLSQ tail's contract. ONE rule shared with every other path
+        (covariance.finalize_covariance): the free-block covariance is real
+        only when finite with a strictly positive diagonal; a singular JᵀJ is
+        NOT pseudo-inverted (that reports the unidentified null-space
+        directions as exactly 0.0 variance) but returned as all-NaN with
+        ``is_placeholder=True``.
         """
         s2 = float(chi2) / max(count - n_params_effective, 1)
         try:
             active_pcov = s2 * np.linalg.inv(np.array(active_JtJ))
         except np.linalg.LinAlgError:
-            log.warning("Singular J^T J in OOC - using pseudo-inverse for covariance")
-            active_pcov = s2 * np.linalg.pinv(np.array(active_JtJ))
+            active_pcov = None
+        n_active = int(np.asarray(active_JtJ).shape[0])
+        active_pcov, _, is_placeholder = finalize_covariance(active_pcov, n_active)
+        if is_placeholder:
+            log.warning(
+                "Singular or non-positive J^T J in OOC; reporting NaN uncertainties "
+                "(covariance_is_placeholder=True)."
+            )
         if free_idx is None:
-            return active_pcov
+            return active_pcov, is_placeholder
         full_pcov = np.zeros((n_params, n_params))
         full_pcov[np.ix_(free_idx, free_idx)] = active_pcov
-        return full_pcov
+        return full_pcov, is_placeholder
 
     # Optimization Loop
     log.info(f"Starting Out-of-Core Loop (Max iter: {max_iter})...")
@@ -650,11 +664,14 @@ def fit_with_out_of_core_accumulation(
                         # covariance for a point it wasn't computed at.
                         conv_JtJ, _conv_Jtr, conv_chi2, conv_count = _accumulate_at(params_curr)
                         conv_active_JtJ, _ = _active_jtj_jtr(conv_JtJ, _conv_Jtr)
-                        pcov = _pcov_from_active_jtj(conv_active_JtJ, conv_chi2, conv_count)
+                        pcov, _cov_ph = _pcov_from_active_jtj(
+                            conv_active_JtJ, conv_chi2, conv_count
+                        )
                         _early_result = (
                             np.array(params_curr),
                             pcov,
                             {
+                                "covariance_is_placeholder": bool(_cov_ph),
                                 "chi_squared": float(conv_chi2),
                                 "iterations": i + 1,
                                 "convergence_status": "converged",
@@ -725,5 +742,6 @@ def fit_with_out_of_core_accumulation(
     # pcov = s^2 * (J^T J)^{-1}  where s^2 = RSS / (n - p_effective)
     # Uses n_params_effective for correct DOF in averaged mode.
     final_active_JtJ, _ = _active_jtj_jtr(total_JtJ, _total_Jtr)
-    pcov = _pcov_from_active_jtj(final_active_JtJ, total_chi2, count)
+    pcov, _cov_ph = _pcov_from_active_jtj(final_active_JtJ, total_chi2, count)
+    info["covariance_is_placeholder"] = bool(_cov_ph)
     return np.array(params_curr), pcov, info

@@ -1,10 +1,10 @@
 """Regression: a singular Hessian in the laminar L2 hierarchical covariance
-path must fall back to the identity placeholder, NOT a pseudo-inverse.
+path must fall back to the NaN placeholder, NOT a pseudo-inverse.
 
 Mirrors tests/optimization/test_heterodyne_hybrid_streaming.py::
 test_streaming_l2_singular_hessian_falls_back_to_placeholder, but for the
 laminar/homodyne strategies/hybrid_streaming.py module, which received the
-matching fix (pinv -> identity placeholder + covariance_is_placeholder=True)
+matching fix (pinv -> NaN placeholder + covariance_is_placeholder=True)
 but had no test of its own for this exact code path.
 
 np.linalg.pinv's Moore-Penrose null-space treatment reports the unidentified
@@ -82,8 +82,10 @@ def test_streaming_l2_singular_hessian_falls_back_to_placeholder(monkeypatch, ca
 
     n = popt.shape[0]
     assert pcov.shape == (n, n)
-    assert np.array_equal(pcov, np.eye(n))
+    # NaN placeholder (never an identity whose sqrt(diag) reads as sigma=1.0).
+    assert np.all(np.isnan(pcov))
     assert info["hybrid_streaming_diagnostics"]["covariance_is_placeholder"] is True
+    assert info["covariance_is_placeholder"] is True
     assert any(
         "singular" in r.getMessage().lower() and r.levelname == "ERROR" for r in caplog.records
     ), "expected an ERROR log naming the singular-Hessian failure specifically"

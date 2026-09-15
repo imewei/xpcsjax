@@ -117,6 +117,7 @@ import logging
 from xpcsjax.utils.logging import get_logger
 
 from xpcsjax.config.parameter_registry import AnalysisMode
+from xpcsjax.optimization.nlsq.covariance import finalize_covariance
 from xpcsjax.optimization.nlsq.adapter_base import (
     PER_ANGLE_SCALING_REMOVED_MSG,
     NLSQAdapterBase,
@@ -152,7 +153,6 @@ from xpcsjax.optimization.nlsq.fallback_chain import (
 )
 from xpcsjax.optimization.nlsq.recovery import (
     execute_with_recovery,
-    safe_uncertainties_from_pcov,
 )
 from xpcsjax.optimization.nlsq.strategies.out_of_core import (
     fit_with_out_of_core_accumulation,
@@ -629,9 +629,38 @@ def create_multistart_warmup_func(
     return warmup_fit_func
 
 
-def _safe_uncertainties_from_pcov(pcov: np.ndarray, n_params: int) -> np.ndarray:
-    """Extract uncertainties with diagonal regularization for singular pcov."""
-    return safe_uncertainties_from_pcov(pcov, n_params)
+def _uncertainties_from_pcov(
+    pcov: np.ndarray | None, n_params: int, *, is_placeholder: bool = False
+) -> tuple[np.ndarray, np.ndarray]:
+    """``(covariance, uncertainties)`` under the ONE rule every path shares.
+
+    ``is_placeholder`` (the strategy's ``info["covariance_is_placeholder"]``,
+    set on the reduced solver covariance before any fixed-slot / scaling
+    expansion) or a shape mismatch -> all-NaN covariance and uncertainties.
+    Otherwise ``sqrt(diag)``: structural exact-zero rows (fixed physical
+    slots, frozen constant-mode scaling) read as 0.0, a non-finite or negative
+    variance reads as NaN. No floor — the old ``1e-5`` regularisation floor
+    (``recovery.safe_uncertainties_from_pcov``) fabricated a tiny "known"
+    uncertainty for singular / null-space directions.
+    """
+    nan_cov = np.full((n_params, n_params), np.nan, dtype=np.float64)
+    nan_unc = np.full(n_params, np.nan, dtype=np.float64)
+    if is_placeholder or pcov is None:
+        return nan_cov, nan_unc
+    pcov = np.asarray(pcov, dtype=np.float64)
+    if pcov.shape != (n_params, n_params):
+        return nan_cov, nan_unc
+    diag = np.diag(pcov)
+    unc = np.where(np.isfinite(diag) & (diag >= 0.0), np.sqrt(np.clip(diag, 0.0, None)), np.nan)
+    return pcov, np.asarray(unc, dtype=np.float64)
+
+
+def _info_cov_placeholder(info: dict | None) -> bool:
+    """Read ``covariance_is_placeholder`` from a strategy ``info`` (top level or nested)."""
+    if not info:
+        return False
+    nested = info.get("anti_degeneracy") or {}
+    return bool(info.get("covariance_is_placeholder", False) or nested.get("covariance_is_placeholder", False))
 
 
 def _routing_effective_n_params(
@@ -960,6 +989,38 @@ class NLSQWrapper(NLSQAdapterBase):
             validated_params = self._validate_initial_params(initial_params, bounds)
             nlsq_bounds = self._convert_bounds(bounds)
 
+            # The out-of-core kernel always fits the DENSE per-angle vector
+            # ``[contrast x n_phi | offset x n_phi | physics]`` (it slices
+            # ``curr_p[:n_phi]`` as contrast). The config x0 is the COMPACT
+            # ``[contrast, offset | physics]``; handing it over unexpanded made
+            # the kernel read physics slots as scaling (chi2 ~ 1e13, negative
+            # covariance diagonal). Expand exactly as the >=1 M recheck branch
+            # does before it reaches the same kernel.
+            if per_angle_scaling:
+                _ooc_n_physical = len(physical_param_names)
+                _ooc_n_angles = int(np.unique(np.asarray(data.phi)).size)
+                if len(validated_params) == _ooc_n_physical + 2:
+                    from xpcsjax.optimization.nlsq.data_prep import (
+                        expand_per_angle_parameters,
+                    )
+
+                    _ooc_expanded = expand_per_angle_parameters(
+                        validated_params,
+                        nlsq_bounds,
+                        _ooc_n_angles,
+                        _ooc_n_physical,
+                        logger=logger,
+                    )
+                    validated_params = _ooc_expanded.params
+                    nlsq_bounds = _ooc_expanded.bounds
+                elif len(validated_params) != _ooc_n_physical + 2 * _ooc_n_angles:
+                    raise ValueError(
+                        "Out-of-core parameter count mismatch: got "
+                        f"{len(validated_params)}, expected {_ooc_n_physical + 2} (compact) "
+                        f"or {_ooc_n_physical + 2 * _ooc_n_angles} (per-angle) for "
+                        f"{_ooc_n_angles} angles."
+                    )
+
             # Default to False (User requirement: Never subsample data)
             use_fast_mode = self.fast_mode or (config.config.get("optimization") or {}).get(
                 "fast_chi2_mode", False
@@ -986,14 +1047,14 @@ class NLSQWrapper(NLSQAdapterBase):
             )
 
             execution_time = time.time() - start_time
-            uncertainties = _safe_uncertainties_from_pcov(pcov, len(popt))
+            _ooc_init_ph = _info_cov_placeholder(info)
+            pcov, uncertainties = _uncertainties_from_pcov(
+                pcov, len(popt), is_placeholder=_ooc_init_ph
+            )
             # A fixed physical parameter's true covariance diagonal is exactly
             # 0 (out_of_core.py's masked pcov build never writes a nonzero
-            # value there), but `_safe_uncertainties_from_pcov` floors ANY
-            # near-zero diagonal entry as a generic numerical-safety net --
-            # force the reported uncertainty back to exactly 0.0 at every
-            # FIXED physical position (mirrors `_post_process_results`'s
-            # equivalent re-zero for the plain NLSQ tail).
+            # value there); keep the reported uncertainty exactly 0.0 there
+            # even on a placeholder (NaN) covariance.
             if resolved_physical is not None and not resolved_physical.free_mask.all():
                 _ooc_init_n_physical = len(resolved_physical.physical_names)
                 uncertainties = np.array(uncertainties, dtype=float)
@@ -1062,7 +1123,10 @@ class NLSQWrapper(NLSQAdapterBase):
                 quality_flag=_ooc_init_quality,
                 # Anti-degeneracy is unsupported on the out-of-core path; emit the
                 # symmetric inactive markers so this result mirrors the contract.
-                nlsq_diagnostics=_laminar_anti_degeneracy_block(None),
+                nlsq_diagnostics={
+                    **_laminar_anti_degeneracy_block(None),
+                    "covariance_is_placeholder": bool(_ooc_init_ph),
+                },
             )
 
         # STANDARD strategy falls through to existing optimization path
@@ -1360,15 +1424,14 @@ class NLSQWrapper(NLSQAdapterBase):
                 )
 
                 execution_time = time.time() - start_time
-                uncertainties = _safe_uncertainties_from_pcov(pcov, len(popt))
+                _ooc_recheck_ph = _info_cov_placeholder(info)
+                pcov, uncertainties = _uncertainties_from_pcov(
+                    pcov, len(popt), is_placeholder=_ooc_recheck_ph
+                )
                 # A fixed physical parameter's true covariance diagonal is
                 # exactly 0 (out_of_core.py's masked pcov build never writes a
-                # nonzero value there), but `_safe_uncertainties_from_pcov`
-                # floors ANY near-zero diagonal entry as a generic
-                # numerical-safety net -- force the reported uncertainty back
-                # to exactly 0.0 at every FIXED physical position (mirrors
-                # `_post_process_results`'s equivalent re-zero for the plain
-                # NLSQ tail).
+                # nonzero value there); keep it exactly 0.0 even on a
+                # placeholder (NaN) covariance.
                 if resolved_physical is not None and not resolved_physical.free_mask.all():
                     _ooc_recheck_n_physical = len(resolved_physical.physical_names)
                     uncertainties = np.array(uncertainties, dtype=float)
@@ -1434,6 +1497,10 @@ class NLSQWrapper(NLSQAdapterBase):
                     },
                     recovery_actions=["out_of_core_recheck_delegation"],
                     quality_flag=_ooc_recheck_quality,
+                    nlsq_diagnostics={
+                        **_laminar_anti_degeneracy_block(None),
+                        "covariance_is_placeholder": bool(_ooc_recheck_ph),
+                    },
                 )
 
             # Route to HYBRID_STREAMING if index array exceeds threshold (extreme scale)
@@ -1632,6 +1699,7 @@ class NLSQWrapper(NLSQAdapterBase):
                             diagnostics_payload=None,
                             n_params_effective=_hs_n_params_effective,
                             anti_degeneracy_info=info.get("anti_degeneracy"),
+                            covariance_is_placeholder=_info_cov_placeholder(info),
                         )
 
                         # A fixed physical parameter's true covariance diagonal is
@@ -1769,6 +1837,7 @@ class NLSQWrapper(NLSQAdapterBase):
                     diagnostics_payload=None,
                     n_params_effective=_sls_n_params_effective,
                     anti_degeneracy_info=info.get("anti_degeneracy"),
+                    covariance_is_placeholder=_info_cov_placeholder(info),
                 )
 
                 # A fixed physical parameter's true covariance diagonal is
@@ -2421,6 +2490,30 @@ class NLSQWrapper(NLSQAdapterBase):
             )
         )
 
+        # ONE covariance rule, shared with every other path
+        # (covariance.finalize_covariance), applied to the REDUCED solver
+        # covariance before the fixed-slot restore / scaling expansion below
+        # injects structural zero rows: real only when finite everywhere with a
+        # strictly positive diagonal. nlsq's all-``inf`` singular marker and its
+        # truncated-SVD null-space (exact-zero variance) both become all-NaN +
+        # ``covariance_is_placeholder`` instead of a floored 1e-5 sigma.
+        _std_cov_placeholder = _info_cov_placeholder(info)
+        if pcov is not None:
+            pcov, _, _std_ph = finalize_covariance(
+                np.asarray(pcov, dtype=np.float64), int(np.asarray(popt).size)
+            )
+            _std_cov_placeholder = _std_cov_placeholder or bool(_std_ph)
+        else:
+            _std_cov_placeholder = True
+        if _std_cov_placeholder:
+            logger.warning(
+                "Solver covariance is singular, non-positive or absent; reporting NaN "
+                "uncertainties (covariance_is_placeholder=True)."
+            )
+        # Thread to _post_process_results via ``info`` (already passed through).
+        info = dict(info or {})
+        info["covariance_is_placeholder"] = bool(_std_cov_placeholder)
+
         # Restore fixed physical parameters into the full-length popt/pcov
         # BEFORE any inverse-transform / residual code (which expects the
         # full-length vector) runs.
@@ -2854,6 +2947,7 @@ class NLSQWrapper(NLSQAdapterBase):
             stratification_diagnostics=stratification_diagnostics,
             diagnostics_payload=diagnostics_payload if diagnostics_enabled else None,
             n_params_effective=n_dof_effective,
+            covariance_is_placeholder=_info_cov_placeholder(info),
         )
 
         # A fixed physical parameter's true covariance diagonal is exactly 0 --
@@ -4088,16 +4182,21 @@ class NLSQWrapper(NLSQAdapterBase):
         # entries (possible from a near-singular Hessian or numerical noise):
         # an unguarded np.sqrt would silently emit NaN uncertainties indistinguishable
         # from a valid zero. Mirror the np.maximum(diag, 0) guard in recovery.py.
-        cov_diag = np.diag(combined_covariance)
-        n_negative = int(np.sum(cov_diag < 0.0))
-        if n_negative > 0:
+        # Per-entry rule (see _uncertainties_from_pcov): the sequential
+        # combination is diagonal-only, so an entry whose variance is unknown
+        # (NaN: singular at every angle) or negative reads as NaN, a structural
+        # zero (fixed slot) as 0.0. The whole-result placeholder flag is set
+        # when ANY free entry is unknown.
+        _, uncertainties = _uncertainties_from_pcov(combined_covariance, len(combined_physical))
+        _seq_cov_placeholder = bool(np.any(~np.isfinite(uncertainties)))
+        if _seq_cov_placeholder:
             logger.warning(
-                "%d negative covariance diagonal entr%s clipped to 0 before sqrt; "
-                "uncertainties for those parameters are unreliable (near-singular fit).",
-                n_negative,
-                "y" if n_negative == 1 else "ies",
+                "%d parameter(s) have no usable per-angle covariance; reporting NaN "
+                "uncertainty there (covariance_is_placeholder=True).",
+                int(np.sum(~np.isfinite(uncertainties))),
             )
-        uncertainties = np.sqrt(np.maximum(cov_diag, 0.0))
+        if isinstance(diagnostics_payload, dict):
+            diagnostics_payload["covariance_is_placeholder"] = _seq_cov_placeholder
 
         # Summary logging
         logger.info("=" * 80)
@@ -4683,6 +4782,7 @@ class NLSQWrapper(NLSQAdapterBase):
         diagnostics_payload: dict[str, Any] | None = None,
         n_params_effective: int | None = None,
         anti_degeneracy_info: dict[str, Any] | None = None,
+        covariance_is_placeholder: bool = False,
     ) -> OptimizationResult:
         """Convert NLSQ output to OptimizationResult.
 
@@ -4723,11 +4823,15 @@ class NLSQWrapper(NLSQAdapterBase):
         """
         # Convert to numpy arrays
         popt = np.asarray(popt)
-        pcov = np.asarray(pcov)
         residuals = np.asarray(residuals)
 
-        # Compute uncertainties from covariance diagonal
-        uncertainties = _safe_uncertainties_from_pcov(pcov, len(popt))
+        # Covariance / uncertainties under the shared rule (see
+        # _uncertainties_from_pcov): a strategy-flagged placeholder is all-NaN
+        # and is recorded in nlsq_diagnostics below; otherwise sqrt(diag)
+        # with NaN for non-finite / negative variances and no floor.
+        pcov, uncertainties = _uncertainties_from_pcov(
+            pcov, len(popt), is_placeholder=covariance_is_placeholder
+        )
 
         # Compute chi-squared
         chi_squared = float(np.sum(residuals**2))
@@ -4815,6 +4919,7 @@ class NLSQWrapper(NLSQAdapterBase):
         if not isinstance(existing, dict):
             existing = {}
         existing.update(ad_block)
+        existing["covariance_is_placeholder"] = bool(covariance_is_placeholder)
         result.nlsq_diagnostics = existing
 
         return result

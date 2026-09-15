@@ -29,6 +29,38 @@ the rendered documentation.
 
 ### Fixed
 
+- **Homodyne (`static_*` / `laminar_flow`) uncertainties follow the same
+  one-rule covariance contract as heterodyne; three Critical audit findings
+  closed.** (F1) The laminar wrapper never honoured `covariance_is_placeholder`:
+  the hybrid-streaming L2 and stratified-LS accepted-L2 branches returned an
+  identity covariance that was expanded and shipped as `sigma = 1.0` for every
+  parameter. (F2) `recovery.safe_uncertainties_from_pcov` floored every
+  singular / null-space / non-finite variance to `1e-5` on every wrapper path
+  (a fabricated "known" uncertainty on exactly the directions the solver could
+  not determine). (F3) The early `OUT_OF_CORE` branch (first strategy check)
+  handed the compact `[contrast, offset | physics]` x0 to the per-angle kernel,
+  which sliced physics slots as scaling (chi2 ~ 1e13, negative covariance
+  diagonal). Now: every homodyne strategy (`strategies/stratified_ls.py`,
+  `strategies/out_of_core.py`, `strategies/hybrid_streaming.py`, the wrapper's
+  standard path) applies `covariance.finalize_covariance` to the REDUCED solver
+  covariance before fixed-slot restore / scaling expansion and sets
+  `info["covariance_is_placeholder"]`; the wrapper honours it (all-NaN
+  uncertainties + `nlsq_diagnostics["covariance_is_placeholder"]` on every
+  `OptimizationResult`, including the out-of-core direct returns), and
+  otherwise reports `sqrt(diag)` with NaN for non-finite / negative variances
+  and exact `0.0` only for structural rows (fixed physical slots, frozen
+  constant-mode scaling) — no floor. The stratified-LS host recompute no longer
+  pseudo-inverts a singular JᵀJ; the streaming plain branch no longer
+  substitutes an identity for a missing / singular `pcov`; the failed-fit
+  sentinels (`core.py` adapter+wrapper failure, `_cmaes_failed_result`) and
+  `multistart.py`'s absent-best-covariance case return NaN + flag instead of
+  zeros + identity; the sequential per-angle path marks zero-Jacobian
+  directions NaN before the inverse-variance combination (excluded, not
+  weighted as infinitely precise) and reports NaN for a parameter unknown at
+  every angle. The early `OUT_OF_CORE` branch expands the compact x0 with the
+  same `expand_per_angle_parameters` the `>= 1 M` recheck branch uses.
+  `tests/parity/_golden/laminar_flow_end_to_end.npz` had only its `diag_keys`
+  field updated for the new diagnostics key (recorded numerics untouched).
 - **Heterodyne `two_component` uncertainties are now computed by one estimator and
   one failure rule on every path.** Three divergences found by the 2026-09-15
   covariance audit are closed via the new shared `optimization/nlsq/covariance.py`:

@@ -23,25 +23,27 @@ logger = get_logger(__name__)
 
 
 def safe_uncertainties_from_pcov(pcov: np.ndarray, n_params: int) -> np.ndarray:
-    """Extract uncertainties with diagonal regularization for singular pcov."""
-    if pcov.shape[0] != n_params:
-        return np.zeros(n_params)
-    diag = np.diag(pcov)
-    # `diag < 1e-15` is False for both NaN (any comparison) and +Inf, so a
-    # non-finite diagonal entry would skip regularization and flow straight
-    # through sqrt(maximum(diag, 0)) as NaN/Inf -- defeating the one thing
-    # this function exists to guard against. Treat non-finite as singular too.
-    needs_regularization = ~np.isfinite(diag) | (diag < 1e-15)
-    if np.any(needs_regularization):
+    """Uncertainties from a covariance diagonal, with NO fabricated floor.
+
+    Historically this floored every near-zero or non-finite variance to
+    ``1e-10`` (sigma ``1e-5``), which reported a tiny "known" uncertainty for
+    exactly the directions the solver could NOT determine (singular /
+    pseudo-inverse null space). The shared rule now is: a non-finite or
+    negative variance reads as ``NaN`` ("unknown"), an exact zero reads as
+    ``0.0`` (structural: fixed / frozen slot), and a shape mismatch is all-NaN.
+    Callers that need the whole-matrix placeholder verdict use
+    :func:`xpcsjax.optimization.nlsq.covariance.finalize_covariance`.
+    """
+    if pcov is None or np.asarray(pcov).shape != (n_params, n_params):
+        return np.full(n_params, np.nan)
+    diag = np.asarray(np.diag(pcov), dtype=np.float64)
+    ok = np.isfinite(diag) & (diag >= 0.0)
+    if not ok.all():
         logger.warning(
-            f"Singular covariance: {np.sum(needs_regularization)}/{n_params} "
-            "near-zero or non-finite entries. Applying regularization."
+            f"Covariance has {int((~ok).sum())}/{n_params} non-finite or negative "
+            "variances; reporting NaN uncertainty there."
         )
-        diag = np.diag(pcov + np.eye(n_params) * 1e-10)
-        # Regularization alone doesn't fix a NaN/Inf that came from off-diagonal
-        # contamination in pcov; floor anything still non-finite.
-        diag = np.where(np.isfinite(diag), diag, 1e-10)
-    return np.asarray(np.sqrt(np.maximum(diag, 0.0)))
+    return np.where(ok, np.sqrt(np.clip(diag, 0.0, None)), np.nan)
 
 
 def execute_with_recovery(

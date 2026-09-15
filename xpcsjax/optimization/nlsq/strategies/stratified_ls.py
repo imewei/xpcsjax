@@ -25,6 +25,7 @@ from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
     AntiDegeneracyController,
 )
+from xpcsjax.optimization.nlsq.covariance import finalize_covariance, gauss_newton_covariance
 from xpcsjax.optimization.nlsq.parameter_utils import (
     ResolvedPhysicalParameters,
     restore_by_mask_jax,
@@ -881,22 +882,33 @@ def fit_with_stratified_least_squares(
     # DOF denominator and underestimating reported uncertainties).
     n_data_real = residual_fn.n_real_points if hasattr(residual_fn, "n_real_points") else n_data
 
-    # Compute covariance matrix from Jacobian
+    # Compute covariance matrix from Jacobian.
+    #
+    # ONE rule, shared with every heterodyne path (covariance.py): a covariance
+    # is real only when finite everywhere with a strictly positive diagonal;
+    # anything else (accepted-L2 popt with no Gauss-Newton solve, singular
+    # JᵀJ — no pseudo-inverse: pinv reports the unidentified null-space
+    # directions as EXACTLY 0.0 variance — or a parameter-space mismatch) is
+    # all-NaN + ``info["covariance_is_placeholder"] = True``, which the wrapper
+    # honours as NaN uncertainties. The check runs on the REDUCED solver
+    # covariance, before the fixed-slot / scaling-mode expansion below injects
+    # its structural zero rows.
+    _cov_is_placeholder = False
     if _lam_cov_placeholder:
         # Accepted L2 hierarchical branch: the alternating solve produces no
         # Gauss-Newton covariance and the baseline ``result["pcov"]`` is stale
-        # (popt moved). Use an identity placeholder (mirrors the heterodyne path /
-        # hybrid-streaming ``covariance_is_placeholder``); it is expanded by the
-        # mode-specific block below exactly like a real reduced-layout covariance.
-        pcov = np.eye(len(popt))
-        log.info("Using identity placeholder covariance (execute_layers L2 branch)")
+        # (popt moved).
+        pcov = np.full((len(popt), len(popt)), np.nan)
+        _cov_is_placeholder = True
+        log.warning(
+            "No covariance on the accepted execute_layers L2 branch; reporting "
+            "NaN uncertainties (covariance_is_placeholder=True)."
+        )
     elif "pcov" in result and result["pcov"] is not None:
-        pcov = np.asarray(result["pcov"])
+        pcov, _, _cov_is_placeholder = finalize_covariance(np.asarray(result["pcov"]), len(popt))
         log.info("Using covariance matrix from NLSQ result")
     else:
         log.info("Computing covariance matrix from Jacobian...")
-
-        s2 = final_cost / max(n_data_real - n_params_effective, 1)
 
         # Jacobian space consistency check
         if hasattr(residual_fn, "n_params") and residual_fn.n_params != len(popt):
@@ -904,22 +916,34 @@ def fit_with_stratified_least_squares(
                 f"Parameter space mismatch: residual_fn expects {residual_fn.n_params} "
                 f"params but popt has {len(popt)}. Skipping Jacobian-based covariance."
             )
-            pcov = np.eye(len(popt)) * s2
+            pcov = np.full((len(popt), len(popt)), np.nan)
+            _cov_is_placeholder = True
         else:
-            jac_fn = jax.jacfwd(_solver_residual_fn)
-            J = jac_fn(popt)
-            J = np.asarray(J)
-
+            J = np.asarray(jax.jacfwd(_solver_residual_fn)(popt))
             try:
-                JTJ = J.T @ J
-                pcov = np.linalg.inv(JTJ) * s2
-            except np.linalg.LinAlgError:
-                log.warning("Singular Jacobian, using pseudo-inverse for covariance")
-                pcov = np.linalg.pinv(JTJ) * s2
+                # Plain SSR / linear loss: this solver runs the unweighted
+                # least-squares objective (no robust loss is passed), so the
+                # matching estimator is ``SSR/(n_real - p_eff) · (JᵀJ)⁻¹``.
+                pcov = gauss_newton_covariance(
+                    np.asarray(final_residuals),
+                    J,
+                    n_valid=int(n_data_real),
+                    n_params=int(n_params_effective),
+                    loss="linear",
+                )
+            except (np.linalg.LinAlgError, ValueError) as _exc:
+                log.warning(
+                    "Gauss-Newton covariance unavailable (%s); reporting NaN "
+                    "uncertainties (covariance_is_placeholder=True).",
+                    _exc,
+                )
+                pcov = np.full((len(popt), len(popt)), np.nan)
+                _cov_is_placeholder = True
+            del J
 
         log.info(
-            f"Covariance scaling: s^2={s2:.6e} (n_data={n_data_real}, "
-            f"n_params_effective={n_params_effective})"
+            f"Covariance scaling: s^2={final_cost / max(n_data_real - n_params_effective, 1):.6e} "
+            f"(n_data={n_data_real}, n_params_effective={n_params_effective})"
         )
 
     # Restore fixed physical parameters into the full-length popt/pcov BEFORE
@@ -1089,7 +1113,7 @@ def fit_with_stratified_least_squares(
                 anti_degeneracy_info["execute_layers_converged"] = bool(
                     _lam_layer_outcome["success"]
                 )
-            if _lam_cov_placeholder:
+            if _cov_is_placeholder:
                 anti_degeneracy_info["covariance_is_placeholder"] = True
             if _lam_hier_active and ad_controller.hierarchical is not None:
                 anti_degeneracy_info["hierarchical"] = ad_controller.hierarchical.get_diagnostics()
@@ -1098,6 +1122,7 @@ def fit_with_stratified_least_squares(
 
     # Prepare info dict
     info = {
+        "covariance_is_placeholder": bool(_cov_is_placeholder),
         "success": success,
         "message": message,
         "convergence_reason": message,

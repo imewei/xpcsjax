@@ -23,6 +23,7 @@ from xpcsjax.optimization.nlsq.adaptive_regularization import (
     AdaptiveRegularizer,
 )
 from xpcsjax.optimization.nlsq.config import HybridRecoveryConfig
+from xpcsjax.optimization.nlsq.covariance import finalize_covariance
 from xpcsjax.optimization.nlsq.gradient_monitor import (
     GradientCollapseMonitor,
     GradientMonitorConfig,
@@ -43,7 +44,6 @@ from xpcsjax.optimization.nlsq.parameter_utils import (
 from xpcsjax.optimization.nlsq.parameter_utils import (
     compute_quantile_per_angle_scaling as _compute_quantile_per_angle_scaling,
 )
-from xpcsjax.optimization.nlsq.recovery import safe_uncertainties_from_pcov
 from xpcsjax.optimization.nlsq.shear_weighting import (
     ShearSensitivityWeighting,
     ShearWeightingConfig,
@@ -317,8 +317,10 @@ def fit_with_hybrid_streaming_optimizer(
 
         # Extract results
         popt = np.asarray(result["x"])
-        pcov = np.asarray(result.get("pcov", np.eye(len(popt))))
-        perr = np.asarray(result.get("perr", safe_uncertainties_from_pcov(pcov, len(popt))))
+        _raw = result.get("pcov")
+        pcov, perr, _ph = finalize_covariance(
+            None if _raw is None else np.asarray(_raw, dtype=np.float64), len(popt)
+        )
 
         # Build info dict with phase diagnostics
         info = {
@@ -326,6 +328,7 @@ def fit_with_hybrid_streaming_optimizer(
             "message": result.get("message", "Hybrid optimization completed"),
             "hybrid_streaming_diagnostics": result.get("streaming_diagnostics", {}),
             "perr": perr,
+            "covariance_is_placeholder": bool(_ph),
             "sigma_sq": result.get("streaming_diagnostics", {})
             .get("gauss_newton_diagnostics", {})
             .get("final_cost"),
@@ -1860,17 +1863,16 @@ def fit_with_stratified_hybrid_streaming(
                     "Singular Hessian in hierarchical path; covariance is an "
                     "identity placeholder — reported uncertainties are NOT meaningful."
                 )
-                pcov_hier = np.eye(n_hier_params)
+                pcov_hier = np.full((n_hier_params, n_hier_params), np.nan)
                 covariance_is_placeholder = True
         else:
-            # H-5: an identity covariance is fabricated, not measured. Reported
-            # uncertainties (±1.0 for every parameter) are meaningless; flag it
-            # explicitly so downstream consumers do not treat them as real.
+            # H-5: an identity covariance is fabricated, not measured. Report
+            # all-NaN and flag it so downstream never treats it as real.
             logger.error(
-                "Hessian computation failed in hierarchical path; covariance is an "
-                "identity placeholder — reported uncertainties are NOT meaningful."
+                "Hessian computation failed in hierarchical path; covariance is a "
+                "NaN placeholder — reported uncertainties are NOT available."
             )
-            pcov_hier = np.eye(n_hier_params)
+            pcov_hier = np.full((n_hier_params, n_hier_params), np.nan)
             covariance_is_placeholder = True
 
         # Convert HierarchicalResult to standard format
@@ -1941,6 +1943,29 @@ def fit_with_stratified_hybrid_streaming(
 
     # Extract results
     popt = np.asarray(result["x"])
+
+    # ONE rule, shared with every other path (covariance.finalize_covariance),
+    # applied to the REDUCED solver covariance before any fixed-slot / scaling
+    # expansion injects structural zero rows: real only when finite everywhere
+    # with a strictly positive diagonal. The streaming phase-3 pcov is a
+    # ``pinv(JᵀJ)`` — a rank-deficient JᵀJ reports its null-space directions
+    # as EXACTLY 0.0 variance — and a missing pcov used to become an identity;
+    # both are all-NaN + ``covariance_is_placeholder`` now.
+    _hs_raw_pcov = result.get("pcov")
+    _hs_pcov, _, _hs_cov_placeholder = finalize_covariance(
+        None if _hs_raw_pcov is None else np.asarray(_hs_raw_pcov, dtype=np.float64),
+        int(popt.size),
+    )
+    result["pcov"] = _hs_pcov
+    covariance_is_placeholder_final = bool(
+        result.get("covariance_is_placeholder", False) or _hs_cov_placeholder
+    )
+    if _hs_cov_placeholder and not result.get("covariance_is_placeholder", False):
+        logger.warning(
+            "Hybrid-streaming covariance is %s; reporting NaN uncertainties "
+            "(covariance_is_placeholder=True).",
+            "absent" if _hs_raw_pcov is None else "singular or non-positive",
+        )
 
     # Restore fixed physical parameters into the full-length popt/pcov BEFORE
     # any of the downstream inverse-transformation blocks (which assume
@@ -2197,11 +2222,13 @@ def fit_with_stratified_hybrid_streaming(
     if pcov is None:
         pcov = result.get("pcov", None)
     if pcov is None or pcov.shape[0] != len(popt):
-        logger.debug(
+        logger.warning(
             f"Covariance size mismatch or unavailable: expected ({len(popt)}, {len(popt)}), "
-            f"got {pcov.shape if pcov is not None else None}. Using identity fallback."
+            f"got {pcov.shape if pcov is not None else None}. Reporting NaN uncertainties "
+            "(covariance_is_placeholder=True)."
         )
-        pcov = np.eye(len(popt))
+        pcov = np.full((len(popt), len(popt)), np.nan)
+        covariance_is_placeholder_final = True
 
     # Enforce bounds on final parameters
     if bounds is not None:
@@ -2212,7 +2239,7 @@ def fit_with_stratified_hybrid_streaming(
     # This indicates the optimizer could not move these parameters away from bounds
     bound_stuck_warning = None
     if bounds is not None and is_laminar_flow:
-        perr = safe_uncertainties_from_pcov(pcov, len(popt))
+        perr = np.sqrt(np.clip(np.nan_to_num(np.diag(pcov), nan=0.0), 0.0, None))
         param_statuses = _classify_parameter_status(popt, lower_bounds, upper_bounds, atol=1e-6)
 
         # Map indices to physical parameter names for laminar_flow mode
@@ -2291,6 +2318,7 @@ def fit_with_stratified_hybrid_streaming(
         "total_time": total_time,
         "method": "adaptive_hybrid_streaming",
         "hybrid_streaming_diagnostics": diagnostics,
+        "covariance_is_placeholder": covariance_is_placeholder_final,
     }
 
     # Add anti-degeneracy defense diagnostics

@@ -280,15 +280,15 @@ class LargeDatasetExecutor(OptimizationExecutor):
             else:
                 # OptimizeResult object
                 popt = result.x
-                if not hasattr(result, "pcov"):
-                    # Identity matrix is a safer fallback than zeros: downstream
-                    # code that inverts pcov or extracts uncertainties via sqrt(diag)
-                    # will produce zeros (no information) rather than NaN/Inf.
+                _no_pcov = not hasattr(result, "pcov")
+                if _no_pcov:
+                    # Missing covariance is UNKNOWN: all-NaN + placeholder flag,
+                    # never an identity whose sqrt(diag) reads as sigma = 1.0.
                     _module_logger.warning(
-                        "OptimizeResult has no pcov attribute - using identity matrix "
-                        "as covariance placeholder. Uncertainties will be unreliable."
+                        "OptimizeResult has no pcov attribute; covariance unknown "
+                        "(NaN, covariance_is_placeholder=True)."
                     )
-                    pcov = np.eye(len(popt))
+                    pcov = np.full((len(popt), len(popt)), np.nan)
                 else:
                     pcov = result.pcov
                 # Capture the solver's own verdict instead of discarding it: an
@@ -298,6 +298,7 @@ class LargeDatasetExecutor(OptimizationExecutor):
                     "nfev": getattr(result, "nfev", 0),
                     "success": bool(getattr(result, "success", False)),
                     "status": getattr(result, "status", 0),
+                    "covariance_is_placeholder": _no_pcov,
                 }
 
             # Tuple-return path (curve_fit_large): a normal return without an
@@ -419,13 +420,13 @@ class StreamingExecutor(OptimizationExecutor):
 
             popt = np.asarray(result["x"])
             if "pcov" not in result:
-                # Identity matrix is safer than zeros: sqrt(diag) yields ones
-                # (max uncertainty) rather than zeros (falsely indicating certainty).
+                # Missing covariance is UNKNOWN: all-NaN + placeholder flag.
                 _module_logger.warning(
-                    "Streaming optimizer result has no 'pcov' key - using identity "
-                    "matrix as covariance placeholder. Uncertainties will be unreliable."
+                    "Streaming optimizer result has no 'pcov' key; covariance unknown "
+                    "(NaN, covariance_is_placeholder=True)."
                 )
-                pcov = np.eye(len(popt))
+                pcov = np.full((len(popt), len(popt)), np.nan)
+                info["covariance_is_placeholder"] = True
             else:
                 pcov = np.asarray(result["pcov"])
 

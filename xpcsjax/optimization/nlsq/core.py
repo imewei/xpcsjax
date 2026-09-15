@@ -47,6 +47,8 @@ from typing import Any, TypeVar
 
 import numpy as np
 
+from xpcsjax.optimization.nlsq.covariance import finalize_covariance
+
 # JAX imports with fallback
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -634,10 +636,12 @@ def fit_nlsq_jax(
                 wrapper_error,
             )
             n_params = len(x0)
+            # No solve happened: uncertainties are UNKNOWN (NaN + placeholder
+            # flag), never a zeros/identity sentinel that reads as a real value.
             result = OptimizationResult(
                 parameters=np.asarray(x0),
-                uncertainties=np.zeros(n_params),
-                covariance=np.eye(n_params),
+                uncertainties=np.full(n_params, np.nan),
+                covariance=np.full((n_params, n_params), np.nan),
                 chi_squared=float("inf"),
                 reduced_chi_squared=float("inf"),
                 convergence_status="failed",
@@ -652,6 +656,7 @@ def fit_nlsq_jax(
                 },
                 recovery_actions=[],
                 quality_flag="poor",
+                nlsq_diagnostics={"covariance_is_placeholder": True},
             )
 
     result.sigma_is_default = _sigma_is_default
@@ -1750,8 +1755,9 @@ def _cmaes_failed_result(x0: np.ndarray, execution_time: float, e: Exception) ->
     n_params = len(x0)
     return OptimizationResult(
         parameters=np.asarray(x0),
-        uncertainties=np.zeros(n_params),
-        covariance=np.eye(n_params),
+        # No solve happened: unknown uncertainties, flagged — not zeros/identity.
+        uncertainties=np.full(n_params, np.nan),
+        covariance=np.full((n_params, n_params), np.nan),
         chi_squared=float("inf"),
         reduced_chi_squared=float("inf"),
         convergence_status="failed",
@@ -1765,6 +1771,7 @@ def _cmaes_failed_result(x0: np.ndarray, execution_time: float, e: Exception) ->
         },
         recovery_actions=[],
         quality_flag="poor",
+        nlsq_diagnostics={"covariance_is_placeholder": True},
     )
 
 
@@ -2968,7 +2975,6 @@ def fit_nlsq_cmaes(
         # rejecting a shape/invariant mismatch) is a real bug in this function,
         # not a solver failure, and must propagate rather than being silently
         # downgraded into a generic "CMA-ES optimization failed" result.
-        from xpcsjax.optimization.nlsq.result_builder import compute_uncertainties
 
         # `n_params` above is the EFFECTIVE constrained DOF (used only for
         # reduced-chi2 and the diagnostics banner). The result's
@@ -2980,16 +2986,26 @@ def fit_nlsq_cmaes(
         # otherwise OptimizationResult.__post_init__ raises a shape ValueError
         # that the surrounding `except` silently downgrades into a failed result.
         result_param_count = len(final_params)
+        # ONE covariance rule (covariance.finalize_covariance): a CMA-ES result
+        # without an L-M refinement (or with a singular one) has no measured
+        # covariance -> all-NaN + covariance_is_placeholder, never zeros/identity.
+        # (A refined, fixed-parameter covariance carries structural zero rows;
+        # those reach here only after the block fill above, so judge the free
+        # block: any NaN/inf, or a negative variance, is a placeholder.)
+        if final_covariance is None:
+            _cm_cov, _cm_unc, _cm_ph = finalize_covariance(None, result_param_count)
+        else:
+            _cm_cov = np.asarray(final_covariance, dtype=np.float64)
+            _d = np.diag(_cm_cov)
+            _cm_ph = bool((not np.all(np.isfinite(_cm_cov))) or np.any(_d < 0.0))
+            if _cm_ph:
+                _cm_cov, _cm_unc, _ = finalize_covariance(None, result_param_count)
+            else:
+                _cm_unc = np.sqrt(np.clip(_d, 0.0, None))
         result = OptimizationResult(
             parameters=final_params,
-            uncertainties=(
-                compute_uncertainties(final_covariance)
-                if final_covariance is not None
-                else np.zeros(result_param_count)
-            ),
-            covariance=(
-                final_covariance if final_covariance is not None else np.eye(result_param_count)
-            ),
+            uncertainties=_cm_unc,
+            covariance=_cm_cov,
             chi_squared=cmaes_result.chi_squared,
             reduced_chi_squared=reduced_chi_squared,
             convergence_status="converged" if cmaes_result.success else "failed",
@@ -3010,6 +3026,7 @@ def fit_nlsq_cmaes(
             },
             recovery_actions=[],
             quality_flag=quality_flag,
+            nlsq_diagnostics={"covariance_is_placeholder": bool(_cm_ph)},
         )
 
         logger.info("=" * 60)

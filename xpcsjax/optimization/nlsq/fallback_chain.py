@@ -143,8 +143,15 @@ def handle_nlsq_result(
     # Case 1: Dict (from StreamingOptimizer)
     if isinstance(result, dict):
         popt = np.asarray(result.get("x", result.get("popt")))
-        pcov = np.asarray(result.get("pcov", np.eye(len(popt))))  # Identity if missing
+        _raw_pcov = result.get("pcov")
+        # Missing covariance is UNKNOWN (all-NaN + flag), never an identity.
+        pcov = (
+            np.asarray(_raw_pcov)
+            if _raw_pcov is not None
+            else np.full((len(popt), len(popt)), np.nan)
+        )
         info = {
+            "covariance_is_placeholder": _raw_pcov is None,
             "streaming_diagnostics": result.get("streaming_diagnostics", {}),
             "success": result.get("success", False),
             "message": result.get("message", ""),
@@ -191,14 +198,13 @@ def handle_nlsq_result(
         # Extract pcov
         pcov_raw = getattr(result, "pcov", None)
         if pcov_raw is None:
-            # No covariance available, create identity matrix
-            _logger.warning("No pcov attribute in result object. Using identity matrix.")
-            pcov = np.eye(len(popt))
+            _logger.warning("No pcov attribute in result object; covariance unknown (NaN).")
+            pcov = np.full((len(popt), len(popt)), np.nan)
         else:
             pcov = np.asarray(pcov_raw)
 
         # Extract info dict
-        info = {}
+        info = {"covariance_is_placeholder": pcov_raw is None}
         # Common attributes to extract
         for attr in [
             "message",
