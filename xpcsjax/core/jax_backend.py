@@ -498,15 +498,14 @@ def _compute_g1_shear_core(
             # Element-wise mode (flat arrays for heatmap generation):
             # return 1D ones to match g1_diff shape in _compute_g1_total_core
             return jnp.ones_like(t1)
-        else:
-            # Matrix mode: return (n_phi, n_times, n_times) to broadcast with g1_diff.
-            # atleast_1d handles a 0-d scalar t1 the same way the general
-            # (shear-active) branch below already does.
-            t1_matrix = jnp.atleast_1d(t1)
-            phi_array = jnp.atleast_1d(phi)
-            n_phi = phi_array.shape[0]
-            n_times = t1_matrix.shape[0]
-            return jnp.ones((n_phi, n_times, n_times))
+        # Matrix mode: return (n_phi, n_times, n_times) to broadcast with g1_diff.
+        # atleast_1d handles a 0-d scalar t1 the same way the general
+        # (shear-active) branch below already does.
+        t1_matrix = jnp.atleast_1d(t1)
+        phi_array = jnp.atleast_1d(phi)
+        n_phi = phi_array.shape[0]
+        n_times = t1_matrix.shape[0]
+        return jnp.ones((n_phi, n_times, n_times))
 
     gamma_dot_0, beta, gamma_dot_offset, phi0 = (
         params[3],
@@ -786,13 +785,12 @@ def _compute_g2_scaled_core(
 
     # Homodyne physics: g₂ = offset + contrast × [g₁]²
     # The baseline "1" is included in the offset parameter (offset ≈ 1.0 for physical data)
-    g2 = offset + contrast * g1**2
+    return offset + contrast * g1**2
 
     # P0-3: Removed hard jnp.clip(g2, 0.5, 2.5) — it kills gradients at boundaries.
     # For NLSQ (TRF optimizer), the bounds are enforced via parameter bounds, not g2 clipping.
     # For NUTS/MCMC, hard clips create zero-gradient plateaus that stall the sampler.
     # Physical range (0.5-2.5) is enforced through parameter priors instead.
-    return g2  # type: ignore[no-any-return]
 
 
 # =============================================================================

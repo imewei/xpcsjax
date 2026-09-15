@@ -9,9 +9,9 @@ import pytest
 pytest.importorskip("PySide6")
 pytest.importorskip("pyqtgraph")
 
-import numpy as np  # noqa: E402
+import numpy as np
 
-from xpcsjax.service.config import validate_config  # noqa: E402
+from xpcsjax.service.config import validate_config
 
 
 # ----------------------------------------------------------------------------
@@ -98,7 +98,7 @@ def test_cancel_race_finished_stays_cancelled(qtbot, tmp_path):
 # ----------------------------------------------------------------------------
 def test_worker_handle_shutdown_reaps_process(qtbot):
     """codex#3: shutdown() joins+closes the worker process and closes the queue."""
-    from tests.gui import ipc_fakes  # noqa: F401 — ensures importability of spawn target
+    from tests.gui import ipc_fakes
     from xpcsjax.gui.ipc.handle import WorkerHandle
     from xpcsjax.gui.ipc.job import FitJob
 

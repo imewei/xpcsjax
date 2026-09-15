@@ -134,7 +134,7 @@ def test_joint_escape_runs_n_seeds_distinct_draws(monkeypatch) -> None:
 
     seen_seeds: list[int] = []
 
-    def _fake_cmaes(*, config, **_kwargs):  # noqa: ANN001 - test stub
+    def _fake_cmaes(*, config, **_kwargs):
         seen_seeds.append(int(config.seed))
         return SimpleNamespace(success=False, parameters=None)
 

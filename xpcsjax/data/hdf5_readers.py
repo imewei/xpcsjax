@@ -104,7 +104,7 @@ def detect_format(hdf_path: str) -> str:
             return "aps_u"
 
         # Check for APS old format keys
-        elif (
+        if (
             "xpcs" in f
             and "dqlist" in f["xpcs"]
             and "dphilist" in f["xpcs"]
@@ -113,15 +113,14 @@ def detect_format(hdf_path: str) -> str:
         ):
             return "aps_old"
 
-        else:
-            # Log the top-level keys for debugging unrecognized formats
-            top_keys = list(f.keys())
-            logger.warning(
-                f"Unrecognized HDF5 format: top-level keys={top_keys}. "
-                "Expected APS-U (xpcs/twotime/correlation_map) or "
-                "APS old (xpcs/dqlist + exchange/C2T_all)."
-            )
-            return "unknown"
+        # Log the top-level keys for debugging unrecognized formats
+        top_keys = list(f.keys())
+        logger.warning(
+            f"Unrecognized HDF5 format: top-level keys={top_keys}. "
+            "Expected APS-U (xpcs/twotime/correlation_map) or "
+            "APS old (xpcs/dqlist + exchange/C2T_all)."
+        )
+        return "unknown"
 
 
 @log_performance(threshold=0.8)

@@ -17,8 +17,8 @@ import yaml
 pytest.importorskip("PySide6")
 pytest.importorskip("pyqtgraph")
 
-from xpcsjax.gui.views.plots_view import PhiResultsGrid  # noqa: E402
-from xpcsjax.gui.viz_bundle import VizBundle  # noqa: E402
+from xpcsjax.gui.views.plots_view import PhiResultsGrid
+from xpcsjax.gui.viz_bundle import VizBundle
 
 _MODES = ("static_anisotropic", "static_isotropic", "laminar_flow", "two_component")
 

@@ -57,7 +57,7 @@ class _ReaderThread(QThread):
         self._proc = proc
         self._run_id = run_id
 
-    def run(self) -> None:  # noqa: D102 — QThread entry; behavior in class docstring
+    def run(self) -> None:
         terminal_seen = False
         grace_deadline: float | None = None
         # The 0.1 s get() timeout doubles as the interruption poll: WorkerHandle
@@ -363,6 +363,6 @@ class WorkerHandle(QObject):
         if queue is not None:
             try:
                 queue.close()
-            except Exception:  # noqa: BLE001 — best-effort resource release
+            except Exception:
                 pass
             self._queue = None

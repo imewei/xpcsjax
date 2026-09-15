@@ -171,8 +171,7 @@ def load_dataset(
     if phi_subset and data_phi_arr is not None:
         _subset_data_by_phi(data, data_phi_arr, [float(p) for p in phi_subset])
 
-    data = apply_angle_filtering_for_optimization(data, config_manager)
-    return data
+    return apply_angle_filtering_for_optimization(data, config_manager)
 
 
 def resolve_phi_angles(

@@ -609,14 +609,14 @@ def build_gradient_collapse_callback(monitor, grad_fn, *, update_frequency=None)
         ``grad_fn`` error, and always returns ``None`` so it cannot abort a fit.
         """
         if freq > 1 and int(iteration) % freq != 0:
-            return None
+            return
         try:
             p = np.asarray(params, dtype=np.float64)
             g = np.asarray(grad_fn(p), dtype=np.float64)
             monitor.check(g, int(iteration), params=p, loss=float(cost))
         except Exception:  # pragma: no cover - monitor must never break a fit
             logger.debug("gradient-collapse callback skipped (non-fatal)", exc_info=True)
-        return None
+        return
 
     return callback
 

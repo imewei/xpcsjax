@@ -49,7 +49,7 @@ import matplotlib
 # thread of a subprocess (a GUI-thread violation that can hang/crash).
 matplotlib.use("Agg", force=True)
 
-import matplotlib.pyplot as plt  # noqa: E402  (must follow matplotlib.use)
+import matplotlib.pyplot as plt
 import numpy as np
 
 from xpcsjax.config.parameter_registry import AnalysisMode

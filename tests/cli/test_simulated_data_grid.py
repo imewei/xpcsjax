@@ -45,7 +45,7 @@ def test_simulated_grid_uses_elapsed_time(tmp_path, monkeypatch):
 
     captured: dict[str, np.ndarray] = {}
 
-    def _capture(model, params, phi, t1, t2, **kw):  # noqa: ANN001
+    def _capture(model, params, phi, t1, t2, **kw):
         captured["t1"] = np.asarray(t1)
         captured["dt"] = kw["dt"]
         n = len(np.asarray(t1))

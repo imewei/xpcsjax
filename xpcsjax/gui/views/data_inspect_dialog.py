@@ -134,7 +134,7 @@ class DataInspectDialog(QDialog):
                 data_type=data_type,
                 phi_index=self._phi_spin.value(),
             )
-        except Exception as exc:  # noqa: BLE001 — a button slot must never propagate
+        except Exception as exc:
             # Reading an arbitrary user-chosen dataset out of an arbitrary HDF5
             # file fails in more ways than h5py's corrupt-file surface: a
             # zero-length first axis raises IndexError, an int-dtype half-matrix

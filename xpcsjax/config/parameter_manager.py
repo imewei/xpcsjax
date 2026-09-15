@@ -626,14 +626,12 @@ class ParameterManager:
         bounds_tuples = [(bound_dict["min"], bound_dict["max"]) for bound_dict in bounds_list_dict]
 
         # Use the detailed validation from physics module
-        result = validate_parameters_detailed(
+        return validate_parameters_detailed(
             params,
             bounds_tuples,
             param_names=param_names,
             tolerance=tolerance,
         )
-
-        return result
 
     def get_bounds_as_tuples(
         self,

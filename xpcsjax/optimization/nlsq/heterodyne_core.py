@@ -95,7 +95,7 @@ class _WarmStartProbeNoiseFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             message = record.getMessage()
-        except Exception:  # noqa: BLE001 - never let a formatting error hide a record
+        except Exception:
             return True
         return not any(pat in message for pat in _WARM_START_PROBE_NOISE_PATTERNS)
 
@@ -2219,7 +2219,7 @@ def _fit_joint_cmaes_multi_phi(
             kept_result_success=_kept_result_success,
         )
     # Phase-2: intentionally left — implements the keep-better/fallback contract; conversion would risk parity.
-    except Exception as exc:  # noqa: BLE001 - best-effort escape, fall back to plain fit
+    except Exception as exc:
         logger.warning(
             "Joint CMA-ES escape failed (%s: %s); falling back to plain joint fit",
             type(exc).__name__,
@@ -2240,7 +2240,7 @@ def _fit_joint_multistart(
     phi_angles: np.ndarray,
     config: NLSQConfig,
     weights: np.ndarray | None,
-    use_nlsq_library: bool,  # noqa: ARG001 - dispatch-signature parity (unused here)
+    use_nlsq_library: bool,
 ) -> OptimizationResult:
     """Joint multi-angle MULTISTART escape — LHS global search over the joint vector.
 
@@ -2390,7 +2390,7 @@ def _fit_joint_multistart(
             kept_result_success=_kept_result_success,
         )
     # Phase-2: intentionally left — implements the keep-better/fallback contract; conversion would risk parity.
-    except Exception as exc:  # noqa: BLE001 - best-effort escape, fall back to plain fit
+    except Exception as exc:
         logger.warning(
             "Joint multistart escape failed (%s: %s); falling back to plain joint fit",
             type(exc).__name__,
@@ -2536,7 +2536,7 @@ def _cmaes_joint_candidate(
 
 def _multistart_joint_candidate(
     base_residual_fn: Any,
-    x_warm: np.ndarray,  # noqa: ARG001 - LHS samples its own starts; signature parity
+    x_warm: np.ndarray,
     lb: np.ndarray,
     ub: np.ndarray,
     solver_config: NLSQConfig,
@@ -2854,7 +2854,7 @@ def _apply_global_escape(
         else:  # pragma: no cover — unknown kind treated as no escape
             return x_warm, None, None
     # Phase-2: intentionally left — implements the keep-better/fallback contract; conversion would risk parity.
-    except Exception as exc:  # noqa: BLE001 - best-effort escape; keep warm-start
+    except Exception as exc:
         logger.warning(
             "Joint %s escape failed (%s: %s); keeping warm-start fit",
             escape_kind,

@@ -83,7 +83,7 @@ def _spy_adapter_max_nfev(monkeypatch) -> dict:
     captured: dict = {}
     real_fit = heterodyne_adapter.NLSQAdapter.fit
 
-    def spy_fit(self, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
+    def spy_fit(self, *args, **kwargs):
         cfg = kwargs.get("config")
         if cfg is None and len(args) >= 4:
             cfg = args[3]
@@ -140,7 +140,7 @@ def _spy_adapter_initial_params(monkeypatch) -> dict:
     captured: dict = {}
     real_fit = heterodyne_adapter.NLSQAdapter.fit
 
-    def spy_fit(self, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
+    def spy_fit(self, *args, **kwargs):
         ip = kwargs.get("initial_params")
         cfg = kwargs.get("config")
         if ip is None and len(args) >= 2:

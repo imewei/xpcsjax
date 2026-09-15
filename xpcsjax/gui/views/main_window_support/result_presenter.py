@@ -42,7 +42,7 @@ class _BundleLoadTask(QRunnable):
         self._result_dir = result_dir
         self.signals = _BundleLoadSignals()
 
-    def run(self) -> None:  # noqa: D102 — QRunnable entry point, not a public API
+    def run(self) -> None:
         try:
             bundle = load_viz_bundle(self._result_dir)
         except Exception:  # pragma: no cover — defensive only

@@ -248,7 +248,7 @@ class StratifiedResidualFunctionJIT:
         # Validation: check if we missed any values by comparing with first chunk.
         # Pure host-side comparison (only len() is consumed), so these stay NumPy.
         first_chunk = self.chunks[0]
-        _phi_first = np.unique(first_chunk.phi)  # noqa: F841
+        _phi_first = np.unique(first_chunk.phi)
         t1_first = np.unique(first_chunk.t1)
         t2_first = np.unique(first_chunk.t2)
 
@@ -460,7 +460,7 @@ class StratifiedResidualFunctionJIT:
                 def compute_for_angle_scalar(phi_val: float) -> jnp.ndarray:
                     # We use cast(float, ...) here to satisfy mypy, but at runtime these are JAX tracers
                     # which compute_g2_scaled handles correctly despite the float type hint.
-                    from typing import cast  # noqa: F811 — intentional re-import in closure
+                    from typing import cast
 
                     return jnp.squeeze(
                         self._evaluator.eval_points(
@@ -515,9 +515,7 @@ class StratifiedResidualFunctionJIT:
         # t1_indices and t2_indices reference DIFFERENT arrays (t1_unique vs t2_unique),
         # so comparing indices is wrong. Must compare the actual t1_chunk and t2_chunk values.
         non_diagonal = jnp.abs(t1_chunk - t2_chunk) > 1e-15
-        residuals_masked = jnp.where(mask_chunk & non_diagonal, residuals_raw, 0.0)
-
-        return residuals_masked
+        return jnp.where(mask_chunk & non_diagonal, residuals_raw, 0.0)
 
     def _compute_all_residuals(self, params: jnp.ndarray) -> jnp.ndarray:
         """
@@ -559,10 +557,9 @@ class StratifiedResidualFunctionJIT:
         )  # Shape: (n_chunks, max_chunk_size)
 
         # Flatten residuals (padding is already masked to zero in _compute_single_chunk_residuals)
-        residuals_flat = residuals_padded.flatten()  # Shape: (n_chunks * max_chunk_size,)
+        return residuals_padded.flatten()  # Shape: (n_chunks * max_chunk_size,)
 
         # Return full array (filtering happens in __call__ to avoid JIT boolean indexing)
-        return residuals_flat
 
     def __call__(self, params: np.ndarray | jnp.ndarray) -> jnp.ndarray:
         """

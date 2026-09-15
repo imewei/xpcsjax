@@ -78,7 +78,7 @@ class TestNLSQAdapterErrorRecovery:
     def test_inf_residuals_handled(self) -> None:
         """A residual function returning +inf does not crash the adapter."""
 
-        def _inf_residual(params: np.ndarray) -> np.ndarray:  # noqa: ARG001
+        def _inf_residual(params: np.ndarray) -> np.ndarray:
             return np.full(3, np.inf, dtype=np.float64)
 
         adapter = NLSQAdapter(parameter_names=_PARAM_NAMES)
@@ -98,7 +98,7 @@ class TestNLSQAdapterErrorRecovery:
         break covariance estimation if the adapter didn't catch it.
         """
 
-        def _nan_residual(params: np.ndarray) -> np.ndarray:  # noqa: ARG001
+        def _nan_residual(params: np.ndarray) -> np.ndarray:
             return np.full(3, np.nan, dtype=np.float64)
 
         adapter = NLSQAdapter(parameter_names=_PARAM_NAMES)

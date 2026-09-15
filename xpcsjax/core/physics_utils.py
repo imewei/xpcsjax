@@ -256,9 +256,7 @@ def create_time_integral_matrix(
     diff = cumsum[:, None] - cumsum[None, :]  # Shape: (n, n), symmetric
     matrix = jnp.sqrt(diff**2 + epsilon)  # Shape: (n, n), smooth |diff|
     diagonal = jnp.eye(cumsum.shape[0], dtype=bool)
-    matrix = jnp.where(diagonal, jnp.zeros((), dtype=matrix.dtype), matrix)
-
-    return matrix
+    return jnp.where(diagonal, jnp.zeros((), dtype=matrix.dtype), matrix)
 
 
 def trapezoid_cumsum(values: jnp.ndarray) -> jnp.ndarray:

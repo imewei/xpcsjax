@@ -1046,7 +1046,7 @@ class CMAESWrapper:
             # Wrap model function to denormalize params before evaluation
             # IMPORTANT: Use JAX operations to preserve tracers during JIT compilation
             original_model_func = model_func
-            import jax.numpy as jnp  # noqa: E402 - lazy import, CMA-ES is optional
+            import jax.numpy as jnp
 
             # Pre-convert normalization factors to JAX arrays (captured in closure)
             norm_scale_jax = jnp.array(norm_scale)

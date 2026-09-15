@@ -833,10 +833,7 @@ class ConfigManager:
                     f"initial_parameters.values is null, calculating mid-point defaults for {len(param_names_config)} parameters"
                 )
                 return self._calculate_midpoint_defaults()
-            else:
-                raise ValueError(
-                    "initial_parameters.values is null and use_midpoint_defaults is False"
-                )
+            raise ValueError("initial_parameters.values is null and use_midpoint_defaults is False")
 
         # Validate that values is a list
         if not isinstance(param_values, list):

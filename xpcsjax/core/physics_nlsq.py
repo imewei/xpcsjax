@@ -171,12 +171,11 @@ def _compute_g1_diffusion_meshgrid(
 
     # Compute exponential — log_g1_bounded is already clipped to [-700, 0],
     # so jnp.exp is safe (no overflow risk).
-    g1_result = jnp.exp(log_g1_bounded)
+    return jnp.exp(log_g1_bounded)
 
     # P1-2: Removed jnp.minimum(g1_result, 1.0) — the log-space clip above
     # (jnp.clip(log_g1, -700, 0)) already guarantees g1 = exp(log_g1) ≤ 1.0.
     # The hard min killed gradients at g1=1.0 (diagonal elements), harming NLSQ Jacobians.
-    return g1_result
 
 
 @jit

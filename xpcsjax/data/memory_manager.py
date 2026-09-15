@@ -237,12 +237,11 @@ class MemoryStats:
         """
         if self.memory_pressure < 0.6:
             return "low"
-        elif self.memory_pressure < 0.8:
+        if self.memory_pressure < 0.8:
             return "moderate"
-        elif self.memory_pressure < 0.9:
+        if self.memory_pressure < 0.9:
             return "high"
-        else:
-            return "critical"
+        return "critical"
 
 
 class MemoryPressureMonitor:
@@ -649,10 +648,9 @@ class MemoryPressureMonitor:
 
         if change > 0.05:
             return "increasing"
-        elif change < -0.05:
+        if change < -0.05:
             return "decreasing"
-        else:
-            return "stable"
+        return "stable"
 
     def __del__(self) -> None:
         """Destructor to ensure cleanup when garbage collected."""

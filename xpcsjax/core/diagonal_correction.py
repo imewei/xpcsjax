@@ -136,8 +136,7 @@ def apply_diagonal_correction(
                 f"JAX backend only supports 'basic' method, got '{method}'. Using 'basic' method."
             )
         return _diagonal_correction_jax(c2_mat)
-    else:
-        return _diagonal_correction_numpy(c2_mat, method, config)
+    return _diagonal_correction_numpy(c2_mat, method, config)
 
 
 def apply_diagonal_correction_batch(
@@ -194,8 +193,7 @@ def apply_diagonal_correction_batch(
                 f"JAX backend only supports 'basic' method, got '{method}'. Using 'basic' method."
             )
         return _diagonal_correction_batch_jax(c2_matrices)
-    else:
-        return _diagonal_correction_batch_numpy(c2_matrices, method, config)
+    return _diagonal_correction_batch_numpy(c2_matrices, method, config)
 
 
 # =============================================================================
@@ -207,15 +205,15 @@ def _resolve_backend(arr: ArrayLike, backend: Backend) -> Literal["numpy", "jax"
     """Resolve the actual backend to use based on input and preference."""
     if backend == "jax":
         return "jax"
-    elif backend == "numpy":
+    if backend == "numpy":
         return "numpy"
-    else:  # auto
-        # Auto-detect based on input type
-        # Note: NumPy 2.x arrays have .device attribute for array API compliance,
-        # so we need to check the actual type, not just presence of .device
-        if _is_jax_array(arr):
-            return "jax"
-        return "numpy"
+    # auto
+    # Auto-detect based on input type
+    # Note: NumPy 2.x arrays have .device attribute for array API compliance,
+    # so we need to check the actual type, not just presence of .device
+    if _is_jax_array(arr):
+        return "jax"
+    return "numpy"
 
 
 def _is_jax_array(arr: ArrayLike) -> bool:
@@ -307,13 +305,13 @@ def _diagonal_correction_numpy(
 
     if method == "basic":
         return _basic_correction_numpy(c2_np)
-    elif method == "statistical":
+    if method == "statistical":
         return _statistical_correction_numpy(c2_np, config)
-    elif method == "interpolation":
+    if method == "interpolation":
         return _interpolation_correction_numpy(c2_np, config)
-    else:  # Defensive fallback for unknown method
-        logger.warning(f"Unknown method '{method}', using 'basic'")  # type: ignore[unreachable]
-        return _basic_correction_numpy(c2_np)
+    # Defensive fallback for unknown method
+    logger.warning(f"Unknown method '{method}', using 'basic'")  # type: ignore[unreachable]
+    return _basic_correction_numpy(c2_np)
 
 
 def _diagonal_correction_batch_numpy(

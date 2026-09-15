@@ -306,14 +306,13 @@ def fit_with_hybrid_streaming_optimizer(
             )
             if isinstance(e, NLSQOptimizationError):
                 raise
-            else:
-                raise NLSQOptimizationError(
-                    f"AdaptiveHybridStreamingOptimizer failed: {str(e)}",
-                    error_context={
-                        "original_error": type(e).__name__,
-                        "attempt_errors": attempt_errors,
-                    },
-                ) from e
+            raise NLSQOptimizationError(
+                f"AdaptiveHybridStreamingOptimizer failed: {str(e)}",
+                error_context={
+                    "original_error": type(e).__name__,
+                    "attempt_errors": attempt_errors,
+                },
+            ) from e
 
         # Extract results
         popt = np.asarray(result["x"])

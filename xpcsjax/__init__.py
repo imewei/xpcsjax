@@ -148,7 +148,7 @@ if _TYPE_CHECKING:
     from xpcsjax.viz import generate_nlsq_plots
 
 
-def __getattr__(name: str):  # noqa: D401
+def __getattr__(name: str):
     """Lazy attribute loader for the documented public API."""
     if name in _LAZY_EXPORTS:
         module = importlib.import_module(_LAZY_EXPORTS[name])

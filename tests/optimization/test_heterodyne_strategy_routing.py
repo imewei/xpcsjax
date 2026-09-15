@@ -257,7 +257,7 @@ def test_hybrid_streaming_takes_precedence_over_stratified_ls(monkeypatch):
 # -----------------------------------------------------------------------------
 
 
-def test_individual_mode_uses_stratified_ls(monkeypatch):  # noqa: N802
+def test_individual_mode_uses_stratified_ls(monkeypatch):
     """per_angle_mode=individual + >=1M points → stratified-LS solver IS called."""
     import xpcsjax.optimization.nlsq as nlsq_pkg
     import xpcsjax.optimization.nlsq.heterodyne_stratified_ls as hsl
@@ -340,7 +340,7 @@ def test_ge_1M_constant_mode_uses_stratified_ls(monkeypatch):  # noqa: N802 - "1
 # -----------------------------------------------------------------------------
 
 
-def test_flat_enable_cmaes_skips_stratified_ls(monkeypatch):  # noqa: N802
+def test_flat_enable_cmaes_skips_stratified_ls(monkeypatch):
     """Flat enable_cmaes=true (no nested cmaes block) + >=1M → stratified-LS NOT called."""
     import xpcsjax.optimization.nlsq as nlsq_pkg
     import xpcsjax.optimization.nlsq.heterodyne_stratified_ls as hsl

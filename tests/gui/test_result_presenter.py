@@ -4,9 +4,9 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from xpcsjax.gui.result_loader import ResultSummary  # noqa: E402
-from xpcsjax.gui.views.main_window import MainWindow  # noqa: E402
-from xpcsjax.gui.views.main_window_support.result_presenter import (  # noqa: E402
+from xpcsjax.gui.result_loader import ResultSummary
+from xpcsjax.gui.views.main_window import MainWindow
+from xpcsjax.gui.views.main_window_support.result_presenter import (
     ResultPresenter,
 )
 

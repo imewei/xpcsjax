@@ -221,7 +221,12 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP", "N", "D"]
+select = ["E", "F", "W", "I", "B", "UP", "N", "D", "T20", "RET", "PERF", "RUF100"]
+# T20 — no print() in library code (console entry points are exempted below).
+# RET/PERF — flow-control and comprehension hygiene; RUF100 — no stale noqa.
+# Deliberately NOT enabled (measured 2026-09-15): BLE/S110 (every site is a
+# documented best-effort contract, already noqa'd), C90 (redundant with the
+# existing complexity backlog), SIM (SIM105 churn), PTH (71 hits, mostly data/).
 # E501 — line length handled by formatter, not enforced.
 # N806/N803 — scientific code uses uppercase math-convention names
 #   (D0, JTJ, L, P, Q, R, X, Y) in function/argument scope. Enforcing
@@ -232,7 +237,9 @@ select = ["E", "F", "W", "I", "B", "UP", "N", "D"]
 #   to the mixed Google-style the codebase started from. Enforced on xpcsjax/
 #   only — tests/ and scripts/ are exempt below (their docstrings are not part of
 #   the public / Sphinx-rendered API).
-ignore = ["E501", "N806", "N803"]
+# PERF401/PERF403 — "rewrite this loop as a comprehension": the remaining sites
+#   are small, readable loops; the rewrite buys nothing measurable.
+ignore = ["E501", "N806", "N803", "PERF401", "PERF403"]
 
 [tool.ruff.lint.pydocstyle]
 # numpydoc sections (Parameters/Returns/Raises/...), rendered via Sphinx napoleon
@@ -244,7 +251,7 @@ convention = "numpy"
 # pydocstyle (D) gate there. (They carry pre-existing Google-style/undocumented
 # docstrings; converting them is out of scope and the D406/D407 autofix would
 # half-convert Google sections into a broken hybrid.)
-"tests/**" = ["D"]
+"tests/**" = ["D", "T20"]
 "scripts/**" = ["D"]
 # These modules intentionally execute code before their module-level imports:
 # the package __init__ sets JAX env vars (JAX_ENABLE_X64, XLA_FLAGS) before any
@@ -252,6 +259,12 @@ convention = "numpy"
 # E402 (and the import-sort reorganization I001 would force) is expected here,
 # not a defect — fixing it would break the required ordering.
 "xpcsjax/__init__.py" = ["E402", "I001"]
+# Console entry points and CLI command layers talk to the terminal by design.
+"xpcsjax/post_install.py" = ["T20"]
+"xpcsjax/uninstall_scripts.py" = ["T20"]
+"xpcsjax/cli/**" = ["T20"]
+"xpcsjax/runtime/utils/system_validator.py" = ["T20"]
+"xpcsjax/runtime/shell/generate_completion.py" = ["T20"]
 "xpcsjax/viz/nlsq_plots.py" = ["E402", "I001"]
 
 [tool.bandit]
@@ -268,6 +281,35 @@ skips = ["B101", "B110", "B403", "B404", "B603"]
 python_version = "3.12"
 strict = false
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Leaf modules held at --strict equivalence (2026-09-15). `strict = true` is
+# global-only in mypy config, so the flags are spelled out per module.
+# device/runtime call jax.config.read/update, which are untyped upstream, so
+# disallow_untyped_calls stays off there.
+module = [
+    "xpcsjax.utils.*",
+    "xpcsjax.viz.*",
+    "xpcsjax.post_install",
+    "xpcsjax.uninstall_scripts",
+    "xpcsjax.device.*",
+    "xpcsjax.runtime.*",
+]
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+warn_unused_ignores = true
+warn_return_any = true
+no_implicit_reexport = true
+strict_equality = true
+extra_checks = true
+
+[[tool.mypy.overrides]]
+module = ["xpcsjax.utils.*", "xpcsjax.viz.*", "xpcsjax.post_install", "xpcsjax.uninstall_scripts"]
+disallow_untyped_calls = true
 
 [[tool.mypy.overrides]]
 # JAX's ``Array`` and numpy's ``ndarray`` are interchangeable at runtime, but

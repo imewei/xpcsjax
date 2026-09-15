@@ -257,10 +257,9 @@ class OptimizationResult:
         """Human-readable one-line summary of the optimization outcome."""
         if self.convergence_status == "converged":
             return f"Optimization converged successfully. chi2={self.chi_squared:.6f}"
-        elif self.convergence_status == "max_iter":
+        if self.convergence_status == "max_iter":
             return "Optimization stopped: maximum iterations reached"
-        else:
-            return f"Optimization failed: {self.convergence_status}"
+        return f"Optimization failed: {self.convergence_status}"
 
     @property
     def physics_parameters(self) -> np.ndarray:

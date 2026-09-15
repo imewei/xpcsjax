@@ -39,7 +39,7 @@ def _isolate_logging() -> Any:
             lg.removeHandler(h)
             try:
                 h.close()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
     for h in saved_handlers:
         if h not in lg.handlers:

@@ -11,14 +11,14 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import (  # noqa: E402
-    QItemSelectionModel,  # noqa: E402
+from PySide6.QtCore import (
+    QItemSelectionModel,
     QObject,
     Signal,
 )
 
-from xpcsjax.gui.controllers.fit_queue import FitQueueController  # noqa: E402
-from xpcsjax.gui.project.persist import _SCHEMA  # noqa: E402
+from xpcsjax.gui.controllers.fit_queue import FitQueueController
+from xpcsjax.gui.project.persist import _SCHEMA
 
 
 def _window(qtbot):

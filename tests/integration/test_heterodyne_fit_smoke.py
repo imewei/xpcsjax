@@ -21,13 +21,13 @@ import pytest
 
 pytest.importorskip("xpcsjax.core.heterodyne_model_stateful")
 
-from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig  # noqa: E402
-from xpcsjax.optimization.nlsq.heterodyne_core import (  # noqa: E402
+from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+from xpcsjax.optimization.nlsq.heterodyne_core import (
     fit_nlsq_jax,
     fit_nlsq_multi_phi,
 )
-from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult  # noqa: E402
-from xpcsjax.optimization.nlsq.results import OptimizationResult  # noqa: E402
+from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
+from xpcsjax.optimization.nlsq.results import OptimizationResult
 
 _N_TIMES = 16
 _DT = 1.0

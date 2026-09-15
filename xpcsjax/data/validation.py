@@ -708,7 +708,7 @@ def _compute_quality_score(report: DataQualityReport) -> float:
         integrity_bonus += 0.1
 
         # Penalty for non-finite data
-        for _key, stats in report.data_statistics.items():
+        for stats in report.data_statistics.values():
             finite_fraction = stats.get("finite_fraction", 0.0)
             if finite_fraction < 1.0:
                 integrity_bonus -= (1.0 - finite_fraction) * 0.1

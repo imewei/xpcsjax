@@ -49,9 +49,8 @@ class ValidationResult:
         """Return a human-readable representation for logging."""
         if self.valid:
             return f"OK {self.message}"
-        else:
-            violations_str = "\n  - ".join(self.violations)
-            return f"FAIL {self.message}\n  - {violations_str}"
+        violations_str = "\n  - ".join(self.violations)
+        return f"FAIL {self.message}\n  - {violations_str}"
 
 
 class PhysicsConstants:

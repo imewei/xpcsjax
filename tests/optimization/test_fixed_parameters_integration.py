@@ -33,9 +33,7 @@ from xpcsjax.optimization.nlsq.core import fit_nlsq_jax
 # upstream bug (it bounds elements, not the SVD workspace).
 pytestmark = [
     pytest.mark.filterwarnings("ignore:Ill-conditioned Jacobian:UserWarning"),
-    pytest.mark.filterwarnings(
-        "ignore:Could not compute SVD for condition number:UserWarning"
-    ),
+    pytest.mark.filterwarnings("ignore:Could not compute SVD for condition number:UserWarning"),
 ]
 
 TRUE_PHYSICAL_LAMINAR = {

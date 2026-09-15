@@ -192,12 +192,12 @@ class FitQueueController(QObject):
         self._pending.clear()
         for handle in list(self._handles.values()):
             if handle.is_running():
-                handle._cancel_blocking()  # noqa: SLF001 — the one intended caller
+                handle._cancel_blocking()
             handle.shutdown()  # join the reader QThread (app close / atexit)
         self._handles.clear()  # drop the now-dead handles (no stale references)
         for handle in list(self._cancelling.values()):
             if handle.is_running():
-                handle._cancel_blocking()  # noqa: SLF001 — the one intended caller
+                handle._cancel_blocking()
             handle.shutdown()
         self._cancelling.clear()
 

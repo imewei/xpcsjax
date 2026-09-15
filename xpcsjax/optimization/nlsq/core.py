@@ -368,12 +368,11 @@ def fit_nlsq_jax(
                 )
                 cmaes_result.sigma_is_default = _sigma_is_default
                 return cmaes_result
-            else:
-                logger.warning(
-                    "[CMA-ES] Enabled in config but not available (evosax not installed). "
-                    "Install with: pip install nlsq[evosax]. "
-                    "Falling back to multi-start or local optimization."
-                )
+            logger.warning(
+                "[CMA-ES] Enabled in config but not available (evosax not installed). "
+                "Install with: pip install nlsq[evosax]. "
+                "Falling back to multi-start or local optimization."
+            )
 
         # Multi-start is second priority
         multi_start_dict = nlsq_dict.get("multi_start", {})
@@ -389,11 +388,10 @@ def fit_nlsq_jax(
                 ms_result = multistart_result.to_optimization_result()
                 ms_result.sigma_is_default = _sigma_is_default
                 return ms_result
-            else:
-                logger.warning(
-                    "[Multi-Start] Enabled in config but not available. "
-                    "Falling back to local optimization."
-                )
+            logger.warning(
+                "[Multi-Start] Enabled in config but not available. "
+                "Falling back to local optimization."
+            )
 
         logger.debug("No global optimization enabled, using local optimization")
 
@@ -897,9 +895,8 @@ def _normalize_data_to_object(data: Any, config: Any, logger: Any) -> Any:
                 logger.warning(f"Error reading dt from config: {e}")
 
         return data_obj
-    else:
-        _ensure_positive_sigma(data)
-        return data
+    _ensure_positive_sigma(data)
+    return data
 
 
 def _validate_data(data: dict[str, Any]) -> None:
@@ -1201,18 +1198,17 @@ def _get_default_initial_params(analysis_mode: AnalysisMode) -> dict[str, float]
             "D_offset": 0.0,
         }
     # Laminar flow mode (7 parameters)
-    else:
-        return {
-            "contrast": 0.5,  # Generic default - should be replaced with data estimate
-            "offset": 1.0,  # Generic default - should be replaced with data estimate
-            "D0": 10000.0,
-            "alpha": -1.5,
-            "D_offset": 0.0,
-            "gamma_dot_t0": 0.001,
-            "beta": 0.0,
-            "gamma_dot_t_offset": 0.0,
-            "phi0": 0.0,
-        }
+    return {
+        "contrast": 0.5,  # Generic default - should be replaced with data estimate
+        "offset": 1.0,  # Generic default - should be replaced with data estimate
+        "D0": 10000.0,
+        "alpha": -1.5,
+        "D_offset": 0.0,
+        "gamma_dot_t0": 0.001,
+        "beta": 0.0,
+        "gamma_dot_t_offset": 0.0,
+        "phi0": 0.0,
+    }
 
 
 def _get_parameter_bounds(
@@ -1256,18 +1252,17 @@ def _get_param_names(analysis_mode: AnalysisMode) -> list[str]:
     """
     if "static" in analysis_mode.lower():
         return ["contrast", "offset", "D0", "alpha", "D_offset"]
-    else:
-        return [
-            "contrast",
-            "offset",
-            "D0",
-            "alpha",
-            "D_offset",
-            "gamma_dot_t0",
-            "beta",
-            "gamma_dot_t_offset",
-            "phi0",
-        ]
+    return [
+        "contrast",
+        "offset",
+        "D0",
+        "alpha",
+        "D_offset",
+        "gamma_dot_t0",
+        "beta",
+        "gamma_dot_t_offset",
+        "phi0",
+    ]
 
 
 def _get_physical_param_names(analysis_mode: AnalysisMode) -> list[str]:
@@ -1305,20 +1300,19 @@ def _params_to_array(params: dict[str, float], analysis_mode: AnalysisMode) -> j
                 params["D_offset"],
             ],
         )
-    else:
-        return jnp.array(
-            [
-                params["contrast"],
-                params["offset"],
-                params["D0"],
-                params["alpha"],
-                params["D_offset"],
-                params["gamma_dot_t0"],
-                params["beta"],
-                params["gamma_dot_t_offset"],
-                params["phi0"],
-            ],
-        )
+    return jnp.array(
+        [
+            params["contrast"],
+            params["offset"],
+            params["D0"],
+            params["alpha"],
+            params["D_offset"],
+            params["gamma_dot_t0"],
+            params["beta"],
+            params["gamma_dot_t_offset"],
+            params["phi0"],
+        ],
+    )
 
 
 def _bounds_to_arrays(
@@ -1939,19 +1933,18 @@ def fit_nlsq_cmaes(
                     per_angle_scaling=per_angle_scaling,
                 )
                 return ms_result.to_optimization_result()
-            else:
-                logger.info(
-                    f"[CMA-ES] Scale ratio < {nlsq_config.cmaes_scale_threshold}, "
-                    "falling back to local NLSQ optimization"
-                )
-                # Use _skip_global_selection=True to avoid infinite loop
-                return fit_nlsq_jax(
-                    data=data,
-                    config=config,
-                    initial_params=initial_params,
-                    per_angle_scaling=per_angle_scaling,
-                    _skip_global_selection=True,
-                )
+            logger.info(
+                f"[CMA-ES] Scale ratio < {nlsq_config.cmaes_scale_threshold}, "
+                "falling back to local NLSQ optimization"
+            )
+            # Use _skip_global_selection=True to avoid infinite loop
+            return fit_nlsq_jax(
+                data=data,
+                config=config,
+                initial_params=initial_params,
+                per_angle_scaling=per_angle_scaling,
+                _skip_global_selection=True,
+            )
 
     # Prepare data arrays for CMA-ES
     # Need to build model function and flatten data
@@ -2557,9 +2550,7 @@ def fit_nlsq_cmaes(
             )
 
             # Compute g2 = offset + contrast * g1^2
-            g2_all = offset_per_point + contrast_per_point * g1_all**2
-
-            return g2_all
+            return offset_per_point + contrast_per_point * g1_all**2
 
         if _cmaes_phys_free_mask is not None:
             from xpcsjax.optimization.nlsq.parameter_utils import restore_by_mask_jax

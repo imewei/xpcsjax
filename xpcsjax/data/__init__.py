@@ -54,7 +54,7 @@ from typing import Any
 # degraded-but-working install, so it should raise loudly instead of
 # silently flipping a feature off (see tests/data/test_data_package_features.py,
 # which pins this contract after PR #68 let exactly that happen unnoticed).
-from xpcsjax.data.angle_filtering import (  # noqa: F401
+from xpcsjax.data.angle_filtering import (
     angle_in_range,
     apply_angle_filtering,
     apply_angle_filtering_for_optimization,
@@ -64,7 +64,7 @@ from xpcsjax.data.angle_filtering import (  # noqa: F401
 
 # Typed dataset container (numpy-only; safe to import unconditionally).
 from xpcsjax.data.dataset import XpcsDataset
-from xpcsjax.data.optimization import (  # noqa: F401
+from xpcsjax.data.optimization import (
     DatasetOptimizer,
     create_dataset_optimizer,
     optimize_for_method,
@@ -76,7 +76,7 @@ from xpcsjax.data.phi_filtering import (  # noqa: F401
     filter_phi_angles,
     filter_phi_angles_jax,
 )
-from xpcsjax.data.preprocessing import (  # noqa: F401
+from xpcsjax.data.preprocessing import (
     NoiseReductionMethod,
     NormalizationMethod,
     PreprocessingConfigurationError,
@@ -86,15 +86,15 @@ from xpcsjax.data.preprocessing import (  # noqa: F401
     PreprocessingResult,
     PreprocessingStage,
 )
-from xpcsjax.data.types import (  # noqa: F401
+from xpcsjax.data.types import (
     DatasetInfo,
     ProcessingStrategy,
 )
-from xpcsjax.data.validation import (  # noqa: F401
+from xpcsjax.data.validation import (
     DataQualityReport,
     validate_xpcs_data,
 )
-from xpcsjax.data.validators import (  # noqa: F401
+from xpcsjax.data.validators import (
     VALIDATION_RULES,
     validate_by_rules,
     validate_enum_value,

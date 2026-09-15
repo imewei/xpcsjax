@@ -37,7 +37,7 @@ def _fit_square_view(plot: pg.PlotItem) -> None:
     vb.setAspectLocked(False)
     try:
         vb.setDefaultPadding(0.0)
-    except Exception:  # noqa: BLE001 - older pyqtgraph builds lack setDefaultPadding
+    except Exception:
         pass
 
 
@@ -51,7 +51,7 @@ class _SquareAspectMixin(_SquareBase):
     Applied to every result plot so the per-φ grid renders uniform square tiles.
     """
 
-    def resizeEvent(self, ev) -> None:  # noqa: N802, ANN001 - Qt event override
+    def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt event override
         super().resizeEvent(ev)
         side = self.width()
         if side > 0 and self.height() != side:

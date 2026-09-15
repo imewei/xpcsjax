@@ -243,7 +243,7 @@ def validate_config_file(config_path: Path | str) -> ValidationReport:
 
     try:
         ConfigManager(str(config_path))
-    except Exception as exc:  # noqa: BLE001 — ConfigManager may raise custom types
+    except Exception as exc:
         return ValidationReport(ok=False, errors=[f"Structural validation failed: {exc}"])
 
     return ValidationReport(ok=True)

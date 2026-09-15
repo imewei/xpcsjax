@@ -365,15 +365,14 @@ class PreprocessingPipeline:
                         raise PreprocessingError(
                             f"Pipeline aborted at stage {stage.value}: {e}",
                         ) from e
-                    else:
-                        logger.warning(
-                            "Continuing pipeline after stage '%s' failure "
-                            "(abort_on_error=False): the data passed downstream has "
-                            "NOT had this operation applied. PreprocessingResult."
-                            "success may still be True; inspect stage_results to see "
-                            "which operations were skipped.",
-                            stage.value,
-                        )
+                    logger.warning(
+                        "Continuing pipeline after stage '%s' failure "
+                        "(abort_on_error=False): the data passed downstream has "
+                        "NOT had this operation applied. PreprocessingResult."
+                        "success may still be True; inspect stage_results to see "
+                        "which operations were skipped.",
+                        stage.value,
+                    )
 
             # Calculate final metrics
             provenance.total_duration = time.time() - start_time

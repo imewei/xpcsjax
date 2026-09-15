@@ -150,7 +150,7 @@ except ImportError:
 # =============================================================================
 
 # NLSQAdapter using CurveFit class
-from xpcsjax.optimization.nlsq.adapter import (  # noqa: E402
+from xpcsjax.optimization.nlsq.adapter import (
     AdapterConfig,
     NLSQAdapter,
     clear_model_cache,
@@ -161,30 +161,30 @@ from xpcsjax.optimization.nlsq.adapter import (  # noqa: E402
 )
 
 # Architecture refactoring: NLSQAdapterBase
-from xpcsjax.optimization.nlsq.adapter_base import NLSQAdapterBase  # noqa: E402
+from xpcsjax.optimization.nlsq.adapter_base import NLSQAdapterBase
 
 # Anti-degeneracy defense system
-from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (  # noqa: E402
+from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
     AntiDegeneracyConfig,
     AntiDegeneracyController,
 )
 
 # CMA-ES global optimization wrapper
 # Note: NLSQ_CMAES_AVAILABLE from cmaes_wrapper is the canonical source
-from xpcsjax.optimization.nlsq.cmaes_wrapper import (  # noqa: E402
+from xpcsjax.optimization.nlsq.cmaes_wrapper import (
     CMAES_AVAILABLE as NLSQ_CMAES_AVAILABLE,  # overrides global_optimization import
 )
-from xpcsjax.optimization.nlsq.cmaes_wrapper import (  # noqa: E402
+from xpcsjax.optimization.nlsq.cmaes_wrapper import (
     CMAESResult,
     CMAESWrapper,
     CMAESWrapperConfig,
     fit_with_cmaes,
 )
-from xpcsjax.optimization.nlsq.config import (  # noqa: E402
+from xpcsjax.optimization.nlsq.config import (
     HybridRecoveryConfig,
     NLSQConfig,
 )
-from xpcsjax.optimization.nlsq.core import (  # noqa: E402
+from xpcsjax.optimization.nlsq.core import (
     JAX_AVAILABLE,
     NLSQ_AVAILABLE,
     NLSQResult,
@@ -195,7 +195,7 @@ from xpcsjax.optimization.nlsq.core import (  # noqa: E402
 )
 
 # New refactored modules (Dec 2025)
-from xpcsjax.optimization.nlsq.data_prep import (  # noqa: E402
+from xpcsjax.optimization.nlsq.data_prep import (
     ExpandedParameters,
     PreparedData,
     build_parameter_labels,
@@ -205,7 +205,7 @@ from xpcsjax.optimization.nlsq.data_prep import (  # noqa: E402
     validate_bounds,
     validate_initial_params,
 )
-from xpcsjax.optimization.nlsq.fit_computation import (  # noqa: E402
+from xpcsjax.optimization.nlsq.fit_computation import (
     compute_theoretical_fits,
     extract_parameters_from_result,
     get_physical_param_count,
@@ -213,7 +213,7 @@ from xpcsjax.optimization.nlsq.fit_computation import (  # noqa: E402
 )
 
 # Memory management utilities (extracted Jan 2026)
-from xpcsjax.optimization.nlsq.memory import (  # noqa: E402
+from xpcsjax.optimization.nlsq.memory import (
     DEFAULT_MEMORY_FRACTION,
     FALLBACK_THRESHOLD_GB,
     NLSQStrategy,
@@ -227,7 +227,7 @@ from xpcsjax.optimization.nlsq.memory import (  # noqa: E402
 # Multi-start optimization
 # NOTE: Subsampling is explicitly NOT supported per project requirements.
 # Numerical precision and reproducibility take priority over computational speed.
-from xpcsjax.optimization.nlsq.multistart import (  # noqa: E402
+from xpcsjax.optimization.nlsq.multistart import (
     MultiStartConfig,
     MultiStartResult,
     SingleStartResult,
@@ -240,23 +240,23 @@ from xpcsjax.optimization.nlsq.multistart import (  # noqa: E402
     screen_starts,
     validate_n_starts_for_lhs,
 )
-from xpcsjax.optimization.nlsq.parameter_index_mapper import (  # noqa: E402
+from xpcsjax.optimization.nlsq.parameter_index_mapper import (
     ParameterIndexMapper,
 )
 
 # Parameter utilities (extracted Jan 2026)
-from xpcsjax.optimization.nlsq.parameter_utils import (  # noqa: E402
+from xpcsjax.optimization.nlsq.parameter_utils import (
     build_parameter_labels as build_parameter_labels_utils,
 )
-from xpcsjax.optimization.nlsq.parameter_utils import (  # noqa: E402
+from xpcsjax.optimization.nlsq.parameter_utils import (
     classify_parameter_status as classify_parameter_status_utils,
 )
-from xpcsjax.optimization.nlsq.parameter_utils import (  # noqa: E402
+from xpcsjax.optimization.nlsq.parameter_utils import (
     compute_consistent_per_angle_init,
     compute_jacobian_stats,
     sample_xdata,
 )
-from xpcsjax.optimization.nlsq.result_builder import (  # noqa: E402
+from xpcsjax.optimization.nlsq.result_builder import (
     QualityMetrics,
     ResultBuilder,
     compute_quality_metrics,
@@ -264,11 +264,11 @@ from xpcsjax.optimization.nlsq.result_builder import (  # noqa: E402
     determine_convergence_status,
     normalize_nlsq_result,
 )
-from xpcsjax.optimization.nlsq.results import (  # noqa: E402
+from xpcsjax.optimization.nlsq.results import (
     FunctionEvaluationCounter,
     OptimizationResult,
 )
-from xpcsjax.optimization.nlsq.strategies.chunking import (  # noqa: E402
+from xpcsjax.optimization.nlsq.strategies.chunking import (
     StratificationDiagnostics,
     analyze_angle_distribution,
     compute_stratification_diagnostics,
@@ -278,7 +278,7 @@ from xpcsjax.optimization.nlsq.strategies.chunking import (  # noqa: E402
     format_diagnostics_report,
     should_use_stratification,
 )
-from xpcsjax.optimization.nlsq.strategies.executors import (  # noqa: E402
+from xpcsjax.optimization.nlsq.strategies.executors import (
     ExecutionResult,
     LargeDatasetExecutor,
     OptimizationExecutor,
@@ -286,18 +286,18 @@ from xpcsjax.optimization.nlsq.strategies.executors import (  # noqa: E402
     StreamingExecutor,
     get_executor,
 )
-from xpcsjax.optimization.nlsq.strategies.residual import (  # noqa: E402
+from xpcsjax.optimization.nlsq.strategies.residual import (
     StratifiedResidualFunction,
     create_stratified_residual_function,
 )
-from xpcsjax.optimization.nlsq.strategies.residual_jit import (  # noqa: E402
+from xpcsjax.optimization.nlsq.strategies.residual_jit import (
     StratifiedResidualFunctionJIT,
 )
-from xpcsjax.optimization.nlsq.strategies.sequential import (  # noqa: E402
+from xpcsjax.optimization.nlsq.strategies.sequential import (
     JAC_SAMPLE_SIZE,
     optimize_per_angle_sequential,
 )
-from xpcsjax.optimization.nlsq.wrapper import NLSQWrapper  # noqa: E402
+from xpcsjax.optimization.nlsq.wrapper import NLSQWrapper
 
 __all__ = [
     # NLSQ Package Integration
@@ -450,9 +450,9 @@ __all__ = [
 # ============================================================================
 # xpcsjax single-entry public wrapper
 # ============================================================================
-from collections.abc import Callable  # noqa: E402
-from pathlib import Path as _Path  # noqa: E402 - public API section is below the verbatim port
-from typing import TYPE_CHECKING, Any  # noqa: E402
+from collections.abc import Callable
+from pathlib import Path as _Path
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from xpcsjax.config import ConfigManager
@@ -1114,7 +1114,7 @@ def _fit_nlsq_heterodyne(
                 n_scaling=_n_scaling,
                 threshold=int(getattr(nlsq_cfg, "constant_scaling_threshold", 3)),
             )
-        except Exception as _banner_exc:  # noqa: BLE001 - banners must never break a fit
+        except Exception as _banner_exc:
             from xpcsjax.utils.logging import get_logger as _get_logger
 
             _get_logger(__name__).debug(
@@ -1172,7 +1172,7 @@ def _fit_nlsq_heterodyne(
             _engine_skip,
         )
         het_result = None
-    except Exception as _engine_exc:  # noqa: BLE001 - best-effort engine route
+    except Exception as _engine_exc:
         from xpcsjax.utils.logging import get_logger as _get_logger
 
         _get_logger(__name__).warning(

@@ -4,9 +4,9 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QObject, Signal  # noqa: E402
+from PySide6.QtCore import QObject, Signal
 
-from xpcsjax.service.events import (  # noqa: E402
+from xpcsjax.service.events import (
     Banner,
     BannerKind,
     Finished,

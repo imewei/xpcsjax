@@ -351,46 +351,45 @@ class CombinedModel(PhysicsModelBase):
                     params.shape,
                 )
             return compute_g1_diffusion(params, t1, t2, q, dt)
-        else:
-            # Laminar flow mode: full model
-            if logger.isEnabledFor(10):  # DEBUG
-                logger.debug(
-                    "CombinedModel.compute_g1: calling compute_g1_total with params.shape=%s, t1.shape=%s, t2.shape=%s, phi.shape=%s, q=%s, L=%s, dt=%s",
-                    params.shape,
-                    t1.shape,
-                    t2.shape,
-                    phi.shape,
-                    q,
-                    L,
-                    dt,
-                )
-            try:
-                result = compute_g1_total(params, t1, t2, phi, q, L, dt)
-                # Note: Skip debug logging of result values when traced by JAX
-                # (jax.vmap/jit creates BatchTracer objects that can't be formatted)
-                if logger.isEnabledFor(10):  # DEBUG level
-                    try:
-                        # Use nanmin/nanmax: g1 result may contain NaN from failed shards.
-                        min_val = float(jnp.nanmin(result))
-                        max_val = float(jnp.nanmax(result))
-                        logger.debug(
-                            f"CombinedModel.compute_g1: compute_g1_total completed, result.shape={result.shape}, min={min_val:.6e}, max={max_val:.6e}",
-                        )
-                    except (TypeError, ValueError):
-                        # Likely a JAX tracer object during tracing
-                        logger.debug(
-                            f"CombinedModel.compute_g1: compute_g1_total completed, result.shape={result.shape}",
-                        )
-                return result
-            # P2-R6-07: Narrow broad except — realistic failures from compute_g1_total
-            # are ValueError (bad params), RuntimeError (XLA), or ArithmeticError.
-            # Bare raise preserves the original traceback for all exception types.
-            except (ValueError, RuntimeError, ArithmeticError) as e:
-                logger.error(
-                    f"CombinedModel.compute_g1: compute_g1_total failed with error: {e}",
-                )
-                logger.error("CombinedModel.compute_g1: traceback:", exc_info=True)
-                raise
+        # Laminar flow mode: full model
+        if logger.isEnabledFor(10):  # DEBUG
+            logger.debug(
+                "CombinedModel.compute_g1: calling compute_g1_total with params.shape=%s, t1.shape=%s, t2.shape=%s, phi.shape=%s, q=%s, L=%s, dt=%s",
+                params.shape,
+                t1.shape,
+                t2.shape,
+                phi.shape,
+                q,
+                L,
+                dt,
+            )
+        try:
+            result = compute_g1_total(params, t1, t2, phi, q, L, dt)
+            # Note: Skip debug logging of result values when traced by JAX
+            # (jax.vmap/jit creates BatchTracer objects that can't be formatted)
+            if logger.isEnabledFor(10):  # DEBUG level
+                try:
+                    # Use nanmin/nanmax: g1 result may contain NaN from failed shards.
+                    min_val = float(jnp.nanmin(result))
+                    max_val = float(jnp.nanmax(result))
+                    logger.debug(
+                        f"CombinedModel.compute_g1: compute_g1_total completed, result.shape={result.shape}, min={min_val:.6e}, max={max_val:.6e}",
+                    )
+                except (TypeError, ValueError):
+                    # Likely a JAX tracer object during tracing
+                    logger.debug(
+                        f"CombinedModel.compute_g1: compute_g1_total completed, result.shape={result.shape}",
+                    )
+            return result
+        # P2-R6-07: Narrow broad except — realistic failures from compute_g1_total
+        # are ValueError (bad params), RuntimeError (XLA), or ArithmeticError.
+        # Bare raise preserves the original traceback for all exception types.
+        except (ValueError, RuntimeError, ArithmeticError) as e:
+            logger.error(
+                f"CombinedModel.compute_g1: compute_g1_total failed with error: {e}",
+            )
+            logger.error("CombinedModel.compute_g1: traceback:", exc_info=True)
+            raise
 
     def compute_g1_batch(
         self,

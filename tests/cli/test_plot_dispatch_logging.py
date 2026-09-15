@@ -58,7 +58,7 @@ def _stub_c2_eval(monkeypatch: pytest.MonkeyPatch) -> None:
 class _FakeModel:
     """Minimal stand-in model for the fit-comparison render-logging tests."""
 
-    def compute_g2(self, params, t1, t2, phi, q, L, contrast, offset, dt):  # noqa: N803
+    def compute_g2(self, params, t1, t2, phi, q, L, contrast, offset, dt):
         n1 = np.asarray(t1).shape[0]
         n2 = np.asarray(t2).shape[0]
         return np.ones((1, n1, n2), dtype=np.float64)

@@ -223,7 +223,7 @@ class JSONFormatter(logging.Formatter):
             ctx = getattr(record, "context", None)
             out["context"] = _json_safe(ctx) if ctx is not None else None
             return json.dumps(out, default=lambda o: repr(o)[:500])
-        except Exception:  # noqa: BLE001 - a formatter must never raise
+        except Exception:
             return json.dumps(
                 {
                     "level": getattr(record, "levelname", "UNKNOWN"),
@@ -1033,7 +1033,7 @@ def log_phase(
     if threshold_s <= 0:
         try:
             resolved_logger.log(level, "Phase '%s' started", name)
-        except Exception:  # noqa: BLE001 - logging must not abort the phase
+        except Exception:
             pass
 
     start_time = time.perf_counter()
@@ -1215,7 +1215,7 @@ def log_calls(
                         resolved_logger.log(level, "Calling %s(%s)", func_name, all_args)
                     else:
                         resolved_logger.log(level, "Calling %s", func_name)
-                except Exception:  # noqa: BLE001 - logging must not abort the decorated call
+                except Exception:
                     pass
 
             try:
@@ -1228,7 +1228,7 @@ def log_calls(
                             resolved_logger.log(level, "Completed %s -> %r", func_name, result)
                         else:
                             resolved_logger.log(level, "Completed %s", func_name)
-                    except Exception:  # noqa: BLE001 - logging must not abort the decorated call
+                    except Exception:
                         pass
 
                 return result
@@ -1236,7 +1236,7 @@ def log_calls(
             except Exception as e:
                 try:
                     resolved_logger.log(logging.ERROR, "Exception in %s: %s", func_name, e)
-                except Exception:  # noqa: BLE001 - logging must not mask original
+                except Exception:
                     pass
                 raise
 
@@ -1297,7 +1297,7 @@ def log_performance(
                             func_name,
                             duration,
                         )
-                    except Exception:  # noqa: BLE001 - logging must not abort the decorated call
+                    except Exception:
                         pass
 
                 return result
@@ -1312,7 +1312,7 @@ def log_performance(
                         duration,
                         e,
                     )
-                except Exception:  # noqa: BLE001 - logging must not mask original
+                except Exception:
                     pass
                 raise
 
@@ -1436,7 +1436,7 @@ def log_once(logger: LoggerType, level: int, key: str, msg: str, *args: Any) -> 
     if _should_log_once(key):
         try:
             logger.log(level, msg, *args)
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
 
@@ -1469,7 +1469,7 @@ def logged_errors(
                     context={"operation": operation, **context},
                     level=level,
                 )
-        except Exception:  # noqa: BLE001 - logging must not mask the original
+        except Exception:
             pass
         if policy == "reraise":
             raise

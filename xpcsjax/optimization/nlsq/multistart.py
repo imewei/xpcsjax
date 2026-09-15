@@ -646,8 +646,7 @@ def include_custom_starts(
     logger.info(f"Including {len(custom_array)} custom starting point(s)")
 
     # Prepend custom starts so they're always included
-    combined = np.vstack([custom_array, generated_starts])
-    return combined
+    return np.vstack([custom_array, generated_starts])
 
 
 # =============================================================================
@@ -1324,9 +1323,7 @@ def _run_full_strategy(
         enable_progress_bar=enable_progress_bar,
         verbose=verbose,
     ) as progress:
-        results = _run_parallel_with_progress(worker, starts, n_workers, progress)
-
-    return results
+        return _run_parallel_with_progress(worker, starts, n_workers, progress)
 
 
 def _run_parallel_with_progress(
@@ -1443,25 +1440,24 @@ def _run_parallel_with_progress(
                     # starts launch (see timeout branch above).
                     executor.shutdown(wait=False, cancel_futures=True)
                     break
-                else:
-                    # Non-fatal error for this worker
-                    logger.warning(f"Worker {idx} failed: {e}")
-                    failed_result = SingleStartResult(
-                        start_idx=idx,
-                        initial_params=starts[idx],
-                        final_params=starts[idx],
-                        chi_squared=np.inf,
-                        success=False,
-                        message=str(e),
-                    )
-                    results.append(failed_result)
-                    completed_count += 1
-                    progress.update(
-                        start_idx=idx,
-                        success=False,
-                        chi_squared=np.inf,
-                        message=str(e),
-                    )
+                # Non-fatal error for this worker
+                logger.warning(f"Worker {idx} failed: {e}")
+                failed_result = SingleStartResult(
+                    start_idx=idx,
+                    initial_params=starts[idx],
+                    final_params=starts[idx],
+                    chi_squared=np.inf,
+                    success=False,
+                    message=str(e),
+                )
+                results.append(failed_result)
+                completed_count += 1
+                progress.update(
+                    start_idx=idx,
+                    success=False,
+                    chi_squared=np.inf,
+                    message=str(e),
+                )
 
         if not fallback_to_sequential:
             executor.shutdown(wait=True)

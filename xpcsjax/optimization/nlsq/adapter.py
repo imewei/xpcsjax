@@ -298,7 +298,7 @@ def _get_or_create_heterodyne_model(
     q_val = float(q)
     dt_val = float(dt)
 
-    def model_func(xdata: np.ndarray, *params: float) -> np.ndarray:  # noqa: ARG001
+    def model_func(xdata: np.ndarray, *params: float) -> np.ndarray:
         """Evaluate c2 model at the configured phi angle.
 
         ``xdata`` is ignored — the heterodyne kernel evaluates on the closed-over
@@ -610,12 +610,11 @@ def get_or_create_model(
         contrast_per_point = contrast_vals[phi_indices]
         offset_per_point = offset_vals[phi_indices]
 
-        g2_pred = offset_per_point + contrast_per_point * g1_batch**2
+        return offset_per_point + contrast_per_point * g1_batch**2
 
         # Return as JAX array so NLSQ can trace through curve_fit's/CMA-ES's
         # JIT (np.asarray() on a Tracer raises during tracing — mirrors the
         # heterodyne model_func above). NLSQ converts to numpy after tracing.
-        return g2_pred
 
     # JIT compilation: The model_func now uses JAX vmap for vectorized computation
     # (FR-006, T042). The underlying CombinedModel.compute_g1_batch() uses JAX vmap.
@@ -929,84 +928,82 @@ class NLSQAdapter(NLSQAdapterBase):
             # Determine if JIT was applied (check if function is traced)
             jit_compiled = self.config.enable_jit
             return model_func, cache_hit, jit_compiled
-        else:
-            # Caching disabled - create model directly using CombinedModel
-            from xpcsjax.core.models import CombinedModel
+        # Caching disabled - create model directly using CombinedModel
+        from xpcsjax.core.models import CombinedModel
 
-            # Use same logic as get_or_create_model for consistency
-            normalized_mode = analysis_mode
-            model_mode = normalized_mode if "static" in normalized_mode else "laminar_flow"
-            model = CombinedModel(analysis_mode=model_mode)
+        # Use same logic as get_or_create_model for consistency
+        normalized_mode = analysis_mode
+        model_mode = normalized_mode if "static" in normalized_mode else "laminar_flow"
+        model = CombinedModel(analysis_mode=model_mode)
 
-            # Store experimental parameters for closure
-            q_val = float(q)
+        # Store experimental parameters for closure
+        q_val = float(q)
 
-            def model_func(xdata: np.ndarray, *params: float) -> np.ndarray:
-                """Model function compatible with NLSQ curve_fit."""
-                params_array = np.array(params)
-                n_params = len(params_array)
+        def model_func(xdata: np.ndarray, *params: float) -> np.ndarray:
+            """Model function compatible with NLSQ curve_fit."""
+            params_array = np.array(params)
+            n_params = len(params_array)
 
-                # Extract per-angle scaling parameters if present
-                n_physical = 3 if "static" in model_mode else 7
-                if per_angle_scaling and n_params >= n_physical + 2 * n_phi:
-                    contrast_vals = params_array[:n_phi]
-                    offset_vals = params_array[n_phi : 2 * n_phi]
-                    physical_params = params_array[2 * n_phi :]
-                else:
-                    # Legacy scalar mode (for backward compatibility)
-                    c0 = params_array[0] if len(params_array) > 0 else 0.5
-                    o0 = params_array[1] if len(params_array) > 1 else 1.0
-                    contrast_vals = np.full(n_phi, c0)
-                    offset_vals = np.full(n_phi, o0)
-                    default_phys = np.array([1000.0, 0.5, 10.0])
-                    physical_params = params_array[2:] if len(params_array) > 2 else default_phys
+            # Extract per-angle scaling parameters if present
+            n_physical = 3 if "static" in model_mode else 7
+            if per_angle_scaling and n_params >= n_physical + 2 * n_phi:
+                contrast_vals = params_array[:n_phi]
+                offset_vals = params_array[n_phi : 2 * n_phi]
+                physical_params = params_array[2 * n_phi :]
+            else:
+                # Legacy scalar mode (for backward compatibility)
+                c0 = params_array[0] if len(params_array) > 0 else 0.5
+                o0 = params_array[1] if len(params_array) > 1 else 1.0
+                contrast_vals = np.full(n_phi, c0)
+                offset_vals = np.full(n_phi, o0)
+                default_phys = np.array([1000.0, 0.5, 10.0])
+                physical_params = params_array[2:] if len(params_array) > 2 else default_phys
 
-                # Vectorized g2 computation (single JAX dispatch)
-                import jax.numpy as jnp
+            # Vectorized g2 computation (single JAX dispatch)
+            import jax.numpy as jnp
 
-                params_jax = jnp.asarray(physical_params, dtype=jnp.float64)
-                t1_all = xdata[:, 0]
-                t2_all = xdata[:, 1]
-                phi_all = xdata[:, 2]
+            params_jax = jnp.asarray(physical_params, dtype=jnp.float64)
+            t1_all = xdata[:, 0]
+            t2_all = xdata[:, 1]
+            phi_all = xdata[:, 2]
 
-                # xdata[:, 2] holds precomputed phi INDICES (see
-                # _flatten_xpcs_data), exactly as the cached branch consumes them
-                # (``xdata[:, 2].astype(int32)``). Treat them as integer indices,
-                # not raw angle values — running searchsorted on an index column
-                # maps an index into an index and mis-associates points with
-                # angles.
-                phi_idx_all = phi_all.astype(np.int64)
-                n_phi_oob = int(np.sum((phi_idx_all < 0) | (phi_idx_all >= len(phi_unique))))
-                if n_phi_oob > 0:
-                    logger.warning(
-                        "%d phi index/indices lie outside the fitted angle grid; "
-                        "clipped to the valid range. Check data/config alignment.",
-                        n_phi_oob,
-                    )
-                phi_idx_all = np.clip(phi_idx_all, 0, len(phi_unique) - 1)
-
-                # Point-wise g1 via vmap (mirrors the cached branch). compute_g1
-                # meshgrids t1/t2 into an (n,n) grid, so feeding per-point arrays
-                # to it returns a time x time grid — NOT the (n_points,) per-point
-                # g1 this path needs. compute_g1_batch evaluates each point with
-                # its OWN phi angle (phi_unique[phi_idx_all]).
-                phi_per_point = jnp.asarray(phi_unique, dtype=jnp.float64)[phi_idx_all]
-                g1_per_point = np.asarray(
-                    model.compute_g1_batch(
-                        params_jax,
-                        jnp.asarray(t1_all, dtype=jnp.float64),
-                        jnp.asarray(t2_all, dtype=jnp.float64),
-                        phi_per_point,
-                        q_val,
-                        1.0,
-                        dt_val,
-                    )
+            # xdata[:, 2] holds precomputed phi INDICES (see
+            # _flatten_xpcs_data), exactly as the cached branch consumes them
+            # (``xdata[:, 2].astype(int32)``). Treat them as integer indices,
+            # not raw angle values — running searchsorted on an index column
+            # maps an index into an index and mis-associates points with
+            # angles.
+            phi_idx_all = phi_all.astype(np.int64)
+            n_phi_oob = int(np.sum((phi_idx_all < 0) | (phi_idx_all >= len(phi_unique))))
+            if n_phi_oob > 0:
+                logger.warning(
+                    "%d phi index/indices lie outside the fitted angle grid; "
+                    "clipped to the valid range. Check data/config alignment.",
+                    n_phi_oob,
                 )
+            phi_idx_all = np.clip(phi_idx_all, 0, len(phi_unique) - 1)
 
-                g2_pred = offset_vals[phi_idx_all] + contrast_vals[phi_idx_all] * g1_per_point**2
-                return g2_pred
+            # Point-wise g1 via vmap (mirrors the cached branch). compute_g1
+            # meshgrids t1/t2 into an (n,n) grid, so feeding per-point arrays
+            # to it returns a time x time grid — NOT the (n_points,) per-point
+            # g1 this path needs. compute_g1_batch evaluates each point with
+            # its OWN phi angle (phi_unique[phi_idx_all]).
+            phi_per_point = jnp.asarray(phi_unique, dtype=jnp.float64)[phi_idx_all]
+            g1_per_point = np.asarray(
+                model.compute_g1_batch(
+                    params_jax,
+                    jnp.asarray(t1_all, dtype=jnp.float64),
+                    jnp.asarray(t2_all, dtype=jnp.float64),
+                    phi_per_point,
+                    q_val,
+                    1.0,
+                    dt_val,
+                )
+            )
 
-            return model_func, False, False
+            return offset_vals[phi_idx_all] + contrast_vals[phi_idx_all] * g1_per_point**2
+
+        return model_func, False, False
 
     @staticmethod
     def _get_attr(data: Any, key: str, default: Any = None) -> Any:
@@ -1418,7 +1415,7 @@ class NLSQAdapter(NLSQAdapterBase):
             _fixed_physical_full = resolved_physical.values_full
             _base_model_func = model_func
 
-            def _stripped_model_func(x, *params):  # noqa: ANN001, ANN002, ANN202
+            def _stripped_model_func(x, *params):
                 n_prefix = len(params) - int(_phys_free_mask.sum())
                 full_physical = restore_by_mask_jax(
                     jnp.asarray(params[n_prefix:]), _fixed_physical_full, _phys_free_mask

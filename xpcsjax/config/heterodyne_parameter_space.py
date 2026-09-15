@@ -34,7 +34,7 @@ logger = get_logger(__name__)
 _REGISTRY_ALIAS: dict[str, str] = {"phi0": "phi0_het", "beta": "v_beta"}
 
 
-def registry_info(name: str):  # noqa: ANN201 - returns a ParameterInfo from the registry
+def registry_info(name: str):
     """Return the ``DEFAULT_REGISTRY`` entry for a heterodyne kernel-name param.
 
     Resolves kernel names (``beta``, ``phi0``) to their disambiguated registry

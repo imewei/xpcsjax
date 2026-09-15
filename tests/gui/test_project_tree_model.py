@@ -4,10 +4,10 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import Qt
 
-from xpcsjax.gui.project.model import DONE, Project  # noqa: E402
-from xpcsjax.gui.project.tree_model import ProjectTreeModel  # noqa: E402
+from xpcsjax.gui.project.model import DONE, Project
+from xpcsjax.gui.project.tree_model import ProjectTreeModel
 
 
 def test_rebuild_mirrors_datasets_and_runs(qtbot):

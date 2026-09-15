@@ -132,7 +132,7 @@ def fit_with_out_of_core_accumulation(
     """
     import jax.numpy as jnp
 
-    _start_time = time.perf_counter()  # noqa: F841
+    _start_time = time.perf_counter()
     log.info("Initializing Out-of-Core Global Stratified Optimization (Full Physics)...")
 
     chi2_stride = 10 if fast_chi2_mode else 1
@@ -145,7 +145,7 @@ def fit_with_out_of_core_accumulation(
 
     # 1. Setup Chunking
     # Use StratifiedIndices if available (Zero-Copy)
-    _use_index_based = False  # noqa: F841
+    _use_index_based = False
     # We operate on the ORIGINAL flattened data to avoid pre-materializing
     # a giant stratified copy (which causes OOM).
     # We assume `data` object has .phi, .t1, .t2, .g2
@@ -451,7 +451,7 @@ def fit_with_out_of_core_accumulation(
         """
         if ooc_pool is not None:
             chunk_results = ooc_pool.compute_accumulators(np.asarray(params))
-            acc_count = sum(end - start for start, end in chunk_boundaries)  # noqa: F821
+            acc_count = sum(end - start for start, end in chunk_boundaries)
         else:
             chunk_results_local: list[tuple[np.ndarray, np.ndarray, float]] = []
             acc_count = 0
@@ -499,9 +499,7 @@ def fit_with_out_of_core_accumulation(
             return active_step
         return jnp.zeros(n_params).at[jnp.asarray(free_idx)].set(active_step)
 
-    def _pcov_from_active_jtj(
-        active_JtJ: Any, chi2: float, count: int
-    ) -> tuple[np.ndarray, bool]:
+    def _pcov_from_active_jtj(active_JtJ: Any, chi2: float, count: int) -> tuple[np.ndarray, bool]:
         """Invert the free-submatrix Hessian into a full-length covariance.
 
         Zeros on every fixed row/column -- exactly 0 uncertainty, matching
@@ -555,7 +553,7 @@ def fit_with_out_of_core_accumulation(
 
     try:
         for i in range(max_iter):
-            _iter_start = time.perf_counter()  # noqa: F841
+            _iter_start = time.perf_counter()
 
             total_JtJ, total_Jtr, total_chi2, count = _accumulate_at(params_curr)
 
@@ -681,12 +679,11 @@ def fit_with_out_of_core_accumulation(
                         )
                         break
                     break  # Break inner LM loop, proceed to next accumulation
-                else:
-                    # Reject
-                    log.debug(
-                        f"Reject step (chi2 {float(chi2_new):.4e} >= {float(chi2_ref):.4e}). Damping up."
-                    )
-                    lm_lambda *= 10
+                # Reject
+                log.debug(
+                    f"Reject step (chi2 {float(chi2_new):.4e} >= {float(chi2_ref):.4e}). Damping up."
+                )
+                lm_lambda *= 10
 
             if _early_result is not None:
                 break

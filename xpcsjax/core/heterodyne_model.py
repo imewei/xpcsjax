@@ -128,7 +128,7 @@ class HeterodynePhysicsAdapter(PhysicsModelBase):
         t2: jnp.ndarray,
         phi: jnp.ndarray,
         q: float,
-        L: float,  # noqa: ARG002 — kept for interface uniformity (heterodyne is L-free here)
+        L: float,
         dt: float | None = None,
     ) -> jnp.ndarray:
         """Compute the heterodyne two-time correlation surface(s).
@@ -264,7 +264,7 @@ class HeterodynePhysicsAdapter(PhysicsModelBase):
         self,
         params: jnp.ndarray,
         data: dict[str, Any],
-        ctx: dict[str, Any] | None = None,  # noqa: ARG002 — reserved for future ctx
+        ctx: dict[str, Any] | None = None,
     ) -> jnp.ndarray:
         """Compute the flat residual vector ``model - data`` for NLSQ.
 

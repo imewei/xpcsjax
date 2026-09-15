@@ -6,9 +6,9 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from tests.gui import ipc_fakes  # noqa: E402 — importable spawn targets
-from xpcsjax.gui.ipc.job import FitJob  # noqa: E402
-from xpcsjax.service.events import Died, Finished, Started  # noqa: E402
+from tests.gui import ipc_fakes
+from xpcsjax.gui.ipc.job import FitJob
+from xpcsjax.service.events import Died, Finished, Started
 
 
 def _collect(handle, qtbot, predicate, timeout=10000):

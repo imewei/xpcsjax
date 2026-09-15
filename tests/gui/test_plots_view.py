@@ -8,10 +8,10 @@ import pytest
 pytest.importorskip("PySide6")
 pytest.importorskip("pyqtgraph")
 
-import pyqtgraph as pg  # noqa: E402
-from PySide6.QtCore import Qt  # noqa: E402
+import pyqtgraph as pg
+from PySide6.QtCore import Qt
 
-from xpcsjax.gui.views.plots_view import (  # noqa: E402
+from xpcsjax.gui.views.plots_view import (
     _SCATTER_MAX_POINTS,
     DiagonalResidualView,
     PhiResultsGrid,

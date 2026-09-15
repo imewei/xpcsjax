@@ -16,7 +16,7 @@ import numpy as np
 # ---------------------------------------------------------------------------
 # nlsq imports — MUST precede any JAX import so nlsq can set x64 mode
 # ---------------------------------------------------------------------------
-from nlsq import CurveFit, curve_fit, curve_fit_large  # noqa: E402
+from nlsq import CurveFit, curve_fit, curve_fit_large
 
 try:
     from nlsq import AdaptiveHybridStreamingOptimizer, HybridStreamingConfig
@@ -27,7 +27,7 @@ except ImportError:
     AdaptiveHybridStreamingOptimizer = None  # type: ignore[assignment,misc]
     HybridStreamingConfig = None  # type: ignore[assignment,misc]
 
-import jax.numpy as jnp  # noqa: E402 — must follow nlsq to preserve x64 init order
+import jax.numpy as jnp
 
 from xpcsjax.optimization.nlsq.gradient_monitor import _get_debug_curvefit_callback
 from xpcsjax.optimization.nlsq.heterodyne_adapter_base import NLSQAdapterBase
@@ -652,7 +652,7 @@ class NLSQWrapper(NLSQAdapterBase):
         try:
             probe = residual_fn(initial_params)
             n_data = len(np.asarray(probe))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.error("NLSQWrapper: residual probe failed: %s", exc)
             wall_time = time.perf_counter() - start_time
             return build_failed_result(
@@ -873,7 +873,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 )
                 return result
 
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning(
                     "NLSQWrapper: tier %s attempt %d/%d failed: %s",
                     tier.value,

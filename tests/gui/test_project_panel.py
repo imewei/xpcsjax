@@ -4,9 +4,9 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from xpcsjax.gui.project.model import Project  # noqa: E402
-from xpcsjax.gui.result_loader import ResultSummary  # noqa: E402
-from xpcsjax.gui.views.project_panel import ComparisonView, ProjectSidebar  # noqa: E402
+from xpcsjax.gui.project.model import Project
+from xpcsjax.gui.result_loader import ResultSummary
+from xpcsjax.gui.views.project_panel import ComparisonView, ProjectSidebar
 
 
 def _summary(chi2):

@@ -268,7 +268,7 @@ def _apply_parameter_overrides(
     # a midpoint default -- losing previously-present parameters with no log.
     missing = [name for name in active_names if name not in current]
     if missing:
-        midpoints = config_manager._calculate_midpoint_defaults()  # noqa: SLF001
+        midpoints = config_manager._calculate_midpoint_defaults()
         for name in missing:
             if name in midpoints:
                 current[name] = midpoints[name]

@@ -163,13 +163,13 @@ from xpcsjax.optimization.nlsq.strategies.hybrid_streaming import (
 )
 
 
-from xpcsjax.optimization.nlsq.strategies.sequential import (  # noqa: E402
+from xpcsjax.optimization.nlsq.strategies.sequential import (
     JAC_SAMPLE_SIZE,
     optimize_per_angle_sequential,
 )
-from xpcsjax.core.physics_nlsq import compute_g2_scaled  # noqa: E402
-from xpcsjax.core.physics_utils import apply_diagonal_correction  # noqa: E402
-from xpcsjax.optimization.nlsq.transforms import (  # noqa: E402
+from xpcsjax.core.physics_nlsq import compute_g2_scaled
+from xpcsjax.core.physics_utils import apply_diagonal_correction
+from xpcsjax.optimization.nlsq.transforms import (
     adjust_covariance_for_transforms,
     apply_forward_shear_transforms_to_bounds,
     apply_forward_shear_transforms_to_vector,
@@ -187,13 +187,13 @@ from xpcsjax.optimization.nlsq.transforms import (  # noqa: E402
 # Anti-Degeneracy Defense System
 
 # Memory management utilities (extracted to memory.py for reduced complexity)
-from xpcsjax.optimization.nlsq.memory import (  # noqa: E402
+from xpcsjax.optimization.nlsq.memory import (
     NLSQStrategy,
     select_nlsq_strategy,
 )
 
 # Parameter utilities (extracted to parameter_utils.py for reduced complexity)
-from xpcsjax.optimization.nlsq.parameter_utils import (  # noqa: E402
+from xpcsjax.optimization.nlsq.parameter_utils import (
     ResolvedPhysicalParameters,
     build_parameter_labels as _build_parameter_labels,
     classify_parameter_status as _classify_parameter_status,
@@ -204,10 +204,10 @@ from xpcsjax.optimization.nlsq.parameter_utils import (  # noqa: E402
     compute_jacobian_stats as _compute_jacobian_stats,
     compute_consistent_per_angle_init as _compute_consistent_per_angle_init,
 )
-from xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics import (  # noqa: E402
+from xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics import (
     assemble_anti_degeneracy_diagnostics,
 )
-from xpcsjax.optimization.nlsq.config import safe_float, safe_int  # noqa: E402
+from xpcsjax.optimization.nlsq.config import safe_float, safe_int
 
 # Module-level logger
 _memory_logger = get_logger(__name__)
@@ -339,10 +339,10 @@ def _build_homodyne_l4_callback(
 
         def _observer_only(
             iteration: Any, cost: Any, params: Any, info: Any = None, **kw: Any
-        ) -> None:  # noqa: ANN401
+        ) -> None:
             try:
                 on_iteration(int(iteration), float(cost))
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
 
         return None, _observer_only
@@ -392,11 +392,11 @@ def _build_homodyne_l4_callback(
     # then the observer is called.  A raising observer is silently swallowed.
     def _l4_plus_observer(
         iteration: Any, cost: Any, params: Any, info: Any = None, **kw: Any
-    ) -> None:  # noqa: ANN401
+    ) -> None:
         _l4_callback(iteration, cost, params, info, **kw)  # existing L4 work, unchanged
         try:
             on_iteration(int(iteration), float(cost))  # cost == SSR
-        except Exception:  # noqa: BLE001 — an observer callback must not abort the fit
+        except Exception:
             pass
 
     return monitor, _l4_plus_observer
@@ -1636,7 +1636,7 @@ class NLSQWrapper(NLSQAdapterBase):
             # FIRST, physical params UNPACKED as individual scalar args (see
             # `_create_residual_function`'s docstring and the call site at
             # `base_residual_fn(xdata, *popt)` in `_post_process_results`).
-            def _stripped_wrapped_residual_fn(xdata, *params):  # noqa: ANN001, ANN002, ANN202
+            def _stripped_wrapped_residual_fn(xdata, *params):
                 n_prefix = len(params) - int(_phys_free_mask.sum())
                 params_array = jnp.stack(params[n_prefix:])
                 full_physical = restore_by_mask_jax(
@@ -2727,7 +2727,7 @@ class NLSQWrapper(NLSQAdapterBase):
         # Not user-configurable — this ensures deterministic data ordering
         # for consistent NLSQ convergence across runs.
         shuffle_seed = 42
-        rng = np.random.RandomState(shuffle_seed)  # noqa: NPY002 — keep for reproducibility
+        rng = np.random.RandomState(shuffle_seed)
         # Shuffle WITHIN each stratification chunk boundary, not globally.
         # `chunk_sizes` (below, passed into StratifiedData unchanged) describes
         # contiguous [start, end) ranges that create_angle_stratified_data
@@ -3210,8 +3210,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 sigma_slice = sigma_array[phi_idx]
                 sigma_vals[mask] = sigma_slice[t1_indices[mask], t2_indices[mask]]
 
-            residuals = (g2_section - g2_model) / (sigma_vals + 1e-10)
-            return residuals
+            return (g2_section - g2_model) / (sigma_vals + 1e-10)
 
         # Get optimizer configuration
         opt_config = config.config.get("optimization") or {}
@@ -3799,57 +3798,54 @@ class NLSQWrapper(NLSQAdapterBase):
                 # reduced_chi_squared uses one dof convention on every path). Tolerance
                 # rather than exact equality so the mask survives a loader
                 # that rounds t1 and t2 independently.
-                g2_theory = jnp.where(
+                return jnp.where(
                     jnp.abs(t1_requested - t2_requested) <= 1e-6 * dt,
                     g2_obs[indices],
                     g2_theory,
                 )
 
-                return g2_theory
-
-            else:
-                # NON-STRATIFIED DATA PATH (grid-based computation)
-                # Original grid-based logic for non-stratified data
-                compute_g2_scaled_vmap = jax.vmap(
-                    lambda phi_val, contrast_val, offset_val: jnp.squeeze(
-                        compute_g2_scaled(
-                            params=physical_params,
-                            t1=t1,  # 1D arrays
-                            t2=t2,
-                            phi=phi_val,  # Single phi value
-                            q=q,
-                            L=L,
-                            contrast=contrast_val,  # Per-angle contrast
-                            offset=offset_val,  # Per-angle offset
-                            dt=dt,
-                        ),
-                        axis=0,  # Squeeze the phi dimension
+            # NON-STRATIFIED DATA PATH (grid-based computation)
+            # Original grid-based logic for non-stratified data
+            compute_g2_scaled_vmap = jax.vmap(
+                lambda phi_val, contrast_val, offset_val: jnp.squeeze(
+                    compute_g2_scaled(
+                        params=physical_params,
+                        t1=t1,  # 1D arrays
+                        t2=t2,
+                        phi=phi_val,  # Single phi value
+                        q=q,
+                        L=L,
+                        contrast=contrast_val,  # Per-angle contrast
+                        offset=offset_val,  # Per-angle offset
+                        dt=dt,
                     ),
-                    in_axes=(0, 0, 0),  # Vectorize over all three arrays
-                )
+                    axis=0,  # Squeeze the phi dimension
+                ),
+                in_axes=(0, 0, 0),  # Vectorize over all three arrays
+            )
 
-                # Compute on grid for all unique angles
-                g2_theory = compute_g2_scaled_vmap(phi_unique, contrast, offset)
-                # Shape: (n_phi, n_t1, n_t2)
+            # Compute on grid for all unique angles
+            g2_theory = compute_g2_scaled_vmap(phi_unique, contrast, offset)
+            # Shape: (n_phi, n_t1, n_t2)
 
-                # Apply diagonal correction
-                from xpcsjax.core.jax_backend import apply_diagonal_correction
+            # Apply diagonal correction
+            from xpcsjax.core.jax_backend import apply_diagonal_correction
 
-                apply_diagonal_vmap = jax.vmap(apply_diagonal_correction, in_axes=0)
-                g2_theory = apply_diagonal_vmap(g2_theory)
+            apply_diagonal_vmap = jax.vmap(apply_diagonal_correction, in_axes=0)
+            g2_theory = apply_diagonal_vmap(g2_theory)
 
-                # Grid-based indexing for non-stratified data
-                n_t1 = len(t1)
-                n_t2 = len(t2)
-                grid_size_per_angle = n_t1 * n_t2
+            # Grid-based indexing for non-stratified data
+            n_t1 = len(t1)
+            n_t2 = len(t2)
+            grid_size_per_angle = n_t1 * n_t2
 
-                # Decompose flat indices into grid coordinates
-                phi_idx = indices // grid_size_per_angle
-                remaining = indices % grid_size_per_angle
-                t1_idx = remaining // n_t2
-                t2_idx = remaining % n_t2
+            # Decompose flat indices into grid coordinates
+            phi_idx = indices // grid_size_per_angle
+            remaining = indices % grid_size_per_angle
+            t1_idx = remaining // n_t2
+            t2_idx = remaining % n_t2
 
-                return g2_theory[phi_idx, t1_idx, t2_idx]
+            return g2_theory[phi_idx, t1_idx, t2_idx]
 
         return model_function
 

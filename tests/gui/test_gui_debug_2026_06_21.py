@@ -14,9 +14,9 @@ import pytest
 pytest.importorskip("PySide6")
 pytest.importorskip("pyqtgraph")
 
-import numpy as np  # noqa: E402
+import numpy as np
 
-from xpcsjax.gui.result_loader import ResultSummary  # noqa: E402
+from xpcsjax.gui.result_loader import ResultSummary
 
 
 def _window(qtbot):

@@ -106,7 +106,7 @@ def run_worker(job: FitJob, event_queue: Any) -> None:
             )
         )
         emitter.emit(Finished(run_id="", seq=0, result_path=str(out_dir) if out_dir else ""))
-    except BaseException:  # noqa: BLE001 — report ANY failure as a terminal event
+    except BaseException:
         emitter.emit(Failed(run_id="", seq=0, traceback=traceback.format_exc()))
     finally:
         root.removeHandler(handler)

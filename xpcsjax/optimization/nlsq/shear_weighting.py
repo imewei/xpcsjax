@@ -361,9 +361,7 @@ class ShearSensitivityWeighting:
 
         # Weighted mean squared error
         weighted_residuals_sq = weights * residuals**2
-        weighted_loss = jnp.sum(weighted_residuals_sq)
-
-        return weighted_loss
+        return jnp.sum(weighted_residuals_sq)
 
     def compute_weighted_mse(self, residuals: Array, phi_indices: Array) -> Array:
         """Compute weighted MSE (for gradient computation).
@@ -387,9 +385,7 @@ class ShearSensitivityWeighting:
         weights = self._weights_jax[phi_indices.astype(jnp.int32)]
 
         # Weighted mean: sum(w * r^2) / sum(w)
-        weighted_mse = jnp.sum(weights * residuals**2) / jnp.sum(weights)
-
-        return weighted_mse
+        return jnp.sum(weights * residuals**2) / jnp.sum(weights)
 
     def get_diagnostics(self) -> dict:
         """Get weighting diagnostics.

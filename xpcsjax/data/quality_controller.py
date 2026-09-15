@@ -482,11 +482,11 @@ class DataQualityController:
         """
         if stage == QualityControlStage.RAW_DATA:
             return self.quality_config.enable_raw_validation
-        elif stage == QualityControlStage.FILTERED_DATA:
+        if stage == QualityControlStage.FILTERED_DATA:
             return self.quality_config.enable_filtering_validation
-        elif stage == QualityControlStage.PREPROCESSED_DATA:
+        if stage == QualityControlStage.PREPROCESSED_DATA:
             return self.quality_config.enable_preprocessing_validation
-        elif stage == QualityControlStage.FINAL_DATA:
+        if stage == QualityControlStage.FINAL_DATA:
             return self.quality_config.enable_final_validation
         return True  # type: ignore[unreachable]
 
@@ -534,7 +534,7 @@ class DataQualityController:
             c2_exp = data.get("c2_exp", [])
             if hasattr(c2_exp, "shape"):
                 return c2_exp.shape  # type: ignore[no-any-return]
-            elif isinstance(c2_exp, (list, tuple)) and len(c2_exp) > 0:
+            if isinstance(c2_exp, (list, tuple)) and len(c2_exp) > 0:
                 return (len(c2_exp), getattr(c2_exp[0], "shape", "unknown"))
             return ("unknown",)
         except (AttributeError, TypeError, IndexError):
@@ -1494,7 +1494,7 @@ class DataQualityController:
         }
 
         for repair in repairs_applied:
-            for _issue_type, keywords in issue_keywords.items():
+            for keywords in issue_keywords.values():
                 if any(keyword.lower() in repair.lower() for keyword in keywords):
                     if any(keyword.lower() in issue.message.lower() for keyword in keywords):
                         return True
@@ -1683,7 +1683,7 @@ class DataQualityController:
         """
         if hasattr(validation_report, "data_statistics"):
             stats = validation_report.data_statistics
-            for _key, stat in stats.items():
+            for stat in stats.values():
                 if isinstance(stat, dict) and "finite_fraction" in stat:
                     metrics.finite_fraction = max(
                         metrics.finite_fraction,

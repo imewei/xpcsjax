@@ -358,7 +358,7 @@ def load_xpcs_config(config_path: str | Path) -> dict[str, Any]:
             logger.debug(f"Config full path: {config_path}")
             return config
 
-        elif config_path.suffix.lower() == ".json":
+        if config_path.suffix.lower() == ".json":
             # JSON loading with structure conversion
             with open(config_path, encoding="utf-8") as f:
                 json_config: dict[str, Any] = json.load(f)
@@ -371,11 +371,10 @@ def load_xpcs_config(config_path: str | Path) -> dict[str, Any]:
             # In future, can add more sophisticated conversion via existing converter
             return json_config
 
-        else:
-            raise XPCSConfigurationError(
-                f"Unsupported configuration format: {config_path.suffix}. "
-                f"Supported formats: .yaml, .yml, .json",
-            )
+        raise XPCSConfigurationError(
+            f"Unsupported configuration format: {config_path.suffix}. "
+            f"Supported formats: .yaml, .yml, .json",
+        )
 
     except (_YAML_ERROR, json.JSONDecodeError) as e:
         raise XPCSConfigurationError(
@@ -733,7 +732,7 @@ class XPCSDataLoader:
                 for k, v in data.items()
             }
 
-        elif output_format == "auto" and jax_available:
+        if output_format == "auto" and jax_available:
             logger.debug("Auto-selecting JAX format (available)")
             return {
                 k: jnp.asarray(np.ascontiguousarray(v), dtype=jnp.float64)
@@ -742,7 +741,7 @@ class XPCSDataLoader:
                 for k, v in data.items()
             }
 
-        elif output_format == "auto":
+        if output_format == "auto":
             logger.debug("Auto-selecting numpy format (JAX not available)")
 
         return data  # Keep numpy format
@@ -1087,34 +1086,33 @@ class XPCSDataLoader:
         if _is_jax_array(c2_matrices):
             # JAX path: use vmap for vectorized correction (FR-006a)
             return self._correct_diagonal_batch_jax(c2_matrices)  # type: ignore
-        else:
-            # NumPy path: pre-allocate and direct assignment
-            c2_corrected = np.empty_like(c2_matrices)
+        # NumPy path: pre-allocate and direct assignment
+        c2_corrected = np.empty_like(c2_matrices)
 
-            # Pre-compute normalization array (reused for all matrices)
-            norm = np.ones(size)
-            norm[1:-1] = 2
+        # Pre-compute normalization array (reused for all matrices)
+        norm = np.ones(size)
+        norm[1:-1] = 2
 
-            # Pre-compute index arrays
-            idx_upper = np.arange(size - 1)
-            idx_lower = np.arange(1, size)
-            diag_indices = np.diag_indices(size)
+        # Pre-compute index arrays
+        idx_upper = np.arange(size - 1)
+        idx_lower = np.arange(1, size)
+        diag_indices = np.diag_indices(size)
 
-            for i in range(n_phi):
-                c2_mat = c2_matrices[i]
-                # Extract side band values
-                side_band = c2_mat[(idx_upper, idx_lower)]
+        for i in range(n_phi):
+            c2_mat = c2_matrices[i]
+            # Extract side band values
+            side_band = c2_mat[(idx_upper, idx_lower)]
 
-                # Compute diagonal values
-                diag_val = np.zeros(size)
-                diag_val[:-1] += side_band
-                diag_val[1:] += side_band
+            # Compute diagonal values
+            diag_val = np.zeros(size)
+            diag_val[:-1] += side_band
+            diag_val[1:] += side_band
 
-                # Copy and apply correction (direct assignment)
-                c2_corrected[i] = c2_mat.copy()
-                c2_corrected[i][diag_indices] = diag_val / norm
+            # Copy and apply correction (direct assignment)
+            c2_corrected[i] = c2_mat.copy()
+            c2_corrected[i][diag_indices] = diag_val / norm
 
-            return c2_corrected
+        return c2_corrected
 
     def _correct_diagonal_batch_jax(self, c2_matrices: Any) -> Any:
         """Apply vectorized diagonal correction using JAX ``vmap``.
@@ -1262,19 +1260,17 @@ class XPCSDataLoader:
                     )
 
                 # Additional integration with phi filtering for compatibility
-                selected_indices = self._integrate_with_phi_filtering(
+                return self._integrate_with_phi_filtering(
                     filtering_result.selected_indices,
                     dphilist,
                     filtering_result,
                 )
 
-                return selected_indices
-            else:
-                logger.warning(
-                    "No data filtering criteria matched - returning all angles. "
-                    "Check filter configuration if this is unexpected."
-                )
-                return None
+            logger.warning(
+                "No data filtering criteria matched - returning all angles. "
+                "Check filter configuration if this is unexpected."
+            )
+            return None
 
         except ImportError as e:
             logger.warning(
@@ -1291,8 +1287,7 @@ class XPCSDataLoader:
                 # instead of a bare WARNING the caller cannot distinguish.
                 self._record_degradation(f"angle filtering crashed ({e}); fell back to all angles")
                 return None
-            else:
-                raise XPCSDataFormatError(f"Data filtering failed: {e}") from e
+            raise XPCSDataFormatError(f"Data filtering failed: {e}") from e
 
     def _record_degradation(self, reason: str) -> None:
         """Record a degraded-fallback event so it is detectable downstream (DATA-1).
@@ -1489,9 +1484,7 @@ class XPCSDataLoader:
         # Create 1D time array starting from 0
         # Last point at index (N-1), not N
         time_max = dt * (matrix_size - 1)
-        time_1d = np.linspace(0, time_max, matrix_size)
-
-        return time_1d
+        return np.linspace(0, time_max, matrix_size)
 
     def _source_hdf_stat(self) -> tuple[str, int, int] | None:
         """Return the configured source HDF5 file's identity for cache keying.
@@ -1779,27 +1772,25 @@ class XPCSDataLoader:
                         logger.warning(f"Preprocessing warning: {warning}")
 
                 return result.data
-            else:
-                logger.error("Preprocessing pipeline failed")
+            logger.error("Preprocessing pipeline failed")
 
-                # Log errors
-                for error in result.provenance.errors:
-                    logger.error(f"Preprocessing error: {error}")
+            # Log errors
+            for error in result.provenance.errors:
+                logger.error(f"Preprocessing error: {error}")
 
-                # Return original data if fallback is enabled
-                if preprocessing_config.get("fallback_on_failure", True):
-                    # DATA-1: degraded path — the fit runs on un-preprocessed
-                    # data. Record it and tag the result so it is detectable.
-                    self._record_degradation(
-                        "preprocessing pipeline failed; fell back to original data"
-                    )
-                    if isinstance(data, dict):
-                        data["_preprocessing_degraded"] = True
-                    return data
-                else:
-                    raise XPCSDataFormatError(
-                        "Preprocessing pipeline failed and fallback disabled",
-                    )
+            # Return original data if fallback is enabled
+            if preprocessing_config.get("fallback_on_failure", True):
+                # DATA-1: degraded path — the fit runs on un-preprocessed
+                # data. Record it and tag the result so it is detectable.
+                self._record_degradation(
+                    "preprocessing pipeline failed; fell back to original data"
+                )
+                if isinstance(data, dict):
+                    data["_preprocessing_degraded"] = True
+                return data
+            raise XPCSDataFormatError(
+                "Preprocessing pipeline failed and fallback disabled",
+            )
 
         except ImportError as e:
             logger.warning(f"Preprocessing pipeline not available: {e}.")
@@ -1812,10 +1803,9 @@ class XPCSDataLoader:
                 if isinstance(data, dict):
                     data["_preprocessing_degraded"] = True
                 return data
-            else:
-                raise XPCSDataFormatError(
-                    f"Preprocessing pipeline unavailable and fallback disabled: {e}"
-                ) from e
+            raise XPCSDataFormatError(
+                f"Preprocessing pipeline unavailable and fallback disabled: {e}"
+            ) from e
         except (ValueError, KeyError, IndexError, RuntimeError) as e:
             # Narrowed from broad Exception: only catch expected processing errors.
             # Programming bugs (AttributeError, TypeError) and system errors
@@ -1832,8 +1822,7 @@ class XPCSDataLoader:
                 if isinstance(data, dict):
                     data["_preprocessing_degraded"] = True
                 return data
-            else:
-                raise XPCSDataFormatError(f"Preprocessing pipeline failed: {e}") from e
+            raise XPCSDataFormatError(f"Preprocessing pipeline failed: {e}") from e
 
     def _get_provenance_path(self) -> str:
         """Generate path for saving preprocessing provenance."""
