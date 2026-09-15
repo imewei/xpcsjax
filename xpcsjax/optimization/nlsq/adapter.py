@@ -67,7 +67,7 @@ import time
 import weakref
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -783,43 +783,20 @@ class NLSQAdapter(NLSQAdapterBase):
     @staticmethod
     def _get_physical_param_names(analysis_mode: AnalysisMode) -> list[str]:
         """Get physical parameter names for a given analysis mode."""
-        normalized_mode = analysis_mode.lower()
+        from xpcsjax.optimization.nlsq.nlsq_settings import (
+            get_physical_param_names,
+        )
 
-        if normalized_mode in {"static_anisotropic", "static_isotropic"}:
-            return ["D0", "alpha", "D_offset"]
-        elif normalized_mode == "laminar_flow":
-            return [
-                "D0",
-                "alpha",
-                "D_offset",
-                "gamma_dot_t0",
-                "beta",
-                "gamma_dot_t_offset",
-                "phi0",
-            ]
-        else:
-            raise ValueError(
-                f"Unknown analysis_mode: '{analysis_mode}'. "
-                f"Expected 'static_anisotropic', 'static_isotropic', or 'laminar_flow'"
-            )
+        return get_physical_param_names(analysis_mode)
 
     @staticmethod
     def _extract_nlsq_settings(config: Any) -> dict[str, Any]:
         """Extract NLSQ-specific settings from config."""
-        config_dict = None
-        if hasattr(config, "config") and isinstance(config.config, dict):
-            config_dict = config.config
-        elif isinstance(config, dict):
-            config_dict = config
+        from xpcsjax.optimization.nlsq.nlsq_settings import (
+            extract_nlsq_settings,
+        )
 
-        if not config_dict:
-            return {}
-
-        # `or {}` (not `.get(k, {})`) so a present-but-null YAML section
-        # (`optimization:` / `nlsq:` with no body) degrades to defaults
-        # instead of raising AttributeError / returning None.
-        result: dict[str, Any] = (config_dict.get("optimization") or {}).get("nlsq") or {}
-        return result
+        return extract_nlsq_settings(config)
 
     def _select_workflow(
         self,
@@ -1293,10 +1270,13 @@ class NLSQAdapter(NLSQAdapterBase):
             nlsq_diagnostics=info,
         )
 
+    if TYPE_CHECKING:
+        from xpcsjax.config.manager import ConfigManager
+
     def fit(
         self,
         data: Any,
-        config: Any,
+        config: ConfigManager | dict[str, Any],
         initial_params: np.ndarray | None = None,
         bounds: tuple[np.ndarray, np.ndarray] | None = None,
         analysis_mode: AnalysisMode = AnalysisMode.STATIC_ISOTROPIC,

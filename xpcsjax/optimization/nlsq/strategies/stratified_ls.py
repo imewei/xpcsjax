@@ -919,7 +919,15 @@ def fit_with_stratified_least_squares(
             pcov = np.full((len(popt), len(popt)), np.nan)
             _cov_is_placeholder = True
         else:
-            J = np.asarray(jax.jacfwd(_solver_residual_fn)(popt))
+            # Column-blocked (not jax.jacfwd directly): >=1M points x tens of
+            # params otherwise spikes the live tangent width to n_params,
+            # a several-GB post-solve memory peak (see covariance.py's
+            # _chunked_jacfwd_dense docstring; ULP-identical to jax.jacfwd).
+            from xpcsjax.optimization.nlsq.covariance import (
+                _chunked_jacfwd_dense,
+            )
+
+            J = _chunked_jacfwd_dense(_solver_residual_fn, popt)
             try:
                 # Plain SSR / linear loss: this solver runs the unweighted
                 # least-squares objective (no robust loss is passed), so the

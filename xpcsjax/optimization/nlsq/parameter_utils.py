@@ -8,7 +8,10 @@ Key Functions:
 - classify_parameter_status: Identify parameters at bounds
 - sample_xdata: Subsample x-data for diagnostic computations
 - compute_consistent_per_angle_init: Initialize per-angle params consistently
-- compute_jacobian_stats: Compute Jacobian-based statistics
+- compute_jacobian_stats: Compute Jacobian-based statistics -- the production
+  copy (``wrapper.py``'s CMA-ES phases call it, and it is re-exported through
+  ``xpcsjax.optimization.nlsq.__all__``); ``jacobian.py`` re-exports this same
+  function rather than defining its own second copy.
 """
 
 from collections.abc import Callable
@@ -146,6 +149,107 @@ def resolve_optimized_physical_parameters(
 def strip_by_mask(values: np.ndarray, mask: np.ndarray) -> np.ndarray:
     """Return only the entries of ``values`` where ``mask`` is True."""
     return np.asarray(values)[mask]
+
+
+def parse_per_angle_scaling_overrides(
+    per_angle_scaling_initial: dict[str, Any] | None,
+    n_phi: int,
+    logger: Any,
+    *,
+    mismatch_scope: str = "per_angle_scaling",
+    invalid_prefix: str = "",
+) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Parse the optional ``contrast``/``offset`` per-angle initial-value overrides.
+
+    Shared by the plain and sequential per-angle-optimization entry points in
+    ``wrapper.py`` (previously two ~35-line byte-identical copies save for the
+    angle-count variable name and log-message wording). Returns
+    ``(contrast_override, offset_override)``, each ``None`` when absent,
+    malformed, or wrong-length (a warning is logged and that override is
+    dropped rather than raising -- this is a best-effort initial-guess
+    convenience, never load-bearing for correctness).
+
+    Parameters
+    ----------
+    per_angle_scaling_initial : dict or None
+        Optional ``{"contrast": [...], "offset": [...]}`` initial-value map.
+    n_phi : int
+        Expected number of unique angles; an override array of any other
+        length is rejected.
+    logger : Any
+        Logger for the warning on a rejected override.
+    mismatch_scope, invalid_prefix : str, optional
+        Reproduce each call site's original wording verbatim: the wrong-length
+        warning reads ``f"{mismatch_scope} contrast override has..."`` and the
+        malformed-input warning reads ``f"Invalid {invalid_prefix}per-angle
+        contrast override; ignoring"`` (defaults match the original plain
+        (non-sequential) call site's text).
+    """
+    contrast_result: np.ndarray | None = None
+    offset_result: np.ndarray | None = None
+    if not per_angle_scaling_initial:
+        return contrast_result, offset_result
+
+    contrast_override = per_angle_scaling_initial.get("contrast")
+    if contrast_override is not None:
+        try:
+            arr = np.asarray(contrast_override, dtype=np.float64)
+            if arr.size == n_phi:
+                contrast_result = arr.copy()
+            else:
+                logger.warning(
+                    f"{mismatch_scope} contrast override has %d entries "
+                    "(expected %d); ignoring override",
+                    arr.size,
+                    n_phi,
+                )
+        except (TypeError, ValueError):
+            logger.warning(f"Invalid {invalid_prefix}per-angle contrast override; ignoring")
+
+    offset_override = per_angle_scaling_initial.get("offset")
+    if offset_override is not None:
+        try:
+            arr = np.asarray(offset_override, dtype=np.float64)
+            if arr.size == n_phi:
+                offset_result = arr.copy()
+            else:
+                logger.warning(
+                    f"{mismatch_scope} offset override has %d entries "
+                    "(expected %d); ignoring override",
+                    arr.size,
+                    n_phi,
+                )
+        except (TypeError, ValueError):
+            logger.warning(f"Invalid {invalid_prefix}per-angle offset override; ignoring")
+
+    return contrast_result, offset_result
+
+
+def zero_fixed_uncertainties(
+    uncertainties: np.ndarray, resolved_physical: "ResolvedPhysicalParameters | None"
+) -> np.ndarray:
+    """Force every FIXED physical parameter's reported uncertainty to 0.0.
+
+    A fixed physical parameter's true covariance diagonal is exactly 0, but
+    the various best-effort/numerical-safety floors downstream (e.g.
+    ``_safe_uncertainties_from_pcov``'s near-zero floor, or an
+    inverse-variance-weighted combine step that treats an all-zero variance
+    column as "no usable signal") can't distinguish "singular" from
+    "deliberately fixed" and may report a small nonzero value there instead.
+    No-op (returns ``uncertainties`` unchanged) when ``resolved_physical`` is
+    ``None`` or every physical parameter is free -- physics is always the
+    tail of the parameter vector, per the layout contract used everywhere
+    this is called (plain, out-of-core, hybrid-streaming, and stratified-LS
+    result assembly).
+    """
+    if resolved_physical is None or resolved_physical.free_mask.all():
+        return uncertainties
+    n_physical = len(resolved_physical.physical_names)
+    unc = np.array(uncertainties, dtype=float)
+    for i, free in enumerate(resolved_physical.free_mask):
+        if not free:
+            unc[-n_physical + i] = 0.0
+    return unc
 
 
 def restore_by_mask_numpy(

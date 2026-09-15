@@ -1286,18 +1286,11 @@ def _get_physical_param_names(analysis_mode: AnalysisMode) -> list[str]:
     list[str]
         List of physical parameter names
     """
-    if "static" in analysis_mode.lower():
-        return ["D0", "alpha", "D_offset"]
-    else:
-        return [
-            "D0",
-            "alpha",
-            "D_offset",
-            "gamma_dot_t0",
-            "beta",
-            "gamma_dot_t_offset",
-            "phi0",
-        ]
+    from xpcsjax.optimization.nlsq.nlsq_settings import (
+        get_physical_param_names,
+    )
+
+    return get_physical_param_names(analysis_mode)
 
 
 def _params_to_array(params: dict[str, float], analysis_mode: AnalysisMode) -> jnp.ndarray:
@@ -2937,12 +2930,11 @@ def fit_nlsq_cmaes(
 
         # Determine quality flag using reduced chi-squared thresholds
         # consistent with NLSQWrapper's 3-level system (wrapper.py:3577-3583)
-        if reduced_chi_squared < 1.5:
-            quality_flag = "good"
-        elif reduced_chi_squared < 3.0:
-            quality_flag = "marginal"
-        else:
-            quality_flag = "poor"
+        from xpcsjax.optimization.nlsq.results import (
+            quality_flag_from_reduced_chi2,
+        )
+
+        quality_flag = quality_flag_from_reduced_chi2(reduced_chi_squared)
 
     except ValueError as e:
         if (

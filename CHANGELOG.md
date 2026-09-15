@@ -204,6 +204,23 @@ the rendered documentation.
   full-budget) uncertainties therefore now report NaN with the flag set;
   parameters are unaffected. The plain adapter-returned-no-covariance fallback
   keeps its pinv fallback (mirrors laminar's `strategies/stratified_ls.py`).
+- **`NLSQWrapper.fit`'s two out-of-core (`OUT_OF_CORE`, >75% RAM) return
+  paths — the initial strategy decision and the post-stratification
+  recheck — had drifted on `reduced_chi_squared`'s DOF for a static
+  (`static_anisotropic` / `static_isotropic`) analysis mode with an explicit
+  `per_angle_mode: "constant"` token.** The initial branch resolved the token
+  with the plain (non-pinned) resolver, reporting DOF = `n_physical` (3 for a
+  3-physical-parameter fixture); the recheck branch already used
+  `resolve_per_angle_mode_static_pinned`, which pins static modes to the dense
+  `individual` layout regardless of the requested token, reporting
+  DOF = `n_physical + 2*n_phi` (13 for `n_phi=5`) for the identical dense
+  `popt`. Both branches are now one function
+  (`wrapper_out_of_core_route.run_out_of_core_route`) using the pinned
+  resolver, so this can't drift again; the initial branch's DOF for this case
+  moves from 3 to 13 (the bug), matching the recheck branch's pre-existing
+  (correct) value. Also re-raises `MemoryError` from the >=1 M stratified-LS
+  route instead of falling through to the dense in-memory `curve_fit_large`
+  path, which needs strictly *more* memory than the route that just OOM'd.
 
 ## [0.1.7] - 2026-09-04
 

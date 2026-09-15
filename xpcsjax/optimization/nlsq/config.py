@@ -14,7 +14,7 @@ Config Consolidation (FR-014):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from xpcsjax.optimization.nlsq.per_angle_mode import DEFAULT_CONSTANT_SCALING_THRESHOLD
 from xpcsjax.utils.logging import get_logger
@@ -672,6 +672,89 @@ class NLSQConfig:
 
         return cls.from_dict(nlsq_config)
 
+    # Table-driven `validate()` field groups (D3). Each entry's error message
+    # is mechanically generated as f"{field} <template>, got: {value}" -- the
+    # SAME text every one of these fields already produced by hand, just no
+    # longer copy-pasted 60+ times. Cross-field / heterogeneous-wording checks
+    # stay inline below (CLAUDE.md: "keep the handful of cross-field checks
+    # inline").
+    _POSITIVE_FIELDS: ClassVar[tuple[str, ...]] = (
+        "trust_region_scale",
+        "ftol",
+        "xtol",
+        "gtol",
+        "max_iterations",
+        "streaming_chunk_size",
+        "target_chunk_size",
+        "hybrid_warmup_iterations",
+        "hybrid_max_warmup_iterations",
+        "hybrid_warmup_learning_rate",
+        "hybrid_gauss_newton_max_iterations",
+        "hybrid_gauss_newton_tol",
+        "hybrid_chunk_size",
+        "hybrid_warm_start_threshold",
+        "hybrid_warmup_lr_refinement",
+        "hybrid_warmup_lr_careful",
+        "hybrid_max_warmup_step_size",
+        "multi_start_n_starts",
+        "multi_start_refinement_ftol",
+        "hierarchical_max_outer_iterations",
+        "hierarchical_outer_tolerance",
+        "hierarchical_physical_max_iterations",
+        "hierarchical_per_angle_max_iterations",
+        "group_variance_lambda",
+        "gradient_ratio_threshold",
+        "gradient_consecutive_triggers",
+        "cmaes_warmstart_skip_threshold",
+        "cmaes_tol_fun",
+        "cmaes_tol_x",
+        "cmaes_scale_threshold",
+        "cmaes_memory_limit_gb",
+        "cmaes_refinement_ftol",
+        "cmaes_refinement_xtol",
+        "cmaes_refinement_gtol",
+        "cmaes_refinement_max_nfev",
+    )
+    _NONNEG_FIELDS: ClassVar[tuple[str, ...]] = (
+        "max_recovery_attempts",
+        "multi_start_n_workers",
+        "multi_start_refine_top_k",
+        "cmaes_max_restarts",
+    )
+    _MIN_ONE_FIELDS: ClassVar[tuple[str, ...]] = (
+        "constant_scaling_threshold",
+        "cmaes_n_seeds",
+    )
+    _MAX_FIELDS: ClassVar[tuple[str, ...]] = (
+        "streaming_chunk_size",
+        "target_chunk_size",
+        "hybrid_chunk_size",
+    )
+    _RANGE_OPEN_FIELDS: ClassVar[tuple[str, ...]] = (
+        "hybrid_cost_increase_tolerance",
+        "multi_start_degeneracy_threshold",
+        "regularization_target_cv",
+        "regularization_target_contribution",
+        "regularization_max_cv",
+    )
+    _RANGE_HALFOPEN_FIELDS: ClassVar[tuple[str, ...]] = (
+        "multi_start_screen_keep_fraction",
+        "cmaes_sigma",
+        "cmaes_sigma_warmstart",
+    )
+    _CHOICE_FIELDS: ClassVar[dict[str, list[str]]] = {
+        "loss": ["linear", "soft_l1", "huber", "cauchy", "arctan"],
+        "hybrid_normalization_strategy": ["auto", "bounds", "p0", "none"],
+        "multi_start_sampling_strategy": ["latin_hypercube", "random"],
+        "per_angle_mode": ["individual", "constant", "auto"],
+        "regularization_mode": ["absolute", "relative", "auto"],
+        "gradient_collapse_response": ["warn", "hierarchical", "reset", "abort"],
+        "cmaes_preset": ["cmaes-fast", "cmaes", "cmaes-global"],
+        "cmaes_restart_strategy": ["none", "bipop"],
+        "cmaes_refinement_workflow": ["auto", "standard", "streaming"],
+        "cmaes_refinement_loss": ["linear", "soft_l1", "huber", "cauchy", "arctan"],
+    }
+
     def validate(self) -> list[str]:
         """Validate configuration values.
 
@@ -682,270 +765,52 @@ class NLSQConfig:
         """
         errors: list[str] = []
 
-        # Validate loss function
-        valid_losses = ["linear", "soft_l1", "huber", "cauchy", "arctan"]
-        if self.loss not in valid_losses:
-            errors.append(f"loss must be one of {valid_losses}, got: {self.loss}")
+        for field_name in self._POSITIVE_FIELDS:
+            value = getattr(self, field_name)
+            if value <= 0:
+                errors.append(f"{field_name} must be positive, got: {value}")
 
-        # Validate trust_region_scale
-        if self.trust_region_scale <= 0:
-            errors.append(f"trust_region_scale must be positive, got: {self.trust_region_scale}")
+        for field_name in self._NONNEG_FIELDS:
+            value = getattr(self, field_name)
+            if value < 0:
+                errors.append(f"{field_name} must be non-negative, got: {value}")
 
-        # Validate convergence tolerances
-        if self.ftol <= 0:
-            errors.append(f"ftol must be positive, got: {self.ftol}")
-        if self.xtol <= 0:
-            errors.append(f"xtol must be positive, got: {self.xtol}")
-        if self.gtol <= 0:
-            errors.append(f"gtol must be positive, got: {self.gtol}")
+        for field_name in self._MIN_ONE_FIELDS:
+            value = getattr(self, field_name)
+            if value < 1:
+                errors.append(f"{field_name} must be >= 1, got: {value}")
 
-        # Validate max_iterations
-        if self.max_iterations <= 0:
-            errors.append(f"max_iterations must be positive, got: {self.max_iterations}")
+        for field_name in self._MAX_FIELDS:
+            value = getattr(self, field_name)
+            if value > MAX_CHUNK_SIZE:
+                errors.append(
+                    f"{field_name} exceeds MAX_CHUNK_SIZE ({MAX_CHUNK_SIZE}), got: {value}"
+                )
 
-        # Validate chunk sizes
-        if self.streaming_chunk_size <= 0:
-            errors.append(
-                f"streaming_chunk_size must be positive, got: {self.streaming_chunk_size}"
-            )
-        if self.streaming_chunk_size > MAX_CHUNK_SIZE:
-            errors.append(
-                f"streaming_chunk_size exceeds MAX_CHUNK_SIZE ({MAX_CHUNK_SIZE}), "
-                f"got: {self.streaming_chunk_size}"
-            )
-        if self.target_chunk_size <= 0:
-            errors.append(f"target_chunk_size must be positive, got: {self.target_chunk_size}")
-        if self.target_chunk_size > MAX_CHUNK_SIZE:
-            errors.append(
-                f"target_chunk_size exceeds MAX_CHUNK_SIZE ({MAX_CHUNK_SIZE}), "
-                f"got: {self.target_chunk_size}"
-            )
+        for field_name in self._RANGE_OPEN_FIELDS:
+            value = getattr(self, field_name)
+            if not 0 < value < 1:
+                errors.append(f"{field_name} must be in (0, 1), got: {value}")
 
-        # Validate recovery attempts
-        if self.max_recovery_attempts < 0:
-            errors.append(
-                f"max_recovery_attempts must be non-negative, got: {self.max_recovery_attempts}"
-            )
+        for field_name in self._RANGE_HALFOPEN_FIELDS:
+            value = getattr(self, field_name)
+            if not 0 < value <= 1:
+                errors.append(f"{field_name} must be in (0, 1], got: {value}")
 
-        # Validate hybrid streaming settings
-        valid_norm_strategies = ["auto", "bounds", "p0", "none"]
-        if self.hybrid_normalization_strategy not in valid_norm_strategies:
-            errors.append(
-                f"hybrid_normalization_strategy must be one of {valid_norm_strategies}, "
-                f"got: {self.hybrid_normalization_strategy}"
-            )
-        if self.hybrid_warmup_iterations <= 0:
-            errors.append(
-                f"hybrid_warmup_iterations must be positive, got: {self.hybrid_warmup_iterations}"
-            )
-        if self.hybrid_max_warmup_iterations <= 0:
-            errors.append(
-                f"hybrid_max_warmup_iterations must be positive, "
-                f"got: {self.hybrid_max_warmup_iterations}"
-            )
-        if self.hybrid_warmup_learning_rate <= 0:
-            errors.append(
-                f"hybrid_warmup_learning_rate must be positive, "
-                f"got: {self.hybrid_warmup_learning_rate}"
-            )
-        if self.hybrid_gauss_newton_max_iterations <= 0:
-            errors.append(
-                f"hybrid_gauss_newton_max_iterations must be positive, "
-                f"got: {self.hybrid_gauss_newton_max_iterations}"
-            )
-        if self.hybrid_gauss_newton_tol <= 0:
-            errors.append(
-                f"hybrid_gauss_newton_tol must be positive, got: {self.hybrid_gauss_newton_tol}"
-            )
-        if self.hybrid_chunk_size <= 0:
-            errors.append(f"hybrid_chunk_size must be positive, got: {self.hybrid_chunk_size}")
-        if self.hybrid_chunk_size > MAX_CHUNK_SIZE:
-            errors.append(
-                f"hybrid_chunk_size exceeds MAX_CHUNK_SIZE ({MAX_CHUNK_SIZE}), "
-                f"got: {self.hybrid_chunk_size}"
-            )
+        for field_name, choices in self._CHOICE_FIELDS.items():
+            value = getattr(self, field_name)
+            if value not in choices:
+                errors.append(f"{field_name} must be one of {choices}, got: {value}")
 
-        # Validate 4-Layer Defense parameters
-        # Layer 1: Warm Start Detection
-        if self.hybrid_warm_start_threshold <= 0:
-            errors.append(
-                f"hybrid_warm_start_threshold must be positive, "
-                f"got: {self.hybrid_warm_start_threshold}"
-            )
-        # Layer 2: Adaptive Learning Rate
-        if self.hybrid_warmup_lr_refinement <= 0:
-            errors.append(
-                f"hybrid_warmup_lr_refinement must be positive, "
-                f"got: {self.hybrid_warmup_lr_refinement}"
-            )
-        if self.hybrid_warmup_lr_careful <= 0:
-            errors.append(
-                f"hybrid_warmup_lr_careful must be positive, got: {self.hybrid_warmup_lr_careful}"
-            )
-        # Layer 3: Cost-Increase Guard
-        if not 0 < self.hybrid_cost_increase_tolerance < 1:
-            errors.append(
-                f"hybrid_cost_increase_tolerance must be in (0, 1), "
-                f"got: {self.hybrid_cost_increase_tolerance}"
-            )
-        # Layer 4: Step Clipping
-        if self.hybrid_max_warmup_step_size <= 0:
-            errors.append(
-                f"hybrid_max_warmup_step_size must be positive, "
-                f"got: {self.hybrid_max_warmup_step_size}"
-            )
-
-        # Validate multi-start settings
-        valid_sampling_strategies = ["latin_hypercube", "random"]
-        if self.multi_start_sampling_strategy not in valid_sampling_strategies:
-            errors.append(
-                f"multi_start_sampling_strategy must be one of {valid_sampling_strategies}, "
-                f"got: {self.multi_start_sampling_strategy}"
-            )
-        if self.multi_start_n_starts <= 0:
-            errors.append(
-                f"multi_start_n_starts must be positive, got: {self.multi_start_n_starts}"
-            )
-        if self.multi_start_n_workers < 0:
-            errors.append(
-                f"multi_start_n_workers must be non-negative, got: {self.multi_start_n_workers}"
-            )
-        if not 0 < self.multi_start_screen_keep_fraction <= 1:
-            errors.append(
-                f"multi_start_screen_keep_fraction must be in (0, 1], "
-                f"got: {self.multi_start_screen_keep_fraction}"
-            )
-        if self.multi_start_refine_top_k < 0:
-            errors.append(
-                f"multi_start_refine_top_k must be non-negative, "
-                f"got: {self.multi_start_refine_top_k}"
-            )
-        if self.multi_start_refinement_ftol <= 0:
-            errors.append(
-                f"multi_start_refinement_ftol must be positive, "
-                f"got: {self.multi_start_refinement_ftol}"
-            )
-        if not 0 < self.multi_start_degeneracy_threshold < 1:
-            errors.append(
-                f"multi_start_degeneracy_threshold must be in (0, 1), "
-                f"got: {self.multi_start_degeneracy_threshold}"
-            )
-
-        # Validate Anti-Degeneracy Defense System settings
-        # Layer 1: Per-Angle Reparameterization (scaling mode)
-        valid_per_angle_modes = ["individual", "constant", "auto"]
-        if self.per_angle_mode not in valid_per_angle_modes:
-            errors.append(
-                f"per_angle_mode must be one of {valid_per_angle_modes}, got: {self.per_angle_mode}"
-            )
-        if self.constant_scaling_threshold < 1:
-            errors.append(
-                f"constant_scaling_threshold must be >= 1, got: {self.constant_scaling_threshold}"
-            )
-
-        # Layer 2: Hierarchical Optimization
-        if self.hierarchical_max_outer_iterations <= 0:
-            errors.append(
-                f"hierarchical_max_outer_iterations must be positive, "
-                f"got: {self.hierarchical_max_outer_iterations}"
-            )
-        if self.hierarchical_outer_tolerance <= 0:
-            errors.append(
-                f"hierarchical_outer_tolerance must be positive, "
-                f"got: {self.hierarchical_outer_tolerance}"
-            )
-        if self.hierarchical_physical_max_iterations <= 0:
-            errors.append(
-                f"hierarchical_physical_max_iterations must be positive, "
-                f"got: {self.hierarchical_physical_max_iterations}"
-            )
-        if self.hierarchical_per_angle_max_iterations <= 0:
-            errors.append(
-                f"hierarchical_per_angle_max_iterations must be positive, "
-                f"got: {self.hierarchical_per_angle_max_iterations}"
-            )
-
-        # Layer 3: Adaptive Relative Regularization
-        valid_regularization_modes = ["absolute", "relative", "auto"]
-        if self.regularization_mode not in valid_regularization_modes:
-            errors.append(
-                f"regularization_mode must be one of {valid_regularization_modes}, "
-                f"got: {self.regularization_mode}"
-            )
-        if self.group_variance_lambda <= 0:
-            errors.append(
-                f"group_variance_lambda must be positive, got: {self.group_variance_lambda}"
-            )
-        if not 0 < self.regularization_target_cv < 1:
-            errors.append(
-                f"regularization_target_cv must be in (0, 1), got: {self.regularization_target_cv}"
-            )
-        if not 0 < self.regularization_target_contribution < 1:
-            errors.append(
-                f"regularization_target_contribution must be in (0, 1), "
-                f"got: {self.regularization_target_contribution}"
-            )
-        if not 0 < self.regularization_max_cv < 1:
-            errors.append(
-                f"regularization_max_cv must be in (0, 1), got: {self.regularization_max_cv}"
-            )
-
-        # Layer 4: Gradient Collapse Detection
-        if self.gradient_ratio_threshold <= 0:
-            errors.append(
-                f"gradient_ratio_threshold must be positive, got: {self.gradient_ratio_threshold}"
-            )
-        if self.gradient_consecutive_triggers <= 0:
-            errors.append(
-                f"gradient_consecutive_triggers must be positive, "
-                f"got: {self.gradient_consecutive_triggers}"
-            )
-        valid_collapse_responses = ["warn", "hierarchical", "reset", "abort"]
-        if self.gradient_collapse_response not in valid_collapse_responses:
-            errors.append(
-                f"gradient_collapse_response must be one of {valid_collapse_responses}, "
-                f"got: {self.gradient_collapse_response}"
-            )
-
-        # CMA-ES Global Optimization validation
-        valid_cmaes_presets = ["cmaes-fast", "cmaes", "cmaes-global"]
-        if self.cmaes_preset not in valid_cmaes_presets:
-            errors.append(
-                f"cmaes_preset must be one of {valid_cmaes_presets}, got: {self.cmaes_preset}"
-            )
+        # Optional-positive fields (allow None/null): heterogeneous "or
+        # None"/"or null" wording per field, kept inline rather than
+        # table-driven for 4 entries.
         if self.cmaes_max_generations is not None and self.cmaes_max_generations <= 0:
             errors.append(
                 f"cmaes_max_generations must be positive or null, got: {self.cmaes_max_generations}"
             )
         if self.cmaes_popsize is not None and self.cmaes_popsize <= 0:
             errors.append(f"cmaes_popsize must be positive or None, got: {self.cmaes_popsize}")
-        if not 0 < self.cmaes_sigma <= 1:
-            errors.append(f"cmaes_sigma must be in (0, 1], got: {self.cmaes_sigma}")
-        if not 0 < self.cmaes_sigma_warmstart <= 1:
-            errors.append(
-                f"cmaes_sigma_warmstart must be in (0, 1], got: {self.cmaes_sigma_warmstart}"
-            )
-        if self.cmaes_warmstart_skip_threshold <= 0:
-            errors.append(
-                f"cmaes_warmstart_skip_threshold must be positive, "
-                f"got: {self.cmaes_warmstart_skip_threshold}"
-            )
-        if self.cmaes_tol_fun <= 0:
-            errors.append(f"cmaes_tol_fun must be positive, got: {self.cmaes_tol_fun}")
-        if self.cmaes_tol_x <= 0:
-            errors.append(f"cmaes_tol_x must be positive, got: {self.cmaes_tol_x}")
-        valid_restart_strategies = ["none", "bipop"]
-        if self.cmaes_restart_strategy not in valid_restart_strategies:
-            errors.append(
-                f"cmaes_restart_strategy must be one of {valid_restart_strategies}, "
-                f"got: {self.cmaes_restart_strategy}"
-            )
-        if self.cmaes_n_seeds < 1:
-            errors.append(f"cmaes_n_seeds must be >= 1, got: {self.cmaes_n_seeds}")
-        if self.cmaes_max_restarts < 0:
-            errors.append(
-                f"cmaes_max_restarts must be non-negative, got: {self.cmaes_max_restarts}"
-            )
         if self.cmaes_population_batch_size is not None and self.cmaes_population_batch_size <= 0:
             errors.append(
                 f"cmaes_population_batch_size must be positive or None, "
@@ -959,43 +824,6 @@ class NLSQConfig:
             errors.append(
                 f"cmaes_data_chunk_size exceeds MAX_CHUNK_SIZE ({MAX_CHUNK_SIZE}), "
                 f"got: {self.cmaes_data_chunk_size}"
-            )
-        if self.cmaes_scale_threshold <= 0:
-            errors.append(
-                f"cmaes_scale_threshold must be positive, got: {self.cmaes_scale_threshold}"
-            )
-        if self.cmaes_memory_limit_gb <= 0:
-            errors.append(
-                f"cmaes_memory_limit_gb must be positive, got: {self.cmaes_memory_limit_gb}"
-            )
-        # CMA-ES refinement validation
-        valid_refinement_workflows = ["auto", "standard", "streaming"]
-        if self.cmaes_refinement_workflow not in valid_refinement_workflows:
-            errors.append(
-                f"cmaes_refinement_workflow must be one of {valid_refinement_workflows}, "
-                f"got: {self.cmaes_refinement_workflow}"
-            )
-        if self.cmaes_refinement_ftol <= 0:
-            errors.append(
-                f"cmaes_refinement_ftol must be positive, got: {self.cmaes_refinement_ftol}"
-            )
-        if self.cmaes_refinement_xtol <= 0:
-            errors.append(
-                f"cmaes_refinement_xtol must be positive, got: {self.cmaes_refinement_xtol}"
-            )
-        if self.cmaes_refinement_gtol <= 0:
-            errors.append(
-                f"cmaes_refinement_gtol must be positive, got: {self.cmaes_refinement_gtol}"
-            )
-        if self.cmaes_refinement_max_nfev <= 0:
-            errors.append(
-                f"cmaes_refinement_max_nfev must be positive, got: {self.cmaes_refinement_max_nfev}"
-            )
-        valid_refinement_losses = ["linear", "soft_l1", "huber", "cauchy", "arctan"]
-        if self.cmaes_refinement_loss not in valid_refinement_losses:
-            errors.append(
-                f"cmaes_refinement_loss must be one of {valid_refinement_losses}, "
-                f"got: {self.cmaes_refinement_loss}"
             )
 
         self._validation_errors = errors

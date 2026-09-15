@@ -548,101 +548,25 @@ class HierarchicalOptimizer:
         grad_fn: Callable | None,
         current_params: np.ndarray,
         bounds: tuple[np.ndarray, np.ndarray],
-        outer_iter: int,
+        outer_iter: int = 0,
     ) -> _OptimizeResult:
         """Stage 1: Optimize physical parameters with per-angle frozen.
 
-        Performance Optimization (Spec 006 - FR-002):
-        Uses pre-allocated buffer and in-place updates to avoid np.concatenate
-        allocations on every loss/gradient call.
-
-        Uses jaxopt.LBFGSB for JAX-native bounded L-BFGS optimization.
-
-        Parameters
-        ----------
-        loss_fn : callable
-            Full loss function.
-        grad_fn : callable or None
-            Full gradient function.
-        current_params : np.ndarray
-            Current full parameter vector.
-        bounds : tuple
-            Full parameter bounds.
-        outer_iter : int
-            Current outer iteration.
-
-        Returns
-        -------
-        _OptimizeResult
-            Optimization result with x containing full parameter vector.
+        Thin wrapper around :meth:`_fit_block_stage` — see its docstring for
+        the shared mechanics. ``outer_iter`` is accepted for call-site
+        compatibility (logging happens in the caller) and is otherwise unused.
         """
-        frozen_per_angle = current_params[self.per_angle_indices].copy()
-
-        # Use helper methods with pre-allocated buffer (FR-002 optimization)
-        physical_loss = self._create_physical_loss(frozen_per_angle, loss_fn)
-        physical_grad = None
-        if grad_fn is not None:
-            physical_grad = self._create_physical_grad(frozen_per_angle, grad_fn)
-
-        # Extract physical bounds for jaxopt (lower, upper) tuple format
-        physical_lower = jnp.asarray(bounds[0][self.physical_indices])
-        physical_upper = jnp.asarray(bounds[1][self.physical_indices])
-        physical_bounds = (physical_lower, physical_upper)
-
-        # Create loss function with optional gradient for jaxopt
-        if physical_grad is not None:
-            # jaxopt expects (value, grad) when value_and_grad=True
-            def value_and_grad_fn(x: jnp.ndarray) -> tuple[float, jnp.ndarray]:
-                """Return ``(loss, grad)`` for the physical block (jaxopt adapter)."""
-                return physical_loss(np.asarray(x)), jnp.asarray(physical_grad(np.asarray(x)))
-
-            solver = LBFGSB(
-                fun=value_and_grad_fn,
-                value_and_grad=True,
-                maxiter=self.config.physical_max_iterations,
-                tol=self.config.physical_ftol,
-                jit=False,  # Disable JIT for NumPy compatibility
-            )
-        else:
-            # grad_fn is None: fall back to finite differences (per fit()'s
-            # documented contract). jaxopt autodiff is NOT viable here — the
-            # loss closure round-trips through np.asarray(x), which raises
-            # TracerArrayConversionError the moment jaxopt traces it.
-            def value_and_grad_fn(x: jnp.ndarray) -> tuple[float, jnp.ndarray]:
-                """Return ``(loss, finite-diff grad)`` for the physical block."""
-                x_np = np.asarray(x)
-                val = physical_loss(x_np)
-                grad = approx_fprime(x_np, physical_loss, np.sqrt(np.finfo(np.float64).eps))
-                return val, jnp.asarray(grad)
-
-            solver = LBFGSB(
-                fun=value_and_grad_fn,
-                value_and_grad=True,
-                maxiter=self.config.physical_max_iterations,
-                tol=self.config.physical_ftol,
-                jit=False,
-            )
-
-        # Run L-BFGS-B on physical params only
-        x0 = jnp.asarray(current_params[self.physical_indices])
-        result = solver.run(x0, bounds=physical_bounds)
-
-        # Convert jaxopt result to compatible format
-        optimized_params = np.asarray(result.params)
-        final_loss = float(result.state.value)
-        n_iterations = int(result.state.iter_num)
-        converged = result.state.error < self.config.physical_ftol
-
-        # Update full params
-        full_result_x = current_params.copy()
-        full_result_x[self.physical_indices] = optimized_params
-
-        return _OptimizeResult(
-            x=full_result_x,
-            fun=final_loss,
-            nit=n_iterations,
-            success=converged,
-            message="Converged" if converged else "Max iterations reached",
+        return self._fit_block_stage(
+            loss_fn,
+            grad_fn,
+            current_params,
+            bounds,
+            block_indices=self.physical_indices,
+            frozen_indices=self.per_angle_indices,
+            make_loss=self._create_physical_loss,
+            make_grad=self._create_physical_grad,
+            maxiter=self.config.physical_max_iterations,
+            tol=self.config.physical_ftol,
         )
 
     def _fit_per_angle_stage(
@@ -651,93 +575,137 @@ class HierarchicalOptimizer:
         grad_fn: Callable | None,
         current_params: np.ndarray,
         bounds: tuple[np.ndarray, np.ndarray],
-        outer_iter: int,
+        outer_iter: int = 0,
     ) -> _OptimizeResult:
         """Stage 2: Optimize per-angle parameters with physical frozen.
 
-        Performance Optimization (Spec 006 - FR-002):
-        Uses pre-allocated buffer and in-place updates to avoid np.concatenate
-        allocations on every loss/gradient call.
+        Thin wrapper around :meth:`_fit_block_stage` — see its docstring for
+        the shared mechanics. ``outer_iter`` is accepted for call-site
+        compatibility (logging happens in the caller) and is otherwise unused.
+        """
+        return self._fit_block_stage(
+            loss_fn,
+            grad_fn,
+            current_params,
+            bounds,
+            block_indices=self.per_angle_indices,
+            frozen_indices=self.physical_indices,
+            make_loss=self._create_per_angle_loss,
+            make_grad=self._create_per_angle_grad,
+            maxiter=self.config.per_angle_max_iterations,
+            tol=self.config.per_angle_ftol,
+        )
+
+    def _fit_block_stage(
+        self,
+        loss_fn: Callable,
+        grad_fn: Callable | None,
+        current_params: np.ndarray,
+        bounds: tuple[np.ndarray, np.ndarray],
+        *,
+        block_indices: np.ndarray,
+        frozen_indices: np.ndarray,
+        make_loss: Callable,
+        make_grad: Callable,
+        maxiter: int,
+        tol: float,
+    ) -> _OptimizeResult:
+        """Optimize one parameter block with the other block frozen.
+
+        Shared mechanics behind ``_fit_physical_stage``/``_fit_per_angle_stage``
+        (previously two ~100-line copies differing only in which index set is
+        the block vs. the frozen set, which loss/grad factory to use, and
+        which ``physical_*``/``per_angle_*`` config knobs to read).
+
+        Performance Optimization (Spec 006 - FR-002): uses pre-allocated
+        buffer and in-place updates to avoid np.concatenate allocations on
+        every loss/gradient call (inside ``make_loss``/``make_grad``).
 
         Uses jaxopt.LBFGSB for JAX-native bounded L-BFGS optimization.
 
         Parameters
         ----------
-        loss_fn : callable
-            Full loss function.
-        grad_fn : callable or None
-            Full gradient function.
+        loss_fn, grad_fn : callable
+            Full loss/gradient functions (``grad_fn`` may be ``None``).
         current_params : np.ndarray
             Current full parameter vector.
         bounds : tuple
             Full parameter bounds.
-        outer_iter : int
-            Current outer iteration.
+        block_indices : np.ndarray
+            Indices of the parameters to optimize in this stage.
+        frozen_indices : np.ndarray
+            Indices of the parameters held fixed during this stage.
+        make_loss, make_grad : callable
+            ``self._create_physical_loss``/``_grad`` or
+            ``self._create_per_angle_loss``/``_grad``.
+        maxiter, tol : int, float
+            Solver iteration cap and tolerance for this block.
 
         Returns
         -------
         _OptimizeResult
             Optimization result with x containing full parameter vector.
         """
-        frozen_physical = current_params[self.physical_indices].copy()
+        frozen_values = current_params[frozen_indices].copy()
 
         # Use helper methods with pre-allocated buffer (FR-002 optimization)
-        per_angle_loss = self._create_per_angle_loss(frozen_physical, loss_fn)
-        per_angle_grad = None
+        block_loss = make_loss(frozen_values, loss_fn)
+        block_grad = None
         if grad_fn is not None:
-            per_angle_grad = self._create_per_angle_grad(frozen_physical, grad_fn)
+            block_grad = make_grad(frozen_values, grad_fn)
 
-        # Extract per-angle bounds for jaxopt (lower, upper) tuple format
-        per_angle_lower = jnp.asarray(bounds[0][self.per_angle_indices])
-        per_angle_upper = jnp.asarray(bounds[1][self.per_angle_indices])
-        per_angle_bounds = (per_angle_lower, per_angle_upper)
+        # Extract block bounds for jaxopt (lower, upper) tuple format
+        block_lower = jnp.asarray(bounds[0][block_indices])
+        block_upper = jnp.asarray(bounds[1][block_indices])
+        block_bounds = (block_lower, block_upper)
 
         # Create loss function with optional gradient for jaxopt
-        if per_angle_grad is not None:
+        if block_grad is not None:
             # jaxopt expects (value, grad) when value_and_grad=True
             def value_and_grad_fn(x: jnp.ndarray) -> tuple[float, jnp.ndarray]:
-                """Return ``(loss, grad)`` for the per-angle block (jaxopt adapter)."""
-                return per_angle_loss(np.asarray(x)), jnp.asarray(per_angle_grad(np.asarray(x)))
+                """Return ``(loss, grad)`` for this block (jaxopt adapter)."""
+                return block_loss(np.asarray(x)), jnp.asarray(block_grad(np.asarray(x)))
 
             solver = LBFGSB(
                 fun=value_and_grad_fn,
                 value_and_grad=True,
-                maxiter=self.config.per_angle_max_iterations,
-                tol=self.config.per_angle_ftol,
+                maxiter=maxiter,
+                tol=tol,
                 jit=False,  # Disable JIT for NumPy compatibility
             )
         else:
             # grad_fn is None: fall back to finite differences (per fit()'s
-            # documented contract) — see _fit_physical_stage for why jaxopt
-            # autodiff isn't viable here.
+            # documented contract). jaxopt autodiff is NOT viable here — the
+            # loss closure round-trips through np.asarray(x), which raises
+            # TracerArrayConversionError the moment jaxopt traces it.
             def value_and_grad_fn(x: jnp.ndarray) -> tuple[float, jnp.ndarray]:
-                """Return ``(loss, finite-diff grad)`` for the per-angle block."""
+                """Return ``(loss, finite-diff grad)`` for this block."""
                 x_np = np.asarray(x)
-                val = per_angle_loss(x_np)
-                grad = approx_fprime(x_np, per_angle_loss, np.sqrt(np.finfo(np.float64).eps))
+                val = block_loss(x_np)
+                grad = approx_fprime(x_np, block_loss, np.sqrt(np.finfo(np.float64).eps))
                 return val, jnp.asarray(grad)
 
             solver = LBFGSB(
                 fun=value_and_grad_fn,
                 value_and_grad=True,
-                maxiter=self.config.per_angle_max_iterations,
-                tol=self.config.per_angle_ftol,
+                maxiter=maxiter,
+                tol=tol,
                 jit=False,
             )
 
-        # Run L-BFGS-B on per-angle params only
-        x0 = jnp.asarray(current_params[self.per_angle_indices])
-        result = solver.run(x0, bounds=per_angle_bounds)
+        # Run L-BFGS-B on this block only
+        x0 = jnp.asarray(current_params[block_indices])
+        result = solver.run(x0, bounds=block_bounds)
 
         # Convert jaxopt result to compatible format
         optimized_params = np.asarray(result.params)
         final_loss = float(result.state.value)
         n_iterations = int(result.state.iter_num)
-        converged = result.state.error < self.config.per_angle_ftol
+        converged = result.state.error < tol
 
         # Update full params
         full_result_x = current_params.copy()
-        full_result_x[self.per_angle_indices] = optimized_params
+        full_result_x[block_indices] = optimized_params
 
         return _OptimizeResult(
             x=full_result_x,

@@ -86,7 +86,7 @@ References
 """
 
 from collections.abc import Callable
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import jax
 import jax.numpy as jnp
@@ -153,9 +153,6 @@ from xpcsjax.optimization.nlsq.fallback_chain import (
 )
 from xpcsjax.optimization.nlsq.recovery import (
     execute_with_recovery,
-)
-from xpcsjax.optimization.nlsq.strategies.out_of_core import (
-    fit_with_out_of_core_accumulation,
 )
 from xpcsjax.optimization.nlsq.strategies.stratified_ls import (
     create_stratified_chunks,
@@ -660,7 +657,10 @@ def _info_cov_placeholder(info: dict | None) -> bool:
     if not info:
         return False
     nested = info.get("anti_degeneracy") or {}
-    return bool(info.get("covariance_is_placeholder", False) or nested.get("covariance_is_placeholder", False))
+    return bool(
+        info.get("covariance_is_placeholder", False)
+        or nested.get("covariance_is_placeholder", False)
+    )
 
 
 def _routing_effective_n_params(
@@ -775,43 +775,20 @@ class NLSQWrapper(NLSQAdapterBase):
         ValueError
             If ``analysis_mode`` is not recognized.
         """
-        normalized_mode = analysis_mode.lower()
+        from xpcsjax.optimization.nlsq.nlsq_settings import (
+            get_physical_param_names,
+        )
 
-        if normalized_mode in {"static_anisotropic", "static_isotropic"}:
-            return ["D0", "alpha", "D_offset"]
-        elif normalized_mode == "laminar_flow":
-            return [
-                "D0",
-                "alpha",
-                "D_offset",
-                "gamma_dot_t0",  # Canonical name (was gamma_dot_0)
-                "beta",
-                "gamma_dot_t_offset",  # Canonical name (was gamma_dot_offset)
-                "phi0",
-            ]
-        else:
-            raise ValueError(
-                f"Unknown analysis_mode: '{analysis_mode}'. "
-                f"Expected 'static_anisotropic', 'static_isotropic', or 'laminar_flow'"
-            )
+        return get_physical_param_names(analysis_mode)
 
     @staticmethod
     def _extract_nlsq_settings(config: Any) -> dict[str, Any]:
         """Return NLSQ-specific settings from the config tree (if present)."""
-        config_dict = None
-        if hasattr(config, "config") and isinstance(config.config, dict):
-            config_dict = config.config
-        elif isinstance(config, dict):
-            config_dict = config
+        from xpcsjax.optimization.nlsq.nlsq_settings import (
+            extract_nlsq_settings,
+        )
 
-        if not config_dict:
-            return {}
-
-        # `or {}` (not `.get(k, {})`) so a present-but-null YAML section
-        # (`optimization:` / `nlsq:` with no body) degrades to defaults
-        # instead of raising AttributeError on the next `.get()`.
-        nlsq_settings = (config_dict.get("optimization") or {}).get("nlsq") or {}
-        return cast(dict[str, Any], nlsq_settings)
+        return extract_nlsq_settings(config)
 
     @staticmethod
     def _handle_nlsq_result(
@@ -824,10 +801,13 @@ class NLSQWrapper(NLSQAdapterBase):
         """
         return handle_nlsq_result(result, strategy)
 
+    if TYPE_CHECKING:
+        from xpcsjax.config.manager import ConfigManager
+
     def fit(
         self,
         data: Any,
-        config: Any,
+        config: "ConfigManager | dict[str, Any]",
         initial_params: np.ndarray | None = None,
         bounds: tuple[np.ndarray, np.ndarray] | None = None,
         analysis_mode: AnalysisMode = AnalysisMode.STATIC_ISOTROPIC,
@@ -1021,18 +1001,11 @@ class NLSQWrapper(NLSQAdapterBase):
                         f"{_ooc_n_angles} angles."
                     )
 
-            # Default to False (User requirement: Never subsample data)
-            use_fast_mode = self.fast_mode or (config.config.get("optimization") or {}).get(
-                "fast_chi2_mode", False
+            from xpcsjax.optimization.nlsq.wrapper_out_of_core_route import (
+                run_out_of_core_route,
             )
 
-            # Extract anti-degeneracy config (will warn that it's not supported for out-of-core)
-            ooc_anti_degeneracy_config = None
-            if config is not None and hasattr(config, "config"):
-                ooc_nlsq_config = (config.config.get("optimization") or {}).get("nlsq") or {}
-                ooc_anti_degeneracy_config = ooc_nlsq_config.get("anti_degeneracy", {})
-
-            popt, pcov, info = self._fit_with_out_of_core_accumulation(
+            return run_out_of_core_route(
                 stratified_data=None,
                 data=data,
                 per_angle_scaling=per_angle_scaling,
@@ -1041,92 +1014,14 @@ class NLSQWrapper(NLSQAdapterBase):
                 bounds=nlsq_bounds,
                 logger=logger,
                 config=config,
-                fast_chi2_mode=use_fast_mode,
-                anti_degeneracy_config=ooc_anti_degeneracy_config,
+                analysis_mode=analysis_mode,
+                n_points=n_est_points,
+                n_phi=int(np.unique(np.asarray(data.phi)).size),
                 resolved_physical=resolved_physical,
-            )
-
-            execution_time = time.time() - start_time
-            _ooc_init_ph = _info_cov_placeholder(info)
-            pcov, uncertainties = _uncertainties_from_pcov(
-                pcov, len(popt), is_placeholder=_ooc_init_ph
-            )
-            # A fixed physical parameter's true covariance diagonal is exactly
-            # 0 (out_of_core.py's masked pcov build never writes a nonzero
-            # value there); keep the reported uncertainty exactly 0.0 there
-            # even on a placeholder (NaN) covariance.
-            if resolved_physical is not None and not resolved_physical.free_mask.all():
-                _ooc_init_n_physical = len(resolved_physical.physical_names)
-                uncertainties = np.array(uncertainties, dtype=float)
-                for _i, _free in enumerate(resolved_physical.free_mask):
-                    if not _free:
-                        uncertainties[-_ooc_init_n_physical + _i] = 0.0
-            # Effective DOF for reduced chi-squared: in averaged mode the
-            # optimizer works on a compressed param vector but the true model
-            # DOF is 2*n_phi + n_physical (one contrast+offset per angle).
-            _ooc_init_n_params_effective: int | None = None
-            if per_angle_scaling and config is not None and hasattr(config, "config"):
-                from xpcsjax.optimization.nlsq.per_angle_mode import (
-                    resolve_per_angle_mode as _resolve_pam,
-                )
-
-                _ooc_init_ad = ((config.config.get("optimization") or {}).get("nlsq") or {}).get(
-                    "anti_degeneracy", {}
-                )
-                _ooc_init_mode = _ooc_init_ad.get("per_angle_mode", "auto")
-                _ooc_init_thresh = _ooc_init_ad.get("constant_scaling_threshold", 3)
-                # Use data.phi to count unique angles — reading n_phi from len(popt)
-                # is incorrect in averaged mode where popt has compressed length
-                # (e.g. 9 for laminar_flow: 7 physical + 2 averaged) rather than
-                # the expanded length (2*n_phi + n_physical = 53 for 23 angles).
-                # Inferring (len(popt) - n_physical) // 2 gives 1, not 23, so the
-                # threshold check 1 >= 3 never fires and the DOF fix is silently skipped.
-                _ooc_init_n_phi = len(np.unique(np.asarray(data.phi)))
-                _ooc_init_n_physical = len(physical_param_names)
-                # Single resolver owner (spec Seam 1); same numeric outcome.
-                _ooc_resolved = _resolve_pam(_ooc_init_mode, _ooc_init_n_phi, _ooc_init_thresh)
-                if _ooc_resolved == "averaged":
-                    _ooc_init_n_params_effective = 2 * _ooc_init_n_phi + _ooc_init_n_physical
-                elif _ooc_resolved == "constant":
-                    _ooc_init_n_params_effective = _ooc_init_n_physical
-            _ooc_init_dof = (
-                _ooc_init_n_params_effective
-                if _ooc_init_n_params_effective is not None
-                else len(popt)
-            )
-            reduced_chi2 = info.get("chi_squared", 0.0) / max(1, n_est_points - _ooc_init_dof)
-            # Derive quality_flag from reduced chi-squared (same thresholds
-            # as _create_fit_result) instead of hardcoding "good".
-            if reduced_chi2 < 1.5:
-                _ooc_init_quality = "good"
-            elif reduced_chi2 < 3.0:
-                _ooc_init_quality = "marginal"
-            else:
-                _ooc_init_quality = "poor"
-
-            return OptimizationResult(
-                parameters=popt,
-                uncertainties=uncertainties,
-                covariance=pcov,
-                chi_squared=info.get("chi_squared", 0.0),
-                reduced_chi_squared=reduced_chi2,
-                convergence_status=info.get("convergence_status", "unknown"),
-                iterations=info.get("iterations", 0),
-                execution_time=execution_time,
-                device_info={
-                    "device": "cpu_accumulated",
-                    "strategy": "out_of_core",
-                    "fast_mode": use_fast_mode,
-                    "decision": strategy_decision.reason,
-                },
-                recovery_actions=["out_of_core_delegation"],
-                quality_flag=_ooc_init_quality,
-                # Anti-degeneracy is unsupported on the out-of-core path; emit the
-                # symmetric inactive markers so this result mirrors the contract.
-                nlsq_diagnostics={
-                    **_laminar_anti_degeneracy_block(None),
-                    "covariance_is_placeholder": bool(_ooc_init_ph),
-                },
+                start_time=start_time,
+                strategy_reason=strategy_decision.reason,
+                recovery_tag="out_of_core_delegation",
+                fast_mode_override=self.fast_mode,
             )
 
         # STANDARD strategy falls through to existing optimization path
@@ -1209,12 +1104,13 @@ class NLSQWrapper(NLSQAdapterBase):
                 # variance. Force the reported uncertainty back to exactly 0.0
                 # at every FIXED physical position, mirroring the equivalent
                 # re-zero for the plain and out-of-core tiers above.
-                n_physical = len(resolved_physical.physical_names)
-                unc = np.array(seq_result.uncertainties, dtype=float)
-                for i, free in enumerate(resolved_physical.free_mask):
-                    if not free:
-                        unc[-n_physical + i] = 0.0
-                seq_result.uncertainties = unc
+                from xpcsjax.optimization.nlsq.parameter_utils import (
+                    zero_fixed_uncertainties,
+                )
+
+                seq_result.uncertainties = zero_fixed_uncertainties(
+                    seq_result.uncertainties, resolved_physical
+                )
             return seq_result
 
         # NEW: Check if stratified least_squares should be used (double-chunking fix)
@@ -1394,22 +1290,11 @@ class NLSQWrapper(NLSQAdapterBase):
                 logger.info("Using chunk-wise J^T J accumulation for memory efficiency")
                 logger.info("=" * 80)
 
-                # Default to False (User requirement: Never subsample data)
-                use_fast_mode = self.fast_mode or (
-                    (config.config.get("optimization") or {}).get("fast_chi2_mode", False)
-                    if config is not None and hasattr(config, "config")
-                    else False
+                from xpcsjax.optimization.nlsq.wrapper_out_of_core_route import (
+                    run_out_of_core_route,
                 )
 
-                # Extract anti-degeneracy config (will warn that it's not supported for out-of-core)
-                recheck_anti_degeneracy_config = None
-                if config is not None and hasattr(config, "config"):
-                    recheck_nlsq_config = (config.config.get("optimization") or {}).get(
-                        "nlsq"
-                    ) or {}
-                    recheck_anti_degeneracy_config = recheck_nlsq_config.get("anti_degeneracy", {})
-
-                popt, pcov, info = self._fit_with_out_of_core_accumulation(
+                return run_out_of_core_route(
                     stratified_data=stratified_data,
                     data=data,
                     per_angle_scaling=per_angle_scaling,
@@ -1418,89 +1303,14 @@ class NLSQWrapper(NLSQAdapterBase):
                     bounds=nlsq_bounds,
                     logger=logger,
                     config=config,
-                    fast_chi2_mode=use_fast_mode,
-                    anti_degeneracy_config=recheck_anti_degeneracy_config,
+                    analysis_mode=analysis_mode,
+                    n_points=n_total_points,
+                    n_phi=n_angles_check,
                     resolved_physical=resolved_physical,
-                )
-
-                execution_time = time.time() - start_time
-                _ooc_recheck_ph = _info_cov_placeholder(info)
-                pcov, uncertainties = _uncertainties_from_pcov(
-                    pcov, len(popt), is_placeholder=_ooc_recheck_ph
-                )
-                # A fixed physical parameter's true covariance diagonal is
-                # exactly 0 (out_of_core.py's masked pcov build never writes a
-                # nonzero value there); keep it exactly 0.0 even on a
-                # placeholder (NaN) covariance.
-                if resolved_physical is not None and not resolved_physical.free_mask.all():
-                    _ooc_recheck_n_physical = len(resolved_physical.physical_names)
-                    uncertainties = np.array(uncertainties, dtype=float)
-                    for _i, _free in enumerate(resolved_physical.free_mask):
-                        if not _free:
-                            uncertainties[-_ooc_recheck_n_physical + _i] = 0.0
-                # Effective DOF for reduced chi-squared: in averaged mode the
-                # optimizer works on a compressed param vector but the true model
-                # DOF is 2*n_phi + n_physical (one contrast+offset per angle).
-                _ooc_n_params_effective: int | None = None
-                if per_angle_scaling and config is not None and hasattr(config, "config"):
-                    _ooc_ad = ((config.config.get("optimization") or {}).get("nlsq") or {}).get(
-                        "anti_degeneracy", {}
-                    )
-                    from xpcsjax.optimization.nlsq.per_angle_mode import (
-                        effective_constrained_dof as _eff_dof,
-                        resolve_per_angle_mode_static_pinned as _resolve_pam_pinned,
-                    )
-
-                    _ooc_mode = _ooc_ad.get("per_angle_mode", "auto")
-                    _ooc_thresh = _ooc_ad.get("constant_scaling_threshold", 3)
-                    # Resolve through the static pin so a static fit's DOF reflects the
-                    # dense individual vector it actually fits (2*n_phi + n_physical),
-                    # not the inert config token. EXPLICIT averaged still gets the
-                    # expanded constrained DOF on laminar (Codex Finding 2).
-                    _ooc_n_params_effective = _eff_dof(
-                        _resolve_pam_pinned(
-                            _ooc_mode,
-                            n_angles_check,
-                            _ooc_thresh,
-                            is_laminar_flow=(analysis_mode == AnalysisMode.LAMINAR_FLOW),
-                        ),
-                        n_phi=n_angles_check,
-                        n_physical=n_physical,
-                    )
-                _ooc_dof = (
-                    _ooc_n_params_effective if _ooc_n_params_effective is not None else len(popt)
-                )
-                reduced_chi2 = info.get("chi_squared", 0.0) / max(1, n_total_points - _ooc_dof)
-                # Derive quality_flag from reduced chi-squared (same thresholds
-                # as _create_fit_result) instead of hardcoding "good".
-                if reduced_chi2 < 1.5:
-                    _ooc_recheck_quality = "good"
-                elif reduced_chi2 < 3.0:
-                    _ooc_recheck_quality = "marginal"
-                else:
-                    _ooc_recheck_quality = "poor"
-
-                return OptimizationResult(
-                    parameters=popt,
-                    uncertainties=uncertainties,
-                    covariance=pcov,
-                    chi_squared=info.get("chi_squared", 0.0),
-                    reduced_chi_squared=reduced_chi2,
-                    convergence_status=info.get("convergence_status", "unknown"),
-                    iterations=info.get("iterations", 0),
-                    execution_time=execution_time,
-                    device_info={
-                        "device": "cpu_accumulated",
-                        "strategy": "out_of_core",
-                        "fast_mode": use_fast_mode,
-                        "decision": strategy_recheck.reason,
-                    },
-                    recovery_actions=["out_of_core_recheck_delegation"],
-                    quality_flag=_ooc_recheck_quality,
-                    nlsq_diagnostics={
-                        **_laminar_anti_degeneracy_block(None),
-                        "covariance_is_placeholder": bool(_ooc_recheck_ph),
-                    },
+                    start_time=start_time,
+                    strategy_reason=strategy_recheck.reason,
+                    recovery_tag="out_of_core_recheck_delegation",
+                    fast_mode_override=self.fast_mode,
                 )
 
             # Route to HYBRID_STREAMING if index array exceeds threshold (extreme scale)
@@ -1712,12 +1522,13 @@ class NLSQWrapper(NLSQAdapterBase):
                         # uncertainty back to exactly 0.0 at every FIXED physical
                         # position, mirroring `_post_process_results`'s equivalent
                         # re-zero for the plain/out-of-core/stratified-LS tiers.
-                        if resolved_physical is not None and not resolved_physical.free_mask.all():
-                            _hs_unc = np.array(result.uncertainties, dtype=float)
-                            for _hs_i, _hs_free in enumerate(resolved_physical.free_mask):
-                                if not _hs_free:
-                                    _hs_unc[-n_physical + _hs_i] = 0.0
-                            result.uncertainties = _hs_unc
+                        from xpcsjax.optimization.nlsq.parameter_utils import (
+                            zero_fixed_uncertainties,
+                        )
+
+                        result.uncertainties = zero_fixed_uncertainties(
+                            result.uncertainties, resolved_physical
+                        )
 
                         logger.info("=" * 80)
                         logger.info("HYBRID STREAMING OPTIMIZATION COMPLETE")
@@ -1850,13 +1661,13 @@ class NLSQWrapper(NLSQAdapterBase):
                 # uncertainty back to exactly 0.0 at every FIXED physical
                 # position, mirroring `_post_process_results`'s equivalent
                 # re-zero for the plain/out-of-core tiers.
-                if resolved_physical is not None and not resolved_physical.free_mask.all():
-                    _sls_n_physical = len(resolved_physical.physical_names)
-                    _sls_unc = np.array(result.uncertainties, dtype=float)
-                    for _sls_i, _sls_free in enumerate(resolved_physical.free_mask):
-                        if not _sls_free:
-                            _sls_unc[-_sls_n_physical + _sls_i] = 0.0
-                    result.uncertainties = _sls_unc
+                from xpcsjax.optimization.nlsq.parameter_utils import (
+                    zero_fixed_uncertainties,
+                )
+
+                result.uncertainties = zero_fixed_uncertainties(
+                    result.uncertainties, resolved_physical
+                )
 
                 logger.info("=" * 80)
                 logger.info("STRATIFIED LEAST-SQUARES COMPLETE")
@@ -1867,7 +1678,14 @@ class NLSQWrapper(NLSQAdapterBase):
 
                 return result
 
-            except (ValueError, RuntimeError, MemoryError, OSError) as e:
+            except MemoryError:
+                # The dense in-memory curve_fit_large fallback below needs
+                # STRICTLY MORE memory than the stratified route that just
+                # OOM'd (it re-materializes the full, unchunked residual/
+                # Jacobian) -- falling through here only guarantees a second,
+                # worse OOM. Propagate instead of masking it as recoverable.
+                raise
+            except (ValueError, RuntimeError, OSError) as e:
                 logger.error(
                     f"Stratified least_squares failed: {e}\n"
                     f"Falling back to standard curve_fit_large path..."
@@ -1939,37 +1757,13 @@ class NLSQWrapper(NLSQAdapterBase):
         phi_values = np.asarray(stratified_data.phi)
         n_phi_unique = len(np.unique(phi_values)) if phi_values.size else 0
 
-        per_angle_contrast_override: np.ndarray | None = None
-        per_angle_offset_override: np.ndarray | None = None
-        if per_angle_scaling_initial:
-            contrast_override = per_angle_scaling_initial.get("contrast")
-            if contrast_override is not None:
-                try:
-                    arr = np.asarray(contrast_override, dtype=np.float64)
-                    if arr.size == n_phi_unique:
-                        per_angle_contrast_override = arr.copy()
-                    else:
-                        logger.warning(
-                            "per_angle_scaling contrast override has %d entries (expected %d); ignoring override",
-                            arr.size,
-                            n_phi_unique,
-                        )
-                except (TypeError, ValueError):
-                    logger.warning("Invalid per-angle contrast override; ignoring")
-            offset_override = per_angle_scaling_initial.get("offset")
-            if offset_override is not None:
-                try:
-                    arr = np.asarray(offset_override, dtype=np.float64)
-                    if arr.size == n_phi_unique:
-                        per_angle_offset_override = arr.copy()
-                    else:
-                        logger.warning(
-                            "per_angle_scaling offset override has %d entries (expected %d); ignoring override",
-                            arr.size,
-                            n_phi_unique,
-                        )
-                except (TypeError, ValueError):
-                    logger.warning("Invalid per-angle offset override; ignoring")
+        from xpcsjax.optimization.nlsq.parameter_utils import (
+            parse_per_angle_scaling_overrides,
+        )
+
+        per_angle_contrast_override, per_angle_offset_override = parse_per_angle_scaling_overrides(
+            per_angle_scaling_initial, n_phi_unique, logger
+        )
 
         # Step 6.5: Resolve the per-angle mode (laminar_flow only; static modes keep
         # the legacy individual hard-wire below). The resolved enum + mapper drive
@@ -2960,13 +2754,11 @@ class NLSQWrapper(NLSQAdapterBase):
         # reported uncertainty back to exactly 0.0 at every FIXED physical
         # position (physics is always the tail, per the layout contract above);
         # every other position keeps whatever the floor produced.
-        if resolved_physical is not None and not resolved_physical.free_mask.all():
-            n_physical = len(resolved_physical.physical_names)
-            unc = np.array(result.uncertainties, dtype=float)
-            for i, free in enumerate(resolved_physical.free_mask):
-                if not free:
-                    unc[-n_physical + i] = 0.0
-            result.uncertainties = unc
+        from xpcsjax.optimization.nlsq.parameter_utils import (
+            zero_fixed_uncertainties,
+        )
+
+        result.uncertainties = zero_fixed_uncertainties(result.uncertainties, resolved_physical)
 
         # Anti-degeneracy: emit the SYMMETRIC top-level activation key set so the
         # laminar in-memory result mirrors heterodyne's contract
@@ -3684,37 +3476,17 @@ class NLSQWrapper(NLSQAdapterBase):
         t2_unique_all = np.unique(np.asarray(t2))
         n_phi_total = len(phi_unique_all)
 
-        per_angle_contrast_override: np.ndarray | None = None
-        per_angle_offset_override: np.ndarray | None = None
-        if per_angle_scaling_initial:
-            contrast_override = per_angle_scaling_initial.get("contrast")
-            if contrast_override is not None:
-                try:
-                    arr = np.asarray(contrast_override, dtype=np.float64)
-                    if arr.size == n_phi_total:
-                        per_angle_contrast_override = arr.copy()
-                    else:
-                        logger.warning(
-                            "Sequential per-angle contrast override has %d entries (expected %d); ignoring override",
-                            arr.size,
-                            n_phi_total,
-                        )
-                except (TypeError, ValueError):
-                    logger.warning("Invalid sequential per-angle contrast override; ignoring")
-            offset_override = per_angle_scaling_initial.get("offset")
-            if offset_override is not None:
-                try:
-                    arr = np.asarray(offset_override, dtype=np.float64)
-                    if arr.size == n_phi_total:
-                        per_angle_offset_override = arr.copy()
-                    else:
-                        logger.warning(
-                            "Sequential per-angle offset override has %d entries (expected %d); ignoring override",
-                            arr.size,
-                            n_phi_total,
-                        )
-                except (TypeError, ValueError):
-                    logger.warning("Invalid sequential per-angle offset override; ignoring")
+        from xpcsjax.optimization.nlsq.parameter_utils import (
+            parse_per_angle_scaling_overrides,
+        )
+
+        per_angle_contrast_override, per_angle_offset_override = parse_per_angle_scaling_overrides(
+            per_angle_scaling_initial,
+            n_phi_total,
+            logger,
+            mismatch_scope="Sequential per-angle",
+            invalid_prefix="sequential ",
+        )
 
         scalar_layout_len = len(physical_param_names) + 2
         expected_per_angle_len = 2 * n_phi_total + len(physical_param_names)
@@ -4711,35 +4483,6 @@ class NLSQWrapper(NLSQAdapterBase):
             resolved_physical=resolved_physical,
         )
 
-    def _fit_with_out_of_core_accumulation(
-        self,
-        stratified_data: Any,
-        data: Any,
-        per_angle_scaling: bool,
-        physical_param_names: list[str],
-        initial_params: np.ndarray,
-        bounds: tuple[np.ndarray, np.ndarray] | None,
-        logger: Any,
-        config: Any,
-        fast_chi2_mode: bool = False,
-        anti_degeneracy_config: dict | None = None,
-        resolved_physical: ResolvedPhysicalParameters | None = None,
-    ) -> tuple[np.ndarray, np.ndarray, dict]:
-        """Fit using Out-of-Core Global Accumulation for massive datasets."""
-        return fit_with_out_of_core_accumulation(
-            stratified_data=stratified_data,
-            data=data,
-            per_angle_scaling=per_angle_scaling,
-            physical_param_names=physical_param_names,
-            initial_params=initial_params,
-            bounds=bounds,
-            log=logger,
-            config=config,
-            fast_chi2_mode=fast_chi2_mode,
-            anti_degeneracy_config=anti_degeneracy_config,
-            resolved_physical=resolved_physical,
-        )
-
     def _fit_with_stratified_hybrid_streaming(
         self,
         stratified_data: Any,
@@ -4873,12 +4616,11 @@ class NLSQWrapper(NLSQAdapterBase):
         }
 
         # Determine quality flag based on reduced chi-squared
-        if reduced_chi_squared < 1.5:
-            quality_flag = "good"
-        elif reduced_chi_squared < 3.0:
-            quality_flag = "marginal"
-        else:
-            quality_flag = "poor"
+        from xpcsjax.optimization.nlsq.results import (
+            quality_flag_from_reduced_chi2,
+        )
+
+        quality_flag = quality_flag_from_reduced_chi2(reduced_chi_squared)
 
         # Build enhanced streaming diagnostics. Batch-statistics enrichment
         # was removed here: NLSQWrapper no longer constructs a

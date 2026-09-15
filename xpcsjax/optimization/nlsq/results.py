@@ -336,3 +336,16 @@ class UseSequentialOptimization:
 
     data: Any
     reason: str
+
+
+def quality_flag_from_reduced_chi2(reduced_chi_squared: float) -> QualityFlag:
+    """Map a reduced chi-squared to the ``good``/``marginal``/``poor`` bands.
+
+    Single owner of the ``<1.5`` / ``<3.0`` thresholds, previously copy-pasted
+    at four call sites across ``wrapper.py`` and ``core.py``.
+    """
+    if reduced_chi_squared < 1.5:
+        return "good"
+    if reduced_chi_squared < 3.0:
+        return "marginal"
+    return "poor"
