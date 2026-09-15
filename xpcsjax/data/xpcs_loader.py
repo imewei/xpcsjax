@@ -52,7 +52,7 @@ import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
 # Handle optional dependencies with graceful fallback
 if TYPE_CHECKING:
@@ -62,146 +62,32 @@ if TYPE_CHECKING:
 else:
     NDArray = Any
 
-try:
-    import numpy as np
+# numpy, h5py, jax, jaxlib, and pyyaml are all pyproject.toml hard dependencies
+# (pyproject.toml:1-13); xpcsjax.utils.logging and xpcsjax.core.* are in-tree
+# modules. None of these imports can fail in any supported install, so the
+# ``except ImportError`` fallbacks/HAS_* flags previously here were dead
+# branches (2026-09-15 review, finding B3) — same stance already documented
+# below for xpcsjax.data.memory_manager.
+import h5py
+import jax.numpy as jnp
+import numpy as np
+import yaml
 
-    HAS_NUMPY = True
-except ImportError:
-    HAS_NUMPY = False
-    np = None  # type: ignore[assignment]
-
-try:
-    import h5py
-
-    HAS_H5PY = True
-except ImportError:
-    HAS_H5PY = False
-    h5py = None
-
-try:
-    import yaml
-
-    HAS_YAML = True
-except ImportError:
-    HAS_YAML = False
-    yaml = None  # type: ignore[assignment]
-
-# A real exception class even when PyYAML is absent, so `except (_YAML_ERROR, ...)`
-# below never evaluates `yaml.YAMLError` on a None `yaml` module (which would raise
-# AttributeError and mask the intended XPCSDependencyError).
-_YAML_ERROR: type[Exception] = (
-    yaml.YAMLError if HAS_YAML else type("_NoYAMLError", (Exception,), {})
+from xpcsjax.core.diagonal_correction import (
+    _is_jax_array,
+    apply_diagonal_correction_batch,
+)
+from xpcsjax.core.jax_backend import jax_available
+from xpcsjax.core.physics import PhysicsConstants
+from xpcsjax.utils.logging import (
+    get_logger,
+    log_calls,
+    log_exception,
+    log_performance,
+    log_phase,
 )
 
-# JAX integration
-try:
-    import jax.numpy as jnp
-
-    from xpcsjax.core.jax_backend import jax_available
-
-    HAS_JAX = True
-except ImportError:
-    HAS_JAX = False
-    jax_available = False
-    jnp = np  # type: ignore[misc]
-
-# V2 system integration
-try:
-    from xpcsjax.utils.logging import (
-        get_logger as _get_logger,
-    )
-    from xpcsjax.utils.logging import (
-        log_calls as _log_calls,
-    )
-    from xpcsjax.utils.logging import (
-        log_exception as _log_exception,
-    )
-    from xpcsjax.utils.logging import (
-        log_performance as _log_performance,
-    )
-    from xpcsjax.utils.logging import (
-        log_phase as _log_phase,
-    )
-
-    HAS_V2_LOGGING = True
-    get_logger = _get_logger
-    log_performance = _log_performance
-    log_calls = _log_calls
-    log_phase = _log_phase
-    log_exception = _log_exception
-except ImportError:
-    # Fallback to standard logging if v2 logging not available
-    import logging
-    from collections.abc import Iterator
-    from contextlib import contextmanager
-
-    HAS_V2_LOGGING = False
-
-    F = TypeVar("F", bound=Callable[..., Any])
-
-    def get_logger(name: str | None = None, **kwargs: Any) -> logging.Logger:
-        return logging.getLogger(name)
-
-    def log_exception(  # type: ignore[misc]
-        logger: Any,
-        exc: BaseException,
-        context: dict[str, Any] | None = None,
-        level: int = logging.ERROR,
-        include_traceback: bool = True,
-    ) -> None:
-        """Fallback log_exception when v2 logging is unavailable."""
-        try:
-            logger.log(level, "Exception: %r (context=%r)", exc, context)
-        except Exception:
-            pass
-
-    def log_performance(*args: Any, **kwargs: Any) -> Callable[[F], F]:
-        def decorator(func: F) -> F:
-            return func
-
-        return decorator
-
-    def log_calls(*args: Any, **kwargs: Any) -> Callable[[F], F]:
-        def decorator(func: F) -> F:
-            return func
-
-        return decorator
-
-    @contextmanager
-    def log_phase(name: str, **kwargs: Any) -> Iterator[Any]:  # type: ignore[misc]
-        """Fallback log_phase for environments without v2 logging.
-
-        The real ``log_phase`` takes ``(name, logger, level, track_memory,
-        threshold)`` — this fallback only needs the name; ``**kwargs`` swallows
-        the rest. ``# type: ignore[misc]`` acknowledges the signature delta
-        with the try-branch import.
-        """
-        yield type("PhaseContext", (), {"duration": 0.0, "memory_peak_gb": None})()
-
-
-# Physics validation integration
-try:
-    from xpcsjax.core.physics import (
-        PhysicsConstants as _PhysicsConstants,
-    )
-
-    HAS_PHYSICS_VALIDATION = True
-    PhysicsConstants = _PhysicsConstants
-except ImportError:
-    HAS_PHYSICS_VALIDATION = False
-    PhysicsConstants = None  # type: ignore
-
-# Diagonal correction from unified module
-try:
-    from xpcsjax.core.diagonal_correction import (
-        apply_diagonal_correction_batch as _apply_diagonal_correction_batch,
-    )
-
-    HAS_DIAGONAL_CORRECTION = True
-    apply_diagonal_correction_batch = _apply_diagonal_correction_batch
-except ImportError:
-    HAS_DIAGONAL_CORRECTION = False
-    apply_diagonal_correction_batch = None  # type: ignore
+_YAML_ERROR: type[Exception] = yaml.YAMLError
 
 # xpcsjax.data.memory_manager is an internal sibling module (not an optional
 # external package) and its own hard dependency, psutil, is a required
@@ -246,17 +132,6 @@ def _migrate_cache_template(template: str) -> str:
     return template
 
 
-def _is_jax_array(arr: Any) -> bool:
-    """Return True only for actual JAX arrays.
-
-    NumPy >=2.0 ndarrays also expose a ``.device`` attribute, so a bare
-    ``hasattr(arr, "device")`` misidentifies a genuine NumPy array as JAX
-    whenever JAX is importable. Use ``isinstance`` against ``jnp.ndarray``
-    (an alias for ``jax.Array``) instead.
-    """
-    return HAS_JAX and isinstance(arr, jnp.ndarray)
-
-
 def _hash_filter_config(filter_config: dict[str, Any]) -> str:
     """Stable short fingerprint of a filter-settings dict for cache validation."""
     canonical = json.dumps(filter_config, sort_keys=True, default=str)
@@ -284,10 +159,7 @@ def _maybe_apply_mandatory_diagonal_correction(
         return data
 
     logger.debug("Applying mandatory diagonal correction to correlation matrices")
-    if HAS_DIAGONAL_CORRECTION:
-        data["c2_exp"] = apply_diagonal_correction_batch(data["c2_exp"])
-    elif fallback_correct_diagonal_batch is not None:
-        data["c2_exp"] = fallback_correct_diagonal_batch(data["c2_exp"])
+    data["c2_exp"] = apply_diagonal_correction_batch(data["c2_exp"])
     return data
 
 
@@ -560,11 +432,6 @@ def load_xpcs_config(config_path: str | Path) -> dict[str, Any]:
 
     try:
         if config_path.suffix.lower() in [".yaml", ".yml"]:
-            if not HAS_YAML:
-                raise XPCSDependencyError(
-                    "PyYAML required for YAML configuration files",
-                )
-
             # Native YAML loading
             with open(config_path, encoding="utf-8") as f:
                 config: dict[str, Any] = yaml.safe_load(f)
@@ -701,21 +568,13 @@ class XPCSDataLoader:
         )
 
     def _check_dependencies(self) -> None:
-        """Check for required dependencies and raise error if missing."""
-        missing_deps = []
+        """Check for required dependencies.
 
-        if not HAS_NUMPY:
-            missing_deps.append("numpy")
-        if not HAS_H5PY:
-            missing_deps.append("h5py")
-
-        if missing_deps:
-            error_msg = f"Missing required dependencies: {', '.join(missing_deps)}. "
-            error_msg += "Please install them with: pip install " + " ".join(
-                missing_deps,
-            )
-            logger.error(error_msg)
-            raise XPCSDependencyError(error_msg)
+        numpy and h5py are pyproject.toml hard dependencies, so a missing
+        install fails at the top-of-module ``import numpy``/``import h5py``
+        (well before this constructor runs), not here. Kept as a no-op call
+        site for API stability; :class:`XPCSDependencyError` stays public.
+        """
 
     def _normalize_config_structure(self) -> None:
         """Transform flat config structure to nested structure for backward compatibility.
@@ -824,23 +683,22 @@ class XPCSDataLoader:
     def _init_performance_components(self) -> None:
         """Initialize performance optimization components.
 
-        ``performance_engine`` is intentionally never constructed here: an
-        audit found XPCSDataLoader never called anything on it besides
-        ``shutdown()`` in :meth:`close` (every actual data-loading feature it
-        offers — the multi-level cache, memory-mapped chunked loading,
-        prefetching — was reachable only through the also-dead
-        ``AdvancedDatasetOptimizer``, never invoked in production). The
-        attribute is kept (always ``None``) so :meth:`close` stays a
-        harmless no-op and external code that only checks
-        ``loader.performance_engine is not None`` keeps working.
-
-        ``memory_manager`` IS constructed: its background pressure-monitor
+        ``memory_manager`` is constructed: its background pressure-monitor
         thread has a real, documented side effect (WARNING logs when memory
         pressure crosses the 75%/90% thresholds — see
         ``docs/source/theory/heterodyne_memory_strategy.rst``), regardless of
         whether anyone calls a method on the returned object.
+
+        A ``performance_engine`` attribute (the multi-level cache,
+        memory-mapped chunked loading, and prefetching engine formerly in
+        ``xpcsjax.data.performance_engine``) used to also live here, always
+        ``None`` — an audit found XPCSDataLoader never called anything on it
+        besides ``shutdown()`` in :meth:`close`, and every actual feature it
+        offered was reachable only through the also-dead
+        ``AdvancedDatasetOptimizer``, never invoked in production. Both the
+        module and the attribute were removed in the 2026-09-15 review
+        (finding B1).
         """
-        self.performance_engine = None
         self.memory_manager = None
 
         # Check if performance optimization is enabled
@@ -866,27 +724,10 @@ class XPCSDataLoader:
             self.memory_manager = None
 
     def close(self) -> None:
-        """Shut down the performance engine and memory manager, if constructed.
+        """Shut down the memory manager, if constructed.
 
-        ``performance_engine`` is never constructed by
-        :meth:`_init_performance_components` in production (see its
-        docstring), but the attribute stays writable and is documented as
-        such — this branch stays so any external/future code that DOES
-        assign a real :class:`PerformanceEngine` to it still gets its
-        monitoring thread joined on close, instead of silently leaking it.
-        Both components already implement a full ``shutdown()`` (monitoring
-        thread join, executor shutdown, cache/mmap cleanup); safe to call
-        multiple times; best-effort per component so one failure doesn't
-        block the other's cleanup.
+        Safe to call multiple times.
         """
-        if self.performance_engine is not None:
-            try:
-                self.performance_engine.shutdown()
-            except Exception as e:  # pragma: no cover - defensive only
-                logger.warning(f"Error shutting down performance engine: {e}")
-            finally:
-                self.performance_engine = None
-
         if self.memory_manager is not None:
             try:
                 self.memory_manager.shutdown()
@@ -942,8 +783,7 @@ class XPCSDataLoader:
         """Get validation settings from configuration."""
         validation_level = self.v2_config.get("validation_level", "basic")
         return {
-            "physics_checks": self.v2_config.get("physics_validation", False)
-            and HAS_PHYSICS_VALIDATION,
+            "physics_checks": self.v2_config.get("physics_validation", False),
             "data_quality": validation_level != "none",
             "comprehensive": validation_level == "full",
         }
@@ -966,7 +806,7 @@ class XPCSDataLoader:
         """
         output_format = self._get_output_format()
 
-        if output_format == "jax" and HAS_JAX and jax_available:
+        if output_format == "jax" and jax_available:
             logger.debug("Converting arrays to JAX format")
             return {
                 k: jnp.asarray(np.ascontiguousarray(v), dtype=jnp.float64)
@@ -975,7 +815,7 @@ class XPCSDataLoader:
                 for k, v in data.items()
             }
 
-        elif output_format == "auto" and HAS_JAX and jax_available:
+        elif output_format == "auto" and jax_available:
             logger.debug("Auto-selecting JAX format (available)")
             return {
                 k: jnp.asarray(np.ascontiguousarray(v), dtype=jnp.float64)
@@ -1748,34 +1588,32 @@ class XPCSDataLoader:
                 source="HDF5 correlation dataset (APS-U intermediate)",
             )
 
-            # Load only the correlation matrices that correspond to valid (q,phi) pairs
+            # Load only the correlation matrices that correspond to valid (q,phi) pairs.
+            # bin_idx out of range would otherwise skip a matrix without skipping its
+            # (q,phi) pair, silently mislabelling every later matrix by one slot.
             for bin_idx in valid_bin_indices:
-                if bin_idx < len(c2_keys):
-                    key = c2_keys[bin_idx]
-                    c2_half = corr_group[key][()]  # Key is already a string
-                    # Reconstruct full matrix from half matrix
-                    c2_full = self._reconstruct_full_matrix(c2_half)
-                    c2_matrices_for_filtering.append(c2_full)
-                else:
-                    logger.warning(
-                        f"Matrix index {bin_idx} exceeds available matrices ({len(c2_keys)})",
+                if bin_idx >= len(c2_keys):
+                    raise XPCSDataFormatError(
+                        f"Matrix index {bin_idx} exceeds available matrices "
+                        f"({len(c2_keys)}) - APS-U file is inconsistent between "
+                        "processed_bins mapping and the correlation_map group",
                     )
+                key = c2_keys[bin_idx]
+                c2_half = corr_group[key][()]  # Key is already a string
+                # Reconstruct full matrix from half matrix
+                c2_full = self._reconstruct_full_matrix(c2_half)
+                c2_matrices_for_filtering.append(c2_full)
 
-            # Ensure we have consistent array sizes
-            min_count = min(len(c2_matrices_for_filtering), len(filtered_dqlist))
+            # Matrix/pair counts must match exactly - a mismatch means the file's
+            # bin mapping and correlation matrices disagree, and truncating would
+            # silently discard/misalign data rather than surface the corruption.
             if len(c2_matrices_for_filtering) != len(filtered_dqlist):
                 n_matrices = len(c2_matrices_for_filtering)
                 n_pairs = len(filtered_dqlist)
-                n_discarded = abs(n_matrices - n_pairs)
-                logger.warning(
+                raise XPCSDataFormatError(
                     f"APS-U matrix/pair count mismatch: {n_matrices} matrices vs "
-                    f"{n_pairs} (q,phi) pairs - truncating to {min_count} entries, "
-                    f"discarding {n_discarded} unmatched {'matrices' if n_matrices > n_pairs else '(q,phi) pairs'}. "
-                    "Check HDF5 file integrity."
+                    f"{n_pairs} (q,phi) pairs. Check HDF5 file integrity.",
                 )
-                c2_matrices_for_filtering = c2_matrices_for_filtering[:min_count]
-                filtered_dqlist = filtered_dqlist[:min_count]
-                filtered_dphilist = filtered_dphilist[:min_count]
 
             # Apply comprehensive data filtering
             logger.debug("Applying comprehensive data filtering")
@@ -1876,8 +1714,6 @@ class XPCSDataLoader:
 
         Note: Diagonal correction is now applied post-load for consistent behavior.
         """
-        if not HAS_NUMPY:
-            raise RuntimeError("NumPy is required for matrix reconstruction")
         c2_full = c2_half + c2_half.T
         # Correct diagonal (was doubled in addition)
         diag_indices = np.diag_indices(c2_half.shape[0])
@@ -1906,8 +1742,6 @@ class XPCSDataLoader:
         numpy.ndarray
             Corrected matrices with the same shape as the input.
         """
-        if not HAS_NUMPY:
-            raise RuntimeError("NumPy is required for diagonal correction")
         n_phi = c2_matrices.shape[0]
         size = c2_matrices.shape[1]
 
@@ -1960,8 +1794,6 @@ class XPCSDataLoader:
         Any
             Corrected matrices with the same shape as the input.
         """
-        if not HAS_JAX:
-            raise RuntimeError("JAX is required for JAX diagonal correction")
         import jax
 
         size = c2_matrices.shape[1]
@@ -2206,8 +2038,6 @@ class XPCSDataLoader:
         int
             Index of the selected q-vector within ``dqlist``.
         """
-        if not HAS_NUMPY:
-            raise RuntimeError("NumPy is required for wavevector selection")
         # Get target q-vector from configuration
         scattering_config = self.analyzer_config.get("scattering", {})
         config_q = scattering_config.get("wavevector_q", 0.0054)
@@ -2325,11 +2155,35 @@ class XPCSDataLoader:
 
         return time_1d
 
+    def _source_hdf_stat(self) -> tuple[str, int, int] | None:
+        """Return the configured source HDF5 file's identity for cache keying.
+
+        Returns ``(basename, size, mtime_ns)``, or ``None`` if it doesn't
+        resolve to an existing file (e.g. a direct NPZ override with no
+        underlying HDF5).
+        """
+        exp_config = getattr(self, "exp_config", {})
+        data_folder = exp_config.get("data_folder_path", "./")
+        data_file = exp_config.get("data_file_name", "")
+        if not data_file:
+            return None
+        hdf_path = os.path.join(data_folder, data_file)
+        try:
+            st = os.stat(hdf_path)
+        except OSError:
+            return None
+        return os.path.basename(hdf_path), st.st_size, st.st_mtime_ns
+
     @log_performance(threshold=0.3)
     def _save_to_cache(self, data: dict[str, Any], cache_path: str) -> None:
-        """Save processed data to NPZ cache file with q-vector metadata."""
-        if not HAS_NUMPY:
-            raise RuntimeError("NumPy is required for cache saving")
+        """Save processed data to NPZ cache file with q-vector metadata.
+
+        Also records the source HDF5 file's basename/size/mtime, so a later
+        load can detect that the underlying file was replaced (A2: the cache
+        was previously keyed only on frame window + q, so pointing
+        ``data_file`` at a different file in the same folder with the same
+        frame window would silently serve the stale cache).
+        """
         # Ensure cache directory exists
         cache_dir = os.path.dirname(cache_path)
         if cache_dir:
@@ -2338,7 +2192,7 @@ class XPCSDataLoader:
         # Convert JAX arrays back to numpy for caching
         cache_data: dict[str, Any] = {}
         for key, value in data.items():
-            if HAS_JAX and hasattr(value, "device"):  # JAX array
+            if hasattr(value, "device"):  # JAX array
                 cache_data[key] = np.array(value)
             else:
                 cache_data[key] = value
@@ -2398,6 +2252,15 @@ class XPCSDataLoader:
                 self.config.get("optimization_config", {}).get("angle_filtering", {})
             ),
         }
+
+        # A2: key the cache to its source HDF5 file so replacing/re-reducing the
+        # source, or pointing data_file at a same-named/sibling file with a
+        # matching frame window, is detected instead of silently reused.
+        source_stat = self._source_hdf_stat()
+        if source_stat is not None:
+            cache_metadata["source_file"] = source_stat[0]
+            cache_metadata["source_size"] = source_stat[1]
+            cache_metadata["source_mtime_ns"] = source_stat[2]
 
         # Metadata is stored as a JSON-encoded scalar (not a Python dict via
         # object pickling) so the loader can read it with allow_pickle=False.
@@ -2549,6 +2412,33 @@ class XPCSDataLoader:
                 f"selection is tolerance-specific; delete it and regenerate.",
             )
 
+        # Check the cache's source-file fingerprint (A2). Older keys alone
+        # (frame window + q) can't distinguish the HDF5 being replaced, or
+        # data_file pointing at a same-frame-window sibling file, from an
+        # untouched source - warn-only when the key predates this check,
+        # matching the other legacy-metadata fallbacks above.
+        source_stat = self._source_hdf_stat()
+        cached_source_file = cache_metadata.get("source_file")
+        if cached_source_file is None:
+            logger.warning(
+                "Cache metadata predates source-file fingerprinting; cannot "
+                "verify the cache matches the current source HDF5 file.",
+            )
+        elif source_stat is not None:
+            current_name, current_size, current_mtime_ns = source_stat
+            if (
+                cached_source_file != current_name
+                or cache_metadata.get("source_size") != current_size
+                or cache_metadata.get("source_mtime_ns") != current_mtime_ns
+            ):
+                raise XPCSDataFormatError(
+                    f"Cache source-file mismatch: cache was built from "
+                    f"'{cached_source_file}' but the configured source is now "
+                    f"'{current_name}' (or its size/mtime changed). The source "
+                    f"HDF5 file was replaced or re-reduced; delete the cache "
+                    f"and regenerate.",
+                )
+
         # Check if cache uses selective q-caching
         is_selective = cache_metadata.get("selective_q_caching", False)
         if not is_selective:
@@ -2570,8 +2460,8 @@ class XPCSDataLoader:
         data_folder = self.exp_config.get("data_folder_path", "./")
 
         # Convert JAX arrays to numpy for text file saving
-        phi_angles = np.array(data["phi_angles_list"]) if HAS_JAX else data["phi_angles_list"]
-        q_values = np.array(data["wavevector_q_list"]) if HAS_JAX else data["wavevector_q_list"]
+        phi_angles = np.array(data["phi_angles_list"])
+        q_values = np.array(data["wavevector_q_list"])
 
         # Route the config-controlled output directories through get_safe_output_dir
         # so a phi_angles_path / data_folder_path containing '..' cannot write these
@@ -2626,14 +2516,8 @@ class XPCSDataLoader:
 
     def _perform_physics_validation(self, data: dict[str, Any]) -> None:
         """Perform physics-based validation using v2 PhysicsConstants."""
-        if not HAS_PHYSICS_VALIDATION:
-            logger.warning(
-                "Physics validation requested but v2 physics module not available",
-            )
-            return
-
         # Validate q-range
-        q_values = np.array(data["wavevector_q_list"]) if HAS_JAX else data["wavevector_q_list"]
+        q_values = np.array(data["wavevector_q_list"])
         if np.any(q_values < PhysicsConstants.Q_MIN_TYPICAL):
             logger.warning(
                 f"Some q-values below typical range: {PhysicsConstants.Q_MIN_TYPICAL}",
@@ -2658,7 +2542,7 @@ class XPCSDataLoader:
         comprehensive: bool = False,
     ) -> None:
         """Perform data quality validation."""
-        c2_exp = np.array(data["c2_exp"]) if HAS_JAX else data["c2_exp"]
+        c2_exp = np.array(data["c2_exp"])
 
         # Basic checks
         if np.any(~np.isfinite(c2_exp)):

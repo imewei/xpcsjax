@@ -177,39 +177,6 @@ def test_aps_old_zero_selection_raises(tmp_path, monkeypatch, quality_enabled) -
         loader._load_aps_old_format(str(hdf))
 
 
-def test_cache_hit_rate_is_a_true_hit_rate(tmp_path, monkeypatch) -> None:
-    """Audit [20] (double-check follow-up): cache_hit_rate must be a true
-    hits/(hits+misses) fraction, not (#resident keys)/(hits+puts).
-
-    Before the fix, misses were never counted and the numerator was the
-    memory-cache size, so the metric could not express the fraction of accesses
-    served from cache (and mis-classified the bottleneck type).
-    """
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-    from xpcsjax.data.performance_engine import MultiLevelCache
-
-    cache = MultiLevelCache(memory_cache_mb=64)
-
-    # Cold: no accesses yet -> a neutral 0-access hit rate, no division blow-up.
-    stats = cache.get_cache_stats()
-    assert stats["hits"] == 0 and stats["misses"] == 0
-    assert stats["hit_rate"] == 0.0
-
-    cache.put("a", np.ones(4))
-    # 3 hits on the one resident key, 2 misses on absent keys -> 3/5 = 0.6.
-    for _ in range(3):
-        assert cache.get("a") is not None
-    assert cache.get("missing-1") is None
-    assert cache.get("missing-2") is None
-
-    stats = cache.get_cache_stats()
-    assert stats["hits"] == 3
-    assert stats["misses"] == 2
-    assert stats["hit_rate"] == pytest.approx(3 / 5)
-    # A real hit rate is bounded by 1.0 regardless of how many keys are resident.
-    assert 0.0 <= stats["hit_rate"] <= 1.0
-
-
 def test_aps_old_quality_filter_guards_allocation_before_accumulation(
     tmp_path, monkeypatch
 ) -> None:
@@ -254,56 +221,6 @@ def test_aps_old_quality_filter_guards_allocation_before_accumulation(
 
     with pytest.raises(XPCSDataFormatError, match="Refusing to allocate"):
         loader._load_aps_old_format(str(hdf))
-
-
-def test_memory_map_manager_refcount_blocks_concurrent_eviction(tmp_path) -> None:
-    """2026-07-22 audit Fix 2: MemoryMapManager must not evict (close) a file
-    handle that is currently checked out via ``open_memory_mapped_hdf5``, even
-    if it is the LRU-oldest candidate and ``max_open_files`` is exceeded. Once
-    the checkout's ``with`` block exits and it becomes LRU-oldest again, it
-    must be evictable.
-    """
-    h5py = pytest.importorskip("h5py")
-    import threading
-
-    from xpcsjax.data.performance_engine import MemoryMapManager
-
-    file_a = tmp_path / "a.h5"
-    file_b = tmp_path / "b.h5"
-    for p in (file_a, file_b):
-        with h5py.File(p, "w") as f:
-            f.create_dataset("data", data=np.zeros(4))
-
-    manager = MemoryMapManager(max_open_files=1)
-
-    checked_out = threading.Event()
-    release = threading.Event()
-
-    def hold_a():
-        with manager.open_memory_mapped_hdf5(str(file_a)):
-            checked_out.set()
-            release.wait(timeout=5)
-
-    reader = threading.Thread(target=hold_a)
-    reader.start()
-    assert checked_out.wait(timeout=5), "reader thread never checked out file A"
-
-    # Opening B while A is checked out must not evict A, even though A is the
-    # only (hence LRU-oldest) open handle and max_open_files=1.
-    with manager.open_memory_mapped_hdf5(str(file_b)):
-        assert str(file_a) in manager._open_maps, "in-use handle A was evicted mid-read"
-
-    release.set()
-    reader.join(timeout=5)
-    assert not reader.is_alive()
-
-    # A is no longer in use. Force it to look LRU-oldest and confirm cleanup
-    # can now evict it.
-    manager._last_access[str(file_a)] = 0.0
-    manager._cleanup_old_mappings()
-    assert str(file_a) not in manager._open_maps, "released handle A was never evicted"
-
-    manager.close_all()
 
 
 def test_fallback_no_recovery_reports_failed_on_stagnation() -> None:

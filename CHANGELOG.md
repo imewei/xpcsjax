@@ -37,6 +37,18 @@ the rendered documentation.
   message now reads `Unsupported optimization method: ...; only 'nlsq' is
   implemented.`).
 
+- **`repair_nan_values` (quality control) now defaults to `False`.**
+  (`xpcsjax/data/quality_controller.py`) Median-filling non-finite `c2_exp`
+  values reaches the fit indistinguishable from measured data; it must now
+  be enabled explicitly via `quality_control.repair_nan_values: true`. When
+  enabled, each repair now logs at WARNING with the count of values
+  replaced, instead of being silent at DEBUG. None of the four shipped
+  config templates set this key, so they all pick up the new default. Also
+  removed `_repair_scaling_issues` (and its `repair_scaling_issues` config
+  field) entirely: its mean-based heuristic divided/multiplied the whole
+  `c2_exp` stack by 10/100, which its own comment already documented as
+  capable of corrupting valid raw-count data — no safe setting existed.
+
 ### Fixed
 
 - **Homodyne (`static_*` / `laminar_flow`) uncertainties follow the same

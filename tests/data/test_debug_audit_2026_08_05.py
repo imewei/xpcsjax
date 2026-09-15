@@ -46,59 +46,10 @@ def test_migrate_cache_template_format_spec_migrated() -> None:
     assert out == "cache_${wavevector_q}.npz"
 
 
-# ---------------------------------------------------------------------------
-# quality_controller.ValidationIssue fallback -- must expose the same fields
-# as xpcsjax.data.validation.ValidationIssue, or a call site using
-# parameter=/value= only crashes in the degraded-import environment.
-# ---------------------------------------------------------------------------
-def test_validation_issue_fallback_has_full_field_parity(monkeypatch) -> None:
-    # Load an ISOLATED copy of the module under a throwaway name instead of
-    # importlib.reload()-ing the real xpcsjax.data.quality_controller: reload
-    # mutates the shared module object in place (new Enum/dataclass identities
-    # for every class it defines), which silently breaks every other test
-    # that already imported the old classes before this test runs.
-    import dataclasses
-    import importlib.util
-    import sys
-
-    import xpcsjax.data.quality_controller as real_qc
-
-    monkeypatch.setitem(sys.modules, "xpcsjax.data.validation", None)
-
-    spec = importlib.util.spec_from_file_location(
-        "_test_only_quality_controller_fallback_probe", real_qc.__file__
-    )
-    probe = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = probe
-    try:
-        spec.loader.exec_module(probe)
-        assert probe.HAS_VALIDATION is False
-
-        fallback_fields = {f.name for f in dataclasses.fields(probe.ValidationIssue)}
-        assert fallback_fields == {
-            "severity",
-            "category",
-            "message",
-            "parameter",
-            "value",
-            "recommendation",
-        }
-
-        # Every real ValidationIssue(...) call site in this file uses
-        # keyword args including parameter= and value= -- confirm the
-        # fallback actually accepts them without TypeError.
-        issue = probe.ValidationIssue(
-            severity="error",
-            category="completeness",
-            message="missing key",
-            parameter="c2_exp",
-            value=None,
-            recommendation="check the loader",
-        )
-        assert issue.parameter == "c2_exp"
-        assert issue.value is None
-    finally:
-        del sys.modules[spec.name]
+# quality_controller.ValidationIssue's degraded-import fallback (and its
+# HAS_VALIDATION flag) was removed here (2026-09-15 review, finding B3):
+# xpcsjax.data.validation is an in-tree module that cannot fail to import in
+# any supported install, so the fallback was dead code.
 
 
 # ---------------------------------------------------------------------------
@@ -284,71 +235,6 @@ def test_advanced_memory_manager_collected_without_gc_sweep() -> None:
             gc.enable()
 
 
-# ---------------------------------------------------------------------------
-# performance_engine.MemoryMapManager.close_all -- a checked-out handle must
-# not be closed out from under an active reader.
-# ---------------------------------------------------------------------------
-def test_close_all_skips_handle_still_checked_out() -> None:
-    from unittest.mock import MagicMock
-
-    from xpcsjax.data.performance_engine import MemoryMapManager
-
-    manager = MemoryMapManager()
-    handle = MagicMock()
-    manager._open_maps["fake_path.h5"] = handle
-    manager._in_use["fake_path.h5"] = 1  # simulate an active checkout
-
-    manager.close_all()
-
-    handle.close.assert_not_called()
-    assert "fake_path.h5" in manager._open_maps
-
-
-def test_close_all_closes_handle_not_in_use() -> None:
-    from unittest.mock import MagicMock
-
-    from xpcsjax.data.performance_engine import MemoryMapManager
-
-    manager = MemoryMapManager()
-    handle = MagicMock()
-    manager._open_maps["fake_path.h5"] = handle
-
-    manager.close_all()
-
-    handle.close.assert_called_once()
-    assert "fake_path.h5" not in manager._open_maps
-
-
-# ---------------------------------------------------------------------------
-# performance_engine.MultiLevelCache -- SSD usage-counter updates must be
-# atomic under concurrent put() calls, or the tracked usage drifts below the
-# real on-disk total and eviction silently stops firing.
-# ---------------------------------------------------------------------------
-def test_multi_level_cache_ssd_usage_counter_matches_disk_after_concurrent_puts(
-    tmp_path, monkeypatch
-) -> None:
-    import threading
-
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-
-    from xpcsjax.data.performance_engine import MultiLevelCache
-
-    cache = MultiLevelCache(memory_cache_mb=1.0, ssd_cache_mb=1000.0, hdd_cache_mb=1000.0)
-    item = np.ones(2000, dtype=np.float64)  # small, fast to (de)serialize
-
-    def _put(i: int) -> None:
-        cache._put_ssd(f"key_{i}", item)
-
-    threads = [threading.Thread(target=_put, args=(i,)) for i in range(16)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-
-    actual_usage_mb = sum(
-        f.stat().st_size for f in cache._ssd_cache_path.iterdir() if f.is_file()
-    ) / (1024 * 1024)
-
-    assert cache._ssd_usage_mb == pytest.approx(actual_usage_mb, rel=1e-6), (
-        "tracked SSD usage drifted from the real on-disk total under concurrent put()"
-    )
+# performance_engine.MemoryMapManager / MultiLevelCache regression tests were
+# removed here (2026-09-15 review, finding B1): the module they exercised had
+# zero production callers and was deleted outright.

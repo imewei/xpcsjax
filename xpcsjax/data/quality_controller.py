@@ -35,76 +35,18 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-# Core dependencies
-try:
-    import numpy as np
+# numpy, jax, xpcsjax.utils.logging, and xpcsjax.data.validation are all
+# pyproject.toml hard dependencies / in-tree modules (2026-09-15 review,
+# finding B3) — none of these imports can fail in any supported install.
+import jax.numpy as jnp
+import numpy as np
 
-    HAS_NUMPY = True
-except ImportError:
-    HAS_NUMPY = False
-    np = None  # type: ignore[assignment]
-
-# JAX integration with fallback
-try:
-    import jax.numpy as jnp
-
-    HAS_JAX = True
-except ImportError:
-    jnp = np  # type: ignore[misc]
-    HAS_JAX = False
-
-
-def _is_jax_array(arr: Any) -> bool:
-    """Return True only for actual JAX arrays (mirrors xpcs_loader.py)."""
-    return HAS_JAX and isinstance(arr, jnp.ndarray)
-
-
-# V2 system integration
-try:
-    from xpcsjax.utils.logging import get_logger, log_performance
-
-    HAS_V2_LOGGING = True
-except ImportError:
-    import logging
-
-    HAS_V2_LOGGING = False
-
-    def get_logger(name):  # type: ignore[no-untyped-def,misc]
-        return logging.getLogger(name)
-
-    def log_performance(*args, **kwargs):  # type: ignore[no-untyped-def,misc]
-        def decorator(func):  # type: ignore[no-untyped-def]
-            return func
-
-        return decorator
-
-
-# V2 validation system integration
-try:
-    from xpcsjax.data.validation import (
-        DataQualityReport,
-        ValidationIssue,
-        ValidationLevel,
-        validate_xpcs_data,
-    )
-
-    HAS_VALIDATION = True
-except ImportError:
-    HAS_VALIDATION = False
-    DataQualityReport = None  # type: ignore[assignment,misc]
-    ValidationLevel = None  # type: ignore[assignment,misc]
-
-    @dataclass
-    class ValidationIssue:  # type: ignore[no-redef]
-        """Fallback exposing the same fields as xpcsjax.data.validation.ValidationIssue."""
-
-        severity: str
-        category: str
-        message: str
-        parameter: str | None = None
-        value: Any | None = None
-        recommendation: str | None = None
-
+from xpcsjax.core.diagonal_correction import _is_jax_array
+from xpcsjax.data.validation import (
+    ValidationIssue,
+    validate_xpcs_data,
+)
+from xpcsjax.utils.logging import get_logger, log_performance
 
 logger = get_logger(__name__)
 
@@ -263,11 +205,12 @@ class QualityControlConfig:
     enable_preprocessing_validation: bool = True
     enable_final_validation: bool = True
 
-    # Auto-repair settings
-    repair_nan_values: bool = True
+    # Auto-repair settings. repair_nan_values defaults to False (A3): median-
+    # filling non-finite values fabricates data indistinguishable from
+    # measured values once it reaches the fit; opt in explicitly.
+    repair_nan_values: bool = False
     repair_infinite_values: bool = True
     repair_negative_correlations: bool = False  # Conservative default
-    repair_scaling_issues: bool = True
     repair_format_inconsistencies: bool = True
 
     # Performance settings
@@ -314,13 +257,12 @@ class QualityControlConfig:
                 True,
             ),
             enable_final_validation=quality_config.get("enable_final_validation", True),
-            repair_nan_values=quality_config.get("repair_nan_values", True),
+            repair_nan_values=quality_config.get("repair_nan_values", False),
             repair_infinite_values=quality_config.get("repair_infinite_values", True),
             repair_negative_correlations=quality_config.get(
                 "repair_negative_correlations",
                 False,
             ),
-            repair_scaling_issues=quality_config.get("repair_scaling_issues", True),
             repair_format_inconsistencies=quality_config.get(
                 "repair_format_inconsistencies",
                 True,
@@ -618,10 +560,7 @@ class DataQualityController:
         data: dict[str, Any],
         result: QualityControlResult,
     ) -> None:
-        """Validate raw data integrity and basic format.
-
-        Uses the full validation system when available, otherwise falls back to
-        :meth:`_basic_raw_data_validation`.
+        """Validate raw data integrity and basic format via :func:`validate_xpcs_data`.
 
         Parameters
         ----------
@@ -632,24 +571,19 @@ class DataQualityController:
         """
         logger.debug("Validating raw data stage")
 
-        # Use existing validation system if available
-        if HAS_VALIDATION:
-            validation_level = (
-                "basic" if self.quality_config.validation_level in ["none", "basic"] else "full"
-            )
-            validation_report = validate_xpcs_data(data, self.config, validation_level)
+        validation_level = (
+            "basic" if self.quality_config.validation_level in ["none", "basic"] else "full"
+        )
+        validation_report = validate_xpcs_data(data, self.config, validation_level)
 
-            # Convert validation report to our format
-            result.issues.extend(validation_report.errors)
-            result.issues.extend(validation_report.warnings)
-            result.issues.extend(validation_report.info)
+        # Convert validation report to our format
+        result.issues.extend(validation_report.errors)
+        result.issues.extend(validation_report.warnings)
+        result.issues.extend(validation_report.info)
 
-            # Extract metrics from validation report
-            if validation_report.data_statistics:
-                self._extract_metrics_from_validation(validation_report, result.metrics)
-        else:
-            # Fallback basic validation
-            self._basic_raw_data_validation(data, result)
+        # Extract metrics from validation report
+        if validation_report.data_statistics:
+            self._extract_metrics_from_validation(validation_report, result.metrics)
 
         logger.debug(
             f"Raw data validation completed: {len(result.issues)} issues found",
@@ -825,7 +759,7 @@ class DataQualityController:
 
         # Physics validation if enabled
         validation_level = self.quality_config.validation_level
-        if validation_level in ["standard", "comprehensive"] and HAS_VALIDATION:
+        if validation_level in ["standard", "comprehensive"]:
             validation_report = validate_xpcs_data(data, self.config, "full")
 
             # Merge validation results
@@ -853,80 +787,6 @@ class DataQualityController:
         logger.debug(
             f"Final data validation completed: readiness_score={readiness_score:.1f}",
         )
-
-    def _basic_raw_data_validation(
-        self,
-        data: dict[str, Any],
-        result: QualityControlResult,
-    ) -> None:
-        """Run fallback basic validation when the full system is unavailable.
-
-        Checks for required keys and per-array finite fractions, appending
-        issues to ``result``.
-
-        Parameters
-        ----------
-        data : dict
-            Data dictionary to validate.
-        result : QualityControlResult
-            Result accumulator updated in place.
-        """
-        required_keys = ["wavevector_q_list", "phi_angles_list", "t1", "t2", "c2_exp"]
-
-        for key in required_keys:
-            if key not in data:
-                result.issues.append(
-                    ValidationIssue(
-                        severity="error",
-                        category="format",
-                        message=f"Missing required data key: {key}",
-                        recommendation="Check data loading process",
-                    ),
-                )
-
-        # Basic data integrity
-        for key, value in data.items():
-            if hasattr(value, "shape") or isinstance(value, (list, tuple, np.ndarray)):
-                try:
-                    arr = np.asarray(value)
-                    if key == "wavevector_q_list":
-                        # NaN here is legitimate bad-pixel masking (one entry per
-                        # (q, phi) pair) — mirrors xpcs_loader.py's carve-out.
-                        # Still hard-flag inf: that indicates real corruption.
-                        if arr.size and np.isinf(arr).any():
-                            result.issues.append(
-                                ValidationIssue(
-                                    severity="error",
-                                    category="data_quality",
-                                    message="wavevector_q_list contains inf values",
-                                    recommendation="Check data preprocessing and source quality",
-                                ),
-                            )
-                        continue
-                    finite_fraction = np.sum(np.isfinite(arr)) / arr.size if arr.size > 0 else 0.0
-                    result.metrics.finite_fraction = max(
-                        result.metrics.finite_fraction,
-                        finite_fraction,
-                    )
-
-                    if finite_fraction < 0.95:
-                        result.issues.append(
-                            ValidationIssue(
-                                severity=("warning" if finite_fraction > 0.8 else "error"),
-                                category="data_quality",
-                                message=f"Non-finite values in {key}: {(1 - finite_fraction) * 100:.1f}%",
-                                recommendation="Check data preprocessing and source quality",
-                            ),
-                        )
-                except (AttributeError, TypeError, IndexError, ValueError):
-                    # ValueError also covers np.asarray on a ragged/inhomogeneous
-                    # sequence (e.g. mismatched per-angle lengths).
-                    pass  # value isn't array-like enough for np.asarray/np.isfinite; skip it and keep checking the rest
-
-        # Without this, correlation_validity/signal_to_noise stay at their 0.0
-        # default and RAW_DATA can never reach pass_threshold even for
-        # perfectly finite data (mirrors _validate_filtered_data's call).
-        self._basic_data_quality_checks(data, result)
 
     def _basic_data_quality_checks(
         self,
@@ -1355,16 +1215,6 @@ class DataQualityController:
                 modified = self._repair_negative_correlations(data, repairs_applied)
                 data_modified = data_modified or modified
 
-            # Repair scaling issues — aggressive mode only.
-            # The heuristic (mean > 100 → ÷100) would silently corrupt raw-count
-            # matrices where values > 100 are physically valid.
-            if (
-                self.quality_config.repair_scaling_issues
-                and self.quality_config.auto_repair == "aggressive"
-            ):
-                modified = self._repair_scaling_issues(data, repairs_applied)
-                data_modified = data_modified or modified
-
             # Update repair metrics
             result.repairs_applied = repairs_applied
             result.metrics.issues_detected = len(
@@ -1459,7 +1309,15 @@ class DataQualityController:
 
                         if key_modified:
                             data_modified = True
+                            n_repaired = int(np.sum(nan_mask))
                             repairs_applied.append(f"Repaired NaN values in {key}")
+                            # A3: median-fill fabricates values indistinguishable
+                            # from measured data once it reaches the fit - this
+                            # must be loud (WARNING), not buried at INFO/DEBUG.
+                            logger.warning(
+                                f"repair_nan_values replaced {n_repaired} non-finite "
+                                f"value(s) in '{key}' with the per-array/matrix median"
+                            )
                 except (AttributeError, TypeError, IndexError, ValueError) as e:
                     logger.debug(f"Could not repair NaN values in {key}: {e}")
 
@@ -1578,58 +1436,6 @@ class DataQualityController:
                         repairs_applied.append("Repaired negative correlation values")
             except (AttributeError, TypeError, IndexError) as e:
                 logger.debug(f"Could not repair negative correlation values: {e}")
-
-        return data_modified
-
-    def _repair_scaling_issues(
-        self,
-        data: dict[str, Any],
-        repairs_applied: list[str],
-    ) -> bool:
-        """Rescale correlation data when the mean is off by an order of magnitude.
-
-        Applies a heuristic divide/multiply based on the mean ``c2_exp`` value.
-
-        Parameters
-        ----------
-        data : dict
-            Data dictionary, mutated in place.
-        repairs_applied : list of str
-            Accumulator appended with a description of each repair.
-
-        Returns
-        -------
-        bool
-            ``True`` if a rescaling was applied.
-        """
-        data_modified = False
-
-        # Check correlation values for unrealistic scales
-        c2_exp = data.get("c2_exp")
-        if c2_exp is not None:
-            try:
-                arr = np.asarray(c2_exp)
-                if arr.size > 0:
-                    mean_val = np.nanmean(arr)
-
-                    # If correlations are way off scale, apply simple rescaling
-                    if mean_val > 100:  # Likely scaled by 100x
-                        arr = arr / 100
-                        data["c2_exp"] = arr
-                        data_modified = True
-                        repairs_applied.append("Applied correlation rescaling (÷100)")
-                    elif mean_val > 10:  # Likely scaled by 10x
-                        arr = arr / 10
-                        data["c2_exp"] = arr
-                        data_modified = True
-                        repairs_applied.append("Applied correlation rescaling (÷10)")
-                    elif mean_val < 0.01 and mean_val > 0:  # Likely under-scaled
-                        arr = arr * 10
-                        data["c2_exp"] = arr
-                        data_modified = True
-                        repairs_applied.append("Applied correlation rescaling (×10)")
-            except (AttributeError, TypeError, IndexError) as e:
-                logger.debug(f"Could not repair scaling issues: {e}")
 
         return data_modified
 
