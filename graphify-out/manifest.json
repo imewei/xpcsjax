@@ -204,10 +204,10 @@
     "semantic_hash": ""
   },
   "tests/optimization/_heterodyne_fixtures.py": {
-    "mtime": 1789426365.929192,
-    "seen": 1789453660.4951098,
-    "ast_hash": "4439f57ac306def22c8fe78f65906a27",
-    "semantic_hash": "4439f57ac306def22c8fe78f65906a27"
+    "mtime": 1789501046.5864193,
+    "seen": 1789501068.435615,
+    "ast_hash": "3a88ce25664a9e827ceb5920dde746d3",
+    "semantic_hash": ""
   },
   "tests/optimization/test_heterodyne_data_prep.py": {
     "mtime": 1785984647.976301,
@@ -438,10 +438,10 @@
     "semantic_hash": "45d3462dc44c3575306d1d54d4fc8603"
   },
   "tests/optimization/test_l4_callback_observational.py": {
-    "mtime": 1780525312.832349,
-    "seen": 1789453660.4951851,
-    "ast_hash": "097a028234a714920fb605fab44890eb",
-    "semantic_hash": "097a028234a714920fb605fab44890eb"
+    "mtime": 1789501046.5864193,
+    "seen": 1789501068.435753,
+    "ast_hash": "bc543daf786d03b3b13aac96733354b1",
+    "semantic_hash": ""
   },
   "tests/data/test_validation_integrity_logging.py": {
     "mtime": 1780493262.0502422,
@@ -606,10 +606,10 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "tests/parity/test_l4_per_iteration_parity.py": {
-    "mtime": 1781549346.5685153,
-    "seen": 1789453660.4952378,
-    "ast_hash": "321817d419be210fa1b32ea62a081d14",
-    "semantic_hash": "321817d419be210fa1b32ea62a081d14"
+    "mtime": 1789501046.5864193,
+    "seen": 1789501068.4358582,
+    "ast_hash": "2ff4432672e12b639991372f92b374e1",
+    "semantic_hash": ""
   },
   "tests/parity/test_homodyne_engine_preservation.py": {
     "mtime": 1785985818.824757,
@@ -3402,10 +3402,10 @@
     "semantic_hash": "04b6a8d327a0203987e4a319c8ea0f06"
   },
   "tests/optimization/test_heterodyne_tied_result_assembly.py": {
-    "mtime": 1785418937.4539623,
-    "seen": 1789453660.4951735,
-    "ast_hash": "b74b578b129bb981be96df03bc4d6a75",
-    "semantic_hash": "b74b578b129bb981be96df03bc4d6a75"
+    "mtime": 1789501046.5864193,
+    "seen": 1789501068.435727,
+    "ast_hash": "d861bfd760476db572dfc2bd7e43974c",
+    "semantic_hash": ""
   },
   "tests/optimization/test_heterodyne_tied_ssr_discriminators.py": {
     "mtime": 1785459290.8916345,
