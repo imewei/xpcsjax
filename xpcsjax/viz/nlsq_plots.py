@@ -35,9 +35,9 @@ import multiprocessing
 import os
 import tempfile
 import zipfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 import jax.numpy as jnp
 import matplotlib
@@ -656,6 +656,35 @@ def _evaluate_c2_per_angle(
     )
 
 
+def _style_c2_panel(
+    ax: Any,
+    title: str,
+    im: Any = None,
+    cbar_label: str | None = None,
+    *,
+    xlabel: str = "t₁",
+    ylabel: str = "t₂",
+) -> None:
+    """Apply the shared square-panel + axis-label + optional colorbar styling.
+
+    Factors out the ``set_box_aspect(1) -> set_title -> set_xlabel ->
+    set_ylabel -> [colorbar]`` sequence repeated across the panels of
+    :func:`plot_nlsq_fit` and :func:`plot_residual_map`. Uses ``plt.colorbar``
+    (not ``fig.colorbar``) so pytest-mpl snapshots stay pixel-identical to the
+    pre-refactor output. Pass ``im=None`` to skip the colorbar (non-heatmap
+    panels such as histograms/scatter/line plots).
+    """
+    ax.set_box_aspect(1)
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    if im is not None:
+        if cbar_label is not None:
+            plt.colorbar(im, ax=ax, label=cbar_label)
+        else:
+            plt.colorbar(im, ax=ax)
+
+
 def plot_nlsq_fit(
     c2_exp: np.ndarray,
     c2_fit: np.ndarray,
@@ -749,11 +778,7 @@ def plot_nlsq_fit(
             vmin=vmin_shared,
             vmax=vmax_shared,
         )
-        axes[0].set_box_aspect(1)
-        axes[0].set_title(f"Experimental Data{phi_str}")
-        axes[0].set_xlabel("t₁")
-        axes[0].set_ylabel("t₂")
-        plt.colorbar(im0, ax=axes[0], label="c₂")
+        _style_c2_panel(axes[0], f"Experimental Data{phi_str}", im0, "c₂")
 
         im1 = axes[1].imshow(
             c2_fit.T,
@@ -764,11 +789,7 @@ def plot_nlsq_fit(
             vmin=vmin_shared,
             vmax=vmax_shared,
         )
-        axes[1].set_box_aspect(1)
-        axes[1].set_title(f"Fitted Model{phi_str}")
-        axes[1].set_xlabel("t₁")
-        axes[1].set_ylabel("t₂")
-        plt.colorbar(im1, ax=axes[1], label="c₂")
+        _style_c2_panel(axes[1], f"Fitted Model{phi_str}", im1, "c₂")
 
         residual = c2_exp - c2_fit
         vmin_r, vmax_r = symmetric_residual_limit(residual)
@@ -781,11 +802,7 @@ def plot_nlsq_fit(
             vmin=vmin_r,
             vmax=vmax_r,
         )
-        axes[2].set_box_aspect(1)
-        axes[2].set_title(f"Residuals{phi_str}")
-        axes[2].set_xlabel("t₁")
-        axes[2].set_ylabel("t₂")
-        plt.colorbar(im2, ax=axes[2], label="Residual")
+        _style_c2_panel(axes[2], f"Residuals{phi_str}", im2, "Residual")
 
         if reduced_chi_squared is not None:
             fig.suptitle(
@@ -884,11 +901,7 @@ def plot_residual_map(
             vmin=vmin_map,
             vmax=vmax,
         )
-        axes[0, 0].set_box_aspect(1)
-        axes[0, 0].set_title("Residual Map")
-        axes[0, 0].set_xlabel("t₁")
-        axes[0, 0].set_ylabel("t₂")
-        plt.colorbar(im, ax=axes[0, 0])
+        _style_c2_panel(axes[0, 0], "Residual Map", im)
 
         # [0,1] Histogram + Normal overlay
         flat_finite = residuals.ravel()[np.isfinite(residuals.ravel())]
@@ -903,10 +916,9 @@ def plot_residual_map(
                 va="center",
                 transform=axes[0, 1].transAxes,
             )
-        axes[0, 1].set_box_aspect(1)
-        axes[0, 1].set_xlabel("Residual Value")
-        axes[0, 1].set_ylabel("Density")
-        axes[0, 1].set_title("Residual Distribution")
+        _style_c2_panel(
+            axes[0, 1], "Residual Distribution", xlabel="Residual Value", ylabel="Density"
+        )
         # Stats over the already-computed finite residuals — nanmean/nanstd ignore
         # NaN but not inf, and flat_finite has both excluded.
         mu = float(np.mean(flat_finite)) if flat_finite.size > 0 else 0.0
@@ -927,10 +939,7 @@ def plot_residual_map(
         diag = np.diag(residuals)
         axes[1, 0].plot(t1_vec[: diag.size], diag, "b-", lw=1)
         axes[1, 0].axhline(0, color="k", linestyle="--", alpha=0.5)
-        axes[1, 0].set_box_aspect(1)
-        axes[1, 0].set_xlabel("Time")
-        axes[1, 0].set_ylabel("Residual")
-        axes[1, 0].set_title("Diagonal Residuals")
+        _style_c2_panel(axes[1, 0], "Diagonal Residuals", xlabel="Time", ylabel="Residual")
 
         # [1,1] Residuals vs Fitted. A single angle can carry 10^7-10^8 points
         # (datashader_backend.py's module docstring); an unstrided PathCollection
@@ -947,10 +956,7 @@ def plot_residual_map(
             residuals_flat = residuals_flat[idx]
         axes[1, 1].scatter(fitted_flat, residuals_flat, alpha=0.1, s=1)
         axes[1, 1].axhline(0, color="r", linestyle="--")
-        axes[1, 1].set_box_aspect(1)
-        axes[1, 1].set_xlabel("Fitted Value")
-        axes[1, 1].set_ylabel("Residual")
-        axes[1, 1].set_title("Residuals vs Fitted")
+        _style_c2_panel(axes[1, 1], "Residuals vs Fitted", xlabel="Fitted Value", ylabel="Residual")
 
         if phi_deg is not None:
             fig.suptitle(
@@ -1302,7 +1308,23 @@ def _save_fit_artifacts(
     logger.info("Wrote fit artifacts to %s", output_dir)
 
 
-def _plot_single_angle_datashader(args: tuple) -> Path:
+class _DsAngleArgs(NamedTuple):
+    """Picklable per-angle payload for the Datashader worker pool."""
+
+    phi_idx: int
+    c2_exp_i: np.ndarray
+    c2_fit_i: np.ndarray
+    residuals_i: np.ndarray
+    t1: np.ndarray
+    t2: np.ndarray
+    phi_deg: float
+    output_dir: Path
+    width: int
+    height: int
+    color_options: dict[str, Any] | None
+
+
+def _plot_single_angle_datashader(args: _DsAngleArgs) -> Path:
     """Picklable worker: render one angle's 3-panel comparison via Datashader.
 
     Mirrors :func:`_render_one_angle_worker` but dispatches to the Datashader
@@ -1316,36 +1338,85 @@ def _plot_single_angle_datashader(args: tuple) -> Path:
     # inherited from the parent's os.environ at spawn time.
     from xpcsjax.viz.datashader_backend import plot_c2_comparison_fast
 
-    (
-        phi_idx,
-        c2_exp_i,
-        c2_fit_i,
-        residuals_i,
-        t1,
-        t2,
-        phi_deg,
-        output_dir,
-        width,
-        height,
-        color_options,
-    ) = args
-
-    name_suffix = f"phi_{phi_idx:03d}_{phi_deg:.3f}deg"
-    output_file = Path(output_dir) / f"c2_heatmaps_{name_suffix}.png"
+    name_suffix = f"phi_{args.phi_idx:03d}_{args.phi_deg:.3f}deg"
+    output_file = Path(args.output_dir) / f"c2_heatmaps_{name_suffix}.png"
 
     plot_c2_comparison_fast(
-        np.asarray(c2_exp_i),
-        np.asarray(c2_fit_i),
-        np.asarray(residuals_i),
-        np.asarray(t1),
-        np.asarray(t2),
+        np.asarray(args.c2_exp_i),
+        np.asarray(args.c2_fit_i),
+        np.asarray(args.residuals_i),
+        np.asarray(args.t1),
+        np.asarray(args.t2),
         output_file,
-        phi_angle=phi_deg,
-        width=width,
-        height=height,
-        **(color_options or {}),
+        phi_angle=args.phi_deg,
+        width=args.width,
+        height=args.height,
+        **(args.color_options or {}),
     )
     return output_file
+
+
+def _render_angles(
+    worker_fn: Callable[[Any], Any],
+    args_for: Callable[[int], Any],
+    n_phi: int,
+    c2_fitted: np.ndarray,
+    *,
+    parallel: bool,
+    label: str,
+) -> None:
+    """Render every non-NaN angle via ``worker_fn``, parallel with sequential fallback.
+
+    Shared by :func:`_generate_plots_datashader` and the matplotlib rendering
+    path in :func:`generate_nlsq_plots`: spawn-context ``multiprocessing.Pool``
+    on the happy path; on ``(OSError, RuntimeError, multiprocessing.TimeoutError)``
+    (Linux fork-bomb protection, transient HPC scheduler errors) falls back to
+    rendering the remaining angles sequentially in the main process, so output
+    is byte-identical regardless of which path produced it.
+
+    Angles whose ``c2_fitted`` is all-NaN are skipped (the per-angle compute
+    failed upstream — no useful comparison to render).
+    """
+    valid = [i for i in range(n_phi) if not np.all(np.isnan(c2_fitted[i]))]
+    if not valid:
+        logger.warning("%s: all angles have NaN c2_fitted; nothing to render", label)
+        return
+
+    if parallel and n_phi > 1:
+        try:
+            ctx = multiprocessing.get_context("spawn")
+            n_workers = min(multiprocessing.cpu_count(), n_phi)
+            args_list = [args_for(i) for i in valid]
+            timeout_s = (60 * n_phi / max(n_workers, 1)) + 120
+            with ctx.Pool(processes=n_workers) as pool:
+                ar = pool.map_async(worker_fn, args_list)
+                ar.get(timeout=timeout_s)
+            logger.info(
+                "%s: rendered %d angles in parallel (%d workers)",
+                label,
+                len(args_list),
+                n_workers,
+            )
+            return
+        except (OSError, RuntimeError, multiprocessing.TimeoutError) as e:
+            # NOTE: this module only ``import multiprocessing`` (no
+            # ``from multiprocessing import TimeoutError``), so the bare
+            # ``TimeoutError`` named above is ``multiprocessing.TimeoutError``
+            # (what ``ar.get(timeout=...)`` actually raises) -- NOT the
+            # unrelated builtin ``TimeoutError``.
+            logger.warning(
+                "Parallel %s rendering failed (%s: %s); sequential fallback.",
+                label,
+                type(e).__name__,
+                e,
+            )
+            logger.debug("Pool failure traceback:", exc_info=True)
+
+    rendered = 0
+    for i in valid:
+        worker_fn(args_for(i))
+        rendered += 1
+    logger.info("%s: rendered %d angles (sequential)", label, rendered)
 
 
 def _generate_plots_datashader(
@@ -1365,89 +1436,56 @@ def _generate_plots_datashader(
     """Render per-angle 3-panel comparisons via Datashader.
 
     Pool topology mirrors :mod:`homodyne.viz.nlsq_plots`: spawn-context
-    ``multiprocessing.Pool`` initialised with :func:`_worker_init_cpu_only`,
-    workers receive picklable per-angle tuples, on ``(OSError, RuntimeError,
-    TimeoutError)`` the orchestrator catches and reruns the remaining work
-    sequentially in the main process. This keeps the fast path under load
-    spikes (Linux fork-bomb protection, transient HPC scheduler errors)
-    without sacrificing the parallel speedup on the happy path.
-
-    Angles whose ``c2_fitted`` is all-NaN are skipped (the per-angle compute
-    failed upstream — no useful comparison to render).
+    ``multiprocessing.Pool``, workers receive picklable per-angle payloads.
+    See :func:`_render_angles` for the parallel/sequential-fallback mechanism.
     """
     n_phi = int(phi_angles.size)
     color_options = color_options or {}
 
-    def _args_for(i: int) -> tuple:
-        return (
-            int(i),
-            c2_exp[i],
-            c2_fitted[i],
-            residuals[i],
-            t1,
-            t2,
-            float(phi_angles[i]),
-            output_dir,
-            width,
-            height,
-            color_options,
+    def _args_for(i: int) -> _DsAngleArgs:
+        return _DsAngleArgs(
+            phi_idx=int(i),
+            c2_exp_i=c2_exp[i],
+            c2_fit_i=c2_fitted[i],
+            residuals_i=residuals[i],
+            t1=t1,
+            t2=t2,
+            phi_deg=float(phi_angles[i]),
+            output_dir=output_dir,
+            width=width,
+            height=height,
+            color_options=color_options,
         )
 
-    if parallel and n_phi > 1:
-        try:
-            ctx = multiprocessing.get_context("spawn")
-            n_workers = min(multiprocessing.cpu_count(), n_phi)
-            args_list = [_args_for(i) for i in range(n_phi) if not np.all(np.isnan(c2_fitted[i]))]
-            if not args_list:
-                logger.warning("Datashader path: all angles have NaN c2_fitted; nothing to render")
-                return
-            timeout_s = (60 * n_phi / max(n_workers, 1)) + 120
-            with ctx.Pool(processes=n_workers, initializer=_worker_init_cpu_only) as pool:
-                ar = pool.map_async(_plot_single_angle_datashader, args_list)
-                ar.get(timeout=timeout_s)
-            logger.info(
-                "Datashader: rendered %d angles in parallel (%d workers)",
-                len(args_list),
-                n_workers,
-            )
-            return
-        except (OSError, RuntimeError, multiprocessing.TimeoutError) as e:
-            # NOTE: this module only ``import multiprocessing`` (no
-            # ``from multiprocessing import TimeoutError``), so the bare
-            # ``TimeoutError`` this docstring names is
-            # ``multiprocessing.TimeoutError`` (what ``ar.get(timeout=...)``
-            # actually raises) -- NOT the unrelated builtin ``TimeoutError``.
-            logger.warning(
-                "Parallel Datashader rendering failed (%s: %s); sequential fallback.",
-                type(e).__name__,
-                e,
-            )
-            logger.debug("Pool failure traceback:", exc_info=True)
-
-    # Sequential path (use_datashader=True with parallel=False, n_phi==1,
-    # or the parallel pool fell over).
-    rendered = 0
-    for i in range(n_phi):
-        if np.all(np.isnan(c2_fitted[i])):
-            continue
-        _plot_single_angle_datashader(_args_for(i))
-        rendered += 1
-    logger.info("Datashader: rendered %d angles (sequential)", rendered)
+    _render_angles(
+        _plot_single_angle_datashader,
+        _args_for,
+        n_phi,
+        c2_fitted,
+        parallel=parallel,
+        label="Datashader",
+    )
 
 
-def _worker_init_cpu_only() -> None:
-    """Pool worker initializer — pin JAX to CPU + lazy allocator + headless mpl."""
-    import os
+class _MplAngleArgs(NamedTuple):
+    """Picklable per-angle payload for the matplotlib worker pool."""
 
-    os.environ["JAX_PLATFORMS"] = "cpu"
-    os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-    os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
-    # Belt-and-suspenders headless pin for any matplotlib import path in the
-    # worker (the module-top matplotlib.use("Agg") already covers nlsq_plots).
-    os.environ["MPLBACKEND"] = "Agg"
+    phi_idx: int
+    c2_exp_i: np.ndarray
+    c2_fit_i: np.ndarray
+    t1: np.ndarray
+    t2: np.ndarray
+    phi_deg: float
+    plots: tuple[str, ...]
+    chi2_red: float
+    contrast: float
+    offset: float
+    analysis_mode: AnalysisMode
+    output_dir: Path
+    sim_dir: Path
 
 
-def _render_one_angle_worker(args: tuple) -> None:
+def _render_one_angle_worker(args: _MplAngleArgs) -> None:
     """Picklable worker: receives arrays + paths, writes PNGs.
 
     Re-imports plot funcs inside the worker (spawn-context starts cold).
@@ -1466,55 +1504,39 @@ def _render_one_angle_worker(args: tuple) -> None:
         plot_simulated_data,
     )
 
-    (
-        phi_idx,
-        c2_exp_i,
-        c2_fit_i,
-        t1,
-        t2,
-        phi_deg,
-        plots,
-        chi2_red,
-        contrast,
-        offset,
-        analysis_mode,
-        output_dir,
-        sim_dir,
-    ) = args
-
     # Filename includes the angle index so that .1f-equal angles
     # (e.g. 10.04° and 10.05°) don't collide under parallel rendering.
-    name_suffix = f"phi_{phi_idx:03d}_{phi_deg:.3f}deg"
+    name_suffix = f"phi_{args.phi_idx:03d}_{args.phi_deg:.3f}deg"
 
-    if "comparison" in plots:
+    if "comparison" in args.plots:
         plot_nlsq_fit(
-            c2_exp_i,
-            c2_fit_i,
-            t=t1,
-            t2=t2,
-            phi_deg=phi_deg,
-            reduced_chi_squared=chi2_red,
-            save_path=Path(output_dir) / f"c2_heatmaps_{name_suffix}.png",
+            args.c2_exp_i,
+            args.c2_fit_i,
+            t=args.t1,
+            t2=args.t2,
+            phi_deg=args.phi_deg,
+            reduced_chi_squared=args.chi2_red,
+            save_path=Path(args.output_dir) / f"c2_heatmaps_{name_suffix}.png",
         )
-    if "residuals" in plots:
+    if "residuals" in args.plots:
         plot_residual_map(
-            c2_exp_i,
-            c2_fit_i,
-            t=t1,
-            t2=t2,
-            phi_deg=phi_deg,
-            save_path=Path(output_dir) / f"residuals_{name_suffix}.png",
+            args.c2_exp_i,
+            args.c2_fit_i,
+            t=args.t1,
+            t2=args.t2,
+            phi_deg=args.phi_deg,
+            save_path=Path(args.output_dir) / f"residuals_{name_suffix}.png",
         )
-    if "simulated" in plots:
+    if "simulated" in args.plots:
         plot_simulated_data(
-            c2_fit_i,
-            t=t1,
-            t2=t2,
-            phi_deg=phi_deg,
-            contrast=contrast,
-            offset=offset,
-            analysis_mode=analysis_mode,
-            save_path=Path(sim_dir) / f"simulated_c2_fitted_{name_suffix}.png",
+            args.c2_fit_i,
+            t=args.t1,
+            t2=args.t2,
+            phi_deg=args.phi_deg,
+            contrast=args.contrast,
+            offset=args.offset,
+            analysis_mode=args.analysis_mode,
+            save_path=Path(args.sim_dir) / f"simulated_c2_fitted_{name_suffix}.png",
         )
 
 
@@ -1828,62 +1850,31 @@ def generate_nlsq_plots(
         # Matplotlib path renders whichever of {"comparison", "residuals",
         # "simulated"} the caller asked for AND that Datashader didn't
         # already cover. Reused for the no-Datashader fallback case.
-        def _render_args_for_index(i: int) -> tuple:
-            return (
-                int(i),
-                c2_exp[i],
-                c2_fitted[i],
-                t1,
-                t2,
-                float(phi_angles[i]),
-                mpl_plots,
-                chi2_red,
-                contrast,
-                offset,
-                analysis_mode,
-                output_dir,
-                sim_dir,
+        def _render_args_for_index(i: int) -> _MplAngleArgs:
+            return _MplAngleArgs(
+                phi_idx=int(i),
+                c2_exp_i=c2_exp[i],
+                c2_fit_i=c2_fitted[i],
+                t1=t1,
+                t2=t2,
+                phi_deg=float(phi_angles[i]),
+                plots=mpl_plots,
+                chi2_red=chi2_red,
+                contrast=contrast,
+                offset=offset,
+                analysis_mode=analysis_mode,
+                output_dir=output_dir,
+                sim_dir=sim_dir,
             )
 
-        if parallel and n_phi > 1:
-            try:
-                ctx = multiprocessing.get_context("spawn")
-                n_workers = min(multiprocessing.cpu_count(), n_phi)
-                args_list = [
-                    _render_args_for_index(i)
-                    for i in range(n_phi)
-                    if not np.all(np.isnan(c2_fitted[i]))
-                ]
-                timeout_s = 60 * n_phi / max(n_workers, 1) + 120
-                with ctx.Pool(processes=n_workers, initializer=_worker_init_cpu_only) as pool:
-                    ar = pool.map_async(_render_one_angle_worker, args_list)
-                    ar.get(timeout=timeout_s)
-                logger.info(
-                    "Matplotlib: rendered %d angles in parallel (%d workers)",
-                    len(args_list),
-                    n_workers,
-                )
-            except (OSError, RuntimeError, multiprocessing.TimeoutError) as e:
-                # See _generate_plots_datashader's mirror block: the
-                # ``multiprocessing.TimeoutError`` ``ar.get(timeout=...)``
-                # raises is a distinct class from the unrelated builtin
-                # ``TimeoutError`` -- this module never shadows the name.
-                logger.warning(
-                    "Parallel rendering failed (%s: %s); sequential fallback.",
-                    type(e).__name__,
-                    e,
-                )
-                logger.debug("Pool failure traceback:", exc_info=True)
-                for i in range(n_phi):
-                    if np.all(np.isnan(c2_fitted[i])):
-                        continue
-                    _render_one_angle_worker(_render_args_for_index(i))
-        else:
-            for i in range(n_phi):
-                if np.all(np.isnan(c2_fitted[i])):
-                    continue
-                _render_one_angle_worker(_render_args_for_index(i))
-
+        _render_angles(
+            _render_one_angle_worker,
+            _render_args_for_index,
+            n_phi,
+            c2_fitted,
+            parallel=parallel,
+            label="Matplotlib",
+        )
     # Slice uncertainties to match physical_params — using the SAME layout
     # decision as _unpack_result_params so values and uncertainties can never
     # diverge (the 2026-06-21 twin-path bug). Homodyne is always scaling-first

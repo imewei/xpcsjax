@@ -41,7 +41,7 @@ def detect_shell_type() -> Literal["bash", "zsh", "fish", "unknown"]:
     """
     # Check SHELL environment variable
     shell_path = os.environ.get("SHELL", "")
-    shell_name = os.path.basename(shell_path)
+    shell_name = Path(shell_path).name
 
     if "zsh" in shell_name:
         return "zsh"
