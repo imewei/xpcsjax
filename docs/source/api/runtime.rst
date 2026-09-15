@@ -17,9 +17,7 @@ System validator
 
 ``xpcsjax-validate`` (alias ``xj-validate``) checks the installation:
 environment detection, dependency verification, JAX configuration, and
-template / public-API integrity. It is **NLSQ-only by design** — it
-deliberately does *not* probe for NumPyro / BlackJAX / ArviZ or any
-Bayesian / MCMC dependency.
+template / public-API integrity.
 
 .. autofunction:: xpcsjax.runtime.utils.system_validator.run_validation
 

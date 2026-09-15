@@ -1,7 +1,6 @@
 """Result persistence service (relocated from xpcsjax.cli.result_saving).
 
 Writes :class:`OptimizationResult` instances to disk as JSON, NPZ, or both.
-xpcsjax is NLSQ-only by design; there is no posterior / MCMC code path here.
 """
 
 from __future__ import annotations

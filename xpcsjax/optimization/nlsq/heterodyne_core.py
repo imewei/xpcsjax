@@ -953,7 +953,6 @@ def fit_nlsq_multi_phi(
     :func:`xpcsjax.optimization.nlsq.heterodyne_views.reconstruct_per_angle_scaling`,
     which handles all three layouts.
 
-    This package is NLSQ-only: there is no Bayesian / MCMC dispatch branch here.
 
     See Also
     --------

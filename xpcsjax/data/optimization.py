@@ -14,10 +14,9 @@ Key features
 
 Notes
 -----
-xpcsjax is NLSQ-only by design. The ``method`` argument threaded through
-this module exists so the public boundary can *reject* non-NLSQ methods
-(Bayesian sampling: CMC / MCMC) with a clear :class:`ValueError`; those
-pathways are permanently out of scope (see ``CLAUDE.md``).
+Only the ``"nlsq"`` method is implemented. The ``method`` argument threaded
+through this module exists so the public boundary can *reject* any other
+value with a clear :class:`ValueError` rather than route it silently.
 """
 
 from __future__ import annotations
@@ -168,7 +167,7 @@ class DatasetOptimizer:
         dataset_info : DatasetInfo
             Dataset analysis results from :meth:`analyze_dataset`.
         method : str, optional
-            ``"nlsq"`` (xpcsjax is NLSQ-only). Used only as part of the
+            ``"nlsq"`` (the only implemented method). Used only as part of the
             cache key and in log messages here.
 
         Returns
@@ -529,7 +528,7 @@ def optimize_for_method(
     phi : numpy.ndarray
         Phi-angle array.
     method : str, optional
-        Must be ``"nlsq"`` (xpcsjax is NLSQ-only; see ``CLAUDE.md``).
+        Must be ``"nlsq"`` (the only implemented method).
     **kwargs : Any
         Additional optimization parameters forwarded to
         :func:`create_dataset_optimizer`.
@@ -542,17 +541,15 @@ def optimize_for_method(
     Raises
     ------
     ValueError
-        If ``method`` is not ``"nlsq"``. This is an intentional defensive
-        guard: Bayesian sampling methods (CMC / MCMC) are permanently out of
-        scope for xpcsjax and are rejected at this boundary rather than
-        silently routed.
+        If ``method`` is not ``"nlsq"`` (the only implemented method); an
+        intentional defensive guard so an unsupported value is rejected at
+        this boundary rather than silently routed.
     """
     optimizer = create_dataset_optimizer(**kwargs)
 
     if method.lower() != "nlsq":
         raise ValueError(
-            f"Unknown method: {method}. xpcsjax is NLSQ-only; "
-            "Bayesian sampling methods (CMC/MCMC) are permanently out of scope."
+            f"Unsupported optimization method: {method!r}; only 'nlsq' is implemented."
         )
     return optimizer.optimize_for_nlsq(data, sigma, t1, t2, phi)
 

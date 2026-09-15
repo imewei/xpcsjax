@@ -216,16 +216,12 @@ removed upstream APIs.
 
 .. warning::
 
-   **Do not add Bayesian sampling code paths.**
-   xpcsjax is NLSQ-only by design. The homodyne port's CMC/MCMC
-   machinery (``get_cmc_config``, ``_get_default_cmc_config``, the
-   ``"mcmc"`` config block) has already been removed — those symbols no
-   longer exist anywhere in the package. What remains are defensive
-   guards that *name* Bayesian sampling only to reject it as out of
-   scope; keep those, but do not add new call sites and do not write
-   tests that exercise a Bayesian path. Users needing Bayesian XPCS
-   analysis should use the upstream ``homodyne`` or ``heterodyne``
-   packages.
+   **Only the NLSQ pathway exists today.**
+   The homodyne port's CMC/MCMC machinery (``get_cmc_config``,
+   ``_get_default_cmc_config``, the ``"mcmc"`` config block) was not
+   carried over — those symbols do not exist in the package. The
+   defensive guards that reject a ``method`` other than ``"nlsq"`` are
+   not dead code; keep them.
 
 .. warning::
 

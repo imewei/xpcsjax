@@ -52,13 +52,11 @@ The 12 module `CLAUDE.md` files above (and `.claude/index.json`) are generated l
 
 Each module's `CLAUDE.md` covers: responsibility / entry points & startup / public interface / key dependencies & config / data model / tests & quality / FAQ / related files. Deep architectural narrative for `optimization`/`core`/`config` lives in this root file (below) — the module docs for those three are intentionally short and point back here rather than duplicating it. `.claude/index.json` (also local-only, see above) holds the machine-readable module index, scan coverage, and gap list (generated 2026-08-06).
 
-## Project scope and what it is *not*
+## Project scope
 
-**xpcsjax is NLSQ-only by design.** v0.1 ports the homodyne + heterodyne XPCS NLSQ pipelines into one JAX-native package. Bayesian sampling — NumPyro, BlackJAX, ArviZ, CMC (Consensus Monte Carlo), NUTS, HMC, parallel tempering — is **permanently out of scope.** Users needing Bayesian XPCS analysis should use the upstream `homodyne` or `heterodyne` packages, not this one.
+v0.1 ports the homodyne + heterodyne XPCS NLSQ pipelines into one JAX-native package. Today the package ships exactly one fitting pathway (NLSQ); no posterior-sampling pathway exists in it. (The earlier "NLSQ-only by design, Bayesian permanently out of scope, use the upstream `homodyne` package" scope statement was retired 2026-09-15 — do not reintroduce it in templates, docstrings or docs.)
 
-The architectural rule this implies:
-
-- **Do not wire up any Bayesian / MCMC / CMC pathway.** The homodyne port's CMC/MCMC machinery (`get_cmc_config`, `_get_default_cmc_config`, the `"mcmc"` config block) has been **removed** — those symbols no longer exist anywhere in the package. What remains are a handful of docstrings and **defensive guards** that *name* Bayesian sampling only to state it is out of scope (e.g. the `ValueError` in `xpcsjax/data/optimization.py` that rejects non-NLSQ methods). Keep those — they reject invalid input, they are not dead code. Don't add new Bayesian call sites and don't write tests that exercise one.
+- The homodyne port's CMC/MCMC machinery (`get_cmc_config`, `_get_default_cmc_config`, the `"mcmc"` config block) was not carried over — those symbols do not exist anywhere in the package. The **defensive guards** that reject a `method` other than `"nlsq"` (e.g. the `ValueError` in `xpcsjax/data/optimization.py`) reject unimplemented input; they are not dead code — keep them.
 - New optimization code goes through `fit_nlsq` (the v0.1 single-entry wrapper) or `fit_nlsq_jax` / `fit_nlsq_multistart`. There is no second optimizer pathway to "fall back to."
 
 ### Intentional v0.1 cuts from the homodyne port
@@ -66,7 +64,7 @@ The architectural rule this implies:
 Two homodyne modules were deliberately not ported. Don't flag their absence as parity gaps or port them on speculation:
 
 - **`homodyne/optimization/checkpoint_manager.py` is not ported.** Resumable long-running NLSQ jobs are out of scope for v0.1 — re-launch rather than resume. JAX's stateless / JIT-pure-function idiom makes mid-run checkpoint/restore awkward, and the workloads xpcsjax targets fit in a single CPU-bound run.
-- **`homodyne/core/scaling_utils.py` is not ported.** Its quantile / contrast helpers are only used by homodyne's CMC / MCMC path, which is permanently out of scope for xpcsjax. The NLSQ path uses the mirrored `compute_quantile_per_angle_scaling()` in `xpcsjax/optimization/nlsq/parameter_utils.py:345`.
+- **`homodyne/core/scaling_utils.py` is not ported.** Its quantile / contrast helpers are only used by homodyne's CMC / MCMC path, which was not carried over. The NLSQ path uses the mirrored `compute_quantile_per_angle_scaling()` in `xpcsjax/optimization/nlsq/parameter_utils.py:345`.
 
 ## Architecture you need to know before editing
 

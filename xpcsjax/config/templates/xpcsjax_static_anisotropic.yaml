@@ -16,9 +16,6 @@
 #   alpha     — anomalous-diffusion exponent                   [dimensionless]
 #   D_offset  — baseline diffusion                             [Å²/s]
 #   contrast_i, offset_i — per-angle speckle scaling           [dimensionless]
-#
-# Scope: xpcsjax is NLSQ-only. Bayesian sampling (NumPyro, NUTS, CMC) is
-# permanently out of scope — use the upstream `homodyne` package for that.
 # =============================================================================
 
 # -----------------------------------------------------------------------------

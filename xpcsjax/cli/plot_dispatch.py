@@ -1,6 +1,6 @@
 """Plot generation dispatch for the xpcsjax CLI.
 
-NLSQ-only by design — xpcsjax does not ship Bayesian/CMC sampling. This module
+This module
 fans the parsed CLI args out to the relevant ``xpcsjax.viz`` entry points and
 isolates each plot operation in ``try/except`` so a failure in one family
 (experimental, simulated, fit, residual) does not abort the others.

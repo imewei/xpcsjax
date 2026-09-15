@@ -23,9 +23,6 @@
 # Total parameter count:
 #   anisotropic: 3 physical + 2·N_phi scaling
 #   isotropic:   3 physical + 2 (one shared) scaling
-#
-# Scope: xpcsjax is NLSQ-only. Bayesian sampling is permanently out of scope.
-# For Bayesian XPCS analysis, use the upstream `homodyne` package.
 # =============================================================================
 
 # -----------------------------------------------------------------------------

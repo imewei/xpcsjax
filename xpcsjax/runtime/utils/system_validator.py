@@ -4,8 +4,7 @@ This module provides comprehensive validation of the xpcsjax installation,
 including environment detection, dependency verification, JAX configuration
 testing, and template / public-API integrity checks.
 
-xpcsjax is NLSQ-only by design — this validator deliberately does *not*
-check for NumPyro / BlackJAX / ArviZ or any Bayesian / MCMC dependency.
+This validator checks only the dependencies the package actually imports.
 """
 
 from __future__ import annotations

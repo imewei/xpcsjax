@@ -15,9 +15,8 @@ constraints that show up everywhere in the codebase:
    The upstream ``nlsq`` library provides ``CurveFit``; xpcsjax
    provides memory routing, anti-degeneracy, multistart, CMA-ES
    escape, and bounds/transforms.
-4. **NLSQ-only by design.** There is no Bayesian sampling pathway in
-   xpcsjax. Users who need posterior inference should use the upstream
-   ``homodyne``/``heterodyne`` packages directly.
+4. **Single fitting pathway.** xpcsjax ships NLSQ fitting; there is no
+   posterior-sampling pathway in the package.
 
 Subpackage layout
 -----------------

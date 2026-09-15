@@ -2,8 +2,7 @@
 
 Houses the entire NLSQ curve-fitting stack and exposes
 :func:`fit_nlsq`, the single-entry public wrapper that fits both the
-homodyne and heterodyne physics models. xpcsjax is NLSQ-only by design; no
-Bayesian / MCMC pathway exists here.
+homodyne and heterodyne physics models.
 
 The package owns the fit *strategy* (memory-aware routing, the anti-degeneracy
 defense layers, CMA-ES / LHS-multistart global escapes, bounds and parameter

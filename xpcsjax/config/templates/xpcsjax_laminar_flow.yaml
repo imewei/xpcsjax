@@ -20,8 +20,6 @@
 # CRITICAL: Laminar flow benefits strongly from L2 hierarchical and
 # L5 shear-weighting in the anti-degeneracy controller. Defaults below
 # enable both. Disable only if you understand the trade-off.
-#
-# Scope: xpcsjax is NLSQ-only. Bayesian sampling is permanently out of scope.
 # =============================================================================
 
 # -----------------------------------------------------------------------------

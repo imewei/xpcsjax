@@ -8,9 +8,6 @@ YAML configurations from xpcsjax's four mode-specific templates:
 - ``laminar_flow``       — 7-param diffusion + shear
 - ``two_component``      — heterodyne (sample + reference) 14-param model
 
-xpcsjax is NLSQ-only by design — Bayesian / CMC modes from the upstream
-``heterodyne`` package are intentionally absent.
-
 Template/generation logic lives in :mod:`xpcsjax.cli.config_template`; this
 module re-exports the public symbols and keeps the argument-parser entry point
 so existing callers are unaffected.
@@ -61,8 +58,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="xpcsjax-config",
         description=(
-            "Generate xpcsjax configuration files from mode-specific templates. "
-            "xpcsjax is NLSQ-only; Bayesian / CMC modes are out of scope."
+            "Generate xpcsjax configuration files from mode-specific templates."
         ),
     )
 

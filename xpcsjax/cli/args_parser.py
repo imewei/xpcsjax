@@ -1,8 +1,5 @@
 """Argument parser for the xpcsjax CLI.
 
-NLSQ-only by design (see project CLAUDE.md); Bayesian sampling flags from
-the upstream heterodyne CLI are intentionally absent.
-
 Parameter override flags map to canonical names per
 ``parameter_registry._MODE_PARAMS``:
 
@@ -35,9 +32,7 @@ def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="xpcsjax",
         description=(
-            "xpcsjax — JAX-native NLSQ fitting for homodyne / heterodyne XPCS. "
-            "Bayesian sampling is permanently out of scope for this package; "
-            "use the upstream homodyne / heterodyne packages for that."
+            "xpcsjax — JAX-native NLSQ fitting for homodyne / heterodyne XPCS."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""

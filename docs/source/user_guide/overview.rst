@@ -18,14 +18,6 @@ and an HDF5 dataset, return calibrated XPCS model parameters as fast as
 the trust-region solver allows on CPU. Everything outside that path is
 intentionally absent.
 
-.. note::
-
-   xpcsjax is **NLSQ-only by design**. Posterior sampling and any other
-   probabilistic-programming workflow are out of scope for the
-   lifetime of v0.1+. Users requiring those workflows should continue
-   to use the upstream ``homodyne`` or ``heterodyne`` packages
-   directly.
-
 The two-function API
 --------------------
 

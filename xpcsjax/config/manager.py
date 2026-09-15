@@ -2,8 +2,7 @@
 
 Loads and normalizes YAML/JSON configuration files and exposes a stable
 interface for parameter management, analysis-mode dispatch, and bounds
-configuration. The package is NLSQ-only; no Bayesian/MCMC configuration block
-is read or honored here.
+configuration.
 
 The public surface is :class:`ConfigManager` (lazy-exported from the top-level
 :mod:`xpcsjax` package) plus the :func:`load_xpcs_config` convenience loader.

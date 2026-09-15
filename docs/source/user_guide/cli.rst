@@ -158,8 +158,7 @@ Validating the installation
    $ xpcsjax-validate
 
 Checks environment detection, dependency versions, JAX/float64 configuration,
-and template / public-API integrity. Because xpcsjax is NLSQ-only, the
-validator does **not** look for any Bayesian / MCMC dependency.
+and template / public-API integrity.
 
 Shell completion and activation
 -------------------------------

@@ -23,15 +23,6 @@ the homodyne and heterodyne NLSQ pipelines from the upstream ``homodyne`` and
 ``heterodyne`` packages into a single JAX-first codebase with a small,
 lazy-loaded public API.
 
-.. admonition:: Scope of v0.1
-   :class: scope-warning
-
-   xpcsjax is **NLSQ-only by design**. Bayesian sampling — NumPyro, BlackJAX,
-   ArviZ, CMC (Consensus Monte Carlo), NUTS, HMC, parallel tempering — is
-   **out of scope** for this package and will not be added. Users needing
-   Bayesian XPCS analysis should use the upstream ``homodyne`` or
-   ``heterodyne`` packages.
-
 A 30-second tour
 ----------------
 

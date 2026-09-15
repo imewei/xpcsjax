@@ -15,7 +15,6 @@ xpcsjax.core.homodyne_model.HomodyneModel : Homodyne analog.
 
 Notes
 -----
-- NLSQ-only: no NumPyro / Blackjax / ArviZ imports.
 - Complete-mirror: kernels are local under ``xpcsjax.core``; no imports from
   the upstream ``homodyne`` / ``heterodyne`` packages.
 """

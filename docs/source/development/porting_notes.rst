@@ -98,21 +98,20 @@ Heterodyne fits a different model from homodyne, so it is verified by
    by the synthetic test in
    :file:`tests/parity/test_phase5_default_no_worse.py`.
 
-The NLSQ-only filter: what xpcsjax intentionally omits
-------------------------------------------------------
+What the v0.1 port omitted
+--------------------------
 
-xpcsjax v0.1 is NLSQ-only by design. Several substantial subsystems
-present in the upstream ``homodyne`` and ``heterodyne`` packages are
-**intentionally absent** from xpcsjax. New contributors will trip
-over their stale references if they don't know to expect this.
+Several substantial subsystems present in the upstream ``homodyne`` and
+``heterodyne`` packages were **not carried over** in the v0.1 port. New
+contributors will trip over their stale references if they don't know to
+expect this.
 
 Intentionally absent
 ~~~~~~~~~~~~~~~~~~~~
 
 The upstream packages provide a parallel sampling pipeline alongside
-their NLSQ pipeline. xpcsjax keeps only the NLSQ side. Specifically,
-the following are **out of scope** for v0.1 and should not be
-reintroduced:
+their NLSQ pipeline. The v0.1 port carried over only the NLSQ side; the
+following are not present in the package today:
 
 - The CMC (Consensus Monte Carlo) pipeline.
 - NUTS and HMC samplers from NumPyro.
@@ -124,20 +123,10 @@ The homodyne port's CMC/MCMC machinery (``get_cmc_config``,
 ``_get_default_cmc_config``, and the ``"mcmc"`` config block) has
 already been **removed** — those symbols no longer exist anywhere in
 the package. What remains are a handful of **defensive guards** that
-*name* Bayesian sampling only to reject it as out of scope (for example
-the ``ValueError`` in :file:`xpcsjax/data/optimization.py` that rejects
-non-NLSQ methods). Those guards reject invalid input; they are not dead
-code, so keep them.
+reject any method other than ``"nlsq"`` (for example the ``ValueError``
+in :file:`xpcsjax/data/optimization.py`). Those guards reject
+unimplemented input; they are not dead code, so keep them.
 
-.. warning::
-
-   - Do not add new call sites that introduce a CMC / MCMC pathway.
-   - Do not write new tests that exercise a Bayesian path.
-   - Keep the existing defensive guards that reject Bayesian methods.
-
-Users who need Bayesian XPCS analysis should use the upstream
-``homodyne`` or ``heterodyne`` packages directly; that capability is
-permanently out of scope for xpcsjax.
 
 Single optimisation pathway
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~

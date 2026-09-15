@@ -36,8 +36,6 @@
 #   constant:   per-angle (β, o) frozen from quantile — 14 physics only
 #   auto:       quantile (β, o) averaged then optimized jointly — 16 params
 #   individual: separate per-angle (β_k, o_k) — 14 + 2·N_phi
-#
-# Scope: xpcsjax is NLSQ-only. Bayesian sampling is permanently out of scope.
 # =============================================================================
 
 # -----------------------------------------------------------------------------

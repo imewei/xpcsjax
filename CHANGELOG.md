@@ -27,6 +27,16 @@ the rendered documentation.
   `reduced_chi_squared`. `sigma_source` names what `reduced_chi_squared` was
   normalized with (`data` / `default_constant_0.01` / `far_lag_estimate`).
 
+### Changed
+
+- **Retired the "xpcsjax is NLSQ-only; Bayesian sampling is permanently out of
+  scope; use the upstream `homodyne` package" scope statement.** Removed from
+  the four config templates, the `xpcsjax --help` / `xpcsjax-config` text, the
+  module docstrings that restated it, and the user / developer docs. The
+  ``method != "nlsq"`` guard in `xpcsjax/data/optimization.py` stays (its
+  message now reads `Unsupported optimization method: ...; only 'nlsq' is
+  implemented.`).
+
 ### Fixed
 
 - **Homodyne (`static_*` / `laminar_flow`) uncertainties follow the same

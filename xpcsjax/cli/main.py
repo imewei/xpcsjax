@@ -1,8 +1,5 @@
 """Main entry point for xpcsjax CLI.
 
-NLSQ-only by design (see project CLAUDE.md). Bayesian / MCMC paths are
-permanently out of scope.
-
 The xpcsjax top-level package (``xpcsjax/__init__.py``) already configures
 ``JAX_ENABLE_X64``, ``XLA_FLAGS``, and ``NLSQ_SKIP_GPU_CHECK`` *before* any
 JAX import. We do NOT duplicate that setup here, but we DO accept

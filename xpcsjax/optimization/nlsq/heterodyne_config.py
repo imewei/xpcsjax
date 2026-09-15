@@ -399,8 +399,7 @@ class NLSQConfig:
     ``n_phi >= constant_scaling_threshold`` (default 3), falling back to
     ``"individual"`` below that threshold.
 
-    This is the NLSQ-only solver config: there is intentionally no Bayesian /
-    MCMC pathway, so no sampler fields exist here.
+    This is the NLSQ solver config; it carries no sampler fields.
 
     Attributes
     ----------

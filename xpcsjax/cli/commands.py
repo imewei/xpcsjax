@@ -1,6 +1,6 @@
 """Top-level command dispatcher for the xpcsjax CLI.
 
-NLSQ-only by design: there is exactly one fitting path (``run_nlsq``),
+There is exactly one fitting path (``run_nlsq``),
 plus two standalone plot-only modes (``--plot-experimental-data`` and
 ``--plot-simulated-data``) that skip optimization entirely.
 
