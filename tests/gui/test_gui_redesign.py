@@ -442,6 +442,13 @@ def test_close_project_tears_down_active_worker(qtbot):
         def cancel(self):
             calls["cancel"] += 1
 
+        def _cancel_blocking(self):  # closeEvent/atexit path (A10)
+            calls.setdefault("cancel_blocking", 0)
+            calls["cancel_blocking"] += 1
+
+        def shutdown(self):
+            pass
+
     win._queue._handles["r1"] = _FakeHandle()
     assert win._queue.active_count() == 1
 
