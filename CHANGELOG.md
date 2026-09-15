@@ -49,6 +49,19 @@ the rendered documentation.
   `c2_exp` stack by 10/100, which its own comment already documented as
   capable of corrupting valid raw-count data — no safe setting existed.
 
+- **Non-finite floats (`NaN`/`+-Inf`) in persisted JSON now always encode as
+  `null`, never the strings `"Infinity"`/`"-Infinity"`.** (`xpcsjax/io/json_utils.py`)
+  `io.json_safe`/`json_serializer` previously encoded `+-Inf` as those strings
+  while `service.persist` (a separate, now-deleted copy of the same sanitizer)
+  encoded both `NaN` and `+-Inf` as `null` — so a diverged/degenerate fit's
+  `nlsq_result.json` (via persist) and its `parameters.json`/
+  `analysis_results_nlsq.json`/`convergence_metrics.json` siblings (via
+  `io.nlsq_writers`, in the same output directory) disagreed on the same
+  value. `io.json_safe` is now the single sanitizer (`service.persist`
+  delegates to it); any downstream JSON reader that special-cased the
+  `"Infinity"` string convention should treat `null` as the non-finite
+  sentinel for both NaN and +-Inf.
+
 ### Fixed
 
 - **Homodyne (`static_*` / `laminar_flow`) uncertainties follow the same

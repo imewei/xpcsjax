@@ -1,18 +1,30 @@
 """Regression tests for config_handling.py error-path hardening.
 
-Tests the three defensive guards introduced in Task 7:
-
 * L108: ``load_and_merge_config`` names the file in its load-failure message.
-* L149: ``apply_cli_overrides`` tolerates a config-manager double without
-  ``_normalize_analysis_mode``.
-* L158: ``apply_cli_overrides`` logs a warning when ``config['output']`` is
-  not a mapping before silently resetting it to ``{}``.
+
+The other two guards this file used to test (a config-manager double without
+``_normalize_analysis_mode``, and a logged warning for a non-dict
+``config['output']``) lived in ``config_handling.apply_cli_overrides``'s OWN
+mode/output-directory handling. That handling was deleted (audit B8):
+``load_and_merge_config`` now applies mode/output-dir overrides via
+``xpcsjax.service.config.load_config`` -- the SAME function the GUI uses --
+so ``apply_cli_overrides`` here only applies ``--initial-*`` parameter
+overrides. Two notes on what changed:
+
+* The ``_normalize_analysis_mode`` tolerance guard is gone entirely, matching
+  ``service/config.py``'s own comment that it deliberately does NOT guard
+  that call (its only real caller always constructs a genuine ConfigManager).
+* The non-dict-``output`` case is still handled safely in
+  ``service/config.py`` (it resets to ``{}``), but SILENTLY -- that
+  implementation is marked ``# pragma: no cover — defensive`` there rather
+  than logging a warning. This is a minor, known behavior regression from
+  the old CLI-side warning; left to the config/service owner to decide
+  whether to add logging there.
 """
 
 from __future__ import annotations
 
 import argparse
-import logging
 
 import pytest
 
@@ -29,28 +41,3 @@ def test_load_failure_names_the_file(tmp_path):
     with pytest.raises(Exception) as exc:
         config_handling.load_and_merge_config(bad, argparse.Namespace())
     assert str(bad) in str(exc.value)  # error names which config failed
-
-
-def test_normalize_gate_tolerates_object_without_method():
-    # apply_cli_overrides(config_manager, args) reads config_manager.config and,
-    # when args.mode is set, calls config_manager._normalize_analysis_mode().
-    # A config-manager-shaped double WITHOUT that method must not crash the
-    # override (the defensive gate, formerly `except AttributeError: pass`).
-    class _NoNormalize:
-        config = {"analysis_mode": "static_anisotropic"}
-
-    config_handling.apply_cli_overrides(
-        _NoNormalize(), argparse.Namespace(mode="static_isotropic", output=None)
-    )  # no exception == gate works
-
-
-def test_non_dict_output_block_is_logged(caplog):
-    # When config['output'] is not a mapping, the reset must be logged (not silent).
-    class _BadConfig:
-        config = {"output": "not_a_dict"}
-
-    with caplog.at_level(logging.WARNING):
-        config_handling.apply_cli_overrides(
-            _BadConfig(), argparse.Namespace(mode=None, output="/tmp/out")
-        )
-    assert any("output" in r.message for r in caplog.records)

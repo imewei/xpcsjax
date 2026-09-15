@@ -20,6 +20,11 @@ best-effort so an unusual install never blocks theming.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QIcon, QPalette
+    from PySide6.QtWidgets import QApplication
 
 # Font stacks — distinctive, engineering-flavoured families with graceful
 # fallbacks. IBM Plex is intentionally chosen over the generic Inter/Roboto/Arial
@@ -104,7 +109,7 @@ LIGHT = Palette(
 )
 
 
-def detect_scheme(app: object) -> Palette:
+def detect_scheme(app: QApplication) -> Palette:
     """Return the :class:`Palette` matching the OS colour scheme.
 
     Prefers Qt 6.5+'s ``QStyleHints.colorScheme()``; falls back to the window
@@ -124,7 +129,7 @@ def detect_scheme(app: object) -> Palette:
     try:
         from PySide6.QtCore import Qt
 
-        scheme = app.styleHints().colorScheme()  # type: ignore[attr-defined]
+        scheme = app.styleHints().colorScheme()
         if scheme == Qt.ColorScheme.Dark:
             return DARK
         if scheme == Qt.ColorScheme.Light:
@@ -134,13 +139,13 @@ def detect_scheme(app: object) -> Palette:
     try:
         from PySide6.QtGui import QPalette
 
-        win = app.palette().color(QPalette.ColorRole.Window)  # type: ignore[attr-defined]
+        win = app.palette().color(QPalette.ColorRole.Window)
         return DARK if win.lightness() < 128 else LIGHT
     except Exception:  # pragma: no cover — defensive only
         return DARK
 
 
-def _qpalette(p: Palette) -> object:
+def _qpalette(p: Palette) -> QPalette:
     """Build a ``QPalette`` from *p* so native chrome (menus, tooltips) matches."""
     from PySide6.QtGui import QColor, QPalette
 
@@ -374,7 +379,7 @@ def stylesheet(p: Palette) -> str:
     """
 
 
-def apply_theme(app: object, palette: Palette | None = None) -> Palette:
+def apply_theme(app: QApplication, palette: Palette | None = None) -> Palette:
     """Apply the full theme (style, font, palette, QSS, plot colours) to *app*.
 
     Parameters
@@ -396,17 +401,17 @@ def apply_theme(app: object, palette: Palette | None = None) -> Palette:
 
     # Fusion gives a consistent, palette-driven base across platforms.
     try:
-        app.setStyle("Fusion")  # type: ignore[attr-defined]
+        app.setStyle("Fusion")
     except Exception:  # pragma: no cover — defensive only
         pass
 
     font = QFont()
     font.setFamilies(["IBM Plex Sans", "Cantarell", "Segoe UI", "DejaVu Sans"])
     font.setPointSize(10)
-    app.setFont(font)  # type: ignore[attr-defined]
+    app.setFont(font)
 
-    app.setPalette(_qpalette(p))  # type: ignore[attr-defined]
-    app.setStyleSheet(stylesheet(p))  # type: ignore[attr-defined]
+    app.setPalette(_qpalette(p))
+    app.setStyleSheet(stylesheet(p))
 
     # Best-effort: match pyqtgraph plot backgrounds to the theme so the SSR
     # curve and C₂ previews sit inside the console rather than glowing white.
@@ -436,7 +441,7 @@ def current_palette() -> Palette:
 _active_palette: Palette = DARK
 
 
-def app_icon(palette: Palette | None = None) -> object:
+def app_icon(palette: Palette | None = None) -> QIcon:
     """Build a window/taskbar icon from the active palette (no bundled asset).
 
     No icon file exists anywhere in the repo, so without this the app shows

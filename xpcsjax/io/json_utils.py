@@ -4,6 +4,7 @@ This module provides helper functions for JSON serialization of numpy arrays
 and other complex objects.
 """
 
+import datetime
 import math
 from pathlib import Path
 from typing import Any
@@ -16,16 +17,18 @@ import numpy as np
 _JSON_ARRAY_SIZE_LIMIT = 1_000
 
 
-def _sanitize_float(v: float) -> float | str | None:
+def _sanitize_float(v: float) -> float | None:
     """Convert non-finite floats to JSON-safe representations.
 
-    JSON spec does not support NaN, Inf, or -Inf. These are converted to
-    None (NaN) or string representations (Inf/-Inf) to prevent json.dump crashes.
+    JSON spec does not support NaN, Inf, or -Inf. Both are converted to
+    ``None`` -- a single convention shared with ``service.persist``, so a
+    diverged fit reads the same (``null``) whether it was written by the CLI
+    or the GUI worker. (A prior version encoded +-inf as the strings
+    "Infinity"/"-Infinity", which is not a JSON number and disagreed with
+    persist's None convention for the same case.)
     """
-    if math.isnan(v):
+    if math.isnan(v) or math.isinf(v):
         return None
-    if math.isinf(v):
-        return "Infinity" if v > 0 else "-Infinity"
     return v
 
 
@@ -57,13 +60,14 @@ def json_safe(value: Any) -> Any:
             (k.item() if isinstance(k, (np.integer, np.floating, np.bool_)) else k): json_safe(v)
             for k, v in value.items()
         }
-    elif isinstance(value, (list, tuple)):
-        # Same OOM guard as the ndarray branch below: a plain list/tuple can
+    elif isinstance(value, (list, tuple, set)):
+        # Same OOM guard as the ndarray branch below: a plain list/tuple/set can
         # arrive already-`.tolist()`'d (e.g. from an upstream caller), which
-        # would otherwise bypass the size limit entirely.
+        # would otherwise bypass the size limit entirely. Sets are accepted so
+        # callers (e.g. service.persist) don't need to convert to list first.
         if len(value) > _JSON_ARRAY_SIZE_LIMIT:
             raise ValueError(
-                f"List/tuple with {len(value)} elements is too large to embed "
+                f"List/tuple/set with {len(value)} elements is too large to embed "
                 f"in JSON (limit {_JSON_ARRAY_SIZE_LIMIT}). Save large arrays as "
                 f"NPZ instead."
             )
@@ -92,7 +96,7 @@ def json_safe(value: Any) -> Any:
     elif isinstance(value, complex):
         # Complex numbers are not JSON-serializable; split into real/imag pair.
         return {"real": _sanitize_float(value.real), "imag": _sanitize_float(value.imag)}
-    elif isinstance(value, Path):
+    elif isinstance(value, (Path, datetime.datetime, datetime.date)):
         return str(value)
     elif hasattr(value, "tolist"):
         # Recurse through json_safe so that custom array-like objects whose

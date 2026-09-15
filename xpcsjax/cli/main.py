@@ -151,7 +151,16 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("Analysis interrupted by user")
         return 130
     except Exception as e:
-        log_exception(logger, e, context={"command": "main"})
+        # commands._dispatch_fit tags the exception with the pipeline phase
+        # that raised it (load_data / run_nlsq / save_results) via the
+        # ``xpcsjax_phase`` attribute rather than logging-and-reraising at
+        # each step, so this single log_exception call is the only place a
+        # fit-pipeline failure is reported (audit C18: was logged 3x before).
+        context: dict[str, str] = {"command": "main"}
+        phase = getattr(e, "xpcsjax_phase", None)
+        if phase is not None:
+            context["phase"] = phase
+        log_exception(logger, e, context=context)
         return 1
 
     elapsed = time.perf_counter() - start_time

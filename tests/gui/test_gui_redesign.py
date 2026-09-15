@@ -348,7 +348,9 @@ def test_main_window_shows_grid_on_valid_bundle(qtbot, tmp_path):
         parameters={"D0": 1.0},
     )
     win._show_result_with_bundle(summary, str(tmp_path))
-    assert win._central_stack.currentIndex() == 1  # the per-phi grid page
+    # Bundle load runs on a QThreadPool worker thread (D10); wait for the
+    # queued signal that applies it back to the UI.
+    qtbot.waitUntil(lambda: win._central_stack.currentIndex() == 1, timeout=5000)
     assert win._result_grid.section_count() == 2
 
 
@@ -417,15 +419,22 @@ def test_close_project_tears_down_active_worker(qtbot):
     """Close Project must not orphan a running fit worker (no cancel handle left)."""
     win = _window(qtbot)
 
-    calls = {"cancel": 0, "shutdown": 0}
+    calls = {"cancel": 0}
 
     class _FakeEvent:
         def disconnect(self):
             pass
 
+    class _FakeSignal:
+        """Minimal Signal stand-in: just needs .connect() to be a no-op."""
+
+        def connect(self, _slot):
+            pass
+
     class _FakeHandle:
         def __init__(self):
             self.event = _FakeEvent()
+            self.reaped = _FakeSignal()  # WorkerHandle's non-blocking-cancel contract (A10)
 
         def is_running(self):
             return True
@@ -433,16 +442,13 @@ def test_close_project_tears_down_active_worker(qtbot):
         def cancel(self):
             calls["cancel"] += 1
 
-        def shutdown(self):
-            calls["shutdown"] += 1
-
     win._queue._handles["r1"] = _FakeHandle()
     assert win._queue.active_count() == 1
 
     win.close_project()
 
     assert win._queue.active_count() == 0  # the orphaned worker was torn down
-    assert calls["cancel"] == 1 and calls["shutdown"] == 1
+    assert calls["cancel"] == 1
 
 
 def test_on_create_config_guards_overwrite_retry_failure(qtbot, tmp_path, monkeypatch):

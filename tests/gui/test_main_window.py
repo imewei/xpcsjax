@@ -85,7 +85,10 @@ def test_show_result_renders_summary(qtbot, tmp_path):
     # Simulate a finished run: first set it running (to set _active_run_id), then finish.
     win._queue.run_status_changed.emit(run_id, "running")
     win._queue.run_finished.emit(run_id, str(tmp_path), summary)
-    assert "converged" in win.result_text()
+    # tmp_path has no viz bundle -> load_viz_bundle returns None, but that load
+    # now runs on a QThreadPool worker thread (D10); wait for it to fall back
+    # to the text summary via the queued `reaped`-driven signal.
+    qtbot.waitUntil(lambda: "converged" in win.result_text(), timeout=5000)
     assert "1234.5" in win.result_text() or "D0" in win.result_text()
 
 
@@ -132,6 +135,7 @@ class _FakeHandle(QObject):
     """Minimal WorkerHandle stand-in: never spawns a real process."""
 
     event = Signal(object)
+    reaped = Signal()  # matches WorkerHandle's non-blocking-cancel contract (A10)
 
     def __init__(self, job):
         super().__init__()
@@ -143,11 +147,15 @@ class _FakeHandle(QObject):
 
     def cancel(self):
         self._alive = False
+        self.reaped.emit()
 
     def is_running(self):
         return self._alive
 
     def shutdown(self):
+        self._alive = False
+
+    def _cancel_blocking(self):
         self._alive = False
 
 

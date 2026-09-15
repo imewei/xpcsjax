@@ -110,13 +110,18 @@ def _write_bundle(tmp_path) -> None:
 
 
 def test_show_result_with_bundle_uses_grid_when_bundle_found(qtbot, tmp_path):
-    """_show_result_with_bundle switches to the grid page (index 1) when a bundle loads."""
+    """_show_result_with_bundle switches to the grid page (index 1) when a bundle loads.
+
+    The bundle load runs on a QThreadPool worker thread (D10 fix) and applies
+    itself back to the UI via a queued signal, so this must wait for the
+    event loop to process it rather than asserting immediately.
+    """
     _write_bundle(tmp_path)
 
     win = _window(qtbot)
     summary = _summary(tmp_path)
     win._show_result_with_bundle(summary, str(tmp_path))
-    assert win._central_stack.currentIndex() == 1
+    qtbot.waitUntil(lambda: win._central_stack.currentIndex() == 1, timeout=5000)
 
 
 def test_show_result_with_bundle_falls_back_to_text_when_no_bundle(qtbot, tmp_path):
@@ -125,9 +130,37 @@ def test_show_result_with_bundle_falls_back_to_text_when_no_bundle(qtbot, tmp_pa
     win = _window(qtbot)
     summary = _summary(tmp_path, "no_bundle_converged")
     win._show_result_with_bundle(summary, str(tmp_path))
-    # Falls back to text page.
+    # Falls back to text page (async load off the UI thread; wait for it).
+    qtbot.waitUntil(lambda: "no_bundle_converged" in win.result_text(), timeout=5000)
     assert win._central_stack.currentIndex() == 0
-    assert "no_bundle_converged" in win.result_text()
+
+
+def test_show_result_with_bundle_discards_stale_load(qtbot, tmp_path):
+    """A slower load for an earlier selection must not clobber a newer one.
+
+    Regression for the "finished-run-clobber" bug class: if run A's bundle
+    load is still in flight when the user (or a finishing run) switches the
+    panel to run B, A's load completing later must be a no-op rather than
+    overwriting B's already-applied result.
+    """
+    stale_dir = tmp_path / "stale"
+    fresh_dir = tmp_path / "fresh"
+    _write_bundle(stale_dir)
+    # fresh_dir has no bundle -> falls back to its own text summary.
+
+    win = _window(qtbot)
+    stale_summary = _summary(stale_dir, "stale_run")
+    fresh_summary = _summary(fresh_dir, "fresh_run")
+
+    # Simulate: stale load was requested (pending_result_dir set)...
+    win._show_result_with_bundle(stale_summary, str(stale_dir))
+    # ...then immediately superseded by a newer selection before it completes.
+    win._show_result_with_bundle(fresh_summary, str(fresh_dir))
+
+    qtbot.waitUntil(lambda: "fresh_run" in win.result_text(), timeout=5000)
+    # The stale grid must never have been applied over the fresh text result.
+    assert win._central_stack.currentIndex() == 0
+    assert "stale_run" not in win.result_text()
 
 
 def test_show_result_with_bundle_none_result_dir_falls_back(qtbot, tmp_path):

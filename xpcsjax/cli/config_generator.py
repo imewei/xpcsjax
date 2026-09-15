@@ -25,7 +25,7 @@ from xpcsjax.cli.config_template import (
     get_template_path,
     interactive_builder,
     show_template,
-    validate_config,
+    validate_config_file,
 )
 from xpcsjax.utils.logging import get_logger
 
@@ -38,7 +38,7 @@ __all__ = [
     "interactive_builder",
     "main",
     "show_template",
-    "validate_config",
+    "validate_config_file",
 ]
 
 
@@ -57,9 +57,7 @@ def _build_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog="xpcsjax-config",
-        description=(
-            "Generate xpcsjax configuration files from mode-specific templates."
-        ),
+        description=("Generate xpcsjax configuration files from mode-specific templates."),
     )
 
     parser.add_argument(
@@ -168,8 +166,14 @@ def main() -> None:
         return
 
     if args.validate:
-        is_valid = validate_config(args.output)
-        raise SystemExit(0 if is_valid else 1)
+        print(f"Validating: {args.output}")
+        report = validate_config_file(args.output)
+        if report.ok:
+            print("Result: VALID")
+        else:
+            for err in report.errors:
+                print(f"ERROR: {err}")
+        raise SystemExit(0 if report.ok else 1)
 
     if args.interactive:
         try:

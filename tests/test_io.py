@@ -20,11 +20,11 @@ class TestJsonSafeFloatSanitization:
     def test_nan_becomes_none(self) -> None:
         assert json_safe(float("nan")) is None
 
-    def test_pos_inf_becomes_string(self) -> None:
-        assert json_safe(float("inf")) == "Infinity"
+    def test_pos_inf_becomes_none(self) -> None:
+        assert json_safe(float("inf")) is None
 
-    def test_neg_inf_becomes_string(self) -> None:
-        assert json_safe(float("-inf")) == "-Infinity"
+    def test_neg_inf_becomes_none(self) -> None:
+        assert json_safe(float("-inf")) is None
 
     def test_finite_float_unchanged(self) -> None:
         assert json_safe(3.14) == pytest.approx(3.14)
@@ -32,8 +32,8 @@ class TestJsonSafeFloatSanitization:
     def test_numpy_nan_float64_becomes_none(self) -> None:
         assert json_safe(np.float64("nan")) is None
 
-    def test_numpy_inf_float64_becomes_string(self) -> None:
-        assert json_safe(np.float64("inf")) == "Infinity"
+    def test_numpy_inf_float64_becomes_none(self) -> None:
+        assert json_safe(np.float64("inf")) is None
 
 
 class TestJsonSafeNumpyTypes:
@@ -56,11 +56,11 @@ class TestJsonSafeContainers:
     def test_nested_dict(self) -> None:
         d = {"a": float("nan"), "b": {"c": float("inf")}}
         result = json_safe(d)
-        assert result == {"a": None, "b": {"c": "Infinity"}}
+        assert result == {"a": None, "b": {"c": None}}
 
     def test_list_with_nan(self) -> None:
         result = json_safe([1.0, float("nan"), float("inf")])
-        assert result == [pytest.approx(1.0), None, "Infinity"]
+        assert result == [pytest.approx(1.0), None, None]
 
     def test_tuple_converted_to_list(self) -> None:
         result = json_safe((1, 2, 3))
@@ -202,7 +202,7 @@ class TestSaveNlsqJsonFiles:
             for fname in ("parameters.json", "analysis_results_nlsq.json"):
                 text = (Path(tmp) / fname).read_text()
                 assert "NaN" not in text, f"Invalid JSON NaN token in {fname}"
-                assert ": Infinity" not in text or '"Infinity"' in text
+                assert "Infinity" not in text, f"Non-finite float leaked as string in {fname}"
 
     def test_output_is_valid_json(self) -> None:
         param, analysis, convergence = self._make_dicts()

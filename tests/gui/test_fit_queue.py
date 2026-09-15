@@ -19,6 +19,7 @@ from xpcsjax.service.events import (  # noqa: E402
 
 class _FakeHandle(QObject):
     event = Signal(object)
+    reaped = Signal()  # matches WorkerHandle's non-blocking-cancel contract (A10)
 
     def __init__(self, job):
         super().__init__()
@@ -26,19 +27,31 @@ class _FakeHandle(QObject):
         self._alive = False
         self.cancelled = False
         self.joined = False
+        self.cancel_blocking_called = False
 
     def start(self):
         self._alive = True
 
     def cancel(self):
+        # Fake the async contract: real WorkerHandle.cancel() posts signals
+        # synchronously (fast) but defers `reaped` to a later QTimer tick, so
+        # emit it here too rather than inline -- callers must not assume
+        # `reaped` has already fired by the time cancel() returns.
         self.cancelled = True
         self._alive = False
+        self.reaped.emit()
 
     def is_running(self):
         return self._alive
 
     def shutdown(self):
         self.joined = True
+        self._alive = False
+
+    def _cancel_blocking(self):
+        """Fake the atexit/closeEvent-only fully-synchronous cancel path."""
+        self.cancelled = True
+        self.cancel_blocking_called = True
         self._alive = False
 
     def finish(self, result_path=""):
@@ -140,6 +153,11 @@ def test_cancel_active_frees_slot_and_starts_next(qtbot, tmp_path):
     # Cancelling an active run frees its slot SYNCHRONOUSLY (Plan C suppresses the
     # synthetic Died on interruption, so no terminal event arrives) and promotes the
     # next queued job — without ever reporting the cancel as a "killed"/OOM failure.
+    #
+    # A10: handle.cancel() itself is now non-blocking (terminate/join/kill runs
+    # off a QTimer, signalled via `reaped`) — the queue no longer calls
+    # handle.shutdown() synchronously from cancel(), so `h1.joined` stays False
+    # here; only `h1.cancelled` (the signal was sent) is a synchronous fact.
     q = _queue(max_concurrent=1)
     statuses, failures = [], []
     q.run_status_changed.connect(lambda rid, st: statuses.append((rid, st)))
@@ -147,8 +165,8 @@ def test_cancel_active_frees_slot_and_starts_next(qtbot, tmp_path):
     q.enqueue("r1", "a.yaml", str(tmp_path))
     q.enqueue("r2", "b.yaml", str(tmp_path))  # queued behind r1
     h1 = q._handles["r1"]
-    q.cancel("r1")  # synchronous: terminate + join reader + free slot (no Died arrives)
-    assert h1.cancelled is True and h1.joined is True
+    q.cancel("r1")  # frees the slot synchronously (no Died arrives to do it)
+    assert h1.cancelled is True
     assert ("r1", "cancelled") in statuses
     assert ("r1", "killed") not in statuses
     assert failures == []  # cancellation is not an error -> no OOM dialog
@@ -162,6 +180,9 @@ def test_cancel_and_shutdown(qtbot, tmp_path):
     q.enqueue("r2", "b.yaml", str(tmp_path))
     h1 = q._handles["r1"]
     q.shutdown()
+    # shutdown() is the atexit/closeEvent path -- it uses the fully-blocking
+    # _cancel_blocking(), not the non-blocking cancel() (A10).
+    assert h1.cancel_blocking_called is True
     assert h1.cancelled is True
     assert h1.joined is True  # reader QThread joined on shutdown (app close / atexit)
     assert q.pending_count() == 0  # queue cleared on shutdown

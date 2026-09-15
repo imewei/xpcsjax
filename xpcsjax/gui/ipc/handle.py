@@ -13,15 +13,25 @@ import signal
 import time
 from typing import Any
 
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QObject, QThread, QTimer, Signal
 
 from xpcsjax.gui.ipc.job import FitJob
 from xpcsjax.gui.ipc.worker import run_worker
 from xpcsjax.service.events import TERMINAL_EVENTS, Died
+from xpcsjax.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 _QUEUE_MAXSIZE = 1000
 _TERMINATE_JOIN_S = 5.0
 _KILL_JOIN_S = 2.0
+# Non-blocking cancel() poll cadence / escalation timings (A10). Chosen so a
+# well-behaved child (SIGTERM handled promptly) is reaped within one or two
+# polls, while a stuck one still gets a bounded SIGKILL escalation and a
+# hard give-up -- WITHOUT ever blocking the calling (UI) thread on join().
+_CANCEL_POLL_MS = 250
+_CANCEL_ESCALATE_S = 5.0
+_CANCEL_GIVE_UP_S = 7.0
 # After the worker process exits, keep draining for this long: multiprocessing.Queue
 # uses a background feeder thread, so a real terminal event may not be visible the
 # instant ``is_alive()`` flips to False. Only after this idle grace with no terminal
@@ -122,6 +132,12 @@ class WorkerHandle(QObject):
     # Intentional Qt-signal name shadowing QObject.event() at the Python level
     # only; runtime-safe (see _ReaderThread above).
     event = Signal(object)  # type: ignore[assignment]
+    # Emitted once cancel()'s async join/kill/give-up sequence has concluded
+    # (process confirmed dead, or the 7s give-up elapsed). NOT used for slot
+    # accounting by FitQueueController (that stays synchronous, see cancel()
+    # there) — only for keeping this handle alive/referenced until cleanup
+    # finishes, and for optional logging.
+    reaped = Signal()  # type: ignore[assignment]
 
     def __init__(self, job: FitJob) -> None:
         super().__init__()
@@ -130,6 +146,10 @@ class WorkerHandle(QObject):
         self._queue: Any = None
         self._reader: _ReaderThread | None = None
         self._pgid: int | None = None
+        self._cancel_timer: QTimer | None = None
+        self._cancel_escalate_at: float = 0.0
+        self._cancel_deadline: float = 0.0
+        self._cancel_escalated: bool = False
 
     def start(self) -> None:
         """Spawn the worker process and begin draining its events."""
@@ -149,20 +169,18 @@ class WorkerHandle(QObject):
         """Return True while the worker process is alive."""
         return bool(self._proc is not None and self._proc.is_alive())
 
-    def cancel(self) -> None:
-        """Hard-stop the worker: terminate → join → (group-sweep + kill).
+    def _signal_terminate(self) -> None:
+        """Send SIGTERM to the process (and, on POSIX, its whole group).
 
-        Process-group cleanup is **POSIX-only**: on Windows there is no
-        ``setpgrp``/``killpg``, so ``terminate()``/``kill()`` stop the worker but
-        any grandchildren it spawned are not swept.
+        Just posts signals — never blocks. Process-group cleanup is
+        **POSIX-only**: on Windows there is no ``setpgrp``/``killpg``, so
+        ``terminate()``/``kill()`` stop the worker but any grandchildren it
+        spawned are not swept.
         """
-        proc = self._proc
-        if proc is None or not proc.is_alive():
-            return
         # Graceful stop of the WHOLE process group (worker + any grandchildren)
         # while the pgid is still valid and the proc is unreaped. Signalling the
         # group up-front — not just the leader — closes the leak where the worker
-        # exits on SIGTERM within the grace window (so the `is_alive()` escalation
+        # exits on SIGTERM within the grace window (so the SIGKILL escalation
         # below never runs) yet left children behind. Doing it here, before the
         # join/reap, also avoids the PID-reuse hazard of a killpg after waitpid.
         if hasattr(os, "killpg") and self._pgid and self._pgid > 0:
@@ -175,28 +193,124 @@ class WorkerHandle(QObject):
                 pass
         # Always also signal the process directly — a swallowed killpg
         # failure above must not leave the worker unsignaled until the
-        # join-timeout + SIGKILL escalation.
-        proc.terminate()
-        proc.join(timeout=_TERMINATE_JOIN_S)
-        if proc.is_alive():
-            # Escalate BEFORE reaping: sweep the worker's process group (any
-            # grandchildren) while its pgid is still valid, then hard-kill + reap.
-            # Guard pid > 0 — killpg(0) would signal the GUI's OWN group.
-            if hasattr(os, "killpg") and self._pgid and self._pgid > 0:
-                try:
-                    os.killpg(self._pgid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError, OSError):  # pragma: no cover
-                    pass
-            proc.kill()
-            proc.join(timeout=_KILL_JOIN_S)
-        # Tear down the reader thread BEFORE touching the queue's feeder: calling
-        # cancel_join_thread() while the reader is still blocked in queue.get() is
-        # undefined behavior (it can spin or read garbage). requestInterruption()
-        # + wait() so the reader has left get() first.
+        # escalation below.
+        self._proc.terminate()
+
+    def _signal_kill(self) -> None:
+        """Escalate to SIGKILL (process + group). Never blocks."""
+        # Guard pid > 0 — killpg(0) would signal the GUI's OWN group.
+        if hasattr(os, "killpg") and self._pgid and self._pgid > 0:
+            try:
+                os.killpg(self._pgid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):  # pragma: no cover
+                pass
+        self._proc.kill()
+
+    def _teardown_reader(self) -> None:
+        """Interrupt + join the reader thread (fast: exits within ~0.1s).
+
+        Must run BEFORE touching the queue's feeder: calling
+        ``cancel_join_thread()`` while the reader is still blocked in
+        ``queue.get()`` is undefined behavior (it can spin or read garbage).
+        The reader's loop checks ``isInterruptionRequested()`` ahead of every
+        ``get()``, so this does not block on the CHILD PROCESS dying — only on
+        the reader thread noticing the flag, which is bounded by its 0.1s
+        poll interval, independent of ``_READER_JOIN_MS``.
+        """
         if self._reader is not None:
             self._reader.requestInterruption()
             self._reader.wait(_READER_JOIN_MS)
+
+    def cancel(self) -> None:
+        """Hard-stop the worker WITHOUT blocking the calling (UI) thread.
+
+        Sends SIGTERM (process + POSIX group) and tears down the reader
+        thread synchronously — both are fast, bounded operations, not waits
+        on the child process itself. The join → SIGKILL-escalation → give-up
+        sequence that used to block here for up to ~9s (audit A10) now runs
+        off a ``QTimer`` poll (:data:`_CANCEL_POLL_MS` cadence, escalating at
+        :data:`_CANCEL_ESCALATE_S`, giving up at :data:`_CANCEL_GIVE_UP_S`),
+        emitting :attr:`reaped` once the process is confirmed dead or the
+        give-up elapses.
+
+        This requires a live Qt event loop to complete — callers with no
+        running event loop (the atexit/interpreter-shutdown path) must use
+        :meth:`_cancel_blocking` instead, which keeps the old fully
+        synchronous behavior.
+        """
+        proc = self._proc
+        if proc is None or not proc.is_alive():
+            return
+        if self._cancel_timer is not None:
+            return  # a cancel is already in flight; don't start a second poll loop
+        self._signal_terminate()
+        self._teardown_reader()
+
+        now = time.monotonic()
+        self._cancel_escalate_at = now + _CANCEL_ESCALATE_S
+        self._cancel_deadline = now + _CANCEL_GIVE_UP_S
+        self._cancel_escalated = False
+        self._cancel_timer = QTimer(self)
+        self._cancel_timer.timeout.connect(self._poll_cancel)
+        self._cancel_timer.start(_CANCEL_POLL_MS)
+
+    def _poll_cancel(self) -> None:
+        """QTimer tick: escalate to SIGKILL at 5s, finish at death or 7s give-up."""
+        proc = self._proc
+        if proc is None or not proc.is_alive():
+            self._finish_cancel()
+            return
+        now = time.monotonic()
+        if not self._cancel_escalated and now >= self._cancel_escalate_at:
+            self._signal_kill()
+            self._cancel_escalated = True
+        if now >= self._cancel_deadline:
+            # Best-effort give-up: the process may still technically be alive
+            # (e.g. stuck in uninterruptible I/O) — _reap_process below is
+            # itself best-effort/idempotent for that residual case.
+            self._finish_cancel()
+
+    def _finish_cancel(self) -> None:
+        if self._cancel_timer is not None:
+            self._cancel_timer.stop()
+            self._cancel_timer.deleteLater()
+            self._cancel_timer = None
         # The queue's feeder thread may be mid-write after a hard kill; don't block on it.
+        if self._queue is not None:
+            self._queue.cancel_join_thread()
+        # By the time we get here the process is normally already dead (the
+        # only path into _finish_cancel where it might not be is the 7s
+        # give-up), so _reap_process's internal join is a fast no-op in the
+        # common case; it also releases the OS process/queue handles.
+        self._reap_process()
+        self.reaped.emit()
+
+    def _cancel_blocking(self) -> None:
+        """Fully-synchronous hard-stop: terminate -> join -> (kill + join).
+
+        This is cancel()'s ORIGINAL behavior, kept for the one caller that
+        genuinely needs it: the atexit/interpreter-shutdown teardown path
+        (``FitQueueController.shutdown``), where a ``QTimer`` would never
+        fire (no Qt event loop is running by then) and a still-alive
+        grandchild left behind would simply be orphaned. Every other caller
+        (the interactive Cancel action) uses the non-blocking :meth:`cancel`.
+        """
+        # A prior non-blocking cancel() may still have a poll timer in flight
+        # (e.g. the app closed within its 7s window) — stop it so it can't
+        # fire after this method has already reaped everything below.
+        if self._cancel_timer is not None:
+            self._cancel_timer.stop()
+            self._cancel_timer.deleteLater()
+            self._cancel_timer = None
+        proc = self._proc
+        if proc is None or not proc.is_alive():
+            return
+        self._signal_terminate()
+        proc.join(timeout=_TERMINATE_JOIN_S)
+        if proc.is_alive():
+            self._signal_kill()
+            proc.join(timeout=_KILL_JOIN_S)
+        self._teardown_reader()
         if self._queue is not None:
             self._queue.cancel_join_thread()
 
@@ -209,7 +323,21 @@ class WorkerHandle(QObject):
         """
         if self._reader is not None:
             self._reader.requestInterruption()
-            self._reader.wait(_READER_JOIN_MS)
+            if not self._reader.wait(_READER_JOIN_MS):
+                # Do NOT drop the last Python reference to a still-running
+                # QThread here: Qt aborts the process ("QThread: Destroyed
+                # while thread is still running") the next time the GC
+                # collects it, and reaping the process out from under the
+                # reader makes its next is_alive() check raise ValueError on
+                # a closed Process, killing it with no terminal event ever
+                # emitted. Leave both in place; the caller (atexit/closeEvent)
+                # may call shutdown() again later.
+                logger.warning(
+                    "Reader thread for run_id=%s did not stop within %dms; deferring reap.",
+                    self._job.run_id,
+                    _READER_JOIN_MS,
+                )
+                return
             self._reader = None
         self._reap_process()
 

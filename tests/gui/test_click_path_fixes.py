@@ -33,6 +33,7 @@ class _FakeHandle(QObject):
     """Minimal WorkerHandle stand-in: never spawns a real process (mirrors test_main_window)."""
 
     event = Signal(object)
+    reaped = Signal()  # matches WorkerHandle's non-blocking-cancel contract (A10)
 
     def __init__(self, job):
         super().__init__()
@@ -44,11 +45,15 @@ class _FakeHandle(QObject):
 
     def cancel(self):
         self._alive = False
+        self.reaped.emit()
 
     def is_running(self):
         return self._alive
 
     def shutdown(self):
+        self._alive = False
+
+    def _cancel_blocking(self):
         self._alive = False
 
 

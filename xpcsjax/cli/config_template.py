@@ -16,22 +16,20 @@ from pathlib import Path
 from typing import Any
 
 from xpcsjax.config.manager import ConfigManager
+from xpcsjax.service.config import ValidationReport, available_modes
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 # -----------------------------------------------------------------------------
-# Mode → template-filename map. These are the four production templates
-# xpcsjax ships under ``xpcsjax/config/templates/``.
+# Mode → template-filename map. Modes are single-sourced from
+# xpcsjax.service.config.available_modes() (xpcsjax.config.types.AnalysisMode)
+# rather than a second hardcoded literal; the filename follows every shipped
+# template's ``xpcsjax_<mode>.yaml`` naming convention under
+# ``xpcsjax/config/templates/``.
 # -----------------------------------------------------------------------------
-_MODE_TO_TEMPLATE: dict[str, str] = {
-    "static_anisotropic": "xpcsjax_static_anisotropic.yaml",
-    "static_isotropic": "xpcsjax_static_isotropic.yaml",
-    "laminar_flow": "xpcsjax_laminar_flow.yaml",
-    "two_component": "xpcsjax_two_component.yaml",
-}
-
-_VALID_MODES: tuple[str, ...] = tuple(_MODE_TO_TEMPLATE.keys())
+_VALID_MODES: tuple[str, ...] = tuple(available_modes())
+_MODE_TO_TEMPLATE: dict[str, str] = {mode: f"xpcsjax_{mode}.yaml" for mode in _VALID_MODES}
 
 
 def get_template_path(mode: str) -> Path:
@@ -200,12 +198,19 @@ def show_template(mode: str) -> None:
         sys.stdout.write(f.read())
 
 
-def validate_config(config_path: Path | str) -> bool:
+def validate_config_file(config_path: Path | str) -> ValidationReport:
     """Validate an existing YAML configuration file.
 
     Parses the YAML and attempts to construct a
-    :class:`~xpcsjax.config.manager.ConfigManager` against it, printing
-    progress and any failure reason to stdout.
+    :class:`~xpcsjax.config.manager.ConfigManager` against it. This is a
+    pure library function -- it neither logs nor prints; the caller (the
+    ``xpcsjax-config --validate`` command, see ``config_generator.main``)
+    is responsible for reporting the result to the user.
+
+    Note this validates a config *file on disk* (YAML syntax + ConfigManager
+    construction); it is distinct from
+    :func:`xpcsjax.service.config.validate_config`, which validates an
+    already-parsed config *dict* against the parameter registry.
 
     Parameters
     ----------
@@ -214,16 +219,15 @@ def validate_config(config_path: Path | str) -> bool:
 
     Returns
     -------
-    bool
-        ``True`` if the file exists, parses as YAML, and constructs a valid
-        ``ConfigManager``; ``False`` otherwise.
+    ValidationReport
+        ``ok=True`` if the file exists, parses as YAML, and constructs a
+        valid ``ConfigManager``; otherwise ``ok=False`` with the failure
+        reason in ``errors``.
     """
     config_path = Path(config_path)
-    print(f"Validating: {config_path}")
 
     if not config_path.exists():
-        print(f"ERROR: File not found: {config_path}")
-        return False
+        return ValidationReport(ok=False, errors=[f"File not found: {config_path}"])
 
     # Parse YAML first to give a clean error for syntactic issues before
     # ConfigManager's heavier structural checks run.
@@ -233,25 +237,16 @@ def validate_config(config_path: Path | str) -> bool:
         with open(config_path, encoding="utf-8") as f:
             yaml.safe_load(f)
     except yaml.YAMLError as exc:
-        print(f"ERROR: Failed to parse YAML: {exc}")
-        return False
+        return ValidationReport(ok=False, errors=[f"Failed to parse YAML: {exc}"])
     except OSError as exc:
-        print(f"ERROR: Failed to read file: {exc}")
-        return False
+        return ValidationReport(ok=False, errors=[f"Failed to read file: {exc}"])
 
     try:
         ConfigManager(str(config_path))
-    except (ValueError, KeyError, FileNotFoundError) as exc:
-        logger.error("Structural validation failed: %s", exc)
-        print(f"Structural validation failed: {exc}")
-        return False
     except Exception as exc:  # noqa: BLE001 — ConfigManager may raise custom types
-        logger.error("Structural validation failed: %s", exc)
-        print(f"Structural validation failed: {exc}")
-        return False
+        return ValidationReport(ok=False, errors=[f"Structural validation failed: {exc}"])
 
-    print("Result: VALID")
-    return True
+    return ValidationReport(ok=True)
 
 
 # -----------------------------------------------------------------------------

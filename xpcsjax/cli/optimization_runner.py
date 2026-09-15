@@ -28,7 +28,7 @@ import numpy as np
 from xpcsjax import OptimizationResult
 from xpcsjax.cli.config_handling import resolve_output_dir
 from xpcsjax.io.nlsq_writers import save_nlsq_json_files
-from xpcsjax.service.fit import FitOverrides, apply_overrides, run_fit
+from xpcsjax.service.fit import FitOverrides, run_fit
 from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -39,7 +39,6 @@ logger = get_logger(__name__)
 
 __all__ = [
     "run_nlsq",
-    "apply_cli_overrides",
     "format_nlsq_summary",
 ]
 
@@ -59,14 +58,6 @@ def _overrides_from_args(args: argparse.Namespace) -> FitOverrides:
         verbose=bool(getattr(args, "verbose", False)),
         quiet=bool(getattr(args, "quiet", False)),
     )
-
-
-def apply_cli_overrides(
-    args: argparse.Namespace,
-    config_manager: ConfigManager,
-) -> None:
-    """Merge CLI flags into ``config_manager.config`` (delegates to the service)."""
-    apply_overrides(config_manager, _overrides_from_args(args))
 
 
 # ---------------------------------------------------------------------------
@@ -291,12 +282,11 @@ def run_nlsq(
         logger.info("JAX_DISABLE_JIT=1 (set in main bootstrap); fit will run uncompiled")
 
     # Service owns override-application + dispatch + result normalization;
-    # this adapter keeps the CLI-flavored side effects below.
-    try:
-        result = run_fit(config_manager, data, overrides=_overrides_from_args(args))
-    except Exception:
-        logger.exception("NLSQ fit raised an exception")
-        raise
+    # this adapter keeps the CLI-flavored side effects below. The exception
+    # is intentionally NOT logged here -- commands._dispatch_fit tags it with
+    # a phase and main.py's single log_exception call reports it, so it is
+    # not logged three times on the way up (audit C18).
+    result = run_fit(config_manager, data, overrides=_overrides_from_args(args))
 
     _warn_nlsq_bound_saturation(result)
 

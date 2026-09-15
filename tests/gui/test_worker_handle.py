@@ -73,6 +73,86 @@ def test_cancel_and_shutdown_join_reader_thread(qtbot, monkeypatch):
     assert reader.isFinished()
 
 
+def test_shutdown_defers_reap_when_reader_wait_times_out():
+    """shutdown() must not drop the reader ref or reap the process when the
+    reader QThread fails to stop within the join deadline -- doing so aborts
+    Qt ("QThread: Destroyed while thread is still running") and races the
+    still-running reader's next is_alive() check against a closed Process.
+    """
+    from unittest.mock import MagicMock
+
+    from xpcsjax.gui.ipc.handle import WorkerHandle
+
+    h = WorkerHandle(FitJob(run_id="r1", config_path="c.yaml"))
+    fake_reader = MagicMock()
+    fake_reader.wait.return_value = False  # simulates a timed-out join
+    h._reader = fake_reader
+    fake_proc = MagicMock()
+    h._proc = fake_proc
+
+    h.shutdown()
+
+    fake_reader.requestInterruption.assert_called_once()
+    assert h._reader is fake_reader  # ref NOT dropped
+    fake_proc.join.assert_not_called()  # _reap_process() NOT reached
+    fake_proc.close.assert_not_called()
+
+
+def test_cancel_is_non_blocking_and_does_not_join():
+    """cancel() must return without ever calling proc.join() -- the join/kill/
+    give-up escalation sequence runs off a QTimer instead (A10), so a stuck
+    child can never freeze the calling (UI) thread.
+    """
+    from unittest.mock import MagicMock
+
+    from xpcsjax.gui.ipc.handle import WorkerHandle
+
+    h = WorkerHandle(FitJob(run_id="r1", config_path="c.yaml"))
+    fake_proc = MagicMock()
+    fake_proc.is_alive.return_value = True  # never reports dead
+    h._proc = fake_proc
+
+    h.cancel()
+
+    fake_proc.terminate.assert_called_once()
+    fake_proc.join.assert_not_called()
+    assert h._cancel_timer is not None  # escalation continues on a timer
+
+
+def test_cancel_escalates_to_sigkill_then_gives_up():
+    """Driving the poll past the escalate/give-up deadlines fires SIGKILL,
+    then finishes (emits `reaped`) even if the process never reports dead --
+    the "give up at 7s" contract from the audit item.
+    """
+    import time
+    from unittest.mock import MagicMock
+
+    from xpcsjax.gui.ipc.handle import WorkerHandle
+
+    h = WorkerHandle(FitJob(run_id="r1", config_path="c.yaml"))
+    fake_proc = MagicMock()
+    fake_proc.is_alive.return_value = True  # never reports dead -> forces escalation
+    h._proc = fake_proc
+    reaped: list[bool] = []
+    h.reaped.connect(lambda: reaped.append(True))
+
+    h.cancel()
+    fake_proc.kill.assert_not_called()
+
+    # Simulate 5s elapsed -> escalate to SIGKILL.
+    h._cancel_escalate_at = time.monotonic() - 1
+    h._poll_cancel()
+    fake_proc.kill.assert_called_once()
+    assert reaped == []  # not yet -- give-up deadline hasn't passed
+
+    # Simulate 7s elapsed -> give up (best-effort finish) even though the
+    # (mocked) process still reports alive.
+    h._cancel_deadline = time.monotonic() - 1
+    h._poll_cancel()
+    assert reaped == [True]
+    assert h._cancel_timer is None  # timer stopped/cleared
+
+
 @pytest.mark.skipif(
     not hasattr(os, "killpg"),
     reason="os.killpg is POSIX-only; WorkerHandle._pgid stays None on this platform",

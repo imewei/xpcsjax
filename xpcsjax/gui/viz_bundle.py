@@ -34,15 +34,24 @@ def load_viz_bundle(result_dir: str | Path) -> VizBundle | None:
     """Load the interactive-plot bundle from ``<result_dir>/plots/simulated_data/c2_fitted_data.npz``.
 
     Returns ``None`` if that artifact is absent/unreadable or has no ``c2_exp``.
-    ``residuals`` is read directly (the fit already stored it, ``nlsq_plots.py:1158``);
-    ``model_c2``/``residuals`` are left ``None`` when the fitted surface is absent
-    (exp-only views). The GUI never recomputes — it stays JAX-free.
+    ``residuals`` is read directly when the fit already stored it
+    (``nlsq_plots.py:1158``); if a model surface is present but residuals
+    weren't stored, they're recomputed here as plain ``exp - model`` numpy
+    arithmetic (never via JAX -- this module stays JAX-free). Both
+    ``model_c2``/``residuals`` are left ``None`` when the fitted surface is
+    absent (exp-only views).
     """
     fitted_path = Path(result_dir).joinpath(*_FITTED)
     if not fitted_path.is_file():
         return None
     try:
-        with np.load(fitted_path) as npz:
+        # mmap_mode="r" avoids eagerly reading the whole (potentially 100s-MB,
+        # see io/json_utils.py) c2 arrays into RAM up front -- pages are faulted
+        # in lazily as the grid/raster views actually touch them. It is a no-op
+        # (silently ignored, not an error) for the default LZMA/DEFLATE-compressed
+        # NPZ this fit-plotting path writes (nlsq_plots.py:1226 `compression=`);
+        # it only pays off when a caller writes with `compression="none"`.
+        with np.load(fitted_path, mmap_mode="r") as npz:
             exp = _get(npz, "c2_exp")
             if exp is None:
                 return None

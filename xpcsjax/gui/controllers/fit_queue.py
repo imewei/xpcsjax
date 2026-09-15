@@ -62,6 +62,11 @@ class FitQueueController(QObject):
         self._handles: dict[str, Any] = {}  # run_id -> active handle
         self._cancelled: set[str] = set()  # run_ids cancelled by the user
         self._output_dirs: dict[str, str] = {}  # run_id -> per-run output dir (for cancel cleanup)
+        # Handles whose non-blocking cancel() is still winding down (A10):
+        # popped from self._handles already (so the slot is free immediately),
+        # but kept referenced here until `reaped` fires so Python doesn't GC
+        # the handle (and its live QTimer) mid-cleanup.
+        self._cancelling: dict[str, Any] = {}
 
     def enqueue(self, run_id: str, config_path: str, output_dir: str) -> None:
         """Queue a fit; starts it immediately if a concurrency slot is free.
@@ -116,15 +121,31 @@ class FitQueueController(QObject):
         # suppresses the synthetic Died when interrupted — so NO terminal event
         # arrives to free the slot. We therefore pop the slot here; relying on a
         # Died would leave the slot permanently stuck and never start queued jobs.
+        #
+        # handle.cancel() (A10) is now NON-blocking: it posts SIGTERM and tears
+        # down the reader synchronously (both fast), then drives the
+        # join/SIGKILL-escalation/give-up sequence off a QTimer, emitting
+        # `reaped` when done. Slot accounting here stays synchronous either
+        # way — deferring it to `reaped` would leave a queued job unpromoted
+        # for up to 7s and race `_on_event`'s terminal-event slot-freeing path.
+        # We do NOT call handle.shutdown() here anymore: it would reintroduce
+        # a blocking proc.join() (via _reap_process) for a process that has
+        # usually only just been signalled, not yet confirmed dead.
         handle = self._handles.get(run_id)
         if handle is not None and handle.is_running():
-            handle.cancel()  # terminate proc + interrupt/join the reader
-            handle.shutdown()  # idempotent reader-QThread join (Plan C)
             try:
                 handle.event.disconnect()
             except (RuntimeError, TypeError):  # already disconnected
                 pass
+            # Keep a reference until cleanup completes (see _cancelling docstring
+            # at __init__) — otherwise nothing holds the handle (and its live
+            # QTimer) alive once it's popped from self._handles. Connected
+            # BEFORE cancel() so a (hypothetical) same-tick `reaped` emission
+            # can never race the connection.
             self._handles.pop(run_id, None)
+            self._cancelling[run_id] = handle
+            handle.reaped.connect(partial(self._on_cancel_reaped, run_id))
+            handle.cancel()  # non-blocking: signals sent + reader torn down
             self._cancelled.discard(run_id)  # no Died will arrive; don't leak the marker
             self._cleanup_output_dir(run_id)  # remove the partial per-run output dir
             self.run_status_changed.emit(run_id, "cancelled")
@@ -158,13 +179,31 @@ class FitQueueController(QObject):
             self.cancel(run_id)
 
     def shutdown(self) -> None:
-        """Cancel every active worker, join its reader thread, and clear the queue."""
+        """Cancel every active worker, join its reader thread, and clear the queue.
+
+        This is the atexit/closeEvent teardown path (app closing, possibly
+        with no Qt event loop left to run a `QTimer`), so it uses
+        ``handle._cancel_blocking()`` — the fully synchronous terminate ->
+        join -> kill -> join sequence — rather than the non-blocking
+        `handle.cancel()` the interactive Cancel action uses (see
+        :meth:`cancel`). Also finishes any handle whose interactive cancel
+        was still winding down when the app closed.
+        """
         self._pending.clear()
         for handle in list(self._handles.values()):
             if handle.is_running():
-                handle.cancel()  # terminate the process + tear down its reader
+                handle._cancel_blocking()  # noqa: SLF001 — the one intended caller
             handle.shutdown()  # join the reader QThread (app close / atexit)
         self._handles.clear()  # drop the now-dead handles (no stale references)
+        for handle in list(self._cancelling.values()):
+            if handle.is_running():
+                handle._cancel_blocking()  # noqa: SLF001 — the one intended caller
+            handle.shutdown()
+        self._cancelling.clear()
+
+    def _on_cancel_reaped(self, run_id: str) -> None:
+        """Drop the keep-alive reference once a non-blocking cancel finishes."""
+        self._cancelling.pop(run_id, None)
 
     def _try_start_next(self) -> None:
         while self._pending and len(self._handles) < self._max:

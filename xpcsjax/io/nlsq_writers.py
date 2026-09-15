@@ -81,8 +81,8 @@ def save_nlsq_json_files(
     # Pre-sanitize all dicts before passing to json.dump.  Python's json encoder
     # handles plain float natively (emitting the invalid JSON tokens NaN/Infinity)
     # and therefore never calls the `default` hook for those values.  Calling
-    # json_safe() up-front ensures NaN → null and Inf → "Infinity" regardless of
-    # where they appear in nested structures.
+    # json_safe() up-front ensures NaN and +-Inf both become JSON `null`
+    # regardless of where they appear in nested structures.
     safe_param = json_safe(param_dict)
     safe_analysis = json_safe(analysis_dict)
     safe_convergence = json_safe(convergence_dict)

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
 from xpcsjax.gui.theme import current_palette
-from xpcsjax.gui.viz_bundle import load_viz_bundle
+from xpcsjax.gui.viz_bundle import VizBundle, load_viz_bundle
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -15,6 +15,44 @@ logger = get_logger(__name__)
 if TYPE_CHECKING:
     from xpcsjax.gui.result_loader import ResultSummary
     from xpcsjax.gui.views.main_window import MainWindow
+
+
+class _BundleLoadSignals(QObject):
+    """Signal carrier for :class:`_BundleLoadTask`.
+
+    A ``QRunnable`` cannot itself declare Qt signals, so the worker task owns
+    one of these to report back to the main thread.
+    """
+
+    finished = Signal(object, str)  # (VizBundle | None, result_dir)
+
+
+class _BundleLoadTask(QRunnable):
+    """Loads a :class:`~xpcsjax.gui.viz_bundle.VizBundle` off the UI thread.
+
+    Runs entirely in a ``QThreadPool`` worker thread: only ``load_viz_bundle``
+    (file I/O + numpy array prep, no Qt) executes here. Widget construction
+    (``ResultGrid.set_bundle``) must stay on the UI thread and happens in
+    :meth:`ResultPresenter._on_bundle_loaded`, invoked via the queued
+    ``finished`` signal once this task completes.
+    """
+
+    def __init__(self, result_dir: str) -> None:
+        super().__init__()
+        self._result_dir = result_dir
+        self.signals = _BundleLoadSignals()
+
+    def run(self) -> None:  # noqa: D102 — QRunnable entry point, not a public API
+        try:
+            bundle = load_viz_bundle(self._result_dir)
+        except Exception:  # pragma: no cover — defensive only
+            logger.warning(
+                "Failed to load viz bundle for %s; falling back to text summary.",
+                self._result_dir,
+                exc_info=True,
+            )
+            bundle = None
+        self.signals.finished.emit(bundle, self._result_dir)
 
 
 class ResultPresenter(QObject):
@@ -37,6 +75,12 @@ class ResultPresenter(QObject):
         """
         super().__init__(main_window)
         self._mw = main_window
+        # The most recently REQUESTED bundle load, used as a stale-result
+        # guard: a slower load that finishes after a newer run/selection has
+        # superseded it must not clobber the panel (memory: "finished-run-
+        # clobber" bug class — run selection changed while loading).
+        self._pending_summary: Any = None
+        self._pending_result_dir: str | None = None
 
     def show_result(self, summary: Any) -> None:
         """Render the finished-fit summary (a ResultSummary or None) in the text panel.
@@ -72,42 +116,56 @@ class ResultPresenter(QObject):
     def show_result_with_bundle(self, summary: Any, result_dir: str | None) -> None:
         """Render the result: per-phi grid when a bundle exists, text otherwise.
 
+        The bundle (file I/O + numpy prep, potentially 100s of MB, see
+        io/json_utils.py) is loaded off the UI thread via ``QThreadPool``;
+        this method returns immediately and the panel updates asynchronously
+        once the load completes (see :meth:`_on_bundle_loaded`).
+
         Parameters
         ----------
         summary : Any
             A ``ResultSummary`` (or ``None``) to show in the text fallback.
         result_dir : str | None
             The run's result directory; used to locate the viz bundle.
-            ``None`` forces the text-summary path.
+            ``None`` forces the text-summary path (no background load).
         """
-        bundle = None
-        if result_dir:
-            try:
-                bundle = load_viz_bundle(result_dir)
-            except Exception:  # pragma: no cover — defensive only
-                logger.warning(
-                    "Failed to load viz bundle for %s; falling back to text summary.",
-                    result_dir,
-                    exc_info=True,
-                )
-                bundle = None
+        self._pending_summary = summary
+        self._pending_result_dir = result_dir
+        if not result_dir:
+            self._mw.show_result(summary)
+            self._mw._central_stack.setCurrentIndex(0)
+            return
+
+        task = _BundleLoadTask(result_dir)
+        task.signals.finished.connect(self._on_bundle_loaded)
+        QThreadPool.globalInstance().start(task)
+
+    def _on_bundle_loaded(self, bundle: VizBundle | None, result_dir: str) -> None:
+        """Apply a background-loaded bundle to the UI (main-thread slot).
+
+        Discards the result if a newer ``show_result_with_bundle`` call (a
+        different run finishing, or the user selecting a different run) has
+        superseded this one while it was loading.
+        """
+        if result_dir != self._pending_result_dir:
+            return
+        summary = self._pending_summary
 
         if bundle is not None:
             self._mw._result_grid.set_bundle(bundle)
             if self._mw._result_grid.section_count() > 0:
                 self._mw._central_stack.setCurrentIndex(1)  # show per-phi grid
-            else:
-                # set_bundle degraded a malformed exp_c2 (bad shape) to an
-                # empty grid — fall through to the text summary below rather
-                # than showing a blank per-phi page.
-                bundle = None
-        if bundle is None:
-            # Fall back to (or keep) the text summary.
-            # NOTE: calls self._mw.show_result (the MainWindow shim) deliberately —
-            # NOT self.show_result() directly — so future overrides on MainWindow are
-            # respected and to preserve the indirection contract.
-            self._mw.show_result(summary)
-            self._mw._central_stack.setCurrentIndex(0)
+                return
+            # set_bundle degraded a malformed exp_c2 (bad shape) to an empty
+            # grid — fall through to the text summary below rather than
+            # showing a blank per-phi page.
+
+        # Fall back to (or keep) the text summary.
+        # NOTE: calls self._mw.show_result (the MainWindow shim) deliberately —
+        # NOT self.show_result() directly — so future overrides on MainWindow are
+        # respected and to preserve the indirection contract.
+        self._mw.show_result(summary)
+        self._mw._central_stack.setCurrentIndex(0)
 
     def show_error(self, message: str) -> None:
         """Render a fit failure in the text panel, with a color-coded header.

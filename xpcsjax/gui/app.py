@@ -28,21 +28,6 @@ def build_workbench() -> tuple[MainWindow, FitQueueController]:
     return window, window._queue
 
 
-def _resolve_version() -> str:
-    """Best-effort version string, mirroring ``cli.args_parser._add_version_arg``."""
-    try:
-        import importlib.metadata as _md
-
-        return _md.version("xpcsjax")
-    except Exception:  # pragma: no cover — uninstalled / dev tree
-        try:
-            from xpcsjax import __version__ as version
-
-            return version
-        except Exception:
-            return "unknown"
-
-
 def build_parser() -> argparse.ArgumentParser:
     """Build the xpcsjax-gui launcher parser (--version / --help only).
 
@@ -56,10 +41,12 @@ def build_parser() -> argparse.ArgumentParser:
         prog="xpcsjax-gui",
         description="Launch the xpcsjax analysis workbench (PySide6 GUI).",
     )
+    from xpcsjax import __version__ as _version
+
     parser.add_argument(
         "--version",
         action="version",
-        version=f"%(prog)s {_resolve_version()}",
+        version=f"%(prog)s {_version}",
     )
     return parser
 
@@ -93,15 +80,26 @@ def main(argv: list[str] | None = None) -> int:
     raw = list(sys.argv[1:] if argv is None else argv)
     qt_extra = _parse_cli_args(raw)  # may SystemExit on --help / --version
 
+    from typing import cast
+
     from PySide6.QtWidgets import QApplication
 
     from xpcsjax.gui import theme
 
-    app = QApplication.instance() or QApplication([sys.argv[0], *qt_extra])
+    # QApplication.instance() is typed as returning the base QCoreApplication
+    # (its stub is shared with QCoreApplication.instance()); this process only
+    # ever constructs a QApplication, so the runtime type is always right.
+    app = cast(QApplication, QApplication.instance() or QApplication([sys.argv[0], *qt_extra]))
     # Apply the system-aware "instrument console" theme before any window is built
     # so every widget is born styled (no first-paint flash of unstyled defaults).
     palette = theme.apply_theme(app)
-    app.setWindowIcon(theme.app_icon(palette))  # type: ignore[attr-defined]
+    app.setWindowIcon(theme.app_icon(palette))
+    # Follow a runtime OS light/dark switch too, not just the theme at launch.
+    # QStyleHints.colorSchemeChanged was added in Qt 6.5; hasattr guards older
+    # Qt where the signal doesn't exist at all (not just a no-op).
+    style_hints = app.styleHints()
+    if hasattr(style_hints, "colorSchemeChanged"):
+        style_hints.colorSchemeChanged.connect(lambda _scheme: theme.apply_theme(app))
     window, queue = build_workbench()
     # Registered here (once per process), not in build_workbench, so a hard exit
     # still terminates a running worker without accumulating hooks across tests.
