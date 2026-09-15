@@ -33,6 +33,12 @@ def _tied_config_dict(phi_angles: np.ndarray, per_angle_mode: str) -> dict:
             "initial_contrast": 0.3,
             "initial_offset": 1.0,
         },
+        # f1 off zero: see _F1 in tests/optimization/_heterodyne_fixtures.py (the
+        # registry default f1 = 0 makes the fraction Jacobian structurally
+        # singular, and a solver that converges at x0 then reports the NaN
+        # covariance placeholder instead of a real estimate). 0.01 keeps
+        # 0.5*exp(f1*t) < 1 over this fixture's _N_TIMES = 40 frames.
+        "parameters": {"fraction": {"f1": {"value": 0.01}}},
         "initial_parameters": {
             "tied_parameters": {
                 "D0_ref": "D0_sample",

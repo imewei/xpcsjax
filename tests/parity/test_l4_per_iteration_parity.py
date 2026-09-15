@@ -132,10 +132,13 @@ def test_heterodyne_l4_is_diagnostic_only():
     assert np.array_equal(np.asarray(r_on.parameters), np.asarray(r_off.parameters))
     assert r_on.chi_squared == r_off.chi_squared
     # Covariance (pcov) bit-identity is part of the same hard gate as popt + chi2.
-    cov_on = getattr(r_on, "covariance", None)
-    cov_off = getattr(r_off, "covariance", None)
-    if cov_on is not None and cov_off is not None:
-        assert np.array_equal(np.asarray(cov_on), np.asarray(cov_off))
+    # The fixture is seeded off the fraction model's singular point (see _F1 in
+    # tests/optimization/_heterodyne_fixtures.py), so both branches must carry
+    # a REAL covariance — a NaN placeholder on either side is a failure here,
+    # not a parity pass.
+    assert r_on.nlsq_diagnostics["covariance_is_placeholder"] is False
+    assert r_off.nlsq_diagnostics["covariance_is_placeholder"] is False
+    assert np.array_equal(np.asarray(r_on.covariance), np.asarray(r_off.covariance))
 
 
 # ---------------------------------------------------------------------------
