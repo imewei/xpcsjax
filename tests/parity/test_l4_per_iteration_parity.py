@@ -132,10 +132,12 @@ def test_heterodyne_l4_is_diagnostic_only():
     assert np.array_equal(np.asarray(r_on.parameters), np.asarray(r_off.parameters))
     assert r_on.chi_squared == r_off.chi_squared
     # Covariance (pcov) bit-identity is part of the same hard gate as popt + chi2.
+    # ``equal_nan``: a singular solve is the all-NaN placeholder on BOTH
+    # branches (finalize_covariance), which is still bit-identical parity.
     cov_on = getattr(r_on, "covariance", None)
     cov_off = getattr(r_off, "covariance", None)
     if cov_on is not None and cov_off is not None:
-        assert np.array_equal(np.asarray(cov_on), np.asarray(cov_off))
+        assert np.array_equal(np.asarray(cov_on), np.asarray(cov_off), equal_nan=True)
 
 
 # ---------------------------------------------------------------------------
