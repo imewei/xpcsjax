@@ -4287,6 +4287,9 @@ class NLSQWrapper(NLSQAdapterBase):
             phi = jnp.asarray(data.phi_flat)  # Shape: (n_data,)
             t1 = jnp.asarray(data.t1_flat)  # Shape: (n_data,)
             t2 = jnp.asarray(data.t2_flat)  # Shape: (n_data,)
+            # Observed values, used only to zero the residual at t1 == t2 (see
+            # the diagonal mask in model_function below).
+            g2_obs = jnp.asarray(data.g2_flat, dtype=jnp.float64)  # Shape: (n_data,)
         else:
             # Non-stratified data: use unique grid values
             phi = jnp.asarray(data.phi)  # Shape: (n_phi,)
@@ -4451,6 +4454,24 @@ class NLSQWrapper(NLSQAdapterBase):
 
                 # Ensure 1D output by squeezing any trailing dimensions
                 g2_theory = jnp.squeeze(g2_theory)
+
+                # Diagonal (t1 == t2) mask. The data diagonal is the zero-lag
+                # self-correlation spike (loader-corrected by neighbor
+                # interpolation on real data); the theory value there is
+                # offset + contrast, which matches neither. The non-stratified
+                # branch below applies apply_diagonal_correction to the theory
+                # grid and the engine residual (strategies/residual_jit.py)
+                # masks t1 == t2; this branch did neither and let lag-free
+                # points distort the physics. Return the observed value at
+                # those points so their residual is exactly zero (they still
+                # count in n_data / dof, as on the residual_jit path). Tolerance
+                # rather than exact equality so the mask survives a loader
+                # that rounds t1 and t2 independently.
+                g2_theory = jnp.where(
+                    jnp.abs(t1_requested - t2_requested) <= 1e-6 * dt,
+                    g2_obs[indices],
+                    g2_theory,
+                )
 
                 return g2_theory
 

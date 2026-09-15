@@ -29,6 +29,20 @@ the rendered documentation.
 
 ### Fixed
 
+- **Homodyne angle-stratified fits (auto for ≥100 k multi-angle points) no longer
+  fit the c2 diagonal.** `wrapper.py`'s per-point (full-copy) stratified model
+  branch evaluated the theory at `t1 == t2` as `offset + contrast` and compared
+  it with the loader's diagonal-corrected data, while the non-stratified branch
+  applies `apply_diagonal_correction` to the theory and the engine residual
+  (`strategies/residual_jit.py`) masks `t1 == t2`. The optimizer distorted the
+  physics to chase those lag-free points (120 k-point synthetic: off-diagonal
+  SSR 5.45 vs 0.03 on the standard path, `D0` 1319 vs 1000). The stratified
+  branch now zeroes the diagonal residual, matching `residual_jit`; reported
+  `chi_squared` on that path is therefore the off-diagonal SSR (the masked
+  points still count in `n_data`, so `reduced_chi_squared`'s dof is unchanged,
+  as on the `residual_jit` path). This changes
+  `laminar_flow` / `static_*` fit results on large datasets (it is a deliberate
+  departure from the upstream homodyne behaviour, which fit the diagonal).
 - **Heterodyne fitted/residual plots were evaluated one `dt` off the fit-time
   grid.** `viz.nlsq_plots._evaluate_c2_per_angle` fed the loader's `t1` (origin
   0) to the adapter kernel, while the heterodyne fit runs the stateful
