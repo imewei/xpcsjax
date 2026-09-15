@@ -1026,9 +1026,9 @@
     "semantic_hash": "319a34c9f512f366559588b470100c11"
   },
   "xpcsjax/optimization/nlsq/heterodyne_stratified_ls.py": {
-    "mtime": 1789476500.068498,
-    "seen": 1789478204.938325,
-    "ast_hash": "cdb6513a9cc4768606e56ceccdf217a7",
+    "mtime": 1789487152.2521002,
+    "seen": 1789489108.6692429,
+    "ast_hash": "49fc8cd22f69280c52e69c874b96cf8e",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/transforms.py": {
@@ -1050,9 +1050,9 @@
     "semantic_hash": "5b3113a68bc97c7149b0ab96f6f3dc84"
   },
   "xpcsjax/optimization/nlsq/heterodyne_result_builder.py": {
-    "mtime": 1789476430.3325205,
-    "seen": 1789478204.9383183,
-    "ast_hash": "0334826bcff2c33e382ccdd802a8f17b",
+    "mtime": 1789487152.2511003,
+    "seen": 1789489108.66924,
+    "ast_hash": "ac562966eab772a95f08671f1b226c6c",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/adapter.py": {
@@ -1188,9 +1188,9 @@
     "semantic_hash": "1d02c976f036ebc88f447e593a1add6f"
   },
   "xpcsjax/optimization/nlsq/heterodyne_core.py": {
-    "mtime": 1789477409.28109,
-    "seen": 1789478204.9383059,
-    "ast_hash": "f39b41ef883ce4c20d484170581ccc1a",
+    "mtime": 1789487152.2531002,
+    "seen": 1789489108.669234,
+    "ast_hash": "b31d8e92c0e20f580ba3e3744e693137",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/result_builder.py": {
@@ -3690,15 +3690,15 @@
     "semantic_hash": ""
   },
   "tests/heterodyne/test_covariance_dof_parity.py": {
-    "mtime": 1789475613.5103836,
-    "seen": 1789478204.9374797,
-    "ast_hash": "9d4024b0a22707c62b2633dc646445ac",
+    "mtime": 1789487167.7146869,
+    "seen": 1789489108.6689193,
+    "ast_hash": "a462cb356b0a442bfe614a0af5ccf271",
     "semantic_hash": ""
   },
   "tests/heterodyne/test_covariance_placeholder_contract.py": {
-    "mtime": 1789476811.4363804,
-    "seen": 1789478204.937485,
-    "ast_hash": "9853ae59370966b831042391affa438b",
+    "mtime": 1789487167.7146869,
+    "seen": 1789489108.668921,
+    "ast_hash": "9985059fa389ec17b2192b97dd0cac49",
     "semantic_hash": ""
   },
   "tests/optimization/test_covariance_helpers.py": {

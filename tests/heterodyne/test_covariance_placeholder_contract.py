@@ -56,6 +56,11 @@ def test_build_result_from_nlsq_singular_marker_is_nan_not_inf():
     )
     assert np.all(np.isnan(res0.uncertainties))
     assert res0.metadata["covariance_is_placeholder"] is True
+    # An ABSENT solver covariance is the same case, never ``None``.
+    res_none = build_result_from_nlsq(nlsq_result=(popt, None), parameter_names=["a", "b"], n_data=10)
+    assert res_none.covariance is not None and np.all(np.isnan(res_none.covariance))
+    assert np.all(np.isnan(res_none.uncertainties))
+    assert res_none.metadata["covariance_is_placeholder"] is True
     # A real covariance is passed through untouched.
     ok = build_result_from_nlsq(
         nlsq_result=(popt, np.diag([1.0, 4.0])), parameter_names=["a", "b"], n_data=10

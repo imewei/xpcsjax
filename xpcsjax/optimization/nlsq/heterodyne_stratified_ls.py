@@ -1224,9 +1224,19 @@ def fit_heterodyne_stratified_least_squares(
     # baseline solve. The L3-only row-append branch moves popt, so it invalidates
     # the adapter covariance and forces the host-jacfwd (data-only) recompute at
     # the new popt. The L2 branch uses the identity placeholder instead.
+    # A placeholder adapter covariance (singular / absent nlsq pcov, all-NaN +
+    # ``covariance_is_placeholder``) is treated like an absent one: fall
+    # through to the strict host recompute at popt rather than passing NaN on.
+    _adapter_cov_is_placeholder = bool(
+        (fit.metadata or {}).get("covariance_is_placeholder", False)
+    )
     _pcov_from_adapter = (
         np.asarray(fit.covariance, dtype=np.float64)
-        if (fit.covariance is not None and not _invalidate_adapter_cov)
+        if (
+            fit.covariance is not None
+            and not _invalidate_adapter_cov
+            and not _adapter_cov_is_placeholder
+        )
         else None
     )
 
@@ -1264,9 +1274,6 @@ def fit_heterodyne_stratified_least_squares(
     # large-N fits; the parameters are unaffected.
     if _pcov_from_adapter is not None:
         pcov: np.ndarray = _pcov_from_adapter
-        # The adapter already applied finalize_covariance (build_result_from_nlsq):
-        # a singular nlsq solve arrives here as all-NaN with the flag set.
-        _cov_placeholder = bool((fit.metadata or {}).get("covariance_is_placeholder", False))
     else:
         n_params = int(popt.size)
         n_data = int(meta["n_data_points"])

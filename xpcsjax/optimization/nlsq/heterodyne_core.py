@@ -632,6 +632,11 @@ def _aggregate_individual_results(
         if r.covariance is None:
             continue
         cov_arr = np.asarray(r.covariance, dtype=np.float64)
+        if not np.all(np.isfinite(cov_arr)):
+            # Placeholder (singular / absent) per-angle covariance: skip it,
+            # exactly as an absent one was skipped before finalize_covariance
+            # started reporting those as all-NaN instead of None.
+            continue
         if cov_arr.shape == (n_physics, n_physics):
             physics_cov_blocks.append(cov_arr)
         elif cov_arr.shape[0] >= n_physics:

@@ -340,10 +340,10 @@ def build_result_from_nlsq(
     # singular marker, a pseudo-inverse's exact-zero null-space variance, or a
     # non-finite / non-positive diagonal are all-NaN + ``covariance_is_placeholder``
     # in ``metadata``, never ``inf`` / ``0.0`` shipped as a measured sigma.
-    uncertainties: np.ndarray | None = None
-    if pcov is not None:
-        pcov, uncertainties, _cov_placeholder = finalize_covariance(pcov, n_params)
-        merged_meta["covariance_is_placeholder"] = bool(_cov_placeholder)
+    # An ABSENT solver covariance is the same case: all-NaN + flag, never
+    # ``None`` (which downstream code could mistake for "not applicable").
+    pcov, uncertainties, _cov_placeholder = finalize_covariance(pcov, n_params)
+    merged_meta["covariance_is_placeholder"] = bool(_cov_placeholder)
 
     # Cost and reduced chi-squared from residuals (if available)
     final_cost: float | None = None
