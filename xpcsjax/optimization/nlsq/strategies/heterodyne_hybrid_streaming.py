@@ -920,7 +920,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         covariance_is_placeholder = False
         try:
             popt_jax = jnp.asarray(popt)
-            H = np.asarray(jax.hessian(_loss_jax)(popt_jax))
+            H = np.asarray(jax.jit(jax.hessian(_loss_jax))(popt_jax))
             if not np.all(np.isfinite(H)):
                 raise ValueError("Hessian contains non-finite entries")
             try:

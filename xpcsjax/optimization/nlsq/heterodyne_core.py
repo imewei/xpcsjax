@@ -32,7 +32,7 @@ from xpcsjax.optimization.nlsq.heterodyne_constant_mode import _decompose_chi2_p
 from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
 from xpcsjax.optimization.nlsq.results import OptimizationResult
 from xpcsjax.optimization.nlsq.validation import classify_quality_flag
-from xpcsjax.utils.logging import get_logger, log_exception
+from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
     # The runtime object the fitter receives is the stateful dataclass in
@@ -1331,46 +1331,25 @@ def _fit_joint_averaged_multi_phi(
     # ------------------------------------------------------------------
     hierarchical_stage1_chi2: float | None = None
     if config.enable_hierarchical:
-        # The Stage-1 warm-start delegates to the (inherently per-angle)
-        # constant-mode solver. Name the FINAL averaged layout (2 scaling DOF)
-        # up front so the per-angle quantile arrays it logs are not misread as
-        # ``individual`` mode — the final fit re-optimizes averaged scaling and
-        # Stage-1's per-angle scaling is discarded.
-        logger.info(
-            "L2 Stage-1 warm-start (final mode: averaged): per-angle quantile "
-            "scaling frozen for WARM-START ONLY; final fit optimizes 2 averaged "
-            "scaling + %d physics = %d params",
-            n_physics_varying,
-            n_physics_varying + 2,
-        )
         # Lazy import keeps the module out of heterodyne_core's namespace
         # except when explicitly used (consistent with the dispatch table).
+        # Shared with `_build_joint_problem` — see optimization review item
+        # C10 and the helper's own docstring.
         from xpcsjax.optimization.nlsq.heterodyne_constant_mode import (
-            _fit_joint_constant_multi_phi,
+            l2_stage1_physics_warm_start,
         )
 
-        stage1_result = _fit_joint_constant_multi_phi(
+        physics_initial, hierarchical_stage1_chi2 = l2_stage1_physics_warm_start(
             model=model,
             c2_data=c2_data,
             phi_angles=phi_angles,
             config=config,
             weights=weights,
-            warm_start_context="L2 Stage-1 -> final mode averaged",
-        )
-        # `stage1_result.parameters` is the FULL 14-physics vector (expanded by
-        # `expand_reduced_result`); reduce back to the varying subset before
-        # clipping — see identical fix/comment in `_build_joint_problem`.
-        stage1_physics_full = np.asarray(stage1_result.parameters, dtype=np.float64)
-        stage1_physics = param_manager.extract_varying(stage1_physics_full)
-        hierarchical_stage1_chi2 = float(stage1_result.chi_squared)
-        # Override the initial physics vector for stage 2 (joint refine).
-        # Clip to bounds defensively — stage 1 should already respect them,
-        # but a constant-mode bound contraction is possible if config differs.
-        physics_initial = np.clip(stage1_physics, physics_lower, physics_upper)
-        logger.info(
-            "L2 hierarchical (averaged mode) — Stage 1 done: chi2=%.6f, "
-            "warm-starting stage 2 joint refine",
-            hierarchical_stage1_chi2,
+            physics_lower=physics_lower,
+            physics_upper=physics_upper,
+            resolved_mode="averaged",
+            n_physics_varying=n_physics_varying,
+            n_phi=n_phi,
         )
 
     t = model.t
@@ -3201,50 +3180,23 @@ def _build_joint_problem(
     # ------------------------------------------------------------------
     hierarchical_stage1_chi2: float | None = None
     if config.enable_hierarchical:
-        from xpcsjax.optimization.nlsq.per_angle_mode import n_optimized as _n_opt
-
-        # The Stage-1 warm-start delegates to the constant-mode solver, which is
-        # inherently per-angle (it freezes per-angle quantile scaling to converge
-        # physics cheaply). Name the resolved FINAL mode + its scaling DOF up
-        # front so the per-angle arrays the constant solver logs are not misread
-        # as the fit's scaling mode — the final fit re-optimizes under
-        # ``resolved_mode`` and Stage-1's per-angle scaling is discarded.
-        _final_scaling_dof = _n_opt(resolved_mode, n_phi)
-        logger.info(
-            "L2 Stage-1 warm-start (final mode: %s): per-angle quantile scaling "
-            "frozen for WARM-START ONLY; final fit optimizes %d %s scaling + "
-            "%d physics = %d params",
-            resolved_mode,
-            _final_scaling_dof,
-            resolved_mode,
-            n_physics_varying,
-            _final_scaling_dof + n_physics_varying,
-        )
+        # Shared with `_fit_joint_averaged_multi_phi` — see optimization
+        # review item C10 and the helper's own docstring.
         from xpcsjax.optimization.nlsq.heterodyne_constant_mode import (
-            _fit_joint_constant_multi_phi,
+            l2_stage1_physics_warm_start,
         )
 
-        stage1_result = _fit_joint_constant_multi_phi(
+        physics_initial, hierarchical_stage1_chi2 = l2_stage1_physics_warm_start(
             model=model,
             c2_data=c2_data,
             phi_angles=phi_angles,
             config=config,
             weights=weights,
-            warm_start_context=f"L2 Stage-1 -> final mode {resolved_mode}",
-        )
-        # `stage1_result.parameters` is the FULL 14-physics vector (expanded by
-        # `expand_reduced_result`); reduce back to the varying subset before
-        # clipping against `physics_lower`/`physics_upper` (which are
-        # varying-only) — otherwise np.clip broadcasts (14,) against (n_varying,)
-        # and raises whenever any physics parameter is fixed.
-        stage1_physics_full = np.asarray(stage1_result.parameters, dtype=np.float64)
-        stage1_physics = param_manager.extract_varying(stage1_physics_full)
-        hierarchical_stage1_chi2 = float(stage1_result.chi_squared)
-        physics_initial = np.clip(stage1_physics, physics_lower, physics_upper)
-        logger.info(
-            "L2 hierarchical (scaling-first) — Stage 1 done: chi2=%.6f, "
-            "warm-starting stage 2 joint refine",
-            hierarchical_stage1_chi2,
+            physics_lower=physics_lower,
+            physics_upper=physics_upper,
+            resolved_mode=resolved_mode,
+            n_physics_varying=n_physics_varying,
+            n_phi=n_phi,
         )
 
     # Per-angle scaling seed. The legacy individual x0 broadcast the SCALAR
@@ -4128,6 +4080,40 @@ def _try_global_optimization(
     return None
 
 
+def _off_diag_cost(
+    varying_params: np.ndarray,
+    param_manager: Any,
+    t: jnp.ndarray,
+    q: float,
+    dt: float,
+    phi_angle: float,
+    c2_jax: jnp.ndarray,
+    weights_jax: jnp.ndarray | None,
+    contrast_val: float,
+    offset_val: float,
+) -> float:
+    """0.5 * off-diagonal SSR for a varying-parameter vector.
+
+    Shared by Phase 3 of ``_fit_cmaes`` to compare the NLSQ warm-start against
+    the CMA-ES result on the same footing. Exceptions propagate — a broken
+    residual computation must fail loudly, not silently hand the comparison
+    to the other side (see optimization review #2).
+    """
+    full_params = param_manager.expand_varying_to_full(np.asarray(varying_params, dtype=np.float64))
+    off_diag_res = compute_residuals(
+        jnp.asarray(full_params, dtype=jnp.float64),
+        t,
+        q,
+        dt,
+        phi_angle,
+        c2_jax,
+        weights_jax,
+        contrast_val,
+        offset_val,
+    )
+    return 0.5 * float(jnp.sum(off_diag_res**2))
+
+
 def _fit_cmaes(
     model: HeterodyneModel,
     c2_data: np.ndarray | jnp.ndarray,
@@ -4352,38 +4338,18 @@ def _fit_cmaes(
     # SAME way as cmaes_cost (raw 0.5*off-diagonal-SSR on NLSQ's own fitted
     # parameters) so Phase 3 compares like with like.
     if nlsq_result is not None and nlsq_result.success and nlsq_result.parameters is not None:
-        try:
-            _nlsq_full = param_manager.expand_varying_to_full(
-                np.asarray(nlsq_result.parameters, dtype=np.float64)
-            )
-            _nlsq_off_diag_res = compute_residuals(
-                jnp.asarray(_nlsq_full, dtype=jnp.float64),
-                t,
-                q,
-                dt,
-                phi_angle,
-                c2_jax,
-                weights_jax,
-                contrast_val,
-                offset_val,
-            )
-            nlsq_cost = 0.5 * float(jnp.sum(_nlsq_off_diag_res**2))
-        except Exception as exc:
-            log_exception(
-                logger,
-                exc,
-                context={
-                    "operation": "phase3_nlsq_cost_recompute",
-                    "note": (
-                        "treating as inf so CMA-ES wins by default when it "
-                        "succeeded; inspect the off-diagonal residual block "
-                        "if this recurs"
-                    ),
-                    "fallback_nlsq_cost": "inf",
-                },
-                level=logging.WARNING,
-            )
-            nlsq_cost = float("inf")
+        nlsq_cost = _off_diag_cost(
+            nlsq_result.parameters,
+            param_manager,
+            t,
+            q,
+            dt,
+            phi_angle,
+            c2_jax,
+            weights_jax,
+            contrast_val,
+            offset_val,
+        )
     else:
         nlsq_cost = float("inf")
     # Recompute CMA-ES cost using off-diagonal residuals so the comparison
@@ -4392,37 +4358,18 @@ def _fit_cmaes(
     # (including diagonal), which inflates the cost relative to NLSQ and
     # would always make CMA-ES appear worse, defeating Phase 3's purpose.
     if cmaes_result.success and cmaes_result.parameters is not None:
-        try:
-            _cmaes_full = param_manager.expand_varying_to_full(
-                np.asarray(cmaes_result.parameters, dtype=np.float64)
-            )
-            _off_diag_res = compute_residuals(
-                jnp.asarray(_cmaes_full, dtype=jnp.float64),
-                t,
-                q,
-                dt,
-                phi_angle,
-                c2_jax,
-                weights_jax,
-                contrast_val,
-                offset_val,
-            )
-            cmaes_cost = 0.5 * float(jnp.sum(_off_diag_res**2))
-        except Exception as exc:
-            log_exception(
-                logger,
-                exc,
-                context={
-                    "operation": "phase3_cmaes_cost_recompute",
-                    "note": (
-                        "treating as inf so the NLSQ result wins by default; "
-                        "inspect the off-diagonal residual block if this recurs"
-                    ),
-                    "fallback_cmaes_cost": "inf",
-                },
-                level=logging.WARNING,
-            )
-            cmaes_cost = float("inf")
+        cmaes_cost = _off_diag_cost(
+            cmaes_result.parameters,
+            param_manager,
+            t,
+            q,
+            dt,
+            phi_angle,
+            c2_jax,
+            weights_jax,
+            contrast_val,
+            offset_val,
+        )
     else:
         cmaes_cost = float("inf")
 

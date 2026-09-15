@@ -37,7 +37,6 @@ class NLSQAdapterBase(ABC):
         initial_params: np.ndarray,
         bounds: tuple[np.ndarray, np.ndarray],
         config: NLSQConfig,
-        jacobian_fn: Callable[[np.ndarray], np.ndarray] | None = None,
     ) -> NLSQResult:
         """Run the optimization and return a populated result.
 
@@ -52,9 +51,6 @@ class NLSQAdapterBase(ABC):
             ``(lower_bounds, upper_bounds)`` arrays defining the box constraints.
         config
             Optimization configuration controlling the solver and tolerances.
-        jacobian_fn
-            Optional callable that computes the analytic Jacobian; ``None``
-            falls back to a finite-difference approximation.
 
         Returns
         -------

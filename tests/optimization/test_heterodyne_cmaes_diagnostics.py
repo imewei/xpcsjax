@@ -21,9 +21,11 @@ Two parity items closed alongside this file:
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from xpcsjax.optimization.nlsq import heterodyne_core
+from xpcsjax.optimization.nlsq.cmaes_wrapper import CMAESResult
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 from xpcsjax.optimization.nlsq.heterodyne_core import _fit_cmaes
 
@@ -168,3 +170,37 @@ def test_global_escape_surfaces_in_per_angle_metadata() -> None:
         "per-angle global_escape tag must propagate into "
         f"nlsq_diagnostics['per_angle_metadata']; got {per_angle[0].get('global_escape')!r}"
     )
+
+
+def test_phase3_off_diag_cost_exception_propagates() -> None:
+    """A broken off-diagonal cost recompute must raise, not silently hand
+    Phase 3's win to the other side (optimization review item A6).
+
+    Before the ``_off_diag_cost`` extraction, a blind ``except Exception``
+    around each recompute downgraded any bug in ``expand_varying_to_full`` /
+    ``compute_residuals`` into "treat this side's cost as inf" — so a broken
+    NLSQ or CMA-ES branch would just quietly lose instead of surfacing the
+    bug. Force CMA-ES to actually run (auto-skip off, ``fit_with_cmaes``
+    stubbed so no evosax dependency is needed) and assert the exception from
+    ``_off_diag_cost`` propagates out of ``_fit_cmaes``.
+    """
+    model, c2, phi = make_synthetic_two_component(n_phi=1, n_t=10)
+    config = NLSQConfig(enable_cmaes=True, cmaes_warmstart_auto_skip=False)
+
+    def _fake_cmaes(*, p0, **_kwargs):
+        return CMAESResult(
+            parameters=np.asarray(p0, dtype=np.float64),
+            covariance=None,
+            chi_squared=1.0,
+            success=True,
+        )
+
+    def _explode(*_args, **_kwargs):
+        raise RuntimeError("boom: off-diagonal residual computation is broken")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(heterodyne_core, "fit_with_cmaes", _fake_cmaes)
+        mp.setattr(heterodyne_core, "HAS_CMAES", True)
+        mp.setattr(heterodyne_core, "_off_diag_cost", _explode)
+        with pytest.raises(RuntimeError, match="boom"):
+            _fit_cmaes(model, c2[0], float(phi[0]), config, weights=None, angle_idx=0)
