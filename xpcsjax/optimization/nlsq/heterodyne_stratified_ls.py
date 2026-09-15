@@ -47,6 +47,9 @@ _SHUFFLE_SEED = 42
 _COV_JACFWD_COL_BLOCK = 4
 
 
+# TODO(review item #16): once fix-opt-a copies this into covariance.py, switch
+# stratified_ls.py's post-solve Jacobian to `from ...covariance import
+# _chunked_jacfwd_dense` and delete this local copy.
 def _chunked_jacfwd_dense(
     fn: Callable[[np.ndarray], jnp.ndarray],
     x: np.ndarray,
@@ -1227,9 +1230,7 @@ def fit_heterodyne_stratified_least_squares(
     # A placeholder adapter covariance (singular / absent nlsq pcov, all-NaN +
     # ``covariance_is_placeholder``) is treated like an absent one: fall
     # through to the strict host recompute at popt rather than passing NaN on.
-    _adapter_cov_is_placeholder = bool(
-        (fit.metadata or {}).get("covariance_is_placeholder", False)
-    )
+    _adapter_cov_is_placeholder = bool((fit.metadata or {}).get("covariance_is_placeholder", False))
     _pcov_from_adapter = (
         np.asarray(fit.covariance, dtype=np.float64)
         if (
