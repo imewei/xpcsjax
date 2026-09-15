@@ -34,63 +34,18 @@ Enhanced features:
 - Integration with ``DataQualityController`` for comprehensive quality control.
 """
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Literal
 
 import numpy as np
 
-# JAX integration
-try:
-    import jax.numpy as jnp
-
-    HAS_JAX = True
-except ImportError:
-    HAS_JAX = False
-    jnp = np  # type: ignore
-
-# V2 integration
-try:
-    from xpcsjax.core.physics import PhysicsConstants
-
-    HAS_PHYSICS = True
-except ImportError:
-    HAS_PHYSICS = False
-    PhysicsConstants = None  # type: ignore
-
-import logging
-
-try:
-    from xpcsjax.utils.logging import get_logger, log_exception
-
-    HAS_V2_LOGGING = True
-except ImportError:
-    HAS_V2_LOGGING = False
-
-    # Fallback shim. The real ``xpcsjax.utils.logging.get_logger`` has a
-    # broader contract (optional name, optional context, may return a
-    # LoggerAdapter); this fallback only needs to feed module-level ``logger``
-    # and never sees the context kwarg. ``# type: ignore[misc]`` acknowledges
-    # the signature delta with the try-branch import.
-    def get_logger(name: str) -> logging.Logger:  # type: ignore[misc]
-        return logging.getLogger(name)
-
-    def log_exception(  # type: ignore[misc]
-        logger: logging.Logger,
-        exc: BaseException,
-        context: dict[str, Any] | None = None,
-        level: int = logging.ERROR,
-        include_traceback: bool = True,
-    ) -> None:
-        """Fallback: emit the exception via the stdlib logger.
-
-        Mirrors the real ``xpcsjax.utils.logging.log_exception`` contract
-        closely enough for the ERROR-level data-integrity path; observational
-        only, never re-raises.
-        """
-        suffix = f" (context: {context})" if context else ""
-        logger.log(level, f"{type(exc).__name__}: {exc}{suffix}", exc_info=include_traceback)
-
+# xpcsjax.core.physics and xpcsjax.utils.logging are in-tree modules
+# (2026-09-15 review, finding B3) — neither import can fail in any
+# supported install.
+from xpcsjax.core.physics import PhysicsConstants
+from xpcsjax.utils.logging import get_logger, log_exception
 
 logger = get_logger(__name__)
 
@@ -270,7 +225,7 @@ def _validate_data_structure(data: dict[str, Any], report: DataQualityReport) ->
 def _validate_data_integrity(data: dict[str, Any], report: DataQualityReport) -> None:
     """Validate data integrity (finite values, reasonable ranges)."""
     for key, value in data.items():
-        if isinstance(value, (np.ndarray, list)) or (HAS_JAX and hasattr(value, "shape")):
+        if isinstance(value, (np.ndarray, list)) or hasattr(value, "shape"):
             # Convert to numpy for validation
             arr = np.asarray(value)
 
@@ -413,17 +368,6 @@ def _validate_physics_parameters(
     report: DataQualityReport,
 ) -> None:
     """Validate physics parameters against known constraints."""
-    if not HAS_PHYSICS:
-        report.add_issue(
-            ValidationIssue(
-                severity="info",
-                category="physics",
-                message="Physics validation unavailable - v2 physics module not found",
-                recommendation="Install v2 physics module for enhanced validation",
-            ),
-        )
-        return
-
     try:
         q_values = np.asarray(data.get("wavevector_q_list", []))
 
@@ -688,7 +632,7 @@ def _compute_data_statistics(data: dict[str, Any], report: DataQualityReport) ->
         stats = {}
 
         for key, value in data.items():
-            if isinstance(value, (np.ndarray, list)) or (HAS_JAX and hasattr(value, "shape")):
+            if isinstance(value, (np.ndarray, list)) or hasattr(value, "shape"):
                 arr = np.asarray(value)
 
                 stats[key] = {

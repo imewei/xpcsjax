@@ -47,137 +47,85 @@ Examples
 
 from typing import Any
 
+# Every submodule below ships in-package (no optional extras) and always
+# imports successfully (2026-09-15 review, finding B3) — the try/except
+# ImportError "maybe-present" shims and their HAS_* flags this block used to
+# carry were dead code; a broken import here is a real bug, not a
+# degraded-but-working install, so it should raise loudly instead of
+# silently flipping a feature off (see tests/data/test_data_package_features.py,
+# which pins this contract after PR #68 let exactly that happen unnoticed).
+from xpcsjax.data.angle_filtering import (  # noqa: F401
+    angle_in_range,
+    apply_angle_filtering,
+    apply_angle_filtering_for_optimization,
+    apply_angle_filtering_for_plot,
+    normalize_angle_to_symmetric_range,
+)
+
 # Typed dataset container (numpy-only; safe to import unconditionally).
 from xpcsjax.data.dataset import XpcsDataset
+from xpcsjax.data.optimization import (  # noqa: F401
+    DatasetOptimizer,
+    create_dataset_optimizer,
+    optimize_for_method,
+)
+from xpcsjax.data.phi_filtering import (  # noqa: F401
+    PhiAngleFilter,
+    create_anisotropic_ranges,
+    create_isotropic_ranges,
+    filter_phi_angles,
+    filter_phi_angles_jax,
+)
+from xpcsjax.data.preprocessing import (  # noqa: F401
+    NoiseReductionMethod,
+    NormalizationMethod,
+    PreprocessingConfigurationError,
+    PreprocessingError,
+    PreprocessingPipeline,
+    PreprocessingProvenance,
+    PreprocessingResult,
+    PreprocessingStage,
+)
+from xpcsjax.data.types import (  # noqa: F401
+    DatasetInfo,
+    ProcessingStrategy,
+)
+from xpcsjax.data.validation import (  # noqa: F401
+    DataQualityReport,
+    validate_xpcs_data,
+)
+from xpcsjax.data.validators import (  # noqa: F401
+    VALIDATION_RULES,
+    validate_by_rules,
+    validate_enum_value,
+    validate_file_path,
+    validate_frame_range,
+    validate_numeric_range,
+    validate_positive_value,
+)
+from xpcsjax.data.xpcs_loader import (
+    XPCSConfigurationError,
+    XPCSDataFormatError,
+    XPCSDataLoader,
+    XPCSDependencyError,
+    load_xpcs_config,
+    load_xpcs_data,
+)
 
-# Handle imports with graceful fallback for missing dependencies
-try:
-    from xpcsjax.data.xpcs_loader import (
-        XPCSConfigurationError,
-        XPCSDataFormatError,
-        XPCSDataLoader,
-        XPCSDependencyError,
-        load_xpcs_config,
-        load_xpcs_data,
-    )
-
-    HAS_XPCS_LOADER = True
-    _loader_error = None
-except ImportError as e:
-    HAS_XPCS_LOADER = False
-    _loader_error = str(e)
-
-    # Create placeholder classes for graceful degradation. mypy correctly
-    # flags ``no-redef`` because these names also bind in the ``try`` branch
-    # above — the conditional pattern is idiomatic for optional dependencies
-    # and the placeholder signatures intentionally accept ``*args, **kwargs``
-    # so all real call sites raise the same ImportError. The ``no-redef`` /
-    # ``misc`` (signature mismatch) ignores acknowledge that contract.
-    class XPCSDataLoader:  # type: ignore[no-redef]
-        """Placeholder loader that raises when the real loader is unavailable."""
-
-        def __init__(self, *args, **kwargs):  # noqa: ARG002
-            """Raise :class:`ImportError` describing the missing dependency."""
-            raise ImportError(f"XPCS loader not available: {_loader_error}")
-
-    class XPCSDataFormatError(Exception):  # type: ignore[no-redef]
-        """Placeholder for the data-format error when the loader is absent."""
-
-    class XPCSDependencyError(Exception):  # type: ignore[no-redef]
-        """Placeholder for the dependency error when the loader is absent."""
-
-    class XPCSConfigurationError(Exception):  # type: ignore[no-redef]
-        """Placeholder for the configuration error when the loader is absent."""
-
-    def load_xpcs_data(*args, **kwargs):  # type: ignore[no-redef]  # noqa: ARG001
-        """Raise :class:`ImportError` describing the missing dependency."""
-        raise ImportError(f"XPCS loader not available: {_loader_error}")
-
-    def load_xpcs_config(*args, **kwargs):  # type: ignore[no-redef,misc]  # noqa: ARG001
-        """Raise :class:`ImportError` describing the missing dependency."""
-        raise ImportError(f"XPCS loader not available: {_loader_error}")
-
-
-# Import additional components when available (re-exported for public API)
-try:
-    from xpcsjax.data.validation import (  # noqa: F401
-        DataQualityReport,
-        validate_xpcs_data,
-    )
-
-    HAS_VALIDATION = True
-except ImportError:
-    HAS_VALIDATION = False
-
-try:
-    from xpcsjax.data.phi_filtering import (  # noqa: F401
-        PhiAngleFilter,
-        create_anisotropic_ranges,
-        create_isotropic_ranges,
-        filter_phi_angles,
-        filter_phi_angles_jax,
-    )
-
-    HAS_PHI_FILTERING = True
-except ImportError:
-    HAS_PHI_FILTERING = False
-
-try:
-    from xpcsjax.data.angle_filtering import (  # noqa: F401
-        angle_in_range,
-        apply_angle_filtering,
-        apply_angle_filtering_for_optimization,
-        apply_angle_filtering_for_plot,
-        normalize_angle_to_symmetric_range,
-    )
-
-    HAS_ANGLE_FILTERING = True
-except ImportError:
-    HAS_ANGLE_FILTERING = False
-
-try:
-    from xpcsjax.data.preprocessing import (  # noqa: F401
-        NoiseReductionMethod,
-        NormalizationMethod,
-        PreprocessingConfigurationError,
-        PreprocessingError,
-        PreprocessingPipeline,
-        PreprocessingProvenance,
-        PreprocessingResult,
-        PreprocessingStage,
-    )
-
-    HAS_PREPROCESSING = True
-except ImportError:
-    HAS_PREPROCESSING = False
-
-try:
-    from xpcsjax.data.optimization import (  # noqa: F401
-        DatasetOptimizer,
-        create_dataset_optimizer,
-        optimize_for_method,
-    )
-    from xpcsjax.data.types import (  # noqa: F401
-        DatasetInfo,
-        ProcessingStrategy,
-    )
-
-    HAS_OPTIMIZATION = True
-except ImportError:
-    HAS_OPTIMIZATION = False
-
-# Version and feature information
+# Version and feature information. All True: every feature above is a
+# hard/in-tree dependency, not an optional extra (kept for API stability —
+# get_data_module_info() is documented public surface).
 __version__ = "2.23.1"
 __features__ = {
-    "xpcs_loader": HAS_XPCS_LOADER,
-    "validation": HAS_VALIDATION,
-    "phi_filtering": HAS_PHI_FILTERING,
-    "angle_filtering": HAS_ANGLE_FILTERING,
-    "preprocessing": HAS_PREPROCESSING,
-    "optimization": HAS_OPTIMIZATION,
-    "validators": True,  # Validators module
-    "yaml_config": True,  # Always available through fallbacks
-    "json_support": True,  # Always available
+    "xpcs_loader": True,
+    "validation": True,
+    "phi_filtering": True,
+    "angle_filtering": True,
+    "preprocessing": True,
+    "optimization": True,
+    "validators": True,
+    "yaml_config": True,
+    "json_support": True,
 }
 
 
@@ -188,26 +136,24 @@ def get_data_module_info() -> dict:
     -------
     dict
         Mapping with feature-availability flags, the data-layer version, and
-        the supported XPCS / configuration formats. Includes a
-        ``"loader_error"`` entry only when the XPCS loader failed to import.
+        the supported XPCS / configuration formats.
     """
     # Annotated ``dict[str, Any]`` because the value types intentionally mix
-    # ``str`` (version), ``list[str]`` (features, formats), and optionally
-    # ``str | None`` (loader_error). Narrower hints rot when the dict grows.
+    # ``str`` (version) and ``list[str]`` (features, formats). Narrower hints
+    # rot when the dict grows.
     info: dict[str, Any] = {
         "version": __version__,
         "features": __features__.copy(),
-        "xpcs_formats_supported": ["APS_old", "APS-U"] if HAS_XPCS_LOADER else [],
+        "xpcs_formats_supported": ["APS_old", "APS-U"],
         "config_formats_supported": ["YAML", "JSON"],
     }
-
-    if not HAS_XPCS_LOADER:
-        info["loader_error"] = _loader_error
 
     return info
 
 
-# Main exports
+# Main exports. Every name below is unconditionally imported above (all are
+# hard/in-tree dependencies) - a single literal list, not built from HAS_*
+# flags gated .extend() calls, per this module's __all__ convention.
 __all__ = [
     # Core loader
     "XPCSDataLoader",
@@ -220,81 +166,41 @@ __all__ = [
     "XPCSConfigurationError",
     # Utility functions
     "get_data_module_info",
+    # Validation
+    "validate_xpcs_data",
+    "DataQualityReport",
+    # Phi filtering
+    "PhiAngleFilter",
+    "filter_phi_angles",
+    "create_anisotropic_ranges",
+    "create_isotropic_ranges",
+    # Angle filtering
+    "normalize_angle_to_symmetric_range",
+    "angle_in_range",
+    "apply_angle_filtering",
+    "apply_angle_filtering_for_optimization",
+    "apply_angle_filtering_for_plot",
+    # Preprocessing
+    "PreprocessingPipeline",
+    "PreprocessingResult",
+    "PreprocessingProvenance",
+    "PreprocessingStage",
+    "NormalizationMethod",
+    "NoiseReductionMethod",
+    "PreprocessingError",
+    "PreprocessingConfigurationError",
+    # Optimization
+    "DatasetOptimizer",
+    "optimize_for_method",
+    "DatasetInfo",
+    "ProcessingStrategy",
+    "create_dataset_optimizer",
+    # Validators
+    "VALIDATION_RULES",
+    "validate_by_rules",
+    "validate_enum_value",
+    "validate_file_path",
+    "validate_frame_range",
+    "validate_numeric_range",
+    "validate_positive_value",
 ]
-
-# Conditional exports
-if HAS_VALIDATION:
-    __all__.extend(["validate_xpcs_data", "DataQualityReport"])
-
-if HAS_PHI_FILTERING:
-    __all__.extend(
-        [
-            "PhiAngleFilter",
-            "filter_phi_angles",
-            "create_anisotropic_ranges",
-            "create_isotropic_ranges",
-        ],
-    )
-
-if HAS_ANGLE_FILTERING:
-    __all__.extend(
-        [
-            "normalize_angle_to_symmetric_range",
-            "angle_in_range",
-            "apply_angle_filtering",
-            "apply_angle_filtering_for_optimization",
-            "apply_angle_filtering_for_plot",
-        ],
-    )
-
-if HAS_PREPROCESSING:
-    __all__.extend(
-        [
-            "PreprocessingPipeline",
-            "PreprocessingResult",
-            "PreprocessingProvenance",
-            "PreprocessingStage",
-            "NormalizationMethod",
-            "NoiseReductionMethod",
-            "PreprocessingError",
-            "PreprocessingConfigurationError",
-        ],
-    )
-
-if HAS_OPTIMIZATION:
-    __all__.extend(
-        [
-            "DatasetOptimizer",
-            "optimize_for_method",
-            "DatasetInfo",
-            "ProcessingStrategy",
-            "create_dataset_optimizer",
-        ],
-    )
-
-# Validators
-try:
-    from xpcsjax.data.validators import (  # noqa: F401
-        VALIDATION_RULES,
-        validate_by_rules,
-        validate_enum_value,
-        validate_file_path,
-        validate_frame_range,
-        validate_numeric_range,
-        validate_positive_value,
-    )
-
-    HAS_VALIDATORS = True
-    __all__.extend(
-        [
-            "VALIDATION_RULES",
-            "validate_by_rules",
-            "validate_enum_value",
-            "validate_file_path",
-            "validate_frame_range",
-            "validate_numeric_range",
-            "validate_positive_value",
-        ],
-    )
-except ImportError:
-    HAS_VALIDATORS = False
