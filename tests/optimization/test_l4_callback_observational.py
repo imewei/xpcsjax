@@ -38,12 +38,13 @@ def test_heterodyne_curve_fit_callback_is_observational_and_per_iteration():
     assert base.chi_squared == withcb.chi_squared
     # Hard-gate covariance (pcov) bit-identity too: monitor-on vs monitor-off
     # must be identical at rtol=0/atol=0 on popt + pcov + chi2.
-    # ``equal_nan``: a singular solve is the all-NaN placeholder on BOTH
-    # branches (finalize_covariance), which is still bit-identical parity.
-    cov_a = getattr(base, "covariance", None)
-    cov_b = getattr(withcb, "covariance", None)
-    if cov_a is not None and cov_b is not None:
-        assert np.array_equal(np.asarray(cov_a), np.asarray(cov_b), equal_nan=True)
+    # The fixture is seeded off the fraction model's singular point (see _F1 in
+    # tests/optimization/_heterodyne_fixtures.py), so both branches must carry
+    # a REAL covariance — a NaN placeholder on either side is a failure here,
+    # not a parity pass.
+    assert base.nlsq_diagnostics["covariance_is_placeholder"] is False
+    assert withcb.nlsq_diagnostics["covariance_is_placeholder"] is False
+    assert np.array_equal(np.asarray(base.covariance), np.asarray(withcb.covariance))
     assert len(seen) == 0 or len(seen) >= 2  # per-iteration, or fallback-only
 
 

@@ -77,25 +77,22 @@ def test_engine_route_uncertainties_match_multi_phi_dof(mode):
     # ones the two estimators must agree once the dof matches; before the
     # rescale their ratio was pinned at sqrt((1026-p)/(1083-p)) ~ 0.973.
     ident = np.isfinite(unc_e) & np.isfinite(unc_r) & (unc_r > 0) & (unc_r < 0.1 * np.abs(p_r))
-    if ident.any():
-        ratio = unc_e[ident] / unc_r[ident]
-        np.testing.assert_allclose(ratio, 1.0, atol=1e-2)
-    else:
-        # constant mode on this fixture: no physics parameter is identifiable
-        # (all sigma ~ 1e6, basin-dominated). Pin the dof factor itself instead:
-        # undoing the rescale must reproduce the solver's raw (padded-dof) pcov,
-        # i.e. the factor really was applied and equals the recorded counts.
-        assert mode == "constant"
-        factor = (dof["n_rows_solver"] - dof["n_params"]) / (dof["n_valid"] - dof["n_params"])
-        assert factor > 1.0
-        raw = rescale_covariance_dof(
-            np.asarray(eng.covariance),
-            n_rows_solver=dof["n_valid"],
-            n_valid=dof["n_rows_solver"],
-            n_params=dof["n_params"],
-        )
-        fin = np.isfinite(raw)
-        assert fin.any()
-        np.testing.assert_allclose(
-            np.asarray(eng.covariance)[fin] / raw[fin], factor, rtol=1e-12
-        )
+    # The fixture is seeded off the fraction model's singular point (_F1), so
+    # every mode has identifiable parameters (constant: 4, averaged: 9,
+    # individual: 13 on this fixture) and both covariances are real estimates.
+    assert eng.nlsq_diagnostics["covariance_is_placeholder"] is False
+    assert ident.any()
+    ratio = unc_e[ident] / unc_r[ident]
+    np.testing.assert_allclose(ratio, 1.0, atol=1e-2)
+    # Also pin the dof factor itself: undoing the rescale must reproduce the
+    # solver's raw (padded-dof) pcov, i.e. the factor really was applied and
+    # equals the recorded counts.
+    factor = (dof["n_rows_solver"] - dof["n_params"]) / (dof["n_valid"] - dof["n_params"])
+    assert factor > 1.0
+    raw = rescale_covariance_dof(
+        np.asarray(eng.covariance),
+        n_rows_solver=dof["n_valid"],
+        n_valid=dof["n_rows_solver"],
+        n_params=dof["n_params"],
+    )
+    np.testing.assert_allclose(np.asarray(eng.covariance) / raw, factor, rtol=1e-12)

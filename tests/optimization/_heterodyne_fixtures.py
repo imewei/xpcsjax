@@ -17,6 +17,16 @@ import numpy as np
 _DT = 1.0
 _Q = 0.0054
 _NOISE = 5e-4
+# The registry default f1 = 0 puts the fixture on a structurally singular point
+# of the fraction model f0*exp(f1*(t - f2)) + f3: the f2 column of the Jacobian
+# is exactly zero and f0/f3 are exactly collinear. A solver that converges right
+# at x0 then hands finalize_covariance an exact-zero variance and the whole
+# covariance is (correctly) the NaN placeholder — CI run 35005275832
+# (2026-09-15) did exactly that on every macOS job while Linux drifted off x0
+# first and passed by rounding luck. Seed f1 off zero so the fixture's
+# covariance is a real estimate on every platform; with dt = 1 and n_t <= 20
+# the fraction stays inside smooth_clip's (0, 1). Pinned by
+# tests/optimization/test_heterodyne_fixtures_sanity.py.
 _F1 = 0.02
 
 
@@ -44,14 +54,7 @@ def _config_dict(n_phi: int, n_t: int, stratification: dict | None = None) -> di
             "initial_contrast": 0.3,
             "initial_offset": 1.0,
         },
-        # The registry default f1 = 0 puts the fixture on a structurally singular
-        # point of the fraction model f0*exp(f1*(t - f2)) + f3: the f2 column of
-        # the Jacobian is exactly zero and f0/f3 are exactly collinear. A solver
-        # that converges right at x0 (macOS Accelerate does; Linux OpenBLAS drifts
-        # to f1 ~ 1e-3) then hands finalize_covariance an exact-zero variance
-        # and the whole covariance is (correctly) the NaN placeholder. Seed f1
-        # off zero so the fixture's covariance is a real estimate everywhere.
-        "parameters": {"fraction": {"f1": {"value": _F1}}},
+        "parameters": {"fraction": {"f1": {"value": _F1}}},  # see _F1
         "optimization": optimization,
     }
 
