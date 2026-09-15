@@ -23,21 +23,11 @@ def test_preprocessing_symbols_are_exported() -> None:
     assert data.PreprocessingPipeline is not None
 
 
-def test_all_feature_flags_are_true() -> None:
-    # __features__ is now a static all-True dict (kept for API stability);
-    # every submodule it names is a hard/in-tree dependency that always
-    # ships in-package.
-    assert data.__features__ == {
-        "xpcs_loader": True,
-        "validation": True,
-        "phi_filtering": True,
-        "angle_filtering": True,
-        "preprocessing": True,
-        "optimization": True,
-        "validators": True,
-        "yaml_config": True,
-        "json_support": True,
-    }
+def test_feature_flags_are_gone() -> None:
+    # Every data submodule is a hard/in-tree dependency; the old __features__
+    # dict only ever reported True and measured nothing, so it was removed.
+    assert not hasattr(data, "__features__")
+    assert "features" not in data.get_data_module_info()
 
 
 def test_has_flags_removed() -> None:

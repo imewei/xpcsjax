@@ -112,21 +112,9 @@ from xpcsjax.data.xpcs_loader import (
     load_xpcs_data,
 )
 
-# Version and feature information. All True: every feature above is a
-# hard/in-tree dependency, not an optional extra (kept for API stability —
-# get_data_module_info() is documented public surface).
+# Data-layer version, surfaced by get_data_module_info() (documented public
+# surface, see docs/source/development/releasing.rst).
 __version__ = "2.23.1"
-__features__ = {
-    "xpcs_loader": True,
-    "validation": True,
-    "phi_filtering": True,
-    "angle_filtering": True,
-    "preprocessing": True,
-    "optimization": True,
-    "validators": True,
-    "yaml_config": True,
-    "json_support": True,
-}
 
 
 def get_data_module_info() -> dict:
@@ -135,15 +123,14 @@ def get_data_module_info() -> dict:
     Returns
     -------
     dict
-        Mapping with feature-availability flags, the data-layer version, and
-        the supported XPCS / configuration formats.
+        Mapping with the data-layer version and the supported XPCS /
+        configuration formats.
     """
     # Annotated ``dict[str, Any]`` because the value types intentionally mix
-    # ``str`` (version) and ``list[str]`` (features, formats). Narrower hints
-    # rot when the dict grows.
+    # ``str`` (version) and ``list[str]`` (formats). Narrower hints rot when
+    # the dict grows.
     info: dict[str, Any] = {
         "version": __version__,
-        "features": __features__.copy(),
         "xpcs_formats_supported": ["APS_old", "APS-U"],
         "config_formats_supported": ["YAML", "JSON"],
     }
