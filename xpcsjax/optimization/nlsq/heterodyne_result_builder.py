@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from xpcsjax.optimization.nlsq.covariance import finalize_covariance
 from xpcsjax.optimization.nlsq.heterodyne_data_prep import compute_degrees_of_freedom
 from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
 from xpcsjax.utils.logging import get_logger
@@ -334,10 +335,15 @@ def build_result_from_nlsq(
     # --- Build NLSQResult ---
     n_params = len(popt)
 
-    # Uncertainties from covariance diagonal
+    # Uncertainties from the covariance diagonal — ONE rule for every
+    # heterodyne path (see covariance.finalize_covariance): nlsq's all-``inf``
+    # singular marker, a pseudo-inverse's exact-zero null-space variance, or a
+    # non-finite / non-positive diagonal are all-NaN + ``covariance_is_placeholder``
+    # in ``metadata``, never ``inf`` / ``0.0`` shipped as a measured sigma.
     uncertainties: np.ndarray | None = None
     if pcov is not None:
-        uncertainties = np.sqrt(np.diag(np.abs(pcov)))
+        pcov, uncertainties, _cov_placeholder = finalize_covariance(pcov, n_params)
+        merged_meta["covariance_is_placeholder"] = bool(_cov_placeholder)
 
     # Cost and reduced chi-squared from residuals (if available)
     final_cost: float | None = None

@@ -22,6 +22,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from xpcsjax.optimization.nlsq.covariance import gauss_newton_covariance
 from xpcsjax.optimization.nlsq.heterodyne_memory import (
     NLSQStrategy,
     select_nlsq_strategy,
@@ -1245,27 +1246,30 @@ def fit_heterodyne_stratified_least_squares(
     # is caught and falls back to all-NaN (best-effort: a covariance failure must
     # never break the fit).
     #
-    # An accepted L2 / L3 popt is a BOUNDED solve (clipped to lower/upper), so it
-    # need not be an interior stationary point and JᵀJ may be singular there.
-    # On those accepted-layer branches (``_invalidate_adapter_cov``) mirror
-    # strategies/heterodyne_hybrid_streaming.py's L2 rule: no pseudo-inverse
-    # (pinv reports the unidentified null-space directions as EXACTLY 0.0
-    # variance — infinite precision — the confidently-wrong "known" this guard
-    # exists to prevent) and no non-positive diagonal; either is a failure →
-    # all-NaN + ``covariance_is_placeholder``. The plain adapter-returned-no-
-    # covariance fallback (popt is the adapter's own interior solution) keeps
-    # the pinv fallback, mirroring laminar's strategies/stratified_ls.py.
+    # ONE rule on every recompute branch (accepted L2 / L3 AND the plain
+    # adapter-returned-no-covariance fallback), shared with every other
+    # heterodyne path via covariance.py: the estimator is the SAME
+    # ``cost / (n − p) · (JᵀJ)⁻¹`` nlsq's ``curve_fit`` reports, with the
+    # residual/Jacobian robust-scaled on ``config.loss`` exactly as nlsq scales
+    # them (so an accepted-layer popt and an adapter popt are judged by the same
+    # estimator), and NO pseudo-inverse: a singular ``JᵀJ`` (pinv would report
+    # the unidentified null-space directions as EXACTLY 0.0 variance — infinite
+    # precision) or a non-finite / non-positive diagonal is a failure → all-NaN
+    # + ``covariance_is_placeholder``. A bounded accepted-layer popt need not
+    # be an interior stationary point, so that case is expected there.
     # The dense-J recompute is also skipped up-front (same all-NaN outcome) when
     # it would exceed the memory budget — the same ``select_nlsq_strategy``
     # threshold that gated the baseline solve — rather than risk an OOM after a
     # successful solve. This deliberately trades uncertainties for the fit on
-    # large-N L2/L3 fits; the parameters are unaffected.
+    # large-N fits; the parameters are unaffected.
     if _pcov_from_adapter is not None:
         pcov: np.ndarray = _pcov_from_adapter
+        # The adapter already applied finalize_covariance (build_result_from_nlsq):
+        # a singular nlsq solve arrives here as all-NaN with the flag set.
+        _cov_placeholder = bool((fit.metadata or {}).get("covariance_is_placeholder", False))
     else:
         n_params = int(popt.size)
         n_data = int(meta["n_data_points"])
-        s2 = ssr / max(n_data - n_params, 1)
         _dense_j_gb = n_data * n_params * 8 / 1e9
         try:
             from xpcsjax.utils.logging import get_logger as _get_logger
@@ -1277,8 +1281,8 @@ def fit_heterodyne_stratified_least_squares(
                     f"{_mem_decision.threshold_gb:.1f} GB budget; skipping"
                 )
             _cov_log.info(
-                "Computing host Jacobian covariance (s²=%.6e, n_data=%d, n_params=%d).",
-                s2,
+                "Computing host Jacobian covariance (loss=%s, n_data=%d, n_params=%d).",
+                config.loss,
                 n_data,
                 n_params,
             )
@@ -1287,22 +1291,10 @@ def fit_heterodyne_stratified_least_squares(
             # _COV_JACFWD_COL_BLOCK instead of n_params, cutting the dominant
             # post-solve memory spike at >=1M points (see _chunked_jacfwd_dense).
             J = _chunked_jacfwd_dense(residual_fn, popt)
-            JTJ = J.T @ J
+            pcov = gauss_newton_covariance(
+                final_residual, J, n_valid=n_data, n_params=n_params, loss=str(config.loss)
+            )
             del J
-            try:
-                pcov = np.linalg.inv(JTJ) * s2
-            except np.linalg.LinAlgError:
-                if _invalidate_adapter_cov:
-                    raise  # accepted L2/L3 popt: no pinv → all-NaN below
-                _cov_log.warning(
-                    "Singular Jacobian in heterodyne stratified-LS covariance; "
-                    "falling back to pseudo-inverse."
-                )
-                pcov = np.linalg.pinv(JTJ) * s2
-            if _invalidate_adapter_cov and not (
-                np.all(np.isfinite(pcov)) and np.all(np.diag(pcov) > 0)
-            ):
-                raise ValueError("covariance non-finite or non-positive diagonal at popt")
         except (MemoryError, np.linalg.LinAlgError, ValueError, RuntimeError) as _exc:
             from xpcsjax.utils.logging import get_logger as _get_logger
 

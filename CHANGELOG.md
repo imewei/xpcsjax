@@ -29,6 +29,39 @@ the rendered documentation.
 
 ### Fixed
 
+- **Heterodyne `two_component` uncertainties are now computed by one estimator and
+  one failure rule on every path.** Three divergences found by the 2026-09-15
+  covariance audit are closed via the new shared `optimization/nlsq/covariance.py`:
+  (1) the in-memory engine route (`fit_two_component_via_engine`, the default
+  `< 1 M`-point path) let nlsq scale its covariance by the PADDED,
+  diagonal-masked residual length, so its uncertainties were smaller than
+  `fit_nlsq_multi_phi`'s for the same problem by
+  `sqrt((n_valid − p)/(ysize − p))` (2.7 % on the test fixture, ~1/(2 n_t) plus
+  chunk padding on real data); the covariance is now rescaled post-solve onto
+  the `n_phi (n_t−1)(n_t−2)` valid observations (`rescale_covariance_dof`; the
+  solve itself is untouched) and `nlsq_diagnostics["covariance_dof"]` records
+  the counts. (2) A non-real covariance — nlsq's all-`inf` singular marker (was
+  shipped as `inf` sigma with no flag on the in-memory paths), a pseudo-inverse
+  whose unidentified directions read as exactly `0.0` variance (hybrid-streaming
+  plain branch, stratified-LS plain recompute), or a missing streaming `pcov`
+  (was silently replaced by an identity) — is now all-NaN with
+  `nlsq_diagnostics["covariance_is_placeholder"] = True` everywhere
+  (`finalize_covariance`, applied in `build_result_from_nlsq`, the engine route,
+  the streaming plain branch and every stratified-LS branch). (3) The
+  stratified-LS host recompute (accepted L2/L3 and adapter-returned-no-covariance)
+  now robust-scales the residual/Jacobian on `config.loss` exactly as nlsq's
+  `curve_fit` does (`gauss_newton_covariance`, verified against nlsq's own
+  `scale_for_robust_loss_function` for all five losses), so an accepted-layer
+  popt and an adapter popt are judged by the same estimator; the pinv fallback
+  is gone from that branch too. This is a consistency alignment, not a
+  reproduced numeric error: on the synthetic fixtures (unweighted residuals
+  ~1e-3 ≪ `f_scale = 1`) the robust scaling is the identity to ~1e-6 relative,
+  and it only departs from the plain-SSR estimator when scaled residuals reach
+  O(1) (e.g. sigma-weighted fits) — unverified on real data. The
+  hybrid-streaming path minimises the plain SSR by design, so its
+  `pinv(JᵀJ)·SSR/(n−p)` is the matching estimator for its own objective (its
+  null-space / missing-`pcov` cases now fall under rule (2)). Homodyne paths
+  are unchanged by this entry (their own audit findings are tracked separately).
 - **Homodyne angle-stratified fits (auto for ≥100 k multi-angle points) no longer
   fit the c2 diagonal.** `wrapper.py`'s per-point (full-copy) stratified model
   branch evaluated the theory at `t1 == t2` as `offset + contrast` and compared

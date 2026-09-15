@@ -1791,6 +1791,18 @@ def _fit_joint_averaged_multi_phi(
         per_angle_mode="averaged",
         chi2_per_angle=chi2_per_angle,
         scaling_source="averaged_then_fitted",
+        # True when the reported covariance is NOT a measured estimate (all-NaN
+        # from a singular / absent solver covariance); an escape carries its
+        # own ``global_escape`` marker instead.
+        covariance_is_placeholder=(not is_escape) and not bool(np.all(np.isfinite(uncertainties))),
+        # The solver residual carries exactly the valid observations here (no
+        # padding, diagonal + t=0 excluded), so the covariance dof needs no
+        # rescale; recorded for symmetry with the engine route.
+        covariance_dof={
+            "n_rows_solver": int(data_only_residual.size),
+            "n_valid": int(data_only_residual.size),
+            "n_params": int(n_total_params),
+        },
         # PHYSICS-FIRST layout: x0 = [physics | contrast, offset] (see above).
         # The marker disambiguates this legacy averaged path from the engine
         # route's SCALING-FIRST averaged result for downstream readers.
@@ -3958,6 +3970,13 @@ def _build_joint_result(
         chi2_per_angle=chi2_per_angle,
         scaling_source="fitted",
         parameter_names=joint_param_names,
+        covariance_is_placeholder=(joint_result is not None)
+        and not bool(np.all(np.isfinite(uncertainties))),
+        covariance_dof={
+            "n_rows_solver": int(data_only_residual.size),
+            "n_valid": int(data_only_residual.size),
+            "n_params": int(n_total_params),
+        },
         contrast_per_angle_fitted=np.asarray(fitted_contrast, dtype=np.float64),
         offset_per_angle_fitted=np.asarray(fitted_offset, dtype=np.float64),
         phi_angles=np.asarray(phi_angles, dtype=np.float64),

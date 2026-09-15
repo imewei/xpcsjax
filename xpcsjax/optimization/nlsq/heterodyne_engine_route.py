@@ -364,6 +364,7 @@ def fit_two_component_via_engine(
     """
     import jax.numpy as jnp
 
+    from xpcsjax.optimization.nlsq.covariance import finalize_covariance, rescale_covariance_dof
     from xpcsjax.optimization.nlsq.heterodyne_adapter import NLSQAdapter
     from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig as _NLSQConfig
     from xpcsjax.optimization.nlsq.heterodyne_core import (
@@ -629,17 +630,29 @@ def fit_two_component_via_engine(
     # dimensionally correct. For ``averaged`` the optimizer DOF == n_varying + 2
     # (the 2 compressed scalars); a 2->2*n_phi covariance permutation is undefined,
     # so the compressed covariance is passed through unchanged (Task-2.2 design).
+    #
+    # dof correction: nlsq scaled ``res.covariance`` by ``cost / (ysize − p)``
+    # with ``ysize`` = the engine's padded residual vector (chunk padding + the
+    # zero-masked t1 == t2 rows), not the ``data_valid`` observations the
+    # production ``fit_nlsq_multi_phi`` residual is built on. Rescale to the
+    # same ``(n_valid − p)`` dof so both in-memory paths report the same
+    # estimator; the solve is untouched.
+    n_rows_solver = int(engine.n_chunks) * int(engine.max_chunk_size)
     if res.covariance is not None and np.asarray(res.covariance).shape == (
         n_total_params,
         n_total_params,
     ):
-        covariance = np.asarray(res.covariance, dtype=np.float64)
+        covariance = rescale_covariance_dof(
+            np.asarray(res.covariance, dtype=np.float64),
+            n_rows_solver=n_rows_solver,
+            n_valid=int(data_valid),
+            n_params=n_total_params,
+        )
     else:
-        covariance = np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
-    if res.uncertainties is not None and np.asarray(res.uncertainties).shape == (n_total_params,):
-        uncertainties = np.asarray(res.uncertainties, dtype=np.float64)
-    else:
-        uncertainties = np.sqrt(np.clip(np.diag(covariance), 0.0, None))
+        covariance = None
+    # One rule for every heterodyne path (covariance.finalize_covariance):
+    # non-finite / non-positive-diagonal / absent -> all-NaN + placeholder flag.
+    covariance, uncertainties, _cov_placeholder = finalize_covariance(covariance, n_total_params)
 
     convergence_status: ConvergenceStatus = "converged" if res.success else "failed"
     # Derive quality_flag from reduced_chi_squared when the solve actually
@@ -681,6 +694,13 @@ def fit_two_component_via_engine(
         wall_time=wall_time,
         build_diag=_build_heterodyne_diagnostics,
     )
+    # Provenance of the covariance dof (see rescale above).
+    diagnostics["covariance_dof"] = {
+        "n_rows_solver": n_rows_solver,
+        "n_valid": int(data_valid),
+        "n_params": n_total_params,
+    }
+    diagnostics["covariance_is_placeholder"] = bool(_cov_placeholder)
 
     return OptimizationResult(
         parameters=popt_sf,

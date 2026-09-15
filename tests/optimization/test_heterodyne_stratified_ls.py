@@ -557,9 +557,12 @@ def test_stratified_ls_shuffle_on_deterministic_and_comparable():
 
 
 def test_stratified_ls_jacfwd_covariance_when_adapter_returns_none(monkeypatch):
-    """Jacfwd fallback path: when the adapter returns ``covariance=None``, the
-    returned ``covariance`` is finite (no NaN) and its size is consistent with
-    ``parameters`` and ``uncertainties``.
+    """Jacfwd fallback path: when the adapter returns ``covariance=None`` the
+    host Gauss-Newton recompute runs under the ONE strict rule every heterodyne
+    path shares (no pseudo-inverse): a positive-definite JᵀJ yields a finite,
+    positive-diagonal covariance with ``covariance_is_placeholder=False``; a
+    singular JᵀJ (this degenerate 14-physics fixture) yields all-NaN with the
+    flag set — never a pinv whose null-space reads as ``0.0`` variance.
 
     The numeric solve (``parameters``, ``chi_squared``) must be byte-identical
     to the normal path -- covariance is a post-solve diagnostic only.
@@ -619,10 +622,14 @@ def test_stratified_ls_jacfwd_covariance_when_adapter_returns_none(monkeypatch):
         "chi_squared changed: SSR must be unaffected by covariance fallback"
     )
 
-    # Covariance from fallback is finite and shape-consistent.
+    # Covariance from fallback is shape-consistent and obeys the strict rule.
     cov = np.asarray(fallback.covariance)
     assert cov.shape == (n, n), f"covariance shape {cov.shape} != ({n}, {n})"
-    assert np.all(np.isfinite(cov)), "jacfwd covariance contains NaN/inf"
+    flag = fallback.nlsq_diagnostics.get("covariance_is_placeholder", False)
+    if flag:
+        assert np.all(np.isnan(cov)) and np.all(np.isnan(fallback.uncertainties))
+    else:
+        assert np.all(np.isfinite(cov)) and np.all(np.diag(cov) > 0)
 
     # Uncertainties and parameters length consistency.
     assert len(fallback.uncertainties) == n

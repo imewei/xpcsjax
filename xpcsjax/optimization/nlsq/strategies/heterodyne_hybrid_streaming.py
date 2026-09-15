@@ -24,6 +24,7 @@ import numpy as np
 from xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics import (
     assemble_anti_degeneracy_diagnostics,
 )
+from xpcsjax.optimization.nlsq.covariance import finalize_covariance
 from xpcsjax.optimization.nlsq.gradient_monitor import (
     GradientCollapseMonitor,
     GradientMonitorConfig,
@@ -987,10 +988,26 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         # ------------------------------------------------------------------
         popt = np.asarray(result["x"], dtype=np.float64)
         n = len(popt)
-        pcov = np.asarray(result.get("pcov", np.eye(n)), dtype=np.float64)
+        # The streaming optimizer's phase-3 covariance is ``pinv(JᵀJ)·s²``: a
+        # rank-deficient JᵀJ reports its null-space directions as EXACTLY 0.0
+        # variance, and a missing ``pcov`` used to be silently replaced by an
+        # identity. Both are the "confidently wrong" cases every other
+        # heterodyne path already rejects — apply the same rule here (all-NaN +
+        # ``covariance_is_placeholder``, honoured by the result builder).
+        _raw_pcov = result.get("pcov")
+        pcov, _, _plain_cov_placeholder = finalize_covariance(
+            None if _raw_pcov is None else np.asarray(_raw_pcov, dtype=np.float64), n
+        )
+        if _plain_cov_placeholder:
+            logger.warning(
+                "Hybrid-streaming covariance is %s; reporting NaN uncertainties "
+                "(covariance_is_placeholder=True).",
+                "absent" if _raw_pcov is None else "singular or non-positive",
+            )
 
         # Build info dict: everything except x and pcov
         info = {k: v for k, v in result.items() if k not in ("x", "pcov")}
+        info["covariance_is_placeholder"] = bool(_plain_cov_placeholder)
 
     # Ensure hybrid_streaming_diagnostics key is always present
     if "hybrid_streaming_diagnostics" not in info:

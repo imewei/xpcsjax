@@ -454,6 +454,17 @@ def _fit_joint_constant_multi_phi(
     }
     if global_escape_tag is not None:
         diagnostics["global_escape"] = global_escape_tag
+    # True when the reported covariance is NOT a measured estimate (all-NaN
+    # from a singular / absent solver covariance); escapes carry their own
+    # ``global_escape`` marker instead.
+    diagnostics["covariance_is_placeholder"] = (not is_escape) and not bool(
+        np.all(np.isfinite(uncertainties))
+    )
+    diagnostics["covariance_dof"] = {
+        "n_rows_solver": int(final_residual.size),
+        "n_valid": int(final_residual.size),
+        "n_params": int(n_physics),
+    }
     # L2/L3/L4/L5 activation block via the shared assembler. Constant mode never
     # runs L2 stage-2 (hierarchical_active=False), L3 (regularization_active=
     # False), or the L4 monitor (gradient_monitor omitted); the
