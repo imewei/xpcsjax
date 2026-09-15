@@ -22,6 +22,8 @@ All fits use tiny synthetic data and call the driver directly (bypassing the
 
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 
 from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
@@ -371,3 +373,63 @@ def test_execute_layers_l2_singular_jacobian_reports_nan_not_pinv(monkeypatch):
     assert diag["covariance_is_placeholder"] is True
     assert np.all(np.isnan(res.uncertainties))
     assert np.all(np.isnan(res.covariance))
+
+
+def test_execute_layers_l3_only_singular_jacobian_reports_nan_not_pinv(monkeypatch):
+    """The no-pinv rule applies to the L3-only recompute branch too: a singular
+    JᵀJ at the accepted L3 popt yields all-NaN + ``covariance_is_placeholder``,
+    never a pseudo-inverse with 0.0 null-space variance."""
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "individual",
+            "execute_layers": True,
+            "enable_hierarchical": False,
+            "regularization_mode": "adaptive",
+            "group_variance_lambda": 0.01,
+        }
+    )
+
+    def _zero_jacobian(fn, x, col_block=4):
+        n_out = int(np.asarray(fn(x)).shape[0])
+        return np.zeros((n_out, int(np.asarray(x).size)), dtype=np.float64)
+
+    monkeypatch.setattr(_hsl, "_chunked_jacfwd_dense", _zero_jacobian)
+    res = _fit(model, c2, phi, cfg)
+    diag = res.nlsq_diagnostics
+    assert diag["regularization_active"] is True
+    assert diag["hierarchical_active"] is False
+    assert diag["covariance_is_placeholder"] is True
+    assert np.all(np.isnan(res.uncertainties))
+
+
+def test_execute_layers_covariance_recompute_skipped_over_memory_budget(monkeypatch):
+    """When the dense Jacobian would exceed the memory budget the recompute is
+    skipped up-front: all-NaN uncertainties, flag set, parameters untouched."""
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=20)
+    cfg = NLSQConfig.from_dict(
+        {
+            "analysis_mode": "two_component",
+            "per_angle_mode": "individual",
+            "execute_layers": True,
+            "enable_hierarchical": False,
+            "regularization_mode": "adaptive",
+            "group_variance_lambda": 0.01,
+        }
+    )
+    real_select = _hsl.select_nlsq_strategy
+
+    def _tiny_budget(n_points, n_params):
+        return dataclasses.replace(real_select(n_points, n_params), threshold_gb=0.0)
+
+    monkeypatch.setattr(_hsl, "select_nlsq_strategy", _tiny_budget)
+
+    def _must_not_run(fn, x, col_block=4):
+        raise AssertionError("dense Jacobian recompute ran despite exceeding the budget")
+
+    monkeypatch.setattr(_hsl, "_chunked_jacfwd_dense", _must_not_run)
+    res = _fit(model, c2, phi, cfg)
+    assert res.nlsq_diagnostics["covariance_is_placeholder"] is True
+    assert np.all(np.isnan(res.uncertainties))
+    assert np.all(np.isfinite(res.parameters))

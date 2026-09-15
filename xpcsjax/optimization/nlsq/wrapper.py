@@ -4464,7 +4464,8 @@ class NLSQWrapper(NLSQAdapterBase):
                 # masks t1 == t2; this branch did neither and let lag-free
                 # points distort the physics. Return the observed value at
                 # those points so their residual is exactly zero (they still
-                # count in n_data / dof, as on the residual_jit path). Tolerance
+                # count in n_data / dof, as on the residual_jit path, so
+                # reduced_chi_squared uses one dof convention on every path). Tolerance
                 # rather than exact equality so the mask survives a loader
                 # that rounds t1 and t2 independently.
                 g2_theory = jnp.where(

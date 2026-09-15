@@ -178,3 +178,40 @@ def test_run_fit_attaches_fit_quality_laminar_flow_end_to_end():
     assert np.isfinite(block["nrmse"])
     # Consistent synthetic data: misfit is a small fraction of the data spread.
     assert 0.0 < block["nrmse"] < 0.05
+
+
+def test_angle_count_mismatch_raises_not_truncates():
+    data = {"c2_exp": np.ones((3, 5, 5)), "phi_angles_list": np.array([0.0, 90.0])}
+    with pytest.raises(ValueError, match="3 angles but phi_angles_list has 2"):
+        fq.compute_fit_quality(_result(), data, _cm("laminar_flow"))
+
+
+def test_failed_angle_is_warned_with_cause(monkeypatch, caplog):
+    import logging
+
+    import xpcsjax.viz.nlsq_plots as viz
+
+    def _eval(m, r, d, c, phi, phi_index=None):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(viz, "_evaluate_c2_per_angle", _eval)
+    data = {"c2_exp": np.ones((2, 5, 5)), "phi_angles_list": np.array([0.0, 90.0])}
+    with caplog.at_level(logging.WARNING, logger="xpcsjax.service.fit_quality"):
+        block = fq.compute_fit_quality(_result(), data, _cm("laminar_flow"))
+    assert block["n_angles_failed"] == 2
+    assert np.isnan(block["nrmse"])
+    msgs = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert any("2 of 2 angle(s)" in m and "boom" in m for m in msgs), msgs
+
+
+def test_shape_mismatch_is_warned(monkeypatch, caplog):
+    import logging
+
+    import xpcsjax.viz.nlsq_plots as viz
+
+    monkeypatch.setattr(viz, "_evaluate_c2_per_angle", lambda *a, **k: np.ones((4, 4)))
+    data = {"c2_exp": np.ones((1, 5, 5)), "phi_angles_list": np.array([0.0])}
+    with caplog.at_level(logging.WARNING, logger="xpcsjax.service.fit_quality"):
+        block = fq.compute_fit_quality(_result(), data, _cm("laminar_flow"))
+    assert block["n_angles_failed"] == 1
+    assert any("(4, 4) != data shape (5, 5)" in r.getMessage() for r in caplog.records)

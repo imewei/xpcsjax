@@ -21,7 +21,10 @@ parameters and the data only::
   zero-lag self-correlation spike) for every mode, i.e. the heterodyne
   ``(n_t - 1) * (n_t - 2)`` support;
 * the denominator is a DATA statistic (not a fitted contrast), so the optimizer
-  cannot improve the metric by collapsing a parameter.
+  cannot improve the metric by collapsing a parameter. It is POOLED over all
+  angles, so between-angle offset/contrast spread inflates ``c2_std`` and
+  NRMSE reads somewhat better than a per-angle RMS would; compare fits of the
+  same dataset, not the absolute value across datasets.
 
 ``nrmse`` reads as "RMS misfit as a fraction of the data's own spread": 0.05 =
 residuals are 5 % of the c2 dynamic range. It is advisory and does not drive
@@ -90,7 +93,14 @@ def compute_fit_quality(
     Returns a JSON-safe dict with ``nrmse``, ``rms_residual``, ``c2_std``,
     ``n_valid``, ``n_angles_evaluated``, ``mask`` and ``sigma_source``. Angles
     whose model evaluation raises are skipped (counted in
-    ``n_angles_failed``); if none evaluate, ``nrmse`` is ``NaN``.
+    ``n_angles_failed``, warned once); if none evaluate, ``nrmse`` is ``NaN``
+    and a warning names the failure.
+
+    Raises
+    ------
+    ValueError
+        ``c2_exp`` angle count differs from ``phi_angles_list`` (data-integrity
+        fault; never silently truncated).
     """
     # ponytail: the per-angle model evaluator + scaling-layout unpackers live in
     # viz (pulls in matplotlib). Moving them under optimization/ is the upgrade
@@ -105,45 +115,69 @@ def compute_fit_quality(
 
     c2_exp = np.asarray(data["c2_exp"], dtype=np.float64)
     phi_angles = np.asarray(data["phi_angles_list"], dtype=np.float64).ravel()
-    n_phi = int(min(c2_exp.shape[0], phi_angles.size))
+    if c2_exp.shape[0] != phi_angles.size:
+        raise ValueError(
+            f"c2_exp has {c2_exp.shape[0]} angles but phi_angles_list has {phi_angles.size}"
+        )
+    n_phi = int(phi_angles.size)
+
+    # Heterodyne: build the fit-time model ONCE and reuse it for every angle
+    # (the evaluator would otherwise rebuild it per call).
+    hetero_model = None
+    if mode == "two_component":
+        from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
+
+        hetero_model = HeterodyneModel.from_config(cfg)
+        hetero_model.sync_time_axis(np.arange(c2_exp.shape[1], dtype=np.float64))
+
+    eval_kwargs: dict[str, Any] = {} if hetero_model is None else {"heterodyne_model": hetero_model}
 
     def _c2_fit(i: int) -> np.ndarray:
         return np.asarray(
-            _evaluate_c2_per_angle(model, result, data, cfg, float(phi_angles[i]), phi_index=i),
+            _evaluate_c2_per_angle(
+                model, result, data, cfg, float(phi_angles[i]), phi_index=i, **eval_kwargs
+            ),
             dtype=np.float64,
         )
 
     ssr = 0.0
-    s1 = 0.0  # sum of data over mask
-    s2 = 0.0  # sum of squared data over mask
-    n_valid = 0
+    obs_vals: list[np.ndarray] = []  # masked data values, for the pooled std
     n_failed = 0
+    first_failure: str | None = None
     for i in range(n_phi):
         try:
             c2_fit = _c2_fit(i)
         except Exception as exc:  # best-effort: one bad angle must not kill the metric
             n_failed += 1
-            logger.debug("fit_quality: angle %d (phi=%.2f) failed: %s", i, phi_angles[i], exc)
+            first_failure = first_failure or f"angle {i} (phi={phi_angles[i]:.2f}): {exc!r}"
             continue
         obs = c2_exp[i]
         if c2_fit.shape != obs.shape or obs.ndim != 2 or obs.shape[0] != obs.shape[1]:
             n_failed += 1
+            first_failure = first_failure or (
+                f"angle {i} (phi={phi_angles[i]:.2f}): fitted surface shape "
+                f"{c2_fit.shape} != data shape {obs.shape}"
+            )
             continue
         mask = _off_diagonal_mask(obs.shape[0])
         r = obs - c2_fit
         mask &= np.isfinite(r)
         if not mask.any():
             continue
-        o = obs[mask]
         ssr += float(np.sum(r[mask] ** 2))
-        s1 += float(o.sum())
-        s2 += float(np.sum(o * o))
-        n_valid += int(mask.sum())
+        obs_vals.append(obs[mask])
 
+    if first_failure is not None:
+        logger.warning(
+            "fit_quality: %d of %d angle(s) could not be evaluated; first failure: %s",
+            n_failed,
+            n_phi,
+            first_failure,
+        )
+
+    n_valid = int(sum(v.size for v in obs_vals))
     if n_valid > 1:
-        mean = s1 / n_valid
-        var = max(s2 / n_valid - mean * mean, 0.0)
-        c2_std = math.sqrt(var)
+        c2_std = float(np.std(np.concatenate(obs_vals)))
         rms = math.sqrt(ssr / n_valid)
         nrmse = rms / c2_std if c2_std > 0 else float("nan")
     else:

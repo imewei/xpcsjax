@@ -530,6 +530,7 @@ def _evaluate_c2_per_angle(
     config: dict[str, Any],
     phi_deg: float,
     phi_index: int | None = None,
+    heterodyne_model: Any | None = None,
 ) -> np.ndarray:
     """Compute fitted c2 surface at one phi angle.
 
@@ -630,9 +631,13 @@ def _evaluate_c2_per_angle(
         # grids. Building the same model the fit used removes the divergence.
         from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
 
-        n_t = int(np.asarray(data["c2_exp"]).shape[1])
-        hm = HeterodyneModel.from_config(config)
-        hm.sync_time_axis(np.arange(n_t, dtype=np.float64))
+        # ``heterodyne_model``: a caller looping over angles passes the model
+        # it built once (service/fit_quality.py); otherwise build it here.
+        hm = heterodyne_model
+        if hm is None:
+            n_t = int(np.asarray(data["c2_exp"]).shape[1])
+            hm = HeterodyneModel.from_config(config)
+            hm.sync_time_axis(np.arange(n_t, dtype=np.float64))
         full = hm.param_manager.expand_varying_to_full(
             np.asarray(physical_params, dtype=np.float64)
         )

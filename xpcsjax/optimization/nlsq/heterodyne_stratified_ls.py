@@ -1018,7 +1018,6 @@ def fit_heterodyne_stratified_least_squares(
     # as ``covariance_is_placeholder`` so the result builder / users can tell
     # "uncertainties unavailable" from a genuine estimate.
     _cov_placeholder = False
-    _l2_accepted = False
     # Metadata for an accepted layer candidate so the reported convergence /
     # iterations / status reflect the LAYER that produced popt, not the stale
     # baseline adapter fit (Fix 3). None on the default / rejected / flag-off path.
@@ -1102,7 +1101,6 @@ def fit_heterodyne_stratified_least_squares(
                     # L2 popt (same recompute the L3-only branch uses) instead of
                     # an identity placeholder.
                     _invalidate_adapter_cov = True
-                    _l2_accepted = True
                     _layer_outcome = {
                         "kind": "L2_hierarchical",
                         "n_outer": int(candidate["n_outer"]),
@@ -1247,15 +1245,21 @@ def fit_heterodyne_stratified_least_squares(
     # is caught and falls back to all-NaN (best-effort: a covariance failure must
     # never break the fit).
     #
-    # Accepted-L2 popt is a BOUNDED alternating solve (clipped to lower/upper), so
-    # it need not be an interior stationary point and JᵀJ may be singular there.
-    # For that branch, mirror strategies/heterodyne_hybrid_streaming.py's L2 rule:
-    # no pseudo-inverse (pinv reports the unidentified null-space directions as
-    # EXACTLY 0.0 variance — infinite precision — the confidently-wrong "known"
-    # this guard exists to prevent) and no non-positive diagonal; either is a
-    # failure → all-NaN + ``covariance_is_placeholder``. The dense-J recompute is
-    # also skipped up-front when it would exceed the memory budget (the same
-    # ``select_nlsq_strategy`` threshold that gated the baseline solve).
+    # An accepted L2 / L3 popt is a BOUNDED solve (clipped to lower/upper), so it
+    # need not be an interior stationary point and JᵀJ may be singular there.
+    # On those accepted-layer branches (``_invalidate_adapter_cov``) mirror
+    # strategies/heterodyne_hybrid_streaming.py's L2 rule: no pseudo-inverse
+    # (pinv reports the unidentified null-space directions as EXACTLY 0.0
+    # variance — infinite precision — the confidently-wrong "known" this guard
+    # exists to prevent) and no non-positive diagonal; either is a failure →
+    # all-NaN + ``covariance_is_placeholder``. The plain adapter-returned-no-
+    # covariance fallback (popt is the adapter's own interior solution) keeps
+    # the pinv fallback, mirroring laminar's strategies/stratified_ls.py.
+    # The dense-J recompute is also skipped up-front (same all-NaN outcome) when
+    # it would exceed the memory budget — the same ``select_nlsq_strategy``
+    # threshold that gated the baseline solve — rather than risk an OOM after a
+    # successful solve. This deliberately trades uncertainties for the fit on
+    # large-N L2/L3 fits; the parameters are unaffected.
     if _pcov_from_adapter is not None:
         pcov: np.ndarray = _pcov_from_adapter
     else:
@@ -1288,17 +1292,17 @@ def fit_heterodyne_stratified_least_squares(
             try:
                 pcov = np.linalg.inv(JTJ) * s2
             except np.linalg.LinAlgError:
-                if _l2_accepted:
-                    raise
+                if _invalidate_adapter_cov:
+                    raise  # accepted L2/L3 popt: no pinv → all-NaN below
                 _cov_log.warning(
                     "Singular Jacobian in heterodyne stratified-LS covariance; "
                     "falling back to pseudo-inverse."
                 )
                 pcov = np.linalg.pinv(JTJ) * s2
-            if _l2_accepted and not (
+            if _invalidate_adapter_cov and not (
                 np.all(np.isfinite(pcov)) and np.all(np.diag(pcov) > 0)
             ):
-                raise ValueError("covariance non-finite or non-positive diagonal at L2 popt")
+                raise ValueError("covariance non-finite or non-positive diagonal at popt")
         except (MemoryError, np.linalg.LinAlgError, ValueError, RuntimeError) as _exc:
             from xpcsjax.utils.logging import get_logger as _get_logger
 

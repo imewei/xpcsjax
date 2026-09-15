@@ -60,6 +60,16 @@ the rendered documentation.
   data-only residual) the L3-only branch already used, so `result.uncertainties`
   are real. `_chunked_jacfwd_dense` now fills a preallocated Jacobian instead of
   concatenating column blocks, halving the host-memory peak of that recompute.
+  Two behaviour changes on the accepted-layer covariance recompute branches
+  (accepted L2 *and* accepted L3-only): a singular `JᵀJ` no longer falls back
+  to `np.linalg.pinv` (which reports unidentified directions as exactly zero
+  variance), and the recompute is skipped on every adapter-less branch when the
+  dense Jacobian would exceed the `select_nlsq_strategy` memory budget; both
+  cases return all-NaN uncertainties tagged `covariance_is_placeholder=True`
+  instead of a number. Large-N L3 fits that previously received (pinv or
+  full-budget) uncertainties therefore now report NaN with the flag set;
+  parameters are unaffected. The plain adapter-returned-no-covariance fallback
+  keeps its pinv fallback (mirrors laminar's `strategies/stratified_ls.py`).
 
 ## [0.1.7] - 2026-09-04
 
