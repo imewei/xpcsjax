@@ -215,7 +215,7 @@ class WorkerHandle(QObject):
         The reader's loop checks ``isInterruptionRequested()`` ahead of every
         ``get()``, so this does not block on the CHILD PROCESS dying — only on
         the reader thread noticing the flag, which is bounded by its 0.1s
-        poll interval, independent of ``_READER_JOIN_MS``.
+        poll interval, unrelated to ``_READER_JOIN_MS``.
         """
         if self._reader is not None:
             self._reader.requestInterruption()
