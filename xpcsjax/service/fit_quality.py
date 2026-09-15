@@ -52,14 +52,16 @@ def sigma_source(result: OptimizationResult, mode: str) -> str:
     * ``"far_lag_estimate"`` — ``two_component``: SSR / (var(c2 at lag >= n_t/2) * dof),
       falling back to plain MSE when that estimate is degenerate.
     * ``"data"`` — homodyne fit carrying the data's own (heteroscedastic) ``sigma``.
-    * ``"default_constant_0.01"`` — homodyne fit with no data ``sigma`` on the
-      angle-stratified path: ``StratifiedResidualFunctionJIT`` bakes the
-      ``_DEFAULT_SIGMA = 0.01`` placeholder into the residual, so chi2 is
-      ``SSR / 1e-4`` — an arbitrary absolute scale.
-    * ``"none_unweighted"`` — homodyne fit with no data ``sigma`` on the standard
-      (non-stratified) ``NLSQWrapper`` path: a uniform sigma is dropped before
-      the solver (``wrapper.py``, "Sigma weighting" block), so chi2 is the raw
-      SSR.
+    * ``"default_constant_0.01"`` — homodyne fit with no data ``sigma`` that ran
+      through the engine residual (``StratifiedResidualFunctionJIT``, which
+      reports ``stratification_diagnostics``): the residual divides by the
+      ``_DEFAULT_SIGMA = 0.01`` placeholder (``residual_jit.py``,
+      ``_sigma_is_unit`` is False for a 0.01 array), so chi2 is ``SSR / 1e-4``
+      — an arbitrary absolute scale.
+    * ``"none_unweighted"`` — homodyne fit with no data ``sigma`` on the
+      ``NLSQWrapper`` standard / full-copy-stratified paths: a uniform sigma is
+      dropped before the solver (``wrapper.py``, "Sigma weighting" block), so
+      chi2 is the raw SSR (verified: ``chi2 / SSR == 1`` on both).
     """
     if mode == "two_component":
         return "far_lag_estimate"

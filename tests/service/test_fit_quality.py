@@ -96,13 +96,19 @@ def test_failed_angle_is_skipped_not_fatal(monkeypatch):
     ("mode", "sigma_default", "expected"),
     [
         ("two_component", False, "far_lag_estimate"),
-        ("laminar_flow", True, "default_constant_0.01"),
+        ("laminar_flow", True, "none_unweighted"),
         ("laminar_flow", False, "data"),
-        ("static_isotropic", True, "default_constant_0.01"),
+        ("static_isotropic", True, "none_unweighted"),
     ],
 )
 def test_sigma_source_vocabulary(mode, sigma_default, expected):
     assert fq.sigma_source(_result(sigma_is_default=sigma_default), mode) == expected
+
+
+def test_sigma_source_stratified_default_is_constant_placeholder():
+    res = _result(sigma_is_default=True)
+    res.stratification_diagnostics = object()  # any non-None marker
+    assert fq.sigma_source(res, "laminar_flow") == "default_constant_0.01"
 
 
 def test_attach_never_raises_on_broken_config_manager():
@@ -144,13 +150,19 @@ def test_run_fit_attaches_fit_quality_laminar_flow_end_to_end():
     n_phi, n_t = 3, 12
     phi = np.linspace(0.0, 90.0, n_phi, dtype=np.float64)
     cfg = _laminar_cfg("auto", n_t)
-    # Data time grid must match the model grid the synthetic c2 was generated
-    # on (HomodyneModel: linspace(0, dt*(n_t-1)) with the config dt).
+    # Synthetic data must match what the fit sees on real data: the loader's
+    # preprocessing applies the diagonal correction (data/preprocessing.py,
+    # ``apply_diagonal_correction: True`` default) and the wrapper's model
+    # applies the same correction, and the data time grid must be the model
+    # grid the c2 was generated on (HomodyneModel: linspace(0, dt*(n_t-1))).
+    from xpcsjax.core.diagonal_correction import apply_diagonal_correction
+
     dt = float(cfg.config["analyzer_parameters"]["dt"])
     t = np.arange(n_t, dtype=np.float64) * dt
     true = np.array([1000.0, 0.5, 10.0, 0.01, 0.0, 0.0, 0.0])
     c2 = np.asarray(HomodyneModel(cfg.config).compute_c2(true, phi, contrast=0.3, offset=1.0))
     c2 = c2 + np.random.default_rng(3).normal(0.0, 5e-4, size=c2.shape)
+    c2 = np.stack([np.asarray(apply_diagonal_correction(c2[i])) for i in range(n_phi)])
     data = {
         "phi_angles_list": phi,
         "c2_exp": c2,
@@ -160,12 +172,9 @@ def test_run_fit_attaches_fit_quality_laminar_flow_end_to_end():
     }
     res = run_fit(cfg, data)
     block = res.nlsq_diagnostics["fit_quality"]
-    assert block["sigma_source"] == "default_constant_0.01"
+    assert block["sigma_source"] == "none_unweighted"
     assert block["n_angles_evaluated"] == n_phi
     assert block["n_valid"] == n_phi * (n_t - 1) * (n_t - 2)
-    assert np.isfinite(block["nrmse"]) and block["nrmse"] > 0.0
-    # No tight band here on purpose: on this tiny synthetic laminar fixture the
-    # standard path returns a popt whose public-kernel SSR is orders of
-    # magnitude above SSR@true (nrmse ~ 0.3-1.0) while reporting "converged".
-    # That is a fit-path question, not a metric one — the metric is what
-    # surfaced it. See the two_component test above for a tight-band check.
+    assert np.isfinite(block["nrmse"])
+    # Consistent synthetic data: misfit is a small fraction of the data spread.
+    assert 0.0 < block["nrmse"] < 0.05
