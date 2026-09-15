@@ -17,6 +17,15 @@ g₁_total = g₁_diffusion × g₁_shear
 
 Usage:
   from xpcsjax.core.physics_nlsq import compute_g2_scaled
+
+Relationship to ``xpcsjax.core.jax_backend``:
+    Two g1/g2 kernel families coexist by design and are NOT interchangeable:
+    this module (meshgrid-only, engine path via ``model_adapter.py`` /
+    ``residual.py``) is rtol=1e-10 golden-pinned, while ``jax_backend.py``
+    provides the dual element-wise/meshgrid kernels used by ``core/models.py``,
+    ``optimization/nlsq/fit_computation.py``, and ``optimization/nlsq/core.py``.
+    Both export a public ``compute_g2_scaled`` with the same 9-arg signature
+    but different degenerate-point handling — do not merge them.
 """
 
 import jax.numpy as jnp
@@ -99,11 +108,8 @@ def _compute_g1_diffusion_meshgrid(
         # For meshgrid with indexing="ij": t1 varies along rows (axis 0), constant along columns
         # So extract first COLUMN to get unique t1 values
         time_array = t1[:, 0]  # Extract first column for unique t1 values (in seconds)
-    elif t1.ndim == 0:
-        # Handle 0-dimensional (scalar) input
-        time_array = jnp.atleast_1d(t1)
     else:
-        # Handle 1D and other cases
+        # Handle 0-D (scalar), 1D, and other cases identically
         time_array = jnp.atleast_1d(t1)
 
     # CRITICAL FIX (Nov 11, 2025): time_array is ALREADY physical time in seconds
@@ -238,11 +244,8 @@ def _compute_g1_shear_meshgrid(
         # For meshgrid with indexing="ij": t1 varies along rows (axis 0), constant along columns
         # So extract first COLUMN to get unique t1 values
         time_array = t1[:, 0]  # Extract first column for unique t1 values (in seconds)
-    elif t1.ndim == 0:
-        # Handle 0-dimensional (scalar) input
-        time_array = jnp.atleast_1d(t1)
     else:
-        # Handle 1D and other cases
+        # Handle 0-D (scalar), 1D, and other cases identically
         time_array = jnp.atleast_1d(t1)
 
     # CRITICAL FIX (Nov 11, 2025): time_array is ALREADY physical time in seconds

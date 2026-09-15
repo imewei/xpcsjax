@@ -713,8 +713,14 @@ def make_model(config_or_manager: Any) -> PhysicsModelBase:
             "'static_ref'/'static_both'."
         )
 
-    # Heterodyne / two-component dispatch.
-    if "two_component" in mode_lower or "two-component" in mode_lower or "heterodyne" in mode_lower:
+    # Heterodyne / two-component dispatch. AnalysisMode.try_parse (the M-8
+    # single source of truth for synonyms) replaces the local substring
+    # reimplementation; a genuinely unknown mode falls back to LAMINAR_FLOW
+    # here (never TWO_COMPONENT), so it still falls through to the raising
+    # AnalysisMode.parse() below exactly as before.
+    if AnalysisMode.try_parse(mode_lower, default=AnalysisMode.LAMINAR_FLOW) == (
+        AnalysisMode.TWO_COMPONENT
+    ):
         # Local import to avoid circular dependency (heterodyne_model imports
         # PhysicsModelBase from this module).
         from xpcsjax.core.heterodyne_model import HeterodynePhysicsAdapter

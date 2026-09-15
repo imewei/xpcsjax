@@ -13,7 +13,7 @@ from xpcsjax.config.heterodyne_parameter_names import (
     SCALING_PARAMS,
 )
 from xpcsjax.config.parameter_registry import DEFAULT_REGISTRY
-from xpcsjax.config.types import coerce_finite_float
+from xpcsjax.config.types import PARAMETER_NAME_MAPPING, coerce_finite_float
 from xpcsjax.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -54,8 +54,23 @@ def registry_info(name: str):  # noqa: ANN201 - returns a ParameterInfo from the
 _INBOUND_NAME_ALIAS: dict[str, str] = {"v_beta": "beta", "phi0_het": "phi0"}
 
 
+def _canonical(name: str) -> str:
+    """Map a user-facing parameter name to its canonical kernel name.
+
+    Composes the global :data:`~xpcsjax.config.types.PARAMETER_NAME_MAPPING`
+    (cross-mode legacy synonyms, e.g. ``"phi_0"`` -> ``"phi0"``) with this
+    module's local :data:`_INBOUND_NAME_ALIAS` (heterodyne template aliases,
+    e.g. ``"v_beta"`` -> ``"beta"``). Order matters: PARAMETER_NAME_MAPPING
+    runs first, so a legacy name that maps to a heterodyne-aliased target
+    (there are none today, but the composition order is load-bearing) would
+    still resolve correctly.
+    """
+    mapped = PARAMETER_NAME_MAPPING.get(str(name), str(name))
+    return _INBOUND_NAME_ALIAS.get(mapped, mapped)
+
+
 @dataclass
-class ParameterSpace:
+class HeterodyneParameterSpace:
     """Complete parameter space for heterodyne model optimization.
 
     Manages parameter values, bounds, vary flags, and priors.
@@ -410,6 +425,15 @@ class ParameterSpace:
         return space
 
 
+# Back-compat alias (pre-unification name, F1): kept for one release so
+# external readers of ``ParameterSpace`` (a name collision with homodyne's
+# distinct-contract ``config.parameter_space.ParameterSpace``) keep working.
+# Every reference below this point uses the old name too, resolved through
+# this alias -- only the class definition and cross-module imports moved to
+# the canonical ``HeterodyneParameterSpace``.
+ParameterSpace = HeterodyneParameterSpace
+
+
 def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> None:
     """Apply ``initial_parameters`` flat-format values to *space*.
 
@@ -427,8 +451,6 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
     config : dict
         Full configuration dictionary.
     """
-    from xpcsjax.config.types import PARAMETER_NAME_MAPPING
-
     initial = config.get("initial_parameters", {})
     if not initial or not isinstance(initial, dict):
         return
@@ -450,10 +472,7 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
         assert param_values is not None
         # Apply name mapping for legacy/alias names, then heterodyne public→canonical
         # rename (v_beta→beta, phi0_het→phi0) so template names resolve.
-        param_names = [
-            _INBOUND_NAME_ALIAS.get(m, m)
-            for m in (PARAMETER_NAME_MAPPING.get(str(n), str(n)) for n in param_names_raw)
-        ]
+        param_names = [_canonical(n) for n in param_names_raw]
 
         if len(param_names) != len(param_values):
             logger.warning(
@@ -487,10 +506,7 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
     # empty list means "fix everything" and must NOT be treated as absent.
     active_raw = initial.get("active_parameters")
     if active_raw is not None and isinstance(active_raw, list):
-        active_names = {
-            _INBOUND_NAME_ALIAS.get(m, m)
-            for m in (PARAMETER_NAME_MAPPING.get(str(n), str(n)) for n in active_raw)
-        }
+        active_names = {_canonical(n) for n in active_raw}
         for name in ALL_PARAM_NAMES_WITH_SCALING:
             if name in active_names:
                 space.vary[name] = True
@@ -516,8 +532,6 @@ def _apply_fixed_parameters(space: ParameterSpace, config: dict[str, Any]) -> No
     mirrors active_parameters' existing scope, which already includes
     contrast/offset via ALL_PARAM_NAMES_WITH_SCALING).
     """
-    from xpcsjax.config.types import PARAMETER_NAME_MAPPING
-
     initial = config.get("initial_parameters", {})
     if not initial or not isinstance(initial, dict):
         return
@@ -649,12 +663,7 @@ def _apply_tied_parameters(space: ParameterSpace, config: dict[str, Any]) -> Non
     active_raw = initial.get("active_parameters")
     explicit_active_names: set[str] = set()
     if isinstance(active_raw, list):
-        from xpcsjax.config.types import PARAMETER_NAME_MAPPING
-
-        explicit_active_names = {
-            _INBOUND_NAME_ALIAS.get(m, m)
-            for m in (PARAMETER_NAME_MAPPING.get(str(n), str(n)) for n in active_raw)
-        }
+        explicit_active_names = {_canonical(n) for n in active_raw}
 
     children = set(tied_translated.keys())
 
@@ -662,115 +671,137 @@ def _apply_tied_parameters(space: ParameterSpace, config: dict[str, Any]) -> Non
     # Must read the raw config dict directly, not space.vary, because
     # _apply_fixed_parameters hasn't run yet in the new call order
     # (_apply_fixed_parameters is called AFTER _apply_tied_parameters).
-    from xpcsjax.config.types import PARAMETER_NAME_MAPPING
-
     fixed_raw = initial.get("fixed_parameters")
     fixed_names: set[str] = set()
     if fixed_raw is not None and isinstance(fixed_raw, dict):
-        fixed_names = {
-            _INBOUND_NAME_ALIAS.get(
-                PARAMETER_NAME_MAPPING.get(str(n), str(n)),
-                PARAMETER_NAME_MAPPING.get(str(n), str(n)),
-            )
-            for n in fixed_raw
-        }
+        fixed_names = {_canonical(n) for n in fixed_raw}
 
     for child, parent in tied_translated.items():
-        if child not in ALL_PARAM_NAMES:
-            raise ValueError(
-                f"tied_parameters: unknown physics parameter '{child}'. "
-                f"Valid names: {list(ALL_PARAM_NAMES)}"
-            )
-        if parent not in ALL_PARAM_NAMES:
-            raise ValueError(
-                f"tied_parameters: unknown physics parameter '{parent}'. "
-                f"Valid names: {list(ALL_PARAM_NAMES)}"
-            )
-        if child == parent:
-            raise ValueError(f"tied_parameters: '{child}' cannot be tied to itself")
-        if parent in children:
-            raise ValueError(
-                f"tied_parameters: '{parent}' is itself a tied child (tied to "
-                f"'{tied_translated[parent]}') -- chained ties are not supported. "
-                f"Tie '{child}' directly to '{tied_translated[parent]}' instead."
-            )
-        if child in fixed_names:
-            raise ValueError(
-                f"tied_parameters: '{child}' is also listed in fixed_parameters "
-                "-- a tied child's value is derived from its parent every "
-                f"residual evaluation; fixing it independently is a "
-                f"contradiction. Fix '{parent}' instead if you want both pinned."
-            )
-        if parent in fixed_names:
-            raise ValueError(
-                f"tied_parameters: '{child}' is tied to '{parent}', which is "
-                "also listed in fixed_parameters -- fixed_parameters is "
-                "applied AFTER tied_parameters validation, so this would "
-                f"silently freeze '{parent}' out from under an "
-                f"already-validated tie. Tie '{child}' to a non-fixed "
-                f"parameter, or fix '{child}' directly instead."
-            )
-        if not space.vary.get(parent, False):
-            raise ValueError(
-                f"tied_parameters: parent '{parent}' is not varying (fixed via "
-                f"active_parameters or vary: false) -- tying '{child}' to a "
-                f"fixed parent is not supported; fix '{child}' directly "
-                "instead via active_parameters."
-            )
-        if child in explicit_active_names:
-            logger.warning(
-                "tied_parameters: '%s' is also listed as varying (e.g. in "
-                "active_parameters) -- the tie takes precedence, forcing "
-                "vary['%s']=False",
-                child,
-                child,
-            )
-        configured_value = space.values.get(child)
-        parent_value = space.values.get(parent)
-        if (
-            configured_value is not None
-            and parent_value is not None
-            and abs(configured_value - parent_value) > 1e-9
-        ):
-            logger.warning(
-                "tied_parameters: '%s' initial value (%.6g) differs from its "
-                "tied parent '%s' (%.6g) -- the tie wins, syncing '%s' to "
-                "'%s'",
-                child,
-                configured_value,
-                parent,
-                parent_value,
-                child,
-                parent,
-            )
-        configured_bounds = space.bounds.get(child)
-        parent_bounds = space.bounds.get(parent)
-        if (
-            configured_bounds is not None
-            and parent_bounds is not None
-            and tuple(configured_bounds) != tuple(parent_bounds)
-        ):
-            logger.warning(
-                "tied_parameters: '%s' bounds %s differ from its tied "
-                "parent '%s' bounds %s -- only the parent's bounds are "
-                "enforced during optimization; '%s' bounds are ignored",
-                child,
-                configured_bounds,
-                parent,
-                parent_bounds,
-                child,
-            )
-        if parent_value is None:
-            raise ValueError(
-                f"tied_parameters: parent '{parent}' has no configured value in "
-                "space.values -- cannot sync tied child "
-                f"'{child}' to it (this should be unreachable: ParameterSpace."
-                "__post_init__ populates a registry default for every physics "
-                "parameter name)."
-            )
+        parent_value = _validate_tie(
+            child,
+            parent,
+            space=space,
+            children=children,
+            fixed_names=fixed_names,
+            explicit_active_names=explicit_active_names,
+            tied_translated=tied_translated,
+        )
         space.values[child] = parent_value
         space.vary[child] = False
         space.tied[child] = parent
+
+
+def _validate_tie(
+    child: str,
+    parent: str,
+    *,
+    space: ParameterSpace,
+    children: set[str],
+    fixed_names: set[str],
+    explicit_active_names: set[str],
+    tied_translated: dict[str, str],
+) -> float:
+    """Validate one ``tied_parameters`` child/parent pair.
+
+    Split out of :func:`_apply_tied_parameters`'s per-tie loop (CC reduction).
+    Every ``ValueError`` / ``logger.warning`` call and message is unchanged --
+    tests pin these exact strings. Returns the parent's configured value
+    (never ``None``: the last check below raises first), which the caller
+    syncs onto the tied child.
+    """
+    if child not in ALL_PARAM_NAMES:
+        raise ValueError(
+            f"tied_parameters: unknown physics parameter '{child}'. "
+            f"Valid names: {list(ALL_PARAM_NAMES)}"
+        )
+    if parent not in ALL_PARAM_NAMES:
+        raise ValueError(
+            f"tied_parameters: unknown physics parameter '{parent}'. "
+            f"Valid names: {list(ALL_PARAM_NAMES)}"
+        )
+    if child == parent:
+        raise ValueError(f"tied_parameters: '{child}' cannot be tied to itself")
+    if parent in children:
+        raise ValueError(
+            f"tied_parameters: '{parent}' is itself a tied child (tied to "
+            f"'{tied_translated[parent]}') -- chained ties are not supported. "
+            f"Tie '{child}' directly to '{tied_translated[parent]}' instead."
+        )
+    if child in fixed_names:
+        raise ValueError(
+            f"tied_parameters: '{child}' is also listed in fixed_parameters "
+            "-- a tied child's value is derived from its parent every "
+            f"residual evaluation; fixing it independently is a "
+            f"contradiction. Fix '{parent}' instead if you want both pinned."
+        )
+    if parent in fixed_names:
+        raise ValueError(
+            f"tied_parameters: '{child}' is tied to '{parent}', which is "
+            "also listed in fixed_parameters -- fixed_parameters is "
+            "applied AFTER tied_parameters validation, so this would "
+            f"silently freeze '{parent}' out from under an "
+            f"already-validated tie. Tie '{child}' to a non-fixed "
+            f"parameter, or fix '{child}' directly instead."
+        )
+    if not space.vary.get(parent, False):
+        raise ValueError(
+            f"tied_parameters: parent '{parent}' is not varying (fixed via "
+            f"active_parameters or vary: false) -- tying '{child}' to a "
+            f"fixed parent is not supported; fix '{child}' directly "
+            "instead via active_parameters."
+        )
+    if child in explicit_active_names:
+        logger.warning(
+            "tied_parameters: '%s' is also listed as varying (e.g. in "
+            "active_parameters) -- the tie takes precedence, forcing "
+            "vary['%s']=False",
+            child,
+            child,
+        )
+    configured_value = space.values.get(child)
+    parent_value = space.values.get(parent)
+    if (
+        configured_value is not None
+        and parent_value is not None
+        and abs(configured_value - parent_value) > 1e-9
+    ):
+        logger.warning(
+            "tied_parameters: '%s' initial value (%.6g) differs from its "
+            "tied parent '%s' (%.6g) -- the tie wins, syncing '%s' to "
+            "'%s'",
+            child,
+            configured_value,
+            parent,
+            parent_value,
+            child,
+            parent,
+        )
+    configured_bounds = space.bounds.get(child)
+    parent_bounds = space.bounds.get(parent)
+    if (
+        configured_bounds is not None
+        and parent_bounds is not None
+        and tuple(configured_bounds) != tuple(parent_bounds)
+    ):
+        logger.warning(
+            "tied_parameters: '%s' bounds %s differ from its tied "
+            "parent '%s' bounds %s -- only the parent's bounds are "
+            "enforced during optimization; '%s' bounds are ignored",
+            child,
+            configured_bounds,
+            parent,
+            parent_bounds,
+            child,
+        )
+    if parent_value is None:
+        raise ValueError(
+            f"tied_parameters: parent '{parent}' has no configured value in "
+            "space.values -- cannot sync tied child "
+            f"'{child}' to it (this should be unreachable: ParameterSpace."
+            "__post_init__ populates a registry default for every physics "
+            "parameter name)."
+        )
+    return parent_value
 
 
 def _apply_parameter_space_bounds(space: ParameterSpace, config: dict[str, Any]) -> None:
@@ -795,8 +826,6 @@ def _apply_parameter_space_bounds(space: ParameterSpace, config: dict[str, Any])
     config : dict
         Full configuration dictionary.
     """
-    from xpcsjax.config.types import PARAMETER_NAME_MAPPING
-
     param_space = config.get("parameter_space", {})
     if not isinstance(param_space, dict):
         return
@@ -815,10 +844,7 @@ def _apply_parameter_space_bounds(space: ParameterSpace, config: dict[str, Any])
         if not raw_name or not isinstance(raw_name, str):
             continue
         # Translate legacy/alias then heterodyne public→canonical (v_beta→beta).
-        name = _INBOUND_NAME_ALIAS.get(
-            PARAMETER_NAME_MAPPING.get(raw_name, raw_name),
-            PARAMETER_NAME_MAPPING.get(raw_name, raw_name),
-        )
+        name = _canonical(raw_name)
         if name not in space.bounds:
             logger.warning("parameter_space.bounds: unknown parameter '%s', skipping", raw_name)
             continue

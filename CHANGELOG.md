@@ -62,6 +62,40 @@ the rendered documentation.
   `"Infinity"` string convention should treat `null` as the non-finite
   sentinel for both NaN and +-Inf.
 
+- **`core/` and `config/` dead-code and duplication cleanup (codebase review,
+  no numerical or CLI-facing behavior change unless noted).** Removed
+  unreachable `except ImportError` shims for in-package/hard-dependency
+  modules (`config/parameter_manager.py`'s physics-validator fallback and its
+  dead `_validate_physical_constraints_fallback`, `config/manager.py`'s
+  logging fallback, `core/diagonal_correction.py`'s JAX/scipy shims,
+  `core/physics_factors.py`'s `jnp = np` fallback) and dead diagnostics
+  (`core/jax_backend.py`'s always-zero `_fallback_stats`). Consolidated the
+  homodyne/heterodyne physics-validator machinery
+  (`ConstraintSeverity`/`PhysicsViolation`/`ConstraintRule`/severity-priority
+  ordering/the non-finite predicate) into a new shared
+  `config/physics_validation_base.py`; the two sibling modules keep their own
+  constraint tables and differing defaults. Added
+  `AnalysisMode.try_parse()` (non-raising sibling of `.parse()`) and a
+  `config/types.py::dict_section()` helper, replacing ~10 independently
+  reimplemented mode-string / config-section-normalization sites across
+  `config/manager.py`, `config/parameter_manager.py`, `core/models.py`,
+  `core/homodyne_model.py`. Extracted `ConfigManager._load_scaling_values`
+  / `_filter_active_parameters` / `_drop_fixed_parameters` from
+  `get_initial_parameters`, and `heterodyne_parameter_space.py::_validate_tie`
+  from `_apply_tied_parameters`'s per-tie loop, to reduce cyclomatic
+  complexity; both keep every prior code path and error/warning message
+  string identical. Renamed the heterodyne-specific
+  `ParameterManager`/`ParameterSpace`/`ValidationResult` classes (which share
+  a name but not a contract with their homodyne counterparts) to
+  `HeterodyneParameterManager`/`HeterodyneParameterSpace`/
+  `HeterodyneValidationResult`, keeping the old names as module-level aliases
+  for one release. One small behavior change:
+  `heterodyne_parameter_space.py`'s `parameter_space` section lookup
+  (previously a bare `config_dict.get("parameter_space") or {}` with no
+  type guard) now goes through `dict_section()`, so a wrong-type
+  `parameter_space` value logs a warning and degrades to `{}` instead of
+  raising `AttributeError` on the first `.get()` call downstream.
+
 ### Fixed
 
 - **Homodyne (`static_*` / `laminar_flow`) uncertainties follow the same

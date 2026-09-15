@@ -359,11 +359,15 @@ class HomodyneModel:
 
         mode = config.get("analysis_mode")
         if mode:
-            mode_lower = str(mode).lower()
-            if "static" in mode_lower:
-                return "static_isotropic" if "isotropic" in mode_lower else "static_anisotropic"
-            if mode_lower in {"laminar", "laminar_flow"}:
-                return "laminar_flow"
+            # AnalysisMode.try_parse (the M-8 single source of truth for mode
+            # synonyms) replaces the local "static"/"laminar" substring
+            # reimplementation. This method is homodyne-only, so a string that
+            # resolves to TWO_COMPONENT (e.g. "heterodyne") falls through to
+            # the "laminar_flow" default below exactly as it did before this
+            # site ever recognized that synonym.
+            parsed = AnalysisMode.try_parse(str(mode), default=AnalysisMode.LAMINAR_FLOW)
+            if parsed != AnalysisMode.TWO_COMPONENT:
+                return parsed.value
 
         return "laminar_flow"
 

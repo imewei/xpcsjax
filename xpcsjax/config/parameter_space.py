@@ -12,7 +12,7 @@ import numpy as np
 
 from xpcsjax.config.parameter_manager import ParameterManager
 from xpcsjax.config.parameter_registry import AnalysisMode
-from xpcsjax.config.types import PARAMETER_NAME_MAPPING, coerce_finite_float
+from xpcsjax.config.types import PARAMETER_NAME_MAPPING, coerce_finite_float, dict_section
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -102,11 +102,13 @@ class ParameterSpace:
         - Falls back to package defaults if config is incomplete
         - Logs warnings for missing or invalid config values
         """
-        # Extract parameter_space section. ``or {}`` (not the .get default) is
-        # required: PyYAML parses a blank ``parameter_space:`` block to None,
-        # and dict.get(key, default) only substitutes default when key is
-        # absent, not when present with value None.
-        param_space_config = config_dict.get("parameter_space") or {}
+        # Extract parameter_space section. dict_section() (not the .get
+        # default) is required: PyYAML parses a blank ``parameter_space:``
+        # block to None, and dict.get(key, default) only substitutes default
+        # when key is absent, not when present with value None. It also
+        # guards a wrong-type value (e.g. a YAML list) that a bare
+        # ``or {}`` would let through unvalidated.
+        param_space_config = dict_section(config_dict, "parameter_space")
 
         # Determine model type
         if analysis_mode is None:
