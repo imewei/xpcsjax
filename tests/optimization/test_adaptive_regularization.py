@@ -13,6 +13,7 @@ from typing import Literal
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from xpcsjax.optimization.nlsq.adaptive_regularization import (
     AdaptiveRegularizationConfig,
@@ -116,3 +117,29 @@ def test_jax_path_matches_numpy_fallback_at_zero_mean_group() -> None:
     )
     assert float(jax_out) > 0.0
     assert np.isclose(float(jax_out), numpy_out, rtol=1e-10)
+
+
+def test_relative_mode_gradient_is_finite_for_a_uniform_group():
+    """A uniform per-angle group (std == 0) must not NaN the gradient.
+
+    Every per-angle group is uniform at the quantile-seeded x0, and forming
+    CV² via ``jnp.std`` (d std/dx = (x-mean)/(n*std) = 0/0 there) made the
+    whole group's gradient block NaN from the first L-BFGS step, so those
+    parameters never moved on the streaming L2 path. CV² is now var/mean².
+    """
+    reg = _make(group_indices=[(0, 5), (5, 10)], mode="relative", n_phi=5, n_params=10)
+    uniform = jnp.concatenate([jnp.full(5, 0.3), jnp.full(5, 0.8)])
+
+    def f(p):
+        return reg.compute_regularization_jax(p, mse=jnp.array(0.04), n_points=1000)
+
+    g = np.asarray(jax.grad(f)(uniform))
+    assert np.all(np.isfinite(g)), g
+    assert float(f(uniform)) == pytest.approx(0.0, abs=1e-20)  # zero spread -> zero penalty
+    # Non-uniform group: penalty and gradient agree with the var/mean² form.
+    spread = uniform.at[5].set(1.0)
+    val = float(f(spread))
+    grp = np.asarray(spread[5:10])
+    expected = float(reg.lambda_value) * (grp.var() / grp.mean() ** 2) * 0.04 * 1000
+    assert val == pytest.approx(expected, rel=1e-12)
+    assert np.all(np.isfinite(np.asarray(jax.grad(f)(spread))))

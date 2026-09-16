@@ -92,17 +92,23 @@ def test_laminar_mode_constant_token_is_not_pinned():
     assert result.reduced_chi_squared == pytest.approx(expected_reduced_chi2)
 
 
-def test_static_and_laminar_share_the_same_resolver_path():
-    """Regression guard for the extraction itself: whatever DOF the function
-    reports for a given (mode, token, n_phi, n_physical) combination is
-    deterministic and does not depend on which call site invoked it -- there
-    is only one code path left to compute it."""
-    kwargs = dict(
-        per_angle_mode="individual",
-        analysis_mode=AnalysisMode.STATIC_ISOTROPIC,
-        n_phi=4,
-        n_physical=3,
+def test_wrapper_has_a_single_out_of_core_call_site():
+    """Wiring guard for the extraction itself: calling the same pure
+    function twice with identical args (the old version of this test) is
+    vacuous -- it cannot detect a re-introduced second call site in
+    ``wrapper.py`` that resolves DOF through a different (unpinned) path,
+    which is exactly the bug this module's extraction fixed (see module
+    docstring). Assert the extraction actually collapsed the initial-decision
+    and strategy-recheck triggers onto ONE ``run_out_of_core_route(`` call.
+    """
+    import inspect
+
+    import xpcsjax.optimization.nlsq.wrapper as wrapper_module
+
+    src = inspect.getsource(wrapper_module)
+    assert src.count("run_out_of_core_route(") == 1, (
+        "wrapper.py must delegate to run_out_of_core_route from exactly one "
+        "call site -- a second call site can resolve per-angle DOF through "
+        "a different (unpinned) path, reintroducing the initial-vs-recheck "
+        "divergence this module's extraction fixed"
     )
-    first = _run(**kwargs)
-    second = _run(**kwargs)
-    assert first.reduced_chi_squared == pytest.approx(second.reduced_chi_squared)

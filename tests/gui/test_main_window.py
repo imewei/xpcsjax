@@ -4,9 +4,9 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QAction, QCloseEvent
 
+from tests.gui.ipc_fakes import FakeHandle as _FakeHandle
 from xpcsjax.gui.result_loader import ResultSummary
 
 
@@ -129,34 +129,6 @@ def test_close_event_calls_queue_shutdown(qtbot, monkeypatch):
     monkeypatch.setattr(win._queue, "shutdown", lambda: called.__setitem__("shutdown", True))
     win.closeEvent(QCloseEvent())
     assert called["shutdown"] is True
-
-
-class _FakeHandle(QObject):
-    """Minimal WorkerHandle stand-in: never spawns a real process."""
-
-    event = Signal(object)
-    reaped = Signal()  # matches WorkerHandle's non-blocking-cancel contract (A10)
-
-    def __init__(self, job):
-        super().__init__()
-        self.job = job
-        self._alive = False
-
-    def start(self):
-        self._alive = True
-
-    def cancel(self):
-        self._alive = False
-        self.reaped.emit()
-
-    def is_running(self):
-        return self._alive
-
-    def shutdown(self):
-        self._alive = False
-
-    def _cancel_blocking(self):
-        self._alive = False
 
 
 def test_close_project_stops_active_and_pending_runs(qtbot, tmp_path):

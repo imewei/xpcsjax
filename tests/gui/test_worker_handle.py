@@ -56,6 +56,31 @@ def test_cancel_terminates_running_worker(qtbot, monkeypatch):
     assert not h.is_running()
 
 
+def test_cancel_reaps_via_event_loop_and_clears_timer(qtbot, monkeypatch):
+    """A10's QTimer escalation must actually run off the Qt event loop against
+    a real (fake-worker) process, not just be driven by hand via _poll_cancel()
+    with backdated deadlines (as the escalation unit tests above do). Waiting
+    on ``reaped`` -- emitted only from ``_finish_cancel()`` -- proves the timer
+    fired for real; ``test_cancel_terminates_running_worker`` only waits on
+    ``is_running()``, which flips false as soon as the child dies regardless
+    of whether the QTimer poll loop ever ran.
+    """
+    from xpcsjax.gui.ipc import handle as handle_mod
+    from xpcsjax.gui.ipc.handle import WorkerHandle
+
+    monkeypatch.setattr(handle_mod, "run_worker", ipc_fakes.sleep_forever)
+    h = WorkerHandle(FitJob(run_id="r1", config_path="c.yaml"))
+    h.start()
+    _collect(h, qtbot, lambda e: isinstance(e, Started))
+    assert h.is_running()
+
+    with qtbot.waitSignal(h.reaped, timeout=10000):
+        h.cancel()
+
+    assert h._cancel_timer is None
+    assert not h.is_running()
+
+
 def test_cancel_and_shutdown_join_reader_thread(qtbot, monkeypatch):
     # After cancel() + shutdown() the reader QThread must be fully stopped — a
     # QThread still running at GC aborts with "QThread: Destroyed while running".
@@ -71,6 +96,63 @@ def test_cancel_and_shutdown_join_reader_thread(qtbot, monkeypatch):
     h.shutdown()
     qtbot.waitUntil(lambda: reader is not None and reader.isFinished(), timeout=10000)
     assert reader.isFinished()
+
+
+def test_cancel_blocking_stops_a_real_worker(qtbot, monkeypatch):
+    """_cancel_blocking() (the atexit/closeEvent teardown path) has no direct
+    coverage elsewhere -- only the FakeHandle's `cancel_blocking_called` flag
+    is asserted in test_fit_queue.py. Exercise the real synchronous
+    terminate -> join -> (kill -> join) sequence against a real (fake-worker)
+    process.
+    """
+    from xpcsjax.gui.ipc import handle as handle_mod
+    from xpcsjax.gui.ipc.handle import WorkerHandle
+
+    monkeypatch.setattr(handle_mod, "run_worker", ipc_fakes.sleep_forever)
+    h = WorkerHandle(FitJob(run_id="r1", config_path="c.yaml"))
+    h.start()
+    _collect(h, qtbot, lambda e: isinstance(e, Started))
+    assert h.is_running()
+
+    h._cancel_blocking()
+
+    assert not h.is_running()
+    assert h._cancel_timer is None
+
+
+def test_cancel_blocking_order_terminate_join_kill_join():
+    """MagicMock case pinning the exact synchronous escalation order:
+    terminate() -> join(_TERMINATE_JOIN_S) -> (still alive ->) kill() ->
+    join(_KILL_JOIN_S)."""
+    from unittest.mock import MagicMock
+
+    from xpcsjax.gui.ipc.handle import (
+        _KILL_JOIN_S,
+        _TERMINATE_JOIN_S,
+        WorkerHandle,
+    )
+
+    h = WorkerHandle(FitJob(run_id="r1", config_path="c.yaml"))
+    fake_proc = MagicMock()
+    # First is_alive() (the entry guard) and the post-terminate check both
+    # report alive, forcing the kill escalation branch.
+    fake_proc.is_alive.side_effect = [True, True]
+    h._proc = fake_proc
+    h._reader = MagicMock()
+    h._queue = MagicMock()
+
+    h._cancel_blocking()
+
+    assert [c[0] for c in fake_proc.method_calls] == [
+        "is_alive",
+        "terminate",
+        "join",
+        "is_alive",
+        "kill",
+        "join",
+    ]
+    fake_proc.join.assert_any_call(timeout=_TERMINATE_JOIN_S)
+    fake_proc.join.assert_any_call(timeout=_KILL_JOIN_S)
 
 
 def test_shutdown_defers_reap_when_reader_wait_times_out():

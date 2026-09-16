@@ -49,32 +49,11 @@ def test_map_views_clear_removes_image(qtbot):
 # ----------------------------------------------------------------------------
 def test_cancel_race_finished_stays_cancelled(qtbot, tmp_path):
     """agy#4: a Finished arriving after cancel() must keep status 'cancelled', not flip to 'done'."""
-    from PySide6.QtCore import QObject, Signal
-
+    from tests.gui.ipc_fakes import FakeHandle
     from xpcsjax.gui.controllers.fit_queue import FitQueueController
     from xpcsjax.service.events import Finished
 
-    class _FakeHandle(QObject):
-        event = Signal(object)
-
-        def __init__(self, job):
-            super().__init__()
-            self.job = job
-            self._alive = False
-
-        def start(self):
-            self._alive = True
-
-        def cancel(self):
-            self._alive = False
-
-        def is_running(self):
-            return self._alive
-
-        def shutdown(self):
-            self._alive = False
-
-    q = FitQueueController(max_concurrent=1, handle_factory=_FakeHandle)
+    q = FitQueueController(max_concurrent=1, handle_factory=FakeHandle)
     statuses, finished = [], []
     q.run_status_changed.connect(lambda rid, st: statuses.append((rid, st)))
     q.run_finished.connect(lambda rid, path, summ: finished.append(rid))

@@ -80,18 +80,28 @@ def test_memory_error_propagates_instead_of_falling_through(monkeypatch):
 
 
 def test_value_error_still_falls_through_to_dense_path(monkeypatch):
-    """Non-memory failures are still recoverable -- this must NOT raise; it
-    should fall through and continue past the stratified-LS try/except (the
-    dense path below will itself likely fail fast on the fake object() data,
-    which is an acceptable/expected downstream error for this unit test --
-    the point is that it is NOT the injected ValueError)."""
+    """Non-memory failures are still recoverable: ``run_stratified_ls_route``
+    catches (ValueError, RuntimeError, OSError) and returns ``None`` to tell
+    ``NLSQWrapper.fit`` to fall through to the standard in-memory path
+    (xpcsjax/optimization/nlsq/wrapper_stratified_route.py:632-638). The
+    fall-through's first act back in ``fit()`` is
+    ``self._prepare_xy_data(stratified_data)`` (wrapper.py:1157, immediately
+    after the ``stratified_result is not None`` gate) -- monkeypatch THAT to
+    raise a sentinel so the test proves the dense path was actually reached,
+    rather than merely checking that some later, unrelated error surfaced
+    (``pytest.raises(Exception)`` + a string-absence check would also pass if
+    the injected ValueError leaked out unhandled)."""
     fit_kwargs = _make_wrapper_and_fit_kwargs(monkeypatch)
     monkeypatch.setattr(
         NLSQWrapper,
         "_fit_with_stratified_least_squares",
         lambda self, *a, **k: (_ for _ in ()).throw(ValueError("recoverable")),
     )
+    monkeypatch.setattr(
+        NLSQWrapper,
+        "_prepare_xy_data",
+        lambda self, *a, **k: (_ for _ in ()).throw(RuntimeError("dense-reached")),
+    )
     wrapper = NLSQWrapper()
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(RuntimeError, match="dense-reached"):
         wrapper.fit(**fit_kwargs)
-    assert "recoverable" not in str(excinfo.value)

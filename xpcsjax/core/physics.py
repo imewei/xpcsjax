@@ -146,7 +146,9 @@ def validate_parameters_detailed(
     violations = []
 
     # Check if we're dealing with JAX tracers during gradient computation
-    first_param = params[0] if hasattr(params, "__getitem__") else params
+    # Guard the probe: an empty or 0-d array must fall through to the count
+    # check below (which reports it) instead of raising IndexError here.
+    first_param = params[0] if getattr(params, "ndim", 1) >= 1 and len(params) > 0 else params
     if isinstance(first_param, jax.core.Tracer):
         # Skip validation during JAX gradient computation
         return ValidationResult(

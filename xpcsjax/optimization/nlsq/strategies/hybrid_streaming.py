@@ -393,7 +393,9 @@ def _resolve_streaming_per_angle_mode(
     )
 
 
-def _bin_to_grid(values: np.ndarray, grid: np.ndarray, axis_name: str) -> np.ndarray:
+def _bin_to_grid(
+    values: np.ndarray, grid: np.ndarray, axis_name: str, *, logger: Any = logger
+) -> np.ndarray:
     """Bin values onto a grid via searchsorted, warning on out-of-grid points.
 
     An unguarded clip silently routes data lying outside the fitted grid to
@@ -402,9 +404,11 @@ def _bin_to_grid(values: np.ndarray, grid: np.ndarray, axis_name: str) -> np.nda
     many points were affected so misaligned data/config is not silent.
 
     Was a nested closure inside :func:`fit_with_stratified_hybrid_streaming`
-    that captured nothing but its own arguments and the module-level
-    ``logger`` -- hoisted to module scope (optimization review item C10; also
-    mirrors the heterodyne twin in ``heterodyne_hybrid_streaming.py``).
+    that captured only its own arguments and that function's injected
+    ``logger`` parameter; hoisted to module scope, the caller threads its
+    logger through ``logger=`` so out-of-grid warnings keep their original
+    logger name (optimization review item C10; mirrors the heterodyne twin
+    in ``heterodyne_hybrid_streaming.py``).
     """
     raw = np.searchsorted(grid, values)
     n_oob = int(np.sum(raw >= len(grid)))
@@ -1006,9 +1010,9 @@ def fit_with_stratified_hybrid_streaming(
     # Convert to indices (vectorized).
     # NOTE: Both t1 and t2 index into t1_unique because XPCS correlation
     # matrices use a shared time grid (t1_unique == t2_unique).
-    phi_idx_arr = _bin_to_grid(all_phi_data, phi_unique, "phi")
-    t1_idx_arr = _bin_to_grid(all_t1_data, t1_unique, "t1")
-    t2_idx_arr = _bin_to_grid(all_t2_data, t1_unique, "t2")
+    phi_idx_arr = _bin_to_grid(all_phi_data, phi_unique, "phi", logger=logger)
+    t1_idx_arr = _bin_to_grid(all_t1_data, t1_unique, "t1", logger=logger)
+    t2_idx_arr = _bin_to_grid(all_t2_data, t1_unique, "t2", logger=logger)
 
     # B2: Store grid indices as int32 (not float64).  Grid indices are
     # non-negative integers; int32 covers any realistic grid (max ~2.1B).
@@ -1230,7 +1234,21 @@ def fit_with_stratified_hybrid_streaming(
             anti_degeneracy_components.get("shear_weighter"),
         )
 
-        def loss_fn(params: Any) -> Any:
+        # L5 weights are a TRACED argument of the loss, not a closure capture:
+        # ``jax.jit`` would otherwise bake ``shear_weighter._weights_jax`` in
+        # as a trace-time constant, and ``update_phi0`` (called every outer
+        # iteration by ``shear_weight_update_callback``) rebinds that array,
+        # so the phi0 feedback loop would be silently frozen at iteration 0.
+        _shear_enabled = shear_weighter_local is not None and bool(
+            shear_weighter_local.config.enable
+        )
+
+        def _current_shear_weights() -> Any:
+            if shear_weighter_local is None:
+                return jnp.zeros((1,), dtype=jnp.float64)  # unused placeholder
+            return shear_weighter_local.get_weights_jax()
+
+        def _loss_core(params: Any, shear_w: Any) -> Any:
             """Loss function for hierarchical optimizer.
 
             CRITICAL: Must use jnp (JAX) operations, NOT np (NumPy).
@@ -1238,7 +1256,8 @@ def fit_with_stratified_hybrid_streaming(
             resulting in zero gradients for all parameters.
 
             Layer 5: Shear-sensitivity weighting is applied here to prevent
-            gradient cancellation for shear parameters (gamma_dot_t0, phi0).
+            gradient cancellation for shear parameters (gamma_dot_t0, phi0);
+            ``shear_w`` is the per-angle weight table (traced; see above).
             """
             # Convert params to JAX array if needed for tracing
             params_jax = jnp.asarray(params)
@@ -1257,15 +1276,17 @@ def fit_with_stratified_hybrid_streaming(
             # weighting, when also active, combines with it rather than
             # silently overriding it.
             residuals_sw = _sigma_weighted_residuals(residuals, sigma)
-            if shear_weighter_local is not None:
-                # Use shear-weighted loss instead of uniform MSE. Passing the
-                # already sigma-divided residuals means apply_weights_to_loss's
+            if _shear_enabled:
+                # Shear-weighted loss instead of uniform MSE -- the inline
+                # equivalent of ShearSensitivityWeighting.apply_weights_to_loss
+                # (sum(w[phi_idx] * r**2), mean-normalized weights) evaluated
+                # on the TRACED weight table so phi0 updates reach the jitted
+                # gradient. Passing the already sigma-divided residuals means
                 # sum(w * r**2) becomes sum(w * (r/sigma)**2) -- both layers
                 # combined, matching the sibling plain-path branch's
                 # optimizer.fit(sigma=sigma, ...).
-                weighted_loss = shear_weighter_local.apply_weights_to_loss(
-                    residuals_sw, phi_indices_jax
-                )
+                weights = shear_w[phi_indices_jax.astype(jnp.int32)]
+                weighted_loss = jnp.sum(weights * residuals_sw**2)
             else:
                 # CRITICAL: Use jnp operations, NOT np -- np.mean breaks JAX
                 # autodiff and causes zero gradients.
@@ -1289,12 +1310,15 @@ def fit_with_stratified_hybrid_streaming(
         # loss value from one compiled call (mirrors stratified_ls.py's
         # "do not re-trace the large residual graph" jitted loss/value_and_grad
         # pair).
-        _loss_jit = jax.jit(loss_fn)
-        _vag = jax.jit(jax.value_and_grad(loss_fn))
+        _vag = jax.jit(jax.value_and_grad(_loss_core, argnums=0))
+
+        def loss_fn(params: Any) -> Any:
+            """Un-jitted loss on the live L5 weights (HierarchicalOptimizer.fit)."""
+            return _loss_core(params, _current_shear_weights())
 
         def grad_fn(params: Any) -> Any:
             """Gradient function with optional monitoring."""
-            loss_val, grad = _vag(params)
+            loss_val, grad = _vag(params, _current_shear_weights())
 
             # Layer 4: Gradient monitoring
             if gradient_monitor is not None:
@@ -1337,7 +1361,15 @@ def fit_with_stratified_hybrid_streaming(
         s2_hier = hier_result.fun / max(n_hier_data - n_hier_params, 1)
         try:
             popt_jax = jnp.asarray(hier_result.x)
-            H = np.asarray(jax.jit(jax.hessian(_loss_jit))(popt_jax))
+            # Bind the FINAL L5 weights once; the Hessian is a post-solve
+            # quantity so a fresh trace here is correct (and keeps the
+            # ``jax.hessian(fn)(p)`` call shape tests monkeypatch).
+            _w_final = _current_shear_weights()
+
+            def _loss_final(p: Any) -> Any:
+                return _loss_core(p, _w_final)
+
+            H = np.asarray(jax.jit(jax.hessian(_loss_final))(popt_jax))
         except (ValueError, RuntimeError, MemoryError, np.linalg.LinAlgError) as e:
             logger.warning(f"Could not compute Hessian: {e}. Using identity placeholder.")
             H = None

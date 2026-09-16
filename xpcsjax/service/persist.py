@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from xpcsjax.io.json_utils import json_safe as _json_safe
+from xpcsjax.io.json_utils import json_serializer
 from xpcsjax.utils.logging import get_logger
 from xpcsjax.utils.path_validation import get_safe_output_dir
 
@@ -331,7 +332,9 @@ def save_results_json(
 
     path = output_dir / filename
     tmp_path = output_dir / (filename + ".tmp")
-    tmp_path.write_text(json.dumps(_json_safe(payload), indent=2), encoding="utf-8")
+    tmp_path.write_text(
+        json.dumps(_json_safe(payload), indent=2, default=json_serializer), encoding="utf-8"
+    )
     os.replace(tmp_path, path)
     logger.info("Saved NLSQ result JSON to %s", path)
     return path
@@ -396,10 +399,12 @@ def save_results_npz(
     if residuals is not None:
         arrays["residuals"] = np.asarray(residuals, dtype=np.float64)
 
-    metadata_blob = json.dumps(_json_safe(_extract_metadata(result)))
+    metadata_blob = json.dumps(_json_safe(_extract_metadata(result)), default=json_serializer)
     arrays["metadata_json"] = np.array(metadata_blob)
     arrays["config_json"] = np.array(
-        json.dumps(_json_safe(_config_summary(config_manager, parameter_names)))
+        json.dumps(
+            _json_safe(_config_summary(config_manager, parameter_names)), default=json_serializer
+        )
     )
 
     path = output_dir / filename

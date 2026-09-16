@@ -417,45 +417,18 @@ def test_parse_optional_rejects_non_finite(bad):
 
 def test_close_project_tears_down_active_worker(qtbot):
     """Close Project must not orphan a running fit worker (no cancel handle left)."""
+    from tests.gui.ipc_fakes import FakeHandle
+
     win = _window(qtbot)
 
-    calls = {"cancel": 0}
-
-    class _FakeEvent:
-        def disconnect(self):
-            pass
-
-    class _FakeSignal:
-        """Minimal Signal stand-in: just needs .connect() to be a no-op."""
-
-        def connect(self, _slot):
-            pass
-
-    class _FakeHandle:
-        def __init__(self):
-            self.event = _FakeEvent()
-            self.reaped = _FakeSignal()  # WorkerHandle's non-blocking-cancel contract (A10)
-
-        def is_running(self):
-            return True
-
-        def cancel(self):
-            calls["cancel"] += 1
-
-        def _cancel_blocking(self):  # closeEvent/atexit path (A10)
-            calls.setdefault("cancel_blocking", 0)
-            calls["cancel_blocking"] += 1
-
-        def shutdown(self):
-            pass
-
-    win._queue._handles["r1"] = _FakeHandle()
+    handle = FakeHandle(alive=True)
+    win._queue._handles["r1"] = handle
     assert win._queue.active_count() == 1
 
     win.close_project()
 
     assert win._queue.active_count() == 0  # the orphaned worker was torn down
-    assert calls["cancel"] == 1
+    assert handle.cancel_calls == 1
 
 
 def test_on_create_config_guards_overwrite_retry_failure(qtbot, tmp_path, monkeypatch):

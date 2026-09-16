@@ -151,26 +151,11 @@ def test_inspector_tolerates_non_dict_diagnostics(qtbot, tmp_path):
 def test_stale_non_terminal_event_for_freed_run_is_dropped(qtbot):
     """P3 (signal-wiring): a LogLine/Iteration/Banner for a run no longer in
     _handles (freed/cancelled) must NOT be re-emitted to the monitor widgets."""
-    from PySide6.QtCore import QObject, Signal
-
+    from tests.gui.ipc_fakes import FakeHandle
     from xpcsjax.gui.controllers.fit_queue import FitQueueController
     from xpcsjax.service.events import Iteration
 
-    class _FakeHandle(QObject):
-        event = Signal(object)
-
-        def __init__(self, job):
-            super().__init__()
-            self.job = job
-            self._alive = False
-
-        def start(self):
-            self._alive = True
-
-        def cancel(self):
-            self._alive = False
-
-    q = FitQueueController(handle_factory=lambda job: _FakeHandle(job))
+    q = FitQueueController(handle_factory=FakeHandle)
     iters: list = []
     q.iteration_received.connect(lambda rid, n, ssr: iters.append((rid, n, ssr)))
 

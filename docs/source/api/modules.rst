@@ -105,8 +105,6 @@ need their ``py:module`` entry below.
 
 .. py:module:: xpcsjax.data.optimization
 
-.. py:module:: xpcsjax.data.performance_engine
-
 .. py:module:: xpcsjax.data.phi_filtering
 
 .. py:module:: xpcsjax.data.preprocessing

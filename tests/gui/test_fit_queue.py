@@ -4,12 +4,9 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QObject, Signal
-
 from xpcsjax.service.events import (
     Banner,
     BannerKind,
-    Finished,
     Iteration,
     LayerStatus,
     LogLine,
@@ -17,53 +14,11 @@ from xpcsjax.service.events import (
 )
 
 
-class _FakeHandle(QObject):
-    event = Signal(object)
-    reaped = Signal()  # matches WorkerHandle's non-blocking-cancel contract (A10)
-
-    def __init__(self, job):
-        super().__init__()
-        self.job = job
-        self._alive = False
-        self.cancelled = False
-        self.joined = False
-        self.cancel_blocking_called = False
-
-    def start(self):
-        self._alive = True
-
-    def cancel(self):
-        # Fake the async contract: real WorkerHandle.cancel() posts signals
-        # synchronously (fast) but defers `reaped` to a later QTimer tick, so
-        # emit it here too rather than inline -- callers must not assume
-        # `reaped` has already fired by the time cancel() returns.
-        self.cancelled = True
-        self._alive = False
-        self.reaped.emit()
-
-    def is_running(self):
-        return self._alive
-
-    def shutdown(self):
-        self.joined = True
-        self._alive = False
-
-    def _cancel_blocking(self):
-        """Fake the atexit/closeEvent-only fully-synchronous cancel path."""
-        self.cancelled = True
-        self.cancel_blocking_called = True
-        self._alive = False
-
-    def finish(self, result_path=""):
-        # Test helper: emit a terminal event and go not-running.
-        self._alive = False
-        self.event.emit(Finished(run_id=self.job.run_id, seq=9, result_path=result_path))
-
-
 def _queue(max_concurrent=1):
+    from tests.gui.ipc_fakes import FakeHandle
     from xpcsjax.gui.controllers.fit_queue import FitQueueController
 
-    return FitQueueController(max_concurrent=max_concurrent, handle_factory=_FakeHandle)
+    return FitQueueController(max_concurrent=max_concurrent, handle_factory=FakeHandle)
 
 
 def test_bounded_concurrency_runs_one_at_a_time(qtbot, tmp_path):

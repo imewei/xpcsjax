@@ -29,6 +29,7 @@ import argparse
 import pytest
 
 from xpcsjax.cli import config_handling
+from xpcsjax.config import ConfigManager
 
 
 def test_load_failure_names_the_file(tmp_path):
@@ -41,3 +42,54 @@ def test_load_failure_names_the_file(tmp_path):
     with pytest.raises(Exception) as exc:
         config_handling.load_and_merge_config(bad, argparse.Namespace())
     assert str(bad) in str(exc.value)  # error names which config failed
+
+
+def _write_static_isotropic_config(tmp_path) -> str:
+    cfg = tmp_path / "static_isotropic.yaml"
+    cfg.write_text(
+        """
+analysis_mode: "static_isotropic"
+analyzer_parameters:
+  dt: 1.0
+  start_frame: 1
+  end_frame: 10
+  scattering:
+    wavevector_q: 0.01
+experimental_data:
+  data_folder_path: "/tmp"
+  data_file_name: "dummy.hdf"
+"""
+    )
+    return str(cfg)
+
+
+def test_initial_override_resolver_failure_raises_value_error(tmp_path, monkeypatch):
+    # A11 (xpcsjax/cli/config_handling.py:261): a resolver failure while
+    # applying --initial-* overrides must abort the run with a ValueError
+    # naming the failure, not silently drop the override and fall back to
+    # YAML/registry defaults.
+    config_manager = ConfigManager(_write_static_isotropic_config(tmp_path))
+
+    def _boom():
+        raise RuntimeError("resolver exploded")
+
+    monkeypatch.setattr(config_manager, "get_active_parameters", _boom)
+    args = argparse.Namespace(initial_D0=1234.5)
+
+    with pytest.raises(ValueError, match="cannot apply --initial"):
+        config_handling.apply_cli_overrides(config_manager, args)
+
+
+def test_initial_override_lands_in_initial_parameters_values(tmp_path):
+    # Green companion: a well-formed --initial-D0 override must be written
+    # into the canonical config["initial_parameters"]["values"] block that
+    # ConfigManager.get_initial_parameters() reads back from.
+    config_manager = ConfigManager(_write_static_isotropic_config(tmp_path))
+    args = argparse.Namespace(initial_D0=4242.0)
+
+    config_handling.apply_cli_overrides(config_manager, args)
+
+    names = config_manager.config["initial_parameters"]["parameter_names"]
+    values = config_manager.config["initial_parameters"]["values"]
+    assert values[names.index("D0")] == pytest.approx(4242.0)
+    assert config_manager.get_initial_parameters()["D0"] == pytest.approx(4242.0)

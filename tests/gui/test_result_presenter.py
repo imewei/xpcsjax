@@ -135,14 +135,28 @@ def test_show_result_with_bundle_falls_back_to_text_when_no_bundle(qtbot, tmp_pa
     assert win._central_stack.currentIndex() == 0
 
 
-def test_show_result_with_bundle_discards_stale_load(qtbot, tmp_path):
+def test_show_result_with_bundle_discards_stale_load(qtbot, tmp_path, monkeypatch):
     """A slower load for an earlier selection must not clobber a newer one.
 
     Regression for the "finished-run-clobber" bug class: if run A's bundle
     load is still in flight when the user (or a finishing run) switches the
     panel to run B, A's load completing later must be a no-op rather than
     overwriting B's already-applied result.
+
+    Made deterministic (D10 review finding): the stale load used to just run
+    on the QThreadPool and race the second ``_show_result_with_bundle`` call
+    -- if the pool finished the stale load first, the discard guard
+    (``result_dir != self._pending_result_dir``) was never exercised and the
+    test passed vacuously (verified: with the guard defeated it failed 5/5
+    at the time of writing, but only because the pool happened to be slower
+    than the second call). Block the stale load on a ``threading.Event``
+    until after the fresh call has completed, so the guard is always
+    actually exercised regardless of scheduling speed.
     """
+    import threading
+
+    from xpcsjax.gui.views.main_window_support import result_presenter as rp_module
+
     stale_dir = tmp_path / "stale"
     fresh_dir = tmp_path / "fresh"
     _write_bundle(stale_dir)
@@ -152,12 +166,34 @@ def test_show_result_with_bundle_discards_stale_load(qtbot, tmp_path):
     stale_summary = _summary(stale_dir, "stale_run")
     fresh_summary = _summary(fresh_dir, "fresh_run")
 
+    release = threading.Event()
+    loaded_stale = threading.Event()
+    real_load_viz_bundle = rp_module.load_viz_bundle
+
+    def _blocking_load(result_dir):
+        is_stale = str(result_dir) == str(stale_dir)
+        if is_stale:
+            release.wait(timeout=5.0)
+        result = real_load_viz_bundle(result_dir)
+        if is_stale:
+            loaded_stale.set()
+        return result
+
+    monkeypatch.setattr(rp_module, "load_viz_bundle", _blocking_load)
+
     # Simulate: stale load was requested (pending_result_dir set)...
     win._show_result_with_bundle(stale_summary, str(stale_dir))
     # ...then immediately superseded by a newer selection before it completes.
     win._show_result_with_bundle(fresh_summary, str(fresh_dir))
 
     qtbot.waitUntil(lambda: "fresh_run" in win.result_text(), timeout=5000)
+    # Now let the stale load finish and hit the discard guard.
+    release.set()
+    qtbot.waitUntil(lambda: loaded_stale.is_set(), timeout=5000)
+    # One more event-loop turn for the stale load's queued `finished` signal
+    # to actually be delivered/processed on the main thread.
+    qtbot.wait(50)
+
     # The stale grid must never have been applied over the fresh text result.
     assert win._central_stack.currentIndex() == 0
     assert "stale_run" not in win.result_text()

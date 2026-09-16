@@ -1296,7 +1296,7 @@ def _save_fit_artifacts(
     tmp_json = Path(tmp_str)
     try:
         with open(tmp_json, "w", encoding="utf-8") as f:
-            # json_safe() converts NaN/Infinity to RFC-8259-legal null/strings
+            # json_safe() converts NaN/±Infinity to RFC-8259-legal null
             # so non-converged or all-NaN fits still yield strictly parseable JSON.
             json.dump(json_safe(meta), f, indent=2, default=json_serializer)
         tmp_json.replace(json_path)

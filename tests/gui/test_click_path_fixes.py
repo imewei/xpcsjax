@@ -11,12 +11,9 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import (
-    QItemSelectionModel,
-    QObject,
-    Signal,
-)
+from PySide6.QtCore import QItemSelectionModel
 
+from tests.gui.ipc_fakes import FakeHandle as _FakeHandle
 from xpcsjax.gui.controllers.fit_queue import FitQueueController
 from xpcsjax.gui.project.persist import _SCHEMA
 
@@ -27,34 +24,6 @@ def _window(qtbot):
     win = MainWindow()
     qtbot.addWidget(win)
     return win
-
-
-class _FakeHandle(QObject):
-    """Minimal WorkerHandle stand-in: never spawns a real process (mirrors test_main_window)."""
-
-    event = Signal(object)
-    reaped = Signal()  # matches WorkerHandle's non-blocking-cancel contract (A10)
-
-    def __init__(self, job):
-        super().__init__()
-        self.job = job
-        self._alive = False
-
-    def start(self):
-        self._alive = True
-
-    def cancel(self):
-        self._alive = False
-        self.reaped.emit()
-
-    def is_running(self):
-        return self._alive
-
-    def shutdown(self):
-        self._alive = False
-
-    def _cancel_blocking(self):
-        self._alive = False
 
 
 # CLICK-PATH-001: fit failure never reached the central panel (show_error dead code).
