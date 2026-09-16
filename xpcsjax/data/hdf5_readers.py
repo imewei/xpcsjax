@@ -506,11 +506,16 @@ def load_aps_u_format(loader: XPCSDataLoader, hdf_path: str) -> dict[str, Any]:
 
         selected_c2_matrices: list[NDArray] | None
         if quality_filtering_enabled:
-            # Pass 1: phi/q metadata pre-filter (no HDF5 reads).
+            # Pass 1: phi/q metadata pre-filter (no HDF5 reads). Same
+            # data_filtering config as pass 2 below, so a fallback here
+            # would otherwise double-record the DATA-1 degradation signal
+            # for one logical fallback -- only pass 2 (the final decision)
+            # records it.
             metadata_indices = loader._get_selected_indices(
                 filtered_dqlist,
                 filtered_dphilist,
                 None,  # No matrices needed for phi-only filtering
+                record_degradation=False,
             )
             candidate_indices = (
                 np.intersect1d(q_matching_indices, metadata_indices)

@@ -54,6 +54,7 @@ def _bare_loader(config: dict | None = None) -> XPCSDataLoader:
     loader = XPCSDataLoader.__new__(XPCSDataLoader)
     loader.analyzer_config = {}
     loader.config = config or {}
+    loader.load_degradations = []
     return loader
 
 
@@ -158,6 +159,33 @@ def test_selective_read_matches_eager_read_with_phi_filtering(tmp_path):
     assert np.array_equal(new_result["wavevector_q_list"], old_result["wavevector_q_list"])
     assert np.array_equal(new_result["phi_angles_list"], old_result["phi_angles_list"])
     assert np.array_equal(new_result["c2_exp"], old_result["c2_exp"])
+
+
+def test_quality_filtering_empty_phi_match_records_one_degradation(tmp_path):
+    """Regression test (2026-09-15 PR #79 review): the quality-filtering
+    branch runs ``_get_selected_indices`` twice against the SAME
+    ``data_filtering`` config -- a phi/q metadata pre-filter pass, then the
+    final quality-filter pass on the narrowed candidates. A phi_range that
+    matches nothing triggers the ``fallback_on_empty`` path in BOTH passes;
+    before the fix this recorded the DATA-1 degradation signal twice for one
+    logical fallback. Only the final (pass 2) fallback should be recorded.
+    """
+    path = tmp_path / "aps_u_multi_quality_empty_phi.h5"
+    _write_multi_bin_aps_u_file(path, n_q=3, n_phi=3)
+
+    config = {
+        "data_filtering": {
+            "enabled": True,
+            "phi_range": {"min": 500.0, "max": 600.0},  # matches no phi value
+            "quality_filtering": {"enabled": True, "quality_threshold": 0.0},
+        }
+    }
+    loader = _bare_loader(config)
+    loader._load_aps_u_format(str(path))
+
+    assert len(loader.load_degradations) == 1, (
+        f"expected exactly one degradation entry, got {loader.load_degradations!r}"
+    )
 
 
 def test_selective_read_matches_eager_read_with_quality_filtering(tmp_path):

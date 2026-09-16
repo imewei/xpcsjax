@@ -33,40 +33,8 @@ import numpy as np
 
 # Note: JAX is not used in this module. Data filtering is numpy-only
 # for simplicity and compatibility. See jax_backend.py for JAX operations.
-
-# V2 logging integration
-try:
-    from xpcsjax.utils.logging import get_logger, log_performance
-
-    HAS_V2_LOGGING = True
-except ImportError:
-    import logging
-
-    HAS_V2_LOGGING = False
-
-    # Fallback shims for environments without the v2 logging stack. The real
-    # ``get_logger``/``log_performance`` accept broader signatures (optional
-    # context kwarg, decorator parameterization); these fallbacks intentionally
-    # narrow to the subset module-level callers need. ``# type: ignore[misc]``
-    # acknowledges the signature delta with the try-branch import.
-    def get_logger(name: str) -> logging.Logger:  # type: ignore[misc]
-        return logging.getLogger(name)
-
-    def log_performance(*args: Any, **kwargs: Any) -> Any:  # type: ignore[misc]
-        def decorator(func: Any) -> Any:
-            return func
-
-        return decorator
-
-
-# Physics validation integration
-try:
-    from xpcsjax.core.physics import PhysicsConstants
-
-    HAS_PHYSICS = True
-except ImportError:
-    HAS_PHYSICS = False
-    PhysicsConstants = None  # type: ignore
+from xpcsjax.core.physics import PhysicsConstants
+from xpcsjax.utils.logging import get_logger, log_performance
 
 # Data validation integration
 try:
@@ -300,7 +268,7 @@ class XPCSDataFilter:
         )
 
         # Physics validation if available
-        if HAS_PHYSICS and self.validation_level == "strict":
+        if self.validation_level == "strict":
             self._validate_q_range_physics(q_min, q_max, result)
 
         return mask
@@ -608,9 +576,6 @@ class XPCSDataFilter:
         result: FilteringResult,
     ) -> None:
         """Validate q-range against physics constraints."""
-        if not HAS_PHYSICS:
-            return
-
         warnings = []
 
         if q_min is not None and q_min < PhysicsConstants.Q_MIN_TYPICAL:

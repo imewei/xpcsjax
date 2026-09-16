@@ -140,6 +140,20 @@ class XPCSDataFormatError(Exception):
     """Raised when XPCS data format is not recognized or invalid."""
 
 
+class CacheStaleError(XPCSDataFormatError):
+    """Raised when a cache's source-file identity (name/size) no longer matches.
+
+    Unlike other cache-validation failures (q-vector/filter/dt mismatches,
+    which are genuine format incompatibilities the caller must resolve by
+    hand), this is a cache MISS: the loader catches it, logs a warning, and
+    falls through to reloading from the HDF5 source and overwriting the
+    stale cache (review finding A2 follow-up, 2026-09-15). A source-file
+    mtime-only change (a content-preserving touch -- ``cp`` without ``-p``,
+    ``rsync``, a backup restore) does not raise this; only a name or size
+    change does.
+    """
+
+
 class XPCSDependencyError(Exception):
     """Raised when required dependencies are not available."""
 
@@ -828,6 +842,7 @@ class XPCSDataLoader:
 
         # If user provided a direct NPZ path, prefer it
         direct_path = os.path.join(data_folder, data_file) if data_file else ""
+        data: dict[str, Any] | None = None
         if direct_path.endswith(".npz") and os.path.exists(direct_path):
             logger.info(f"Loading data from NPZ override: {Path(direct_path).name}")
             logger.debug(f"NPZ full path: {direct_path}")
@@ -842,9 +857,18 @@ class XPCSDataLoader:
             # artifacts don't disclose the user's home/dataset directory layout.
             logger.info(f"Loading cached data from: {Path(cache_path).name}")
             logger.debug(f"Cache full path: {cache_path}")
-            data = self._load_from_cache(cache_path)
-        else:
-            # Load from raw HDF file
+            try:
+                data = self._load_from_cache(cache_path)
+            except CacheStaleError as exc:
+                # A2 follow-up: a source-file name/size mismatch is a cache
+                # MISS, not a hard failure -- fall through below to reload
+                # from the HDF5 and overwrite the stale cache.
+                logger.warning(
+                    f"{exc} Cache source changed; reloading from HDF5 and overwriting the cache."
+                )
+
+        if data is None:
+            # Load from raw HDF file (fresh load, or stale-cache fallback).
             hdf_path = os.path.join(data_folder, data_file)
             if not os.path.exists(hdf_path):
                 raise FileNotFoundError(
@@ -1163,6 +1187,8 @@ class XPCSDataLoader:
         dqlist: NDArray,
         dphilist: NDArray,
         correlation_matrices: list[NDArray] | None = None,
+        *,
+        record_degradation: bool = True,
     ) -> NDArray | None:
         """Get indices for comprehensive data filtering based on configuration.
 
@@ -1182,6 +1208,15 @@ class XPCSDataLoader:
             Array of phi angles in degrees.
         correlation_matrices
             Optional list of correlation matrices used for quality filtering.
+        record_degradation
+            Whether a fallback-to-all-data-points outcome should append to
+            ``self.load_degradations`` (DATA-1 signal). The APS-U quality-
+            filtering path (:mod:`xpcsjax.data.hdf5_readers`) calls this
+            twice per load -- a phi/q metadata pre-filter pass, then the
+            final quality-filter pass on the narrowed candidates -- against
+            the SAME ``data_filtering`` config; passing ``False`` on the
+            metadata pre-filter pass avoids double-recording one fallback
+            (review finding, 2026-09-15).
 
         Returns
         -------
@@ -1246,7 +1281,7 @@ class XPCSDataLoader:
                     f"data points selected ({selection_fraction:.2%})",
                 )
 
-                if filtering_result.fallback_used:
+                if filtering_result.fallback_used and record_degradation:
                     # DATA-1 parity with the `except` branch below: a fallback
                     # substitutes ALL data points for the subset the config asked
                     # for (empty filter result, or a caught filtering error inside
@@ -1283,9 +1318,12 @@ class XPCSDataLoader:
             # Check if we should fallback or raise
             fallback_on_empty = filtering_config.get("fallback_on_empty", True)
             if fallback_on_empty:
-                # DATA-1: record the degraded substitution (all angles used)
-                # instead of a bare WARNING the caller cannot distinguish.
-                self._record_degradation(f"angle filtering crashed ({e}); fell back to all angles")
+                if record_degradation:
+                    # DATA-1: record the degraded substitution (all angles used)
+                    # instead of a bare WARNING the caller cannot distinguish.
+                    self._record_degradation(
+                        f"angle filtering crashed ({e}); fell back to all angles"
+                    )
                 return None
             raise XPCSDataFormatError(f"Data filtering failed: {e}") from e
 
