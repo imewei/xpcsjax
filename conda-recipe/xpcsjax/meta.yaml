@@ -6,8 +6,8 @@ package:
   version: {{ version }}
 
 source:
-  url: https://files.pythonhosted.org/packages/df/db/0197553a72e362ac513b9483202dd7a27f158b34043ada564377e43e5440/xpcsjax-{{ version }}.tar.gz
-  sha256: 519213df1c803a77929f56c23f72de109a1b7c66c1bb130186de9b4a4d41e590
+  url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/xpcsjax-{{ version }}.tar.gz
+  sha256: 67499d1517219e2d35f2f66ee005bf82de14a245b763c6b8e46433f895734f1a
 
 build:
   number: 0
