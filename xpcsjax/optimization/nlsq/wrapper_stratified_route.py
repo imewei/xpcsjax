@@ -35,7 +35,6 @@ from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.optimization.nlsq.memory import (
     NLSQStrategy,
     get_adaptive_memory_threshold,
-    select_nlsq_strategy,
 )
 from xpcsjax.optimization.nlsq.results import OptimizationResult
 from xpcsjax.optimization.nlsq.strategies.chunking import StratificationDiagnostics
@@ -204,7 +203,15 @@ def run_stratified_ls_route(
                 f"{effective_n_params} (expanded: {actual_n_params})"
             )
 
-    strategy_recheck = select_nlsq_strategy(n_total_points, effective_n_params)
+    # Resolved through the wrapper module at call time, not the module-level
+    # import above: tests (and any caller) that monkeypatch
+    # ``xpcsjax.optimization.nlsq.wrapper.select_nlsq_strategy`` to force a
+    # tier must still steer this re-check, exactly as they did when the
+    # block lived inside ``NLSQWrapper.fit``. Function-local import: wrapper
+    # imports this module lazily, so there is no cycle at import time.
+    from xpcsjax.optimization.nlsq import wrapper as _wrapper_mod
+
+    strategy_recheck = _wrapper_mod.select_nlsq_strategy(n_total_points, effective_n_params)
 
     logger.info(
         f"Strategy re-check (with {effective_n_params} effective params, "
