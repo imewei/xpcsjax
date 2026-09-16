@@ -36,6 +36,7 @@ from xpcsjax.optimization.nlsq.memory import (
     NLSQStrategy,
     get_adaptive_memory_threshold,
 )
+from xpcsjax.optimization.nlsq.result_helpers import _info_cov_placeholder
 from xpcsjax.optimization.nlsq.results import OptimizationResult
 from xpcsjax.optimization.nlsq.strategies.chunking import StratificationDiagnostics
 from xpcsjax.optimization.nlsq.strategies.residual import (
@@ -74,13 +75,13 @@ def run_stratified_ls_route(
     """
     import time
 
-    # Deferred import: wrapper.py imports this module from inside `fit()`,
-    # and these names still live in/on wrapper.py (shared by every other fit
-    # tier too) -- importing at module level here would be circular.
+    # Deferred import, resolved at call time on purpose: tests force the
+    # streaming tier by monkeypatching these flags on the wrapper module, and
+    # _routing_effective_n_params is the wrapper's static-pin owner. (The
+    # pure result helpers come from result_helpers at module level.)
     from xpcsjax.optimization.nlsq.wrapper import (
         HYBRID_STREAMING_AVAILABLE,
         STREAMING_AVAILABLE,
-        _info_cov_placeholder,
         _routing_effective_n_params,
     )
 

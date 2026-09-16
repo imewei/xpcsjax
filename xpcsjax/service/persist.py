@@ -393,8 +393,7 @@ def save_results_npz(
         # No dtype=object: a fixed-width unicode array (numpy infers '<U...')
         # holds the same strings without forcing readers to pass
         # allow_pickle=True, matching the SEC-1 no-pickle convention this
-        # project already enforces in data/xpcs_loader.py and
-        # data/performance_engine.py.
+        # project already enforces in data/xpcs_loader.py and data/npz_cache.py.
         arrays["parameter_names"] = np.array(parameter_names)
     if residuals is not None:
         arrays["residuals"] = np.asarray(residuals, dtype=np.float64)

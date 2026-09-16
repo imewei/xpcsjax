@@ -90,6 +90,9 @@ class ResultPresenter(QObject):
         summary : Any
             A ``ResultSummary`` (or ``None``) to render as plain text.
         """
+        # A synchronous render supersedes any bundle still loading for an
+        # earlier selection; otherwise its late arrival would replace this panel.
+        self._pending_result_dir = None
         if summary is None:
             self._mw._results.setPlainText("Fit finished, but no result file was found.")
             return
@@ -178,6 +181,9 @@ class ResultPresenter(QObject):
         # A colored "FIT FAILED" header is a secondary signal (the status pill
         # and the modal show_failure() dialog already carry the primary one), but plain
         # text gave a scanning eye zero anchor between this and a normal result.
+        # Invalidate any in-flight bundle load: a prior run's successful load
+        # completing after this must not replace the failure panel.
+        self._pending_result_dir = None
         color = current_palette().danger
         self._mw._results.clear()
         self._mw._results.appendHtml(f'<b style="color:{color};">FIT FAILED</b>')

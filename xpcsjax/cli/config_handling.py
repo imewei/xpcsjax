@@ -20,10 +20,7 @@ import argparse
 from pathlib import Path
 from typing import Any
 
-try:
-    import yaml as _yaml
-except ImportError:  # pragma: no cover
-    _yaml = None  # type: ignore[assignment]
+import yaml as _yaml
 
 from xpcsjax.config.manager import ConfigManager
 from xpcsjax.service.config import load_config as _service_load_config
@@ -114,7 +111,7 @@ def load_and_merge_config(
     # Pre-validate YAML syntax so that a malformed file raises with the path
     # named rather than silently falling back to ConfigManager defaults.
     _yaml_path = Path(yaml_path)
-    if _yaml_path.suffix.lower() in (".yaml", ".yml") and _yaml is not None:
+    if _yaml_path.suffix.lower() in (".yaml", ".yml"):
         try:
             with _yaml_path.open(encoding="utf-8") as _f:
                 _yaml.safe_load(_f)

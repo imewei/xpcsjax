@@ -50,7 +50,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-# Handle optional dependencies with graceful fallback
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
@@ -600,7 +599,6 @@ class XPCSDataLoader:
 
         # Add performance optimization defaults
         performance_defaults = {
-            "performance_engine_enabled": True,
             "memory_pressure_monitoring": True,
         }
 
@@ -632,12 +630,9 @@ class XPCSDataLoader:
         """
         self.memory_manager = None
 
-        # Check if performance optimization is enabled
+        # ``performance.performance_engine_enabled`` used to gate the (deleted)
+        # PerformanceEngine; the only knob left here is memory-pressure monitoring.
         performance_config = self.config.get("performance", {})
-        if not performance_config.get("performance_engine_enabled", True):
-            logger.info("Performance engine disabled in configuration")
-            return
-
         try:
             # Initialize memory manager
             if performance_config.get("memory_pressure_monitoring", True):

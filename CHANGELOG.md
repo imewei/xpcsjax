@@ -29,6 +29,33 @@ the rendered documentation.
 
 ### Changed
 
+- **`xpcsjax.cli.config_template.validate_config` renamed to
+  `validate_config_file` and returns a `ValidationReport`** (was a `bool`
+  that also printed). Printing now happens only in the `config_generator`
+  command layer; `xpcsjax.service.config.validate_config(dict)` is
+  unchanged. (codebase review item F2)
+
+- **GUI: cancelling a fit no longer blocks the UI thread.**
+  (`xpcsjax/gui/ipc/handle.py`, `controllers/fit_queue.py`, item A10)
+  `WorkerHandle.cancel()` signals the worker and drives the
+  join → SIGKILL escalation from a `QTimer` (poll 250 ms, escalate 5 s, give
+  up 7 s), emitting `reaped`; the previous fully synchronous sequence
+  (up to ~9 s per worker) survives only for the atexit/close-event path,
+  where no event loop runs. Cancelling a worker that has just exited still
+  reaps it and emits `reaped`.
+
+- **Heterodyne config classes renamed** `ParameterManager` →
+  `HeterodyneParameterManager`, `ParameterSpace` →
+  `HeterodyneParameterSpace`, `ValidationResult` →
+  `HeterodyneValidationResult` (`xpcsjax/config/heterodyne_*.py`, item F1).
+  The old bare names remain importable as aliases for one release.
+
+- **`quality_control.repair_scaling_issues` and
+  `performance.performance_engine_enabled` config keys are gone**: the
+  scaling repair was deleted (see below) and the performance engine module
+  no longer exists, so the key it gated is ignored; the only remaining knob
+  under `performance` is `memory_pressure_monitoring`.
+
 - **Retired the "xpcsjax is NLSQ-only; Bayesian sampling is permanently out of
   scope; use the upstream `homodyne` package" scope statement.** Removed from
   the four config templates, the `xpcsjax --help` / `xpcsjax-config` text, the
@@ -97,6 +124,44 @@ the rendered documentation.
   raising `AttributeError` on the first `.get()` call downstream.
 
 ### Fixed
+
+- **APS-U loader no longer mislabels data after a bad bin index.**
+  (`xpcsjax/data/hdf5_readers.py`, codebase review 2026-09-15 item A1) An
+  out-of-range correlation-matrix bin index used to skip the matrix but not
+  its `(q, phi)` pair, so every later matrix carried the next pair's labels,
+  and the follow-up count mismatch truncated on a warning. Both now raise
+  `XPCSDataFormatError` (the APS-old reader already did).
+
+- **NPZ cache is keyed to its source HDF5 file; a changed source is a cache
+  miss, not an error.** (`xpcsjax/data/npz_cache.py`, `xpcs_loader.py`;
+  items A2 + review follow-up) `cache_metadata` now records
+  `source_file`/`source_size`/`source_mtime_ns`. A name or size mismatch
+  raises `CacheStaleError` internally, which the loader turns into a WARNING,
+  an HDF5 re-read and a cache rewrite; an mtime-only mismatch (a
+  content-preserving `cp`/`rsync`/restore) warns and serves the cache.
+  Caches written before this release lack the keys and are served with a
+  warning. A cache reused as the `data_file_name` (`.npz` override) is not
+  validated against itself.
+
+- **CLI `--initial-*` overrides can no longer be silently dropped.**
+  (`xpcsjax/cli/config_handling.py`, item A11) When the active-parameter
+  resolver fails, the CLI raises `ValueError("cannot apply --initial-*
+  overrides ...")` instead of warning and running the fit on the YAML values
+  the user overrode.
+
+- **Laminar hybrid-streaming L2 gradient now sees live L5 shear weights, and
+  L3's CV penalty is differentiable at uniform groups.**
+  (`xpcsjax/optimization/nlsq/strategies/hybrid_streaming.py`,
+  `adaptive_regularization.py`; PR #79 review) The jitted
+  `value_and_grad` had captured the shear weighter's weight table as a
+  trace-time constant, freezing the phi0 feedback at iteration 0 (introduced
+  in this same release's A12 jit change; the weights are now a traced
+  argument). Independently, and pre-existing on `main`, the L3 CV²
+  regularizer went through `jnp.std`, whose gradient is `0/0 = NaN` for a
+  uniform per-angle group — every group is uniform at the quantile-seeded
+  x0, so that block's gradient was NaN from the first L-BFGS step and those
+  parameters never moved on the streaming L2 path. CV² is now `var/mean²`
+  (identical value, smooth gradient).
 
 - **Homodyne (`static_*` / `laminar_flow`) uncertainties follow the same
   one-rule covariance contract as heterodyne; three Critical audit findings

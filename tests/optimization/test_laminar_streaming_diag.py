@@ -16,7 +16,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from xpcsjax.optimization.nlsq.wrapper import _laminar_anti_degeneracy_block
+from xpcsjax.optimization.nlsq.result_helpers import _laminar_anti_degeneracy_block
 
 
 def test_block_markers_when_no_info():

@@ -239,10 +239,18 @@ class WorkerHandle(QObject):
         synchronous behavior.
         """
         proc = self._proc
-        if proc is None or not proc.is_alive():
+        if proc is None:
             return
         if self._cancel_timer is not None:
             return  # a cancel is already in flight; don't start a second poll loop
+        if not proc.is_alive():
+            # The worker exited between the caller's is_running() check and
+            # here. Still reap it and emit ``reaped`` so the caller's
+            # keep-alive bookkeeping (FitQueueController._cancelling) and the
+            # process/queue handles are released instead of leaking.
+            self._teardown_reader()
+            self._finish_cancel()
+            return
         self._signal_terminate()
         self._teardown_reader()
 

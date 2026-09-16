@@ -223,3 +223,28 @@ def test_show_inspector_none_clears(qtbot):
     """show_inspector(None) clears the inspector without error."""
     win = _window(qtbot)
     win.show_inspector(None)
+
+
+def test_show_error_invalidates_in_flight_bundle_load(qtbot, monkeypatch, tmp_path):
+    """three-brain review (Codex): a bundle load for an earlier selection that
+    completes AFTER show_error() must not replace the failure panel."""
+    import threading
+
+    from xpcsjax.gui.views.main_window_support import result_presenter as rp
+
+    release = threading.Event()
+    real_load = rp.load_viz_bundle
+
+    def _blocking_load(result_dir):
+        release.wait(5.0)
+        return real_load(result_dir)
+
+    monkeypatch.setattr(rp, "load_viz_bundle", _blocking_load)
+    win = _window(qtbot)
+    pres = win._result_presenter
+    win._show_result_with_bundle(None, str(tmp_path))  # starts a (blocked) load
+    pres.show_error("boom")
+    assert pres._pending_result_dir is None
+    release.set()
+    qtbot.wait(300)  # let the stale load complete and be discarded
+    assert "FIT FAILED" in win._results.toPlainText()

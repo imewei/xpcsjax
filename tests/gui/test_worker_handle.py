@@ -155,6 +155,33 @@ def test_cancel_blocking_order_terminate_join_kill_join():
     fake_proc.join.assert_any_call(timeout=_KILL_JOIN_S)
 
 
+def test_cancel_on_already_exited_worker_still_reaps_and_emits(qtbot):
+    """three-brain review (Codex): a worker that exits between the caller's
+    is_running() check and cancel() used to make cancel() return early with
+    no reap and no ``reaped`` -- leaking the handle in the controller's
+    _cancelling keep-alive map and the process/queue handles."""
+    from unittest.mock import MagicMock
+
+    from xpcsjax.gui.ipc.handle import WorkerHandle
+
+    h = WorkerHandle(FitJob(run_id="r1", config_path="c.yaml"))
+    fake_proc = MagicMock()
+    fake_proc.is_alive.return_value = False  # already dead at cancel() time
+    h._proc = fake_proc
+    h._reader = MagicMock()
+    fake_queue = MagicMock()
+    h._queue = fake_queue
+
+    with qtbot.waitSignal(h.reaped, timeout=1000):
+        h.cancel()
+
+    assert h._cancel_timer is None
+    assert h._queue is None and h._proc is None  # reaped: handles released
+    fake_queue.cancel_join_thread.assert_called_once()
+    fake_proc.terminate.assert_not_called()  # nothing to signal
+    fake_proc.kill.assert_not_called()
+
+
 def test_shutdown_defers_reap_when_reader_wait_times_out():
     """shutdown() must not drop the reader ref or reap the process when the
     reader QThread fails to stop within the join deadline -- doing so aborts

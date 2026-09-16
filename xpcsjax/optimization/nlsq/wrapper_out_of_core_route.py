@@ -31,6 +31,11 @@ from xpcsjax.optimization.nlsq.per_angle_mode import (
     effective_constrained_dof,
     resolve_per_angle_mode_static_pinned,
 )
+from xpcsjax.optimization.nlsq.result_helpers import (
+    _info_cov_placeholder,
+    _laminar_anti_degeneracy_block,
+    _uncertainties_from_pcov,
+)
 from xpcsjax.optimization.nlsq.results import (
     OptimizationResult,
     quality_flag_from_reduced_chi2,
@@ -75,15 +80,6 @@ def run_out_of_core_route(
     pin regardless of which trigger fired.
     """
     import time
-
-    # Deferred import: wrapper.py imports this module at load time, and these
-    # three helpers still live in wrapper.py (shared by every other fit tier
-    # too) -- importing at module level here would be circular.
-    from xpcsjax.optimization.nlsq.wrapper import (
-        _info_cov_placeholder,
-        _laminar_anti_degeneracy_block,
-        _uncertainties_from_pcov,
-    )
 
     ad_cfg: dict[str, Any] = {}
     if config is not None and hasattr(config, "config"):
