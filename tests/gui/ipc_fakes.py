@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 
 from xpcsjax.gui.ipc.job import FitJob
 from xpcsjax.service.events import Finished, Started
@@ -25,9 +25,8 @@ class FakeHandle(QObject):
     ``xpcsjax/gui/ipc/handle.py``: ``event``/``reaped`` signals, ``start``/
     ``cancel``/``is_running``/``shutdown``/``_cancel_blocking``, plus a
     ``finish()`` test helper. Call counts are tracked as plain attributes
-    (``cancel_calls``, ``cancel_blocking_calls``) alongside the boolean flags
-    some tests already assert on, so per-test call-counting never needs a
-    separate closure dict.
+    (``cancel_calls``, ``cancel_blocking_calls``) so per-test call-counting
+    never needs a separate closure dict.
     """
 
     event = Signal(object)
@@ -37,9 +36,7 @@ class FakeHandle(QObject):
         super().__init__()
         self.job = job
         self._alive = alive
-        self.cancelled = False
         self.joined = False
-        self.cancel_blocking_called = False
         self.cancel_calls = 0
         self.cancel_blocking_calls = 0
 
@@ -47,14 +44,13 @@ class FakeHandle(QObject):
         self._alive = True
 
     def cancel(self) -> None:
-        # Fake the async contract: real WorkerHandle.cancel() posts signals
-        # synchronously (fast) but defers `reaped` to a later QTimer tick, so
-        # emit it here too rather than inline -- callers must not assume
-        # `reaped` has already fired by the time cancel() returns.
-        self.cancelled = True
+        # Mirror the real WorkerHandle.cancel() contract: signals are posted
+        # synchronously but `reaped` fires on a LATER event-loop tick, so a
+        # caller must not assume it has fired by the time cancel() returns.
+        # singleShot(0) reproduces exactly that ordering in tests.
         self.cancel_calls += 1
         self._alive = False
-        self.reaped.emit()
+        QTimer.singleShot(0, self.reaped.emit)
 
     def is_running(self) -> bool:
         return self._alive
@@ -65,8 +61,6 @@ class FakeHandle(QObject):
 
     def _cancel_blocking(self) -> None:
         """Fake the atexit/closeEvent-only fully-synchronous cancel path."""
-        self.cancelled = True
-        self.cancel_blocking_called = True
         self.cancel_blocking_calls += 1
         self._alive = False
 

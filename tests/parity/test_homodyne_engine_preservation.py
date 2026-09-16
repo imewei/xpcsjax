@@ -360,10 +360,8 @@ def test_laminar_flow_end_to_end_golden():
             "strategy": np.asarray(strategy, dtype=object),
             "convergence_status": np.asarray(convergence_status, dtype=object),
             "quality_flag": np.asarray(quality_flag, dtype=object),
-            # Provenance of the rtol=1e-10 value pins: the solver trajectory on
-            # this under-constrained fixture depends on XLA:CPU codegen, so a
-            # jax/jaxlib bump alone moves the basin (2026-09-16: jax 0.11.0 ->
-            # 0.11.1 took D0 from 502 to 1388 with the kernel bit-identical).
+            # Environment the rtol=1e-10 pins were recorded under; see the
+            # NOTE in the compare branch.
             "recorded_versions": np.asarray(_recorded_versions(), dtype=object),
         },
     )

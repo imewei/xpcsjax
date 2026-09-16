@@ -19,7 +19,7 @@ import math
 import re
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING
 
 from xpcsjax.utils.logging import get_logger
 
@@ -28,10 +28,6 @@ if TYPE_CHECKING:
 
 # T055: Module-level logger for parameter registry
 logger = get_logger(__name__)
-
-
-# Omitted-argument marker for AnalysisMode.try_parse (distinct from an explicit None).
-_TRY_PARSE_DEFAULT: Any = object()
 
 
 class AnalysisMode(StrEnum):
@@ -84,22 +80,8 @@ class AnalysisMode(StrEnum):
             f"Unknown analysis mode: {raw!r}. Expected one of {[e.value for e in cls]}."
         )
 
-    @overload
     @classmethod
-    def try_parse(cls, raw: str) -> AnalysisMode: ...
-
-    @overload
-    @classmethod
-    def try_parse(cls, raw: str, default: AnalysisMode) -> AnalysisMode: ...
-
-    @overload
-    @classmethod
-    def try_parse(cls, raw: str, default: None) -> AnalysisMode | None: ...
-
-    @classmethod
-    def try_parse(
-        cls, raw: str, default: AnalysisMode | None = _TRY_PARSE_DEFAULT
-    ) -> AnalysisMode | None:
+    def try_parse(cls, raw: str, default: AnalysisMode) -> AnalysisMode:
         """Non-raising :meth:`parse`.
 
         For call sites that must tolerate strings the registry rejects
@@ -108,23 +90,9 @@ class AnalysisMode(StrEnum):
         ``allow_bare_static=True`` — every existing tolerant call site this
         replaces already treated a bare ``"static"`` as the angle-resolved
         ``STATIC_ANISOTROPIC`` variant, so this preserves that behavior
-        rather than tightening it. Falls back to ``default`` (``LAMINAR_FLOW``
-        when omitted) on any other :class:`ValueError` from :meth:`parse`
-        (unrecognized mode strings).
-
-        ``default`` is resolved to ``cls.LAMINAR_FLOW`` inside the method body
-        rather than as a ``LAMINAR_FLOW`` literal in the signature: at the
-        point this method is defined, ``AnalysisMode``'s class body hasn't
-        finished executing, so a bare ``LAMINAR_FLOW`` in the signature would
-        bind to the plain ``str`` "laminar_flow" written a few lines up, not
-        yet the enum member -- silently downgrading every call that relies on
-        this default to returning a ``str`` instead of an ``AnalysisMode``.
-        The omitted-argument marker is a module-level sentinel, so an explicit
-        ``default=None`` is honoured (returns ``None`` for an unrecognised
-        string) instead of being conflated with "use LAMINAR_FLOW".
+        rather than tightening it. Falls back to ``default`` on any other
+        :class:`ValueError` from :meth:`parse` (unrecognized mode strings).
         """
-        if default is _TRY_PARSE_DEFAULT:
-            default = cls.LAMINAR_FLOW
         try:
             return cls.parse(raw, allow_bare_static=True)
         except ValueError:

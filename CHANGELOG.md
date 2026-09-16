@@ -50,12 +50,6 @@ the rendered documentation.
   `HeterodyneValidationResult` (`xpcsjax/config/heterodyne_*.py`, item F1).
   The old bare names remain importable as aliases for one release.
 
-- **`quality_control.repair_scaling_issues` and
-  `performance.performance_engine_enabled` config keys are gone**: the
-  scaling repair was deleted (see below) and the performance engine module
-  no longer exists, so the key it gated is ignored; the only remaining knob
-  under `performance` is `memory_pressure_monitoring`.
-
 - **Retired the "xpcsjax is NLSQ-only; Bayesian sampling is permanently out of
   scope; use the upstream `homodyne` package" scope statement.** Removed from
   the four config templates, the `xpcsjax --help` / `xpcsjax-config` text, the
@@ -123,6 +117,17 @@ the rendered documentation.
   `parameter_space` value logs a warning and degrades to `{}` instead of
   raising `AttributeError` on the first `.get()` call downstream.
 
+### Removed
+
+- **`xpcsjax/data/performance_engine.py` (`PerformanceEngine`,
+  `AdaptiveChunker`, `MultiLevelCache`, `MemoryMapManager`) — never
+  constructed anywhere in the package.** Also removed the dead `MemoryPool`
+  class and unused `AdvancedMemoryManager` methods, and the
+  `quality_control.repair_scaling_issues` and
+  `performance.performance_engine_enabled` config keys that gated the
+  deleted code; the only remaining knob under `performance` is
+  `memory_pressure_monitoring`.
+
 ### Fixed
 
 - **APS-U loader no longer mislabels data after a bad bin index.**
@@ -149,19 +154,18 @@ the rendered documentation.
   overrides ...")` instead of warning and running the fit on the YAML values
   the user overrode.
 
-- **Laminar hybrid-streaming L2 gradient now sees live L5 shear weights, and
-  L3's CV penalty is differentiable at uniform groups.**
-  (`xpcsjax/optimization/nlsq/strategies/hybrid_streaming.py`,
-  `adaptive_regularization.py`; PR #79 review) The jitted
-  `value_and_grad` had captured the shear weighter's weight table as a
-  trace-time constant, freezing the phi0 feedback at iteration 0 (introduced
-  in this same release's A12 jit change; the weights are now a traced
-  argument). Independently, and pre-existing on `main`, the L3 CV²
-  regularizer went through `jnp.std`, whose gradient is `0/0 = NaN` for a
-  uniform per-angle group — every group is uniform at the quantile-seeded
-  x0, so that block's gradient was NaN from the first L-BFGS step and those
-  parameters never moved on the streaming L2 path. CV² is now `var/mean²`
-  (identical value, smooth gradient).
+- **L3's CV penalty is now differentiable at uniform per-angle groups (and
+  L2's gradient sees live L5 shear weights).**
+  (`xpcsjax/optimization/nlsq/adaptive_regularization.py`,
+  `strategies/hybrid_streaming.py`) The L3 CV² regularizer went through
+  `jnp.std`, whose gradient is `0/0 = NaN` for a uniform per-angle group —
+  every group is uniform at the quantile-seeded x0, so that block's gradient
+  was NaN from the first L-BFGS step and those parameters never moved on the
+  streaming L2 path. CV² is now `var/mean²` (identical value, smooth
+  gradient). (Also fixed in this release: the jitted `value_and_grad` had
+  captured the shear weighter's weight table as a trace-time constant,
+  freezing the phi0 feedback at iteration 0; the weights are now a traced
+  argument.)
 
 - **Homodyne (`static_*` / `laminar_flow`) uncertainties follow the same
   one-rule covariance contract as heterodyne; three Critical audit findings

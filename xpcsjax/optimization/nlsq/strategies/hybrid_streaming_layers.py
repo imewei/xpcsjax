@@ -488,8 +488,7 @@ def configure_streaming_layers(
             # `initial_params[-1]` is phi0 (last physical param) UNLESS phi0
             # is fixed to a value different from its raw config initial
             # guess, in which case `initial_params[-1]` is the stale
-            # unfixed guess, not the configured override (dev-suite:
-            # three-brain deep-review finding). `resolved_physical.
+            # unfixed guess, not the configured override. `resolved_physical.
             # values_full`, when available, already carries the correct
             # value at every position -- the fixed override at fixed slots,
             # the same raw initial value everywhere else -- so prefer it.

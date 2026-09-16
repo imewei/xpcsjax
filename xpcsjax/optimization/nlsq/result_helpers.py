@@ -1,10 +1,7 @@
-"""Result-assembly helpers shared by the homodyne fit tiers.
+"""Pure result-assembly helpers shared by every homodyne fit tier.
 
-Extracted from ``wrapper.py`` (codebase review 2026-09-15, three-brain
-follow-up) so the route modules (``wrapper_out_of_core_route``,
-``wrapper_stratified_route``) no longer have to import them back out of the
-module that imports the routes. Pure functions over solver output; no
-wrapper state.
+Shared by ``wrapper``, ``wrapper_out_of_core_route``, and
+``wrapper_stratified_route``. No wrapper state; importable without a cycle.
 """
 
 from __future__ import annotations
@@ -18,13 +15,6 @@ from xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics import (
 # L5 (shear weighting) is laminar_flow-only; every laminar path that does not run
 # it reports this sentinel (the heterodyne surfaces translate it -- see CLAUDE.md).
 _LAMINAR_L5_INACTIVE = "laminar_flow_inactive"
-
-__all__ = [
-    "_LAMINAR_L5_INACTIVE",
-    "_info_cov_placeholder",
-    "_laminar_anti_degeneracy_block",
-    "_uncertainties_from_pcov",
-]
 
 
 def _laminar_anti_degeneracy_block(anti_degeneracy_info: dict | None) -> dict:

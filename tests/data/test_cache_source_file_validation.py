@@ -97,6 +97,22 @@ def test_replaced_source_file_is_rejected(tmp_path):
         loader._validate_cache_q_vector(metadata)
 
 
+def test_stale_source_wins_over_config_mismatch(tmp_path):
+    """Source identity is checked FIRST: a re-reduced HDF5 that arrives with a
+    re-configured q must surface as the cache-miss ``CacheStaleError`` (reload
+    + rewrite), not as the hard q-mismatch ``XPCSDataFormatError`` that tells
+    the user to delete the cache by hand."""
+    src = tmp_path / "run.h5"
+    src.write_bytes(b"original bytes")
+    loader = _loader(tmp_path, "run.h5")
+    metadata = _base_metadata(loader)
+    metadata["config_wavevector_q"] = metadata.get("config_wavevector_q", 0.0054) + 1.0  # q changed
+    src.write_bytes(b"different content, different size")  # source replaced
+
+    with pytest.raises(CacheStaleError):
+        loader._validate_cache_q_vector(metadata)
+
+
 def test_renamed_source_file_is_rejected(tmp_path):
     """Pointing ``data_file`` at a same-frame-window sibling file (same size,
     different name) is also a genuine replacement.

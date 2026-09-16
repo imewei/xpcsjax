@@ -9,6 +9,7 @@ This module provides:
 
 from __future__ import annotations
 
+import functools
 import time
 from collections.abc import Callable
 from typing import Any, cast
@@ -403,12 +404,9 @@ def _bin_to_grid(
     a data-integrity violation. We clip (to stay in-bounds) but surface how
     many points were affected so misaligned data/config is not silent.
 
-    Was a nested closure inside :func:`fit_with_stratified_hybrid_streaming`
-    that captured only its own arguments and that function's injected
-    ``logger`` parameter; hoisted to module scope, the caller threads its
-    logger through ``logger=`` so out-of-grid warnings keep their original
-    logger name (optimization review item C10; mirrors the heterodyne twin
-    in ``heterodyne_hybrid_streaming.py``).
+    Callers pass their injected ``logger`` so out-of-grid warnings carry the
+    caller's logger name; mirrors the heterodyne twin in
+    ``heterodyne_hybrid_streaming.py``.
     """
     raw = np.searchsorted(grid, values)
     n_oob = int(np.sum(raw >= len(grid)))
@@ -1239,14 +1237,12 @@ def fit_with_stratified_hybrid_streaming(
         # as a trace-time constant, and ``update_phi0`` (called every outer
         # iteration by ``shear_weight_update_callback``) rebinds that array,
         # so the phi0 feedback loop would be silently frozen at iteration 0.
-        _shear_enabled = shear_weighter_local is not None and bool(
-            shear_weighter_local.config.enable
-        )
+        _shear_enabled = shear_weighter_local is not None
 
         def _current_shear_weights() -> Any:
-            if shear_weighter_local is None:
-                return jnp.zeros((1,), dtype=jnp.float64)  # unused placeholder
-            return shear_weighter_local.get_weights_jax()
+            return (
+                shear_weighter_local.get_weights_jax() if shear_weighter_local is not None else None
+            )
 
         def _loss_core(params: Any, shear_w: Any) -> Any:
             """Loss function for hierarchical optimizer.
@@ -1277,19 +1273,17 @@ def fit_with_stratified_hybrid_streaming(
             # silently overriding it.
             residuals_sw = _sigma_weighted_residuals(residuals, sigma)
             if _shear_enabled:
-                # Shear-weighted loss instead of uniform MSE -- the inline
-                # equivalent of ShearSensitivityWeighting.apply_weights_to_loss
-                # (sum(w[phi_idx] * r**2), mean-normalized weights) evaluated
-                # on the TRACED weight table so phi0 updates reach the jitted
-                # gradient. Passing the already sigma-divided residuals means
-                # sum(w * r**2) becomes sum(w * (r/sigma)**2) -- both layers
-                # combined, matching the sibling plain-path branch's
-                # optimizer.fit(sigma=sigma, ...).
-                weights = shear_w[phi_indices_jax.astype(jnp.int32)]
-                weighted_loss = jnp.sum(weights * residuals_sw**2)
+                # Shear-weighted loss instead of uniform MSE, evaluated on the
+                # TRACED weight table (via `weights=`) so phi0 updates reach
+                # the jitted gradient. Passing the already sigma-divided
+                # residuals means sum(w * r**2) becomes sum(w * (r/sigma)**2)
+                # -- both layers combined, matching the sibling plain-path
+                # branch's optimizer.fit(sigma=sigma, ...).
+                assert shear_weighter_local is not None
+                weighted_loss = shear_weighter_local.apply_weights_to_loss(
+                    residuals_sw, phi_indices_jax, weights=shear_w
+                )
             else:
-                # CRITICAL: Use jnp operations, NOT np -- np.mean breaks JAX
-                # autodiff and causes zero gradients.
                 weighted_loss = jnp.mean(residuals_sw**2) * len(y_data)
 
             # Add adaptive regularization if enabled
@@ -1313,8 +1307,9 @@ def fit_with_stratified_hybrid_streaming(
         _vag = jax.jit(jax.value_and_grad(_loss_core, argnums=0))
 
         def loss_fn(params: Any) -> Any:
-            """Un-jitted loss on the live L5 weights (HierarchicalOptimizer.fit)."""
-            return _loss_core(params, _current_shear_weights())
+            """Loss on the live L5 weights (HierarchicalOptimizer.fit)."""
+            # Compiled loss -- same value grad_fn's _vag call discards.
+            return _vag(params, _current_shear_weights())[0]
 
         def grad_fn(params: Any) -> Any:
             """Gradient function with optional monitoring."""
@@ -1365,9 +1360,7 @@ def fit_with_stratified_hybrid_streaming(
             # quantity so a fresh trace here is correct (and keeps the
             # ``jax.hessian(fn)(p)`` call shape tests monkeypatch).
             _w_final = _current_shear_weights()
-
-            def _loss_final(p: Any) -> Any:
-                return _loss_core(p, _w_final)
+            _loss_final = functools.partial(_loss_core, shear_w=_w_final)
 
             H = np.asarray(jax.jit(jax.hessian(_loss_final))(popt_jax))
         except (ValueError, RuntimeError, MemoryError, np.linalg.LinAlgError) as e:

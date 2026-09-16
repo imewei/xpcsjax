@@ -5,8 +5,8 @@ vector for the ``fixed``/``averaged``/``constant`` (quantile-fallback) per-angle
 scaling modes before the solve (the FORWARD transform), then expands the
 solution — parameters and covariance — back to the full per-angle layout
 afterward (the INVERSE transform). Extracted verbatim from
-``strategies/hybrid_streaming.py`` (optimization review item C10); ``logger``
-is threaded through explicitly because the caller receives its logger as an
+``strategies/hybrid_streaming.py``; ``logger`` is threaded through
+explicitly because the caller receives its logger as an
 injected parameter (not the module-level ``get_logger(__name__)``), so these
 functions must do the same rather than importing their own.
 """
@@ -184,7 +184,7 @@ def _transform_covariance_via_jacobian(
     Shared by the ``use_averaged_scaling`` and ``use_constant`` (quantile
     fallback) inverse-transform branches of
     :func:`inverse_transform_per_angle_params` — previously two near-identical
-    ~30-line copies (optimization review item C10).
+    ~30-line copies.
 
     ``log_fn`` is the success-path logger method (``logger.info`` for the real
     averaged-mode path, ``logger.warning`` for the constant quantile-fallback

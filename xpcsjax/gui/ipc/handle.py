@@ -227,8 +227,8 @@ class WorkerHandle(QObject):
         Sends SIGTERM (process + POSIX group) and tears down the reader
         thread synchronously — both are fast, bounded operations, not waits
         on the child process itself. The join → SIGKILL-escalation → give-up
-        sequence that used to block here for up to ~9s (audit A10) now runs
-        off a ``QTimer`` poll (:data:`_CANCEL_POLL_MS` cadence, escalating at
+        sequence that used to block here for up to ~9s now runs off a
+        ``QTimer`` poll (:data:`_CANCEL_POLL_MS` cadence, escalating at
         :data:`_CANCEL_ESCALATE_S`, giving up at :data:`_CANCEL_GIVE_UP_S`),
         emitting :attr:`reaped` once the process is confirmed dead or the
         give-up elapses.

@@ -146,10 +146,9 @@ class CacheStaleError(XPCSDataFormatError):
     which are genuine format incompatibilities the caller must resolve by
     hand), this is a cache MISS: the loader catches it, logs a warning, and
     falls through to reloading from the HDF5 source and overwriting the
-    stale cache (review finding A2 follow-up, 2026-09-15). A source-file
-    mtime-only change (a content-preserving touch -- ``cp`` without ``-p``,
-    ``rsync``, a backup restore) does not raise this; only a name or size
-    change does.
+    stale cache. A source-file mtime-only change (a content-preserving
+    touch -- ``cp`` without ``-p``, ``rsync``, a backup restore) does not
+    raise this; only a name or size change does.
     """
 
 
@@ -855,9 +854,8 @@ class XPCSDataLoader:
             try:
                 data = self._load_from_cache(cache_path)
             except CacheStaleError as exc:
-                # A2 follow-up: a source-file name/size mismatch is a cache
-                # MISS, not a hard failure -- fall through below to reload
-                # from the HDF5 and overwrite the stale cache.
+                # Stale cache (source name/size changed) is a MISS: fall
+                # through and reload from the HDF5, overwriting the cache.
                 logger.warning(
                     f"{exc} Cache source changed; reloading from HDF5 and overwriting the cache."
                 )
@@ -1204,14 +1202,11 @@ class XPCSDataLoader:
         correlation_matrices
             Optional list of correlation matrices used for quality filtering.
         record_degradation
-            Whether a fallback-to-all-data-points outcome should append to
-            ``self.load_degradations`` (DATA-1 signal). The APS-U quality-
-            filtering path (:mod:`xpcsjax.data.hdf5_readers`) calls this
-            twice per load -- a phi/q metadata pre-filter pass, then the
-            final quality-filter pass on the narrowed candidates -- against
-            the SAME ``data_filtering`` config; passing ``False`` on the
-            metadata pre-filter pass avoids double-recording one fallback
-            (review finding, 2026-09-15).
+            Append a fallback-to-all-points outcome to
+            ``self.load_degradations``. Callers that run this twice per load
+            against the same ``data_filtering`` config (the two-pass APS
+            readers) pass ``False`` on the pre-filter pass so one fallback
+            is recorded once.
 
         Returns
         -------

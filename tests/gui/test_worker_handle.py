@@ -100,8 +100,8 @@ def test_cancel_and_shutdown_join_reader_thread(qtbot, monkeypatch):
 
 def test_cancel_blocking_stops_a_real_worker(qtbot, monkeypatch):
     """_cancel_blocking() (the atexit/closeEvent teardown path) has no direct
-    coverage elsewhere -- only the FakeHandle's `cancel_blocking_called` flag
-    is asserted in test_fit_queue.py. Exercise the real synchronous
+    coverage elsewhere -- only the FakeHandle's `cancel_blocking_calls`
+    counter is asserted in test_fit_queue.py. Exercise the real synchronous
     terminate -> join -> (kill -> join) sequence against a real (fake-worker)
     process.
     """
@@ -156,10 +156,9 @@ def test_cancel_blocking_order_terminate_join_kill_join():
 
 
 def test_cancel_on_already_exited_worker_still_reaps_and_emits(qtbot):
-    """three-brain review (Codex): a worker that exits between the caller's
-    is_running() check and cancel() used to make cancel() return early with
-    no reap and no ``reaped`` -- leaking the handle in the controller's
-    _cancelling keep-alive map and the process/queue handles."""
+    """A worker that exits between the caller's is_running() check and
+    cancel() must still be reaped and emit ``reaped``, or the controller's
+    _cancelling keep-alive map and the process/queue handles leak."""
     from unittest.mock import MagicMock
 
     from xpcsjax.gui.ipc.handle import WorkerHandle

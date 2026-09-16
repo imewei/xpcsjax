@@ -214,7 +214,7 @@ def test_aps_old_quality_filter_guards_allocation_before_accumulation(
     # Every candidate survives metadata pre-filter -> the guard has real
     # candidates to bound before the accumulation loop runs.
     monkeypatch.setattr(
-        loader, "_get_selected_indices", lambda dq, dphi, matrices=None: np.arange(len(dq))
+        loader, "_get_selected_indices", lambda dq, dphi, matrices=None, **_k: np.arange(len(dq))
     )
     # Tiny budget: even one 8x8 float64 matrix (512 bytes) trips it.
     monkeypatch.setattr(xl, "MAX_CORRELATION_ALLOC_BYTES", 100)

@@ -1333,8 +1333,7 @@ def _fit_joint_averaged_multi_phi(
     if config.enable_hierarchical:
         # Lazy import keeps the module out of heterodyne_core's namespace
         # except when explicitly used (consistent with the dispatch table).
-        # Shared with `_build_joint_problem` — see optimization review item
-        # C10 and the helper's own docstring.
+        # Shared with `_build_joint_problem` — see the helper's own docstring.
         from xpcsjax.optimization.nlsq.heterodyne_constant_mode import (
             l2_stage1_physics_warm_start,
         )
@@ -3180,8 +3179,8 @@ def _build_joint_problem(
     # ------------------------------------------------------------------
     hierarchical_stage1_chi2: float | None = None
     if config.enable_hierarchical:
-        # Shared with `_fit_joint_averaged_multi_phi` — see optimization
-        # review item C10 and the helper's own docstring.
+        # Shared with `_fit_joint_averaged_multi_phi` — see the helper's own
+        # docstring.
         from xpcsjax.optimization.nlsq.heterodyne_constant_mode import (
             l2_stage1_physics_warm_start,
         )

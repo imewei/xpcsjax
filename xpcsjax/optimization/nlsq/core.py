@@ -1622,9 +1622,8 @@ def fit_nlsq_multistart(
         # (but not fixed_parameters) position is left exactly as passed in
         # here, and _SingleFitWorker later restores that slot from it. Using
         # lower_bounds silently moved an excluded parameter to its lower
-        # bound instead of leaving it at its initial value (dev-suite:
-        # three-brain deep-review finding). `initial_params` here is a
-        # name-keyed dict (see the custom_starts block below, which already
+        # bound instead of leaving it at its initial value. `initial_params`
+        # here is a name-keyed dict (see the custom_starts block below, which already
         # assumes every physical_names entry is present); fall back to the
         # bounds midpoint when no initial values were provided at all,
         # mirroring _run_sequential_optimization's identical strategy.
@@ -2401,8 +2400,8 @@ def fit_nlsq_cmaes(
             # value may not equal the configured override yet (this runs
             # BEFORE resolve_optimized_physical_parameters/the fixed-value
             # restore further below) -- read the configured value directly
-            # instead of trusting x0 (dev-suite:three-brain deep-review
-            # finding, same class as hybrid_streaming.py's initial_phi0 fix).
+            # instead of trusting x0 (same class as hybrid_streaming.py's
+            # initial_phi0 fix).
             _cmaes_fixed_phi0 = (
                 param_manager.get_fixed_parameters().get("phi0") if HAS_PARAMETER_MANAGER else None
             )

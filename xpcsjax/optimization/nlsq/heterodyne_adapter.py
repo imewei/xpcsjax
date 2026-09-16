@@ -243,8 +243,8 @@ def _run_curve_fit(
 ) -> Any:
     """Resolve the solver method, fetch/create a cached ``CurveFit``, and run it.
 
-    Shared by ``NLSQAdapter.fit`` and ``fit_jax`` (optimization review item
-    C7), which previously carried near-identical copies of this block.
+    Shared by ``NLSQAdapter.fit`` and ``fit_jax``, which previously carried
+    near-identical copies of this block.
 
     Parameters
     ----------

@@ -524,9 +524,9 @@ def l2_stage1_physics_warm_start(
     Shared by :func:`heterodyne_core._fit_joint_averaged_multi_phi` (always
     ``resolved_mode="averaged"``) and :func:`heterodyne_core._build_joint_problem`
     (``resolved_mode`` from :func:`~xpcsjax.optimization.nlsq.per_angle_mode.resolve_per_angle_mode`).
-    Both previously carried a near-identical copy of this block (optimization
-    review item C6); unifying it here also fixes the drift where one copy
-    hardcoded 2 averaged-scaling params instead of deriving it from
+    Both previously carried a near-identical copy of this block; unifying it
+    here also fixes the drift where one copy hardcoded 2 averaged-scaling
+    params instead of deriving it from
     ``resolved_mode`` via :func:`~xpcsjax.optimization.nlsq.per_angle_mode.n_optimized`
     (numerically identical for ``resolved_mode="averaged"``, since
     ``n_optimized("averaged", n_phi) == 2``).

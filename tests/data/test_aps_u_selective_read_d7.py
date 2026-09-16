@@ -58,6 +58,48 @@ def _bare_loader(config: dict | None = None) -> XPCSDataLoader:
     return loader
 
 
+def _write_multi_bin_aps_old_file(path, *, n_q: int, n_phi: int, n_t: int = 4) -> None:
+    """APS-old file with distinct (q,phi) rows for the quality-filtering test."""
+    rng = np.random.default_rng(0)
+    dqlist = np.repeat(np.linspace(0.005, 0.03, n_q), n_phi)
+    dphilist = np.tile(np.linspace(0.0, 170.0, n_phi), n_q)
+    with h5py.File(path, "w") as f:
+        f.create_dataset("xpcs/dqlist", data=dqlist[np.newaxis, :])
+        f.create_dataset("xpcs/dphilist", data=dphilist[np.newaxis, :])
+        grp = f.create_group("exchange/C2T_all")
+        for i in range(n_q * n_phi):
+            half = rng.uniform(0.5, 1.5, size=(n_t, n_t))
+            grp.create_dataset(str(i + 1), data=half)
+
+
+def test_aps_old_quality_filtering_empty_phi_match_records_one_degradation(tmp_path):
+    """APS-old mirror of ``test_quality_filtering_empty_phi_match_records_one_degradation``.
+
+    The aps_old two-pass quality-filtering branch (``hdf5_readers.py``) runs
+    ``_get_selected_indices`` twice against the SAME ``data_filtering``
+    config -- a metadata pre-filter pass, then the final quality-filter pass
+    on the narrowed candidates. A phi_range matching nothing triggers the
+    ``fallback_on_empty`` path in both passes; only the final pass should
+    record the DATA-1 degradation signal.
+    """
+    path = tmp_path / "aps_old_multi_quality_empty_phi.h5"
+    _write_multi_bin_aps_old_file(path, n_q=3, n_phi=3)
+
+    config = {
+        "data_filtering": {
+            "enabled": True,
+            "phi_range": {"min": 500.0, "max": 600.0},  # matches no phi value
+            "quality_filtering": {"enabled": True, "quality_threshold": 0.0},
+        }
+    }
+    loader = _bare_loader(config)
+    loader._load_aps_old_format(str(path))
+
+    assert len(loader.load_degradations) == 1, (
+        f"expected exactly one degradation entry, got {loader.load_degradations!r}"
+    )
+
+
 def _load_aps_u_eager_reference(loader: XPCSDataLoader, hdf_path: str) -> dict:
     """Replicate the pre-D7 "read every valid bin, then select" algorithm.
 

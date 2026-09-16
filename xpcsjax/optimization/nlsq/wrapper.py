@@ -20,7 +20,6 @@ Use **NLSQAdapter** instead for:
 
 * Model caching: NLSQWrapper=None, NLSQAdapter=Built-in
 * JIT compilation: NLSQWrapper=Manual, NLSQAdapter=Auto
-* Memory/strategy routing: both via xpcsjax select_nlsq_strategy (NLSQ WorkflowSelector was removed in v0.6.0; both call CurveFit directly)
 * Anti-degeneracy layers: NLSQWrapper=Full, NLSQAdapter=Via the injected AntiDegeneracyController
 * Recovery system: NLSQWrapper=3-attempt, NLSQAdapter=NLSQ native
 * Streaming support: NLSQWrapper=Full custom, NLSQAdapter=Via NLSQ

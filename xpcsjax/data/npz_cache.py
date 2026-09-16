@@ -375,6 +375,47 @@ def validate_cache_q_vector(loader: XPCSDataLoader, cache_metadata: dict[str, An
     """Validate that cached q-vector is compatible with current configuration."""
     from xpcsjax.data.xpcs_loader import CacheStaleError, XPCSDataFormatError
 
+    # Source identity FIRST: a replaced / re-reduced HDF5 is a cache MISS
+    # (CacheStaleError -> the loader re-reads the HDF5 and rewrites the
+    # cache). It must short-circuit ahead of the config-mismatch checks
+    # below, which raise hard XPCSDataFormatError -- a re-reduced dataset
+    # usually arrives with a re-configured q/phi filter too, and that case
+    # should reload, not tell the user to delete the cache by hand.
+    # Check the cache's source-file fingerprint (A2). Older keys alone
+    # (frame window + q) can't distinguish the HDF5 being replaced, or
+    # data_file pointing at a same-frame-window sibling file, from an
+    # untouched source - warn-only when the key predates this check,
+    # matching the other legacy-metadata fallbacks below.
+    stat = source_hdf_stat(loader)
+    cached_source_file = cache_metadata.get("source_file")
+    if cached_source_file is None:
+        logger.warning(
+            "Cache metadata predates source-file fingerprinting; cannot "
+            "verify the cache matches the current source HDF5 file.",
+        )
+    elif stat is not None:
+        current_name, current_size, current_mtime_ns = stat
+        # Name/size changed: a genuine replacement/re-reduction of the
+        # source. This is a cache MISS, not a hard failure -- the caller
+        # (load_experimental_data) catches CacheStaleError and reloads from
+        # the HDF5, overwriting the stale cache.
+        if cached_source_file != current_name or cache_metadata.get("source_size") != current_size:
+            raise CacheStaleError(
+                f"Cache source-file mismatch: cache was built from "
+                f"'{cached_source_file}' but the configured source is now "
+                f"'{current_name}' (or its size changed). The source HDF5 "
+                f"file was replaced or re-reduced.",
+            )
+        # mtime alone changed: a content-preserving touch (cp without -p,
+        # rsync, backup restore, network-FS mtime shift) does not invalidate
+        # the cache -- warn and keep serving it.
+        if cache_metadata.get("source_mtime_ns") != current_mtime_ns:
+            logger.warning(
+                "Cache source HDF5 mtime changed but name and size still "
+                "match; serving the cache as-is (delete and regenerate if "
+                "the content actually changed).",
+            )
+
     scattering_config = loader.analyzer_config.get("scattering", {})
     current_config_q = scattering_config.get("wavevector_q", 0.0054)
     cached_config_q = cache_metadata.get("config_wavevector_q", current_config_q)
@@ -473,41 +514,6 @@ def validate_cache_q_vector(loader: XPCSDataLoader, cache_metadata: dict[str, An
             f"built for {float(cached_q_tolerance):.6g}. The cache's (q, phi) "
             f"selection is tolerance-specific; delete it and regenerate."
         )
-
-    # Check the cache's source-file fingerprint (A2). Older keys alone
-    # (frame window + q) can't distinguish the HDF5 being replaced, or
-    # data_file pointing at a same-frame-window sibling file, from an
-    # untouched source - warn-only when the key predates this check,
-    # matching the other legacy-metadata fallbacks above.
-    stat = source_hdf_stat(loader)
-    cached_source_file = cache_metadata.get("source_file")
-    if cached_source_file is None:
-        logger.warning(
-            "Cache metadata predates source-file fingerprinting; cannot "
-            "verify the cache matches the current source HDF5 file.",
-        )
-    elif stat is not None:
-        current_name, current_size, current_mtime_ns = stat
-        # Name/size changed: a genuine replacement/re-reduction of the
-        # source. This is a cache MISS, not a hard failure -- the caller
-        # (load_experimental_data) catches CacheStaleError and reloads from
-        # the HDF5, overwriting the stale cache.
-        if cached_source_file != current_name or cache_metadata.get("source_size") != current_size:
-            raise CacheStaleError(
-                f"Cache source-file mismatch: cache was built from "
-                f"'{cached_source_file}' but the configured source is now "
-                f"'{current_name}' (or its size changed). The source HDF5 "
-                f"file was replaced or re-reduced.",
-            )
-        # mtime alone changed: a content-preserving touch (cp without -p,
-        # rsync, backup restore, network-FS mtime shift) does not invalidate
-        # the cache -- warn and keep serving it.
-        if cache_metadata.get("source_mtime_ns") != current_mtime_ns:
-            logger.warning(
-                "Cache source HDF5 mtime changed but name and size still "
-                "match; serving the cache as-is (delete and regenerate if "
-                "the content actually changed).",
-            )
 
     # Check if cache uses selective q-caching
     is_selective = cache_metadata.get("selective_q_caching", False)

@@ -205,10 +205,15 @@ def load_aps_old_format(loader: XPCSDataLoader, hdf_path: str) -> dict[str, Any]
             # Two-pass optimization: metadata filter first, then load + quality filter
             # Pass 1: phi/q filtering without loading matrices (metadata only)
             logger.debug("Quality filtering enabled - running metadata-only pre-filter")
+            # Same data_filtering config as the quality pass below, so a
+            # fallback here would double-record the DATA-1 degradation
+            # signal for one logical fallback -- only the final decision
+            # (the quality pass) records it.
             metadata_indices = loader._get_selected_indices(
                 dqlist,
                 dphilist,
                 None,  # No matrices needed for phi-only filtering
+                record_degradation=False,
             )
 
             # Narrow to candidates via q + phi intersection
