@@ -59,6 +59,15 @@ from xpcsjax.optimization.nlsq.strategies.stratified_ls import (
 
 _GOLDEN_DIR = Path(__file__).parent / "_golden"
 _REGEN = os.environ.get("XPCSJAX_REGEN_GOLDEN") == "1"
+
+
+def _recorded_versions() -> str:
+    """``jax/jaxlib/nlsq/numpy`` versions, stored in the value-pinned goldens."""
+    import importlib.metadata as md
+
+    return " ".join(f"{pkg}={md.version(pkg)}" for pkg in ("jax", "jaxlib", "nlsq", "numpy"))
+
+
 # Maintainer-local oracle opt-in (shared with the engine-route parity suite). The
 # END-TO-END golden's rtol=1e-10 VALUE comparison runs a full laminar_flow FIT, so
 # the converged params/objective depend on the exact float descent path (XLA:CPU
@@ -351,6 +360,11 @@ def test_laminar_flow_end_to_end_golden():
             "strategy": np.asarray(strategy, dtype=object),
             "convergence_status": np.asarray(convergence_status, dtype=object),
             "quality_flag": np.asarray(quality_flag, dtype=object),
+            # Provenance of the rtol=1e-10 value pins: the solver trajectory on
+            # this under-constrained fixture depends on XLA:CPU codegen, so a
+            # jax/jaxlib bump alone moves the basin (2026-09-16: jax 0.11.0 ->
+            # 0.11.1 took D0 from 502 to 1388 with the kernel bit-identical).
+            "recorded_versions": np.asarray(_recorded_versions(), dtype=object),
         },
     )
 
@@ -374,20 +388,40 @@ def test_laminar_flow_end_to_end_golden():
     # that fix; the fix touches post-solve diagnostics only and never reads or writes
     # ``popt``). Both fields are regenerated together because they share one
     # ``.npz`` payload; there was no way to update chi_squared alone.
+    #
+    # NOTE (2026-09-16, PR #79): regenerated again after the uv.lock bump
+    # jax/jaxlib 0.11.0 -> 0.11.1 (nlsq 0.7.0 -> 0.7.6, numpy 2.4.6 -> 2.5.2).
+    # Bisected: the pin passed under jax==0.11.0 and failed under 0.11.1 with
+    # the kernel bit-identical (stratified_residual_jit.npz unchanged and
+    # green); only the solver trajectory along the under-constrained
+    # directions moved (D0 502 -> 1388, chi2 equal to 1e-7). The
+    # ``recorded_versions`` payload key now pins the environment so the next
+    # drift is diagnosable from the failure message alone.
     if _RUN_ENGINE_PARITY:
+        recorded = (
+            str(golden["recorded_versions"])
+            if "recorded_versions" in golden
+            else "unrecorded (golden predates provenance)"
+        )
+        drift_hint = (
+            f" Golden recorded with {recorded}; running with {_recorded_versions()}. "
+            "If only jax/jaxlib/nlsq moved and tests/parity/_golden/"
+            "stratified_residual_jit.npz still passes (kernel unchanged), regenerate "
+            "with XPCSJAX_REGEN_GOLDEN=1 -k laminar_flow_end_to_end; never loosen rtol."
+        )
         np.testing.assert_allclose(
             params,
             golden["parameters"],
             rtol=1e-10,
             atol=0.0,
-            err_msg="laminar_flow fitted parameters drifted from golden.",
+            err_msg="laminar_flow fitted parameters drifted from golden." + drift_hint,
         )
         np.testing.assert_allclose(
             chi_squared,
             float(golden["chi_squared"]),
             rtol=1e-10,
             atol=0.0,
-            err_msg="laminar_flow chi_squared drifted from golden.",
+            err_msg="laminar_flow chi_squared drifted from golden." + drift_hint,
         )
 
     # --- exact: uncertainty shape + finite pattern ---
